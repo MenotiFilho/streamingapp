@@ -1,9 +1,12 @@
 # Spike: HDR-capable mpv embedding on Windows (`wid` + transparent overlay)
 
 Ticket: #3. Run 2026-10-15 on the Windows host (AMD Radeon RX 9060 XT, Windows 11,
-LG 25UM58 2560×1080 8-bit SDR). Prototype code: `spike/windows-embed/`
-(throwaway; may be deleted once #7 exists). Driver scripts:
-`spike/windows-embed/scripts/`.
+LG 25UM58 2560×1080 8-bit SDR).
+
+**Prototype code lives on the `prototype/windows-embed` branch**, not on `main`:
+`spike/windows-embed/`, with its driver scripts in `spike/windows-embed/scripts/`.
+It is kept as a primary source for the shape this needs to take, and is
+superseded by #7.
 
 ## Verdict
 
