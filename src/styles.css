@@ -1,0 +1,83 @@
+:root {
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 16px;
+}
+
+body {
+  margin: 0;
+  background: #101014;
+  color: #f2f2f5;
+}
+
+.window {
+  max-width: 42rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.5rem 4rem;
+}
+
+h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.6rem;
+  letter-spacing: -0.01em;
+}
+
+h2 {
+  margin: 2.5rem 0 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9a9aa6;
+}
+
+.lede {
+  margin: 0;
+  color: #9a9aa6;
+}
+
+form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+label {
+  flex-basis: 100%;
+  font-size: 0.85rem;
+  color: #9a9aa6;
+}
+
+input,
+button {
+  font: inherit;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.4rem;
+  border: 1px solid #33333d;
+  background: #1a1a20;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  background: #2b2b35;
+}
+
+button:hover {
+  background: #3a3a46;
+}
+
+:focus-visible {
+  outline: 2px solid #7aa2f7;
+  outline-offset: 2px;
+}
+
+.error {
+  margin-top: 1.5rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.4rem;
+  border: 1px solid #7f1d1d;
+  background: #2a1416;
+}

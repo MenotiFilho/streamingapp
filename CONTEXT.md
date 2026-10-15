@@ -16,6 +16,12 @@ The Host's periodic state message pushed to clients, carrying now-playing and
 library state.
 _Avoid_: state, payload, update
 
+**Action**:
+A request from a client that the Host change something, carried in a versioned
+envelope and judged before it is applied. The Action surface is the only way the
+Host is ever mutated.
+_Avoid_: command, request, event, message
+
 ### Identity
 
 **Title**:

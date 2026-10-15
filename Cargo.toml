@@ -1,0 +1,41 @@
+# The Host's Rust workspace.
+#
+# `crates/` holds the Host itself, free of the UI toolkit, so that most tests
+# never compile Tauri. `src-tauri/` is the thin app shell that puts a window in
+# front of it. See `docs/adr/0008`.
+#
+# Build and test inside the dev container:
+#
+#   docker compose exec dev cargo test
+#   docker compose exec dev cargo clippy --all-targets -- -D warnings
+#   docker compose exec dev cargo fmt --check
+[workspace]
+resolver = "2"
+members = ["crates/host-core", "crates/host-sqlite", "crates/host-logging", "src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+publish = false
+rust-version = "1.85"
+
+[workspace.dependencies]
+host-core = { path = "crates/host-core" }
+host-sqlite = { path = "crates/host-sqlite" }
+host-logging = { path = "crates/host-logging" }
+
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
+thiserror = "2"
+tracing = "0.1"
+tracing-appender = "0.2"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = "warn"

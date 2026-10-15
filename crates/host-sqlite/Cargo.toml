@@ -1,0 +1,19 @@
+[package]
+name = "host-sqlite"
+description = "The Host's SQLite store: the real one, and the only place SQL lives"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+host-core = { workspace = true }
+rusqlite = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

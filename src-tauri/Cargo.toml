@@ -1,0 +1,27 @@
+[package]
+name = "streamingapp"
+description = "The Host's window: a thin app shell over host-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+host-core = { workspace = true }
+host-logging = { workspace = true }
+host-sqlite = { workspace = true }
+
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+tauri = { version = "2", features = [] }
+tauri-plugin-single-instance = "2"

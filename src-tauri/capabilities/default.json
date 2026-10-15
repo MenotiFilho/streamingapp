@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The Host's window: it can ask the Host for state and take Actions, and nothing else",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}
