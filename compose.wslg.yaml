@@ -1,0 +1,30 @@
+# GUI passthrough for the WSLg host. Layer it on top of the base file:
+#
+#   docker compose -f compose.yaml -f compose.wslg.yaml up -d
+#
+# This makes X11 and Wayland sockets reachable inside the container so a window
+# can be opened and inspected. Two caveats, both verified on this host:
+#
+#   1. There are no /dev/dri nodes here (only /dev/dxg), so a container has no
+#      GPU: rendering is software (llvmpipe). Enough to prove windowing, child
+#      windows and overlay plumbing; useless for HDR or performance numbers.
+#   2. HDR passthrough and real hardware decode are therefore verified on the
+#      Windows-native build, never in this container.
+#
+# If /dev/dri ever appears on the host, uncomment the `devices:` block below.
+services:
+  dev:
+    environment:
+      DISPLAY: ${DISPLAY:-:0}
+      WAYLAND_DISPLAY: ${WAYLAND_DISPLAY:-wayland-0}
+      # WSLg keeps the Wayland socket and the PulseServer here.
+      XDG_RUNTIME_DIR: /mnt/wslg/runtime-dir
+      PULSE_SERVER: /mnt/wslg/PulseServer
+      # No GPU node: be explicit rather than letting GL fail mysteriously.
+      LIBGL_ALWAYS_SOFTWARE: "1"
+      GALLIUM_DRIVER: llvmpipe
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - /mnt/wslg:/mnt/wslg
+    # devices:
+    #   - /dev/dri:/dev/dri

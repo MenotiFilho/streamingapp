@@ -1,0 +1,36 @@
+# Development container. Everything is built and tested inside it.
+#
+#   docker compose build                 # build/refresh the image
+#   docker compose up -d                 # start the long-lived dev container
+#   docker compose exec dev cargo test    # run tests
+#   docker compose exec dev bash          # interactive shell
+#
+# On the WSLg host, add the GUI passthrough:
+#   docker compose -f compose.yaml -f compose.wslg.yaml up -d
+#
+# `target/` and `node_modules/` are named volumes on purpose: building across a
+# 9p bind mount from Windows is slow, and these directories are host-independent.
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: docker/dev.Dockerfile
+    image: streamingapp-dev
+    working_dir: /app
+    init: true
+    command: sleep infinity
+    environment:
+      CARGO_TERM_COLOR: always
+      RUST_BACKTRACE: "1"
+    volumes:
+      - .:/app
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - target:/app/target
+      - node-modules:/app/node_modules
+
+volumes:
+  cargo-registry:
+  cargo-git:
+  target:
+  node-modules:
