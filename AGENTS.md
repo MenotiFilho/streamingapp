@@ -1,5 +1,22 @@
 # AGENTS.md
 
+## Task completion requirements
+
+- **Build and test inside the container.** Never install toolchains or media
+  libraries on the host; the host has no `cargo`, no `mpv` and needs `sudo`.
+- `docker compose up -d` — start the long-lived dev container.
+- `docker compose exec dev cargo test` — unit tests. TDD is the norm here: pure
+  decision seams (parsers, id mapping, snapshot building, command validation) are
+  tested from the start, with I/O behind seams and in-memory fakes.
+- `docker compose exec dev cargo clippy --all-targets -- -D warnings`
+- `docker compose exec dev cargo fmt --check`
+- `docker compose exec dev pnpm typecheck` and `pnpm test` once the frontend exists.
+- `docker compose exec dev cargo run --bin live_check` — read-only conformance
+  against real addons; it reports, it does not assert on third-party content.
+- Do not leave warnings or errors introduced by the task unresolved.
+- A container has no GPU here (no `/dev/dri`), so it cannot verify HDR passthrough
+  or hardware decode. Those are verified on the Windows-native build.
+
 ## Agent skills
 
 ### Issue tracker
@@ -13,3 +30,35 @@ Five canonical triage roles, using the default label strings. See `docs/agents/t
 ### Domain docs
 
 Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+## Project snapshot
+
+The **Host** is a Tauri 2 desktop app that consumes the Stremio addon ecosystem,
+resolves playable Streams, and plays them with mpv. Rust owns state, addon
+transport and playback; React/TypeScript owns the interface. libmpv is linked
+in-process and embedded with `wid`, so **mpv owns the video swapchain** — that is
+what keeps HDR passthrough possible, and it is why the app is GPL-3.0.
+
+Read before writing code: `CONTEXT.md` (the glossary — use its vocabulary
+exactly), `docs/adr/0001`–`0007` (decisions and their reasons), and
+`docs/research/` (the evidence behind them). Where an ADR contradicts what you are
+about to do, say so explicitly instead of silently overriding it.
+
+## Where the work lives
+
+GitHub issue **#1** is the map for the first vertical slice; its children are the
+implementation tickets, wired with native blocked-by dependencies. Query the
+frontier before starting: open children with no open blocker and no assignee,
+first in map order wins. Do not start blocked work.
+
+## Architecture
+
+- `src-tauri/` — the Host: Rust. One internal command surface that every
+  mutation goes through, whether it arrives over Tauri IPC or over the network.
+- `src/` — the React/TypeScript interface. It is a client of the Host, not a
+  co-owner of state.
+- `docker/`, `compose.yaml`, `compose.wslg.yaml` — the development toolchain;
+  `compose.wslg.yaml` adds GUI passthrough and software rendering on WSLg.
+- `docs/agents/` — how the skills read this repo's domain documentation.
+- `docs/research/` — fact-finding notes with citations, including the negatives.
+- `docs/adr/` — one decision per file, with the alternatives that were rejected.
