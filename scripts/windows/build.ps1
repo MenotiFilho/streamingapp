@@ -19,6 +19,16 @@ if (-not (Test-Path (Join-Path $Tree 'dist\index.html'))) {
     throw "no frontend in $Tree\dist - build it in the container with 'pnpm build' and stage it again"
 }
 
+# A Host still running from an earlier walkthrough holds its own executable open,
+# and cargo then fails to replace it with `failed to remove file ... Access is
+# denied` — which reads like a permissions problem and is not one.
+$running = Get-Process streamingapp -ErrorAction SilentlyContinue
+if ($running) {
+    "stopping a Host left running from an earlier run: pid $($running.Id -join ', ')"
+    $running | Stop-Process -Force
+    Start-Sleep -Seconds 2
+}
+
 $buildLog = Join-Path $Tree 'build.log'
 Remove-Item $buildLog -ErrorAction SilentlyContinue
 Set-Location $Tree

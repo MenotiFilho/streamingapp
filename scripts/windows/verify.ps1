@@ -4,13 +4,25 @@
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File verify.ps1 -Tree C:\Users\<you>\streamingapp-verify
 #
+# The Addon it configures is a parameter, so the walkthrough can be run against
+# the Addon the owner actually uses — including one whose manifest URL carries a
+# debrid configuration, which is the case the "the URL never leaves the Host"
+# checks are for:
+#
+#   ... -Addon 'https://api.stremboxd.com/manifest.json' -AddonName Stremboxd `
+#       -AddonId community.stremboxd -AddonCatalog 'Popular This Week'
+#
 # The window is read and driven through UI Automation (Chromium's accessibility
 # tree), so each step is asserted rather than eyeballed, and screenshotted so a
 # person can see it too. This is a by-hand walkthrough, not a test suite: it is
 # run deliberately, never in CI.
 param(
     [Parameter(Mandatory)][string] $Tree,
-    [string] $Evidence
+    [string] $Evidence,
+    [string] $Addon = 'https://v3-cinemeta.strem.io/manifest.json',
+    [string] $AddonName = 'Cinemeta',
+    [string] $AddonId = 'com.linvo.cinemeta',
+    [string] $AddonCatalog = 'Popular'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -304,15 +316,21 @@ Shot $app '07-addons-empty.png'
 $text = Wait-Text $app 'No Addons are configured'
 Check 'a fresh Host has no Addons' ($text -match 'No Addons are configured') "showed: $text"
 
-Type-Into $app 'Addon manifest URL' 'https://v3-cinemeta.strem.io/manifest.json'
+Type-Into $app 'Addon manifest URL' $Addon
 Press $app 'Add'
-$text = Wait-Text $app 'Cinemeta' 25
+$text = Wait-Text $app ([regex]::Escape($AddonId)) 25
 Shot $app '08-addon-added.png'
-Check 'the Addon is listed by its name' ($text -match 'Cinemeta') "showed: $text"
-Check 'the Addon is listed by the id in its manifest' ($text -match 'com\.linvo\.cinemeta') "showed: $text"
-Check 'the resources it offers are listed' (($text -match 'catalog') -and ($text -match 'meta')) "showed: $text"
-Check 'the types it covers are listed' ($text -match 'series') "showed: $text"
-Check 'its catalogs are listed' ($text -match 'Popular') "showed: $text"
+Check 'the Addon is listed by its name' ($text -match [regex]::Escape($AddonName)) "showed: $text"
+Check 'the Addon is listed by the id in its manifest' (
+    $text -match [regex]::Escape($AddonId)) "showed: $text"
+Check 'the resources it offers are listed' (
+    ($text -match 'Resources') -and ($text -match 'catalog')) "showed: $text"
+Check 'the types it covers are listed' (
+    ($text -match 'Types') -and ($text -match 'movie')) "showed: $text"
+Check 'its catalogs are listed' (
+    $text -match [regex]::Escape($AddonCatalog)) "showed: $text"
+Check 'the manifest URL is nowhere in the window' (
+    $text -notmatch [regex]::Escape($Addon)) "showed: $text"
 
 '--- 8. a URL that is not an Addon is refused without losing the Addon that works'
 Type-Into $app 'Addon manifest URL' 'https://example.com/'
@@ -320,7 +338,8 @@ Press $app 'Add'
 $text = Wait-Text $app "could not read that Addon's manifest" 25
 Shot $app '09-addon-refused.png'
 Check 'the refusal is explained' ($text -match "could not read that Addon's manifest") "showed: $text"
-Check 'the Addon that was working is still listed' ($text -match 'Cinemeta') "showed: $text"
+Check 'the Addon that was working is still listed' (
+    $text -match [regex]::Escape($AddonId)) "showed: $text"
 
 '--- 9. the Addon survives a restart'
 Stop-Host $app
@@ -328,18 +347,31 @@ $app = Start-Host
 Focus $app
 Start-Sleep -Seconds 2
 Shot $app '10-addon-restarted.png'
-$text = Wait-Text $app 'Cinemeta' 25
-Check 'the restarted Host still has the Addon' ($text -match 'Cinemeta') "showed: $text"
+$text = Wait-Text $app ([regex]::Escape($AddonId)) 25
+Check 'the restarted Host still has the Addon' (
+    $text -match [regex]::Escape($AddonId)) "showed: $text"
 
 '--- 10. removing the Addon'
-Press $app 'Remove Cinemeta'
+Press $app ('Remove ' + $AddonName)
 $text = Wait-Text $app 'No Addons are configured' 20
 Shot $app '11-addon-removed.png'
 Check 'the Addon is gone' ($text -match 'No Addons are configured') "showed: $text"
 
 Stop-Host $app
 
-'--- 11. the data directory'
+'--- 11. the manifest URL never reaches the log'
+# A manifest URL can carry a debrid configuration inside it, so the Host must
+# never write one down — and the route that matters is the real one, with the
+# Addon the owner actually uses.
+$urlPath = ([System.Uri]$Addon).AbsolutePath
+Check 'the log never holds the manifest URL' (
+    (Test-Path $log) -and
+    -not (Select-String -Path $log -SimpleMatch $Addon -Quiet)) 'host.log holds the manifest URL'
+Check 'the log never holds the manifest path either' (
+    (Test-Path $log) -and
+    -not (Select-String -Path $log -SimpleMatch $urlPath -Quiet)) 'host.log holds the manifest path'
+
+'--- 12. the data directory'
 if (Test-Path $dataDir) {
     Get-ChildItem $dataDir | ForEach-Object { "  $($_.Name)  $($_.Length) bytes" }
 } else { Check 'the data directory exists' $false $dataDir }

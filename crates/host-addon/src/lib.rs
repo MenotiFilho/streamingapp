@@ -14,7 +14,7 @@
 use std::time::Duration;
 
 use host_core::{FetchError, Fetcher};
-use ureq::tls::{TlsConfig, TlsProvider};
+use ureq::tls::{RootCerts, TlsConfig, TlsProvider};
 
 /// The most of an answer the Host will read. A manifest is kilobytes; anything
 /// larger is an Addon misbehaving or lying.
@@ -30,13 +30,17 @@ pub struct HttpFetcher {
 
 impl HttpFetcher {
     pub fn new() -> Self {
-        // The platform's own TLS: schannel on Windows, OpenSSL elsewhere. It is
-        // chosen by name rather than left to the default, because ureq's default
-        // is Rustls — which this build does not compile — and a request to an
-        // `https` URL would then fail at the first fetch rather than at build
-        // time.
+        // The platform's own TLS and the platform's own trust store: schannel on
+        // Windows, OpenSSL elsewhere. Both are named rather than left to ureq's
+        // defaults, because neither default is the one this Host wants — the
+        // default provider is Rustls, which this build does not compile, and the
+        // default root store is Mozilla's list, which schannel will not build a
+        // chain against. Left alone, a request to an `https` URL fails at the
+        // first fetch with "unable to find any user-specified roots in the final
+        // cert chain", which is how this was found (on Windows).
         let tls = TlsConfig::builder()
             .provider(TlsProvider::NativeTls)
+            .root_certs(RootCerts::PlatformVerifier)
             .build();
         let config = ureq::Agent::config_builder()
             .timeout_global(Some(TIMEOUT))
@@ -89,14 +93,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_agent_is_configured_to_use_the_platforms_tls() {
+    fn the_agent_uses_the_platforms_tls_and_the_platforms_trust_store() {
         let fetcher = HttpFetcher::new();
+        let tls = fetcher.agent.config().tls_config();
 
         assert_eq!(
-            fetcher.agent.config().tls_config().provider(),
+            tls.provider(),
             TlsProvider::NativeTls,
-            "the default provider is one this build does not compile, and a \
+            "ureq's default provider is one this build does not compile, and a \
              request would fail on it at the first fetch"
+        );
+        assert!(
+            matches!(tls.root_certs(), RootCerts::PlatformVerifier),
+            "ureq's default root store is Mozilla's, which schannel will not \
+             build a chain against: {:?}",
+            tls.root_certs()
         );
     }
 

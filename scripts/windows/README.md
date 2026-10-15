@@ -60,6 +60,12 @@ Screenshots, the assertion report and the log tail land in
   `$ErrorActionPreference = 'Stop'`, and cargo writes its progress to stderr.
   `build.ps1` relaxes the preference around the cargo call and tees to
   `build.log`.
+- **A Host left running from an earlier run breaks the next build**, and not in a
+  way that says so: it holds its own executable open, and cargo fails with
+  `failed to remove file ... Access is denied (os error 5)`, which reads like a
+  permissions problem. It also holds the single-instance lock, so the next Host
+  would merely focus it. `build.ps1` stops a leftover Host before building and
+  `verify.ps1` stops one before it starts.
 - **The window's data outlives the run.** The Host keeps its database and logs in
   `%APPDATA%\dev.streamingapp.host\` (`/mnt/c/Users/<you>/AppData/Roaming/dev.streamingapp.host`).
   `verify.ps1` starts by removing them, so "the preference survives a restart" is
