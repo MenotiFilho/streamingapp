@@ -21,6 +21,32 @@
 - A container has no GPU here (no `/dev/dri`), so it cannot verify HDR passthrough
   or hardware decode. Those are verified on the Windows-native build.
 
+## Verifying the window (Windows, from WSL)
+
+Anything windowed is verified on the Windows side, reached from WSL through
+interop. Windows has Rust 1.99.1 MSVC (`%USERPROFILE%\.cargo\bin`), Node 24, mpv
+0.41 and the WebView2 runtime; it has **no `pnpm`**, so the frontend is built in
+the container and copied across, and **Windows binaries are not on `PATH`** —
+call `powershell.exe` by full path from a working directory under `/mnt/c`.
+
+```sh
+docker compose exec dev pnpm build
+scripts/windows/stage.sh /mnt/c/Users/<you>/streamingapp-verify
+
+powershell.exe -NoProfile -ExecutionPolicy Bypass \
+  -File 'C:\Users\<you>\streamingapp-verify\scripts\windows\build.ps1' \
+  -Tree 'C:\Users\<you>\streamingapp-verify'
+powershell.exe -NoProfile -ExecutionPolicy Bypass \
+  -File 'C:\Users\<you>\streamingapp-verify\scripts\windows\verify.ps1' \
+  -Tree 'C:\Users\<you>\streamingapp-verify'
+```
+
+`verify.ps1` walks a windowed checklist, asserting through UI Automation and
+screenshotting each step into `<Tree>\evidence\` (read it from WSL as `/mnt/c/…`);
+the Host's own files land in `%APPDATA%\dev.streamingapp.host\`. It is a by-hand
+walkthrough, **not** a test suite: run it deliberately, never in CI. The full
+route, and the mistakes that cost time, are in `scripts/windows/README.md`.
+
 ## Agent skills
 
 ### Issue tracker
@@ -73,6 +99,8 @@ Issue **#1** is the earlier map, and the design record it produced still stands.
   co-owner of state: it takes Actions and renders the Snapshots it is sent.
 - `docker/`, `compose.yaml`, `compose.wslg.yaml` — the development toolchain;
   `compose.wslg.yaml` adds GUI passthrough and software rendering on WSLg.
+- `scripts/windows/` — the route to the Windows build, where the window is
+  verified by hand (see "Verifying the window" above).
 - `docs/agents/` — how the skills read this repo's domain documentation.
 - `docs/research/` — fact-finding notes with citations, including the negatives.
 - `docs/adr/` — one decision per file, with the alternatives that were rejected.

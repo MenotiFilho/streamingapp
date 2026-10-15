@@ -131,6 +131,7 @@ test("saving a language takes a versioned Action through the Host", async () => 
       },
     },
   });
+  expect(screen.getByLabelText("Prefer a language tag")).toHaveValue("");
 });
 
 test("clearing the preference takes the clear Action", async () => {
@@ -148,6 +149,7 @@ test("clearing the preference takes the clear Action", async () => {
   expect(dispatched(host.invocations).args).toEqual({
     envelope: { version: 1, action: { type: "clear_subtitle_language" } },
   });
+  expect(screen.getByLabelText("Prefer a language tag")).toHaveValue("");
 });
 
 test("the window follows a Snapshot it did not ask for", async () => {
@@ -197,6 +199,9 @@ test("a rejected Action is explained and leaves the view where it was", async ()
     ),
   );
   expect(shownLanguage()).toBe("pt-BR");
+  expect(screen.getByLabelText("Prefer a language tag")).toHaveValue(
+    "Brazilian Portuguese",
+  );
 });
 
 test("a Host the window cannot reach is explained rather than swallowed", async () => {
@@ -216,4 +221,5 @@ test("a Host the window cannot reach is explained rather than swallowed", async 
     expect(screen.getByRole("alert")).toHaveTextContent("could not reach the Host"),
   );
   expect(shownLanguage()).toBe("pt-BR");
+  expect(screen.getByLabelText("Prefer a language tag")).toHaveValue("en");
 });

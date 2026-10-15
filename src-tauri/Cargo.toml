@@ -13,6 +13,14 @@ workspace = true
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
+[features]
+# Tauri picks between its dev server and the frontend embedded in the binary with
+# this feature: `dev = !custom-protocol`. `tauri build` passes
+# `tauri/custom-protocol` itself, but a plain `cargo build` does not — and then
+# the window loads `devUrl` (localhost:1420) whatever the cargo profile is. Named
+# here so that a hand-rolled build finds the switch where it is looking.
+custom-protocol = ["tauri/custom-protocol"]
+
 [dependencies]
 host-core = { workspace = true }
 host-logging = { workspace = true }

@@ -52,6 +52,9 @@ export function App({ client }: { client?: HostClient }) {
       setError(null);
       try {
         await host.dispatch(action);
+        // The preference is shown above; the field is for entering the next one,
+        // so a value that was just taken does not sit there looking like state.
+        setDraft("");
       } catch (caught) {
         setError(asActionError(caught));
       }
