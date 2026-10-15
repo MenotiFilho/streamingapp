@@ -17,13 +17,28 @@ pub struct Migration {
 }
 
 /// Every step the Host's schema has taken.
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    sql: "CREATE TABLE preferences (
-             key   TEXT PRIMARY KEY NOT NULL,
-             value TEXT NOT NULL
-         );",
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        sql: "CREATE TABLE preferences (
+                 key   TEXT PRIMARY KEY NOT NULL,
+                 value TEXT NOT NULL
+             );",
+    },
+    Migration {
+        // An Addon is an id, where its manifest lives, and the manifest itself,
+        // in the order they were configured. The manifest URL is a column of its
+        // own because it is the Addon's address; the manifest is a document,
+        // because nothing here queries inside one (ADR-0009).
+        version: 2,
+        sql: "CREATE TABLE addons (
+                 id       TEXT PRIMARY KEY NOT NULL,
+                 position INTEGER NOT NULL,
+                 url      TEXT NOT NULL,
+                 manifest TEXT NOT NULL
+             );",
+    },
+];
 
 /// The version a database is at once every migration in `migrations` has run.
 pub fn latest_version(migrations: &[Migration]) -> u32 {

@@ -9,9 +9,11 @@
 //! ```
 //! use std::sync::Arc;
 //!
-//! use host_core::{Action, Host, InMemoryStore, SubtitleLanguage};
+//! use host_core::{Action, FixtureFetcher, Host, InMemoryStore, SubtitleLanguage};
 //!
-//! let mut host = Host::new(Arc::new(InMemoryStore::new()))?;
+//! let store = Arc::new(InMemoryStore::new());
+//! let fetcher = Arc::new(FixtureFetcher::new());
+//! let mut host = Host::new(store, fetcher)?;
 //! let action = Action::parse(r#"{"version":1,"action":{"type":"set_subtitle_language","language":"pt-BR"}}"#)?;
 //! let published = host.dispatch(action)?;
 //!
@@ -21,6 +23,8 @@
 //! ```
 
 mod action;
+mod addon;
+mod fetcher;
 mod host;
 mod preferences;
 mod snapshot;
@@ -28,6 +32,12 @@ mod state;
 mod store;
 
 pub use action::{Action, ActionError, ValidatedAction, ACTION_VERSION};
+pub use addon::{
+    Addon, AddonId, BehaviorHints, Catalog, InvalidAddonId, InvalidManifestUrl, Manifest,
+    ManifestError, ManifestUrl, Resource, MAX_ITEMS, MAX_MANIFEST_BYTES, MAX_STRING_LEN,
+    MAX_URL_LEN,
+};
+pub use fetcher::{FetchError, Fetcher, FixtureFetcher};
 pub use host::Host;
 pub use preferences::{InvalidSubtitleLanguage, Preferences, SubtitleLanguage};
 pub use snapshot::{PreferencesSnapshot, Snapshot};

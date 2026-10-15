@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::addon::{AddonId, InvalidAddonId, InvalidManifestUrl, ManifestUrl};
 use crate::preferences::{InvalidSubtitleLanguage, SubtitleLanguage};
 
 /// The version of the Action wire form this Host speaks.
@@ -27,6 +28,10 @@ pub enum Action {
     SetSubtitleLanguage { language: String },
     /// Carry no subtitle-language preference; the Host chooses per Video.
     ClearSubtitleLanguage,
+    /// Configure the Addon whose manifest is at `url`.
+    AddAddon { url: String },
+    /// Take the Addon with this manifest id out of the Host's configuration.
+    RemoveAddon { id: String },
 }
 
 impl Action {
@@ -78,6 +83,14 @@ impl Action {
                 Ok(ValidatedAction::SetSubtitleLanguage(language))
             }
             Action::ClearSubtitleLanguage => Ok(ValidatedAction::ClearSubtitleLanguage),
+            Action::AddAddon { url } => {
+                let url = ManifestUrl::parse(&url)?;
+                Ok(ValidatedAction::AddAddon(url))
+            }
+            Action::RemoveAddon { id } => {
+                let id = AddonId::parse(&id)?;
+                Ok(ValidatedAction::RemoveAddon(id))
+            }
         }
     }
 }
@@ -91,6 +104,8 @@ impl Action {
 pub enum ValidatedAction {
     SetSubtitleLanguage(SubtitleLanguage),
     ClearSubtitleLanguage,
+    AddAddon(ManifestUrl),
+    RemoveAddon(AddonId),
 }
 
 /// The wire form of an Action: a version and the Action.
@@ -112,6 +127,16 @@ pub enum ActionError {
     UnsupportedVersion { got: u64, supported: u16 },
     #[error("{0}")]
     InvalidSubtitleLanguage(#[from] InvalidSubtitleLanguage),
+    #[error("{0}")]
+    InvalidManifestUrl(#[from] InvalidManifestUrl),
+    #[error("{0}")]
+    InvalidAddonId(#[from] InvalidAddonId),
+    #[error("the Addon's manifest could not be read: {detail}")]
+    Manifest { detail: String },
+    #[error("{detail}")]
+    Fetch { detail: String },
+    #[error("no Addon with the id {id:?} is configured")]
+    UnknownAddon { id: String },
     #[error("the Host could not keep that change: {detail}")]
     Store { detail: String },
 }

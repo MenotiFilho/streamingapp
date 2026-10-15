@@ -1,0 +1,9 @@
+{
+  "id": "org.example.liar",
+  "name": "Liar",
+  "version": "1.0.0",
+  "resources": [{ "name": "meta", "types": ["movie"], "idPrefixes": ["tt"] }],
+  "types": "movie",
+  "catalogs": [{ "type": "movie", "id": "top", "name": "Top" }],
+  "behaviorHints": { "configurable": true, "configurationRequired": false }
+}

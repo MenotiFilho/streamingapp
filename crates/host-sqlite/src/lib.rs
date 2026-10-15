@@ -9,7 +9,7 @@ mod migrations;
 use std::path::Path;
 use std::sync::Mutex;
 
-use host_core::{Preferences, Store, StoreError, SubtitleLanguage};
+use host_core::{Addon, Manifest, ManifestUrl, Preferences, Store, StoreError, SubtitleLanguage};
 use rusqlite::{params, Connection};
 
 pub use migrations::{latest_version, migrate, schema_version, Migration, MIGRATIONS};
@@ -118,6 +118,64 @@ impl Store for SqliteStore {
                     )
                     .map_err(StoreError::write)?;
             }
+        }
+
+        transaction.commit().map_err(StoreError::write)
+    }
+
+    fn read_addons(&self) -> Result<Vec<Addon>, StoreError> {
+        let connection = self.locked()?;
+        let mut statement = connection
+            .prepare("SELECT url, manifest FROM addons ORDER BY position")
+            .map_err(StoreError::read)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(StoreError::read)?;
+
+        let mut addons = Vec::new();
+        for row in rows {
+            let (url, manifest) = row.map_err(StoreError::read)?;
+            // Nothing stored here is named in the message: an Addon's manifest URL
+            // can carry its credentials, and a read failure ends up in a log or in
+            // an error a client sees.
+            let url = ManifestUrl::parse(&url).map_err(|_| StoreError::Read {
+                detail: "a stored Addon is at a URL that is not one".to_owned(),
+            })?;
+            // The manifest is the Host's own reading of what the Addon served, and
+            // reading it back is judged exactly as parsing it was — the types say
+            // so, rather than this function remembering to check.
+            let manifest: Manifest =
+                serde_json::from_str(&manifest).map_err(|error| StoreError::Read {
+                    detail: format!("a stored Addon's manifest is unusable: {error}"),
+                })?;
+            addons.push(Addon::new(url, manifest));
+        }
+
+        Ok(addons)
+    }
+
+    fn write_addons(&self, addons: &[Addon]) -> Result<(), StoreError> {
+        let mut connection = self.locked()?;
+        let transaction = connection.transaction().map_err(StoreError::write)?;
+
+        transaction
+            .execute("DELETE FROM addons", [])
+            .map_err(StoreError::write)?;
+        for (position, addon) in addons.iter().enumerate() {
+            let manifest = serde_json::to_string(addon.manifest()).map_err(StoreError::write)?;
+            transaction
+                .execute(
+                    "INSERT INTO addons (id, position, url, manifest) VALUES (?1, ?2, ?3, ?4)",
+                    params![
+                        addon.id().as_str(),
+                        i64::try_from(position).map_err(StoreError::write)?,
+                        addon.manifest_url().as_str(),
+                        manifest,
+                    ],
+                )
+                .map_err(StoreError::write)?;
         }
 
         transaction.commit().map_err(StoreError::write)

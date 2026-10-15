@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::addon::Manifest;
 use crate::preferences::SubtitleLanguage;
 use crate::state::State;
 
@@ -17,6 +18,10 @@ pub struct Snapshot {
     /// tell a newer Snapshot from an older one and ignore the older.
     pub revision: u64,
     pub preferences: PreferencesSnapshot,
+    /// The configured Addons, as what they say they offer. Never where they live:
+    /// an Addon's manifest URL can carry its credentials, and a Snapshot reaches
+    /// every paired client (ADR-0009).
+    pub addons: Vec<Manifest>,
 }
 
 /// The preference fields a client may see.
@@ -38,6 +43,11 @@ impl Snapshot {
             preferences: PreferencesSnapshot {
                 subtitle_language: state.preferences().subtitle_language().cloned(),
             },
+            addons: state
+                .addons()
+                .iter()
+                .map(|addon| addon.manifest().clone())
+                .collect(),
         }
     }
 }

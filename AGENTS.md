@@ -91,6 +91,9 @@ Issue **#1** is the earlier map, and the design record it produced still stands.
   publishes, and the `Store` seam. The Tauri IPC bridge and the network bridge are
   both translators over this, and no client gets a private path (ADR-0002,
   ADR-0008).
+- `crates/host-addon/` — the addon transport: the real `Fetcher`, one blocking
+  HTTP client. It is outside `host-core` because the Host's vocabulary and its
+  decisions know nothing about the network (ADR-0009).
 - `crates/host-sqlite/` — the real `Store`. The only place SQL and the schema live.
 - `crates/host-logging/` — structured logs: JSON lines in the data directory.
 - `src-tauri/` — the app shell: platform directories, logging, the store, the

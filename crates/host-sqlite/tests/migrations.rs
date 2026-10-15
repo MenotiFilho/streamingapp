@@ -1,5 +1,5 @@
-//! The migration machinery, exercised with a schema of its own — the Host's list
-//! has one step today, and an upgrade needs two to be an upgrade at all.
+//! The migration machinery, exercised with a schema of its own — the Host's own
+//! list is an upgrade path, and an upgrade path is only believable if it is walked.
 
 use host_sqlite::{latest_version, migrate, schema_version, Migration, MIGRATIONS};
 use rusqlite::Connection;
@@ -103,4 +103,33 @@ fn a_migration_that_fails_leaves_the_database_where_it_was() {
         Ok(1),
         "a migration that failed did not claim to have happened"
     );
+}
+
+#[test]
+fn a_database_at_the_first_schema_upgrades_without_losing_what_it_held() {
+    let mut connection = connection();
+    migrate(&mut connection, &MIGRATIONS[..1]).expect("the first schema applies");
+    connection
+        .execute(
+            "INSERT INTO preferences (key, value) VALUES ('subtitle_language', 'pt-BR')",
+            [],
+        )
+        .expect("the first schema takes a preference");
+    assert_eq!(schema_version(&connection), Ok(1));
+
+    let version = migrate(&mut connection, MIGRATIONS).expect("the database upgrades");
+
+    assert_eq!(version, latest_version(MIGRATIONS));
+    let kept: String = connection
+        .query_row(
+            "SELECT value FROM preferences WHERE key = 'subtitle_language'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("the preference written before the upgrade is still there");
+    assert_eq!(kept, "pt-BR");
+    let addons: i64 = connection
+        .query_row("SELECT count(*) FROM addons", [], |row| row.get(0))
+        .expect("the table the upgrade added is there");
+    assert_eq!(addons, 0);
 }

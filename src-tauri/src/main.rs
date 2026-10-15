@@ -11,6 +11,7 @@ mod paths;
 
 use std::sync::{Arc, Mutex};
 
+use host_addon::HttpFetcher;
 use host_core::Host;
 use host_sqlite::SqliteStore;
 use tauri::Manager;
@@ -49,7 +50,10 @@ fn main() {
                 "the store is ready",
             );
 
-            app.manage(ipc::HostHandle::new(Host::new(Arc::new(store))?));
+            app.manage(ipc::HostHandle::new(Host::new(
+                Arc::new(store),
+                Arc::new(HttpFetcher::new()),
+            )?));
             // Held, not read: the guard inside keeps the log writer alive for as
             // long as the Host runs.
             app.manage(Mutex::new(logs));

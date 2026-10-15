@@ -22,6 +22,7 @@ tauri-build = { version = "2", features = [] }
 custom-protocol = ["tauri/custom-protocol"]
 
 [dependencies]
+host-addon = { workspace = true }
 host-core = { workspace = true }
 host-logging = { workspace = true }
 host-sqlite = { workspace = true }

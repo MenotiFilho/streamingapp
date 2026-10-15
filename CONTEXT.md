@@ -40,6 +40,11 @@ _Avoid_: episode (for films), media, stream
 A service the Host is configured with that speaks the Stremio addon protocol.
 _Avoid_: plugin, extension, provider
 
+**Manifest**:
+An Addon's own description of itself: the id it answers to, its name and version,
+the resources and types it covers, and the catalogs it offers.
+_Avoid_: descriptor, metadata, document
+
 **Provider**:
 The Host's internal seam for turning a Video into playable candidates. The
 Stremio addon protocol is one Provider; direct integrations (local files,

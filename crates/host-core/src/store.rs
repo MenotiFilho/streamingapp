@@ -1,6 +1,7 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
+use crate::addon::Addon;
 use crate::preferences::Preferences;
 
 /// Where the Host's non-secret state lives between runs.
@@ -16,6 +17,12 @@ pub trait Store: Send + Sync + 'static {
 
     /// Replace the persisted preferences.
     fn write_preferences(&self, preferences: &Preferences) -> Result<(), StoreError>;
+
+    /// The Addons the Host is configured with, in the order they were configured.
+    fn read_addons(&self) -> Result<Vec<Addon>, StoreError>;
+
+    /// Replace the configured Addons.
+    fn write_addons(&self, addons: &[Addon]) -> Result<(), StoreError>;
 }
 
 /// Something went wrong at the store, in the store's own terms.
@@ -56,6 +63,7 @@ impl StoreError {
 #[derive(Debug, Default)]
 pub struct InMemoryStore {
     preferences: Mutex<Preferences>,
+    addons: Mutex<Vec<Addon>>,
     failing_writes: AtomicBool,
 }
 
@@ -68,8 +76,18 @@ impl InMemoryStore {
     pub fn holding(preferences: Preferences) -> Self {
         Self {
             preferences: Mutex::new(preferences),
+            addons: Mutex::new(Vec::new()),
             failing_writes: AtomicBool::new(false),
         }
+    }
+
+    /// The same, with Addons the Host would have found on disk too.
+    pub fn holding_addons(self, addons: Vec<Addon>) -> Self {
+        *self
+            .addons
+            .lock()
+            .expect("the in-memory store is not poisoned") = addons;
+        self
     }
 
     /// Make every write fail — a store that is read-only, full, or gone.
@@ -82,6 +100,14 @@ impl InMemoryStore {
     /// or was not touched.
     pub fn persisted(&self) -> Preferences {
         self.preferences
+            .lock()
+            .expect("the in-memory store is not poisoned")
+            .clone()
+    }
+
+    /// The same look, at the Addons.
+    pub fn persisted_addons(&self) -> Vec<Addon> {
+        self.addons
             .lock()
             .expect("the in-memory store is not poisoned")
             .clone()
@@ -103,6 +129,23 @@ impl Store for InMemoryStore {
             .preferences
             .lock()
             .expect("the in-memory store is not poisoned") = preferences.clone();
+        Ok(())
+    }
+
+    fn read_addons(&self) -> Result<Vec<Addon>, StoreError> {
+        Ok(self.persisted_addons())
+    }
+
+    fn write_addons(&self, addons: &[Addon]) -> Result<(), StoreError> {
+        if self.failing_writes.load(Ordering::SeqCst) {
+            return Err(StoreError::Write {
+                detail: "the store is failing every write".to_owned(),
+            });
+        }
+        *self
+            .addons
+            .lock()
+            .expect("the in-memory store is not poisoned") = addons.to_vec();
         Ok(())
     }
 }

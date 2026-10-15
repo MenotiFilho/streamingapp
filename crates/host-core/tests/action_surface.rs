@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, Host, InMemoryStore, Preferences, Snapshot, Store, StoreError,
-    SubtitleLanguage, ACTION_VERSION,
+    Action, ActionError, FixtureFetcher, Host, InMemoryStore, Preferences, Snapshot, Store,
+    StoreError, SubtitleLanguage, ACTION_VERSION,
 };
 
 /// An Action as a client sends it: the versioned envelope, as JSON text.
@@ -19,8 +19,14 @@ fn action_in_a_foreign_version(version: u64, body: &str) -> String {
     format!(r#"{{"version":{version},"action":{body}}}"#)
 }
 
+/// A Host over a store, with a fetcher that has no fixtures: an Action that asks
+/// the network for anything fails the test that took it.
+fn host_over(store: Arc<dyn Store>) -> Host {
+    Host::new(store, Arc::new(FixtureFetcher::new())).expect("a Host over a store starts")
+}
+
 fn host() -> Host {
-    Host::new(Arc::new(InMemoryStore::new())).expect("a Host over an empty store starts")
+    host_over(Arc::new(InMemoryStore::new()))
 }
 
 fn subtitle_language(snapshot: &Snapshot) -> Option<&str> {
@@ -54,7 +60,7 @@ fn a_host_starts_from_the_preferences_its_store_holds() {
         SubtitleLanguage::parse("pt-BR").expect("pt-BR is a language tag"),
     ));
     let store = Arc::new(InMemoryStore::holding(stored));
-    let host = Host::new(store).expect("a Host over a holding store starts");
+    let host = host_over(store);
 
     assert_eq!(subtitle_language(&host.snapshot()), Some("pt-BR"));
 }
@@ -199,7 +205,7 @@ fn a_subtitle_language_that_is_not_a_language_tag_is_rejected() {
 #[test]
 fn the_host_writes_a_persisted_preference_through_the_store() {
     let store = Arc::new(InMemoryStore::new());
-    let mut host = Host::new(store.clone()).expect("a Host over an empty store starts");
+    let mut host = host_over(store.clone());
 
     set_subtitle_language(&mut host, "pt-BR");
 
@@ -215,7 +221,7 @@ fn the_host_writes_a_persisted_preference_through_the_store() {
 #[test]
 fn a_rejected_action_never_reaches_the_store() {
     let store = Arc::new(CountingStore::default());
-    let mut host = Host::new(store.clone()).expect("a Host over a counting store starts");
+    let mut host = host_over(store.clone());
 
     assert!(host
         .dispatch(action(
@@ -230,7 +236,7 @@ fn a_rejected_action_never_reaches_the_store() {
 #[test]
 fn a_store_that_cannot_write_leaves_the_state_alone() {
     let store = Arc::new(InMemoryStore::new());
-    let mut host = Host::new(store.clone()).expect("a Host over an empty store starts");
+    let mut host = host_over(store.clone());
     set_subtitle_language(&mut host, "pt-BR");
     let before = host.snapshot();
     store.failing_writes();
@@ -262,6 +268,7 @@ fn the_snapshot_declares_only_fields_it_can_safely_carry() {
         serde_json::json!({
             "revision": 1,
             "preferences": { "subtitleLanguage": "pt-BR" },
+            "addons": [],
         }),
         "the wire shape is the declared one, camelCased for a JavaScript client"
     );
@@ -269,10 +276,27 @@ fn the_snapshot_declares_only_fields_it_can_safely_carry() {
 
 #[test]
 fn no_field_a_snapshot_carries_could_hold_a_credential() {
-    let mut host = host();
+    // Ahead of the Addon, then the Addon: every field a Snapshot can carry is in
+    // this walk, including the ones an Addon brought with it.
+    let url = "https://api.stremboxd.com/manifest.json";
+    let fetcher =
+        FixtureFetcher::new().serving(url, include_str!("fixtures/stremboxd-manifest.json"));
+    let mut host = Host::new(Arc::new(InMemoryStore::new()), Arc::new(fetcher))
+        .expect("a Host over a store starts");
+    host.dispatch(action(&format!(r#"{{"type":"add_addon","url":"{url}"}}"#)))
+        .expect("adding the recorded Addon should work");
     set_subtitle_language(&mut host, "pt-BR");
+
     let published = serde_json::to_value(host.snapshot()).expect("a Snapshot serializes");
-    let credentialish = ["key", "token", "secret", "password", "credential", "auth"];
+    let credentialish = [
+        "key",
+        "token",
+        "secret",
+        "password",
+        "credential",
+        "auth",
+        "url",
+    ];
 
     fn field_names(value: &serde_json::Value, into: &mut Vec<String>) {
         match value {
@@ -323,5 +347,14 @@ impl Store for CountingStore {
     fn write_preferences(&self, preferences: &Preferences) -> Result<(), StoreError> {
         self.writes.fetch_add(1, Ordering::SeqCst);
         self.inner.write_preferences(preferences)
+    }
+
+    fn read_addons(&self) -> Result<Vec<host_core::Addon>, StoreError> {
+        self.inner.read_addons()
+    }
+
+    fn write_addons(&self, addons: &[host_core::Addon]) -> Result<(), StoreError> {
+        self.writes.fetch_add(1, Ordering::SeqCst);
+        self.inner.write_addons(addons)
     }
 }

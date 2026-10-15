@@ -14,12 +14,45 @@ export const SNAPSHOT_EVENT = "host://snapshot";
 export type Snapshot = {
   revision: number;
   preferences: { subtitleLanguage: string | null };
+  addons: AddonManifest[];
+};
+
+/**
+ * An Addon as the Host publishes it: what it says it offers, and never where its
+ * manifest lives — a manifest URL can carry the Addon's credentials.
+ * Mirrors `Manifest` in `host-core`.
+ */
+export type AddonManifest = {
+  id: string;
+  name: string;
+  version: string;
+  resources: AddonResource[];
+  types: string[];
+  catalogs: AddonCatalog[];
+  idPrefixes: string[];
+  behaviorHints: { configurable: boolean; configurationRequired: boolean };
+};
+
+/** One resource an Addon provides. Mirrors `Resource` in `host-core`. */
+export type AddonResource = {
+  name: string;
+  types: string[] | null;
+  idPrefixes: string[] | null;
+};
+
+/** One catalog an Addon offers. Mirrors `Catalog` in `host-core`. */
+export type AddonCatalog = {
+  type: string;
+  id: string;
+  name: string;
 };
 
 /** What a client can ask the Host to do. Mirrors `Action` in `host-core`. */
 export type Action =
   | { type: "set_subtitle_language"; language: string }
-  | { type: "clear_subtitle_language" };
+  | { type: "clear_subtitle_language" }
+  | { type: "add_addon"; url: string }
+  | { type: "remove_addon"; id: string };
 
 /**
  * The failures the Host itself reports. Mirrors the variants of `ActionError` in
@@ -29,6 +62,11 @@ export const HOST_ERROR_KINDS = [
   "malformed",
   "unsupported_version",
   "invalid_subtitle_language",
+  "invalid_manifest_url",
+  "invalid_addon_id",
+  "manifest",
+  "fetch",
+  "unknown_addon",
   "store",
 ] as const;
 
@@ -42,6 +80,8 @@ export type ActionError = {
   got?: number;
   supported?: number;
   language?: string;
+  url?: string;
+  id?: string;
 };
 
 /** Whatever a failed call threw, as something the window can explain. */
@@ -67,6 +107,16 @@ export function explain(error: ActionError): string {
       return `This window speaks version ${ACTION_VERSION} and the Host ${error.supported}; the Action carried version ${error.got}.`;
     case "invalid_subtitle_language":
       return `${JSON.stringify(error.language)} is not a subtitle language tag — try "pt-BR" or "en".`;
+    case "invalid_manifest_url":
+      return `${JSON.stringify(error.url)} is not a manifest URL — paste the address of an Addon's manifest.json, like "https://example.com/manifest.json".`;
+    case "invalid_addon_id":
+      return `${JSON.stringify(error.id)} is not an Addon id.`;
+    case "manifest":
+      return `The Host could not read that Addon's manifest${error.detail ? `: ${error.detail}` : ""}.`;
+    case "fetch":
+      return `The Host could not fetch that Addon${error.detail ? `: ${error.detail}` : ""}.`;
+    case "unknown_addon":
+      return `No Addon with the id ${JSON.stringify(error.id)} is configured.`;
     case "store":
       return `The Host could not save that change${error.detail ? `: ${error.detail}` : ""}.`;
     case "unreachable":

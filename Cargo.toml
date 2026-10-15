@@ -11,7 +11,7 @@
 #   docker compose exec dev cargo fmt --check
 [workspace]
 resolver = "2"
-members = ["crates/host-core", "crates/host-sqlite", "crates/host-logging", "src-tauri"]
+members = ["crates/host-core", "crates/host-addon", "crates/host-sqlite", "crates/host-logging", "src-tauri"]
 
 [workspace.package]
 version = "0.1.0"
@@ -22,6 +22,7 @@ rust-version = "1.85"
 
 [workspace.dependencies]
 host-core = { path = "crates/host-core" }
+host-addon = { path = "crates/host-addon" }
 host-sqlite = { path = "crates/host-sqlite" }
 host-logging = { path = "crates/host-logging" }
 
@@ -33,6 +34,8 @@ thiserror = "2"
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+ureq = { version = "3", default-features = false, features = ["gzip", "native-tls"] }
+url = "2"
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

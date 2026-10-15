@@ -2,12 +2,32 @@
 
 use std::path::{Path, PathBuf};
 
-use host_core::{Preferences, Store, StoreError, SubtitleLanguage};
+use host_core::{Addon, Manifest, ManifestUrl, Preferences, Store, StoreError, SubtitleLanguage};
 use host_sqlite::SqliteStore;
 use rusqlite::Connection;
 
 fn language(tag: &str) -> SubtitleLanguage {
     SubtitleLanguage::parse(tag).unwrap_or_else(|error| panic!("{tag} is a language tag: {error}"))
+}
+
+/// An Addon as the Host would have parsed it, without needing a fixture file.
+fn addon(id: &str, url: &str, version: &str, catalog: &str) -> Addon {
+    let manifest = Manifest::parse(&format!(
+        r#"{{
+            "id": {id:?},
+            "name": "Example {id}",
+            "version": {version:?},
+            "resources": ["catalog", {{ "name": "meta", "types": ["movie"], "idPrefixes": ["tt"] }}],
+            "types": ["movie", "series"],
+            "catalogs": [{{ "type": "movie", "id": {catalog:?}, "name": "Top" }}]
+        }}"#
+    ))
+    .unwrap_or_else(|error| panic!("the fixture manifest should parse: {error}"));
+
+    Addon::new(
+        ManifestUrl::parse(url).unwrap_or_else(|error| panic!("{url} is a URL: {error}")),
+        manifest,
+    )
 }
 
 fn store() -> SqliteStore {
@@ -159,5 +179,180 @@ fn a_database_that_cannot_be_opened_is_a_store_error() {
     assert!(
         matches!(open, Err(StoreError::Prepare { .. })),
         "a database that will not open is reported, not panicked on"
+    );
+}
+
+#[test]
+fn no_addons_configured_reads_back_as_none() {
+    assert_eq!(store().read_addons(), Ok(Vec::new()));
+}
+
+#[test]
+fn an_addon_round_trips_through_the_store() {
+    let store = store();
+    let written = vec![
+        addon(
+            "org.example.first",
+            "https://first.example.com/manifest.json",
+            "1.0.0",
+            "top",
+        ),
+        addon(
+            "org.example.second",
+            "https://second.example.com/manifest.json",
+            "2.0.0",
+            "popular",
+        ),
+    ];
+
+    store
+        .write_addons(&written)
+        .expect("the store takes Addons");
+
+    assert_eq!(store.read_addons(), Ok(written));
+}
+
+#[test]
+fn addons_come_back_in_the_order_they_were_configured() {
+    let store = store();
+    let first = addon(
+        "org.example.first",
+        "https://first.example.com/manifest.json",
+        "1.0.0",
+        "top",
+    );
+    let second = addon(
+        "org.example.second",
+        "https://second.example.com/manifest.json",
+        "1.0.0",
+        "top",
+    );
+
+    store
+        .write_addons(&[first.clone(), second.clone()])
+        .expect("the store takes Addons");
+    store
+        .write_addons(&[second.clone(), first.clone()])
+        .expect("the store takes the order it is given");
+
+    assert_eq!(store.read_addons(), Ok(vec![second, first]));
+}
+
+#[test]
+fn writing_addons_again_replaces_the_ones_before_them() {
+    let store = store();
+    store
+        .write_addons(&[addon(
+            "org.example.first",
+            "https://first.example.com/manifest.json",
+            "1.0.0",
+            "top",
+        )])
+        .expect("the store takes an Addon");
+
+    store
+        .write_addons(&[addon(
+            "org.example.second",
+            "https://second.example.com/manifest.json",
+            "1.0.0",
+            "popular",
+        )])
+        .expect("the store takes a replacement");
+
+    let replaced = store.read_addons().expect("the Addons read back");
+    assert_eq!(
+        replaced
+            .iter()
+            .map(|addon| addon.id().as_str())
+            .collect::<Vec<_>>(),
+        vec!["org.example.second"],
+        "the Addon that was not written again is not there any more"
+    );
+    store
+        .write_addons(&[])
+        .expect("the store takes an empty list");
+    assert_eq!(store.read_addons(), Ok(Vec::new()));
+}
+
+#[test]
+fn a_stored_manifest_that_is_unusable_is_reported_and_not_a_panic() {
+    let (_directory, path) = store_on_disk();
+    let store = SqliteStore::open(&path).expect("the store opens");
+    store
+        .write_addons(&[addon(
+            "org.example.first",
+            "https://first.example.com/manifest.json",
+            "1.0.0",
+            "top",
+        )])
+        .expect("the store takes an Addon");
+    Connection::open(&path)
+        .expect("the database opens")
+        .execute("UPDATE addons SET manifest = 'not json at all'", [])
+        .expect("the stored manifest is made unusable");
+
+    let read = store.read_addons();
+
+    let error = read.expect_err("an unusable stored manifest is a read failure, not a crash");
+    assert!(
+        matches!(error, StoreError::Read { .. }),
+        "it is reported as a read failure: {error:?}"
+    );
+    assert!(
+        !error.to_string().contains("first.example.com"),
+        "an Addon's URL is not repeated into a message that may be logged: {error:?}"
+    );
+}
+
+#[test]
+fn a_stored_addon_url_that_is_not_a_url_is_reported_and_not_a_panic() {
+    let (_directory, path) = store_on_disk();
+    let store = SqliteStore::open(&path).expect("the store opens");
+    store
+        .write_addons(&[addon(
+            "org.example.first",
+            "https://first.example.com/manifest.json",
+            "1.0.0",
+            "top",
+        )])
+        .expect("the store takes an Addon");
+    Connection::open(&path)
+        .expect("the database opens")
+        .execute("UPDATE addons SET url = 'not a url'", [])
+        .expect("the stored URL is made unusable");
+
+    let read = store.read_addons();
+
+    assert!(
+        matches!(read, Err(StoreError::Read { .. })),
+        "an unusable stored URL is a read failure, not a crash: {read:?}"
+    );
+}
+
+#[test]
+fn a_stored_addon_id_that_is_not_an_id_is_reported_and_not_a_panic() {
+    let (_directory, path) = store_on_disk();
+    let store = SqliteStore::open(&path).expect("the store opens");
+    store
+        .write_addons(&[addon(
+            "org.example.first",
+            "https://first.example.com/manifest.json",
+            "1.0.0",
+            "top",
+        )])
+        .expect("the store takes an Addon");
+    Connection::open(&path)
+        .expect("the database opens")
+        .execute(
+            "UPDATE addons SET manifest = replace(manifest, 'org.example.first', 'not an id')",
+            [],
+        )
+        .expect("the stored id is made unusable");
+
+    let read = store.read_addons();
+
+    assert!(
+        matches!(read, Err(StoreError::Read { .. })),
+        "an id the parser would refuse is refused however it arrives: {read:?}"
     );
 }

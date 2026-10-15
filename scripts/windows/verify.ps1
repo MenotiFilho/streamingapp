@@ -201,17 +201,23 @@ function Shows($app, $name, $seconds = 8) {
 function Set-Language($app, $tag) {
     # 'Prefer a language tag' is both the label and the input's accessible name,
     # so ask for the editable one.
-    $edit = Find-Element (Window-Root $app) 'Prefer a language tag' ([Windows.Automation.ControlType]::Edit)
-    if (-not $edit) { throw "the window shows no 'Prefer a language tag' field" }
+    Type-Into $app 'Prefer a language tag' $tag
+    Press $app 'Save'
+}
+
+# Fill a field by its accessible name. Chromium exposes the value pattern, so the
+# text is set rather than typed; SendKeys is the fallback for when it does not.
+function Type-Into($app, $name, $value) {
+    $edit = Find-Element (Window-Root $app) $name ([Windows.Automation.ControlType]::Edit)
+    if (-not $edit) { throw "the window shows no '$name' field" }
     $pattern = $null
     if ($edit.TryGetCurrentPattern([Windows.Automation.ValuePattern]::Pattern, [ref]$pattern)) {
-        $pattern.SetValue($tag)
+        $pattern.SetValue($value)
     } else {
         $edit.SetFocus()
-        [Windows.Forms.SendKeys]::SendWait($tag)
+        [Windows.Forms.SendKeys]::SendWait($value)
     }
     Start-Sleep -Milliseconds 300
-    Press $app 'Save'
 }
 
 function Press($app, $label) {
@@ -290,7 +296,50 @@ Check 'clearing it moved the revision on' (
 
 Stop-Host $restarted
 
-'--- 7. the data directory'
+'--- 7. configuring an Addon by manifest URL'
+$app = Start-Host
+Focus $app
+Start-Sleep -Seconds 2
+Shot $app '07-addons-empty.png'
+$text = Wait-Text $app 'No Addons are configured'
+Check 'a fresh Host has no Addons' ($text -match 'No Addons are configured') "showed: $text"
+
+Type-Into $app 'Addon manifest URL' 'https://v3-cinemeta.strem.io/manifest.json'
+Press $app 'Add'
+$text = Wait-Text $app 'Cinemeta' 25
+Shot $app '08-addon-added.png'
+Check 'the Addon is listed by its name' ($text -match 'Cinemeta') "showed: $text"
+Check 'the Addon is listed by the id in its manifest' ($text -match 'com\.linvo\.cinemeta') "showed: $text"
+Check 'the resources it offers are listed' (($text -match 'catalog') -and ($text -match 'meta')) "showed: $text"
+Check 'the types it covers are listed' ($text -match 'series') "showed: $text"
+Check 'its catalogs are listed' ($text -match 'Popular') "showed: $text"
+
+'--- 8. a URL that is not an Addon is refused without losing the Addon that works'
+Type-Into $app 'Addon manifest URL' 'https://example.com/'
+Press $app 'Add'
+$text = Wait-Text $app "could not read that Addon's manifest" 25
+Shot $app '09-addon-refused.png'
+Check 'the refusal is explained' ($text -match "could not read that Addon's manifest") "showed: $text"
+Check 'the Addon that was working is still listed' ($text -match 'Cinemeta') "showed: $text"
+
+'--- 9. the Addon survives a restart'
+Stop-Host $app
+$app = Start-Host
+Focus $app
+Start-Sleep -Seconds 2
+Shot $app '10-addon-restarted.png'
+$text = Wait-Text $app 'Cinemeta' 25
+Check 'the restarted Host still has the Addon' ($text -match 'Cinemeta') "showed: $text"
+
+'--- 10. removing the Addon'
+Press $app 'Remove Cinemeta'
+$text = Wait-Text $app 'No Addons are configured' 20
+Shot $app '11-addon-removed.png'
+Check 'the Addon is gone' ($text -match 'No Addons are configured') "showed: $text"
+
+Stop-Host $app
+
+'--- 11. the data directory'
 if (Test-Path $dataDir) {
     Get-ChildItem $dataDir | ForEach-Object { "  $($_.Name)  $($_.Length) bytes" }
 } else { Check 'the data directory exists' $false $dataDir }
