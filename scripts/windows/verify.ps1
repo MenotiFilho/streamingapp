@@ -16,13 +16,21 @@
 # tree), so each step is asserted rather than eyeballed, and screenshotted so a
 # person can see it too. This is a by-hand walkthrough, not a test suite: it is
 # run deliberately, never in CI.
+#
+# The window is placed on `-Monitor` (1-based, left to right) and filled to that
+# monitor's working area, so the run does not disturb whatever else is on screen
+# and the screenshots show the Host rather than whatever has the foreground:
+#
+#   ... -Monitor 3
 param(
     [Parameter(Mandatory)][string] $Tree,
     [string] $Evidence,
     [string] $Addon = 'https://v3-cinemeta.strem.io/manifest.json',
     [string] $AddonName = 'Cinemeta',
     [string] $AddonId = 'com.linvo.cinemeta',
-    [string] $AddonCatalog = 'Popular'
+    [string] $AddonCatalog = 'Popular',
+    [string] $SearchQuery = 'matrix',
+    [int] $Monitor = 1
 )
 
 $ErrorActionPreference = 'Stop'
@@ -45,6 +53,13 @@ public class W {
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
   [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr w, IntPtr l);
+  [DllImport("user32.dll")] public static extern bool MoveWindow(IntPtr hWnd, int x, int y, int w, int ht, bool repaint);
+
+  // Put the window on one monitor and fill its working area, so a run does not
+  // sit on top of whatever else the machine is doing.
+  public static void Place(IntPtr h, int x, int y, int w, int ht) {
+    MoveWindow(h, x, y, w, ht, true);
+  }
 
   // The process owns several top-level windows - the single-instance instance
   // window and tao's event target are 16x16 and equally "main" - so wait for the
@@ -117,6 +132,9 @@ function Start-Host($seconds = 45) {
         $handle = [W]::HostWindow([uint32]$process.Id, 90000)
         if ($handle -ne [IntPtr]::Zero) {
             Start-Sleep -Seconds 2
+            $area = (Screen-For $Monitor).WorkingArea
+            [W]::Place($handle, $area.X, $area.Y, $area.Width, $area.Height)
+            Start-Sleep -Seconds 1
             return @{ Process = $process; Handle = $handle }
         }
         Start-Sleep -Milliseconds 500
@@ -124,6 +142,16 @@ function Start-Host($seconds = 45) {
     'windows the Host owns, if any:'
     [W]::All([uint32]$process.Id) | ForEach-Object { "  $_" }
     throw 'the Host never opened a window'
+}
+
+# The monitor the walkthrough runs on, 1-based and numbered left to right, which
+# is what a person means by "the third one".
+function Screen-For($index) {
+    $screens = @([Windows.Forms.Screen]::AllScreens | Sort-Object { $_.Bounds.X })
+    if ($index -lt 1 -or $index -gt $screens.Count) {
+        throw "there is no monitor $index; this machine has $($screens.Count)"
+    }
+    return $screens[$index - 1]
 }
 
 # A window close, so the Host exits the way a person leaves it and its log writer
@@ -141,9 +169,7 @@ function Stop-Host($app) {
 function Focus($app) {
     [W]::SetForegroundWindow($app.Handle) | Out-Null
     Start-Sleep -Milliseconds 700
-    if ([W]::GetForegroundWindow() -ne $app.Handle) {
-        'note: the Host window did not take the foreground; UI Automation reads it anyway'
-    }
+    return [W]::GetForegroundWindow() -eq $app.Handle
 }
 
 function Shot($app, $name) {
@@ -210,11 +236,47 @@ function Shows($app, $name, $seconds = 8) {
     (Find-Element (Window-Root $app) $name $null $seconds) -ne $null
 }
 
+# The window is React over Chromium: give it a moment to *stop* saying something.
+function Wait-No-Text($app, $pattern, $seconds = 30) {
+    $deadline = (Get-Date).AddSeconds($seconds)
+    $text = ''
+    while ((Get-Date) -lt $deadline) {
+        $text = Page-Text $app
+        if ($text -notmatch $pattern) { return $text }
+        Start-Sleep -Milliseconds 500
+    }
+    return $text
+}
+
+# A key press on the focused window, for the mouse-less path.
+# A key press on the focused window, for the mouse-less path. SendKeys goes to
+# whatever has the foreground, so not having it is a failure rather than a note:
+# sending the keys elsewhere and then asserting on the Host would be a lie.
+function Press-Keys($app, $keys) {
+    if (-not (Focus $app)) { throw 'the keyboard steps need the Host in the foreground' }
+    [Windows.Forms.SendKeys]::SendWait($keys)
+    Start-Sleep -Milliseconds 600
+}
+
+# Put the keyboard focus on a control by its accessible name, so a key press
+# starts from a place the script knows rather than wherever focus happened to be.
+function Focus-On($app, $name, $controlType) {
+    $element = Find-Element (Window-Root $app) $name $controlType 10
+    if (-not $element) { throw "the window shows no '$name' to focus" }
+    $element.SetFocus()
+    Start-Sleep -Milliseconds 400
+}
+
 function Set-Language($app, $tag) {
     # 'Prefer a language tag' is both the label and the input's accessible name,
     # so ask for the editable one.
     Type-Into $app 'Prefer a language tag' $tag
     Press $app 'Save'
+}
+
+function Set-Search($app, $query) {
+    Type-Into $app 'Search the Addons that offer it' $query
+    Press $app 'Search'
 }
 
 # Fill a field by its accessible name. Chromium exposes the value pattern, so the
@@ -351,15 +413,87 @@ $text = Wait-Text $app ([regex]::Escape($AddonId)) 25
 Check 'the restarted Host still has the Addon' (
     $text -match [regex]::Escape($AddonId)) "showed: $text"
 
-'--- 10. removing the Addon'
+'--- 10. the home surface draws a row for each catalog the Addon offers'
+# A moment, so the window is certainly in its loading state and the wait below is
+# waiting for rows rather than for the effect that asks for them to start.
+Start-Sleep -Seconds 2
+$text = Wait-No-Text $app 'Loading' 45
+Shot $app '10-catalog-rows.png'
+Check 'the rows stopped loading' (
+    -not ($text -match 'Loading')) "showed: $text"
+Check 'a row is drawn for the Addon catalog' (
+    $text -match [regex]::Escape($AddonCatalog)) "showed: $text"
+Check 'the window says how many Addons are configured' (
+    $text -match 'Addons? configured') "showed: $text"
+Check 'the manifest URL is still nowhere in the window' (
+    $text -notmatch [regex]::Escape($Addon)) "showed: $text"
+# The posters are images the window loads from the Addon, and UI Automation does
+# not expose them, so the screenshot is the evidence a person reads here.
+'review 10-catalog-rows.png: each row should show poster images, not empty frames'
+$revision = ([regex]::Match($text, 'Snapshot revision\s*\|\s*(\d+)')).Groups[1].Value
+
+'--- 11. the keyboard reaches a card, and OK chooses it'
+# The window's own words for a chosen Title, rather than the bare word
+# "Selected": an Addon's synopsis could say that.
+Check 'nothing was chosen yet' (
+    $text -notmatch 'arrives in #24') "showed: $text"
+# From the search box: down past the Search button, onto the first card. The
+# focus is put there first rather than assumed.
+Focus-On $app 'Search the Addons that offer it' ([Windows.Automation.ControlType]::Edit)
+Press-Keys $app '{DOWN}{DOWN}'
+Press-Keys $app '{ENTER}'
+$text = Wait-Text $app 'arrives in #24' 10
+Shot $app '11-chosen.png'
+Check 'the arrow keys reached a card and OK chose it' (
+    $text -match 'arrives in #24') "showed: $text"
+
+'--- 12. paging a row is not a change: the revision stands still'
+$more = Find-Element (Window-Root $app) ('More from ' + $AddonCatalog) ([Windows.Automation.ControlType]::Button) 10
+if ($more) {
+    $more.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Start-Sleep -Seconds 3
+    $text = Wait-No-Text $app 'Loading' 30
+    Shot $app '12-paged.png'
+    Check 'the row paged on without emptying' (
+        $text -match [regex]::Escape($AddonCatalog)) "showed: $text"
+    Check 'paging is a question, not a change: the revision stands still' (
+        $text -match ('Snapshot revision\s*\|\s*' + $revision)) "showed: $text"
+} else {
+    Check 'the Addon catalog offers a way to page on' $false 'no More button'
+}
+
+'--- 13. searching asks every Addon that offers it'
+Set-Search $app $SearchQuery
+$text = Wait-Text $app 'Back to browsing' 30
+Shot $app '13-search.png'
+Check 'the search surface is showing' (
+    $text -match 'Back to browsing') "showed: $text"
+Check 'the search did not move the revision either' (
+    $text -match ('Snapshot revision\s*\|\s*' + $revision)) "showed: $text"
+'review 13-search.png: the results should be a row of posters, or a clear "no Addon answered"'
+
+'--- 14. Back returns to browsing, from the keyboard'
+# Escape is Back, so the whole of "arrows, OK and Back" is walked without the
+# mouse at least once (the mouse still works everywhere else in this run).
+Press-Keys $app '{ESC}'
+$text = Wait-Text $app ([regex]::Escape($AddonCatalog)) 25
+Shot $app '14-back.png'
+Check 'Back returns to the rows' (
+    $text -match [regex]::Escape($AddonCatalog)) "showed: $text"
+Check 'and the search surface is gone' (
+    $text -notmatch 'Back to browsing') "showed: $text"
+
+'--- 15. removing the Addon'
 Press $app ('Remove ' + $AddonName)
 $text = Wait-Text $app 'No Addons are configured' 20
-Shot $app '11-addon-removed.png'
+Shot $app '15-addon-removed.png'
 Check 'the Addon is gone' ($text -match 'No Addons are configured') "showed: $text"
+Check 'and its rows are gone with it' (
+    -not ($text -match [regex]::Escape($AddonCatalog))) "showed: $text"
 
 Stop-Host $app
 
-'--- 11. the manifest URL never reaches the log'
+'--- 16. the manifest URL never reaches the log'
 # A manifest URL can carry a debrid configuration inside it, so the Host must
 # never write one down — and the route that matters is the real one, with the
 # Addon the owner actually uses.
@@ -371,7 +505,7 @@ Check 'the log never holds the manifest path either' (
     (Test-Path $log) -and
     -not (Select-String -Path $log -SimpleMatch $urlPath -Quiet)) 'host.log holds the manifest path'
 
-'--- 12. the data directory'
+'--- 17. the data directory'
 if (Test-Path $dataDir) {
     Get-ChildItem $dataDir | ForEach-Object { "  $($_.Name)  $($_.Length) bytes" }
 } else { Check 'the data directory exists' $false $dataDir }

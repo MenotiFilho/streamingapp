@@ -14,6 +14,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use url::Url;
 
+use crate::request::{Extra, ResourceRequest, CATALOG, SEARCH};
+
 /// The longest a manifest body may be before it is refused rather than parsed.
 pub const MAX_MANIFEST_BYTES: usize = 1024 * 1024;
 
@@ -184,10 +186,7 @@ pub struct Resource {
     pub id_prefixes: Option<Vec<String>>,
 }
 
-/// A catalog an Addon offers.
-///
-/// Its `extra` parameters — the search and paging and sort controls a client gets —
-/// are not read yet; the ticket that asks for them reads them (ADR-0009).
+/// A catalog an Addon offers, and the controls it takes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Catalog {
@@ -195,6 +194,136 @@ pub struct Catalog {
     pub r#type: String,
     pub id: String,
     pub name: String,
+    /// The `extra` parameters this catalog takes: `search`, `skip`, `genre`,
+    /// `date`, and whatever else the Addon declares. `#[serde(default)]` because
+    /// they arrived after the first Addons were stored (ADR-0009).
+    #[serde(default)]
+    pub extra: Vec<ExtraProp>,
+}
+
+/// One control a catalog takes, and how far it reaches.
+///
+/// The protocol also declares `optionsLimit` — how many values of this property
+/// one request may carry. It is not read, for the same reason the protocol's
+/// other fields this Host has no use for are not read (ADR-0009): nothing here
+/// builds a request carrying several values for one property yet, and reading a
+/// field nothing acts on is a promise this Host would not be keeping.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ExtraProp {
+    /// The name this property goes by in a request: `search`, `skip`, `genre`.
+    pub name: String,
+    /// Set when the catalog is only ever asked with this value — Stremio's
+    /// `isRequired`, which is required of any client, not only of Stremio.
+    pub is_required: bool,
+    /// The values the Addon offers, when it offers a fixed list — genres,
+    /// decades, sort orders.
+    pub options: Vec<String>,
+}
+
+impl ExtraProp {
+    /// A property with nothing declared but its name.
+    pub fn named(name: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            ..Self::default()
+        }
+    }
+
+    /// The same, required of every request.
+    pub fn required(mut self) -> Self {
+        self.is_required = true;
+        self
+    }
+
+    /// The same, offering these values to choose from.
+    pub fn offering(mut self, options: &[&str]) -> Self {
+        self.options = options.iter().map(|option| (*option).to_owned()).collect();
+        self
+    }
+}
+
+impl Catalog {
+    /// Whether this catalog takes exactly these chosen values and no less:
+    /// every value chosen is one it offers, and every value it requires was
+    /// chosen — the protocol's own rule, as Stremio's client applies it.
+    pub fn takes_extra(&self, chosen: &[Extra]) -> bool {
+        let offered = chosen
+            .iter()
+            .all(|chosen| self.extra.iter().any(|prop| prop.name == chosen.name));
+        let required = self
+            .extra
+            .iter()
+            .filter(|prop| prop.is_required)
+            .all(|prop| chosen.iter().any(|chosen| chosen.name == prop.name));
+
+        offered && required
+    }
+
+    /// These chosen values, with the ones this catalog requires and the client
+    /// left out filled in from the first value the catalog offers.
+    ///
+    /// The Host is the client of the addon protocol (ADR-0006), so the rule that
+    /// a required value has to be sent is the Host's to satisfy: a window should
+    /// not have to know that Cinemeta's `New` catalog needs `genre=2026` before
+    /// it can draw the row. A required value the catalog offers nothing to
+    /// choose for is left out, and the catalog then does not take the request —
+    /// [`takes_extra`](Self::takes_extra) says so and the Host says why.
+    pub fn with_defaults(&self, mut chosen: Vec<Extra>) -> Vec<Extra> {
+        for default in self.default_extra().unwrap_or_default() {
+            if !chosen.iter().any(|held| held.name == default.name) {
+                chosen.push(default);
+            }
+        }
+        chosen
+    }
+
+    /// What to ask this catalog for when the client chose nothing: the first
+    /// value offered for each property the catalog requires.
+    ///
+    /// `None` when a required property offers nothing to choose — such a catalog
+    /// cannot be asked for on its own at all.
+    pub fn default_extra(&self) -> Option<Vec<Extra>> {
+        self.required_defaults()
+    }
+
+    /// What to ask this catalog to search for `query`, or `None` when it offers
+    /// no search: the query, plus the first value of every other property it
+    /// requires.
+    pub fn search_extra(&self, query: &str) -> Option<Vec<Extra>> {
+        if !self.extra.iter().any(|prop| prop.name == SEARCH) {
+            return None;
+        }
+
+        // The query is this property's value, so it is not one that has to be
+        // defaulted — but every *other* required property still does have to be
+        // satisfied, and if one of them offers nothing to choose there is no
+        // search to make.
+        let mut extra = self
+            .extra
+            .iter()
+            .filter(|prop| prop.is_required && prop.name != SEARCH)
+            .map(|prop| {
+                prop.options
+                    .first()
+                    .map(|first| Extra::of(prop.name.as_str(), first.as_str()))
+            })
+            .collect::<Option<Vec<Extra>>>()?;
+        extra.push(Extra::of(SEARCH, query));
+        Some(extra)
+    }
+
+    fn required_defaults(&self) -> Option<Vec<Extra>> {
+        self.extra
+            .iter()
+            .filter(|prop| prop.is_required)
+            .map(|prop| {
+                prop.options
+                    .first()
+                    .map(|first| Extra::of(prop.name.as_str(), first.as_str()))
+            })
+            .collect()
+    }
 }
 
 /// What an Addon says about how it is to be configured.
@@ -296,6 +425,57 @@ impl Manifest {
             },
             behavior_hints: behavior_hints(object)?,
         })
+    }
+
+    /// The catalog this Addon declared with this type and id, if it declared
+    /// one. A catalog is reached through its own id, so both are needed and
+    /// neither is enough.
+    pub fn catalog(&self, r#type: &str, id: &str) -> Option<&Catalog> {
+        self.catalogs
+            .iter()
+            .find(|catalog| catalog.r#type == r#type && catalog.id == id)
+    }
+
+    /// Whether this Addon answers for this request.
+    ///
+    /// `catalog` is the special case the protocol asks about by name: an Addon is
+    /// asked for the catalogs it declares and only those, with the extras it
+    /// declared — the protocol's own note is that `idPrefixes` does not apply to
+    /// catalogs, since a catalog is reached through its id, not through a Title's.
+    ///
+    /// Every other resource is judged by the types it covers and the id prefixes
+    /// it reaches: a resource that declares no types reaches the manifest's own,
+    /// and one that declares no prefixes reaches every id. That is what keeps an
+    /// Addon from being asked about ids that are not its business, and it is the
+    /// rule #24 and #26 ask `meta` and `stream` with (ADR-0006, ADR-0010).
+    pub fn answers(&self, request: &ResourceRequest) -> bool {
+        if request.resource == CATALOG {
+            return self
+                .catalog(&request.r#type, &request.id)
+                .is_some_and(|catalog| catalog.takes_extra(&request.extra));
+        }
+
+        let Some(resource) = self
+            .resources
+            .iter()
+            .find(|resource| resource.name == request.resource)
+        else {
+            return false;
+        };
+
+        let types = resource.types.as_ref().unwrap_or(&self.types);
+        let type_supported = types.iter().any(|r#type| r#type == &request.r#type);
+        let id_supported = match &resource.id_prefixes {
+            None => true,
+            Some(prefixes) => {
+                prefixes.is_empty()
+                    || prefixes
+                        .iter()
+                        .any(|prefix| request.id.starts_with(prefix.as_str()))
+            }
+        };
+
+        type_supported && id_supported
     }
 }
 
@@ -454,10 +634,68 @@ fn catalogs(object: &Map<String, Value>) -> Result<Vec<Catalog>, ManifestError> 
                     // the least surprising thing to show in its place.
                     _ => id.clone(),
                 },
+                extra: catalog_extras(catalog, &path)?,
                 id,
             })
         })
         .collect()
+}
+
+/// The controls a catalog takes.
+///
+/// The protocol has two ways of saying it: the long form (`extra`, an array of
+/// `{ name, isRequired, options, optionsLimit }`) and the short one
+/// (`extraSupported` / `extraRequired`, arrays of names). Addons in the wild
+/// send one or the other, and Cinemeta sends both — the long form wins when it
+/// is there, because it is the one that carries the options.
+fn catalog_extras(
+    catalog: &Map<String, Value>,
+    path: &str,
+) -> Result<Vec<ExtraProp>, ManifestError> {
+    if let Some(value) = optional(catalog, &format!("{path}.extra")) {
+        return items(value, &format!("{path}.extra"), "an array")?
+            .iter()
+            .enumerate()
+            .map(|(index, item)| extra_prop(item, &format!("{path}.extra[{index}]")))
+            .collect();
+    }
+
+    let Some(supported) = optional_string_array(catalog, &format!("{path}.extraSupported"))? else {
+        return Ok(Vec::new());
+    };
+    let required =
+        optional_string_array(catalog, &format!("{path}.extraRequired"))?.unwrap_or_default();
+
+    Ok(supported
+        .into_iter()
+        .map(|name| {
+            let prop = ExtraProp::named(name);
+            if required.contains(&prop.name) {
+                prop.required()
+            } else {
+                prop
+            }
+        })
+        .collect())
+}
+
+/// One declared control: a name, and optionally whether it is required and what
+/// it offers. A property of a shape this Host cannot read is a lie about the
+/// manifest, so it is named like every other one.
+fn extra_prop(value: &Value, path: &str) -> Result<ExtraProp, ManifestError> {
+    let prop = value.as_object().ok_or_else(|| ManifestError::WrongType {
+        field: path.to_owned(),
+        expected: "an object describing an extra",
+    })?;
+
+    Ok(ExtraProp {
+        name: required_string(prop, &format!("{path}.name"))?,
+        is_required: optional_bool(prop, &format!("{path}.isRequired"))?,
+        options: match optional(prop, &format!("{path}.options")) {
+            None => Vec::new(),
+            Some(value) => string_array(value, &format!("{path}.options"))?,
+        },
+    })
 }
 
 fn behavior_hints(object: &Map<String, Value>) -> Result<BehaviorHints, ManifestError> {
@@ -1080,6 +1318,300 @@ mod tests {
                 "behaviorHints": { "configurable": false, "configurationRequired": false },
             }),
             "the wire shape is the declared one, camelCased for a JavaScript client"
+        );
+    }
+
+    /// A manifest body with one catalog taking these `extra` properties, written
+    /// the long way or the short one.
+    fn body_with_catalog_extras(extra: &str) -> String {
+        format!(
+            r#"{{ "id": "org.example.addon", "name": "Example", "version": "1.0.0",
+                  "resources": ["catalog"], "types": ["movie"],
+                  "catalogs": [{{ "type": "movie", "id": "top", "name": "Top", {extra} }}] }}"#
+        )
+    }
+
+    #[test]
+    fn a_catalogs_controls_are_read_in_the_long_form() {
+        let manifest = parsed(&body_with_catalog_extras(
+            r#""extra": [
+                { "name": "search", "isRequired": true },
+                { "name": "genre", "options": ["Action", "Comedy"], "optionsLimit": 2 },
+                { "name": "skip" }
+            ]"#,
+        ));
+
+        assert_eq!(
+            manifest.catalogs[0].extra,
+            vec![
+                ExtraProp::named("search").required(),
+                ExtraProp::named("genre").offering(&["Action", "Comedy"]),
+                ExtraProp::named("skip"),
+            ],
+            "a control is read with what it offers and whether it is required"
+        );
+    }
+
+    #[test]
+    fn a_catalogs_controls_are_read_in_the_short_form_too() {
+        let manifest = parsed(&body_with_catalog_extras(
+            r#""extraSupported": ["search", "skip"], "extraRequired": ["search"]"#,
+        ));
+
+        assert_eq!(
+            manifest.catalogs[0].extra,
+            vec![
+                ExtraProp::named("search").required(),
+                ExtraProp::named("skip"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_catalog_that_says_it_both_ways_is_read_the_way_that_carries_the_options() {
+        let manifest = parsed(&body_with_catalog_extras(
+            r#""extra": [{ "name": "genre", "options": ["Action"] }],
+                "extraSupported": ["genre", "skip"]"#,
+        ));
+
+        assert_eq!(
+            manifest.catalogs[0].extra,
+            vec![ExtraProp::named("genre").offering(&["Action"])],
+            "the short form cannot carry options, so the long one wins when it is there"
+        );
+    }
+
+    #[test]
+    fn a_control_of_the_wrong_shape_is_named_by_where_it_sits() {
+        for (extra, named, expected) in [
+            (
+                r#""extra": [7]"#,
+                "catalogs[0].extra[0]",
+                "an object describing an extra",
+            ),
+            (
+                r#""extra": [{ "name": "genre", "options": "Action" }]"#,
+                "catalogs[0].extra[0].options",
+                "an array of strings",
+            ),
+            (
+                r#""extra": [{ "name": "genre", "isRequired": "yes" }]"#,
+                "catalogs[0].extra[0].isRequired",
+                "true or false",
+            ),
+        ] {
+            assert_eq!(
+                refused(&body_with_catalog_extras(extra)),
+                ManifestError::WrongType {
+                    field: named.to_owned(),
+                    expected,
+                },
+                "the control {extra} names {named}"
+            );
+        }
+
+        assert_eq!(
+            refused(&body_with_catalog_extras(
+                r#""extra": [{ "isRequired": true }]"#
+            )),
+            ManifestError::Missing {
+                field: "catalogs[0].extra[0].name".to_owned()
+            },
+            "an extra is named even when all that is missing is its name"
+        );
+    }
+
+    #[test]
+    fn a_catalog_takes_the_values_it_offers_and_the_ones_it_requires() {
+        let catalog = Catalog {
+            r#type: "movie".to_owned(),
+            id: "top".to_owned(),
+            name: "Top".to_owned(),
+            extra: vec![
+                ExtraProp::named("search").required(),
+                ExtraProp::named("skip"),
+            ],
+        };
+
+        assert!(
+            catalog.takes_extra(&[Extra::of("search", "matrix")]),
+            "the required value is there"
+        );
+        assert!(
+            catalog.takes_extra(&[Extra::of("search", "matrix"), Extra::of("skip", "100")]),
+            "and an optional one may come along"
+        );
+        assert!(
+            !catalog.takes_extra(&[Extra::of("skip", "100")]),
+            "a required value that is missing is not taken"
+        );
+        assert!(
+            !catalog.takes_extra(&[Extra::of("search", "matrix"), Extra::of("sort", "new")]),
+            "a value the catalog never declared is not taken"
+        );
+    }
+
+    #[test]
+    fn a_catalog_that_requires_a_value_offering_none_cannot_be_asked_for_on_its_own() {
+        let askable = parsed(&body_with_catalog_extras(
+            r#""extra": [{ "name": "skip" }]"#,
+        ));
+        let not_askable = parsed(&body_with_catalog_extras(
+            r#""extra": [{ "name": "lastVideosIds", "isRequired": true }]"#,
+        ));
+
+        assert_eq!(askable.catalogs[0].default_extra(), Some(Vec::new()));
+        assert_eq!(
+            not_askable.catalogs[0].default_extra(),
+            None,
+            "a catalog with nothing to choose from is not a row"
+        );
+    }
+
+    #[test]
+    fn the_values_a_client_chose_stand_and_the_rest_are_filled_in() {
+        let manifest = parsed(&body_with_catalog_extras(
+            r#""extra": [{ "name": "genre", "options": ["Action", "Comedy"], "isRequired": true },
+                          { "name": "skip" }]"#,
+        ));
+        let catalog = &manifest.catalogs[0];
+
+        assert_eq!(
+            catalog.with_defaults(vec![Extra::of("skip", "100")]),
+            vec![Extra::of("skip", "100"), Extra::of("genre", "Action")],
+            "what the client chose stands, and what it left out is filled in"
+        );
+        assert_eq!(
+            catalog.with_defaults(vec![Extra::of("genre", "Comedy")]),
+            vec![Extra::of("genre", "Comedy")],
+            "a value the client chose is not replaced by the default"
+        );
+    }
+
+    #[test]
+    fn asking_a_catalog_for_itself_fills_in_the_values_it_requires() {
+        let manifest = parsed(&body_with_catalog_extras(
+            r#""extra": [{ "name": "genre", "options": ["Action", "Comedy"], "isRequired": true },
+                          { "name": "skip" }]"#,
+        ));
+
+        assert_eq!(
+            manifest.catalogs[0].default_extra(),
+            Some(vec![Extra::of("genre", "Action")]),
+            "the first value offered is the one to start from"
+        );
+    }
+
+    #[test]
+    fn searching_a_catalog_carries_the_query_and_the_other_values_it_requires() {
+        let manifest = parsed(&body_with_catalog_extras(
+            r#""extra": [{ "name": "search", "isRequired": true },
+                          { "name": "genre", "options": ["Action"], "isRequired": true }]"#,
+        ));
+
+        assert_eq!(
+            manifest.catalogs[0].search_extra("matrix"),
+            Some(vec![
+                Extra::of("genre", "Action"),
+                Extra::of("search", "matrix"),
+            ]),
+            "the query takes the place of the search property's default"
+        );
+
+        let unsearchable = parsed(&body_with_catalog_extras(
+            r#""extra": [{ "name": "skip" }]"#,
+        ));
+        assert_eq!(
+            unsearchable.catalogs[0].search_extra("matrix"),
+            None,
+            "a catalog that offers no search is not asked to search"
+        );
+    }
+
+    #[test]
+    fn a_resource_is_asked_only_for_the_types_and_prefixes_it_reaches() {
+        let manifest = parsed(
+            r#"{
+                "id": "org.example.addon",
+                "name": "Example",
+                "version": "1.0.0",
+                "resources": [
+                    "catalog",
+                    { "name": "meta", "types": ["movie"], "idPrefixes": ["tt"] },
+                    { "name": "stream", "types": ["movie", "series"] }
+                ],
+                "types": ["movie", "series"],
+                "catalogs": [{ "type": "movie", "id": "top", "name": "Top" }]
+            }"#,
+        );
+
+        let asked = |resource: &str, r#type: &str, id: &str| {
+            manifest.answers(&ResourceRequest::new(resource, r#type, id))
+        };
+
+        assert!(
+            asked("meta", "movie", "tt0111161"),
+            "the type and the prefix are both covered"
+        );
+        assert!(
+            !asked("meta", "movie", "kitsu:42"),
+            "an id the Addon never said it reaches is not its business"
+        );
+        assert!(
+            !asked("meta", "series", "tt0903747"),
+            "nor is a type it never named"
+        );
+        assert!(
+            asked("stream", "movie", "kitsu:42"),
+            "a resource that names no prefixes reaches every id"
+        );
+        assert!(
+            !asked("subtitles", "movie", "tt0111161"),
+            "a resource the Addon never declared is never asked for"
+        );
+    }
+
+    #[test]
+    fn a_resource_that_names_an_empty_list_of_prefixes_reaches_every_id() {
+        // The protocol says so in as many words, and Stremio's client implements it.
+        let manifest = parsed(
+            r#"{ "id": "org.example.addon", "name": "Example", "version": "1.0.0",
+                 "resources": ["catalog", { "name": "meta", "types": ["movie"], "idPrefixes": [] }],
+                 "types": ["movie"], "catalogs": [] }"#,
+        );
+
+        assert!(manifest.answers(&ResourceRequest::new("meta", "movie", "anything")));
+    }
+
+    #[test]
+    fn a_resource_that_names_no_types_reaches_the_manifests_own() {
+        // The short form says exactly that, and a stored manifest cannot tell the
+        // two forms apart — so an untyped resource reaches what the Addon says it
+        // covers rather than nothing at all.
+        let manifest = parsed(
+            r#"{ "id": "org.example.addon", "name": "Example", "version": "1.0.0",
+                 "resources": ["catalog", { "name": "meta" }],
+                 "types": ["movie"], "catalogs": [] }"#,
+        );
+
+        assert!(manifest.answers(&ResourceRequest::new("meta", "movie", "tt1")));
+        assert!(!manifest.answers(&ResourceRequest::new("meta", "series", "tt1")));
+    }
+
+    #[test]
+    fn a_catalog_is_asked_for_by_the_id_it_declared_and_not_by_its_prefixes() {
+        // `idPrefixes` is not a catalog's rule: a catalog is reached through its
+        // own id, and the protocol says the filtering does not apply.
+        let manifest = parsed(
+            r#"{ "id": "org.example.addon", "name": "Example", "version": "1.0.0",
+                 "resources": ["catalog"], "types": ["movie"], "idPrefixes": ["tt"],
+                 "catalogs": [{ "type": "movie", "id": "top", "name": "Top" }] }"#,
+        );
+
+        assert!(manifest.answers(&ResourceRequest::new("catalog", "movie", "top")));
+        assert!(
+            !manifest.answers(&ResourceRequest::new("catalog", "movie", "tt0111161")),
+            "a catalog that was never declared is not one to ask for, whatever the prefixes say"
         );
     }
 }

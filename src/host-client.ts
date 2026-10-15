@@ -45,6 +45,59 @@ export type AddonCatalog = {
   type: string;
   id: string;
   name: string;
+  extra: CatalogExtra[];
+};
+
+/**
+ * One control a catalog takes — `search`, `skip`, `genre` — and what it offers.
+ * Mirrors `ExtraProp` in `host-core`.
+ */
+export type CatalogExtra = {
+  name: string;
+  isRequired: boolean;
+  options: string[];
+  optionsLimit: number;
+};
+
+/** One value a client chose about a catalog request: `skip=100`, `search=matrix`. */
+export type Extra = { name: string; value: string };
+
+/** One item in a catalog row. Mirrors `MetaPreview` in `host-core`. */
+export type MetaPreview = {
+  id: string;
+  type: string;
+  name: string;
+  poster: string | null;
+  posterShape: string | null;
+  releaseInfo: string | null;
+  imdbRating: string | null;
+  genres: string[];
+  description: string | null;
+};
+
+/**
+ * One catalog's answer, on its way to the client that asked for it. Mirrors
+ * `CatalogRow` in `host-core`; `failure` says why an Addon did not answer, so one
+ * Addon failing does not blank another's row, and `sent` is how many items the
+ * Addon put in the page — a client pages on by that, not by what it holds.
+ */
+export type CatalogRow = {
+  addon: string;
+  type: string;
+  id: string;
+  name: string;
+  sent: number;
+  metas: MetaPreview[];
+  failure: ActionError | null;
+};
+
+/**
+ * What taking an Action produced. Mirrors `Response` in `host-core`: the
+ * Snapshots every client is owed, and the answer only the client that asked gets.
+ */
+export type Response = {
+  snapshots: Snapshot[];
+  answer: { catalogs: CatalogRow[] } | null;
 };
 
 /** What a client can ask the Host to do. Mirrors `Action` in `host-core`. */
@@ -52,7 +105,14 @@ export type Action =
   | { type: "set_subtitle_language"; language: string }
   | { type: "clear_subtitle_language" }
   | { type: "add_addon"; url: string }
-  | { type: "remove_addon"; id: string };
+  | { type: "remove_addon"; id: string }
+  | {
+      type: "browse_catalog";
+      addon: string;
+      catalog: { type: string; id: string };
+      extra: Extra[];
+    }
+  | { type: "search_catalogs"; query: string };
 
 /**
  * The failures the Host itself reports. Mirrors the variants of `ActionError` in
@@ -64,9 +124,14 @@ export const HOST_ERROR_KINDS = [
   "invalid_subtitle_language",
   "invalid_manifest_url",
   "invalid_addon_id",
+  "invalid_catalog_ref",
   "manifest",
   "fetch",
   "unknown_addon",
+  "unknown_catalog",
+  "extra",
+  "query",
+  "catalog",
   "store",
 ] as const;
 
@@ -82,6 +147,10 @@ export type ActionError = {
   language?: string;
   url?: string;
   id?: string;
+  addon?: string;
+  which?: string;
+  value?: string;
+  catalog?: { type: string; id: string };
 };
 
 /** Whatever a failed call threw, as something the window can explain. */
@@ -111,12 +180,22 @@ export function explain(error: ActionError): string {
       return `${JSON.stringify(error.url)} is not a manifest URL — paste the address of an Addon's manifest.json, like "https://example.com/manifest.json".`;
     case "invalid_addon_id":
       return `${JSON.stringify(error.id)} is not an Addon id.`;
+    case "invalid_catalog_ref":
+      return `${JSON.stringify(error.value)} is not a catalog ${error.which}.`;
     case "manifest":
       return `The Host could not read that Addon's manifest${error.detail ? `: ${error.detail}` : ""}.`;
     case "fetch":
       return `The Host could not fetch that Addon${error.detail ? `: ${error.detail}` : ""}.`;
     case "unknown_addon":
       return `No Addon with the id ${JSON.stringify(error.id)} is configured.`;
+    case "unknown_catalog":
+      return `The Addon ${JSON.stringify(error.addon)} offers no catalog ${error.catalog?.type ?? "?"}/${error.catalog?.id ?? "?"}.`;
+    case "extra":
+      return error.detail ?? "The Host will not ask for that catalog with those values.";
+    case "query":
+      return error.detail ?? "The Host will not search for that.";
+    case "catalog":
+      return `The Host could not read that Addon's catalog${error.detail ? `: ${error.detail}` : ""}.`;
     case "store":
       return `The Host could not save that change${error.detail ? `: ${error.detail}` : ""}.`;
     case "unreachable":
@@ -155,9 +234,9 @@ export class HostClient {
     return this.transport.invoke<Snapshot>("snapshot");
   }
 
-  /** Take an Action through the one door. */
-  async dispatch(action: Action): Promise<void> {
-    await this.transport.invoke("dispatch", {
+  /** Take an Action through the one door, and get back what came of it. */
+  async dispatch(action: Action): Promise<Response> {
+    return this.transport.invoke<Response>("dispatch", {
       envelope: { version: ACTION_VERSION, action },
     });
   }

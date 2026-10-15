@@ -35,6 +35,11 @@ impl State {
         self.addons.iter().any(|addon| addon.id() == id)
     }
 
+    /// The configured Addon with this id.
+    pub(crate) fn addon(&self, id: &AddonId) -> Option<&Addon> {
+        self.addons.iter().find(|addon| addon.id() == id)
+    }
+
     /// Take one change, and say which part of the store it left behind.
     ///
     /// Pure: no I/O, and nothing to fail — the I/O an Action needed was done

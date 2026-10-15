@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::addon::{AddonId, InvalidAddonId, InvalidManifestUrl, ManifestUrl};
+use crate::addon::{AddonId, InvalidAddonId, InvalidManifestUrl, ManifestUrl, MAX_STRING_LEN};
 use crate::preferences::{InvalidSubtitleLanguage, SubtitleLanguage};
+use crate::request::{CatalogRef, Extra, InvalidCatalogRef, MAX_EXTRAS};
 
 /// The version of the Action wire form this Host speaks.
 ///
@@ -32,6 +33,22 @@ pub enum Action {
     AddAddon { url: String },
     /// Take the Addon with this manifest id out of the Host's configuration.
     RemoveAddon { id: String },
+    /// Show a page of one Addon's catalog, in the Addon's own order.
+    ///
+    /// A question rather than a change: it asks what the Addon has, and what
+    /// comes back goes to the client that asked and to no one else (ADR-0005).
+    BrowseCatalog {
+        /// The Addon to ask, by the id its manifest gave.
+        addon: String,
+        /// The catalog to ask for, by the type and id its manifest gave.
+        catalog: CatalogRef,
+        /// The values the client chose: `skip` to page on, `genre` to filter,
+        /// and whatever else this catalog declared.
+        #[serde(default)]
+        extra: Vec<Extra>,
+    },
+    /// Search every configured Addon whose catalogs offer search.
+    SearchCatalogs { query: String },
 }
 
 impl Action {
@@ -91,8 +108,65 @@ impl Action {
                 let id = AddonId::parse(&id)?;
                 Ok(ValidatedAction::RemoveAddon(id))
             }
+            Action::BrowseCatalog {
+                addon,
+                catalog,
+                extra,
+            } => {
+                let addon = AddonId::parse(&addon)?;
+                let catalog = CatalogRef::parse(&catalog.r#type, &catalog.id)?;
+                let extra = extras(extra)?;
+                Ok(ValidatedAction::BrowseCatalog {
+                    addon,
+                    catalog,
+                    extra,
+                })
+            }
+            Action::SearchCatalogs { query } => {
+                let query = search_query(&query)?;
+                Ok(ValidatedAction::SearchCatalogs { query })
+            }
         }
     }
+}
+
+/// The values a client chose, each judged on its own.
+///
+/// A client sends a list of names and values; this is what says the list is of a
+/// size the Host will put in a URL and that every name and value is something it
+/// will send.
+fn extras(extra: Vec<Extra>) -> Result<Vec<Extra>, ActionError> {
+    if extra.len() > MAX_EXTRAS {
+        return Err(ActionError::Extra {
+            detail: format!("an Action carries at most {MAX_EXTRAS} extra values"),
+        });
+    }
+
+    extra
+        .into_iter()
+        .map(|extra| {
+            Extra::parse(&extra.name, &extra.value).map_err(|error| ActionError::Extra {
+                detail: error.to_string(),
+            })
+        })
+        .collect()
+}
+
+/// A search query, trimmed of the space a person leaves around it.
+fn search_query(raw: &str) -> Result<String, ActionError> {
+    let query = raw.trim();
+    let refused = || ActionError::Query {
+        detail: format!("{raw:?} is not something this Host will search for"),
+    };
+
+    if query.is_empty() || query.len() > MAX_STRING_LEN {
+        return Err(refused());
+    }
+    if query.chars().any(char::is_control) {
+        return Err(refused());
+    }
+
+    Ok(query.to_owned())
 }
 
 /// An Action that has passed validation, carrying its payload in its domain type.
@@ -106,6 +180,14 @@ pub enum ValidatedAction {
     ClearSubtitleLanguage,
     AddAddon(ManifestUrl),
     RemoveAddon(AddonId),
+    BrowseCatalog {
+        addon: AddonId,
+        catalog: CatalogRef,
+        extra: Vec<Extra>,
+    },
+    SearchCatalogs {
+        query: String,
+    },
 }
 
 /// The wire form of an Action: a version and the Action.
@@ -131,12 +213,22 @@ pub enum ActionError {
     InvalidManifestUrl(#[from] InvalidManifestUrl),
     #[error("{0}")]
     InvalidAddonId(#[from] InvalidAddonId),
+    #[error("{0}")]
+    InvalidCatalogRef(#[from] InvalidCatalogRef),
     #[error("the Addon's manifest could not be read: {detail}")]
     Manifest { detail: String },
     #[error("{detail}")]
     Fetch { detail: String },
     #[error("no Addon with the id {id:?} is configured")]
     UnknownAddon { id: String },
+    #[error("the Addon {addon} offers no catalog {catalog}")]
+    UnknownCatalog { addon: AddonId, catalog: CatalogRef },
+    #[error("{detail}")]
+    Extra { detail: String },
+    #[error("{detail}")]
+    Query { detail: String },
+    #[error("the Addon's catalog could not be read: {detail}")]
+    Catalog { detail: String },
     #[error("the Host could not keep that change: {detail}")]
     Store { detail: String },
 }
@@ -167,5 +259,111 @@ mod tests {
             value,
             serde_json::json!({"type": "clear_subtitle_language"})
         );
+    }
+
+    #[test]
+    fn a_catalog_is_named_inside_the_action_rather_than_beside_its_own_type() {
+        // An Action already has a `type`. A second one beside it would be the
+        // same JSON key twice, and which one won would be serde's business
+        // rather than the Host's.
+        let value = serde_json::to_value(Action::BrowseCatalog {
+            addon: "community.stremboxd".to_owned(),
+            catalog: CatalogRef::parse("movie", "letterboxd-popular")
+                .expect("a catalog a manifest could declare"),
+            extra: vec![Extra::of("skip", "100")],
+        })
+        .expect("an Action serializes");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "type": "browse_catalog",
+                "addon": "community.stremboxd",
+                "catalog": { "type": "movie", "id": "letterboxd-popular" },
+                "extra": [{ "name": "skip", "value": "100" }],
+            })
+        );
+    }
+
+    #[test]
+    fn an_action_that_asks_for_a_catalog_is_validated_before_it_is_asked_for() {
+        assert!(matches!(
+            Action::BrowseCatalog {
+                addon: "not an id at all".to_owned(),
+                catalog: CatalogRef::parse("movie", "top").expect("a catalog"),
+                extra: Vec::new(),
+            }
+            .validate(),
+            Err(ActionError::InvalidAddonId(_))
+        ));
+        assert!(matches!(
+            Action::BrowseCatalog {
+                addon: "community.example".to_owned(),
+                catalog: CatalogRef {
+                    r#type: "mov ie".to_owned(),
+                    id: "top".to_owned()
+                },
+                extra: Vec::new(),
+            }
+            .validate(),
+            Err(ActionError::InvalidCatalogRef(_))
+        ));
+        assert!(matches!(
+            Action::BrowseCatalog {
+                addon: "community.example".to_owned(),
+                catalog: CatalogRef::parse("movie", "top").expect("a catalog"),
+                extra: vec![Extra::of("not a name", "x")],
+            }
+            .validate(),
+            Err(ActionError::Extra { .. })
+        ));
+    }
+
+    #[test]
+    fn a_search_query_is_trimmed_before_it_is_searched_for() {
+        let validated = Action::SearchCatalogs {
+            query: "  the matrix  ".to_owned(),
+        }
+        .validate();
+
+        assert_eq!(
+            validated,
+            Ok(ValidatedAction::SearchCatalogs {
+                query: "the matrix".to_owned()
+            })
+        );
+    }
+
+    #[test]
+    fn a_search_for_nothing_is_refused_rather_than_searched_for() {
+        for query in ["", "   ", "\n", &"a".repeat(MAX_STRING_LEN + 1)] {
+            assert!(
+                matches!(
+                    Action::SearchCatalogs {
+                        query: query.to_owned()
+                    }
+                    .validate(),
+                    Err(ActionError::Query { .. })
+                ),
+                "{query:?} is not something to search for"
+            );
+        }
+    }
+
+    #[test]
+    fn an_action_carrying_more_values_than_the_host_will_send_is_refused() {
+        let extra = (0..=MAX_EXTRAS)
+            .map(|index| Extra::of(format!("extra{index}"), "value"))
+            .collect();
+
+        assert!(matches!(
+            Action::BrowseCatalog {
+                addon: "community.example".to_owned(),
+                catalog: CatalogRef::parse("movie", "top").expect("a catalog"),
+                extra,
+            }
+            .validate(),
+            Err(ActionError::Extra { .. })
+        ));
     }
 }

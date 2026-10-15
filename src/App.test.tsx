@@ -6,6 +6,8 @@ import {
   HostClient,
   type Action,
   type AddonManifest,
+  type MetaPreview,
+  type Response,
   type Snapshot,
   type Transport,
 } from "./host-client";
@@ -28,20 +30,76 @@ const ADDON: AddonManifest = {
     { name: "meta", types: ["movie"], idPrefixes: ["tt"] },
   ],
   types: ["movie"],
-  catalogs: [{ type: "movie", id: "letterboxd-popular", name: "Popular This Week" }],
+  catalogs: [
+    {
+      type: "movie",
+      id: "letterboxd-popular",
+      name: "Popular This Week",
+      extra: [
+        { name: "genre", isRequired: false, options: ["Action"], optionsLimit: 1 },
+        { name: "skip", isRequired: false, options: [], optionsLimit: 1 },
+      ],
+    },
+    {
+      type: "movie",
+      id: "letterboxd-search",
+      name: "Search Letterboxd",
+      extra: [{ name: "search", isRequired: true, options: [], optionsLimit: 1 }],
+    },
+    {
+      type: "series",
+      id: "letterboxd-year",
+      name: "By year",
+      extra: [{ name: "genre", isRequired: true, options: ["2026"], optionsLimit: 1 }],
+    },
+  ],
   idPrefixes: [],
   behaviorHints: { configurable: false, configurationRequired: false },
 };
+
+/** One item in a row, as the Host would publish it. */
+function meta(id: string, name: string, description: string | null = null): MetaPreview {
+  return {
+    id,
+    type: "movie",
+    name,
+    poster: `https://example.com/${id}.jpg`,
+    posterShape: null,
+    releaseInfo: "1999",
+    imdbRating: null,
+    genres: [],
+    description,
+  };
+}
+
+/** The pages the fake Host answers a `letterboxd-popular` browse with. */
+const POPULAR_PAGES = [
+  [
+    meta("tt0133093", "The Matrix"),
+    meta(
+      "tt0234215",
+      "The Matrix Reloaded",
+      "📄 The.Matrix.Reloaded.2003.2160p.WEB-DL • 📦 47.21 GB",
+    ),
+  ],
+  [meta("tt10838180", "The Matrix Resurrections")],
+];
 
 /**
  * A Host standing in for the real one: it holds the state, applies Actions the
  * way `host-core` does, and publishes a Snapshot for each change. The window
  * under test cannot tell the difference, which is the point.
+ *
+ * Catalog questions are answered too, from pages this fake holds: paging returns
+ * the next page, and a search answers with one row.
  */
-function fakeHost(options: { initial?: Snapshot; refuse?: unknown } = {}) {
+function fakeHost(
+  options: { initial?: Snapshot; refuse?: unknown; failing?: string } = {},
+) {
   let state = options.initial ?? NOTHING_SAID;
   const invocations: Invocation[] = [];
   const listeners = new Set<(event: { payload: Snapshot }) => void>();
+  const asked: string[] = [];
 
   const publish = (next: Snapshot) => {
     state = next;
@@ -62,6 +120,8 @@ function fakeHost(options: { initial?: Snapshot; refuse?: unknown } = {}) {
       throw options.refuse;
     }
     const { action } = args?.envelope as { action: Action };
+    const response: Response = { snapshots: [], answer: null };
+
     switch (action.type) {
       case "set_subtitle_language":
         publish({
@@ -69,6 +129,7 @@ function fakeHost(options: { initial?: Snapshot; refuse?: unknown } = {}) {
           revision: state.revision + 1,
           preferences: { subtitleLanguage: action.language },
         });
+        response.snapshots = [state];
         break;
       case "clear_subtitle_language":
         publish({
@@ -76,6 +137,7 @@ function fakeHost(options: { initial?: Snapshot; refuse?: unknown } = {}) {
           revision: state.revision + 1,
           preferences: { subtitleLanguage: null },
         });
+        response.snapshots = [state];
         break;
       case "add_addon":
         publish({
@@ -83,6 +145,7 @@ function fakeHost(options: { initial?: Snapshot; refuse?: unknown } = {}) {
           revision: state.revision + 1,
           addons: [...state.addons, ADDON],
         });
+        response.snapshots = [state];
         break;
       case "remove_addon":
         publish({
@@ -90,9 +153,63 @@ function fakeHost(options: { initial?: Snapshot; refuse?: unknown } = {}) {
           revision: state.revision + 1,
           addons: state.addons.filter((addon) => addon.id !== action.id),
         });
+        response.snapshots = [state];
+        break;
+      case "browse_catalog": {
+        const skip = Number(action.extra.find((extra) => extra.name === "skip")?.value ?? 0);
+        const catalog = ADDON.catalogs.find(
+          (held) => held.id === action.catalog.id && held.type === action.catalog.type,
+        );
+        asked.push(`${action.addon}/${action.catalog.type}/${action.catalog.id}`);
+        if (!catalog) {
+          throw { kind: "unknown_catalog", addon: action.addon, catalog: action.catalog };
+        }
+        if (catalog.extra.some((prop) => prop.isRequired && prop.options.length === 0)) {
+          // The Host's own rule: a catalog that requires a value its Addon
+          // offers nothing to default to cannot be asked for on its own.
+          throw {
+            kind: "extra",
+            detail: `the catalog ${action.catalog.type}/${action.catalog.id} needs a value its Addon offers no default for`,
+          };
+        }
+
+        const pages = catalog.id === "letterboxd-popular" ? POPULAR_PAGES : [];
+        const page = pages[skip === 0 ? 0 : 1] ?? [];
+        const failed = options.failing === catalog.id;
+        response.answer = {
+          catalogs: [
+            {
+              addon: action.addon,
+              type: action.catalog.type,
+              id: action.catalog.id,
+              name: catalog.name,
+              sent: page.length,
+              metas: failed ? [] : page,
+              failure: failed
+                ? { kind: "fetch", detail: "the Addon answered with status 503" }
+                : null,
+            },
+          ],
+        };
+        break;
+      }
+      case "search_catalogs":
+        response.answer = {
+          catalogs: [
+            {
+              addon: ADDON.id,
+              type: "movie",
+              id: "letterboxd-search",
+              name: "Search Letterboxd",
+              sent: 1,
+              metas: [meta("tt0133093", `Found ${action.query}`)],
+              failure: null,
+            },
+          ],
+        };
         break;
     }
-    return undefined as unknown as T;
+    return response as unknown as T;
   };
 
   const transport: Transport = {
@@ -107,7 +224,7 @@ function fakeHost(options: { initial?: Snapshot; refuse?: unknown } = {}) {
     },
   };
 
-  return { transport, invocations, publish };
+  return { transport, invocations, publish, asked };
 }
 
 function windowOver(transport: Transport) {
@@ -118,10 +235,13 @@ function shownLanguage() {
   return screen.getByTestId("subtitle-language").textContent;
 }
 
-function dispatched(invocations: Invocation[]): Invocation {
-  const call = invocations.find(({ command }) => command === "dispatch");
+function dispatched(invocations: Invocation[], type: Action["type"]): Invocation {
+  const call = invocations.find(
+    ({ command, args }) =>
+      command === "dispatch" && (args?.envelope as { action: Action }).action.type === type,
+  );
   if (!call) {
-    throw new Error(`no Action was taken: ${JSON.stringify(invocations)}`);
+    throw new Error(`no ${type} Action was taken: ${JSON.stringify(invocations)}`);
   }
   return call;
 }
@@ -158,7 +278,7 @@ test("saving a language takes a versioned Action through the Host", async () => 
   fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
   await waitFor(() => expect(shownLanguage()).toBe("pt-BR"));
-  expect(dispatched(host.invocations)).toEqual({
+  expect(dispatched(host.invocations, "set_subtitle_language")).toEqual({
     command: "dispatch",
     args: {
       envelope: {
@@ -182,7 +302,7 @@ test("clearing the preference takes the clear Action", async () => {
   await waitFor(() =>
     expect(shownLanguage()).toBe("none — the Host picks per Video"),
   );
-  expect(dispatched(host.invocations).args).toEqual({
+  expect(dispatched(host.invocations, "clear_subtitle_language").args).toEqual({
     envelope: { version: 1, action: { type: "clear_subtitle_language" } },
   });
   expect(screen.getByLabelText("Prefer a language tag")).toHaveValue("");
@@ -307,7 +427,7 @@ test("adding an Addon takes a versioned Action carrying the pasted URL", async (
   await waitFor(() =>
     expect(screen.getByTestId("addon-community.stremboxd")).toBeInTheDocument(),
   );
-  expect(dispatched(host.invocations)).toEqual({
+  expect(dispatched(host.invocations, "add_addon")).toEqual({
     command: "dispatch",
     args: {
       envelope: {
@@ -336,7 +456,7 @@ test("removing an Addon takes the id the Snapshot published", async () => {
   fireEvent.click(screen.getByRole("button", { name: "Remove Stremboxd" }));
 
   await waitFor(() => expect(screen.getByTestId("addons-empty")).toBeInTheDocument());
-  expect(dispatched(host.invocations).args).toEqual({
+  expect(dispatched(host.invocations, "remove_addon").args).toEqual({
     envelope: { version: 1, action: { type: "remove_addon", id: "community.stremboxd" } },
   });
 });
@@ -381,4 +501,264 @@ test("a URL that is not a manifest URL is explained with what it should look lik
       '"not a url" is not a manifest URL',
     ),
   );
+});
+
+test("the window draws a row of posters for each catalog the Addon can be asked for", async () => {
+  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+
+  windowOver(host.transport);
+
+  const row = await screen.findByTestId("row-community.stremboxd-movie-letterboxd-popular");
+  expect(row).toHaveTextContent("Popular This Week");
+  const cards = row.querySelectorAll(".card");
+  expect(Array.from(cards).map((card) => card.textContent)).toEqual([
+    "The Matrix1999",
+    "The Matrix Reloaded1999📄 The.Matrix.Reloaded.2003.2160p.WEB-DL • 📦 47.21 GB",
+  ]);
+  expect(row.querySelector("img")).toHaveAttribute("src", "https://example.com/tt0133093.jpg");
+});
+
+test("the window asks the Host for every catalog an Addon declares", async () => {
+  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+
+  windowOver(host.transport);
+
+  await screen.findByTestId("row-community.stremboxd-movie-letterboxd-popular");
+  await screen.findByTestId("row-community.stremboxd-series-letterboxd-year");
+
+  const browsed = host.invocations
+    .filter(({ command }) => command === "dispatch")
+    .map(({ args }) => (args?.envelope as { action: Action }).action)
+    .filter((action) => action.type === "browse_catalog");
+  expect(browsed).toEqual([
+    {
+      type: "browse_catalog",
+      addon: "community.stremboxd",
+      catalog: { type: "movie", id: "letterboxd-popular" },
+      extra: [],
+    },
+    {
+      type: "browse_catalog",
+      addon: "community.stremboxd",
+      catalog: { type: "movie", id: "letterboxd-search" },
+      extra: [],
+    },
+    {
+      type: "browse_catalog",
+      addon: "community.stremboxd",
+      catalog: { type: "series", id: "letterboxd-year" },
+      extra: [],
+    },
+  ]);
+});
+
+test("a catalog the Host will not answer on its own is not drawn, and the others are", async () => {
+  // The window does not decide which catalogs are browsable: it asks about every
+  // one the Addon declares, and a catalog the Host refuses is simply not a row
+  // (ADR-0010).
+  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+
+  windowOver(host.transport);
+
+  await screen.findByTestId("row-community.stremboxd-movie-letterboxd-popular");
+  expect(
+    screen.queryByTestId("row-community.stremboxd-movie-letterboxd-search"),
+  ).not.toBeInTheDocument();
+  expect(
+    screen.getByTestId("row-community.stremboxd-series-letterboxd-year"),
+  ).toBeInTheDocument();
+  expect(
+    screen.queryByRole("alert"),
+    "a catalog the Host will not answer is not something to shout about",
+  ).not.toBeInTheDocument();
+});
+
+test("a catalog with more items than one page can be paged through", async () => {
+  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+  windowOver(host.transport);
+  await screen.findByTestId("row-community.stremboxd-movie-letterboxd-popular");
+  expect(screen.queryByText("The Matrix Resurrections")).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "More from Popular This Week" }));
+
+  await waitFor(() => expect(screen.getByText("The Matrix Resurrections")).toBeInTheDocument());
+  expect(screen.getByText("The Matrix")).toBeInTheDocument();
+  expect(host.invocations).toContainEqual({
+    command: "dispatch",
+    args: {
+      envelope: {
+        version: 1,
+        action: {
+          type: "browse_catalog",
+          addon: "community.stremboxd",
+          catalog: { type: "movie", id: "letterboxd-popular" },
+          // The first page brought two items, so the next page starts after them.
+          extra: [{ name: "skip", value: "2" }],
+        },
+      },
+    },
+  });
+});
+
+test("searching asks the Host and shows what every Addon answered with", async () => {
+  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+  windowOver(host.transport);
+  await screen.findByTestId("row-community.stremboxd-movie-letterboxd-popular");
+
+  fireEvent.change(screen.getByLabelText("Search the Addons that offer it"), {
+    target: { value: "  matrix  " },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Search" }));
+
+  await waitFor(() => expect(screen.getByText("Found matrix")).toBeInTheDocument());
+  expect(dispatched(host.invocations, "search_catalogs").args).toEqual({
+    envelope: { version: 1, action: { type: "search_catalogs", query: "matrix" } },
+  });
+  expect(
+    screen.queryByTestId("row-community.stremboxd-movie-letterboxd-popular"),
+  ).not.toBeInTheDocument();
+});
+
+test("going back from a search returns to the rows", async () => {
+  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+  windowOver(host.transport);
+  await screen.findByTestId("row-community.stremboxd-movie-letterboxd-popular");
+  fireEvent.change(screen.getByLabelText("Search the Addons that offer it"), {
+    target: { value: "matrix" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Search" }));
+  await screen.findByText("Found matrix");
+
+  fireEvent.keyDown(document, { key: "Escape" });
+
+  await waitFor(() =>
+    expect(screen.getByTestId("row-community.stremboxd-movie-letterboxd-popular")).toBeInTheDocument(),
+  );
+  expect(screen.queryByText("Found matrix")).not.toBeInTheDocument();
+  expect(screen.getByLabelText("Search the Addons that offer it")).toHaveValue("");
+});
+
+test("the window is drivable with the arrow keys, with something always focused", async () => {
+  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+  windowOver(host.transport);
+  await screen.findByTestId("row-community.stremboxd-movie-letterboxd-popular");
+
+  const search = screen.getByLabelText("Search the Addons that offer it");
+  expect(document.activeElement).toBe(search);
+
+  fireEvent.keyDown(document, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Search" }));
+
+  fireEvent.keyDown(document, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(screen.getByTestId("card-tt0133093"));
+
+  fireEvent.keyDown(document, { key: "ArrowLeft" });
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Search" }));
+
+  fireEvent.keyDown(document, { key: "ArrowUp" });
+  expect(document.activeElement).toBe(search);
+});
+
+test("choosing a card says what was chosen, which is where #24 opens it", async () => {
+  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+  windowOver(host.transport);
+  await screen.findByTestId("card-tt0133093");
+
+  fireEvent.click(screen.getByTestId("card-tt0133093"));
+
+  expect(screen.getByTestId("chosen")).toHaveTextContent("Selected The Matrix (1999)");
+});
+
+test("a row whose Addon did not answer says so without blanking the other rows", async () => {
+  const host = fakeHost({
+    initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] },
+    failing: "letterboxd-popular",
+  });
+
+  windowOver(host.transport);
+
+  const failed = await screen.findByTestId("row-community.stremboxd-movie-letterboxd-popular");
+  await waitFor(() =>
+    expect(failed.querySelector('[role="alert"]')).toHaveTextContent(
+      "could not fetch that Addon",
+    ),
+  );
+  expect(screen.getByTestId("row-community.stremboxd-series-letterboxd-year")).toBeInTheDocument();
+});
+
+test("the arrows leave the caret alone while a person is typing a search", async () => {
+  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+  windowOver(host.transport);
+  await screen.findByTestId("row-community.stremboxd-movie-letterboxd-popular");
+
+  const search = screen.getByLabelText("Search the Addons that offer it");
+  search.focus();
+  fireEvent.change(search, { target: { value: "matrix" } });
+
+  fireEvent.keyDown(document, { key: "ArrowLeft" });
+  expect(document.activeElement).toBe(search);
+  fireEvent.keyDown(document, { key: "ArrowRight" });
+  expect(
+    document.activeElement,
+    "a typo in the box is the caret's business, not the focus order's",
+  ).toBe(search);
+
+  fireEvent.keyDown(document, { key: "ArrowDown" });
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: "Search" }));
+});
+
+test("focus is put back when the control it was on goes away", async () => {
+  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+  windowOver(host.transport);
+  await screen.findByTestId("row-community.stremboxd-movie-letterboxd-popular");
+  fireEvent.change(screen.getByLabelText("Search the Addons that offer it"), {
+    target: { value: "matrix" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Search" }));
+  const back = await screen.findByRole("button", { name: "Back to browsing" });
+  back.focus();
+
+  fireEvent.click(back);
+
+  await waitFor(() => expect(document.activeElement).not.toBe(document.body));
+  expect(
+    document.activeElement,
+    "the focus ring is somewhere a person can see it",
+  ).toBe(screen.getByLabelText("Search the Addons that offer it"));
+});
+
+test("a row whose Addon failed keeps its way to ask again", async () => {
+  const host = fakeHost({
+    initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] },
+    failing: "letterboxd-popular",
+  });
+  windowOver(host.transport);
+
+  await screen.findByTestId("row-community.stremboxd-movie-letterboxd-popular");
+
+  expect(
+    screen.getByRole("button", { name: "More from Popular This Week" }),
+    "an Addon that went down and came back is retried, not stranded",
+  ).toBeInTheDocument();
+});
+
+test("a card shows what the Addon said about the item, which is how two releases are told apart", async () => {
+  // A catalog of releases gives every entry one poster and one title, and puts
+  // the filename — the only thing that tells two of them apart — in the
+  // description. It is drawn, clamped, with the whole of it on the tooltip.
+  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+
+  windowOver(host.transport);
+
+  const card = await screen.findByTestId("card-tt0234215");
+  expect(card).toHaveTextContent("The Matrix Reloaded");
+  expect(card).toHaveTextContent("The.Matrix.Reloaded.2003.2160p.WEB-DL");
+  expect(card.querySelector(".card-note")).toHaveAttribute(
+    "title",
+    "📄 The.Matrix.Reloaded.2003.2160p.WEB-DL • 📦 47.21 GB",
+  );
+  expect(
+    screen.getByTestId("card-tt0133093").querySelector(".card-note"),
+    "an item the Addon said nothing about is given no caption",
+  ).not.toBeInTheDocument();
 });

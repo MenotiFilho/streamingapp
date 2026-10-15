@@ -77,3 +77,9 @@ Fetcher panics on an unrecorded URL, so a unit test that accidentally wants the
 network fails loudly instead of flaking; and a manifest that is malformed, hostile,
 or answers with a web page is a typed `ActionError` variant the window can explain,
 not a panic.
+
+**Corrected later:** this ADR lists the SDK's cache hints (`cacheMaxAge`,
+`staleRevalidate`, `staleError`) among the manifest fields the Host does not read.
+They are not manifest fields — the SDK serves them on the *resource response*.
+Ticket #23 reads them there; see ADR-0010.
+

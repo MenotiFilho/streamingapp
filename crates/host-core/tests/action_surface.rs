@@ -37,13 +37,20 @@ fn subtitle_language(snapshot: &Snapshot) -> Option<&str> {
         .map(SubtitleLanguage::as_str)
 }
 
+/// The Snapshots an Action published.
+fn published(host: &mut Host, action: Action) -> Vec<Snapshot> {
+    host.dispatch(action)
+        .unwrap_or_else(|error| panic!("the Action should have been taken: {error}"))
+        .snapshots
+}
+
 fn set_subtitle_language(host: &mut Host, language: &str) -> Vec<Snapshot> {
-    host.dispatch(action(&format!(
-        r#"{{"type":"set_subtitle_language","language":"{language}"}}"#
-    )))
-    .unwrap_or_else(|error| {
-        panic!("setting the subtitle language to {language} should work: {error}")
-    })
+    published(
+        host,
+        action(&format!(
+            r#"{{"type":"set_subtitle_language","language":"{language}"}}"#
+        )),
+    )
 }
 
 #[test]
@@ -83,7 +90,8 @@ fn clearing_the_subtitle_language_publishes_a_snapshot_without_one() {
 
     let published = host
         .dispatch(action(r#"{"type":"clear_subtitle_language"}"#))
-        .expect("clearing the subtitle language should work");
+        .expect("clearing the subtitle language should work")
+        .snapshots;
 
     assert_eq!(subtitle_language(&published[0]), None);
 }
@@ -192,8 +200,8 @@ fn a_subtitle_language_that_is_not_a_language_tag_is_rejected() {
     ));
 
     assert_eq!(
-        rejected,
-        Err(ActionError::InvalidSubtitleLanguage(
+        rejected.err(),
+        Some(ActionError::InvalidSubtitleLanguage(
             host_core::InvalidSubtitleLanguage {
                 language: "Brazilian Portuguese".to_owned(),
             }

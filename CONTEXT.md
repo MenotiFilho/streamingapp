@@ -45,6 +45,26 @@ An Addon's own description of itself: the id it answers to, its name and version
 the resources and types it covers, and the catalogs it offers.
 _Avoid_: descriptor, metadata, document
 
+**Catalog**:
+One feed of Titles an Addon offers — a row a client browses — asked for by the
+type and id the Addon gave it, with the `extra` values it declared (`skip` to page
+on, `search` to search, `genre` to filter).
+_Avoid_: feed, list, collection
+
+**Meta preview**:
+One item in a Row, as the addon protocol carries it: the id, name, poster, year
+and description a card is drawn from, before opening it makes a Title. The
+protocol's own word for a catalog item; the wire field is `metas`.
+_Avoid_: meta (unqualified), item
+
+**Row**:
+One Catalog's answer, as the Host sends it to the client that asked for it: the
+items, and why there are none when the Addon did not answer. A client keeps its
+own accumulated row — what it has paged to and where it has read to — and that is
+never shared state.
+_Avoid_: page, results
+
+
 **Provider**:
 The Host's internal seam for turning a Video into playable candidates. The
 Stremio addon protocol is one Provider; direct integrations (local files,

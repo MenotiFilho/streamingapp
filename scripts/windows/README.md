@@ -9,6 +9,26 @@ run the same way twice:
 - `verify.ps1` — run on Windows: walks the window's manual checklist, asserting
   through UI Automation and screenshots each step into `evidence\`.
 
+The checklist covers the whole window: the preference and the Action surface, the
+Addon by its manifest URL, and — from ticket #23 — the home surface's catalog rows,
+paging one, searching, going Back, and the same controls reached with the arrow
+keys and OK rather than the mouse. For the steps that depend on what a third-party
+Addon happens to serve — that the posters are drawn, that a search returns
+something — the assertion is structural (the rows stopped saying `Loading`, the
+search surface is showing, the revision did not move) and the screenshot is the
+evidence a person reads.
+
+The window is placed on `-Monitor` (1-based, numbered left to right) and filled to
+that monitor's working area, so a run on a multi-monitor machine does not sit on
+top of whatever else is being used and the screenshots show the Host rather than
+whatever has the foreground. **Use the leftmost monitor (`-Monitor 1`)** — the
+keyboard steps take the foreground away from whoever is typing, so a run anywhere
+else interrupts them:
+
+```sh
+... -File 'C:\...\scripts\windows\verify.ps1' -Tree 'C:\...' -Monitor 1
+```
+
 This is a **by-hand walkthrough, not a test suite**. The spec's testing decision
 stands: windowed behaviour is covered by manual checklists rather than GUI
 automation in the build, so these scripts are run deliberately, never in CI.
@@ -80,6 +100,10 @@ Screenshots, the assertion report and the log tail land in
 - **Close the Host, don't kill it, when you want its log tail.** The log writer is
   asynchronous and flushes on exit; `Stop-Process -Force` skips that. `verify.ps1`
   sends a window close and only falls back to killing.
+- **The keyboard steps send real keys to the focused window**, so the run needs the
+  Host in the foreground: `verify.ps1` calls `SetForegroundWindow` first and says so
+  when it does not take. `{DOWN}` past the search box and onto a poster, `{ENTER}` to
+  choose it — the same as a TV remote would.
 
 ## Windows will not have
 

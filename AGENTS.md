@@ -38,8 +38,14 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass \
   -Tree 'C:\Users\<you>\streamingapp-verify'
 powershell.exe -NoProfile -ExecutionPolicy Bypass \
   -File 'C:\Users\<you>\streamingapp-verify\scripts\windows\verify.ps1' \
-  -Tree 'C:\Users\<you>\streamingapp-verify'
+  -Tree 'C:\Users\<you>\streamingapp-verify' -Monitor 1
 ```
+
+**Open the window on the leftmost monitor** — `-Monitor 1`, and monitors are
+numbered left to right. The machine is in use while a walkthrough runs: on any
+other monitor the keyboard steps take the foreground away from whoever is typing,
+and the screenshots capture whatever is in front rather than the Host. `verify.ps1`
+fills the chosen monitor's working area for the run.
 
 `verify.ps1` walks a windowed checklist, asserting through UI Automation and
 screenshotting each step into `<Tree>\evidence\` (read it from WSL as `/mnt/c/…`);

@@ -47,10 +47,12 @@ fn host_with_recorded_addons() -> (Host, Arc<InMemoryStore>, Arc<FixtureFetcher>
 
 fn add(host: &mut Host, url: &str) -> Result<Vec<Snapshot>, ActionError> {
     host.dispatch(action(&format!(r#"{{"type":"add_addon","url":{url:?}}}"#)))
+        .map(|response| response.snapshots)
 }
 
 fn remove(host: &mut Host, id: &str) -> Result<Vec<Snapshot>, ActionError> {
     host.dispatch(action(&format!(r#"{{"type":"remove_addon","id":{id:?}}}"#)))
+        .map(|response| response.snapshots)
 }
 
 fn added(host: &mut Host, url: &str) -> Vec<Snapshot> {

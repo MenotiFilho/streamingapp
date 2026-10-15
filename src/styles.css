@@ -11,7 +11,7 @@ body {
 }
 
 .window {
-  max-width: 42rem;
+  max-width: 72rem;
   margin: 0 auto;
   padding: 2.5rem 1.5rem 4rem;
 }
@@ -131,3 +131,99 @@ button:hover {
 .addon dd {
   margin: 0;
 }
+
+/* --- browsing ---------------------------------------------------------------- */
+
+.revision {
+  margin: 0.5rem 0 0;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  color: #767680;
+}
+
+/* Every control a remote can land on, and where it landed. */
+[data-focusable]:focus {
+  outline: 2px solid #7aa2f7;
+  outline-offset: 2px;
+}
+
+.row {
+  margin-top: 1.5rem;
+}
+
+.row h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.row .version {
+  font-size: 0.75rem;
+  font-weight: 400;
+  color: #767680;
+}
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+  gap: 0.75rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  width: 100%;
+  padding: 0;
+  border: 1px solid #26262e;
+  border-radius: 0.5rem;
+  background: #16161c;
+  text-align: left;
+  overflow: hidden;
+}
+
+.card img,
+.card .poster-missing {
+  display: block;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  background: #202027;
+}
+
+.card-name {
+  padding: 0 0.5rem;
+  font-size: 0.85rem;
+  line-height: 1.25;
+}
+
+.card-year {
+  padding: 0 0.5rem 0.5rem;
+  font-size: 0.75rem;
+  color: #9a9aa6;
+}
+
+.card-note {
+  padding: 0 0.5rem 0.5rem;
+  font-size: 0.7rem;
+  line-height: 1.3;
+  color: #767680;
+  overflow-wrap: anywhere;
+  /* What the Addon said about the item, as far as fits on the card: for a
+     catalog of releases this is the filename, which is how two of them are told
+     apart, and for a catalog of films it reads as a caption. Two lines holds the
+     distinguishing part of either; the whole of it is in the tooltip. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.card:hover {
+  background: #1d1d25;
+  border-color: #3a3a46;
+}
+

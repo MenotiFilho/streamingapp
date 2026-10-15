@@ -7,7 +7,7 @@
 
 use std::sync::Mutex;
 
-use host_core::{Action, ActionError, Host, Snapshot};
+use host_core::{Action, ActionError, Host, Response, Snapshot};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -38,27 +38,31 @@ pub fn snapshot(host: tauri::State<'_, HostHandle>) -> Snapshot {
         .snapshot()
 }
 
-/// Take an Action, and publish what changed.
+/// Take an Action, publish what changed, and answer the caller.
 ///
 /// The envelope arrives as raw JSON and is parsed by the Host's own surface, so a
 /// malformed one comes back in the Host's vocabulary (`malformed`,
 /// `unsupported_version`, …) rather than as an IPC deserialization error.
 ///
 /// This one runs off the main thread: taking an Action can mean fetching an
-/// Addon's manifest, and the window must not freeze on someone else's server. The
-/// Host is reached through the `AppHandle` rather than a borrowed `State`, because
-/// a command defined this way may not hold a borrow across the thread it runs on.
+/// Addon's manifest or a page of one of its catalogs, and the window must not
+/// freeze on someone else's server. The Host is reached through the `AppHandle`
+/// rather than a borrowed `State`, because a command defined this way may not
+/// hold a borrow across the thread it runs on.
+///
+/// The Snapshots go to every window; the answer is returned to the one that
+/// asked, because browsing is a client's own business (ADR-0005).
 #[tauri::command(async)]
-pub fn dispatch(app: AppHandle, envelope: Value) -> Result<(), ActionError> {
+pub fn dispatch(app: AppHandle, envelope: Value) -> Result<Response, ActionError> {
     let action: Action = Action::parse_value(&envelope)?;
     let host = app.state::<HostHandle>();
-    let published = host
+    let response = host
         .0
         .lock()
         .expect("nothing panics while holding the Host")
         .dispatch(action)?;
 
-    for snapshot in published {
+    for snapshot in &response.snapshots {
         tracing::info!(revision = snapshot.revision, "publishing a Snapshot");
         if let Err(error) = app.emit(SNAPSHOT_EVENT, snapshot) {
             // The window that asked may be closing, or reloading. There is nobody
@@ -67,5 +71,5 @@ pub fn dispatch(app: AppHandle, envelope: Value) -> Result<(), ActionError> {
         }
     }
 
-    Ok(())
+    Ok(response)
 }
