@@ -70,6 +70,15 @@ the obvious one). The parts a phone cannot be asked to prove — an unpaired
 connection reaching only the pairing exchange, and a revoked one being cut off —
 are driven over a real socket by `crates/host-wire/tests/wire.rs`.
 
+The announcement is the half of discovery a browser cannot use. To see the record
+the Host put out, from another machine on the same network: on Linux
+`avahi-browse -rt _streamingapp._tcp`, on macOS `dns-sd -B _streamingapp._tcp`
+(and `dns-sd -L <instance> _streamingapp._tcp` for its TXT record). Look for the
+instance named after the machine, on the port the window read out, with
+`version=1` beside it. Nothing needs it to connect — the address does that — so a
+network where mDNS is blocked just means typing the address, which is what step 25
+does anyway.
+
 For the steps that depend on what a third-party Addon happens to serve — that
 the posters are drawn, that a search returns something, which candidates a
 Stream list holds — the assertion is structural (the rows stopped saying

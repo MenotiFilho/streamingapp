@@ -98,18 +98,46 @@ fn label() -> String {
     let raw = std::env::var("COMPUTERNAME")
         .or_else(|_| std::env::var("HOSTNAME"))
         .unwrap_or_else(|_| "streamingapp".to_owned());
+    label_of(&raw)
+}
 
-    // A DNS-SD instance name is mostly free, but a name that looks like a host
-    // name avoids asking every browser to guess: letters, digits and hyphens.
-    let label: String = raw
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect();
-    let label = label.trim_matches('-').to_owned();
+/// The same, from a name: a DNS-SD instance name is mostly free, but a name that
+/// looks like a host name avoids asking every browser to guess — letters, digits
+/// and hyphens, with runs of anything else collapsed to one hyphen.
+///
+/// Pure, so what the Host will call itself is a thing a test can hold.
+fn label_of(raw: &str) -> String {
+    let mut label = String::with_capacity(raw.len());
+    for c in raw.chars() {
+        let squashed = if c.is_ascii_alphanumeric() { c } else { '-' };
+        if squashed == '-' && label.ends_with('-') {
+            continue;
+        }
+        label.push(squashed);
+    }
+    let label = label.trim_matches('-');
 
     if label.is_empty() {
         "streamingapp".to_owned()
     } else {
-        label
+        label.to_owned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_machine_name_becomes_a_usable_network_label() {
+        assert_eq!(label_of("living-room"), "living-room");
+        assert_eq!(label_of("DESKTOP-4K7Q2M"), "DESKTOP-4K7Q2M");
+        assert_eq!(
+            label_of("Menoti's laptop (work)"),
+            "Menoti-s-laptop-work",
+            "a name a browser would have to guess at is squashed into one it will not"
+        );
+        assert_eq!(label_of("  ---  "), "streamingapp");
+        assert_eq!(label_of(""), "streamingapp");
     }
 }

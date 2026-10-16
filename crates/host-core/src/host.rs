@@ -177,9 +177,8 @@ impl Host {
     /// connection may speak is the adapter's question, and it is answered from
     /// the same state every Snapshot is built from. A token for a device that has
     /// been revoked matches nothing, which is what revocation means.
-    pub fn device(&self, token: &str) -> Option<DeviceSummary> {
-        let token = DeviceToken::parse(token).ok()?;
-        self.state.device_for(&token).map(|device| device.summary())
+    pub fn device(&self, token: &DeviceToken) -> Option<DeviceSummary> {
+        self.state.device_for(token).map(|device| device.summary())
     }
 
     /// Take an Action, and publish or answer what came of it.

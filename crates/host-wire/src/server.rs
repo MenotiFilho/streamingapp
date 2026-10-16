@@ -31,7 +31,8 @@ use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use host_core::{
-    Action, ActionError, Answer, ClientFrame, DeviceSummary, Response, ServerFrame, Snapshot,
+    Action, ActionError, Answer, ClientFrame, DeviceId, DeviceSummary, DeviceToken, Response,
+    ServerFrame, Snapshot,
 };
 use tungstenite::protocol::{Message, Role, WebSocket};
 
@@ -68,8 +69,10 @@ pub trait Surface: Send + Sync + 'static {
     fn dispatch(&self, action: Action) -> Result<Response, ActionError>;
 
     /// The device a presented token belongs to, or nothing: a token this Host
-    /// never issued, or one issued to a device that has been revoked.
-    fn device(&self, token: &str) -> Option<DeviceSummary>;
+    /// never issued, or one issued to a device that has been revoked. Asked at
+    /// the moment of every command and every push, because a revoke is a change
+    /// and a connection should not be believed about itself.
+    fn device(&self, token: &DeviceToken) -> Option<DeviceSummary>;
 
     /// The state as it stands — what a client that has just connected, or just
     /// reconnected, is owed.
@@ -209,8 +212,7 @@ fn connection(
     socket: &mut WebSocket<TcpStream>,
 ) -> io::Result<()> {
     let subscription = broadcast.subscribe();
-    let mut paired: Option<String> = None;
-    let mut token: Option<String> = None;
+    let mut paired: Option<Paired> = None;
     let mut wrong_codes = 0u32;
 
     loop {
@@ -219,7 +221,6 @@ fn connection(
                 let mut conversation = Conversation {
                     surface,
                     paired: &mut paired,
-                    token: &mut token,
                     wrong_codes: &mut wrong_codes,
                 };
                 if let Outcome::Stop = conversation.handle(&text, socket)? {
@@ -247,9 +248,29 @@ fn connection(
         }
 
         // The Host's own news, on the way to every client allowed to hear it.
-        if !push(surface, &subscription, &paired, &token, socket)? {
+        if !push(surface, &subscription, &paired, socket)? {
             return Ok(());
         }
+    }
+}
+
+/// What a connection is: the device it paired as, and the token that says so.
+///
+/// The two travel together and are never apart — a token without a device is
+/// nothing to check against, and a device without its token is not a connection.
+struct Paired {
+    id: DeviceId,
+    token: DeviceToken,
+}
+
+impl Paired {
+    /// Whether the Host still knows this device. Asked of the Host rather than
+    /// remembered, so that a revoke is noticed at the next command and the next
+    /// Snapshot rather than at some later convenience.
+    fn still_known(&self, surface: &dyn Surface) -> bool {
+        surface
+            .device(&self.token)
+            .is_some_and(|device| device.id == self.id)
     }
 }
 
@@ -261,8 +282,7 @@ fn connection(
 fn push(
     surface: &Arc<dyn Surface>,
     subscription: &Subscription,
-    paired: &Option<String>,
-    token: &Option<String>,
+    paired: &Option<Paired>,
     socket: &mut WebSocket<TcpStream>,
 ) -> io::Result<bool> {
     let _ = socket.flush();
@@ -272,17 +292,14 @@ fn push(
             None => return Ok(true),
         };
 
-        let (Some(paired), Some(token)) = (paired.as_deref(), token.as_deref()) else {
+        let Some(paired) = paired.as_ref() else {
             // A connection that has not paired is not told what is playing.
             continue;
         };
         // Asked of the Host now rather than remembered from the greeting: a
         // revoke is a change, and a connection holding a token that no longer
         // names a device is not a connection any more.
-        let still_paired = surface
-            .device(token)
-            .is_some_and(|device| device.id.as_str() == paired);
-        if still_paired {
+        if paired.still_known(&**surface) {
             send(socket, &ServerFrame::Snapshot(Box::new(snapshot)))?;
         } else {
             let _ = send(
@@ -302,8 +319,7 @@ fn push(
 /// attempts it has spent.
 struct Conversation<'a> {
     surface: &'a Arc<dyn Surface>,
-    paired: &'a mut Option<String>,
-    token: &'a mut Option<String>,
+    paired: &'a mut Option<Paired>,
     wrong_codes: &'a mut u32,
 }
 
@@ -321,15 +337,15 @@ impl Conversation<'_> {
         };
 
         match frame {
-            ClientFrame::Hello { token: presented } => {
-                let device = presented
-                    .as_ref()
-                    .and_then(|presented| self.surface.device(presented.as_str()));
-                match (&presented, &device) {
-                    (Some(presented), Some(device)) => {
-                        *self.paired = Some(device.id.as_str().to_owned());
-                        *self.token = Some(presented.as_str().to_owned());
-                        self.welcome(Some(device.clone()), socket)?;
+            ClientFrame::Hello { token } => {
+                let device = token.as_ref().and_then(|token| self.surface.device(token));
+                match (token, device) {
+                    (Some(token), Some(device)) => {
+                        *self.paired = Some(Paired {
+                            id: device.id.clone(),
+                            token,
+                        });
+                        self.welcome(Some(device), socket)?;
                     }
                     // A token the Host never issued, or one it has revoked: this
                     // is a connection that has not paired, and is told so by a
@@ -337,14 +353,34 @@ impl Conversation<'_> {
                     // that is a reason to leave is the client's judgement.
                     _ => {
                         *self.paired = None;
-                        *self.token = None;
                         self.welcome(None, socket)?;
                     }
                 }
                 Ok(Outcome::Keep)
             }
             ClientFrame::Command { id, action } => {
-                if let Err(error) = host_core::permitted(&action, self.paired.is_some()) {
+                // The Host is asked now rather than believed from the greeting:
+                // a device revoked between two commands is not a paired
+                // connection any more, and the question has to be asked when the
+                // command arrives or one slips through before the next Snapshot
+                // would have noticed.
+                let known = self
+                    .paired
+                    .as_ref()
+                    .is_some_and(|paired| paired.still_known(&**self.surface));
+                if self.paired.is_some() && !known {
+                    *self.paired = None;
+                    send(
+                        socket,
+                        &ServerFrame::Refusal {
+                            id: Some(id),
+                            error: ActionError::Unpaired,
+                        },
+                    )?;
+                    return Ok(Outcome::Stop);
+                }
+
+                if let Err(error) = host_core::permitted(&action, known) {
                     send(
                         socket,
                         &ServerFrame::Refusal {
@@ -365,8 +401,10 @@ impl Conversation<'_> {
                             token: issued,
                         }) = &response.answer
                         {
-                            *self.paired = Some(device.id.as_str().to_owned());
-                            *self.token = Some(issued.as_str().to_owned());
+                            *self.paired = Some(Paired {
+                                id: device.id.clone(),
+                                token: issued.clone(),
+                            });
                         }
                         send(socket, &ServerFrame::Reply { id, response })?;
                         Ok(Outcome::Keep)

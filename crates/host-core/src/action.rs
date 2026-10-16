@@ -621,6 +621,11 @@ pub enum ActionError {
     /// about the state every client shares.
     #[error("this connection has not paired, so the Host will only take a pairing")]
     Unpaired,
+    /// A connection that has already paired tried to redeem a pairing code. A
+    /// device pairs by being unpaired: the code is for a client that is not in
+    /// yet, and a device that is in already has everything pairing would buy it.
+    #[error("this connection has already paired; a device pairs by being unpaired")]
+    AlreadyPaired,
 }
 
 #[cfg(test)]

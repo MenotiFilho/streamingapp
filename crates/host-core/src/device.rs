@@ -133,10 +133,7 @@ impl DeviceId {
         if raw.is_empty() || raw.len() > MAX_ID_LEN {
             return Err(invalid());
         }
-        if raw
-            .chars()
-            .any(|c| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
-        {
+        if raw.chars().any(|c| !is_base64url_char(c)) {
             return Err(invalid());
         }
 
@@ -223,11 +220,7 @@ impl DeviceToken {
     pub fn parse(raw: &str) -> Result<Self, InvalidDeviceToken> {
         let invalid = || InvalidDeviceToken;
 
-        if raw.len() != TOKEN_LEN
-            || !raw
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-        {
+        if raw.len() != TOKEN_LEN || !raw.chars().all(is_base64url_char) {
             return Err(invalid());
         }
 
@@ -280,6 +273,13 @@ impl TokenDigest {
 #[error("that is not a token digest")]
 pub struct InvalidTokenDigest {
     pub digest: String,
+}
+
+/// Whether a character is one the base64url alphabet carries. Two of the Host's
+/// own spellings — a device id and a token — are made of these, and nothing else
+/// about them is the same.
+fn is_base64url_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '-' || c == '_'
 }
 
 /// Bytes as lowercase hex. The spelling is the Host's own — nothing parses it

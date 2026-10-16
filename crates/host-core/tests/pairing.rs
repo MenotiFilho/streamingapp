@@ -67,7 +67,7 @@ fn the_host_shows_a_code_and_redeeming_it_issues_a_token_for_that_device() {
 
     // The token is the device's: the Host answers the one that asked, and knows
     // the token from then on without ever holding it.
-    assert_eq!(host.device(token.as_str()), Some(device.clone()));
+    assert_eq!(host.device(&token), Some(device.clone()));
 
     let published = host.snapshot();
     assert_eq!(published.devices, vec![device.clone()]);
@@ -122,11 +122,8 @@ fn revoking_one_device_cuts_it_off_and_leaves_the_others_working() {
     let (television, television_token) = pair(&mut host, "Television");
 
     // Both are in: each token names its own device and no other.
-    assert_eq!(host.device(phone_token.as_str()), Some(phone.clone()));
-    assert_eq!(
-        host.device(television_token.as_str()),
-        Some(television.clone())
-    );
+    assert_eq!(host.device(&phone_token), Some(phone.clone()));
+    assert_eq!(host.device(&television_token), Some(television.clone()));
 
     host.dispatch(action(&format!(
         r#"{{"type":"revoke_device","id":"{}"}}"#,
@@ -135,12 +132,12 @@ fn revoking_one_device_cuts_it_off_and_leaves_the_others_working() {
     .expect("revoking a paired device is a change the Host takes");
 
     assert_eq!(
-        host.device(phone_token.as_str()),
+        host.device(&phone_token),
         None,
         "a revoked device's token matches nothing"
     );
     assert_eq!(
-        host.device(television_token.as_str()),
+        host.device(&television_token),
         Some(television.clone()),
         "the other device is untouched"
     );
@@ -174,7 +171,7 @@ fn a_paired_device_survives_a_host_that_was_restarted() {
     // still paired, its token still names it, and the code is a fresh one nobody
     // was reading a screen for.
     let reopened = host_over(store);
-    assert_eq!(reopened.device(token.as_str()), Some(device.clone()));
+    assert_eq!(reopened.device(&token), Some(device.clone()));
     assert_eq!(reopened.snapshot().devices, vec![device]);
 }
 

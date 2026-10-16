@@ -533,6 +533,7 @@ export const HOST_ERROR_KINDS = [
   "pairing",
   "unknown_device",
   "unpaired",
+  "already_paired",
 ] as const;
 
 /**
@@ -728,6 +729,8 @@ export function explain(error: ActionError): string {
       return `No device with the id ${JSON.stringify(error.id)} is paired with this Host.`;
     case "unpaired":
       return "This connection has not paired, so the Host will only take a pairing.";
+    case "already_paired":
+      return "This connection has already paired; a device pairs by being unpaired.";
     case "unreachable":
       return `The window could not reach the Host${error.detail ? `: ${error.detail}` : ""}.`;
   }

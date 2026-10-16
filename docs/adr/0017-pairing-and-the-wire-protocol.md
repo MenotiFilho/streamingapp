@@ -50,6 +50,13 @@ home network. A connection looks at what the Host published between reads rather
 than blocking on a writer, which is why a pushed Snapshot arrives within a
 quarter of a second.
 
+This supersedes one line of ADR-0009, which expected #31's adapter to run the
+Host's `dispatch` inside `spawn_blocking`: `spawn_blocking` is a runtime's
+primitive and this Host has no runtime. The intent is kept — a fetch on one
+connection must not block another, or the window — because each connection is
+already its own thread, and the window's own bridge is already
+`#[tauri::command(async)]`.
+
 Rejected, with reasons: **an async server** (`tokio` for six devices, and a
 runtime the rest of the Host would then be tempted to use); **two ports** (an
 address and a port to remember, and a browser that cannot reach the page that
@@ -76,6 +83,8 @@ name }` and is answered with `Answer::Paired { device, token }`.
   in `host-wire`), so thirty bits are not found by asking.
 - **A TTL is not rejected forever**: it is an addition to a pure rule, and the
   seam for it (`PairingCode` plus a clock) is already there.
+- **The code is for a connection that is not in yet.** A paired connection is
+  refused `PairDevice` with `ActionError::AlreadyPaired`; the rule is in §5.
 
 Rejected, with reasons: **a password or a shared secret** (the spec's user story
 is a code entered once, not a credential typed every time); **a QR code only**
@@ -93,11 +102,13 @@ be matched — `Host::device` digests what was presented and looks for a device
 whose digest is equal.
 
 The spec puts paired-device tokens in the non-secret SQLite store rather than the
-secret store; storing a digest is how that stays a defensible place for them. A
-copy of the database is then a list of which devices paired, not a list of live
-keys, and no Snapshot has a field a token could occupy — `DeviceSummary` is an
-id, a name and a timestamp, and the existing walk over every Snapshot field name
-still passes.
+secret store; storing a digest is a deliberate step past the letter of that and is
+how the store stays a defensible place for them. A copy of the database is then a
+list of which devices paired, not a list of live keys, and no Snapshot has a field
+a token could occupy — `DeviceSummary` is an id, a name and a timestamp, and the
+existing walk over every Snapshot field name still passes. What the spec asked for
+is kept exactly where it matters: revocation is still a database row going away,
+and nothing about it moved into the keyring.
 
 Rejected, with reasons: **the raw token in the database** (a backup, a synced
 folder or a `sqlite3` read would be a set of working remotes); **the token in the
@@ -108,47 +119,72 @@ WebSocket URL** (the anti-pattern ADR-0009 already named — a URL is logged,
 pasted and shown; the token travels in the `hello` frame instead and stays in a
 structured message the Host controls).
 
-## 5. Unpaired is one rule, and it is pure
+## 5. Pairing is two rules, and they are pure
 
 `permitted(action, paired) -> Result<(), ActionError>` is the whole of what
-"unpaired" means: a connection that has not paired may take `PairDevice` and
-nothing else, and everything else is refused with `ActionError::Unpaired` — in
-the Host's vocabulary, so a client reads a kind and a person reads a sentence.
+pairing means at a socket:
+
+- a connection that has **not** paired may take `PairDevice` and nothing else —
+  everything else is refused with `ActionError::Unpaired`;
+- a connection that **has** paired may take everything but `PairDevice`, which is
+  refused with `ActionError::AlreadyPaired`.
+
+Both matter. The first is #31's story 55: an open port on the network is not a
+playback remote for whoever finds it. The second is least privilege: a device
+pairs by *being* unpaired, so a device that is already in cannot redeem the code
+the owner is reading off the window and add another one. It also makes the code
+harmless where it is easiest to carry it — in the Snapshot — because every client
+that sees a Snapshot is, by definition, already past the only thing the code buys.
+
 Unpaired connections are also pushed nothing: a Snapshot goes only to a
 connection whose token names a device *now*.
 
-It is `host-wire` that asks the rule, because "has this connection paired" is a
-fact about a socket rather than about the state every client shares; the rule
-itself is in `host-core` where the Action space is, so a capability added to the
-surface is judged by the same table. The local window's Tauri bridge does not ask
-it at all: it is in-process, the Host's own process, and has no token to present.
+It is `host-wire` that asks the rules, because "has this connection paired" is a
+fact about a socket rather than about the state every client shares; the rules
+themselves are in `host-core` where the Action space is, so a capability added to
+the surface is judged by the same table. The local window's Tauri bridge does not
+ask them at all: it is in-process, the Host's own process, and has no token to
+present.
 
 Rejected, with reasons: **a separate pairing endpoint or sub-protocol** (a second
 door beside the Action surface, which ADR-0002 exists to prevent); **an
 `ActionError` per unpaired Action** (the refusal is about the connection, not
 about the Action); **letting unpaired connections read Snapshots but not change
 state** (an open port would broadcast what is playing, which is state the spec
-keeps for paired devices).
+keeps for paired devices); **letting a paired device pair another** (nothing needs
+it, and it hands every paired client a way to add clients).
 
-## 6. Revoking one device cuts it off where it would have been spoken to
+## 6. Revoking one device cuts it off at the next thing it does
 
 `Action::RevokeDevice { id }` is a change like any other: the device leaves the
 state and the store, every client is told the list changed, and the device's
-token matches nothing from that moment. The connection itself is not tracked as a
-thing to close: the next time a Snapshot would have reached it, the server asks
-the Host whether the token still names a device (`Surface::device`), and a
-connection that fails that question is sent one refusal and closed.
+token matches nothing from that moment. A connection is not tracked as a thing to
+close; instead, both doors a revoked connection could use ask the Host whether
+its token still names a device:
 
-That is deliberately lazy. It costs one digest lookup per pushed Snapshot per
-connection, which is nothing; and it means a revoke does not have to find a
-socket, a thread or a registry — the Host's state is the single answer, and a
-revoked device is cut off by the same fact that removes it from the window's
-list. Other devices are untouched: each has its own token and its own queue.
+- **a command** is checked against `Surface::device` *before* `permitted` and
+  before `dispatch`, so a device revoked a moment ago cannot slip one Action in
+  before the next Snapshot would have noticed. The check is a digest lookup, and
+  it happens once per command;
+- **a push** asks the same question, so a revoked connection that says nothing is
+  cut off the moment a Snapshot would have reached it: it is sent one refusal and
+  closed.
+
+That is deliberately lazy and single-sourced: it costs one lookup per command and
+per pushed Snapshot per connection, which is nothing, and it means a revoke does
+not have to find a socket, a thread or a registry — the Host's state is the single
+answer, and a revoked device is cut off by the same fact that removes it from the
+window's list. Other devices are untouched: each has its own token and its own
+queue. `host-wire/tests/wire.rs` drives both halves over a real socket, including
+the command that arrives *between* the revoke and the Snapshot that would have
+cut it off.
 
 Rejected, with reasons: **a session registry keyed by connection** (a second
 source of truth for "is this device in", which can drift from the state the
 Snapshot is built from); **closing on the Action's return** (it would need the
-adapter to know which sockets hold which tokens, which is the registry again).
+adapter to know which sockets hold which tokens, which is the registry again);
+**trusting the connection's own recollection of having paired** (which is what
+lets one Action through after a revoke).
 
 ## 7. A reconnect is a greeting, and it is answered with current state
 
@@ -171,39 +207,56 @@ request).
 `host-wire::discovery` holds a `Discovery` seam: `Mdns` advertises
 `_streamingapp._tcp.local.` with the protocol version in a TXT record, and
 `NoDiscovery` says nothing, which is what a test and a machine with no multicast
-get. The shell announces on startup, logs whether it could, and carries on
-either way: the window reads out `host:port` and the pairing code, so nothing
-about connecting depends on mDNS. That is the spec's own ordering — mDNS is the
-least reliable part of pairing, and the address must work first.
+get. The record itself is built by a pure `service(name, address, port)`, so what
+a Host will announce — its instance name, its host name, its address and port, and
+`version = WIRE_VERSION` — is something a test holds without touching the network.
+The shell announces on startup, logs whether it could, and carries on either way:
+the window reads out `host:port` and the pairing code, so nothing about connecting
+depends on mDNS. That is the spec's own ordering — mDNS is the least reliable part
+of pairing, and the address must work first.
 
-**mDNS is not unit-tested.** The spec's testing decision is that unit tests never
-touch the network, and a multicast test would be exactly that: slow, and flaky
-wherever multicast is not. What is tested is the codec (fixture-driven), the
-server (a real socket on loopback), unpaired rejection, revocation and reconnect.
-The announcement itself is walked by hand in `scripts/windows/verify.ps1` step 25,
-which checks the Host logged that it announced itself, and on any machine that can
-be reached by a browser on the same network.
+**#31 announces; nothing here browses.** Browsing is what a *client* does, and the
+client #31 ships is a browser page, which cannot speak DNS-SD — service discovery
+is for a native client, and there is not one yet (#32's page has the same limit).
+So the announcement is the half of "discovery works" that this Host can build, and
+it is proven two ways: the record is unit-tested, and `scripts/windows/verify.ps1`
+step 25 checks the Host logged that it announced itself. On a LAN, a person can
+see the record from another machine with `avahi-browse -r _streamingapp._tcp` (or
+`dns-sd -B _streamingapp._tcp` on macOS), which `scripts/windows/README.md` says.
+
+**mDNS is not unit-tested end to end.** The spec's testing decision is that unit
+tests never touch the network, and a multicast test would be exactly that: slow,
+and flaky wherever multicast is not. What is tested is the record, the codec
+(fixture-driven), the server (a real socket on loopback), unpaired rejection,
+paired refusal, revocation, and reconnect.
 
 Rejected, with reasons: **a hand-rolled mDNS responder** (DNS-SD is fiddly and
 `mdns-sd` is a plain blocking-free library with no runtime); **discovery in
 `host-core`** (multicast is network, and `host-core` has none); **requiring
 discovery to pair** (manual `host:port` is the escape hatch the spec names, and it
-must work when mDNS does not).
+must work when mDNS does not); **browsing from the shipped page** (a browser
+cannot, and a native discovery client is not a thing this ticket has).
 
 ## 9. The shipped page is minimal on purpose; parity is #32
 
 The Host serves one self-contained document (`crates/host-wire/remote/index.html`)
 that pairs and shows what is playing, live. It is what makes #31's own story true
 — open a browser on another device, enter the code once, watch state change — and
-it is deliberately not the remote client: browsing, search, metadata and the whole
-control set, with the capability list asserted against the Action surface, are
-#32. The page speaks the codec by hand, and a change to a frame is a change in
-two places, which is the cost of a client with no build step.
+it is deliberately *only* that: no browsing, no metadata, and no control set, so
+that #32's full remote is an addition rather than a rewrite of half-built
+controls. To see the live half during a manual run, change the state from the
+Host's own window (press play) and watch the phone follow.
+
+The page speaks the codec by hand, and a change to a frame is a change in two
+places, which is the cost of a client with no build step. Its error table is
+deliberately small — the kinds a page that only sends `pair_device` can actually
+be given — rather than a copy of the window's fuller one.
 
 Rejected, with reasons: **reusing the React window** (it is a Tauri client that
 reaches the Host over IPC and has no WebSocket path); **a bundled remote app**
 (the ticket says no install, and #32 says the browser itself); **shipping #32's
-client early** (it would make this ticket's review the size of two).
+client early** (it would make this ticket's review the size of two); **shipping
+its controls early** (a control surface half-built is worse than one built once).
 
 ## 10. Publishing is one place in the shell
 
@@ -231,5 +284,6 @@ queue** (one slow connection would hold every other one back).
 - A Host that cannot bind or cannot announce still browses and still serves — the
   window says what it has, and manual `host:port` is the route.
 - The pairing code is shown in every Snapshot, so a paired device can see it. It
-  is single-use, rotates on redemption and is not a credential; a device that
-  redeems it pairs itself, which it could already do by asking the owner.
+  is single-use, rotates on redemption, and no paired connection may redeem it
+  (§5), so seeing it buys a paired device nothing; the code is what a *new*
+  device needs, and the owner is looking at the window that shows it.

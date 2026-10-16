@@ -22,6 +22,12 @@ window does not freeze on someone else's server. When #31's WebSocket adapter
 arrives, the same call goes inside `spawn_blocking`; that is a contained change, and
 this ADR is what it should be measured against.
 
+_Amended by [ADR-0017](0017-pairing-and-the-wire-protocol.md): the adapter arrived,
+and it does not use `spawn_blocking` — it uses one OS thread per connection, and no
+async runtime at all. The intent here ("a fetch must not block the caller's loop")
+is kept; the mechanism named above is superseded, because there is no runtime to
+`spawn_blocking` from._
+
 **An Addon's manifest URL is a credential by presumption.** For an Addon like
 AIOStreams the debrid configuration lives *inside* the URL, which is what the spec
 asks for ("the Host never has to hold a debrid key itself"): the Host stores the URL

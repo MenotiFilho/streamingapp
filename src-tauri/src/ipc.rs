@@ -12,7 +12,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use host_core::{Action, ActionError, DeviceSummary, Host, Response, Snapshot};
+use host_core::{Action, ActionError, DeviceSummary, DeviceToken, Host, Response, Snapshot};
 use host_wire::{Broadcast, Surface};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
@@ -91,7 +91,7 @@ impl HostHandle {
     }
 
     /// The device a presented token belongs to, or nothing (#31).
-    pub fn device(&self, token: &str) -> Option<DeviceSummary> {
+    pub fn device(&self, token: &DeviceToken) -> Option<DeviceSummary> {
         self.0
             .lock()
             .expect("nothing panics while holding the Host")
@@ -172,7 +172,7 @@ impl Surface for WireSurface {
         Ok(response)
     }
 
-    fn device(&self, token: &str) -> Option<DeviceSummary> {
+    fn device(&self, token: &DeviceToken) -> Option<DeviceSummary> {
         self.app.state::<HostHandle>().device(token)
     }
 

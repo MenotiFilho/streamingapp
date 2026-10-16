@@ -224,15 +224,18 @@ impl ServerFrame {
 
 /// Whether a client in this state may take this Action.
 ///
-/// One rule, and it is the whole of what "unpaired" means: a connection that has
-/// not paired may attempt to pair and nothing else. Node for node, every other
-/// Action is what a paired device is for, so an open port on the network is not
-/// a playback remote for whoever finds it (#31).
+/// Two rules, and they are the whole of what pairing means at the socket: a
+/// connection that has not paired may attempt to pair and nothing else, and a
+/// connection that has paired may do everything but pair — a device pairs by
+/// being unpaired, and a device that is already in has no business redeeming the
+/// code the owner is reading off the window. So an open port on the network is
+/// not a playback remote for whoever finds it, and a paired device is not a way
+/// to add another one (#31, story 55).
 pub fn permitted(action: &Action, paired: bool) -> Result<(), ActionError> {
-    if paired || matches!(action, Action::PairDevice { .. }) {
-        Ok(())
-    } else {
-        Err(ActionError::Unpaired)
+    match (paired, matches!(action, Action::PairDevice { .. })) {
+        (false, true) | (true, false) => Ok(()),
+        (false, false) => Err(ActionError::Unpaired),
+        (true, true) => Err(ActionError::AlreadyPaired),
     }
 }
 
@@ -458,17 +461,31 @@ mod tests {
             ),
             Err(ActionError::Unpaired)
         );
+    }
 
-        // A paired device may pair another if it is showing the code, and may do
-        // everything else.
+    #[test]
+    fn a_paired_connection_may_do_everything_but_pair_again() {
         assert!(permitted(&Action::StopPlayback, true).is_ok());
         assert!(permitted(
-            &Action::PairDevice {
-                code: "ABCDEF".to_owned(),
-                name: "Laptop".to_owned(),
+            &Action::BrowseCatalog {
+                addon: "community.example".to_owned(),
+                catalog: crate::request::CatalogRef::parse("movie", "top").expect("a catalog"),
+                extra: Vec::new(),
             },
             true,
         )
         .is_ok());
+
+        assert_eq!(
+            permitted(
+                &Action::PairDevice {
+                    code: "ABCDEF".to_owned(),
+                    name: "Laptop".to_owned(),
+                },
+                true,
+            ),
+            Err(ActionError::AlreadyPaired),
+            "a device pairs by being unpaired: the code is for a client that is not in yet"
+        );
     }
 }

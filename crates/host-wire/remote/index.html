@@ -59,17 +59,11 @@
         font-weight: 600;
         cursor: pointer;
       }
-      button.ghost { background: transparent; color: var(--ink); border-color: var(--edge); }
-      .row { display: flex; gap: 10px; }
-      .row button { margin-top: 12px; }
       .state { font-size: 1.35rem; font-weight: 650; margin: 2px 0 6px; }
       .error { color: var(--bad); white-space: pre-wrap; }
-      .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--edge); font-size: 0.75rem; color: var(--dim); }
       .bar { height: 4px; border-radius: 2px; background: #222634; overflow: hidden; margin: 10px 0 2px; }
       .bar > span { display: block; height: 100%; background: var(--accent); width: 0; }
       .hidden { display: none; }
-      ol { margin: 10px 0 0; padding-left: 18px; }
-      li { margin: 4px 0; }
     </style>
   </head>
   <body>
@@ -92,7 +86,10 @@
         <p id="pair-error" class="error"></p>
       </section>
 
-      <!-- The remote: what a paired device sees. -->
+      <!-- The remote: what a paired device sees. Deliberately only what #31 asks
+           of it — that this device is in, and what the Host is playing, as it
+           happens. Browsing, search and the control set are #32's, and arrive as
+           a bigger page rather than as a half-built one here. -->
       <section id="remote" class="card hidden">
         <h1 id="device">Connected</h1>
         <p class="dim" id="connection">live</p>
@@ -100,11 +97,6 @@
         <p class="dim" id="what"></p>
         <div class="bar"><span id="progress"></span></div>
         <p class="dim" id="where"></p>
-        <div class="row">
-          <button id="pause" class="ghost">Pause</button>
-          <button id="stop" class="ghost">Stop</button>
-        </div>
-        <p class="dim" id="remote-error"></p>
       </section>
     </main>
 
@@ -123,7 +115,6 @@
 
       let socket = null;
       let nextId = 1;
-      const pending = new Map();
       let token = null;
       try { token = window.localStorage.getItem(TOKEN_KEY); } catch (e) { token = null; }
       let device = null;
@@ -205,8 +196,6 @@
         if (frame.error) {
           if (frame.error.kind === "unsupported_version") {
             showError(`This page speaks version ${VERSION} and the Host ${frame.error.supported}.`);
-          } else if (pairing.classList.contains("hidden")) {
-            el("remote-error").textContent = explain(frame.error);
           } else {
             el("pair-error").textContent = explain(frame.error);
           }
@@ -219,12 +208,19 @@
         el("pair-error").textContent = message;
       }
 
+      /**
+       * The Host's reasons this page can actually be given. It is a small table
+       * on purpose: the page sends one Action, so the kinds it can hear are the
+       * pairing's, and the window's fuller table in `src/host-client.ts` covers
+       * everything a browser with the control set (#32) will need.
+       */
       function explain(error) {
         switch (error.kind) {
           case "pairing": return "That is not the code the Host is showing.";
-          case "unpaired": return "This device is not paired any more.";
           case "invalid_pairing_code": return "A code is six letters and digits, like 4K7Q2M.";
           case "invalid_device_name": return "Give this device a name of a few words.";
+          case "already_paired": return "This device is already paired.";
+          case "unpaired": return "This device is not paired any more.";
           case "unreachable": return "The Host could not be reached.";
           default: return error.detail || error.kind;
         }
@@ -249,7 +245,6 @@
           el("progress").style.width = "0";
           el("where").textContent = "";
         }
-        el("pause").textContent = playback.state === "paused" ? "Resume" : "Pause";
       }
 
       function clock(seconds) {
@@ -271,11 +266,6 @@
           name: el("name").value || "Device",
         });
       });
-
-      el("pause").addEventListener("click", () => {
-        command({ type: "set_paused", paused: el("pause").textContent !== "Resume" });
-      });
-      el("stop").addEventListener("click", () => command({ type: "stop_playback" }));
 
       connect();
     </script>

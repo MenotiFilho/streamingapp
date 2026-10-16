@@ -12,6 +12,7 @@
 
 use std::collections::HashMap;
 
+use host_core::WIRE_VERSION;
 use mdns_sd::{ServiceDaemon, ServiceInfo};
 
 /// The service type a Host advertises itself as. A browser lists what answers
@@ -26,6 +27,27 @@ const VERSION_KEY: &str = "version";
 /// says it is a local name.
 pub fn host_name(label: &str) -> String {
     format!("{label}.local.")
+}
+
+/// The record a Host advertises: the service type, the instance and host name,
+/// the address it answers on, and the protocol version a browser reads before it
+/// connects.
+///
+/// Pure, and separate from [`Mdns`] so that what the Host will announce is
+/// something a test can hold — a multicast test would be a network test, which
+/// is exactly what the spec's testing decision leaves out.
+pub fn service(name: &str, address: &str, port: u16) -> Result<ServiceInfo, DiscoveryError> {
+    let properties: HashMap<String, String> =
+        HashMap::from([(VERSION_KEY.to_owned(), WIRE_VERSION.to_string())]);
+    ServiceInfo::new(
+        SERVICE_TYPE,
+        name,
+        &host_name(name),
+        address,
+        port,
+        properties,
+    )
+    .map_err(DiscoveryError::new)
 }
 
 /// Announcing this Host on the network.
@@ -68,18 +90,7 @@ impl Discovery for Mdns {
         port: u16,
     ) -> Result<Advertisement, DiscoveryError> {
         let daemon = ServiceDaemon::new().map_err(DiscoveryError::new)?;
-
-        let properties: HashMap<String, String> =
-            HashMap::from([(VERSION_KEY.to_owned(), env!("CARGO_PKG_VERSION").to_owned())]);
-        let service = ServiceInfo::new(
-            SERVICE_TYPE,
-            name,
-            &host_name(name),
-            address,
-            port,
-            properties,
-        )
-        .map_err(DiscoveryError::new)?;
+        let service = service(name, address, port)?;
 
         daemon.register(service).map_err(DiscoveryError::new)?;
 
@@ -119,6 +130,27 @@ mod tests {
     fn a_host_advertises_under_a_service_type_and_a_local_name() {
         assert_eq!(SERVICE_TYPE, "_streamingapp._tcp.local.");
         assert_eq!(host_name("living-room"), "living-room.local.");
+    }
+
+    #[test]
+    fn the_advertised_record_names_the_host_its_address_and_its_protocol_version() {
+        // What a discovery browser reads before it connects: where the Host is,
+        // and which version it speaks.
+        let info =
+            service("living-room", "192.168.1.9", 8090).expect("a record a Host could put out");
+
+        assert_eq!(info.get_fullname(), "living-room._streamingapp._tcp.local.");
+        assert_eq!(info.get_hostname(), "living-room.local.");
+        assert_eq!(info.get_port(), 8090);
+        assert_eq!(
+            info.get_property_val_str(VERSION_KEY),
+            Some("1"),
+            "the version is the protocol's, not the application's"
+        );
+        assert!(info
+            .get_addresses()
+            .iter()
+            .any(|ip| ip.to_string() == "192.168.1.9"));
     }
 
     #[test]

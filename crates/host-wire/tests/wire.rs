@@ -10,8 +10,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use host_core::{
-    Action, ActionError, AddonProvider, DeviceSummary, FixtureClock, FixtureFetcher, FixturePlayer,
-    Host, InMemorySecretStore, InMemoryStore, Response, Snapshot, WIRE_VERSION,
+    Action, ActionError, AddonProvider, DeviceSummary, DeviceToken, FixtureClock, FixtureFetcher,
+    FixturePlayer, Host, InMemorySecretStore, InMemoryStore, Response, Snapshot, WIRE_VERSION,
 };
 use host_wire::{Broadcast, Server, Surface};
 use serde_json::{json, Value};
@@ -78,7 +78,7 @@ impl Surface for Fixture {
         Ok(response)
     }
 
-    fn device(&self, token: &str) -> Option<DeviceSummary> {
+    fn device(&self, token: &DeviceToken) -> Option<DeviceSummary> {
         self.host
             .lock()
             .expect("nothing panics while holding the Host")
@@ -152,7 +152,7 @@ impl Client {
     }
 
     /// Greet the Host, and hand back what it said this connection is.
-    fn hello(&mut self, token: Option<&str>) -> Value {
+    fn hello(&mut self, token: Option<&DeviceToken>) -> Value {
         self.send(json!({ "version": WIRE_VERSION, "hello": { "token": token } }));
         self.next()
     }
@@ -197,9 +197,9 @@ impl Client {
     }
 }
 
-/// Pair `client` with the code the Host is showing, and hand back the device id
-/// and the token it answered with.
-fn pair(client: &mut Client, fixture: &Fixture, name: &str) -> (String, String) {
+/// Pair `client` with the code the Host is showing, and hand back the device it
+/// was paired as and the token it answered with.
+fn pair(client: &mut Client, fixture: &Fixture, name: &str) -> (DeviceSummary, DeviceToken) {
     let code = fixture.code();
     let frame = client.command(
         2,
@@ -207,16 +207,15 @@ fn pair(client: &mut Client, fixture: &Fixture, name: &str) -> (String, String) 
     );
 
     let paired = &frame["response"]["answer"]["paired"];
-    (
-        paired["device"]["id"]
-            .as_str()
-            .expect("the pairing names the device")
-            .to_owned(),
+    let device: DeviceSummary =
+        serde_json::from_value(paired["device"].clone()).expect("the pairing names the device");
+    let token = DeviceToken::parse(
         paired["token"]
             .as_str()
-            .expect("the pairing issues a token")
-            .to_owned(),
+            .expect("the pairing issues a token"),
     )
+    .expect("the token is one a device could hold");
+    (device, token)
 }
 
 #[test]
@@ -259,7 +258,7 @@ fn a_connection_that_has_not_paired_can_only_attempt_to_pair() {
 
     // The pairing exchange is reachable, and reaches nothing else.
     let (_device, token) = pair(&mut client, &fixture, "Test phone");
-    assert_eq!(token.len(), 43);
+    assert_eq!(token.as_str().len(), 43);
 
     // With the token adopted, an ordinary Action is taken rather than refused.
     let answered = client.command(
@@ -324,7 +323,7 @@ fn revoking_one_device_cuts_it_off_and_leaves_the_other_working() {
     let (fixture, server) = server();
     let mut phone = Client::connect(&server);
     phone.hello(None);
-    let (phone_id, phone_token) = pair(&mut phone, &fixture, "Phone");
+    let (phone_device, phone_token) = pair(&mut phone, &fixture, "Phone");
 
     let mut television = Client::connect(&server);
     television.hello(None);
@@ -337,7 +336,10 @@ fn revoking_one_device_cuts_it_off_and_leaves_the_other_working() {
     television.snapshot_where(|snapshot| snapshot["preferences"]["subtitleLanguage"] == "pt-BR");
 
     // The owner revokes the phone, from the television.
-    let revoked = television.command(4, json!({ "type": "revoke_device", "id": phone_id }));
+    let revoked = television.command(
+        4,
+        json!({ "type": "revoke_device", "id": phone_device.id.as_str() }),
+    );
     assert!(revoked.get("response").is_some());
 
     // The phone stops hearing anything: the next Snapshot it would have been sent
@@ -376,6 +378,69 @@ fn revoking_one_device_cuts_it_off_and_leaves_the_other_working() {
     assert!(
         fixture.device(&phone_token).is_none(),
         "the revoked device's token matches nothing"
+    );
+}
+
+#[test]
+fn a_revoked_devices_command_is_not_taken_before_a_snapshot_would_have_cut_it_off() {
+    let (fixture, server) = server();
+    let mut phone = Client::connect(&server);
+    phone.hello(None);
+    let (phone_device, _token) = pair(&mut phone, &fixture, "Phone");
+
+    // The owner revokes it from the Host itself, and the phone has not read the
+    // Snapshot that would have cut it off. The command it sends next must be
+    // refused at the moment it arrives: a device that is not paired any more does
+    // not get one more Action in before anyone notices.
+    fixture.publish_change(action(&format!(
+        r#"{{"type":"revoke_device","id":"{}"}}"#,
+        phone_device.id
+    )));
+    phone.send(json!({
+        "version": WIRE_VERSION,
+        "id": 9,
+        "command": { "type": "set_subtitle_language", "language": "pt-BR" },
+    }));
+
+    let mut answered = false;
+    for _ in 0..10 {
+        match phone.read() {
+            None => break,
+            Some(frame) => {
+                if frame.get("response").is_some() {
+                    answered = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    assert!(
+        !answered,
+        "a revoked device's command is refused, not answered"
+    );
+    assert!(
+        fixture.snapshot().preferences.subtitle_language.is_none(),
+        "and nothing it asked for happened"
+    );
+}
+
+#[test]
+fn a_paired_connection_may_not_pair_again() {
+    let (fixture, server) = server();
+    let mut client = Client::connect(&server);
+    client.hello(None);
+    pair(&mut client, &fixture, "Test phone");
+    let code = fixture.code();
+
+    let refused = client.command(
+        3,
+        json!({ "type": "pair_device", "code": code, "name": "Another" }),
+    );
+
+    assert_eq!(
+        refused["error"]["kind"], "already_paired",
+        "a device pairs by being unpaired"
     );
 }
 

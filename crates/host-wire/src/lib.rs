@@ -11,7 +11,7 @@
 //! ```
 //! use std::net::SocketAddr;
 //!
-//! use host_core::{Action, Response, Snapshot};
+//! use host_core::{Action, DeviceToken, Response, Snapshot};
 //! use host_wire::{Broadcast, Server, Surface};
 //!
 //! // The app shell's implementation; a test's is the same three methods over a
@@ -21,7 +21,7 @@
 //!     fn dispatch(&self, _action: Action) -> Result<Response, host_core::ActionError> {
 //!         unimplemented!("the shell's implementation drives the Host")
 //!     }
-//!     fn device(&self, _token: &str) -> Option<host_core::DeviceSummary> { None }
+//!     fn device(&self, _token: &DeviceToken) -> Option<host_core::DeviceSummary> { None }
 //!     fn snapshot(&self) -> Snapshot { unimplemented!("the shell's implementation reads the Host") }
 //! }
 //!
@@ -41,6 +41,6 @@ mod remote;
 mod server;
 
 pub use discovery::{
-    host_name, Advertisement, Discovery, DiscoveryError, Mdns, NoDiscovery, SERVICE_TYPE,
+    host_name, service, Advertisement, Discovery, DiscoveryError, Mdns, NoDiscovery, SERVICE_TYPE,
 };
 pub use server::{Broadcast, Server, Subscription, Surface, DEFAULT_PORT};
