@@ -1,0 +1,21 @@
+[package]
+name = "host-mpv"
+description = "The Host's Player: libmpv, linked in-process, with the picture where the platform can put it"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+host-core = { workspace = true }
+
+thiserror = { workspace = true }
+tracing = { workspace = true }
+# mpv as a library. The crate is a safe wrapper over the client API, which is
+# what keeps this workspace free of `unsafe` (the workspace forbids it): the
+# handle, the commands, the properties and the event queue all come through it.
+libmpv2 = { version = "6", default-features = false }

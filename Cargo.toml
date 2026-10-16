@@ -11,7 +11,15 @@
 #   docker compose exec dev cargo fmt --check
 [workspace]
 resolver = "2"
-members = ["crates/host-core", "crates/host-addon", "crates/host-sqlite", "crates/host-logging", "crates/host-secret", "src-tauri"]
+members = [
+    "crates/host-core",
+    "crates/host-addon",
+    "crates/host-mpv",
+    "crates/host-sqlite",
+    "crates/host-logging",
+    "crates/host-secret",
+    "src-tauri",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -23,6 +31,7 @@ rust-version = "1.85"
 [workspace.dependencies]
 host-core = { path = "crates/host-core" }
 host-addon = { path = "crates/host-addon" }
+host-mpv = { path = "crates/host-mpv" }
 host-secret = { path = "crates/host-secret" }
 host-sqlite = { path = "crates/host-sqlite" }
 host-logging = { path = "crates/host-logging" }
