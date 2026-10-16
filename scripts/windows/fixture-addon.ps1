@@ -41,14 +41,23 @@ function Manifest {
         resources = @('catalog', 'meta', 'stream')
         types = @('movie')
         catalogs = @(
-            @{ type = 'movie'; id = 'verify'; name = 'Verify'; extra = @() }
+            # `skip` is what makes a row pageable: the walkthrough presses More
+            # and checks that a question moves no revision.
+            @{
+                type = 'movie'; id = 'verify'; name = 'Verify'
+                extra = @(@{ name = 'skip'; isRequired = $false; options = @() })
+            }
         )
     } | ConvertTo-Json -Depth 8
 }
 
-function Catalog {
-    @{
-        metas = @(
+function Catalog($path) {
+    # One page, then nothing: a row that pages on once and ends. The empty page
+    # is built before the object, or PowerShell folds an empty array away and
+    # the Host is handed an object where it was promised a list.
+    $metas = @()
+    if ($path -notmatch 'skip=') {
+        $metas = @(
             @{
                 id = $PLAYABLE
                 type = 'movie'
@@ -70,8 +79,9 @@ function Catalog {
                 genres = @('Verify')
             }
         )
-        cacheMaxAge = 0
-    } | ConvertTo-Json -Depth 8
+    }
+
+    @{ metas = $metas; cacheMaxAge = 0 } | ConvertTo-Json -Depth 8
 }
 
 function Meta($id) {
@@ -141,7 +151,7 @@ try {
 
         switch -Regex ($path) {
             '^/manifest\.json$' { $body = [Text.Encoding]::UTF8.GetBytes((Manifest)) }
-            '^/catalog/movie/verify' { $body = [Text.Encoding]::UTF8.GetBytes((Catalog)) }
+            '^/catalog/movie/verify' { $body = [Text.Encoding]::UTF8.GetBytes((Catalog $path)) }
             "^/meta/movie/($PLAYABLE|$UNPLAYABLE)\.json$" {
                 $body = [Text.Encoding]::UTF8.GetBytes((Meta $Matches[1]))
             }
@@ -150,9 +160,24 @@ try {
             }
             '^/poster\.png$' { $body = $poster; $type = 'image/png' }
             '^/video/' {
-                # mpv reads the whole file; a range request is answered with the
-                # whole thing, which it accepts.
-                $body = [IO.File]::ReadAllBytes($video)
+                # mpv asks with a range and re-asks when it seeks; a 206 with the
+                # slice it asked for is what keeps seeking instant rather than a
+                # re-download of the whole file.
+                $bytes = [IO.File]::ReadAllBytes($video)
+                $from = 0
+                $to = $bytes.Length - 1
+                $range = $request.Headers['Range']
+                if ($range -and $range -match 'bytes=(\d*)-(\d*)') {
+                    if ($Matches[1]) { $from = [int]$Matches[1] }
+                    if ($Matches[2]) { $to = [Math]::Min([int]$Matches[2], $bytes.Length - 1) }
+                    $length = $to - $from + 1
+                    $body = New-Object byte[] $length
+                    [Array]::Copy($bytes, $from, $body, 0, $length)
+                    $context.Response.StatusCode = 206
+                    $context.Response.AddHeader('Content-Range', "bytes $from-$to/$($bytes.Length)")
+                } else {
+                    $body = $bytes
+                }
                 $type = 'video/mp4'
             }
             default { $context.Response.StatusCode = 404 }

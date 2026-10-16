@@ -10,14 +10,21 @@
 # libmpv is fetched and made linkable first: `host-mpv` links `mpv`, Windows
 # wants an MSVC import library, and the dev bundle ships a MinGW one. See
 # "the libmpv half" below, and scripts/windows/README.md.
+#
+# `-LibmpvBundle` overrides which dev bundle is fetched; by default it is the
+# newest `mpv-dev-x86_64-v3` release of shinchiro/mpv-winbuild-cmake.
 param(
     [Parameter(Mandatory)][string] $Tree,
-    [string] $LibmpvUrl = 'https://nightly.link/shinchiro/mpv-winbuild-cmake/workflows/build_libmpv/master/mpv-dev-x86_64-v3.zip'
+    [string] $LibmpvBundle = ''
 )
 
 $ErrorActionPreference = 'Stop'
 $env:Path = "$env:USERPROFILE\.cargo\bin;$env:Path"
 $env:CARGO_TERM_COLOR = 'never'
+
+# PowerShell 5.1 still defaults to TLS 1.0 with .NET Framework defaults, which
+# GitHub does not speak.
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 if (-not (Test-Path $Tree)) { throw "no tree at $Tree" }
 if (-not (Test-Path (Join-Path $Tree 'dist\index.html'))) {
@@ -69,35 +76,58 @@ $lib = Join-Path $libmpv 'mpv.lib'
 
 if (-not (Test-Path $lib)) {
     New-Item -ItemType Directory -Force $libmpv | Out-Null
-    $zip = Join-Path $libmpv 'mpv-dev.zip'
-    '--- fetching the libmpv dev bundle'
-    Invoke-WebRequest -Uri $LibmpvUrl -OutFile $zip
-    Expand-Archive -Path $zip -DestinationPath $libmpv -Force
-    Remove-Item $zip
+
+    if (-not $LibmpvBundle) {
+        '--- finding the newest libmpv dev bundle'
+        $release = Invoke-RestMethod -Headers @{ 'User-Agent' = 'streamingapp-build' } `
+            'https://api.github.com/repos/shinchiro/mpv-winbuild-cmake/releases/latest'
+        $asset = $release.assets | Where-Object { $_.name -like 'mpv-dev-x86_64-v3-*' } |
+            Select-Object -First 1
+        if (-not $asset) { throw "the release $($release.tag_name) carries no mpv-dev-x86_64-v3 asset" }
+        $LibmpvBundle = $asset.browser_download_url
+    }
+    "--- fetching $LibmpvBundle"
+    $archive = Join-Path $libmpv 'mpv-dev.7z'
+    Invoke-WebRequest -Uri $LibmpvBundle -OutFile $archive
+
+    # The bundles are 7z, which PowerShell has no cmdlet for — but Windows' own
+    # `tar.exe` is bsdtar, and libarchive reads 7z.
+    tar.exe -xf $archive -C $libmpv
+    if ($LASTEXITCODE -ne 0) { throw "tar could not extract $archive" }
+    Remove-Item $archive
 
     $found = Get-ChildItem -Path $libmpv -Recurse -Filter 'libmpv-2.dll' | Select-Object -First 1
-    if (-not $found) { throw "the bundle at $LibmpvUrl carries no libmpv-2.dll" }
+    if (-not $found) {
+        Get-ChildItem -Path $libmpv | ForEach-Object { "  $($_.Name)" }
+        throw "the bundle carries no libmpv-2.dll"
+    }
     if ($found.DirectoryName -ne $libmpv) { Move-Item $found.FullName $dll -Force }
 
     '--- generating mpv.lib from the DLL exports'
     $tools = Vc-Tools
-    $exports = & (Join-Path $tools 'dumpbin.exe') /nologo /exports $dll
-    if ($LASTEXITCODE -ne 0) { throw 'dumpbin could not read the DLL export table' }
-
     $def = Join-Path $libmpv 'mpv.def'
-    # A .def for the import library: the DLL by name, then one line per exported
-    # symbol. `dumpbin /exports` prints a table whose last column is the name,
-    # under a header of its own.
-    $names = $exports |
-        Where-Object { $_ -match '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(\S+)\s*$' } |
-        ForEach-Object { $Matches[1] } |
-        Sort-Object -Unique
-    if ($names.Count -eq 0) { throw 'dumpbin listed no exports to make an import library from' }
-    @('LIBRARY libmpv-2.dll', 'EXPORTS') + $names | Out-File -Encoding ascii $def
+
+    # The bundle often ships a .def beside the DLL; when it does, that one is
+    # the source of truth. Where it does not, `dumpbin /exports` prints a table
+    # whose last column is the name, under a header of its own.
+    $shipped = Get-ChildItem -Path $libmpv -Recurse -Filter '*.def' | Select-Object -First 1
+    if ($shipped) {
+        "using the .def the bundle ships: $($shipped.FullName)"
+        Copy-Item $shipped.FullName $def -Force
+    } else {
+        $exports = & (Join-Path $tools 'dumpbin.exe') /nologo /exports $dll
+        if ($LASTEXITCODE -ne 0) { throw 'dumpbin could not read the DLL export table' }
+        $names = $exports |
+            Where-Object { $_ -match '^\s+\d+\s+[0-9A-Fa-f]+\s+[0-9A-Fa-f]+\s+(\S+)\s*$' } |
+            ForEach-Object { $Matches[1] } |
+            Sort-Object -Unique
+        if ($names.Count -eq 0) { throw 'dumpbin listed no exports to make an import library from' }
+        @('LIBRARY libmpv-2.dll', 'EXPORTS') + $names | Out-File -Encoding ascii $def
+    }
 
     & (Join-Path $tools 'lib.exe') /nologo /def:$def /machine:x64 /out:$lib
     if ($LASTEXITCODE -ne 0) { throw "lib.exe could not build $lib" }
-    "mpv.lib: $lib  ($((Get-Item $lib).Length) bytes, $($names.Count) exports)"
+    "mpv.lib: $lib  ($((Get-Item $lib).Length) bytes)"
 }
 
 # The linker is told where the import library is through the environment it
@@ -129,8 +159,9 @@ if (-not (Test-Path $exe)) { throw "built, but no executable at $exe" }
 
 # libmpv is loaded from beside the executable, so it goes there every build: a
 # build that replaced the exe but not the DLL is a Host that cannot play.
-Copy-Item $dll $exe -Force
+Copy-Item $dll (Split-Path $exe) -Force
 
+$beside = Join-Path (Split-Path $exe) 'libmpv-2.dll'
 "exe: $exe  ($((Get-Item $exe).Length) bytes)"
-"dll: $(Join-Path (Split-Path $exe) 'libmpv-2.dll')  ($((Get-Item (Join-Path (Split-Path $exe) 'libmpv-2.dll')).Length) bytes)"
+"dll: $beside  ($((Get-Item $beside).Length) bytes)"
 Get-Content $buildLog -Tail 3

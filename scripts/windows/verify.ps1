@@ -366,6 +366,24 @@ function Children-Of($app) {
     [W]::Children($app.Handle)
 }
 
+# A candidate's own words, cut to the length a report line can hold.
+function Short($text) {
+    if ($text.Length -le 90) { return $text }
+    return $text.Substring(0, 90) + '…'
+}
+
+# Press a control the way a person does: focus it, then the key that presses a
+# button. A candidate carries `aria-pressed`, which Chromium exposes as a
+# *toggle*, so the pattern a plain button answers is not always there — and the
+# keyboard is one path that works for both.
+function Press-Element($app, $element) {
+    $element.SetFocus()
+    Start-Sleep -Milliseconds 400
+    if (-not (Focus $app)) { throw 'pressing a control needs the Host in the foreground' }
+    [Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    Start-Sleep -Seconds 2
+}
+
 # Where playback is, in seconds, read off the OSD's clock: `12:34 / 1:20:00`,
 # or `--:--` while a Stream is still opening. -1 when there is no clock to read.
 function Clock-Seconds($app) {
@@ -398,8 +416,11 @@ function Play-A-Candidate($app) {
 
     $playable = @($candidates | Where-Object { $_.Current.Name -notmatch 'Not playable yet' })
     $chosen = if ($playable) { $playable[0] } else { $candidates[0] }
-    $chosen.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
-    Start-Sleep -Seconds 2
+    "chose: $(Short $chosen.Current.Name)"
+    # What the revision stands at on the list, so that the Snapshots playback
+    # published can be counted once the client is back on it.
+    $revision = ([regex]::Match((Page-Text $app), 'Snapshot revision\s*\|\s*(\d+)')).Groups[1].Value
+    Press-Element $app $chosen
 
     if (-not $playable) {
         # Every candidate is one this version cannot open: the window says so
@@ -420,6 +441,25 @@ function Play-A-Candidate($app) {
 
     '--- 12b. the picture is mpv''s, the interface is drawn above it, and the controls work'
 
+    # The OSD offers the transport only once the picture is up: an open in
+    # flight says so and offers Stop alone, so wait for the control that means
+    # playback rather than for the word "Playing" (which the heading says either
+    # way). mpv's child window does not exist until there is a picture to draw,
+    # so the window checks belong after this and not before it.
+    $playing = $false
+    $deadline = (Get-Date).AddSeconds(45)
+    while (-not $playing -and (Get-Date) -lt $deadline) {
+        $playing = Shows $app 'Pause' 2
+    }
+    Start-Sleep -Seconds 2
+    Shot $app '12b-playing-controls.png'
+    Check 'the picture is playing, and the OSD is over it with the controls' $playing (
+        "the window shows neither Pause nor the transport: $(Page-Text $app)")
+    if (-not $playing) {
+        'the Stream never started playing, so the rest of this step is skipped'
+        return
+    }
+
     # The picture is a window of mpv's own, made a child of the Host's window;
     # the interface is the webview, and it has to be above the picture or the
     # video would cover every control.
@@ -434,7 +474,7 @@ function Play-A-Candidate($app) {
         $mpvAt -ge 0) "children of the window, topmost first: $($children -join ' | ')"
     Check 'the interface is drawn above the picture' (
         ($webviewAt -ge 0) -and ($webviewAt -lt $mpvAt)) (
-        "the webview is at $webviewAt and the picture at $mpvAt: $($children -join ' | ')")
+        "the webview is at ${webviewAt} and the picture at ${mpvAt}: $($children -join ' | ')")
 
     # A click in the middle of the picture has to reach the interface: the
     # picture's window must not be the one that hears it. Pressing the picture
@@ -443,13 +483,9 @@ function Play-A-Candidate($app) {
     [W]::GetWindowRect($app.Handle, [ref]$rect) | Out-Null
     $atX = [int](($rect.Left + $rect.Right) / 2)
     $atY = [int]($rect.Top + (($rect.Bottom - $rect.Top) * 0.35))
-    if (Shows $app 'Pause' 10) {
-        [W]::Click($atX, $atY)
-        Check 'a click over the video lands on the interface rather than on the picture' (
-            (Shows $app 'Play' 15)) (Page-Text $app)
-    } else {
-        'the Stream is not playing, so the click-over-the-video step is skipped'
-    }
+    [W]::Click($atX, $atY)
+    Check 'a click over the video lands on the interface rather than on the picture' (
+        (Shows $app 'Play' 15)) (Page-Text $app)
 
     # Play, pause, seek and stop, through the interface the Host's own window
     # draws: the same Actions a remote client takes (ADR-0002).
@@ -474,8 +510,6 @@ function Play-A-Candidate($app) {
     $text = Wait-Text $app 'Play' 15
     Check 'pausing is the same door as playing' (Shows $app 'Play' 10) "showed: $text"
 
-    $revision = ([regex]::Match((Page-Text $app), 'Snapshot revision\s*\|\s*(\d+)')).Groups[1].Value
-
     # What mpv is decoding with is in the Host's log, because no Snapshot
     # carries it yet (#28's statistics are where a client reads it): a Stream
     # playing is the only moment it can be read.
@@ -485,9 +519,9 @@ function Play-A-Candidate($app) {
     Check 'the Host logged what mpv is decoding with' (
         $decode -ne $null) 'no "the picture is playing" line in host.log'
     Check 'hardware decode is engaged (not "no")' (
-        $decode -and $decode.Line -notmatch 'hwdec="no"') "logged: $($decode.Line)"
-    Check 'and the picture is mpv''s own output, not a texture the Host made' (
-        $decode -and $decode.Line -match 'pixelformat="(d3d11|dxva|nv12|p010|yuv420p|yuv420p10)"') (
+        $decode -and $decode.Line -notmatch '"hwdec":"no"') "logged: $($decode.Line)"
+    Check 'and the picture is mpv''s own output, not a surface the Host made' (
+        $decode -and $decode.Line -notmatch '"pixelformat":"(unknown|yuv420p)"') (
         "logged: $($decode.Line)")
 
     Press $app 'Stop'
@@ -495,8 +529,10 @@ function Play-A-Candidate($app) {
     Shot $app '12c-stopped.png'
     Check 'stopping returns the client to the Stream list it chose from' (
         $text -match ("Streams $dash")) "showed: $text"
+    $after = ([regex]::Match($text, 'Snapshot revision\s*\|\s*(\d+)')).Groups[1].Value
     Check 'and playback published Snapshots of its own along the way' (
-        $revision -ne '') "showed: $text"
+        ($revision -ne '') -and ($after -ne '') -and ([int]$after -gt [int]$revision)) (
+        "the revision went '$revision' (on the list) to '$after' (after stopping)")
 }
 
 # --- the checklist ------------------------------------------------------------
