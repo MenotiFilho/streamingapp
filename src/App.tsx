@@ -479,8 +479,11 @@ function TitleView({
         <div className="title-about">
           <h3 data-testid="title-name">{nameOf(title, preview)}</h3>
           {facts ? <p className="title-facts">{facts}</p> : null}
+          {/* One string on purpose: adjacent JSX children become separate text
+              nodes, which a reader of the accessibility tree sees as fragments
+              of a phrase rather than the phrase. */}
           <p className="addon-id" data-testid="title-id">
-            {title.addon} · {title.type}/{title.id}
+            {`${title.addon} · ${title.type}/${title.id}`}
           </p>
           {title.genres.length > 0 ? (
             <p className="title-genres">{title.genres.join(", ")}</p>

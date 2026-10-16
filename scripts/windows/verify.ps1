@@ -448,8 +448,12 @@ $text = Wait-Text $app 'Back to browsing' 15
 Shot $app '11-title-opened.png'
 Check 'the arrow keys reached a card and OK opened the Title' (
     $text -match 'Back to browsing') "showed: $text"
-Check 'the opened Title names the Addon that answered for it' (
-    $text -match ([regex]::Escape($AddonId) + ' · ')) "showed: $text"
+# The identity line arrives whole — 'com.linvo.cinemeta · movie/tt22084616' — so
+# the Addon that answered and the item it answered about are read as one phrase.
+# The separator is spelled `\S+` because PowerShell 5.1 reads this file as ANSI
+# and a literal middle dot in the pattern would not survive the trip.
+Check 'the opened Title names the Addon that answered for it, and the item' (
+    $text -match ([regex]::Escape($AddonId) + '\s+\S+\s+[A-Za-z0-9_-]+/[^|\s]+')) "showed: $text"
 Check 'opening a Title is a question: the revision stands still' (
     $text -match ('Snapshot revision\s*\|\s*' + $revision)) "showed: $text"
 $film = $text -match 'This Title is one Video'
