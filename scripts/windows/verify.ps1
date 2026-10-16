@@ -33,6 +33,11 @@ param(
     [int] $Monitor = 1
 )
 
+# Non-ASCII inside a string literal would be read through the console's code
+# page (this file has no BOM), so the em dash the window's Streams heading uses
+# is built from its code point instead of written out.
+$dash = [char]0x2014
+
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
@@ -488,20 +493,51 @@ if ($text -match '/tmdb:') {
 }
 'the series case — seasons, episodes, and choosing one — is step 14.'
 
-'--- 12. a series'' episodes are selectable'
+'--- 12. pressing a Video asks the Addons for its Streams'
 if ($series) {
     # The Title's way back is its first focusable, so one press down lands on the
-    # first episode and OK chooses it. Nothing plays yet (#26/#27): the window
-    # says which episode this client has chosen.
+    # first episode and OK presses play on it: the window asks the Host for that
+    # Video's Streams and shows what came back. Whether candidates arrive is the
+    # Addon's business — Cinemeta answers no `stream` resource at all — so this
+    # checks the surface, and walks the candidates when there are any.
     Press-Keys $app '{DOWN}'
     Press-Keys $app '{ENTER}'
-    $text = Wait-Text $app 'choosing a Stream arrives in' 10
-    Shot $app '12-episode-chosen.png'
-    Check 'an episode can be chosen, and the window says which' (
-        ($text -match 'Selected ') -and
-        ($text -match 'choosing a Stream arrives in')) "showed: $text"
+    $text = Wait-Text $app ("Streams $dash") 20
+    Shot $app '12-episode-streams.png'
+    Check 'pressing an episode asks for its Streams, and the list is what came back' (
+        $text -match ("Streams $dash")) "showed: $text"
+    if ($text -match 'No configured Addon offers Streams') {
+        'the configured Addon answers no `stream` resource, so the list is empty:'
+        'run with -Addon <a stream Addon> to walk the candidates themselves'
+    } else {
+        # The episode list went away, so focus went back to the first control;
+        # two presses down land on the first candidate, and OK chooses it.
+        # Nothing plays yet (#27): the window says what the choice means.
+        Press-Keys $app '{DOWN}{DOWN}'
+        Press-Keys $app '{ENTER}'
+        $text = Wait-Text $app 'Chose ' 20
+        Shot $app '12-stream-chosen.png'
+        Check 'a Stream can be chosen, and the window says what that means' (
+            $text -match 'Chose ') "showed: $text"
+    }
+    Press-Keys $app '{ESC}'
+    $text = Wait-Text $app 'Season' 15
+    Check 'Back leaves the Streams and returns to the episodes' (
+        $text -match 'Season \d+') "showed: $text"
+} elseif ($noEpisodes) {
+    'the Title opened is a series whose Addon listed no episodes, so there is no Video to press play on'
 } else {
-    'the Title opened was a film, so there is no episode to choose here'
+    # A film is one Video — the film itself — so its Title screen offers Play.
+    Press-Keys $app '{DOWN}'
+    Press-Keys $app '{ENTER}'
+    $text = Wait-Text $app ("Streams $dash") 20
+    Shot $app '12-film-streams.png'
+    Check 'pressing play on a film asks for its Streams, and the list is what came back' (
+        $text -match ("Streams $dash")) "showed: $text"
+    Press-Keys $app '{ESC}'
+    $text = Wait-Text $app 'one Video: the film itself' 15
+    Check 'Back leaves the Streams and returns to the film' (
+        $text -match 'one Video: the film itself') "showed: $text"
 }
 
 '--- 13. Back leaves the Title, and the same Title opens again'
@@ -559,16 +595,19 @@ if ($series) {
     Check 'and an episode for each' (
         $text -match 'S\d+E\d+') "showed: $text"
     # The way back is the Title's first focusable, so one press down lands on the
-    # first episode and OK chooses it. Nothing plays yet (#26/#27): the window
-    # says which episode this client has chosen.
+    # first episode and OK presses play on it: the Streams surface replaces the
+    # episodes. Escape is Back, so two presses leave the Streams, then the series.
     Focus-On $app 'Back to browsing' ([Windows.Automation.ControlType]::Button)
     Press-Keys $app '{DOWN}'
     Press-Keys $app '{ENTER}'
-    $text = Wait-Text $app 'choosing a Stream arrives in' 10
-    Shot $app '14-series-episode.png'
-    Check 'an episode can be chosen, and the window says which' (
-        ($text -match 'Selected ') -and
-        ($text -match 'choosing a Stream arrives in')) "showed: $text"
+    $text = Wait-Text $app ("Streams $dash") 20
+    Shot $app '14-series-streams.png'
+    Check 'pressing an episode opens the Streams surface over the episodes' (
+        $text -match ("Streams $dash")) "showed: $text"
+    Press-Keys $app '{ESC}'
+    $text = Wait-Text $app 'Season' 15
+    Check 'Back leaves the Streams and returns to the episodes' (
+        $text -match 'Season \d+') "showed: $text"
     Press-Keys $app '{ESC}'
     $text = Wait-Text $app ([regex]::Escape($AddonCatalog)) 25
     Check 'and Back leaves the series again' (

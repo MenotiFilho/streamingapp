@@ -13,12 +13,18 @@ The checklist covers the whole window: the preference and the Action surface, th
 Addon by its manifest URL, the home surface's catalog rows, paging one, searching,
 going Back, and the same controls reached with the arrow keys and OK rather than
 the mouse (tickets #23 and #24), and — from #24 — opening a Title, a series'
-seasons and episodes, choosing one, backing out and opening the Title again, and
-— from #25 — the TMDB key's round trip (entered, held, refused by TMDB without
-blanking a Title, and cleared again), the backend the window says is holding it,
-and a Title no TMDB record met marked unmapped. For the steps that depend on what
-a third-party Addon happens to serve — that the posters are drawn, that a search
-returns something — the assertion is structural (the rows stopped saying
+seasons and episodes, backing out and opening the Title again, and — from #25 —
+the TMDB key's round trip (entered, held, refused by TMDB without blanking a
+Title, and cleared again), the backend the window says is holding it, and a
+Title no TMDB record met marked unmapped. From #26 the walkthrough presses play
+on a Video — an episode, or a film's own Play — and checks that the Streams
+surface opens, that a candidate can be chosen, and that Back leaves it for the
+Videos it was asked from; whether candidates actually arrive depends on the
+Addon the run is pointed at, so walking the candidates themselves needs
+`-Addon` naming an Addon that answers `stream` (Cinemeta, the default, answers
+none, and the step says so rather than failing). For the steps that depend on
+what a third-party Addon happens to serve — that the posters are drawn, that a
+search returns something — the assertion is structural (the rows stopped saying
 `Loading`, the search surface is showing, the Title names the Addon that
 answered, the revision did not move) and the screenshot is the evidence a person
 reads.
