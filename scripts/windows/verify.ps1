@@ -1830,7 +1830,6 @@ function Step-25($ctx) {
     # another device: an address, and a code to redeem once.
     $text = Wait-Text $app 'Pairing code' 20
     Shot $app '25-pairing.png'
-    $before = ([regex]::Match($text, 'Snapshot revision\s*\|\s*(\d+)')).Groups[1].Value
     $address = ([regex]::Match($text, 'Address[^0-9]*([0-9][0-9.]*:[0-9]+)')).Groups[1].Value
     $code = ([regex]::Match($text, 'Pairing code[^A-Z0-9]{0,6}([A-HJ-NP-Z2-9]{6})')).Groups[1].Value
     Check 'the window says where remote clients connect' (
@@ -1844,6 +1843,7 @@ function Step-25($ctx) {
 
     # The pairing itself is by hand: a browser on another device on this network.
     # Nothing is typed here, and no token passes through the script.
+    $published = Published-Snapshots
     ''
     "PAIR A DEVICE NOW: on another device on this network, open http://$address in"
     "a browser and enter the code $code. This script waits until the window lists a"
@@ -1854,15 +1854,19 @@ function Step-25($ctx) {
         $text -notmatch 'No device is paired yet') "showed: $text"
     Check 'and the list offers to revoke it' (
         $text -match 'Revoke') "showed: $text"
-    Check 'pairing is a change every client is told of: the revision moved' (
-        ([regex]::Match($text, 'Snapshot revision\s*\|\s*(\d+)')).Groups[1].Value -ne $before) (
-        "the revision was $before and is still $before")
+    # Pairing is a change every client is told of, and the Host's own record of that
+    # is the Snapshot it published -- which the log names. Read from the log and not
+    # the window: by now the operator has scrolled the window down to the code, so
+    # the revision line is off-screen and its text is a stale name in the tree.
+    $after = Wait-Published $published 30
+    Check 'pairing is a change every client is told of: a Snapshot went out' (
+        $after -gt $published) ("the log still shows $published published Snapshot(s)")
     Check 'the redeemed code is spent: the Host shows a different one' (
         ([regex]::Match($text, 'Pairing code[^A-Z0-9]{0,6}([A-HJ-NP-Z2-9]{6})')).Groups[1].Value -ne $code) (
         "the code is still '$code'")
 
-    # Revoke it. The device is cut off — its token matches no device from here —
-    # and the list it was in lets it go.
+    # Revoke it. The device is cut off - its token names no device from here - and
+    # the list it was in lets it go.
     Press $app 'Revoke'
     $text = Wait-Text $app 'No device is paired yet' 20
     Shot $app '25-revoked.png'
@@ -1870,10 +1874,33 @@ function Step-25($ctx) {
         $text -match 'No device is paired yet') "showed: $text"
     Check 'and leaves the Host with nothing paired, working as before' (
         $text -match 'Remote devices') "showed: $text"
+    $afterRevoke = Wait-Published $after 30
+    Check 'and revoking is a change too: another Snapshot went out' (
+        $afterRevoke -gt $after) ("the log still shows $after published Snapshot(s)")
 
-    'the unpaired half — a connection that has not paired reaching only the pairing'
-    'exchange — and the revocation cut-off are covered by host-wire/tests/wire.rs,'
+    'the unpaired half - a connection that has not paired reaching only the pairing'
+    'exchange - and the revocation cut-off are covered by host-wire/tests/wire.rs,'
     'which drives a real socket; this step walks the window and the pairing by hand.'
+}
+
+# How many Snapshots the Host has published, read from its own log.
+#
+# The log is the Host's record of a change reaching every client, and unlike the
+# window's revision line it cannot be scrolled off the screen. It is written by an
+# asynchronous writer, so callers wait rather than reading once.
+function Published-Snapshots {
+    @(Select-String -Path $log -SimpleMatch 'publishing a Snapshot' -ErrorAction SilentlyContinue).Count
+}
+
+# Wait for more published Snapshots than `$before`, and hand back the count it saw.
+function Wait-Published($before, $seconds = 20) {
+    $deadline = (Get-Date).AddSeconds($seconds)
+    while ($true) {
+        $now = Published-Snapshots
+        if ($now -gt $before) { return $now }
+        if ((Get-Date) -ge $deadline) { return $before }
+        Start-Sleep -Milliseconds 250
+    }
 }
 
 # --- the dispatcher -----------------------------------------------------------
