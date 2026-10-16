@@ -6,9 +6,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use host_core::{
-    Action, ActionError, CatalogRow, FetchError, Fetcher, FixtureFetcher, Host, InMemoryStore,
-    Response, Store, ACTION_VERSION,
+    Action, ActionError, CatalogRow, FetchError, Fetcher, FixtureFetcher, Host,
+    InMemorySecretStore, InMemoryStore, Response, SecretBackend, Store, ACTION_VERSION,
 };
+
+/// A Host needs somewhere to look a credential up; tests hold theirs here.
+fn secrets() -> Arc<InMemorySecretStore> {
+    Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring))
+}
 
 /// The recorded Addons, and the pages recorded from them.
 const CINEMETA: &str = "https://v3-cinemeta.strem.io/manifest.json";
@@ -98,6 +103,7 @@ fn host_with_recorded_addons() -> (Host, Arc<FixtureFetcher>) {
     let mut host = Host::new(
         Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
         fetcher.clone(),
+        secrets(),
     )
     .expect("a Host over a store starts");
     configure(&mut host, CINEMETA);
@@ -461,6 +467,7 @@ fn a_page_the_addon_said_may_outlive_itself_is_served_when_the_addon_goes_away()
     let mut host = Host::new(
         Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
         switchboard.clone(),
+        secrets(),
     )
     .expect("a Host over a store starts");
     configure(&mut host, SEARCHABLE);
@@ -490,6 +497,7 @@ fn a_page_the_addon_said_nothing_about_serving_stale_is_reported_when_it_fails()
     let mut host = Host::new(
         Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
         switchboard.clone(),
+        secrets(),
     )
     .expect("a Host over a store starts");
     configure(&mut host, SEARCHABLE);
@@ -622,8 +630,12 @@ const ALSO_SEARCHABLE: &str = "https://other.example.com/manifest.json";
 const WITHOUT_SEARCH: &str = "https://plain.example.com/manifest.json";
 
 fn host_over(fetcher: Arc<FixtureFetcher>) -> Host {
-    Host::new(Arc::new(InMemoryStore::new()) as Arc<dyn Store>, fetcher)
-        .expect("a Host over a store starts")
+    Host::new(
+        Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
+        fetcher,
+        secrets(),
+    )
+    .expect("a Host over a store starts")
 }
 
 fn searchable_manifest(id: &str, name: &str) -> String {
@@ -695,7 +707,11 @@ impl Switchboard {
 }
 
 impl Fetcher for Switchboard {
-    fn fetch(&self, url: &str) -> Result<String, FetchError> {
+    fn fetch_with_headers(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+    ) -> Result<String, FetchError> {
         self.asked
             .lock()
             .expect("the switchboard is not poisoned")
@@ -705,6 +721,6 @@ impl Fetcher for Switchboard {
                 detail: "the Addon went away".to_owned(),
             });
         }
-        self.inner.fetch(url)
+        self.inner.fetch_with_headers(url, headers)
     }
 }

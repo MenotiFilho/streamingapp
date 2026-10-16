@@ -38,7 +38,6 @@ use serde_json::{Map, Value};
 
 use crate::addon::{AddonId, MAX_ITEMS, MAX_STRING_LEN};
 use crate::request::TitleRef;
-
 /// The most of a meta body the Host will read.
 ///
 /// A Title is one item's metadata; addon answers in the wild are tens of
@@ -60,6 +59,10 @@ pub struct Title {
     /// The id the client opened, which is the id its Addon indexes it by —
     /// `tt0903747`, `tmdb:603`.
     pub id: String,
+    /// What the Title is keyed by: TMDB's, where one of its records met it,
+    /// and the supplying Addon's where one did not — the unchanged key of a
+    /// Title nothing mapped (CONTEXT.md, *Title*).
+    pub key: TitleKey,
     #[serde(rename = "type")]
     pub r#type: String,
     /// The Title's name. The id stands in when the Addon named it nothing, so a
@@ -76,6 +79,23 @@ pub struct Title {
     /// The Title's Videos, in the Addon's own order: empty for a film, and a
     /// season's episodes, plus any specials, for a series.
     pub videos: Vec<Video>,
+}
+
+/// What a Title is keyed by: the identity the Host and its stores speak the
+/// Title with, whoever described it.
+///
+/// The mapping is upwards and one-way: a Title keyed by its Addon until TMDB's
+/// own record names it, and then keyed by that record's id. Which key a Title
+/// carries is not the credential's business and is never a secret.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TitleKey {
+    /// Keyed by its TMDB id — the number TMDB addresses the record by.
+    Tmdb { id: u32 },
+    /// Keyed by the Addon that supplied it: the Addon and the id it indexes
+    /// the Title by, the pair everything it later answers about is asked
+    /// with.
+    Addon { addon: AddonId, id: String },
 }
 
 /// One playable unit of a Title: the film itself, or a single episode.
@@ -146,10 +166,16 @@ impl Title {
         };
 
         Ok(Self {
-            addon,
-            // The identity is the client's, never the body's: the Title *is* the
-            // item that was asked about, and an Addon cannot rename it.
+            // The identity belongs to the client, never to the body: the Title
+            // *is* the item that was asked about, and an Addon cannot rename it.
+            // A fresh answer is keyed by the Addon that gave it, until TMDB's
+            // own records say otherwise — which is a decision above the parse.
+            addon: addon.clone(),
             id: asked.id.clone(),
+            key: TitleKey::Addon {
+                addon,
+                id: asked.id.clone(),
+            },
             r#type: asked.r#type.clone(),
             name: meta
                 .and_then(|meta| field(meta, "name"))

@@ -39,7 +39,7 @@ pub const SKIP: &str = "skip";
 ///
 /// Alphanumerics are always left; these are the punctuation marks
 /// `encodeURIComponent` leaves as well.
-const COMPONENT: &AsciiSet = &NON_ALPHANUMERIC
+pub(crate) const COMPONENT: &AsciiSet = &NON_ALPHANUMERIC
     .remove(b'-')
     .remove(b'_')
     .remove(b'.')

@@ -1,0 +1,20 @@
+{
+  "movie_results": [],
+  "tv_results": [
+    {
+      "adult": false,
+      "backdrop_path": "/tsRy63Mu5cu8etKy4WXoMmr1H4b.jpg",
+      "id": 1396,
+      "name": "Breaking Bad",
+      "original_name": "Breaking Bad",
+      "original_language": "en",
+      "overview": "When Walter White, a chemistry teacher, is diagnosed with cancer, he turns to making meth to secure his family's future.",
+      "poster_path": "/ggFHVNu6YYI5L9pCfO4iH3a73Fg.jpg",
+      "first_air_date": "2008-01-20",
+      "origin_country": ["US"],
+      "vote_average": 8.9,
+      "vote_count": 11000
+    }
+  ],
+  "person_results": []
+}

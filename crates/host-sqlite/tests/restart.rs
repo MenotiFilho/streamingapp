@@ -4,8 +4,15 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use host_core::{Action, FixtureFetcher, Host, Snapshot, SubtitleLanguage};
+use host_core::{
+    Action, FixtureFetcher, Host, InMemorySecretStore, Snapshot, SubtitleLanguage, ACTION_VERSION,
+};
 use host_sqlite::SqliteStore;
+
+/// The in-memory stand-in for the OS keyring.
+fn secrets() -> Arc<InMemorySecretStore> {
+    Arc::new(InMemorySecretStore::new())
+}
 
 const MANIFEST_URL: &str = "https://api.stremboxd.com/manifest.json";
 const MANIFEST: &str = r#"{
@@ -38,7 +45,7 @@ fn fetcher() -> Arc<FixtureFetcher> {
 /// Start a Host on this database, as launching the app does.
 fn start(path: &Path) -> Host {
     let store = SqliteStore::open(path).expect("the database opens");
-    Host::new(Arc::new(store), fetcher()).expect("the Host starts")
+    Host::new(Arc::new(store), fetcher(), secrets()).expect("the Host starts")
 }
 
 fn take(host: &mut Host, action: &str) {

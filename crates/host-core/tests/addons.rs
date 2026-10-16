@@ -5,8 +5,8 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, FetchError, FixtureFetcher, Host, InMemoryStore, Manifest, Snapshot,
-    Store, ACTION_VERSION,
+    Action, ActionError, FetchError, FixtureFetcher, Host, InMemorySecretStore, InMemoryStore,
+    Manifest, Snapshot, Store, ACTION_VERSION,
 };
 
 /// Recorded manifests, and the URLs they answer on.
@@ -29,7 +29,15 @@ fn action(body: &str) -> Action {
 }
 
 fn host_over(store: Arc<dyn Store>, fetcher: FixtureFetcher) -> Host {
-    Host::new(store, Arc::new(fetcher)).expect("a Host over a store starts")
+    Host::new(store, Arc::new(fetcher), secrets()).expect("a Host over a store starts")
+}
+
+/// The in-memory stand-in for the OS keyring: tests speak a credential into it
+/// the way the owner's window does, and read the Snapshot's protection out.
+fn secrets() -> Arc<InMemorySecretStore> {
+    Arc::new(InMemorySecretStore::backed_by(
+        host_core::SecretBackend::Keyring,
+    ))
 }
 
 /// A Host over an empty store, with everything the recorded Addons answer.
@@ -41,7 +49,8 @@ fn host_with_recorded_addons() -> (Host, Arc<InMemoryStore>, Arc<FixtureFetcher>
             .serving(CINEMETA, CINEMETA_MANIFEST)
             .serving(AIOSTREAMS, STREMBOXD_MANIFEST),
     );
-    let host = Host::new(store.clone(), fetcher.clone()).expect("a Host over a store starts");
+    let host =
+        Host::new(store.clone(), fetcher.clone(), secrets()).expect("a Host over a store starts");
     (host, store, fetcher)
 }
 

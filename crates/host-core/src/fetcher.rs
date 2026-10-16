@@ -17,7 +17,16 @@ use std::sync::Mutex;
 /// Where the Host gets bytes from.
 pub trait Fetcher: Send + Sync + 'static {
     /// Fetch the body at `url`.
-    fn fetch(&self, url: &str) -> Result<String, FetchError>;
+    fn fetch(&self, url: &str) -> Result<String, FetchError> {
+        self.fetch_with_headers(url, &[])
+    }
+
+    /// Fetch the body at `url`, saying what a credential wants said in the
+    /// headers. A credential may travel as a header — TMDB's access token is
+    /// one such — and a header is the one place it cannot end up in a log line
+    /// or in history: a URL goes in a log, a header does not.
+    fn fetch_with_headers(&self, url: &str, headers: &[(&str, &str)])
+        -> Result<String, FetchError>;
 }
 
 /// Why a fetch did not produce a body, in the Host's own terms.
@@ -40,7 +49,9 @@ pub enum FetchError {
 #[derive(Debug, Default)]
 pub struct FixtureFetcher {
     responses: Mutex<HashMap<String, Result<String, FetchError>>>,
-    asked: Mutex<Vec<String>>,
+    /// Every URL the Host asked for, in order, with the headers each ask
+    /// carried.
+    asked: Mutex<Vec<(String, Vec<(String, String)>)>>,
 }
 
 impl FixtureFetcher {
@@ -64,7 +75,22 @@ impl FixtureFetcher {
         self.asked
             .lock()
             .expect("the fixture fetcher is not poisoned")
-            .clone()
+            .iter()
+            .map(|(url, _)| url.clone())
+            .collect()
+    }
+
+    /// The headers the last ask of `url` carried — for the tests that care a
+    /// credential went out in a header and nowhere a log could read.
+    pub fn headers_of(&self, url: &str) -> Vec<(String, String)> {
+        self.asked
+            .lock()
+            .expect("the fixture fetcher is not poisoned")
+            .iter()
+            .rev()
+            .find(|(asked, _)| asked == url)
+            .map(|(_, headers)| headers.clone())
+            .expect("a fetcher that was asked for a url it has the ask of")
     }
 
     fn holding(mut self, url: &str, response: Result<String, FetchError>) -> Self {
@@ -77,11 +103,21 @@ impl FixtureFetcher {
 }
 
 impl Fetcher for FixtureFetcher {
-    fn fetch(&self, url: &str) -> Result<String, FetchError> {
+    fn fetch_with_headers(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+    ) -> Result<String, FetchError> {
         self.asked
             .lock()
             .expect("the fixture fetcher is not poisoned")
-            .push(url.to_owned());
+            .push((
+                url.to_owned(),
+                headers
+                    .iter()
+                    .map(|(name, value)| (name.to_string(), value.to_string()))
+                    .collect(),
+            ));
 
         match self
             .responses

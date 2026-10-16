@@ -5,8 +5,8 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, FetchError, FixtureFetcher, Host, InMemoryStore, Store, Title, TitleRef,
-    ACTION_VERSION,
+    Action, ActionError, FetchError, FixtureFetcher, Host, InMemorySecretStore, InMemoryStore,
+    SecretBackend, Store, Title, TitleKey, TitleRef, ACTION_VERSION,
 };
 
 const CINEMETA: &str = "https://v3-cinemeta.strem.io/manifest.json";
@@ -14,12 +14,28 @@ const CINEMETA_MOVIE: &str = "https://v3-cinemeta.strem.io/meta/movie/tt0133093.
 const CINEMETA_SERIES: &str = "https://v3-cinemeta.strem.io/meta/series/tt0903747.json";
 const STREMBOXD: &str = "https://api.stremboxd.com/manifest.json";
 
+/// The owner's TMDB credential, as the v3 api-key shape the Host takes.
+const TMDB_KEY: &str = "0123456789abcdef0123456789abcdef";
+const TMDB_FIND_MOVIE: &str =
+    "https://api.themoviedb.org/3/find/tt0133093?external_source=imdb_id&api_key=0123456789abcdef0123456789abcdef";
+const TMDB_FIND_SERIES: &str =
+    "https://api.themoviedb.org/3/find/tt0903747?external_source=imdb_id&api_key=0123456789abcdef0123456789abcdef";
+const TMDB_MOVIE_603: &str =
+    "https://api.themoviedb.org/3/movie/603?api_key=0123456789abcdef0123456789abcdef";
+const TMDB_TV_1396: &str =
+    "https://api.themoviedb.org/3/tv/1396?api_key=0123456789abcdef0123456789abcdef";
+
 const CINEMETA_MANIFEST: &str = include_str!("fixtures/cinemeta-manifest.json");
 const STREMBOXD_MANIFEST: &str = include_str!("fixtures/stremboxd-manifest.json");
 const MOVIE_BODY: &str = include_str!("fixtures/cinemeta-meta-movie.json");
 const SERIES_BODY: &str = include_str!("fixtures/cinemeta-meta-series.json");
 const SPARSE_BODY: &str = include_str!("fixtures/sparse-meta.json");
 const HOSTILE_BODY: &str = include_str!("fixtures/hostile-meta.json");
+
+const TMDB_FIND_MOVIE_BODY: &str = include_str!("fixtures/tmdb-find-matrix.json");
+const TMDB_FIND_SERIES_BODY: &str = include_str!("fixtures/tmdb-find-bb.json");
+const TMDB_MOVIE_DETAILS: &str = include_str!("fixtures/tmdb-movie-details.json");
+const TMDB_TV_DETAILS: &str = include_str!("fixtures/tmdb-tv-details.json");
 
 /// An Action as a client sends it: the versioned envelope, as JSON text.
 fn action(body: &serde_json::Value) -> Action {
@@ -61,6 +77,7 @@ fn host_with_recorded_addons() -> (Host, Arc<FixtureFetcher>) {
     let mut host = Host::new(
         Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
         fetcher.clone(),
+        secrets(),
     )
     .expect("a Host over a store starts");
     configure(&mut host, CINEMETA);
@@ -73,6 +90,19 @@ fn configure(host: &mut Host, url: &str) {
         &serde_json::json!({ "type": "add_addon", "url": url }),
     ))
     .unwrap_or_else(|error| panic!("configuring {url} should work: {error}"));
+}
+
+/// A Host needs somewhere to look a credential up; tests hold theirs here.
+fn secrets() -> Arc<InMemorySecretStore> {
+    Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring))
+}
+
+/// Enter a TMDB key the way the window's form does.
+fn set_tmdb_key(host: &mut Host, key: &str) {
+    host.dispatch(action(
+        &serde_json::json!({ "type": "set_tmdb_key", "key": key }),
+    ))
+    .unwrap_or_else(|error| panic!("entering a TMDB key should work: {error}"));
 }
 
 #[test]
@@ -169,8 +199,12 @@ fn a_sparse_meta_response_still_leaves_the_title_open() {
             .serving(CINEMETA, CINEMETA_MANIFEST)
             .serving(CINEMETA_MOVIE, SPARSE_BODY),
     );
-    let mut host = Host::new(Arc::new(InMemoryStore::new()) as Arc<dyn Store>, fetcher)
-        .expect("a Host over a store starts");
+    let mut host = Host::new(
+        Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
+        fetcher,
+        secrets(),
+    )
+    .expect("a Host over a store starts");
     configure(&mut host, CINEMETA);
 
     let title = opened(&mut host, open("com.linvo.cinemeta", "movie", "tt0133093"));
@@ -225,8 +259,12 @@ fn opening_a_title_whose_addon_cannot_be_reached_is_reported_rather_than_answere
             .serving(CINEMETA, CINEMETA_MANIFEST)
             .failing(CINEMETA_MOVIE, FetchError::Status { status: 503 }),
     );
-    let mut host = Host::new(Arc::new(InMemoryStore::new()) as Arc<dyn Store>, fetcher)
-        .expect("a Host over a store starts");
+    let mut host = Host::new(
+        Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
+        fetcher,
+        secrets(),
+    )
+    .expect("a Host over a store starts");
     configure(&mut host, CINEMETA);
 
     let refused = host.dispatch(open("com.linvo.cinemeta", "movie", "tt0133093"));
@@ -244,8 +282,12 @@ fn a_meta_response_that_lies_is_reported_rather_than_opened() {
             .serving(CINEMETA, CINEMETA_MANIFEST)
             .serving(CINEMETA_MOVIE, HOSTILE_BODY),
     );
-    let mut host = Host::new(Arc::new(InMemoryStore::new()) as Arc<dyn Store>, fetcher)
-        .expect("a Host over a store starts");
+    let mut host = Host::new(
+        Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
+        fetcher,
+        secrets(),
+    )
+    .expect("a Host over a store starts");
     configure(&mut host, CINEMETA);
 
     let refused = host.dispatch(open("com.linvo.cinemeta", "movie", "tt0133093"));
@@ -294,5 +336,346 @@ fn an_open_title_action_is_flat_enough_to_write_by_hand() {
             "title": { "type": "series", "id": "tt0903747" },
         }),
         "the Title is named inside the Action, because the Action already has a `type`"
+    );
+}
+
+// --- TMDB, where a Title maps when it can -------------------------------------
+
+const CINEMETA_TMDB_603: &str = "https://v3-cinemeta.strem.io/meta/movie/tmdb%3A603.json";
+const TMDB_FIND_MOVIE_NAKED: &str =
+    "https://api.themoviedb.org/3/find/tt0133093?external_source=imdb_id";
+const TMDB_MOVIE_603_NAKED: &str = "https://api.themoviedb.org/3/movie/603";
+const TMDB_TOKEN: &str = "eyJhbGciOiJIUzI1NiJ9.eyJzY29wZSI6InJlYWQifQ.a-signature";
+
+/// A Host over the fetcher a test recorded its answers on, with Cinemeta
+/// configured and the key entered the way the window's form does it — or
+/// none, for the tests without one. The fetcher is handed in by the Arc the
+/// test made, so what is registered is what is read back.
+fn host_over(fetcher: Arc<FixtureFetcher>, key: Option<&str>) -> Host {
+    let mut host = Host::new(
+        Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
+        fetcher,
+        secrets(),
+    )
+    .expect("a Host over a store starts");
+    configure(&mut host, CINEMETA);
+    if let Some(key) = key {
+        set_tmdb_key(&mut host, key);
+    }
+    host
+}
+
+/// Where `url` happened in the asks a fetcher recorded, or a complaint.
+fn position_of(asked: &[String], url: &str) -> usize {
+    asked
+        .iter()
+        .position(|asked_for| asked_for == url)
+        .unwrap_or_else(|| panic!("{url} was never asked for: {asked:?}"))
+}
+
+/// The unmapped key of a Title Cinemeta answered about `tt0133093`.
+fn addon_key(movie: &Title) -> TitleKey {
+    TitleKey::Addon {
+        addon: movie.addon.clone(),
+        id: movie.id.clone(),
+    }
+}
+
+#[test]
+fn a_title_with_an_imdb_id_maps_to_tmdb_and_its_record_supersedes_the_addons_word() {
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(CINEMETA_MOVIE, MOVIE_BODY)
+            .serving(TMDB_FIND_MOVIE, TMDB_FIND_MOVIE_BODY)
+            .serving(TMDB_MOVIE_603, TMDB_MOVIE_DETAILS),
+    );
+    let mut host = host_over(fetcher.clone(), Some(TMDB_KEY));
+
+    let title = opened(&mut host, open("com.linvo.cinemeta", "movie", "tt0133093"));
+
+    assert_eq!(
+        title.key,
+        TitleKey::Tmdb { id: 603 },
+        "the record the find named is what the Title is keyed by"
+    );
+    assert_eq!(title.name, "The Matrix");
+    assert_eq!(title.release_info.as_deref(), Some("1999"));
+    assert_eq!(
+        title.genres,
+        vec!["Action", "Science Fiction"],
+        "TMDB's word is the one kept where the record answered"
+    );
+    assert!(
+        title
+            .poster
+            .as_deref()
+            .is_some_and(|poster| poster.starts_with("https://image.tmdb.org/t/p/w780")),
+        "the poster is TMDB's, at the size a card draws: {:?}",
+        title.poster
+    );
+
+    // The path, in order: the Addon's answer, then the identity, then the
+    // record.
+    let asked = fetcher.asked();
+    assert!(
+        position_of(&asked, CINEMETA_MOVIE) < position_of(&asked, TMDB_FIND_MOVIE)
+            && position_of(&asked, TMDB_FIND_MOVIE) < position_of(&asked, TMDB_MOVIE_603),
+        "the Addon answers first, then the identity is found, then the metadata read: {asked:?}"
+    );
+}
+
+#[test]
+fn without_a_key_nothing_maps_and_the_title_stays_the_addons() {
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(CINEMETA_MOVIE, MOVIE_BODY),
+    );
+    let mut host = host_over(fetcher.clone(), None);
+
+    let title = opened(&mut host, open("com.linvo.cinemeta", "movie", "tt0133093"));
+
+    assert_eq!(title.key, addon_key(&title));
+    assert_eq!(title.name, "The Matrix");
+    assert_eq!(
+        fetcher.asked().last().map(String::as_str),
+        Some(CINEMETA_MOVIE),
+        "no key entered, and no TMDB asked"
+    );
+}
+
+#[test]
+fn an_id_that_says_it_is_tmdbs_is_keyed_by_its_record_whether_a_key_is_held_or_not() {
+    // The key is a fact about the identity, not of the credentials held: the
+    // id names TMDB's record whatever the store carries. Cinemeta's meta
+    // declares no id prefixes, so a `tmdb:603` ask is its to answer.
+    let answerless = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(CINEMETA_TMDB_603, MOVIE_BODY),
+    );
+    let mut host = host_over(answerless.clone(), None);
+    let asked_at_configure: usize = answerless.asked().len();
+
+    let title = opened(&mut host, open("com.linvo.cinemeta", "movie", "tmdb:603"));
+
+    assert_eq!(title.key, TitleKey::Tmdb { id: 603 });
+    assert_eq!(
+        answerless.asked().len(),
+        asked_at_configure + 1,
+        "only the Addon was asked, with no key to ask TMDB with: {:?}",
+        answerless.asked()
+    );
+
+    // With a key, the record's metadata is asked for and arrives.
+    let refined = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(CINEMETA_TMDB_603, MOVIE_BODY)
+            .serving(TMDB_MOVIE_603, TMDB_MOVIE_DETAILS),
+    );
+    let mut host = host_over(refined.clone(), Some(TMDB_KEY));
+
+    let title = opened(&mut host, open("com.linvo.cinemeta", "movie", "tmdb:603"));
+
+    assert_eq!(title.key, TitleKey::Tmdb { id: 603 });
+    assert!(
+        title
+            .poster
+            .as_deref()
+            .is_some_and(|poster| poster.starts_with("https://image.tmdb.org/t/p/w780")),
+        "the record answered, and its poster is the word kept: {:?}",
+        title.poster
+    );
+    assert!(
+        refined.asked().contains(&TMDB_MOVIE_603.to_owned()),
+        "the details were asked of TMDB: {:?}",
+        refined.asked()
+    );
+}
+
+#[test]
+fn a_tmdb_outage_degrades_to_the_addon_metadata_instead_of_blanking_the_title() {
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(CINEMETA_MOVIE, MOVIE_BODY)
+            .failing(TMDB_FIND_MOVIE, FetchError::Status { status: 503 }),
+    );
+    let mut host = host_over(fetcher, Some(TMDB_KEY));
+
+    let title = opened(&mut host, open("com.linvo.cinemeta", "movie", "tt0133093"));
+
+    assert_eq!(title.key, addon_key(&title));
+    assert_eq!(
+        title.name, "The Matrix",
+        "the Addon's answer, unblanked by a service that was down"
+    );
+    assert_eq!(title.release_info.as_deref(), Some("1999"));
+    assert!(
+        title.poster.is_some(),
+        "the card the person already saw is not lost to an outage"
+    );
+}
+
+#[test]
+fn a_find_which_maps_nothing_leaves_the_title_keyed_by_its_addon() {
+    // A find that answered is not always a find that mapped one: the kind's
+    // own list empty is the answer no record was found.
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(CINEMETA_MOVIE, MOVIE_BODY)
+            .serving(
+                TMDB_FIND_MOVIE,
+                r#"{"movie_results":[],"tv_results":[],"person_results":[]}"#,
+            ),
+    );
+    let mut host = host_over(fetcher, Some(TMDB_KEY));
+
+    let title = opened(&mut host, open("com.linvo.cinemeta", "movie", "tt0133093"));
+
+    assert_eq!(title.key, addon_key(&title));
+    assert_eq!(title.name, "The Matrix");
+}
+
+#[test]
+fn a_details_answer_that_was_not_one_keeps_the_key_and_the_addons_metadata() {
+    // The find stood: the identity is TMDB's. What failed is the reading of
+    // one answer — the metadata stays the Addon's sparse word, the identity
+    // the client opened it by.
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(CINEMETA_MOVIE, r#"{"meta":null}"#)
+            .serving(TMDB_FIND_MOVIE, TMDB_FIND_MOVIE_BODY)
+            .serving(TMDB_MOVIE_603, "[]"),
+    );
+    let mut host = host_over(fetcher, Some(TMDB_KEY));
+
+    let title = opened(&mut host, open("com.linvo.cinemeta", "movie", "tt0133093"));
+
+    assert_eq!(title.key, TitleKey::Tmdb { id: 603 });
+    assert_eq!(
+        title.runtime, None,
+        "the sparse Addon's word — the name and nothing more — is what the Title keeps, \
+         with no runtime a refused record could have given it"
+    );
+}
+
+#[test]
+fn a_series_maps_to_tmdb_and_its_record_runs_over_the_addons_word() {
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(CINEMETA_SERIES, SERIES_BODY)
+            .serving(TMDB_FIND_SERIES, TMDB_FIND_SERIES_BODY)
+            .serving(TMDB_TV_1396, TMDB_TV_DETAILS),
+    );
+    let mut host = host_over(fetcher, Some(TMDB_KEY));
+
+    let title = opened(&mut host, open("com.linvo.cinemeta", "series", "tt0903747"));
+
+    assert_eq!(title.key, TitleKey::Tmdb { id: 1396 });
+    assert_eq!(title.name, "Breaking Bad");
+    assert_eq!(
+        title.release_info.as_deref(),
+        Some("2008–2013"),
+        "the years are TMDB's"
+    );
+    assert_eq!(
+        title.runtime.as_deref(),
+        Some("45 min"),
+        "the runtime is TMDB's, over the Addon's `49 min`"
+    );
+    assert_eq!(
+        title
+            .videos
+            .iter()
+            .map(|video| video.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "tt0903747:0:1",
+            "tt0903747:1:1",
+            "tt0903747:1:2",
+            "tt0903747:1:3",
+            "tt0903747:2:1",
+        ],
+        "the episodes keep the ids Streams are asked for by; a refinement never renumbers"
+    );
+}
+
+#[test]
+fn a_token_travels_in_the_header_and_never_in_the_url() {
+    // A v4 access token (a JWT) is the Bearer shape, asked for in a header.
+    // The fixtures are recorded at the bare URLs — no `api_key` in them — so a
+    // credential anywhere in a built URL is a missed fixture that panics the
+    // test rather than a leaked key that passes it, and the recorded headers
+    // prove the part of the road a URL is not in.
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(CINEMETA_MOVIE, MOVIE_BODY)
+            .serving(TMDB_FIND_MOVIE_NAKED, TMDB_FIND_MOVIE_BODY)
+            .serving(TMDB_MOVIE_603_NAKED, TMDB_MOVIE_DETAILS),
+    );
+    let mut host = host_over(fetcher.clone(), Some(TMDB_TOKEN));
+
+    let title = opened(&mut host, open("com.linvo.cinemeta", "movie", "tt0133093"));
+
+    assert_eq!(title.key, TitleKey::Tmdb { id: 603 });
+    assert_eq!(
+        fetcher.headers_of(TMDB_FIND_MOVIE_NAKED),
+        vec![("Authorization".to_owned(), format!("Bearer {TMDB_TOKEN}"))],
+        "the token went in the header, where no URL could carry it"
+    );
+    assert_eq!(
+        fetcher.headers_of(TMDB_MOVIE_603_NAKED),
+        vec![("Authorization".to_owned(), format!("Bearer {TMDB_TOKEN}"))],
+        "every ask carried it, and no URL carried it"
+    );
+    for url in fetcher.asked() {
+        assert!(
+            !url.contains("api_key") && !url.contains(TMDB_TOKEN),
+            "the URL a token ask built carries none of the credential: {url}"
+        );
+    }
+}
+
+#[test]
+fn the_wire_of_a_mapped_answer_declares_what_it_is_keyed_by() {
+    // The window reads this by hand: the key is where unmapped is shown
+    // from, so its shape is declared from the Addon's to TMDB's.
+    let (mut host, _fetcher) = host_with_recorded_addons();
+    let response = host
+        .dispatch(open("com.linvo.cinemeta", "series", "tt0903747"))
+        .expect("opening the recorded series should work");
+    let published = serde_json::to_value(&response).expect("a Response serializes");
+    assert_eq!(
+        published["answer"]["title"]["key"],
+        serde_json::json!({
+            "kind": "addon",
+            "addon": "com.linvo.cinemeta",
+            "id": "tt0903747",
+        })
+    );
+
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(CINEMETA_MOVIE, MOVIE_BODY)
+            .serving(TMDB_FIND_MOVIE, TMDB_FIND_MOVIE_BODY)
+            .serving(TMDB_MOVIE_603, TMDB_MOVIE_DETAILS),
+    );
+    let mut host = host_over(fetcher, Some(TMDB_KEY));
+    let response = host
+        .dispatch(open("com.linvo.cinemeta", "movie", "tt0133093"))
+        .expect("a mapped Title opens");
+    let published = serde_json::to_value(&response).expect("a Response serializes");
+
+    assert_eq!(
+        published["answer"]["title"]["key"],
+        serde_json::json!({ "kind": "tmdb", "id": 603 })
     );
 }

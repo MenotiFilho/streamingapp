@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::addon::{AddonId, InvalidAddonId, InvalidManifestUrl, ManifestUrl, MAX_STRING_LEN};
 use crate::preferences::{InvalidSubtitleLanguage, SubtitleLanguage};
 use crate::request::{CatalogRef, Extra, InvalidCatalogRef, InvalidTitleRef, TitleRef, MAX_EXTRAS};
+use crate::secret::{InvalidTmdbKey, TmdbKey};
 
 /// The version of the Action wire form this Host speaks.
 ///
@@ -33,6 +34,14 @@ pub enum Action {
     AddAddon { url: String },
     /// Take the Addon with this manifest id out of the Host's configuration.
     RemoveAddon { id: String },
+    /// Store the key TMDB answers metadata with, in the secret store.
+    ///
+    /// A change, though one that touches no store this Snapshot could carry the
+    /// value of: the credential lands in the keyring or the fallback file, and
+    /// only where it landed travels outward.
+    SetTmdbKey { key: String },
+    /// Carry no TMDB key; the Addons are the Host's only metadata source.
+    ClearTmdbKey,
     /// Show a page of one Addon's catalog, in the Addon's own order.
     ///
     /// A question rather than a change: it asks what the Addon has, and what
@@ -120,6 +129,11 @@ impl Action {
                 let id = AddonId::parse(&id)?;
                 Ok(ValidatedAction::RemoveAddon(id))
             }
+            Action::SetTmdbKey { key } => {
+                let key = TmdbKey::parse(&key)?;
+                Ok(ValidatedAction::SetTmdbKey(key))
+            }
+            Action::ClearTmdbKey => Ok(ValidatedAction::ClearTmdbKey),
             Action::BrowseCatalog {
                 addon,
                 catalog,
@@ -197,6 +211,8 @@ pub enum ValidatedAction {
     ClearSubtitleLanguage,
     AddAddon(ManifestUrl),
     RemoveAddon(AddonId),
+    SetTmdbKey(TmdbKey),
+    ClearTmdbKey,
     BrowseCatalog {
         addon: AddonId,
         catalog: CatalogRef,
@@ -235,6 +251,8 @@ pub enum ActionError {
     #[error("{0}")]
     InvalidAddonId(#[from] InvalidAddonId),
     #[error("{0}")]
+    InvalidTmdbKey(#[from] InvalidTmdbKey),
+    #[error("{0}")]
     InvalidCatalogRef(#[from] InvalidCatalogRef),
     #[error("{0}")]
     InvalidTitleRef(#[from] InvalidTitleRef),
@@ -258,6 +276,8 @@ pub enum ActionError {
     Meta { detail: String },
     #[error("the Host could not keep that change: {detail}")]
     Store { detail: String },
+    #[error("the Host could not keep that credential: {detail}")]
+    Secret { detail: String },
 }
 
 #[cfg(test)]
@@ -392,5 +412,35 @@ mod tests {
             .validate(),
             Err(ActionError::Extra { .. })
         ));
+    }
+
+    #[test]
+    fn a_key_entered_for_the_secret_store_is_judged_before_anything_is_written() {
+        let ok = Action::SetTmdbKey {
+            key: "0123456789abcdef".to_owned(),
+        }
+        .validate();
+        assert_eq!(
+            ok,
+            Ok(ValidatedAction::SetTmdbKey(
+                TmdbKey::parse("0123456789abcdef").expect("a key")
+            )),
+        );
+
+        assert!(
+            matches!(
+                Action::SetTmdbKey {
+                    key: "the key".to_owned(),
+                }
+                .validate(),
+                Err(ActionError::InvalidTmdbKey(_))
+            ),
+            "a key shaped unlike any TMDB credential is refused before the store hears of it"
+        );
+
+        assert_eq!(
+            Action::ClearTmdbKey.validate(),
+            Ok(ValidatedAction::ClearTmdbKey)
+        );
     }
 }

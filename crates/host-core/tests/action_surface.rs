@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, FixtureFetcher, Host, InMemoryStore, Preferences, Snapshot, Store,
-    StoreError, SubtitleLanguage, ACTION_VERSION,
+    Action, ActionError, FixtureFetcher, Host, InMemorySecretStore, InMemoryStore, Preferences,
+    SecretBackend, Snapshot, Store, StoreError, SubtitleLanguage, ACTION_VERSION,
 };
 
 /// An Action as a client sends it: the versioned envelope, as JSON text.
@@ -19,10 +19,17 @@ fn action_in_a_foreign_version(version: u64, body: &str) -> String {
     format!(r#"{{"version":{version},"action":{body}}}"#)
 }
 
+/// The in-memory stand-in for the OS keyring: tests enter a credential into it
+/// the way the owner's window does, and read the Snapshot's protection out.
+fn secrets() -> Arc<InMemorySecretStore> {
+    Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring))
+}
+
 /// A Host over a store, with a fetcher that has no fixtures: an Action that asks
 /// the network for anything fails the test that took it.
 fn host_over(store: Arc<dyn Store>) -> Host {
-    Host::new(store, Arc::new(FixtureFetcher::new())).expect("a Host over a store starts")
+    Host::new(store, Arc::new(FixtureFetcher::new()), secrets())
+        .expect("a Host over a store starts")
 }
 
 fn host() -> Host {
@@ -277,6 +284,7 @@ fn the_snapshot_declares_only_fields_it_can_safely_carry() {
             "revision": 1,
             "preferences": { "subtitleLanguage": "pt-BR" },
             "addons": [],
+            "protection": { "backend": "keyring", "tmdbHeld": false },
         }),
         "the wire shape is the declared one, camelCased for a JavaScript client"
     );
@@ -289,7 +297,7 @@ fn no_field_a_snapshot_carries_could_hold_a_credential() {
     let url = "https://api.stremboxd.com/manifest.json";
     let fetcher =
         FixtureFetcher::new().serving(url, include_str!("fixtures/stremboxd-manifest.json"));
-    let mut host = Host::new(Arc::new(InMemoryStore::new()), Arc::new(fetcher))
+    let mut host = Host::new(Arc::new(InMemoryStore::new()), Arc::new(fetcher), secrets())
         .expect("a Host over a store starts");
     host.dispatch(action(&format!(r#"{{"type":"add_addon","url":"{url}"}}"#)))
         .expect("adding the recorded Addon should work");

@@ -8,9 +8,11 @@ use crate::fetcher::Fetcher;
 use crate::meta::Title;
 use crate::request::{CatalogRef, Extra, ResourceRequest, TitleRef, CATALOG, META};
 use crate::response::{Answer, Response};
+use crate::secret::{Secret, SecretStore};
 use crate::snapshot::Snapshot;
-use crate::state::{Change, Persist, State};
+use crate::state::{Change, Persist, Protection, State};
 use crate::store::{Store, StoreError};
+use crate::{meta, tmdb};
 
 /// The Host: its state, and the one door to it.
 ///
@@ -21,6 +23,7 @@ use crate::store::{Store, StoreError};
 pub struct Host {
     store: Arc<dyn Store>,
     fetcher: Arc<dyn Fetcher>,
+    secrets: Arc<dyn SecretStore>,
     state: State,
     revision: u64,
     /// Pages the Addons have already answered, so that a re-request inside the
@@ -33,13 +36,38 @@ impl Host {
     ///
     /// Preparing the store — creating the database, running its migrations — is
     /// the store's own concern; by the time this is called the store can be read.
-    /// The fetcher is only needed once an Action asks for something over the
-    /// network, so a Host with no Addons never touches it.
-    pub fn new(store: Arc<dyn Store>, fetcher: Arc<dyn Fetcher>) -> Result<Self, StoreError> {
-        let state = State::holding(store.read_preferences()?, store.read_addons()?);
+    /// The fetching is only needed once an Action asks for something over the
+    /// network, and the secret store only once a credential is looked up, so a
+    /// Host with neither ever touches them.
+    ///
+    /// The secret store is asked once here — whether a TMDB key is already held
+    /// — and the credential it answers with is read only as far as that word and
+    /// dropped with it: state knows *what is held*, and holds none of it.
+    pub fn new(
+        store: Arc<dyn Store>,
+        fetcher: Arc<dyn Fetcher>,
+        secrets: Arc<dyn SecretStore>,
+    ) -> Result<Self, StoreError> {
+        let tmdb_held = match secrets.read(Secret::TmdbKey) {
+            Ok(Some(_)) => true,
+            // A store that cannot answer cannot be disagreed with by a Snapshot:
+            // the Host opens knowing no key is held, and finds out when one is
+            // asked for.
+            Ok(None) => false,
+            Err(_) => false,
+        };
+        let state = State::holding(
+            store.read_preferences()?,
+            store.read_addons()?,
+            Protection {
+                backend: secrets.backend(),
+                tmdb_held,
+            },
+        );
         Ok(Self {
             store,
             fetcher,
+            secrets,
             state,
             revision: 0,
             cache: CatalogCache::default(),
@@ -73,6 +101,9 @@ impl Host {
         match persist {
             Persist::Preferences => self.store.write_preferences(next.preferences()),
             Persist::Addons => self.store.write_addons(next.addons()),
+            // The credential lives where the secret store keeps it; nothing the
+            // non-secret store holds was left behind.
+            Persist::Nothing => Ok(()),
         }
         .map_err(|error| ActionError::Store {
             detail: error.to_string(),
@@ -117,6 +148,27 @@ impl Host {
                     });
                 }
                 Resolved::Change(Change::RemoveAddon(id))
+            }
+            ValidatedAction::SetTmdbKey(key) => {
+                // The credential goes straight to where it lives and is not
+                // carried anywhere past this call: the change that reaches
+                // state is only where the store *is*.
+                self.secrets
+                    .write(Secret::TmdbKey, key.as_str())
+                    .map_err(|error| ActionError::Secret {
+                        detail: error.to_string(),
+                    })?;
+                Resolved::Change(Change::SetTmdbKey {
+                    backend: self.secrets.backend(),
+                })
+            }
+            ValidatedAction::ClearTmdbKey => {
+                self.secrets
+                    .remove(Secret::TmdbKey)
+                    .map_err(|error| ActionError::Secret {
+                        detail: error.to_string(),
+                    })?;
+                Resolved::Change(Change::ClearTmdbKey)
             }
             ValidatedAction::BrowseCatalog {
                 addon,
@@ -176,7 +228,8 @@ impl Host {
 
                 // The request the Addon was judged on is the one it is asked
                 // with: a second construction is a second thing that can drift.
-                let title = self.fetch_title(&configured, &title, &requested)?;
+                let mut title = self.fetch_title(&configured, &title, &requested)?;
+                self.tmdb_refine(&mut title);
                 Resolved::Answer(Answer::Title(Box::new(title)))
             }
         })
@@ -270,6 +323,104 @@ impl Host {
         Title::parse(&body, addon.id().clone(), asked).map_err(|error| ActionError::Meta {
             detail: error.to_string(),
         })
+    }
+
+    /// Where TMDB's own record meets a Title it already names, deliver its
+    /// metadata onto the Addon's answer — and key the Title by that record.
+    ///
+    /// Every step is one that can go without: a Title whose id belongs to
+    /// nothing TMDB answers for, an owner who has entered no key, a credential
+    /// the store cannot read back, a TMDB that cannot answer, and an answer
+    /// that refuses to be read all leave the Title exactly the Addon's — open,
+    /// keyed by the Addon, unmapped by whatever the interface commits to. A
+    /// TMDB outage blanks nothing.
+    ///
+    /// The credential is read here, at the moment of the request it builds,
+    /// and kept no further: it reaches neither state nor Snapshot nor log.
+    /// What keying there is follows the identity and is not the credential's
+    /// business: a `tmdb:` id is keyed by its record whether the owner gave a
+    /// key or not, for the id is the record's own.
+    fn tmdb_refine(&self, title: &mut Title) {
+        let Some(external) = tmdb::ExternalId::parse(&title.r#type, &title.id) else {
+            return;
+        };
+        let id = match &external {
+            tmdb::ExternalId::Tmdb(id) => {
+                title.key = meta::TitleKey::Tmdb { id: id.0 };
+                *id
+            }
+            tmdb::ExternalId::Imdb(imdb) => {
+                let Some(key) = self.tmdb_credential() else {
+                    return;
+                };
+                let kind = match tmdb::Kind::parse(&title.r#type) {
+                    Some(kind) => kind,
+                    None => return,
+                };
+                let request = tmdb::TmdbRequest::Find {
+                    kind,
+                    imdb: imdb.clone(),
+                };
+                let Some(answer) = self.fetch_tmdb(&request, &key) else {
+                    return;
+                };
+                match tmdb::read_find(&answer, kind) {
+                    Ok(Some(id)) => id,
+                    // An answer that says nothing mapped is an answer: the
+                    // Title stays the Addon's, visible and keyed by it.
+                    Ok(None) => return,
+                    Err(_) => return,
+                }
+            }
+        };
+
+        let Some(key) = self.tmdb_credential() else {
+            return;
+        };
+        let kind = match tmdb::Kind::parse(&title.r#type) {
+            Some(kind) => kind,
+            None => return,
+        };
+        let Some(record) = self.fetch_tmdb(&tmdb::TmdbRequest::Details { kind, id }, &key) else {
+            return;
+        };
+        match tmdb::read_details(&record, kind) {
+            Ok(details) => {
+                details.onto(title);
+                title.key = meta::TitleKey::Tmdb { id: id.0 };
+            }
+            // A details answer that was not one: the id stood — the find said
+            // so — and the metadata is the Addon's word.
+            Err(_) if matches!(external, tmdb::ExternalId::Imdb(_)) => {
+                title.key = meta::TitleKey::Tmdb { id: id.0 };
+            }
+            Err(_) => {}
+        }
+    }
+
+    /// The credential TMDB wants, looked up at the moment of use — or nothing,
+    /// which is the Host hearing no key is held.
+    fn tmdb_credential(&self) -> Option<tmdb::Credential> {
+        let key = self.secrets.read(Secret::TmdbKey).ok().flatten()?;
+        Some(tmdb::Credential::parse(&key))
+    }
+
+    /// Fetch one TMDB answer, or nothing. The URL a query credential built
+    /// carries the credential in it, and is dropped when the fetch is over:
+    /// a fetch failure is reported to nobody but this join, which degrades.
+    fn fetch_tmdb(
+        &self,
+        request: &tmdb::TmdbRequest,
+        credential: &tmdb::Credential,
+    ) -> Option<String> {
+        let url = request.url(credential);
+        if let Some((name, value)) = credential.header() {
+            self.fetcher
+                .fetch_with_headers(&url, &[(name, &value)])
+                .ok()
+        } else {
+            self.fetcher.fetch(&url).ok()
+        }
     }
 }
 

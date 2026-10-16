@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::addon::Manifest;
 use crate::preferences::SubtitleLanguage;
+use crate::secret::SecretBackend;
 use crate::state::State;
 
 /// The Host's state as it travels outward: the only shape state leaves in.
@@ -22,6 +23,10 @@ pub struct Snapshot {
     /// an Addon's manifest URL can carry its credentials, and a Snapshot reaches
     /// every paired client (ADR-0009).
     pub addons: Vec<Manifest>,
+    /// Where the Host's credentials live, and which it knows it holds — the one
+    /// thing about credentials that is not itself one, and is what the interface
+    /// shows when it says how exposed they are.
+    pub protection: ProtectionSnapshot,
 }
 
 /// The preference fields a client may see.
@@ -32,6 +37,17 @@ pub struct PreferencesSnapshot {
     /// chooses per Video. A language tag by construction, so the wire cannot carry
     /// anything else here.
     pub subtitle_language: Option<SubtitleLanguage>,
+}
+
+/// Where the Host's credentials are held, as the secret store reports itself.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ProtectionSnapshot {
+    /// Which backend is actually holding them: the OS keyring, or the owner-only
+    /// (0600) file where no keyring exists.
+    pub backend: SecretBackend,
+    /// Whether a TMDB key is held. A fact about what was set, not the key.
+    pub tmdb_held: bool,
 }
 
 impl Snapshot {
@@ -48,6 +64,10 @@ impl Snapshot {
                 .iter()
                 .map(|addon| addon.manifest().clone())
                 .collect(),
+            protection: ProtectionSnapshot {
+                backend: state.protection().backend,
+                tmdb_held: state.protection().tmdb_held,
+            },
         }
     }
 }

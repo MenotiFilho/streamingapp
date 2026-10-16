@@ -1,25 +1,46 @@
 use crate::addon::{Addon, AddonId};
 use crate::preferences::{Preferences, SubtitleLanguage};
+use crate::secret::SecretBackend;
 
 /// The Host's state, as the Host holds it.
 ///
 /// Private to the Host on purpose: nothing outside reads this. It is written
 /// through the [`crate::Store`] seam and published as a [`crate::Snapshot`], and
 /// a client only ever sees the latter.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct State {
     preferences: Preferences,
     /// The configured Addons, in the order they were configured: a handful of
     /// them, so a list is lookup enough and keeps that order.
     addons: Vec<Addon>,
+    /// Where the Host's credentials live, and which kinds a credential is held
+    /// for — without the credentials themselves, which are read from the secret
+    /// store at the moment they are used and never copied in here.
+    protection: Protection,
+}
+
+/// Which credentials the Host is known to hold, and where the store that holds
+/// them says they are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Protection {
+    /// The backend the secret store is made of.
+    pub(crate) backend: SecretBackend,
+    /// Whether a TMDB key is held — known from the store's own answer to a read
+    /// at startup, and from every set or clear of one since.
+    pub(crate) tmdb_held: bool,
 }
 
 impl State {
-    /// The state, holding these preferences and these Addons.
-    pub(crate) fn holding(preferences: Preferences, addons: Vec<Addon>) -> Self {
+    /// The state, holding these preferences, these Addons, and this protection.
+    pub(crate) fn holding(
+        preferences: Preferences,
+        addons: Vec<Addon>,
+        protection: Protection,
+    ) -> Self {
         Self {
             preferences,
             addons,
+            protection,
         }
     }
 
@@ -29,6 +50,10 @@ impl State {
 
     pub(crate) fn addons(&self) -> &[Addon] {
         &self.addons
+    }
+
+    pub(crate) fn protection(&self) -> Protection {
+        self.protection
     }
 
     pub(crate) fn has_addon(&self, id: &AddonId) -> bool {
@@ -68,6 +93,19 @@ impl State {
                 self.addons.retain(|held| held.id() != &id);
                 Persist::Addons
             }
+            Change::SetTmdbKey { backend } => {
+                self.protection = Protection {
+                    backend,
+                    tmdb_held: true,
+                };
+                // The credential was already written where it lives; nothing in
+                // the non-secret store is left behind by this.
+                Persist::Nothing
+            }
+            Change::ClearTmdbKey => {
+                self.protection.tmdb_held = false;
+                Persist::Nothing
+            }
         }
     }
 }
@@ -88,6 +126,13 @@ pub(crate) enum Change {
     ClearSubtitleLanguage,
     AddAddon(Box<Addon>),
     RemoveAddon(AddonId),
+    /// The credential itself is not in the change — it was sent to the secret
+    /// store on the way here, and the store answered. What reaches state is
+    /// only where the store *is*.
+    SetTmdbKey {
+        backend: SecretBackend,
+    },
+    ClearTmdbKey,
 }
 
 /// Which part of the store a [`Change`] leaves out of date, so the Host knows
@@ -96,4 +141,7 @@ pub(crate) enum Change {
 pub(crate) enum Persist {
     Preferences,
     Addons,
+    /// Nothing the store holds was left behind: the change was made somewhere
+    /// else, or touched nothing the store keeps.
+    Nothing,
 }

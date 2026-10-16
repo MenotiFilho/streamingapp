@@ -1,0 +1,23 @@
+{
+  "adult": false,
+  "backdrop_path": "/tsRy63Mu5cu8etKy4WXoMmr1H4b.jpg",
+  "created_by": [],
+  "episode_run_time": [45],
+  "first_air_date": "2020-04-19",
+  "genres": [{ "id": 9648, "name": "Mystery" }],
+  "id": 200001,
+  "in_production": true,
+  "last_air_date": "2026-05-01",
+  "name": "Still Making",
+  "number_of_episodes": 12,
+  "number_of_seasons": 2,
+  "original_language": "en",
+  "original_name": "Still Making",
+  "overview": "A series TMDB still expects more of.",
+  "popularity": 100.5,
+  "poster_path": "/stillmaking.jpg",
+  "status": "Returning Series",
+  "type": "Scripted",
+  "vote_average": 7.4,
+  "vote_count": 900
+}

@@ -9,11 +9,12 @@
 //! ```
 //! use std::sync::Arc;
 //!
-//! use host_core::{Action, FixtureFetcher, Host, InMemoryStore, SubtitleLanguage};
+//! use host_core::{Action, FixtureFetcher, Host, InMemorySecretStore, InMemoryStore, SubtitleLanguage};
 //!
 //! let store = Arc::new(InMemoryStore::new());
+//! let secrets = Arc::new(InMemorySecretStore::new());
 //! let fetcher = Arc::new(FixtureFetcher::new());
-//! let mut host = Host::new(store, fetcher)?;
+//! let mut host = Host::new(store, fetcher, secrets)?;
 //! let action = Action::parse(r#"{"version":1,"action":{"type":"set_subtitle_language","language":"pt-BR"}}"#)?;
 //! let response = host.dispatch(action)?;
 //!
@@ -33,9 +34,11 @@ mod meta;
 mod preferences;
 mod request;
 mod response;
+mod secret;
 mod snapshot;
 mod state;
 mod store;
+mod tmdb;
 
 pub use action::{Action, ActionError, ValidatedAction, ACTION_VERSION};
 pub use addon::{
@@ -46,12 +49,19 @@ pub use addon::{
 pub use catalog::{CacheHints, CatalogError, CatalogRow, MetaPreview, Page, MAX_CATALOG_BYTES};
 pub use fetcher::{FetchError, Fetcher, FixtureFetcher};
 pub use host::Host;
-pub use meta::{MetaError, Title, Video, MAX_META_BYTES};
+pub use meta::{MetaError, Title, TitleKey, Video, MAX_META_BYTES};
 pub use preferences::{InvalidSubtitleLanguage, Preferences, SubtitleLanguage};
 pub use request::{
     CatalogRef, Extra, InvalidCatalogRef, InvalidExtra, InvalidTitleRef, ResourceRequest, TitleRef,
     CATALOG, MAX_EXTRAS, META, SEARCH, SKIP,
 };
 pub use response::{Answer, Response};
-pub use snapshot::{PreferencesSnapshot, Snapshot};
+pub use secret::{
+    InMemorySecretStore, InvalidTmdbKey, Secret, SecretBackend, SecretError, SecretStore, TmdbKey,
+};
+pub use snapshot::{PreferencesSnapshot, ProtectionSnapshot, Snapshot};
 pub use store::{InMemoryStore, Store, StoreError};
+pub use tmdb::{
+    Credential, ExternalId, Kind, TmdbDetails, TmdbError, TmdbId, TmdbRequest, IMAGE_ROOT,
+    TMDB_ROOT,
+};

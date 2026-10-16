@@ -1,0 +1,26 @@
+{
+  "adult": false,
+  "backdrop_path": "/f89U3ADr1oiBwOy1K7t4E93Xu5A.jpg",
+  "belongs_to_collection": null,
+  "budget": 63000000,
+  "genres": [
+    { "id": 28, "name": "Action" },
+    { "id": 878, "name": "Science Fiction" }
+  ],
+  "homepage": "https://www.warnerbros.com/movies/matrix",
+  "id": 603,
+  "imdb_id": "tt0133093",
+  "original_language": "en",
+  "original_title": "The Matrix",
+  "overview": "Set in the 22nd century, The Matrix tells the story of a computer hacker, Neo, who is drawn into a rebellion led by Morpheus against a worldwide conspiracy controlled by intelligent machines.",
+  "popularity": 81.234,
+  "poster_path": "/p96dm7kpeOlUwhich.jpg",
+  "production_companies": [],
+  "release_date": "1999-03-31",
+  "revenue": 467222728,
+  "runtime": 136,
+  "status": "Released",
+  "title": "The Matrix",
+  "vote_average": 8.2,
+  "vote_count": 21000
+}
