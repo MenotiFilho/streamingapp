@@ -183,7 +183,11 @@ impl Store for InMemoryStore {
     }
 
     fn read_watch_progress(&self) -> Result<Vec<WatchProgress>, StoreError> {
-        Ok(self.persisted_watch())
+        let mut watch = self.persisted_watch();
+        // The same order the real store reads in — most recently written first —
+        // so a test cannot pass on an order production would not give.
+        watch.sort_by(|one, other| other.updated_at.cmp(&one.updated_at));
+        Ok(watch)
     }
 
     fn write_watch_progress(&self, progress: &WatchProgress) -> Result<(), StoreError> {

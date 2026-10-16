@@ -111,18 +111,22 @@ impl TitleStub {
         &self.addon
     }
 
+    /// The id the Addon indexes the Title by.
     pub fn id(&self) -> &str {
         &self.id
     }
 
+    /// The Title's content type: `movie`, `series`, …
     pub fn r#type(&self) -> &str {
         &self.r#type
     }
 
+    /// What the Title is called — the id, where the name could not be held.
     pub fn name(&self) -> &str {
         &self.name
     }
 
+    /// The Title's poster, where it had one the Host will hold.
     pub fn poster(&self) -> Option<&str> {
         self.poster.as_deref()
     }
@@ -239,8 +243,13 @@ pub struct ResumeEntry {
     pub video: Video,
     /// The Title it belongs to, enough to draw a card without opening it.
     pub title: TitleStub,
+    /// Where it was left, in seconds from the Stream's start, or `None` where
+    /// playback never got far enough to say.
     pub position: Option<f64>,
+    /// How long the Stream is, where it said.
     pub duration: Option<f64>,
+    /// Whether the Video counts as watched: at its end, or within
+    /// [`FINISHED_TAIL`] of it.
     pub watched: bool,
     /// Why this entry cannot be played now, or `None` when it can.
     pub unplayable: Option<UnplayableEntry>,

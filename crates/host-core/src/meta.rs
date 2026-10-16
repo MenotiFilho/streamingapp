@@ -121,19 +121,11 @@ impl Video {
     /// episode the protocol indexes at the end of it, where both are numbers.
     ///
     /// What a library entry is drawn from when no Addon answered about the
-    /// Video — the entry is keyed by the id Watch progress was recorded against,
-    /// and the numbers in it are the protocol's own shape (`tt0903747:1:1`,
-    /// `kitsu:12345:1:1`). The episode's name is deliberately absent: it is not
-    /// in the id, and the Host does not invent one.
+    /// Video — the entry is keyed by the id Watch progress was recorded against.
+    /// The episode's name is deliberately absent: it is not in the id, and the
+    /// Host does not invent one.
     pub fn keyed(id: &str) -> Self {
-        let mut parts = id.rsplitn(3, ':');
-        let episode = parts.next().and_then(|part| part.parse::<u32>().ok());
-        let season = parts.next().and_then(|part| part.parse::<u32>().ok());
-
-        let (season, episode) = match (season, episode) {
-            (Some(season), Some(episode)) => (Some(season), Some(episode)),
-            _ => (None, None),
-        };
+        let (season, episode) = episode_numbers(id);
 
         Self {
             id: id.to_owned(),
@@ -141,6 +133,36 @@ impl Video {
             season,
             episode,
         }
+    }
+}
+
+/// One title's id, and the season and episode of it a Video id indexes, where
+/// that id is an episode of it.
+///
+/// The protocol indexes an episode as `{title}:{season}:{episode}`, specials as
+/// season zero, and a title's own id is whatever stands before those last two
+/// parts: an Addon keyed by a namespaced id (`kitsu:12345`) indexes its episodes
+/// as `kitsu:12345:1:1`, so the shape is "two numeric parts at the end" rather
+/// than "exactly three parts". This is the one reading of that shape — the
+/// library's card and the Host's next-episode rule both go through it — so the
+/// two cannot disagree about what an episode is. A Video whose id does not end
+/// that way — a film's — is not an episode, and the answer is `None`.
+pub fn episode_of(id: &str) -> Option<(&str, u32, u32)> {
+    let mut parts = id.rsplitn(3, ':');
+    let episode = parts.next()?.parse::<u32>().ok()?;
+    let season = parts.next()?.parse::<u32>().ok()?;
+    // What is left is the title, however many `:` of its own it carries.
+    let title = parts.next()?;
+
+    (!title.is_empty()).then_some((title, season, episode))
+}
+
+/// The season and episode numbers an id ends in, where its last two
+/// `:`-separated parts are both numbers.
+pub fn episode_numbers(id: &str) -> (Option<u32>, Option<u32>) {
+    match episode_of(id) {
+        Some((_, season, episode)) => (Some(season), Some(episode)),
+        None => (None, None),
     }
 }
 
@@ -520,6 +542,29 @@ mod tests {
         );
 
         assert_eq!(title.videos[0].name.as_deref(), Some("Pilot"));
+    }
+
+    #[test]
+    fn a_video_id_is_read_as_an_episode_of_the_title_before_its_numbers() {
+        assert_eq!(episode_of("tt0903747:1:2"), Some(("tt0903747", 1, 2)));
+        assert_eq!(
+            episode_of("kitsu:12345:1:1"),
+            Some(("kitsu:12345", 1, 1)),
+            "a title's own id is not always one part, so the numbers read from the right"
+        );
+        assert_eq!(
+            episode_of("tt0903747:0:1"),
+            Some(("tt0903747", 0, 1)),
+            "specials"
+        );
+
+        for film in ["tt0133093", "tt0903747:1", ":1:1", ""] {
+            assert_eq!(
+                episode_of(film),
+                None,
+                "{film:?} does not end in two numbers, so it is not an episode"
+            );
+        }
     }
 
     #[test]

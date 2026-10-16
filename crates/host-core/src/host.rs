@@ -150,8 +150,10 @@ impl Host {
             Persist::Addons => self.store.write_addons(next.addons()),
             // One Video's Watch progress, written where it happened: the part of
             // a play that outlives the play (#29).
-            Persist::Watch(entry) => self.store.write_watch_progress(&entry), // The credential lives where the secret store keeps it; nothing the
-            // non-secret store holds was left behind.
+            Persist::Watch(entry) => self.store.write_watch_progress(&entry),
+            // The credential lives where the secret store keeps it, and playback
+            // is not stored at all: nothing the non-secret store holds was left
+            // behind by those.
             Persist::Nothing => Ok(()),
         }
         .map_err(|error| ActionError::Store {
@@ -546,9 +548,10 @@ impl Host {
                 Resolved::Change(Change::SetAspect(aspect))
             }
             ValidatedAction::NextEpisode => {
-                // The one control that legitimately opens a Stream: the Host
-                // asks the Addons what comes after what is playing and plays it,
-                // so this is a change like a `PlayStream` and not a telling.
+                // One of the two controls that legitimately open a Stream — the
+                // other is a resume: the Host asks the Addons what comes after
+                // what is playing and plays it, so this is a change like a
+                // `PlayStream` and not a telling.
                 self.playing(Control::NextEpisode)?;
                 let chosen = self.next_episode()?;
                 // The Title that is playing's is the next episode's too — the
@@ -746,25 +749,7 @@ impl Host {
             }));
         }
 
-        let requested = ResourceRequest::new(STREAM, &video.r#type, &video.id);
-        let mut chosen = None;
-        for addon in self.state.addons() {
-            if !addon.manifest().answers(&requested) {
-                continue;
-            }
-            let Ok(streams) = self.provider.streams(addon, &requested) else {
-                continue;
-            };
-            if let Some(candidate) = streams
-                .iter()
-                .find_map(|stream| playable(video, addon.id(), stream))
-            {
-                chosen = Some(candidate);
-                break;
-            }
-        }
-
-        let chosen = chosen.ok_or_else(|| {
+        let chosen = self.first_playable(video).ok_or_else(|| {
             ActionError::Unplayable(Unplayable {
                 detail: format!(
                     "no configured Addon offers a Stream this Host can play for {video}"
@@ -773,6 +758,33 @@ impl Host {
         })?;
 
         Ok((chosen, entry.title, entry.position))
+    }
+
+    /// The first candidate this Host can play for a Video, asked of every
+    /// configured Addon that answers for it, in the order they were configured —
+    /// the rule `FindStreams` asks every Addon by, folded to the one a Host that
+    /// is opening a Stream itself needs (a resume, ADR-0015).
+    fn first_playable(&self, video: &VideoRef) -> Option<ChosenStream> {
+        let requested = ResourceRequest::new(STREAM, &video.r#type, &video.id);
+
+        for addon in self.state.addons() {
+            if !addon.manifest().answers(&requested) {
+                continue;
+            }
+            // An Addon that cannot answer is one Addon with nothing, and the
+            // next is still asked (ADR-0010's rule for a search).
+            let Ok(streams) = self.provider.streams(addon, &requested) else {
+                continue;
+            };
+            if let Some(candidate) = streams
+                .iter()
+                .find_map(|stream| playable(video, addon.id(), stream))
+            {
+                return Some(candidate);
+            }
+        }
+
+        None
     }
 
     /// The Title of the Video playing, as the Host was told it — which is also
@@ -988,35 +1000,17 @@ fn playable(video: &VideoRef, addon: &AddonId, stream: &Stream) -> Option<Chosen
 /// The Title id an episode's Video id carries, or why this Host will not take
 /// it for an episode.
 ///
-/// The protocol indexes an episode as `{title}:{season}:{episode}`, specials as
-/// season zero, and the Title id is whatever stands before those last two
-/// parts: an Addon keyed by a namespaced id (`kitsu:12345`) indexes its episodes
-/// as `kitsu:12345:1:1`, so the shape to read is "two numeric parts at the end"
-/// rather than "exactly three parts". A Video whose id does not end that way —
-/// a film's — is not an episode, and there is no next episode of it. The season
-/// and the episode numbers are deliberately not read: the next Video comes from
-/// the Addon's own list, and inventing an id by arithmetic is exactly what
-/// ADR-0014 forbids.
+/// The one reading of the protocol's episode-id shape is [`meta::episode_of`],
+/// which the library's card goes through too, so the two cannot disagree about
+/// what an episode is. The season and the episode numbers are deliberately not
+/// returned: the next Video comes from the Addon's own list, and inventing an id
+/// by arithmetic is exactly what ADR-0014 forbids.
 fn episode_title(video: &VideoRef) -> Result<String, ActionError> {
-    let parts: Vec<&str> = video.id.split(':').collect();
-    let (title, numbers) = parts.split_at(parts.len().saturating_sub(2));
-    let title = title.join(":");
-
-    let shaped = !title.is_empty()
-        && numbers
-            .first()
-            .is_some_and(|value| value.parse::<u32>().is_ok())
-        && numbers
-            .get(1)
-            .is_some_and(|value| value.parse::<u32>().is_ok());
-
-    if shaped {
-        Ok(title)
-    } else {
-        Err(ActionError::NoNextEpisode {
+    meta::episode_of(&video.id)
+        .map(|(title, _, _)| title.to_owned())
+        .ok_or_else(|| ActionError::NoNextEpisode {
             detail: format!("{video} is playing, and it is not an episode of a series"),
         })
-    }
 }
 
 /// The values a catalog requires, filled in from what it offers when the client

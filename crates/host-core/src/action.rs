@@ -155,9 +155,10 @@ pub enum Action {
     /// Play the Video after the one playing, in its Title: the Addon's own next
     /// episode, and the release the one playing came from (ADR-0014).
     ///
-    /// A change rather than a control like the rest — the only control that
-    /// legitimately opens a Stream — so the Host asks the Addons what comes
-    /// next and plays it, and every client is told of the new Now playing.
+    /// A change rather than a control like most of the rest — one of the two
+    /// that legitimately open a Stream, the other being `Resume` — so the Host
+    /// asks the Addons what comes next and plays it, and every client is told of
+    /// the new Now playing.
     NextEpisode,
     /// Stop playing: nothing is playing afterwards, and the client is back to
     /// whatever it was reading.
@@ -442,7 +443,7 @@ pub enum ValidatedAction {
         aspect: Aspect,
     },
     /// The next episode of the Title playing, asked of the Addons and played:
-    /// the one control that opens a Stream of its own.
+    /// one of the two controls that open a Stream, the other being `Resume`.
     NextEpisode,
     StopPlayback,
 }

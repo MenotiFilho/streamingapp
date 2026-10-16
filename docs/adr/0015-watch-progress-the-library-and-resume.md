@@ -75,7 +75,11 @@ is one of those. A client's scrolling is still its own.
 Rejected, with reasons: **the library as an `Answer`** (a client would have to
 ask, and a second client would have to ask again — the shared state the Snapshot
 is for); **the library in the store only, read on demand** (no client could draw
-the row without a question, and the row is exactly what a Snapshot is for).
+the row without a question, and the row is exactly what a Snapshot is for);
+**sending only the partly-watched entries** (what is partly watched is a reading
+of the entries — a fraction, a watched bit — and a Host that filtered would be
+deciding a client's presentation: the window draws every entry, with a watched one
+marked and a finished one still there to be played again).
 
 ## The Title a Video belongs to is the client's, so the client hands it back
 
@@ -99,6 +103,14 @@ what makes recording progress work offline. The client's words are bounded the
 way every Addon's are (`TitleStub::parse`): a name too long to hold falls back to
 the id, a poster that is not one is dropped, and a Title whose type or id is not
 one a request could name is refused before anything is stored.
+
+The field is required rather than optional, and `ACTION_VERSION` stays 1: the
+version is the envelope's, and a field that only a client *older than this one*
+would omit is a client that does not exist — the window ships with the Host, and
+the remote client is #31. The version moves when a client that predates the field
+does. A `PlayStream` with no Title behind it (the `Option` the change itself
+carries) is still played, and simply not recorded, which is what a next episode
+whose Title the Host was never told gets.
 
 Rejected, with reasons: **fetching the Title's meta at `PlayStream`** (a network
 round trip in front of every play, and a library that degrades when the network
@@ -162,7 +174,7 @@ shrink" — the story); **hiding unplayable entries from the row** (a stub is a
 mark); **marking them unplayable by the Stream's Addon** (not what supplied the
 Title, and it would let a resume play a card the Host no longer has).
 
-## A resume is a Host rule, and `/resume` is the one control that opens a Stream
+## A resume is a Host rule, and `/resume` is one of the two controls that open a Stream
 
 The Continue watching row offers one click, and the click is `Action::Resume {
 video }`. The client names the Video and decides nothing else: the Host reads its

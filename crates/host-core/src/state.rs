@@ -169,9 +169,17 @@ impl State {
                 self.playback = PlaybackSession::opening(*chosen);
 
                 match title {
-                    Some(title) => Persist::Watch(Box::new(
-                        self.put_watch(WatchProgress::starting(video, *title, start, now)),
-                    )),
+                    Some(title) => {
+                        let mut entry = WatchProgress::starting(video.clone(), *title, start, now);
+                        // A Stream replayed or resumed has the length it had: the
+                        // Player has not reported the new one yet, and a Host
+                        // killed before it does should not forget how long the
+                        // Video is.
+                        if let Some(previous) = self.watch.iter().find(|held| held.video == video) {
+                            entry.duration = previous.duration;
+                        }
+                        Persist::Watch(Box::new(self.put_watch(entry)))
+                    }
                     // A Stream with no Title behind it — a next episode whose
                     // Title the Host was never told — is played and not
                     // recorded: the entry a library is a card of is the Title.
