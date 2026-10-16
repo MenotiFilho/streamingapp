@@ -86,8 +86,8 @@ _Avoid_: source, link, result
 
 **Credential**:
 A secret the Host holds so it can speak to a service on its owner's behalf — the
-TMDB key today. It lives in the secret store, is read at the moment of use, and
-never enters Host state or a Snapshot.
+TMDB key and the Stremio `authKey` today. It lives in the secret store, is read at
+the moment of use, and never enters Host state or a Snapshot.
 _Avoid_: token (unqualified), password, secret (unqualified)
 
 **Secret store**:
@@ -100,6 +100,13 @@ _Avoid_: keychain, vault, config
 Where the Host's credentials actually live, and whether it holds one — the one
 credential fact a Snapshot carries.
 _Avoid_: storage, security, exposure
+
+**Account sync** (or **Stremio sync**):
+Optional, bidirectional reconciliation between the Host's Library and a personal
+Stremio account. Remote progress newer than local records is pulled on open; local
+progress is pushed on pause, stop, and exit. Conflicts resolve by timestamp, and
+per-episode watched bitfields are merged without clobbering positions.
+_Avoid_: backup, cloud storage
 
 ### Playback
 
