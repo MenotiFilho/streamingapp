@@ -10,6 +10,7 @@ import {
   type MetaPreview,
   type PlaybackSnapshot,
   type Response,
+  type ResumeEntry,
   type Snapshot,
   type Stream,
   type Title,
@@ -45,6 +46,7 @@ const NOTHING_SAID: Snapshot = {
   preferences: { subtitleLanguage: null },
   addons: [],
   protection: { backend: "keyring", tmdbHeld: false },
+  watchProgress: [],
 };
 
 /** An Addon as the Host would publish it, without the URL it lives at. */
@@ -347,10 +349,17 @@ function fakeHost(
         response.snapshots = [state];
         break;
       case "remove_addon":
+        // The Addon goes, and every entry it supplied stays, marked unplayable
+        // — a stub, not a hiding (#29).
         publish({
           ...state,
           revision: state.revision + 1,
           addons: state.addons.filter((addon) => addon.id !== action.id),
+          watchProgress: state.watchProgress.map((entry) =>
+            entry.title.addon === action.id && entry.unplayable === null
+              ? { ...entry, unplayable: { reason: "addon_removed", addon: action.id } }
+              : entry,
+          ),
         });
         response.snapshots = [state];
         break;
@@ -476,10 +485,23 @@ function fakeHost(
       }
       case "play_stream": {
         // The Host's own rule: what is published about a Stream is the Addon's
-        // own words about it, and never where its bytes are.
+        // own words about it, and never where its bytes are — and a play is
+        // Watch progress in a Video of the Title the client was reading (#29).
+        const watched: ResumeEntry = {
+          video: { id: action.video.id, name: null, season: null, episode: null },
+          title: action.title,
+          position: null,
+          duration: null,
+          watched: false,
+          unplayable: null,
+        };
         publish({
           ...state,
           revision: state.revision + 1,
+          watchProgress: [
+            watched,
+            ...state.watchProgress.filter((entry) => entry.video.id !== action.video.id),
+          ],
           playback: {
             state: "opening",
             picture: state.playback.picture,
@@ -506,6 +528,35 @@ function fakeHost(
             aspect: null,
             resolution: null,
             statistics: null,
+          },
+        });
+        response.snapshots = [state];
+        break;
+      }
+      case "resume": {
+        const entry = state.watchProgress.find(
+          (held) => held.video.id === action.video.id,
+        );
+        if (!entry) {
+          throw { kind: "no_progress", video: action.video };
+        }
+        publish({
+          ...state,
+          revision: state.revision + 1,
+          playback: {
+            ...state.playback,
+            state: "opening",
+            failure: null,
+            nowPlaying: {
+              video: action.video,
+              addon: entry.title.addon,
+              name: null,
+              description: null,
+              filename: null,
+              bingeGroup: null,
+            },
+            position: entry.position,
+            duration: entry.duration,
           },
         });
         response.snapshots = [state];
@@ -1350,6 +1401,13 @@ test("choosing a candidate the Host can play starts playing it, candidate and al
           type: "play_stream",
           video: { type: "movie", id: "tt0133093" },
           addon: AIOSTREAMS,
+          title: {
+            addon: ADDON.id,
+            id: "tt0133093",
+            type: "movie",
+            name: "The Matrix",
+            poster: "https://example.com/tt0133093.jpg",
+          },
           stream: {
             name: "AIOStreams\n1080p",
             description: "The Matrix 1999 1080p BluRay x265-GROUP\n💾 4.21 GB ⚙️ TorBox",
@@ -1986,4 +2044,143 @@ test("a Stream at its end offers no menu the Host would refuse", async () => {
 
   expect(screen.queryByTestId("toggle-menu")).not.toBeInTheDocument();
   expect(screen.queryByTestId("player-menu")).not.toBeInTheDocument();
+});
+
+/** One Video with Watch progress, the way the Host publishes it (#29). */
+function resumeEntry(overrides: Partial<ResumeEntry> = {}): ResumeEntry {
+  return {
+    video: { id: "tt0133093", name: null, season: null, episode: null },
+    title: {
+      addon: ADDON.id,
+      id: "tt0133093",
+      type: "movie",
+      name: "The Matrix",
+      poster: "https://example.com/tt0133093.jpg",
+    },
+    position: 1284,
+    duration: 8160,
+    watched: false,
+    unplayable: null,
+    ...overrides,
+  };
+}
+
+test("the Continue watching row draws the Host's library, one card per Video", async () => {
+  const film = resumeEntry();
+  const episode = resumeEntry({
+    video: { id: "tt0903747:1:2", name: "Cat's in the Bag...", season: 1, episode: 2 },
+    title: {
+      addon: ADDON.id,
+      id: "tt0903747",
+      type: "series",
+      name: "Breaking Bad",
+      poster: "https://example.com/tt0903747.jpg",
+    },
+    position: 402,
+    duration: 2820,
+  });
+  const host = fakeHost({
+    initial: { ...NOTHING_SAID, revision: 3, addons: [ADDON], watchProgress: [episode, film] },
+  });
+  windowOver(host.transport);
+
+  const shown = await screen.findByTestId("resume-tt0903747:1:2");
+  expect(shown).toHaveTextContent("Breaking Bad — S1E2");
+  expect(screen.getByTestId("resume-note-tt0903747:1:2")).toHaveTextContent("40:18 left");
+  expect(screen.getByTestId("resume-tt0133093")).toHaveTextContent("The Matrix");
+  expect(screen.getByTestId("resume-note-tt0133093")).toHaveTextContent("1:54:36 left");
+});
+
+test("pressing a Continue watching card resumes the Video from where it was left", async () => {
+  const host = fakeHost({
+    initial: {
+      ...NOTHING_SAID,
+      revision: 3,
+      addons: [ADDON],
+      watchProgress: [resumeEntry()],
+    },
+  });
+  windowOver(host.transport);
+
+  fireEvent.click(await screen.findByTestId("resume-tt0133093"));
+
+  await waitFor(() =>
+    expect(dispatched(host.invocations, "resume").args).toEqual({
+      envelope: {
+        version: 1,
+        action: { type: "resume", video: { type: "movie", id: "tt0133093" } },
+      },
+    }),
+  );
+  expect(screen.getByTestId("opening-stream")).toHaveTextContent("Opening");
+});
+
+test("a stub whose Addon is gone is listed, marked, and not pressable", async () => {
+  const stub = resumeEntry({
+    unplayable: { reason: "addon_removed", addon: "community.removed-addon" },
+  });
+  const host = fakeHost({
+    initial: { ...NOTHING_SAID, revision: 3, addons: [ADDON], watchProgress: [stub] },
+  });
+  windowOver(host.transport);
+
+  const card = await screen.findByTestId("resume-tt0133093");
+  expect(card).toHaveTextContent("The Matrix");
+  expect(card).toBeDisabled();
+  expect(card).toHaveAttribute("data-unplayable", "true");
+  expect(screen.getByTestId("resume-note-tt0133093")).toHaveTextContent(
+    "Unplayable — the Addon community.removed-addon",
+  );
+  expect(
+    host.invocations.some(
+      ({ args }) =>
+        (args?.envelope as { action: Action } | undefined)?.action.type === "resume",
+    ),
+    "pressing it is not possible, so nothing was dispatched",
+  ).toBe(false);
+});
+
+test("a Stream at its end offers the next episode, because the menu is not offered there", async () => {
+  const host = fakeHost({
+    initial: {
+      ...NOTHING_SAID,
+      revision: 9,
+      addons: [ADDON],
+      playback: playback({
+        state: "ended",
+        position: 2820,
+        nowPlaying: {
+          video: { type: "series", id: "tt0903747:1:1" },
+          addon: AIOSTREAMS,
+          name: "AIOStreams\n1080p",
+          description: null,
+          filename: null,
+          bingeGroup: null,
+        },
+      }),
+    },
+  });
+  windowOver(host.transport);
+
+  fireEvent.click(await screen.findByTestId("next-episode-after-end"));
+  await waitFor(() =>
+    expect(dispatched(host.invocations, "next_episode").args).toEqual({
+      envelope: { version: 1, action: { type: "next_episode" } },
+    }),
+  );
+});
+
+test("a film at its end offers no next episode", async () => {
+  const host = fakeHost({
+    initial: {
+      ...NOTHING_SAID,
+      revision: 9,
+      addons: [ADDON],
+      playback: playback({ state: "ended", position: 8100 }),
+    },
+  });
+  windowOver(host.transport);
+
+  await screen.findByTestId("stream-ended");
+  expect(screen.queryByTestId("next-episode-after-end")).not.toBeInTheDocument();
 });

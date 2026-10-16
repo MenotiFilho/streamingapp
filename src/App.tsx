@@ -57,6 +57,7 @@ import {
   type PlaybackSnapshot,
   type Protection,
   type Response,
+  type ResumeEntry,
   type Snapshot,
   type Stream,
   type Title,
@@ -70,6 +71,7 @@ import {
   transportable,
   watching,
 } from "./playback";
+import { cardName, cardNote, progressOf, resumable } from "./library";
 import {
   badgeLines,
   playabilityNote,
@@ -77,7 +79,16 @@ import {
   unplayableNote,
   warningNote,
 } from "./stream";
-import { isSeries, labelOf, nameOf, posterOf, releaseOf, seasonName, seasonsOf } from "./title";
+import {
+  isSeries,
+  labelOf,
+  nameOf,
+  posterOf,
+  releaseOf,
+  seasonName,
+  seasonsOf,
+  titleStubOf,
+} from "./title";
 import { useArrowKeys } from "./useArrowKeys";
 
 /**
@@ -340,9 +351,13 @@ export function App({ client }: { client?: HostClient }) {
         video: { type: title.type, id: selected.id },
         addon,
         stream,
+        // The Title this client has open, which is what the Host records Watch
+        // progress against (#29). The card it opened from stands in for what a
+        // sparse meta answer left out.
+        title: titleStubOf(title, preview),
       });
     },
-    [take, title, selected],
+    [take, title, preview, selected],
   );
 
   /** Close the Stream list and go back to the Videos it was asked from. */
@@ -359,6 +374,21 @@ export function App({ client }: { client?: HostClient }) {
     setStreams(null);
     setChosen(null);
   }, []);
+
+  /**
+   * Continue watching: play a Video again from where the Host left it. The
+   * client names only the Video — where to resume from, and which Addon's
+   * candidate to open, are the Host's own record and its own rule (#29).
+   */
+  const resume = useCallback(
+    (entry: ResumeEntry) => {
+      void take({
+        type: "resume",
+        video: { type: entry.title.type, id: entry.video.id },
+      });
+    },
+    [take],
+  );
 
   const back = useCallback(() => {
     // The player menu is the innermost thing Escape closes: while it is open the
@@ -489,6 +519,23 @@ export function App({ client }: { client?: HostClient }) {
           ) : (
             <p className="revision">Waiting for the Host…</p>
           )}
+
+          {/* The Continue watching row (#29): what the Host holds Watch progress
+              in, most recently played first. It is the Host's library, so every
+              client sees the same row; pressing a card resumes from where that
+              client — or another — left off. */}
+          {!title && snapshot && snapshot.watchProgress.length > 0 ? (
+            <section aria-labelledby="continue-heading">
+              <h2 id="continue-heading">Continue watching</h2>
+              <ul className="continue">
+                {snapshot.watchProgress.map((entry) => (
+                  <li key={`${entry.title.type}/${entry.video.id}`}>
+                    <ContinueCard entry={entry} onResume={() => resume(entry)} />
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
 
           <section aria-labelledby="browse-heading">
             <h2 id="browse-heading">Browse</h2>
@@ -676,6 +723,54 @@ export function App({ client }: { client?: HostClient }) {
 }
 
 /**
+ * One card in the Continue watching row: the Title's poster and name, where the
+ * Video was left, and how far in it is.
+ *
+ * It is a button because a press is how a person means "keep watching": the
+ * Action it sends is `resume`, and where that play begins is the Host's own
+ * record rather than anything kept here. An entry whose Addon is gone stays
+ * listed — a stub is a mark, not a hiding — and is drawn as a button a person
+ * cannot press, with the reason on it.
+ */
+function ContinueCard({
+  entry,
+  onResume,
+}: {
+  entry: ResumeEntry;
+  onResume: () => void;
+}) {
+  const fraction = progressOf(entry);
+  const playable = resumable(entry);
+
+  return (
+    <button
+      type="button"
+      className="continue-card"
+      data-focusable
+      data-testid={`resume-${entry.video.id}`}
+      data-unplayable={playable ? undefined : "true"}
+      disabled={!playable}
+      onClick={onResume}
+    >
+      {entry.title.poster ? (
+        <img className="continue-poster" src={entry.title.poster} alt="" />
+      ) : (
+        <span className="continue-poster continue-poster-empty" aria-hidden="true" />
+      )}
+      <span className="continue-name">{cardName(entry)}</span>
+      <span className="continue-note" data-testid={`resume-note-${entry.video.id}`}>
+        {cardNote(entry)}
+      </span>
+      {fraction !== null ? (
+        <span className="continue-bar" aria-hidden="true">
+          <span style={{ width: `${Math.round(fraction * 100)}%` }} />
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
+/**
  * The Host's picture, with this window's interface drawn over it.
  *
  * The Host put the picture where this platform can put it (ADR-0003), and this
@@ -831,6 +926,22 @@ function PlayerSurface({
         >
           Stop
         </button>
+
+        {/* A Stream that reached its end is where a series' next episode is
+            looked for: the control is offered here because the menu, which is
+            the other place it lives, is not offered for a Stream the Host will
+            not control (#29). */}
+        {state === "ended" && hasNextEpisode(nowPlaying) ? (
+          <button
+            type="button"
+            className="next-episode"
+            data-focusable
+            data-testid="next-episode-after-end"
+            onClick={() => onTake({ type: "next_episode" })}
+          >
+            Next episode
+          </button>
+        ) : null}
       </div>
 
       {/* The control panel, drawn over the picture in the style the rest of the

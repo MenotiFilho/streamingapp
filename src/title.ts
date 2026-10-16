@@ -14,7 +14,7 @@
  * person already saw on the card stand in for what the Addon did not repeat.
  */
 
-import type { MetaPreview, Title, Video } from "./host-client";
+import type { MetaPreview, Title, TitleStub, Video } from "./host-client";
 
 /** The protocol's type for the episodic kind of Title, the one with seasons. */
 export const SERIES = "series";
@@ -103,4 +103,23 @@ export function posterOf(title: Title, preview?: MetaPreview | null): string | n
 
 export function releaseOf(title: Title, preview?: MetaPreview | null): string | null {
   return title.releaseInfo ?? preview?.releaseInfo ?? null;
+}
+
+/**
+ * The least of a Title the Host is told when a Stream is chosen (#29).
+ *
+ * The client has the Title open — it is the client's own (ADR-0005) — so it
+ * hands back the card the Host records Watch progress against, and the Addon a
+ * removed one is judged by. The card the client opened it from stands in for
+ * whatever a sparse meta answer left out, the same fallback the Title screen
+ * uses.
+ */
+export function titleStubOf(title: Title, preview?: MetaPreview | null): TitleStub {
+  return {
+    addon: title.addon,
+    id: title.id,
+    type: title.type,
+    name: nameOf(title, preview),
+    poster: posterOf(title, preview),
+  };
 }

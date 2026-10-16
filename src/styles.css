@@ -227,6 +227,75 @@ button:hover {
   border-color: #3a3a46;
 }
 
+/* --- Continue watching ------------------------------------------------------- */
+
+/* The Host's library (#29): one card per Video with Watch progress, most
+   recently played first. A card whose Addon is gone stays listed and is drawn
+   faded and unpressing, because a stub is a mark and not a hiding. */
+.continue {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: 0.75rem;
+  list-style: none;
+  margin: 1rem 0 0;
+  padding: 0;
+}
+
+.continue-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  width: 100%;
+  padding: 0;
+  border: 1px solid #26262e;
+  border-radius: 0.5rem;
+  background: #16161c;
+  text-align: left;
+  overflow: hidden;
+}
+
+.continue-card .continue-poster {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  object-fit: cover;
+  background: #202027;
+}
+
+.continue-name {
+  padding: 0 0.5rem;
+  font-size: 0.85rem;
+  line-height: 1.25;
+}
+
+.continue-note {
+  padding: 0 0.5rem 0.5rem;
+  font-size: 0.72rem;
+  color: #9a9aa6;
+}
+
+.continue-bar {
+  display: block;
+  height: 0.25rem;
+  background: #26262e;
+}
+
+.continue-bar span {
+  display: block;
+  height: 100%;
+  background: #7aa2f7;
+}
+
+.continue-card[data-unplayable="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.continue-card:not([data-unplayable="true"]):hover {
+  background: #1d1d25;
+  border-color: #3a3a46;
+}
+
 /* --- an opened Title --------------------------------------------------------- */
 
 .title {

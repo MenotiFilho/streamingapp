@@ -17,6 +17,12 @@ export type Snapshot = {
   preferences: { subtitleLanguage: string | null };
   addons: AddonManifest[];
   protection: Protection;
+  /**
+   * The library: one entry per Video the Host has Watch progress in, most
+   * recently played first — the Continue watching row reads it (#29). An entry
+   * whose Addon is gone stays listed, marked unplayable, rather than vanishing.
+   */
+  watchProgress: ResumeEntry[];
 };
 
 /**
@@ -285,6 +291,43 @@ export type Title = {
 };
 
 /**
+ * The least of a Title a library card is drawn from (#29). Mirrors `TitleStub`
+ * in `host-core`: what the Host was told when a Stream was chosen, so the
+ * Continue watching row can draw a card without opening anything.
+ */
+export type TitleStub = {
+  addon: string;
+  id: string;
+  type: string;
+  name: string;
+  poster: string | null;
+};
+
+/** Why a library entry is not one the Host will play. Mirrors `UnplayableReason`. */
+export type UnplayableReason = "addon_removed";
+
+/** Why a library entry cannot be played now. Mirrors `UnplayableEntry` in `host-core`. */
+export type UnplayableEntry = {
+  reason: UnplayableReason;
+  /** The Addon that is no longer configured. */
+  addon: string;
+};
+
+/**
+ * One Video with Watch progress, as every client is told it (#29). Mirrors
+ * `ResumeEntry` in `host-core`: the Video, enough of its Title to draw a card,
+ * where it was left, and whether it can be played now.
+ */
+export type ResumeEntry = {
+  video: Video;
+  title: TitleStub;
+  position: number | null;
+  duration: number | null;
+  watched: boolean;
+  unplayable: UnplayableEntry | null;
+};
+
+/**
  * Where a Stream's bytes are, and whether this Host can open them. Mirrors
  * `Playback` in `host-core`: a direct URL mpv opens as itself, or an `infoHash`
  * this version lists and marks unplayable — the torrent bridge that would fetch
@@ -363,7 +406,11 @@ export type Action =
       video: { type: string; id: string };
       addon: string;
       stream: Stream;
+      // The Title the Video belongs to, as the client was reading it: enough for
+      // the Host to record Watch progress against a card (#29).
+      title: TitleStub;
     }
+  | { type: "resume"; video: { type: string; id: string } }
   | { type: "set_paused"; paused: boolean }
   | { type: "seek"; target: SeekTarget }
   | { type: "stop_playback" }
@@ -426,6 +473,7 @@ export const HOST_ERROR_KINDS = [
   "unplayable",
   "nothing_playing",
   "no_next_episode",
+  "no_progress",
   "playback",
   "store",
   "secret",
@@ -590,6 +638,8 @@ export function explain(error: ActionError): string {
       return `Nothing is playing, so the Host cannot ${controlWords(error.control)}.`;
     case "no_next_episode":
       return `The Host could not move to the next episode${error.detail ? `: ${error.detail}` : ""}.`;
+    case "no_progress":
+      return `The Host has no Watch progress for ${error.video?.type ?? "?"}/${error.video?.id ?? "?"}, so there is nothing to resume.`;
     case "playback":
       return `The Host's player could not do that${error.detail ? `: ${error.detail}` : ""}.`;
     case "store":
