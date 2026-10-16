@@ -1,4 +1,4 @@
-//! The read-only conformance run against real Addons (#33).
+//! The read-only conformance run against real Addons (#33, ADR-0019).
 //!
 //! The Host's addon path — its one [`Fetcher`] and the parsers that read what an
 //! Addon answers with — turned into a report a person reads. It is a diagnostic,
@@ -12,20 +12,28 @@
 //! Pointed at a manifest URL it asks the Addon for its manifest, then for the
 //! resources that manifest declares: a catalog, a search, a Title, that Video's
 //! Streams and its subtitles. Every ask goes through the same
-//! [`ResourceRequest`] URL rule the Host builds by, and every answer is read by
-//! the same parser the Host reads it with ([`Manifest::parse`], [`Page::parse`],
-//! [`Title::parse`], [`Stream::parse`], [`Subtitle::parse`]), so what it reports
-//! is what the Host would actually see.
+//! [`ResourceRequest`] URL rule and the same [`Manifest::answers`] judgement the
+//! Host builds by, and every answer is read by the same parser the Host reads it
+//! with ([`Manifest::parse`], [`Page::parse`], [`Title::parse`],
+//! [`Stream::parse`], [`Subtitle::parse`]), so what it reports is what the Host
+//! would actually see.
+//!
+//! It asks **once per resource**: the first catalog the Addon declares that can
+//! be asked for on its own, the first catalog that offers a search, and one
+//! Title. A manifest that declares a dozen catalogs is a dozen rows a client
+//! pages through, not a dozen questions a conformance run needs to ask.
 //!
 //! Every ask is a `GET`. It writes nothing to the Addon, nothing to Stremio and
 //! nothing to the Host's own store, and it holds no credential: there is no path
 //! here to a write because the engine takes only a [`Fetcher`], and a `Fetcher`
 //! fetches.
 //!
-//! The URLs asked are part of each [`ResourceReport`] — for the same reason a
-//! failure to be diagnosed names where it went. An Addon like AIOStreams carries
-//! its configuration inside its manifest URL, and the resource URL is that URL
-//! with a path appended, so treat a report as you would the manifest URL itself.
+//! The URL asked is part of each [`ResourceReport`], and the run prints the
+//! manifest URL it was given — for the same reason a failure to be diagnosed
+//! names where it went. An Addon like AIOStreams carries its configuration inside
+//! its manifest URL, which ADR-0009 keeps out of a Snapshot; this is a diagnostic
+//! on the owner's own machine rather than something published to a client, and a
+//! report is treated as the manifest URL it came from (ADR-0019).
 //!
 //! ## One failure is one line
 //!
@@ -35,9 +43,13 @@
 //! Addon whose manifest cannot be read is an Addon with nothing to ask.
 
 use host_core::{
-    FetchError, Fetcher, Manifest, Page, ResourceRequest, Stream, Subtitle, Title, TitleRef,
-    CATALOG, META, STREAM, SUBTITLES,
+    Fetcher, Manifest, Page, ResourceRequest, Stream, Subtitle, Title, TitleRef, CATALOG, META,
+    SEARCH, STREAM, SUBTITLES,
 };
+
+/// The manifest's name in a report. Not a protocol resource (`Manifest::parse`
+/// reads it directly), but it is one ask like the others and is reported as one.
+const MANIFEST: &str = "manifest";
 
 /// What one ask of one Addon came to.
 ///
@@ -45,14 +57,10 @@ use host_core::{
 /// which one it is; the run itself never fails on it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
-    /// The Addon answered and it read: how many things the answer carried.
-    ///
-    /// `0` is used for the manifest, which is one thing rather than a list, so
-    /// that a manifest that read always reports `ok`. A list resource with
-    /// nothing usable in it is [`Empty`](Self::Empty), never `Ok { items: 0 }`.
-    Ok { items: usize },
-    /// The Addon answered and it read, and there was nothing in it this Host
-    /// can use.
+    /// The Addon answered and the Host read it.
+    Ok,
+    /// The Addon answered and the Host read it, and there was nothing in it this
+    /// Host can use.
     Empty,
     /// The Addon answered with something that is not this resource.
     Malformed { detail: String },
@@ -60,27 +68,22 @@ pub enum Outcome {
     Unreachable { detail: String },
 }
 
-impl Outcome {
-    /// The outcome of a list answer that carried `items` things.
-    fn carried(items: usize) -> Self {
-        match items {
-            0 => Self::Empty,
-            count => Self::Ok { items: count },
-        }
-    }
-}
-
 /// One resource asked of one Addon, and what came of it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResourceReport {
-    /// The resource's name in the protocol: `manifest`, `catalog`, `search`,
-    /// `meta`, `stream`, `subtitles`.
+    /// The resource's name: `manifest`, `catalog`, `search`, `meta`, `stream`,
+    /// `subtitles`.
     pub resource: &'static str,
     /// What was asked about, in the Host's words: `movie/top`, `matrix`, a
     /// Title and Video named `type/id`. Empty for the manifest.
     pub subject: String,
     /// The URL the Host asked at.
     pub url: String,
+    /// How many things the answer carried, when the resource is a list and it
+    /// read: the items of a page, the Streams of a Video. `None` for the
+    /// manifest, which is one thing rather than a list, and for an answer that
+    /// did not read.
+    pub found: Option<usize>,
     pub outcome: Outcome,
 }
 
@@ -114,9 +117,9 @@ pub struct AddonReport {
 pub struct Options {
     /// What to search for, when a catalog offers a search.
     pub query: String,
-    /// The Title to open, and the Video whose Streams and subtitles to ask for.
-    /// For a series whose Addon answers `meta`, the first Video the Addon lists
-    /// is used; the Title itself is the Video for a film.
+    /// The Title to open, and the Video whose Streams and subtitles are asked
+    /// for. For a series whose Addon answers `meta`, the first Video the Addon
+    /// lists is used; the Title itself is the Video for a film.
     pub title: TitleRef,
 }
 
@@ -147,18 +150,20 @@ pub fn run(fetcher: &dyn Fetcher, manifest_url: &str, options: &Options) -> Addo
     let manifest = match read_manifest(fetcher, manifest_url) {
         Ok(manifest) => {
             asks.push(ResourceReport {
-                resource: "manifest",
+                resource: MANIFEST,
                 subject: String::new(),
                 url: manifest_url.to_owned(),
-                outcome: Outcome::Ok { items: 0 },
+                found: None,
+                outcome: Outcome::Ok,
             });
             manifest
         }
         Err(outcome) => {
             asks.push(ResourceReport {
-                resource: "manifest",
+                resource: MANIFEST,
                 subject: String::new(),
                 url: manifest_url.to_owned(),
+                found: None,
                 outcome,
             });
             return AddonReport {
@@ -182,8 +187,9 @@ pub fn run(fetcher: &dyn Fetcher, manifest_url: &str, options: &Options) -> Addo
         catalogs: manifest.catalogs.len(),
     };
 
-    // A catalog, with the values its Addon requires filled in — the same rule the
-    // Host fills them in by, so the URL is one the Addon really takes.
+    // A catalog: the first the Addon declares that it can be asked for on its
+    // own, with the values it requires filled in — the same rule the Host fills
+    // them in by, so the URL is one the Addon really takes.
     if let Some((catalog, extra)) = manifest
         .catalogs
         .iter()
@@ -191,22 +197,19 @@ pub fn run(fetcher: &dyn Fetcher, manifest_url: &str, options: &Options) -> Addo
     {
         let requested =
             ResourceRequest::new(CATALOG, &catalog.r#type, &catalog.id).with_extra(extra);
-        asks.push(ask(
+        asks.extend(probe(
             fetcher,
+            &manifest,
             manifest_url,
-            "catalog",
+            CATALOG,
             format!("{}/{}", catalog.r#type, catalog.id),
-            &requested,
-            |body| {
-                Page::parse(body)
-                    .map(|page| page.metas.len())
-                    .map_err(|error| error.to_string())
-            },
+            requested,
+            read_page,
         ));
     }
 
-    // A search, asked of the first catalog that offers one, for the query the
-    // run was given.
+    // A search: the first catalog that offers one, for the query the run was
+    // given.
     if let Some((catalog, extra)) = manifest.catalogs.iter().find_map(|catalog| {
         catalog
             .search_extra(&options.query)
@@ -214,17 +217,14 @@ pub fn run(fetcher: &dyn Fetcher, manifest_url: &str, options: &Options) -> Addo
     }) {
         let requested =
             ResourceRequest::new(CATALOG, &catalog.r#type, &catalog.id).with_extra(extra);
-        asks.push(ask(
+        asks.extend(probe(
             fetcher,
+            &manifest,
             manifest_url,
-            "search",
+            SEARCH,
             options.query.clone(),
-            &requested,
-            |body| {
-                Page::parse(body)
-                    .map(|page| page.metas.len())
-                    .map_err(|error| error.to_string())
-            },
+            requested,
+            read_page,
         ));
     }
 
@@ -233,70 +233,58 @@ pub fn run(fetcher: &dyn Fetcher, manifest_url: &str, options: &Options) -> Addo
     // series whose Addon answers `meta`, the first Video the Addon lists is.
     let asked = &options.title;
     let mut video = asked.clone();
-
     let meta = ResourceRequest::new(META, &asked.r#type, &asked.id);
-    if manifest.answers(&meta) {
-        let url = meta.url(manifest_url);
-        let outcome = match fetch(fetcher, &url) {
-            Err(error) => Outcome::Unreachable {
-                detail: error.to_string(),
-            },
-            Ok(body) => match Title::parse(&body, manifest.id.clone(), asked) {
-                Err(error) => Outcome::Malformed {
-                    detail: error.to_string(),
-                },
-                Ok(title) => {
-                    if let Some(first) = title.videos.first() {
-                        video = TitleRef {
-                            r#type: asked.r#type.clone(),
-                            id: first.id.clone(),
-                        };
-                    }
-                    Outcome::Ok { items: 1 }
-                }
-            },
-        };
-        asks.push(ResourceReport {
-            resource: "meta",
-            subject: asked.to_string(),
-            url,
-            outcome,
-        });
-    }
+    asks.extend(probe(
+        fetcher,
+        &manifest,
+        manifest_url,
+        META,
+        asked.to_string(),
+        meta,
+        |body| {
+            let title = Title::parse(body, manifest.id.clone(), asked)
+                .map_err(|error| error.to_string())?;
+            if let Some(first) = title.videos.first() {
+                video = TitleRef {
+                    r#type: asked.r#type.clone(),
+                    id: first.id.clone(),
+                };
+            }
+            Ok(1)
+        },
+    ));
 
     // Streams, of the Video — the Title for a film, an episode for a series.
     let streams = ResourceRequest::new(STREAM, &video.r#type, &video.id);
-    if manifest.answers(&streams) {
-        asks.push(ask(
-            fetcher,
-            manifest_url,
-            "stream",
-            video.to_string(),
-            &streams,
-            |body| {
-                Stream::parse(body)
-                    .map(|streams| streams.len())
-                    .map_err(|error| error.to_string())
-            },
-        ));
-    }
+    asks.extend(probe(
+        fetcher,
+        &manifest,
+        manifest_url,
+        STREAM,
+        video.to_string(),
+        streams,
+        |body| {
+            Stream::parse(body)
+                .map(|streams| streams.len())
+                .map_err(|error| error.to_string())
+        },
+    ));
 
     // Subtitles, of the same Video — the fallback source ADR-0014 names.
     let subtitles = ResourceRequest::new(SUBTITLES, &video.r#type, &video.id);
-    if manifest.answers(&subtitles) {
-        asks.push(ask(
-            fetcher,
-            manifest_url,
-            "subtitles",
-            video.to_string(),
-            &subtitles,
-            |body| {
-                Subtitle::parse(body)
-                    .map(|subtitles| subtitles.len())
-                    .map_err(|error| error.to_string())
-            },
-        ));
-    }
+    asks.extend(probe(
+        fetcher,
+        &manifest,
+        manifest_url,
+        SUBTITLES,
+        video.to_string(),
+        subtitles,
+        |body| {
+            Subtitle::parse(body)
+                .map(|subtitles| subtitles.len())
+                .map_err(|error| error.to_string())
+        },
+    ));
 
     AddonReport {
         manifest_url: manifest_url.to_owned(),
@@ -305,14 +293,9 @@ pub fn run(fetcher: &dyn Fetcher, manifest_url: &str, options: &Options) -> Addo
     }
 }
 
-/// Fetch one URL through the Host's one Fetcher.
-fn fetch(fetcher: &dyn Fetcher, url: &str) -> Result<String, FetchError> {
-    fetcher.fetch(url)
-}
-
 /// Read one Addon's manifest, or the outcome that says why there is none.
 fn read_manifest(fetcher: &dyn Fetcher, manifest_url: &str) -> Result<Manifest, Outcome> {
-    match fetch(fetcher, manifest_url) {
+    match fetcher.fetch(manifest_url) {
         Err(error) => Err(Outcome::Unreachable {
             detail: error.to_string(),
         }),
@@ -322,35 +305,55 @@ fn read_manifest(fetcher: &dyn Fetcher, manifest_url: &str) -> Result<Manifest, 
     }
 }
 
-/// Ask one resource and read the answer, reporting what came of it.
+/// Ask one resource of one Addon, and read the answer.
 ///
-/// `read` turns a body into how many things it carried — the parser the Host
-/// reads that resource with — and its error into the detail a person is shown.
-fn ask(
+/// `None` when the Addon's manifest does not answer for the resource — the one
+/// rule the Host decides every ask by (ADR-0010), so nothing is asked that the
+/// Addon did not declare. `read` turns a body into how many things it carried
+/// (the parser the Host reads that resource with) and its error into the detail
+/// a person is shown.
+fn probe(
     fetcher: &dyn Fetcher,
+    manifest: &Manifest,
     manifest_url: &str,
     resource: &'static str,
     subject: String,
-    requested: &ResourceRequest,
+    requested: ResourceRequest,
     read: impl FnOnce(&str) -> Result<usize, String>,
-) -> ResourceReport {
+) -> Option<ResourceReport> {
+    if !manifest.answers(&requested) {
+        return None;
+    }
+
     let url = requested.url(manifest_url);
-    let outcome = match fetch(fetcher, &url) {
-        Err(error) => Outcome::Unreachable {
-            detail: error.to_string(),
-        },
+    let (outcome, found) = match fetcher.fetch(&url) {
+        Err(error) => (
+            Outcome::Unreachable {
+                detail: error.to_string(),
+            },
+            None,
+        ),
         Ok(body) => match read(&body) {
-            Err(detail) => Outcome::Malformed { detail },
-            Ok(items) => Outcome::carried(items),
+            Err(detail) => (Outcome::Malformed { detail }, None),
+            Ok(0) => (Outcome::Empty, Some(0)),
+            Ok(items) => (Outcome::Ok, Some(items)),
         },
     };
 
-    ResourceReport {
+    Some(ResourceReport {
         resource,
         subject,
         url,
+        found,
         outcome,
-    }
+    })
+}
+
+/// Read one page of a catalog, or one search's answer.
+fn read_page(body: &str) -> Result<usize, String> {
+    Page::parse(body)
+        .map(|page| page.metas.len())
+        .map_err(|error| error.to_string())
 }
 
 /// Render reports as the lines a person reads.
@@ -383,7 +386,7 @@ pub fn render(reports: &[AddonReport]) -> String {
                 "  {:<10} {:<22} {}\n",
                 ask.resource,
                 ask.subject,
-                outcome_line(&ask.outcome)
+                line(ask)
             ));
         }
         out.push('\n');
@@ -395,7 +398,7 @@ pub fn render(reports: &[AddonReport]) -> String {
         asks += report.asks.len();
         for ask in &report.asks {
             match ask.outcome {
-                Outcome::Ok { .. } => ok += 1,
+                Outcome::Ok => ok += 1,
                 Outcome::Empty => empty += 1,
                 Outcome::Malformed { .. } => malformed += 1,
                 Outcome::Unreachable { .. } => unreachable += 1,
@@ -414,11 +417,13 @@ pub fn render(reports: &[AddonReport]) -> String {
     out
 }
 
-fn outcome_line(outcome: &Outcome) -> String {
-    match outcome {
-        // The manifest, which read and is one thing rather than a list.
-        Outcome::Ok { items: 0 } => "ok".to_owned(),
-        Outcome::Ok { items } => format!("ok ({items} item{})", plural(*items)),
+/// One ask's outcome, as the words a person reads it in.
+fn line(ask: &ResourceReport) -> String {
+    match &ask.outcome {
+        Outcome::Ok => match ask.found {
+            Some(items) => format!("ok ({items} item{})", plural(items)),
+            None => "ok".to_owned(),
+        },
         Outcome::Empty => "empty".to_owned(),
         Outcome::Malformed { detail } => format!("malformed: {detail}"),
         Outcome::Unreachable { detail } => format!("unreachable: {detail}"),
@@ -505,14 +510,12 @@ mod tests {
             )
     }
 
-    fn outcome(report: &AddonReport, resource: &str) -> Outcome {
+    fn ask<'a>(report: &'a AddonReport, resource: &str) -> &'a ResourceReport {
         report
             .asks
             .iter()
             .find(|ask| ask.resource == resource)
             .unwrap_or_else(|| panic!("the run asked {resource}: {:?}", report.asks))
-            .outcome
-            .clone()
     }
 
     #[test]
@@ -536,12 +539,11 @@ mod tests {
         );
         assert_eq!(summary.catalogs, 1);
 
-        assert_eq!(outcome(&report, "manifest"), Outcome::Ok { items: 0 });
-        assert_eq!(outcome(&report, "catalog"), Outcome::Ok { items: 1 });
-        assert_eq!(outcome(&report, "search"), Outcome::Ok { items: 1 });
-        assert_eq!(outcome(&report, "meta"), Outcome::Ok { items: 1 });
-        assert_eq!(outcome(&report, "stream"), Outcome::Ok { items: 1 });
-        assert_eq!(outcome(&report, "subtitles"), Outcome::Ok { items: 1 });
+        assert_eq!(ask(&report, MANIFEST).outcome, Outcome::Ok);
+        for resource in [CATALOG, SEARCH, META, STREAM, SUBTITLES] {
+            assert_eq!(ask(&report, resource).outcome, Outcome::Ok, "{resource}");
+            assert_eq!(ask(&report, resource).found, Some(1), "{resource}");
+        }
 
         assert_eq!(
             fetcher.asked(),
@@ -565,9 +567,9 @@ mod tests {
         assert!(report.summary.is_none());
         assert_eq!(report.asks.len(), 1, "the manifest is the only ask");
         assert!(
-            matches!(outcome(&report, "manifest"), Outcome::Malformed { .. }),
+            matches!(ask(&report, MANIFEST).outcome, Outcome::Malformed { .. }),
             "a body that is not a manifest is malformed: {:?}",
-            outcome(&report, "manifest")
+            ask(&report, MANIFEST).outcome
         );
         assert_eq!(
             fetcher.asked(),
@@ -588,7 +590,7 @@ mod tests {
 
         assert!(report.summary.is_none());
         assert_eq!(
-            outcome(&report, "manifest"),
+            ask(&report, MANIFEST).outcome,
             Outcome::Unreachable {
                 detail: "the Addon could not be reached: no route to host".to_owned()
             }
@@ -620,7 +622,7 @@ mod tests {
                 .iter()
                 .map(|ask| ask.resource)
                 .collect::<Vec<_>>(),
-            vec!["manifest", "stream"],
+            vec![MANIFEST, STREAM],
             "only what the manifest declares is asked"
         );
         assert_eq!(
@@ -653,14 +655,14 @@ mod tests {
         let report = run(&fetcher, MANIFEST_URL, &options());
 
         assert!(
-            matches!(outcome(&report, "catalog"), Outcome::Malformed { .. }),
+            matches!(ask(&report, CATALOG).outcome, Outcome::Malformed { .. }),
             "the catalog body is not a catalog"
         );
-        assert_eq!(outcome(&report, "search"), Outcome::Ok { items: 1 });
-        assert_eq!(outcome(&report, "meta"), Outcome::Ok { items: 1 });
+        assert_eq!(ask(&report, SEARCH).outcome, Outcome::Ok);
+        assert_eq!(ask(&report, META).outcome, Outcome::Ok);
         assert_eq!(
-            outcome(&report, "stream"),
-            Outcome::Ok { items: 1 },
+            ask(&report, STREAM).outcome,
+            Outcome::Ok,
             "one Addon's bad resource is one line, not a run that stops"
         );
     }
@@ -688,10 +690,15 @@ mod tests {
             );
         let report = run(&fetcher, MANIFEST_URL, &options());
 
-        assert_eq!(outcome(&report, "catalog"), Outcome::Empty);
-        assert_eq!(outcome(&report, "search"), Outcome::Empty);
-        assert_eq!(outcome(&report, "stream"), Outcome::Empty);
-        assert_eq!(outcome(&report, "subtitles"), Outcome::Empty);
+        assert_eq!(ask(&report, CATALOG).outcome, Outcome::Empty);
+        assert_eq!(ask(&report, SEARCH).outcome, Outcome::Empty);
+        assert_eq!(ask(&report, STREAM).outcome, Outcome::Empty);
+        assert_eq!(ask(&report, SUBTITLES).outcome, Outcome::Empty);
+        assert_eq!(
+            ask(&report, CATALOG).found,
+            Some(0),
+            "an empty answer carried nothing, and the report says so"
+        );
     }
 
     #[test]
@@ -721,12 +728,12 @@ mod tests {
             );
         let report = run(&fetcher, MANIFEST_URL, &options());
 
-        assert_eq!(outcome(&report, "manifest"), Outcome::Ok { items: 0 });
-        for resource in ["catalog", "search", "meta", "stream", "subtitles"] {
+        assert_eq!(ask(&report, MANIFEST).outcome, Outcome::Ok);
+        for resource in [CATALOG, SEARCH, META, STREAM, SUBTITLES] {
             assert!(
-                matches!(outcome(&report, resource), Outcome::Unreachable { .. }),
+                matches!(ask(&report, resource).outcome, Outcome::Unreachable { .. }),
                 "{resource} was down: {:?}",
-                outcome(&report, resource)
+                ask(&report, resource).outcome
             );
         }
     }
@@ -785,7 +792,7 @@ mod tests {
             ],
             "the episodes the Addon listed are the Videos a Stream is asked of"
         );
-        assert_eq!(outcome(&report, "stream"), Outcome::Ok { items: 1 });
+        assert_eq!(ask(&report, STREAM).outcome, Outcome::Ok);
     }
 
     #[test]
@@ -814,7 +821,7 @@ mod tests {
             );
         let report = run(&fetcher, MANIFEST_URL, &options());
 
-        assert_eq!(outcome(&report, "catalog"), Outcome::Ok { items: 1 });
+        assert_eq!(ask(&report, CATALOG).outcome, Outcome::Ok);
         assert_eq!(
             fetcher.asked(),
             vec![

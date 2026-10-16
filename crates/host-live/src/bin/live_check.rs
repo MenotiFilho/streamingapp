@@ -8,12 +8,12 @@
 //! The engine is [`host_live`]; this is the shell that reads its arguments,
 //! builds the Host's real [`host_addon::HttpFetcher`], and prints what the run
 //! found. Run it deliberately: it reaches the network, and it is a report rather
-//! than a test suite.
+//! than a test suite (ADR-0019).
 
 use std::process::ExitCode;
 
 use host_addon::HttpFetcher;
-use host_core::TitleRef;
+use host_core::{ManifestUrl, TitleRef};
 use host_live::{render, run, Options};
 
 /// The Addons a run with no arguments checks, one for each resource the Host
@@ -110,7 +110,14 @@ impl Cli {
                 other if other.starts_with('-') => {
                     return Err(format!("unknown option {other:?}"));
                 }
-                url => addons.push(url.to_owned()),
+                url => {
+                    // A URL that is not one is a mistake in the command, not a
+                    // third-party failure: refuse it here rather than reporting
+                    // it as an Addon that could not be reached.
+                    let manifest_url =
+                        ManifestUrl::parse(url).map_err(|error| error.to_string())?;
+                    addons.push(manifest_url.to_string());
+                }
             }
         }
 
@@ -142,7 +149,7 @@ fn parse_title(raw: &str) -> Result<TitleRef, String> {
 mod tests {
     use super::*;
 
-    fn run(args: &[&str]) -> Run {
+    fn parse_run(args: &[&str]) -> Run {
         let args: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
         match Cli::parse(&args) {
             Ok(Cli::Run(run)) => run,
@@ -153,7 +160,7 @@ mod tests {
 
     #[test]
     fn no_arguments_check_the_default_addons_with_the_default_options() {
-        let run = run(&[]);
+        let run = parse_run(&[]);
         let expected: Vec<String> = DEFAULT_ADDONS.iter().map(|url| (*url).to_owned()).collect();
 
         assert_eq!(run.addons, expected);
@@ -162,14 +169,14 @@ mod tests {
 
     #[test]
     fn a_manifest_url_is_checked_instead_of_the_defaults() {
-        let run = run(&["https://example.org/manifest.json"]);
+        let run = parse_run(&["https://example.org/manifest.json"]);
 
         assert_eq!(run.addons, vec!["https://example.org/manifest.json"]);
     }
 
     #[test]
     fn search_and_title_are_read() {
-        let run = run(&[
+        let run = parse_run(&[
             "--search",
             "blood & guts",
             "--title",
@@ -204,6 +211,23 @@ mod tests {
         ] {
             let args: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
             assert!(Cli::parse(&args).is_err(), "{args:?} should be refused");
+        }
+    }
+
+    #[test]
+    fn a_manifest_url_that_is_not_one_is_a_usage_error_rather_than_an_unreachable_addon() {
+        // A mistyped URL is the command's mistake, not a third-party failure, so
+        // it is refused before any run rather than reported as unreachable.
+        for not_a_url in [
+            "not a url",
+            "ftp://example.org/manifest.json",
+            "example.org",
+        ] {
+            let args = vec![not_a_url.to_owned()];
+            assert!(
+                Cli::parse(&args).is_err(),
+                "{not_a_url:?} should be refused"
+            );
         }
     }
 }
