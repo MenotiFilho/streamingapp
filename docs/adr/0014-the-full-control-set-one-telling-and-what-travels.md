@@ -32,13 +32,18 @@ things mpv names, which is the one thing the crate split exists to prevent).
 
 ## A control moves the Host's own record at the moment of the Action
 
-ADR-0013's rule for pause and seek is now the rule for all of them: the Action's
-Snapshot carries the change immediately, and the Player's next report is what
-corrects it. Selecting an audio track flips `selected` in the session's own
-copies of the tracks; a crop is recorded as the rectangle asked for; a chapter
-step moves the index, clamped to the list the Player last reported. `observe`'s
-fold compares its whole report against that record, so a control that a platform
-silently ignores is corrected a quarter-second later rather than believed.
+ADR-0013's rule for pause and seek is now the rule for all of them: an Action
+whose telling the Player took publishes a Snapshot carrying the change
+immediately, and the Player's next report is what corrects it. Selecting an audio
+track flips `selected` in the session's own copies of the tracks; a crop is
+recorded as the rectangle asked for; a chapter step moves the index, clamped to
+the list the Player last reported. `observe`'s fold compares its whole report
+against that record, so a control that a platform silently ignores is corrected a
+quarter-second later rather than believed.
+
+A Player that *refuses* the telling is the one case that moves nothing: the
+Action is refused with the Player's own words and the record stays as it was, so
+a client is never told a control took when the limb it reached never took it.
 
 A consequence worth stating: **a track change never reopens the Stream**. That is
 asserted rather than intended — `no_control_reopens_the_stream` drives every
@@ -139,6 +144,13 @@ show it; the track's shown title is the Addon's own id for it, the only per-item
 word the protocol carries besides the language). The attempt is recorded on the
 session, so a Stream with no subtitles anywhere is asked about once and not four
 times a second.
+
+"Nothing embedded" is a *report*, not an absence: the Player says what the Stream
+carries, and a Player that could not read the track list says nothing at all
+(`tracks: None`) rather than saying "none". The fallback waits for a report it can
+act on, so a read that failed leaves the attempt un-made — where treating it as an
+empty Stream would have spent the one attempt on the wrong answer and loaded an
+Addon's subtitles over a file that already had its own.
 
 The fetch is made by `Host::sample`, which is the Host reading its own limb
 (ADR-0013): the Host decides nothing about it on a client's behalf, and a client

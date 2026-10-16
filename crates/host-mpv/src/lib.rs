@@ -310,48 +310,52 @@ impl MpvPlayer {
 
     /// Every track mpv lists, in mpv's own order.
     ///
-    /// `track-list/count` answers zero when nothing is loaded, and each track
-    /// is a numbered set of properties beneath it. A track mpv cannot name a
-    /// type for is not one anything here could control, so it is left out.
-    fn tracks(&self) -> Vec<RawTrack> {
-        let count = self
-            .mpv
-            .get_property::<i64>("track-list/count")
-            .unwrap_or(0);
+    /// `track-list/count` answers zero when nothing is loaded — a fact about the
+    /// file — and each track is a numbered set of properties beneath it. A track
+    /// mpv cannot name a type for is not one anything here could control, so it
+    /// is left out.
+    ///
+    /// `None` is mpv refusing to answer how many tracks there are, which is not
+    /// a file with no tracks: the Host waits for a report it can act on rather
+    /// than treating a failed read as an empty Stream (ADR-0014).
+    fn tracks(&self) -> Option<Vec<RawTrack>> {
+        let count = self.mpv.get_property::<i64>("track-list/count").ok()?;
 
-        (0..count.max(0))
-            .filter_map(|index| {
-                Some(RawTrack {
-                    id: self
-                        .mpv
-                        .get_property::<i64>(&format!("track-list/{index}/id"))
-                        .ok()?,
-                    kind: self
-                        .mpv
-                        .get_property::<String>(&format!("track-list/{index}/type"))
-                        .ok()?,
-                    language: self.text(&format!("track-list/{index}/lang")),
-                    title: self.text(&format!("track-list/{index}/title")),
-                    codec: self.text(&format!("track-list/{index}/codec")),
-                    external: self
-                        .mpv
-                        .get_property::<bool>(&format!("track-list/{index}/external"))
-                        .unwrap_or(false),
-                    selected: self
-                        .mpv
-                        .get_property::<bool>(&format!("track-list/{index}/selected"))
-                        .unwrap_or(false),
-                    default: self
-                        .mpv
-                        .get_property::<bool>(&format!("track-list/{index}/default"))
-                        .unwrap_or(false),
-                    forced: self
-                        .mpv
-                        .get_property::<bool>(&format!("track-list/{index}/forced"))
-                        .unwrap_or(false),
+        Some(
+            (0..count.max(0))
+                .filter_map(|index| {
+                    Some(RawTrack {
+                        id: self
+                            .mpv
+                            .get_property::<i64>(&format!("track-list/{index}/id"))
+                            .ok()?,
+                        kind: self
+                            .mpv
+                            .get_property::<String>(&format!("track-list/{index}/type"))
+                            .ok()?,
+                        language: self.text(&format!("track-list/{index}/lang")),
+                        title: self.text(&format!("track-list/{index}/title")),
+                        codec: self.text(&format!("track-list/{index}/codec")),
+                        external: self
+                            .mpv
+                            .get_property::<bool>(&format!("track-list/{index}/external"))
+                            .unwrap_or(false),
+                        selected: self
+                            .mpv
+                            .get_property::<bool>(&format!("track-list/{index}/selected"))
+                            .unwrap_or(false),
+                        default: self
+                            .mpv
+                            .get_property::<bool>(&format!("track-list/{index}/default"))
+                            .unwrap_or(false),
+                        forced: self
+                            .mpv
+                            .get_property::<bool>(&format!("track-list/{index}/forced"))
+                            .unwrap_or(false),
+                    })
                 })
-            })
-            .collect()
+                .collect(),
+        )
     }
 
     /// Every chapter mpv lists, in the order the container gives them.

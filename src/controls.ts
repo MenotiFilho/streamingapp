@@ -260,9 +260,15 @@ function formatBitrate(bits: number | null): string {
 }
 
 /**
- * Whether what is playing is an episode of a series, which is what a next one
- * would follow. A film has no next episode, so the control is not offered for
- * one.
+ * Whether what is playing is a series episode, which is the only thing a next
+ * one could follow. A film has no next episode, so the control is not offered
+ * for one.
+ *
+ * This is the window offering an affordance, not the Host's rule: whether a next
+ * Video *exists* is the Host's answer, and it may refuse — a series whose id is
+ * not an episode's, or one whose Addon lists nothing after it. Re-deciding that
+ * here would be a second rule for one question, which is the duplicate ADR-0002
+ * exists to prevent.
  */
 export function hasNextEpisode(playing: NowPlaying | null): boolean {
   return playing?.video.type === "series";

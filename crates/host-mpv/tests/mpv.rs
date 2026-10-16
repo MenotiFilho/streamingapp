@@ -34,7 +34,7 @@ use std::time::{Duration, Instant};
 
 use host_core::{
     Aspect, ChapterStep, Crop, CropRectangle, Observation, PlaybackState, Player, SeekTarget,
-    Statistics, StreamUrl, SubtitleLanguage, Telling, TrackKind, VideoSize,
+    Statistics, StreamUrl, SubtitleLanguage, Telling, Track, TrackKind, VideoSize,
 };
 use host_mpv::{MpvError, MpvPlayer, Placement};
 
@@ -161,6 +161,13 @@ fn player() -> MpvPlayer {
     MpvPlayer::start(Placement::Headless).expect("mpv starts in this environment")
 }
 
+/// The tracks the Player has *said* the Stream carries: nothing while it has not
+/// said. A read that failed is not a file with no tracks in it, which is the
+/// same distinction the Host draws (ADR-0014).
+fn said(observation: &Observation) -> &[Track] {
+    observation.tracks.as_deref().unwrap_or_default()
+}
+
 /// Open the control fixture and wait until mpv is playing it with all four of
 /// its tracks listed — where every control test starts from.
 ///
@@ -172,7 +179,7 @@ fn controlling(streams: &Streams) -> MpvPlayer {
         .open(&stream(&streams.movie))
         .expect("mpv takes the fixture");
     until(&player, "started playing the fixture", |observation| {
-        observation.state == PlaybackState::Playing && observation.tracks.len() == 4
+        observation.state == PlaybackState::Playing && said(observation).len() == 4
     });
     player
 }
@@ -395,8 +402,7 @@ fn selecting_an_audio_track_moves_the_selection_without_restarting_playback() {
     let player = controlling(&streams);
 
     let before = player.observe();
-    let wanted = before
-        .tracks
+    let wanted = said(&before)
         .iter()
         .find(|track| track.kind == TrackKind::Audio && !track.selected)
         .expect("the fixture carries two audio tracks, one of them not playing");
@@ -406,8 +412,7 @@ fn selecting_an_audio_track_moves_the_selection_without_restarting_playback() {
         .expect("mpv takes the audio track");
 
     let after = until(&player, "moved the audio selection", |observation| {
-        observation
-            .tracks
+        said(observation)
             .iter()
             .any(|track| track.kind == TrackKind::Audio && track.id == wanted.id && track.selected)
     });
@@ -433,18 +438,17 @@ fn selecting_a_subtitle_track_shows_it_and_none_turns_subtitles_off() {
     let streams = serve(6.0);
     let player = controlling(&streams);
 
-    let subtitle = player
-        .observe()
-        .tracks
-        .into_iter()
+    let subtitle = said(&player.observe())
+        .iter()
         .find(|track| track.kind == TrackKind::Subtitle)
-        .expect("the fixture carries embedded subtitles");
+        .expect("the fixture carries embedded subtitles")
+        .clone();
 
     player
         .tell(Telling::SubtitleTrack(Some(subtitle.id)))
         .expect("mpv takes the subtitle track");
     let showing = until(&player, "showed the subtitles", |observation| {
-        observation.tracks.iter().any(|track| {
+        said(observation).iter().any(|track| {
             track.kind == TrackKind::Subtitle && track.id == subtitle.id && track.selected
         })
     });
@@ -458,8 +462,7 @@ fn selecting_a_subtitle_track_shows_it_and_none_turns_subtitles_off() {
         .tell(Telling::SubtitleTrack(None))
         .expect("mpv takes turning subtitles off");
     until(&player, "turned the subtitles off", |observation| {
-        !observation
-            .tracks
+        !said(observation)
             .iter()
             .any(|track| track.kind == TrackKind::Subtitle && track.selected)
     });
@@ -699,7 +702,7 @@ fn the_subtitle_language_preference_selects_the_matching_embedded_track() {
         "selected the preferred subtitle language",
         |observation| {
             observation.state == PlaybackState::Playing
-                && observation.tracks.iter().any(|track| {
+                && said(observation).iter().any(|track| {
                     track.kind == TrackKind::Subtitle
                         && track.selected
                         && track.language.as_deref() == Some("por")

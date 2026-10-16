@@ -70,11 +70,11 @@ fn report() -> Observation {
         state: PlaybackState::Playing,
         position: Some(12.5),
         duration: Some(600.0),
-        tracks: vec![
+        tracks: Some(vec![
             track(1, TrackKind::Audio, "eng", true),
             track(3, TrackKind::Audio, "por", false),
             track(2, TrackKind::Subtitle, "por", false),
-        ],
+        ]),
         chapters: vec![
             Chapter {
                 index: 0,

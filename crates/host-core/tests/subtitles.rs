@@ -58,7 +58,7 @@ fn without_subtitles() -> Observation {
         state: PlaybackState::Playing,
         position: Some(12.5),
         duration: Some(600.0),
-        tracks: vec![audio_track()],
+        tracks: Some(vec![audio_track()]),
         ..Observation::idle()
     }
 }
@@ -212,7 +212,7 @@ fn a_stream_that_carries_an_embedded_subtitle_is_never_asked_about() {
 
     play(&mut host, "org.example.subsA", "movie", "tt0133093");
     player.now_reporting(Observation {
-        tracks: vec![
+        tracks: Some(vec![
             audio_track(),
             Track {
                 id: TrackId(2),
@@ -225,7 +225,7 @@ fn a_stream_that_carries_an_embedded_subtitle_is_never_asked_about() {
                 default: false,
                 forced: false,
             },
-        ],
+        ]),
         ..without_subtitles()
     });
     host.sample().expect("the Player's report is a change");
@@ -317,7 +317,7 @@ fn the_subtitle_url_reaches_the_player_and_never_a_snapshot() {
     // Once the file is loaded, the Player reports it as an external track, and
     // the track — not the URL it came from — is what every client is told.
     player.now_reporting(Observation {
-        tracks: vec![
+        tracks: Some(vec![
             audio_track(),
             Track {
                 id: TrackId(3),
@@ -330,7 +330,7 @@ fn the_subtitle_url_reaches_the_player_and_never_a_snapshot() {
                 default: false,
                 forced: false,
             },
-        ],
+        ]),
         ..without_subtitles()
     });
     let published = host.sample().expect("the external track is a change");
@@ -345,5 +345,47 @@ fn the_subtitle_url_reaches_the_player_and_never_a_snapshot() {
     assert!(
         !wire.contains("subs.example.org") && !wire.contains("a.srt"),
         "a subtitle URL can carry a session token and a Snapshot reaches every client: {wire}"
+    );
+}
+
+#[test]
+fn a_player_that_cannot_say_what_the_stream_carries_does_not_spend_the_attempt() {
+    // A track list that could not be read is not a Stream with no subtitles in
+    // it. The attempt is the Host's one ask per Stream, and spending it on the
+    // wrong answer would load an Addon's subtitles over a file that already
+    // carries its own — the wrong half of "embedded always wins".
+    let player = Arc::new(FixturePlayer::new());
+    let provider = Arc::new(FixtureProvider::new().offering_subtitles(
+        "org.example.subsA",
+        vec![subtitle("a-por", "https://subs.example.org/a.srt", "por")],
+    ));
+    let mut host = host_with(
+        player.clone(),
+        provider.clone(),
+        &[(SUBS_A, manifest("org.example.subsA"))],
+    );
+    play(&mut host, "org.example.subsA", "movie", "tt0133093");
+
+    // Live, but the Player has not said what the Stream carries.
+    player.now_reporting(Observation {
+        tracks: None,
+        ..without_subtitles()
+    });
+    host.sample();
+
+    assert!(
+        provider.asked().is_empty() && added(&player).is_empty(),
+        "a Player that could not read the track list has not said the Stream lacks \
+         subtitles, so no Addon is asked"
+    );
+
+    // The next report *does* say what the file carries, and the attempt is made.
+    player.now_reporting(without_subtitles());
+    host.sample();
+
+    assert_eq!(
+        added(&player).len(),
+        1,
+        "the report the Host can act on is the one the attempt is spent on"
     );
 }

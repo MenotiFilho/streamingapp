@@ -188,11 +188,16 @@ impl Host {
     /// Whether the Addon subtitles fallback is owed right now.
     ///
     /// Only when the Stream is loaded and live — not merely opening — the
-    /// Player reports no embedded subtitle track at all, and this Stream has
-    /// not been asked about yet. Embedded tracks always win, so a Stream that
-    /// reports one is never asked about; and the attempt is per Stream, so a
-    /// Stream with no subtitles anywhere is asked about once rather than every
-    /// tick (ADR-0014).
+    /// Player has *said* what the Stream carries, and what it said includes no
+    /// embedded subtitle track, and this Stream has not been asked about yet.
+    /// Embedded tracks always win, so a Stream that reports one is never asked
+    /// about; and the attempt is per Stream, so a Stream with no subtitles
+    /// anywhere is asked about once rather than every tick.
+    ///
+    /// `tracks` being `None` is a Player that could not read the track list,
+    /// which is not the same as a Stream with no subtitles in it: the fallback
+    /// waits for a report it can act on, and a failed read leaves the attempt
+    /// un-made rather than spending it on the wrong answer (ADR-0014).
     fn offers_subtitles(&self, observation: &Observation) -> bool {
         if !self.state.playback().has_stream() || self.state.playback().subtitles_attempted() {
             return false;
@@ -203,9 +208,11 @@ impl Host {
         ) {
             return false;
         }
+        let Some(tracks) = observation.tracks.as_deref() else {
+            return false;
+        };
 
-        !observation
-            .tracks
+        !tracks
             .iter()
             .any(|track| track.kind == TrackKind::Subtitle && track.embedded)
     }
@@ -547,14 +554,7 @@ impl Host {
         kind: TrackKind,
         id: TrackId,
     ) -> Result<(), ActionError> {
-        let known = self
-            .state
-            .playback()
-            .tracks()
-            .iter()
-            .any(|track| track.kind == kind && track.id == id);
-
-        if known {
+        if self.state.playback().knows_track(kind, id) {
             Ok(())
         } else {
             Err(ActionError::UnknownTrack { control, id: id.0 })

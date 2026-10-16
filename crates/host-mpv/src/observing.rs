@@ -163,8 +163,10 @@ pub(crate) struct Properties {
     pub(crate) position: Option<f64>,
     /// How long the file is in seconds, where it says — a live Stream does not.
     pub(crate) duration: Option<f64>,
-    /// `track-list/N/...`, in mpv's own order.
-    pub(crate) tracks: Vec<RawTrack>,
+    /// `track-list/N/...`, in mpv's own order — or `None` where mpv could not
+    /// answer how many there are, which is not the same as a file that carries
+    /// none.
+    pub(crate) tracks: Option<Vec<RawTrack>>,
     /// `chapter-list/N/...`, in the order the container gives them.
     pub(crate) chapters: Vec<RawChapter>,
     /// mpv's `chapter`: which chapter is playing, negative with no chapters.
@@ -234,7 +236,10 @@ pub(crate) fn observe(memory: &Memory, properties: &Properties) -> Observation {
         position: properties.position,
         duration: properties.duration,
         failure: None,
-        tracks: properties.tracks.iter().filter_map(track).collect(),
+        tracks: properties
+            .tracks
+            .as_ref()
+            .map(|tracks| tracks.iter().filter_map(track).collect()),
         chapters: properties
             .chapters
             .iter()
@@ -417,7 +422,7 @@ mod tests {
             ended: false,
             position: None,
             duration: None,
-            tracks: Vec::new(),
+            tracks: None,
             chapters: Vec::new(),
             chapter: None,
             speed: None,
@@ -589,7 +594,7 @@ mod tests {
     #[test]
     fn a_track_is_the_kind_the_host_controls_and_the_video_track_is_skipped() {
         let properties = Properties {
-            tracks: vec![
+            tracks: Some(vec![
                 track(1, "video"),
                 RawTrack {
                     title: Some("English stereo".to_owned()),
@@ -606,7 +611,7 @@ mod tests {
                 },
                 // A track mpv numbers zero is not one anything can select.
                 track(0, "audio"),
-            ],
+            ]),
             ..loaded()
         };
 
@@ -614,7 +619,7 @@ mod tests {
 
         assert_eq!(
             observation.tracks,
-            vec![
+            Some(vec![
                 Track {
                     id: TrackId::new(2).expect("a positive id"),
                     kind: TrackKind::Audio,
@@ -649,7 +654,7 @@ mod tests {
                     default: false,
                     forced: false,
                 },
-            ],
+            ]),
             "the video track is not a control, and an added track is not embedded"
         );
     }
@@ -657,19 +662,21 @@ mod tests {
     #[test]
     fn a_word_the_container_left_empty_is_no_word_at_all() {
         let properties = Properties {
-            tracks: vec![RawTrack {
+            tracks: Some(vec![RawTrack {
                 language: Some(String::new()),
                 title: Some(String::new()),
                 codec: Some(String::new()),
                 ..track(1, "audio")
-            }],
+            }]),
             ..loaded()
         };
 
         let observation = observe(&Memory::asking(), &properties);
 
         assert_eq!(
-            observation.tracks[0],
+            observation
+                .tracks
+                .expect("the Player said what the file carries")[0],
             Track {
                 id: TrackId::new(1).expect("a positive id"),
                 kind: TrackKind::Audio,
@@ -839,6 +846,43 @@ mod tests {
             observe(&Memory::asking(), &loading()).statistics,
             None,
             "nothing loaded, nothing to say about how it plays"
+        );
+    }
+
+    #[test]
+    fn a_bitrate_the_player_counts_is_published_as_a_number() {
+        // A headless Player has no video output to count bits with, so its own
+        // test can only assert that the field is *there*; this is where the
+        // number path — which a real display takes — is asserted.
+        let properties = Properties {
+            video_bitrate: Some(3_500_000),
+            dropped_frames: Some(2),
+            hardware_decode: Some("d3d11va".to_owned()),
+            ..loaded()
+        };
+
+        assert_eq!(
+            observe(&Memory::asking(), &properties).statistics,
+            Some(Statistics {
+                bitrate: Some(3_500_000),
+                dropped_frames: Some(2),
+                hardware_decode: Some("d3d11va".to_owned()),
+            })
+        );
+    }
+
+    #[test]
+    fn a_player_that_cannot_say_what_the_stream_carries_says_nothing() {
+        let properties = Properties {
+            tracks: None,
+            ..loaded()
+        };
+
+        assert_eq!(
+            observe(&Memory::asking(), &properties).tracks,
+            None,
+            "a read that failed is not a file with no tracks in it — the difference \
+             is what keeps the Addon subtitle fallback honest"
         );
     }
 

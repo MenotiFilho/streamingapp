@@ -378,9 +378,9 @@ export type Action =
   | { type: "set_chapter"; index: number }
   | { type: "set_crop"; crop: Crop }
   | { type: "set_aspect"; aspect: Aspect }
-  // The Host implements this in a later slice; the Action is what the window
-  // sends for a series' next episode, and the Host answers whether it is one it
-  // can move to.
+  // The Action the window sends for a series' next episode: the Host decides
+  // which Video that is — asking its Addons, not counting up an id — and answers
+  // whether it can move to one at all.
   | { type: "next_episode" };
 
 /**

@@ -738,8 +738,14 @@ pub struct Observation {
     /// Why an open failed, in the Player's own words, set once and until the
     /// next open. The Host shows it to the client that pressed play.
     pub failure: Option<String>,
-    /// The Stream's tracks — audio and subtitles — in mpv's own order.
-    pub tracks: Vec<Track>,
+    /// The Stream's tracks — audio and subtitles — in the order the Player
+    /// reported them, or `None` while the Player has not said.
+    ///
+    /// `None` is not "no tracks": it is a Player that could not say, and the
+    /// difference is what keeps the Addon subtitle fallback from firing on a
+    /// read that failed (ADR-0014). An empty list, by contrast, is a Stream
+    /// whose tracks the Player did list, and which carried no subtitle at all.
+    pub tracks: Option<Vec<Track>>,
     /// The Stream's chapters, in the order the container gives them.
     pub chapters: Vec<Chapter>,
     /// Which chapter is playing, by its position in `chapters`.
@@ -770,7 +776,7 @@ impl Observation {
             position: None,
             duration: None,
             failure: None,
-            tracks: Vec::new(),
+            tracks: None,
             chapters: Vec::new(),
             chapter: None,
             speed: None,
@@ -932,15 +938,19 @@ impl PlaybackSession {
             )
     }
 
-    /// The tracks the Stream offers, as the Player last reported them — what a
-    /// refusal for an unknown id is decided against.
-    pub(crate) fn tracks(&self) -> &[Track] {
-        &self.tracks
-    }
-
     /// The chapters the Stream offers, as the Player last reported them.
     pub(crate) fn chapters(&self) -> &[Chapter] {
         &self.chapters
+    }
+
+    /// Whether the Stream carries this track of this kind, as the Player last
+    /// reported it — what a selection names, and what an id that names no track
+    /// is refused against. The judgement lives here, beside the list it reads
+    /// and the selection it guards, rather than in the Host that asks.
+    pub(crate) fn knows_track(&self, kind: TrackKind, id: TrackId) -> bool {
+        self.tracks
+            .iter()
+            .any(|track| track.kind == kind && track.id == id)
     }
 
     /// The Stream the Host is on, as it was chosen — the Video and the Addon's
@@ -1078,7 +1088,14 @@ impl PlaybackSession {
             position: observation.position,
             duration: observation.duration,
             failure: observation.failure.clone(),
-            tracks: observation.tracks.clone(),
+            // A Player that could not say what the Stream carries says *nothing*
+            // rather than "nothing": the tracks the Host already held stand, and
+            // the fallback stays un-attempted until a report it can trust
+            // arrives (ADR-0014).
+            tracks: observation
+                .tracks
+                .clone()
+                .unwrap_or_else(|| self.tracks.clone()),
             chapters: observation.chapters.clone(),
             chapter: observation.chapter,
             speed: observation.speed,
@@ -1879,7 +1896,7 @@ mod tests {
             state: PlaybackState::Playing,
             position: Some(12.5),
             duration: Some(600.0),
-            tracks: vec![
+            tracks: Some(vec![
                 Track {
                     id: TrackId(1),
                     kind: TrackKind::Audio,
@@ -1902,7 +1919,7 @@ mod tests {
                     default: false,
                     forced: false,
                 },
-            ],
+            ]),
             chapters: vec![
                 Chapter {
                     index: 0,
@@ -1944,7 +1961,10 @@ mod tests {
             .expect("a report with a track list is a change");
 
         let snapshot = next.snapshot(Picture::InWindow);
-        assert_eq!(snapshot.tracks, observation.tracks);
+        assert_eq!(
+            snapshot.tracks,
+            observation.tracks.clone().unwrap_or_default()
+        );
         assert_eq!(snapshot.chapters, observation.chapters);
         assert_eq!(snapshot.chapter, Some(0));
         assert_eq!(snapshot.speed, Some(1.0));
@@ -1983,7 +2003,7 @@ mod tests {
             state: PlaybackState::Playing,
             position: Some(12.5),
             duration: Some(600.0),
-            tracks: vec![
+            tracks: Some(vec![
                 Track {
                     id: TrackId(1),
                     kind: TrackKind::Audio,
@@ -2006,7 +2026,7 @@ mod tests {
                     default: false,
                     forced: false,
                 },
-            ],
+            ]),
             chapters: vec![Chapter {
                 index: 0,
                 title: Some("Intro".to_owned()),
