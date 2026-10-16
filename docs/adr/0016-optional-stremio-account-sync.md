@@ -1,7 +1,7 @@
 # Optional Stremio account sync: bidirectional merge, pure decision surface, and credential storage
 
 Ticket #30 ("Optional Stremio account sync") adds bidirectional reconciliation
-between the Host's Library and a personal Stremio account. Seven architectural
+between the Host's Library and a personal Stremio account. Eight architectural
 decisions are recorded here.
 
 ## 1. Sync is strictly optional and zero-overhead by default
@@ -108,3 +108,47 @@ the last played position** (causes Stremio apps to mark earlier episodes as unwa
 - **Graceful degradation**: Network drops, API timeouts, or server 5xx errors
   return non-fatal `SyncError`s. Playback and local library writes continue
   uninterrupted.
+
+## 8. The window's account surface: sync is implied by an account being held
+
+#30's Rust half was reachable only from a test: no client had an Action for the
+account, so a criterion written in terms of "signing in" had no owner-reachable
+path. The surface now lands on the one Action surface every client shares
+(ADR-0002), as two Actions and no more:
+
+- `Action::SignInStremio { email, password }` — the window sends what is typed
+  and pre-judges nothing. Whether a sign-in is *shaped* like one, and whether
+  Stremio takes it, are the Host's answers (`invalid_stremio_login`,
+  `sync_unavailable`, `sync`), shown where every refusal is shown. The sign-in
+  form is `noValidate` for the same reason: the browser must not turn a wrong
+  shape into a silent non-submit a person cannot read.
+- `Action::SignOutStremio` — offered in place of the form once an account is
+  held. It stops the Host talking to Stremio; progress already merged stays in
+  the Library (ADR-0016 §2's promise that a Snapshot never carries a credential
+  is unchanged: what travels is `stremio_held`, a boolean).
+
+**Sync is not a switch.** The prototype branch had a separate
+`set_stremio_sync`; the Host has none, and this decision keeps it that way.
+`host-core` syncs whenever an account is held — the presence of the `authKey`
+*is* "sync is on" — so a switch would be a second fact free to disagree with the
+first, and a window showing "off" while the Host pushed would be lying.
+
+Rejected, with reasons: **a `set_stremio_sync` Action** (a redundant bit with no
+owner on the Host side to enforce it); **a window-local toggle** (this window
+decides nothing — the Snapshot is the truth, ADR-0002).
+
+**What the window says about sync status.** The single protection line — the one
+place the Snapshot's credential facts are rendered — now covers both
+credentials: where they live, whether a TMDB key is held, and whether a Stremio
+account is signed in ("A Stremio account is signed in." or "No Stremio account
+is signed in."). The line states the account fact and no more: whether a sync is
+in flight, or when the last one ran, is not something it claims. There is no
+separate sync-status field: the Host's only sync status is whether it holds the
+account, and `stremio_held` already says it.
+
+Rejected, with reasons: **a `lastSyncedAt` or in-flight indicator in the
+Snapshot** (a new field that says more than the Host tracks, and one a stale
+value makes a lie); **a window-local "synced" badge** (the window has no channel
+the Host does not). A later ticket may add a status surface if a SyncError needs
+to be shown somewhere a Snapshot already reaches; it is not needed to sign in,
+sign out, or read whether sync is on.

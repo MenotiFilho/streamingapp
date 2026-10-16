@@ -91,7 +91,7 @@ $Steps = @(
     [pscustomobject]@{ Id = 21; Title = 'the manifest URL and the TMDB key never reach the log'; Ground = ''; After = @(19, 20); Need = 'steps 19 and 20: the log they wrote, the TMDB key and the removed Addon' }
     [pscustomobject]@{ Id = 22; Title = 'the data directory'; Ground = 'data'; After = @(); Need = 'the data directory (made if a Host has not)' }
     [pscustomobject]@{ Id = 23; Title = 'Watch progress outlives a Host that was killed, and the row resumes it'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at its rows (it plays an episode, kills the Host, starts it again, and resumes)' }
-    [pscustomobject]@{ Id = 24; Title = 'Stremio sync is off until an account is signed in'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at its rows (it closes the Host through the exit hook #30 added, and reads the log)' }
+    [pscustomobject]@{ Id = 24; Title = 'signing in to Stremio holds the account, and signing out lets it go'; Ground = 'addon'; After = @(); Need = 'an Addon and a real Stremio account: it prompts for the email and password, signs in, checks the window and the log, then signs out again' }
 )
 
 # The discovery path and the cheap syntax check: print the checklist and what
@@ -450,7 +450,32 @@ function Set-Language($app, $tag) {
 function Set-TmdbKey($app, $key) {
     Focus-On $app 'TMDB API key or read-access token' ([Windows.Automation.ControlType]::Edit)
     if (-not (Focus $app)) { throw 'the keyboard steps need the Host in the foreground' }
-    [Windows.Forms.SendKeys]::SendWait($key)
+    [Windows.Forms.SendKeys]::SendWait((Escape-SendKeys $key))
+    Start-Sleep -Milliseconds 300
+}
+
+# SendKeys reads a handful of characters as commands rather than text — `+`, `^`,
+# `%`, `~`, the parentheses and brackets, and the braces themselves. A password
+# may hold any of them (a `*` or a `#$` does not, but `p@ss+w0rd` does), so each
+# is wrapped in braces, which is how SendKeys is told to type it literally.
+function Escape-SendKeys($value) {
+    $escaped = ''
+    foreach ($ch in $value.ToCharArray()) {
+        if ('+^%~()[]{}'.IndexOf($ch) -ge 0) { $escaped += '{' + $ch + '}' }
+        else { $escaped += $ch }
+    }
+    return $escaped
+}
+
+# Fill the Stremio sign-in (#30). The password is a password input, so it is
+# focused and typed at the way a person would, rather than set through a value
+# pattern; the email is ordinary text. The password is never echoed and never
+# written down — the prompt reads it as a secure string and it lives only here.
+function Set-StremioLogin($app, $email, $password) {
+    Type-Into $app 'Stremio email' $email
+    Focus-On $app 'Stremio password' ([Windows.Automation.ControlType]::Edit)
+    if (-not (Focus $app)) { throw 'the keyboard steps need the Host in the foreground' }
+    [Windows.Forms.SendKeys]::SendWait((Escape-SendKeys $password))
     Start-Sleep -Milliseconds 300
 }
 
@@ -1716,19 +1741,75 @@ function Step-23($ctx) {
 }
 
 function Step-24($ctx) {
-    '--- 24. Stremio sync is off until an account is signed in'
+    '--- 24. Signing in to Stremio holds the account, and signing out lets it go'
     $app = $ctx.App
-    # #30 is a Rust-side feature: the `SignInStremio` Action exists and is tested,
-    # and the window has no sign-in surface yet — that is the UI work the
-    # prototype branch and its tickets carry. So there is no sign-in to walk by
-    # hand, and what this step walks is the promise the *default* makes: with no
-    # account, the Host is fully functional (steps 1-23 walked it) and nothing
-    # reaches Stremio. All of it is read off the Host's own log.
-    $text = Page-Text $app
-    Check 'the window claims nothing about an account, because it has none' (
-        $text -notmatch 'Stremio') "showed: $text"
-    Check 'and the Host is fully functional with sync off: its Addon rows are drawn' (
+
+    # Before: no account, so nothing syncs, and the window offers a sign-in rather
+    # than claiming anything it does not hold. The Host is fully functional
+    # meanwhile — the Addon it was configured with is still listed. An account an
+    # earlier run left behind — a crash between sign-in and sign-out — is
+    # forgotten first, because the OS keyring is not part of the data-directory
+    # wipe at the top.
+    if (Shows $app 'Sign out' 2) {
+        Press $app 'Sign out'
+        Wait-Text $app 'No Stremio account is signed in' 15 | Out-Null
+    }
+    $text = Wait-Text $app 'No Stremio account is signed in' 15
+    Shot $app '24-before-signin.png'
+    Check 'with no account the window says so' (
+        $text -match 'No Stremio account is signed in') "showed: $text"
+    Check 'and the Host is fully functional with sync off: its Addon is drawn' (
         $text -match [regex]::Escape($AddonCatalog)) "showed: $text"
+    Check 'and it offers a sign-in rather than a sign-out' (
+        (Shows $app 'Sign in') -and -not (Shows $app 'Sign out' 1)) (
+        'the window shows no Sign in button')
+
+    # The account is the operator's own: it is typed here and reaches the Host,
+    # which sends the password once and keeps only the `authKey` Stremio answers
+    # with. A password read at a prompt is not echoed and is not written down.
+    # This is the whole of step 24's input: run it with `-Only 24` to walk nothing
+    # else, and answer the two prompts.
+    $email = Read-Host 'Stremio account email'
+    $secure = Read-Host 'Stremio account password' -AsSecureString
+    $password = (New-Object System.Net.NetworkCredential('', $secure)).Password
+    if ([string]::IsNullOrEmpty($email) -or [string]::IsNullOrEmpty($password)) {
+        throw 'the Stremio sign-in needs an email and a password; nothing was sent'
+    }
+
+    Set-StremioLogin $app $email $password
+    Shot $app '24-signin-filled.png'
+    Press $app 'Sign in'
+
+    # Stremio is a third party and may take a moment; a refusal is shown in the
+    # window's own alert, which the screenshot below holds if this fails.
+    $text = Wait-Text $app 'A Stremio account is signed in' 45
+    Shot $app '24-signed-in.png'
+    Check 'signing in is held: the window says the account is signed in' (
+        $text -match 'A Stremio account is signed in') "showed: $text"
+    Check 'and the form is gone, so the password does not sit in the window' (
+        -not (Shows $app 'Stremio email' 1)) 'the sign-in form is still there'
+    Check 'and the window says a credential is held, never the credential itself' (
+        $text -notmatch 'authKey') "showed: $text"
+
+    # Sign out again — unless the operator wants to walk the merge and the push,
+    # which need a Title watched while signed in. Signing out is the other half of
+    # the surface, and it leaves the machine the way it was found; progress already
+    # merged is not touched by it (the window only stops claiming an account).
+    $keep = Read-Host 'Leave the Stremio account signed in to watch a Title and see it pushed? [y/N]'
+    if ($keep -match '^(y|yes)$') {
+        'the account is left signed in: watch a Title here and it is pushed to the account on pause, stop, or exit'
+        Check 'the account is still held, as asked' (
+            (Page-Text $app) -match 'A Stremio account is signed in') 'the account went away'
+        return
+    }
+
+    Press $app 'Sign out'
+    $text = Wait-Text $app 'No Stremio account is signed in' 15
+    Shot $app '24-signed-out.png'
+    Check 'signing out forgets the account: the window says no account is signed in' (
+        $text -match 'No Stremio account is signed in') "showed: $text"
+    Check 'and it offers the sign-in form again' (
+        Shows $app 'Stremio email') 'the sign-in form did not come back'
 
     # Close the Host the way a person does, so the exit hook #30 added is really
     # run and the log writer flushes.
@@ -1738,18 +1819,20 @@ function Step-24($ctx) {
     $exit = Select-String -Path $log -Pattern 'the Host is exiting; the last position is saved' |
         Select-Object -Last 1
     Check 'the Host exits through the hook #30 added' ($exit -ne $null) 'no exit line in host.log'
-    Check 'and it says no account was told, because none is signed in' (
+    Check 'and it says no account was told, because the one signed in was signed out' (
         ($exit -ne $null) -and ($exit.Line -match '"account":false')) (
         "the exit line says: $($exit.Line)")
-    Check 'nothing ever pulled remote progress into the library' (
+    Check 'nothing pulled remote progress into the library before an account was held' (
         -not (Select-String -Path $log -SimpleMatch 'remote progress pulled into library' -Quiet)) (
         'host.log holds a remote pull')
-    Check 'and the log never names Stremio, nor the credential one would be held as' (
+    Check 'and the log never names Stremio, its authKey, or the password that bought it' (
         -not (Select-String -Path $log -SimpleMatch 'strem.io' -Quiet) -and
-        -not (Select-String -Path $log -SimpleMatch 'authKey' -Quiet)) (
-        'host.log names Stremio or its authKey')
-    'sign-in, the merge and the push need an account and a client that offers one;'
-    'they are covered by host-core/tests/stremio_sync.rs, not by hand, until the window grows a surface.'
+        -not (Select-String -Path $log -SimpleMatch 'authKey' -Quiet) -and
+        -not (Select-String -Path $log -CaseSensitive -SimpleMatch $password -Quiet)) (
+        'host.log names Stremio, its authKey, or the password')
+    'the merge and the push need a Title watched while signed in; that is the same'
+    'surface (sign-in already proves the account is held) and host-core/tests/stremio_sync.rs'
+    'covers it, so this step stops at the account.'
 }
 
 # --- the dispatcher -----------------------------------------------------------

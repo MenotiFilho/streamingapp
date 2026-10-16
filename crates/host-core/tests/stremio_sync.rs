@@ -34,6 +34,13 @@ fn action(body: &Value) -> Action {
     Action::parse(&envelope).unwrap_or_else(|error| panic!("{envelope}: {error}"))
 }
 
+/// The `kind` a refusal travels as — what the window's `HOST_ERROR_KINDS` lists
+/// and its `explain` reads, so a rename here that no one mirrors there is a
+/// refusal a person reads as the wrong sentence.
+fn wire_kind(error: ActionError) -> Value {
+    serde_json::to_value(&error).expect("an ActionError serializes")["kind"].clone()
+}
+
 struct Fixture {
     host: Host,
     player: Arc<FixturePlayer>,
@@ -193,7 +200,9 @@ fn a_host_built_without_sync_refuses_to_sign_in() {
         "type": "sign_in_stremio", "email": "me@example.org", "password": "x"
     })));
 
-    assert_eq!(refused.unwrap_err(), ActionError::SyncUnavailable);
+    let refused = refused.expect_err("a Host without sync refuses to sign in");
+    assert_eq!(refused, ActionError::SyncUnavailable);
+    assert_eq!(wire_kind(refused), json!("sync_unavailable"));
 }
 
 #[test]
@@ -233,6 +242,7 @@ fn a_refused_sign_in_holds_nothing_and_says_why_without_the_password() {
         .unwrap_err();
 
     assert!(matches!(refused, ActionError::Sync { .. }));
+    assert_eq!(wire_kind(refused.clone()), json!("sync"));
     assert!(!refused.to_string().contains("wrong"));
     assert!(!f.secrets.holds(CredentialKind::StremioAuthKey));
     assert!(!f.host.snapshot().protection.stremio_held);
@@ -246,7 +256,9 @@ fn a_sign_in_that_is_not_shaped_like_one_is_refused_before_anything_is_asked() {
         "type": "sign_in_stremio", "email": "nope", "password": "x"
     })));
 
-    assert!(matches!(refused, Err(ActionError::InvalidStremioLogin(_))));
+    let refused = refused.expect_err("a sign-in that is not shaped like one is refused");
+    assert!(matches!(refused, ActionError::InvalidStremioLogin(_)));
+    assert_eq!(wire_kind(refused), json!("invalid_stremio_login"));
     assert_eq!(f.stremio.calls(), Vec::<String>::new());
 }
 

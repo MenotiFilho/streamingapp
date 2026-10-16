@@ -49,13 +49,18 @@ follows the fixture's series to the next one. From #29 the walkthrough watches
 part of an episode, **kills the Host rather than closing it**, starts it again,
 and picks the Video up from the Continue watching row: the row is there because
 Watch progress is written while playback runs, and the resume plays from where it
-was left rather than from the beginning. From #30 it closes the Host through the
-exit hook sync added and reads the log back: with no Stremio account signed in,
-the window claims nothing about one, no progress was ever pulled in, and the log
-names neither Stremio nor an `authKey`. #30's sign-in, merge and push need an
-account and a client that offers one — the window has no sign-in surface yet
-(that is the UI prototype's work) — so they are covered by
-`crates/host-core/tests/stremio_sync.rs` rather than by hand.
+was left rather than from the beginning. From #30 the walkthrough walks the
+Stremio account: it starts with no account, **prompts for the operator's own
+Stremio email and password**, signs in through the window, and checks that the
+protection line says an account is held and that the `authKey` is nowhere in the
+window. It then signs out again — or, if the operator asks, leaves the account
+signed in so a Title can be watched and the push seen by hand. On the sign-out
+path it also checks that the log names no part of the sign-in and that the host
+exits through the hook sync added with `"account":false`. It is one prompt away
+from any other step, so `-Only 24` walks only it; the merge and the push need a
+Title watched while signed in, and `crates/host-core/tests/stremio_sync.rs`
+covers them rather than a by-hand run that would push a fixture Title into a real
+account.
 
 For the steps that depend on what a third-party Addon happens to serve — that
 the posters are drawn, that a search returns something, which candidates a

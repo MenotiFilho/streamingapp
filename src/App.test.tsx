@@ -381,6 +381,24 @@ function fakeHost(
         });
         response.snapshots = [state];
         break;
+      case "sign_in_stremio":
+        // The password and the `authKey` it buys go nowhere near the Snapshot:
+        // what changes on the wire is only that an account is now held.
+        publish({
+          ...state,
+          revision: state.revision + 1,
+          protection: { ...state.protection, stremioHeld: true },
+        });
+        response.snapshots = [state];
+        break;
+      case "sign_out_stremio":
+        publish({
+          ...state,
+          revision: state.revision + 1,
+          protection: { ...state.protection, stremioHeld: false },
+        });
+        response.snapshots = [state];
+        break;
       case "browse_catalog": {
         const skip = Number(action.extra.find((extra) => extra.name === "skip")?.value ?? 0);
         const catalog = ADDON.catalogs.find(
@@ -1071,6 +1089,233 @@ test("a credential store that refuses is explained rather than swallowed", async
     ),
   );
   expect(screen.getByTestId("protection")).toHaveTextContent("No TMDB key is held.");
+});
+
+test("the protection line says whether a Stremio account is signed in", async () => {
+  const host = fakeHost({
+    initial: {
+      ...NOTHING_SAID,
+      protection: { backend: "keyring", tmdbHeld: false, stremioHeld: true },
+    },
+  });
+
+  windowOver(host.transport);
+
+  await waitFor(() =>
+    expect(screen.getByTestId("protection")).toHaveTextContent(
+      "A Stremio account is signed in",
+    ),
+  );
+  // A signed-in account is a fact to read, not a form to fill: the window offers
+  // to forget it, and nothing to sign in again with.
+  expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+  expect(screen.queryByLabelText("Stremio email")).not.toBeInTheDocument();
+});
+
+test("a Host with no account says so, and offers to sign in", async () => {
+  const host = fakeHost();
+
+  windowOver(host.transport);
+
+  await waitFor(() =>
+    expect(screen.getByTestId("protection")).toHaveTextContent(
+      "No Stremio account is signed in.",
+    ),
+  );
+  expect(screen.getByLabelText("Stremio email")).toBeInTheDocument();
+  expect(screen.getByLabelText("Stremio password")).toBeInTheDocument();
+});
+
+test("signing in takes a versioned Action, and the Snapshot says an account is held", async () => {
+  const host = fakeHost();
+  windowOver(host.transport);
+  await waitFor(() =>
+    expect(screen.getByTestId("protection")).toHaveTextContent(
+      "No Stremio account is signed in",
+    ),
+  );
+
+  fireEvent.change(screen.getByLabelText("Stremio email"), {
+    target: { value: "  watcher@example.com  " },
+  });
+  fireEvent.change(screen.getByLabelText("Stremio password"), {
+    target: { value: "correct horse battery staple" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+  await waitFor(() =>
+    expect(screen.getByTestId("protection")).toHaveTextContent(
+      "A Stremio account is signed in",
+    ),
+  );
+  expect(dispatched(host.invocations, "sign_in_stremio")).toEqual({
+    command: "dispatch",
+    args: {
+      envelope: {
+        version: 1,
+        action: {
+          type: "sign_in_stremio",
+          email: "watcher@example.com",
+          password: "correct horse battery staple",
+        },
+      },
+    },
+  });
+  expect(
+    screen.queryByLabelText("Stremio password"),
+    "the password does not sit in the window once the Host has taken the sign-in",
+  ).not.toBeInTheDocument();
+});
+
+test("signing out takes the sign-out Action, and the window stops claiming an account", async () => {
+  const host = fakeHost({
+    initial: {
+      ...NOTHING_SAID,
+      protection: { backend: "keyring", tmdbHeld: false, stremioHeld: true },
+    },
+  });
+  windowOver(host.transport);
+  await waitFor(() =>
+    expect(screen.getByTestId("protection")).toHaveTextContent(
+      "A Stremio account is signed in",
+    ),
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+
+  await waitFor(() =>
+    expect(screen.getByTestId("protection")).toHaveTextContent(
+      "No Stremio account is signed in",
+    ),
+  );
+  expect(dispatched(host.invocations, "sign_out_stremio").args).toEqual({
+    envelope: { version: 1, action: { type: "sign_out_stremio" } },
+  });
+  expect(screen.getByLabelText("Stremio email")).toBeInTheDocument();
+});
+
+test("a sign-in the Host will not send is explained, and no account is claimed", async () => {
+  const host = fakeHost({
+    refuse: {
+      kind: "invalid_stremio_login",
+      detail: "an email address looks like name@host",
+    },
+  });
+  windowOver(host.transport);
+  await waitFor(() =>
+    expect(screen.getByTestId("protection")).toHaveTextContent(
+      "No Stremio account is signed in",
+    ),
+  );
+
+  fireEvent.change(screen.getByLabelText("Stremio email"), {
+    target: { value: "not-an-email" },
+  });
+  fireEvent.change(screen.getByLabelText("Stremio password"), {
+    target: { value: "hunter2" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+  await waitFor(() =>
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "will not send that Stremio sign-in: an email address looks like name@host",
+    ),
+  );
+  expect(screen.getByTestId("protection")).toHaveTextContent(
+    "No Stremio account is signed in",
+  );
+  expect(
+    screen.getByRole("alert"),
+    "a refused sign-in is never repeated back, not even to refuse it",
+  ).not.toHaveTextContent("hunter2");
+});
+
+test("an empty sign-in is asked of the Host rather than silently dropped", async () => {
+  // The window does not pre-judge the sign-in: an empty form is sent, and the
+  // Host's refusal is what a person reads, rather than a submit that does
+  // nothing with no explanation.
+  const host = fakeHost({
+    refuse: {
+      kind: "invalid_stremio_login",
+      detail: "an email address looks like name@host",
+    },
+  });
+  windowOver(host.transport);
+  await waitFor(() =>
+    expect(screen.getByTestId("protection")).toHaveTextContent(
+      "No Stremio account is signed in",
+    ),
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+  await waitFor(() =>
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "will not send that Stremio sign-in",
+    ),
+  );
+  expect(dispatched(host.invocations, "sign_in_stremio").args).toEqual({
+    envelope: {
+      version: 1,
+      action: { type: "sign_in_stremio", email: "", password: "" },
+    },
+  });
+});
+
+test("Stremio refusing the sign-in is explained, and playback's Host keeps working", async () => {
+  const host = fakeHost({
+    refuse: { kind: "sync", detail: "Stremio refused the request: wrong password" },
+  });
+  windowOver(host.transport);
+  await waitFor(() =>
+    expect(screen.getByTestId("protection")).toHaveTextContent(
+      "No Stremio account is signed in",
+    ),
+  );
+
+  fireEvent.change(screen.getByLabelText("Stremio email"), {
+    target: { value: "watcher@example.com" },
+  });
+  fireEvent.change(screen.getByLabelText("Stremio password"), {
+    target: { value: "wrong" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+  await waitFor(() =>
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "could not sign in to Stremio: Stremio refused the request: wrong password",
+    ),
+  );
+  expect(screen.getByTestId("protection")).toHaveTextContent(
+    "No Stremio account is signed in",
+  );
+});
+
+test("a Host built without Stremio sync explains the refusal after a sign-in is attempted", async () => {
+  const host = fakeHost({ refuse: { kind: "sync_unavailable" } });
+  windowOver(host.transport);
+  await waitFor(() =>
+    expect(screen.getByTestId("protection")).toHaveTextContent(
+      "No Stremio account is signed in",
+    ),
+  );
+
+  fireEvent.change(screen.getByLabelText("Stremio email"), {
+    target: { value: "watcher@example.com" },
+  });
+  fireEvent.change(screen.getByLabelText("Stremio password"), {
+    target: { value: "a password" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+  await waitFor(() =>
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "was built without Stremio account sync",
+    ),
+  );
+  expect(screen.getByTestId("protection")).toHaveTextContent(
+    "No Stremio account is signed in",
+  );
 });
 
 test("the window draws a row of posters for each catalog the Addon can be asked for", async () => {

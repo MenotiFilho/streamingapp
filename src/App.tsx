@@ -110,6 +110,11 @@ export function App({ client }: { client?: HostClient }) {
   const [error, setError] = useState<ActionError | null>(null);
   const [languageDraft, setLanguageDraft] = useState("");
   const [keyDraft, setKeyDraft] = useState("");
+  // The Stremio sign-in fields (#30): what is being typed, and nothing that
+  // outlives the attempt. A taken sign-in clears them; the password is sent once
+  // and the Host keeps only the `authKey` Stremio answers with.
+  const [emailDraft, setEmailDraft] = useState("");
+  const [passwordDraft, setPasswordDraft] = useState("");
   const [urlDraft, setUrlDraft] = useState("");
   const [queryDraft, setQueryDraft] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
@@ -468,6 +473,29 @@ export function App({ client }: { client?: HostClient }) {
     });
   };
 
+  /**
+   * Sign in to Stremio (#30). The Host exchanges the password once for an
+   * `authKey` it keeps in the secret store; this window decides nothing about
+   * the sign-in — whether the shape is one, and whether Stremio takes it, are
+   * the Host's answers, and a refusal is shown rather than pre-empted. A taken
+   * sign-in clears both fields; a refusal keeps them so a typo can be fixed. The
+   * password is only ever what is in the field being typed into — it is in no
+   * Snapshot, and the Host keeps only the `authKey` Stremio answers with.
+   */
+  const signIn = (event: FormEvent) => {
+    event.preventDefault();
+    void take({
+      type: "sign_in_stremio",
+      email: emailDraft.trim(),
+      password: passwordDraft,
+    }).then((taken) => {
+      if (taken) {
+        setEmailDraft("");
+        setPasswordDraft("");
+      }
+    });
+  };
+
   const showing = results ?? rows;
   // Playback is the one genuinely shared state, so while it is doing anything
   // this window *is* the player: the picture, and the interface over it. A
@@ -639,17 +667,22 @@ export function App({ client }: { client?: HostClient }) {
             {addonList(snapshot, (id) => void take({ type: "remove_addon", id }))}
           </section>
 
+          {/* Where credentials live is the machine's answer, not this window's: it
+              is read off the Snapshot the Host publishes, and it covers every
+              credential the Host holds — the TMDB key and the Stremio account. */}
+          <section aria-labelledby="credentials-heading">
+            <h2 id="credentials-heading">Credentials</h2>
+            <p className="lede" data-testid="protection">
+              {snapshot ? protectionOf(snapshot.protection) : "Waiting for the Host…"}
+            </p>
+          </section>
+
           <section aria-labelledby="tmdb-heading">
             <h2 id="tmdb-heading">TMDB key</h2>
             <p className="lede">
               Where an Addon's id maps to a TMDB record, TMDB's metadata stands over
               the Addon's. The Host reads the key when it asks, and no Snapshot
               carries it.
-            </p>
-            {/* Where a credential actually lives is the machine's answer, not this
-                window's: it is read off the Snapshot the Host publishes. */}
-            <p className="lede" data-testid="protection">
-              {snapshot ? protectionOf(snapshot.protection) : "Waiting for the Host…"}
             </p>
             <form onSubmit={storeKey}>
               <label htmlFor="tmdb-key">TMDB API key or read-access token</label>
@@ -674,6 +707,62 @@ export function App({ client }: { client?: HostClient }) {
                 Clear key
               </button>
             </form>
+          </section>
+
+          <section aria-labelledby="stremio-heading">
+            <h2 id="stremio-heading">Stremio account</h2>
+            <p className="lede">
+              Sign in once and Watch progress travels both ways: what you watch here
+              appears in Stremio's own apps, and what you watch there is picked up
+              here. Optional — with no account, nothing about the Host depends on
+              Stremio.
+            </p>
+            {/* Whether an account is held is said by the protection line above,
+                read off the Snapshot. Signing out only stops the Host talking to
+                Stremio: Watch progress already merged stays in the Library.
+
+                A sign-in the Host will not send is refused by the Host, in the
+                Host's words (`invalid_stremio_login`), so the form does not
+                pre-judge the shape of an email or a password: `noValidate` keeps
+                the browser from turning a wrong shape into a silent non-submit
+                the person cannot read. */}
+            {snapshot?.protection.stremioHeld ? (
+              <button
+                type="button"
+                data-focusable
+                onClick={() => void take({ type: "sign_out_stremio" })}
+              >
+                Sign out
+              </button>
+            ) : (
+              <form onSubmit={signIn} noValidate>
+                <label htmlFor="stremio-email">Stremio email</label>
+                <input
+                  id="stremio-email"
+                  type="email"
+                  autoComplete="off"
+                  placeholder="you@example.com"
+                  size={32}
+                  value={emailDraft}
+                  onChange={(event) => setEmailDraft(event.target.value)}
+                  data-focusable
+                />
+                <label htmlFor="stremio-password">Stremio password</label>
+                <input
+                  id="stremio-password"
+                  type="password"
+                  autoComplete="off"
+                  placeholder="the password Stremio knows"
+                  size={32}
+                  value={passwordDraft}
+                  onChange={(event) => setPasswordDraft(event.target.value)}
+                  data-focusable
+                />
+                <button type="submit" data-focusable>
+                  Sign in
+                </button>
+              </form>
+            )}
           </section>
 
           <section aria-labelledby="preference-heading">
@@ -1648,22 +1737,29 @@ function addonList(snapshot: Snapshot | null, remove: (id: string) => void) {
 }
 
 /**
- * Where the Host's credentials live, and whether it holds a TMDB key, in a
- * person's words.
+ * Where the Host's credentials live, and which of them it holds, in a person's
+ * words.
  *
  * The backend is a fact about the machine — the OS keyring, or the owner-only
- * (0600) file fallback — so it is said even before a key is entered: knowing
- * where the next one would land is the point of asking (ADR-0002: the window
- * renders what the Host published and decides nothing itself).
+ * (0600) file fallback — so it is said even before a credential is entered:
+ * knowing where the next one would land is the point of asking (ADR-0002: the
+ * window renders what the Host published and decides nothing itself). Both
+ * credentials are covered, because "where they live" is the same place for
+ * either, and "is one held" is the fact an owner reads to know whether an
+ * account is signed in (#30).
  */
 function protectionOf(protection: Protection): string {
   const where =
     protection.backend === "keyring"
       ? "the OS keyring"
       : "an owner-only (0600) file in the data directory, because no keyring is reachable here";
-  return protection.tmdbHeld
+  const tmdb = protection.tmdbHeld
     ? `A TMDB key is held in ${where}.`
     : `No TMDB key is held. One would be kept in ${where}.`;
+  const stremio = protection.stremioHeld
+    ? "A Stremio account is signed in."
+    : "No Stremio account is signed in.";
+  return `${tmdb} ${stremio}`;
 }
 
 function resourcesOf(addon: AddonManifest): string {

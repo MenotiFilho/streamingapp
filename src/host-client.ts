@@ -163,10 +163,10 @@ export type PlaybackSnapshot = {
 export type SecretBackend = "keyring" | "file";
 
 /**
- * Where the Host's credentials live, and whether it holds a TMDB key — the one
- * thing about credentials that is not itself one, and is what the window says
- * when it tells a person how exposed the next one will be. Mirrors
- * `ProtectionSnapshot` in `host-core`.
+ * Where the Host's credentials live, and which of them it holds — the one thing
+ * about credentials that is not itself one, and is what the window says when it
+ * tells a person how exposed the next one will be and whether a Stremio account
+ * is signed in. Mirrors `ProtectionSnapshot` in `host-core`.
  */
 export type Protection = {
   backend: SecretBackend;
@@ -389,6 +389,12 @@ export type Action =
   | { type: "remove_addon"; id: string }
   | { type: "set_tmdb_key"; key: string }
   | { type: "clear_tmdb_key" }
+  // The Stremio account link (#30): optional, and off until an account is signed
+  // in. The Host exchanges the password once for an `authKey` it keeps in the
+  // secret store — the password is sent and never held, and no part of either
+  // credential travels back in a Snapshot.
+  | { type: "sign_in_stremio"; email: string; password: string }
+  | { type: "sign_out_stremio" }
   | {
       type: "browse_catalog";
       addon: string;
@@ -478,6 +484,9 @@ export const HOST_ERROR_KINDS = [
   "playback",
   "store",
   "secret",
+  "invalid_stremio_login",
+  "sync_unavailable",
+  "sync",
 ] as const;
 
 /**
@@ -647,6 +656,14 @@ export function explain(error: ActionError): string {
       return `The Host could not save that change${error.detail ? `: ${error.detail}` : ""}.`;
     case "secret":
       return `The Host could not keep that credential${error.detail ? `: ${error.detail}` : ""}.`;
+    case "invalid_stremio_login":
+      // As with a refused key, the Host carries back the reason and no part of
+      // the sign-in: a typo'd password is still a password.
+      return `The Host will not send that Stremio sign-in${error.detail ? `: ${error.detail}` : ""}.`;
+    case "sync_unavailable":
+      return "This Host was built without Stremio account sync, so it cannot sign in.";
+    case "sync":
+      return `The Host could not sign in to Stremio${error.detail ? `: ${error.detail}` : ""}.`;
     case "unreachable":
       return `The window could not reach the Host${error.detail ? `: ${error.detail}` : ""}.`;
   }
