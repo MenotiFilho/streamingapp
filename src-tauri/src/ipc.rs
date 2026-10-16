@@ -40,6 +40,24 @@ impl HostHandle {
             .expect("nothing panics while holding the Host")
             .sample()
     }
+
+    /// Merge newer remote watch progress from the Stremio account into the
+    /// library (#30), publishing a Snapshot if anything moved.
+    pub fn pull_remote(&self) -> Option<Snapshot> {
+        self.0
+            .lock()
+            .expect("nothing panics while holding the Host")
+            .pull_remote()
+    }
+
+    /// The Host is going away: write down where the Stream got to, and tell the
+    /// account (#30).
+    pub fn shutdown(&self) {
+        self.0
+            .lock()
+            .expect("nothing panics while holding the Host")
+            .shutdown();
+    }
 }
 
 /// The state as it stands — what a window that has just loaded is owed.

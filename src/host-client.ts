@@ -171,6 +171,7 @@ export type SecretBackend = "keyring" | "file";
 export type Protection = {
   backend: SecretBackend;
   tmdbHeld: boolean;
+  stremioHeld: boolean;
 };
 
 /**

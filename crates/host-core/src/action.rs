@@ -12,7 +12,7 @@ use crate::request::{
     CatalogRef, Extra, InvalidCatalogRef, InvalidTitleRef, InvalidVideoRef, TitleRef, VideoRef,
     MAX_EXTRAS,
 };
-use crate::secret::{InvalidTmdbKey, TmdbKey};
+use crate::secret::{InvalidStremioLogin, InvalidTmdbKey, Password, StremioLogin, TmdbKey};
 use crate::stream::Stream;
 
 /// The version of the Action wire form this Host speaks.
@@ -52,6 +52,15 @@ pub enum Action {
     SetTmdbKey { key: String },
     /// Carry no TMDB key; the Addons are the Host's only metadata source.
     ClearTmdbKey,
+    /// Sign in to a Stremio account, so Watch progress travels both ways (#30).
+    ///
+    /// Optional, and off until this is taken. A change: the `authKey` Stremio
+    /// answers with goes to the secret store and only the fact that one is held
+    /// travels outward; the password is sent once and not kept.
+    SignInStremio { email: String, password: Password },
+    /// Forget the account: the `authKey` is taken out, and nothing talks to
+    /// Stremio afterwards. Watch progress already merged stays where it is.
+    SignOutStremio,
     /// Show a page of one Addon's catalog, in the Addon's own order.
     ///
     /// A question rather than a change: it asks what the Addon has, and what
@@ -227,6 +236,10 @@ impl Action {
                 Ok(ValidatedAction::SetTmdbKey(key))
             }
             Action::ClearTmdbKey => Ok(ValidatedAction::ClearTmdbKey),
+            Action::SignInStremio { email, password } => Ok(ValidatedAction::SignInStremio(
+                StremioLogin::parse(&email, password.expose())?,
+            )),
+            Action::SignOutStremio => Ok(ValidatedAction::SignOutStremio),
             Action::BrowseCatalog {
                 addon,
                 catalog,
@@ -380,6 +393,8 @@ pub enum ValidatedAction {
     RemoveAddon(AddonId),
     SetTmdbKey(TmdbKey),
     ClearTmdbKey,
+    SignInStremio(StremioLogin),
+    SignOutStremio,
     BrowseCatalog {
         addon: AddonId,
         catalog: CatalogRef,
@@ -548,6 +563,15 @@ pub enum ActionError {
     Store { detail: String },
     #[error("the Host could not keep that credential: {detail}")]
     Secret { detail: String },
+    #[error("{0}")]
+    InvalidStremioLogin(#[from] InvalidStremioLogin),
+    /// This Host was built without a way to reach Stremio's account service.
+    #[error("this Host has no Stremio account sync")]
+    SyncUnavailable,
+    /// Stremio did not take the sign-in: wrong password, or not reachable. In
+    /// Stremio's words and never with what was sent.
+    #[error("{detail}")]
+    Sync { detail: String },
 }
 
 #[cfg(test)]

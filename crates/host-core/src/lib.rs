@@ -54,7 +54,9 @@ mod snapshot;
 mod state;
 mod store;
 mod stream;
+mod stremio;
 mod subtitles;
+mod sync;
 mod tmdb;
 
 pub use action::{Action, ActionError, ValidatedAction, ACTION_VERSION};
@@ -94,7 +96,9 @@ pub use secret::{
 pub use snapshot::{PreferencesSnapshot, ProtectionSnapshot, Snapshot};
 pub use store::{InMemoryStore, Store, StoreError};
 pub use stream::{AddonStreams, Playback, Stream, StreamError, Warning, MAX_STREAM_BYTES};
+pub use stremio::{FixtureStremio, StremioApi, SyncError};
 pub use subtitles::{Subtitle, SubtitleError, MAX_FALLBACK_SUBTITLES, MAX_SUBTITLES_BYTES};
+pub use sync::{merge, BitField, Merged, RemoteItem, WatchedField};
 pub use tmdb::{
     Credential, ExternalId, Kind, TmdbDetails, TmdbError, TmdbId, TmdbRequest, IMAGE_ROOT,
     TMDB_ROOT,

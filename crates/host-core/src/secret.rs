@@ -27,17 +27,26 @@ use serde::{Deserialize, Serialize};
 pub enum CredentialKind {
     /// The key TMDB wants on its metadata requests.
     TmdbKey,
+    /// The `authKey` Stremio's API hands back at sign-in (#30). The account's
+    /// password is never a kind: it is sent once and not kept.
+    StremioAuthKey,
 }
 
 impl CredentialKind {
     /// The id a store holds it under — its own spelling, below the seam.
     pub fn id(self) -> &'static str {
-        "tmdb-key"
+        match self {
+            Self::TmdbKey => "tmdb-key",
+            Self::StremioAuthKey => "stremio-auth-key",
+        }
     }
 
     /// The credential's name, for a message a person reads.
     pub fn label(self) -> &'static str {
-        "TMDB key"
+        match self {
+            Self::TmdbKey => "TMDB key",
+            Self::StremioAuthKey => "Stremio auth key",
+        }
     }
 }
 
@@ -112,6 +121,78 @@ impl TmdbKey {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
 #[error("that is not shaped like a TMDB key: {detail}")]
 pub struct InvalidTmdbKey {
+    pub detail: &'static str,
+}
+
+/// An account password on its way to Stremio, and no further.
+///
+/// It is sent once at sign-in and never kept — what is kept is the `authKey` it
+/// buys. Its `Debug` says nothing, so that an Action that carries one can be
+/// logged, asserted on in a failing test, or printed by a client without the
+/// password going with it.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Password(String);
+
+impl Password {
+    /// The password itself, for the one call that sends it.
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for Password {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Password(<redacted>)")
+    }
+}
+
+/// A Stremio sign-in, judged only on the shape one travels in: an email that
+/// looks like one and a password that is not empty, bounded, or full of control
+/// characters. Whether the account exists is Stremio's to say.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StremioLogin {
+    pub email: String,
+    pub password: Password,
+}
+
+impl StremioLogin {
+    /// The longest email or password the Host will send.
+    pub const MAX_LEN: usize = 256;
+
+    pub fn parse(email: &str, password: &str) -> Result<Self, InvalidStremioLogin> {
+        let invalid = |detail: &'static str| InvalidStremioLogin { detail };
+        let email = email.trim();
+
+        if email.is_empty() || !email.contains('@') {
+            return Err(invalid("an email address looks like name@host"));
+        }
+        if email.len() > Self::MAX_LEN || password.len() > Self::MAX_LEN {
+            return Err(invalid("that is longer than the Host will send"));
+        }
+        if email.chars().any(|c| c.is_control() || c.is_whitespace()) {
+            return Err(invalid("an email address carries no spaces"));
+        }
+        if password.is_empty() {
+            return Err(invalid("a password is not empty"));
+        }
+        if password.chars().any(char::is_control) {
+            return Err(invalid("a password carries no control characters"));
+        }
+
+        Ok(Self {
+            email: email.to_owned(),
+            password: Password(password.to_owned()),
+        })
+    }
+}
+
+/// A sign-in that is not shaped like one. Deliberately the reason and never the
+/// value: this travels back to a client, and a typo'd password is still a
+/// password.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
+#[error("that is not shaped like a Stremio sign-in: {detail}")]
+pub struct InvalidStremioLogin {
     pub detail: &'static str,
 }
 

@@ -42,6 +42,10 @@ pub(crate) struct Protection {
     /// Whether a TMDB key is held — known from the store's own answer to a read
     /// at startup, and from every set or clear of one since.
     pub(crate) tmdb_held: bool,
+    /// Whether a Stremio `authKey` is held — which is what "sync is on" means.
+    /// Known from the store's answer at startup and from every sign-in and
+    /// sign-out since.
+    pub(crate) stremio_held: bool,
 }
 
 impl State {
@@ -147,6 +151,7 @@ impl State {
                 self.protection = Protection {
                     backend,
                     tmdb_held: true,
+                    ..self.protection
                 };
                 // The credential was already written where it lives; nothing in
                 // the non-secret store is left behind by this.
@@ -154,6 +159,18 @@ impl State {
             }
             Change::ClearTmdbKey => {
                 self.protection.tmdb_held = false;
+                Persist::Nothing
+            }
+            Change::SignInStremio { backend } => {
+                self.protection = Protection {
+                    backend,
+                    stremio_held: true,
+                    ..self.protection
+                };
+                Persist::Nothing
+            }
+            Change::SignOutStremio => {
+                self.protection.stremio_held = false;
                 Persist::Nothing
             }
             // Playback is state every client shares and no store keeps: what
@@ -270,6 +287,17 @@ impl State {
         }
     }
 
+    /// Take in an entry that was merged from the account (#30): it replaces the
+    /// one for its Video, and the library keeps its order by *when each was
+    /// written* — a pulled position is as recent as the account's write, not as
+    /// recent as the moment it arrived, so it does not jump the row.
+    pub(crate) fn merge_watch(&mut self, entry: WatchProgress) {
+        self.watch.retain(|held| held.video != entry.video);
+        self.watch.push(entry);
+        self.watch
+            .sort_by_key(|entry| std::cmp::Reverse(entry.updated_at));
+    }
+
     /// Put one entry where it belongs: one per Video, and the one just written
     /// leads the library, so "most recent" is the order it is held in.
     fn put_watch(&mut self, entry: WatchProgress) -> WatchProgress {
@@ -302,6 +330,12 @@ pub(crate) enum Change {
         backend: SecretBackend,
     },
     ClearTmdbKey,
+    /// A Stremio account was signed in to: the `authKey` is in the secret store
+    /// and what reaches state is only where that store is.
+    SignInStremio {
+        backend: SecretBackend,
+    },
+    SignOutStremio,
     /// A Stream was chosen and the Player agreed to open it, so the Host is on
     /// that Stream from here on and the open is in flight. `title` is the Title
     /// the Video belongs to, where the Host was told it: the library records the

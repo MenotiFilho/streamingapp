@@ -36,6 +36,8 @@ host-secret = { path = "crates/host-secret" }
 host-sqlite = { path = "crates/host-sqlite" }
 host-logging = { path = "crates/host-logging" }
 
+base64 = "0.22"
+flate2 = "1"
 percent-encoding = "2"
 keyring = "3"
 rusqlite = { version = "0.37", features = ["bundled"] }

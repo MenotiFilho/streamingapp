@@ -186,7 +186,7 @@ impl Store for InMemoryStore {
         let mut watch = self.persisted_watch();
         // The same order the real store reads in — most recently written first —
         // so a test cannot pass on an order production would not give.
-        watch.sort_by(|one, other| other.updated_at.cmp(&one.updated_at));
+        watch.sort_by_key(|entry| std::cmp::Reverse(entry.updated_at));
         Ok(watch)
     }
 

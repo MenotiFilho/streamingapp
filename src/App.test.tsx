@@ -45,7 +45,7 @@ const NOTHING_SAID: Snapshot = {
   },
   preferences: { subtitleLanguage: null },
   addons: [],
-  protection: { backend: "keyring", tmdbHeld: false },
+  protection: { backend: "keyring", tmdbHeld: false, stremioHeld: false },
   watchProgress: [],
 };
 
@@ -369,7 +369,7 @@ function fakeHost(
         publish({
           ...state,
           revision: state.revision + 1,
-          protection: { ...state.protection, tmdbHeld: true },
+          protection: { ...state.protection, tmdbHeld: true, stremioHeld: false },
         });
         response.snapshots = [state];
         break;
@@ -377,7 +377,7 @@ function fakeHost(
         publish({
           ...state,
           revision: state.revision + 1,
-          protection: { ...state.protection, tmdbHeld: false },
+          protection: { ...state.protection, tmdbHeld: false, stremioHeld: false },
         });
         response.snapshots = [state];
         break;
@@ -937,7 +937,7 @@ test("the window says where credentials live, and that a key is held", async () 
   const host = fakeHost({
     initial: {
       ...NOTHING_SAID,
-      protection: { backend: "keyring", tmdbHeld: true },
+      protection: { backend: "keyring", tmdbHeld: true, stremioHeld: false },
     },
   });
 
@@ -954,7 +954,7 @@ test("a Host with no keyring says the owner-only file is what holds credentials"
   const host = fakeHost({
     initial: {
       ...NOTHING_SAID,
-      protection: { backend: "file", tmdbHeld: false },
+      protection: { backend: "file", tmdbHeld: false, stremioHeld: false },
     },
   });
 
@@ -1003,7 +1003,7 @@ test("clearing the TMDB key takes the clear Action", async () => {
   const host = fakeHost({
     initial: {
       ...NOTHING_SAID,
-      protection: { backend: "keyring", tmdbHeld: true },
+      protection: { backend: "keyring", tmdbHeld: true, stremioHeld: false },
     },
   });
   windowOver(host.transport);

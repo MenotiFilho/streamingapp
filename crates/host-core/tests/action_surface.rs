@@ -319,7 +319,7 @@ fn the_snapshot_declares_only_fields_it_can_safely_carry() {
             },
             "preferences": { "subtitleLanguage": "pt-BR" },
             "addons": [],
-            "protection": { "backend": "keyring", "tmdbHeld": false },
+            "protection": { "backend": "keyring", "tmdbHeld": false, "stremioHeld": false },
             "watchProgress": [],
         }),
         "the wire shape is the declared one, camelCased for a JavaScript client"

@@ -19,7 +19,7 @@ mod player;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use host_addon::HttpFetcher;
+use host_addon::{HttpFetcher, HttpStremio};
 use host_core::{AddonProvider, Host};
 use host_sqlite::SqliteStore;
 use tauri::Manager;
@@ -99,17 +99,35 @@ fn main() {
             };
             tracing::info!(picture = ?player.picture(), "the Player is ready");
 
-            app.manage(ipc::HostHandle::new(Host::new(
+            let stremio = Arc::new(HttpStremio::new());
+            let host = Host::new(
                 Arc::new(store),
                 fetcher.clone(),
                 secrets.into(),
                 Arc::new(AddonProvider::new(fetcher)),
                 player,
                 Arc::new(host_core::SystemClock),
-            )?));
+            )?
+            .with_stremio(stremio);
+
+            app.manage(ipc::HostHandle::new(host));
             // Held, not read: the guard inside keeps the log writer alive for as
             // long as the Host runs.
             app.manage(Mutex::new(logs));
+
+            // On open, remote progress newer than the local record is merged in
+            // (#30). Runs in the background so a slow or unreachable Stremio
+            // never blocks the window opening.
+            let pull_handle = handle.clone();
+            std::thread::spawn(move || {
+                if let Some(snapshot) = pull_handle.state::<ipc::HostHandle>().pull_remote() {
+                    tracing::info!(
+                        revision = snapshot.revision,
+                        "remote progress pulled into library"
+                    );
+                    ipc::publish(&pull_handle, &[snapshot]);
+                }
+            });
 
             // The Host's clock. Nothing else calls `sample`: playback moves on
             // its own, and this is what turns that into Snapshots every client
@@ -126,6 +144,12 @@ fn main() {
 
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("the Host cannot start");
+        .build(tauri::generate_context!())
+        .expect("the Host cannot start")
+        .run(|app, event| {
+            if let tauri::RunEvent::Exit = event {
+                tracing::info!("the Host is exiting; saving progress and pushing to account");
+                app.state::<ipc::HostHandle>().shutdown();
+            }
+        });
 }

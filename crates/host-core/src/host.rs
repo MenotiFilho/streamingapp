@@ -22,7 +22,9 @@ use crate::snapshot::Snapshot;
 use crate::state::{Change, Persist, Protection, State};
 use crate::store::{Store, StoreError};
 use crate::stream::{AddonStreams, Stream};
+use crate::stremio::StremioApi;
 use crate::subtitles::MAX_FALLBACK_SUBTITLES;
+use crate::sync::{merge, Merged, RemoteItem};
 use crate::{meta, tmdb};
 
 /// The Host: its state, and the one door to it.
@@ -59,6 +61,10 @@ pub struct Host {
     /// Pages the Addons have already answered, so that a re-request inside the
     /// Addon's own `cacheMaxAge` never reaches the network.
     cache: CatalogCache,
+    /// Stremio's account service, where this Host was built with one (#30).
+    /// `None` is a Host that cannot sync, and a Host that holds no `authKey` is
+    /// one that does not: in both, nothing here is ever called.
+    stremio: Option<Arc<dyn StremioApi>>,
 }
 
 impl Host {
@@ -81,20 +87,17 @@ impl Host {
         player: Arc<dyn Player>,
         clock: Arc<dyn Clock>,
     ) -> Result<Self, StoreError> {
-        let tmdb_held = match secrets.read(CredentialKind::TmdbKey) {
-            Ok(Some(_)) => true,
-            // A store that cannot answer cannot be disagreed with by a Snapshot:
-            // the Host opens knowing no key is held, and finds out when one is
-            // asked for.
-            Ok(None) => false,
-            Err(_) => false,
-        };
+        // A store that cannot answer cannot be disagreed with by a Snapshot:
+        // the Host opens knowing no key is held, and finds out when one is
+        // asked for.
+        let held = |kind| matches!(secrets.read(kind), Ok(Some(_)));
         let state = State::holding(
             store.read_preferences()?,
             store.read_addons()?,
             Protection {
                 backend: secrets.backend(),
-                tmdb_held,
+                tmdb_held: held(CredentialKind::TmdbKey),
+                stremio_held: held(CredentialKind::StremioAuthKey),
             },
             store.read_watch_progress()?,
         );
@@ -118,7 +121,20 @@ impl Host {
             state,
             revision: 0,
             cache: CatalogCache::default(),
+            stremio: None,
         })
+    }
+
+    /// The same Host, able to sync with a Stremio account (#30).
+    ///
+    /// A builder rather than a seventh argument to [`Host::new`]: sync is the one
+    /// seam that is optional, and a Host built without it is the default the
+    /// whole repository's tests and the sync-off path are written against. Even
+    /// with it, nothing reaches Stremio until the owner signs in.
+    #[must_use]
+    pub fn with_stremio(mut self, stremio: Arc<dyn StremioApi>) -> Self {
+        self.stremio = Some(stremio);
+        self
     }
 
     /// The state as it stands — what a client that has just connected, or just
@@ -143,6 +159,16 @@ impl Host {
             Resolved::Answer(answer) => return Ok(Response::answered(answer)),
         };
 
+        // The Title a pause or a stop leaves is the one the account is owed: the
+        // Stream is still the Host's here, and after a stop it is not.
+        let leaving = match &change {
+            Change::SetPaused(true) | Change::Stop => {
+                self.playing_title().map(|title| title.id().to_owned())
+            }
+            _ => None,
+        };
+        let signing_in = matches!(change, Change::SignInStremio { .. });
+
         let mut next = self.state.clone();
         let persist = next.apply(change, self.clock.now_millis());
         match persist {
@@ -162,7 +188,166 @@ impl Host {
 
         self.state = next;
         self.revision += 1;
+
+        // The account, last, and only when there is one: a sync that fails is
+        // not an Action that fails — the change above is made and kept either
+        // way (#30).
+        if signing_in {
+            self.pull_remote();
+        }
+        if let Some(title) = leaving {
+            self.push_title(&title);
+        }
         Ok(Response::published(vec![self.snapshot()]))
+    }
+
+    /// Merge what the Stremio account holds into the library: remote progress
+    /// that is newer than the Host's record is taken in.
+    ///
+    /// The Host's *open* (#30): the shell calls it once at startup, and signing
+    /// in calls it too. It is a door beside [`Host::sample`] rather than an
+    /// Action because nobody asked for it — and like `sample` it publishes only
+    /// when it moved something. It *pulls* and does not push: what the Host has
+    /// that the account does not is pushed when the owner pauses or stops, which
+    /// is when it is known to be the newer write.
+    ///
+    /// With no account signed in it asks nothing, and a Stremio that cannot
+    /// answer leaves the library as it was.
+    pub fn pull_remote(&mut self) -> Option<Snapshot> {
+        let (stremio, key) = self.account()?;
+        let items = stremio.library(&key, None).ok()?;
+
+        let mut moved = false;
+        for raw in items {
+            let Ok(item) = RemoteItem::parse(raw) else {
+                continue;
+            };
+            let known = self
+                .state
+                .watch()
+                .iter()
+                .any(|entry| entry.title.id() == item.id());
+            if !known {
+                continue;
+            }
+            let merged = self.merged_title(item.id(), Some(&item));
+            moved |= self.adopt(merged.local);
+        }
+
+        if !moved {
+            return None;
+        }
+        self.revision += 1;
+        Some(self.snapshot())
+    }
+
+    /// The Host is going away: write down where the Stream got to, and tell the
+    /// account (#30). Called by the shell on exit — the Host has no clock of its
+    /// own to notice, and a Stream killed with the window is exactly when the
+    /// last position is worth keeping.
+    pub fn shutdown(&mut self) {
+        let now = self.clock.now_millis();
+        if let Some(entry) = self.state.refresh_watch(now, true) {
+            let _ = self.store.write_watch_progress(&entry);
+        }
+        if let Some(title) = self.playing_title() {
+            self.push_title(title.id());
+        }
+    }
+
+    /// The account and the key it is signed in with — or nothing, which is a
+    /// Host that does not sync: no seam, or no `authKey`.
+    ///
+    /// The key is read at the moment of use and dropped with the call, like the
+    /// TMDB key: it reaches neither state nor a Snapshot.
+    fn account(&self) -> Option<(Arc<dyn StremioApi>, String)> {
+        let stremio = self.stremio.clone()?;
+        let key = self
+            .secrets
+            .read(CredentialKind::StremioAuthKey)
+            .ok()
+            .flatten()?;
+        Some((stremio, key))
+    }
+
+    /// Merge one Title with the account, both ways: what the account wrote later
+    /// comes in, and what the Host wrote later goes out. A Stremio that cannot
+    /// answer, or refuses the write, is a sync that did not happen — the Host's
+    /// own progress is already kept.
+    fn push_title(&mut self, title: &str) {
+        let Some((stremio, key)) = self.account() else {
+            return;
+        };
+        let ids = [title.to_owned()];
+        let Ok(items) = stremio.library(&key, Some(&ids)) else {
+            return;
+        };
+        let remote = items
+            .into_iter()
+            .filter_map(|raw| RemoteItem::parse(raw).ok())
+            .find(|item| item.id() == title);
+
+        let merged = self.merged_title(title, remote.as_ref());
+        if self.adopt(merged.local) {
+            self.revision += 1;
+        }
+        if let Some(item) = merged.remote {
+            let _ = stremio.put_library(&key, &[item.into_value()]);
+        }
+    }
+
+    /// What merging a Title's entries with the account's item for it decides.
+    ///
+    /// The Title's Videos are asked of the Addon that supplied it only when the
+    /// answer can matter — an episode is watched on one side or the other — so a
+    /// merge of plain positions is not a meta fetch per Title.
+    fn merged_title(&self, title: &str, remote: Option<&RemoteItem>) -> Merged {
+        let local: Vec<_> = self
+            .state
+            .watch()
+            .iter()
+            .filter(|entry| entry.title.id() == title)
+            .cloned()
+            .collect();
+        let Some(stub) = local.first().map(|entry| entry.title.clone()) else {
+            return Merged::default();
+        };
+
+        let matters = local.iter().any(|entry| entry.watched)
+            || remote.is_some_and(|item| item.watched().is_some());
+        let order = matters.then(|| self.videos_of(&stub)).flatten();
+
+        merge(&local, remote, order.as_deref(), self.clock.now_millis())
+    }
+
+    /// The ids of a Title's Videos in its Addon's own order — what places an
+    /// episode in Stremio's watched bitfield — or nothing where the Addon is
+    /// gone or cannot say.
+    fn videos_of(&self, stub: &TitleStub) -> Option<Vec<String>> {
+        if stub.r#type() == "movie" {
+            return None;
+        }
+        let addon = self.state.addon(stub.addon())?;
+        let requested = ResourceRequest::new(META, stub.r#type(), stub.id());
+        if !addon.manifest().answers(&requested) {
+            return None;
+        }
+        let asked = TitleRef::parse(stub.r#type(), stub.id()).ok()?;
+        let title = self.fetch_title(addon, &asked, &requested).ok()?;
+
+        Some(title.videos.iter().map(|video| video.id.clone()).collect())
+    }
+
+    /// Keep entries that were merged in from the account, in state and in the
+    /// store. A store that refuses one has lost that write and not the merge:
+    /// the next one will find the account still newer.
+    fn adopt(&mut self, entries: Vec<crate::progress::WatchProgress>) -> bool {
+        let moved = !entries.is_empty();
+        for entry in entries {
+            let _ = self.store.write_watch_progress(&entry);
+            self.state.merge_watch(entry);
+        }
+        moved
     }
 
     /// Read the Player, and publish where playback stands now.
@@ -354,6 +539,33 @@ impl Host {
                         detail: error.to_string(),
                     })?;
                 Resolved::Change(Change::ClearTmdbKey)
+            }
+            ValidatedAction::SignInStremio(login) => {
+                let stremio = self.stremio.as_ref().ok_or(ActionError::SyncUnavailable)?;
+                // The password is spent here: it goes to Stremio and is not
+                // carried anywhere past this call. What comes back is a key, and
+                // it goes straight to where credentials live.
+                let key = stremio
+                    .login(&login.email, login.password.expose())
+                    .map_err(|error| ActionError::Sync {
+                        detail: error.to_string(),
+                    })?;
+                self.secrets
+                    .write(CredentialKind::StremioAuthKey, &key)
+                    .map_err(|error| ActionError::Secret {
+                        detail: error.to_string(),
+                    })?;
+                Resolved::Change(Change::SignInStremio {
+                    backend: self.secrets.backend(),
+                })
+            }
+            ValidatedAction::SignOutStremio => {
+                self.secrets
+                    .remove(CredentialKind::StremioAuthKey)
+                    .map_err(|error| ActionError::Secret {
+                        detail: error.to_string(),
+                    })?;
+                Resolved::Change(Change::SignOutStremio)
             }
             ValidatedAction::BrowseCatalog {
                 addon,

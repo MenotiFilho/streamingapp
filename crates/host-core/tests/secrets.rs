@@ -91,6 +91,7 @@ fn entering_a_key_stores_it_through_the_secret_store_and_says_so() {
         host_core::ProtectionSnapshot {
             backend: SecretBackend::Keyring,
             tmdb_held: true,
+            stremio_held: false,
         },
         "the Snapshot says a key is held, and where — never the key"
     );
@@ -208,7 +209,7 @@ fn a_credential_value_reaches_nothing_the_wire_can_carry() {
     );
     assert_eq!(
         published["protection"],
-        serde_json::json!({ "backend": "keyring", "tmdbHeld": true }),
+        serde_json::json!({ "backend": "keyring", "tmdbHeld": true, "stremioHeld": false }),
         "what the wire carries about credentials is which backend is holding them"
     );
 }
@@ -228,6 +229,7 @@ fn a_snapshot_of_a_host_with_no_key_says_what_it_has_rather_than_guessed() {
         host_core::ProtectionSnapshot {
             backend: SecretBackend::Keyring,
             tmdb_held: false,
+            stremio_held: false,
         },
         "no key has been entered, and the Snapshot says so rather than staying quiet"
     );

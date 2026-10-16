@@ -64,6 +64,9 @@ pub struct ProtectionSnapshot {
     pub backend: SecretBackend,
     /// Whether a TMDB key is held. A fact about what was set, not the key.
     pub tmdb_held: bool,
+    /// Whether a Stremio account is signed in — a fact about what was set, not
+    /// the `authKey`, and what the interface reads as "sync is on" (#30).
+    pub stremio_held: bool,
 }
 
 impl Snapshot {
@@ -88,6 +91,7 @@ impl Snapshot {
             protection: ProtectionSnapshot {
                 backend: state.protection().backend,
                 tmdb_held: state.protection().tmdb_held,
+                stremio_held: state.protection().stremio_held,
             },
             watch_progress: state
                 .watch()
