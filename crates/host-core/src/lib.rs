@@ -58,9 +58,11 @@ pub use fetcher::{FetchError, Fetcher, FixtureFetcher};
 pub use host::Host;
 pub use meta::{MetaError, Title, TitleKey, Video, MAX_META_BYTES};
 pub use playback::{
-    ChosenStream, Control, FixturePlayer, InvalidSeekTarget, InvalidStreamUrl, NowPlaying,
-    Observation, Picture, PlaybackError, PlaybackSnapshot, PlaybackState, Player, SeekTarget,
-    StreamUrl, Unplayable,
+    Aspect, Chapter, ChapterStep, ChosenStream, Control, Crop, CropRectangle, FixturePlayer,
+    InvalidAspect, InvalidCrop, InvalidSeekTarget, InvalidSpeed, InvalidStreamUrl,
+    InvalidSubtitleDelay, InvalidVolume, NowPlaying, Observation, Picture, PlaybackError,
+    PlaybackSnapshot, PlaybackState, Player, SeekTarget, Statistics, StreamUrl, Telling, Track,
+    TrackId, TrackKind, Unplayable, VideoSize,
 };
 pub use preferences::{InvalidSubtitleLanguage, Preferences, SubtitleLanguage};
 pub use provider::{AddonProvider, FixtureProvider, Provider};

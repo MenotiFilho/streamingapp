@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use host_core::{Observation, PlaybackState, Player, SeekTarget, StreamUrl};
+use host_core::{Observation, PlaybackState, Player, SeekTarget, StreamUrl, Telling};
 use host_mpv::{MpvError, MpvPlayer, Placement};
 
 /// How long a test waits for mpv to say something before giving up on it.
@@ -176,7 +176,9 @@ fn pausing_holds_the_picture_and_resuming_lets_it_run() {
         observation.position.is_some()
     });
 
-    player.set_paused(true).expect("mpv takes the pause");
+    player
+        .tell(Telling::Pause(true))
+        .expect("mpv takes the pause");
     let paused = until(&player, "held the picture", |observation| {
         observation.state == PlaybackState::Paused
     });
@@ -188,7 +190,9 @@ fn pausing_holds_the_picture_and_resuming_lets_it_run() {
         "a paused Stream stays where it was: {paused:?} then {still:?}"
     );
 
-    player.set_paused(false).expect("mpv takes the resume");
+    player
+        .tell(Telling::Pause(false))
+        .expect("mpv takes the resume");
     let resumed = until(&player, "moved again", |observation| {
         observation.state == PlaybackState::Playing
     });
@@ -211,7 +215,7 @@ fn seeking_moves_playback_to_where_it_was_told() {
     });
 
     player
-        .seek(SeekTarget::To { seconds: 30.0 })
+        .tell(Telling::Seek(SeekTarget::To { seconds: 30.0 }))
         .expect("mpv takes the seek");
     let moved = until(&player, "moved to 30 seconds", |observation| {
         observation
@@ -225,7 +229,7 @@ fn seeking_moves_playback_to_where_it_was_told() {
     );
 
     player
-        .seek(SeekTarget::By { seconds: -10.0 })
+        .tell(Telling::Seek(SeekTarget::By { seconds: -10.0 }))
         .expect("mpv takes the relative seek");
     until(&player, "moved back ten seconds", |observation| {
         observation.position.is_some_and(|position| position < 22.0)

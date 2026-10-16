@@ -23,7 +23,7 @@
 
 use std::sync::Arc;
 
-use host_core::{Observation, Picture, PlaybackError, Player, SeekTarget, StreamUrl};
+use host_core::{Observation, Picture, PlaybackError, Player, StreamUrl, Telling};
 use host_mpv::{MpvError, MpvPlayer, Placement};
 use tauri::WebviewWindow;
 
@@ -105,11 +105,7 @@ impl Player for NoPlayer {
         Err(self.refusal())
     }
 
-    fn set_paused(&self, _paused: bool) -> Result<(), PlaybackError> {
-        Err(self.refusal())
-    }
-
-    fn seek(&self, _target: SeekTarget) -> Result<(), PlaybackError> {
+    fn tell(&self, _telling: Telling) -> Result<(), PlaybackError> {
         Err(self.refusal())
     }
 

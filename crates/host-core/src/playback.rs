@@ -36,6 +36,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::addon::{AddonId, MAX_URL_LEN};
+use crate::preferences::SubtitleLanguage;
 use crate::request::VideoRef;
 use crate::stream::{holdable, Playback, Stream};
 
@@ -239,11 +240,15 @@ pub trait Player: Send + Sync + 'static {
     /// later, and arrives through [`Player::observe`] as a failure.
     fn open(&self, url: &StreamUrl) -> Result<(), PlaybackError>;
 
-    /// Hold the picture where it is, or let it run.
-    fn set_paused(&self, paused: bool) -> Result<(), PlaybackError>;
-
-    /// Move within the Stream.
-    fn seek(&self, target: SeekTarget) -> Result<(), PlaybackError>;
+    /// Do one thing the Host asked of the Player, in the Host's own terms.
+    ///
+    /// One method rather than one per mpv property: a [`Telling`] is what the
+    /// Host *means*, and `host-mpv` is the only thing that spells it (ADR-0013).
+    /// A control the platform cannot honour is a refusal — and by the time one
+    /// arrives the Host's own record has already moved, because the Host's
+    /// record moves at the moment of the Action and the Player's next report is
+    /// what corrects it.
+    fn tell(&self, telling: Telling) -> Result<(), PlaybackError>;
 
     /// Let the Stream go: the Player is left with nothing open.
     fn stop(&self) -> Result<(), PlaybackError>;
@@ -306,6 +311,341 @@ impl SeekTarget {
     }
 }
 
+/// A track mpv numbers, as the Host refers to it.
+///
+/// A positive integer by construction: mpv numbers its tracks from one, and a
+/// zero or a negative id is not a track anything can select. The only way to
+/// hold one is [`TrackId::new`], so a `Telling` that carries a `TrackId` is one
+/// no Player could be handed something it does not understand.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TrackId(pub i64);
+
+impl TrackId {
+    /// The track with this id, or nothing: mpv's ids are positive.
+    pub fn new(id: i64) -> Option<Self> {
+        (id > 0).then_some(Self(id))
+    }
+}
+
+impl std::fmt::Display for TrackId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// The two kinds of track the Host offers a control for.
+///
+/// Video is deliberately not here: the picture's track is mpv's own business,
+/// and no client asks which one carries it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TrackKind {
+    Audio,
+    Subtitle,
+}
+
+/// One track the Stream carries, as mpv lists it.
+///
+/// The Host's own record of what a Stream offers, so a client can name one to
+/// select and see which is on — and so the Host can refuse an id that is not
+/// there before a Player hears of it. A word the container gave is kept
+/// verbatim, the way an Addon's own words are — and bounded the same way, with
+/// [`Track::bounded`], because every one of them travels to every paired client.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Track {
+    /// mpv's own number for the track, which is what a selection names.
+    pub id: TrackId,
+    /// Whether this carries the sound or the subtitles.
+    pub kind: TrackKind,
+    /// The language the container says, where it says one.
+    pub language: Option<String>,
+    /// The track's own title, where it has one.
+    pub title: Option<String>,
+    /// The codec the container names (`aac`, `subrip`).
+    pub codec: Option<String>,
+    /// Whether the track came in the file (`true`) rather than being added to
+    /// the Stream afterwards (`false`).
+    pub embedded: bool,
+    /// Whether this is the track playing now.
+    pub selected: bool,
+    /// Whether the Stream marks this the default of its kind.
+    pub default: bool,
+    /// Whether the subtitles are forced: the ones a container says to show.
+    pub forced: bool,
+}
+
+impl Track {
+    /// The same track, with every word the container gave kept only where it is
+    /// one a Snapshot will hold.
+    ///
+    /// The Player is the only thing that produces a `Track`, and its words come
+    /// from whatever the Stream's own metadata says: a title megabytes long is
+    /// a Stream's word, and one that would travel to every paired client. A
+    /// word too long to hold becomes absence, the way it does for an Addon.
+    pub fn bounded(mut self) -> Self {
+        self.language = held(self.language.as_deref());
+        self.title = held(self.title.as_deref());
+        self.codec = held(self.codec.as_deref());
+        self
+    }
+}
+
+/// One chapter marker, as mpv lists it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Chapter {
+    /// The chapter's position in the Stream's own list, from zero.
+    pub index: usize,
+    /// The chapter's name, where the container gives one.
+    pub title: Option<String>,
+    /// Where the chapter starts, in seconds from the Stream's start.
+    pub time: f64,
+}
+
+/// How large the picture is, in pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct VideoSize {
+    pub width: u32,
+    pub height: u32,
+}
+
+/// The part of the picture left after cropping, in the source's own pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CropRectangle {
+    pub width: u32,
+    pub height: u32,
+    /// How far the kept rectangle starts from the left of the source.
+    pub x: u32,
+    /// How far it starts from the top.
+    pub y: u32,
+}
+
+/// What to do about the black bars around a picture.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+pub enum Crop {
+    /// Leave the whole picture as it is.
+    Off,
+    /// Keep only this rectangle of it.
+    Rectangle {
+        width: u32,
+        height: u32,
+        x: u32,
+        y: u32,
+    },
+}
+
+/// What shape the picture is drawn at.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+pub enum Aspect {
+    /// The shape the Stream itself is — what "no override" means.
+    Source,
+    /// A ratio the picture is stretched to.
+    Ratio { value: f64 },
+}
+
+/// What mpv says about how a Stream is playing, where it says anything.
+///
+/// The moving numbers a person debugging playback wants, and nothing about the
+/// Stream itself: `hardware_decode` is a word like `no` or `d3d11va`, kept
+/// verbatim and bounded like every other word a Snapshot carries.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Statistics {
+    /// Bits per second mpv reports for the video, where a picture is being
+    /// decoded at all.
+    pub bitrate: Option<u64>,
+    /// Frames mpv has dropped, where it counts them.
+    pub dropped_frames: Option<u64>,
+    /// What is decoding the picture: `"no"` for software, a hardware API's name
+    /// otherwise.
+    pub hardware_decode: Option<String>,
+}
+
+impl Statistics {
+    /// The same report, with the words the Player gave kept only where they are
+    /// ones a Snapshot will hold.
+    pub fn bounded(mut self) -> Self {
+        self.hardware_decode = held(self.hardware_decode.as_deref());
+        self
+    }
+}
+
+/// Where to move in the chapter list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    tag = "kind",
+    rename_all = "snake_case",
+    rename_all_fields = "camelCase"
+)]
+pub enum ChapterStep {
+    /// The chapter after the one playing.
+    Next,
+    /// The chapter before it.
+    Previous,
+    /// The chapter at this position in the Stream's list.
+    At { index: usize },
+}
+
+/// One thing the Host asks of its Player.
+///
+/// The whole vocabulary above the seam: a control is a telling, and the Player
+/// is what spells it (ADR-0013). Opening a Stream and letting one go are
+/// methods of their own, because they are not controls a client names; anything
+/// a client controls while something plays is here.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Telling {
+    /// Hold the picture where it is, or let it run.
+    Pause(bool),
+    /// Move within the Stream.
+    Seek(SeekTarget),
+    /// Play this audio track.
+    AudioTrack(TrackId),
+    /// Show subtitles from this track, or none at all.
+    SubtitleTrack(Option<TrackId>),
+    /// Shift the subtitles by this many seconds, forward or back.
+    SubtitleDelay { seconds: f64 },
+    /// Play at this rate.
+    Speed { rate: f64 },
+    /// Play at this level.
+    Volume { level: f64 },
+    /// Mute or unmute.
+    Muted(bool),
+    /// Move to another chapter.
+    Chapter(ChapterStep),
+    /// Crop the picture, or stop cropping it.
+    Crop(Crop),
+    /// Override the picture's shape.
+    Aspect(Aspect),
+    /// The language the Player prefers when it selects a subtitle track for the
+    /// owner: mpv's `slang`. `None` clears it.
+    SubtitleLanguage(Option<SubtitleLanguage>),
+    /// Load an external subtitle (the Addon `subtitles` fallback, S4).
+    AddSubtitle {
+        url: StreamUrl,
+        title: Option<String>,
+        language: Option<String>,
+    },
+}
+
+/// A speed that is not one this Host will set: a finite number from a twentieth
+/// to a hundred.
+#[derive(Debug, Clone, PartialEq, Serialize, thiserror::Error)]
+#[error("{rate} is not a playback speed — a speed is a number from 0.05 to 100")]
+pub struct InvalidSpeed {
+    /// The value offered, as a refusal can carry it: `NaN` has no JSON form.
+    pub rate: String,
+}
+
+/// A volume that is not one this Host will set: a finite number from silence to
+/// a tenth over full scale, which is where mpv's own `volume-max` ends.
+#[derive(Debug, Clone, PartialEq, Serialize, thiserror::Error)]
+#[error("{level} is not a volume — a volume is a number from 0 to 130")]
+pub struct InvalidVolume {
+    /// The value offered, as a refusal can carry it.
+    pub level: String,
+}
+
+/// A subtitle delay that is not one this Host will set: a finite number of
+/// seconds within an hour either way.
+#[derive(Debug, Clone, PartialEq, Serialize, thiserror::Error)]
+#[error("{seconds} is not a subtitle delay — a delay is at most an hour either way")]
+pub struct InvalidSubtitleDelay {
+    /// The value offered, as a refusal can carry it.
+    pub seconds: String,
+}
+
+/// A picture shape that is not one this Host will draw: a finite ratio greater
+/// than zero and at most a hundred.
+#[derive(Debug, Clone, PartialEq, Serialize, thiserror::Error)]
+#[error("{value} is not a picture shape — an aspect ratio is greater than 0 and at most 100")]
+pub struct InvalidAspect {
+    /// The value offered, as a refusal can carry it.
+    pub value: String,
+}
+
+/// A crop that would keep no picture at all.
+#[derive(Debug, Clone, PartialEq, Serialize, thiserror::Error)]
+#[error("{crop} is not a crop — a crop needs a width and a height, both greater than zero")]
+pub struct InvalidCrop {
+    /// The rectangle offered, as mpv would spell it.
+    pub crop: String,
+}
+
+/// A speed, or why this Host will not set it.
+pub(crate) fn checked_speed(rate: f64) -> Result<f64, InvalidSpeed> {
+    if rate.is_finite() && (0.05..=100.0).contains(&rate) {
+        Ok(rate)
+    } else {
+        Err(InvalidSpeed {
+            rate: rate.to_string(),
+        })
+    }
+}
+
+/// A volume, or why this Host will not set it.
+pub(crate) fn checked_volume(level: f64) -> Result<f64, InvalidVolume> {
+    if level.is_finite() && (0.0..=130.0).contains(&level) {
+        Ok(level)
+    } else {
+        Err(InvalidVolume {
+            level: level.to_string(),
+        })
+    }
+}
+
+/// A subtitle delay, or why this Host will not set it.
+pub(crate) fn checked_subtitle_delay(seconds: f64) -> Result<f64, InvalidSubtitleDelay> {
+    if seconds.is_finite() && seconds.abs() <= 3600.0 {
+        Ok(seconds)
+    } else {
+        Err(InvalidSubtitleDelay {
+            seconds: seconds.to_string(),
+        })
+    }
+}
+
+/// A crop, or why this Host will not set it: a rectangle that keeps nothing is
+/// not a picture.
+pub(crate) fn checked_crop(crop: &Crop) -> Result<(), InvalidCrop> {
+    match crop {
+        Crop::Off => Ok(()),
+        Crop::Rectangle { width, height, .. } if *width > 0 && *height > 0 => Ok(()),
+        Crop::Rectangle {
+            width,
+            height,
+            x,
+            y,
+        } => Err(InvalidCrop {
+            crop: format!("{width}x{height}+{x}+{y}"),
+        }),
+    }
+}
+
+/// An aspect, or why this Host will not draw it.
+pub(crate) fn checked_aspect(aspect: &Aspect) -> Result<(), InvalidAspect> {
+    match aspect {
+        Aspect::Source => Ok(()),
+        Aspect::Ratio { value } if value.is_finite() && *value > 0.0 && *value <= 100.0 => Ok(()),
+        Aspect::Ratio { value } => Err(InvalidAspect {
+            value: value.to_string(),
+        }),
+    }
+}
+
 /// The control an Action asked for, where the Action is one: what a refusal
 /// names when there is nothing playing to control.
 ///
@@ -317,6 +657,17 @@ pub enum Control {
     Pause,
     Seek,
     Stop,
+    AudioTrack,
+    SubtitleTrack,
+    SubtitleDelay,
+    Speed,
+    Volume,
+    Mute,
+    Chapter,
+    Crop,
+    Aspect,
+    /// S4: skipping to the Video after this one in its Title.
+    NextEpisode,
 }
 
 impl std::fmt::Display for Control {
@@ -325,6 +676,16 @@ impl std::fmt::Display for Control {
             Control::Pause => "pause",
             Control::Seek => "seek",
             Control::Stop => "stop",
+            Control::AudioTrack => "audio track",
+            Control::SubtitleTrack => "subtitle track",
+            Control::SubtitleDelay => "subtitle delay",
+            Control::Speed => "speed",
+            Control::Volume => "volume",
+            Control::Mute => "mute",
+            Control::Chapter => "chapter",
+            Control::Crop => "crop",
+            Control::Aspect => "aspect",
+            Control::NextEpisode => "next episode",
         })
     }
 }
@@ -377,6 +738,28 @@ pub struct Observation {
     /// Why an open failed, in the Player's own words, set once and until the
     /// next open. The Host shows it to the client that pressed play.
     pub failure: Option<String>,
+    /// The Stream's tracks — audio and subtitles — in mpv's own order.
+    pub tracks: Vec<Track>,
+    /// The Stream's chapters, in the order the container gives them.
+    pub chapters: Vec<Chapter>,
+    /// Which chapter is playing, by its position in `chapters`.
+    pub chapter: Option<usize>,
+    /// The rate playback runs at.
+    pub speed: Option<f64>,
+    /// The level playback runs at.
+    pub volume: Option<f64>,
+    /// Whether the sound is held.
+    pub muted: Option<bool>,
+    /// How far the subtitles are shifted.
+    pub subtitle_delay: Option<f64>,
+    /// The rectangle kept after cropping, or `None` while uncropped.
+    pub crop: Option<CropRectangle>,
+    /// The shape being drawn at, or `None` until something is loaded.
+    pub aspect: Option<Aspect>,
+    /// How large the picture is.
+    pub resolution: Option<VideoSize>,
+    /// What the Player says about how the Stream is playing.
+    pub statistics: Option<Statistics>,
 }
 
 impl Observation {
@@ -387,6 +770,17 @@ impl Observation {
             position: None,
             duration: None,
             failure: None,
+            tracks: Vec::new(),
+            chapters: Vec::new(),
+            chapter: None,
+            speed: None,
+            volume: None,
+            muted: None,
+            subtitle_delay: None,
+            crop: None,
+            aspect: None,
+            resolution: None,
+            statistics: None,
         }
     }
 
@@ -396,7 +790,7 @@ impl Observation {
             state: PlaybackState::Playing,
             position: Some(position),
             duration: Some(duration),
-            failure: None,
+            ..Self::idle()
         }
     }
 }
@@ -433,6 +827,23 @@ pub(crate) struct PlaybackSession {
     duration: Option<f64>,
     /// Why the last open failed, kept until the next play or stop.
     failure: Option<String>,
+    /// The Stream's tracks, as the Player last reported them: the Host's own
+    /// record of what a selection may name before a Player hears of it.
+    tracks: Vec<Track>,
+    /// The Stream's chapters, and which one is playing.
+    chapters: Vec<Chapter>,
+    chapter: Option<usize>,
+    /// The controls' own values, as the Host last knew or last set them. Each
+    /// moves at the moment of the Action and is corrected by the Player's next
+    /// report, the way the position is.
+    speed: Option<f64>,
+    volume: Option<f64>,
+    muted: Option<bool>,
+    subtitle_delay: Option<f64>,
+    crop: Option<CropRectangle>,
+    aspect: Option<Aspect>,
+    resolution: Option<VideoSize>,
+    statistics: Option<Statistics>,
 }
 
 impl PlaybackSession {
@@ -444,17 +855,30 @@ impl PlaybackSession {
             position: None,
             duration: None,
             failure: None,
+            tracks: Vec::new(),
+            chapters: Vec::new(),
+            chapter: None,
+            speed: None,
+            volume: None,
+            muted: None,
+            subtitle_delay: None,
+            crop: None,
+            aspect: None,
+            resolution: None,
+            statistics: None,
         }
     }
 
     /// A Stream was chosen and the Player agreed to try: the open is in flight.
+    ///
+    /// Nothing is known about the new Stream yet — not a track, not a chapter,
+    /// not a speed — so every control's record starts empty and the Player's
+    /// first full report is what fills it in.
     pub(crate) fn opening(chosen: ChosenStream) -> Self {
         Self {
             playing: Some(chosen),
             state: PlaybackState::Opening,
-            position: None,
-            duration: None,
-            failure: None,
+            ..Self::idle()
         }
     }
 
@@ -472,23 +896,45 @@ impl PlaybackSession {
                 .map(|chosen| chosen.now_playing.clone()),
             position: self.position,
             duration: self.duration,
+            tracks: self.tracks.clone(),
+            chapters: self.chapters.clone(),
+            chapter: self.chapter,
+            speed: self.speed,
+            volume: self.volume,
+            muted: self.muted,
+            subtitle_delay: self.subtitle_delay,
+            crop: self.crop,
+            aspect: self.aspect,
+            resolution: self.resolution,
+            statistics: self.statistics.clone(),
         }
     }
 
     /// Whether the Host is on a Stream at all — playing, opening, paused, ended
-    /// or failed. A stop is allowed for all of those; pause and seek are not.
+    /// or failed. A stop is allowed for all of those; a control is not.
     pub(crate) fn has_stream(&self) -> bool {
         self.playing.is_some()
     }
 
-    /// Whether the Player is on something it can be told to pause or seek:
-    /// a Stream that has started, and not one that is over.
+    /// Whether the Player is on something it can be told to control: a Stream
+    /// that has started, and not one that is over.
     pub(crate) fn is_live(&self) -> bool {
         self.playing.is_some()
             && matches!(
                 self.state,
                 PlaybackState::Opening | PlaybackState::Playing | PlaybackState::Paused
             )
+    }
+
+    /// The tracks the Stream offers, as the Player last reported them — what a
+    /// refusal for an unknown id is decided against.
+    pub(crate) fn tracks(&self) -> &[Track] {
+        &self.tracks
+    }
+
+    /// The chapters the Stream offers, as the Player last reported them.
+    pub(crate) fn chapters(&self) -> &[Chapter] {
+        &self.chapters
     }
 
     /// Hold the picture where it is, or let it run — the record moving at the
@@ -513,6 +959,74 @@ impl PlaybackSession {
         self.position = Some(target.landing(position, self.duration));
     }
 
+    /// Which track of this kind is on, as the Host's own record has it: the one
+    /// named, or none of them where none was named.
+    pub(crate) fn select(&mut self, kind: TrackKind, id: Option<TrackId>) {
+        for track in self.tracks.iter_mut().filter(|track| track.kind == kind) {
+            track.selected = Some(track.id) == id;
+        }
+    }
+
+    /// The rate the Host's own record says playback runs at.
+    pub(crate) fn set_speed(&mut self, rate: f64) {
+        self.speed = Some(rate);
+    }
+
+    /// The level the Host's own record says playback runs at.
+    pub(crate) fn set_volume(&mut self, level: f64) {
+        self.volume = Some(level);
+    }
+
+    /// Whether the Host's own record says the sound is held.
+    pub(crate) fn set_muted(&mut self, muted: bool) {
+        self.muted = Some(muted);
+    }
+
+    /// How far the Host's own record says the subtitles are shifted.
+    pub(crate) fn set_subtitle_delay(&mut self, seconds: f64) {
+        self.subtitle_delay = Some(seconds);
+    }
+
+    /// Move the Host's own record of which chapter is playing, clamped to the
+    /// list the Player last reported — the same clamp mpv's own `add chapter`
+    /// applies, and an empty list holds no chapter at all.
+    pub(crate) fn chapter_step(&mut self, step: ChapterStep) {
+        let last = self.chapters.len().checked_sub(1);
+        self.chapter = match (step, last) {
+            (ChapterStep::At { index }, Some(_)) => Some(index),
+            (ChapterStep::Next, Some(last)) => {
+                Some(self.chapter.map_or(0, |index| (index + 1).min(last)))
+            }
+            (ChapterStep::Previous, Some(_)) => {
+                Some(self.chapter.map_or(0, |index| index.saturating_sub(1)))
+            }
+            (_, None) => None,
+        };
+    }
+
+    /// The crop the Host's own record holds: the rectangle kept, or none.
+    pub(crate) fn cropped(&mut self, crop: Crop) {
+        self.crop = match crop {
+            Crop::Off => None,
+            Crop::Rectangle {
+                width,
+                height,
+                x,
+                y,
+            } => Some(CropRectangle {
+                width,
+                height,
+                x,
+                y,
+            }),
+        };
+    }
+
+    /// The shape the Host's own record says the picture is drawn at.
+    pub(crate) fn shaped(&mut self, aspect: Aspect) {
+        self.aspect = Some(aspect);
+    }
+
     /// Let the Stream go: nothing is playing, and what failed no longer is.
     pub(crate) fn stop(&mut self) {
         *self = Self::idle();
@@ -534,6 +1048,17 @@ impl PlaybackSession {
             position: observation.position,
             duration: observation.duration,
             failure: observation.failure.clone(),
+            tracks: observation.tracks.clone(),
+            chapters: observation.chapters.clone(),
+            chapter: observation.chapter,
+            speed: observation.speed,
+            volume: observation.volume,
+            muted: observation.muted,
+            subtitle_delay: observation.subtitle_delay,
+            crop: observation.crop,
+            aspect: observation.aspect,
+            resolution: observation.resolution,
+            statistics: observation.statistics.clone(),
         };
 
         (next != *self).then_some(next)
@@ -562,6 +1087,28 @@ pub struct PlaybackSnapshot {
     pub position: Option<f64>,
     /// How long the Stream is, in seconds, where the Stream says.
     pub duration: Option<f64>,
+    /// The Stream's tracks — audio and subtitles — in mpv's own order.
+    pub tracks: Vec<Track>,
+    /// The Stream's chapters, in the order the container gives them.
+    pub chapters: Vec<Chapter>,
+    /// Which chapter is playing, by its position in `chapters`.
+    pub chapter: Option<usize>,
+    /// The rate playback runs at.
+    pub speed: Option<f64>,
+    /// The level playback runs at.
+    pub volume: Option<f64>,
+    /// Whether the sound is held.
+    pub muted: Option<bool>,
+    /// How far the subtitles are shifted.
+    pub subtitle_delay: Option<f64>,
+    /// The rectangle kept after cropping, or null while uncropped.
+    pub crop: Option<CropRectangle>,
+    /// The shape being drawn at, or null until something is loaded.
+    pub aspect: Option<Aspect>,
+    /// How large the picture is.
+    pub resolution: Option<VideoSize>,
+    /// What the Player says about how the Stream is playing.
+    pub statistics: Option<Statistics>,
 }
 
 /// A [`Player`] a test drives by hand: it records every telling, and reports
@@ -576,8 +1123,9 @@ pub struct PlaybackSnapshot {
 #[derive(Debug)]
 pub struct FixturePlayer {
     opened: Mutex<Vec<String>>,
-    paused: Mutex<Vec<bool>>,
-    sought: Mutex<Vec<SeekTarget>>,
+    /// Every telling the Host asked for, in order — the whole control surface,
+    /// in the one vocabulary the seam speaks.
+    tellings: Mutex<Vec<Telling>>,
     stopped: Mutex<usize>,
     observing: Mutex<Observation>,
     /// Where the fixture says its picture is. Inside the window by default,
@@ -592,8 +1140,7 @@ impl FixturePlayer {
     pub fn new() -> Self {
         Self {
             opened: Mutex::new(Vec::new()),
-            paused: Mutex::new(Vec::new()),
-            sought: Mutex::new(Vec::new()),
+            tellings: Mutex::new(Vec::new()),
             stopped: Mutex::new(0),
             observing: Mutex::new(Observation::idle()),
             picture: Picture::InWindow,
@@ -641,17 +1188,9 @@ impl FixturePlayer {
             .clone()
     }
 
-    /// Every pause the Host asked for, in order.
-    pub fn paused(&self) -> Vec<bool> {
-        self.paused
-            .lock()
-            .expect("the fixture player is not poisoned")
-            .clone()
-    }
-
-    /// Every seek the Host asked for, in order.
-    pub fn sought(&self) -> Vec<SeekTarget> {
-        self.sought
+    /// Every telling the Host asked for, in order.
+    pub fn tellings(&self) -> Vec<Telling> {
+        self.tellings
             .lock()
             .expect("the fixture player is not poisoned")
             .clone()
@@ -701,21 +1240,12 @@ impl Player for FixturePlayer {
         Ok(())
     }
 
-    fn set_paused(&self, paused: bool) -> Result<(), PlaybackError> {
+    fn tell(&self, telling: Telling) -> Result<(), PlaybackError> {
         self.allowed()?;
-        self.paused
+        self.tellings
             .lock()
             .expect("the fixture player is not poisoned")
-            .push(paused);
-        Ok(())
-    }
-
-    fn seek(&self, target: SeekTarget) -> Result<(), PlaybackError> {
-        self.allowed()?;
-        self.sought
-            .lock()
-            .expect("the fixture player is not poisoned")
-            .push(target);
+            .push(telling);
         Ok(())
     }
 
@@ -944,11 +1474,10 @@ mod tests {
         let failed = session
             .advanced(&Observation {
                 state: PlaybackState::Idle,
-                position: None,
-                duration: None,
                 failure: Some(
                     "That Stream could not be opened — mpv could not load it.".to_owned(),
                 ),
+                ..Observation::idle()
             })
             .expect("a failed open is a change");
 
@@ -973,6 +1502,17 @@ mod tests {
                 ),
                 position: None,
                 duration: None,
+                tracks: Vec::new(),
+                chapters: Vec::new(),
+                chapter: None,
+                speed: None,
+                volume: None,
+                muted: None,
+                subtitle_delay: None,
+                crop: None,
+                aspect: None,
+                resolution: None,
+                statistics: None,
             },
             "the client that pressed play is told which candidate did not open"
         );
@@ -1044,16 +1584,23 @@ mod tests {
         player
             .open(&url("https://example.org/a.mkv"))
             .expect("open");
-        player.set_paused(true).expect("pause");
-        player.set_paused(false).expect("resume");
+        player.tell(Telling::Pause(true)).expect("pause");
+        player.tell(Telling::Pause(false)).expect("resume");
         player
-            .seek(SeekTarget::By { seconds: -10.0 })
+            .tell(Telling::Seek(SeekTarget::By { seconds: -10.0 }))
             .expect("seek");
         player.stop().expect("stop");
 
         assert_eq!(player.opened(), vec!["https://example.org/a.mkv"]);
-        assert_eq!(player.paused(), vec![true, false]);
-        assert_eq!(player.sought(), vec![SeekTarget::By { seconds: -10.0 }]);
+        assert_eq!(
+            player.tellings(),
+            vec![
+                Telling::Pause(true),
+                Telling::Pause(false),
+                Telling::Seek(SeekTarget::By { seconds: -10.0 }),
+            ],
+            "the whole control surface is one vocabulary, and every telling is remembered"
+        );
         assert_eq!(player.stopped(), 1);
     }
 
@@ -1068,9 +1615,10 @@ mod tests {
             Err(PlaybackError::Open { .. })
         ));
         assert!(matches!(
-            player.set_paused(true),
+            player.tell(Telling::Pause(true)),
             Err(PlaybackError::Open { .. })
         ));
+        assert!(player.tellings().is_empty());
         assert!(player.opened().is_empty());
     }
 
@@ -1106,8 +1654,423 @@ mod tests {
                 },
                 "position": null,
                 "duration": null,
+                "tracks": [],
+                "chapters": [],
+                "chapter": null,
+                "speed": null,
+                "volume": null,
+                "muted": null,
+                "subtitleDelay": null,
+                "crop": null,
+                "aspect": null,
+                "resolution": null,
+                "statistics": null,
             }),
             "the window reads this by hand, so the shape it declares is the shape that arrives"
         );
+    }
+
+    #[test]
+    fn the_controls_bound_is_the_declared_one() {
+        assert_eq!(checked_speed(1.0), Ok(1.0));
+        assert_eq!(checked_speed(0.05), Ok(0.05));
+        assert_eq!(checked_speed(100.0), Ok(100.0));
+        for bad in [0.0, 0.04, 100.1, f64::NAN, f64::INFINITY] {
+            assert!(
+                matches!(checked_speed(bad), Err(InvalidSpeed { .. })),
+                "{bad}"
+            );
+        }
+
+        assert_eq!(checked_volume(100.0), Ok(100.0));
+        assert_eq!(checked_volume(0.0), Ok(0.0));
+        assert_eq!(checked_volume(130.0), Ok(130.0));
+        for bad in [-0.1, 130.1, f64::NAN] {
+            assert!(
+                matches!(checked_volume(bad), Err(InvalidVolume { .. })),
+                "{bad}"
+            );
+        }
+
+        assert_eq!(checked_subtitle_delay(-2.5), Ok(-2.5));
+        assert_eq!(checked_subtitle_delay(-3600.0), Ok(-3600.0));
+        for bad in [3600.1, -3600.1, f64::NAN] {
+            assert!(
+                matches!(
+                    checked_subtitle_delay(bad),
+                    Err(InvalidSubtitleDelay { .. })
+                ),
+                "{bad}"
+            );
+        }
+
+        assert_eq!(checked_aspect(&Aspect::Source), Ok(()));
+        assert_eq!(checked_aspect(&Aspect::Ratio { value: 1.7778 }), Ok(()));
+        for bad in [0.0, -1.0, 100.1, f64::NAN] {
+            assert!(
+                matches!(
+                    checked_aspect(&Aspect::Ratio { value: bad }),
+                    Err(InvalidAspect { .. })
+                ),
+                "{bad}"
+            );
+        }
+
+        assert_eq!(checked_crop(&Crop::Off), Ok(()));
+        assert_eq!(
+            checked_crop(&Crop::Rectangle {
+                width: 96,
+                height: 72,
+                x: 16,
+                y: 0,
+            }),
+            Ok(())
+        );
+        for bad in [
+            Crop::Rectangle {
+                width: 0,
+                height: 72,
+                x: 0,
+                y: 0,
+            },
+            Crop::Rectangle {
+                width: 96,
+                height: 0,
+                x: 0,
+                y: 0,
+            },
+        ] {
+            assert!(
+                matches!(checked_crop(&bad), Err(InvalidCrop { .. })),
+                "{bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_track_id_is_positive_or_it_is_not_a_track() {
+        assert_eq!(TrackId::new(7), Some(TrackId(7)));
+        assert_eq!(TrackId::new(0), None);
+        assert_eq!(TrackId::new(-3), None);
+    }
+
+    #[test]
+    fn the_wire_shape_of_a_track_crop_aspect_and_the_statistics_is_the_declared_one() {
+        let track = Track {
+            id: TrackId(2),
+            kind: TrackKind::Subtitle,
+            language: Some("por".to_owned()),
+            title: None,
+            codec: Some("subrip".to_owned()),
+            embedded: true,
+            selected: false,
+            default: false,
+            forced: false,
+        };
+        assert_eq!(
+            serde_json::to_value(&track).expect("a track serializes"),
+            serde_json::json!({
+                "id": 2,
+                "kind": "subtitle",
+                "language": "por",
+                "title": null,
+                "codec": "subrip",
+                "embedded": true,
+                "selected": false,
+                "default": false,
+                "forced": false,
+            })
+        );
+
+        assert_eq!(
+            serde_json::to_value(Crop::Off).expect("a crop serializes"),
+            serde_json::json!({ "kind": "off" })
+        );
+        assert_eq!(
+            serde_json::to_value(Crop::Rectangle {
+                width: 96,
+                height: 72,
+                x: 16,
+                y: 0,
+            })
+            .expect("a crop serializes"),
+            serde_json::json!({
+                "kind": "rectangle",
+                "width": 96,
+                "height": 72,
+                "x": 16,
+                "y": 0,
+            })
+        );
+
+        assert_eq!(
+            serde_json::to_value(Aspect::Source).expect("an aspect serializes"),
+            serde_json::json!({ "kind": "source" })
+        );
+        assert_eq!(
+            serde_json::to_value(Aspect::Ratio { value: 1.7778 }).expect("an aspect serializes"),
+            serde_json::json!({ "kind": "ratio", "value": 1.7778 })
+        );
+
+        assert_eq!(
+            serde_json::to_value(Statistics {
+                bitrate: None,
+                dropped_frames: Some(0),
+                hardware_decode: Some("no".to_owned()),
+            })
+            .expect("statistics serialize"),
+            serde_json::json!({
+                "bitrate": null,
+                "droppedFrames": 0,
+                "hardwareDecode": "no",
+            }),
+            "a word and two numbers, camelCased for a JavaScript client"
+        );
+    }
+
+    #[test]
+    fn a_player_report_folds_its_tracks_chapters_and_controls_over_the_session() {
+        let session = PlaybackSession::opening(
+            ChosenStream::parse(
+                video(),
+                addon(),
+                &candidate(Playback::Direct {
+                    url: "https://stream.example.org/v/x.mkv".to_owned(),
+                }),
+            )
+            .expect("a direct URL is a candidate this Host plays"),
+        );
+
+        let observation = Observation {
+            state: PlaybackState::Playing,
+            position: Some(12.5),
+            duration: Some(600.0),
+            tracks: vec![
+                Track {
+                    id: TrackId(1),
+                    kind: TrackKind::Audio,
+                    language: Some("eng".to_owned()),
+                    title: None,
+                    codec: Some("aac".to_owned()),
+                    embedded: true,
+                    selected: true,
+                    default: true,
+                    forced: false,
+                },
+                Track {
+                    id: TrackId(2),
+                    kind: TrackKind::Subtitle,
+                    language: Some("por".to_owned()),
+                    title: None,
+                    codec: Some("subrip".to_owned()),
+                    embedded: true,
+                    selected: false,
+                    default: false,
+                    forced: false,
+                },
+            ],
+            chapters: vec![
+                Chapter {
+                    index: 0,
+                    title: Some("Intro".to_owned()),
+                    time: 0.0,
+                },
+                Chapter {
+                    index: 1,
+                    title: None,
+                    time: 300.0,
+                },
+            ],
+            chapter: Some(0),
+            speed: Some(1.0),
+            volume: Some(100.0),
+            muted: Some(false),
+            subtitle_delay: Some(-0.5),
+            crop: Some(CropRectangle {
+                width: 96,
+                height: 72,
+                x: 16,
+                y: 0,
+            }),
+            aspect: Some(Aspect::Source),
+            resolution: Some(VideoSize {
+                width: 128,
+                height: 72,
+            }),
+            statistics: Some(Statistics {
+                bitrate: None,
+                dropped_frames: Some(0),
+                hardware_decode: Some("no".to_owned()),
+            }),
+            ..Observation::idle()
+        };
+
+        let next = session
+            .advanced(&observation)
+            .expect("a report with a track list is a change");
+
+        let snapshot = next.snapshot(Picture::InWindow);
+        assert_eq!(snapshot.tracks, observation.tracks);
+        assert_eq!(snapshot.chapters, observation.chapters);
+        assert_eq!(snapshot.chapter, Some(0));
+        assert_eq!(snapshot.speed, Some(1.0));
+        assert_eq!(snapshot.volume, Some(100.0));
+        assert_eq!(snapshot.muted, Some(false));
+        assert_eq!(snapshot.subtitle_delay, Some(-0.5));
+        assert_eq!(snapshot.crop, observation.crop);
+        assert_eq!(snapshot.aspect, Some(Aspect::Source));
+        assert_eq!(snapshot.resolution, observation.resolution);
+        assert_eq!(snapshot.statistics, observation.statistics);
+    }
+
+    #[test]
+    fn the_whole_published_playback_object_is_the_frozen_one() {
+        // The window is written against this object by hand, so the whole of it
+        // is asserted — every field, every null, and every camelCased name.
+        let session = PlaybackSession::opening(
+            ChosenStream::parse(
+                VideoRef::parse("series", "tt0903747:1:1").expect("a Video a request could name"),
+                AddonId::parse("community.aiostreams").expect("an Addon id"),
+                &Stream {
+                    name: Some("1080p".to_owned()),
+                    description: None,
+                    playback: Playback::Direct {
+                        url: "https://stream.example.org/v/tt0903747-1-1.mkv".to_owned(),
+                    },
+                    warnings: Vec::new(),
+                    filename: None,
+                    binge_group: None,
+                },
+            )
+            .expect("a direct URL is a candidate this Host plays"),
+        );
+
+        let observation = Observation {
+            state: PlaybackState::Playing,
+            position: Some(12.5),
+            duration: Some(600.0),
+            tracks: vec![
+                Track {
+                    id: TrackId(1),
+                    kind: TrackKind::Audio,
+                    language: Some("eng".to_owned()),
+                    title: Some("English stereo".to_owned()),
+                    codec: Some("aac".to_owned()),
+                    embedded: true,
+                    selected: true,
+                    default: true,
+                    forced: false,
+                },
+                Track {
+                    id: TrackId(2),
+                    kind: TrackKind::Subtitle,
+                    language: Some("por".to_owned()),
+                    title: None,
+                    codec: Some("subrip".to_owned()),
+                    embedded: true,
+                    selected: false,
+                    default: false,
+                    forced: false,
+                },
+            ],
+            chapters: vec![Chapter {
+                index: 0,
+                title: Some("Intro".to_owned()),
+                time: 0.0,
+            }],
+            chapter: Some(0),
+            speed: Some(1.0),
+            volume: Some(100.0),
+            muted: Some(false),
+            subtitle_delay: Some(0.0),
+            crop: Some(CropRectangle {
+                width: 96,
+                height: 72,
+                x: 16,
+                y: 0,
+            }),
+            aspect: Some(Aspect::Source),
+            resolution: Some(VideoSize {
+                width: 128,
+                height: 72,
+            }),
+            statistics: Some(Statistics {
+                bitrate: None,
+                dropped_frames: Some(0),
+                hardware_decode: Some("no".to_owned()),
+            }),
+            ..Observation::idle()
+        };
+
+        let played = session
+            .advanced(&observation)
+            .expect("a full report is a change");
+        let published =
+            serde_json::to_value(played.snapshot(Picture::InWindow)).expect("it serializes");
+
+        assert_eq!(
+            published,
+            serde_json::json!({
+                "state": "playing",
+                "picture": "in_window",
+                "failure": null,
+                "nowPlaying": {
+                    "video": { "type": "series", "id": "tt0903747:1:1" },
+                    "addon": "community.aiostreams",
+                    "name": "1080p", "description": null, "filename": null, "bingeGroup": null
+                },
+                "position": 12.5,
+                "duration": 600.0,
+                "tracks": [
+                    { "id": 1, "kind": "audio", "language": "eng", "title": "English stereo", "codec": "aac",
+                      "embedded": true, "selected": true, "default": true, "forced": false },
+                    { "id": 2, "kind": "subtitle", "language": "por", "title": null, "codec": "subrip",
+                      "embedded": true, "selected": false, "default": false, "forced": false }
+                ],
+                "chapters": [ { "index": 0, "title": "Intro", "time": 0.0 } ],
+                "chapter": 0,
+                "speed": 1.0,
+                "volume": 100.0,
+                "muted": false,
+                "subtitleDelay": 0.0,
+                "crop": { "width": 96, "height": 72, "x": 16, "y": 0 },
+                "aspect": { "kind": "source" },
+                "resolution": { "width": 128, "height": 72 },
+                "statistics": { "bitrate": null, "droppedFrames": 0, "hardwareDecode": "no" }
+            }),
+            "the whole playback object the window reads is the frozen one"
+        );
+    }
+
+    #[test]
+    fn a_tracks_words_are_kept_only_where_they_are_ones_a_snapshot_will_hold() {
+        let long = "x".repeat(crate::addon::MAX_STRING_LEN + 1);
+        let track = Track {
+            id: TrackId(1),
+            kind: TrackKind::Subtitle,
+            language: Some(long.clone()),
+            title: Some(String::new()),
+            codec: Some("subrip".to_owned()),
+            embedded: false,
+            selected: false,
+            default: false,
+            forced: false,
+        }
+        .bounded();
+
+        assert_eq!(
+            track.language, None,
+            "a word too long to hold is absence, the way it is for an Addon"
+        );
+        assert_eq!(track.title, None, "and so is one that says nothing");
+        assert_eq!(track.codec.as_deref(), Some("subrip"));
+
+        let statistics = Statistics {
+            bitrate: None,
+            dropped_frames: Some(0),
+            hardware_decode: Some(long),
+        }
+        .bounded();
+        assert_eq!(statistics.hardware_decode, None);
     }
 }

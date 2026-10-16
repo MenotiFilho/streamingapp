@@ -124,10 +124,8 @@ pub(crate) struct Properties {
 pub(crate) fn observe(memory: &Memory, properties: &Properties) -> Observation {
     if let Some(Ending::Failed(words)) = &memory.ending {
         return Observation {
-            state: PlaybackState::Idle,
-            position: None,
-            duration: None,
             failure: Some(words.clone()),
+            ..Observation::idle()
         };
     }
 
@@ -149,7 +147,7 @@ pub(crate) fn observe(memory: &Memory, properties: &Properties) -> Observation {
         state,
         position: properties.position,
         duration: properties.duration,
-        failure: None,
+        ..Observation::idle()
     }
 }
 

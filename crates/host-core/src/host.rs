@@ -6,7 +6,7 @@ use crate::cache::CatalogCache;
 use crate::catalog::{CatalogRow, Page};
 use crate::fetcher::Fetcher;
 use crate::meta::Title;
-use crate::playback::{Control, Picture, Player};
+use crate::playback::{ChapterStep, Control, Picture, Player, Telling, TrackId, TrackKind};
 use crate::provider::Provider;
 use crate::request::{CatalogRef, Extra, ResourceRequest, TitleRef, CATALOG, META, STREAM};
 use crate::response::{Answer, Response};
@@ -85,6 +85,14 @@ impl Host {
             },
         );
         let picture = player.picture();
+        // The subtitle language the owner stored is told to the Player once,
+        // before anything is opened: mpv's `slang` decides which subtitle track
+        // it selects for a Stream, and it has to be set before the `open` that
+        // would use it. A Player that refuses a preference is not a Host that
+        // cannot hold one, so the refusal is dropped.
+        let _ = player.tell(Telling::SubtitleLanguage(
+            state.preferences().subtitle_language().cloned(),
+        ));
         Ok(Self {
             store,
             fetcher,
@@ -168,9 +176,16 @@ impl Host {
     fn resolve(&mut self, validated: ValidatedAction) -> Result<Resolved, ActionError> {
         Ok(match validated {
             ValidatedAction::SetSubtitleLanguage(language) => {
+                // The preference is the Host's and persists whether or not the
+                // Player takes it; a Player that refuses is not a reason a
+                // client cannot express a preference (ADR-0013).
+                let _ = self
+                    .player
+                    .tell(Telling::SubtitleLanguage(Some(language.clone())));
                 Resolved::Change(Change::SetSubtitleLanguage(language))
             }
             ValidatedAction::ClearSubtitleLanguage => {
+                let _ = self.player.tell(Telling::SubtitleLanguage(None));
                 Resolved::Change(Change::ClearSubtitleLanguage)
             }
             ValidatedAction::AddAddon(url) => {
@@ -315,21 +330,77 @@ impl Host {
             }
             ValidatedAction::SetPaused { paused } => {
                 self.playing(Control::Pause)?;
-                self.player
-                    .set_paused(paused)
-                    .map_err(|error| ActionError::Playback {
-                        detail: error.to_string(),
-                    })?;
+                self.told(Telling::Pause(paused))?;
                 Resolved::Change(Change::SetPaused(paused))
             }
             ValidatedAction::Seek { target } => {
                 self.playing(Control::Seek)?;
-                self.player
-                    .seek(target)
-                    .map_err(|error| ActionError::Playback {
-                        detail: error.to_string(),
-                    })?;
+                self.told(Telling::Seek(target))?;
                 Resolved::Change(Change::Seek(target))
+            }
+            ValidatedAction::SetAudioTrack { track } => {
+                self.playing(Control::AudioTrack)?;
+                self.known_track(Control::AudioTrack, TrackKind::Audio, track)?;
+                self.told(Telling::AudioTrack(track))?;
+                Resolved::Change(Change::SetAudioTrack(track))
+            }
+            ValidatedAction::SetSubtitleTrack { track } => {
+                self.playing(Control::SubtitleTrack)?;
+                if let Some(id) = track {
+                    self.known_track(Control::SubtitleTrack, TrackKind::Subtitle, id)?;
+                }
+                self.told(Telling::SubtitleTrack(track))?;
+                Resolved::Change(Change::SetSubtitleTrack(track))
+            }
+            ValidatedAction::SetSubtitleDelay { seconds } => {
+                self.playing(Control::SubtitleDelay)?;
+                self.told(Telling::SubtitleDelay { seconds })?;
+                Resolved::Change(Change::SetSubtitleDelay(seconds))
+            }
+            ValidatedAction::SetSpeed { rate } => {
+                self.playing(Control::Speed)?;
+                self.told(Telling::Speed { rate })?;
+                Resolved::Change(Change::SetSpeed(rate))
+            }
+            ValidatedAction::SetVolume { level } => {
+                self.playing(Control::Volume)?;
+                self.told(Telling::Volume { level })?;
+                Resolved::Change(Change::SetVolume(level))
+            }
+            ValidatedAction::SetMuted { muted } => {
+                self.playing(Control::Mute)?;
+                self.told(Telling::Muted(muted))?;
+                Resolved::Change(Change::SetMuted(muted))
+            }
+            ValidatedAction::NextChapter => {
+                self.playing(Control::Chapter)?;
+                self.told(Telling::Chapter(ChapterStep::Next))?;
+                Resolved::Change(Change::Chapter(ChapterStep::Next))
+            }
+            ValidatedAction::PreviousChapter => {
+                self.playing(Control::Chapter)?;
+                self.told(Telling::Chapter(ChapterStep::Previous))?;
+                Resolved::Change(Change::Chapter(ChapterStep::Previous))
+            }
+            ValidatedAction::SetChapter { index } => {
+                self.playing(Control::Chapter)?;
+                // The chapter list is the Host's own record of what the Player
+                // last reported, so an index past it names nothing to move to.
+                if index >= self.state.playback().chapters().len() {
+                    return Err(ActionError::UnknownChapter { index });
+                }
+                self.told(Telling::Chapter(ChapterStep::At { index }))?;
+                Resolved::Change(Change::Chapter(ChapterStep::At { index }))
+            }
+            ValidatedAction::SetCrop { crop } => {
+                self.playing(Control::Crop)?;
+                self.told(Telling::Crop(crop.clone()))?;
+                Resolved::Change(Change::SetCrop(crop))
+            }
+            ValidatedAction::SetAspect { aspect } => {
+                self.playing(Control::Aspect)?;
+                self.told(Telling::Aspect(aspect))?;
+                Resolved::Change(Change::SetAspect(aspect))
             }
             ValidatedAction::StopPlayback => {
                 // A stop is allowed whenever the Host is on a Stream at all,
@@ -356,6 +427,40 @@ impl Host {
         }
 
         Err(ActionError::NothingPlaying { control })
+    }
+
+    /// The track a control names, or the refusal that the Stream has none.
+    ///
+    /// Decided against the Host's own record of the Stream — what the Player
+    /// last reported — and before the Player hears of it, so a client that names
+    /// a track that is not there is told rather than obeyed.
+    fn known_track(
+        &self,
+        control: Control,
+        kind: TrackKind,
+        id: TrackId,
+    ) -> Result<(), ActionError> {
+        let known = self
+            .state
+            .playback()
+            .tracks()
+            .iter()
+            .any(|track| track.kind == kind && track.id == id);
+
+        if known {
+            Ok(())
+        } else {
+            Err(ActionError::UnknownTrack { control, id: id.0 })
+        }
+    }
+
+    /// Tell the Player one thing, in the words a client reads where it refuses.
+    fn told(&self, telling: Telling) -> Result<(), ActionError> {
+        self.player
+            .tell(telling)
+            .map_err(|error| ActionError::Playback {
+                detail: error.to_string(),
+            })
     }
 
     /// One configured Addon, or the refusal that names it.

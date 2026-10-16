@@ -40,13 +40,12 @@ mod telling;
 
 use std::sync::Mutex;
 
-use host_core::{Observation, Picture, PlaybackError, Player, SeekTarget, StreamUrl};
+use host_core::{Observation, Picture, PlaybackError, Player, StreamUrl, Telling};
 use libmpv2::events::Event;
 use libmpv2::mpv_end_file_reason as EndFileReason;
 use libmpv2::Mpv;
 
 use crate::observing::{failure_words, observe, Memory, Properties};
-use crate::telling::Telling;
 
 /// Where the picture is put, as this platform can manage it.
 ///
@@ -126,9 +125,12 @@ impl MpvPlayer {
         })
     }
 
-    /// Tell mpv one thing, and report what mpv said about the telling itself.
-    fn tell(&self, telling: Telling) -> Result<(), PlaybackError> {
-        let (name, arguments) = telling.command();
+    /// Run one mpv command, and report what mpv said about the command itself.
+    ///
+    /// The command is already in mpv's own spelling — the pure half, in
+    /// [`telling`] — so what is left here is only the call.
+    fn run(&self, command: (&'static str, Vec<String>)) -> Result<(), PlaybackError> {
+        let (name, arguments) = command;
         let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
 
         self.mpv
@@ -230,24 +232,18 @@ impl Player for MpvPlayer {
 
         // An open that mpv will not even take is the one failure this call can
         // report: whether the *Stream* opens is found out later, in `observe`.
-        let result = self
-            .tell(Telling::Load(url.clone()))
-            .map_err(|error| match error {
-                PlaybackError::Command { detail } => PlaybackError::Open { detail },
-                other => other,
-            });
+        let result = self.run(telling::load(url)).map_err(|error| match error {
+            PlaybackError::Command { detail } => PlaybackError::Open { detail },
+            other => other,
+        });
         if result.is_ok() {
             *memory = Memory::asking();
         }
         result
     }
 
-    fn set_paused(&self, paused: bool) -> Result<(), PlaybackError> {
-        self.tell(Telling::Pause(paused))
-    }
-
-    fn seek(&self, target: SeekTarget) -> Result<(), PlaybackError> {
-        self.tell(Telling::Seek(target))
+    fn tell(&self, telling: Telling) -> Result<(), PlaybackError> {
+        self.run(telling::command(&telling))
     }
 
     fn stop(&self) -> Result<(), PlaybackError> {
@@ -255,7 +251,7 @@ impl Player for MpvPlayer {
             .memory
             .lock()
             .expect("nothing panics while holding the Player's memory");
-        let result = self.tell(Telling::Stop);
+        let result = self.run(telling::stop());
         if result.is_ok() {
             self.drain(&mut memory);
             *memory = Memory::idle();

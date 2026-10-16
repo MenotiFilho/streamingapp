@@ -8,7 +8,7 @@ use std::sync::Arc;
 use host_core::{
     Action, ActionError, AddonProvider, FixtureFetcher, FixturePlayer, Host, InMemorySecretStore,
     InMemoryStore, Observation, PlaybackError, PlaybackState, SecretBackend, SeekTarget, Snapshot,
-    Store, ACTION_VERSION,
+    Store, Telling, ACTION_VERSION,
 };
 
 /// The URL a recorded debrid answer would carry, with a session in it — the
@@ -91,6 +91,16 @@ fn playing(fixture: &mut Fixture) {
 fn playback_of(published: &[Snapshot]) -> &host_core::PlaybackSnapshot {
     assert_eq!(published.len(), 1, "a change publishes one Snapshot");
     &published[0].playback
+}
+
+/// The tellings that are *controls*: everything but the subtitle language the
+/// Host tells the Player once, at startup, from the stored preference.
+fn controls(player: &FixturePlayer) -> Vec<Telling> {
+    player
+        .tellings()
+        .into_iter()
+        .filter(|telling| !matches!(telling, Telling::SubtitleLanguage(_)))
+        .collect()
 }
 
 #[test]
@@ -216,6 +226,7 @@ fn a_candidate_that_is_not_a_url_this_host_opens_is_refused() {
 fn a_control_with_nothing_playing_is_refused_rather_than_silently_obeyed() {
     let mut fixture = fixture();
     let before = fixture.host.snapshot();
+    let told = fixture.player.tellings();
 
     let refusals = [
         serde_json::json!({ "type": "set_paused", "paused": true }),
@@ -233,8 +244,11 @@ fn a_control_with_nothing_playing_is_refused_rather_than_silently_obeyed() {
         );
     }
 
-    assert_eq!(fixture.player.paused(), Vec::<bool>::new());
-    assert_eq!(fixture.player.sought(), Vec::<SeekTarget>::new());
+    assert_eq!(
+        fixture.player.tellings(),
+        told,
+        "a control that was refused never reached the Player"
+    );
     assert_eq!(fixture.player.stopped(), 0);
     assert_eq!(fixture.host.snapshot(), before);
 }
@@ -250,7 +264,7 @@ fn pausing_and_resuming_reach_the_player_and_move_the_state_at_once() {
             &serde_json::json!({ "type": "set_paused", "paused": true }),
         ))
         .expect("pausing something that is playing works");
-    assert_eq!(fixture.player.paused(), vec![true]);
+    assert_eq!(controls(&fixture.player), vec![Telling::Pause(true)]);
     assert_eq!(playback_of(&paused.snapshots).state, PlaybackState::Paused);
     assert_eq!(
         playback_of(&paused.snapshots).position,
@@ -264,7 +278,10 @@ fn pausing_and_resuming_reach_the_player_and_move_the_state_at_once() {
             &serde_json::json!({ "type": "set_paused", "paused": false }),
         ))
         .expect("resuming works");
-    assert_eq!(fixture.player.paused(), vec![true, false]);
+    assert_eq!(
+        controls(&fixture.player),
+        vec![Telling::Pause(true), Telling::Pause(false)]
+    );
     assert_eq!(
         playback_of(&resumed.snapshots).state,
         PlaybackState::Playing
@@ -284,8 +301,8 @@ fn seeking_reaches_the_player_and_moves_the_hosts_own_record_of_the_position() {
         })))
         .expect("seeking within a Stream works");
     assert_eq!(
-        fixture.player.sought(),
-        vec![SeekTarget::By { seconds: -10.0 }],
+        controls(&fixture.player),
+        vec![Telling::Seek(SeekTarget::By { seconds: -10.0 })],
         "the Player is given the seek the client meant, not a position the Host worked out"
     );
     assert_eq!(
@@ -329,7 +346,7 @@ fn a_seek_that_is_not_a_number_of_seconds_is_refused_before_the_player_hears_of_
         refused.is_err(),
         "a number that is not a number of seconds is not a place to go: {refused:?}"
     );
-    assert!(fixture.player.sought().is_empty());
+    assert!(controls(&fixture.player).is_empty());
 
     // The naming case, which no JSON can carry: a `NaN` built in Rust.
     let refused = Action::Seek {
@@ -380,7 +397,7 @@ fn a_stream_that_reaches_its_end_stays_named_while_the_state_says_it_ended() {
         state: PlaybackState::Ended,
         position: Some(8100.0),
         duration: Some(8100.0),
-        failure: None,
+        ..Observation::idle()
     });
     let published = fixture.host.sample().expect("reaching the end is a change");
     let reported = playback_of(std::slice::from_ref(&published));
@@ -420,9 +437,8 @@ fn a_stream_that_fails_to_open_says_so_and_leaves_the_client_on_the_list() {
 
     fixture.player.now_reporting(Observation {
         state: PlaybackState::Idle,
-        position: None,
-        duration: None,
         failure: Some("That Stream could not be opened — mpv could not load it.".to_owned()),
+        ..Observation::idle()
     });
     let published = fixture
         .host

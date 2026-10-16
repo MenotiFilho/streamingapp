@@ -1,5 +1,7 @@
 use crate::addon::{Addon, AddonId};
-use crate::playback::{ChosenStream, PlaybackSession, SeekTarget};
+use crate::playback::{
+    Aspect, ChapterStep, ChosenStream, Crop, PlaybackSession, SeekTarget, TrackId, TrackKind,
+};
 use crate::preferences::{Preferences, SubtitleLanguage};
 use crate::secret::SecretBackend;
 
@@ -137,6 +139,42 @@ impl State {
                 self.playback.seek(target);
                 Persist::Nothing
             }
+            Change::SetAudioTrack(track) => {
+                self.playback.select(TrackKind::Audio, Some(track));
+                Persist::Nothing
+            }
+            Change::SetSubtitleTrack(track) => {
+                self.playback.select(TrackKind::Subtitle, track);
+                Persist::Nothing
+            }
+            Change::SetSubtitleDelay(seconds) => {
+                self.playback.set_subtitle_delay(seconds);
+                Persist::Nothing
+            }
+            Change::SetSpeed(rate) => {
+                self.playback.set_speed(rate);
+                Persist::Nothing
+            }
+            Change::SetVolume(level) => {
+                self.playback.set_volume(level);
+                Persist::Nothing
+            }
+            Change::SetMuted(muted) => {
+                self.playback.set_muted(muted);
+                Persist::Nothing
+            }
+            Change::Chapter(step) => {
+                self.playback.chapter_step(step);
+                Persist::Nothing
+            }
+            Change::SetCrop(crop) => {
+                self.playback.cropped(crop);
+                Persist::Nothing
+            }
+            Change::SetAspect(aspect) => {
+                self.playback.shaped(aspect);
+                Persist::Nothing
+            }
             Change::Stop => {
                 self.playback.stop();
                 Persist::Nothing
@@ -177,6 +215,19 @@ pub(crate) enum Change {
     /// The Player was told to move, and the Host's own record of where playback
     /// is moved with it — the Player's next report is what corrects it.
     Seek(SeekTarget),
+    /// Which track of each kind is on, as the Host's own record moves it: the
+    /// selection is the Host's to say at once, and the Player is only what
+    /// makes it so.
+    SetAudioTrack(TrackId),
+    SetSubtitleTrack(Option<TrackId>),
+    SetSubtitleDelay(f64),
+    SetSpeed(f64),
+    SetVolume(f64),
+    SetMuted(bool),
+    /// Move the Host's own record of which chapter is playing.
+    Chapter(ChapterStep),
+    SetCrop(Crop),
+    SetAspect(Aspect),
     /// The Player was told to let the Stream go: nothing is playing, and what
     /// failed no longer is.
     Stop,

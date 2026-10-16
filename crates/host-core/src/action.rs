@@ -1,7 +1,11 @@
 use serde::{Deserialize, Serialize};
 
 use crate::addon::{AddonId, InvalidAddonId, InvalidManifestUrl, ManifestUrl, MAX_STRING_LEN};
-use crate::playback::{ChosenStream, Control, InvalidSeekTarget, SeekTarget, Unplayable};
+use crate::playback::{
+    checked_aspect, checked_crop, checked_speed, checked_subtitle_delay, checked_volume, Aspect,
+    ChosenStream, Control, Crop, InvalidAspect, InvalidCrop, InvalidSeekTarget, InvalidSpeed,
+    InvalidSubtitleDelay, InvalidVolume, SeekTarget, TrackId, Unplayable,
+};
 use crate::preferences::{InvalidSubtitleLanguage, SubtitleLanguage};
 use crate::request::{
     CatalogRef, Extra, InvalidCatalogRef, InvalidTitleRef, InvalidVideoRef, TitleRef, VideoRef,
@@ -111,6 +115,28 @@ pub enum Action {
         /// Where to go, or how far to move.
         target: SeekTarget,
     },
+    /// Play the audio track mpv numbers `track`.
+    SetAudioTrack { track: i64 },
+    /// Show the subtitles mpv numbers `track`, or none at all where it is null.
+    SetSubtitleTrack { track: Option<i64> },
+    /// Shift the subtitles by `seconds`, forward or back.
+    SetSubtitleDelay { seconds: f64 },
+    /// Play at `rate` times normal speed.
+    SetSpeed { rate: f64 },
+    /// Play at `level` on mpv's own scale.
+    SetVolume { level: f64 },
+    /// Hold the sound, or let it out.
+    SetMuted { muted: bool },
+    /// Move to the chapter after the one playing.
+    NextChapter,
+    /// Move to the chapter before it.
+    PreviousChapter,
+    /// Move to the chapter at `index` in the Stream's list.
+    SetChapter { index: u32 },
+    /// Crop the picture, or stop cropping it.
+    SetCrop { crop: Crop },
+    /// Override the shape the picture is drawn at.
+    SetAspect { aspect: Aspect },
     /// Stop playing: nothing is playing afterwards, and the client is back to
     /// whatever it was reading.
     StopPlayback,
@@ -222,10 +248,51 @@ impl Action {
                 let target = target.checked()?;
                 Ok(ValidatedAction::Seek { target })
             }
+            Action::SetAudioTrack { track } => Ok(ValidatedAction::SetAudioTrack {
+                track: known_id(track, Control::AudioTrack)?,
+            }),
+            Action::SetSubtitleTrack { track } => Ok(ValidatedAction::SetSubtitleTrack {
+                track: track
+                    .map(|id| known_id(id, Control::SubtitleTrack))
+                    .transpose()?,
+            }),
+            Action::SetSubtitleDelay { seconds } => Ok(ValidatedAction::SetSubtitleDelay {
+                seconds: checked_subtitle_delay(seconds)?,
+            }),
+            Action::SetSpeed { rate } => Ok(ValidatedAction::SetSpeed {
+                rate: checked_speed(rate)?,
+            }),
+            Action::SetVolume { level } => Ok(ValidatedAction::SetVolume {
+                level: checked_volume(level)?,
+            }),
+            Action::SetMuted { muted } => Ok(ValidatedAction::SetMuted { muted }),
+            Action::NextChapter => Ok(ValidatedAction::NextChapter),
+            Action::PreviousChapter => Ok(ValidatedAction::PreviousChapter),
+            Action::SetChapter { index } => Ok(ValidatedAction::SetChapter {
+                index: index as usize,
+            }),
+            Action::SetCrop { crop } => {
+                checked_crop(&crop)?;
+                Ok(ValidatedAction::SetCrop { crop })
+            }
+            Action::SetAspect { aspect } => {
+                checked_aspect(&aspect)?;
+                Ok(ValidatedAction::SetAspect { aspect })
+            }
             Action::SetPaused { paused } => Ok(ValidatedAction::SetPaused { paused }),
             Action::StopPlayback => Ok(ValidatedAction::StopPlayback),
         }
     }
+}
+
+/// A track id a Player could be handed, or the refusal for one that is not a
+/// track at all.
+///
+/// mpv numbers its tracks from one, so a zero or a negative id names nothing
+/// anywhere; whether the id is *in the Stream* is the session's own record to
+/// say, and is judged where the Stream is known.
+fn known_id(id: i64, control: Control) -> Result<TrackId, ActionError> {
+    TrackId::new(id).ok_or(ActionError::UnknownTrack { control, id })
 }
 
 /// The values a client chose, each judged on its own.
@@ -305,6 +372,35 @@ pub enum ValidatedAction {
     Seek {
         target: SeekTarget,
     },
+    SetAudioTrack {
+        track: TrackId,
+    },
+    SetSubtitleTrack {
+        track: Option<TrackId>,
+    },
+    SetSubtitleDelay {
+        seconds: f64,
+    },
+    SetSpeed {
+        rate: f64,
+    },
+    SetVolume {
+        level: f64,
+    },
+    SetMuted {
+        muted: bool,
+    },
+    NextChapter,
+    PreviousChapter,
+    SetChapter {
+        index: usize,
+    },
+    SetCrop {
+        crop: Crop,
+    },
+    SetAspect {
+        aspect: Aspect,
+    },
     StopPlayback,
 }
 
@@ -341,6 +437,16 @@ pub enum ActionError {
     InvalidVideoRef(#[from] InvalidVideoRef),
     #[error("{0}")]
     InvalidSeekTarget(#[from] InvalidSeekTarget),
+    #[error("{0}")]
+    InvalidSpeed(#[from] InvalidSpeed),
+    #[error("{0}")]
+    InvalidVolume(#[from] InvalidVolume),
+    #[error("{0}")]
+    InvalidSubtitleDelay(#[from] InvalidSubtitleDelay),
+    #[error("{0}")]
+    InvalidAspect(#[from] InvalidAspect),
+    #[error("{0}")]
+    InvalidCrop(#[from] InvalidCrop),
     #[error("the Addon's manifest could not be read: {detail}")]
     Manifest { detail: String },
     #[error("{detail}")]
@@ -351,6 +457,13 @@ pub enum ActionError {
     UnknownCatalog { addon: AddonId, catalog: CatalogRef },
     #[error("the Addon {addon} offers no meta for {title}")]
     UnknownTitle { addon: AddonId, title: TitleRef },
+    /// A track a control named that the Stream does not carry: refused before
+    /// the Player hears of it, so a client is told rather than obeyed.
+    #[error("the Stream has no {control} numbered {id}")]
+    UnknownTrack { control: Control, id: i64 },
+    /// A chapter a control named that the Stream does not have.
+    #[error("the Stream has no chapter at position {index}")]
+    UnknownChapter { index: usize },
     #[error("{detail}")]
     Extra { detail: String },
     #[error("{detail}")]
@@ -655,6 +768,168 @@ mod tests {
         assert_eq!(
             Action::ClearTmdbKey.validate(),
             Ok(ValidatedAction::ClearTmdbKey)
+        );
+    }
+
+    #[test]
+    fn every_control_action_parses_from_a_hand_written_envelope() {
+        let cases = [
+            (
+                r#"{"type":"set_audio_track","track":1}"#,
+                Action::SetAudioTrack { track: 1 },
+            ),
+            (
+                r#"{"type":"set_subtitle_track","track":2}"#,
+                Action::SetSubtitleTrack { track: Some(2) },
+            ),
+            (
+                r#"{"type":"set_subtitle_track","track":null}"#,
+                Action::SetSubtitleTrack { track: None },
+            ),
+            (
+                r#"{"type":"set_subtitle_delay","seconds":-0.5}"#,
+                Action::SetSubtitleDelay { seconds: -0.5 },
+            ),
+            (
+                r#"{"type":"set_speed","rate":1.5}"#,
+                Action::SetSpeed { rate: 1.5 },
+            ),
+            (
+                r#"{"type":"set_volume","level":100.0}"#,
+                Action::SetVolume { level: 100.0 },
+            ),
+            (
+                r#"{"type":"set_muted","muted":true}"#,
+                Action::SetMuted { muted: true },
+            ),
+            (r#"{"type":"next_chapter"}"#, Action::NextChapter),
+            (r#"{"type":"previous_chapter"}"#, Action::PreviousChapter),
+            (
+                r#"{"type":"set_chapter","index":0}"#,
+                Action::SetChapter { index: 0 },
+            ),
+            (
+                r#"{"type":"set_crop","crop":{"kind":"rectangle","width":96,"height":72,"x":16,"y":0}}"#,
+                Action::SetCrop {
+                    crop: Crop::Rectangle {
+                        width: 96,
+                        height: 72,
+                        x: 16,
+                        y: 0,
+                    },
+                },
+            ),
+            (
+                r#"{"type":"set_crop","crop":{"kind":"off"}}"#,
+                Action::SetCrop { crop: Crop::Off },
+            ),
+            (
+                r#"{"type":"set_aspect","aspect":{"kind":"ratio","value":1.7778}}"#,
+                Action::SetAspect {
+                    aspect: Aspect::Ratio { value: 1.7778 },
+                },
+            ),
+            (
+                r#"{"type":"set_aspect","aspect":{"kind":"source"}}"#,
+                Action::SetAspect {
+                    aspect: Aspect::Source,
+                },
+            ),
+        ];
+
+        for (body, expected) in cases {
+            let envelope = format!(r#"{{"version":{ACTION_VERSION},"action":{body}}}"#);
+            assert_eq!(
+                Action::parse(&envelope),
+                Ok(expected),
+                "{body} is a control a client sends"
+            );
+        }
+    }
+
+    #[test]
+    fn a_control_value_outside_its_bound_is_refused_with_the_right_kind() {
+        assert!(matches!(
+            Action::SetSpeed { rate: 0.04 }.validate(),
+            Err(ActionError::InvalidSpeed(_))
+        ));
+        assert!(matches!(
+            Action::SetVolume { level: 131.0 }.validate(),
+            Err(ActionError::InvalidVolume(_))
+        ));
+        assert!(matches!(
+            Action::SetSubtitleDelay { seconds: 3600.1 }.validate(),
+            Err(ActionError::InvalidSubtitleDelay(_))
+        ));
+        assert!(matches!(
+            Action::SetAspect {
+                aspect: Aspect::Ratio { value: 0.0 },
+            }
+            .validate(),
+            Err(ActionError::InvalidAspect(_))
+        ));
+        assert!(matches!(
+            Action::SetCrop {
+                crop: Crop::Rectangle {
+                    width: 0,
+                    height: 72,
+                    x: 0,
+                    y: 0,
+                },
+            }
+            .validate(),
+            Err(ActionError::InvalidCrop(_))
+        ));
+        assert!(
+            matches!(
+                Action::SetAudioTrack { track: 0 }.validate(),
+                Err(ActionError::UnknownTrack { .. })
+            ),
+            "a zero or negative id names no track anywhere"
+        );
+        assert!(matches!(
+            Action::SetSubtitleTrack { track: Some(-1) }.validate(),
+            Err(ActionError::UnknownTrack { .. })
+        ));
+    }
+
+    #[test]
+    fn the_controls_wire_shape_is_the_declared_one() {
+        assert_eq!(
+            serde_json::to_value(Action::SetSpeed { rate: 1.5 }).expect("an Action serializes"),
+            serde_json::json!({ "type": "set_speed", "rate": 1.5 })
+        );
+        assert_eq!(
+            serde_json::to_value(Action::SetCrop {
+                crop: Crop::Rectangle {
+                    width: 96,
+                    height: 72,
+                    x: 16,
+                    y: 0,
+                },
+            })
+            .expect("an Action serializes"),
+            serde_json::json!({
+                "type": "set_crop",
+                "crop": { "kind": "rectangle", "width": 96, "height": 72, "x": 16, "y": 0 },
+            }),
+            "a crop names its own kind inside the field, because the Action already has a type"
+        );
+        assert_eq!(
+            serde_json::to_value(Action::SetAspect {
+                aspect: Aspect::Source,
+            })
+            .expect("an Action serializes"),
+            serde_json::json!({
+                "type": "set_aspect",
+                "aspect": { "kind": "source" },
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(Action::SetSubtitleTrack { track: None })
+                .expect("an Action serializes"),
+            serde_json::json!({ "type": "set_subtitle_track", "track": null }),
+            "null is the subtitle track that is off"
         );
     }
 }
