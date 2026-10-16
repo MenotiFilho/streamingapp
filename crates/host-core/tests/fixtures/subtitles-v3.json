@@ -1,0 +1,7 @@
+{
+  "addonName": "OpenSubtitles v3",
+  "subtitles": [
+    { "id": "sub-pt-BR-1", "url": "https://subs.example.org/v3/tt0133093/pt-BR.srt", "lang": "por" },
+    { "id": "sub-eng-1", "url": "https://subs.example.org/v3/tt0133093/en.srt", "lang": "eng" }
+  ]
+}

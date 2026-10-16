@@ -33,6 +33,10 @@ pub const META: &str = "meta";
 /// a Stream asks for.
 pub const STREAM: &str = "stream";
 
+/// The resource that answers with a Video's subtitle files — the fallback for a
+/// Stream whose container carries none of its own (ADR-0014).
+pub const SUBTITLES: &str = "subtitles";
+
 /// The `extra` name that carries a search query.
 pub const SEARCH: &str = "search";
 

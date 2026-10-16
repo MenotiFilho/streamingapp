@@ -6,15 +6,21 @@ use crate::cache::CatalogCache;
 use crate::catalog::{CatalogRow, Page};
 use crate::fetcher::Fetcher;
 use crate::meta::Title;
-use crate::playback::{ChapterStep, Control, Picture, Player, Telling, TrackId, TrackKind};
+use crate::playback::{
+    ChapterStep, ChosenStream, Control, Observation, Picture, PlaybackState, Player, Telling,
+    TrackId, TrackKind,
+};
 use crate::provider::Provider;
-use crate::request::{CatalogRef, Extra, ResourceRequest, TitleRef, CATALOG, META, STREAM};
+use crate::request::{
+    CatalogRef, Extra, ResourceRequest, TitleRef, VideoRef, CATALOG, META, STREAM, SUBTITLES,
+};
 use crate::response::{Answer, Response};
 use crate::secret::{CredentialKind, SecretStore};
 use crate::snapshot::Snapshot;
 use crate::state::{Change, Persist, Protection, State};
 use crate::store::{Store, StoreError};
-use crate::stream::AddonStreams;
+use crate::stream::{AddonStreams, Stream};
+use crate::subtitles::MAX_FALLBACK_SUBTITLES;
 use crate::{meta, tmdb};
 
 /// The Host: its state, and the one door to it.
@@ -159,11 +165,99 @@ impl Host {
     /// something is playing (ADR-0013).
     pub fn sample(&mut self) -> Option<Snapshot> {
         let observation = self.player.observe();
+
+        // Reading the Player's report is also where the Host notices a Stream
+        // that came up with no subtitles of its own, and offers the Addon
+        // fallback once. The fetch is I/O inside the tick and that is
+        // deliberate: a Stream that needs subtitles needs them whether or not a
+        // client has a menu open, so no client can cause or prevent it
+        // (ADR-0014). The attempt is the Host's own note and is not published;
+        // a tick that only records it moves no revision.
+        if self.offers_subtitles(&observation) {
+            self.ask_addons_for_subtitles();
+            self.state.record_subtitles_attempt();
+        }
+
         let next = self.state.playback().advanced(&observation)?;
 
         self.state.set_playback(next);
         self.revision += 1;
         Some(self.snapshot())
+    }
+
+    /// Whether the Addon subtitles fallback is owed right now.
+    ///
+    /// Only when the Stream is loaded and live — not merely opening — the
+    /// Player reports no embedded subtitle track at all, and this Stream has
+    /// not been asked about yet. Embedded tracks always win, so a Stream that
+    /// reports one is never asked about; and the attempt is per Stream, so a
+    /// Stream with no subtitles anywhere is asked about once rather than every
+    /// tick (ADR-0014).
+    fn offers_subtitles(&self, observation: &Observation) -> bool {
+        if !self.state.playback().has_stream() || self.state.playback().subtitles_attempted() {
+            return false;
+        }
+        if !matches!(
+            observation.state,
+            PlaybackState::Playing | PlaybackState::Paused
+        ) {
+            return false;
+        }
+
+        !observation
+            .tracks
+            .iter()
+            .any(|track| track.kind == TrackKind::Subtitle && track.embedded)
+    }
+
+    /// Ask every configured Addon that answers a `subtitles` request for the
+    /// Video playing, and tell the Player to load what comes back.
+    ///
+    /// One Addon failing is one Addon with nothing, not a failed fallback: the
+    /// others still answer (ADR-0010's rule, applied here). What comes back is
+    /// capped, across every Addon, at [`MAX_FALLBACK_SUBTITLES`], because a
+    /// fallback is a handful of tracks and none of them is a choice a client
+    /// made.
+    fn ask_addons_for_subtitles(&self) {
+        let Some(chosen) = self.state.playback().chosen() else {
+            return;
+        };
+        let video = chosen.now_playing.video.clone();
+        let requested = ResourceRequest::new(SUBTITLES, &video.r#type, &video.id);
+        let addons: Vec<Addon> = self
+            .state
+            .addons()
+            .iter()
+            .filter(|addon| addon.manifest().answers(&requested))
+            .cloned()
+            .collect();
+
+        let mut added = 0usize;
+        for addon in &addons {
+            if added >= MAX_FALLBACK_SUBTITLES {
+                break;
+            }
+            // A fetch that fails, or an answer that cannot be read, is this
+            // Addon having nothing: the Host does not invent a subtitle for it,
+            // and the next Addon is still asked.
+            let Ok(subtitles) = self.provider.subtitles(addon, &requested) else {
+                continue;
+            };
+            for subtitle in subtitles {
+                if added >= MAX_FALLBACK_SUBTITLES {
+                    break;
+                }
+                // A Player that refuses one is not a failed fallback either: the
+                // Host's own record has already noted the attempt, and a refusal
+                // is the Player's to make.
+                let _ = self.player.tell(Telling::AddSubtitle {
+                    url: subtitle.url,
+                    title: subtitle.id,
+                    language: subtitle.language,
+                });
+                added += 1;
+            }
+        }
     }
 
     /// Turn a validated Action into the change it will make, or the answer it
@@ -402,6 +496,19 @@ impl Host {
                 self.told(Telling::Aspect(aspect))?;
                 Resolved::Change(Change::SetAspect(aspect))
             }
+            ValidatedAction::NextEpisode => {
+                // The one control that legitimately opens a Stream: the Host
+                // asks the Addons what comes after what is playing and plays it,
+                // so this is a change like a `PlayStream` and not a telling.
+                self.playing(Control::NextEpisode)?;
+                let chosen = self.next_episode()?;
+                self.player
+                    .open(&chosen.url)
+                    .map_err(|error| ActionError::Playback {
+                        detail: error.to_string(),
+                    })?;
+                Resolved::Change(Change::Play(chosen))
+            }
             ValidatedAction::StopPlayback => {
                 // A stop is allowed whenever the Host is on a Stream at all,
                 // including a Stream that failed to open: it is how a client
@@ -460,6 +567,102 @@ impl Host {
             .tell(telling)
             .map_err(|error| ActionError::Playback {
                 detail: error.to_string(),
+            })
+    }
+
+    /// The Stream to play when a client asks for the next episode, or why the
+    /// Host will not open one.
+    ///
+    /// The Video playing must be an episode of a series, the Host asks the
+    /// Addons that answer `meta` for its Title and takes the next Video in the
+    /// Addon's own order, and then asks the Addon that is playing for that
+    /// Video's Streams — preferring the release the one playing came from (the
+    /// same `bingeGroup`) and falling back to that Addon's first playable
+    /// candidate. Nothing here invents an id by arithmetic and nothing re-ranks
+    /// the candidates: the next Video is the Addon's own, and continuing the
+    /// release is continuity rather than a score (ADR-0012, ADR-0014).
+    fn next_episode(&self) -> Result<ChosenStream, ActionError> {
+        let Some(playing) = self.state.playback().chosen() else {
+            // Behind `playing(Control::NextEpisode)` this cannot happen, and it
+            // is a refusal rather than a panic all the same.
+            return Err(ActionError::NothingPlaying {
+                control: Control::NextEpisode,
+            });
+        };
+        let now = &playing.now_playing;
+        let title_id = episode_title(&now.video)?;
+        let refused = |detail: String| ActionError::NoNextEpisode { detail };
+        let asked = TitleRef::parse(&now.video.r#type, &title_id)
+            .map_err(|error| refused(error.to_string()))?;
+
+        // The Title's Videos come from the first Addon that answers `meta` for
+        // it and still lists the Video playing; the Addon's own order decides
+        // what comes next.
+        let requested_meta = ResourceRequest::new(META, &now.video.r#type, &title_id);
+        let mut next_id = None;
+        for addon in self.state.addons() {
+            if !addon.manifest().answers(&requested_meta) {
+                continue;
+            }
+            let Ok(title) = self.fetch_title(addon, &asked, &requested_meta) else {
+                continue;
+            };
+            let Some(index) = title
+                .videos
+                .iter()
+                .position(|video| video.id == now.video.id)
+            else {
+                continue;
+            };
+            let Some(following) = title.videos.get(index + 1) else {
+                continue;
+            };
+            next_id = Some(following.id.clone());
+            break;
+        }
+        let Some(next_id) = next_id else {
+            return Err(refused(format!(
+                "no Addon offers an episode after {}",
+                now.video
+            )));
+        };
+
+        // The next episode is played from the Addon already playing, so that the
+        // release continues: another Addon's candidates would be a different set
+        // of releases, which is not "the next episode of what is playing".
+        let playing_addon =
+            self.state.addon(&now.addon).cloned().ok_or_else(|| {
+                refused(format!("the Addon {} is no longer configured", now.addon))
+            })?;
+        let requested_stream = ResourceRequest::new(STREAM, &now.video.r#type, &next_id);
+        if !playing_addon.manifest().answers(&requested_stream) {
+            return Err(refused(format!(
+                "{} has nothing for {}/{}",
+                now.addon, now.video.r#type, next_id
+            )));
+        }
+        let streams = self
+            .provider
+            .streams(&playing_addon, &requested_stream)
+            .map_err(|error| refused(error.to_string()))?;
+
+        let video = VideoRef::parse(&now.video.r#type, &next_id)
+            .map_err(|error| refused(error.to_string()))?;
+
+        streams
+            .iter()
+            .find(|stream| stream.binge_group == now.binge_group)
+            .and_then(|stream| playable(&video, playing_addon.id(), stream))
+            .or_else(|| {
+                streams
+                    .iter()
+                    .find_map(|stream| playable(&video, playing_addon.id(), stream))
+            })
+            .ok_or_else(|| {
+                refused(format!(
+                    "no candidate for {}/{} is one this Host can play",
+                    now.video.r#type, next_id
+                ))
             })
     }
 
@@ -656,6 +859,46 @@ impl Host {
 enum Resolved {
     Change(Change),
     Answer(Answer),
+}
+
+/// A candidate for the next episode, judged: the Stream to play, or nothing
+/// when this Host cannot open it — an `infoHash`, or a URL it will not open.
+fn playable(video: &VideoRef, addon: &AddonId, stream: &Stream) -> Option<ChosenStream> {
+    ChosenStream::parse(video.clone(), addon.clone(), stream).ok()
+}
+
+/// The Title id an episode's Video id carries, or why this Host will not take
+/// it for an episode.
+///
+/// The protocol indexes an episode as `{title}:{season}:{episode}`, specials as
+/// season zero, and the Title id is whatever stands before those last two
+/// parts: an Addon keyed by a namespaced id (`kitsu:12345`) indexes its episodes
+/// as `kitsu:12345:1:1`, so the shape to read is "two numeric parts at the end"
+/// rather than "exactly three parts". A Video whose id does not end that way —
+/// a film's — is not an episode, and there is no next episode of it. The season
+/// and the episode numbers are deliberately not read: the next Video comes from
+/// the Addon's own list, and inventing an id by arithmetic is exactly what
+/// ADR-0014 forbids.
+fn episode_title(video: &VideoRef) -> Result<String, ActionError> {
+    let parts: Vec<&str> = video.id.split(':').collect();
+    let (title, numbers) = parts.split_at(parts.len().saturating_sub(2));
+    let title = title.join(":");
+
+    let shaped = !title.is_empty()
+        && numbers
+            .first()
+            .is_some_and(|value| value.parse::<u32>().is_ok())
+        && numbers
+            .get(1)
+            .is_some_and(|value| value.parse::<u32>().is_ok());
+
+    if shaped {
+        Ok(title)
+    } else {
+        Err(ActionError::NoNextEpisode {
+            detail: format!("{video} is playing, and it is not an episode of a series"),
+        })
+    }
 }
 
 /// The values a catalog requires, filled in from what it offers when the client

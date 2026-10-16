@@ -45,6 +45,7 @@ mod snapshot;
 mod state;
 mod store;
 mod stream;
+mod subtitles;
 mod tmdb;
 
 pub use action::{Action, ActionError, ValidatedAction, ACTION_VERSION};
@@ -69,6 +70,7 @@ pub use provider::{AddonProvider, FixtureProvider, Provider};
 pub use request::{
     CatalogRef, Extra, InvalidCatalogRef, InvalidExtra, InvalidTitleRef, InvalidVideoRef,
     ResourceRequest, TitleRef, VideoRef, CATALOG, MAX_EXTRAS, META, SEARCH, SKIP, STREAM,
+    SUBTITLES,
 };
 pub use response::{Answer, Response};
 pub use secret::{
@@ -78,6 +80,7 @@ pub use secret::{
 pub use snapshot::{PreferencesSnapshot, ProtectionSnapshot, Snapshot};
 pub use store::{InMemoryStore, Store, StoreError};
 pub use stream::{AddonStreams, Playback, Stream, StreamError, Warning, MAX_STREAM_BYTES};
+pub use subtitles::{Subtitle, SubtitleError, MAX_FALLBACK_SUBTITLES, MAX_SUBTITLES_BYTES};
 pub use tmdb::{
     Credential, ExternalId, Kind, TmdbDetails, TmdbError, TmdbId, TmdbRequest, IMAGE_ROOT,
     TMDB_ROOT,

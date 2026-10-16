@@ -137,6 +137,13 @@ pub enum Action {
     SetCrop { crop: Crop },
     /// Override the shape the picture is drawn at.
     SetAspect { aspect: Aspect },
+    /// Play the Video after the one playing, in its Title: the Addon's own next
+    /// episode, and the release the one playing came from (ADR-0014).
+    ///
+    /// A change rather than a control like the rest — the only control that
+    /// legitimately opens a Stream — so the Host asks the Addons what comes
+    /// next and plays it, and every client is told of the new Now playing.
+    NextEpisode,
     /// Stop playing: nothing is playing afterwards, and the client is back to
     /// whatever it was reading.
     StopPlayback,
@@ -279,6 +286,7 @@ impl Action {
                 checked_aspect(&aspect)?;
                 Ok(ValidatedAction::SetAspect { aspect })
             }
+            Action::NextEpisode => Ok(ValidatedAction::NextEpisode),
             Action::SetPaused { paused } => Ok(ValidatedAction::SetPaused { paused }),
             Action::StopPlayback => Ok(ValidatedAction::StopPlayback),
         }
@@ -401,6 +409,9 @@ pub enum ValidatedAction {
     SetAspect {
         aspect: Aspect,
     },
+    /// The next episode of the Title playing, asked of the Addons and played:
+    /// the one control that opens a Stream of its own.
+    NextEpisode,
     StopPlayback,
 }
 
@@ -464,6 +475,12 @@ pub enum ActionError {
     /// A chapter a control named that the Stream does not have.
     #[error("the Stream has no chapter at position {index}")]
     UnknownChapter { index: usize },
+    /// There is no next episode to play: what is playing is not an episode of a
+    /// series, no Addon offers a Video after it, or none of an Addon's
+    /// candidates for that Video is one this Host can play. The Host says so
+    /// rather than playing something else, which is what ADR-0014 asks of it.
+    #[error("{detail}")]
+    NoNextEpisode { detail: String },
     #[error("{detail}")]
     Extra { detail: String },
     #[error("{detail}")]
@@ -474,6 +491,8 @@ pub enum ActionError {
     Meta { detail: String },
     #[error("the Addon's stream response could not be read: {detail}")]
     Stream { detail: String },
+    #[error("the Addon's subtitles response could not be read: {detail}")]
+    Subtitles { detail: String },
     /// The Stream a client asked to play is not one this Host can play: an
     /// `infoHash` with no bridge to fetch it, or a URL this Host will not open.
     #[error("{0}")]
@@ -891,6 +910,38 @@ mod tests {
             Action::SetSubtitleTrack { track: Some(-1) }.validate(),
             Err(ActionError::UnknownTrack { .. })
         ));
+    }
+
+    #[test]
+    fn an_action_that_asks_for_the_next_episode_is_flat_and_judged_before_anything_is_asked() {
+        let envelope =
+            format!(r#"{{"version":{ACTION_VERSION},"action":{{"type":"next_episode"}}}}"#);
+
+        assert_eq!(Action::parse(&envelope), Ok(Action::NextEpisode));
+        assert_eq!(
+            Action::NextEpisode.validate(),
+            Ok(ValidatedAction::NextEpisode)
+        );
+        assert_eq!(
+            serde_json::to_value(Action::NextEpisode).expect("an Action serializes"),
+            serde_json::json!({ "type": "next_episode" })
+        );
+    }
+
+    #[test]
+    fn a_refusal_to_skip_to_the_next_episode_names_its_own_kind() {
+        let refused = ActionError::NoNextEpisode {
+            detail: "no Addon offers an episode after series/tt0903747:1:3".to_owned(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(&refused).expect("a refusal serializes"),
+            serde_json::json!({
+                "kind": "no_next_episode",
+                "detail": "no Addon offers an episode after series/tt0903747:1:3",
+            }),
+            "a client acts on the kind and a person reads the sentence"
+        );
     }
 
     #[test]

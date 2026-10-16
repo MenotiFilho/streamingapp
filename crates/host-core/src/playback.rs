@@ -844,6 +844,11 @@ pub(crate) struct PlaybackSession {
     aspect: Option<Aspect>,
     resolution: Option<VideoSize>,
     statistics: Option<Statistics>,
+    /// Whether the Host has already asked the Addons for subtitles for the
+    /// Stream playing now (ADR-0014). The Player has never heard of it, so a
+    /// report that rebuilds the session carries it forward rather than losing
+    /// it; a new Stream starts a fresh record.
+    subtitles_attempted: bool,
 }
 
 impl PlaybackSession {
@@ -866,6 +871,7 @@ impl PlaybackSession {
             aspect: None,
             resolution: None,
             statistics: None,
+            subtitles_attempted: false,
         }
     }
 
@@ -935,6 +941,30 @@ impl PlaybackSession {
     /// The chapters the Stream offers, as the Player last reported them.
     pub(crate) fn chapters(&self) -> &[Chapter] {
         &self.chapters
+    }
+
+    /// The Stream the Host is on, as it was chosen — the Video and the Addon's
+    /// own words about the candidate. What the Host's own rules read when they
+    /// need to know *what* is playing rather than *where* (the subtitle
+    /// fallback of ADR-0014, and next episode).
+    pub(crate) fn chosen(&self) -> Option<&ChosenStream> {
+        self.playing.as_ref()
+    }
+
+    /// Whether the Host has already asked the Addons for subtitles for the
+    /// Stream playing now.
+    pub(crate) fn subtitles_attempted(&self) -> bool {
+        self.subtitles_attempted
+    }
+
+    /// Record that the Addon subtitles fallback was attempted, so it is not
+    /// attempted again for the Stream playing now.
+    ///
+    /// Not published: this is the Host's own note to itself, and the Player's
+    /// next report — carrying the tracks the fallback added — is what a
+    /// Snapshot carries.
+    pub(crate) fn record_subtitles_attempt(&mut self) {
+        self.subtitles_attempted = true;
     }
 
     /// Hold the picture where it is, or let it run — the record moving at the
@@ -1059,6 +1089,10 @@ impl PlaybackSession {
             aspect: observation.aspect,
             resolution: observation.resolution,
             statistics: observation.statistics.clone(),
+            // The Player never heard of this, so a report that rebuilds the
+            // session carries the attempt forward rather than forgetting it and
+            // asking four times a second (ADR-0014).
+            subtitles_attempted: self.subtitles_attempted,
         };
 
         (next != *self).then_some(next)

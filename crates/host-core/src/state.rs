@@ -75,6 +75,13 @@ impl State {
         self.playback = playback;
     }
 
+    /// Record that the Addon subtitles fallback was attempted for the Stream
+    /// playing now. The Host's note to itself rather than something the Player
+    /// says, so it moves no revision and is published by nothing (ADR-0014).
+    pub(crate) fn record_subtitles_attempt(&mut self) {
+        self.playback.record_subtitles_attempt();
+    }
+
     pub(crate) fn has_addon(&self, id: &AddonId) -> bool {
         self.addons.iter().any(|addon| addon.id() == id)
     }

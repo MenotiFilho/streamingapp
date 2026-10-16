@@ -159,3 +159,14 @@ and trimmed the same way.
   string. That is a fact about the Addon rather than about one candidate, so it
   is refused.
 
+## Subtitles responses
+
+A Video's subtitle files, as the `subtitles` fallback asks for them.
+
+- `subtitles-v3.json` — written by hand to the v3 shape, not recorded: a real
+  answer's URLs point at files served by a specific addon service, and the shape
+  — an `id`, a `url` and a `lang`, beside a top-level `addonName` this Host has
+  no use for — is the whole of what the Host reads. The URLs are the point: each
+  is an `http`/`https` address the Player can `sub-add`, validated once and never
+  published (ADR-0014).
+
