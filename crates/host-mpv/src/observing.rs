@@ -31,10 +31,15 @@ pub(crate) struct Memory {
     asking: bool,
     /// How the last open ended, when it did.
     ending: Option<Ending>,
-    /// Whether the Stream now being watched has already been reported on.
-    /// Set when the picture first comes up, cleared with every new open, so
-    /// that what mpv says about one Stream is said once.
-    watching: bool,
+    /// What mpv was last *reported* as decoding with, once the picture was up.
+    ///
+    /// The line is worth having when it changes and not four times a second, and
+    /// the change that matters is hardware decode engaging a moment after the
+    /// picture appears: logging only the first tick reports `no` and then never
+    /// mentions the `d3d11va` that follows, which is the opposite of what a
+    /// person debugging playback wants (it is what the Windows walkthrough read,
+    /// and misread, until #28).
+    decode: Option<(String, String)>,
 }
 
 /// How an open ended, where it did not simply keep playing.
@@ -57,7 +62,7 @@ impl Memory {
         Self {
             asking: true,
             ending: None,
-            watching: false,
+            decode: None,
         }
     }
 
@@ -67,26 +72,37 @@ impl Memory {
         self.ending = None;
     }
 
-    /// Whether this observation is the first sight of a Stream's picture *and*
-    /// there is something to say about how it is being drawn — which is once
-    /// per Stream, and not before mpv has configured its video output.
+    /// Whether what mpv is decoding with is worth saying now: the picture is up,
+    /// and either this Stream has not been reported on yet or mpv has changed
+    /// what it decodes with since.
     ///
-    /// `drawing` is whether mpv has answered what the picture's frames are:
-    /// asking it the moment the position appears would report a video output
-    /// that has not been set up yet, which is a fact about the timing and not
-    /// about the picture.
-    pub(crate) fn reported(&mut self, observation: &Observation, drawing: bool) -> bool {
-        if self.watching {
+    /// `drawing` is mpv's own `vo-configured` — a fact about the video output —
+    /// rather than whether a pixel format happened to be readable this tick,
+    /// which is a fact about the timing: gating on the latter is why this line
+    /// went unsaid on Windows for a whole ticket.
+    pub(crate) fn reported(
+        &mut self,
+        observation: &Observation,
+        drawing: bool,
+        decode: (&str, &str),
+    ) -> bool {
+        if !drawing {
             return false;
         }
         let up = matches!(
             observation.state,
             PlaybackState::Playing | PlaybackState::Paused
         );
-        if up && drawing {
-            self.watching = true;
+        if !up {
+            return false;
         }
-        up && drawing
+
+        let decode = (decode.0.to_owned(), decode.1.to_owned());
+        if self.decode.as_ref() == Some(&decode) {
+            return false;
+        }
+        self.decode = Some(decode);
+        true
     }
 
     /// mpv played a file to its end.
@@ -546,7 +562,7 @@ mod tests {
     }
 
     #[test]
-    fn a_streams_picture_is_reported_on_once_and_only_once() {
+    fn a_decode_is_reported_when_the_picture_comes_up_and_when_it_changes() {
         let mut memory = Memory::asking();
         let playing = Properties {
             position: Some(1.0),
@@ -556,23 +572,33 @@ mod tests {
 
         let first = observe(&memory, &playing);
         assert!(
-            !memory.reported(&first, false),
-            "a picture whose video output has not been configured says nothing yet"
+            !memory.reported(&first, false, ("no", "unknown")),
+            "a picture whose video output is not configured says nothing yet"
         );
         assert!(
-            memory.reported(&first, true),
-            "the first sight of a picture with frames is when mpv's decode is worth logging"
+            memory.reported(&first, true, ("no", "unknown")),
+            "the first sight of a picture is when mpv's decode is worth logging"
         );
         assert!(
-            !memory.reported(&first, true),
+            !memory.reported(&first, true, ("no", "unknown")),
             "the four ticks a second after it are not"
+        );
+        assert!(
+            memory.reported(&first, true, ("d3d11va", "unknown")),
+            "but hardware decode engaging a moment later is exactly the change worth saying"
         );
 
         let mut fresh = Memory::asking();
         let opening = observe(&fresh, &loading());
         assert!(
-            !fresh.reported(&opening, true),
+            !fresh.reported(&opening, true, ("no", "unknown")),
             "an open in flight has no picture to report on yet"
+        );
+
+        let mut again = Memory::asking();
+        assert!(
+            again.reported(&first, true, ("d3d11va", "unknown")),
+            "a new Stream says what it decodes with, even when it is what the last one said"
         );
     }
 

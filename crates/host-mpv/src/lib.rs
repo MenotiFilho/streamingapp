@@ -447,14 +447,18 @@ impl Player for MpvPlayer {
         // video output — rather than whether a pixel format happened to be
         // readable on this tick, which is a fact about the timing.
         let (current, format) = self.decoding();
+        let decode = (
+            current.as_deref().unwrap_or("no"),
+            format.as_deref().unwrap_or("unknown"),
+        );
         let drawing = self
             .mpv
             .get_property::<bool>("vo-configured")
             .unwrap_or(false);
-        if memory.reported(&observation, drawing) {
+        if memory.reported(&observation, drawing, decode) {
             tracing::info!(
-                hwdec = current.as_deref().unwrap_or("no"),
-                pixelformat = format.as_deref().unwrap_or("unknown"),
+                hwdec = decode.0,
+                pixelformat = decode.1,
                 "the picture is playing",
             );
         }
