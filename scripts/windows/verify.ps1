@@ -384,6 +384,306 @@ function Press-Element($app, $element) {
     Start-Sleep -Seconds 2
 }
 
+# Every button the window shows, in the order the tree lists them — which is the
+# order they are drawn, and so the order the menu's groups appear in.
+function Buttons($app) {
+    @((Window-Root $app).FindAll(
+        [Windows.Automation.TreeScope]::Descendants,
+        (New-Object Windows.Automation.PropertyCondition(
+            [Windows.Automation.AutomationElement]::ControlTypeProperty,
+            [Windows.Automation.ControlType]::Button))))
+}
+
+# The buttons whose accessible name contains this word. A control's name is the
+# words on it — a track's label and its marks, a chapter's time and title — so a
+# fragment is what finds one without spelling the whole line (and `aria-pressed`
+# choices are buttons the Invoke pattern is not guaranteed on; see Press-Element).
+function Buttons-Matching($app, $fragment) {
+    @(Buttons $app | Where-Object { $_.Current.Name -like ('*' + $fragment + '*') })
+}
+
+# The buttons whose accessible name is exactly this word for word.
+function Buttons-Named($app, $name) {
+    @(Buttons $app | Where-Object { $_.Current.Name -eq $name })
+}
+
+# Where a button whose name contains this fragment sits among all the window's
+# buttons, in the order the tree lists them; -1 where there is none.
+function Button-At($app, $fragment) {
+    $names = @(Buttons $app | ForEach-Object { $_.Current.Name })
+    for ($i = 0; $i -lt $names.Count; $i++) {
+        if ($names[$i] -like ('*' + $fragment + '*')) { return $i }
+    }
+    return -1
+}
+
+# One such button, waiting for the window to draw it.
+function Button-Named($app, $name, $seconds = 8) {
+    $deadline = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $deadline) {
+        $found = Buttons-Named $app $name
+        if ($found.Count -gt 0) { return $found[0] }
+        Start-Sleep -Milliseconds 400
+    }
+    return $null
+}
+
+# Whether a choice is the one on. Chromium exposes `aria-pressed` on a button
+# through the Toggle pattern, so which choice of a group is selected is read off
+# the control itself rather than inferred from the words around it.
+function Toggled($element) {
+    if (-not $element) { return $false }
+    $pattern = $null
+    if ($element.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern, [ref]$pattern)) {
+        return $pattern.Current.ToggleState -eq [Windows.Automation.ToggleState]::On
+    }
+    return $false
+}
+
+# A readout the menu draws — the `<span>` a control's value is shown in — as
+# opposed to a button that carries the same words. Chromium gives static text a
+# control type of its own, which is what tells "the readout now says +0.1 s"
+# apart from "there is a +0.1 s button".
+function Readout($app, $name, $seconds = 8) {
+    $deadline = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $deadline) {
+        $element = Find-Element (Window-Root $app) $name $null 1
+        if ($element -and $element.Current.ControlType -eq [Windows.Automation.ControlType]::Text) {
+            return $element
+        }
+        Start-Sleep -Milliseconds 300
+    }
+    return $null
+}
+
+# The series card in the rows: the first card of the row after the Addon's first
+# catalog's pager. The Addon lists its catalogs in its own order, and this
+# walkthrough's fixture — and Cinemeta, the default Addon — puts a movie row
+# first and a series row second, so the button after `More from <catalog>` is
+# that series.
+function Series-Card($app) {
+    $buttons = Buttons $app
+    for ($i = 0; $i -lt $buttons.Count - 1; $i++) {
+        if ($buttons[$i].Current.Name -eq ('More from ' + $AddonCatalog)) {
+            return $buttons[$i + 1]
+        }
+    }
+    return $null
+}
+
+# The now-playing line, `Playing <the Stream's own badges>`, which is how a
+# person reads which episode is on.
+function Playing-Line($app) {
+    $match = [regex]::Match((Page-Text $app), 'Playing [^|]+')
+    if ($match.Success) { return $match.Value.Trim() }
+    return ''
+}
+
+# Walk the whole control set on the Stream that is playing: each group asserted
+# present, each choice asserted through the control's own state, and each group
+# screenshotted so a person can read it too.
+#
+# The fixture file is what makes it possible — two audio tracks, two embedded
+# subtitle tracks, two chapters and black bars, so every control has something
+# to move. Whether what is playing is a film or an episode changes only whether
+# `Next episode` is offered, which is the last thing checked.
+function Walk-Controls($app) {
+    Press-Element $app (Button-Named $app 'Menu')
+    # The menu is drawn with the controls in it; `Subtitles off` is one that is
+    # always there while it is open, so it is what the wait is for.
+    $text = Wait-Text $app 'Subtitles off' 15
+
+    foreach ($group in @('Audio', 'Subtitles', 'Subtitle delay', 'Speed', 'Volume',
+            'Chapters', 'Crop', 'Aspect', 'Statistics')) {
+        Check "the menu has a $group group" (Shows $app $group 8) "the window shows: $(Page-Text $app)"
+        Shot $app ('13-controls-' + ($group -replace ' ', '-').ToLower() + '.png')
+    }
+
+    '--- 13a. the tracks the file carries, embedded first'
+    $audioEng = Buttons-Matching $app 'English stereo'
+    $audioPor = Buttons-Matching $app 'Portuguese'
+    $subtitles = Buttons-Matching $app 'subrip'
+    Check 'the file carries two audio tracks, and both are listed' (
+        ($audioEng.Count -ge 1) -and ($audioPor.Count -ge 1)) "the window shows: $(Page-Text $app)"
+    Check 'and both audio tracks are the file''s own, marked embedded' (
+        ($audioEng[0].Current.Name -match 'embedded') -and
+        ($audioPor[0].Current.Name -match 'embedded')) (
+        "$($audioEng[0].Current.Name) | $($audioPor[0].Current.Name)")
+    Check 'the file carries two embedded subtitle tracks, and both are listed' (
+        ($subtitles.Count -ge 2) -and
+        ($subtitles[0].Current.Name -match 'embedded') -and
+        ($subtitles[1].Current.Name -match 'embedded')) "the window shows: $(Page-Text $app)"
+    # Embedded first is the rule; every track here is embedded, so what shows is
+    # that the file's own order survives — anything the Host added from an Addon
+    # would come after these.
+    Check 'and the tracks are listed in the file''s own order' (
+        ((Button-At $app 'English stereo') -lt (Button-At $app 'Portuguese')) -and
+        (($subtitles[0].Current.Name -match 'eng') -and ($subtitles[1].Current.Name -match 'por'))) (
+        "audio: $(($audioEng + $audioPor).Current.Name -join ' , ') | subtitles: $($subtitles.Current.Name -join ' , ')")
+    Check 'the audio group says which track is on before anything is pressed' (
+        (Toggled $audioEng[0]) -and -not (Toggled $audioPor[0])) (
+        "English stereo is $(Toggled $audioEng[0]), Portuguese is $(Toggled $audioPor[0])")
+
+    Press-Element $app $audioPor[0]
+    Start-Sleep -Seconds 2
+    $audioEng = Buttons-Matching $app 'English stereo'
+    $audioPor = Buttons-Matching $app 'Portuguese'
+    Check 'selecting the other audio track takes: its toggle is on and the first is off' (
+        (Toggled $audioPor[0]) -and -not (Toggled $audioEng[0])) (
+        "the window shows: $(Page-Text $app)")
+
+    '--- 13b. subtitles on, then off'
+    Press-Element $app (Buttons-Matching $app 'subrip')[0]
+    Start-Sleep -Seconds 2
+    Check 'choosing a subtitle track turns it on' (
+        Toggled (Buttons-Matching $app 'subrip')[0]) "the window shows: $(Page-Text $app)"
+    Press-Element $app (Button-Named $app 'Subtitles off')
+    Start-Sleep -Seconds 2
+    Check 'Subtitles off turns every subtitle track off' (
+        Toggled (Button-Named $app 'Subtitles off')) "the window shows: $(Page-Text $app)"
+
+    '--- 13c. the subtitle delay, stepped and reset'
+    Check 'the delay readout starts at zero' (
+        (Readout $app '0.0 s') -ne $null) "the window shows: $(Page-Text $app)"
+    Press $app '+0.1 s'
+    Check 'stepping the delay moves the readout to +0.1 s' (
+        (Readout $app '+0.1 s') -ne $null) "the window shows: $(Page-Text $app)"
+    Press $app 'Reset'
+    Check 'resetting the delay moves the readout back to 0.0 s' (
+        (Readout $app '0.0 s') -ne $null) "the window shows: $(Page-Text $app)"
+
+    '--- 13d. the speed'
+    $times = [char]0x00D7
+    Check 'the speed group lists its rates' (
+        (Button-Named $app ('1.5' + $times)) -ne $null) "the window shows: $(Page-Text $app)"
+    Press-Element $app (Button-Named $app ('1.5' + $times))
+    Start-Sleep -Seconds 1
+    Check 'picking a speed presses that choice' (
+        Toggled (Button-Named $app ('1.5' + $times))) "the window shows: $(Page-Text $app)"
+    Press-Element $app (Button-Named $app ('1' + $times))
+    Start-Sleep -Seconds 1
+    Check 'and picking another moves the pressed choice' (
+        (Toggled (Button-Named $app ('1' + $times))) -and
+        -not (Toggled (Button-Named $app ('1.5' + $times)))) "the window shows: $(Page-Text $app)"
+
+    '--- 13e. the volume, and mute'
+    $before = [regex]::Match((Page-Text $app), '(\d+)%')
+    $level = if ($before.Success) { [int]$before.Groups[1].Value } else { -1 }
+    Focus-On $app 'Volume' ([Windows.Automation.ControlType]::Slider)
+    if (-not (Focus $app)) { throw 'the keyboard steps need the Host in the foreground' }
+    [Windows.Forms.SendKeys]::SendWait('{RIGHT}{RIGHT}{RIGHT}{RIGHT}{RIGHT}')
+    Start-Sleep -Seconds 1
+    $after = [regex]::Match((Page-Text $app), '(\d+)%')
+    $moved = if ($after.Success) { [int]$after.Groups[1].Value } else { -1 }
+    Check 'moving the volume moves its readout' (
+        ($level -ge 0) -and ($moved -ne $level)) "the readout went $level% to $moved%"
+    Press-Element $app (Button-Named $app 'Mute')
+    Check 'muting flips the control to Unmute' (
+        Shows $app 'Unmute' 10) "the window shows: $(Page-Text $app)"
+    Check 'and the muted choice is the one toggled on' (
+        Toggled (Button-Named $app 'Unmute')) "the window shows: $(Page-Text $app)"
+    Press-Element $app (Button-Named $app 'Unmute')
+    Check 'unmuting flips it back to Mute' (
+        (Shows $app 'Mute' 10) -and -not (Shows $app 'Unmute' 2)) (
+        "the window shows: $(Page-Text $app)")
+
+    '--- 13f. the chapters, stepped and jumped to'
+    $intro = Buttons-Matching $app 'Intro'
+    $middle = Buttons-Matching $app 'Middle'
+    Check 'the file carries two chapters, and both are listed' (
+        ($intro.Count -ge 1) -and ($middle.Count -ge 1)) "the window shows: $(Page-Text $app)"
+    Check 'the chapter playing is the one marked' (
+        (Toggled $intro[0]) -and -not (Toggled $middle[0])) (
+        "Intro is $(Toggled $intro[0]), Middle is $(Toggled $middle[0])")
+    Press $app 'Next chapter'
+    Start-Sleep -Seconds 1
+    Check 'stepping to the next chapter moves the mark' (
+        Toggled (Buttons-Matching $app 'Middle')[0]) "the window shows: $(Page-Text $app)"
+    Press $app 'Previous chapter'
+    Start-Sleep -Seconds 1
+    Check 'stepping back moves it back' (
+        Toggled (Buttons-Matching $app 'Intro')[0]) "the window shows: $(Page-Text $app)"
+    Press-Element $app (Buttons-Matching $app 'Middle')[0]
+    Start-Sleep -Seconds 1
+    Check 'and a chapter can be jumped to by its own index' (
+        Toggled (Buttons-Matching $app 'Middle')[0]) "the window shows: $(Page-Text $app)"
+
+    '--- 13g. the crop, over a file that really has bars'
+    # The bars are what make this visible: this file is 1280x540 of picture in a
+    # 1280x720 frame. mpv's *own* stock autocrop has already cut them away by
+    # now, which is why no crop choice of the menu is the one in force until the
+    # Host is asked for one — that is mpv's script, not the Host cropping.
+    'the letterboxed fixture is what makes the crop visible: 1280x540 of picture in a 1280x720 frame'
+    $full = Button-Named $app 'Full frame'
+    $ratios = Buttons-Named $app '4:3'
+    Check 'the crop group offers the whole frame and the ratios' (
+        ($full -ne $null) -and ($ratios.Count -ge 2)) "the window shows: $(Page-Text $app)"
+    Shot $app '13-controls-crop-autocrop.png'
+    'review 13-controls-crop-autocrop.png: the black bars should already be gone'
+    Check 'the bars were already gone before the Host was asked to crop (mpv''s stock autocrop)' (
+        (-not (Toggled $full)) -and (-not (Toggled $ratios[0]))) (
+        "the window shows: $(Page-Text $app)")
+    Press-Element $app $ratios[0]
+    Start-Sleep -Seconds 2
+    Check 'applying a crop takes: that ratio becomes the choice pressed' (
+        Toggled (Buttons-Named $app '4:3')[0]) "the window shows: $(Page-Text $app)"
+    Shot $app '13-controls-crop-applied.png'
+    Press-Element $app (Button-Named $app 'Full frame')
+    Start-Sleep -Seconds 2
+    Check 'clearing the crop takes: the whole frame is the choice pressed' (
+        Toggled (Button-Named $app 'Full frame')) "the window shows: $(Page-Text $app)"
+    Check 'and the ratio is no longer pressed' (
+        -not (Toggled (Buttons-Named $app '4:3')[0])) "the window shows: $(Page-Text $app)"
+
+    '--- 13h. the aspect, set and returned to the source'
+    Check 'the aspect group lists the source and the ratios' (
+        ((Button-Named $app 'Source') -ne $null) -and
+        ((Buttons-Named $app '4:3').Count -ge 2)) "the window shows: $(Page-Text $app)"
+    Press-Element $app (Buttons-Named $app '4:3')[1]
+    Start-Sleep -Seconds 2
+    Check 'setting an aspect takes: that ratio is pressed and the source is not' (
+        (Toggled (Buttons-Named $app '4:3')[1]) -and
+        -not (Toggled (Button-Named $app 'Source'))) "the window shows: $(Page-Text $app)"
+    Shot $app '13-controls-aspect.png'
+    Press-Element $app (Button-Named $app 'Source')
+    Start-Sleep -Seconds 2
+    Check 'returning to the source takes: the source is pressed again' (
+        Toggled (Button-Named $app 'Source')) "the window shows: $(Page-Text $app)"
+    Check 'and the ratio is no longer pressed' (
+        -not (Toggled (Buttons-Named $app '4:3')[1])) "the window shows: $(Page-Text $app)"
+
+    '--- 13i. the statistics, and the decode they name'
+    Press-Element $app (Button-Named $app 'Show statistics')
+    $text = Wait-Text $app 'Hardware decode' 10
+    Shot $app '13-controls-statistics.png'
+    Check 'showing statistics draws a readout' (
+        $text -match 'Hardware decode') "the window shows: $text"
+    $decode = [regex]::Match($text, 'Hardware decode\s*\|\s*([^|]+)')
+    $mode = if ($decode.Success) { $decode.Groups[1].Value.Trim() } else { '' }
+    Check 'and it names a hardware decode mode, not "no" (a GPU that does the decode)' (
+        ($mode -ne '') -and ($mode -ne 'no')) "the readout says Hardware decode | $mode"
+
+    '--- 13j. the next episode, when an episode is what is playing'
+    if (Shows $app 'Next episode' 5) {
+        $before = Playing-Line $app
+        Press $app 'Next episode'
+        $after = $before
+        $deadline = (Get-Date).AddSeconds(30)
+        while (($after -eq $before) -and ((Get-Date) -lt $deadline)) {
+            Start-Sleep -Milliseconds 500
+            $after = Playing-Line $app
+        }
+        Shot $app '13-controls-next-episode.png'
+        Check 'pressing Next episode plays the next one: the now-playing line changes' (
+            ($after -ne '') -and ($after -ne $before)) "the line was '$before' and is '$after'"
+        if ($after -match 'S\d+E(\d+)') {
+            Check 'and it names a later episode' ([int]$Matches[1] -gt 1) "the line is '$after'"
+        }
+    } else {
+        'what is playing is a film, so there is no Next episode to press'
+    }
+}
+
 # Where playback is, in seconds, read off the OSD's clock: `12:34 / 1:20:00`,
 # or `--:--` while a Stream is still opening. -1 when there is no clock to read.
 function Clock-Seconds($app) {
@@ -710,7 +1010,7 @@ if ($text -match '/tmdb:') {
     Check 'a Title no TMDB record met is marked unmapped' (
         $text -match 'Unmapped') "showed: $text"
 }
-'the series case — seasons, episodes, and choosing one — is step 14.'
+'the series case — seasons, episodes, and choosing one — is step 15.'
 
 '--- 12. pressing a Video asks the Addons for its Streams'
 if ($series) {
@@ -757,20 +1057,101 @@ if ($series) {
         $text -match 'one Video: the film itself') "showed: $text"
 }
 
-'--- 13. Back leaves the Title, and the same Title opens again'
+'--- 13. the full control set, over a real file'
+# Every control the window has is walked here, over the fixture: its own file
+# carries two audio tracks, two embedded subtitle tracks, two chapters and black
+# bars, which is what each control needs something to move. It is an *episode*
+# that is played rather than the film, so that `Next episode` is offered too — a
+# film has no next one, and walking the menu on a film would leave that control
+# unreached. The fixture's series is the second row (where Cinemeta, the default
+# Addon, puts its own), and the client is on a Title at this point, so first it
+# goes back to the rows.
 Press-Keys $app '{ESC}'
 $text = Wait-Text $app ([regex]::Escape($AddonCatalog)) 25
-Shot $app '13-title-back.png'
+$series = Series-Card $app
+if (-not $series) {
+    'this Addon drew no second row, so there is no series to play:'
+    'the control menu needs a Stream playing; run with -AddonName Verify to walk it'
+    # Open a Title anyway, so the step below finds the surface it expects.
+    Focus-On $app 'Search the Addons that offer it' ([Windows.Automation.ControlType]::Edit)
+    Press-Keys $app '{DOWN}{DOWN}'
+    Press-Keys $app '{ENTER}'
+    Wait-Text $app 'Back to browsing' 15 | Out-Null
+} else {
+    $series.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $text = Wait-Text $app 'Back to browsing' 15
+    Check 'the series opens for the control walk' (
+        $text -match 'Season \d+') "showed: $text"
+    Focus-On $app 'Back to browsing' ([Windows.Automation.ControlType]::Button)
+    Press-Keys $app '{DOWN}'
+    Press-Keys $app '{ENTER}'
+    $text = Wait-Text $app ("Streams $dash") 20
+    Shot $app '13-streams.png'
+    Check 'pressing the episode asks for its Streams' (
+        $text -match ("Streams $dash")) "showed: $text"
+    if ($text -match 'No configured Addon offers Streams') {
+        'the configured Addon answers no `stream` resource, so there is nothing to play:'
+        'run with -Addon <a stream Addon> to walk the control menu'
+        Press-Keys $app '{ESC}'
+        Wait-Text $app 'Season \d+' 15 | Out-Null
+    } else {
+        $candidates = Candidates $app
+        $playable = @($candidates | Where-Object { $_.Current.Name -notmatch 'Not playable yet' })
+        if (-not $playable) {
+            'the Addon answered no playable candidate, so the control menu cannot be walked:'
+            Press-Keys $app '{ESC}'
+            Wait-Text $app 'Season \d+' 15 | Out-Null
+        } else {
+            Press-Element $app $playable[0]
+            $text = Wait-Text $app 'Playing ' 30
+            Check 'choosing the candidate starts the episode' (
+                $text -match 'Playing ') "showed: $text"
+            # The controls are live once the picture is up, not while the open is
+            # still in flight: the transport's Pause is what says so.
+            $playing = $false
+            $deadline = (Get-Date).AddSeconds(45)
+            while (-not $playing -and (Get-Date) -lt $deadline) {
+                $playing = Shows $app 'Pause' 2
+            }
+            Check 'the episode is playing, so its controls are live' $playing (
+                "the window shows: $(Page-Text $app)")
+            if ($playing) {
+                # A moment for mpv's stock autocrop, which fires about five
+                # seconds after the file loads, so the crop step sees the bars
+                # already gone rather than being the thing that removes them.
+                Start-Sleep -Seconds 4
+                Walk-Controls $app
+                Press $app 'Stop'
+            }
+            $text = Wait-Text $app ("Streams $dash") 20
+            Check 'stopping leaves the menu and the Stream list is back' (
+                $text -match ("Streams $dash")) "showed: $text"
+            Press-Keys $app '{ESC}'
+            $text = Wait-Text $app 'Season \d+' 15
+            Check 'Back leaves the Streams for the episode list' (
+                $text -match 'Season \d+') "showed: $text"
+        }
+    }
+}
+
+'--- 14. Back leaves the Title, and the same Title opens again'
+Press-Keys $app '{ESC}'
+$text = Wait-Text $app ([regex]::Escape($AddonCatalog)) 25
+Shot $app '14-title-back.png'
 Check 'Back returns to the rows' (
     $text -match [regex]::Escape($AddonCatalog)) "showed: $text"
 Check 'and the Title surface is gone' (
     $text -notmatch 'Back to browsing') "showed: $text"
+# The control walk just published Snapshots of its own, so the revision the
+# questions below are measured against is taken fresh here rather than from
+# before playback.
+$revision = ([regex]::Match($text, 'Snapshot revision\s*\|\s*(\d+)')).Groups[1].Value
 
 Focus-On $app 'Search the Addons that offer it' ([Windows.Automation.ControlType]::Edit)
 Press-Keys $app '{DOWN}{DOWN}'
 Press-Keys $app '{ENTER}'
 $text = Wait-Text $app 'Back to browsing' 15
-Shot $app '13-title-reopened.png'
+Shot $app '14-title-reopened.png'
 Check 'the same Title opens again' (
     $text -match 'Back to browsing') "showed: $text"
 Check 'and opening it moved nothing either' (
@@ -783,28 +1164,17 @@ Check 'and Back leaves it again' (
     ($text -match [regex]::Escape($AddonCatalog)) -and
     ($text -notmatch 'Back to browsing')) "showed: $text"
 
-'--- 14. a series'' seasons and episodes, and choosing one'
+'--- 15. a series'' seasons and episodes, and choosing one'
 # A series without the keyboard having to know how many cards the first row
 # holds: `More from …` closes a row, so the button after the first one of those
 # is the first card of the second row — which, for the Addon this walkthrough
 # runs against by default, is its series catalog.
-$buttons = (Window-Root $app).FindAll(
-    [Windows.Automation.TreeScope]::Descendants,
-    (New-Object Windows.Automation.PropertyCondition(
-        [Windows.Automation.AutomationElement]::ControlTypeProperty,
-        [Windows.Automation.ControlType]::Button)))
-$series = $null
-for ($i = 0; $i -lt $buttons.Count - 1; $i++) {
-    if ($buttons[$i].Current.Name -eq ('More from ' + $AddonCatalog)) {
-        $series = $buttons[$i + 1]
-        break
-    }
-}
+$series = Series-Card $app
 
 if ($series) {
     $series.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
     $text = Wait-Text $app 'Back to browsing' 15
-    Shot $app '14-series-opened.png'
+    Shot $app '15-series-opened.png'
     Check 'the second row opens a Title of its own kind' (
         $text -match ([regex]::Escape($AddonId) + '\s+\S+\s+series/')) "showed: $text"
     Check 'a series shows a heading per season' (
@@ -818,7 +1188,7 @@ if ($series) {
     Press-Keys $app '{DOWN}'
     Press-Keys $app '{ENTER}'
     $text = Wait-Text $app ("Streams $dash") 20
-    Shot $app '14-series-streams.png'
+    Shot $app '15-series-streams.png'
     Check 'pressing an episode opens the Streams surface over the episodes' (
         $text -match ("Streams $dash")) "showed: $text"
     Press-Keys $app '{ESC}'
@@ -834,13 +1204,13 @@ if ($series) {
     'by hand: open a series row and check its seasons and episodes'
 }
 
-'--- 15. paging a row is not a change: the revision stands still'
+'--- 16. paging a row is not a change: the revision stands still'
 $more = Find-Element (Window-Root $app) ('More from ' + $AddonCatalog) ([Windows.Automation.ControlType]::Button) 10
 if ($more) {
     $more.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
     Start-Sleep -Seconds 3
     $text = Wait-No-Text $app 'Loading' 30
-    Shot $app '15-paged.png'
+    Shot $app '16-paged.png'
     Check 'the row paged on without emptying' (
         $text -match [regex]::Escape($AddonCatalog)) "showed: $text"
     Check 'paging is a question, not a change: the revision stands still' (
@@ -849,28 +1219,28 @@ if ($more) {
     Check 'the Addon catalog offers a way to page on' $false 'no More button'
 }
 
-'--- 16. searching asks every Addon that offers it'
+'--- 17. searching asks every Addon that offers it'
 Set-Search $app $SearchQuery
 $text = Wait-Text $app 'Back to browsing' 30
-Shot $app '16-search.png'
+Shot $app '17-search.png'
 Check 'the search surface is showing' (
     $text -match 'Back to browsing') "showed: $text"
 Check 'the search did not move the revision either' (
     $text -match ('Snapshot revision\s*\|\s*' + $revision)) "showed: $text"
-'review 16-search.png: the results should be a row of posters, or a clear "no Addon answered"'
+'review 17-search.png: the results should be a row of posters, or a clear "no Addon answered"'
 
-'--- 17. Back returns to browsing, from the keyboard'
+'--- 18. Back returns to browsing, from the keyboard'
 # Escape is Back, so the whole of "arrows, OK and Back" is walked without the
 # mouse at least once (the mouse still works everywhere else in this run).
 Press-Keys $app '{ESC}'
 $text = Wait-Text $app ([regex]::Escape($AddonCatalog)) 25
-Shot $app '17-back.png'
+Shot $app '18-back.png'
 Check 'Back returns to the rows' (
     $text -match [regex]::Escape($AddonCatalog)) "showed: $text"
 Check 'and the search surface is gone' (
     $text -notmatch 'Back to browsing') "showed: $text"
 
-'--- 18. the TMDB key: entered, held, cleared, and where it lives'
+'--- 19. the TMDB key: entered, held, cleared, and where it lives'
 # The value the walkthrough enters is its own and it takes it out again before
 # the step ends: the point is the round trip, not a credential. A key an earlier
 # run left behind — a crash between the save and the clear — is cleared first,
@@ -878,7 +1248,7 @@ Check 'and the search surface is gone' (
 $testKey = '0123456789abcdef'
 Press $app 'Clear key'
 $text = Wait-Text $app 'No TMDB key is held' 15
-Shot $app '18-tmdb-key-none.png'
+Shot $app '19-tmdb-key-none.png'
 Check 'a Host with no key says so' (
     $text -match 'No TMDB key is held') "showed: $text"
 Check 'the window says which backend would hold a key' (
@@ -888,7 +1258,7 @@ $before = ([regex]::Match($text, 'Snapshot revision\s*\|\s*(\d+)')).Groups[1].Va
 Set-TmdbKey $app $testKey
 Press $app 'Save key'
 $text = Wait-Text $app 'A TMDB key is held' 15
-Shot $app '18-tmdb-key-saved.png'
+Shot $app '19-tmdb-key-saved.png'
 Check 'saving a key is a change: the Snapshot says one is held' (
     $text -match 'A TMDB key is held') "showed: $text"
 Check 'saving a key moved the revision on' (
@@ -904,7 +1274,7 @@ Focus-On $app 'Search the Addons that offer it' ([Windows.Automation.ControlType
 Press-Keys $app '{DOWN}{DOWN}'
 Press-Keys $app '{ENTER}'
 $text = Wait-Text $app 'Back to browsing' 40
-Shot $app '18-tmdb-key-refused.png'
+Shot $app '19-tmdb-key-refused.png'
 Check 'a Title still opens when TMDB refuses the key' (
     $text -match [regex]::Escape($AddonId)) "showed: $text"
 if ($text -match '/tmdb:') {
@@ -918,23 +1288,23 @@ $text = Wait-Text $app ([regex]::Escape($AddonCatalog)) 25
 
 Press $app 'Clear key'
 $text = Wait-Text $app 'No TMDB key is held' 15
-Shot $app '18-tmdb-key-cleared.png'
+Shot $app '19-tmdb-key-cleared.png'
 Check 'clearing the key says no key is held' (
     $text -match 'No TMDB key is held') "showed: $text"
 Check 'and clearing moved the revision on again' (
     $text -match ('Snapshot revision\s*\|\s*' + ([int]$before + 2))) "showed: $text"
 
-'--- 19. removing the Addon'
+'--- 20. removing the Addon'
 Press $app ('Remove ' + $AddonName)
 $text = Wait-Text $app 'No Addons are configured' 20
-Shot $app '19-addon-removed.png'
+Shot $app '20-addon-removed.png'
 Check 'the Addon is gone' ($text -match 'No Addons are configured') "showed: $text"
 Check 'and its rows are gone with it' (
     -not ($text -match [regex]::Escape($AddonCatalog))) "showed: $text"
 
 Stop-Host $app
 
-'--- 20. the manifest URL and the TMDB key never reach the log'
+'--- 21. the manifest URL and the TMDB key never reach the log'
 # A manifest URL can carry a debrid configuration inside it, so the Host must
 # never write one down — and the route that matters is the real one, with the
 # Addon the owner actually uses. A TMDB key is a credential the same way.
@@ -949,7 +1319,7 @@ Check 'the log never holds the TMDB key value' (
     (Test-Path $log) -and
     -not (Select-String -Path $log -SimpleMatch $testKey -Quiet)) 'host.log holds the TMDB key'
 
-'--- 21. the data directory'
+'--- 22. the data directory'
 if (Test-Path $dataDir) {
     Get-ChildItem $dataDir | ForEach-Object { "  $($_.Name)  $($_.Length) bytes" }
 } else { Check 'the data directory exists' $false $dataDir }

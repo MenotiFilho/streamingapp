@@ -32,7 +32,18 @@ offers Play where it offered Pause), that play, pause, ±10 s and stop work
 through the interface, and that Stop puts the client back on the list it chose
 from. A run whose candidates are all `info_hash` — a torrent Addon with no
 debrid configuration, say — checks the other half of the rule: the candidate is
-listed, says it is not playable yet, and nothing is drawn for it.
+listed, says it is not playable yet, and nothing is drawn for it. From #28 the
+walkthrough walks the whole control set (step 13), over the fixture's own file:
+the menu's groups are all asserted present, the file's two audio tracks and two
+embedded subtitle tracks are listed (embedded first) and selectable by their
+toggle state, a subtitle track is chosen and then turned off with `Subtitles
+off`, the subtitle delay is stepped (`0.0 s` to `+0.1 s`) and reset, a speed is
+picked and the pressed choice moves with it, the volume is moved and mute flips
+the control to `Unmute`, the two chapters are stepped and jumped to, a crop is
+applied and cleared over a file that really has black bars, an aspect ratio is
+set and returned to `Source`, the statistics are shown and the readout names the
+hardware decode mode, and — because an episode is what plays — `Next episode`
+follows the fixture's series to the next one.
 
 For the steps that depend on what a third-party Addon happens to serve — that
 the posters are drawn, that a search returns something, which candidates a
@@ -74,7 +85,9 @@ docker compose exec dev pnpm build
 scripts/windows/stage.sh /mnt/c/Users/<you>/streamingapp-verify
 
 # 3. a video for the Addon fixture, so that playback has something to play that
-#    is not a third party's content (ffmpeg runs in the container)
+#    is not a third party's content — and so that the control set has something
+#    to move: two audio tracks, two embedded subtitle tracks, two chapters, and
+#    black bars for mpv's stock autocrop (ffmpeg runs in the container)
 scripts/windows/fixture-video.sh /mnt/c/Users/<you>/streamingapp-verify
 
 # 4. build it there, and (in a second window) serve the fixture Addon
@@ -83,7 +96,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass \
   -Tree 'C:\Users\<you>\streamingapp-verify'
 powershell.exe -NoProfile -ExecutionPolicy Bypass \
   -File 'C:\Users\<you>\streamingapp-verify\scripts\windows\fixture-addon.ps1' \
-  -Video 'C:\Users\<you>\streamingapp-verify\fixture\verify-720p.mp4'
+  -Video 'C:\Users\<you>\streamingapp-verify\fixture\verify-controls.mkv'
 
 # 5. walk the checklist in the first window
 powershell.exe -NoProfile -ExecutionPolicy Bypass \
@@ -94,12 +107,16 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass \
 ```
 
 `fixture-addon.ps1` is worth the second window whenever a run has to *play*
-something: it serves a manifest, a catalog of two films, their metadata and a
-stream answer whose candidate is the fixture video — one film that plays and one
-whose candidate is an `infoHash`, so the "listed but not playable" half is walked
-too. Without it the run is pointed at a third-party Addon: `Cinemeta` answers no
-Streams at all, and a torrent Addon without debrid configuration answers only
-candidates this version cannot fetch.
+something: it serves a manifest, a movie catalog of two films and a series
+catalog, their metadata, and a stream answer for each Video whose candidate is
+the fixture video — one film that plays and one whose candidate is an `infoHash`,
+so the "listed but not playable" half is walked too. The series carries two
+episodes under the same `bingeGroup`, so `Next episode` has somewhere to go; the
+viewer walks the control set over an episode rather than the film for exactly
+that reason (a film offers no `Next episode`). Without the fixture the run is
+pointed at a third-party Addon: `Cinemeta` answers no Streams at all, and a
+torrent Addon without debrid configuration answers only candidates this version
+cannot fetch.
 
 Screenshots, the assertion report and the log tail land in
 `<Tree>\evidence\` — read them from WSL as `/mnt/c/Users/<you>/streamingapp-verify/evidence/`.
@@ -181,11 +198,19 @@ or started).
   `~/.local/share`). Anything that assumes two distinct paths will look fine here
   and wrong there.
 - **The TMDB key lives in the OS keyring, which the data-directory wipe at the
-  top does not touch.** Step 18 enters its own test key, clears it again, and
+  top does not touch.** Step 19 enters its own test key, clears it again, and
   clears whatever a crashed earlier run left behind before it starts, so a run
   is honest about "no key is held" either way. Running the walkthrough does
   remove a real key you had configured: it is a verification Host, not the daily
   one.
+- **The black bars are gone before the crop step, and that is mpv, not the Host.**
+  `host-mpv` vendors mpv's own `TOOLS/lua/autocrop.lua`, which fires about five
+  seconds after the file loads and sets `video-crop` itself. The fixture is
+  letterboxed (1280x540 of picture in a 1280x720 frame) so there is something to
+  find, and the crop step's first screenshot shows the bars already cut away —
+  that is the script. What the step asserts is that *no* crop choice of the menu
+  is the one in force until the Host is asked for one, and then that asking for
+  one takes effect.
 - **UI Automation needs a moment.** Chromium builds its accessibility tree only
   once a client asks for it, so `Find-Named`/`Page-Text` retry for a few seconds
   before giving up.
