@@ -91,7 +91,7 @@ $Steps = @(
     [pscustomobject]@{ Id = 21; Title = 'the manifest URL and the TMDB key never reach the log'; Ground = ''; After = @(19, 20); Need = 'steps 19 and 20: the log they wrote, the TMDB key and the removed Addon' }
     [pscustomobject]@{ Id = 22; Title = 'the data directory'; Ground = 'data'; After = @(); Need = 'the data directory (made if a Host has not)' }
     [pscustomobject]@{ Id = 23; Title = 'Watch progress outlives a Host that was killed, and the row resumes it'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at its rows (it plays an episode, kills the Host, starts it again, and resumes)' }
-    [pscustomobject]@{ Id = 24; Title = 'signing in to Stremio holds the account, and signing out lets it go'; Ground = 'addon'; After = @(); Need = 'an Addon and a real Stremio account: it prompts for the email and password, signs in, checks the window and the log, then signs out again' }
+    [pscustomobject]@{ Id = 24; Title = 'signing in to Stremio holds the account, and signing out lets it go'; Ground = 'addon'; After = @(); Need = 'an Addon and a real Stremio account: it waits while you sign in by hand in the window, then checks and signs out again' }
 )
 
 # The discovery path and the cheap syntax check: print the checklist and what
@@ -465,18 +465,6 @@ function Escape-SendKeys($value) {
         else { $escaped += $ch }
     }
     return $escaped
-}
-
-# Fill the Stremio sign-in (#30). The password is a password input, so it is
-# focused and typed at the way a person would, rather than set through a value
-# pattern; the email is ordinary text. The password is never echoed and never
-# written down — the prompt reads it as a secure string and it lives only here.
-function Set-StremioLogin($app, $email, $password) {
-    Type-Into $app 'Stremio email' $email
-    Focus-On $app 'Stremio password' ([Windows.Automation.ControlType]::Edit)
-    if (-not (Focus $app)) { throw 'the keyboard steps need the Host in the foreground' }
-    [Windows.Forms.SendKeys]::SendWait((Escape-SendKeys $password))
-    Start-Sleep -Milliseconds 300
 }
 
 function Set-Search($app, $query) {
@@ -1764,45 +1752,31 @@ function Step-24($ctx) {
         (Shows $app 'Sign in') -and -not (Shows $app 'Sign out' 1)) (
         'the window shows no Sign in button')
 
-    # The account is the operator's own: it is typed here and reaches the Host,
-    # which sends the password once and keeps only the `authKey` Stremio answers
-    # with. A password read at a prompt is not echoed and is not written down.
-    # This is the whole of step 24's input: run it with `-Only 24` to walk nothing
-    # else, and answer the two prompts.
-    $email = Read-Host 'Stremio account email'
-    $secure = Read-Host 'Stremio account password' -AsSecureString
-    $password = (New-Object System.Net.NetworkCredential('', $secure)).Password
-    if ([string]::IsNullOrEmpty($email) -or [string]::IsNullOrEmpty($password)) {
-        throw 'the Stremio sign-in needs an email and a password; nothing was sent'
-    }
-
-    Set-StremioLogin $app $email $password
-    Shot $app '24-signin-filled.png'
-    Press $app 'Sign in'
-
-    # Stremio is a third party and may take a moment; a refusal is shown in the
-    # window's own alert, which the screenshot below holds if this fails.
-    $text = Wait-Text $app 'A Stremio account is signed in' 45
+    # The account is the operator's own, and it is signed in by hand, in the
+    # window's own form: the password is typed straight into the password field
+    # and never passes through this script, a console, or a PowerShell variable.
+    # That is the whole of step 24's input — run it with `-Only 24`, then sign in
+    # at the window. A refusal (a wrong password) leaves the form up with the
+    # Host's own words, so a retry is just signing in again before the wait runs
+    # out.
+    ''
+    'SIGN IN NOW, in the Host window under "Stremio account": type your Stremio'
+    'email and password, and press Sign in. This script waits for the window to'
+    'say an account is held (up to 5 minutes); nothing is typed here.'
+    $text = Wait-Text $app 'A Stremio account is signed in' 300
     Shot $app '24-signed-in.png'
     Check 'signing in is held: the window says the account is signed in' (
         $text -match 'A Stremio account is signed in') "showed: $text"
-    Check 'and the form is gone, so the password does not sit in the window' (
+    Check 'and the form is gone, so no password sits in the window' (
         -not (Shows $app 'Stremio email' 1)) 'the sign-in form is still there'
     Check 'and the window says a credential is held, never the credential itself' (
         $text -notmatch 'authKey') "showed: $text"
 
-    # Sign out again — unless the operator wants to walk the merge and the push,
-    # which need a Title watched while signed in. Signing out is the other half of
-    # the surface, and it leaves the machine the way it was found; progress already
-    # merged is not touched by it (the window only stops claiming an account).
-    $keep = Read-Host 'Leave the Stremio account signed in to watch a Title and see it pushed? [y/N]'
-    if ($keep -match '^(y|yes)$') {
-        'the account is left signed in: watch a Title here and it is pushed to the account on pause, stop, or exit'
-        Check 'the account is still held, as asked' (
-            (Page-Text $app) -match 'A Stremio account is signed in') 'the account went away'
-        return
-    }
-
+    # Sign out again: the walkthrough leaves the machine the way it found it, and
+    # signing out is the other half of the surface. Progress already merged is not
+    # touched by it — the window only stops claiming an account. To watch a Title
+    # and see it pushed, sign in and watch before running this step; the merge and
+    # the push are covered by host-core/tests/stremio_sync.rs.
     Press $app 'Sign out'
     $text = Wait-Text $app 'No Stremio account is signed in' 15
     Shot $app '24-signed-out.png'
@@ -1825,11 +1799,10 @@ function Step-24($ctx) {
     Check 'nothing pulled remote progress into the library before an account was held' (
         -not (Select-String -Path $log -SimpleMatch 'remote progress pulled into library' -Quiet)) (
         'host.log holds a remote pull')
-    Check 'and the log never names Stremio, its authKey, or the password that bought it' (
+    Check 'and the log never names Stremio or its authKey' (
         -not (Select-String -Path $log -SimpleMatch 'strem.io' -Quiet) -and
-        -not (Select-String -Path $log -SimpleMatch 'authKey' -Quiet) -and
-        -not (Select-String -Path $log -CaseSensitive -SimpleMatch $password -Quiet)) (
-        'host.log names Stremio, its authKey, or the password')
+        -not (Select-String -Path $log -SimpleMatch 'authKey' -Quiet)) (
+        'host.log names Stremio or its authKey')
     'the merge and the push need a Title watched while signed in; that is the same'
     'surface (sign-in already proves the account is held) and host-core/tests/stremio_sync.rs'
     'covers it, so this step stops at the account.'

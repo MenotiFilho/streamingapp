@@ -50,17 +50,15 @@ part of an episode, **kills the Host rather than closing it**, starts it again,
 and picks the Video up from the Continue watching row: the row is there because
 Watch progress is written while playback runs, and the resume plays from where it
 was left rather than from the beginning. From #30 the walkthrough walks the
-Stremio account: it starts with no account, **prompts for the operator's own
-Stremio email and password**, signs in through the window, and checks that the
-protection line says an account is held and that the `authKey` is nowhere in the
-window. It then signs out again — or, if the operator asks, leaves the account
-signed in so a Title can be watched and the push seen by hand. On the sign-out
-path it also checks that the log names no part of the sign-in and that the host
-exits through the hook sync added with `"account":false`. It is one prompt away
-from any other step, so `-Only 24` walks only it; the merge and the push need a
-Title watched while signed in, and `crates/host-core/tests/stremio_sync.rs`
-covers them rather than a by-hand run that would push a fixture Title into a real
-account.
+Stremio account: it starts with no account and **waits while the operator signs
+in by hand** in the window's own form — the password is typed straight into the
+password field and never passes through the script, a console, or a variable —
+then checks the protection line says an account is held and that the `authKey` is
+nowhere in the window, signs out again, and checks the log names no part of the
+sign-in and the host exits through the hook sync added with `"account":false`. It
+is runnable on its own with `-Only 24`; the merge and the push need a Title
+watched while signed in, and `crates/host-core/tests/stremio_sync.rs` covers them
+rather than a by-hand run that would push a fixture Title into a real account.
 
 For the steps that depend on what a third-party Addon happens to serve — that
 the posters are drawn, that a search returns something, which candidates a
