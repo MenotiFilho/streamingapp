@@ -221,6 +221,18 @@ or started).
   interop call that launches it does not return** until every process holding the
   console handles exits. Launch the fixture Addon and walk away from that
   command; run `verify.ps1` in a second one.
+- **An Addon left running from an earlier session holds port 8099, and the port
+  cannot be freed by its PID.** `HttpListener` registers with HTTP.sys, so
+  `Get-NetTCPConnection -LocalPort 8099` names the owning process as **PID 4**
+  (*System*) — which cannot be killed, and `Stop-Process` on it does nothing.
+  Find the script's own PowerShell by its command line instead:
+  ```powershell
+  Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" |
+    Where-Object { $_.CommandLine -like '*fixture-addon*' } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+  ```
+  Otherwise the next `fixture-addon.ps1` throws *"there is already a registration
+  for the machine"* and every step that needs a Stream skips.
 - **Windows binaries are not on `PATH`, and interop is not enabled for bare
   names.** Call them by full path:
   `/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`. Have the
