@@ -93,6 +93,7 @@ $Steps = @(
     [pscustomobject]@{ Id = 23; Title = 'Watch progress outlives a Host that was killed, and the row resumes it'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at its rows (it plays an episode, kills the Host, starts it again, and resumes)' }
     [pscustomobject]@{ Id = 24; Title = 'signing in to Stremio holds the account, and signing out lets it go'; Ground = 'addon'; After = @(); Need = 'an Addon and a real Stremio account: it waits while you sign in by hand in the window, then checks and signs out again' }
     [pscustomobject]@{ Id = 25; Title = 'pairing a phone browser over the LAN, and revoking it on its own'; Ground = 'addon'; After = @(); Need = 'an Addon and a second device on the same network: it waits while you pair by hand in a browser, then revokes' }
+    [pscustomobject]@{ Id = 26; Title = 'the full remote: browse, play and control from another device'; Ground = 'addon'; After = @(); Need = 'an Addon, a playable Stream, and a second device: it waits while you browse, play, pause and seek from a browser on that device' }
 )
 
 # The discovery path and the cheap syntax check: print the checklist and what
@@ -1881,6 +1882,107 @@ function Step-25($ctx) {
     'the unpaired half - a connection that has not paired reaching only the pairing'
     'exchange - and the revocation cut-off are covered by host-wire/tests/wire.rs,'
     'which drives a real socket; this step walks the window and the pairing by hand.'
+}
+
+# The full remote (#32): a browser on another device does everything the Host's
+# own window does, because it sends the same Actions. What this step can check is
+# the half that is shared state - a Stream started, paused and stopped from the
+# phone shows up in the window, which is another client of the same Snapshot -
+# because the phone's own screen is not something this script can screenshot. The
+# remote's own surface (its capability list, browsing, the control set) is
+# asserted against the Action surface by `host-wire/src/remote.rs` and walked by
+# hand here; the operator's screen is the evidence for the rest.
+function Step-26($ctx) {
+    '--- 26. the full remote: browse, play and control from another device'
+    $app = $ctx.App
+    Focus $app | Out-Null
+
+    $text = Wait-Text $app 'Pairing code' 20
+    Shot $app '26-pairing.png'
+    $address = ([regex]::Match($text, 'Address[^0-9]*([0-9][0-9.]*:[0-9]+)')).Groups[1].Value
+    $code = ([regex]::Match($text, 'Pairing code[^A-Z0-9]{0,6}([A-HJ-NP-Z2-9]{6})')).Groups[1].Value
+    Check 'the window reads out where to connect and the code to redeem' (
+        ($address -ne '') -and ($address -notmatch '^0\.0\.0\.0:') -and ($code -match '^[A-HJ-NP-Z2-9]{6}$')) (
+        "read address '$address' and code '$code'")
+
+    $published = Published-Snapshots
+    ''
+    "DRIVE THE REMOTE NOW: on another device on this network, open"
+    "http://$address in a browser and enter the code $code. Then, from that page,"
+    'search or browse, open a Title, pick a Stream and press play. This script waits'
+    'until the Host lists the paired device (up to 5 minutes).'
+    $text = Wait-No-Text $app 'No device is paired yet' 300
+    Shot $app '26-paired.png'
+    Check 'the remote paired and is listed as a device' (
+        $text -notmatch 'No device is paired yet') "showed: $text"
+    Check 'and pairing is a change every client is told of' (
+        (Wait-Published $published 30) -gt $published) (
+        "the log still shows $published published Snapshot(s)")
+
+    # A Stream the operator started from the remote is the one shared state: the
+    # window is another client of the same Snapshot, so it shows the picture and
+    # offers Pause - the same Action the remote took (ADR-0002, ADR-0005).
+    $playing = $false
+    $deadline = (Get-Date).AddSeconds(120)
+    while (-not $playing -and (Get-Date) -lt $deadline) { $playing = Shows $app 'Pause' 2 }
+    Shot $app '26-playing.png'
+    Check 'a Stream started from the remote plays on the Host' $playing (
+        "the window shows no Pause: $(Page-Text $app)")
+
+    if ($playing) {
+        ''
+        'NOW, ON THE REMOTE: pause it. This script watches the Host for the pause —'
+        'the window''s OSD offers Play where it offered Pause.'
+        $paused = $false
+        $deadline = (Get-Date).AddSeconds(120)
+        while (-not $paused -and (Get-Date) -lt $deadline) { $paused = Shows $app 'Play' 2 }
+        Check 'pause, taken on the remote, pauses the Host' $paused (Page-Text $app)
+
+        # Paused, the window's clock is still, so the only thing that moves it is
+        # a seek: waiting for the clock to change is a check that the remote's
+        # seek reached the Host, and not merely that time passed.
+        $still = Clock-Seconds $app
+        ''
+        'NOW, ON THE REMOTE: seek (for example +10 s). The Host''s clock should move'
+        'even though playback is paused.'
+        $seeked = $still
+        $deadline = (Get-Date).AddSeconds(120)
+        while (($seeked -eq $still) -and ((Get-Date) -lt $deadline)) {
+            Start-Sleep -Milliseconds 500
+            $seeked = Clock-Seconds $app
+        }
+        Check 'seek, taken on the remote, moves the Host''s clock' (
+            ($still -ge 0) -and ($seeked -ge 0) -and ($seeked -ne $still)) (
+            "the clock stayed at $still")
+
+        $after = Wait-Published $published 30
+        Check 'and the remote''s controls publish Snapshots like any other client' (
+            $after -gt $published) ("the log still shows $published published Snapshot(s)")
+
+        ''
+        'NOW, ON THE REMOTE: switch a subtitle track, then press Stop. The window'
+        'returns to what it was reading.'
+        $text = Wait-No-Text $app 'Playing ' 120
+        Check 'stopping from the remote clears playback everywhere' (
+            $text -notmatch 'Playing ') "showed: $text"
+    } else {
+        Skip 'the remote playing and controlling a Stream' (
+            'no Stream started, so there was nothing for the remote to control')
+    }
+
+    # Leave the run as step 25 leaves it: nothing paired behind. Guarded, because a
+    # run whose operator never paired has nothing to revoke and must say so rather
+    # than throw.
+    if (Shows $app 'Revoke' 2) {
+        Press $app 'Revoke'
+        $text = Wait-Text $app 'No device is paired yet' 20
+        Shot $app '26-revoked.png'
+        Check 'the device can be revoked from the window, leaving nothing paired' (
+            $text -match 'No device is paired yet') "showed: $text"
+    } else {
+        Skip 'revoking the remote from the window' (
+            'no device was paired, so there was nothing to revoke')
+    }
 }
 
 # How many Snapshots the Host has published, read from its own log.

@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
     <title>streamingapp</title>
     <style>
@@ -13,6 +13,7 @@
         --edge: #262a36;
         --accent: #7cc4ff;
         --bad: #ff8f8f;
+        --good: #8fe3a8;
       }
       * { box-sizing: border-box; }
       body {
@@ -21,23 +22,27 @@
         background: #0b0c10;
         color: var(--ink);
         font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 24px;
+        padding: 16px;
+        padding-bottom: 4rem;
       }
-      main { width: 100%; max-width: 26rem; }
+      main { width: 100%; max-width: 46rem; margin: 0 auto; }
+      h1 { font-size: 1.05rem; margin: 0; letter-spacing: 0.01em; }
+      h2 { font-size: 0.95rem; margin: 26px 0 8px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); }
+      h3 { font-size: 0.95rem; margin: 4px 0; }
+      h4 { font-size: 0.9rem; margin: 14px 0 6px; }
+      h5 { font-size: 0.8rem; margin: 10px 0 4px; color: var(--dim); }
+      p { margin: 0 0 12px; }
+      a { color: var(--accent); }
+      .dim { color: var(--dim); }
       .card {
         background: var(--panel);
         border: 1px solid var(--edge);
         border-radius: 14px;
-        padding: 22px;
+        padding: 20px;
       }
-      h1 { font-size: 1.05rem; margin: 0 0 4px; letter-spacing: 0.01em; }
-      .dim { color: var(--dim); }
-      p { margin: 0 0 14px; }
-      label { display: block; font-size: 0.8rem; color: var(--dim); margin: 12px 0 4px; }
-      input {
+      .hidden { display: none !important; }
+      label { display: block; font-size: 0.8rem; color: var(--dim); margin: 10px 0 4px; }
+      input[type="text"], input[type="email"], input[type="password"], input:not([type]) {
         width: 100%;
         padding: 10px 12px;
         border-radius: 9px;
@@ -46,28 +51,101 @@
         color: var(--ink);
         font: inherit;
       }
-      input#code { letter-spacing: 0.28em; text-transform: uppercase; font-variant-numeric: tabular-nums; }
+      input[type="range"] { width: 100%; accent-color: var(--accent); }
       button {
-        margin-top: 16px;
-        width: 100%;
-        padding: 11px 14px;
+        margin: 4px 6px 4px 0;
+        padding: 9px 13px;
         border-radius: 9px;
-        border: 1px solid transparent;
-        background: var(--accent);
-        color: #06121f;
+        border: 1px solid var(--edge);
+        background: #1b1f2a;
+        color: var(--ink);
         font: inherit;
         font-weight: 600;
         cursor: pointer;
       }
-      .state { font-size: 1.35rem; font-weight: 650; margin: 2px 0 6px; }
+      button.primary { background: var(--accent); color: #06121f; border-color: transparent; }
+      button[aria-pressed="true"] { background: var(--accent); color: #06121f; border-color: transparent; }
+      button:disabled { opacity: 0.45; cursor: default; }
+      form { margin: 0 0 6px; }
+      ul { list-style: none; margin: 0; padding: 0; }
+      .row-head { display: flex; align-items: baseline; gap: 8px; }
+      .addon-id, .card-note, .stream-description, .stream-filename, .stream-binge {
+        color: var(--dim); font-size: 0.8rem;
+      }
+      .cards { display: flex; gap: 10px; overflow-x: auto; padding: 6px 0 10px; }
+      .cards li { flex: 0 0 auto; }
+      .card-btn {
+        width: 8.5rem; margin: 0; padding: 0; background: none; border: none; text-align: left;
+        display: flex; flex-direction: column; gap: 3px;
+      }
+      .card-btn img, .poster-missing {
+        width: 8.5rem; height: 12.5rem; object-fit: cover; border-radius: 10px;
+        background: #1b1f2a; border: 1px solid var(--edge); display: block;
+      }
+      .card-name { font-weight: 650; font-size: 0.9rem; }
+      .card-year { color: var(--dim); font-size: 0.8rem; }
+      .title-head { display: flex; gap: 14px; margin-bottom: 12px; }
+      .title-poster { width: 7rem; height: 10.5rem; object-fit: cover; border-radius: 10px; }
+      .title-about { min-width: 0; }
+      .title-facts, .title-genres { color: var(--dim); font-size: 0.85rem; margin: 2px 0; }
+      .title-unmapped { color: var(--dim); font-size: 0.85rem; font-style: italic; }
+      .episodes { display: flex; flex-wrap: wrap; gap: 6px; }
+      .episode { display: flex; gap: 6px; align-items: baseline; }
+      .episode-label { color: var(--accent); font-weight: 700; }
+      .stream-list { display: flex; flex-direction: column; gap: 8px; }
+      .stream {
+        width: 100%; text-align: left; display: flex; flex-direction: column; gap: 3px;
+        background: #1b1f2a;
+      }
+      .badge { display: inline-block; color: var(--accent); font-size: 0.75rem; margin-right: 6px; }
+      .stream-note, .stream-warning { color: var(--bad); font-size: 0.8rem; }
       .error { color: var(--bad); white-space: pre-wrap; }
-      .bar { height: 4px; border-radius: 2px; background: #222634; overflow: hidden; margin: 10px 0 2px; }
+      .status { color: var(--good); font-size: 0.85rem; }
+      .nowbar {
+        position: sticky; top: 0; z-index: 20; margin: 0 0 12px;
+        background: #10131a; border: 1px solid var(--edge); border-radius: 12px; padding: 12px;
+      }
+      .nowbar-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+      .nowbar-line + .nowbar-line { margin-top: 8px; }
+      .nowbar-name { font-weight: 650; }
+      .bar { height: 4px; border-radius: 2px; background: #222634; overflow: hidden; margin-top: 8px; }
       .bar > span { display: block; height: 100%; background: var(--accent); width: 0; }
-      .hidden { display: none; }
+      .clock { font-variant-numeric: tabular-nums; color: var(--dim); }
+      .sheet {
+        position: fixed; inset: 0; z-index: 30; overflow-y: auto;
+        background: rgba(4, 5, 8, 0.92); padding: 18px;
+      }
+      .sheet-inner { max-width: 46rem; margin: 0 auto; }
+      .menu-group { border-top: 1px solid var(--edge); padding: 6px 0 12px; }
+      .readout { color: var(--dim); margin-left: 6px; font-variant-numeric: tabular-nums; }
+      .chapters { display: flex; flex-wrap: wrap; gap: 4px; }
+      .statistics { display: grid; grid-template-columns: auto auto; gap: 2px 14px; width: max-content; }
+      .continue { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 6px; }
+      .continue-card {
+        width: 13rem; margin: 0; text-align: left; display: flex; flex-direction: column; gap: 3px;
+        background: #1b1f2a;
+      }
+      .continue-poster { width: 100%; height: 6rem; object-fit: cover; border-radius: 8px; }
+      .continue-bar { height: 4px; background: #222634; border-radius: 2px; overflow: hidden; }
+      .continue-bar > span { display: block; height: 100%; background: var(--accent); }
+      .device { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
     </style>
   </head>
   <body>
     <main>
+      <!--
+        The remote's capability list: every Action this page can send, and no
+        other. It is the whole Action surface (ADR-0002): the remote is the
+        Host's own window's equal, not a curated subset, and the two share one
+        command surface. `host-wire` asserts this list against
+        `host_core::Action::SPELLINGS` (#32), so a capability added for one client
+        cannot go missing from the other. `dispatch` below refuses to send a
+        spelling that is not here, so the declaration is load-bearing rather than
+        a comment: a control wired to an Action this list does not name throws
+        rather than sending it.
+      -->
+      <script type="application/json" id="action-capabilities">["set_subtitle_language","clear_subtitle_language","add_addon","remove_addon","set_tmdb_key","clear_tmdb_key","sign_in_stremio","sign_out_stremio","pair_device","revoke_device","browse_catalog","search_catalogs","open_title","find_streams","play_stream","resume","set_paused","seek","set_audio_track","set_subtitle_track","set_subtitle_delay","set_speed","set_volume","set_muted","next_chapter","previous_chapter","set_chapter","set_crop","set_aspect","next_episode","stop_playback"]</script>
+
       <!-- The pairing card: what a device that has not paired sees. -->
       <section id="pairing" class="card hidden">
         <h1>Pair this device</h1>
@@ -81,24 +159,43 @@
                  spellcheck="false" inputmode="latin" maxlength="12" placeholder="ABCDEF" />
           <label for="name">Name this device</label>
           <input id="name" name="name" autocomplete="off" maxlength="64" placeholder="Phone" />
-          <button type="submit">Pair</button>
+          <button type="submit" class="primary">Pair</button>
         </form>
         <p id="pair-error" class="error"></p>
       </section>
 
-      <!-- The remote: what a paired device sees. Deliberately only what #31 asks
-           of it — that this device is in, and what the Host is playing, as it
-           happens. Browsing, search and the control set are #32's, and arrive as
-           a bigger page rather than as a half-built one here. -->
-      <section id="remote" class="card hidden">
-        <h1 id="device">Connected</h1>
-        <p class="dim" id="connection">live</p>
-        <div class="state" id="now">Nothing is playing</div>
-        <p class="dim" id="what"></p>
-        <div class="bar"><span id="progress"></span></div>
-        <p class="dim" id="where"></p>
+      <!-- The remote: what a paired device sees. The same capability the Host's
+           own window has (ADR-0002), browsing kept local to this client
+           (ADR-0005) while a bar at the top controls whatever is playing. -->
+      <section id="app" class="hidden">
+        <div class="row-head">
+          <h1>streamingapp</h1>
+          <span class="dim" id="connection">live</span>
+        </div>
+
+        <!-- What is playing, and the transport. Always reachable, because the
+             one genuinely shared state is playback while browsing stays this
+             client's own: two clients can look at different things while one
+             plays (ADR-0005). -->
+        <section id="nowbar" class="hidden" aria-label="Playing"></section>
+
+        <section id="browse" aria-labelledby="browse-heading">
+          <h2 id="browse-heading">Browse</h2>
+          <div id="browse-body"></div>
+        </section>
+
+        <section id="settings" aria-labelledby="settings-heading">
+          <h2 id="settings-heading">Host</h2>
+          <div id="settings-body"></div>
+        </section>
+
+        <p id="error" class="error hidden" role="alert"></p>
       </section>
     </main>
+
+    <!-- The control sheet: every control the Host accepts while a Stream plays,
+         in the one place a person reaches for them, opened from the bar. -->
+    <div id="controls" class="sheet hidden" role="dialog" aria-label="Playback controls"></div>
 
     <script>
       "use strict";
@@ -108,165 +205,1476 @@
       // or too new is told exactly that instead of being misparsed.
       const VERSION = 1;
       const TOKEN_KEY = "streamingapp.device.token";
+      const CAPABILITIES = JSON.parse(document.getElementById("action-capabilities").textContent);
 
-      const el = (id) => document.getElementById(id);
-      const pairing = el("pairing");
-      const remote = el("remote");
-
-      let socket = null;
-      let nextId = 1;
-      let token = null;
-      try { token = window.localStorage.getItem(TOKEN_KEY); } catch (e) { token = null; }
-      let device = null;
-
-      function send(frame) {
-        if (socket && socket.readyState === WebSocket.OPEN) {
-          socket.send(JSON.stringify(frame));
-          return true;
+      // ---------------------------------------------------------------------
+      // Safe HTML
+      //
+      // Every string that reaches the page — a Title's name, an Addon's own
+      // words about a Stream, a poster — is escaped unless it is markup this
+      // page built. `html` returns a `Raw`, and interpolating one inserts it
+      // unescaped (that is how one template nests in another); everything else
+      // is escaped, so an Addon cannot put markup, or an attribute break, into
+      // another client's page.
+      // ---------------------------------------------------------------------
+      class Raw {
+        constructor(markup) { this.markup = markup; }
+      }
+      function raw(markup) { return new Raw(markup); }
+      function esc(value) {
+        return String(value === null || value === undefined ? "" : value).replace(
+          /[&<>"']/g,
+          (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]),
+        );
+      }
+      function interpolate(value) {
+        if (value === null || value === undefined || value === false) { return ""; }
+        if (value instanceof Raw) { return value.markup; }
+        if (Array.isArray(value)) { return value.map(interpolate).join(""); }
+        return esc(value);
+      }
+      function html(strings, ...values) {
+        let out = "";
+        for (let i = 0; i < strings.length; i += 1) {
+          out += strings[i];
+          if (i < values.length) { out += interpolate(values[i]); }
         }
-        return false;
+        return raw(out);
       }
 
-      function command(action) {
-        const id = nextId++;
-        send({ version: VERSION, id, command: action });
-        return id;
+      const $ = (id) => document.getElementById(id);
+
+      // ---------------------------------------------------------------------
+      // The model: the pure decisions the surface is drawn from, the same ones
+      // the Host's own window makes (src/*.ts). Kept here by hand because this
+      // page has no build step (ADR-0017); the Host is what decides, and these
+      // only say how its facts read.
+      // ---------------------------------------------------------------------
+      const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
+      const DELAY_STEP = 0.1;
+      const ASPECTS = [
+        { label: "Source", aspect: { kind: "source" } },
+        { label: "16:9", aspect: { kind: "ratio", value: 16 / 9 } },
+        { label: "4:3", aspect: { kind: "ratio", value: 4 / 3 } },
+        { label: "21:9", aspect: { kind: "ratio", value: 21 / 9 } },
+      ];
+      const CROP_RATIOS = ASPECTS.filter((choice) => choice.aspect.kind === "ratio").map(
+        (choice) => ({ label: choice.label, ratio: choice.aspect.value }),
+      );
+
+      function formatTime(seconds) {
+        if (seconds === null || seconds === undefined || !isFinite(seconds) || seconds < 0) {
+          return "--:--";
+        }
+        const whole = Math.floor(seconds);
+        const minutes = Math.floor(whole / 60);
+        const rest = whole % 60;
+        const padded = String(rest).padStart(2, "0");
+        if (minutes < 60) { return minutes + ":" + padded; }
+        const hours = Math.floor(minutes / 60);
+        return hours + ":" + String(minutes % 60).padStart(2, "0") + ":" + padded;
+      }
+      function formatDelay(seconds) {
+        const tenths = Math.round(seconds * 10) / 10;
+        if (tenths === 0) { return "0.0 s"; }
+        const magnitude = Math.abs(tenths).toFixed(1);
+        return tenths > 0 ? "+" + magnitude + " s" : "\u2212" + magnitude + " s";
+      }
+      function stepDelay(seconds, by) { return Math.round((seconds + by) * 10) / 10; }
+      function formatSpeed(rate) { return rate + "\u00d7"; }
+      function formatVolume(level) { return Math.round(level) + "%"; }
+      function chapterLabel(chapter) {
+        const at = formatTime(chapter.time);
+        return chapter.title ? at + " \u2014 " + chapter.title : at;
+      }
+      function speedSelected(rate, choice) {
+        return rate !== null && rate !== undefined && Math.abs(rate - choice) < 1e-6;
+      }
+      function centredCrop(size, ratio) {
+        const sourceRatio = size.width / size.height;
+        let width;
+        let height;
+        if (sourceRatio > ratio) {
+          height = size.height;
+          width = Math.max(1, Math.min(size.width, Math.round(size.height * ratio)));
+        } else {
+          width = size.width;
+          height = Math.max(1, Math.min(size.height, Math.round(size.width / ratio)));
+        }
+        return {
+          width,
+          height,
+          x: Math.floor((size.width - width) / 2),
+          y: Math.floor((size.height - height) / 2),
+        };
+      }
+      function cropChoices(size) {
+        const whole = { label: "Full frame", crop: { kind: "off" } };
+        if (!size) { return [whole]; }
+        return [whole].concat(
+          CROP_RATIOS.map((choice) => ({
+            label: choice.label,
+            crop: Object.assign({ kind: "rectangle" }, centredCrop(size, choice.ratio)),
+          })),
+        );
+      }
+      function cropSelected(current, choice) {
+        if (choice.kind === "off") { return current === null || current === undefined; }
+        return current !== null && current !== undefined &&
+          current.width === choice.width && current.height === choice.height &&
+          current.x === choice.x && current.y === choice.y;
+      }
+      function aspectSelected(current, choice) {
+        if (choice.kind === "source") {
+          return current === null || current === undefined || current.kind === "source";
+        }
+        return current !== null && current !== undefined && current.kind === "ratio" &&
+          Math.abs(current.value - choice.value) < 1e-3;
+      }
+      function formatBitrate(bits) {
+        if (bits === null || bits === undefined) { return "\u2014"; }
+        if (bits >= 1e6) { return (bits / 1e6).toFixed(1) + " Mbps"; }
+        if (bits >= 1e3) { return Math.round(bits / 1e3) + " kbps"; }
+        return bits + " bps";
+      }
+      function statisticsLines(statistics) {
+        const stats = statistics || {};
+        return [
+          { label: "Bitrate", value: formatBitrate(stats.bitrate) },
+          {
+            label: "Dropped frames",
+            value: stats.droppedFrames === null || stats.droppedFrames === undefined
+              ? "\u2014" : String(stats.droppedFrames),
+          },
+          { label: "Hardware decode", value: stats.hardwareDecode || "\u2014" },
+        ];
+      }
+      function orderedTracks(tracks, kind) {
+        const ofKind = tracks.filter((track) => track.kind === kind);
+        return ofKind.filter((track) => track.embedded).concat(ofKind.filter((t) => !t.embedded));
+      }
+      function subtitlesOn(tracks) {
+        return tracks.some((track) => track.kind === "subtitle" && track.selected);
+      }
+      function trackLabel(track) {
+        const words = [track.title, track.language, track.codec].filter(Boolean);
+        return words.length > 0 ? words.join(" \u00b7 ") : "Track " + track.id;
+      }
+      function trackMarks(track) {
+        const marks = [];
+        if (track.embedded) { marks.push("embedded"); }
+        if (track.forced) { marks.push("forced"); }
+        if (track.default) { marks.push("default"); }
+        return marks;
+      }
+      function hasNextEpisode(playing) {
+        return Boolean(playing) && playing.video.type === "series";
+      }
+      function controllable(state) {
+        return state === "opening" || state === "playing" || state === "paused";
+      }
+      function transportable(state) { return state === "playing" || state === "paused"; }
+      function watching(state) { return state !== "idle"; }
+      function pictureNote(picture) {
+        if (picture === "own_window") {
+          return "The picture is in mpv's own window on the Host \u2014 it cannot be drawn here.";
+        }
+        if (picture === "nowhere") { return "This Host has no picture: nothing is drawn."; }
+        return null;
+      }
+      function badgeLines(named) {
+        return String((named && named.name) || "").split("\n").map((line) => line.trim())
+          .filter(Boolean);
+      }
+      function playingName(nowPlaying) {
+        if (!nowPlaying) { return "a Stream"; }
+        const badges = badgeLines(nowPlaying).join(" \u00b7 ");
+        return badges || nowPlaying.filename || "a Stream";
+      }
+      function playabilityNote(playback) {
+        return playback.kind === "info_hash"
+          ? "Not playable yet \u2014 a torrent this Host cannot fetch." : null;
+      }
+      function warningNote(warning) {
+        switch (warning) {
+          case "not_web_ready":
+            return "Not web-ready \u2014 the Addon says this URL is not fit for a browser.";
+          case "p2p": return "Peer-to-peer \u2014 this Stream comes from peers.";
+          case "proxy_headers": return "Wants request headers, which the Host does not send yet.";
+          default: return warning;
+        }
+      }
+      function streamName(stream) {
+        const first = badgeLines(stream)[0];
+        return first || stream.filename || "this Stream";
+      }
+      function unplayableNote(stream) {
+        const why = playabilityNote(stream.playback);
+        return why === null ? streamName(stream) : streamName(stream) + " \u2014 " + why;
+      }
+      function isSeries(title) { return title.type === "series"; }
+      function seasonsOf(title) {
+        const seasons = new Map();
+        for (const video of title.videos) {
+          const season = video.season === null || video.season === undefined ? null : video.season;
+          if (seasons.has(season)) { seasons.get(season).push(video); } else { seasons.set(season, [video]); }
+        }
+        return Array.from(seasons, ([season, videos]) => ({ season, videos }));
+      }
+      function seasonName(season) {
+        if (season === null) { return "Videos"; }
+        return season === 0 ? "Specials" : "Season " + season;
+      }
+      function labelOf(video) {
+        if (video.season === null && video.episode === null) { return null; }
+        const season = video.season === null ? "" : "S" + video.season;
+        const episode = video.episode === null ? "" : "E" + video.episode;
+        return season + episode;
+      }
+      function nameOf(title, preview) {
+        if (title.name === title.id && preview && preview.name) { return preview.name; }
+        return title.name;
+      }
+      function posterOf(title, preview) { return title.poster || (preview && preview.poster) || null; }
+      function releaseOf(title, preview) { return title.releaseInfo || (preview && preview.releaseInfo) || null; }
+      function titleStubOf(title, preview) {
+        return {
+          addon: title.addon,
+          id: title.id,
+          type: title.type,
+          name: nameOf(title, preview),
+          poster: posterOf(title, preview),
+        };
+      }
+      function theFilm(title) { return { id: title.id, name: null, season: null, episode: null }; }
+      const SKIP = "skip";
+      function declaredCatalogs(snapshot) {
+        if (!snapshot) { return []; }
+        const out = [];
+        for (const addon of snapshot.addons) {
+          for (const catalog of addon.catalogs) { out.push({ addon: addon.id, catalog }); }
+        }
+        return out;
+      }
+      function blankRow(declared) {
+        return {
+          addon: declared.addon,
+          type: declared.catalog.type,
+          id: declared.catalog.id,
+          name: declared.catalog.name,
+          metas: [],
+          offset: 0,
+          failure: null,
+          done: false,
+        };
+      }
+      function rowWith(row, answer) {
+        const fresh = answer.failure ? []
+          : answer.metas.filter((meta) => !row.metas.some((held) => held.id === meta.id));
+        return Object.assign({}, row, {
+          name: answer.name || row.name,
+          failure: answer.failure,
+          metas: row.metas.concat(fresh),
+          offset: row.offset + answer.sent,
+          done: answer.failure ? row.done : answer.sent === 0 || fresh.length === 0,
+        });
+      }
+      function searchRow(answer) {
+        return {
+          addon: answer.addon, type: answer.type, id: answer.id, name: answer.name,
+          metas: answer.metas, offset: answer.sent, failure: answer.failure, done: true,
+        };
+      }
+      function keyOf(row) { return row.addon + "/" + row.type + "/" + row.id; }
+      function catalogKey(declared) {
+        return declared.addon + "/" + declared.catalog.type + "/" + declared.catalog.id;
+      }
+      function pageable(snapshot, row) {
+        const catalog = snapshot && snapshot.addons
+          .filter((addon) => addon.id === row.addon)
+          .flatMap((addon) => addon.catalogs)
+          .find((item) => item.id === row.id && item.type === row.type);
+        return Boolean(catalog && catalog.extra.some((prop) => prop.name === SKIP));
+      }
+      function unaskable(error) { return error.kind === "extra" || error.kind === "unknown_catalog"; }
+      function answeredCatalogs(response) {
+        const answer = response && response.answer;
+        return answer && answer.catalogs ? answer.catalogs : [];
+      }
+      function answeredTitle(response) {
+        const answer = response && response.answer;
+        return answer && answer.title ? answer.title : null;
+      }
+      function answeredStreams(response) {
+        const answer = response && response.answer;
+        return answer && answer.streams ? answer.streams : [];
+      }
+      function progressOf(entry) {
+        if (entry.position === null || entry.duration === null || entry.duration <= 0) { return null; }
+        return Math.max(0, Math.min(1, entry.position / entry.duration));
+      }
+      function resumable(entry) { return entry.unplayable === null; }
+      function cardName(entry) {
+        const label = labelOf(entry.video);
+        return label ? entry.title.name + " \u2014 " + label : entry.title.name;
+      }
+      function cardNote(entry) {
+        if (entry.unplayable) {
+          return entry.unplayable.reason === "addon_removed"
+            ? "Unplayable \u2014 the Addon " + entry.unplayable.addon + " that supplied this Title is gone."
+            : "Unplayable.";
+        }
+        if (entry.watched) { return "Watched"; }
+        if (entry.position === null) { return "Not started yet"; }
+        if (entry.duration === null) { return formatTime(entry.position) + " in"; }
+        return formatTime(entry.duration - entry.position) + " left";
+      }
+      function protectionOf(protection) {
+        const where = protection.backend === "keyring"
+          ? "the OS keyring"
+          : "an owner-only (0600) file in the data directory, because no keyring is reachable here";
+        const tmdb = protection.tmdbHeld
+          ? "A TMDB key is held in " + where + "."
+          : "No TMDB key is held. One would be kept in " + where + ".";
+        const stremio = protection.stremioHeld
+          ? "A Stremio account is signed in."
+          : "No Stremio account is signed in.";
+        return tmdb + " " + stremio;
       }
 
-      function connect() {
-        const scheme = location.protocol === "https:" ? "wss" : "ws";
-        socket = new WebSocket(`${scheme}://${location.host}/`);
+      /**
+       * A person-readable account of a rejected Action. A smaller table than the
+       * window's on purpose: it names the kinds this page can actually be given,
+       * and falls back to the Host's own sentence for the rest.
+       */
+      function explain(error) {
+        if (!error) { return ""; }
+        switch (error.kind) {
+          case "malformed": return "The Host could not read that Action" + because(error.detail);
+          case "unsupported_version":
+            return "This page speaks version " + VERSION + " and the Host " + error.supported + ".";
+          case "invalid_subtitle_language":
+            return JSON.stringify(error.language) + " is not a subtitle language tag \u2014 try \"pt-BR\".";
+          case "invalid_manifest_url":
+            return JSON.stringify(error.url) + " is not a manifest URL.";
+          case "invalid_addon_id": return JSON.stringify(error.id) + " is not an Addon id.";
+          case "invalid_tmdb_key": return "The Host will not keep that TMDB key.";
+          case "invalid_stremio_login": return "The Host will not send that Stremio sign-in.";
+          case "unknown_addon": return "No Addon with the id " + JSON.stringify(error.id) + " is configured.";
+          case "unknown_catalog":
+            return "The Addon " + JSON.stringify(error.addon) + " offers no catalog " +
+              (error.catalog ? error.catalog.type + "/" + error.catalog.id : "?") + ".";
+          case "unknown_title":
+            return "The Addon " + JSON.stringify(error.addon) + " offers no meta for that Title.";
+          case "extra": return error.detail || "The Host will not ask for that catalog with those values.";
+          case "query": return error.detail || "The Host will not search for that.";
+          case "catalog": return "The Host could not read that Addon's catalog" + because(error.detail);
+          case "meta": return "The Host could not read that Addon's meta response" + because(error.detail);
+          case "stream": return "The Host could not read that Addon's stream response" + because(error.detail);
+          case "fetch": return "The Host could not fetch that Addon" + because(error.detail);
+          case "manifest": return "The Host could not read that Addon's manifest" + because(error.detail);
+          case "unplayable":
+            return "The Host will not play that Stream: " + (error.detail || "it is not one it can open");
+          case "nothing_playing": return "Nothing is playing, so the Host cannot do that.";
+          case "no_next_episode": return "There is no next episode to play" + because(error.detail);
+          case "no_progress": return "The Host has no Watch progress for that Video.";
+          case "playback": return "The Host's player could not do that" + because(error.detail);
+          case "store": return "The Host could not save that change" + because(error.detail);
+          case "secret": return "The Host could not keep that credential" + because(error.detail);
+          case "sync_unavailable": return "This Host was built without Stremio account sync.";
+          case "sync": return "The Host could not sign in to Stremio" + because(error.detail);
+          case "invalid_pairing_code":
+            return JSON.stringify(error.code) + " is not a pairing code \u2014 six letters and digits, like \"4K7Q2M\".";
+          case "invalid_device_name": return "A device needs a name of a few words.";
+          case "invalid_device_id": return JSON.stringify(error.id) + " is not a device id.";
+          case "pairing": return "That is not the pairing code the Host is showing.";
+          case "unknown_device": return "No device with that id is paired with this Host.";
+          case "unpaired": return "This device is not paired any more.";
+          case "already_paired": return "This device is already paired.";
+          case "unreachable": return "This page could not reach the Host" + because(error.detail);
+          default: return error.detail || error.kind;
+        }
+      }
+      function because(detail) { return detail ? ": " + detail : "."; }
 
-        socket.addEventListener("open", () => {
-          el("connection").textContent = "live";
-          // Present the token this device was paired with, or nothing on a first
-          // connect. The Host answers either way, and what it answers decides
-          // which card is shown.
-          send({ version: VERSION, hello: { token } });
+      // ---------------------------------------------------------------------
+      // The connection: the same door the Host's window uses, over the wire.
+      // ---------------------------------------------------------------------
+      const net = {
+        socket: null,
+        nextId: 1,
+        pending: new Map(),
+        latest: null,
+        connect(onFrame) {
+          const scheme = location.protocol === "https:" ? "wss" : "ws";
+          this.socket = new WebSocket(scheme + "://" + location.host + "/");
+          this.socket.addEventListener("open", () => onFrame({ open: true }));
+          this.socket.addEventListener("message", (event) => {
+            let frame;
+            try { frame = JSON.parse(event.data); } catch (e) { return; }
+            onFrame({ frame });
+          });
+          this.socket.addEventListener("close", () => onFrame({ close: true }));
+        },
+        send(frame) {
+          if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+            this.socket.send(JSON.stringify(frame));
+            return true;
+          }
+          return false;
+        },
+        command(action, resolve, reject) {
+          const id = this.nextId++;
+          this.pending.set(id, { resolve, reject });
+          if (!this.send({ version: VERSION, id, command: action })) {
+            this.pending.delete(id);
+            reject({ kind: "unreachable", detail: "the Host is not connected" });
+          }
+        },
+      };
+
+      function dispatch(action) {
+        return new Promise((resolve, reject) => {
+          if (CAPABILITIES.indexOf(action.type) === -1) {
+            reject({
+              kind: "malformed",
+              detail: "this remote has no control for " + action.type,
+            });
+            return;
+          }
+          net.command(action, resolve, reject);
         });
+      }
 
-        socket.addEventListener("message", (event) => {
-          let frame;
-          try { frame = JSON.parse(event.data); } catch (e) { return; }
-          handle(frame);
+      // ---------------------------------------------------------------------
+      // This client's own state. None of it is shared: which row is paged,
+      // which Title is open, which Streams are listed and which candidate is
+      // chosen all belong to this device (ADR-0005). What the Host publishes —
+      // playback, the library, the Addons — is rendered from the Snapshot.
+      // ---------------------------------------------------------------------
+      const state = {
+        token: null,
+        device: null,
+        snapshot: null,
+        online: false,
+        error: null,
+        // browsing
+        rows: [],
+        loading: false,
+        query: "",
+        results: null,
+        opening: null,
+        preview: null,
+        title: null,
+        selected: null,
+        streams: null,
+        chosen: null,
+        // playback surface
+        controls: false,
+        showStatistics: false,
+        // signatures that decide when a region is redrawn
+        homeSignature: null,
+        settingsSignature: null,
+        controlsSignature: null,
+        nowSignature: null,
+        catalogueKeys: null,
+      };
+      try { state.token = window.localStorage.getItem(TOKEN_KEY); } catch (e) { state.token = null; }
+
+      // Lookups the delegated handlers read, rebuilt as things are drawn.
+      const metaIndex = new Map();
+      const videoIndex = new Map();
+      const rowIndex = new Map();
+      const groupIndex = new Map();
+      const entryIndex = new Map();
+      const cropIndex = new Map();
+      const aspectIndex = new Map();
+
+      // ---------------------------------------------------------------------
+      // Drawing
+      // ---------------------------------------------------------------------
+      function playback() { return state.snapshot ? state.snapshot.playback : null; }
+
+      function showPairing(message) {
+        $("pairing").classList.remove("hidden");
+        $("app").classList.add("hidden");
+        if (message) { $("pair-error").textContent = message; }
+      }
+      function showApp() {
+        $("pairing").classList.add("hidden");
+        $("app").classList.remove("hidden");
+        $("pair-error").textContent = "";
+      }
+
+      function renderConnection() {
+        const node = $("connection");
+        if (!state.device) { node.textContent = ""; return; }
+        node.textContent = state.device.name + (state.online ? " \u00b7 live" : " \u00b7 reconnecting\u2026");
+      }
+
+      function renderError() {
+        const node = $("error");
+        const failure = playback() && playback().failure;
+        const message = state.error
+          ? explain(state.error)
+          : failure ? failure + " Pick another Stream from the list." : "";
+        node.textContent = message;
+        node.classList.toggle("hidden", !message);
+      }
+
+      /** The whole app, drawn from nothing: a fresh connect, or a big change. */
+      function render() {
+        if (!state.device) { showPairing(); return; }
+        showApp();
+        renderConnection();
+        renderNowBar();
+        renderHome();
+        renderSettings();
+        renderControls();
+        renderError();
+      }
+
+      /** What the Snapshot moved, redrawn without disturbing what a person is typing. */
+      function refresh() {
+        if (!state.device) { return; }
+        // Which catalogs the Addons declare is what the home surface is built
+        // from; when that changes — an Addon added or removed — the rows are
+        // asked for again, keyed on the catalogs rather than on every revision,
+        // so a preference change does not throw away what a person has paged.
+        const keys = catalogueKeys(state.snapshot);
+        if (keys !== state.catalogueKeys) {
+          state.catalogueKeys = keys;
+          void refreshRows();
+        }
+        renderConnection();
+        renderNowBar();
+        const home = homeSignature();
+        if (home !== state.homeSignature) { renderHome(); }
+        const settings = settingsSignature();
+        if (settings !== state.settingsSignature) { renderSettings(); }
+        const controls = controlsSignature();
+        if (controls !== state.controlsSignature) { renderControls(); }
+        renderError();
+      }
+
+      function catalogueKeys(snapshot) {
+        return declaredCatalogs(snapshot).map(catalogKey).join("|");
+      }
+
+      // --- the browsing surface -------------------------------------------
+      function homeSignature() {
+        const s = state.snapshot;
+        if (!s) { return "none"; }
+        const catalogs = declaredCatalogs(s).map(catalogKey).join("|");
+        const library = s.watchProgress.map((entry) => entry.title.type + "/" + entry.video.id).join("|");
+        return catalogs + "::" + library;
+      }
+
+      function renderHome() {
+        state.homeSignature = homeSignature();
+        metaIndex.clear();
+        videoIndex.clear();
+        rowIndex.clear();
+        groupIndex.clear();
+        entryIndex.clear();
+        $("browse-body").innerHTML = renderBrowse().markup;
+      }
+
+      function renderBrowse() {
+        if (state.title) { return renderTitle(); }
+        const s = state.snapshot;
+        const showing = state.results || state.rows;
+        return html`
+          <form id="search-form">
+            <label for="search">Search the Addons that offer it</label>
+            <input id="search" placeholder="a title" size="32" value="${state.query}"
+                   autocomplete="off" />
+            <button type="submit" class="primary">Search</button>
+            ${state.results ? html`<button type="button" data-a="back-browse">Back to browsing</button>` : null}
+          </form>
+
+          ${state.opening ? html`<p role="status" class="dim">Opening ${state.opening.name}\u2026</p>` : null}
+          ${state.loading ? html`<p class="dim">Loading\u2026</p>` : null}
+          ${!state.loading && showing.length === 0
+            ? html`<p class="dim">${
+                state.results
+                  ? "No Addon answered that search."
+                  : s && s.addons.length > 0
+                    ? "The configured Addons offer no catalog to browse."
+                    : "No Addons are configured yet."
+              }</p>`
+            : null}
+          ${renderContinue()}
+          ${showing.map(renderRow)}
+        `;
+      }
+
+      function renderContinue() {
+        const s = state.snapshot;
+        if (!s || s.watchProgress.length === 0) { return null; }
+        return html`
+          <h3>Continue watching</h3>
+          <ul class="continue">
+            ${s.watchProgress.map((entry) => {
+              const key = entry.title.type + "/" + entry.video.id;
+              entryIndex.set(key, entry);
+              const fraction = progressOf(entry);
+              const playable = resumable(entry);
+              return html`
+                <li>
+                  <button type="button" class="continue-card" data-a="resume" data-ref="${key}"
+                          ${playable ? null : "disabled"}>
+                    ${entry.title.poster
+                      ? html`<img class="continue-poster" src="${entry.title.poster}" alt="" />`
+                      : null}
+                    <span class="card-name">${cardName(entry)}</span>
+                    <span class="card-note">${cardNote(entry)}</span>
+                    ${fraction !== null
+                      ? html`<span class="continue-bar"><span style="width:${Math.round(fraction * 100)}%"></span></span>`
+                      : null}
+                  </button>
+                </li>
+              `;
+            })}
+          </ul>
+        `;
+      }
+
+      function renderRow(row) {
+        const key = keyOf(row);
+        rowIndex.set(key, row);
+        const head = html`<h3>${row.name} <span class="addon-id">${row.addon}</span></h3>`;
+        return html`
+          <section class="row" data-testid="row-${row.addon}-${row.type}-${row.id}">
+            ${head}
+            ${row.failure ? html`<p class="error">${explain(row.failure)}</p>` : null}
+            ${row.metas.length === 0 && !row.failure ? html`<p class="dim">This catalog is empty.</p>` : null}
+            <ul class="cards">
+              ${row.metas.map((meta) => {
+                const ref = row.addon + "|" + meta.type + "|" + meta.id;
+                metaIndex.set(ref, meta);
+                return html`
+                  <li>
+                    <button type="button" class="card-btn" data-a="open-title"
+                            data-addon="${row.addon}" data-ref="${ref}">
+                      ${meta.poster
+                        ? html`<img src="${meta.poster}" alt="" loading="lazy" />`
+                        : html`<span class="poster-missing" aria-hidden="true"></span>`}
+                      <span class="card-name">${meta.name}</span>
+                      ${meta.releaseInfo ? html`<span class="card-year">${meta.releaseInfo}</span>` : null}
+                      ${meta.description ? html`<span class="card-note">${meta.description}</span>` : null}
+                    </button>
+                  </li>
+                `;
+              })}
+            </ul>
+            ${pageable(state.snapshot, row) && !row.done
+              ? html`<button type="button" data-a="page" data-ref="${key}">More</button>`
+              : null}
+          </section>
+        `;
+      }
+
+      function renderTitle() {
+        const title = state.title;
+        const preview = state.preview;
+        const poster = posterOf(title, preview);
+        const release = releaseOf(title, preview);
+        const facts = [release, title.runtime, title.imdbRating ? "\u2605 " + title.imdbRating : null]
+          .filter(Boolean).join(" \u00b7 ");
+        const seasons = seasonsOf(title);
+        const subject = state.selected && state.selected.id !== title.id
+          ? [labelOf(state.selected), state.selected.name].filter(Boolean).join(" \u2014 ")
+          : nameOf(title, preview);
+
+        return html`
+          <article class="title" data-testid="title-${title.id}">
+            <button type="button" data-a="back-title">Back to browsing</button>
+            <header class="title-head">
+              ${poster ? html`<img class="title-poster" src="${poster}" alt="" />` : null}
+              <div class="title-about">
+                <h3>${nameOf(title, preview)}</h3>
+                ${facts ? html`<p class="title-facts">${facts}</p>` : null}
+                <p class="addon-id">${title.addon + " \u00b7 " + title.type + "/" + title.id}</p>
+                ${title.key.kind === "addon"
+                  ? html`<p class="title-unmapped">Unmapped \u2014 no TMDB record met this Title.</p>`
+                  : null}
+                ${title.genres.length > 0 ? html`<p class="title-genres">${title.genres.join(", ")}</p>` : null}
+                ${title.description ? html`<p>${title.description}</p>` : null}
+              </div>
+            </header>
+
+            ${state.streams !== null
+              ? renderStreams(subject)
+              : seasons.length === 0
+                ? html`
+                    <p class="dim">${isSeries(title)
+                      ? "This series' Addon listed no episodes." : "This Title is one Video: the film itself."}</p>
+                    ${isSeries(title) ? null : html`<button type="button" class="primary" data-a="play-film">Play</button>`}
+                  `
+                : seasons.map(({ season, videos }) => html`
+                    <section class="season">
+                      <h4>${seasonName(season)}</h4>
+                      <ul class="episodes">
+                        ${videos.map((video) => {
+                          videoIndex.set(video.id, video);
+                          return html`
+                            <li>
+                              <button type="button" class="episode" data-a="play-video" data-ref="${video.id}"
+                                      aria-pressed="${state.selected && state.selected.id === video.id}">
+                                ${labelOf(video) ? html`<span class="episode-label">${labelOf(video)}</span>` : null}
+                                <span>${video.name || video.id}</span>
+                              </button>
+                            </li>
+                          `;
+                        })}
+                      </ul>
+                    </section>
+                  `)}
+          </article>
+        `;
+      }
+
+      function renderStreams(subject) {
+        const groups = state.streams || [];
+        return html`
+          <section class="streams" aria-label="Streams \u2014 ${subject}">
+            <button type="button" data-a="close-streams">Back to the Videos</button>
+            <h4>Streams \u2014 ${subject}</h4>
+            ${groups.length === 0 ? html`<p class="dim">No configured Addon offers Streams for this Video.</p>` : null}
+            ${groups.map((group) => {
+              groupIndex.set(group.addon, group);
+              return html`
+                <section class="stream-group">
+                  <h5>${group.addon}</h5>
+                  ${group.failure ? html`<p class="error">${explain(group.failure)}</p>` : null}
+                  ${!group.failure && group.streams.length === 0
+                    ? html`<p class="dim">This Addon answered nothing this Host can play.</p>` : null}
+                  <ul class="stream-list">
+                    ${group.streams.map((stream, index) => html`
+                      <li>
+                        <button type="button" class="stream" data-a="choose-stream"
+                                data-addon="${group.addon}" data-index="${index}"
+                                aria-pressed="${state.chosen === stream}">
+                          ${badgeLines(stream).length > 0
+                            ? html`<span>${badgeLines(stream).map((badge) => html`<span class="badge">${badge}</span>`)}</span>`
+                            : null}
+                          ${stream.description ? html`<span class="stream-description">${stream.description}</span>` : null}
+                          ${stream.filename ? html`<span class="stream-filename">${stream.filename}</span>` : null}
+                          ${stream.bingeGroup ? html`<span class="stream-binge">binge group ${stream.bingeGroup}</span>` : null}
+                          ${playabilityNote(stream.playback)
+                            ? html`<span class="stream-note">${playabilityNote(stream.playback)}</span>` : null}
+                          ${stream.warnings.map((warning) => html`<span class="stream-warning">${warningNote(warning)}</span>`)}
+                        </button>
+                      </li>
+                    `)}
+                  </ul>
+                </section>
+              `;
+            })}
+            ${state.chosen ? html`<p class="status">${unplayableNote(state.chosen)}</p>` : null}
+          </section>
+        `;
+      }
+
+      // --- the now bar and its controls -----------------------------------
+      function nowSignature() {
+        const p = playback();
+        if (!p || !watching(p.state)) { return null; }
+        return JSON.stringify({
+          state: p.state,
+          duration: p.duration,
+          picture: p.picture,
+          playing: p.nowPlaying ? p.nowPlaying.video.type + "/" + p.nowPlaying.video.id : null,
         });
+      }
 
-        socket.addEventListener("close", () => {
-          el("connection").textContent = "reconnecting…";
-          // A phone that locked its screen comes back here: the greeting asks
-          // for the current state, so the view catches up rather than staying
-          // stale.
+      function renderNowBar() {
+        const bar = $("nowbar");
+        const p = playback();
+        const signature = nowSignature();
+        if (signature === null) {
+          bar.classList.add("hidden");
+          bar.innerHTML = "";
+          state.nowSignature = null;
+          return;
+        }
+        bar.classList.remove("hidden");
+        if (signature !== state.nowSignature) {
+          state.nowSignature = signature;
+          const canTransport = transportable(p.state);
+          const playing = p.state === "playing";
+          const note = pictureNote(p.picture);
+          bar.innerHTML = html`
+            <div class="nowbar-line">
+              <span class="nowbar-name">Playing ${playingName(p.nowPlaying)}</span>
+              <span class="dim">from ${p.nowPlaying ? p.nowPlaying.addon : ""}</span>
+            </div>
+            <div class="nowbar-line">
+              ${canTransport
+                ? html`
+                    <button type="button" data-a="seek-by" data-seconds="-10">\u221210 s</button>
+                    <button type="button" class="primary" data-a="pause-toggle">${playing ? "Pause" : "Play"}</button>
+                    <button type="button" data-a="seek-by" data-seconds="10">+10 s</button>
+                  `
+                : null}
+              <span class="clock" data-clock></span>
+              <button type="button" data-a="stop">Stop</button>
+              ${controllable(p.state) ? html`<button type="button" data-a="controls-toggle">Controls</button>` : null}
+              ${p.state === "ended" && hasNextEpisode(p.nowPlaying)
+                ? html`<button type="button" class="primary" data-a="next-episode">Next episode</button>`
+                : null}
+            </div>
+            ${canTransport ? html`<input type="range" data-seek min="0" step="1" />` : null}
+            ${p.state === "opening" ? html`<p class="dim">Opening ${playingName(p.nowPlaying)}\u2026</p>` : null}
+            ${p.state === "ended" ? html`<p class="dim">The Stream reached its end.</p>` : null}
+            ${note ? html`<p class="dim">${note}</p>` : null}
+            ${p.failure ? html`<p class="error">${p.failure}</p>` : null}
+          `.markup;
+        }
+        updateNowBar(p);
+      }
+
+      function updateNowBar(p) {
+        const bar = $("nowbar");
+        const clock = bar.querySelector("[data-clock]");
+        if (clock) { clock.textContent = formatTime(p.position) + " / " + formatTime(p.duration); }
+        const seek = bar.querySelector("[data-seek]");
+        if (seek && document.activeElement !== seek) {
+          seek.max = p.duration === null ? 0 : p.duration;
+          seek.disabled = p.duration === null;
+          seek.value = p.position === null ? 0 : p.position;
+        }
+        const toggle = bar.querySelector("[data-pause-toggle]");
+        if (toggle) { toggle.textContent = p.state === "playing" ? "Pause" : "Play"; }
+      }
+
+      function controlsSignature() {
+        const p = playback();
+        if (!p || !watching(p.state)) { return null; }
+        return JSON.stringify({
+          tracks: p.tracks, chapters: p.chapters, chapter: p.chapter, speed: p.speed,
+          volume: p.volume, muted: p.muted, subtitleDelay: p.subtitleDelay, crop: p.crop,
+          aspect: p.aspect, resolution: p.resolution, statistics: p.statistics,
+          series: p.nowPlaying ? p.nowPlaying.video.type : null,
+          open: state.controls, showStatistics: state.showStatistics,
+        });
+      }
+
+      function renderControls() {
+        const sheet = $("controls");
+        const p = playback();
+        state.controlsSignature = controlsSignature();
+        if (!state.controls || !p || !watching(p.state)) {
+          sheet.classList.add("hidden");
+          sheet.innerHTML = "";
+          return;
+        }
+        cropIndex.clear();
+        aspectIndex.clear();
+        const audio = orderedTracks(p.tracks, "audio");
+        const subtitles = orderedTracks(p.tracks, "subtitle");
+        const delay = p.subtitleDelay === null ? 0 : p.subtitleDelay;
+        const volume = Math.round(p.volume === null ? 100 : p.volume);
+
+        sheet.classList.remove("hidden");
+        sheet.innerHTML = html`
+          <div class="sheet-inner">
+            <div class="nowbar-line">
+              <span class="nowbar-name">Controls</span>
+              <button type="button" data-a="controls-toggle">Close</button>
+            </div>
+
+            <div class="menu-group">
+              <h3>Audio</h3>
+              ${audio.length === 0 ? html`<p class="dim">This Stream carries no audio track to pick.</p>` : null}
+              ${audio.map((track) => renderTrack(track))}
+              <h3>Subtitles</h3>
+              ${subtitles.map((track) => renderTrack(track))}
+              <button type="button" data-a="subtitles-off" aria-pressed="${!subtitlesOn(p.tracks)}">Subtitles off</button>
+            </div>
+
+            <div class="menu-group">
+              <h3>Subtitle delay</h3>
+              <span class="readout">${formatDelay(delay)}</span>
+              <button type="button" data-a="delay" data-seconds="${stepDelay(delay, -DELAY_STEP)}">\u22120.1 s</button>
+              <button type="button" data-a="delay" data-seconds="${stepDelay(delay, DELAY_STEP)}">+0.1 s</button>
+              <button type="button" data-a="delay" data-seconds="0">Reset</button>
+            </div>
+
+            <div class="menu-group">
+              <h3>Speed</h3>
+              ${SPEEDS.map((rate) => html`
+                <button type="button" data-a="speed" data-rate="${rate}"
+                        aria-pressed="${speedSelected(p.speed, rate)}">${formatSpeed(rate)}</button>
+              `)}
+            </div>
+
+            <div class="menu-group">
+              <h3>Volume</h3>
+              <input type="range" data-volume min="0" max="130" step="1" value="${volume}" />
+              <span class="readout">${formatVolume(volume)}</span>
+              <button type="button" data-a="mute-toggle" aria-pressed="${p.muted === true}">
+                ${p.muted ? "Unmute" : "Mute"}</button>
+            </div>
+
+            <div class="menu-group">
+              <h3>Chapters</h3>
+              <button type="button" data-a="chapter-prev">Previous</button>
+              <button type="button" data-a="chapter-next">Next</button>
+              ${p.chapters.length === 0
+                ? html`<p class="dim">This Stream lists no chapters.</p>`
+                : html`<ul class="chapters">${p.chapters.map((chapter) => html`
+                    <li>
+                      <button type="button" data-a="chapter" data-index="${chapter.index}"
+                              aria-pressed="${p.chapter === chapter.index}">${chapterLabel(chapter)}</button>
+                    </li>
+                  `)}</ul>`}
+            </div>
+
+            <div class="menu-group">
+              <h3>Crop</h3>
+              ${cropChoices(p.resolution).map((choice) => {
+                cropIndex.set(choice.label, choice.crop);
+                return html`<button type="button" data-a="crop" data-ref="${choice.label}"
+                        aria-pressed="${cropSelected(p.crop, choice.crop)}">${choice.label}</button>`;
+              })}
+            </div>
+
+            <div class="menu-group">
+              <h3>Aspect</h3>
+              ${ASPECTS.map((choice) => {
+                aspectIndex.set(choice.label, choice.aspect);
+                return html`<button type="button" data-a="aspect" data-ref="${choice.label}"
+                        aria-pressed="${aspectSelected(p.aspect, choice.aspect)}">${choice.label}</button>`;
+              })}
+            </div>
+
+            <div class="menu-group">
+              <h3>Statistics</h3>
+              <button type="button" data-a="stats-toggle" aria-pressed="${state.showStatistics}">
+                ${state.showStatistics ? "Hide statistics" : "Show statistics"}</button>
+              ${state.showStatistics
+                ? html`<dl class="statistics">${statisticsLines(p.statistics).map((line) => html`
+                    <dt>${line.label}</dt><dd>${line.value}</dd>
+                  `)}</dl>`
+                : null}
+            </div>
+
+            ${hasNextEpisode(p.nowPlaying)
+              ? html`<div class="menu-group">
+                  <button type="button" data-a="next-episode">Next episode</button>
+                </div>`
+              : null}
+          </div>
+        `.markup;
+      }
+
+      function renderTrack(track) {
+        const marks = trackMarks(track);
+        return html`
+          <button type="button"
+                  data-a="${track.kind === "audio" ? "audio-track" : "subtitle-track"}"
+                  data-id="${track.id}" aria-pressed="${track.selected}">
+            ${trackLabel(track)}${marks.map((mark) => html` <span class="addon-id">${mark}</span>`)}
+          </button>
+        `;
+      }
+
+      // --- the Host's own settings ----------------------------------------
+      function settingsSignature() {
+        const s = state.snapshot;
+        if (!s) { return "none"; }
+        return JSON.stringify({
+          addons: s.addons.map((addon) => addon.id + ":" + addon.version),
+          protection: s.protection,
+          devices: s.devices.map((device) => device.id),
+          address: s.address,
+          pairingCode: s.pairingCode,
+          language: s.preferences.subtitleLanguage,
+        });
+      }
+
+      function renderSettings() {
+        state.settingsSignature = settingsSignature();
+        const s = state.snapshot;
+        $("settings-body").innerHTML = renderSettingsBody(s).markup;
+      }
+
+      function renderSettingsBody(s) {
+        if (!s) { return html`<p class="dim">Waiting for the Host\u2026</p>`; }
+        return html`
+          <p class="dim">${s.addons.length} Addon${s.addons.length === 1 ? "" : "s"} configured.</p>
+
+          <h4>Addons</h4>
+          <p class="dim">Paste an Addon's manifest URL. The Host fetches it, reads it, and keeps it.</p>
+          <form id="addon-form">
+            <label for="manifest-url">Addon manifest URL</label>
+            <input id="manifest-url" placeholder="https://example.com/manifest.json" autocomplete="off" />
+            <button type="submit" class="primary">Add</button>
+          </form>
+          ${s.addons.length === 0
+            ? html`<p class="dim">No Addons are configured yet.</p>`
+            : html`<ul>${s.addons.map((addon) => html`
+                <li>
+                  <h5>${addon.name} <span class="addon-id">${addon.version}</span></h5>
+                  <p class="addon-id">${addon.id}</p>
+                  <p class="addon-id">Resources: ${resourcesOf(addon)}</p>
+                  <p class="addon-id">Types: ${listed(addon.types)}</p>
+                  <p class="addon-id">Catalogs: ${catalogsOf(addon)}</p>
+                  <button type="button" data-a="remove-addon" data-id="${addon.id}">Remove</button>
+                </li>
+              `)}</ul>`}
+
+          <h4>Credentials</h4>
+          <p class="dim">${protectionOf(s.protection)}</p>
+
+          <h4>TMDB key</h4>
+          <form id="tmdb-form">
+            <label for="tmdb-key">TMDB API key or read-access token</label>
+            <input id="tmdb-key" type="password" autocomplete="off" placeholder="the key TMDB gave you" />
+            <button type="submit" class="primary">Save key</button>
+            <button type="button" data-a="clear-tmdb">Clear key</button>
+          </form>
+
+          <h4>Stremio account</h4>
+          ${s.protection.stremioHeld
+            ? html`<button type="button" data-a="sign-out">Sign out</button>`
+            : html`
+                <form id="stremio-form" novalidate>
+                  <label for="stremio-email">Stremio email</label>
+                  <input id="stremio-email" type="email" autocomplete="off" placeholder="you@example.com" />
+                  <label for="stremio-password">Stremio password</label>
+                  <input id="stremio-password" type="password" autocomplete="off" />
+                  <button type="submit" class="primary">Sign in</button>
+                </form>
+              `}
+
+          <h4>Remote devices</h4>
+          <p class="dim">
+            Other devices connect to the Host at
+            <strong>${s.address || "this Host is not serving the network"}</strong> and pair with the
+            code <strong>${s.pairingCode}</strong>.
+          </p>
+          ${s.devices.length === 0
+            ? html`<p class="dim">No device is paired yet.</p>`
+            : html`<ul>${s.devices.map((device) => html`
+                <li class="device">
+                  <span>${device.name}, paired ${new Date(device.pairedAt).toLocaleString()}</span>
+                  <button type="button" data-a="revoke" data-id="${device.id}">Revoke</button>
+                </li>
+              `)}</ul>`}
+
+          <h4>Subtitle language</h4>
+          <p class="dim">${s.preferences.subtitleLanguage || "none \u2014 the Host picks per Video"}</p>
+          <form id="language-form">
+            <label for="subtitle-language">Prefer a language tag</label>
+            <input id="subtitle-language" placeholder="pt-BR" autocomplete="off" />
+            <button type="submit" class="primary">Save</button>
+            <button type="button" data-a="clear-language">Clear</button>
+          </form>
+        `;
+      }
+
+      function resourcesOf(addon) {
+        if (addon.resources.length === 0) { return "none"; }
+        return addon.resources.map((resource) =>
+          resource.types && resource.types.length > 0
+            ? resource.name + " (" + resource.types.join(", ") + ")" : resource.name).join(", ");
+      }
+      function catalogsOf(addon) {
+        if (addon.catalogs.length === 0) { return "none"; }
+        return addon.catalogs.map((catalog) => catalog.name + " (" + catalog.type + ")").join(", ");
+      }
+      function listed(items) { return items.length > 0 ? items.join(", ") : "none"; }
+
+      // ---------------------------------------------------------------------
+      // Taking Actions
+      // ---------------------------------------------------------------------
+      async function take(action) {
+        state.error = null;
+        try {
+          const response = await dispatch(action);
+          return response;
+        } catch (error) {
+          state.error = error;
+          renderError();
+          return null;
+        }
+      }
+
+      async function load(row, extra) {
+        const response = await take({
+          type: "browse_catalog",
+          addon: row.addon,
+          catalog: { type: row.type, id: row.id },
+          extra,
+        });
+        if (!response) {
+          // A refusal the Host means about the catalog itself is not a row;
+          // anything else is a row that says what went wrong, so one Addon's
+          // trouble does not take the whole surface with it.
+          return state.error && unaskable(state.error) ? null : Object.assign({}, row, { failure: state.error });
+        }
+        const answer = answeredCatalogs(response)[0];
+        return answer ? rowWith(row, answer) : null;
+      }
+
+      async function refreshRows() {
+        const catalogs = declaredCatalogs(state.snapshot);
+        state.rows = [];
+        if (catalogs.length === 0) { state.loading = false; renderHome(); return; }
+        state.loading = true;
+        renderHome();
+        for (const catalog of catalogs) {
+          const row = await load(blankRow(catalog), []);
+          if (row) { state.rows.push(row); }
+        }
+        state.loading = false;
+        renderHome();
+      }
+
+      async function openTitle(addon, meta) {
+        state.opening = meta;
+        renderHome();
+        const response = await take({
+          type: "open_title",
+          addon,
+          title: { type: meta.type, id: meta.id },
+        });
+        state.opening = null;
+        const opened = answeredTitle(response);
+        if (opened) {
+          state.preview = meta;
+          state.selected = null;
+          state.streams = null;
+          state.chosen = null;
+          state.title = opened;
+        }
+        renderHome();
+      }
+
+      async function playVideo(video) {
+        if (!state.title) { return; }
+        state.selected = video;
+        state.chosen = null;
+        state.streams = null;
+        renderHome();
+        const response = await take({
+          type: "find_streams",
+          video: { type: state.title.type, id: video.id },
+        });
+        if (response) { state.streams = answeredStreams(response); }
+        renderHome();
+      }
+
+      async function chooseStream(addon, stream) {
+        if (!state.title || !state.selected) { return; }
+        if (playabilityNote(stream.playback) !== null) {
+          state.chosen = stream;
+          renderHome();
+          return;
+        }
+        state.chosen = null;
+        await take({
+          type: "play_stream",
+          video: { type: state.title.type, id: state.selected.id },
+          addon,
+          stream,
+          title: titleStubOf(state.title, state.preview),
+        });
+        renderHome();
+      }
+
+      async function act(name, data) {
+        switch (name) {
+          case "open-title": {
+            const meta = metaIndex.get(data.ref);
+            if (meta) { await openTitle(data.addon, meta); }
+            return;
+          }
+          case "play-video": {
+            const video = videoIndex.get(data.ref);
+            if (video) { await playVideo(video); }
+            return;
+          }
+          case "play-film": {
+            if (state.title) { await playVideo(theFilm(state.title)); }
+            return;
+          }
+          case "choose-stream": {
+            const group = groupIndex.get(data.addon);
+            const stream = group && group.streams[Number(data.index)];
+            if (stream) { await chooseStream(data.addon, stream); }
+            return;
+          }
+          case "page": {
+            const row = rowIndex.get(data.ref);
+            if (row) {
+              const paged = await load(row, [{ name: SKIP, value: String(row.offset) }]);
+              if (paged) {
+                state.rows = state.rows.map((held) => (keyOf(held) === keyOf(row) ? paged : held));
+                renderHome();
+              }
+            }
+            return;
+          }
+          case "resume": {
+            const entry = entryIndex.get(data.ref);
+            if (entry) {
+              await take({ type: "resume", video: { type: entry.title.type, id: entry.video.id } });
+            }
+            return;
+          }
+          case "back-browse": {
+            state.results = null;
+            renderHome();
+            return;
+          }
+          case "back-title": {
+            state.title = null;
+            state.preview = null;
+            state.selected = null;
+            state.streams = null;
+            state.chosen = null;
+            renderHome();
+            return;
+          }
+          case "close-streams": {
+            state.streams = null;
+            state.chosen = null;
+            renderHome();
+            return;
+          }
+          case "pause-toggle": {
+            const p = playback();
+            await take({ type: "set_paused", paused: Boolean(p) && p.state === "playing" });
+            return;
+          }
+          case "seek-by": {
+            await take({ type: "seek", target: { kind: "by", seconds: Number(data.seconds) } });
+            return;
+          }
+          case "stop": {
+            await take({ type: "stop_playback" });
+            return;
+          }
+          case "controls-toggle": {
+            state.controls = !state.controls;
+            renderControls();
+            return;
+          }
+          case "next-episode": {
+            await take({ type: "next_episode" });
+            return;
+          }
+          case "audio-track": {
+            await take({ type: "set_audio_track", track: Number(data.id) });
+            return;
+          }
+          case "subtitle-track": {
+            await take({ type: "set_subtitle_track", track: Number(data.id) });
+            return;
+          }
+          case "subtitles-off": {
+            await take({ type: "set_subtitle_track", track: null });
+            return;
+          }
+          case "delay": {
+            await take({ type: "set_subtitle_delay", seconds: Number(data.seconds) });
+            return;
+          }
+          case "speed": {
+            await take({ type: "set_speed", rate: Number(data.rate) });
+            return;
+          }
+          case "mute-toggle": {
+            const p = playback();
+            await take({ type: "set_muted", muted: !(p && p.muted) });
+            return;
+          }
+          case "chapter-prev": { await take({ type: "previous_chapter" }); return; }
+          case "chapter-next": { await take({ type: "next_chapter" }); return; }
+          case "chapter": { await take({ type: "set_chapter", index: Number(data.index) }); return; }
+          case "crop": {
+            const crop = cropIndex.get(data.ref);
+            if (crop) { await take({ type: "set_crop", crop }); }
+            return;
+          }
+          case "aspect": {
+            const aspect = aspectIndex.get(data.ref);
+            if (aspect) { await take({ type: "set_aspect", aspect }); }
+            return;
+          }
+          case "stats-toggle": {
+            state.showStatistics = !state.showStatistics;
+            renderControls();
+            return;
+          }
+          case "remove-addon": { await take({ type: "remove_addon", id: data.id }); return; }
+          case "clear-tmdb": { await take({ type: "clear_tmdb_key" }); return; }
+          case "sign-out": { await take({ type: "sign_out_stremio" }); return; }
+          case "clear-language": { await take({ type: "clear_subtitle_language" }); return; }
+          case "revoke": { await take({ type: "revoke_device", id: data.id }); return; }
+          default: return;
+        }
+      }
+
+      // --- events ----------------------------------------------------------
+      document.addEventListener("click", (event) => {
+        const node = event.target.closest("[data-a]");
+        if (!node) { return; }
+        event.preventDefault();
+        void act(node.dataset.a, node.dataset);
+      });
+
+      document.addEventListener("change", (event) => {
+        const target = event.target;
+        if (target.matches("[data-seek]")) {
+          void take({ type: "seek", target: { kind: "to", seconds: Number(target.value) } });
+        } else if (target.matches("[data-volume]")) {
+          void take({ type: "set_volume", level: Number(target.value) });
+        }
+      });
+
+      document.addEventListener("input", (event) => {
+        const target = event.target;
+        if (target.id === "search") { state.query = target.value; }
+      });
+
+      document.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const form = event.target;
+        if (form.id === "search-form") {
+          const query = ($("search").value || "").trim();
+          if (!query) { return; }
+          void take({ type: "search_catalogs", query }).then((response) => {
+            if (response) { state.query = ""; state.results = answeredCatalogs(response).map(searchRow); }
+            renderHome();
+          });
+        } else if (form.id === "addon-form") {
+          const url = ($("manifest-url").value || "").trim();
+          if (!url) { return; }
+          void take({ type: "add_addon", url }).then((taken) => {
+            if (taken) { $("manifest-url").value = ""; }
+          });
+        } else if (form.id === "tmdb-form") {
+          const key = ($("tmdb-key").value || "").trim();
+          if (!key) { return; }
+          void take({ type: "set_tmdb_key", key }).then((taken) => {
+            if (taken) { $("tmdb-key").value = ""; }
+          });
+        } else if (form.id === "stremio-form") {
+          void take({
+            type: "sign_in_stremio",
+            email: ($("stremio-email").value || "").trim(),
+            password: $("stremio-password").value || "",
+          }).then((taken) => {
+            if (taken) { $("stremio-email").value = ""; $("stremio-password").value = ""; }
+          });
+        } else if (form.id === "language-form") {
+          const language = ($("subtitle-language").value || "").trim();
+          if (!language) { return; }
+          void take({ type: "set_subtitle_language", language }).then((taken) => {
+            if (taken) { $("subtitle-language").value = ""; }
+          });
+        } else if (form.id === "pair-form") {
+          void pair();
+        }
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key === "Escape" && state.controls) {
+          state.controls = false;
+          renderControls();
+        }
+      });
+
+      // --- the conversation -------------------------------------------------
+      async function pair() {
+        const code = ($("code").value || "").trim();
+        const name = ($("name").value || "").trim() || "Device";
+        $("pair-error").textContent = "";
+        const response = await take({ type: "pair_device", code, name });
+        if (response && response.answer && response.answer.paired) {
+          adopt(response.answer.paired.device, response.answer.paired.token);
+          render();
+        }
+      }
+
+      function adopt(device, token) {
+        state.device = device;
+        state.token = token;
+        try { window.localStorage.setItem(TOKEN_KEY, token); } catch (e) { /* private mode */ }
+      }
+
+      function onFrame(event) {
+        if (event.open) {
+          state.online = true;
+          net.send({ version: VERSION, hello: { token: state.token } });
+          renderConnection();
+          return;
+        }
+        if (event.close) {
+          state.online = false;
+          renderConnection();
           setTimeout(connect, 1000);
-        });
-      }
-
-      function handle(frame) {
+          return;
+        }
+        const frame = event.frame;
         if (frame.version !== VERSION) {
-          showError(`This page speaks version ${VERSION} and the Host ${frame.version}.`);
+          showPairing("This page speaks version " + VERSION + " and the Host " + frame.version + ".");
           return;
         }
         if (frame.welcome) {
-          device = frame.welcome.device;
+          const device = frame.welcome.device;
           if (device) {
-            try { window.localStorage.setItem(TOKEN_KEY, token); } catch (e) {}
-            remote.classList.remove("hidden");
-            pairing.classList.add("hidden");
-            el("device").textContent = `Connected as ${device.name}`;
+            state.device = device;
+            try { window.localStorage.setItem(TOKEN_KEY, state.token); } catch (e) { /* private mode */ }
+            render();
           } else {
-            pairing.classList.remove("hidden");
-            remote.classList.add("hidden");
-            el("code").focus();
+            state.device = null;
+            showPairing();
           }
           return;
         }
         if (frame.snapshot) {
-          render(frame.snapshot);
+          const snapshot = frame.snapshot;
+          if (!state.snapshot || state.snapshot.revision <= snapshot.revision) {
+            state.snapshot = snapshot;
+            refresh();
+          }
           return;
         }
         if (frame.response) {
-          // The pairing answer carries the token this device keeps; the state it
-          // changed arrives as a pushed Snapshot like everyone else's.
-          const answer = frame.response.answer;
-          if (answer && answer.paired) {
-            token = answer.paired.token;
-            try { window.localStorage.setItem(TOKEN_KEY, token); } catch (e) {}
-          }
+          const pending = net.pending.get(frame.id);
+          if (pending) { net.pending.delete(frame.id); pending.resolve(frame.response); }
           return;
         }
         if (frame.error) {
-          if (frame.error.kind === "unsupported_version") {
-            showError(`This page speaks version ${VERSION} and the Host ${frame.error.supported}.`);
-          } else {
-            el("pair-error").textContent = explain(frame.error);
+          const pending = net.pending.get(frame.id);
+          if (pending) {
+            net.pending.delete(frame.id);
+            pending.reject(frame.error);
+            return;
+          }
+          // Not correlated to a command: a push the Host refused, or a frame it
+          // could not read. An unpaired device is told to pair again.
+          if (frame.error.kind === "unpaired") {
+            state.device = null;
+            showPairing("This device is not paired any more.");
+          } else if (frame.error.kind === "unsupported_version") {
+            showPairing("This page speaks version " + VERSION + " and the Host " + frame.error.supported + ".");
           }
         }
       }
 
-      function showError(message) {
-        pairing.classList.remove("hidden");
-        remote.classList.add("hidden");
-        el("pair-error").textContent = message;
-      }
+      function connect() { net.connect(onFrame); }
 
-      /**
-       * The Host's reasons this page can actually be given. It is a small table
-       * on purpose: the page sends one Action, so the kinds it can hear are the
-       * pairing's, and the window's fuller table in `src/host-client.ts` covers
-       * everything a browser with the control set (#32) will need.
-       */
-      function explain(error) {
-        switch (error.kind) {
-          case "pairing": return "That is not the code the Host is showing.";
-          case "invalid_pairing_code": return "A code is six letters and digits, like 4K7Q2M.";
-          case "invalid_device_name": return "Give this device a name of a few words.";
-          case "already_paired": return "This device is already paired.";
-          case "unpaired": return "This device is not paired any more.";
-          case "unreachable": return "The Host could not be reached.";
-          default: return error.detail || error.kind;
-        }
-      }
-
-      function render(snapshot) {
-        const playback = snapshot.playback || {};
-        const now = playback.nowPlaying;
-        if (now) {
-          el("now").textContent = now.name || `${now.video.type} ${now.video.id}`;
-          el("what").textContent = `from ${now.addon}`;
-        } else {
-          el("now").textContent = playback.state === "idle" ? "Nothing is playing" : playback.state;
-          el("what").textContent = playback.failure || "";
-        }
-        if (playback.position != null && playback.duration) {
-          const percent = Math.min(100, (playback.position / playback.duration) * 100);
-          el("progress").style.width = `${percent}%`;
-          el("where").textContent =
-            `${clock(playback.position)} / ${clock(playback.duration)}${playback.state === "paused" ? " — paused" : ""}`;
-        } else {
-          el("progress").style.width = "0";
-          el("where").textContent = "";
-        }
-      }
-
-      function clock(seconds) {
-        const total = Math.floor(seconds);
-        const hours = Math.floor(total / 3600);
-        const minutes = Math.floor((total % 3600) / 60);
-        const rest = total % 60;
-        const mm = String(minutes).padStart(2, "0");
-        const ss = String(rest).padStart(2, "0");
-        return hours > 0 ? `${hours}:${mm}:${ss}` : `${minutes}:${ss}`;
-      }
-
-      el("pair-form").addEventListener("submit", (event) => {
-        event.preventDefault();
-        el("pair-error").textContent = "";
-        command({
-          type: "pair_device",
-          code: el("code").value,
-          name: el("name").value || "Device",
-        });
-      });
-
+      // A device with no token yet is looking at the pairing form, whatever the
+      // Host is about to say; one with a token waits for the welcome, which is
+      // what decides whether the token still names a device.
+      if (!state.token) { showPairing(); }
       connect();
     </script>
   </body>

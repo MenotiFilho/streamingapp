@@ -191,6 +191,68 @@ pub enum Action {
     StopPlayback,
 }
 
+/// The Action surface written down once: every variant's own `type` tag, and the
+/// list of them.
+///
+/// A macro rather than a const and a hand-written `match` because the two must
+/// not be able to disagree: `spelling` is an exhaustive `match`, so the compiler
+/// refuses to build when a variant is added without a line below, and
+/// [`Action::SPELLINGS`] is built from the same lines, so a spelling cannot reach
+/// one and miss the other. That is what makes "a capability added to the surface
+/// is one every client is held to have" a property of the build rather than a
+/// promise in a comment (#32, ADR-0018).
+macro_rules! action_spellings {
+    ($( $action:pat => $spelling:literal ),* $(,)?) => {
+        impl Action {
+            /// Every Action's wire spelling, in declaration order: the one
+            /// surface, written down as data, which a client's capability list
+            /// is asserted against (#32, ADR-0018).
+            pub const SPELLINGS: &'static [&'static str] = &[ $($spelling),* ];
+
+            /// This Action's own `type` tag, the spelling the wire carries.
+            pub fn spelling(&self) -> &'static str {
+                match self {
+                    $( $action => $spelling, )*
+                }
+            }
+        }
+    };
+}
+
+action_spellings! {
+    Action::SetSubtitleLanguage { .. } => "set_subtitle_language",
+    Action::ClearSubtitleLanguage => "clear_subtitle_language",
+    Action::AddAddon { .. } => "add_addon",
+    Action::RemoveAddon { .. } => "remove_addon",
+    Action::SetTmdbKey { .. } => "set_tmdb_key",
+    Action::ClearTmdbKey => "clear_tmdb_key",
+    Action::SignInStremio { .. } => "sign_in_stremio",
+    Action::SignOutStremio => "sign_out_stremio",
+    Action::PairDevice { .. } => "pair_device",
+    Action::RevokeDevice { .. } => "revoke_device",
+    Action::BrowseCatalog { .. } => "browse_catalog",
+    Action::SearchCatalogs { .. } => "search_catalogs",
+    Action::OpenTitle { .. } => "open_title",
+    Action::FindStreams { .. } => "find_streams",
+    Action::PlayStream { .. } => "play_stream",
+    Action::Resume { .. } => "resume",
+    Action::SetPaused { .. } => "set_paused",
+    Action::Seek { .. } => "seek",
+    Action::SetAudioTrack { .. } => "set_audio_track",
+    Action::SetSubtitleTrack { .. } => "set_subtitle_track",
+    Action::SetSubtitleDelay { .. } => "set_subtitle_delay",
+    Action::SetSpeed { .. } => "set_speed",
+    Action::SetVolume { .. } => "set_volume",
+    Action::SetMuted { .. } => "set_muted",
+    Action::NextChapter => "next_chapter",
+    Action::PreviousChapter => "previous_chapter",
+    Action::SetChapter { .. } => "set_chapter",
+    Action::SetCrop { .. } => "set_crop",
+    Action::SetAspect { .. } => "set_aspect",
+    Action::NextEpisode => "next_episode",
+    Action::StopPlayback => "stop_playback",
+}
+
 impl Action {
     /// Parse the wire form: `{"version":1,"action":{"type":"…", …}}`.
     pub fn parse(json: &str) -> Result<Self, ActionError> {
@@ -1115,6 +1177,72 @@ mod tests {
                 .expect("an Action serializes"),
             serde_json::json!({ "type": "set_subtitle_track", "track": null }),
             "null is the subtitle track that is off"
+        );
+    }
+
+    /// One hand-written envelope per Action, so that "every Action" is a list a
+    /// person can read. Completeness is the macro's job (the generated match is
+    /// exhaustive); what this list proves is that every spelling [`Action::SPELLINGS`]
+    /// names is the `type` tag serde actually writes, and that no variant is
+    /// missing a representative here.
+    const EVERY_ACTION: &[&str] = &[
+        r#"{"type":"set_subtitle_language","language":"en"}"#,
+        r#"{"type":"clear_subtitle_language"}"#,
+        r#"{"type":"add_addon","url":"https://example.com/manifest.json"}"#,
+        r#"{"type":"remove_addon","id":"community.example"}"#,
+        r#"{"type":"set_tmdb_key","key":"0123456789abcdef"}"#,
+        r#"{"type":"clear_tmdb_key"}"#,
+        r#"{"type":"sign_in_stremio","email":"a@example.com","password":"a password"}"#,
+        r#"{"type":"sign_out_stremio"}"#,
+        r#"{"type":"pair_device","code":"ABCDEF","name":"Phone"}"#,
+        r#"{"type":"revoke_device","id":"4K7Q2M"}"#,
+        r#"{"type":"browse_catalog","addon":"community.example","catalog":{"type":"movie","id":"top"},"extra":[]}"#,
+        r#"{"type":"search_catalogs","query":"matrix"}"#,
+        r#"{"type":"open_title","addon":"community.example","title":{"type":"movie","id":"tt0133093"}}"#,
+        r#"{"type":"find_streams","video":{"type":"movie","id":"tt0133093"}}"#,
+        r#"{"type":"play_stream","video":{"type":"movie","id":"tt0133093"},"addon":"community.example","title":{"addon":"community.example","id":"tt0133093","type":"movie","name":"The Matrix","poster":null},"stream":{"name":null,"description":null,"playback":{"kind":"direct","url":"https://stream.example.org/x.mkv"},"warnings":[],"filename":null,"bingeGroup":null}}"#,
+        r#"{"type":"resume","video":{"type":"movie","id":"tt0133093"}}"#,
+        r#"{"type":"set_paused","paused":true}"#,
+        r#"{"type":"seek","target":{"kind":"to","seconds":1.0}}"#,
+        r#"{"type":"set_audio_track","track":1}"#,
+        r#"{"type":"set_subtitle_track","track":2}"#,
+        r#"{"type":"set_subtitle_delay","seconds":0.1}"#,
+        r#"{"type":"set_speed","rate":1.5}"#,
+        r#"{"type":"set_volume","level":100.0}"#,
+        r#"{"type":"set_muted","muted":true}"#,
+        r#"{"type":"next_chapter"}"#,
+        r#"{"type":"previous_chapter"}"#,
+        r#"{"type":"set_chapter","index":0}"#,
+        r#"{"type":"set_crop","crop":{"kind":"off"}}"#,
+        r#"{"type":"set_aspect","aspect":{"kind":"source"}}"#,
+        r#"{"type":"next_episode"}"#,
+        r#"{"type":"stop_playback"}"#,
+    ];
+
+    #[test]
+    fn the_spelling_list_is_the_whole_surface() {
+        let mut from_variants: Vec<&str> = EVERY_ACTION
+            .iter()
+            .map(|body| {
+                let envelope = format!(r#"{{"version":{ACTION_VERSION},"action":{body}}}"#);
+                Action::parse(&envelope)
+                    .unwrap_or_else(|error| panic!("{envelope} should parse: {error}"))
+                    .spelling()
+            })
+            .collect();
+        from_variants.sort_unstable();
+
+        let mut declared = Action::SPELLINGS.to_vec();
+        declared.sort_unstable();
+
+        assert_eq!(
+            from_variants, declared,
+            "the list spells every Action once and names nothing the surface does not have"
+        );
+        assert_eq!(
+            EVERY_ACTION.len(),
+            Action::SPELLINGS.len(),
+            "the two lists are the same length, so neither can quietly shrink"
         );
     }
 }

@@ -70,6 +70,22 @@ the obvious one). The parts a phone cannot be asked to prove — an unpaired
 connection reaching only the pairing exchange, and a revoked one being cut off —
 are driven over a real socket by `crates/host-wire/tests/wire.rs`.
 
+From #32 the walkthrough walks the **full remote**: with a second device you open
+the same address, pair, and then *from the browser* search or browse, open a
+Title, pick a Stream and press play — and the step checks the half that is shared
+state, that the Host's own window shows the Stream playing and offers Pause,
+because the window is another client of the same Snapshot. You then pause, seek
+and switch a subtitle from the phone, and the script waits for the pause to reach
+the window and for the remote's controls to publish Snapshots like any other
+client (the phone's own screen is not something `verify.ps1` can screenshot, so
+the operator's screen is the evidence for the remote's own surface). It is
+runnable on its own with `-Only 26`, needs a playable Stream (the fixture Addon
+with `-Video`, or an Addon whose candidates this Host can open), and revokes the
+device at the end so a run leaves nothing paired behind. The remote's capability
+list — that it is the Host's window's equal and not a curated subset — is
+asserted against the Action surface by `crates/host-wire/src/remote.rs`, not by
+hand.
+
 The announcement is the half of discovery a browser cannot use. To see the record
 the Host put out, from another machine on the same network: on Linux
 `avahi-browse -rt _streamingapp._tcp`, on macOS `dns-sd -B _streamingapp._tcp`
