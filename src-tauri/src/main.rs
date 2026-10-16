@@ -50,9 +50,20 @@ fn main() {
                 "the store is ready",
             );
 
+            // Credentials live where the OS keeps them — or, where there is
+            // no keyring to ask, in the owner-only file this makes. Which of
+            // the two is the one the interface shows; the Host only ever says
+            // what the store reports.
+            let secrets = host_secret::open(&data_dir)?;
+            tracing::info!(
+                backend = secrets.backend().as_str(),
+                "credentials are held through the secret store",
+            );
+
             app.manage(ipc::HostHandle::new(Host::new(
                 Arc::new(store),
                 Arc::new(HttpFetcher::new()),
+                secrets.into(),
             )?));
             // Held, not read: the guard inside keeps the log writer alive for as
             // long as the Host runs.

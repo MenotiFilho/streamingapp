@@ -103,7 +103,7 @@ fn clearing_the_key_takes_it_out_the_same_way_it_went_in() {
         !secrets.holds(Secret::TmdbKey),
         "taken out is taken out: nothing of the credential stays in the store"
     );
-    assert_eq!(published[0].protection.tmdb_held, false);
+    assert!(!published[0].protection.tmdb_held);
 }
 
 #[test]
@@ -121,7 +121,7 @@ fn clearing_a_key_that_was_never_there_is_not_an_error() {
         published[0].protection.tmdb_held, before.protection.tmdb_held,
         "the end state of nothing held is nothing held"
     );
-    assert_eq!(secrets.holds(Secret::TmdbKey), false);
+    assert!(!secrets.holds(Secret::TmdbKey));
 }
 
 #[test]
@@ -167,8 +167,8 @@ fn a_secret_store_that_cannot_keep_leaves_the_state_alone() {
         "the secret store's own kind of failure: {refused:?}"
     );
     let published = host.snapshot();
-    assert_eq!(
-        published.protection.tmdb_held, false,
+    assert!(
+        !published.protection.tmdb_held,
         "a credential the store did not take is a credential the Host does not claim"
     );
 }

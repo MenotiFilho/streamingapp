@@ -25,6 +25,7 @@ custom-protocol = ["tauri/custom-protocol"]
 host-addon = { workspace = true }
 host-core = { workspace = true }
 host-logging = { workspace = true }
+host-secret = { workspace = true }
 host-sqlite = { workspace = true }
 
 serde = { workspace = true }

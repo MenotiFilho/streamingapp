@@ -117,7 +117,8 @@ impl ExternalId {
         Kind::parse(kind)?;
 
         if let Some(rest) = id.strip_prefix("tmdb:") {
-            return Some(Self::Tmdb(TmdbId::parse(rest)?));
+            let id = TmdbId::parse(rest)?;
+            return Some(Self::Tmdb(id));
         }
 
         let imdb = id.strip_prefix("tt")?;
@@ -208,14 +209,11 @@ impl TmdbRequest {
 
         // A `find` URL already carries its query; a details URL starts its own.
         // Either way, one query item, built once.
-        match credential.query() {
-            Some((name, value)) => {
-                url.push(if url.contains('?') { '&' } else { '?' });
-                url.push_str(name);
-                url.push('=');
-                url.push_str(&encode(value));
-            }
-            None => {}
+        if let Some((name, value)) = credential.query() {
+            url.push(if url.contains('?') { '&' } else { '?' });
+            url.push_str(name);
+            url.push('=');
+            url.push_str(&encode(value));
         }
         url
     }
@@ -449,7 +447,7 @@ fn unsigned(object: &Map<String, Value>, name: &str) -> Option<u32> {
 /// One path component, encoded the way the addon protocol encodes its own
 /// ([`crate::request`]): `encodeURIComponent`'s set.
 fn encode(value: &str) -> String {
-    percent_encoding::utf8_percent_encode(value, &crate::request::COMPONENT).to_string()
+    percent_encoding::utf8_percent_encode(value, crate::request::COMPONENT).to_string()
 }
 
 #[cfg(test)]

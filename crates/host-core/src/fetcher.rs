@@ -40,6 +40,9 @@ pub enum FetchError {
     Body { detail: String },
 }
 
+/// One ask the fetcher took: the URL, and the headers it carried.
+type Ask = (String, Vec<(String, String)>);
+
 /// A [`Fetcher`] that answers from recorded fixtures, and refuses to answer from
 /// anywhere else.
 ///
@@ -51,7 +54,7 @@ pub struct FixtureFetcher {
     responses: Mutex<HashMap<String, Result<String, FetchError>>>,
     /// Every URL the Host asked for, in order, with the headers each ask
     /// carried.
-    asked: Mutex<Vec<(String, Vec<(String, String)>)>>,
+    asked: Mutex<Vec<Ask>>,
 }
 
 impl FixtureFetcher {

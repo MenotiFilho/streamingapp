@@ -4,9 +4,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use host_core::{
-    Action, FixtureFetcher, Host, InMemorySecretStore, Snapshot, SubtitleLanguage, ACTION_VERSION,
-};
+use host_core::{Action, FixtureFetcher, Host, InMemorySecretStore, Snapshot, SubtitleLanguage};
 use host_sqlite::SqliteStore;
 
 /// The in-memory stand-in for the OS keyring.

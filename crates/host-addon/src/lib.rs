@@ -60,8 +60,16 @@ impl Default for HttpFetcher {
 }
 
 impl Fetcher for HttpFetcher {
-    fn fetch(&self, url: &str) -> Result<String, FetchError> {
-        let response = self.agent.get(url).call().map_err(unreachable)?;
+    fn fetch_with_headers(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+    ) -> Result<String, FetchError> {
+        let mut request = self.agent.get(url);
+        for (name, value) in headers {
+            request = request.header(*name, *value);
+        }
+        let response = request.call().map_err(unreachable)?;
 
         response
             .into_body()
