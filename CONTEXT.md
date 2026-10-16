@@ -133,3 +133,40 @@ How far into the Stream playing now the Host is, in seconds: the Host's own
 record, moved at the moment of a control and corrected by the Player's next
 report.
 _Avoid_: progress, timestamp
+
+**Track**:
+One of the Stream's own soundtracks or subtitle streams, as the Player numbers
+it: what a client names to select one, and what the Host refuses an unknown id
+against. A track that came in the file is *embedded*; one the Host added
+afterwards is not.
+_Avoid_: stream (for a track), language, audio
+
+**Chapter**:
+A marker the Stream's container carries into itself — a place in the Stream a
+client can move to by name or by position in the list.
+_Avoid_: cue, marker, bookmark
+
+**Crop**:
+The rectangle of the picture that is kept, in the source's own pixels; the rest
+is not drawn. Never a setting of the Host's: a control a client takes, and the
+stock autocrop script is the other thing that moves it.
+_Avoid_: zoom, pan, letterbox
+
+**Aspect**:
+The shape the picture is drawn at, where the owner overrides the shape the
+Stream itself carries — "the source's own" being the absence of an override.
+_Avoid_: ratio, scaling, stretch
+
+**Statistics**:
+What the Player reports about *how* a Stream is playing rather than what is
+playing: the bitrate it is reading, the frames it has dropped, and what is
+decoding the picture.
+_Avoid_: stats, metrics, performance
+
+**Telling**:
+One thing the Host asks of its Player: a control named in the Host's own terms,
+which only the Player's implementation knows how to spell. A capability is a
+Telling before it is anything a client sees, so that no client can have one the
+seam does not (ADR-0002).
+_Avoid_: command, instruction, mpv call
+
