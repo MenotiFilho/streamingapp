@@ -4,7 +4,7 @@
 //! port, because a Stream is an http(s) URL and nothing else (ADR-0013) — and
 //! because a Stream that cannot be fetched is one of the things being tested. No
 //! audio device and no display are involved: the Player is started with
-//! [`Surface::Headless`], which is a real mpv with nowhere to draw and nobody to
+//! [`Placement::Headless`], which is a real mpv with nowhere to draw and nobody to
 //! hear it, so this runs in a dev container with no GPU.
 
 use std::io::{BufRead, BufReader, Write};
@@ -14,7 +14,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use host_core::{Observation, PlaybackState, Player, SeekTarget, StreamUrl};
-use host_mpv::{MpvError, MpvPlayer, Surface};
+use host_mpv::{MpvError, MpvPlayer, Placement};
 
 /// How long a test waits for mpv to say something before giving up on it.
 const PATIENCE: Duration = Duration::from_secs(15);
@@ -113,7 +113,7 @@ fn stream(url: &str) -> StreamUrl {
 }
 
 fn player() -> MpvPlayer {
-    MpvPlayer::start(Surface::Headless).expect("mpv starts in this environment")
+    MpvPlayer::start(Placement::Headless).expect("mpv starts in this environment")
 }
 
 /// Wait for the Player to say something a test is waiting for, or fail with the

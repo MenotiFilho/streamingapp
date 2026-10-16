@@ -24,7 +24,7 @@
 use std::sync::Arc;
 
 use host_core::{Observation, Picture, PlaybackError, Player, SeekTarget, StreamUrl};
-use host_mpv::{MpvError, MpvPlayer, Surface};
+use host_mpv::{MpvError, MpvPlayer, Placement};
 use tauri::WebviewWindow;
 
 #[cfg(windows)]
@@ -33,11 +33,11 @@ mod windows;
 /// Start the Player this platform gets, and start watching for the picture
 /// window where there is one to watch for.
 pub fn start(window: &WebviewWindow) -> Result<Arc<dyn Player>, MpvError> {
-    let surface = surface(window);
-    let player = Arc::new(MpvPlayer::start(surface)?);
+    let placement = placement(window);
+    let player = Arc::new(MpvPlayer::start(placement)?);
 
     #[cfg(windows)]
-    if let Surface::InWindow { handle } = surface {
+    if let Placement::InWindow { handle } = placement {
         // mpv creates its child window when a Stream starts, and a child window
         // is created on top: the picture would cover the interface until
         // something pushed it down. That something is this, and it keeps the
@@ -49,18 +49,18 @@ pub fn start(window: &WebviewWindow) -> Result<Arc<dyn Player>, MpvError> {
 }
 
 /// Where the picture goes on this platform.
-fn surface(window: &WebviewWindow) -> Surface {
+fn placement(window: &WebviewWindow) -> Placement {
     #[cfg(windows)]
     {
         // The handle Tauri made the window with: `wid` is set before mpv is
         // initialized, and mpv reads it once.
         return match window.hwnd() {
-            Ok(handle) => Surface::InWindow {
+            Ok(handle) => Placement::InWindow {
                 handle: handle.0 as i64,
             },
             Err(error) => {
                 tracing::warn!(%error, "the Host's window has no handle to give mpv");
-                Surface::OwnWindow
+                Placement::OwnWindow
             }
         };
     }
@@ -68,7 +68,7 @@ fn surface(window: &WebviewWindow) -> Surface {
     #[cfg(not(windows))]
     {
         let _ = window;
-        Surface::OwnWindow
+        Placement::OwnWindow
     }
 }
 

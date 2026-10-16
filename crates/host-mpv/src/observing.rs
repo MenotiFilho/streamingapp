@@ -55,9 +55,15 @@ impl Memory {
         self.ending = None;
     }
 
-    /// Whether this observation is the first sight of a Stream's picture, which
-    /// is worth saying out loud once and only once.
-    pub(crate) fn watching(&mut self, observation: &Observation) -> bool {
+    /// Whether this observation is the first sight of a Stream's picture *and*
+    /// there is something to say about how it is being drawn — which is once
+    /// per Stream, and not before mpv has configured its video output.
+    ///
+    /// `drawing` is whether mpv has answered what the picture's frames are:
+    /// asking it the moment the position appears would report a video output
+    /// that has not been set up yet, which is a fact about the timing and not
+    /// about the picture.
+    pub(crate) fn reported(&mut self, observation: &Observation, drawing: bool) -> bool {
         if self.watching {
             return false;
         }
@@ -65,8 +71,10 @@ impl Memory {
             observation.state,
             PlaybackState::Playing | PlaybackState::Paused
         );
-        self.watching = up;
-        up
+        if up && drawing {
+            self.watching = true;
+        }
+        up && drawing
     }
 
     /// mpv played a file to its end.
@@ -267,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn a_streams_picture_is_worth_saying_once_and_only_once() {
+    fn a_streams_picture_is_reported_on_once_and_only_once() {
         let mut memory = Memory::asking();
         let playing = Properties {
             loaded: true,
@@ -279,18 +287,22 @@ mod tests {
 
         let first = observe(&memory, &playing);
         assert!(
-            memory.watching(&first),
-            "the first sight of a picture is when mpv's decode is worth logging"
+            !memory.reported(&first, false),
+            "a picture whose video output has not been configured says nothing yet"
         );
         assert!(
-            !memory.watching(&first),
+            memory.reported(&first, true),
+            "the first sight of a picture with frames is when mpv's decode is worth logging"
+        );
+        assert!(
+            !memory.reported(&first, true),
             "the four ticks a second after it are not"
         );
 
         let mut fresh = Memory::asking();
         let opening = observe(&fresh, &loading());
         assert!(
-            !fresh.watching(&opening),
+            !fresh.reported(&opening, true),
             "an open in flight has no picture to report on yet"
         );
     }

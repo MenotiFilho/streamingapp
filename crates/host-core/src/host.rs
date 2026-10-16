@@ -6,7 +6,7 @@ use crate::cache::CatalogCache;
 use crate::catalog::{CatalogRow, Page};
 use crate::fetcher::Fetcher;
 use crate::meta::Title;
-use crate::playback::{Picture, Player};
+use crate::playback::{Control, Picture, Player};
 use crate::provider::Provider;
 use crate::request::{CatalogRef, Extra, ResourceRequest, TitleRef, CATALOG, META, STREAM};
 use crate::response::{Answer, Response};
@@ -314,7 +314,7 @@ impl Host {
                 Resolved::Change(Change::Play(*chosen))
             }
             ValidatedAction::SetPaused { paused } => {
-                self.playing("pause")?;
+                self.playing(Control::Pause)?;
                 self.player
                     .set_paused(paused)
                     .map_err(|error| ActionError::Playback {
@@ -323,7 +323,7 @@ impl Host {
                 Resolved::Change(Change::SetPaused(paused))
             }
             ValidatedAction::Seek { target } => {
-                self.playing("seek")?;
+                self.playing(Control::Seek)?;
                 self.player
                     .seek(target)
                     .map_err(|error| ActionError::Playback {
@@ -337,7 +337,7 @@ impl Host {
                 // clears the failure and goes back to what it was reading.
                 if !self.state.playback().has_stream() {
                     return Err(ActionError::NothingPlaying {
-                        what: "stop".to_owned(),
+                        control: Control::Stop,
                     });
                 }
                 self.player.stop().map_err(|error| ActionError::Playback {
@@ -348,16 +348,14 @@ impl Host {
         })
     }
 
-    /// Refuse an Action about a Stream the Player is not on: one that never
+    /// Refuse a control about a Stream the Player is not on: one that never
     /// played, or one that has already ended.
-    fn playing(&self, what: &str) -> Result<(), ActionError> {
+    fn playing(&self, control: Control) -> Result<(), ActionError> {
         if self.state.playback().is_live() {
             return Ok(());
         }
 
-        Err(ActionError::NothingPlaying {
-            what: what.to_owned(),
-        })
+        Err(ActionError::NothingPlaying { control })
     }
 
     /// One configured Addon, or the refusal that names it.

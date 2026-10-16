@@ -11,19 +11,19 @@
 //! mpv owns the video output and its swapchain, so that HDR and 10-bit reach the
 //! display through mpv's own pipeline; the Host never composites a frame. Where
 //! that surface *is* is the one thing the Host cannot decide on its own, so it
-//! is a [`Surface`] a caller hands in:
+//! is a [`Placement`] a caller hands in:
 //!
-//! - [`Surface::InWindow`]: mpv draws into a child window of the Host's own,
+//! - [`Placement::InWindow`]: mpv draws into a child window of the Host's own,
 //!   given through mpv's `wid` — set before mpv is initialized, because `wid` is
 //!   an option and mpv reads it once. This is the Windows shape, proven on the
 //!   prototype branch (#3); the child window is then pushed behind the Host's
 //!   webview and made click-through, which is the shell's business, not a
 //!   Player's.
-//! - [`Surface::OwnWindow`]: mpv opens a window of its own, for platforms that
+//! - [`Placement::OwnWindow`]: mpv opens a window of its own, for platforms that
 //!   have no `wid` at all (Wayland, macOS) and for X11 until #19 settles whether
 //!   the overlay works there. The picture is mpv's and the Host's interface is
 //!   in its own window above it.
-//! - [`Surface::Headless`]: no video output and no audio output, which is what a
+//! - [`Placement::Headless`]: no video output and no audio output, which is what a
 //!   test drives a real mpv with.
 //!
 //! ## What mpv is started with
@@ -50,10 +50,14 @@ use crate::telling::Telling;
 
 /// Where the picture is put, as this platform can manage it.
 ///
-/// A Player is started with one, and it cannot change afterwards: `wid` is read
-/// by mpv when it initializes, and a window that exists is not one mpv moves to.
+/// The *placing* of the picture is not the picture: a Player is started with
+/// where to draw — the platform's own handle, a window of its own, or nowhere —
+/// and what it reports afterwards is the [`Picture`] that came of it, which is
+/// the word the Glossary and every Snapshot use. It cannot change afterwards:
+/// `wid` is read by mpv when it initializes, and a window that exists is not one
+/// mpv moves to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Surface {
+pub enum Placement {
     /// Inside the Host's own window, by the platform's window handle: mpv draws
     /// into a child window of it (`wid`).
     InWindow { handle: i64 },
@@ -80,15 +84,15 @@ impl From<libmpv2::Error> for MpvError {
 }
 
 /// What a surface means for where the picture is, as every client is told it.
-pub(crate) fn picture(surface: Surface) -> Picture {
+pub(crate) fn picture(surface: Placement) -> Picture {
     match surface {
-        Surface::InWindow { .. } => Picture::InWindow,
-        Surface::OwnWindow => Picture::OwnWindow,
-        Surface::Headless => Picture::Nowhere,
+        Placement::InWindow { .. } => Picture::InWindow,
+        Placement::OwnWindow => Picture::OwnWindow,
+        Placement::Headless => Picture::Nowhere,
     }
 }
 
-/// The real Player: mpv, in this process, with the picture wherever `Surface`
+/// The real Player: mpv, in this process, with the picture wherever `Placement`
 /// says.
 pub struct MpvPlayer {
     mpv: Mpv,
@@ -107,7 +111,7 @@ impl MpvPlayer {
     /// `wid` can be set, and the event queue is drained rather than waited on
     /// afterwards: the Host asks a Player what it is doing, and a Player that
     /// blocked on mpv's event loop would block the Action surface with it.
-    pub fn start(surface: Surface) -> Result<Self, MpvError> {
+    pub fn start(surface: Placement) -> Result<Self, MpvError> {
         let mpv = Mpv::with_initializer(|init| {
             for (name, value) in options(surface) {
                 init.set_option(name, value.as_str())?;
@@ -223,7 +227,15 @@ impl Player for MpvPlayer {
             .lock()
             .expect("nothing panics while holding the Player's memory");
         self.drain(&mut memory);
-        let result = self.tell(Telling::Load(url.clone()));
+
+        // An open that mpv will not even take is the one failure this call can
+        // report: whether the *Stream* opens is found out later, in `observe`.
+        let result = self
+            .tell(Telling::Load(url.clone()))
+            .map_err(|error| match error {
+                PlaybackError::Command { detail } => PlaybackError::Open { detail },
+                other => other,
+            });
         if result.is_ok() {
             *memory = Memory::asking();
         }
@@ -264,8 +276,8 @@ impl Player for MpvPlayer {
         // decoding with is what says whether hardware decode is engaged, and a
         // log is where a person finds that out (the walkthrough checks this
         // line). Nothing about the Stream appears beside it.
-        if memory.watching(&observation) {
-            let (current, format) = self.decoding();
+        let (current, format) = self.decoding();
+        if memory.reported(&observation, format.is_some()) {
             tracing::info!(
                 hwdec = current.as_deref().unwrap_or("no"),
                 pixelformat = format.as_deref().unwrap_or("unknown"),
@@ -286,15 +298,15 @@ impl Player for MpvPlayer {
 /// hardware decode is engaged where the machine can and playback still works
 /// where it cannot; `keep-open` so that a Stream at its end stays loaded, which
 /// is what makes "ended" and a resume from it possible (#29).
-fn options(surface: Surface) -> Vec<(&'static str, String)> {
+fn options(surface: Placement) -> Vec<(&'static str, String)> {
     let mut options: Vec<(&'static str, String)> = vec![
         (
             "vo",
             match surface {
-                Surface::Headless => "null",
+                Placement::Headless => "null",
                 // HDR passthrough needs gpu-next, and the fallback keeps a
                 // machine without it playing (ADR-0003).
-                Surface::InWindow { .. } | Surface::OwnWindow => "gpu-next,gpu,",
+                Placement::InWindow { .. } | Placement::OwnWindow => "gpu-next,gpu,",
             }
             .to_owned(),
         ),
@@ -311,11 +323,11 @@ fn options(surface: Surface) -> Vec<(&'static str, String)> {
         // `wid`, before mpv is initialized: it is an option, and mpv reads it
         // once. This is the one thing the prototype's recipe carries over as a
         // constraint rather than a curiosity (docs/research/spike-windows-embedding.md).
-        Surface::InWindow { handle } => options.push(("wid", handle.to_string())),
-        Surface::OwnWindow => {}
+        Placement::InWindow { handle } => options.push(("wid", handle.to_string())),
+        Placement::OwnWindow => {}
         // Nobody to hear it: a Stream still plays, and every property a headless
         // test asserts on is answered the same way.
-        Surface::Headless => options.push(("ao", "null".to_owned())),
+        Placement::Headless => options.push(("ao", "null".to_owned())),
     }
 
     options
@@ -342,7 +354,7 @@ mod tests {
 
     #[test]
     fn a_host_window_is_told_to_mpv_before_it_is_initialized() {
-        let options = options(Surface::InWindow { handle: 1234 });
+        let options = options(Placement::InWindow { handle: 1234 });
 
         assert_eq!(
             option(&options, "wid"),
@@ -359,7 +371,7 @@ mod tests {
 
     #[test]
     fn a_platform_without_a_place_to_draw_gets_a_window_of_mpvs_own() {
-        let options = options(Surface::OwnWindow);
+        let options = options(Placement::OwnWindow);
 
         assert_eq!(option(&options, "wid"), None);
         assert_eq!(
@@ -371,7 +383,7 @@ mod tests {
 
     #[test]
     fn a_headless_player_draws_nowhere_and_says_nothing() {
-        let options = options(Surface::Headless);
+        let options = options(Placement::Headless);
 
         assert_eq!(option(&options, "vo"), Some("null"));
         assert_eq!(option(&options, "ao"), Some("null"));
@@ -379,22 +391,22 @@ mod tests {
     }
 
     #[test]
-    fn where_the_picture_is_is_what_the_surface_says() {
+    fn where_the_picture_is_is_what_the_placement_says() {
         assert_eq!(
-            picture(Surface::InWindow { handle: 1 }),
+            picture(Placement::InWindow { handle: 1 }),
             Picture::InWindow,
             "a picture in the Host's own window is one the interface leaves a hole for"
         );
-        assert_eq!(picture(Surface::OwnWindow), Picture::OwnWindow);
-        assert_eq!(picture(Surface::Headless), Picture::Nowhere);
+        assert_eq!(picture(Placement::OwnWindow), Picture::OwnWindow);
+        assert_eq!(picture(Placement::Headless), Picture::Nowhere);
     }
 
     #[test]
     fn a_stream_at_its_end_stays_loaded_so_that_ended_is_a_state_the_host_can_see() {
         for surface in [
-            Surface::InWindow { handle: 1 },
-            Surface::OwnWindow,
-            Surface::Headless,
+            Placement::InWindow { handle: 1 },
+            Placement::OwnWindow,
+            Placement::Headless,
         ] {
             assert_eq!(
                 option(&options(surface), "keep-open"),

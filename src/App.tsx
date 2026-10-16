@@ -639,6 +639,11 @@ function PlayerSurface({
 }) {
   const { state, picture, nowPlaying, position, duration } = playback;
   const note = pictureNote(picture);
+  // What the transport means in this state: the buttons and the picture are a
+  // control only while the Host would take a pause or a seek, and a Stream that
+  // is still opening, or one that has ended, offers Stop alone.
+  const controllable = transportable(state);
+  const playing = state === "playing";
   // What the slider shows while it is being dragged: the position the Host
   // published, until a person moves the thumb, and then what they moved it to.
   const [scrub, setScrub] = useState<number | null>(null);
@@ -663,14 +668,16 @@ function PlayerSurface({
         data-picture={picture}
         data-state={state}
       >
-        <button
-          type="button"
-          className="picture-toggle"
-          data-testid="picture-toggle"
-          data-focusable
-          aria-label="Play or pause"
-          onClick={() => onTake({ type: "set_paused", paused: state === "playing" })}
-        />
+        {controllable ? (
+          <button
+            type="button"
+            className="picture-toggle"
+            data-testid="picture-toggle"
+            data-focusable
+            aria-label="Play or pause"
+            onClick={() => onTake({ type: "set_paused", paused: playing })}
+          />
+        ) : null}
         {note ? <p className="picture-note">{note}</p> : null}
         {state === "opening" ? (
           <p className="picture-note" data-testid="opening-stream">
@@ -690,7 +697,7 @@ function PlayerSurface({
         </p>
 
         <div className="transport">
-          {transportable(state) ? (
+          {controllable ? (
             <>
               <button
                 type="button"
@@ -703,11 +710,11 @@ function PlayerSurface({
               <button
                 type="button"
                 data-focusable
-                data-testid={state === "playing" ? "pause" : "play"}
-                aria-label={state === "playing" ? "Pause" : "Play"}
-                onClick={() => onTake({ type: "set_paused", paused: state === "playing" })}
+                data-testid={playing ? "pause" : "play"}
+                aria-label={playing ? "Pause" : "Play"}
+                onClick={() => onTake({ type: "set_paused", paused: playing })}
               >
-                {state === "playing" ? "Pause" : "Play"}
+                {playing ? "Pause" : "Play"}
               </button>
               <button
                 type="button"

@@ -20,16 +20,19 @@ vocabulary and decisions should not link a media stack, so `host-core` names
 `Player` and knows nothing about `time-pos`, `keep-open` or `wid`.
 
 The one thing about a Player that is per platform is **where the picture goes**,
-and it is a `Surface` a caller hands in, because it cannot change afterwards:
-`wid` is an option mpv reads once, when it initializes.
+and it is a `Placement` a caller hands in, because it cannot change afterwards:
+`wid` is an option mpv reads once, when it initializes. Placing the picture is
+not the same word as the picture: what a Player reports afterwards — its
+`Picture` — is what a Snapshot carries, and the placement is the one input that
+decides it.
 
-- `Surface::InWindow { handle }` — mpv draws into a child window of the Host's
+- `Placement::InWindow { handle }` — mpv draws into a child window of the Host's
   own. Windows, by its HWND; X11 by its XID the day #19 says the overlay works
   there.
-- `Surface::OwnWindow` — mpv opens a window of its own. Wayland and macOS have
+- `Placement::OwnWindow` — mpv opens a window of its own. Wayland and macOS have
   no `wid` at all, and this is what those platforms get; the Host's interface
   says where the picture is instead of pretending it is in this window.
-- `Surface::Headless` — no video output and no audio output at all, which is
+- `Placement::Headless` — no video output and no audio output at all, which is
   what the integration test drives a *real* mpv with (`vo=null`, `ao=null`).
 
 Rejected, with reasons: **the Player inside `host-core`** (every test in the
@@ -178,7 +181,9 @@ window's client area on every resize.
 
 The workspace forbids `unsafe_code`; the app shell — where platform code belongs
 — denies it instead and lets exactly one module allow it
-(`src-tauri/src/player/windows.rs`, four Win32 calls). Everywhere else an
+(`src-tauri/src/player/windows.rs`: finding mpv's child window, pushing it
+down, making it click-through, and keeping it the size of the window). Everywhere
+else an
 `unsafe` block is a build failure, as it is in the rest of the workspace. The
 watching thread that adopts the child lives beside the sampling clock because it
 polls for the same reason the clock does: mpv creates its child per Stream.
@@ -213,6 +218,6 @@ remote client and the tests get it through the one surface at once. #29 records
 Watch progress from the position the Host already publishes, and uses the `ended`
 state it can now see. #12 turns an `infoHash` into bytes and hands the result to
 the same `Player::open`. #19 settles X11 and either moves that platform to
-`Surface::InWindow` or leaves it where it is. #31/#32 give every client the
+`Placement::InWindow` or leaves it where it is. #31/#32 give every client the
 pause, seek and stop this ticket put on the Action surface, with no second path
 to maintain.

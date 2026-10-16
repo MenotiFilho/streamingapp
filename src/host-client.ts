@@ -338,9 +338,10 @@ export type ActionError = {
   catalog?: { type: string; id: string };
   title?: { type: string; id: string };
   video?: { type: string; id: string };
-  /** The value a refusal carries: seconds a seek could not use, an Action a control could not be taken for. */
+  /** The value a refusal carries: the seconds a seek could not use. */
   seconds?: string;
-  what?: string;
+  /** The control a refusal is about, where the refusal is about one. */
+  control?: "pause" | "seek" | "stop";
 };
 
 /**
@@ -431,7 +432,7 @@ export function explain(error: ActionError): string {
     case "unplayable":
       return `The Host will not play that Stream: ${error.detail ?? "it is not one it can open"}`;
     case "nothing_playing":
-      return `Nothing is playing, so the Host cannot ${error.what ?? "do that"}.`;
+      return `Nothing is playing, so the Host cannot ${error.control ?? "do that"}.`;
     case "playback":
       return `The Host's player could not do that${error.detail ? `: ${error.detail}` : ""}.`;
     case "store":

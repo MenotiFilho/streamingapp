@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::addon::{AddonId, InvalidAddonId, InvalidManifestUrl, ManifestUrl, MAX_STRING_LEN};
-use crate::playback::{ChosenStream, InvalidSeekTarget, SeekTarget, Unplayable};
+use crate::playback::{ChosenStream, Control, InvalidSeekTarget, SeekTarget, Unplayable};
 use crate::preferences::{InvalidSubtitleLanguage, SubtitleLanguage};
 use crate::request::{
     CatalogRef, Extra, InvalidCatalogRef, InvalidTitleRef, InvalidVideoRef, TitleRef, VideoRef,
@@ -368,8 +368,8 @@ pub enum ActionError {
     /// There is nothing playing to do that to. A control that arrives for a
     /// Stream that has already ended or been stopped is refused rather than
     /// silently obeyed, so a client hears why nothing happened.
-    #[error("nothing is playing, so the Host cannot {what}")]
-    NothingPlaying { what: String },
+    #[error("nothing is playing, so the Host cannot {control}")]
+    NothingPlaying { control: Control },
     /// The Player is the Host's own limb and its refusal is not the client's
     /// fault: it says what it could not do, in the Player's own words.
     #[error("{detail}")]

@@ -100,6 +100,10 @@ Issue **#1** is the earlier map, and the design record it produced still stands.
 - `crates/host-addon/` — the addon transport: the real `Fetcher`, one blocking
   HTTP client. It is outside `host-core` because the Host's vocabulary and its
   decisions know nothing about the network (ADR-0009).
+- `crates/host-mpv/` — the real `Player`: mpv linked in-process, with the
+  picture put wherever the platform can put it. Outside `host-core` for the same
+  reason as the transport above (ADR-0013), and the only crate that names a
+  thing mpv calls something.
 - `crates/host-sqlite/` — the real `Store`. The only place SQL and the schema live.
 - `crates/host-logging/` — structured logs: JSON lines in the data directory.
 - `src-tauri/` — the app shell: platform directories, logging, the store, the

@@ -58,9 +58,9 @@ pub use fetcher::{FetchError, Fetcher, FixtureFetcher};
 pub use host::Host;
 pub use meta::{MetaError, Title, TitleKey, Video, MAX_META_BYTES};
 pub use playback::{
-    ChosenStream, FixturePlayer, InvalidSeekTarget, InvalidStreamUrl, NowPlaying, Observation,
-    Picture, PlaybackError, PlaybackSnapshot, PlaybackState, Player, SeekTarget, StreamUrl,
-    Unplayable,
+    ChosenStream, Control, FixturePlayer, InvalidSeekTarget, InvalidStreamUrl, NowPlaying,
+    Observation, Picture, PlaybackError, PlaybackSnapshot, PlaybackState, Player, SeekTarget,
+    StreamUrl, Unplayable,
 };
 pub use preferences::{InvalidSubtitleLanguage, Preferences, SubtitleLanguage};
 pub use provider::{AddonProvider, FixtureProvider, Provider};

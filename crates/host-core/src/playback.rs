@@ -306,6 +306,29 @@ impl SeekTarget {
     }
 }
 
+/// The control an Action asked for, where the Action is one: what a refusal
+/// names when there is nothing playing to control.
+///
+/// A type rather than a word, because the word reaches a client: a refusal that
+/// carried a `String` would let a typo become a message somebody reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Control {
+    Pause,
+    Seek,
+    Stop,
+}
+
+impl std::fmt::Display for Control {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Control::Pause => "pause",
+            Control::Seek => "seek",
+            Control::Stop => "stop",
+        })
+    }
+}
+
 /// A seek that is not a number of seconds this Host will seek to.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
 #[error("{seconds} is not a number of seconds to seek by")]
