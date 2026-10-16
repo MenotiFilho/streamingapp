@@ -45,7 +45,11 @@ the control to `Unmute`, the two chapters are stepped and jumped to, a crop is
 applied and cleared over a file that really has black bars, an aspect ratio is
 set and returned to `Source`, the statistics are shown and the readout names the
 hardware decode mode, and — because an episode is what plays — `Next episode`
-follows the fixture's series to the next one.
+follows the fixture's series to the next one. From #29 the walkthrough watches
+part of an episode, **kills the Host rather than closing it**, starts it again,
+and picks the Video up from the Continue watching row: the row is there because
+Watch progress is written while playback runs, and the resume plays from where it
+was left rather than from the beginning.
 
 For the steps that depend on what a third-party Addon happens to serve — that
 the posters are drawn, that a search returns something, which candidates a
@@ -76,7 +80,7 @@ automation in the build, so these scripts are run deliberately, never in CI.
 
 ## Walking part of the checklist
 
-The whole checklist is 22 steps and takes minutes. To iterate on one step, run
+The whole checklist is 23 steps and takes minutes. To iterate on one step, run
 just that one: the runner builds the ground the step declares first — an empty
 data directory, one Host on `-Monitor`, the fixture Addon configured by manifest
 URL, at the catalog rows — and reuses it when several selected steps need it, so
@@ -281,7 +285,10 @@ or started).
   before giving up.
 - **Close the Host, don't kill it, when you want its log tail.** The log writer is
   asynchronous and flushes on exit; `Stop-Process -Force` skips that. `verify.ps1`
-  sends a window close and only falls back to killing.
+  sends a window close and only falls back to killing — except in step 23, where
+  killing the Host **is** the check: Watch progress has to have been written
+  *while* playback ran (#29), so an unclean exit is the case being tested, and a
+  clean close would hide a Host that only wrote on the way out.
 - **The keyboard steps send real keys to the focused window**, so the run needs the
   Host in the foreground: `verify.ps1` calls `SetForegroundWindow` first and says so
   when it does not take. `{DOWN}` past the search box and onto a poster, `{ENTER}` to

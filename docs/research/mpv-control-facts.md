@@ -140,3 +140,29 @@ set over a real file on 2026-10-16. What the run settled, and what it did not:
 - **Not settled on Windows:** HDR passthrough (no HDR display on that machine,
   #18), and frame pacing beyond a raw screenshot.
 
+## Starting a Stream at a resume point (#29)
+
+A resume is not a seek sent after the open: mpv reads `start` when it *loads* a
+file, and a `seek` sent first would move a Stream that has not started. Facts
+verified over the JSON IPC on mpv 0.37:
+
+- **`start` is a string property.** `get_property start` answers `"5"` when set
+  and `"none"` when not. Setting it is `set_property start "5"` or the `set`
+  command with a string.
+- **A number is not accepted.** `set_property start 5` (a JSON number) is
+  refused with `error accessing property`; the client API reports it as
+  `MPV_ERROR_PROPERTY_FORMAT`. This is why `host-mpv::telling::start` produces a
+  string and the unset spelling is `none`, not `no`: `set start no` is refused
+  with `error running command`.
+- **It is read per file.** Setting it once and loading a second file starts that
+  file there too, which is why the Player sets it on *every* open — `none` for a
+  Stream with no resume point — rather than only when resuming. `loadfile`'s own
+  options argument would do the same thing but arrived in mpv 0.38, and this
+  container is 0.37.
+- **A seek of a Stream served over HTTP is a range request.** The fixture server
+  the Player tests drive answers `Range` with `206 Partial Content`, because mpv
+  seeks to a byte offset and a server that answered the whole body to every
+  request would have mpv reading from the beginning however far it was told to
+  skip.
+
+

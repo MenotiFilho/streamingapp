@@ -90,6 +90,7 @@ $Steps = @(
     [pscustomobject]@{ Id = 20; Title = 'removing the Addon'; Ground = 'rows'; After = @(); Need = 'the fixture Addon configured, at its rows (it removes it)' }
     [pscustomobject]@{ Id = 21; Title = 'the manifest URL and the TMDB key never reach the log'; Ground = ''; After = @(19, 20); Need = 'steps 19 and 20: the log they wrote, the TMDB key and the removed Addon' }
     [pscustomobject]@{ Id = 22; Title = 'the data directory'; Ground = 'data'; After = @(); Need = 'the data directory (made if a Host has not)' }
+    [pscustomobject]@{ Id = 23; Title = 'Watch progress outlives a Host that was killed, and the row resumes it'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at its rows (it plays an episode, kills the Host, starts it again, and resumes)' }
 )
 
 # The discovery path and the cheap syntax check: print the checklist and what
@@ -1614,6 +1615,96 @@ function Step-22($ctx) {
     if (Test-Path $dataDir) {
         Get-ChildItem $dataDir | ForEach-Object { "  $($_.Name)  $($_.Length) bytes" }
     } else { Check 'the data directory exists' $false $dataDir }
+}
+
+function Step-23($ctx) {
+    '--- 23. Watch progress outlives a Host that was killed, and the row resumes it'
+    $app = $ctx.App
+    # An episode of the fixture's series is what is watched, because Watch
+    # progress is per Video (#29): the fixture's two episodes are separate
+    # entries, and a resume reads one of them.
+    $series = Series-Card $app
+    if (-not $series) {
+        Skip 'Watch progress outlives a killed Host' (
+            "this Addon drew no second row, so there is no series to watch: run with -AddonName Verify (or -Addon <a Series Addon>)")
+        return
+    }
+
+    $series.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    $text = Wait-Text $app 'Back to browsing' 15
+    Focus-On $app 'Back to browsing' ([Windows.Automation.ControlType]::Button)
+    Press-Keys $app '{DOWN}'
+    Press-Keys $app '{ENTER}'
+    $text = Wait-Text $app ("Streams $dash") 20
+    if ($text -match 'No configured Addon offers Streams') {
+        Skip 'Watch progress outlives a killed Host' (
+            'the configured Addon answers no `stream` resource, so nothing can be watched')
+        return
+    }
+    $playable = @(Candidates $app | Where-Object { $_.Current.Name -notmatch 'Not playable yet' })
+    if (-not $playable) {
+        Skip 'Watch progress outlives a killed Host' (
+            'the Addon answered no playable candidate, so nothing can be watched')
+        return
+    }
+
+    Press-Element $app $playable[0]
+    $playing = $false
+    $deadline = (Get-Date).AddSeconds(45)
+    while (-not $playing -and (Get-Date) -lt $deadline) { $playing = Shows $app 'Pause' 2 }
+    if (-not $playing) {
+        Skip 'Watch progress outlives a killed Host' (
+            'the Stream never started playing, so there was no position to record')
+        return
+    }
+
+    # Watch a little of it: a seek is a position the Host writes down at once, and
+    # the OSD's clock is where a person reads it.
+    Press $app 'Forward ten seconds'
+    Start-Sleep -Seconds 2
+    Press $app 'Forward ten seconds'
+    Start-Sleep -Seconds 2
+    $watched = Clock-Seconds $app
+    Check 'playback is where the seeks left it, not at the beginning' (
+        $watched -gt 5) "the clock reads $watched s"
+    Shot $app '23-watching.png'
+
+    # The Host is *killed*, not closed: an unclean exit is the case the criterion
+    # is written against, and a clean close would let it flush on the way out.
+    'killing the Host rather than closing it, so nothing is given a chance to flush on the way out'
+    Stop-Process -Id $app.Process.Id -Force
+    Start-Sleep -Seconds 2
+
+    $ctx.App = Start-Host
+    $app = $ctx.App
+    $text = Wait-Text $app 'Continue watching' 60
+    Shot $app '23-after-restart.png'
+    Check 'the restarted Host offers the Video it was on, in the Continue watching row' (
+        $text -match 'Continue watching') "showed: $text"
+
+    # The card's own words are the Title, the episode and what is left — the note
+    # `m:ss left` is what tells a partly-watched card apart from the rest of the
+    # row without spelling the whole accessible name.
+    $cards = @(Buttons-Matching $app ' left')
+    if ($cards.Count -eq 0) {
+        Skip 'resuming from the Continue watching row' (
+            "the row drew no partly-watched card: showed $text")
+        return
+    }
+    Press-Element $app $cards[0]
+    $playing = $false
+    $deadline = (Get-Date).AddSeconds(45)
+    while (-not $playing -and (Get-Date) -lt $deadline) { $playing = Shows $app 'Pause' 2 }
+    Shot $app '23-resumed.png'
+    Check 'pressing the card plays the Video again' $playing "showed: $(Page-Text $app)"
+    if ($playing) {
+        $resumed = Clock-Seconds $app
+        Check 'and it resumes where it was left rather than at the beginning' (
+            ($resumed -ge 0) -and ($resumed -ge ($watched - 15))) (
+            "it was left at $watched s and resumed at $resumed s")
+        Press $app 'Stop'
+        Wait-Text $app 'Continue watching' 20 | Out-Null
+    }
 }
 
 # --- the dispatcher -----------------------------------------------------------

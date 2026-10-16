@@ -125,8 +125,17 @@ reaches every paired client.
 _Avoid_: current stream, playing media, file
 
 **Watch progress**:
-The resume state the Host stores for a Video.
+The resume state the Host stores for a Video: how far into it the owner got,
+how long it is, and whether it counts as watched. Recorded while it plays, so it
+outlives a Host that was killed rather than stopped.
 _Avoid_: progress (unqualified), history
+
+**Library**:
+The Host's own store of the Videos it has Watch progress in, with enough of each
+Title to draw a card — what a client's resume row is drawn from. Real and
+offline: it needs no account and no network, and an entry whose Addon is gone
+stays listed, marked unplayable.
+_Avoid_: history, watchlist, collection
 
 **Playback position**:
 How far into the Stream playing now the Host is, in seconds: the Host's own
