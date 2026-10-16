@@ -329,3 +329,102 @@ button:hover {
   overflow-wrap: anywhere;
 }
 
+/* --- the Streams of a Video -------------------------------------------------- */
+
+.streams {
+  margin-top: 1.75rem;
+}
+
+.streams h4 {
+  margin: 0.75rem 0 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.stream-group {
+  margin-top: 1.25rem;
+}
+
+.stream-addon {
+  margin: 0 0 0.5rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  color: #9a9aa6;
+}
+
+.stream-list {
+  display: grid;
+  gap: 0.5rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.stream {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  width: 100%;
+  text-align: left;
+  border: 1px solid #26262e;
+  background: #16161c;
+}
+
+.stream[aria-pressed="true"] {
+  /* The candidate this client chose: a border that reads at a glance without
+     changing the control's size, so the list does not move when it does. */
+  border-color: #7aa2f7;
+  background: #1d2233;
+}
+
+.stream-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.badge {
+  padding: 0.1rem 0.45rem;
+  border-radius: 0.35rem;
+  background: #26262e;
+  font-family: ui-monospace, monospace;
+  font-size: 0.75rem;
+}
+
+.stream-description {
+  font-size: 0.9rem;
+  line-height: 1.4;
+  /* The Addon writes several lines into one field (`💾 4.21 GB` under the
+     release); they are the Addon's own lines, so they stay lines. */
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.stream-filename {
+  font-size: 0.8rem;
+  color: #c9c9d1;
+  overflow-wrap: anywhere;
+}
+
+.stream-binge {
+  font-family: ui-monospace, monospace;
+  font-size: 0.7rem;
+  color: #767680;
+  overflow-wrap: anywhere;
+}
+
+.stream-note {
+  font-size: 0.8rem;
+  /* Marked, not hidden: a candidate the Host cannot play yet says so. */
+  color: #e0af68;
+}
+
+.stream-warning {
+  font-size: 0.8rem;
+  color: #9a9aa6;
+}
+
+.play {
+  margin-top: 1rem;
+}
+

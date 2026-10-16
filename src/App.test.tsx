@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { expect, test } from "vitest";
 
 import { App } from "./App";
@@ -6,9 +6,11 @@ import {
   HostClient,
   type Action,
   type AddonManifest,
+  type AddonStreams,
   type MetaPreview,
   type Response,
   type Snapshot,
+  type Stream,
   type Title,
   type TitleKey,
   type Transport,
@@ -115,6 +117,57 @@ const ITEMS = [...POPULAR_PAGES.flat(), SERIES_META];
 /** The TMDB id The Matrix really is keyed by, for a `mapped` Title. */
 const MATRIX_TMDB = 603;
 
+/** The two stream-capable Addons the fake Host answers `find_streams` for. */
+const TORRENTIO = "com.stremio.torrentio.addon";
+const AIOSTREAMS = "community.aiostreams";
+
+/**
+ * What the fake Host answers a `find_streams` with, the way a real one would:
+ * one group per Addon that answered, in the order the Addons were configured,
+ * each candidate carrying the Addon's own words — a torrent this Host cannot
+ * fetch yet, and a direct URL with the hints a debrid answer tends to carry.
+ */
+function streamGroups(videoId: string): AddonStreams[] {
+  return [
+    {
+      addon: TORRENTIO,
+      streams: [
+        {
+          name: "Torrentio\n4k HDR",
+          description: `The Matrix 1999 2160p UHD BluRay x265-GROUP\n👤 100 💾 51.3 GB\n⚙️ 1337x`,
+          playback: { kind: "info_hash", infoHash: "8dc393c100ef0c0d010cfefdcebe572e26c4f775" },
+          warnings: [],
+          filename: "The.Matrix.1999.2160p.UHD.BluRay.x265-GROUP.mkv",
+          bingeGroup: "torrentio|4k|BluRay|x265",
+        },
+        {
+          name: "Torrentio\n1080p",
+          description: "The Matrix 1999 1080p BluRay x264-GROUP\n👤 58 💾 2.11 GB",
+          playback: { kind: "info_hash", infoHash: "03dd34fea0ff15a451c1723062a901aa3a0ad458" },
+          warnings: [],
+          filename: "The.Matrix.1999.1080p.BluRay.x264-GROUP.mkv",
+          bingeGroup: "torrentio|1080p|BluRay|x264",
+        },
+      ] satisfies Stream[],
+      failure: null,
+    },
+    {
+      addon: AIOSTREAMS,
+      streams: [
+        {
+          name: "AIOStreams\n1080p",
+          description: "The Matrix 1999 1080p BluRay x265-GROUP\n💾 4.21 GB ⚙️ TorBox",
+          playback: { kind: "direct", url: `https://stream.example.org/v/${videoId}-1080p.mkv` },
+          warnings: ["not_web_ready", "proxy_headers"],
+          filename: "The.Matrix.1999.1080p.BluRay.x265-GROUP.mkv",
+          bingeGroup: null,
+        },
+      ] satisfies Stream[],
+      failure: null,
+    },
+  ];
+}
+
 /**
  * A Host standing in for the real one: it holds the state, applies Actions the
  * way `host-core` does, and publishes a Snapshot for each change. The window
@@ -136,6 +189,14 @@ function fakeHost(
     noEpisodes?: string;
     /** Answer this item's `open_title` as keyed by TMDB, the way a mapped Title comes back. */
     mapped?: string;
+    /** Make a `find_streams` fail, the way a Host that will not ask does. */
+    refuseStreams?: unknown;
+    /** Answer a `find_streams` with no groups at all. */
+    noStreamSources?: boolean;
+    /** Answer this Addon's group with the failure a Host that could not reach it reports. */
+    failingStreams?: string;
+    /** Answer this Addon's group empty, the way an Addon whose answer held no candidates does. */
+    quietStreams?: string;
   } = {},
 ) {
   let state = options.initial ?? NOTHING_SAID;
@@ -317,6 +378,35 @@ function fakeHost(
         };
         break;
       }
+      case "find_streams": {
+        asked.push(`streams/${action.video.type}/${action.video.id}`);
+        if (options.refuseStreams) {
+          throw options.refuseStreams;
+        }
+        if (options.noStreamSources) {
+          response.answer = { streams: [] };
+          break;
+        }
+
+        // The way a real Host answers: one group per Addon that answered, in
+        // the order they were configured; an Addon that could not answer is its
+        // own group with a failure in it.
+        const groups = streamGroups(action.video.id).map((group) => {
+          if (group.addon === options.failingStreams) {
+            return {
+              ...group,
+              streams: [],
+              failure: { kind: "fetch" as const, detail: "the Addon answered with status 503" },
+            };
+          }
+          if (group.addon === options.quietStreams) {
+            return { ...group, streams: [] };
+          }
+          return group;
+        });
+        response.answer = { streams: groups };
+        break;
+      }
     }
     return response as unknown as T;
   };
@@ -338,6 +428,19 @@ function fakeHost(
 
 function windowOver(transport: Transport) {
   return render(<App client={new HostClient(transport)} />);
+}
+
+/**
+ * The film opened and play pressed: the preamble every Streams test needs, and
+ * exactly what makes a client ask the Host for them.
+ */
+async function filmStreams(options: Parameters<typeof fakeHost>[0] = {}) {
+  const host = fakeHost(options);
+  windowOver(host.transport);
+  fireEvent.click(await screen.findByTestId("card-tt0133093"));
+  fireEvent.click(await screen.findByTestId("play-film"));
+  await screen.findByTestId("streams-heading");
+  return host;
 }
 
 function shownLanguage() {
@@ -959,7 +1062,7 @@ test("a Title a TMDB record met is not marked unmapped", async () => {
   expect(screen.queryByTestId("title-unmapped")).not.toBeInTheDocument();
 });
 
-test("opening a series shows its seasons, and its episodes are selectable", async () => {
+test("opening a series shows its seasons, and pressing an episode asks for its Streams", async () => {
   const host = fakeHost({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
   windowOver(host.transport);
 
@@ -979,10 +1082,159 @@ test("opening a series shows its seasons, and its episodes are selectable", asyn
 
   fireEvent.click(screen.getByTestId("episode-tt0903747:1:2"));
 
+  await screen.findByTestId("streams-heading");
+  expect(screen.getByTestId("streams-heading")).toHaveTextContent(
+    "Streams — S1E2 — Cat's in the Bag...",
+  );
+  expect(dispatched(host.invocations, "find_streams")).toEqual({
+    command: "dispatch",
+    args: {
+      envelope: {
+        version: 1,
+        action: { type: "find_streams", video: { type: "series", id: "tt0903747:1:2" } },
+      },
+    },
+  });
+
+  // Backing out of the Stream list returns to the episodes, with the pressed
+  // one still the one this client chose.
+  fireEvent.keyDown(document, { key: "Escape" });
+
+  await waitFor(() => expect(screen.queryByTestId("streams-heading")).not.toBeInTheDocument());
   expect(screen.getByTestId("episode-tt0903747:1:2")).toHaveAttribute("aria-pressed", "true");
   expect(screen.getByTestId("episode-tt0903747:1:1")).toHaveAttribute("aria-pressed", "false");
-  expect(screen.getByTestId("selected-video")).toHaveTextContent("S1E2");
-  expect(screen.getByTestId("selected-video")).toHaveTextContent("Cat's in the Bag...");
+});
+
+test("pressing play on a film asks the Addons for the film's own Streams", async () => {
+  const host = await filmStreams({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
+
+  expect(screen.getByTestId("streams-heading")).toHaveTextContent("Streams — The Matrix");
+  expect(dispatched(host.invocations, "find_streams").args).toEqual({
+    envelope: {
+      version: 1,
+      action: { type: "find_streams", video: { type: "movie", id: "tt0133093" } },
+    },
+  });
+});
+
+test("the Stream list is what each Addon answered, in order, badges and filenames and all", async () => {
+  await filmStreams({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
+
+  // One group per Addon that answered, in the order they were configured, each
+  // Addon's candidates in its own order: the Host re-ranks nothing and so does
+  // the window.
+  const candidates = screen.getAllByTestId(/^candidate-/);
+  expect(candidates.map((candidate) => candidate.getAttribute("data-testid"))).toEqual([
+    `candidate-${TORRENTIO}-0`,
+    `candidate-${TORRENTIO}-1`,
+    `candidate-${AIOSTREAMS}-0`,
+  ]);
+
+  const first = screen.getByTestId(`candidate-${TORRENTIO}-0`);
+  expect(first).toHaveTextContent("Torrentio");
+  expect(first).toHaveTextContent("4k HDR");
+  expect(first).toHaveTextContent("The Matrix 1999 2160p UHD BluRay x265-GROUP");
+  expect(within(first).getByTestId("stream-filename")).toHaveTextContent(
+    "The.Matrix.1999.2160p.UHD.BluRay.x265-GROUP.mkv",
+  );
+  expect(first).toHaveTextContent("binge group torrentio|4k|BluRay|x265");
+});
+
+test("a candidate the Host cannot play is listed and marked rather than hidden", async () => {
+  await filmStreams({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
+
+  expect(screen.getByTestId(`candidate-${TORRENTIO}-0`)).toHaveTextContent("Not playable yet");
+  expect(
+    screen.getByTestId(`candidate-${AIOSTREAMS}-0`),
+    "a URL the Host can open carries no such mark",
+  ).not.toHaveTextContent("Not playable yet");
+});
+
+test("a hint is shown beside a candidate without removing it", async () => {
+  await filmStreams({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
+
+  const hinted = screen.getByTestId(`candidate-${AIOSTREAMS}-0`);
+  expect(hinted).toHaveTextContent("Not web-ready");
+  expect(hinted).toHaveTextContent("Wants request headers");
+  expect(hinted).toHaveTextContent("AIOStreams");
+  expect(hinted).toHaveTextContent("The.Matrix.1999.1080p.BluRay.x265-GROUP.mkv");
+});
+
+test("choosing a Stream marks it, and says what playing it means", async () => {
+  await filmStreams({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
+
+  fireEvent.click(screen.getByTestId(`candidate-${AIOSTREAMS}-0`));
+
+  expect(screen.getByTestId(`candidate-${AIOSTREAMS}-0`)).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByTestId(`candidate-${TORRENTIO}-0`)).toHaveAttribute("aria-pressed", "false");
+  expect(screen.getByTestId("chosen-stream")).toHaveTextContent("Chose AIOStreams");
+  expect(screen.getByTestId("chosen-stream")).toHaveTextContent("playing it arrives in #27");
+});
+
+test("choosing a Stream the Host cannot play says so rather than promising playback", async () => {
+  await filmStreams({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
+
+  fireEvent.click(screen.getByTestId(`candidate-${TORRENTIO}-0`));
+
+  expect(screen.getByTestId("chosen-stream")).toHaveTextContent("Not playable yet");
+  expect(screen.getByTestId("chosen-stream")).not.toHaveTextContent("#27");
+});
+
+test("an Addon that failed says so without blanking the other Addons' candidates", async () => {
+  await filmStreams({
+    initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] },
+    failingStreams: TORRENTIO,
+  });
+
+  expect(within(screen.getByTestId(`streams-${TORRENTIO}`)).getByRole("alert")).toHaveTextContent(
+    "status 503",
+  );
+  expect(
+    screen.getByTestId(`candidate-${AIOSTREAMS}-0`),
+    "the Addon that answered keeps its candidates",
+  ).toBeInTheDocument();
+});
+
+test("an Addon whose answer held nothing playable says so rather than looking broken", async () => {
+  await filmStreams({
+    initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] },
+    quietStreams: AIOSTREAMS,
+  });
+
+  expect(screen.getByTestId(`streams-${AIOSTREAMS}`)).toHaveTextContent(
+    "answered nothing this Host can play",
+  );
+});
+
+test("a Video no Addon offers Streams for says so rather than showing an empty list", async () => {
+  await filmStreams({
+    initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] },
+    noStreamSources: true,
+  });
+
+  expect(screen.getByTestId("streams-none")).toHaveTextContent(
+    "No configured Addon offers Streams for this Video",
+  );
+});
+
+test("a Host that will not find Streams is explained, and the Videos stay where they were", async () => {
+  const host = fakeHost({
+    initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] },
+    refuseStreams: { kind: "fetch", detail: "the Addon answered with status 503" },
+  });
+  windowOver(host.transport);
+  fireEvent.click(await screen.findByTestId("card-tt0133093"));
+  await screen.findByTestId("title-tt0133093");
+
+  fireEvent.click(screen.getByTestId("play-film"));
+
+  await screen.findByRole("alert");
+  expect(screen.getByRole("alert")).toHaveTextContent("could not fetch");
+  expect(screen.queryByTestId("streams-heading")).not.toBeInTheDocument();
+  expect(
+    screen.getByTestId("play-film"),
+    "the Video it was pressed on is still the one being looked at",
+  ).toBeInTheDocument();
 });
 
 test("backing out of a Title returns to the rows, and it can be opened again", async () => {

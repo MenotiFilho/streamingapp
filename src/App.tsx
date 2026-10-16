@@ -15,20 +15,30 @@ import {
 import {
   asActionError,
   answeredCatalogs,
+  answeredStreams,
   answeredTitle,
   explain,
   HostClient,
   type Action,
   type ActionError,
   type AddonManifest,
+  type AddonStreams,
   type Extra,
   type MetaPreview,
   type Protection,
   type Response,
   type Snapshot,
+  type Stream,
   type Title,
   type Video,
 } from "./host-client";
+import {
+  badgeLines,
+  chosenNote,
+  playabilityNote,
+  theFilm,
+  warningNote,
+} from "./stream";
 import { isSeries, labelOf, nameOf, posterOf, releaseOf, seasonName, seasonsOf } from "./title";
 import { useArrowKeys } from "./useArrowKeys";
 
@@ -64,6 +74,11 @@ export function App({ client }: { client?: HostClient }) {
   const [title, setTitle] = useState<Title | null>(null);
   const [opening, setOpening] = useState<MetaPreview | null>(null);
   const [selected, setSelected] = useState<Video | null>(null);
+  // The Streams the Host answered for the Video this client pressed play on,
+  // and the candidate it chose. Both are this client's own, like the Title:
+  // one client choosing among candidates moves nothing on another (ADR-0005).
+  const [streams, setStreams] = useState<AddonStreams[] | null>(null);
+  const [chosen, setChosen] = useState<Stream | null>(null);
   const surface = useRef<HTMLElement | null>(null);
 
   const publish = useCallback((next: Snapshot) => {
@@ -225,27 +240,65 @@ export function App({ client }: { client?: HostClient }) {
       if (opened) {
         setPreview(meta);
         setSelected(null);
+        setStreams(null);
+        setChosen(null);
         setTitle(opened);
       }
     },
     [take],
   );
 
+  /**
+   * Press play on a Video: ask every Addon that answers for its Streams. The
+   * list replaces the Videos it was asked from, and going back returns to them;
+   * a refusal leaves the client where it was, with the Videos it was reading.
+   */
+  const play = useCallback(
+    async (video: Video) => {
+      if (!title) {
+        return;
+      }
+      setSelected(video);
+      setChosen(null);
+      setStreams(null);
+      const response = await take({
+        type: "find_streams",
+        video: { type: title.type, id: video.id },
+      });
+      if (response) {
+        setStreams(answeredStreams(response));
+      }
+    },
+    [take, title],
+  );
+
+  /** Close the Stream list and go back to the Videos it was asked from. */
+  const closeStreams = useCallback(() => {
+    setStreams(null);
+    setChosen(null);
+  }, []);
+
   /** Close the open Title and go back to what this client was browsing. */
   const closeTitle = useCallback(() => {
     setTitle(null);
     setPreview(null);
     setSelected(null);
+    setStreams(null);
+    setChosen(null);
   }, []);
 
   const back = useCallback(() => {
+    if (streams) {
+      closeStreams();
+      return;
+    }
     if (title) {
       closeTitle();
       return;
     }
     setResults(null);
     setQueryDraft("");
-  }, [title, closeTitle]);
+  }, [streams, title, closeStreams, closeTitle]);
 
   useArrowKeys(surface, back);
 
@@ -333,7 +386,11 @@ export function App({ client }: { client?: HostClient }) {
             title={title}
             preview={preview}
             selected={selected}
-            onSelect={setSelected}
+            streams={streams}
+            chosen={chosen}
+            onPlay={play}
+            onChoose={setChosen}
+            onCloseStreams={closeStreams}
             onBack={closeTitle}
           />
         ) : (
@@ -495,26 +552,35 @@ export function App({ client }: { client?: HostClient }) {
 }
 
 /**
- * An opened Title: what the Host says about it, and its Videos to choose from.
+ * An opened Title: what the Host says about it, its Videos to choose from, and
+ * — once a Video is pressed — the Streams every answering Addon offered for it.
  *
  * The metadata has TMDB standing over the Addon's where the Host could map the
  * Title, and the card this client opened as the fallback for whatever a sparse
  * answer left out; a Title no record met is marked unmapped rather than hidden.
- * The Videos are grouped into seasons in the Addon's own order. Selecting an
- * episode is this client's own choosing — playing it arrives in #26/#27 — so it
- * is held here and shown, not sent.
+ * The Videos are grouped into seasons in the Addon's own order, and pressing
+ * one asks the Host for its Streams. Which Stream is chosen is this client's own
+ * choosing — playing it arrives in #27 — so it is held here and shown, not sent.
  */
 function TitleView({
   title,
   preview,
   selected,
-  onSelect,
+  streams,
+  chosen,
+  onPlay,
+  onChoose,
+  onCloseStreams,
   onBack,
 }: {
   title: Title;
   preview: MetaPreview | null;
   selected: Video | null;
-  onSelect: (video: Video) => void;
+  streams: AddonStreams[] | null;
+  chosen: Stream | null;
+  onPlay: (video: Video) => void;
+  onChoose: (stream: Stream) => void;
+  onCloseStreams: () => void;
   onBack: () => void;
 }) {
   const poster = posterOf(title, preview);
@@ -523,6 +589,14 @@ function TitleView({
     .filter((fact): fact is string => Boolean(fact))
     .join(" · ");
   const seasons = seasonsOf(title);
+  // What the Streams are Streams *of*: an episode by its number and name, or
+  // the film itself.
+  const subject =
+    selected && selected.id !== title.id
+      ? [labelOf(selected) ?? selected.id, selected.name]
+          .filter((part): part is string => Boolean(part))
+          .join(" — ")
+      : nameOf(title, preview);
 
   return (
     <article className="title" data-testid={`title-${title.id}`}>
@@ -559,12 +633,33 @@ function TitleView({
         </div>
       </header>
 
-      {seasons.length === 0 ? (
-        <p className="lede" data-testid="title-no-videos">
-          {isSeries(title)
-            ? "This series' Addon listed no episodes."
-            : "This Title is one Video: the film itself."}
-        </p>
+      {streams !== null ? (
+        <StreamList
+          subject={subject}
+          groups={streams}
+          chosen={chosen}
+          onChoose={onChoose}
+          onClose={onCloseStreams}
+        />
+      ) : seasons.length === 0 ? (
+        <>
+          <p className="lede" data-testid="title-no-videos">
+            {isSeries(title)
+              ? "This series' Addon listed no episodes."
+              : "This Title is one Video: the film itself."}
+          </p>
+          {isSeries(title) ? null : (
+            <button
+              type="button"
+              className="play"
+              data-focusable
+              data-testid="play-film"
+              onClick={() => onPlay(theFilm(title))}
+            >
+              Play
+            </button>
+          )}
+        </>
       ) : (
         seasons.map(({ season, videos }) => (
           <section className="season" key={season ?? "unnumbered"}>
@@ -580,7 +675,7 @@ function TitleView({
                       data-focusable
                       data-testid={`episode-${video.id}`}
                       aria-pressed={selected?.id === video.id}
-                      onClick={() => onSelect(video)}
+                      onClick={() => onPlay(video)}
                     >
                       {label ? <span className="episode-label">{label}</span> : null}
                       <span className="episode-name">{video.name ?? video.id}</span>
@@ -592,15 +687,137 @@ function TitleView({
           </section>
         ))
       )}
+    </article>
+  );
+}
 
-      {selected ? (
-        <p role="status" data-testid="selected-video">
-          Selected {labelOf(selected) ?? selected.id}
-          {selected.name ? ` — ${selected.name}` : ""} — choosing a Stream arrives in
-          #26.
+/**
+ * The Streams a Video can be played as: one block per Addon that answered, in
+ * the order the Addons were configured, each candidate drawn from its own
+ * fields. An Addon that failed, or answered nothing this Host can play, says so
+ * without blanking the others; an unplayable candidate is listed and marked
+ * rather than hidden, so the list is what exists and not only what will work.
+ */
+function StreamList({
+  subject,
+  groups,
+  chosen,
+  onChoose,
+  onClose,
+}: {
+  subject: string;
+  groups: AddonStreams[];
+  chosen: Stream | null;
+  onChoose: (stream: Stream) => void;
+  onClose: () => void;
+}) {
+  return (
+    <section className="streams" aria-label={`Streams — ${subject}`}>
+      <button type="button" data-focusable onClick={onClose}>
+        Back to the Videos
+      </button>
+      <h4 data-testid="streams-heading">{`Streams — ${subject}`}</h4>
+
+      {groups.length === 0 ? (
+        <p className="lede" data-testid="streams-none">
+          No configured Addon offers Streams for this Video.
         </p>
       ) : null}
-    </article>
+
+      {groups.map((group) => (
+        <section
+          className="stream-group"
+          key={group.addon}
+          data-testid={`streams-${group.addon}`}
+        >
+          <h5 className="stream-addon">{group.addon}</h5>
+          {group.failure ? (
+            <p role="alert" className="error">
+              {explain(group.failure)}
+            </p>
+          ) : null}
+          {!group.failure && group.streams.length === 0 ? (
+            <p className="lede">This Addon answered nothing this Host can play.</p>
+          ) : null}
+
+          <ul className="stream-list">
+            {group.streams.map((stream, index) => (
+              <li key={index}>
+                <StreamChoice
+                  stream={stream}
+                  testId={`candidate-${group.addon}-${index}`}
+                  chosen={chosen === stream}
+                  onChoose={onChoose}
+                />
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+
+      {chosen ? (
+        <p role="status" data-testid="chosen-stream">
+          {chosenNote(chosen)}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+/**
+ * One candidate: the Addon's own badge line, its description and filename, what
+ * its hints warn about, and whether this Host can play it.
+ */
+function StreamChoice({
+  stream,
+  testId,
+  chosen,
+  onChoose,
+}: {
+  stream: Stream;
+  testId: string;
+  chosen: boolean;
+  onChoose: (stream: Stream) => void;
+}) {
+  const badges = badgeLines(stream);
+  const note = playabilityNote(stream.playback);
+
+  return (
+    <button
+      type="button"
+      className="stream"
+      data-focusable
+      data-testid={testId}
+      aria-pressed={chosen}
+      onClick={() => onChoose(stream)}
+    >
+      {badges.length > 0 ? (
+        <span className="stream-badges">
+          {badges.map((badge, index) => (
+            <span className="badge" key={index}>
+              {badge}
+            </span>
+          ))}
+        </span>
+      ) : null}
+      {stream.description ? (
+        <span className="stream-description">{stream.description}</span>
+      ) : null}
+      {stream.filename ? (
+        <span className="stream-filename" data-testid="stream-filename">
+          {stream.filename}
+        </span>
+      ) : null}
+      {stream.bingeGroup ? (
+        <span className="stream-binge">{`binge group ${stream.bingeGroup}`}</span>
+      ) : null}
+      {note ? <span className="stream-note">{note}</span> : null}
+      {stream.warnings.map((warning) => (
+        <span className="stream-warning" key={warning}>
+          {warningNote(warning)}
+        </span>
+      ))}
+    </button>
   );
 }
 

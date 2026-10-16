@@ -153,13 +153,56 @@ export type Title = {
 };
 
 /**
+ * Where a Stream's bytes are, and whether this Host can open them. Mirrors
+ * `Playback` in `host-core`: a direct URL mpv opens as itself, or an `infoHash`
+ * this version lists and marks unplayable — the torrent bridge that would fetch
+ * it is a later ticket.
+ */
+export type Playback =
+  | { kind: "direct"; url: string }
+  | { kind: "info_hash"; infoHash: string };
+
+/**
+ * What the Addon's hints say about playing a Stream. Mirrors `Warning` in
+ * `host-core`: surfaced beside the candidate, never acted on.
+ */
+export type StreamWarning = "not_web_ready" | "p2p" | "proxy_headers";
+
+/**
+ * One candidate a Provider returned for a Video. Mirrors `Stream` in `host-core`:
+ * `name` and `description` are the Addon's own words — its badge line and the
+ * release line under it — carried through verbatim, and the Host re-ranks
+ * nothing. `filename` and `bingeGroup` come from the candidate's own
+ * behaviour hints.
+ */
+export type Stream = {
+  name: string | null;
+  description: string | null;
+  playback: Playback;
+  warnings: StreamWarning[];
+  filename: string | null;
+  bingeGroup: string | null;
+};
+
+/**
+ * One Addon's answer to a Video's stream request. Mirrors `AddonStreams` in
+ * `host-core`; `failure` says why an Addon did not answer, so one Addon being
+ * down does not blank the candidates the others returned.
+ */
+export type AddonStreams = {
+  addon: string;
+  streams: Stream[];
+  failure: ActionError | null;
+};
+
+/**
  * What taking an Action produced. Mirrors `Response` in `host-core`: the
  * Snapshots every client is owed, and the answer only the client that asked gets.
- * A question is answered with catalogs or with a Title, never both.
+ * A question is answered with catalogs, a Title or Streams, never several.
  */
 export type Response = {
   snapshots: Snapshot[];
-  answer: { catalogs: CatalogRow[] } | { title: Title } | null;
+  answer: { catalogs: CatalogRow[] } | { title: Title } | { streams: AddonStreams[] } | null;
 };
 
 /** What a client can ask the Host to do. Mirrors `Action` in `host-core`. */
@@ -181,7 +224,8 @@ export type Action =
       type: "open_title";
       addon: string;
       title: { type: string; id: string };
-    };
+    }
+  | { type: "find_streams"; video: { type: string; id: string } };
 
 /**
  * The failures the Host itself reports. Mirrors the variants of `ActionError` in
@@ -196,6 +240,7 @@ export const HOST_ERROR_KINDS = [
   "invalid_tmdb_key",
   "invalid_catalog_ref",
   "invalid_title_ref",
+  "invalid_video_ref",
   "manifest",
   "fetch",
   "unknown_addon",
@@ -205,6 +250,7 @@ export const HOST_ERROR_KINDS = [
   "query",
   "catalog",
   "meta",
+  "stream",
   "store",
   "secret",
 ] as const;
@@ -226,6 +272,7 @@ export type ActionError = {
   value?: string;
   catalog?: { type: string; id: string };
   title?: { type: string; id: string };
+  video?: { type: string; id: string };
 };
 
 /**
@@ -242,6 +289,15 @@ export function answeredCatalogs(response: Response | null): CatalogRow[] {
 export function answeredTitle(response: Response | null): Title | null {
   const answer = response?.answer;
   return answer && "title" in answer ? answer.title : null;
+}
+
+/**
+ * The Stream groups an answer carries, when the Action was a `find_streams`:
+ * one per Addon that answered, in the order the Addons were configured.
+ */
+export function answeredStreams(response: Response | null): AddonStreams[] {
+  const answer = response?.answer;
+  return answer && "streams" in answer ? answer.streams : [];
 }
 
 /** Whatever a failed call threw, as something the window can explain. */
@@ -280,6 +336,8 @@ export function explain(error: ActionError): string {
       return `${JSON.stringify(error.value)} is not a catalog ${error.which}.`;
     case "invalid_title_ref":
       return `${JSON.stringify(error.value)} is not a Title ${error.which}.`;
+    case "invalid_video_ref":
+      return `${JSON.stringify(error.value)} is not a Video ${error.which}.`;
     case "manifest":
       return `The Host could not read that Addon's manifest${error.detail ? `: ${error.detail}` : ""}.`;
     case "fetch":
@@ -298,6 +356,8 @@ export function explain(error: ActionError): string {
       return `The Host could not read that Addon's catalog${error.detail ? `: ${error.detail}` : ""}.`;
     case "meta":
       return `The Host could not read that Addon's meta response${error.detail ? `: ${error.detail}` : ""}.`;
+    case "stream":
+      return `The Host could not read that Addon's stream response${error.detail ? `: ${error.detail}` : ""}.`;
     case "store":
       return `The Host could not save that change${error.detail ? `: ${error.detail}` : ""}.`;
     case "secret":
