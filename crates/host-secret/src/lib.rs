@@ -9,13 +9,13 @@
 //! owner alone may read and write.
 //!
 //! That choice is the only decision this crate takes. Which credentials exist
-//! is the Host's business ([`host_core::Secret`]); how the Action surface
-//! treats them is `host-core`'s; and what reaches a client is the Snapshot's
-//! [`host_core::SecretBackend`] and nothing more.
+//! is the Host's business ([`host_core::CredentialKind`]); how the Action
+//! surface treats them is `host-core`'s; and what reaches a client is the
+//! Snapshot's [`host_core::SecretBackend`] and nothing more.
 
 use std::path::{Path, PathBuf};
 
-use host_core::{Secret, SecretBackend, SecretError, SecretStore};
+use host_core::{CredentialKind, SecretBackend, SecretError, SecretStore};
 
 /// The file the fallback holds its secrets in, in the data directory.
 const FALLBACK_FILE: &str = "secrets.json";
@@ -60,12 +60,6 @@ pub enum Reach {
 /// keyring is there and this item is simply not in it. The other errors mean
 /// the keyring could not be reached — a platform failure, a storage access
 /// the session does not carry — and those are "no keyring exists".
-/// The keyring is probed by asking it for a credential.
-///
-/// That is the one question with an unambiguous answer: `NoEntry` means the
-/// keyring is there and this item is simply not in it. The other errors mean
-/// the keyring could not be reached — a platform failure, a storage access
-/// the session does not carry — and those are "no keyring exists".
 fn probe_keyring() -> Reach {
     let entry = match keyring::Entry::new(SERVICE, "probe").map_err(|_| Reach::Unreachable) {
         Ok(entry) => entry,
@@ -94,39 +88,39 @@ impl SecretStore for KeyringSecretStore {
         SecretBackend::Keyring
     }
 
-    fn write(&self, secret: Secret, value: &str) -> Result<(), SecretError> {
-        entry(secret)?
+    fn write(&self, credential: CredentialKind, value: &str) -> Result<(), SecretError> {
+        entry(credential)?
             .set_password(value)
             .map_err(|error| SecretError::Write {
                 detail: format!(
                     "the {kind} could not be kept: {error}",
-                    kind = secret.label()
+                    kind = credential.label()
                 ),
             })
     }
 
-    fn read(&self, secret: Secret) -> Result<Option<String>, SecretError> {
-        match entry(secret)?.get_password() {
+    fn read(&self, credential: CredentialKind) -> Result<Option<String>, SecretError> {
+        match entry(credential)?.get_password() {
             Ok(value) => Ok(Some(value)),
             Err(keyring::Error::NoEntry) => Ok(None),
             Err(error) => Err(SecretError::Read {
                 detail: format!(
                     "the {kind} could not be read back: {error}",
-                    kind = secret.label()
+                    kind = credential.label()
                 ),
             }),
         }
     }
 
-    fn remove(&self, secret: Secret) -> Result<(), SecretError> {
-        match entry(secret)?.delete_credential() {
+    fn remove(&self, credential: CredentialKind) -> Result<(), SecretError> {
+        match entry(credential)?.delete_credential() {
             Ok(()) => Ok(()),
             // Taking out what is not there is the end state already reached.
             Err(keyring::Error::NoEntry) => Ok(()),
             Err(error) => Err(SecretError::Remove {
                 detail: format!(
                     "the {kind} could not be taken out: {error}",
-                    kind = secret.label()
+                    kind = credential.label()
                 ),
             }),
         }
@@ -134,11 +128,11 @@ impl SecretStore for KeyringSecretStore {
 }
 
 /// The keyring entry a credential is filed under.
-fn entry(secret: Secret) -> Result<keyring::Entry, SecretError> {
-    keyring::Entry::new(SERVICE, secret.id()).map_err(|error| SecretError::Read {
+fn entry(credential: CredentialKind) -> Result<keyring::Entry, SecretError> {
+    keyring::Entry::new(SERVICE, credential.id()).map_err(|error| SecretError::Read {
         detail: format!(
             "the {kind} could not be opened: {error}",
-            kind = secret.label()
+            kind = credential.label()
         ),
     })
 }
@@ -281,26 +275,26 @@ impl SecretStore for FileSecretStore {
         SecretBackend::File
     }
 
-    fn write(&self, secret: Secret, value: &str) -> Result<(), SecretError> {
+    fn write(&self, credential: CredentialKind, value: &str) -> Result<(), SecretError> {
         let mut contents = self.contents()?;
         contents.insert(
-            secret.id().to_owned(),
+            credential.id().to_owned(),
             serde_json::Value::String(value.to_owned()),
         );
         self.keep(contents)
     }
 
-    fn read(&self, secret: Secret) -> Result<Option<String>, SecretError> {
+    fn read(&self, credential: CredentialKind) -> Result<Option<String>, SecretError> {
         Ok(self
             .contents()?
-            .get(secret.id())
+            .get(credential.id())
             .and_then(serde_json::Value::as_str)
             .map(str::to_owned))
     }
 
-    fn remove(&self, secret: Secret) -> Result<(), SecretError> {
+    fn remove(&self, credential: CredentialKind) -> Result<(), SecretError> {
         let mut contents = self.contents()?;
-        contents.remove(secret.id());
+        contents.remove(credential.id());
         self.keep(contents)
     }
 }

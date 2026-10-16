@@ -57,7 +57,8 @@ pub use request::{
 };
 pub use response::{Answer, Response};
 pub use secret::{
-    InMemorySecretStore, InvalidTmdbKey, Secret, SecretBackend, SecretError, SecretStore, TmdbKey,
+    CredentialKind, InMemorySecretStore, InvalidTmdbKey, SecretBackend, SecretError, SecretStore,
+    TmdbKey,
 };
 pub use snapshot::{PreferencesSnapshot, ProtectionSnapshot, Snapshot};
 pub use store::{InMemoryStore, Store, StoreError};

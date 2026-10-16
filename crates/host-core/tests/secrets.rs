@@ -6,7 +6,7 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, FixtureFetcher, Host, InMemorySecretStore, InMemoryStore, Secret,
+    Action, ActionError, CredentialKind, FixtureFetcher, Host, InMemorySecretStore, InMemoryStore,
     SecretBackend, Store, ACTION_VERSION,
 };
 
@@ -71,7 +71,7 @@ fn entering_a_key_stores_it_through_the_secret_store_and_says_so() {
         .snapshots;
 
     assert!(
-        secrets.holds(Secret::TmdbKey),
+        secrets.holds(CredentialKind::TmdbKey),
         "the credential left the Action surface on the only road out: the store"
     );
     let snapshot = published[0].clone();
@@ -100,7 +100,7 @@ fn clearing_the_key_takes_it_out_the_same_way_it_went_in() {
         .snapshots;
 
     assert!(
-        !secrets.holds(Secret::TmdbKey),
+        !secrets.holds(CredentialKind::TmdbKey),
         "taken out is taken out: nothing of the credential stays in the store"
     );
     assert!(!published[0].protection.tmdb_held);
@@ -121,7 +121,7 @@ fn clearing_a_key_that_was_never_there_is_not_an_error() {
         published[0].protection.tmdb_held, before.protection.tmdb_held,
         "the end state of nothing held is nothing held"
     );
-    assert!(!secrets.holds(Secret::TmdbKey));
+    assert!(!secrets.holds(CredentialKind::TmdbKey));
 }
 
 #[test]
@@ -144,7 +144,7 @@ fn a_key_shaped_unlike_any_credential_is_refused_before_the_store_hears_of_it() 
     }
 
     assert!(
-        !secrets.holds(Secret::TmdbKey),
+        !secrets.holds(CredentialKind::TmdbKey),
         "a refused Action leaves the store the way state left it"
     );
     assert_eq!(host.snapshot(), before);
@@ -175,7 +175,7 @@ fn a_secret_store_that_cannot_keep_leaves_the_state_alone() {
 
 #[test]
 fn a_credential_value_reaches_nothing_the_wire_can_carry() {
-    // Every Secret the tests speak is carried into this walk, fully populated:
+    // Every credential the tests speak is carried into this walk, fully populated:
     // Addons with a manifest URL that could hide a key inside it, a preference,
     // and a TMDB key. A Snapshot is built from it, and the whole host of them
     // serialized — and the serialized shape is searched for the key's own

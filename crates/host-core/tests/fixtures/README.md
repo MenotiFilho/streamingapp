@@ -74,3 +74,46 @@ trimmed the same way.
 - `hostile-meta.json` — written by hand: a response whose `meta` is a string.
   That is a fact about the Addon rather than a missing field, so it is refused.
 
+## TMDB responses
+
+Where a Title maps to TMDB: the `find` answer that turns an Addon's IMDb id into a
+TMDB record id, and the `details` answer the Host merges over the Addon's metadata.
+Written by hand, not recorded — a recorded answer needs a key to ask for, and these
+are trimmed to the fields the Host reads — but carrying TMDB's own ids and titles
+for the two Titles the tests use.
+
+- `tmdb-find-matrix.json` — `/find/tt0133093?external_source=imdb_id`: one entry
+  in `movie_results`, and the other result lists empty.
+- `tmdb-find-bb.json` — the same for `tt0903747`, answered in `tv_results`.
+- `tmdb-movie-details.json` — The Matrix (603): the poster path, runtime, genre
+  names and release date the Host merges over the Addon's Title, beside fields it
+  ignores.
+- `tmdb-tv-details.json` — Breaking Bad (1396): `first_air_date` and
+  `last_air_date` with `in_production: false`, the closed year range a finished
+  series shows.
+- `tmdb-tv-details-making.json` — written by hand and about a series that does not
+  exist: `in_production: true` with a year range that has not ended, the case the
+  `2020-`-style range is for.
+
+## TMDB responses
+
+Where the Host maps an Addon's id to TMDB's own records: a `find` answer that
+turns an IMDb id into a TMDB one, and the `details` answer for what TMDB says
+about the record it found. Written by hand to the shapes TMDB documents — the
+ids and titles for The Matrix (603) and Breaking Bad (1396) are TMDB's own, the
+counts and blobs around them are not — because a recorded answer would carry a
+session's worth of noise this Host has no use for, and a find needs a key to
+record at all.
+
+- `tmdb-find-matrix.json` — `/find/tt0133093?external_source=imdb_id`: the
+  answer in `movie_results`, with the other result lists empty beside it.
+- `tmdb-find-bb.json` — the same for `tt0903747`, answered in `tv_results`.
+- `tmdb-movie-details.json` — `/movie/603`: the fields the Host merges over the
+  Addon's Title — genres, runtime, release date, `poster_path` — among the many
+  it ignores.
+- `tmdb-tv-details.json` — `/tv/1396`: `first_air_date` and `last_air_date`
+  with `in_production: false`, the year range a finished series shows.
+- `tmdb-tv-details-making.json` — written by hand, not recorded, and invented
+  outright: a series `in_production` with no `last_air_date` to end the range
+  (`2020–`), which a recording would only catch by being run in that window.
+

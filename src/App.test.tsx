@@ -10,16 +10,19 @@ import {
   type Response,
   type Snapshot,
   type Title,
+  type TitleKey,
   type Transport,
   type Video,
 } from "./host-client";
 
 type Invocation = { command: string; args?: Record<string, unknown> };
 
+/** The Snapshot of a Host that holds nothing yet, with credentials as published at rest. */
 const NOTHING_SAID: Snapshot = {
   revision: 0,
   preferences: { subtitleLanguage: null },
   addons: [],
+  protection: { backend: "keyring", tmdbHeld: false },
 };
 
 /** An Addon as the Host would publish it, without the URL it lives at. */
@@ -109,6 +112,9 @@ function episode(id: string, name: string, season: number, episodeNumber: number
 /** Every item the fake Addon has, so an `open_title` can answer about one. */
 const ITEMS = [...POPULAR_PAGES.flat(), SERIES_META];
 
+/** The TMDB id The Matrix really is keyed by, for a `mapped` Title. */
+const MATRIX_TMDB = 603;
+
 /**
  * A Host standing in for the real one: it holds the state, applies Actions the
  * way `host-core` does, and publishes a Snapshot for each change. The window
@@ -128,6 +134,8 @@ function fakeHost(
     sparse?: string;
     /** Answer this series' `open_title` with no Videos at all. */
     noEpisodes?: string;
+    /** Answer this item's `open_title` as keyed by TMDB, the way a mapped Title comes back. */
+    mapped?: string;
   } = {},
 ) {
   let state = options.initial ?? NOTHING_SAID;
@@ -186,6 +194,24 @@ function fakeHost(
           ...state,
           revision: state.revision + 1,
           addons: state.addons.filter((addon) => addon.id !== action.id),
+        });
+        response.snapshots = [state];
+        break;
+      case "set_tmdb_key":
+        // The value goes nowhere near the Snapshot: what changes on the wire is
+        // only that a key is now held, in whichever backend already holds them.
+        publish({
+          ...state,
+          revision: state.revision + 1,
+          protection: { ...state.protection, tmdbHeld: true },
+        });
+        response.snapshots = [state];
+        break;
+      case "clear_tmdb_key":
+        publish({
+          ...state,
+          revision: state.revision + 1,
+          protection: { ...state.protection, tmdbHeld: false },
         });
         response.snapshots = [state];
         break;
@@ -261,10 +287,18 @@ function fakeHost(
         // metadata, and the Videos a series has. `sparse` stands in for the
         // Addon that answered with the least it could.
         const bare = options.sparse === item.id;
+        // What the Title is keyed by: TMDB's own id where a record met it, and
+        // the Addon that supplied it otherwise — the unmapped marker the
+        // window reads.
+        const key: TitleKey =
+          options.mapped === item.id
+            ? { kind: "tmdb", id: MATRIX_TMDB }
+            : { kind: "addon", addon: action.addon, id: item.id };
         response.answer = {
           title: {
             addon: action.addon,
             id: item.id,
+            key,
             type: item.type,
             name: bare ? item.id : item.name,
             poster: bare ? null : item.poster,
@@ -323,7 +357,7 @@ function dispatched(invocations: Invocation[], type: Action["type"]): Invocation
 
 test("the window shows the preference the Host published", async () => {
   const host = fakeHost({
-    initial: { revision: 7, preferences: { subtitleLanguage: "pt-BR" }, addons: [] },
+    initial: { ...NOTHING_SAID, revision: 7, preferences: { subtitleLanguage: "pt-BR" } },
   });
 
   windowOver(host.transport);
@@ -367,7 +401,7 @@ test("saving a language takes a versioned Action through the Host", async () => 
 
 test("clearing the preference takes the clear Action", async () => {
   const host = fakeHost({
-    initial: { revision: 3, preferences: { subtitleLanguage: "pt-BR" }, addons: [] },
+    initial: { ...NOTHING_SAID, revision: 3, preferences: { subtitleLanguage: "pt-BR" } },
   });
   windowOver(host.transport);
   await waitFor(() => expect(shownLanguage()).toBe("pt-BR"));
@@ -389,7 +423,7 @@ test("the window follows a Snapshot it did not ask for", async () => {
   await waitFor(() => expect(shownLanguage()).toBe("none — the Host picks per Video"));
 
   act(() => {
-    host.publish({ revision: 4, preferences: { subtitleLanguage: "en" }, addons: [] });
+    host.publish({ ...NOTHING_SAID, revision: 4, preferences: { subtitleLanguage: "en" } });
   });
 
   expect(shownLanguage()).toBe("en");
@@ -398,13 +432,13 @@ test("the window follows a Snapshot it did not ask for", async () => {
 
 test("an older Snapshot does not move the window backwards", async () => {
   const host = fakeHost({
-    initial: { revision: 9, preferences: { subtitleLanguage: "de" }, addons: [] },
+    initial: { ...NOTHING_SAID, revision: 9, preferences: { subtitleLanguage: "de" } },
   });
   windowOver(host.transport);
   await waitFor(() => expect(shownLanguage()).toBe("de"));
 
   act(() => {
-    host.publish({ revision: 2, preferences: { subtitleLanguage: "en" }, addons: [] });
+    host.publish({ ...NOTHING_SAID, revision: 2, preferences: { subtitleLanguage: "en" } });
   });
 
   expect(shownLanguage()).toBe("de");
@@ -413,7 +447,7 @@ test("an older Snapshot does not move the window backwards", async () => {
 
 test("a rejected Action is explained and leaves the view where it was", async () => {
   const host = fakeHost({
-    initial: { revision: 2, preferences: { subtitleLanguage: "pt-BR" }, addons: [] },
+    initial: { ...NOTHING_SAID, revision: 2, preferences: { subtitleLanguage: "pt-BR" } },
     refuse: { kind: "invalid_subtitle_language", language: "Brazilian Portuguese" },
   });
   windowOver(host.transport);
@@ -437,7 +471,7 @@ test("a rejected Action is explained and leaves the view where it was", async ()
 
 test("a Host the window cannot reach is explained rather than swallowed", async () => {
   const host = fakeHost({
-    initial: { revision: 1, preferences: { subtitleLanguage: "pt-BR" }, addons: [] },
+    initial: { ...NOTHING_SAID, revision: 1, preferences: { subtitleLanguage: "pt-BR" } },
     refuse: "the Host went away",
   });
   windowOver(host.transport);
@@ -457,11 +491,7 @@ test("a Host the window cannot reach is explained rather than swallowed", async 
 
 test("the window lists the Addons the Host published, and what each offers", async () => {
   const host = fakeHost({
-    initial: {
-      revision: 4,
-      preferences: { subtitleLanguage: null },
-      addons: [ADDON],
-    },
+    initial: { ...NOTHING_SAID, revision: 4, addons: [ADDON] },
   });
 
   windowOver(host.transport);
@@ -519,11 +549,7 @@ test("adding an Addon takes a versioned Action carrying the pasted URL", async (
 
 test("removing an Addon takes the id the Snapshot published", async () => {
   const host = fakeHost({
-    initial: {
-      revision: 2,
-      preferences: { subtitleLanguage: null },
-      addons: [ADDON],
-    },
+    initial: { ...NOTHING_SAID, revision: 2, addons: [ADDON] },
   });
   windowOver(host.transport);
   await waitFor(() => expect(screen.getByTestId("addon-community.stremboxd")).toBeInTheDocument());
@@ -578,8 +604,148 @@ test("a URL that is not a manifest URL is explained with what it should look lik
   );
 });
 
+test("the window says where credentials live, and that a key is held", async () => {
+  const host = fakeHost({
+    initial: {
+      ...NOTHING_SAID,
+      protection: { backend: "keyring", tmdbHeld: true },
+    },
+  });
+
+  windowOver(host.transport);
+
+  await waitFor(() =>
+    expect(screen.getByTestId("protection")).toHaveTextContent(
+      "A TMDB key is held in the OS keyring.",
+    ),
+  );
+});
+
+test("a Host with no keyring says the owner-only file is what holds credentials", async () => {
+  const host = fakeHost({
+    initial: {
+      ...NOTHING_SAID,
+      protection: { backend: "file", tmdbHeld: false },
+    },
+  });
+
+  windowOver(host.transport);
+
+  await waitFor(() =>
+    expect(screen.getByTestId("protection")).toHaveTextContent("0600"),
+  );
+  expect(screen.getByTestId("protection")).toHaveTextContent(
+    "No TMDB key is held.",
+  );
+  expect(screen.getByTestId("protection")).toHaveTextContent("no keyring is reachable");
+});
+
+test("saving a TMDB key takes a versioned Action, and the Snapshot says one is held", async () => {
+  const host = fakeHost();
+  windowOver(host.transport);
+  await waitFor(() =>
+    expect(screen.getByTestId("protection")).toHaveTextContent("No TMDB key is held."),
+  );
+
+  fireEvent.change(screen.getByLabelText("TMDB API key or read-access token"), {
+    target: { value: "  0123456789abcdef  " },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save key" }));
+
+  await waitFor(() =>
+    expect(screen.getByTestId("protection")).toHaveTextContent("A TMDB key is held"),
+  );
+  expect(dispatched(host.invocations, "set_tmdb_key")).toEqual({
+    command: "dispatch",
+    args: {
+      envelope: {
+        version: 1,
+        action: { type: "set_tmdb_key", key: "0123456789abcdef" },
+      },
+    },
+  });
+  expect(
+    screen.getByLabelText("TMDB API key or read-access token"),
+    "the key does not sit in the field looking like state",
+  ).toHaveValue("");
+});
+
+test("clearing the TMDB key takes the clear Action", async () => {
+  const host = fakeHost({
+    initial: {
+      ...NOTHING_SAID,
+      protection: { backend: "keyring", tmdbHeld: true },
+    },
+  });
+  windowOver(host.transport);
+  await waitFor(() =>
+    expect(screen.getByTestId("protection")).toHaveTextContent("A TMDB key is held"),
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Clear key" }));
+
+  await waitFor(() =>
+    expect(screen.getByTestId("protection")).toHaveTextContent("No TMDB key is held."),
+  );
+  expect(dispatched(host.invocations, "clear_tmdb_key").args).toEqual({
+    envelope: { version: 1, action: { type: "clear_tmdb_key" } },
+  });
+});
+
+test("a key the Host will not keep is explained, and no key is claimed held", async () => {
+  const host = fakeHost({
+    refuse: {
+      kind: "invalid_tmdb_key",
+      detail: "a key carries no spaces",
+    },
+  });
+  windowOver(host.transport);
+  await waitFor(() =>
+    expect(screen.getByTestId("protection")).toHaveTextContent("No TMDB key is held."),
+  );
+
+  fireEvent.change(screen.getByLabelText("TMDB API key or read-access token"), {
+    target: { value: "the key" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save key" }));
+
+  await waitFor(() =>
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "will not keep that TMDB key: a key carries no spaces",
+    ),
+  );
+  expect(
+    screen.getByRole("alert"),
+    "a refused value is never repeated back, not even to refuse it",
+  ).not.toHaveTextContent("the key");
+  expect(screen.getByTestId("protection")).toHaveTextContent("No TMDB key is held.");
+  expect(screen.getByLabelText("TMDB API key or read-access token")).toHaveValue("the key");
+});
+
+test("a credential store that refuses is explained rather than swallowed", async () => {
+  const host = fakeHost({
+    refuse: { kind: "secret", detail: "the keyring is locked" },
+  });
+  windowOver(host.transport);
+  await waitFor(() =>
+    expect(screen.getByTestId("protection")).toHaveTextContent("No TMDB key is held."),
+  );
+
+  fireEvent.change(screen.getByLabelText("TMDB API key or read-access token"), {
+    target: { value: "0123456789abcdef" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save key" }));
+
+  await waitFor(() =>
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "could not keep that credential: the keyring is locked",
+    ),
+  );
+  expect(screen.getByTestId("protection")).toHaveTextContent("No TMDB key is held.");
+});
+
 test("the window draws a row of posters for each catalog the Addon can be asked for", async () => {
-  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+  const host = fakeHost({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
 
   windowOver(host.transport);
 
@@ -594,7 +760,7 @@ test("the window draws a row of posters for each catalog the Addon can be asked 
 });
 
 test("the window asks the Host for every catalog an Addon declares", async () => {
-  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+  const host = fakeHost({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
 
   windowOver(host.transport);
 
@@ -631,7 +797,7 @@ test("a catalog the Host will not answer on its own is not drawn, and the others
   // The window does not decide which catalogs are browsable: it asks about every
   // one the Addon declares, and a catalog the Host refuses is simply not a row
   // (ADR-0010).
-  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+  const host = fakeHost({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
 
   windowOver(host.transport);
 
@@ -649,7 +815,7 @@ test("a catalog the Host will not answer on its own is not drawn, and the others
 });
 
 test("a catalog with more items than one page can be paged through", async () => {
-  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+  const host = fakeHost({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
   windowOver(host.transport);
   await screen.findByTestId("row-community.stremboxd-movie-letterboxd-popular");
   expect(screen.queryByText("The Matrix Resurrections")).not.toBeInTheDocument();
@@ -676,7 +842,7 @@ test("a catalog with more items than one page can be paged through", async () =>
 });
 
 test("searching asks the Host and shows what every Addon answered with", async () => {
-  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+  const host = fakeHost({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
   windowOver(host.transport);
   await screen.findByTestId("row-community.stremboxd-movie-letterboxd-popular");
 
@@ -695,7 +861,7 @@ test("searching asks the Host and shows what every Addon answered with", async (
 });
 
 test("going back from a search returns to the rows", async () => {
-  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+  const host = fakeHost({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
   windowOver(host.transport);
   await screen.findByTestId("row-community.stremboxd-movie-letterboxd-popular");
   fireEvent.change(screen.getByLabelText("Search the Addons that offer it"), {
@@ -714,7 +880,7 @@ test("going back from a search returns to the rows", async () => {
 });
 
 test("the window is drivable with the arrow keys, with something always focused", async () => {
-  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+  const host = fakeHost({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
   windowOver(host.transport);
   await screen.findByTestId("row-community.stremboxd-movie-letterboxd-popular");
 
@@ -735,7 +901,7 @@ test("the window is drivable with the arrow keys, with something always focused"
 });
 
 test("choosing a card opens the Title, and the card's Addon is asked for it", async () => {
-  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+  const host = fakeHost({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
   windowOver(host.transport);
   await screen.findByTestId("card-tt0133093");
 
@@ -768,8 +934,33 @@ test("choosing a card opens the Title, and the card's Addon is asked for it", as
   });
 });
 
+test("a Title no TMDB record met stays visible and is marked unmapped", async () => {
+  const host = fakeHost({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
+  windowOver(host.transport);
+
+  fireEvent.click(await screen.findByTestId("card-tt0133093"));
+
+  await screen.findByTestId("title-tt0133093");
+  const unmapped = screen.getByTestId("title-unmapped");
+  expect(unmapped).toHaveTextContent("Unmapped");
+  expect(unmapped).toHaveTextContent("keyed by its Addon");
+});
+
+test("a Title a TMDB record met is not marked unmapped", async () => {
+  const host = fakeHost({
+    initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] },
+    mapped: "tt0133093",
+  });
+  windowOver(host.transport);
+
+  fireEvent.click(await screen.findByTestId("card-tt0133093"));
+
+  await screen.findByTestId("title-tt0133093");
+  expect(screen.queryByTestId("title-unmapped")).not.toBeInTheDocument();
+});
+
 test("opening a series shows its seasons, and its episodes are selectable", async () => {
-  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+  const host = fakeHost({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
   windowOver(host.transport);
 
   fireEvent.click(await screen.findByTestId("card-tt0903747"));
@@ -795,7 +986,7 @@ test("opening a series shows its seasons, and its episodes are selectable", asyn
 });
 
 test("backing out of a Title returns to the rows, and it can be opened again", async () => {
-  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+  const host = fakeHost({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
   windowOver(host.transport);
   fireEvent.click(await screen.findByTestId("card-tt0133093"));
   await screen.findByTestId("title-tt0133093");
@@ -813,7 +1004,7 @@ test("backing out of a Title returns to the rows, and it can be opened again", a
 
 test("a series whose Addon listed no episodes says so rather than being called a film", async () => {
   const host = fakeHost({
-    initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] },
+    initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] },
     noEpisodes: "tt0903747",
   });
   windowOver(host.transport);
@@ -829,7 +1020,7 @@ test("a Title its Addon said little about falls back to the card it was opened f
   // more than the identity the client already had. The card it clicked holds a
   // name and a poster, and they stand in for what the Addon did not repeat.
   const host = fakeHost({
-    initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] },
+    initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] },
     sparse: "tt0133093",
   });
   windowOver(host.transport);
@@ -847,7 +1038,7 @@ test("a Title its Addon said little about falls back to the card it was opened f
 
 test("a Title the Host will not open is explained and leaves the rows where they were", async () => {
   const host = fakeHost({
-    initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] },
+    initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] },
     refuseTitle: {
       kind: "unknown_title",
       addon: "community.stremboxd",
@@ -867,7 +1058,7 @@ test("a Title the Host will not open is explained and leaves the rows where they
 
 test("a row whose Addon did not answer says so without blanking the other rows", async () => {
   const host = fakeHost({
-    initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] },
+    initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] },
     failing: "letterboxd-popular",
   });
 
@@ -883,7 +1074,7 @@ test("a row whose Addon did not answer says so without blanking the other rows",
 });
 
 test("the arrows leave the caret alone while a person is typing a search", async () => {
-  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+  const host = fakeHost({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
   windowOver(host.transport);
   await screen.findByTestId("row-community.stremboxd-movie-letterboxd-popular");
 
@@ -904,7 +1095,7 @@ test("the arrows leave the caret alone while a person is typing a search", async
 });
 
 test("focus is put back when the control it was on goes away", async () => {
-  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+  const host = fakeHost({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
   windowOver(host.transport);
   await screen.findByTestId("row-community.stremboxd-movie-letterboxd-popular");
   fireEvent.change(screen.getByLabelText("Search the Addons that offer it"), {
@@ -925,7 +1116,7 @@ test("focus is put back when the control it was on goes away", async () => {
 
 test("a row whose Addon failed keeps its way to ask again", async () => {
   const host = fakeHost({
-    initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] },
+    initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] },
     failing: "letterboxd-popular",
   });
   windowOver(host.transport);
@@ -942,7 +1133,7 @@ test("a card shows what the Addon said about the item, which is how two releases
   // A catalog of releases gives every entry one poster and one title, and puts
   // the filename — the only thing that tells two of them apart — in the
   // description. It is drawn, clamped, with the whole of it on the tooltip.
-  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+  const host = fakeHost({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
 
   windowOver(host.transport);
 

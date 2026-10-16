@@ -4,19 +4,23 @@ Ticket #22 ("Configure Addons by manifest URL") is the first time the Host reach
 the network, so its shape is a decision rather than an accident. Four of them are
 worth writing down.
 
-**The Fetcher seam is synchronous.** `host_core::Fetcher` is one method,
-`fetch(&self, url) -> Result<String, FetchError>`, and the real implementation
-blocks. Everything the Host ever asks a third party for goes through it: a manifest
-today, catalogs and Streams later. The Action surface is a door one client goes
-through at a time, and a manifest fetch happens because the owner asked for one, so
-the Host can afford to wait for it. The alternative — an async trait with an
-executor under it — would put a runtime into `host-core`, into every test in the
-repository, and into the signature of `Host::dispatch`, to serve a request the
-owner initiates by hand. The cost is paid where it belongs instead: the app shell's
-`dispatch` command is declared `#[tauri::command(async)]`, so a fetch runs off the
-main thread and the window does not freeze on someone else's server. When #31's
-WebSocket adapter arrives, the same call goes inside `spawn_blocking`; that is a
-contained change, and this ADR is what it should be measured against.
+**The Fetcher seam is synchronous.** `host_core::Fetcher` is
+`fetch(&self, url) -> Result<String, FetchError>` — and, since #25, a second method
+with a default, `fetch_with_headers(&self, url, headers)`, which the real transport
+implements and a test double records — because the TMDB credential that is a v4
+read-access token travels in an `Authorization` header, so the seam has to carry
+one without every fetcher implementing both. The real implementation blocks.
+Everything the Host ever asks a third party for goes through it: a manifest today,
+catalogs and Streams later. The Action surface is a door one client goes through at
+a time, and a manifest fetch happens because the owner asked for one, so the Host
+can afford to wait for it. The alternative — an async trait with an executor under
+it — would put a runtime into `host-core`, into every test in the repository, and
+into the signature of `Host::dispatch`, to serve a request the owner initiates by
+hand. The cost is paid where it belongs instead: the app shell's `dispatch` command
+is declared `#[tauri::command(async)]`, so a fetch runs off the main thread and the
+window does not freeze on someone else's server. When #31's WebSocket adapter
+arrives, the same call goes inside `spawn_blocking`; that is a contained change, and
+this ADR is what it should be measured against.
 
 **An Addon's manifest URL is a credential by presumption.** For an Addon like
 AIOStreams the debrid configuration lives *inside* the URL, which is what the spec

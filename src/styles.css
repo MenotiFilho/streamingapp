@@ -264,6 +264,13 @@ button:hover {
   color: #c9c9d1;
 }
 
+.title-unmapped {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  /* Marked, not hidden: a Title no TMDB record met stays visible and says so. */
+  color: #e0af68;
+}
+
 .title-genres {
   margin: 0 0 0.75rem;
   font-size: 0.85rem;

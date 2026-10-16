@@ -29,6 +29,11 @@ A film or series as a metadata identity, keyed by its TMDB id when one exists,
 otherwise by whatever addon supplied it.
 _Avoid_: meta, item, content, media
 
+**Unmapped Title**:
+A Title still keyed by the addon that supplied it: nothing mapped it to a TMDB
+record. It stays visible and says so — unmapped is a mark, not a hiding.
+_Avoid_: unmatched, missing, broken item
+
 **Video**:
 One playable unit of a Title: the film itself, or a single episode. Watch
 progress is recorded against a Video.
@@ -76,6 +81,25 @@ A candidate a Provider returns for a Video: either a direct URL that can be
 played immediately, or an infoHash that something else must turn into bytes
 first.
 _Avoid_: source, link, result
+
+### Credentials
+
+**Credential**:
+A secret the Host holds so it can speak to a service on its owner's behalf — the
+TMDB key today. It lives in the secret store, is read at the moment of use, and
+never enters Host state or a Snapshot.
+_Avoid_: token (unqualified), password, secret (unqualified)
+
+**Secret store**:
+Where credentials are kept: the OS keyring where one exists, an owner-only (0600)
+file in the data directory where it does not. Which one is holding them is a fact
+about the machine, not a setting.
+_Avoid_: keychain, vault, config
+
+**Protection**:
+Where the Host's credentials actually live, and whether it holds one — the one
+credential fact a Snapshot carries.
+_Avoid_: storage, security, exposure
 
 ### Playback
 

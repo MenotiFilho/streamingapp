@@ -15,6 +15,24 @@ export type Snapshot = {
   revision: number;
   preferences: { subtitleLanguage: string | null };
   addons: AddonManifest[];
+  protection: Protection;
+};
+
+/**
+ * Where the Host's credentials are actually held, as the secret store reports
+ * itself. Mirrors `SecretBackend` in `host-core`.
+ */
+export type SecretBackend = "keyring" | "file";
+
+/**
+ * Where the Host's credentials live, and whether it holds a TMDB key — the one
+ * thing about credentials that is not itself one, and is what the window says
+ * when it tells a person how exposed the next one will be. Mirrors
+ * `ProtectionSnapshot` in `host-core`.
+ */
+export type Protection = {
+  backend: SecretBackend;
+  tmdbHeld: boolean;
 };
 
 /**
@@ -106,6 +124,15 @@ export type Video = {
 };
 
 /**
+ * What a Title is keyed by: TMDB's own id where one of its records met the
+ * Title, and the Addon that supplied it where none did — the key the window
+ * reads to mark a Title unmapped. Mirrors `TitleKey` in `host-core`.
+ */
+export type TitleKey =
+  | { kind: "tmdb"; id: number }
+  | { kind: "addon"; addon: string; id: string };
+
+/**
  * A film or series as its Addon describes it, and the Videos it can be watched
  * as. Mirrors `Title` in `host-core`; `addon` is the Addon that answered — which
  * is what a later client asks for a Video's Streams of.
@@ -113,6 +140,7 @@ export type Video = {
 export type Title = {
   addon: string;
   id: string;
+  key: TitleKey;
   type: string;
   name: string;
   poster: string | null;
@@ -140,6 +168,8 @@ export type Action =
   | { type: "clear_subtitle_language" }
   | { type: "add_addon"; url: string }
   | { type: "remove_addon"; id: string }
+  | { type: "set_tmdb_key"; key: string }
+  | { type: "clear_tmdb_key" }
   | {
       type: "browse_catalog";
       addon: string;
@@ -163,6 +193,7 @@ export const HOST_ERROR_KINDS = [
   "invalid_subtitle_language",
   "invalid_manifest_url",
   "invalid_addon_id",
+  "invalid_tmdb_key",
   "invalid_catalog_ref",
   "invalid_title_ref",
   "manifest",
@@ -175,6 +206,7 @@ export const HOST_ERROR_KINDS = [
   "catalog",
   "meta",
   "store",
+  "secret",
 ] as const;
 
 /**
@@ -239,6 +271,11 @@ export function explain(error: ActionError): string {
       return `${JSON.stringify(error.url)} is not a manifest URL — paste the address of an Addon's manifest.json, like "https://example.com/manifest.json".`;
     case "invalid_addon_id":
       return `${JSON.stringify(error.id)} is not an Addon id.`;
+    case "invalid_tmdb_key":
+      // The Host carries no part of a refused key back — a refused key can
+      // still be a credential with a typo in it — so there is no value here to
+      // echo or not.
+      return `The Host will not keep that TMDB key${error.detail ? `: ${error.detail}` : ""}.`;
     case "invalid_catalog_ref":
       return `${JSON.stringify(error.value)} is not a catalog ${error.which}.`;
     case "invalid_title_ref":
@@ -263,6 +300,8 @@ export function explain(error: ActionError): string {
       return `The Host could not read that Addon's meta response${error.detail ? `: ${error.detail}` : ""}.`;
     case "store":
       return `The Host could not save that change${error.detail ? `: ${error.detail}` : ""}.`;
+    case "secret":
+      return `The Host could not keep that credential${error.detail ? `: ${error.detail}` : ""}.`;
     case "unreachable":
       return `The window could not reach the Host${error.detail ? `: ${error.detail}` : ""}.`;
   }

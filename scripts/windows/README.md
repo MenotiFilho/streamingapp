@@ -13,12 +13,15 @@ The checklist covers the whole window: the preference and the Action surface, th
 Addon by its manifest URL, the home surface's catalog rows, paging one, searching,
 going Back, and the same controls reached with the arrow keys and OK rather than
 the mouse (tickets #23 and #24), and — from #24 — opening a Title, a series'
-seasons and episodes, choosing one, backing out and opening the Title again. For
-the steps that depend on what a third-party Addon happens to serve — that the
-posters are drawn, that a search returns something — the assertion is structural
-(the rows stopped saying `Loading`, the search surface is showing, the Title names
-the Addon that answered, the revision did not move) and the screenshot is the
-evidence a person reads.
+seasons and episodes, choosing one, backing out and opening the Title again, and
+— from #25 — the TMDB key's round trip (entered, held, refused by TMDB without
+blanking a Title, and cleared again), the backend the window says is holding it,
+and a Title no TMDB record met marked unmapped. For the steps that depend on what
+a third-party Addon happens to serve — that the posters are drawn, that a search
+returns something — the assertion is structural (the rows stopped saying
+`Loading`, the search surface is showing, the Title names the Addon that
+answered, the revision did not move) and the screenshot is the evidence a person
+reads.
 
 The window is placed on `-Monitor` (1-based, numbered left to right) and filled to
 that monitor's working area, so a run on a multi-monitor machine does not sit on
@@ -96,6 +99,12 @@ Screenshots, the assertion report and the log tail land in
   (`%APPDATA%\dev.streamingapp.host`); on Linux they differ (`~/.config` vs
   `~/.local/share`). Anything that assumes two distinct paths will look fine here
   and wrong there.
+- **The TMDB key lives in the OS keyring, which the data-directory wipe at the
+  top does not touch.** Step 18 enters its own test key, clears it again, and
+  clears whatever a crashed earlier run left behind before it starts, so a run
+  is honest about "no key is held" either way. Running the walkthrough does
+  remove a real key you had configured: it is a verification Host, not the daily
+  one.
 - **UI Automation needs a moment.** Chromium builds its accessibility tree only
   once a client asks for it, so `Find-Named`/`Page-Text` retry for a few seconds
   before giving up.

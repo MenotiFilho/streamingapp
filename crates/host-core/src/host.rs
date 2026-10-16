@@ -8,7 +8,7 @@ use crate::fetcher::Fetcher;
 use crate::meta::Title;
 use crate::request::{CatalogRef, Extra, ResourceRequest, TitleRef, CATALOG, META};
 use crate::response::{Answer, Response};
-use crate::secret::{Secret, SecretStore};
+use crate::secret::{CredentialKind, SecretStore};
 use crate::snapshot::Snapshot;
 use crate::state::{Change, Persist, Protection, State};
 use crate::store::{Store, StoreError};
@@ -48,7 +48,7 @@ impl Host {
         fetcher: Arc<dyn Fetcher>,
         secrets: Arc<dyn SecretStore>,
     ) -> Result<Self, StoreError> {
-        let tmdb_held = match secrets.read(Secret::TmdbKey) {
+        let tmdb_held = match secrets.read(CredentialKind::TmdbKey) {
             Ok(Some(_)) => true,
             // A store that cannot answer cannot be disagreed with by a Snapshot:
             // the Host opens knowing no key is held, and finds out when one is
@@ -154,7 +154,7 @@ impl Host {
                 // carried anywhere past this call: the change that reaches
                 // state is only where the store *is*.
                 self.secrets
-                    .write(Secret::TmdbKey, key.as_str())
+                    .write(CredentialKind::TmdbKey, key.as_str())
                     .map_err(|error| ActionError::Secret {
                         detail: error.to_string(),
                     })?;
@@ -164,7 +164,7 @@ impl Host {
             }
             ValidatedAction::ClearTmdbKey => {
                 self.secrets
-                    .remove(Secret::TmdbKey)
+                    .remove(CredentialKind::TmdbKey)
                     .map_err(|error| ActionError::Secret {
                         detail: error.to_string(),
                     })?;
@@ -401,7 +401,7 @@ impl Host {
     /// The credential TMDB wants, looked up at the moment of use — or nothing,
     /// which is the Host hearing no key is held.
     fn tmdb_credential(&self) -> Option<tmdb::Credential> {
-        let key = self.secrets.read(Secret::TmdbKey).ok().flatten()?;
+        let key = self.secrets.read(CredentialKind::TmdbKey).ok().flatten()?;
         Some(tmdb::Credential::parse(&key))
     }
 

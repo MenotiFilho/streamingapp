@@ -23,6 +23,7 @@ import {
   type AddonManifest,
   type Extra,
   type MetaPreview,
+  type Protection,
   type Response,
   type Snapshot,
   type Title,
@@ -49,6 +50,7 @@ export function App({ client }: { client?: HostClient }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [error, setError] = useState<ActionError | null>(null);
   const [languageDraft, setLanguageDraft] = useState("");
+  const [keyDraft, setKeyDraft] = useState("");
   const [urlDraft, setUrlDraft] = useState("");
   const [queryDraft, setQueryDraft] = useState("");
   const [rows, setRows] = useState<Row[]>([]);
@@ -287,6 +289,23 @@ export function App({ client }: { client?: HostClient }) {
     });
   };
 
+  const storeKey = (event: FormEvent) => {
+    event.preventDefault();
+    // A pasted key can carry a stray space at either end; the Host will not take
+    // one, and a trimmed key is the same key.
+    const key = keyDraft.trim();
+    if (!key) {
+      return;
+    }
+    // The field is the only place the value is ever shown: once the Host has
+    // taken it, it becomes a fact about the store — held, never the value.
+    void take({ type: "set_tmdb_key", key }).then((taken) => {
+      if (taken) {
+        setKeyDraft("");
+      }
+    });
+  };
+
   const showing = results ?? rows;
 
   return (
@@ -402,6 +421,43 @@ export function App({ client }: { client?: HostClient }) {
         {addonList(snapshot, (id) => void take({ type: "remove_addon", id }))}
       </section>
 
+      <section aria-labelledby="tmdb-heading">
+        <h2 id="tmdb-heading">TMDB key</h2>
+        <p className="lede">
+          Where an Addon's id maps to a TMDB record, TMDB's metadata stands over
+          the Addon's. The Host reads the key when it asks, and no Snapshot
+          carries it.
+        </p>
+        {/* Where a credential actually lives is the machine's answer, not this
+            window's: it is read off the Snapshot the Host publishes. */}
+        <p className="lede" data-testid="protection">
+          {snapshot ? protectionOf(snapshot.protection) : "Waiting for the Host…"}
+        </p>
+        <form onSubmit={storeKey}>
+          <label htmlFor="tmdb-key">TMDB API key or read-access token</label>
+          <input
+            id="tmdb-key"
+            type="password"
+            autoComplete="off"
+            placeholder="the key TMDB gave you"
+            size={40}
+            value={keyDraft}
+            onChange={(event) => setKeyDraft(event.target.value)}
+            data-focusable
+          />
+          <button type="submit" data-focusable>
+            Save key
+          </button>
+          <button
+            type="button"
+            data-focusable
+            onClick={() => void take({ type: "clear_tmdb_key" })}
+          >
+            Clear key
+          </button>
+        </form>
+      </section>
+
       <section aria-labelledby="preference-heading">
         <h2 id="preference-heading">Subtitle language</h2>
         <p data-testid="subtitle-language">
@@ -439,12 +495,14 @@ export function App({ client }: { client?: HostClient }) {
 }
 
 /**
- * An opened Title: what its Addon says about it, and its Videos to choose from.
+ * An opened Title: what the Host says about it, and its Videos to choose from.
  *
- * The metadata is the Addon's, with the card this client opened as the fallback
- * for whatever a sparse answer left out; the Videos are grouped into seasons in
- * the Addon's own order. Selecting an episode is this client's own choosing —
- * playing it arrives in #26/#27 — so it is held here and shown, not sent.
+ * The metadata has TMDB standing over the Addon's where the Host could map the
+ * Title, and the card this client opened as the fallback for whatever a sparse
+ * answer left out; a Title no record met is marked unmapped rather than hidden.
+ * The Videos are grouped into seasons in the Addon's own order. Selecting an
+ * episode is this client's own choosing — playing it arrives in #26/#27 — so it
+ * is held here and shown, not sent.
  */
 function TitleView({
   title,
@@ -485,6 +543,13 @@ function TitleView({
           <p className="addon-id" data-testid="title-id">
             {`${title.addon} · ${title.type}/${title.id}`}
           </p>
+          {/* Keyed by the Addon is the unchanged key of a Title nothing mapped:
+              it stays visible, keyed as its Addon indexes it (CONTEXT.md). */}
+          {title.key.kind === "addon" ? (
+            <p className="title-unmapped" data-testid="title-unmapped">
+              Unmapped — no TMDB record met this Title, so it is keyed by its Addon.
+            </p>
+          ) : null}
           {title.genres.length > 0 ? (
             <p className="title-genres">{title.genres.join(", ")}</p>
           ) : null}
@@ -654,6 +719,25 @@ function addonList(snapshot: Snapshot | null, remove: (id: string) => void) {
       ))}
     </ul>
   );
+}
+
+/**
+ * Where the Host's credentials live, and whether it holds a TMDB key, in a
+ * person's words.
+ *
+ * The backend is a fact about the machine — the OS keyring, or the owner-only
+ * (0600) file fallback — so it is said even before a key is entered: knowing
+ * where the next one would land is the point of asking (ADR-0002: the window
+ * renders what the Host published and decides nothing itself).
+ */
+function protectionOf(protection: Protection): string {
+  const where =
+    protection.backend === "keyring"
+      ? "the OS keyring"
+      : "an owner-only (0600) file in the data directory, because no keyring is reachable here";
+  return protection.tmdbHeld
+    ? `A TMDB key is held in ${where}.`
+    : `No TMDB key is held. One would be kept in ${where}.`;
 }
 
 function resourcesOf(addon: AddonManifest): string {

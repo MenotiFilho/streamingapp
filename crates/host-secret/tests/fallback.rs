@@ -2,7 +2,7 @@
 //! and the permissions that are their entire reason for being.
 
 mod file_permissions {
-    use host_core::{Secret, SecretStore};
+    use host_core::{CredentialKind, SecretStore};
     use host_secret::{classify, Reach};
 
     /// The fallback file, in a directory a test owns. Everything the file
@@ -51,10 +51,10 @@ mod file_permissions {
         let path = dir.path().join("secrets.json");
 
         store
-            .write(Secret::TmdbKey, "a key nobody else may read")
+            .write(CredentialKind::TmdbKey, "a key nobody else may read")
             .expect("keeping a credential should work");
         assert_eq!(
-            store.read(Secret::TmdbKey),
+            store.read(CredentialKind::TmdbKey),
             Ok(Some("a key nobody else may read".to_owned())),
             "what went in is what comes back out"
         );
@@ -72,13 +72,13 @@ mod file_permissions {
         let (store, dir) = open_store();
 
         store
-            .write(Secret::TmdbKey, "the key")
+            .write(CredentialKind::TmdbKey, "the key")
             .expect("keeping a credential should work");
         store
-            .remove(Secret::TmdbKey)
+            .remove(CredentialKind::TmdbKey)
             .expect("taking out a credential should work");
 
-        assert_eq!(store.read(Secret::TmdbKey), Ok(None));
+        assert_eq!(store.read(CredentialKind::TmdbKey), Ok(None));
         assert!(
             std::fs::read_to_string(dir.path().join("secrets.json")).is_ok(),
             "the store survives the removal,_credentials and all"
@@ -88,7 +88,7 @@ mod file_permissions {
         {
             let (store, dir) = open_store();
             store
-                .write(Secret::TmdbKey, "again")
+                .write(CredentialKind::TmdbKey, "again")
                 .expect("keeping a credential should work");
             assert_eq!(
                 mode_of(&dir.path().join("secrets.json")),
@@ -108,7 +108,7 @@ mod file_permissions {
 
         assert!(
             matches!(
-                store.read(Secret::TmdbKey),
+                store.read(CredentialKind::TmdbKey),
                 Err(host_core::SecretError::Read { .. })
             ),
             "a file the Host did not write the shape of is not read as secrets"
@@ -126,7 +126,7 @@ mod file_permissions {
 
         let store = host_secret::FileSecretStore::open(&path).expect("the store opens");
 
-        let answer = store.read(Secret::TmdbKey);
+        let answer = store.read(CredentialKind::TmdbKey);
         assert!(
             matches!(&answer, Ok(None)),
             "an empty file reads as nothing held, and not as a refusal: {answer:?}"

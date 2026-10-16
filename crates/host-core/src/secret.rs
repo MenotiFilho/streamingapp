@@ -19,16 +19,17 @@ use serde::{Deserialize, Serialize};
 
 /// The credential kinds the Host knows a name for.
 ///
-/// One field today; one variant per credential the Host learns to hold, so a
-/// caller can never ask for a secret the store has no place for under some
-/// string it made up.
+/// One variant today; one per credential the Host learns to hold, so a caller
+/// can never ask for a credential the store has no place for under some string
+/// it made up. The name is the kind's, not the value's: the value itself never
+/// appears in a type that outlives the call it was read for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Secret {
+pub enum CredentialKind {
     /// The key TMDB wants on its metadata requests.
     TmdbKey,
 }
 
-impl Secret {
+impl CredentialKind {
     /// The id a store holds it under — its own spelling, below the seam.
     pub fn id(self) -> &'static str {
         "tmdb-key"
@@ -77,16 +78,13 @@ impl TmdbKey {
 
     /// A secret to keep, or why this is not one.
     pub fn parse(raw: &str) -> Result<Self, InvalidTmdbKey> {
-        let invalid = |detail: &'static str| InvalidTmdbKey {
-            key: raw.to_owned(),
-            detail,
-        };
+        let invalid = |detail: &'static str| InvalidTmdbKey { detail };
 
         if raw.is_empty() {
             return Err(invalid("a key is not empty"));
         }
         if raw.len() > Self::MAX_LEN {
-            return Err(invalid("a key is shorter than the Host will keep"));
+            return Err(invalid("a key is longer than the Host will keep"));
         }
         if raw.chars().any(char::is_control) {
             return Err(invalid("a key carries no control characters"));
@@ -106,10 +104,14 @@ impl TmdbKey {
 }
 
 /// A string that is not shaped like an entered key, offered as one.
+///
+/// Deliberately the reason and not the value: a refused key can still be a real
+/// credential with a typo in it, and this error travels back over the wire and
+/// into whatever a client prints. "No credential reaches a client" would be a
+/// broken promise if refusing one were the exception.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
-#[error("{key:?} is not shaped like a TMDB key: {detail}")]
+#[error("that is not shaped like a TMDB key: {detail}")]
 pub struct InvalidTmdbKey {
-    pub key: String,
     pub detail: &'static str,
 }
 
@@ -134,14 +136,14 @@ pub trait SecretStore: Send + Sync + 'static {
     fn backend(&self) -> SecretBackend;
 
     /// Keep a credential. Replaces any value already there.
-    fn write(&self, secret: Secret, value: &str) -> Result<(), SecretError>;
+    fn write(&self, credential: CredentialKind, value: &str) -> Result<(), SecretError>;
 
     /// The credential that is there, or `None` when none was kept.
-    fn read(&self, secret: Secret) -> Result<Option<String>, SecretError>;
+    fn read(&self, credential: CredentialKind) -> Result<Option<String>, SecretError>;
 
     /// Take a credential out. Taking out one that is not there is not an
     /// error: the end state is the same.
-    fn remove(&self, secret: Secret) -> Result<(), SecretError>;
+    fn remove(&self, credential: CredentialKind) -> Result<(), SecretError>;
 }
 
 /// The seam's in-memory implementation.
@@ -151,7 +153,7 @@ pub trait SecretStore: Send + Sync + 'static {
 #[derive(Debug, Default)]
 pub struct InMemorySecretStore {
     backend: Option<SecretBackend>,
-    held: Mutex<Vec<(Secret, String)>>,
+    held: Mutex<Vec<(CredentialKind, String)>>,
     failing: AtomicBool,
 }
 
@@ -177,12 +179,12 @@ impl InMemorySecretStore {
 
     /// Whether a credential of this kind is kept — for the tests that check
     /// what landed without reading the value themselves.
-    pub fn holds(&self, secret: Secret) -> bool {
+    pub fn holds(&self, credential: CredentialKind) -> bool {
         self.held
             .lock()
             .expect("the in-memory store is not poisoned")
             .iter()
-            .any(|(held, value)| held == &secret && !value.is_empty())
+            .any(|(held, value)| held == &credential && !value.is_empty())
     }
 }
 
@@ -191,7 +193,7 @@ impl SecretStore for InMemorySecretStore {
         self.backend.unwrap_or(SecretBackend::Keyring)
     }
 
-    fn write(&self, secret: Secret, value: &str) -> Result<(), SecretError> {
+    fn write(&self, credential: CredentialKind, value: &str) -> Result<(), SecretError> {
         if self.failing.load(Ordering::SeqCst) {
             return Err(SecretError::Write {
                 detail: "the secret store is failing every call".to_owned(),
@@ -201,12 +203,12 @@ impl SecretStore for InMemorySecretStore {
             .held
             .lock()
             .expect("the in-memory store is not poisoned");
-        held.retain(|(kept, _)| kept != &secret);
-        held.push((secret, value.to_owned()));
+        held.retain(|(kept, _)| kept != &credential);
+        held.push((credential, value.to_owned()));
         Ok(())
     }
 
-    fn read(&self, secret: Secret) -> Result<Option<String>, SecretError> {
+    fn read(&self, credential: CredentialKind) -> Result<Option<String>, SecretError> {
         if self.failing.load(Ordering::SeqCst) {
             return Err(SecretError::Read {
                 detail: "the secret store is failing every call".to_owned(),
@@ -217,11 +219,11 @@ impl SecretStore for InMemorySecretStore {
             .lock()
             .expect("the in-memory store is not poisoned")
             .iter()
-            .find(|(kept, _)| kept == &secret)
+            .find(|(kept, _)| kept == &credential)
             .map(|(_, value)| value.clone()))
     }
 
-    fn remove(&self, secret: Secret) -> Result<(), SecretError> {
+    fn remove(&self, credential: CredentialKind) -> Result<(), SecretError> {
         if self.failing.load(Ordering::SeqCst) {
             return Err(SecretError::Remove {
                 detail: "the secret store is failing every call".to_owned(),
@@ -230,7 +232,7 @@ impl SecretStore for InMemorySecretStore {
         self.held
             .lock()
             .expect("the in-memory store is not poisoned")
-            .retain(|(kept, _)| kept != &secret);
+            .retain(|(kept, _)| kept != &credential);
         Ok(())
     }
 }
@@ -241,8 +243,8 @@ mod tests {
 
     #[test]
     fn secrets_know_their_place_beneath_the_seam_and_person_reading() {
-        assert_eq!(Secret::TmdbKey.id(), "tmdb-key");
-        assert_eq!(Secret::TmdbKey.label(), "TMDB key");
+        assert_eq!(CredentialKind::TmdbKey.id(), "tmdb-key");
+        assert_eq!(CredentialKind::TmdbKey.label(), "TMDB key");
     }
 
     #[test]
@@ -264,17 +266,22 @@ mod tests {
     fn a_string_that_is_not_shaped_like_a_key_is_refused_with_what_is_wrong() {
         for (raw, detail) in [
             ("", "not empty"),
-            (&"k".repeat(TmdbKey::MAX_LEN + 1), "shorter"),
+            (&"k".repeat(TmdbKey::MAX_LEN + 1), "longer"),
             ("the key\n", "control"),
             ("the key", "spaces"),
         ] {
             let refused = TmdbKey::parse(raw).expect_err("{raw:?} is not a key");
 
-            assert_eq!(refused.key, raw, "the offered key is carried back");
             assert!(
                 detail_verifies(&refused, detail),
                 "{refused} does not say {detail:?}"
             );
+            if !raw.is_empty() {
+                assert!(
+                    !refused.to_string().contains(raw),
+                    "what is refused is not repeated back, not even to refuse it: {refused}"
+                );
+            }
         }
     }
 
@@ -287,29 +294,29 @@ mod tests {
         let store = InMemorySecretStore::new();
 
         store
-            .write(Secret::TmdbKey, "the key")
+            .write(CredentialKind::TmdbKey, "the key")
             .expect("keeping a credential should work");
 
         assert_eq!(
-            store.read(Secret::TmdbKey),
+            store.read(CredentialKind::TmdbKey),
             Ok(Some("the key".to_owned())),
             "what the store kept is what the store answers"
         );
-        assert!(store.holds(Secret::TmdbKey));
+        assert!(store.holds(CredentialKind::TmdbKey));
     }
 
     #[test]
     fn a_credential_replaces_the_one_before_it() {
         let store = InMemorySecretStore::new();
         store
-            .write(Secret::TmdbKey, "an old key")
+            .write(CredentialKind::TmdbKey, "an old key")
             .expect("keeping a credential should work");
         store
-            .write(Secret::TmdbKey, "a new key")
+            .write(CredentialKind::TmdbKey, "a new key")
             .expect("keeping a credential should work");
 
         assert_eq!(
-            store.read(Secret::TmdbKey),
+            store.read(CredentialKind::TmdbKey),
             Ok(Some("a new key".to_owned()))
         );
     }
@@ -318,7 +325,7 @@ mod tests {
     fn a_credential_that_was_never_kept_reads_as_none() {
         let store = InMemorySecretStore::new();
 
-        assert_eq!(store.read(Secret::TmdbKey), Ok(None));
+        assert_eq!(store.read(CredentialKind::TmdbKey), Ok(None));
     }
 
     #[test]
@@ -326,17 +333,17 @@ mod tests {
         let store = InMemorySecretStore::new();
 
         store
-            .remove(Secret::TmdbKey)
+            .remove(CredentialKind::TmdbKey)
             .expect("taking out nothing is the same as nothing there");
 
         store
-            .write(Secret::TmdbKey, "the key")
+            .write(CredentialKind::TmdbKey, "the key")
             .expect("keeping a credential should work");
         store
-            .remove(Secret::TmdbKey)
+            .remove(CredentialKind::TmdbKey)
             .expect("taking out a credential should work");
 
-        assert_eq!(store.read(Secret::TmdbKey), Ok(None));
+        assert_eq!(store.read(CredentialKind::TmdbKey), Ok(None));
     }
 
     #[test]
@@ -358,15 +365,15 @@ mod tests {
         let store = held.failing();
 
         assert!(matches!(
-            store.read(Secret::TmdbKey),
+            store.read(CredentialKind::TmdbKey),
             Err(SecretError::Read { .. })
         ));
         assert!(matches!(
-            store.write(Secret::TmdbKey, "x"),
+            store.write(CredentialKind::TmdbKey, "x"),
             Err(SecretError::Write { .. })
         ));
         assert!(matches!(
-            store.remove(Secret::TmdbKey),
+            store.remove(CredentialKind::TmdbKey),
             Err(SecretError::Remove { .. })
         ));
     }

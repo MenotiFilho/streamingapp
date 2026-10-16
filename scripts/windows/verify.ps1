@@ -274,6 +274,16 @@ function Set-Language($app, $tag) {
     Press $app 'Save'
 }
 
+# Fill the TMDB key field. It is a password input, so Chromium exposes it as an
+# Edit whose value a client should not set through the value pattern: it is
+# focused and typed at, the way a person would.
+function Set-TmdbKey($app, $key) {
+    Focus-On $app 'TMDB API key or read-access token' ([Windows.Automation.ControlType]::Edit)
+    if (-not (Focus $app)) { throw 'the keyboard steps need the Host in the foreground' }
+    [Windows.Forms.SendKeys]::SendWait($key)
+    Start-Sleep -Milliseconds 300
+}
+
 function Set-Search($app, $query) {
     Type-Into $app 'Search the Addons that offer it' $query
     Press $app 'Search'
@@ -465,6 +475,17 @@ $kind = 'film'
 if ($series) { $kind = 'series' }
 if ($noEpisodes) { $kind = 'series with no episodes listed' }
 "opened a $kind"
+# The unmapped mark says no TMDB record met the Title, and that it stays keyed by
+# its Addon. With no key held, an id only TMDB could map cannot have been mapped;
+# a key already held — the owner's own, say — legitimately can have been.
+if ($text -match '/tmdb:') {
+    'the Addon keyed its Title by TMDB itself, so the unmapped mark is not the case here'
+} elseif ($text -match 'A TMDB key is held') {
+    'a key is already held, so this Title may be mapped rather than unmapped'
+} else {
+    Check 'a Title no TMDB record met is marked unmapped' (
+        $text -match 'Unmapped') "showed: $text"
+}
 'the series case — seasons, episodes, and choosing one — is step 14.'
 
 '--- 12. a series'' episodes are selectable'
@@ -593,20 +614,74 @@ Check 'Back returns to the rows' (
 Check 'and the search surface is gone' (
     $text -notmatch 'Back to browsing') "showed: $text"
 
-'--- 18. removing the Addon'
+'--- 18. the TMDB key: entered, held, cleared, and where it lives'
+# The value the walkthrough enters is its own and it takes it out again before
+# the step ends: the point is the round trip, not a credential. A key an earlier
+# run left behind — a crash between the save and the clear — is cleared first,
+# because the OS keyring is not part of the data-directory wipe at the top.
+$testKey = '0123456789abcdef'
+Press $app 'Clear key'
+$text = Wait-Text $app 'No TMDB key is held' 15
+Shot $app '18-tmdb-key-none.png'
+Check 'a Host with no key says so' (
+    $text -match 'No TMDB key is held') "showed: $text"
+Check 'the window says which backend would hold a key' (
+    ($text -match 'keyring') -or ($text -match '0600')) "showed: $text"
+$before = ([regex]::Match($text, 'Snapshot revision\s*\|\s*(\d+)')).Groups[1].Value
+
+Set-TmdbKey $app $testKey
+Press $app 'Save key'
+$text = Wait-Text $app 'A TMDB key is held' 15
+Shot $app '18-tmdb-key-saved.png'
+Check 'saving a key is a change: the Snapshot says one is held' (
+    $text -match 'A TMDB key is held') "showed: $text"
+Check 'saving a key moved the revision on' (
+    $text -match ('Snapshot revision\s*\|\s*' + ([int]$before + 1))) "showed: $text"
+# The value has no place in the window; step 20 reads the log for it.
+Check 'the key value is nowhere in the window' (
+    $text -notmatch [regex]::Escape($testKey)) "showed: $text"
+
+# TMDB answers with a refusal to a key that is not its own. Opening a Title must
+# then degrade to the Addon's metadata rather than blanking: the find fails, and
+# an id only TMDB could map cannot have been mapped with it.
+Focus-On $app 'Search the Addons that offer it' ([Windows.Automation.ControlType]::Edit)
+Press-Keys $app '{DOWN}{DOWN}'
+Press-Keys $app '{ENTER}'
+$text = Wait-Text $app 'Back to browsing' 40
+Shot $app '18-tmdb-key-refused.png'
+Check 'a Title still opens when TMDB refuses the key' (
+    $text -match [regex]::Escape($AddonId)) "showed: $text"
+if ($text -match '/tmdb:') {
+    'the Addon keyed this Title by TMDB itself, so no unmapped mark is expected'
+} else {
+    Check 'and it is marked unmapped rather than blanked' (
+        $text -match 'Unmapped') "showed: $text"
+}
+Press-Keys $app '{ESC}'
+$text = Wait-Text $app ([regex]::Escape($AddonCatalog)) 25
+
+Press $app 'Clear key'
+$text = Wait-Text $app 'No TMDB key is held' 15
+Shot $app '18-tmdb-key-cleared.png'
+Check 'clearing the key says no key is held' (
+    $text -match 'No TMDB key is held') "showed: $text"
+Check 'and clearing moved the revision on again' (
+    $text -match ('Snapshot revision\s*\|\s*' + ([int]$before + 2))) "showed: $text"
+
+'--- 19. removing the Addon'
 Press $app ('Remove ' + $AddonName)
 $text = Wait-Text $app 'No Addons are configured' 20
-Shot $app '18-addon-removed.png'
+Shot $app '19-addon-removed.png'
 Check 'the Addon is gone' ($text -match 'No Addons are configured') "showed: $text"
 Check 'and its rows are gone with it' (
     -not ($text -match [regex]::Escape($AddonCatalog))) "showed: $text"
 
 Stop-Host $app
 
-'--- 19. the manifest URL never reaches the log'
+'--- 20. the manifest URL and the TMDB key never reach the log'
 # A manifest URL can carry a debrid configuration inside it, so the Host must
 # never write one down — and the route that matters is the real one, with the
-# Addon the owner actually uses.
+# Addon the owner actually uses. A TMDB key is a credential the same way.
 $urlPath = ([System.Uri]$Addon).AbsolutePath
 Check 'the log never holds the manifest URL' (
     (Test-Path $log) -and
@@ -614,8 +689,11 @@ Check 'the log never holds the manifest URL' (
 Check 'the log never holds the manifest path either' (
     (Test-Path $log) -and
     -not (Select-String -Path $log -SimpleMatch $urlPath -Quiet)) 'host.log holds the manifest path'
+Check 'the log never holds the TMDB key value' (
+    (Test-Path $log) -and
+    -not (Select-String -Path $log -SimpleMatch $testKey -Quiet)) 'host.log holds the TMDB key'
 
-'--- 20. the data directory'
+'--- 21. the data directory'
 if (Test-Path $dataDir) {
     Get-ChildItem $dataDir | ForEach-Object { "  $($_.Name)  $($_.Length) bytes" }
 } else { Check 'the data directory exists' $false $dataDir }
