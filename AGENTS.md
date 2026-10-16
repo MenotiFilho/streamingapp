@@ -111,6 +111,10 @@ Issue **#1** is the earlier map, and the design record it produced still stands.
   reason as the transport and the player above; the protocol's own codec is in
   `host-core`, because it is the Host's vocabulary written down (ADR-0017).
 - `crates/host-logging/` — structured logs: JSON lines in the data directory.
+- `crates/host-live/` — the read-only conformance run against real Addons
+  (`live_check`): the Host's addon path composed over the transport and the
+  parsers, reporting what each resource answered. Outside `host-core` for the
+  same reason as the transport above — it reaches the network (ADR-0009).
 - `src-tauri/` — the app shell: platform directories, logging, the store, the
   window, single-instance behaviour, and the IPC commands. It holds no rules.
 - `src/` — the React/TypeScript window. It is a client of the Host, not a

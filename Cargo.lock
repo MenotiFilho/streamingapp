@@ -1616,6 +1616,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "host-live"
+version = "0.1.0"
+dependencies = [
+ "host-addon",
+ "host-core",
+ "serde_json",
+]
+
+[[package]]
 name = "host-logging"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,18 @@
+[package]
+name = "host-live"
+description = "The read-only conformance run against real Addons"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+host-core = { workspace = true }
+host-addon = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
