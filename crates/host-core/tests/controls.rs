@@ -8,9 +8,9 @@ use std::sync::Arc;
 
 use host_core::{
     Action, ActionError, AddonProvider, Aspect, Chapter, ChapterStep, Control, Crop, CropRectangle,
-    FixtureFetcher, FixturePlayer, Host, InMemorySecretStore, InMemoryStore, Observation,
-    PlaybackError, PlaybackState, SecretBackend, Snapshot, Statistics, Store, Telling, Track,
-    TrackId, TrackKind, VideoSize, ACTION_VERSION,
+    FixtureClock, FixtureFetcher, FixturePlayer, Host, InMemorySecretStore, InMemoryStore,
+    Observation, PlaybackError, PlaybackState, SecretBackend, Snapshot, Statistics, Store, Telling,
+    Track, TrackId, TrackKind, VideoSize, ACTION_VERSION,
 };
 
 /// The URL a recorded debrid answer would carry, with a session in it.
@@ -39,6 +39,7 @@ fn host_over(player: Arc<FixturePlayer>) -> Host {
         Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
         provider,
         player,
+        Arc::new(FixtureClock::new()),
     )
     .expect("a Host over a store starts")
 }
@@ -55,6 +56,13 @@ fn a_chosen_stream() -> serde_json::Value {
         "type": "play_stream",
         "video": { "type": "movie", "id": "tt0133093" },
         "addon": "community.aiostreams",
+        "title": {
+            "addon": "com.linvo.cinemeta",
+            "id": "tt0133093",
+            "type": "movie",
+            "name": "The Matrix",
+            "poster": "https://images.example.org/matrix.jpg",
+        },
         "stream": {
             "name": "AIOStreams\n1080p",
             "playback": { "kind": "direct", "url": CHOSEN },

@@ -6,9 +6,9 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, FixtureFetcher, FixturePlayer, FixtureProvider, Host, InMemorySecretStore,
-    InMemoryStore, Observation, PlaybackState, SecretBackend, Store, StreamUrl, Subtitle, Telling,
-    Track, TrackId, TrackKind, ACTION_VERSION,
+    Action, ActionError, FixtureClock, FixtureFetcher, FixturePlayer, FixtureProvider, Host,
+    InMemorySecretStore, InMemoryStore, Observation, PlaybackState, SecretBackend, Store,
+    StreamUrl, Subtitle, Telling, Track, TrackId, TrackKind, ACTION_VERSION,
 };
 
 /// The Addons a fallback test configures, and the manifests they answer with.
@@ -80,6 +80,7 @@ fn host_with(
         Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
         provider,
         player,
+        Arc::new(FixtureClock::new()),
     )
     .expect("a Host over a store starts");
 
@@ -98,6 +99,13 @@ fn play(host: &mut Host, addon: &str, r#type: &str, id: &str) {
         "type": "play_stream",
         "video": { "type": r#type, "id": id },
         "addon": addon,
+        "title": {
+            "addon": addon,
+            "id": id,
+            "type": r#type,
+            "name": id,
+            "poster": null,
+        },
         "stream": {
             "name": "1080p",
             "playback": { "kind": "direct", "url": "https://stream.example.org/v/x.mkv" },

@@ -38,6 +38,29 @@ pub const MIGRATIONS: &[Migration] = &[
                  manifest TEXT NOT NULL
              );",
     },
+    Migration {
+        // Watch progress, one row per Video (#29). The Video is keyed by the id
+        // it is indexed by, and the Title it belongs to is carried beside it as
+        // the card the library draws — the Addon that supplied it included,
+        // because a removed Addon is what marks a row unplayable. `updated_at`
+        // is milliseconds since the epoch: it orders the library, and it is what
+        // a later merge resolves two writes by. `position` and `duration` are
+        // deliberately nullable — a Stream that has only just opened has neither.
+        version: 3,
+        sql: "CREATE TABLE watch_progress (
+                 video_id     TEXT PRIMARY KEY NOT NULL,
+                 video_type   TEXT NOT NULL,
+                 title_addon  TEXT NOT NULL,
+                 title_id     TEXT NOT NULL,
+                 title_type   TEXT NOT NULL,
+                 title_name   TEXT NOT NULL,
+                 title_poster TEXT,
+                 position     REAL,
+                 duration     REAL,
+                 watched      INTEGER NOT NULL,
+                 updated_at   INTEGER NOT NULL
+             );",
+    },
 ];
 
 /// The version a database is at once every migration in `migrations` has run.

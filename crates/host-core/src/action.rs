@@ -7,6 +7,7 @@ use crate::playback::{
     InvalidSubtitleDelay, InvalidVolume, SeekTarget, TrackId, Unplayable,
 };
 use crate::preferences::{InvalidSubtitleLanguage, SubtitleLanguage};
+use crate::progress::{TitleCard, TitleStub};
 use crate::request::{
     CatalogRef, Extra, InvalidCatalogRef, InvalidTitleRef, InvalidVideoRef, TitleRef, VideoRef,
     MAX_EXTRAS,
@@ -107,7 +108,21 @@ pub enum Action {
         addon: String,
         /// The candidate itself, as it was answered.
         stream: Box<Stream>,
+        /// The Title the Video belongs to, as the client was reading it: enough
+        /// of it for the library to draw a card, and the Addon a removed one is
+        /// judged against (#29). The client has it open — a Title is the
+        /// client's own (ADR-0005) — so the Host is told which Title a Video is
+        /// of rather than guessing one from an Addon that may not answer `meta`.
+        title: TitleCard,
     },
+    /// Play a Video again from where it was left.
+    ///
+    /// A change, like `PlayStream`: the Host reads its own Watch progress for the
+    /// Video, asks the Addons that answer for its Streams, and opens the first
+    /// candidate it can play *at the position it stored* (#29). The client names
+    /// the Video and decides nothing else — where to resume from is the Host's
+    /// own record.
+    Resume { video: VideoRef },
     /// Hold the picture where it is, or let it run.
     SetPaused { paused: bool },
     /// Move within the Stream being played.
@@ -242,11 +257,20 @@ impl Action {
                 video,
                 addon,
                 stream,
+                title,
             } => {
                 let video = VideoRef::parse(&video.r#type, &video.id)?;
                 let addon = AddonId::parse(&addon)?;
                 let chosen = ChosenStream::parse(video, addon, &stream)?;
-                Ok(ValidatedAction::PlayStream(Box::new(chosen)))
+                let title = TitleStub::parse(&title)?;
+                Ok(ValidatedAction::PlayStream {
+                    chosen: Box::new(chosen),
+                    title,
+                })
+            }
+            Action::Resume { video } => {
+                let video = VideoRef::parse(&video.r#type, &video.id)?;
+                Ok(ValidatedAction::Resume { video })
             }
             // A seek that is not a number of seconds is refused before a Player
             // hears of it, the way a Video that is not one is refused before an
@@ -370,10 +394,18 @@ pub enum ValidatedAction {
     FindStreams {
         video: VideoRef,
     },
-    /// A candidate judged: the URL a Player will be given, and the words that
-    /// will be published about it. Boxed because a Stream carries its own words
-    /// and the enum's other variants are a word or two wide.
-    PlayStream(Box<ChosenStream>),
+    /// A candidate judged: the URL a Player will be given, the words that will
+    /// be published about it, and the Title the Video is of — which is what the
+    /// library records the play against. Boxed because a Stream carries its own
+    /// words and the enum's other variants are a word or two wide.
+    PlayStream {
+        chosen: Box<ChosenStream>,
+        title: TitleStub,
+    },
+    /// A Video to play again from where the Host's own Watch progress left it.
+    Resume {
+        video: VideoRef,
+    },
     SetPaused {
         paused: bool,
     },
@@ -481,6 +513,11 @@ pub enum ActionError {
     /// rather than playing something else, which is what ADR-0014 asks of it.
     #[error("{detail}")]
     NoNextEpisode { detail: String },
+    /// A resume named a Video the Host has no Watch progress for: there is
+    /// nothing to resume from, and playing it from the start would not be the
+    /// thing the client asked for.
+    #[error("the Host has no Watch progress for {video}")]
+    NoProgress { video: VideoRef },
     #[error("{detail}")]
     Extra { detail: String },
     #[error("{detail}")]
@@ -600,11 +637,16 @@ mod tests {
     fn an_action_that_plays_a_chosen_stream_is_flat_enough_to_write_by_hand() {
         // The candidate a client sends back is the one it was answered, whole:
         // what the Host acts on is where its bytes are, and what travels outward
-        // again is the Addon's own words (ADR-0013).
+        // again is the Addon's own words (ADR-0013). The Title rides beside it,
+        // because the library draws a card from what the client was reading
+        // (#29), and the Addon that supplied it is what a removed one is judged
+        // against.
         let action = Action::parse(&format!(
             r#"{{"version":{ACTION_VERSION},"action":{{"type":"play_stream",
                 "video":{{"type":"movie","id":"tt0133093"}},
                 "addon":"community.aiostreams",
+                "title":{{"addon":"com.linvo.cinemeta","id":"tt0133093","type":"movie",
+                    "name":"The Matrix","poster":"https://images.example.org/matrix.jpg"}},
                 "stream":{{"name":"AIOStreams\n1080p","playback":{{"kind":"direct","url":"https://stream.example.org/v/x.mkv"}}}}}}}}"#
         ))
         .expect("a client's own envelope parses");
@@ -613,12 +655,14 @@ mod tests {
             video,
             addon,
             stream,
+            title,
         } = action
         else {
             panic!("that is the Action a client sent");
         };
         assert_eq!(video.id, "tt0133093");
         assert_eq!(addon, "community.aiostreams");
+        assert_eq!(title.name, "The Matrix");
         assert_eq!(
             stream.playback,
             crate::stream::Playback::Direct {
@@ -630,28 +674,39 @@ mod tests {
             video,
             addon,
             stream,
+            title,
         }
         .validate()
         .expect("a direct URL is a candidate this Host plays");
         assert_eq!(
             chosen,
-            ValidatedAction::PlayStream(Box::new(
-                crate::playback::ChosenStream::parse(
-                    VideoRef::parse("movie", "tt0133093").expect("a Video"),
-                    AddonId::parse("community.aiostreams").expect("an Addon id"),
-                    &crate::stream::Stream {
-                        name: Some("AIOStreams\n1080p".to_owned()),
-                        description: None,
-                        playback: crate::stream::Playback::Direct {
-                            url: "https://stream.example.org/v/x.mkv".to_owned(),
+            ValidatedAction::PlayStream {
+                chosen: Box::new(
+                    crate::playback::ChosenStream::parse(
+                        VideoRef::parse("movie", "tt0133093").expect("a Video"),
+                        AddonId::parse("community.aiostreams").expect("an Addon id"),
+                        &crate::stream::Stream {
+                            name: Some("AIOStreams\n1080p".to_owned()),
+                            description: None,
+                            playback: crate::stream::Playback::Direct {
+                                url: "https://stream.example.org/v/x.mkv".to_owned(),
+                            },
+                            warnings: Vec::new(),
+                            filename: None,
+                            binge_group: None,
                         },
-                        warnings: Vec::new(),
-                        filename: None,
-                        binge_group: None,
-                    },
-                )
-                .expect("a direct URL is a candidate this Host plays")
-            ))
+                    )
+                    .expect("a direct URL is a candidate this Host plays")
+                ),
+                title: TitleStub::parse(&TitleCard {
+                    addon: AddonId::parse("com.linvo.cinemeta").expect("an Addon id"),
+                    id: "tt0133093".to_owned(),
+                    r#type: "movie".to_owned(),
+                    name: "The Matrix".to_owned(),
+                    poster: Some("https://images.example.org/matrix.jpg".to_owned()),
+                })
+                .expect("a Title a request could name"),
+            }
         );
     }
 

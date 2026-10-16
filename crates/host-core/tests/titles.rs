@@ -5,9 +5,9 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, AddonProvider, FetchError, FixtureFetcher, FixturePlayer, Host,
-    InMemorySecretStore, InMemoryStore, Provider, SecretBackend, Store, Title, TitleKey, TitleRef,
-    ACTION_VERSION,
+    Action, ActionError, AddonProvider, FetchError, FixtureClock, FixtureFetcher, FixturePlayer,
+    Host, InMemorySecretStore, InMemoryStore, Provider, SecretBackend, Store, Title, TitleKey,
+    TitleRef, ACTION_VERSION,
 };
 
 const CINEMETA: &str = "https://v3-cinemeta.strem.io/manifest.json";
@@ -42,6 +42,11 @@ const TMDB_TV_DETAILS: &str = include_str!("fixtures/tmdb-tv-details.json");
 /// every telling is remembered.
 fn player() -> Arc<FixturePlayer> {
     Arc::new(FixturePlayer::new())
+}
+
+/// A clock a test drives by hand, for the Watch progress a play records (#29).
+fn clock() -> Arc<FixtureClock> {
+    Arc::new(FixtureClock::new())
 }
 
 /// An Action as a client sends it: the versioned envelope, as JSON text.
@@ -87,6 +92,7 @@ fn host_with_recorded_addons() -> (Host, Arc<FixtureFetcher>) {
         secrets(),
         provider(&fetcher),
         player(),
+        clock(),
     )
     .expect("a Host over a store starts");
     configure(&mut host, CINEMETA);
@@ -221,6 +227,7 @@ fn a_sparse_meta_response_still_leaves_the_title_open() {
         secrets(),
         provider(&fetcher),
         player(),
+        clock(),
     )
     .expect("a Host over a store starts");
     configure(&mut host, CINEMETA);
@@ -283,6 +290,7 @@ fn opening_a_title_whose_addon_cannot_be_reached_is_reported_rather_than_answere
         secrets(),
         provider(&fetcher),
         player(),
+        clock(),
     )
     .expect("a Host over a store starts");
     configure(&mut host, CINEMETA);
@@ -308,6 +316,7 @@ fn a_meta_response_that_lies_is_reported_rather_than_opened() {
         secrets(),
         provider(&fetcher),
         player(),
+        clock(),
     )
     .expect("a Host over a store starts");
     configure(&mut host, CINEMETA);
@@ -380,6 +389,7 @@ fn host_over(fetcher: Arc<FixtureFetcher>, key: Option<&str>) -> Host {
         secrets(),
         provider(&fetcher),
         player(),
+        clock(),
     )
     .expect("a Host over a store starts");
     configure(&mut host, CINEMETA);

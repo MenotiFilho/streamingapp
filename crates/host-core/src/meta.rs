@@ -116,6 +116,34 @@ pub struct Video {
     pub episode: Option<u32>,
 }
 
+impl Video {
+    /// A Video named by its id alone: the id it is keyed by, and the season and
+    /// episode the protocol indexes at the end of it, where both are numbers.
+    ///
+    /// What a library entry is drawn from when no Addon answered about the
+    /// Video — the entry is keyed by the id Watch progress was recorded against,
+    /// and the numbers in it are the protocol's own shape (`tt0903747:1:1`,
+    /// `kitsu:12345:1:1`). The episode's name is deliberately absent: it is not
+    /// in the id, and the Host does not invent one.
+    pub fn keyed(id: &str) -> Self {
+        let mut parts = id.rsplitn(3, ':');
+        let episode = parts.next().and_then(|part| part.parse::<u32>().ok());
+        let season = parts.next().and_then(|part| part.parse::<u32>().ok());
+
+        let (season, episode) = match (season, episode) {
+            (Some(season), Some(episode)) => (Some(season), Some(episode)),
+            _ => (None, None),
+        };
+
+        Self {
+            id: id.to_owned(),
+            name: None,
+            season,
+            episode,
+        }
+    }
+}
+
 /// Why a meta response was not read, in the Host's own vocabulary.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum MetaError {

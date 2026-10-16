@@ -5,8 +5,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use host_core::{
-    Action, AddonProvider, FixtureFetcher, FixturePlayer, Host, InMemorySecretStore, Snapshot,
-    SubtitleLanguage,
+    Action, AddonProvider, FixtureClock, FixtureFetcher, FixturePlayer, Host, InMemorySecretStore,
+    Snapshot, SubtitleLanguage,
 };
 use host_sqlite::SqliteStore;
 
@@ -14,6 +14,11 @@ use host_sqlite::SqliteStore;
 /// every telling is remembered.
 fn player() -> Arc<FixturePlayer> {
     Arc::new(FixturePlayer::new())
+}
+
+/// A clock a test drives by hand, for the Watch progress a play records (#29).
+fn clock() -> Arc<FixtureClock> {
+    Arc::new(FixtureClock::new())
 }
 
 /// The in-memory stand-in for the OS keyring.
@@ -54,7 +59,15 @@ fn start(path: &Path) -> Host {
     let store = SqliteStore::open(path).expect("the database opens");
     let fetcher = fetcher();
     let provider = Arc::new(AddonProvider::new(fetcher.clone()));
-    Host::new(Arc::new(store), fetcher, secrets(), provider, player()).expect("the Host starts")
+    Host::new(
+        Arc::new(store),
+        fetcher,
+        secrets(),
+        provider,
+        player(),
+        clock(),
+    )
+    .expect("the Host starts")
 }
 
 fn take(host: &mut Host, action: &str) {

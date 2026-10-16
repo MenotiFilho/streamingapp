@@ -238,7 +238,14 @@ pub trait Player: Send + Sync + 'static {
     ///
     /// Agreeing is not playing: a URL that cannot be reached is found out
     /// later, and arrives through [`Player::observe`] as a failure.
-    fn open(&self, url: &StreamUrl) -> Result<(), PlaybackError>;
+    ///
+    /// `start` is where the open begins, in seconds from the Stream's start —
+    /// the resume point of a Stream being picked up again (#29), or `None` for
+    /// one that begins at its beginning. It is part of opening rather than a
+    /// [`Telling`] because it is read as the file loads: a control sent
+    /// afterwards would move a Stream that has already started in the wrong
+    /// place.
+    fn open(&self, url: &StreamUrl, start: Option<f64>) -> Result<(), PlaybackError>;
 
     /// Do one thing the Host asked of the Player, in the Host's own terms.
     ///
@@ -961,6 +968,18 @@ impl PlaybackSession {
         self.playing.as_ref()
     }
 
+    /// Where playback is, as the Host's own record has it — the Player's last
+    /// report, or where a control just moved it. What a Watch progress write
+    /// records.
+    pub(crate) fn position(&self) -> Option<f64> {
+        self.position
+    }
+
+    /// How long the Stream is, as the Player last said.
+    pub(crate) fn duration(&self) -> Option<f64> {
+        self.duration
+    }
+
     /// Whether the Host has already asked the Addons for subtitles for the
     /// Stream playing now.
     pub(crate) fn subtitles_attempted(&self) -> bool {
@@ -1173,7 +1192,7 @@ pub struct PlaybackSnapshot {
 /// on build; a test that cares says otherwise with [`Self::drawing`].
 #[derive(Debug)]
 pub struct FixturePlayer {
-    opened: Mutex<Vec<String>>,
+    opened: Mutex<Vec<Opening>>,
     /// Every telling the Host asked for, in order — the whole control surface,
     /// in the one vocabulary the seam speaks.
     tellings: Mutex<Vec<Telling>>,
@@ -1185,6 +1204,13 @@ pub struct FixturePlayer {
     picture: Picture,
     /// Set when the Player refuses everything, for the paths where it is gone.
     refusing: Mutex<Option<PlaybackError>>,
+}
+
+/// One Stream the Host asked the fixture to open, and where it was to start.
+#[derive(Debug, Clone, PartialEq)]
+struct Opening {
+    url: String,
+    start: Option<f64>,
 }
 
 impl FixturePlayer {
@@ -1236,7 +1262,20 @@ impl FixturePlayer {
         self.opened
             .lock()
             .expect("the fixture player is not poisoned")
-            .clone()
+            .iter()
+            .map(|opening| opening.url.clone())
+            .collect()
+    }
+
+    /// Every open the Host asked for, with where each was to start: what a
+    /// resume is asserted through.
+    pub fn openings(&self) -> Vec<(String, Option<f64>)> {
+        self.opened
+            .lock()
+            .expect("the fixture player is not poisoned")
+            .iter()
+            .map(|opening| (opening.url.clone(), opening.start))
+            .collect()
     }
 
     /// Every telling the Host asked for, in order.
@@ -1282,12 +1321,15 @@ impl Player for FixturePlayer {
         self.picture
     }
 
-    fn open(&self, url: &StreamUrl) -> Result<(), PlaybackError> {
+    fn open(&self, url: &StreamUrl, start: Option<f64>) -> Result<(), PlaybackError> {
         self.allowed()?;
         self.opened
             .lock()
             .expect("the fixture player is not poisoned")
-            .push(url.as_str().to_owned());
+            .push(Opening {
+                url: url.as_str().to_owned(),
+                start,
+            });
         Ok(())
     }
 
@@ -1633,7 +1675,7 @@ mod tests {
         let player = FixturePlayer::new();
 
         player
-            .open(&url("https://example.org/a.mkv"))
+            .open(&url("https://example.org/a.mkv"), None)
             .expect("open");
         player.tell(Telling::Pause(true)).expect("pause");
         player.tell(Telling::Pause(false)).expect("resume");
@@ -1643,6 +1685,11 @@ mod tests {
         player.stop().expect("stop");
 
         assert_eq!(player.opened(), vec!["https://example.org/a.mkv"]);
+        assert_eq!(
+            player.openings(),
+            vec![("https://example.org/a.mkv".to_owned(), None)],
+            "a Stream with no resume point opens at its beginning"
+        );
         assert_eq!(
             player.tellings(),
             vec![
@@ -1662,7 +1709,7 @@ mod tests {
         });
 
         assert!(matches!(
-            player.open(&url("https://example.org/a.mkv")),
+            player.open(&url("https://example.org/a.mkv"), None),
             Err(PlaybackError::Open { .. })
         ));
         assert!(matches!(

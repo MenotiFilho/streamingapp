@@ -3,6 +3,7 @@ use std::sync::Mutex;
 
 use crate::addon::Addon;
 use crate::preferences::Preferences;
+use crate::progress::WatchProgress;
 
 /// Where the Host's non-secret state lives between runs.
 ///
@@ -23,6 +24,19 @@ pub trait Store: Send + Sync + 'static {
 
     /// Replace the configured Addons.
     fn write_addons(&self, addons: &[Addon]) -> Result<(), StoreError>;
+
+    /// Every Video the Host has Watch progress in, most recently written first.
+    ///
+    /// The whole library in one read: the Host holds it in memory and consults it
+    /// between Actions (a resume point, a next episode), so it is read once at
+    /// startup rather than per Action.
+    fn read_watch_progress(&self) -> Result<Vec<WatchProgress>, StoreError>;
+
+    /// Write one Video's Watch progress, replacing whatever the entry was.
+    ///
+    /// One entry at a time because this is the write the Host makes while it
+    /// plays: playback moves, and the position written down moves with it (#29).
+    fn write_watch_progress(&self, progress: &WatchProgress) -> Result<(), StoreError>;
 }
 
 /// Something went wrong at the store, in the store's own terms.
@@ -64,6 +78,7 @@ impl StoreError {
 pub struct InMemoryStore {
     preferences: Mutex<Preferences>,
     addons: Mutex<Vec<Addon>>,
+    watch: Mutex<Vec<WatchProgress>>,
     failing_writes: AtomicBool,
 }
 
@@ -77,6 +92,7 @@ impl InMemoryStore {
         Self {
             preferences: Mutex::new(preferences),
             addons: Mutex::new(Vec::new()),
+            watch: Mutex::new(Vec::new()),
             failing_writes: AtomicBool::new(false),
         }
     }
@@ -87,6 +103,15 @@ impl InMemoryStore {
             .addons
             .lock()
             .expect("the in-memory store is not poisoned") = addons;
+        self
+    }
+
+    /// The same, with the Watch progress a previous run left behind.
+    pub fn holding_watch(self, watch: Vec<WatchProgress>) -> Self {
+        *self
+            .watch
+            .lock()
+            .expect("the in-memory store is not poisoned") = watch;
         self
     }
 
@@ -108,6 +133,14 @@ impl InMemoryStore {
     /// The same look, at the Addons.
     pub fn persisted_addons(&self) -> Vec<Addon> {
         self.addons
+            .lock()
+            .expect("the in-memory store is not poisoned")
+            .clone()
+    }
+
+    /// The same look, at the Watch progress.
+    pub fn persisted_watch(&self) -> Vec<WatchProgress> {
+        self.watch
             .lock()
             .expect("the in-memory store is not poisoned")
             .clone()
@@ -146,6 +179,28 @@ impl Store for InMemoryStore {
             .addons
             .lock()
             .expect("the in-memory store is not poisoned") = addons.to_vec();
+        Ok(())
+    }
+
+    fn read_watch_progress(&self) -> Result<Vec<WatchProgress>, StoreError> {
+        Ok(self.persisted_watch())
+    }
+
+    fn write_watch_progress(&self, progress: &WatchProgress) -> Result<(), StoreError> {
+        if self.failing_writes.load(Ordering::SeqCst) {
+            return Err(StoreError::Write {
+                detail: "the store is failing every write".to_owned(),
+            });
+        }
+
+        let mut held = self
+            .watch
+            .lock()
+            .expect("the in-memory store is not poisoned");
+        // One entry per Video, and the one just written is the most recent: the
+        // entry it replaces goes wherever it was, and the new one leads.
+        held.retain(|entry| entry.video != progress.video);
+        held.insert(0, progress.clone());
         Ok(())
     }
 }

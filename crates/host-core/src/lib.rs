@@ -10,15 +10,22 @@
 //! use std::sync::Arc;
 //!
 //! use host_core::{
-//!     Action, AddonProvider, FixtureFetcher, FixturePlayer, Host, InMemorySecretStore,
-//!     InMemoryStore, SubtitleLanguage,
+//!     Action, AddonProvider, FixtureClock, FixtureFetcher, FixturePlayer, Host,
+//!     InMemorySecretStore, InMemoryStore, SubtitleLanguage,
 //! };
 //!
 //! let store = Arc::new(InMemoryStore::new());
 //! let secrets = Arc::new(InMemorySecretStore::new());
 //! let fetcher = Arc::new(FixtureFetcher::new());
 //! let provider = Arc::new(AddonProvider::new(fetcher.clone()));
-//! let mut host = Host::new(store, fetcher, secrets, provider, Arc::new(FixturePlayer::new()))?;
+//! let mut host = Host::new(
+//!     store,
+//!     fetcher,
+//!     secrets,
+//!     provider,
+//!     Arc::new(FixturePlayer::new()),
+//!     Arc::new(FixtureClock::new()),
+//! )?;
 //! let action = Action::parse(r#"{"version":1,"action":{"type":"set_subtitle_language","language":"pt-BR"}}"#)?;
 //! let response = host.dispatch(action)?;
 //!
@@ -32,11 +39,13 @@ mod action;
 mod addon;
 mod cache;
 mod catalog;
+mod clock;
 mod fetcher;
 mod host;
 mod meta;
 mod playback;
 mod preferences;
+mod progress;
 mod provider;
 mod request;
 mod response;
@@ -55,6 +64,7 @@ pub use addon::{
     MAX_URL_LEN,
 };
 pub use catalog::{CacheHints, CatalogError, CatalogRow, MetaPreview, Page, MAX_CATALOG_BYTES};
+pub use clock::{Clock, FixtureClock, SystemClock};
 pub use fetcher::{FetchError, Fetcher, FixtureFetcher};
 pub use host::Host;
 pub use meta::{MetaError, Title, TitleKey, Video, MAX_META_BYTES};
@@ -66,6 +76,10 @@ pub use playback::{
     TrackId, TrackKind, Unplayable, VideoSize,
 };
 pub use preferences::{InvalidSubtitleLanguage, Preferences, SubtitleLanguage};
+pub use progress::{
+    ResumeEntry, TitleCard, TitleStub, UnplayableEntry, UnplayableReason, WatchProgress,
+    FINISHED_TAIL, PROGRESS_EVERY,
+};
 pub use provider::{AddonProvider, FixtureProvider, Provider};
 pub use request::{
     CatalogRef, Extra, InvalidCatalogRef, InvalidExtra, InvalidTitleRef, InvalidVideoRef,

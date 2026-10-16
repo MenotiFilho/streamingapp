@@ -114,19 +114,34 @@ fn wav(seconds: f64) -> Vec<u8> {
 }
 
 /// Answer one request: the WAV for `/silence.wav`, the control fixture for
-/// `/controls.mkv`, a 404 for everything else. mpv is simply given the whole
-/// body, range request or not.
+/// `/controls.mkv`, a 404 for everything else.
+///
+/// Ranges are honoured, because a Stream is a file served over HTTP and seeking
+/// in one is a range request: `start` (a resume, #29) and every seek mpv makes
+/// ask for a byte range, and a server that answered the whole body to each of
+/// them would have mpv reading the Stream from the beginning however far it was
+/// told to skip.
 fn answer(mut stream: TcpStream, bytes: &[u8]) {
     let mut request = String::new();
     let mut reader = BufReader::new(stream.try_clone().expect("the stream is copyable"));
     if reader.read_line(&mut request).is_err() {
         return;
     }
-    // The rest of the headers, so the request is read rather than half-read.
+    // The rest of the headers, so the request is read rather than half-read —
+    // and so the range mpv asked for can be answered.
+    let mut range = None;
     for line in reader.lines() {
         match line {
             Ok(line) if line.trim().is_empty() => break,
-            Ok(_) => {}
+            Ok(line) => {
+                if let Some(value) = line
+                    .split_once(':')
+                    .filter(|(name, _)| name.eq_ignore_ascii_case("range"))
+                    .map(|(_, value)| value.trim())
+                {
+                    range = byte_range(value);
+                }
+            }
             Err(_) => return,
         }
     }
@@ -144,13 +159,39 @@ fn answer(mut stream: TcpStream, bytes: &[u8]) {
         return;
     };
 
-    let _ = write!(
-        stream,
-        "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        body.len()
-    );
-    let _ = stream.write_all(body);
+    match range
+        .and_then(|(start, end)| (start < body.len()).then(|| (start, end.min(body.len() - 1))))
+    {
+        Some((start, end)) => {
+            let slice = &body[start..=end];
+            let _ = write!(
+                stream,
+                "HTTP/1.1 206 Partial Content\r\nContent-Type: {content_type}\r\n\
+                 Accept-Ranges: bytes\r\nContent-Range: bytes {start}-{end}/{total}\r\n\
+                 Content-Length: {length}\r\nConnection: close\r\n\r\n",
+                total = body.len(),
+                length = slice.len(),
+            );
+            let _ = stream.write_all(slice);
+        }
+        None => {
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: {content_type}\r\nAccept-Ranges: bytes\r\n\
+                 Content-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(body);
+        }
+    }
     let _ = stream.flush();
+}
+
+/// The byte range a `Range: bytes=start-end` header asks for, where it asks for
+/// one. An open-ended range (`bytes=start-`) ends at the end of the body.
+fn byte_range(value: &str) -> Option<(usize, usize)> {
+    let (start, end) = value.strip_prefix("bytes=")?.split_once('-')?;
+    Some((start.parse().ok()?, end.parse().unwrap_or(usize::MAX)))
 }
 
 fn stream(url: &str) -> StreamUrl {
@@ -176,7 +217,7 @@ fn said(observation: &Observation) -> &[Track] {
 fn controlling(streams: &Streams) -> MpvPlayer {
     let player = player();
     player
-        .open(&stream(&streams.movie))
+        .open(&stream(&streams.movie), None)
         .expect("mpv takes the fixture");
     until(&player, "started playing the fixture", |observation| {
         observation.state == PlaybackState::Playing && said(observation).len() == 4
@@ -211,7 +252,7 @@ fn a_stream_plays_and_reports_where_it_is_and_how_long_it_is() {
     let player = player();
 
     player
-        .open(&stream(&streams.playing))
+        .open(&stream(&streams.playing), None)
         .expect("mpv takes the Stream");
     let playing = until(&player, "started playing", |observation| {
         observation.state == PlaybackState::Playing && observation.position.is_some()
@@ -238,7 +279,7 @@ fn pausing_holds_the_picture_and_resuming_lets_it_run() {
     let streams = serve(20.0);
     let player = player();
     player
-        .open(&stream(&streams.playing))
+        .open(&stream(&streams.playing), None)
         .expect("mpv takes it");
     until(&player, "started playing", |observation| {
         observation.position.is_some()
@@ -276,7 +317,7 @@ fn seeking_moves_playback_to_where_it_was_told() {
     let streams = serve(60.0);
     let player = player();
     player
-        .open(&stream(&streams.playing))
+        .open(&stream(&streams.playing), None)
         .expect("mpv takes it");
     until(&player, "started playing", |observation| {
         observation.position.is_some()
@@ -309,7 +350,7 @@ fn stopping_leaves_nothing_open() {
     let streams = serve(60.0);
     let player = player();
     player
-        .open(&stream(&streams.playing))
+        .open(&stream(&streams.playing), None)
         .expect("mpv takes it");
     until(&player, "started playing", |observation| {
         observation.position.is_some()
@@ -331,7 +372,7 @@ fn a_stream_that_cannot_be_fetched_says_so_in_mpvs_own_words() {
     let player = player();
 
     player
-        .open(&stream(&streams.refused))
+        .open(&stream(&streams.refused), None)
         .expect("mpv agrees to try, and finds out later");
     let failed = until(
         &player,
@@ -356,7 +397,7 @@ fn a_stream_that_plays_to_its_end_says_it_ended_and_where_it_ended() {
     let streams = serve(1.5);
     let player = player();
     player
-        .open(&stream(&streams.playing))
+        .open(&stream(&streams.playing), None)
         .expect("mpv takes it");
     until(&player, "started playing", |observation| {
         observation.position.is_some()
@@ -664,7 +705,7 @@ fn the_stock_autocrop_reads_the_black_bars_off_the_picture() {
     let streams = serve(6.0);
     let player = player();
     player
-        .open(&stream(&streams.movie))
+        .open(&stream(&streams.movie), None)
         .expect("mpv takes the fixture");
 
     // mpv's own TOOLS/lua/autocrop.lua waits, detects, and only then sets the
@@ -694,7 +735,7 @@ fn the_subtitle_language_preference_selects_the_matching_embedded_track() {
         )))
         .expect("mpv takes the preference");
     player
-        .open(&stream(&streams.movie))
+        .open(&stream(&streams.movie), None)
         .expect("mpv takes the fixture");
 
     until(
@@ -721,7 +762,7 @@ fn a_stream_opened_after_one_that_was_held_plays_rather_than_opening_held() {
     let streams = serve(20.0);
     let player = player();
     player
-        .open(&stream(&streams.playing))
+        .open(&stream(&streams.playing), None)
         .expect("mpv takes the Stream");
     until(&player, "started playing", |observation| {
         observation.position.is_some()
@@ -739,7 +780,7 @@ fn a_stream_opened_after_one_that_was_held_plays_rather_than_opening_held() {
     });
 
     player
-        .open(&stream(&streams.playing))
+        .open(&stream(&streams.playing), None)
         .expect("mpv takes the Stream again");
     let playing = until(
         &player,
@@ -756,5 +797,31 @@ fn a_stream_opened_after_one_that_was_held_plays_rather_than_opening_held() {
         playing.state,
         PlaybackState::Playing,
         "a Stream opened after one that was held plays, rather than opening held"
+    );
+}
+
+#[test]
+fn a_stream_opened_at_a_resume_point_starts_there_rather_than_at_its_beginning() {
+    // A minute of Stream, opened half an hour of seconds in: if `start` were
+    // ignored the position would begin near zero, so a position well past the
+    // mark is the only reading that says the resume happened. Waited for rather
+    // than read once, because which tick carries the first position is timing.
+    let streams = serve(60.0);
+    let player = player();
+
+    player
+        .open(&stream(&streams.playing), Some(30.0))
+        .expect("mpv takes the Stream at the resume point");
+    let resumed = until(&player, "began at the resume point", |observation| {
+        observation.state == PlaybackState::Playing
+            && observation
+                .position
+                .is_some_and(|position| position >= 25.0)
+    });
+
+    assert!(
+        resumed.duration.is_some_and(|duration| duration > 55.0),
+        "the Stream opened is the whole minute, not a shorter one that would make \
+         any position look like a resume: {resumed:?}"
     );
 }

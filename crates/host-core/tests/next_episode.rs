@@ -7,8 +7,9 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, Control, FixtureFetcher, FixturePlayer, FixtureProvider, Host,
-    InMemorySecretStore, InMemoryStore, Playback, SecretBackend, Store, Stream, ACTION_VERSION,
+    Action, ActionError, Control, FixtureClock, FixtureFetcher, FixturePlayer, FixtureProvider,
+    Host, InMemorySecretStore, InMemoryStore, Playback, SecretBackend, Store, Stream,
+    ACTION_VERSION,
 };
 
 /// The Addon that answers both `meta` and `stream` for a series.
@@ -101,6 +102,7 @@ fn host_with(
         Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
         provider,
         player,
+        Arc::new(FixtureClock::new()),
     )
     .expect("a Host over a store starts");
 
@@ -128,6 +130,13 @@ fn play(host: &mut Host, addon: &str, r#type: &str, id: &str, url: &str, binge: 
         "type": "play_stream",
         "video": { "type": r#type, "id": id },
         "addon": addon,
+        "title": {
+            "addon": addon,
+            "id": id,
+            "type": r#type,
+            "name": id,
+            "poster": null,
+        },
         "stream": stream,
     })))
     .unwrap_or_else(|error| panic!("playing a direct candidate should work: {error}"));

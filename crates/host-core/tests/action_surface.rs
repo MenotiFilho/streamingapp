@@ -5,15 +5,21 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, AddonProvider, FixtureFetcher, FixturePlayer, Host, InMemorySecretStore,
-    InMemoryStore, Preferences, SecretBackend, Snapshot, Store, StoreError, SubtitleLanguage,
-    ACTION_VERSION,
+    Action, ActionError, AddonProvider, FixtureClock, FixtureFetcher, FixturePlayer, Host,
+    InMemorySecretStore, InMemoryStore, Preferences, SecretBackend, Snapshot, Store, StoreError,
+    SubtitleLanguage, ACTION_VERSION,
 };
 
 /// A Player a test drives by hand: nothing plays unless a test says so, and
 /// every telling is remembered.
 fn player() -> Arc<FixturePlayer> {
     Arc::new(FixturePlayer::new())
+}
+
+/// A clock a test drives by hand, so that the order two Watch progress writes
+/// happened in is the order the test says (#29).
+fn clock() -> Arc<FixtureClock> {
+    Arc::new(FixtureClock::new())
 }
 
 /// An Action as a client sends it: the versioned envelope, as JSON text.
@@ -38,7 +44,8 @@ fn secrets() -> Arc<InMemorySecretStore> {
 fn host_over(store: Arc<dyn Store>) -> Host {
     let fetcher = Arc::new(FixtureFetcher::new());
     let provider = Arc::new(AddonProvider::new(fetcher.clone()));
-    Host::new(store, fetcher, secrets(), provider, player()).expect("a Host over a store starts")
+    Host::new(store, fetcher, secrets(), provider, player(), clock())
+        .expect("a Host over a store starts")
 }
 
 fn host() -> Host {
@@ -313,6 +320,7 @@ fn the_snapshot_declares_only_fields_it_can_safely_carry() {
             "preferences": { "subtitleLanguage": "pt-BR" },
             "addons": [],
             "protection": { "backend": "keyring", "tmdbHeld": false },
+            "watchProgress": [],
         }),
         "the wire shape is the declared one, camelCased for a JavaScript client"
     );
@@ -333,6 +341,7 @@ fn no_field_a_snapshot_carries_could_hold_a_credential() {
         secrets(),
         provider,
         player(),
+        clock(),
     )
     .expect("a Host over a store starts");
     host.dispatch(action(&format!(r#"{{"type":"add_addon","url":"{url}"}}"#)))
@@ -408,5 +417,14 @@ impl Store for CountingStore {
     fn write_addons(&self, addons: &[host_core::Addon]) -> Result<(), StoreError> {
         self.writes.fetch_add(1, Ordering::SeqCst);
         self.inner.write_addons(addons)
+    }
+
+    fn read_watch_progress(&self) -> Result<Vec<host_core::WatchProgress>, StoreError> {
+        self.inner.read_watch_progress()
+    }
+
+    fn write_watch_progress(&self, progress: &host_core::WatchProgress) -> Result<(), StoreError> {
+        self.writes.fetch_add(1, Ordering::SeqCst);
+        self.inner.write_watch_progress(progress)
     }
 }

@@ -20,6 +20,26 @@ pub(crate) fn load(url: &StreamUrl) -> (&'static str, Vec<String>) {
     )
 }
 
+/// The option that starts the next file where a resume left off, in mpv's own
+/// spelling: a number of seconds, or `none` for the file's own beginning.
+///
+/// `start` is a property mpv reads when it *loads* a file, not a command it
+/// applies afterwards — which is why it is set before [`load`] rather than sent
+/// as a seek, and why opening is where it belongs. It is set on every open,
+/// `none` included, so that a Stream opened after a resume does not inherit the
+/// position the resume began at. It is a *string* property, and mpv refuses a
+/// number with `MPV_ERROR_PROPERTY_FORMAT`; `none` rather than `no` is mpv's own
+/// word for unset, which is what a plain read of it answers (verified against
+/// mpv 0.37, the version this container builds against).
+pub(crate) fn start(start: Option<f64>) -> (&'static str, String) {
+    (
+        "start",
+        start
+            .map(|seconds| seconds.to_string())
+            .unwrap_or_else(|| "none".to_owned()),
+    )
+}
+
 /// The command that lets the Stream go.
 pub(crate) fn stop() -> (&'static str, Vec<String>) {
     ("stop", Vec::new())
@@ -132,6 +152,20 @@ mod tests {
             )
         );
         assert_eq!(stop(), ("stop", Vec::new()));
+    }
+
+    #[test]
+    fn a_resume_point_is_mpvs_own_start_option() {
+        assert_eq!(
+            start(Some(402.5)),
+            ("start", "402.5".to_owned()),
+            "a resume begins where the Host's Watch progress left off"
+        );
+        assert_eq!(
+            start(None),
+            ("start", "none".to_owned()),
+            "and a Stream with no resume point begins at its beginning"
+        );
     }
 
     #[test]

@@ -9,7 +9,10 @@ mod migrations;
 use std::path::Path;
 use std::sync::Mutex;
 
-use host_core::{Addon, Manifest, ManifestUrl, Preferences, Store, StoreError, SubtitleLanguage};
+use host_core::{
+    Addon, AddonId, Manifest, ManifestUrl, Preferences, Store, StoreError, SubtitleLanguage,
+    TitleCard, TitleStub, VideoRef, WatchProgress,
+};
 use rusqlite::{params, Connection};
 
 pub use migrations::{latest_version, migrate, schema_version, Migration, MIGRATIONS};
@@ -177,6 +180,124 @@ impl Store for SqliteStore {
                 )
                 .map_err(StoreError::write)?;
         }
+
+        transaction.commit().map_err(StoreError::write)
+    }
+
+    fn read_watch_progress(&self) -> Result<Vec<WatchProgress>, StoreError> {
+        let connection = self.locked()?;
+        let mut statement = connection
+            .prepare(
+                "SELECT video_type, video_id, title_addon, title_id, title_type, title_name,
+                        title_poster, position, duration, watched, updated_at
+                 FROM watch_progress ORDER BY updated_at DESC",
+            )
+            .map_err(StoreError::read)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, Option<String>>(6)?,
+                    row.get::<_, Option<f64>>(7)?,
+                    row.get::<_, Option<f64>>(8)?,
+                    row.get::<_, i64>(9)?,
+                    row.get::<_, i64>(10)?,
+                ))
+            })
+            .map_err(StoreError::read)?;
+
+        let mut watch = Vec::new();
+        for row in rows {
+            // Nothing here is named in the message: a Title's addon and id are
+            // the owner's library, and a read failure ends up in a log or in an
+            // error a client sees.
+            let (
+                video_type,
+                video_id,
+                title_addon,
+                title_id,
+                title_type,
+                title_name,
+                title_poster,
+                position,
+                duration,
+                watched,
+                updated_at,
+            ) = row.map_err(StoreError::read)?;
+
+            let video = VideoRef::parse(&video_type, &video_id).map_err(|_| StoreError::Read {
+                detail: "a stored Watch progress entry names no Video".to_owned(),
+            })?;
+            let addon = AddonId::parse(&title_addon).map_err(|_| StoreError::Read {
+                detail: "a stored Watch progress entry names no Addon".to_owned(),
+            })?;
+            // The Title is read back through the same judgement it was written
+            // with, so a row that somehow drifted cannot reach a Snapshot.
+            let title = TitleStub::parse(&TitleCard {
+                addon,
+                id: title_id,
+                r#type: title_type,
+                name: title_name,
+                poster: title_poster,
+            })
+            .map_err(|_| StoreError::Read {
+                detail: "a stored Watch progress entry names no Title".to_owned(),
+            })?;
+
+            watch.push(WatchProgress {
+                video,
+                title,
+                position,
+                duration,
+                watched: watched != 0,
+                updated_at,
+            });
+        }
+
+        Ok(watch)
+    }
+
+    fn write_watch_progress(&self, progress: &WatchProgress) -> Result<(), StoreError> {
+        let mut connection = self.locked()?;
+        let transaction = connection.transaction().map_err(StoreError::write)?;
+
+        transaction
+            .execute(
+                "INSERT INTO watch_progress
+                     (video_id, video_type, title_addon, title_id, title_type, title_name,
+                      title_poster, position, duration, watched, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                 ON CONFLICT(video_id) DO UPDATE SET
+                     video_type   = excluded.video_type,
+                     title_addon  = excluded.title_addon,
+                     title_id     = excluded.title_id,
+                     title_type   = excluded.title_type,
+                     title_name   = excluded.title_name,
+                     title_poster = excluded.title_poster,
+                     position     = excluded.position,
+                     duration     = excluded.duration,
+                     watched      = excluded.watched,
+                     updated_at   = excluded.updated_at",
+                params![
+                    progress.video.id,
+                    progress.video.r#type,
+                    progress.title.addon().as_str(),
+                    progress.title.id(),
+                    progress.title.r#type(),
+                    progress.title.name(),
+                    progress.title.poster(),
+                    progress.position,
+                    progress.duration,
+                    i64::from(progress.watched),
+                    progress.updated_at,
+                ],
+            )
+            .map_err(StoreError::write)?;
 
         transaction.commit().map_err(StoreError::write)
     }

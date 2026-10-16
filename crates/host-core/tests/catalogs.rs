@@ -6,15 +6,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use host_core::{
-    Action, ActionError, AddonProvider, CatalogRow, FetchError, Fetcher, FixtureFetcher,
-    FixturePlayer, Host, InMemorySecretStore, InMemoryStore, Provider, Response, SecretBackend,
-    Store, ACTION_VERSION,
+    Action, ActionError, AddonProvider, CatalogRow, FetchError, Fetcher, FixtureClock,
+    FixtureFetcher, FixturePlayer, Host, InMemorySecretStore, InMemoryStore, Provider, Response,
+    SecretBackend, Store, ACTION_VERSION,
 };
 
 /// A Player a test drives by hand: nothing plays unless a test says so, and
 /// every telling is remembered.
 fn player() -> Arc<FixturePlayer> {
     Arc::new(FixturePlayer::new())
+}
+
+/// A clock a test drives by hand, for the Watch progress a play records (#29).
+fn clock() -> Arc<FixtureClock> {
+    Arc::new(FixtureClock::new())
 }
 
 /// A Host needs somewhere to look a credential up; tests hold theirs here.
@@ -120,6 +125,7 @@ fn host_with_recorded_addons() -> (Host, Arc<FixtureFetcher>) {
         secrets(),
         provider(&fetcher),
         player(),
+        clock(),
     )
     .expect("a Host over a store starts");
     configure(&mut host, CINEMETA);
@@ -486,6 +492,7 @@ fn a_page_the_addon_said_may_outlive_itself_is_served_when_the_addon_goes_away()
         secrets(),
         Arc::new(AddonProvider::new(switchboard.clone())),
         player(),
+        clock(),
     )
     .expect("a Host over a store starts");
     configure(&mut host, SEARCHABLE);
@@ -518,6 +525,7 @@ fn a_page_the_addon_said_nothing_about_serving_stale_is_reported_when_it_fails()
         secrets(),
         Arc::new(AddonProvider::new(switchboard.clone())),
         player(),
+        clock(),
     )
     .expect("a Host over a store starts");
     configure(&mut host, SEARCHABLE);
@@ -656,6 +664,7 @@ fn host_over(fetcher: Arc<FixtureFetcher>) -> Host {
         secrets(),
         provider(&fetcher),
         player(),
+        clock(),
     )
     .expect("a Host over a store starts")
 }

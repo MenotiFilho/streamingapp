@@ -3,6 +3,8 @@ use crate::playback::{
     Aspect, ChapterStep, ChosenStream, Crop, PlaybackSession, SeekTarget, TrackId, TrackKind,
 };
 use crate::preferences::{Preferences, SubtitleLanguage};
+use crate::progress::{TitleStub, WatchProgress};
+use crate::request::VideoRef;
 use crate::secret::SecretBackend;
 
 /// The Host's state, as the Host holds it.
@@ -25,6 +27,10 @@ pub(crate) struct State {
     /// playback does not survive a restart (#29's Watch progress is the part
     /// that does).
     playback: PlaybackSession,
+    /// The library: one entry per Video the Host has Watch progress in, most
+    /// recently written first. Loaded from the store at startup, so a Host that
+    /// was killed mid-Stream comes back knowing where it was.
+    watch: Vec<WatchProgress>,
 }
 
 /// Which credentials the Host is known to hold, and where the store that holds
@@ -39,18 +45,21 @@ pub(crate) struct Protection {
 }
 
 impl State {
-    /// The state, holding these preferences, these Addons, and this protection
-    /// — with nothing playing, which is how every Host starts.
+    /// The state, holding these preferences, these Addons, this protection and
+    /// this Watch progress — with nothing playing, which is how every Host
+    /// starts.
     pub(crate) fn holding(
         preferences: Preferences,
         addons: Vec<Addon>,
         protection: Protection,
+        watch: Vec<WatchProgress>,
     ) -> Self {
         Self {
             preferences,
             addons,
             protection,
             playback: PlaybackSession::idle(),
+            watch,
         }
     }
 
@@ -68,6 +77,17 @@ impl State {
 
     pub(crate) fn playback(&self) -> &PlaybackSession {
         &self.playback
+    }
+
+    /// The library, most recently written first.
+    pub(crate) fn watch(&self) -> &[WatchProgress] {
+        &self.watch
+    }
+
+    /// The Watch progress the Host holds for a Video, where it holds any: what a
+    /// resume point is read from and what a next episode carries its Title from.
+    pub(crate) fn watch_for(&self, video: &VideoRef) -> Option<&WatchProgress> {
+        self.watch.iter().find(|entry| &entry.video == video)
     }
 
     /// What is playing, as the Player's latest report leaves it.
@@ -94,8 +114,9 @@ impl State {
     /// Take one change, and say which part of the store it left behind.
     ///
     /// Pure: no I/O, and nothing to fail — the I/O an Action needed was done
-    /// before this point, by [`Change`]'s construction.
-    pub(crate) fn apply(&mut self, change: Change) -> Persist {
+    /// before this point, by [`Change`]'s construction. `now` is the moment the
+    /// change is taken, stamped onto the Watch progress it writes (#29).
+    pub(crate) fn apply(&mut self, change: Change, now: i64) -> Persist {
         match change {
             Change::SetSubtitleLanguage(language) => {
                 self.preferences.set_subtitle_language(Some(language));
@@ -116,6 +137,9 @@ impl State {
                 Persist::Addons
             }
             Change::RemoveAddon(id) => {
+                // The Addon goes and its Titles stay: an entry whose Addon is no
+                // longer configured is a stub the Snapshot marks unplayable, not
+                // a row that vanishes with it (#29).
                 self.addons.retain(|held| held.id() != &id);
                 Persist::Addons
             }
@@ -134,17 +158,33 @@ impl State {
             }
             // Playback is state every client shares and no store keeps: what
             // was on screen when a Host stopped is not what it resumes with.
-            Change::Play(chosen) => {
-                self.playback = PlaybackSession::opening(chosen);
-                Persist::Nothing
+            // The Watch progress that outlives it is written beside it, and it
+            // is the part of a play that *is* stored.
+            Change::Play {
+                chosen,
+                title,
+                start,
+            } => {
+                let video = chosen.now_playing.video.clone();
+                self.playback = PlaybackSession::opening(*chosen);
+
+                match title {
+                    Some(title) => Persist::Watch(Box::new(
+                        self.put_watch(WatchProgress::starting(video, *title, start, now)),
+                    )),
+                    // A Stream with no Title behind it — a next episode whose
+                    // Title the Host was never told — is played and not
+                    // recorded: the entry a library is a card of is the Title.
+                    None => Persist::Nothing,
+                }
             }
             Change::SetPaused(paused) => {
                 self.playback.set_paused(paused);
-                Persist::Nothing
+                self.touch(now)
             }
             Change::Seek(target) => {
                 self.playback.seek(target);
-                Persist::Nothing
+                self.touch(now)
             }
             Change::SetAudioTrack(track) => {
                 self.playback.select(TrackKind::Audio, Some(track));
@@ -183,10 +223,51 @@ impl State {
                 Persist::Nothing
             }
             Change::Stop => {
+                // Where the Stream got to is written before it is let go: after
+                // the stop there is no position to read, and an unclean exit is
+                // exactly the case this is for.
+                let persist = self.touch(now);
                 self.playback.stop();
-                Persist::Nothing
+                persist
             }
         }
+    }
+
+    /// Fold where playback is into the Watch progress for the Video playing, and
+    /// say what the store must be told — or nothing when writing would say the
+    /// same thing twice.
+    ///
+    /// `force` is for a change a client made: a pause, a seek, a stop. The write
+    /// is worth making then even though the Player's next report would move the
+    /// position again, because it is the last thing the Host was *told* and what
+    /// an unclean exit keeps. A tick of the Player's clock does not force it, and
+    /// is written only when playback has moved [`crate::PROGRESS_EVERY`] seconds.
+    pub(crate) fn refresh_watch(&mut self, now: i64, force: bool) -> Option<WatchProgress> {
+        let video = self.playback.chosen()?.now_playing.video.clone();
+        let stored = self.watch.iter().find(|entry| entry.video == video)?;
+        let next = stored.playing(self.playback.position(), self.playback.duration(), now);
+
+        if !force && !next.worth_writing(stored) {
+            return None;
+        }
+
+        Some(self.put_watch(next))
+    }
+
+    /// The same, as a [`Persist`] — what the Player moving leaves the store.
+    fn touch(&mut self, now: i64) -> Persist {
+        match self.refresh_watch(now, true) {
+            Some(entry) => Persist::Watch(Box::new(entry)),
+            None => Persist::Nothing,
+        }
+    }
+
+    /// Put one entry where it belongs: one per Video, and the one just written
+    /// leads the library, so "most recent" is the order it is held in.
+    fn put_watch(&mut self, entry: WatchProgress) -> WatchProgress {
+        self.watch.retain(|held| held.video != entry.video);
+        self.watch.insert(0, entry.clone());
+        entry
     }
 }
 
@@ -214,10 +295,22 @@ pub(crate) enum Change {
     },
     ClearTmdbKey,
     /// A Stream was chosen and the Player agreed to open it, so the Host is on
-    /// that Stream from here on and the open is in flight.
-    Play(ChosenStream),
+    /// that Stream from here on and the open is in flight. `title` is the Title
+    /// the Video belongs to, where the Host was told it: the library records the
+    /// Video's progress against it, and a play with no Title behind it — a next
+    /// episode whose Title the Host never saw — is played and not recorded.
+    /// `start` is where the open begins, which is a resume point and `None` for
+    /// a Stream that starts at its beginning. Boxed because a `ChosenStream` and
+    /// a `TitleStub` are both many words wide and every other variant here is a
+    /// word or two.
+    Play {
+        chosen: Box<ChosenStream>,
+        title: Option<Box<TitleStub>>,
+        start: Option<f64>,
+    },
     /// The Player was told to hold the picture or let it run. Like the change
-    /// the credentials make, this is not something the store keeps.
+    /// the credentials make, this is not something the store keeps — except the
+    /// Watch progress written beside it.
     SetPaused(bool),
     /// The Player was told to move, and the Host's own record of where playback
     /// is moved with it — the Player's next report is what corrects it.
@@ -242,10 +335,15 @@ pub(crate) enum Change {
 
 /// Which part of the store a [`Change`] leaves out of date, so the Host knows
 /// what to write back — and what not to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Persist {
     Preferences,
     Addons,
+    /// One Video's Watch progress was written: the store keeps it, and the entry
+    /// here is what it is to be written as. Boxed because an entry is a Title
+    /// and a Video and is many times the width of the two words the other
+    /// variants carry.
+    Watch(Box<WatchProgress>),
     /// Nothing the store holds was left behind: the change was made somewhere
     /// else, or touched nothing the store keeps.
     Nothing,

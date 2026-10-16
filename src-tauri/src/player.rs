@@ -101,7 +101,7 @@ impl Player for NoPlayer {
         Picture::Nowhere
     }
 
-    fn open(&self, _url: &StreamUrl) -> Result<(), PlaybackError> {
+    fn open(&self, _url: &StreamUrl, _start: Option<f64>) -> Result<(), PlaybackError> {
         Err(self.refusal())
     }
 

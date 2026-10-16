@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::addon::Manifest;
 use crate::playback::{Picture, PlaybackSnapshot};
 use crate::preferences::SubtitleLanguage;
+use crate::progress::ResumeEntry;
 use crate::secret::SecretBackend;
 use crate::state::State;
 
@@ -36,6 +37,12 @@ pub struct Snapshot {
     /// thing about credentials that is not itself one, and is what the interface
     /// shows when it says how exposed they are.
     pub protection: ProtectionSnapshot,
+    /// The library: one entry per Video the Host has Watch progress in, most
+    /// recently played first. This is the shared state the spec names beside
+    /// playback — what is in the library, and where in each Video the owner got
+    /// to — so it travels as a Snapshot rather than as an answer, and every
+    /// client sees the same Continue watching row (#29).
+    pub watch_progress: Vec<ResumeEntry>,
 }
 
 /// The preference fields a client may see.
@@ -82,6 +89,11 @@ impl Snapshot {
                 backend: state.protection().backend,
                 tmdb_held: state.protection().tmdb_held,
             },
+            watch_progress: state
+                .watch()
+                .iter()
+                .map(|entry| entry.resume_entry(state.has_addon(entry.title.addon())))
+                .collect(),
         }
     }
 }

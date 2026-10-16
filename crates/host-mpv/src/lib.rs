@@ -382,7 +382,7 @@ impl Player for MpvPlayer {
         self.picture
     }
 
-    fn open(&self, url: &StreamUrl) -> Result<(), PlaybackError> {
+    fn open(&self, url: &StreamUrl, start: Option<f64>) -> Result<(), PlaybackError> {
         // Whatever the last open left behind is over: an ending already in the
         // queue is about the Stream being replaced, not the one being asked
         // for, and taking it for the new one would report a failure that was
@@ -399,6 +399,16 @@ impl Player for MpvPlayer {
         // Stream sitting at 0:00 offering Play. Opening a Stream means playing
         // it, whatever the last one was left doing.
         self.tell(Telling::Pause(false))?;
+
+        // Where a resume begins, set before the file is loaded because that is
+        // when mpv reads it: a seek sent afterwards would move a Stream that has
+        // already started in the wrong place.
+        let (option, value) = telling::start(start);
+        self.mpv
+            .set_property(option, value.as_str())
+            .map_err(|error| PlaybackError::Command {
+                detail: error.to_string(),
+            })?;
 
         // An open that mpv will not even take is the one failure this call can
         // report: whether the *Stream* opens is found out later, in `observe`.

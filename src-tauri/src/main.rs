@@ -105,6 +105,7 @@ fn main() {
                 secrets.into(),
                 Arc::new(AddonProvider::new(fetcher)),
                 player,
+                Arc::new(host_core::SystemClock),
             )?));
             // Held, not read: the guard inside keeps the log writer alive for as
             // long as the Host runs.

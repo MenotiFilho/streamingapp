@@ -4,12 +4,14 @@ use crate::action::{Action, ActionError, ValidatedAction};
 use crate::addon::{Addon, AddonId, Manifest};
 use crate::cache::CatalogCache;
 use crate::catalog::{CatalogRow, Page};
+use crate::clock::Clock;
 use crate::fetcher::Fetcher;
 use crate::meta::Title;
 use crate::playback::{
     ChapterStep, ChosenStream, Control, Observation, Picture, PlaybackState, Player, Telling,
-    TrackId, TrackKind,
+    TrackId, TrackKind, Unplayable,
 };
+use crate::progress::TitleStub;
 use crate::provider::Provider;
 use crate::request::{
     CatalogRef, Extra, ResourceRequest, TitleRef, VideoRef, CATALOG, META, STREAM, SUBTITLES,
@@ -44,6 +46,10 @@ pub struct Host {
     /// What plays a Stream. The real Host is built with mpv, in-process; a test
     /// hands in a fake.
     player: Arc<dyn Player>,
+    /// The Host's clock: the one reading of time it makes, stamped onto the
+    /// Watch progress it writes (#29). A seam, like the Player, so that "most
+    /// recently played" is a fact a test decides.
+    clock: Arc<dyn Clock>,
     /// Where the Player puts the picture, asked of it once: a fact about the
     /// machine rather than about a Stream, and one every Snapshot carries so a
     /// client sharing the Host's window knows where the hole for it goes.
@@ -73,6 +79,7 @@ impl Host {
         secrets: Arc<dyn SecretStore>,
         provider: Arc<dyn Provider>,
         player: Arc<dyn Player>,
+        clock: Arc<dyn Clock>,
     ) -> Result<Self, StoreError> {
         let tmdb_held = match secrets.read(CredentialKind::TmdbKey) {
             Ok(Some(_)) => true,
@@ -89,6 +96,7 @@ impl Host {
                 backend: secrets.backend(),
                 tmdb_held,
             },
+            store.read_watch_progress()?,
         );
         let picture = player.picture();
         // The subtitle language the owner stored is told to the Player once,
@@ -105,6 +113,7 @@ impl Host {
             secrets,
             provider,
             player,
+            clock,
             picture,
             state,
             revision: 0,
@@ -135,11 +144,13 @@ impl Host {
         };
 
         let mut next = self.state.clone();
-        let persist = next.apply(change);
+        let persist = next.apply(change, self.clock.now_millis());
         match persist {
             Persist::Preferences => self.store.write_preferences(next.preferences()),
             Persist::Addons => self.store.write_addons(next.addons()),
-            // The credential lives where the secret store keeps it; nothing the
+            // One Video's Watch progress, written where it happened: the part of
+            // a play that outlives the play (#29).
+            Persist::Watch(entry) => self.store.write_watch_progress(&entry), // The credential lives where the secret store keeps it; nothing the
             // non-secret store holds was left behind.
             Persist::Nothing => Ok(()),
         }
@@ -181,6 +192,18 @@ impl Host {
         let next = self.state.playback().advanced(&observation)?;
 
         self.state.set_playback(next);
+
+        // Where playback has got to is Watch progress the moment it is worth
+        // writing — a position that moved a few seconds, a Video that finished,
+        // a duration that arrived — and it is written *now* rather than on a
+        // stop, which is what survives a Host killed mid-Stream (#29). A store
+        // that refuses the write loses this tick and not the Stream: the next
+        // write is seconds away, and playback is not the store's to stop.
+        let now = self.clock.now_millis();
+        if let Some(entry) = self.state.refresh_watch(now, false) {
+            let _ = self.store.write_watch_progress(&entry);
+        }
+
         self.revision += 1;
         Some(self.snapshot())
     }
@@ -418,16 +441,35 @@ impl Host {
                     .collect();
                 Resolved::Answer(Answer::Streams(groups))
             }
-            ValidatedAction::PlayStream(chosen) => {
+            ValidatedAction::PlayStream { chosen, title } => {
                 // The Player is handed the URL and nothing else; whether the
                 // Stream it leads to opens is found out later, through
-                // `observe`, because agreeing to try is not playing.
+                // `observe`, because agreeing to try is not playing. The Title
+                // rides along so the play is recorded as progress in a Video of
+                // it (#29), and a fresh play starts at the Stream's beginning.
                 self.player
-                    .open(&chosen.url)
+                    .open(&chosen.url, None)
                     .map_err(|error| ActionError::Playback {
                         detail: error.to_string(),
                     })?;
-                Resolved::Change(Change::Play(*chosen))
+                Resolved::Change(Change::Play {
+                    chosen,
+                    title: Some(Box::new(title)),
+                    start: None,
+                })
+            }
+            ValidatedAction::Resume { video } => {
+                let (chosen, title, start) = self.resume(&video)?;
+                self.player
+                    .open(&chosen.url, start)
+                    .map_err(|error| ActionError::Playback {
+                        detail: error.to_string(),
+                    })?;
+                Resolved::Change(Change::Play {
+                    chosen: Box::new(chosen),
+                    title: Some(Box::new(title)),
+                    start,
+                })
             }
             ValidatedAction::SetPaused { paused } => {
                 self.playing(Control::Pause)?;
@@ -509,12 +551,20 @@ impl Host {
                 // so this is a change like a `PlayStream` and not a telling.
                 self.playing(Control::NextEpisode)?;
                 let chosen = self.next_episode()?;
+                // The Title that is playing's is the next episode's too — the
+                // Host was told it when the Stream started — so the new Video's
+                // progress is recorded against the same card.
+                let title = self.playing_title();
                 self.player
-                    .open(&chosen.url)
+                    .open(&chosen.url, None)
                     .map_err(|error| ActionError::Playback {
                         detail: error.to_string(),
                     })?;
-                Resolved::Change(Change::Play(chosen))
+                Resolved::Change(Change::Play {
+                    chosen: Box::new(chosen),
+                    title: title.map(Box::new),
+                    start: None,
+                })
             }
             ValidatedAction::StopPlayback => {
                 // A stop is allowed whenever the Host is on a Stream at all,
@@ -666,6 +716,75 @@ impl Host {
             })
     }
 
+    /// The Stream a resume plays and where in it to start, or why the Host will
+    /// not resume the Video.
+    ///
+    /// The Host reads its own Watch progress — the client names only the Video —
+    /// asks every configured Addon that answers for its Streams, and takes the
+    /// first candidate it can play. The Addon that supplied the Title has to
+    /// still be configured: an entry whose Addon is gone is a stub the Snapshot
+    /// marks unplayable, and opening it through some other Addon would be a
+    /// different Title wearing its card (#29).
+    fn resume(
+        &self,
+        video: &VideoRef,
+    ) -> Result<(ChosenStream, TitleStub, Option<f64>), ActionError> {
+        let entry =
+            self.state
+                .watch_for(video)
+                .cloned()
+                .ok_or_else(|| ActionError::NoProgress {
+                    video: video.clone(),
+                })?;
+
+        if !self.state.has_addon(entry.title.addon()) {
+            return Err(ActionError::Unplayable(Unplayable {
+                detail: format!(
+                    "the Addon {} that supplied this Title is no longer configured",
+                    entry.title.addon()
+                ),
+            }));
+        }
+
+        let requested = ResourceRequest::new(STREAM, &video.r#type, &video.id);
+        let mut chosen = None;
+        for addon in self.state.addons() {
+            if !addon.manifest().answers(&requested) {
+                continue;
+            }
+            let Ok(streams) = self.provider.streams(addon, &requested) else {
+                continue;
+            };
+            if let Some(candidate) = streams
+                .iter()
+                .find_map(|stream| playable(video, addon.id(), stream))
+            {
+                chosen = Some(candidate);
+                break;
+            }
+        }
+
+        let chosen = chosen.ok_or_else(|| {
+            ActionError::Unplayable(Unplayable {
+                detail: format!(
+                    "no configured Addon offers a Stream this Host can play for {video}"
+                ),
+            })
+        })?;
+
+        Ok((chosen, entry.title, entry.position))
+    }
+
+    /// The Title of the Video playing, as the Host was told it — which is also
+    /// the next episode's Title. `None` for a Stream the Host was never told a
+    /// Title of, which is played and not recorded.
+    fn playing_title(&self) -> Option<TitleStub> {
+        let video = self.state.playback().chosen()?.now_playing.video.clone();
+        self.state
+            .watch_for(&video)
+            .map(|entry| entry.title.clone())
+    }
+
     /// One configured Addon, or the refusal that names it.
     fn addon(&self, id: &AddonId) -> Result<Addon, ActionError> {
         self.state
@@ -675,7 +794,6 @@ impl Host {
                 id: id.as_str().to_owned(),
             })
     }
-
     /// One catalog row: what is cached, or what the Addon answers, or why it
     /// could not answer — with what was cached served instead when the Addon
     /// said it may be.

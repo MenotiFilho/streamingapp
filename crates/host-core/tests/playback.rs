@@ -6,9 +6,9 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, AddonProvider, FixtureFetcher, FixturePlayer, Host, InMemorySecretStore,
-    InMemoryStore, Observation, PlaybackError, PlaybackState, SecretBackend, SeekTarget, Snapshot,
-    Store, Telling, ACTION_VERSION,
+    Action, ActionError, AddonProvider, FixtureClock, FixtureFetcher, FixturePlayer, Host,
+    InMemorySecretStore, InMemoryStore, Observation, PlaybackError, PlaybackState, SecretBackend,
+    SeekTarget, Snapshot, Store, Telling, ACTION_VERSION,
 };
 
 /// The URL a recorded debrid answer would carry, with a session in it — the
@@ -22,12 +22,20 @@ fn action(body: &serde_json::Value) -> Action {
 }
 
 /// What a client sends when it chooses a candidate: the Video it asked Streams
-/// for, the Addon whose answer it was, and the candidate itself, verbatim.
+/// for, the Addon whose answer it was, the Title it was reading, and the
+/// candidate itself, verbatim.
 fn a_chosen_stream() -> serde_json::Value {
     serde_json::json!({
         "type": "play_stream",
         "video": { "type": "movie", "id": "tt0133093" },
         "addon": "community.aiostreams",
+        "title": {
+            "addon": "com.linvo.cinemeta",
+            "id": "tt0133093",
+            "type": "movie",
+            "name": "The Matrix",
+            "poster": "https://images.example.org/matrix.jpg",
+        },
         "stream": {
             "name": "AIOStreams\n1080p",
             "description": "The Matrix 1999 1080p BluRay x265-GROUP\n👤 112 💾 4.21 GB",
@@ -59,6 +67,7 @@ fn fixture_over(store: Arc<dyn Store>) -> Fixture {
         Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
         provider,
         player.clone(),
+        Arc::new(FixtureClock::new()),
     )
     .expect("a Host over a store starts");
 
@@ -520,6 +529,7 @@ fn a_player_that_refuses_leaves_the_state_exactly_as_it_was() {
         Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
         provider,
         player,
+        Arc::new(FixtureClock::new()),
     )
     .expect("a Host over a store starts");
     let before = host.snapshot();

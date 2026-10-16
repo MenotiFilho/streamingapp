@@ -5,8 +5,8 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, AddonProvider, FetchError, FixtureFetcher, FixturePlayer, Host,
-    InMemorySecretStore, InMemoryStore, Manifest, Snapshot, Store, ACTION_VERSION,
+    Action, ActionError, AddonProvider, FetchError, FixtureClock, FixtureFetcher, FixturePlayer,
+    Host, InMemorySecretStore, InMemoryStore, Manifest, Snapshot, Store, ACTION_VERSION,
 };
 
 /// Recorded manifests, and the URLs they answer on.
@@ -34,10 +34,16 @@ fn player() -> Arc<FixturePlayer> {
     Arc::new(FixturePlayer::new())
 }
 
+/// A clock a test drives by hand, for the Watch progress a play records (#29).
+fn clock() -> Arc<FixtureClock> {
+    Arc::new(FixtureClock::new())
+}
+
 fn host_over(store: Arc<dyn Store>, fetcher: FixtureFetcher) -> Host {
     let fetcher = Arc::new(fetcher);
     let provider = Arc::new(AddonProvider::new(fetcher.clone()));
-    Host::new(store, fetcher, secrets(), provider, player()).expect("a Host over a store starts")
+    Host::new(store, fetcher, secrets(), provider, player(), clock())
+        .expect("a Host over a store starts")
 }
 
 /// The in-memory stand-in for the OS keyring: tests speak a credential into it
@@ -64,6 +70,7 @@ fn host_with_recorded_addons() -> (Host, Arc<InMemoryStore>, Arc<FixtureFetcher>
         secrets(),
         provider,
         player(),
+        clock(),
     )
     .expect("a Host over a store starts");
     (host, store, fetcher)
