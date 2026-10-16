@@ -25,6 +25,10 @@ use crate::addon::{MAX_STRING_LEN, MAX_URL_LEN};
 /// search control lives.
 pub const CATALOG: &str = "catalog";
 
+/// The resource that answers with one item's metadata — what opening a Title
+/// asks for.
+pub const META: &str = "meta";
+
 /// The `extra` name that carries a search query.
 pub const SEARCH: &str = "search";
 
@@ -129,18 +133,8 @@ impl std::fmt::Display for CatalogRef {
 impl CatalogRef {
     /// A catalog named by its type and id, or why the Host will not ask for it.
     pub fn parse(r#type: &str, id: &str) -> Result<Self, InvalidCatalogRef> {
-        let invalid = |which| InvalidCatalogRef {
-            which,
-            value: if which == "type" { r#type } else { id }.to_owned(),
-        };
-
-        for (which, value) in [("type", r#type), ("id", id)] {
-            if value.is_empty() || value.len() > MAX_STRING_LEN {
-                return Err(invalid(which));
-            }
-            if value.chars().any(|c| c.is_control() || c.is_whitespace()) {
-                return Err(invalid(which));
-            }
+        if let Some((which, value)) = unusable(r#type, id) {
+            return Err(InvalidCatalogRef { which, value });
         }
 
         Ok(Self {
@@ -150,10 +144,76 @@ impl CatalogRef {
     }
 }
 
+/// Which Title a meta request is about: the type and id an item carried, as its
+/// Addon indexes it.
+///
+/// The same `{type}/{id}` pair a [`CatalogRef`] is, because the protocol names
+/// both the same way — what differs is only what the Host is asked for, and the
+/// two are never the same request. Kept a type of its own so that a message about
+/// a Title does not name a catalog.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TitleRef {
+    /// The content type: `movie`, `series`, `channel`, `tv`, …
+    #[serde(rename = "type")]
+    pub r#type: String,
+    /// The id the Addon indexes the Title by: `tt0903747`, `tmdb:603`.
+    pub id: String,
+}
+
+impl std::fmt::Display for TitleRef {
+    /// How a Title is named in a message a person reads: `series/tt0903747`.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.r#type, self.id)
+    }
+}
+
+impl TitleRef {
+    /// A Title named by its type and id, or why the Host will not open it.
+    pub fn parse(r#type: &str, id: &str) -> Result<Self, InvalidTitleRef> {
+        if let Some((which, value)) = unusable(r#type, id) {
+            return Err(InvalidTitleRef { which, value });
+        }
+
+        Ok(Self {
+            r#type: r#type.to_owned(),
+            id: id.to_owned(),
+        })
+    }
+}
+
+/// Which of a `{type}/{id}` pair is not usable, and the value offered for it.
+///
+/// A catalog and a Title are addressed the same way — `{type}/{id}` — so what a
+/// usable pair is is decided once and applied by both references. A value is
+/// usable when it says something, is short enough to put in a URL, and carries
+/// no control character or space, which is what the path segment encoding would
+/// otherwise have to hide.
+fn unusable(r#type: &str, id: &str) -> Option<(&'static str, String)> {
+    for (which, value) in [("type", r#type), ("id", id)] {
+        if value.is_empty() || value.len() > MAX_STRING_LEN {
+            return Some((which, value.to_owned()));
+        }
+        if value.chars().any(|c| c.is_control() || c.is_whitespace()) {
+            return Some((which, value.to_owned()));
+        }
+    }
+
+    None
+}
+
 /// A string that is not a catalog type or id, offered as one.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
 #[error("{value:?} is not a catalog {which}")]
 pub struct InvalidCatalogRef {
+    pub which: &'static str,
+    pub value: String,
+}
+
+/// A string that is not a Title's type or id, offered as one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
+#[error("{value:?} is not a Title {which}")]
+pub struct InvalidTitleRef {
     pub which: &'static str,
     pub value: String,
 }
@@ -385,6 +445,36 @@ mod tests {
                 .to_string(),
             "movie/letterboxd-popular"
         );
+    }
+
+    #[test]
+    fn a_title_is_named_the_way_a_message_would_name_it() {
+        assert_eq!(
+            TitleRef::parse("series", "tt0903747")
+                .expect("a Title a request could name")
+                .to_string(),
+            "series/tt0903747"
+        );
+    }
+
+    #[test]
+    fn a_title_type_or_id_that_is_not_one_is_refused_and_says_which_it_was() {
+        for (r#type, id, which) in [
+            ("", "tt0903747", "type"),
+            ("series", "", "id"),
+            ("ser ies", "tt0903747", "type"),
+            ("series", "tt\t0903747", "id"),
+            ("series", &"a".repeat(MAX_STRING_LEN + 1), "id"),
+        ] {
+            assert_eq!(
+                TitleRef::parse(r#type, id),
+                Err(InvalidTitleRef {
+                    which,
+                    value: if which == "type" { r#type } else { id }.to_owned(),
+                }),
+                "{type:?}/{id:?} is not a Title, and the {which} is what is wrong with it"
+            );
+        }
     }
 
     #[test]

@@ -29,6 +29,7 @@ mod cache;
 mod catalog;
 mod fetcher;
 mod host;
+mod meta;
 mod preferences;
 mod request;
 mod response;
@@ -45,10 +46,11 @@ pub use addon::{
 pub use catalog::{CacheHints, CatalogError, CatalogRow, MetaPreview, Page, MAX_CATALOG_BYTES};
 pub use fetcher::{FetchError, Fetcher, FixtureFetcher};
 pub use host::Host;
+pub use meta::{MetaError, Title, Video, MAX_META_BYTES};
 pub use preferences::{InvalidSubtitleLanguage, Preferences, SubtitleLanguage};
 pub use request::{
-    CatalogRef, Extra, InvalidCatalogRef, InvalidExtra, ResourceRequest, CATALOG, MAX_EXTRAS,
-    SEARCH, SKIP,
+    CatalogRef, Extra, InvalidCatalogRef, InvalidExtra, InvalidTitleRef, ResourceRequest, TitleRef,
+    CATALOG, MAX_EXTRAS, META, SEARCH, SKIP,
 };
 pub use response::{Answer, Response};
 pub use snapshot::{PreferencesSnapshot, Snapshot};

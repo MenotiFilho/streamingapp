@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::addon::{AddonId, InvalidAddonId, InvalidManifestUrl, ManifestUrl, MAX_STRING_LEN};
 use crate::preferences::{InvalidSubtitleLanguage, SubtitleLanguage};
-use crate::request::{CatalogRef, Extra, InvalidCatalogRef, MAX_EXTRAS};
+use crate::request::{CatalogRef, Extra, InvalidCatalogRef, InvalidTitleRef, TitleRef, MAX_EXTRAS};
 
 /// The version of the Action wire form this Host speaks.
 ///
@@ -49,6 +49,18 @@ pub enum Action {
     },
     /// Search every configured Addon whose catalogs offer search.
     SearchCatalogs { query: String },
+    /// Open a Title: its metadata, and the Videos it can be watched as.
+    ///
+    /// A question rather than a change, like browsing: what one Addon says about
+    /// one item goes to the client that asked and to no one else (ADR-0005), so
+    /// it answers and publishes no Snapshot.
+    OpenTitle {
+        /// The Addon to ask, by the id its manifest gave — the Addon whose
+        /// catalog supplied the item.
+        addon: String,
+        /// The Title to open, by the type and id the item carried.
+        title: TitleRef,
+    },
 }
 
 impl Action {
@@ -126,6 +138,11 @@ impl Action {
                 let query = search_query(&query)?;
                 Ok(ValidatedAction::SearchCatalogs { query })
             }
+            Action::OpenTitle { addon, title } => {
+                let addon = AddonId::parse(&addon)?;
+                let title = TitleRef::parse(&title.r#type, &title.id)?;
+                Ok(ValidatedAction::OpenTitle { addon, title })
+            }
         }
     }
 }
@@ -188,6 +205,10 @@ pub enum ValidatedAction {
     SearchCatalogs {
         query: String,
     },
+    OpenTitle {
+        addon: AddonId,
+        title: TitleRef,
+    },
 }
 
 /// The wire form of an Action: a version and the Action.
@@ -215,6 +236,8 @@ pub enum ActionError {
     InvalidAddonId(#[from] InvalidAddonId),
     #[error("{0}")]
     InvalidCatalogRef(#[from] InvalidCatalogRef),
+    #[error("{0}")]
+    InvalidTitleRef(#[from] InvalidTitleRef),
     #[error("the Addon's manifest could not be read: {detail}")]
     Manifest { detail: String },
     #[error("{detail}")]
@@ -223,12 +246,16 @@ pub enum ActionError {
     UnknownAddon { id: String },
     #[error("the Addon {addon} offers no catalog {catalog}")]
     UnknownCatalog { addon: AddonId, catalog: CatalogRef },
+    #[error("the Addon {addon} offers no meta for {title}")]
+    UnknownTitle { addon: AddonId, title: TitleRef },
     #[error("{detail}")]
     Extra { detail: String },
     #[error("{detail}")]
     Query { detail: String },
     #[error("the Addon's catalog could not be read: {detail}")]
     Catalog { detail: String },
+    #[error("the Addon's meta response could not be read: {detail}")]
+    Meta { detail: String },
     #[error("the Host could not keep that change: {detail}")]
     Store { detail: String },
 }

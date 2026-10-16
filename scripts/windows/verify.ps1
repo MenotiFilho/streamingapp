@@ -432,28 +432,90 @@ Check 'the manifest URL is still nowhere in the window' (
 'review 10-catalog-rows.png: each row should show poster images, not empty frames'
 $revision = ([regex]::Match($text, 'Snapshot revision\s*\|\s*(\d+)')).Groups[1].Value
 
-'--- 11. the keyboard reaches a card, and OK chooses it'
-# The window's own words for a chosen Title, rather than the bare word
-# "Selected": an Addon's synopsis could say that.
-Check 'nothing was chosen yet' (
-    $text -notmatch 'arrives in #24') "showed: $text"
+'--- 11. the keyboard reaches a card, and OK opens the Title'
+# The Title surface is the way back, the metadata line naming the Addon that
+# answered, and — for a series — its seasons and episodes. Nothing above this is
+# a Title: which one a client has open is that client's own (ADR-0005), so the
+# rows are still what is showing and the revision has not moved.
+Check 'no Title is open yet' (
+    $text -notmatch 'This Title is one Video') "showed: $text"
 # From the search box: down past the Search button, onto the first card. The
 # focus is put there first rather than assumed.
 Focus-On $app 'Search the Addons that offer it' ([Windows.Automation.ControlType]::Edit)
 Press-Keys $app '{DOWN}{DOWN}'
 Press-Keys $app '{ENTER}'
-$text = Wait-Text $app 'arrives in #24' 10
-Shot $app '11-chosen.png'
-Check 'the arrow keys reached a card and OK chose it' (
-    $text -match 'arrives in #24') "showed: $text"
+$text = Wait-Text $app 'Back to browsing' 15
+Shot $app '11-title-opened.png'
+Check 'the arrow keys reached a card and OK opened the Title' (
+    $text -match 'Back to browsing') "showed: $text"
+Check 'the opened Title names the Addon that answered for it' (
+    $text -match ([regex]::Escape($AddonId) + ' · ')) "showed: $text"
+Check 'opening a Title is a question: the revision stands still' (
+    $text -match ('Snapshot revision\s*\|\s*' + $revision)) "showed: $text"
+$film = $text -match 'This Title is one Video'
+$series = $text -match 'Season \d+'
+$noEpisodes = $text -match 'listed no episodes'
+Check 'the opened Title is a film, or a series with its seasons' (
+    $film -or $series -or $noEpisodes) "showed: $text"
+$kind = 'film'
+if ($series) { $kind = 'series' }
+if ($noEpisodes) { $kind = 'series with no episodes listed' }
+"opened a $kind"
+'by hand: open a Title of the other kind too. A film says it is one Video and'
+'offers nothing to choose; a series shows a heading per season and an episode'
+'for each, and the screenshot is where a person checks the posters and the'
+'episode names. The series catalog of an Addon is a row like any other; the'
+'Title itself says which kind it is, in the line that names the Addon.'
 
-'--- 12. paging a row is not a change: the revision stands still'
+'--- 12. a series'' episodes are selectable'
+if ($series) {
+    # The Title's way back is its first focusable, so one press down lands on the
+    # first episode and OK chooses it. Nothing plays yet (#26/#27): the window
+    # says which episode this client has chosen.
+    Press-Keys $app '{DOWN}'
+    Press-Keys $app '{ENTER}'
+    $text = Wait-Text $app 'choosing a Stream arrives in' 10
+    Shot $app '12-episode-chosen.png'
+    Check 'an episode can be chosen, and the window says which' (
+        ($text -match 'Selected ') -and
+        ($text -match 'choosing a Stream arrives in')) "showed: $text"
+} else {
+    'the Title opened was a film, so there is no episode to choose here'
+}
+
+'--- 13. Back leaves the Title, and the same Title opens again'
+Press-Keys $app '{ESC}'
+$text = Wait-Text $app ([regex]::Escape($AddonCatalog)) 25
+Shot $app '13-title-back.png'
+Check 'Back returns to the rows' (
+    $text -match [regex]::Escape($AddonCatalog)) "showed: $text"
+Check 'and the Title surface is gone' (
+    $text -notmatch 'Back to browsing') "showed: $text"
+
+Focus-On $app 'Search the Addons that offer it' ([Windows.Automation.ControlType]::Edit)
+Press-Keys $app '{DOWN}{DOWN}'
+Press-Keys $app '{ENTER}'
+$text = Wait-Text $app 'Back to browsing' 15
+Shot $app '13-title-reopened.png'
+Check 'the same Title opens again' (
+    $text -match 'Back to browsing') "showed: $text"
+Check 'and opening it moved nothing either' (
+    $text -match ('Snapshot revision\s*\|\s*' + $revision)) "showed: $text"
+
+# Back out once more, so the steps below are on the rows rather than in a Title.
+Press-Keys $app '{ESC}'
+$text = Wait-Text $app ([regex]::Escape($AddonCatalog)) 25
+Check 'and Back leaves it again' (
+    ($text -match [regex]::Escape($AddonCatalog)) -and
+    ($text -notmatch 'Back to browsing')) "showed: $text"
+
+'--- 14. paging a row is not a change: the revision stands still'
 $more = Find-Element (Window-Root $app) ('More from ' + $AddonCatalog) ([Windows.Automation.ControlType]::Button) 10
 if ($more) {
     $more.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
     Start-Sleep -Seconds 3
     $text = Wait-No-Text $app 'Loading' 30
-    Shot $app '12-paged.png'
+    Shot $app '14-paged.png'
     Check 'the row paged on without emptying' (
         $text -match [regex]::Escape($AddonCatalog)) "showed: $text"
     Check 'paging is a question, not a change: the revision stands still' (
@@ -462,38 +524,38 @@ if ($more) {
     Check 'the Addon catalog offers a way to page on' $false 'no More button'
 }
 
-'--- 13. searching asks every Addon that offers it'
+'--- 15. searching asks every Addon that offers it'
 Set-Search $app $SearchQuery
 $text = Wait-Text $app 'Back to browsing' 30
-Shot $app '13-search.png'
+Shot $app '15-search.png'
 Check 'the search surface is showing' (
     $text -match 'Back to browsing') "showed: $text"
 Check 'the search did not move the revision either' (
     $text -match ('Snapshot revision\s*\|\s*' + $revision)) "showed: $text"
-'review 13-search.png: the results should be a row of posters, or a clear "no Addon answered"'
+'review 15-search.png: the results should be a row of posters, or a clear "no Addon answered"'
 
-'--- 14. Back returns to browsing, from the keyboard'
+'--- 16. Back returns to browsing, from the keyboard'
 # Escape is Back, so the whole of "arrows, OK and Back" is walked without the
 # mouse at least once (the mouse still works everywhere else in this run).
 Press-Keys $app '{ESC}'
 $text = Wait-Text $app ([regex]::Escape($AddonCatalog)) 25
-Shot $app '14-back.png'
+Shot $app '16-back.png'
 Check 'Back returns to the rows' (
     $text -match [regex]::Escape($AddonCatalog)) "showed: $text"
 Check 'and the search surface is gone' (
     $text -notmatch 'Back to browsing') "showed: $text"
 
-'--- 15. removing the Addon'
+'--- 17. removing the Addon'
 Press $app ('Remove ' + $AddonName)
 $text = Wait-Text $app 'No Addons are configured' 20
-Shot $app '15-addon-removed.png'
+Shot $app '17-addon-removed.png'
 Check 'the Addon is gone' ($text -match 'No Addons are configured') "showed: $text"
 Check 'and its rows are gone with it' (
     -not ($text -match [regex]::Escape($AddonCatalog))) "showed: $text"
 
 Stop-Host $app
 
-'--- 16. the manifest URL never reaches the log'
+'--- 18. the manifest URL never reaches the log'
 # A manifest URL can carry a debrid configuration inside it, so the Host must
 # never write one down — and the route that matters is the real one, with the
 # Addon the owner actually uses.
@@ -505,7 +567,7 @@ Check 'the log never holds the manifest path either' (
     (Test-Path $log) -and
     -not (Select-String -Path $log -SimpleMatch $urlPath -Quiet)) 'host.log holds the manifest path'
 
-'--- 17. the data directory'
+'--- 19. the data directory'
 if (Test-Path $dataDir) {
     Get-ChildItem $dataDir | ForEach-Object { "  $($_.Name)  $($_.Length) bytes" }
 } else { Check 'the data directory exists' $false $dataDir }

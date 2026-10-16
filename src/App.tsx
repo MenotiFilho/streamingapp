@@ -14,17 +14,21 @@ import {
 } from "./browse";
 import {
   asActionError,
+  answeredCatalogs,
+  answeredTitle,
   explain,
   HostClient,
   type Action,
   type ActionError,
   type AddonManifest,
-  type CatalogRow,
   type Extra,
   type MetaPreview,
   type Response,
   type Snapshot,
+  type Title,
+  type Video,
 } from "./host-client";
+import { isSeries, labelOf, nameOf, posterOf, releaseOf, seasonName, seasonsOf } from "./title";
 import { useArrowKeys } from "./useArrowKeys";
 
 /**
@@ -50,7 +54,14 @@ export function App({ client }: { client?: HostClient }) {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<Row[] | null>(null);
-  const [chosen, setChosen] = useState<MetaPreview | null>(null);
+  // The Title this client has opened, and the card it opened it from. Both are
+  // this client's own: two people looking at different Titles is the point
+  // (ADR-0005), so neither travels as a Snapshot. The card stays because a
+  // sparse meta answer is allowed, and the card is then the fallback.
+  const [preview, setPreview] = useState<MetaPreview | null>(null);
+  const [title, setTitle] = useState<Title | null>(null);
+  const [opening, setOpening] = useState<MetaPreview | null>(null);
+  const [selected, setSelected] = useState<Video | null>(null);
   const surface = useRef<HTMLElement | null>(null);
 
   const publish = useCallback((next: Snapshot) => {
@@ -118,7 +129,7 @@ export function App({ client }: { client?: HostClient }) {
         // take the whole home surface with it.
         return unaskable(error) ? null : { ...row, failure: error };
       }
-      const answer = firstRow(response);
+      const answer = answeredCatalogs(response)[0] ?? null;
       return answer ? rowWith(row, answer) : null;
     },
     [send],
@@ -187,19 +198,52 @@ export function App({ client }: { client?: HostClient }) {
     }
     void take({ type: "search_catalogs", query }).then((response) => {
       if (response) {
-        setChosen(null);
         setQueryDraft("");
         // One page per catalog: searching again is how a search is narrowed.
-        setResults((response.answer?.catalogs ?? []).map(searchRow));
+        setResults(answeredCatalogs(response).map(searchRow));
       }
     });
   };
 
+  /**
+   * Open a Title: ask the Addon that supplied the item for its metadata and its
+   * Videos. A refusal leaves the client where it was, with the card it clicked.
+   */
+  const openTitle = useCallback(
+    async (addon: string, meta: MetaPreview) => {
+      setOpening(meta);
+      const response = await take({
+        type: "open_title",
+        addon,
+        title: { type: meta.type, id: meta.id },
+      });
+      setOpening(null);
+
+      const opened = answeredTitle(response);
+      if (opened) {
+        setPreview(meta);
+        setSelected(null);
+        setTitle(opened);
+      }
+    },
+    [take],
+  );
+
+  /** Close the open Title and go back to what this client was browsing. */
+  const closeTitle = useCallback(() => {
+    setTitle(null);
+    setPreview(null);
+    setSelected(null);
+  }, []);
+
   const back = useCallback(() => {
-    setChosen(null);
+    if (title) {
+      closeTitle();
+      return;
+    }
     setResults(null);
     setQueryDraft("");
-  }, []);
+  }, [title, closeTitle]);
 
   useArrowKeys(surface, back);
 
@@ -262,57 +306,67 @@ export function App({ client }: { client?: HostClient }) {
 
       <section aria-labelledby="browse-heading">
         <h2 id="browse-heading">Browse</h2>
-        <form onSubmit={runSearch}>
-          <label htmlFor="search">Search the Addons that offer it</label>
-          <input
-            id="search"
-            placeholder="a title"
-            size={32}
-            value={queryDraft}
-            onChange={(event) => setQueryDraft(event.target.value)}
-            data-focusable
+        {title ? (
+          // Opening a Title replaces what this client was browsing: a person can
+          // go back to it, and two clients can be on different screens at once
+          // (ADR-0005).
+          <TitleView
+            title={title}
+            preview={preview}
+            selected={selected}
+            onSelect={setSelected}
+            onBack={closeTitle}
           />
-          <button type="submit" data-focusable>
-            Search
-          </button>
-          {results ? (
-            <button type="button" onClick={back} data-focusable>
-              Back to browsing
-            </button>
-          ) : null}
-        </form>
+        ) : (
+          <>
+            <form onSubmit={runSearch}>
+              <label htmlFor="search">Search the Addons that offer it</label>
+              <input
+                id="search"
+                placeholder="a title"
+                size={32}
+                value={queryDraft}
+                onChange={(event) => setQueryDraft(event.target.value)}
+                data-focusable
+              />
+              <button type="submit" data-focusable>
+                Search
+              </button>
+              {results ? (
+                <button type="button" onClick={back} data-focusable>
+                  Back to browsing
+                </button>
+              ) : null}
+            </form>
 
-        {chosen ? (
-          // The seat #24 fills: choosing a Title opens it, with its metadata and
-          // its Videos. Until then, OK says what it chose rather than nothing —
-          // above the rows, where a person pressing OK on a remote can see it.
-          <p role="status" data-testid="chosen">
-            Selected {chosen.name}
-            {chosen.releaseInfo ? ` (${chosen.releaseInfo})` : ""} — opening a Title
-            arrives in #24.
-          </p>
-        ) : null}
+            {opening ? (
+              <p role="status" data-testid="opening-title">
+                Opening {opening.name}…
+              </p>
+            ) : null}
 
-        {loading ? <p data-testid="catalogs-loading">Loading…</p> : null}
-        {!loading && showing.length === 0 ? (
-          <p data-testid="catalogs-empty">
-            {results
-              ? "No Addon answered that search."
-              : snapshot && snapshot.addons.length > 0
-                ? "The configured Addons offer no catalog to browse."
-                : "No Addons are configured yet."}
-          </p>
-        ) : null}
+            {loading ? <p data-testid="catalogs-loading">Loading…</p> : null}
+            {!loading && showing.length === 0 ? (
+              <p data-testid="catalogs-empty">
+                {results
+                  ? "No Addon answered that search."
+                  : snapshot && snapshot.addons.length > 0
+                    ? "The configured Addons offer no catalog to browse."
+                    : "No Addons are configured yet."}
+              </p>
+            ) : null}
 
-        {showing.map((row) => (
-          <CatalogSection
-            key={keyOf(row)}
-            row={row}
-            paging={pageable(snapshot, row)}
-            onMore={page}
-            onOpen={setChosen}
-          />
-        ))}
+            {showing.map((row) => (
+              <CatalogSection
+                key={keyOf(row)}
+                row={row}
+                paging={pageable(snapshot, row)}
+                onMore={page}
+                onOpen={(meta) => void openTitle(row.addon, meta)}
+              />
+            ))}
+          </>
+        )}
       </section>
 
       <section aria-labelledby="state-heading">
@@ -384,9 +438,102 @@ export function App({ client }: { client?: HostClient }) {
   );
 }
 
-/** The first answer, when there is one; a search may answer with several. */
-function firstRow(response: Response | null): CatalogRow | null {
-  return response?.answer?.catalogs?.[0] ?? null;
+/**
+ * An opened Title: what its Addon says about it, and its Videos to choose from.
+ *
+ * The metadata is the Addon's, with the card this client opened as the fallback
+ * for whatever a sparse answer left out; the Videos are grouped into seasons in
+ * the Addon's own order. Selecting an episode is this client's own choosing —
+ * playing it arrives in #26/#27 — so it is held here and shown, not sent.
+ */
+function TitleView({
+  title,
+  preview,
+  selected,
+  onSelect,
+  onBack,
+}: {
+  title: Title;
+  preview: MetaPreview | null;
+  selected: Video | null;
+  onSelect: (video: Video) => void;
+  onBack: () => void;
+}) {
+  const poster = posterOf(title, preview);
+  const release = releaseOf(title, preview);
+  const facts = [release, title.runtime, title.imdbRating ? `★ ${title.imdbRating}` : null]
+    .filter((fact): fact is string => Boolean(fact))
+    .join(" · ");
+  const seasons = seasonsOf(title);
+
+  return (
+    <article className="title" data-testid={`title-${title.id}`}>
+      <button type="button" data-focusable onClick={onBack}>
+        Back to browsing
+      </button>
+
+      <header className="title-head">
+        {poster ? (
+          <img className="title-poster" src={poster} alt="" data-testid="title-poster" />
+        ) : null}
+        <div className="title-about">
+          <h3 data-testid="title-name">{nameOf(title, preview)}</h3>
+          {facts ? <p className="title-facts">{facts}</p> : null}
+          <p className="addon-id" data-testid="title-id">
+            {title.addon} · {title.type}/{title.id}
+          </p>
+          {title.genres.length > 0 ? (
+            <p className="title-genres">{title.genres.join(", ")}</p>
+          ) : null}
+          {title.description ? (
+            <p className="title-description">{title.description}</p>
+          ) : null}
+        </div>
+      </header>
+
+      {seasons.length === 0 ? (
+        <p className="lede" data-testid="title-no-videos">
+          {isSeries(title)
+            ? "This series' Addon listed no episodes."
+            : "This Title is one Video: the film itself."}
+        </p>
+      ) : (
+        seasons.map(({ season, videos }) => (
+          <section className="season" key={season ?? "unnumbered"}>
+            <h4>{seasonName(season)}</h4>
+            <ul className="episodes">
+              {videos.map((video) => {
+                const label = labelOf(video);
+                return (
+                  <li key={video.id}>
+                    <button
+                      type="button"
+                      className="episode"
+                      data-focusable
+                      data-testid={`episode-${video.id}`}
+                      aria-pressed={selected?.id === video.id}
+                      onClick={() => onSelect(video)}
+                    >
+                      {label ? <span className="episode-label">{label}</span> : null}
+                      <span className="episode-name">{video.name ?? video.id}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        ))
+      )}
+
+      {selected ? (
+        <p role="status" data-testid="selected-video">
+          Selected {labelOf(selected) ?? selected.id}
+          {selected.name ? ` — ${selected.name}` : ""} — choosing a Stream arrives in
+          #26.
+        </p>
+      ) : null}
+    </article>
+  );
 }
 
 /** One catalog's row: its name, its cards, and a way to page on. */

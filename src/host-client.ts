@@ -92,12 +92,46 @@ export type CatalogRow = {
 };
 
 /**
+ * One playable unit of a Title: the film itself, or a single episode. Mirrors
+ * `Video` in `host-core`; `id` is the id its Addon indexes it by
+ * (`tt0903747:1:1`), and it is what Watch progress is recorded against. Only the
+ * fields this window draws are read — a Stream list or a thumbnail arrives with
+ * the ticket that shows it.
+ */
+export type Video = {
+  id: string;
+  name: string | null;
+  season: number | null;
+  episode: number | null;
+};
+
+/**
+ * A film or series as its Addon describes it, and the Videos it can be watched
+ * as. Mirrors `Title` in `host-core`; `addon` is the Addon that answered — which
+ * is what a later client asks for a Video's Streams of.
+ */
+export type Title = {
+  addon: string;
+  id: string;
+  type: string;
+  name: string;
+  poster: string | null;
+  description: string | null;
+  releaseInfo: string | null;
+  runtime: string | null;
+  imdbRating: string | null;
+  genres: string[];
+  videos: Video[];
+};
+
+/**
  * What taking an Action produced. Mirrors `Response` in `host-core`: the
  * Snapshots every client is owed, and the answer only the client that asked gets.
+ * A question is answered with catalogs or with a Title, never both.
  */
 export type Response = {
   snapshots: Snapshot[];
-  answer: { catalogs: CatalogRow[] } | null;
+  answer: { catalogs: CatalogRow[] } | { title: Title } | null;
 };
 
 /** What a client can ask the Host to do. Mirrors `Action` in `host-core`. */
@@ -112,7 +146,12 @@ export type Action =
       catalog: { type: string; id: string };
       extra: Extra[];
     }
-  | { type: "search_catalogs"; query: string };
+  | { type: "search_catalogs"; query: string }
+  | {
+      type: "open_title";
+      addon: string;
+      title: { type: string; id: string };
+    };
 
 /**
  * The failures the Host itself reports. Mirrors the variants of `ActionError` in
@@ -125,13 +164,16 @@ export const HOST_ERROR_KINDS = [
   "invalid_manifest_url",
   "invalid_addon_id",
   "invalid_catalog_ref",
+  "invalid_title_ref",
   "manifest",
   "fetch",
   "unknown_addon",
   "unknown_catalog",
+  "unknown_title",
   "extra",
   "query",
   "catalog",
+  "meta",
   "store",
 ] as const;
 
@@ -151,7 +193,24 @@ export type ActionError = {
   which?: string;
   value?: string;
   catalog?: { type: string; id: string };
+  title?: { type: string; id: string };
 };
+
+/**
+ * The catalog rows an answer carries, when the Action was a browse or a search.
+ * An empty list when it was something else, so a caller cannot read a Title's
+ * answer as a row that is not there.
+ */
+export function answeredCatalogs(response: Response | null): CatalogRow[] {
+  const answer = response?.answer;
+  return answer && "catalogs" in answer ? answer.catalogs : [];
+}
+
+/** The Title an answer carries, when the Action was an `open_title`. */
+export function answeredTitle(response: Response | null): Title | null {
+  const answer = response?.answer;
+  return answer && "title" in answer ? answer.title : null;
+}
 
 /** Whatever a failed call threw, as something the window can explain. */
 export function asActionError(caught: unknown): ActionError {
@@ -182,6 +241,8 @@ export function explain(error: ActionError): string {
       return `${JSON.stringify(error.id)} is not an Addon id.`;
     case "invalid_catalog_ref":
       return `${JSON.stringify(error.value)} is not a catalog ${error.which}.`;
+    case "invalid_title_ref":
+      return `${JSON.stringify(error.value)} is not a Title ${error.which}.`;
     case "manifest":
       return `The Host could not read that Addon's manifest${error.detail ? `: ${error.detail}` : ""}.`;
     case "fetch":
@@ -190,12 +251,16 @@ export function explain(error: ActionError): string {
       return `No Addon with the id ${JSON.stringify(error.id)} is configured.`;
     case "unknown_catalog":
       return `The Addon ${JSON.stringify(error.addon)} offers no catalog ${error.catalog?.type ?? "?"}/${error.catalog?.id ?? "?"}.`;
+    case "unknown_title":
+      return `The Addon ${JSON.stringify(error.addon)} offers no meta for ${error.title?.type ?? "?"}/${error.title?.id ?? "?"}.`;
     case "extra":
       return error.detail ?? "The Host will not ask for that catalog with those values.";
     case "query":
       return error.detail ?? "The Host will not search for that.";
     case "catalog":
       return `The Host could not read that Addon's catalog${error.detail ? `: ${error.detail}` : ""}.`;
+    case "meta":
+      return `The Host could not read that Addon's meta response${error.detail ? `: ${error.detail}` : ""}.`;
     case "store":
       return `The Host could not save that change${error.detail ? `: ${error.detail}` : ""}.`;
     case "unreachable":

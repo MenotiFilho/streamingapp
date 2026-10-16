@@ -5,7 +5,8 @@ use crate::addon::{Addon, AddonId, Manifest};
 use crate::cache::CatalogCache;
 use crate::catalog::{CatalogRow, Page};
 use crate::fetcher::Fetcher;
-use crate::request::{CatalogRef, Extra, ResourceRequest, CATALOG};
+use crate::meta::Title;
+use crate::request::{CatalogRef, Extra, ResourceRequest, TitleRef, CATALOG, META};
 use crate::response::{Answer, Response};
 use crate::snapshot::Snapshot;
 use crate::state::{Change, Persist, State};
@@ -163,6 +164,21 @@ impl Host {
                     .collect();
                 Resolved::Answer(Answer::Catalogs(rows))
             }
+            ValidatedAction::OpenTitle { addon, title } => {
+                let configured = self.addon(&addon)?;
+                let requested = ResourceRequest::new(META, &title.r#type, &title.id);
+                if !configured.manifest().answers(&requested) {
+                    return Err(ActionError::UnknownTitle {
+                        addon: configured.id().clone(),
+                        title,
+                    });
+                }
+
+                // The request the Addon was judged on is the one it is asked
+                // with: a second construction is a second thing that can drift.
+                let title = self.fetch_title(&configured, &title, &requested)?;
+                Resolved::Answer(Answer::Title(Box::new(title)))
+            }
         })
     }
 
@@ -224,6 +240,36 @@ impl Host {
         self.cache
             .keep(url, page.sent, page.metas.clone(), page.hints);
         Ok(page)
+    }
+
+    /// Open one Title: what its Addon answers about the item the client asked for.
+    ///
+    /// A meta answer is not kept in the page cache: a Title is one item the owner
+    /// opened on purpose, not a page a client pages through, and the Addon's
+    /// `cacheMaxAge` is a hint for the latter (ADR-0010). Nor does it come back as
+    /// a row with a failure in it — one Addon was asked for one Title, so an Addon
+    /// that cannot answer is an error the window explains, not a Title with
+    /// nothing in it that a person would have to guess about.
+    ///
+    /// `requested` is the request the Addon was already judged against, so the
+    /// thing asked for is the thing `Manifest::answers` said yes to.
+    fn fetch_title(
+        &self,
+        addon: &Addon,
+        asked: &TitleRef,
+        requested: &ResourceRequest,
+    ) -> Result<Title, ActionError> {
+        let url = requested.url(addon.manifest_url().as_str());
+        let body = self
+            .fetcher
+            .fetch(&url)
+            .map_err(|error| ActionError::Fetch {
+                detail: error.to_string(),
+            })?;
+
+        Title::parse(&body, addon.id().clone(), asked).map_err(|error| ActionError::Meta {
+            detail: error.to_string(),
+        })
     }
 }
 

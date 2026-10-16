@@ -227,3 +227,98 @@ button:hover {
   border-color: #3a3a46;
 }
 
+/* --- an opened Title --------------------------------------------------------- */
+
+.title {
+  margin-top: 1rem;
+}
+
+.title-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.25rem;
+  margin-top: 1rem;
+}
+
+.title-poster {
+  width: 10.5rem;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 0.5rem;
+  background: #202027;
+}
+
+.title-about {
+  flex: 1 1 22rem;
+  min-width: 0;
+}
+
+.title-about h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1.4rem;
+  letter-spacing: -0.01em;
+}
+
+.title-facts {
+  margin: 0 0 0.35rem;
+  color: #c9c9d1;
+}
+
+.title-genres {
+  margin: 0 0 0.75rem;
+  font-size: 0.85rem;
+  color: #9a9aa6;
+}
+
+.title-description {
+  margin: 0;
+  max-width: 62ch;
+  line-height: 1.5;
+}
+
+.season {
+  margin-top: 1.75rem;
+}
+
+.season h4 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.episodes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16rem, 1fr));
+  gap: 0.5rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.episode {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  width: 100%;
+  text-align: left;
+  border: 1px solid #26262e;
+  background: #16161c;
+}
+
+.episode[aria-pressed="true"] {
+  /* The episode this client has chosen: a border that reads at a glance without
+     changing the control's size, so the grid does not move when it does. */
+  border-color: #7aa2f7;
+  background: #1d2233;
+}
+
+.episode-label {
+  font-family: ui-monospace, monospace;
+  font-size: 0.8rem;
+  color: #9a9aa6;
+}
+
+.episode-name {
+  overflow-wrap: anywhere;
+}
+

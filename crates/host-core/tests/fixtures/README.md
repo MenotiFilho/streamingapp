@@ -52,3 +52,25 @@ vocabulary, refuses the ones that are not catalogs, and never reaches the networ
 in a unit test. Refresh them by hand when an Addon's manifest or a page changes;
 the Host's tests are about the shape, not about what Stremboxd happens to list this
 week.
+
+## Meta responses
+
+One item's metadata, as `open_title` asks for it. Recorded the same way, and
+trimmed the same way.
+
+- `cinemeta-meta-movie.json` —
+  `https://v3-cinemeta.strem.io/meta/movie/tt0133093.json`, as served on
+  2026-10-15. A film: an empty `videos`, and `cast`, `director`, `trailers`,
+  `links`, `slug` and `popularities` that this Host has no use for.
+- `cinemeta-meta-series.json` —
+  `https://v3-cinemeta.strem.io/meta/series/tt0903747.json`, the same day. Trimmed
+  from its 67 episodes to five — a season-0 special, the first three of season 1,
+  and the first of season 2 — so the file keeps the shape of a real episode
+  (`name`, `season`, `number`, `episode`, `overview`, `thumbnail`, `rating`, the
+  `tvdb_id` this Host ignores) without carrying sixty more of them.
+- `sparse-meta.json` — written by hand, not recorded: the least a meta response
+  can be about the item it answers for — an id, a type and a name — since a real
+  Addon is allowed to answer with no more and the Host must still open a Title.
+- `hostile-meta.json` — written by hand: a response whose `meta` is a string.
+  That is a fact about the Addon rather than a missing field, so it is refused.
+

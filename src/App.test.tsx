@@ -9,7 +9,9 @@ import {
   type MetaPreview,
   type Response,
   type Snapshot,
+  type Title,
   type Transport,
+  type Video,
 } from "./host-client";
 
 type Invocation = { command: string; args?: Record<string, unknown> };
@@ -58,15 +60,20 @@ const ADDON: AddonManifest = {
 };
 
 /** One item in a row, as the Host would publish it. */
-function meta(id: string, name: string, description: string | null = null): MetaPreview {
+function meta(
+  id: string,
+  name: string,
+  description: string | null = null,
+  type = "movie",
+): MetaPreview {
   return {
     id,
-    type: "movie",
+    type,
     name,
     poster: `https://example.com/${id}.jpg`,
     posterShape: null,
     releaseInfo: "1999",
-    imdbRating: null,
+    imdbRating: "8.7",
     genres: [],
     description,
   };
@@ -85,6 +92,23 @@ const POPULAR_PAGES = [
   [meta("tt10838180", "The Matrix Resurrections")],
 ];
 
+/** The one series the fake Addon has, and the episodes it answers for it. */
+const SERIES_META = meta("tt0903747", "Breaking Bad", null, "series");
+const SERIES_PAGE = [SERIES_META];
+
+const EPISODES: Video[] = [
+  episode("tt0903747:0:1", "Good Cop Bad Cop", 0, 1),
+  episode("tt0903747:1:1", "Pilot", 1, 1),
+  episode("tt0903747:1:2", "Cat's in the Bag...", 1, 2),
+];
+
+function episode(id: string, name: string, season: number, episodeNumber: number): Video {
+  return { id, name, season, episode: episodeNumber };
+}
+
+/** Every item the fake Addon has, so an `open_title` can answer about one. */
+const ITEMS = [...POPULAR_PAGES.flat(), SERIES_META];
+
 /**
  * A Host standing in for the real one: it holds the state, applies Actions the
  * way `host-core` does, and publishes a Snapshot for each change. The window
@@ -94,7 +118,17 @@ const POPULAR_PAGES = [
  * the next page, and a search answers with one row.
  */
 function fakeHost(
-  options: { initial?: Snapshot; refuse?: unknown; failing?: string } = {},
+  options: {
+    initial?: Snapshot;
+    refuse?: unknown;
+    /** Make an `open_title` for this item fail, the way a Host that will not open it does. */
+    refuseTitle?: unknown;
+    failing?: string;
+    /** Answer this item's `open_title` with the least a meta response can be. */
+    sparse?: string;
+    /** Answer this series' `open_title` with no Videos at all. */
+    noEpisodes?: string;
+  } = {},
 ) {
   let state = options.initial ?? NOTHING_SAID;
   const invocations: Invocation[] = [];
@@ -173,7 +207,12 @@ function fakeHost(
           };
         }
 
-        const pages = catalog.id === "letterboxd-popular" ? POPULAR_PAGES : [];
+        const pages =
+          catalog.id === "letterboxd-popular"
+            ? POPULAR_PAGES
+            : catalog.id === "letterboxd-year"
+              ? [SERIES_PAGE]
+              : [];
         const page = pages[skip === 0 ? 0 : 1] ?? [];
         const failed = options.failing === catalog.id;
         response.answer = {
@@ -208,6 +247,42 @@ function fakeHost(
           ],
         };
         break;
+      case "open_title": {
+        asked.push(`open/${action.addon}/${action.title.type}/${action.title.id}`);
+        if (options.refuseTitle) {
+          throw options.refuseTitle;
+        }
+        const item = ITEMS.find((held) => held.id === action.title.id);
+        if (!item) {
+          throw { kind: "unknown_title", addon: action.addon, title: action.title };
+        }
+
+        // A meta answer the Host reads leniently: the identity it opened, its
+        // metadata, and the Videos a series has. `sparse` stands in for the
+        // Addon that answered with the least it could.
+        const bare = options.sparse === item.id;
+        response.answer = {
+          title: {
+            addon: action.addon,
+            id: item.id,
+            type: item.type,
+            name: bare ? item.id : item.name,
+            poster: bare ? null : item.poster,
+            description: bare ? null : `${item.name}, as the Addon describes it.`,
+            releaseInfo: bare ? null : item.releaseInfo,
+            runtime: bare ? null : "136 min",
+            imdbRating: item.imdbRating,
+            genres: item.genres,
+            videos:
+              options.noEpisodes === item.id
+                ? []
+                : item.id === SERIES_META.id
+                  ? EPISODES
+                  : [],
+          } satisfies Title,
+        };
+        break;
+      }
     }
     return response as unknown as T;
   };
@@ -659,14 +734,135 @@ test("the window is drivable with the arrow keys, with something always focused"
   expect(document.activeElement).toBe(search);
 });
 
-test("choosing a card says what was chosen, which is where #24 opens it", async () => {
+test("choosing a card opens the Title, and the card's Addon is asked for it", async () => {
   const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
   windowOver(host.transport);
   await screen.findByTestId("card-tt0133093");
 
   fireEvent.click(screen.getByTestId("card-tt0133093"));
 
-  expect(screen.getByTestId("chosen")).toHaveTextContent("Selected The Matrix (1999)");
+  const title = await screen.findByTestId("title-tt0133093");
+  expect(screen.getByTestId("title-name")).toHaveTextContent("The Matrix");
+  expect(title).toHaveTextContent("1999");
+  expect(title).toHaveTextContent("136 min");
+  expect(title).toHaveTextContent("8.7");
+  expect(screen.getByTestId("title-id")).toHaveTextContent(
+    "community.stremboxd · movie/tt0133093",
+  );
+  expect(
+    screen.getByTestId("title-no-videos"),
+    "a film is one Video: the film itself",
+  ).toBeInTheDocument();
+  expect(dispatched(host.invocations, "open_title")).toEqual({
+    command: "dispatch",
+    args: {
+      envelope: {
+        version: 1,
+        action: {
+          type: "open_title",
+          addon: "community.stremboxd",
+          title: { type: "movie", id: "tt0133093" },
+        },
+      },
+    },
+  });
+});
+
+test("opening a series shows its seasons, and its episodes are selectable", async () => {
+  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+  windowOver(host.transport);
+
+  fireEvent.click(await screen.findByTestId("card-tt0903747"));
+
+  await screen.findByTestId("title-tt0903747");
+  expect(screen.getByText("Specials")).toBeInTheDocument();
+  expect(screen.getByText("Season 1")).toBeInTheDocument();
+  expect(screen.getByTestId("episode-tt0903747:0:1")).toHaveTextContent("S0E1");
+  expect(screen.getByTestId("episode-tt0903747:1:1")).toHaveTextContent("S1E1");
+  expect(screen.getByTestId("episode-tt0903747:1:1")).toHaveTextContent("Pilot");
+  expect(
+    screen.getByTestId("episode-tt0903747:1:2"),
+    "two episodes are told apart by their own number and name",
+  ).toHaveTextContent("S1E2");
+  expect(screen.queryByTestId("title-no-videos")).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByTestId("episode-tt0903747:1:2"));
+
+  expect(screen.getByTestId("episode-tt0903747:1:2")).toHaveAttribute("aria-pressed", "true");
+  expect(screen.getByTestId("episode-tt0903747:1:1")).toHaveAttribute("aria-pressed", "false");
+  expect(screen.getByTestId("selected-video")).toHaveTextContent("S1E2");
+  expect(screen.getByTestId("selected-video")).toHaveTextContent("Cat's in the Bag...");
+});
+
+test("backing out of a Title returns to the rows, and it can be opened again", async () => {
+  const host = fakeHost({ initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] } });
+  windowOver(host.transport);
+  fireEvent.click(await screen.findByTestId("card-tt0133093"));
+  await screen.findByTestId("title-tt0133093");
+
+  fireEvent.keyDown(document, { key: "Escape" });
+
+  await waitFor(() => expect(screen.getByTestId("card-tt0133093")).toBeInTheDocument());
+  expect(screen.queryByTestId("title-tt0133093")).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByTestId("card-tt0133093"));
+
+  await screen.findByTestId("title-tt0133093");
+  expect(screen.getByTestId("title-name")).toHaveTextContent("The Matrix");
+});
+
+test("a series whose Addon listed no episodes says so rather than being called a film", async () => {
+  const host = fakeHost({
+    initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] },
+    noEpisodes: "tt0903747",
+  });
+  windowOver(host.transport);
+
+  fireEvent.click(await screen.findByTestId("card-tt0903747"));
+
+  await screen.findByTestId("title-tt0903747");
+  expect(screen.getByTestId("title-no-videos")).toHaveTextContent("listed no episodes");
+});
+
+test("a Title its Addon said little about falls back to the card it was opened from", async () => {
+  // The Host reads a meta answer leniently, so a Title can come back as little
+  // more than the identity the client already had. The card it clicked holds a
+  // name and a poster, and they stand in for what the Addon did not repeat.
+  const host = fakeHost({
+    initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] },
+    sparse: "tt0133093",
+  });
+  windowOver(host.transport);
+
+  fireEvent.click(await screen.findByTestId("card-tt0133093"));
+
+  await screen.findByTestId("title-tt0133093");
+  expect(screen.getByTestId("title-name")).toHaveTextContent("The Matrix");
+  expect(screen.getByTestId("title-name")).not.toHaveTextContent("tt0133093");
+  expect(screen.getByTestId("title-poster")).toHaveAttribute(
+    "src",
+    "https://example.com/tt0133093.jpg",
+  );
+});
+
+test("a Title the Host will not open is explained and leaves the rows where they were", async () => {
+  const host = fakeHost({
+    initial: { revision: 1, preferences: { subtitleLanguage: null }, addons: [ADDON] },
+    refuseTitle: {
+      kind: "unknown_title",
+      addon: "community.stremboxd",
+      title: { type: "series", id: "tt0903747" },
+    },
+  });
+  windowOver(host.transport);
+
+  fireEvent.click(await screen.findByTestId("card-tt0133093"));
+
+  await waitFor(() =>
+    expect(screen.getByRole("alert")).toHaveTextContent("offers no meta for series/tt0903747"),
+  );
+  expect(screen.queryByTestId("title-tt0133093")).not.toBeInTheDocument();
+  expect(screen.getByTestId("card-tt0133093")).toBeInTheDocument();
 });
 
 test("a row whose Addon did not answer says so without blanking the other rows", async () => {

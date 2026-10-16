@@ -15,6 +15,7 @@
 use serde::Serialize;
 
 use crate::catalog::CatalogRow;
+use crate::meta::Title;
 use crate::snapshot::Snapshot;
 
 /// What taking an Action produced: what every client is owed, and what the one
@@ -50,7 +51,15 @@ impl Response {
     pub fn catalogs(&self) -> Option<&[CatalogRow]> {
         match &self.answer {
             Some(Answer::Catalogs(rows)) => Some(rows),
-            None => None,
+            _ => None,
+        }
+    }
+
+    /// The Title a client asked to open, when that is what it asked.
+    pub fn title(&self) -> Option<&Title> {
+        match &self.answer {
+            Some(Answer::Title(title)) => Some(title),
+            _ => None,
         }
     }
 }
@@ -61,4 +70,7 @@ impl Response {
 pub enum Answer {
     /// The catalog rows a client asked to see, one per catalog asked about.
     Catalogs(Vec<CatalogRow>),
+    /// The Title a client asked to open, with the Videos it can be watched as.
+    /// Boxed because a Title is many fields and a `Vec` of rows is three words.
+    Title(Box<Title>),
 }

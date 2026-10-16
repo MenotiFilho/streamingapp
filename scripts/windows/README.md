@@ -10,12 +10,14 @@ run the same way twice:
   through UI Automation and screenshots each step into `evidence\`.
 
 The checklist covers the whole window: the preference and the Action surface, the
-Addon by its manifest URL, and — from ticket #23 — the home surface's catalog rows,
-paging one, searching, going Back, and the same controls reached with the arrow
-keys and OK rather than the mouse. For the steps that depend on what a third-party
-Addon happens to serve — that the posters are drawn, that a search returns
-something — the assertion is structural (the rows stopped saying `Loading`, the
-search surface is showing, the revision did not move) and the screenshot is the
+Addon by its manifest URL, the home surface's catalog rows, paging one, searching,
+going Back, and the same controls reached with the arrow keys and OK rather than
+the mouse (tickets #23 and #24), and — from #24 — opening a Title, a series'
+seasons and episodes, choosing one, backing out and opening the Title again. For
+the steps that depend on what a third-party Addon happens to serve — that the
+posters are drawn, that a search returns something — the assertion is structural
+(the rows stopped saying `Loading`, the search surface is showing, the Title names
+the Addon that answered, the revision did not move) and the screenshot is the
 evidence a person reads.
 
 The window is placed on `-Monitor` (1-based, numbered left to right) and filled to
