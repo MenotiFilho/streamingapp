@@ -111,3 +111,32 @@ Two consequences for the seam:
   property and command above is long-standing; `video-crop`'s `no` spelling is
   already known to differ and is why the clear uses `0x0+0+0`.
 - **`video-bitrate` and `display-fps` with a real VO.**
+
+## Windows, verified by the walkthrough (#28)
+
+The Windows-native build (mpv 0.41, a Radeon RX 9060 XT) ran the whole control
+set over a real file on 2026-10-16. What the run settled, and what it did not:
+
+- **Hardware decode is engaged, and it is `d3d11va`.** `hwdec-current` reads
+  `d3d11va` once the picture is up, which is what the statistics readout shows and
+  what the walkthrough asserts (a mode that is not `no`).
+- **`video-params.pixelformat` is not answered in this configuration.** With
+  `vo=gpu-next` embedded by `wid` it reads `unknown` — every time the decode line
+  was written, including the one where the decode was already `d3d11va`. So the
+  seam reports `pixelformat` as absent rather than inventing one, and no check
+  anywhere asserts a pixel format on Windows.
+- **`hwdec-current` is `no` for the moment before decode engages.** A line
+  written once, at the first sight of the picture, therefore reports `no` and
+  then never mentions the `d3d11va` that follows. The seam writes the decode line
+  whenever what mpv decodes with *changes*, so both moments are in the log and
+  the second one can be asserted.
+- **The stock autocrop cropped the letterboxed fixture** on the GPU path exactly
+  as it does headless: the picture is 1280x540 in a 1280x720 frame, and the bars
+  are gone before the Host is asked to crop anything.
+- **`pause` belongs to the player, not the file.** A Stream stopped while the
+  picture was held was followed by one that opened held — a client asking to play
+  got a Stream sitting at 0:00 offering Play. Opening a Stream means playing it,
+  and the Player now clears `pause` before the load.
+- **Not settled on Windows:** HDR passthrough (no HDR display on that machine,
+  #18), and frame pacing beyond a raw screenshot.
+

@@ -196,6 +196,21 @@ or started).
 
 ## Things that cost time, so they don't again
 
+- **A step that could not be walked used to read as a pass.** When the fixture
+  Addon drew no series row, step 13 skipped its whole body and the run still
+  printed `ALL CHECKS PASSED` — which is how a dead Addon (see below) looked like
+  a green run. A step that cannot walk a check now calls `Skip`, and a run with
+  any skip exits 2 instead of claiming the checklist was walked.
+- **The fixture Addon dies on a seek.** `HttpListener` raises out of `Write` when
+  the client abandons a range — which mpv does whenever it seeks, and whenever it
+  has read enough — and an uncaught one ends the whole server mid-walkthrough.
+  `fixture-addon.ps1` catches it per request now and answers the next one. Its
+  log lives beside the evidence (`evidence\fixture-addon.log`), so "the Addon
+  went down" is a thing you can read rather than guess.
+- **A `Start-Process`-launched Addon outlives the shell that made it, but the WSL
+  interop call that launches it does not return** until every process holding the
+  console handles exits. Launch the fixture Addon and walk away from that
+  command; run `verify.ps1` in a second one.
 - **Windows binaries are not on `PATH`, and interop is not enabled for bare
   names.** Call them by full path:
   `/mnt/c/Windows/System32/WindowsPowerShell/v1.0/powershell.exe`. Have the
