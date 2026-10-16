@@ -27,6 +27,19 @@ impl HostHandle {
     pub fn new(host: Host) -> Self {
         Self(Mutex::new(host))
     }
+
+    /// Read the Player and fold what it reports into state, publishing a
+    /// Snapshot when anything moved.
+    ///
+    /// This is the shell's clock and not a client's Action: playback moves on its
+    /// own, and the Host holds no threads and no timers of its own (ADR-0013).
+    /// A report that says what the Host already held returns nothing.
+    pub fn sample(&self) -> Option<Snapshot> {
+        self.0
+            .lock()
+            .expect("nothing panics while holding the Host")
+            .sample()
+    }
 }
 
 /// The state as it stands — what a window that has just loaded is owed.
@@ -62,7 +75,17 @@ pub fn dispatch(app: AppHandle, envelope: Value) -> Result<Response, ActionError
         .expect("nothing panics while holding the Host")
         .dispatch(action)?;
 
-    for snapshot in &response.snapshots {
+    publish(&app, &response.snapshots);
+
+    Ok(response)
+}
+
+/// Send Snapshots to every window that is listening.
+///
+/// One place, so that the clock in the shell and an Action taken by a client
+/// publish the same way and a client cannot tell which of them moved the state.
+pub fn publish(app: &AppHandle, snapshots: &[Snapshot]) {
+    for snapshot in snapshots {
         tracing::info!(revision = snapshot.revision, "publishing a Snapshot");
         if let Err(error) = app.emit(SNAPSHOT_EVENT, snapshot) {
             // The window that asked may be closing, or reloading. There is nobody
@@ -70,6 +93,4 @@ pub fn dispatch(app: AppHandle, envelope: Value) -> Result<Response, ActionError
             tracing::warn!(%error, "no window took the Snapshot");
         }
     }
-
-    Ok(response)
 }

@@ -7,8 +7,17 @@ license.workspace = true
 publish.workspace = true
 rust-version.workspace = true
 
-[lints]
-workspace = true
+# The app shell is where platform code lives, and one thing it does — pushing
+# mpv's child window behind the interface, and keeping it the size of the window
+# — has no safe wrapper in the `windows` crate. So this crate does not inherit
+# the workspace's `forbid(unsafe_code)`: it *denies* it, and `player/windows.rs`
+# is the one module that allows it. Everywhere else, an `unsafe` block is a
+# build failure like it is in the rest of the workspace.
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = "warn"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -25,6 +34,7 @@ custom-protocol = ["tauri/custom-protocol"]
 host-addon = { workspace = true }
 host-core = { workspace = true }
 host-logging = { workspace = true }
+host-mpv = { workspace = true }
 host-secret = { workspace = true }
 host-sqlite = { workspace = true }
 
@@ -35,3 +45,14 @@ tracing = { workspace = true }
 
 tauri = { version = "2", features = [] }
 tauri-plugin-single-instance = "2"
+
+# The Host's own window, on Windows: `wid` is a raw window handle, and putting
+# mpv's child window behind the interface is four Win32 calls with no safe
+# wrapper. `player/windows.rs` is where that lives — the rest of the shell is
+# as safe as the workspace's other crates.
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }

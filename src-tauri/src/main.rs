@@ -1,20 +1,35 @@
-//! The Host's window.
+//! The app shell: platform directories, logging, the store, the window, single
+//! instance behaviour, the IPC commands, and the Player — and no rules.
 //!
-//! Nothing here decides anything: it resolves the platform directories, starts the
-//! logs and the store, and hands the Tauri IPC bridge to the Action surface. Every
-//! mutation goes through `ipc::dispatch`, and state comes back as Snapshots
-//! (ADR-0002).
+//! Nothing here decides anything: it resolves the platform directories, starts
+//! the logs and the store, hands the Tauri IPC bridge to the Action surface, and
+//! gives the Host a Player. Every mutation goes through `ipc::dispatch`, and
+//! state comes back as Snapshots (ADR-0002).
+//!
+//! The one thing the shell does on its own is look at that Player and publish
+//! where playback has got to: `host-core` holds no threads and no timers, so
+//! the clock that turns "the picture moved on" into a Snapshot is the shell's
+//! (ADR-0013).
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod ipc;
 mod paths;
+mod player;
 
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use host_addon::HttpFetcher;
 use host_core::{AddonProvider, Host};
 use host_sqlite::SqliteStore;
 use tauri::Manager;
+
+/// How often the Host is asked what its Player is doing.
+///
+/// A quarter of a second is finer than a person reads a position and far coarser
+/// than a frame: what moves between two ticks is what a Snapshot is for, and the
+/// picture itself never travels through this.
+const SAMPLE: Duration = Duration::from_millis(250);
 
 fn main() {
     tauri::Builder::default()
@@ -64,15 +79,50 @@ fn main() {
             // protocol, over the one Fetcher. Which Addons it asks, and which
             // of them answers for an id, is the Host's decision above it.
             let fetcher: Arc<dyn host_core::Fetcher> = Arc::new(HttpFetcher::new());
+
+            // And the one Player: mpv, in this process, with the picture put
+            // where this platform can put it. A machine whose mpv will not start
+            // still browses — the window says why nothing can play.
+            let player: Arc<dyn host_core::Player> = match app
+                .get_webview_window("main")
+                .map(|window| player::start(&window))
+            {
+                Some(Ok(player)) => player,
+                Some(Err(error)) => {
+                    tracing::error!(%error, "the Host has no Player: nothing will play");
+                    Arc::new(player::NoPlayer::new(error.to_string()))
+                }
+                None => {
+                    tracing::error!("the Host has no window: nothing will play");
+                    Arc::new(player::NoPlayer::new("there is no window to play in"))
+                }
+            };
+            tracing::info!(picture = ?player.picture(), "the Player is ready");
+
             app.manage(ipc::HostHandle::new(Host::new(
                 Arc::new(store),
                 fetcher.clone(),
                 secrets.into(),
                 Arc::new(AddonProvider::new(fetcher)),
+                player,
             )?));
             // Held, not read: the guard inside keeps the log writer alive for as
             // long as the Host runs.
             app.manage(Mutex::new(logs));
+
+            // The Host's clock. Nothing else calls `sample`: playback moves on
+            // its own, and this is what turns that into Snapshots every client
+            // is sent (ADR-0002's one door, read rather than written).
+            let clock = handle.clone();
+            std::thread::spawn(move || loop {
+                std::thread::sleep(SAMPLE);
+                let sampled = clock.state::<ipc::HostHandle>().sample();
+                if let Some(snapshot) = sampled {
+                    tracing::debug!(revision = snapshot.revision, "playback moved on");
+                    ipc::publish(&clock, &[snapshot]);
+                }
+            });
+
             Ok(())
         })
         .run(tauri::generate_context!())
