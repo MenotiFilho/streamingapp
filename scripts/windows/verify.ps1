@@ -91,6 +91,7 @@ $Steps = @(
     [pscustomobject]@{ Id = 21; Title = 'the manifest URL and the TMDB key never reach the log'; Ground = ''; After = @(19, 20); Need = 'steps 19 and 20: the log they wrote, the TMDB key and the removed Addon' }
     [pscustomobject]@{ Id = 22; Title = 'the data directory'; Ground = 'data'; After = @(); Need = 'the data directory (made if a Host has not)' }
     [pscustomobject]@{ Id = 23; Title = 'Watch progress outlives a Host that was killed, and the row resumes it'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at its rows (it plays an episode, kills the Host, starts it again, and resumes)' }
+    [pscustomobject]@{ Id = 24; Title = 'Stremio sync is off until an account is signed in'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at its rows (it closes the Host through the exit hook #30 added, and reads the log)' }
 )
 
 # The discovery path and the cheap syntax check: print the checklist and what
@@ -1712,6 +1713,43 @@ function Step-23($ctx) {
         Press $app 'Stop'
         Wait-Text $app 'Continue watching' 20 | Out-Null
     }
+}
+
+function Step-24($ctx) {
+    '--- 24. Stremio sync is off until an account is signed in'
+    $app = $ctx.App
+    # #30 is a Rust-side feature: the `SignInStremio` Action exists and is tested,
+    # and the window has no sign-in surface yet — that is the UI work the
+    # prototype branch and its tickets carry. So there is no sign-in to walk by
+    # hand, and what this step walks is the promise the *default* makes: with no
+    # account, the Host is fully functional (steps 1-23 walked it) and nothing
+    # reaches Stremio. All of it is read off the Host's own log.
+    $text = Page-Text $app
+    Check 'the window claims nothing about an account, because it has none' (
+        $text -notmatch 'Stremio') "showed: $text"
+    Check 'and the Host is fully functional with sync off: its Addon rows are drawn' (
+        $text -match [regex]::Escape($AddonCatalog)) "showed: $text"
+
+    # Close the Host the way a person does, so the exit hook #30 added is really
+    # run and the log writer flushes.
+    Stop-Host $app
+    Start-Sleep -Seconds 1
+
+    $exit = Select-String -Path $log -Pattern 'the Host is exiting; the last position is saved' |
+        Select-Object -Last 1
+    Check 'the Host exits through the hook #30 added' ($exit -ne $null) 'no exit line in host.log'
+    Check 'and it says no account was told, because none is signed in' (
+        ($exit -ne $null) -and ($exit.Line -match '"account":false')) (
+        "the exit line says: $($exit.Line)")
+    Check 'nothing ever pulled remote progress into the library' (
+        -not (Select-String -Path $log -SimpleMatch 'remote progress pulled into library' -Quiet)) (
+        'host.log holds a remote pull')
+    Check 'and the log never names Stremio, nor the credential one would be held as' (
+        -not (Select-String -Path $log -SimpleMatch 'strem.io' -Quiet) -and
+        -not (Select-String -Path $log -SimpleMatch 'authKey' -Quiet)) (
+        'host.log names Stremio or its authKey')
+    'sign-in, the merge and the push need an account and a client that offers one;'
+    'they are covered by host-core/tests/stremio_sync.rs, not by hand, until the window grows a surface.'
 }
 
 # --- the dispatcher -----------------------------------------------------------

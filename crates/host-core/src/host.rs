@@ -242,17 +242,26 @@ impl Host {
     }
 
     /// The Host is going away: write down where the Stream got to, and tell the
-    /// account (#30). Called by the shell on exit — the Host has no clock of its
-    /// own to notice, and a Stream killed with the window is exactly when the
-    /// last position is worth keeping.
-    pub fn shutdown(&mut self) {
+    /// account where one is signed in (#30). Called by the shell on exit — the
+    /// Host has no clock of its own to notice, and a Stream killed with the
+    /// window is exactly when the last position is worth keeping.
+    ///
+    /// Answers whether an account was told, so the shell can *say* what it did
+    /// rather than what it hoped: with sync off, nothing was pushed anywhere.
+    pub fn shutdown(&mut self) -> bool {
         let now = self.clock.now_millis();
         if let Some(entry) = self.state.refresh_watch(now, true) {
             let _ = self.store.write_watch_progress(&entry);
         }
-        if let Some(title) = self.playing_title() {
-            self.push_title(title.id());
+
+        let account = self.account().is_some();
+        if account {
+            if let Some(title) = self.playing_title() {
+                self.push_title(title.id());
+            }
         }
+
+        account
     }
 
     /// The account and the key it is signed in with — or nothing, which is a

@@ -49,7 +49,13 @@ follows the fixture's series to the next one. From #29 the walkthrough watches
 part of an episode, **kills the Host rather than closing it**, starts it again,
 and picks the Video up from the Continue watching row: the row is there because
 Watch progress is written while playback runs, and the resume plays from where it
-was left rather than from the beginning.
+was left rather than from the beginning. From #30 it closes the Host through the
+exit hook sync added and reads the log back: with no Stremio account signed in,
+the window claims nothing about one, no progress was ever pulled in, and the log
+names neither Stremio nor an `authKey`. #30's sign-in, merge and push need an
+account and a client that offers one — the window has no sign-in surface yet
+(that is the UI prototype's work) — so they are covered by
+`crates/host-core/tests/stremio_sync.rs` rather than by hand.
 
 For the steps that depend on what a third-party Addon happens to serve — that
 the posters are drawn, that a search returns something, which candidates a
@@ -80,7 +86,7 @@ automation in the build, so these scripts are run deliberately, never in CI.
 
 ## Walking part of the checklist
 
-The whole checklist is 23 steps and takes minutes. To iterate on one step, run
+The whole checklist is 24 steps and takes minutes. To iterate on one step, run
 just that one: the runner builds the ground the step declares first — an empty
 data directory, one Host on `-Monitor`, the fixture Addon configured by manifest
 URL, at the catalog rows — and reuses it when several selected steps need it, so

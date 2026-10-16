@@ -148,8 +148,10 @@ fn main() {
         .expect("the Host cannot start")
         .run(|app, event| {
             if let tauri::RunEvent::Exit = event {
-                tracing::info!("the Host is exiting; saving progress and pushing to account");
-                app.state::<ipc::HostHandle>().shutdown();
+                // What the Host did, not what it hoped: with no Stremio account
+                // signed in, `account` is false and nothing was pushed.
+                let account = app.state::<ipc::HostHandle>().shutdown();
+                tracing::info!(account, "the Host is exiting; the last position is saved");
             }
         });
 }

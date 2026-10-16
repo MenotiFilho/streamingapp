@@ -51,12 +51,12 @@ impl HostHandle {
     }
 
     /// The Host is going away: write down where the Stream got to, and tell the
-    /// account (#30).
-    pub fn shutdown(&self) {
+    /// account where one is signed in (#30). Answers whether an account was told.
+    pub fn shutdown(&self) -> bool {
         self.0
             .lock()
             .expect("nothing panics while holding the Host")
-            .shutdown();
+            .shutdown()
     }
 }
 
