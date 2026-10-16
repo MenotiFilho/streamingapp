@@ -18,6 +18,7 @@ members = [
     "crates/host-sqlite",
     "crates/host-logging",
     "crates/host-secret",
+    "crates/host-wire",
     "src-tauri",
 ]
 
@@ -35,19 +36,25 @@ host-mpv = { path = "crates/host-mpv" }
 host-secret = { path = "crates/host-secret" }
 host-sqlite = { path = "crates/host-sqlite" }
 host-logging = { path = "crates/host-logging" }
+host-wire = { path = "crates/host-wire" }
 
 base64 = "0.22"
 flate2 = "1"
+getrandom = "0.3"
+mdns-sd = "0.21"
 percent-encoding = "2"
 keyring = "3"
 rusqlite = { version = "0.37", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha1 = "0.10"
+sha2 = "0.10"
 tempfile = "3"
 thiserror = "2"
 tracing = "0.1"
 tracing-appender = "0.2"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+tungstenite = { version = "0.30", default-features = false }
 ureq = { version = "3", default-features = false, features = ["gzip", "native-tls"] }
 url = "2"
 

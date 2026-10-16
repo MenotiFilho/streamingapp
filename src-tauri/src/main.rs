@@ -15,6 +15,7 @@
 mod ipc;
 mod paths;
 mod player;
+mod wire;
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -114,6 +115,38 @@ fn main() {
             // Held, not read: the guard inside keeps the log writer alive for as
             // long as the Host runs.
             app.manage(Mutex::new(logs));
+
+            // Where remote clients reach the Host (#31): the wire server over the
+            // one Action surface, the Snapshots it pushes, and the mDNS
+            // announcement that saves typing an address. A machine that cannot
+            // bind, or cannot announce itself, still browses — the window says so
+            // and manual `host:port` is the fallback.
+            let broadcast = host_wire::Broadcast::new();
+            app.manage(broadcast.clone());
+            match wire::start(&handle, broadcast) {
+                Ok(serving) => {
+                    let wire::Serving {
+                        server,
+                        advertisement,
+                        address,
+                    } = serving;
+                    tracing::info!(%address, "the Host answers remote clients");
+                    handle.state::<ipc::HostHandle>().set_serving(&address);
+                    // Held for as long as the Host runs: dropping the server
+                    // stops answering, and dropping the announcement stops the
+                    // mDNS record.
+                    app.manage(server);
+                    if let Some(advertisement) = advertisement {
+                        app.manage(advertisement);
+                    }
+                }
+                Err(error) => {
+                    tracing::error!(
+                        %error,
+                        "the wire server could not start: no remote clients",
+                    );
+                }
+            }
 
             // On open, remote progress newer than the local record is merged in
             // (#30). Runs in the background so a slow or unreachable Stremio

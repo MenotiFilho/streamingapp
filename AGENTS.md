@@ -105,6 +105,11 @@ Issue **#1** is the earlier map, and the design record it produced still stands.
   reason as the transport above (ADR-0013), and the only crate that names a
   thing mpv calls something.
 - `crates/host-sqlite/` — the real `Store`. The only place SQL and the schema live.
+- `crates/host-wire/` — the remote clients' transport: a duplex WebSocket on the
+  Host's LAN address carrying the one Action surface, the page a browser pairs
+  with, and the mDNS announcement that finds it. Outside `host-core` for the same
+  reason as the transport and the player above; the protocol's own codec is in
+  `host-core`, because it is the Host's vocabulary written down (ADR-0017).
 - `crates/host-logging/` — structured logs: JSON lines in the data directory.
 - `src-tauri/` — the app shell: platform directories, logging, the store, the
   window, single-instance behaviour, and the IPC commands. It holds no rules.

@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::addon::{AddonId, InvalidAddonId, InvalidManifestUrl, ManifestUrl, MAX_STRING_LEN};
+use crate::device::{DeviceId, DeviceName, InvalidDeviceId, InvalidDeviceName};
+use crate::pairing::{InvalidPairingCode, PairingCode};
 use crate::playback::{
     checked_aspect, checked_crop, checked_speed, checked_subtitle_delay, checked_volume, Aspect,
     ChosenStream, Control, Crop, InvalidAspect, InvalidCrop, InvalidSeekTarget, InvalidSpeed,
@@ -61,6 +63,21 @@ pub enum Action {
     /// Forget the account: the `authKey` is taken out, and nothing talks to
     /// Stremio afterwards. Watch progress already merged stays where it is.
     SignOutStremio,
+    /// Redeem the pairing code the Host is showing for a token of this device's
+    /// own, under `name` (#31).
+    ///
+    /// The one Action a connection that has not paired may take: everything else
+    /// is what a paired device is for. A change — the device is now one the Host
+    /// knows, and its token is what later frames are judged by — and an answer,
+    /// because the token goes to the device that asked and to nobody else. The
+    /// code is single-use: redeeming it rotates the one the Host shows.
+    PairDevice { code: String, name: String },
+    /// Take a paired device's token away: it can do nothing from then on, and
+    /// every other device keeps working (#31).
+    ///
+    /// A change like any other, so every client sees the device leave the list
+    /// at the same moment it stops being able to act.
+    RevokeDevice { id: String },
     /// Show a page of one Addon's catalog, in the Addon's own order.
     ///
     /// A question rather than a change: it asks what the Addon has, and what
@@ -240,6 +257,11 @@ impl Action {
                 StremioLogin::parse(&email, password.expose())?,
             )),
             Action::SignOutStremio => Ok(ValidatedAction::SignOutStremio),
+            Action::PairDevice { code, name } => Ok(ValidatedAction::PairDevice {
+                code: PairingCode::parse(&code)?,
+                name: DeviceName::parse(&name)?,
+            }),
+            Action::RevokeDevice { id } => Ok(ValidatedAction::RevokeDevice(DeviceId::parse(&id)?)),
             Action::BrowseCatalog {
                 addon,
                 catalog,
@@ -395,6 +417,13 @@ pub enum ValidatedAction {
     ClearTmdbKey,
     SignInStremio(StremioLogin),
     SignOutStremio,
+    /// A redeemed pairing code and the name to pair the device under, both judged
+    /// before anything is minted.
+    PairDevice {
+        code: PairingCode,
+        name: DeviceName,
+    },
+    RevokeDevice(DeviceId),
     BrowseCatalog {
         addon: AddonId,
         catalog: CatalogRef,
@@ -572,6 +601,26 @@ pub enum ActionError {
     /// Stremio's words and never with what was sent.
     #[error("{detail}")]
     Sync { detail: String },
+    #[error("{0}")]
+    InvalidPairingCode(#[from] InvalidPairingCode),
+    #[error("{0}")]
+    InvalidDeviceId(#[from] InvalidDeviceId),
+    #[error("{0}")]
+    InvalidDeviceName(#[from] InvalidDeviceName),
+    /// A pairing code was offered that is not the one the Host is showing. The
+    /// code is not carried back — a mistyped code may still be a code, and the
+    /// Host has nothing useful to say about a string it has already refused.
+    #[error("that is not the pairing code the Host is showing")]
+    Pairing,
+    /// A revoke named a device the Host does not have paired.
+    #[error("no device with the id {id:?} is paired with this Host")]
+    UnknownDevice { id: String },
+    /// A connection that has not paired asked for something only a paired device
+    /// may do. The one refusal the remote adapter makes on the Host's behalf,
+    /// because "has this connection paired" is a fact about a socket and not
+    /// about the state every client shares.
+    #[error("this connection has not paired, so the Host will only take a pairing")]
+    Unpaired,
 }
 
 #[cfg(test)]

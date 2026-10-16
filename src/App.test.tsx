@@ -47,6 +47,11 @@ const NOTHING_SAID: Snapshot = {
   addons: [],
   protection: { backend: "keyring", tmdbHeld: false, stremioHeld: false },
   watchProgress: [],
+  // A Host that is serving, with a code it is showing and no device paired yet
+  // (#31). The address and code are fixed here so a test can read them back.
+  devices: [],
+  pairingCode: "4K7Q2M",
+  address: "192.168.1.9:8090",
 };
 
 /** An Addon as the Host would publish it, without the URL it lives at. */
@@ -396,6 +401,16 @@ function fakeHost(
           ...state,
           revision: state.revision + 1,
           protection: { ...state.protection, stremioHeld: false },
+        });
+        response.snapshots = [state];
+        break;
+      case "revoke_device":
+        // One device's token is taken away and every other device is left where
+        // it was (#31).
+        publish({
+          ...state,
+          revision: state.revision + 1,
+          devices: state.devices.filter((device) => device.id !== action.id),
         });
         response.snapshots = [state];
         break;
@@ -2428,4 +2443,44 @@ test("a film at its end offers no next episode", async () => {
 
   await screen.findByTestId("stream-ended");
   expect(screen.queryByTestId("next-episode-after-end")).not.toBeInTheDocument();
+});
+
+test("the remote section shows where to connect and the code, and revokes one device alone", async () => {
+  const host = fakeHost({
+    initial: {
+      ...NOTHING_SAID,
+      revision: 4,
+      devices: [
+        { id: "phone1", name: "Phone", pairedAt: 1_700_000_000_000 },
+        { id: "tv1", name: "Television", pairedAt: 1_700_000_100_000 },
+      ],
+    },
+  });
+  windowOver(host.transport);
+
+  await waitFor(() =>
+    expect(screen.getByTestId("remote-address")).toHaveTextContent("192.168.1.9:8090"),
+  );
+  expect(screen.getByTestId("pairing-code")).toHaveTextContent("4K7Q2M");
+  expect(screen.getByTestId("device-phone1")).toHaveTextContent("Phone");
+  expect(screen.getByTestId("device-tv1")).toHaveTextContent("Television");
+
+  fireEvent.click(
+    within(screen.getByTestId("device-phone1")).getByRole("button", { name: "Revoke" }),
+  );
+
+  await waitFor(() => expect(screen.queryByTestId("device-phone1")).not.toBeInTheDocument());
+  expect(screen.getByTestId("device-tv1")).toHaveTextContent("Television");
+  expect(dispatched(host.invocations, "revoke_device").args).toEqual({
+    envelope: { version: 1, action: { type: "revoke_device", id: "phone1" } },
+  });
+});
+
+test("a Host that has paired nothing says so rather than showing an empty list", async () => {
+  const host = fakeHost();
+  windowOver(host.transport);
+
+  await waitFor(() =>
+    expect(screen.getByTestId("no-devices")).toHaveTextContent("No device is paired yet."),
+  );
 });

@@ -765,6 +765,52 @@ export function App({ client }: { client?: HostClient }) {
             )}
           </section>
 
+          {/* Where another device connects (#31): the address and the code the
+              Host is showing, and the devices it has paired. Revoking takes one
+              device's token away and leaves every other device working, which is
+              what the list is for. */}
+          <section aria-labelledby="remote-heading">
+            <h2 id="remote-heading">Remote devices</h2>
+            <p className="lede">
+              On another device on this network, open the address below and enter
+              the code once. That device is remembered; the code is not needed
+              again, and a device can be revoked on its own.
+            </p>
+            {snapshot ? (
+              <dl className="lede">
+                <dt>Address</dt>
+                <dd data-testid="remote-address">
+                  {snapshot.address ?? "this Host is not serving the network"}
+                </dd>
+                <dt>Pairing code</dt>
+                <dd data-testid="pairing-code">{snapshot.pairingCode}</dd>
+              </dl>
+            ) : (
+              <p className="lede" data-testid="remote-address">
+                Waiting for the Host…
+              </p>
+            )}
+            <ul data-testid="devices" className="lede">
+              {snapshot && snapshot.devices.length > 0 ? (
+                snapshot.devices.map((device) => (
+                  <li key={device.id} data-testid={`device-${device.id}`}>
+                    <span>{device.name}</span>, paired{" "}
+                    {new Date(device.pairedAt).toLocaleString()}{" "}
+                    <button
+                      type="button"
+                      data-focusable
+                      onClick={() => void take({ type: "revoke_device", id: device.id })}
+                    >
+                      Revoke
+                    </button>
+                  </li>
+                ))
+              ) : snapshot ? (
+                <li data-testid="no-devices">No device is paired yet.</li>
+              ) : null}
+            </ul>
+          </section>
+
           <section aria-labelledby="preference-heading">
             <h2 id="preference-heading">Subtitle language</h2>
             <p data-testid="subtitle-language">

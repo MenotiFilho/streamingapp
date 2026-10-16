@@ -37,6 +37,7 @@ host-logging = { workspace = true }
 host-mpv = { workspace = true }
 host-secret = { workspace = true }
 host-sqlite = { workspace = true }
+host-wire = { workspace = true }
 
 serde = { workspace = true }
 serde_json = { workspace = true }

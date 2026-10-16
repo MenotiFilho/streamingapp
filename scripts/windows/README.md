@@ -59,6 +59,16 @@ sign-in and the host exits through the hook sync added with `"account":false`. I
 is runnable on its own with `-Only 24`; the merge and the push need a Title
 watched while signed in, and `crates/host-core/tests/stremio_sync.rs` covers them
 rather than a by-hand run that would push a fixture Title into a real account.
+From #31 the walkthrough walks the remote: it checks the Host is serving and
+announcing itself, reads the address and the pairing code off the window, and
+then **waits while the operator pairs a browser on another device by hand** —
+open the address, type the code, nothing passes through the script — before
+checking that the device joined the list, that the code rotated, and that
+revoking it on its own takes it off the list again. It is runnable on its own
+with `-Only 25`, and it needs a second device on the same network (a phone is
+the obvious one). The parts a phone cannot be asked to prove — an unpaired
+connection reaching only the pairing exchange, and a revoked one being cut off —
+are driven over a real socket by `crates/host-wire/tests/wire.rs`.
 
 For the steps that depend on what a third-party Addon happens to serve — that
 the posters are drawn, that a search returns something, which candidates a
@@ -89,7 +99,7 @@ automation in the build, so these scripts are run deliberately, never in CI.
 
 ## Walking part of the checklist
 
-The whole checklist is 24 steps and takes minutes. To iterate on one step, run
+The whole checklist is 25 steps and takes minutes. To iterate on one step, run
 just that one: the runner builds the ground the step declares first — an empty
 data directory, one Host on `-Monitor`, the fixture Addon configured by manifest
 URL, at the catalog rows — and reuses it when several selected steps need it, so
@@ -263,6 +273,11 @@ or started).
   permissions problem. It also holds the single-instance lock, so the next Host
   would merely focus it. `build.ps1` stops a leftover Host before building and
   `verify.ps1` stops one before it starts.
+- **The wire server wants port 8090**, and the window shows the address it
+  actually got — `host:8090` when it is free, whatever the operating system
+  offered when it is not. A leftover Host is what usually holds it, and stopping
+  that Host gives the port back. Nothing but the window decides the number a
+  person types, which is why the window reads it out rather than the README.
 - **The picture is a *child window* of the Host's, not a texture.** mpv is given
   the window's `HWND` as its `wid` and creates a child of it, which the app shell
   pushes to the bottom of the z-order and keeps the size of the window. When a

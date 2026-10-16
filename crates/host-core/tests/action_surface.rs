@@ -292,7 +292,8 @@ fn the_snapshot_declares_only_fields_it_can_safely_carry() {
     let mut host = host();
     set_subtitle_language(&mut host, "pt-BR");
 
-    let published = serde_json::to_value(host.snapshot()).expect("a Snapshot serializes");
+    let snapshot = host.snapshot();
+    let published = serde_json::to_value(&snapshot).expect("a Snapshot serializes");
 
     assert_eq!(
         published,
@@ -321,6 +322,12 @@ fn the_snapshot_declares_only_fields_it_can_safely_carry() {
             "addons": [],
             "protection": { "backend": "keyring", "tmdbHeld": false, "stremioHeld": false },
             "watchProgress": [],
+            // A freshly opened Host has no devices but the one it has always had
+            // — nobody — and the code it is showing. The code is drawn, so it is
+            // pinned here to the one the Host drew rather than to a literal.
+            "devices": [],
+            "pairingCode": snapshot.pairing_code.as_str(),
+            "address": serde_json::Value::Null,
         }),
         "the wire shape is the declared one, camelCased for a JavaScript client"
     );
@@ -426,5 +433,19 @@ impl Store for CountingStore {
     fn write_watch_progress(&self, progress: &host_core::WatchProgress) -> Result<(), StoreError> {
         self.writes.fetch_add(1, Ordering::SeqCst);
         self.inner.write_watch_progress(progress)
+    }
+
+    fn read_devices(&self) -> Result<Vec<host_core::Device>, StoreError> {
+        self.inner.read_devices()
+    }
+
+    fn write_device(&self, device: &host_core::Device) -> Result<(), StoreError> {
+        self.writes.fetch_add(1, Ordering::SeqCst);
+        self.inner.write_device(device)
+    }
+
+    fn remove_device(&self, id: &host_core::DeviceId) -> Result<(), StoreError> {
+        self.writes.fetch_add(1, Ordering::SeqCst);
+        self.inner.remove_device(id)
     }
 }

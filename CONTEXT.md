@@ -186,3 +186,28 @@ Telling before it is anything a client sees, so that no client can have one the
 seam does not (ADR-0002).
 _Avoid_: command, instruction, mpv call
 
+### Remote clients
+
+**Remote client**:
+A client on another machine that reaches the Host's Action surface over the wire
+— the equal of the Host's own window, not a cut-down one. It is a browser the
+Host serves, paired to that device alone.
+_Avoid_: phone app, second screen, companion
+
+**Pairing code**:
+The short code the Host shows, which a client redeems once for a Device token.
+Single-use: redeeming it rotates the one the Host shows. Not a password, and not
+stored.
+_Avoid_: PIN, passcode, QR
+
+**Device**:
+A client that has paired, known by a name and when it paired, and revocable on
+its own without disturbing the others. What the Host keeps of it is the digest of
+its token, never the token.
+_Avoid_: client (unqualified), session, peer
+
+**Device token**:
+The long-lived secret a Device was issued and presents on every frame, which is
+what "this device has paired" means. Revoking the Device is what stops it working.
+_Avoid_: key, session id, credential
+

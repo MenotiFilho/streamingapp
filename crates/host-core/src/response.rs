@@ -15,6 +15,7 @@
 use serde::Serialize;
 
 use crate::catalog::CatalogRow;
+use crate::device::{DeviceSummary, DeviceToken};
 use crate::meta::Title;
 use crate::snapshot::Snapshot;
 use crate::stream::AddonStreams;
@@ -32,12 +33,11 @@ pub struct Response {
 }
 
 impl Response {
-    /// The response to an Action that changed something.
-    pub(crate) fn published(snapshots: Vec<Snapshot>) -> Self {
-        Self {
-            snapshots,
-            answer: None,
-        }
+    /// The response to an Action that changed something *and* answered: pairing
+    /// is the one of those, because the token goes to the device that asked while
+    /// the device joining the list is state every client sees.
+    pub(crate) fn changed(snapshots: Vec<Snapshot>, answer: Option<Answer>) -> Self {
+        Self { snapshots, answer }
     }
 
     /// The response to an Action that only asked something.
@@ -87,4 +87,12 @@ pub enum Answer {
     /// The Streams a Video can be played as: one group per Addon that answered
     /// the `stream` request, in the order the Addons were configured.
     Streams(Vec<AddonStreams>),
+    /// The token a pairing was just issued, and the device it belongs to. The one
+    /// answer that carries something a client holds rather than something it
+    /// reads: it goes to the device that redeemed the code and to nobody else,
+    /// and no Snapshot has a field it could occupy.
+    Paired {
+        device: DeviceSummary,
+        token: DeviceToken,
+    },
 }

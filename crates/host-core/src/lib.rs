@@ -40,13 +40,16 @@ mod addon;
 mod cache;
 mod catalog;
 mod clock;
+mod device;
 mod fetcher;
 mod host;
 mod meta;
+mod pairing;
 mod playback;
 mod preferences;
 mod progress;
 mod provider;
+mod random;
 mod request;
 mod response;
 mod secret;
@@ -58,6 +61,7 @@ mod stremio;
 mod subtitles;
 mod sync;
 mod tmdb;
+mod wire;
 
 pub use action::{Action, ActionError, ValidatedAction, ACTION_VERSION};
 pub use addon::{
@@ -67,9 +71,14 @@ pub use addon::{
 };
 pub use catalog::{CacheHints, CatalogError, CatalogRow, MetaPreview, Page, MAX_CATALOG_BYTES};
 pub use clock::{Clock, FixtureClock, SystemClock};
+pub use device::{
+    Device, DeviceId, DeviceName, DeviceSummary, DeviceToken, InvalidDeviceId, InvalidDeviceName,
+    InvalidDeviceToken, InvalidTokenDigest, TokenDigest,
+};
 pub use fetcher::{FetchError, Fetcher, FixtureFetcher};
 pub use host::Host;
 pub use meta::{MetaError, Title, TitleKey, Video, MAX_META_BYTES};
+pub use pairing::{InvalidPairingCode, PairingCode, PAIRING_CODE_LEN};
 pub use playback::{
     Aspect, Chapter, ChapterStep, ChosenStream, Control, Crop, CropRectangle, FixturePlayer,
     InvalidAspect, InvalidCrop, InvalidSeekTarget, InvalidSpeed, InvalidStreamUrl,
@@ -103,3 +112,4 @@ pub use tmdb::{
     Credential, ExternalId, Kind, TmdbDetails, TmdbError, TmdbId, TmdbRequest, IMAGE_ROOT,
     TMDB_ROOT,
 };
+pub use wire::{permitted, ClientFrame, Refusal, ServerFrame, WIRE_VERSION};

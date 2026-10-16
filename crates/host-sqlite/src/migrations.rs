@@ -61,6 +61,22 @@ pub const MIGRATIONS: &[Migration] = &[
                  updated_at   INTEGER NOT NULL
              );",
     },
+    Migration {
+        // The devices the Host has paired (#31). What is kept is the *digest* of
+        // a device's token rather than the token: a copy of this database is then
+        // a list of what paired, not a list of live keys, and the token itself
+        // was handed to the device once and is compared, never stored. A device
+        // is revoked by dropping its row, so there is no `revoked` flag to keep
+        // honest. Rows read back in `rowid` order, which is the order they
+        // paired.
+        version: 4,
+        sql: "CREATE TABLE devices (
+                 id           TEXT PRIMARY KEY NOT NULL,
+                 name         TEXT NOT NULL,
+                 token_digest TEXT NOT NULL,
+                 paired_at    INTEGER NOT NULL
+             );",
+    },
 ];
 
 /// The version a database is at once every migration in `migrations` has run.

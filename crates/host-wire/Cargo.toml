@@ -1,0 +1,27 @@
+[package]
+name = "host-wire"
+description = "The Host's wire server: the one Action surface behind a duplex WebSocket, and the LAN advertisement that finds it"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+rust-version.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+host-core = { workspace = true }
+base64 = { workspace = true }
+mdns-sd = { workspace = true }
+serde_json = { workspace = true }
+sha1 = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tungstenite = { workspace = true }
+
+[dev-dependencies]
+# The suite's clients are real WebSocket clients, so they need the handshake the
+# server does not: the Host writes its own 101 and hands the socket to the
+# framing layer, but a test has to be able to connect to it.
+tungstenite = { version = "0.30", features = ["handshake"] }

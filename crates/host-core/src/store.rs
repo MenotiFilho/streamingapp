@@ -2,6 +2,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 
 use crate::addon::Addon;
+use crate::device::{Device, DeviceId};
 use crate::preferences::Preferences;
 use crate::progress::WatchProgress;
 
@@ -37,6 +38,20 @@ pub trait Store: Send + Sync + 'static {
     /// One entry at a time because this is the write the Host makes while it
     /// plays: playback moves, and the position written down moves with it (#29).
     fn write_watch_progress(&self, progress: &WatchProgress) -> Result<(), StoreError>;
+
+    /// The devices the Host has paired, in the order they paired.
+    ///
+    /// Read once at startup, like Addons and Watch progress: the Host holds them
+    /// in memory and judges every frame a remote client sends against them, so
+    /// this is not a per-frame read. What is stored is a device and the digest of
+    /// its token, never the token itself.
+    fn read_devices(&self) -> Result<Vec<Device>, StoreError>;
+
+    /// Write one paired device, replacing whatever was there for its id.
+    fn write_device(&self, device: &Device) -> Result<(), StoreError>;
+
+    /// Take a paired device out by name: its token matches nothing from here on.
+    fn remove_device(&self, id: &DeviceId) -> Result<(), StoreError>;
 }
 
 /// Something went wrong at the store, in the store's own terms.
@@ -79,6 +94,7 @@ pub struct InMemoryStore {
     preferences: Mutex<Preferences>,
     addons: Mutex<Vec<Addon>>,
     watch: Mutex<Vec<WatchProgress>>,
+    devices: Mutex<Vec<Device>>,
     failing_writes: AtomicBool,
 }
 
@@ -93,6 +109,7 @@ impl InMemoryStore {
             preferences: Mutex::new(preferences),
             addons: Mutex::new(Vec::new()),
             watch: Mutex::new(Vec::new()),
+            devices: Mutex::new(Vec::new()),
             failing_writes: AtomicBool::new(false),
         }
     }
@@ -112,6 +129,15 @@ impl InMemoryStore {
             .watch
             .lock()
             .expect("the in-memory store is not poisoned") = watch;
+        self
+    }
+
+    /// The same, with the devices a previous run left paired.
+    pub fn holding_devices(self, devices: Vec<Device>) -> Self {
+        *self
+            .devices
+            .lock()
+            .expect("the in-memory store is not poisoned") = devices;
         self
     }
 
@@ -141,6 +167,14 @@ impl InMemoryStore {
     /// The same look, at the Watch progress.
     pub fn persisted_watch(&self) -> Vec<WatchProgress> {
         self.watch
+            .lock()
+            .expect("the in-memory store is not poisoned")
+            .clone()
+    }
+
+    /// The same look, at the paired devices.
+    pub fn persisted_devices(&self) -> Vec<Device> {
+        self.devices
             .lock()
             .expect("the in-memory store is not poisoned")
             .clone()
@@ -205,6 +239,46 @@ impl Store for InMemoryStore {
         // entry it replaces goes wherever it was, and the new one leads.
         held.retain(|entry| entry.video != progress.video);
         held.insert(0, progress.clone());
+        Ok(())
+    }
+
+    fn read_devices(&self) -> Result<Vec<Device>, StoreError> {
+        Ok(self
+            .devices
+            .lock()
+            .expect("the in-memory store is not poisoned")
+            .clone())
+    }
+
+    fn write_device(&self, device: &Device) -> Result<(), StoreError> {
+        if self.failing_writes.load(Ordering::SeqCst) {
+            return Err(StoreError::Write {
+                detail: "the store is failing every write".to_owned(),
+            });
+        }
+
+        let mut held = self
+            .devices
+            .lock()
+            .expect("the in-memory store is not poisoned");
+        // One row per device, in paired order: a device paired again — which is
+        // a device that paired a second time — keeps its place.
+        held.retain(|existing| existing.id() != device.id());
+        held.push(device.clone());
+        Ok(())
+    }
+
+    fn remove_device(&self, id: &DeviceId) -> Result<(), StoreError> {
+        if self.failing_writes.load(Ordering::SeqCst) {
+            return Err(StoreError::Write {
+                detail: "the store is failing every write".to_owned(),
+            });
+        }
+
+        self.devices
+            .lock()
+            .expect("the in-memory store is not poisoned")
+            .retain(|device| device.id() != id);
         Ok(())
     }
 }

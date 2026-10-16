@@ -1,13 +1,19 @@
-//! The Tauri IPC bridge: the Action surface, reached from the window.
+//! The two bridges to the one Action surface: the window's, and the wire's.
 //!
 //! This module is a translator and nothing else. It parses the envelope the
 //! window sent, hands the Action to the Host, and publishes the Snapshots that
-//! came back. It decides nothing, so the window has no capability a remote client
-//! could not have (ADR-0002).
+//! came back; and it implements [`host_wire::Surface`] so that a remote client
+//! reaches exactly the same door. It decides nothing, so the window has no
+//! capability a remote client could not have (ADR-0002).
+//!
+//! Publishing is one place for both: a Snapshot goes to the window over Tauri's
+//! event bus and to every paired remote connection through the [`Broadcast`], and
+//! a client cannot tell which of the two carried it.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-use host_core::{Action, ActionError, Host, Response, Snapshot};
+use host_core::{Action, ActionError, DeviceSummary, Host, Response, Snapshot};
+use host_wire::{Broadcast, Surface};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -26,6 +32,15 @@ pub struct HostHandle(Mutex<Host>);
 impl HostHandle {
     pub fn new(host: Host) -> Self {
         Self(Mutex::new(host))
+    }
+
+    /// Take an Action, without publishing what came of it: the callers differ in
+    /// where they publish, and there is one place for each of them.
+    pub fn dispatch(&self, action: Action) -> Result<Response, ActionError> {
+        self.0
+            .lock()
+            .expect("nothing panics while holding the Host")
+            .dispatch(action)
     }
 
     /// Read the Player and fold what it reports into state, publishing a
@@ -58,15 +73,36 @@ impl HostHandle {
             .expect("nothing panics while holding the Host")
             .shutdown()
     }
+
+    /// Tell the Host where its wire server answers, once it has bound.
+    pub fn set_serving(&self, address: &str) {
+        self.0
+            .lock()
+            .expect("nothing panics while holding the Host")
+            .set_serving(address.to_owned());
+    }
+
+    /// The state as it stands — what a window that has just loaded is owed.
+    pub fn snapshot(&self) -> Snapshot {
+        self.0
+            .lock()
+            .expect("nothing panics while holding the Host")
+            .snapshot()
+    }
+
+    /// The device a presented token belongs to, or nothing (#31).
+    pub fn device(&self, token: &str) -> Option<DeviceSummary> {
+        self.0
+            .lock()
+            .expect("nothing panics while holding the Host")
+            .device(token)
+    }
 }
 
 /// The state as it stands — what a window that has just loaded is owed.
 #[tauri::command]
 pub fn snapshot(host: tauri::State<'_, HostHandle>) -> Snapshot {
-    host.0
-        .lock()
-        .expect("nothing panics while holding the Host")
-        .snapshot()
+    host.snapshot()
 }
 
 /// Take an Action, publish what changed, and answer the caller.
@@ -87,21 +123,19 @@ pub fn snapshot(host: tauri::State<'_, HostHandle>) -> Snapshot {
 pub fn dispatch(app: AppHandle, envelope: Value) -> Result<Response, ActionError> {
     let action: Action = Action::parse_value(&envelope)?;
     let host = app.state::<HostHandle>();
-    let response = host
-        .0
-        .lock()
-        .expect("nothing panics while holding the Host")
-        .dispatch(action)?;
+    let response = host.dispatch(action)?;
 
     publish(&app, &response.snapshots);
 
     Ok(response)
 }
 
-/// Send Snapshots to every window that is listening.
+/// Send Snapshots to every window that is listening, and to every paired remote
+/// connection.
 ///
-/// One place, so that the clock in the shell and an Action taken by a client
-/// publish the same way and a client cannot tell which of them moved the state.
+/// One place, so that the clock in the shell, an Action taken by the window and an
+/// Action taken by a remote client publish the same way and a client cannot tell
+/// which of them moved the state.
 pub fn publish(app: &AppHandle, snapshots: &[Snapshot]) {
     for snapshot in snapshots {
         tracing::info!(revision = snapshot.revision, "publishing a Snapshot");
@@ -110,5 +144,39 @@ pub fn publish(app: &AppHandle, snapshots: &[Snapshot]) {
             // left to tell, and nothing the Host should undo over it.
             tracing::warn!(%error, "no window took the Snapshot");
         }
+        if let Some(broadcast) = app.try_state::<Broadcast>() {
+            broadcast.publish(snapshot);
+        }
+    }
+}
+
+/// The Action surface, as the wire server reaches it (#31).
+///
+/// The same handle the window's commands use, and the same `publish`: a remote
+/// client is the window's equal, and the only thing this adds is that the
+/// Snapshots also go out over the WebSocket.
+pub struct WireSurface {
+    app: AppHandle,
+}
+
+impl WireSurface {
+    pub fn new(app: AppHandle) -> Arc<Self> {
+        Arc::new(Self { app })
+    }
+}
+
+impl Surface for WireSurface {
+    fn dispatch(&self, action: Action) -> Result<Response, ActionError> {
+        let response = self.app.state::<HostHandle>().dispatch(action)?;
+        publish(&self.app, &response.snapshots);
+        Ok(response)
+    }
+
+    fn device(&self, token: &str) -> Option<DeviceSummary> {
+        self.app.state::<HostHandle>().device(token)
+    }
+
+    fn snapshot(&self) -> Snapshot {
+        self.app.state::<HostHandle>().snapshot()
     }
 }

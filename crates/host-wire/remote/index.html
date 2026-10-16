@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>streamingapp</title>
+    <style>
+      :root {
+        --ink: #e9edf5;
+        --dim: #8b93a7;
+        --panel: #14161d;
+        --edge: #262a36;
+        --accent: #7cc4ff;
+        --bad: #ff8f8f;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #0b0c10;
+        color: var(--ink);
+        font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+      main { width: 100%; max-width: 26rem; }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--edge);
+        border-radius: 14px;
+        padding: 22px;
+      }
+      h1 { font-size: 1.05rem; margin: 0 0 4px; letter-spacing: 0.01em; }
+      .dim { color: var(--dim); }
+      p { margin: 0 0 14px; }
+      label { display: block; font-size: 0.8rem; color: var(--dim); margin: 12px 0 4px; }
+      input {
+        width: 100%;
+        padding: 10px 12px;
+        border-radius: 9px;
+        border: 1px solid var(--edge);
+        background: #0e1015;
+        color: var(--ink);
+        font: inherit;
+      }
+      input#code { letter-spacing: 0.28em; text-transform: uppercase; font-variant-numeric: tabular-nums; }
+      button {
+        margin-top: 16px;
+        width: 100%;
+        padding: 11px 14px;
+        border-radius: 9px;
+        border: 1px solid transparent;
+        background: var(--accent);
+        color: #06121f;
+        font: inherit;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button.ghost { background: transparent; color: var(--ink); border-color: var(--edge); }
+      .row { display: flex; gap: 10px; }
+      .row button { margin-top: 12px; }
+      .state { font-size: 1.35rem; font-weight: 650; margin: 2px 0 6px; }
+      .error { color: var(--bad); white-space: pre-wrap; }
+      .pill { display: inline-block; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--edge); font-size: 0.75rem; color: var(--dim); }
+      .bar { height: 4px; border-radius: 2px; background: #222634; overflow: hidden; margin: 10px 0 2px; }
+      .bar > span { display: block; height: 100%; background: var(--accent); width: 0; }
+      .hidden { display: none; }
+      ol { margin: 10px 0 0; padding-left: 18px; }
+      li { margin: 4px 0; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <!-- The pairing card: what a device that has not paired sees. -->
+      <section id="pairing" class="card hidden">
+        <h1>Pair this device</h1>
+        <p class="dim">
+          Type the code the Host is showing. This device is remembered; the code is
+          not needed again.
+        </p>
+        <form id="pair-form">
+          <label for="code">Pairing code</label>
+          <input id="code" name="code" autocomplete="off" autocapitalize="characters"
+                 spellcheck="false" inputmode="latin" maxlength="12" placeholder="ABCDEF" />
+          <label for="name">Name this device</label>
+          <input id="name" name="name" autocomplete="off" maxlength="64" placeholder="Phone" />
+          <button type="submit">Pair</button>
+        </form>
+        <p id="pair-error" class="error"></p>
+      </section>
+
+      <!-- The remote: what a paired device sees. -->
+      <section id="remote" class="card hidden">
+        <h1 id="device">Connected</h1>
+        <p class="dim" id="connection">live</p>
+        <div class="state" id="now">Nothing is playing</div>
+        <p class="dim" id="what"></p>
+        <div class="bar"><span id="progress"></span></div>
+        <p class="dim" id="where"></p>
+        <div class="row">
+          <button id="pause" class="ghost">Pause</button>
+          <button id="stop" class="ghost">Stop</button>
+        </div>
+        <p class="dim" id="remote-error"></p>
+      </section>
+    </main>
+
+    <script>
+      "use strict";
+
+      // The version of the protocol, mirroring `WIRE_VERSION` in host-core. The
+      // Host judges it before it reads anything else, so a page that is too old
+      // or too new is told exactly that instead of being misparsed.
+      const VERSION = 1;
+      const TOKEN_KEY = "streamingapp.device.token";
+
+      const el = (id) => document.getElementById(id);
+      const pairing = el("pairing");
+      const remote = el("remote");
+
+      let socket = null;
+      let nextId = 1;
+      const pending = new Map();
+      let token = null;
+      try { token = window.localStorage.getItem(TOKEN_KEY); } catch (e) { token = null; }
+      let device = null;
+
+      function send(frame) {
+        if (socket && socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify(frame));
+          return true;
+        }
+        return false;
+      }
+
+      function command(action) {
+        const id = nextId++;
+        send({ version: VERSION, id, command: action });
+        return id;
+      }
+
+      function connect() {
+        const scheme = location.protocol === "https:" ? "wss" : "ws";
+        socket = new WebSocket(`${scheme}://${location.host}/`);
+
+        socket.addEventListener("open", () => {
+          el("connection").textContent = "live";
+          // Present the token this device was paired with, or nothing on a first
+          // connect. The Host answers either way, and what it answers decides
+          // which card is shown.
+          send({ version: VERSION, hello: { token } });
+        });
+
+        socket.addEventListener("message", (event) => {
+          let frame;
+          try { frame = JSON.parse(event.data); } catch (e) { return; }
+          handle(frame);
+        });
+
+        socket.addEventListener("close", () => {
+          el("connection").textContent = "reconnecting…";
+          // A phone that locked its screen comes back here: the greeting asks
+          // for the current state, so the view catches up rather than staying
+          // stale.
+          setTimeout(connect, 1000);
+        });
+      }
+
+      function handle(frame) {
+        if (frame.version !== VERSION) {
+          showError(`This page speaks version ${VERSION} and the Host ${frame.version}.`);
+          return;
+        }
+        if (frame.welcome) {
+          device = frame.welcome.device;
+          if (device) {
+            try { window.localStorage.setItem(TOKEN_KEY, token); } catch (e) {}
+            remote.classList.remove("hidden");
+            pairing.classList.add("hidden");
+            el("device").textContent = `Connected as ${device.name}`;
+          } else {
+            pairing.classList.remove("hidden");
+            remote.classList.add("hidden");
+            el("code").focus();
+          }
+          return;
+        }
+        if (frame.snapshot) {
+          render(frame.snapshot);
+          return;
+        }
+        if (frame.response) {
+          // The pairing answer carries the token this device keeps; the state it
+          // changed arrives as a pushed Snapshot like everyone else's.
+          const answer = frame.response.answer;
+          if (answer && answer.paired) {
+            token = answer.paired.token;
+            try { window.localStorage.setItem(TOKEN_KEY, token); } catch (e) {}
+          }
+          return;
+        }
+        if (frame.error) {
+          if (frame.error.kind === "unsupported_version") {
+            showError(`This page speaks version ${VERSION} and the Host ${frame.error.supported}.`);
+          } else if (pairing.classList.contains("hidden")) {
+            el("remote-error").textContent = explain(frame.error);
+          } else {
+            el("pair-error").textContent = explain(frame.error);
+          }
+        }
+      }
+
+      function showError(message) {
+        pairing.classList.remove("hidden");
+        remote.classList.add("hidden");
+        el("pair-error").textContent = message;
+      }
+
+      function explain(error) {
+        switch (error.kind) {
+          case "pairing": return "That is not the code the Host is showing.";
+          case "unpaired": return "This device is not paired any more.";
+          case "invalid_pairing_code": return "A code is six letters and digits, like 4K7Q2M.";
+          case "invalid_device_name": return "Give this device a name of a few words.";
+          case "unreachable": return "The Host could not be reached.";
+          default: return error.detail || error.kind;
+        }
+      }
+
+      function render(snapshot) {
+        const playback = snapshot.playback || {};
+        const now = playback.nowPlaying;
+        if (now) {
+          el("now").textContent = now.name || `${now.video.type} ${now.video.id}`;
+          el("what").textContent = `from ${now.addon}`;
+        } else {
+          el("now").textContent = playback.state === "idle" ? "Nothing is playing" : playback.state;
+          el("what").textContent = playback.failure || "";
+        }
+        if (playback.position != null && playback.duration) {
+          const percent = Math.min(100, (playback.position / playback.duration) * 100);
+          el("progress").style.width = `${percent}%`;
+          el("where").textContent =
+            `${clock(playback.position)} / ${clock(playback.duration)}${playback.state === "paused" ? " — paused" : ""}`;
+        } else {
+          el("progress").style.width = "0";
+          el("where").textContent = "";
+        }
+        el("pause").textContent = playback.state === "paused" ? "Resume" : "Pause";
+      }
+
+      function clock(seconds) {
+        const total = Math.floor(seconds);
+        const hours = Math.floor(total / 3600);
+        const minutes = Math.floor((total % 3600) / 60);
+        const rest = total % 60;
+        const mm = String(minutes).padStart(2, "0");
+        const ss = String(rest).padStart(2, "0");
+        return hours > 0 ? `${hours}:${mm}:${ss}` : `${minutes}:${ss}`;
+      }
+
+      el("pair-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        el("pair-error").textContent = "";
+        command({
+          type: "pair_device",
+          code: el("code").value,
+          name: el("name").value || "Device",
+        });
+      });
+
+      el("pause").addEventListener("click", () => {
+        command({ type: "set_paused", paused: el("pause").textContent !== "Resume" });
+      });
+      el("stop").addEventListener("click", () => command({ type: "stop_playback" }));
+
+      connect();
+    </script>
+  </body>
+</html>

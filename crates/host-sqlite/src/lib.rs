@@ -10,8 +10,8 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use host_core::{
-    Addon, AddonId, Manifest, ManifestUrl, Preferences, Store, StoreError, SubtitleLanguage,
-    TitleCard, TitleStub, VideoRef, WatchProgress,
+    Addon, AddonId, Device, DeviceId, DeviceName, Manifest, ManifestUrl, Preferences, Store,
+    StoreError, SubtitleLanguage, TitleCard, TitleStub, TokenDigest, VideoRef, WatchProgress,
 };
 use rusqlite::{params, Connection};
 
@@ -300,5 +300,82 @@ impl Store for SqliteStore {
             .map_err(StoreError::write)?;
 
         transaction.commit().map_err(StoreError::write)
+    }
+
+    fn read_devices(&self) -> Result<Vec<Device>, StoreError> {
+        let connection = self.locked()?;
+        // Read in `rowid` order, which is the order the devices paired: the list
+        // a Snapshot carries, and nothing a query has to sort.
+        let mut statement = connection
+            .prepare("SELECT id, name, token_digest, paired_at FROM devices ORDER BY rowid")
+            .map_err(StoreError::read)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })
+            .map_err(StoreError::read)?;
+
+        let mut devices = Vec::new();
+        for row in rows {
+            // Nothing here is named in the message: a device's name is the
+            // owner's, and a read failure ends up in a log or in an error a
+            // client sees.
+            let (id, name, digest, paired_at) = row.map_err(StoreError::read)?;
+
+            let id = DeviceId::parse(&id).map_err(|_| StoreError::Read {
+                detail: "a stored device names no device id".to_owned(),
+            })?;
+            let name = DeviceName::parse(&name).map_err(|_| StoreError::Read {
+                detail: "a stored device has a name this Host would not have taken".to_owned(),
+            })?;
+            // What is stored is the digest of a token, never the token: a row
+            // that somehow drifted is not a device that can be matched, and is
+            // reported rather than paired.
+            let digest = TokenDigest::parse(&digest).map_err(|_| StoreError::Read {
+                detail: "a stored device's token digest is unusable".to_owned(),
+            })?;
+
+            devices.push(Device::read(id, name, digest, paired_at));
+        }
+
+        Ok(devices)
+    }
+
+    fn write_device(&self, device: &Device) -> Result<(), StoreError> {
+        let connection = self.locked()?;
+
+        connection
+            .execute(
+                "INSERT INTO devices (id, name, token_digest, paired_at)
+                 VALUES (?1, ?2, ?3, ?4)
+                 ON CONFLICT(id) DO UPDATE SET
+                     name         = excluded.name,
+                     token_digest = excluded.token_digest,
+                     paired_at    = excluded.paired_at",
+                params![
+                    device.id().as_str(),
+                    device.name().as_str(),
+                    device.digest().as_str(),
+                    device.paired_at(),
+                ],
+            )
+            .map_err(StoreError::write)?;
+
+        Ok(())
+    }
+
+    fn remove_device(&self, id: &DeviceId) -> Result<(), StoreError> {
+        let connection = self.locked()?;
+
+        connection
+            .execute("DELETE FROM devices WHERE id = ?1", params![id.as_str()])
+            .map_err(StoreError::write)?;
+
+        Ok(())
     }
 }

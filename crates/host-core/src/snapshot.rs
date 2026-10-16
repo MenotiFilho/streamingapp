@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::addon::Manifest;
+use crate::device::DeviceSummary;
+use crate::pairing::PairingCode;
 use crate::playback::{Picture, PlaybackSnapshot};
 use crate::preferences::SubtitleLanguage;
 use crate::progress::ResumeEntry;
@@ -43,6 +45,21 @@ pub struct Snapshot {
     /// to — so it travels as a Snapshot rather than as an answer, and every
     /// client sees the same Continue watching row (#29).
     pub watch_progress: Vec<ResumeEntry>,
+    /// The devices the Host has paired, in the order they paired. Enough to list
+    /// them and to name one when revoking; what a device *holds* is not here, and
+    /// there is no field in a [`DeviceSummary`] it could occupy (#31).
+    pub devices: Vec<DeviceSummary>,
+    /// The code the Host is showing, which a client that has not paired redeems
+    /// once. It travels in the Snapshot because the window that displays it is a
+    /// client of the same Snapshot stream as everything else and has no private
+    /// path to it (ADR-0002); it is not a credential, it is what a credential is
+    /// minted from, it is single-use, and it rotates the moment it is redeemed.
+    pub pairing_code: PairingCode,
+    /// Where this Host answers on the network, as `host:port` — a fact about the
+    /// machine the Host is running on, like where the picture is drawn, and what
+    /// the window reads out so a person knows where to point a browser. Nothing
+    /// when the Host has no wire server (a test, or a Host that could not bind).
+    pub address: Option<String>,
 }
 
 /// The preference fields a client may see.
@@ -76,7 +93,12 @@ impl Snapshot {
     /// `picture` is the Player's answer to where it draws: a fact about the
     /// machine the Host was built on, like which backend holds a credential, and
     /// not something any Action changes.
-    pub(crate) fn build(state: &State, revision: u64, picture: Picture) -> Self {
+    pub(crate) fn build(
+        state: &State,
+        revision: u64,
+        picture: Picture,
+        address: Option<&str>,
+    ) -> Self {
         Self {
             revision,
             playback: state.playback().snapshot(picture),
@@ -98,6 +120,13 @@ impl Snapshot {
                 .iter()
                 .map(|entry| entry.resume_entry(state.has_addon(entry.title.addon())))
                 .collect(),
+            devices: state
+                .devices()
+                .iter()
+                .map(|device| device.summary())
+                .collect(),
+            pairing_code: state.pairing().clone(),
+            address: address.map(str::to_owned),
         }
     }
 }

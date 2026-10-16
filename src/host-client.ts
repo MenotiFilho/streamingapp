@@ -23,6 +23,35 @@ export type Snapshot = {
    * whose Addon is gone stays listed, marked unplayable, rather than vanishing.
    */
   watchProgress: ResumeEntry[];
+  /**
+   * The devices the Host has paired (#31), in the order they paired. Enough to
+   * list a device and to name it when revoking; what a device holds is not here
+   * and there is no field it could occupy.
+   */
+  devices: DeviceSummary[];
+  /**
+   * The code the Host is showing, which a client that has not paired redeems
+   * once. It is not a credential: it is what a credential is minted from, it is
+   * single-use, and the Host rotates it the moment a device redeems it.
+   */
+  pairingCode: string;
+  /**
+   * Where the Host answers remote clients, as `host:port` — a fact about the
+   * machine, like where the picture is drawn, and what this window reads out so a
+   * person knows where to point a browser. Null when the Host has no wire server.
+   */
+  address: string | null;
+};
+
+/**
+ * A device the Host has paired. Mirrors `DeviceSummary` in `host-core`: the id a
+ * revoke names, the name it was paired under, and when — never the token it
+ * holds.
+ */
+export type DeviceSummary = {
+  id: string;
+  name: string;
+  pairedAt: number;
 };
 
 /**
@@ -378,7 +407,12 @@ export type AddonStreams = {
  */
 export type Response = {
   snapshots: Snapshot[];
-  answer: { catalogs: CatalogRow[] } | { title: Title } | { streams: AddonStreams[] } | null;
+  answer:
+    | { catalogs: CatalogRow[] }
+    | { title: Title }
+    | { streams: AddonStreams[] }
+    | { paired: { device: DeviceSummary; token: string } }
+    | null;
 };
 
 /** What a client can ask the Host to do. Mirrors `Action` in `host-core`. */
@@ -435,7 +469,13 @@ export type Action =
   // The Action the window sends for a series' next episode: the Host decides
   // which Video that is — asking its Addons, not counting up an id — and answers
   // whether it can move to one at all.
-  | { type: "next_episode" };
+  | { type: "next_episode" }
+  // Pairing and devices (#31). `pair_device` is the one Action an unpaired
+  // connection may take; this window is the Host's own and is already in, so what
+  // it sends is the revoke: one device's token is taken away and every other
+  // device keeps working.
+  | { type: "pair_device"; code: string; name: string }
+  | { type: "revoke_device"; id: string };
 
 /**
  * Where a seek goes: to a second of the Stream, or by some seconds from where
@@ -487,6 +527,12 @@ export const HOST_ERROR_KINDS = [
   "invalid_stremio_login",
   "sync_unavailable",
   "sync",
+  "invalid_pairing_code",
+  "invalid_device_id",
+  "invalid_device_name",
+  "pairing",
+  "unknown_device",
+  "unpaired",
 ] as const;
 
 /**
@@ -539,6 +585,10 @@ export type ActionError = {
   index?: number;
   /** The control a refusal is about, where the refusal is about one. */
   control?: Control;
+  /** The pairing code a refusal names, where the refusal is about one. */
+  code?: string;
+  /** The device name a refusal names, where the refusal is about one. */
+  name?: string;
 };
 
 /**
@@ -664,6 +714,20 @@ export function explain(error: ActionError): string {
       return "This Host was built without Stremio account sync, so it cannot sign in.";
     case "sync":
       return `The Host could not sign in to Stremio${error.detail ? `: ${error.detail}` : ""}.`;
+    case "invalid_pairing_code":
+      return `${JSON.stringify(error.code)} is not a pairing code — a code is six letters and digits, like "4K7Q2M".`;
+    case "invalid_device_id":
+      return `${JSON.stringify(error.id)} is not a device id.`;
+    case "invalid_device_name":
+      return `A device needs a name of a few words, not ${JSON.stringify(error.name)}.`;
+    case "pairing":
+      // The Host carries no part of a refused code back: a mistyped code may
+      // still be a code, and there is nothing useful to echo.
+      return "That is not the pairing code the Host is showing.";
+    case "unknown_device":
+      return `No device with the id ${JSON.stringify(error.id)} is paired with this Host.`;
+    case "unpaired":
+      return "This connection has not paired, so the Host will only take a pairing.";
     case "unreachable":
       return `The window could not reach the Host${error.detail ? `: ${error.detail}` : ""}.`;
   }

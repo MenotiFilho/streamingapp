@@ -92,6 +92,7 @@ $Steps = @(
     [pscustomobject]@{ Id = 22; Title = 'the data directory'; Ground = 'data'; After = @(); Need = 'the data directory (made if a Host has not)' }
     [pscustomobject]@{ Id = 23; Title = 'Watch progress outlives a Host that was killed, and the row resumes it'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at its rows (it plays an episode, kills the Host, starts it again, and resumes)' }
     [pscustomobject]@{ Id = 24; Title = 'signing in to Stremio holds the account, and signing out lets it go'; Ground = 'addon'; After = @(); Need = 'an Addon and a real Stremio account: it waits while you sign in by hand in the window, then checks and signs out again' }
+    [pscustomobject]@{ Id = 25; Title = 'pairing a phone browser over the LAN, and revoking it on its own'; Ground = 'addon'; After = @(); Need = 'an Addon and a second device on the same network: it waits while you pair by hand in a browser, then revokes' }
 )
 
 # The discovery path and the cheap syntax check: print the checklist and what
@@ -1806,6 +1807,73 @@ function Step-24($ctx) {
     'the merge and the push need a Title watched while signed in; that is the same'
     'surface (sign-in already proves the account is held) and host-core/tests/stremio_sync.rs'
     'covers it, so this step stops at the account.'
+}
+
+function Step-25($ctx) {
+    '--- 25. pairing a browser on another device, and revoking it on its own'
+    $app = $ctx.App
+    Focus $app | Out-Null
+
+    # The Host is serving remote clients: it said so, and it announced itself. The
+    # announcement is what discovery is; a machine whose mDNS could not be spoken
+    # says so in the log instead, and everything still works by address.
+    Check 'the Host is serving remote clients' (
+        (Test-Path $log) -and
+        (Select-String -Path $log -SimpleMatch 'the Host answers remote clients' -Quiet)) (
+        'host.log says nothing about a wire server')
+    Check 'the Host announced itself for discovery' (
+        (Test-Path $log) -and
+        (Select-String -Path $log -SimpleMatch 'the Host announces itself on the network' -Quiet)) (
+        'host.log has no mDNS announcement (manual host:port still works)')
+
+    # What the window reads out is all a person needs to connect a browser on
+    # another device: an address, and a code to redeem once.
+    $text = Wait-Text $app 'Pairing code' 20
+    Shot $app '25-pairing.png'
+    $before = ([regex]::Match($text, 'Snapshot revision\s*\|\s*(\d+)')).Groups[1].Value
+    $address = ([regex]::Match($text, 'Address[^0-9]*([0-9][0-9.]*:[0-9]+)')).Groups[1].Value
+    $code = ([regex]::Match($text, 'Pairing code[^A-Z0-9]{0,6}([A-HJ-NP-Z2-9]{6})')).Groups[1].Value
+    Check 'the window says where remote clients connect' (
+        $text -match 'Remote devices') "showed: $text"
+    Check 'and shows an address a phone can open' (
+        ($address -ne '') -and ($address -notmatch '^0\.0\.0\.0:')) "read: '$address'"
+    Check 'and shows a six-character pairing code' (
+        $code -match '^[A-HJ-NP-Z2-9]{6}$') "read: '$code'"
+    Check 'and a fresh Host has paired nothing yet' (
+        $text -match 'No device is paired yet') "showed: $text"
+
+    # The pairing itself is by hand: a browser on another device on this network.
+    # Nothing is typed here, and no token passes through the script.
+    ''
+    "PAIR A DEVICE NOW: on another device on this network, open http://$address in"
+    "a browser and enter the code $code. This script waits until the window lists a"
+    'paired device (up to 5 minutes).'
+    $text = Wait-No-Text $app 'No device is paired yet' 300
+    Shot $app '25-paired.png'
+    Check 'the paired device is listed' (
+        $text -notmatch 'No device is paired yet') "showed: $text"
+    Check 'and the list offers to revoke it' (
+        $text -match 'Revoke') "showed: $text"
+    Check 'pairing is a change every client is told of: the revision moved' (
+        ([regex]::Match($text, 'Snapshot revision\s*\|\s*(\d+)')).Groups[1].Value -ne $before) (
+        "the revision was $before and is still $before")
+    Check 'the redeemed code is spent: the Host shows a different one' (
+        ([regex]::Match($text, 'Pairing code[^A-Z0-9]{0,6}([A-HJ-NP-Z2-9]{6})')).Groups[1].Value -ne $code) (
+        "the code is still '$code'")
+
+    # Revoke it. The device is cut off — its token matches no device from here —
+    # and the list it was in lets it go.
+    Press $app 'Revoke'
+    $text = Wait-Text $app 'No device is paired yet' 20
+    Shot $app '25-revoked.png'
+    Check 'revoking one device takes it off the list' (
+        $text -match 'No device is paired yet') "showed: $text"
+    Check 'and leaves the Host with nothing paired, working as before' (
+        $text -match 'Remote devices') "showed: $text"
+
+    'the unpaired half — a connection that has not paired reaching only the pairing'
+    'exchange — and the revocation cut-off are covered by host-wire/tests/wire.rs,'
+    'which drives a real socket; this step walks the window and the pairing by hand.'
 }
 
 # --- the dispatcher -----------------------------------------------------------

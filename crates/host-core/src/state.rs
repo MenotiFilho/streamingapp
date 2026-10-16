@@ -1,4 +1,6 @@
 use crate::addon::{Addon, AddonId};
+use crate::device::{Device, DeviceId, DeviceToken};
+use crate::pairing::PairingCode;
 use crate::playback::{
     Aspect, ChapterStep, ChosenStream, Crop, PlaybackSession, SeekTarget, TrackId, TrackKind,
 };
@@ -31,6 +33,14 @@ pub(crate) struct State {
     /// recently written first. Loaded from the store at startup, so a Host that
     /// was killed mid-Stream comes back knowing where it was.
     watch: Vec<WatchProgress>,
+    /// The devices the Host has paired, in the order they paired. The tokens
+    /// themselves are not here — a [`Device`] holds a digest — so a Snapshot can
+    /// be built from this list and carry none of what any device holds.
+    devices: Vec<Device>,
+    /// The code the Host is showing, and the one thing a connection that has not
+    /// paired may redeem it with. Rotated the moment it is redeemed, so a code
+    /// is worth exactly one pairing (#31).
+    pairing: PairingCode,
 }
 
 /// Which credentials the Host is known to hold, and where the store that holds
@@ -57,6 +67,8 @@ impl State {
         addons: Vec<Addon>,
         protection: Protection,
         watch: Vec<WatchProgress>,
+        devices: Vec<Device>,
+        pairing: PairingCode,
     ) -> Self {
         Self {
             preferences,
@@ -64,6 +76,8 @@ impl State {
             protection,
             playback: PlaybackSession::idle(),
             watch,
+            devices,
+            pairing,
         }
     }
 
@@ -86,6 +100,27 @@ impl State {
     /// The library, most recently written first.
     pub(crate) fn watch(&self) -> &[WatchProgress] {
         &self.watch
+    }
+
+    /// The devices the Host has paired, in the order they paired.
+    pub(crate) fn devices(&self) -> &[Device] {
+        &self.devices
+    }
+
+    /// The code the Host is showing.
+    pub(crate) fn pairing(&self) -> &PairingCode {
+        &self.pairing
+    }
+
+    /// The device a token was issued to, or nothing: the digest of what was
+    /// presented matched no device the Host has paired. A token for a revoked
+    /// device matches nothing, which is what revocation means.
+    pub(crate) fn device_for(&self, token: &DeviceToken) -> Option<&Device> {
+        self.devices.iter().find(|device| device.matches(token))
+    }
+
+    pub(crate) fn has_device(&self, id: &DeviceId) -> bool {
+        self.devices.iter().any(|device| device.id() == id)
     }
 
     /// The Watch progress the Host holds for a Video, where it holds any: what a
@@ -172,6 +207,21 @@ impl State {
             Change::SignOutStremio => {
                 self.protection.stremio_held = false;
                 Persist::Nothing
+            }
+            // A device the Host knows from here on, and the code it redeemed is
+            // spent: the one the Host shows now is the one that came with the
+            // change, so a code is worth exactly one pairing.
+            Change::PairDevice { device, next_code } => {
+                self.devices.push((*device).clone());
+                self.pairing = next_code;
+                Persist::Device(device)
+            }
+            // The device leaves the list, and with it the token it held: a token
+            // that matches no device matches nothing, so there is nothing else to
+            // take away.
+            Change::RevokeDevice(id) => {
+                self.devices.retain(|device| device.id() != &id);
+                Persist::RemoveDevice(id)
             }
             // Playback is state every client shares and no store keeps: what
             // was on screen when a Host stopped is not what it resumes with.
@@ -336,6 +386,15 @@ pub(crate) enum Change {
         backend: SecretBackend,
     },
     SignOutStremio,
+    /// A device was paired, and the code it redeemed is spent: `next_code` is the
+    /// one the Host shows from here on. Boxed because a `Device` is a name, an id
+    /// and a digest and every other variant here is a word or two wide.
+    PairDevice {
+        device: Box<Device>,
+        next_code: PairingCode,
+    },
+    /// A paired device's token was taken away by name.
+    RevokeDevice(DeviceId),
     /// A Stream was chosen and the Player agreed to open it, so the Host is on
     /// that Stream from here on and the open is in flight. `title` is the Title
     /// the Video belongs to, where the Host was told it: the library records the
@@ -386,6 +445,10 @@ pub(crate) enum Persist {
     /// and a Video and is many times the width of the two words the other
     /// variants carry.
     Watch(Box<WatchProgress>),
+    /// A device was paired: the store keeps it, and it is what is to be written.
+    Device(Box<Device>),
+    /// A device was revoked: the store drops the row it was in.
+    RemoveDevice(DeviceId),
     /// Nothing the store holds was left behind: the change was made somewhere
     /// else, or touched nothing the store keeps.
     Nothing,

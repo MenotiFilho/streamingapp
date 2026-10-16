@@ -5,8 +5,10 @@ use crate::addon::{Addon, AddonId, Manifest};
 use crate::cache::CatalogCache;
 use crate::catalog::{CatalogRow, Page};
 use crate::clock::Clock;
+use crate::device::{Device, DeviceSummary, DeviceToken};
 use crate::fetcher::Fetcher;
 use crate::meta::Title;
+use crate::pairing::PairingCode;
 use crate::playback::{
     ChapterStep, ChosenStream, Control, Observation, Picture, PlaybackState, Player, Telling,
     TrackId, TrackKind, Unplayable,
@@ -56,6 +58,10 @@ pub struct Host {
     /// machine rather than about a Stream, and one every Snapshot carries so a
     /// client sharing the Host's window knows where the hole for it goes.
     picture: Picture,
+    /// Where this Host answers remote clients on the network, told to it by the
+    /// shell once the wire server has bound. A fact about this run rather than
+    /// about a client, carried in every Snapshot so the window can read it out.
+    serving: Option<String>,
     state: State,
     revision: u64,
     /// Pages the Addons have already answered, so that a re-request inside the
@@ -100,6 +106,10 @@ impl Host {
                 stremio_held: held(CredentialKind::StremioAuthKey),
             },
             store.read_watch_progress()?,
+            store.read_devices()?,
+            // A fresh code every run: a code is worth one pairing, and a Host
+            // that was restarted is a Host whose screen nobody was reading.
+            PairingCode::generate(),
         );
         let picture = player.picture();
         // The subtitle language the owner stored is told to the Player once,
@@ -118,6 +128,7 @@ impl Host {
             player,
             clock,
             picture,
+            serving: None,
             state,
             revision: 0,
             cache: CatalogCache::default(),
@@ -137,10 +148,38 @@ impl Host {
         self
     }
 
+    /// Tell the Host where it answers remote clients.
+    ///
+    /// A setter rather than a builder: the address belongs to the wire server,
+    /// which the shell starts after the Host exists and only then knows which
+    /// port it got, and a Host that is never told one — every test, and a Host
+    /// that could not bind — is the default. It is not an Action: nobody asked
+    /// for it, no client can change it, and it is a fact about this run rather
+    /// than state.
+    pub fn set_serving(&mut self, address: impl Into<String>) {
+        self.serving = Some(address.into());
+    }
+
     /// The state as it stands — what a client that has just connected, or just
     /// reconnected, is owed.
     pub fn snapshot(&self) -> Snapshot {
-        Snapshot::build(&self.state, self.revision, self.picture)
+        Snapshot::build(
+            &self.state,
+            self.revision,
+            self.picture,
+            self.serving.as_deref(),
+        )
+    }
+
+    /// The device a presented token belongs to, or nothing.
+    ///
+    /// A read beside [`Host::snapshot`], not an Action: judging whether a
+    /// connection may speak is the adapter's question, and it is answered from
+    /// the same state every Snapshot is built from. A token for a device that has
+    /// been revoked matches nothing, which is what revocation means.
+    pub fn device(&self, token: &str) -> Option<DeviceSummary> {
+        let token = DeviceToken::parse(token).ok()?;
+        self.state.device_for(&token).map(|device| device.summary())
     }
 
     /// Take an Action, and publish or answer what came of it.
@@ -152,8 +191,12 @@ impl Host {
     pub fn dispatch(&mut self, action: Action) -> Result<Response, ActionError> {
         let validated = action.validate()?;
 
-        let change = match self.resolve(validated)? {
-            Resolved::Change(change) => change,
+        let (change, answer) = match self.resolve(validated)? {
+            Resolved::Change(change) => (change, None),
+            // The one Action that both changes state and answers the client that
+            // asked: pairing, where the token goes to the device and the device
+            // joining the list goes to every client (#31).
+            Resolved::Changed { change, answer } => (change, Some(answer)),
             // A question changed nothing anyone else can see, so there is no
             // Snapshot to publish and the revision does not move.
             Resolved::Answer(answer) => return Ok(Response::answered(answer)),
@@ -177,6 +220,11 @@ impl Host {
             // One Video's Watch progress, written where it happened: the part of
             // a play that outlives the play (#29).
             Persist::Watch(entry) => self.store.write_watch_progress(&entry),
+            // A device joining or leaving the paired list (#31): the digest of
+            // its token is what the store keeps, so the row can never be the token
+            // itself.
+            Persist::Device(device) => self.store.write_device(&device),
+            Persist::RemoveDevice(id) => self.store.remove_device(&id),
             // The credential lives where the secret store keeps it, and playback
             // is not stored at all: nothing the non-secret store holds was left
             // behind by those.
@@ -198,7 +246,7 @@ impl Host {
         if let Some(title) = leaving {
             self.push_title(&title);
         }
-        Ok(Response::published(vec![self.snapshot()]))
+        Ok(Response::changed(vec![self.snapshot()], answer))
     }
 
     /// Merge what the Stremio account holds into the library: remote progress
@@ -575,6 +623,40 @@ impl Host {
                         detail: error.to_string(),
                     })?;
                 Resolved::Change(Change::SignOutStremio)
+            }
+            ValidatedAction::PairDevice { code, name } => {
+                // The code is the whole of what lets a device in, so it is the
+                // one thing judged: whatever the Host is showing and nothing
+                // else. A wrong, spent or expired code is the same refusal — the
+                // Host has nothing useful to say about a string it refuses.
+                if self.state.pairing() != &code {
+                    return Err(ActionError::Pairing);
+                }
+                // The device and its token are minted here, where entropy is
+                // available: what reaches state is a digest and what reaches the
+                // device is the token, once.
+                let (device, token) = Device::paired(name, self.clock.now_millis());
+                let answer = Answer::Paired {
+                    device: device.summary(),
+                    token,
+                };
+                Resolved::Changed {
+                    change: Change::PairDevice {
+                        device: Box::new(device),
+                        // Redeeming spends the code; the one the Host shows from
+                        // here on is drawn with it.
+                        next_code: PairingCode::generate(),
+                    },
+                    answer,
+                }
+            }
+            ValidatedAction::RevokeDevice(id) => {
+                if !self.state.has_device(&id) {
+                    return Err(ActionError::UnknownDevice {
+                        id: id.as_str().to_owned(),
+                    });
+                }
+                Resolved::Change(Change::RevokeDevice(id))
             }
             ValidatedAction::BrowseCatalog {
                 addon,
@@ -1209,6 +1291,13 @@ impl Host {
 /// An Action with everything it needed already resolved.
 enum Resolved {
     Change(Change),
+    /// A change that also answers the client that asked. Pairing is the only one:
+    /// a token goes to the device that redeemed the code, while the device it
+    /// belongs to is state every client is told of.
+    Changed {
+        change: Change,
+        answer: Answer,
+    },
     Answer(Answer),
 }
 
