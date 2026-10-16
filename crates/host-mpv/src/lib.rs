@@ -393,6 +393,13 @@ impl Player for MpvPlayer {
             .expect("nothing panics while holding the Player's memory");
         self.drain(&mut memory);
 
+        // mpv's `pause` belongs to the player and not to the file: a Stream that
+        // was stopped while the picture was held would be followed by one that
+        // opens held too, and a client that asked to play would be shown a
+        // Stream sitting at 0:00 offering Play. Opening a Stream means playing
+        // it, whatever the last one was left doing.
+        self.tell(Telling::Pause(false))?;
+
         // An open that mpv will not even take is the one failure this call can
         // report: whether the *Stream* opens is found out later, in `observe`.
         let result = self.run(telling::load(url)).map_err(|error| match error {
@@ -435,8 +442,16 @@ impl Player for MpvPlayer {
         // decoding with is what says whether hardware decode is engaged, and a
         // log is where a person finds that out (the walkthrough checks this
         // line). Nothing about the Stream appears beside it.
+        //
+        // "The picture is up" is mpv's own `vo-configured` — a fact about the
+        // video output — rather than whether a pixel format happened to be
+        // readable on this tick, which is a fact about the timing.
         let (current, format) = self.decoding();
-        if memory.reported(&observation, format.is_some()) {
+        let drawing = self
+            .mpv
+            .get_property::<bool>("vo-configured")
+            .unwrap_or(false);
+        if memory.reported(&observation, drawing) {
             tracing::info!(
                 hwdec = current.as_deref().unwrap_or("no"),
                 pixelformat = format.as_deref().unwrap_or("unknown"),

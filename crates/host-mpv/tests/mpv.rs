@@ -710,3 +710,51 @@ fn the_subtitle_language_preference_selects_the_matching_embedded_track() {
         },
     );
 }
+
+#[test]
+fn a_stream_opened_after_one_that_was_held_plays_rather_than_opening_held() {
+    // mpv's `pause` belongs to the player and not to the file. A client that
+    // paused one Stream, stopped, and then chose another used to be handed the
+    // new one held at 0:00, offering Play — which is what the Windows
+    // walkthrough saw when it moved from a film to an episode (the OSD read
+    // `0:00 / 2:00` with a Play button). Opening a Stream means playing it.
+    let streams = serve(20.0);
+    let player = player();
+    player
+        .open(&stream(&streams.playing))
+        .expect("mpv takes the Stream");
+    until(&player, "started playing", |observation| {
+        observation.position.is_some()
+    });
+
+    player
+        .tell(Telling::Pause(true))
+        .expect("mpv takes the pause");
+    until(&player, "held the picture", |observation| {
+        observation.state == PlaybackState::Paused
+    });
+    player.stop().expect("mpv takes the stop");
+    until(&player, "let the Stream go", |observation| {
+        observation.state == PlaybackState::Idle
+    });
+
+    player
+        .open(&stream(&streams.playing))
+        .expect("mpv takes the Stream again");
+    let playing = until(
+        &player,
+        "played the Stream it was given next",
+        |observation| {
+            matches!(
+                observation.state,
+                PlaybackState::Playing | PlaybackState::Paused
+            )
+        },
+    );
+
+    assert_eq!(
+        playing.state,
+        PlaybackState::Playing,
+        "a Stream opened after one that was held plays, rather than opening held"
+    );
+}
