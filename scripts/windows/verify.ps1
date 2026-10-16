@@ -268,6 +268,11 @@ if (-not (Test-Path $exe)) { throw "no executable at $exe - run build.ps1 first"
 $dataDir = Join-Path $env:APPDATA 'dev.streamingapp.host'
 $log = Join-Path $dataDir 'host.log'
 $failures = New-Object Collections.Generic.List[string]
+# The checks a step could not walk at all, because the Stream or the surface it
+# needed was not there. A skipped check is not a passed one: a run that skipped
+# anything must not print "ALL CHECKS PASSED" and leave a person thinking the
+# checklist was walked.
+$skipped = New-Object Collections.Generic.List[string]
 
 # A Host left over from an earlier run would hold the single instance, and its
 # window would answer for the one this script starts.
@@ -277,6 +282,13 @@ Start-Sleep -Seconds 2
 function Check($what, $condition, $detail) {
     if ($condition) { "PASS  $what" }
     else { "FAIL  $what -- $detail"; $script:failures.Add($what) }
+}
+
+# A check that could not be made at all — the surface or the Stream it needed was
+# not there. Recorded, so the run cannot end claiming to have passed.
+function Skip($what, $why) {
+    "SKIP  $what -- $why"
+    $script:skipped.Add("$what ($why)")
 }
 
 # Start the Host and wait for its window, returning `@{ Process; Handle }`.
@@ -616,7 +628,12 @@ function Walk-Controls($app) {
 
     foreach ($group in @('Audio', 'Subtitles', 'Subtitle delay', 'Speed', 'Volume',
             'Chapters', 'Crop', 'Aspect', 'Statistics')) {
-        Check "the menu has a $group group" (Shows $app $group 8) "the window shows: $(Page-Text $app)"
+        # The headings are rendered however the stylesheet says, and UI
+        # Automation reads what is rendered: "Audio" is exposed as "AUDIO",
+        # 'Speed' as "SPEED". The group is looked for in either spelling rather
+        # than pinned to a `text-transform`, which is a stylesheet's business.
+        $shown = (Shows $app $group 4) -or (Shows $app $group.ToUpperInvariant() 4)
+        Check "the menu has a $group group" $shown "the window shows: $(Page-Text $app)"
         Shot $app ('13-controls-' + ($group -replace ' ', '-').ToLower() + '.png')
     }
 
@@ -640,7 +657,7 @@ function Walk-Controls($app) {
     Check 'and the tracks are listed in the file''s own order' (
         ((Button-At $app 'English stereo') -lt (Button-At $app 'Portuguese')) -and
         (($subtitles[0].Current.Name -match 'eng') -and ($subtitles[1].Current.Name -match 'por'))) (
-        "audio: $(($audioEng + $audioPor).Current.Name -join ' , ') | subtitles: $($subtitles.Current.Name -join ' , ')")
+        "audio: $((@($audioEng) + @($audioPor) | ForEach-Object { $_.Current.Name }) -join ' , ') | subtitles: $((@($subtitles) | ForEach-Object { $_.Current.Name }) -join ' , ')")
     Check 'the audio group says which track is on before anything is pressed' (
         (Toggled $audioEng[0]) -and -not (Toggled $audioPor[0])) (
         "English stereo is $(Toggled $audioEng[0]), Portuguese is $(Toggled $audioPor[0])")
@@ -830,8 +847,8 @@ function Clock-Seconds($app) {
 function Play-A-Candidate($app) {
     $candidates = Candidates $app
     if (-not $candidates) {
-        'the Addon answered no candidates at all, so there is nothing to play:'
-        'run with -Addon <an Addon that answers playable Streams> to walk playback'
+        Skip 'playback over a real Stream' (
+            'the Addon answered no candidates at all: run with -Addon <an Addon that answers playable Streams>')
         return
     }
 
@@ -928,19 +945,28 @@ function Play-A-Candidate($app) {
         $text = Wait-Text $app 'Play' 15
         Check 'pausing is the same door as playing' (Shows $app 'Play' 10) "showed: $text"
 
-        # What mpv is decoding with is in the Host's log, because no Snapshot
-        # carries it yet (#28's statistics are where a client reads it): a Stream
-        # playing is the only moment it can be read.
+        # What mpv is decoding with is in the Host's log: no Snapshot carried it
+        # in #27, and #28's statistics are where a client reads it. A Stream
+        # playing is the only moment it can be read at all.
         Start-Sleep -Seconds 1
-        $decode = Select-String -Path $log -Pattern 'the picture is playing' |
+        $decode = Select-String -Path $log -Pattern '"message":"the picture is playing"' |
             Select-Object -Last 1
         Check 'the Host logged what mpv is decoding with' (
             $decode -ne $null) 'no "the picture is playing" line in host.log'
-        Check 'hardware decode is engaged (not "no")' (
-            $decode -and $decode.Line -notmatch '"hwdec":"no"') "logged: $($decode.Line)"
-        Check 'and the picture is mpv''s own output, not a surface the Host made' (
-            $decode -and $decode.Line -notmatch '"pixelformat":"(unknown|yuv420p)"') (
-            "logged: $($decode.Line)")
+        # The line is written when the picture comes up *and* whenever what mpv
+        # decodes with changes — hardware decode engages a moment after the
+        # picture appears — so the first line may honestly say `no`, and the one
+        # that says `d3d11va` is the one to read.
+        $engaged = Select-String -Path $log -Pattern '"message":"the picture is playing","hwdec":"(?!no")' |
+            Select-Object -Last 1
+        Check 'hardware decode is engaged (a line says so, not "no")' (
+            $engaged -ne $null) "logged: $($decode.Line)"
+        # What the frames' pixel format is is deliberately *not* asserted here:
+        # with `vo=gpu-next` embedded by `wid`, this mpv does not answer
+        # `video-params.pixelformat` at all (it reads `unknown`), so such a check
+        # says nothing in either direction. That the picture is mpv's own output
+        # and not a surface the Host made is what the child-window checks above
+        # show; what it is decoded with is the line above this one.
 
         Press $app 'Stop'
         $text = Wait-Text $app ("Streams $dash") 20
@@ -952,7 +978,8 @@ function Play-A-Candidate($app) {
             ($revision -ne '') -and ($after -ne '') -and ([int]$after -gt [int]$revision)) (
             "the revision went '$revision' (on the list) to '$after' (after stopping)")
     } else {
-        'the Stream never started playing, so the rest of this step is skipped'
+        Skip 'the playback controls over a real Stream' (
+            'the Stream never started playing, so there was no picture to control')
     }
 }
 
@@ -1302,8 +1329,8 @@ function Step-13($ctx) {
     $text = Wait-Text $app ([regex]::Escape($AddonCatalog)) 25
     $series = Series-Card $app
     if (-not $series) {
-        'this Addon drew no second row, so there is no series to play:'
-        'the control menu needs a Stream playing; run with -AddonName Verify to walk it'
+        Skip 'the full control set' (
+            "this Addon drew no second row, so there is no series to play: run with -AddonName Verify (or -Addon <a Series Addon>) to walk the control menu")
         # Open a Title anyway, so the step below finds the surface it expects.
         Focus-On $app 'Search the Addons that offer it' ([Windows.Automation.ControlType]::Edit)
         Press-Keys $app '{DOWN}{DOWN}'
@@ -1322,15 +1349,16 @@ function Step-13($ctx) {
         Check 'pressing the episode asks for its Streams' (
             $text -match ("Streams $dash")) "showed: $text"
         if ($text -match 'No configured Addon offers Streams') {
-            'the configured Addon answers no `stream` resource, so there is nothing to play:'
-            'run with -Addon <a stream Addon> to walk the control menu'
+            Skip 'the full control set' (
+                'the configured Addon answers no `stream` resource, so there is nothing to play')
             Press-Keys $app '{ESC}'
             Wait-Text $app 'Season \d+' 15 | Out-Null
         } else {
             $candidates = Candidates $app
             $playable = @($candidates | Where-Object { $_.Current.Name -notmatch 'Not playable yet' })
             if (-not $playable) {
-                'the Addon answered no playable candidate, so the control menu cannot be walked:'
+                Skip 'the full control set' (
+                    'the Addon answered no playable candidate, so the menu cannot be walked')
                 Press-Keys $app '{ESC}'
                 Wait-Text $app 'Season \d+' 15 | Out-Null
             } else {
@@ -1630,7 +1658,12 @@ if ($ctx.App -and -not $ctx.App.Process.HasExited) { Stop-Host $ctx.App }
 if (Test-Path $log) { Get-Content $log -Tail 20 } else { 'no host.log' }
 
 ''
-if ($failures.Count -eq 0) { 'ALL CHECKS PASSED' }
+if ($failures.Count -eq 0 -and $skipped.Count -eq 0) { 'ALL CHECKS PASSED' }
+elseif ($failures.Count -eq 0) {
+    "SKIPPED CHECKS ($($skipped.Count)) - this run did not walk these:"
+    $skipped | ForEach-Object { "  - $_" }
+    exit 2
+}
 else {
     "FAILED CHECKS ($($failures.Count)):"
     $failures | ForEach-Object { "  - $_" }

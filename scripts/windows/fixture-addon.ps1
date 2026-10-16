@@ -218,9 +218,20 @@ try {
 "  video:     $root/video/$file"
 "  stop it with Ctrl+C"
 
+# Read once: every request for a range would otherwise read the whole file again.
+$videoBytes = [IO.File]::ReadAllBytes($video)
+
 try {
     while ($listener.IsListening) {
         $context = $listener.GetContext()
+
+        # A client that abandons a range — which mpv does whenever it seeks, and
+        # whenever it has read enough — closes the socket under a `Write`, and
+        # HttpListener raises that as an exception. It is how a player normally
+        # talks to a server, so it must not end the server: the request is
+        # dropped and the next one is served. (This is what took the fixture down
+        # during the first walkthrough run.)
+        try {
         $request = $context.Request
         $path = $request.Url.AbsolutePath
         $body = $null
@@ -242,7 +253,7 @@ try {
                 # mpv asks with a range and re-asks when it seeks; a 206 with the
                 # slice it asked for is what keeps seeking instant rather than a
                 # re-download of the whole file.
-                $bytes = [IO.File]::ReadAllBytes($video)
+                $bytes = $videoBytes
                 $from = 0
                 $to = $bytes.Length - 1
                 $range = $request.Headers['Range']
@@ -270,6 +281,10 @@ try {
             $context.Response.OutputStream.Write($body, 0, $body.Length)
         }
         $context.Response.Close()
+        } catch {
+            "  $($context.Request.HttpMethod) $($context.Request.Url.AbsolutePath) -> the client went away: $($_.Exception.Message)"
+            try { $context.Response.Abort() } catch { }
+        }
     }
 } finally {
     $listener.Stop()
