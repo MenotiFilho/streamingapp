@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 
 import {
   blankRow,
@@ -12,6 +20,27 @@ import {
   unaskable,
   type Row,
 } from "./browse";
+import {
+  ASPECTS,
+  DELAY_STEP,
+  SPEEDS,
+  aspectSelected,
+  chapterLabel,
+  controllable,
+  cropChoices,
+  cropSelected,
+  formatDelay,
+  formatSpeed,
+  formatVolume,
+  hasNextEpisode,
+  orderedTracks,
+  speedSelected,
+  statisticsLines,
+  stepDelay,
+  subtitlesOn,
+  trackLabel,
+  trackMarks,
+} from "./controls";
 import {
   asActionError,
   answeredCatalogs,
@@ -31,6 +60,7 @@ import {
   type Snapshot,
   type Stream,
   type Title,
+  type Track,
   type Video,
 } from "./host-client";
 import {
@@ -87,6 +117,11 @@ export function App({ client }: { client?: HostClient }) {
   // one client choosing among candidates moves nothing on another (ADR-0005).
   const [streams, setStreams] = useState<AddonStreams[] | null>(null);
   const [chosen, setChosen] = useState<Stream | null>(null);
+  // Whether the player menu is open. It is this window's own — which panel a
+  // client has opened moves nothing on another (ADR-0005) — and it lives here
+  // rather than in the player surface so that Escape, which the window handles
+  // in one place, can close it the way it closes every other overlay.
+  const [menu, setMenu] = useState(false);
   const surface = useRef<HTMLElement | null>(null);
 
   const publish = useCallback((next: Snapshot) => {
@@ -326,6 +361,12 @@ export function App({ client }: { client?: HostClient }) {
   }, []);
 
   const back = useCallback(() => {
+    // The player menu is the innermost thing Escape closes: while it is open the
+    // rest of the window is behind it.
+    if (menu) {
+      setMenu(false);
+      return;
+    }
     if (streams) {
       closeStreams();
       return;
@@ -336,7 +377,7 @@ export function App({ client }: { client?: HostClient }) {
     }
     setResults(null);
     setQueryDraft("");
-  }, [streams, title, closeStreams, closeTitle]);
+  }, [menu, streams, title, closeStreams, closeTitle]);
 
   useArrowKeys(surface, back);
 
@@ -416,10 +457,24 @@ export function App({ client }: { client?: HostClient }) {
     return () => document.body.classList.remove("picture-behind");
   }, [pictureBehind]);
 
+  // A menu left open when playback stops would meet whatever plays next already
+  // unfolded; a client that is no longer the player does not keep a panel from
+  // the last Stream.
+  useEffect(() => {
+    if (!isWatching) {
+      setMenu(false);
+    }
+  }, [isWatching]);
+
   return (
     <main className={`window${isWatching ? " watching" : ""}`} ref={surface}>
       {isWatching && playback ? (
-        <PlayerSurface playback={playback} onTake={(action) => void take(action)} />
+        <PlayerSurface
+          playback={playback}
+          onTake={(action) => void take(action)}
+          menuOpen={menu && controllable(playback.state)}
+          onMenu={setMenu}
+        />
       ) : (
         <>
           <h1>streamingapp</h1>
@@ -633,16 +688,23 @@ export function App({ client }: { client?: HostClient }) {
 function PlayerSurface({
   playback,
   onTake,
+  menuOpen,
+  onMenu,
 }: {
   playback: PlaybackSnapshot;
   onTake: (action: Action) => void;
+  menuOpen: boolean;
+  onMenu: (open: boolean) => void;
 }) {
   const { state, picture, nowPlaying, position, duration } = playback;
   const note = pictureNote(picture);
   // What the transport means in this state: the buttons and the picture are a
   // control only while the Host would take a pause or a seek, and a Stream that
   // is still opening, or one that has ended, offers Stop alone.
-  const controllable = transportable(state);
+  const canTransport = transportable(state);
+  // The full control set is wider than the transport: the Host takes every other
+  // control while a Stream is opening too, so the menu is offered there as well.
+  const live = controllable(state);
   const playing = state === "playing";
   // What the slider shows while it is being dragged: the position the Host
   // published, until a person moves the thumb, and then what they moved it to.
@@ -668,7 +730,7 @@ function PlayerSurface({
         data-picture={picture}
         data-state={state}
       >
-        {controllable ? (
+        {canTransport ? (
           <button
             type="button"
             className="picture-toggle"
@@ -697,7 +759,7 @@ function PlayerSurface({
         </p>
 
         <div className="transport">
-          {controllable ? (
+          {canTransport ? (
             <>
               <button
                 type="button"
@@ -748,6 +810,19 @@ function PlayerSurface({
           </span>
         </div>
 
+        {live ? (
+          <button
+            type="button"
+            className="menu-toggle"
+            data-focusable
+            data-testid="toggle-menu"
+            aria-expanded={menuOpen}
+            onClick={() => onMenu(!menuOpen)}
+          >
+            {menuOpen ? "Close menu" : "Menu"}
+          </button>
+        ) : null}
+
         <button
           type="button"
           className="stop"
@@ -757,7 +832,318 @@ function PlayerSurface({
           Stop
         </button>
       </div>
+
+      {/* The control panel, drawn over the picture in the style the rest of the
+          window uses: the compact bar stays, and the panel unfolds from it with
+          every control the Host accepts while something plays. It is a menu like
+          any other — its choices are Actions, and the selected one is the
+          Snapshot's own answer, not this client's memory. */}
+      {menuOpen ? (
+        <div className="menu" role="group" aria-label="Playback controls" data-testid="player-menu">
+          <PlayerMenu playback={playback} onTake={onTake} />
+        </div>
+      ) : null}
     </section>
+  );
+}
+
+/**
+ * The player menu: every control the Host accepts while a Stream plays, in the
+ * one place a person reaches for them.
+ *
+ * Nothing here decides playback: each control sends the Action a remote client
+ * would send, and the group it is drawn as selected in is the Snapshot the Host
+ * published. The tracks are embedded-first, subtitles can be turned off, the
+ * delay steps by a tenth, the crops are cut from the picture's own size, and the
+ * statistics and the next-episode control appear on the terms the Host offers
+ * them (ADR-0002, ADR-0005).
+ */
+function PlayerMenu({
+  playback,
+  onTake,
+}: {
+  playback: PlaybackSnapshot;
+  onTake: (action: Action) => void;
+}) {
+  const audio = orderedTracks(playback.tracks, "audio");
+  const subtitles = orderedTracks(playback.tracks, "subtitle");
+  const delay = playback.subtitleDelay ?? 0;
+  // What the volume slider shows while it is being dragged: the level the Host
+  // published, until a person moves the thumb, and then what they moved it to.
+  const [volumeScrub, setVolumeScrub] = useState<number | null>(null);
+  const shownVolume = volumeScrub ?? Math.round(playback.volume ?? 100);
+  const [showStatistics, setShowStatistics] = useState(false);
+
+  const sendVolume = (level: number) => {
+    setVolumeScrub(null);
+    onTake({ type: "set_volume", level });
+  };
+
+  return (
+    <>
+      <section className="menu-group" aria-label="Tracks">
+        <h3>Audio</h3>
+        {audio.length === 0 ? (
+          <p className="menu-empty">This Stream carries no audio track to pick.</p>
+        ) : null}
+        {audio.map((track) => (
+          <TrackChoice key={track.id} track={track} onTake={onTake} />
+        ))}
+
+        <h3>Subtitles</h3>
+        {subtitles.map((track) => (
+          <TrackChoice key={track.id} track={track} onTake={onTake} />
+        ))}
+        <button
+          type="button"
+          className="choice"
+          data-focusable
+          data-testid="subtitles-off"
+          aria-pressed={!subtitlesOn(playback.tracks)}
+          onClick={() => onTake({ type: "set_subtitle_track", track: null })}
+        >
+          Subtitles off
+        </button>
+      </section>
+
+      <section className="menu-group" aria-label="Subtitle delay">
+        <h3>Subtitle delay</h3>
+        <span className="readout" data-testid="subtitle-delay">
+          {formatDelay(delay)}
+        </span>
+        <button
+          type="button"
+          className="choice"
+          data-focusable
+          data-testid="delay-back"
+          onClick={() =>
+            onTake({ type: "set_subtitle_delay", seconds: stepDelay(delay, -DELAY_STEP) })
+          }
+        >
+          −0.1 s
+        </button>
+        <button
+          type="button"
+          className="choice"
+          data-focusable
+          data-testid="delay-forward"
+          onClick={() =>
+            onTake({ type: "set_subtitle_delay", seconds: stepDelay(delay, DELAY_STEP) })
+          }
+        >
+          +0.1 s
+        </button>
+        <button
+          type="button"
+          className="choice"
+          data-focusable
+          data-testid="delay-reset"
+          onClick={() => onTake({ type: "set_subtitle_delay", seconds: 0 })}
+        >
+          Reset
+        </button>
+      </section>
+
+      <section className="menu-group" aria-label="Speed">
+        <h3>Speed</h3>
+        {SPEEDS.map((rate) => (
+          <button
+            key={rate}
+            type="button"
+            className="choice"
+            data-focusable
+            data-testid={`speed-${rate}`}
+            aria-pressed={speedSelected(playback.speed, rate)}
+            onClick={() => onTake({ type: "set_speed", rate })}
+          >
+            {formatSpeed(rate)}
+          </button>
+        ))}
+      </section>
+
+      <section className="menu-group" aria-label="Volume">
+        <h3>Volume</h3>
+        <input
+          type="range"
+          aria-label="Volume"
+          data-testid="volume"
+          min={0}
+          max={130}
+          step={1}
+          value={shownVolume}
+          onChange={(event) => setVolumeScrub(Number(event.target.value))}
+          onPointerUp={() => volumeScrub !== null && sendVolume(volumeScrub)}
+          onKeyUp={() => volumeScrub !== null && sendVolume(volumeScrub)}
+          data-focusable
+        />
+        <span className="readout" data-testid="volume-level">
+          {formatVolume(shownVolume)}
+        </span>
+        <button
+          type="button"
+          className="choice"
+          data-focusable
+          data-testid="mute"
+          aria-pressed={playback.muted ?? false}
+          onClick={() => onTake({ type: "set_muted", muted: !(playback.muted ?? false) })}
+        >
+          {playback.muted ? "Unmute" : "Mute"}
+        </button>
+      </section>
+
+      <section className="menu-group" aria-label="Chapters">
+        <h3>Chapters</h3>
+        <button
+          type="button"
+          className="choice"
+          data-focusable
+          aria-label="Previous chapter"
+          onClick={() => onTake({ type: "previous_chapter" })}
+        >
+          Previous
+        </button>
+        <button
+          type="button"
+          className="choice"
+          data-focusable
+          aria-label="Next chapter"
+          onClick={() => onTake({ type: "next_chapter" })}
+        >
+          Next
+        </button>
+        {playback.chapters.length === 0 ? (
+          <p className="menu-empty">This Stream lists no chapters.</p>
+        ) : (
+          <ul className="chapters">
+            {playback.chapters.map((chapter) => (
+              <li key={chapter.index}>
+                <button
+                  type="button"
+                  className="choice"
+                  data-focusable
+                  data-testid={`chapter-${chapter.index}`}
+                  aria-pressed={playback.chapter === chapter.index}
+                  onClick={() => onTake({ type: "set_chapter", index: chapter.index })}
+                >
+                  {chapterLabel(chapter)}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="menu-group" aria-label="Crop">
+        <h3>Crop</h3>
+        {cropChoices(playback.resolution).map(({ label, crop }) => (
+          <button
+            key={label}
+            type="button"
+            className="choice"
+            data-focusable
+            data-testid={`crop-${label}`}
+            aria-pressed={cropSelected(playback.crop, crop)}
+            onClick={() => onTake({ type: "set_crop", crop })}
+          >
+            {label}
+          </button>
+        ))}
+      </section>
+
+      <section className="menu-group" aria-label="Aspect">
+        <h3>Aspect</h3>
+        {ASPECTS.map(({ label, aspect }) => (
+          <button
+            key={label}
+            type="button"
+            className="choice"
+            data-focusable
+            data-testid={`aspect-${label}`}
+            aria-pressed={aspectSelected(playback.aspect, aspect)}
+            onClick={() => onTake({ type: "set_aspect", aspect })}
+          >
+            {label}
+          </button>
+        ))}
+      </section>
+
+      <section className="menu-group" aria-label="Statistics">
+        <h3>Statistics</h3>
+        <button
+          type="button"
+          className="choice"
+          data-focusable
+          data-testid="toggle-statistics"
+          aria-pressed={showStatistics}
+          onClick={() => setShowStatistics((shown) => !shown)}
+        >
+          {showStatistics ? "Hide statistics" : "Show statistics"}
+        </button>
+        {showStatistics ? (
+          <dl className="statistics" data-testid="statistics">
+            {statisticsLines(playback.statistics).map(({ label, value }) => (
+              <Fragment key={label}>
+                <dt>{label}</dt>
+                <dd>{value}</dd>
+              </Fragment>
+            ))}
+          </dl>
+        ) : null}
+      </section>
+
+      {hasNextEpisode(playback.nowPlaying) ? (
+        <section className="menu-group" aria-label="Next episode">
+          <button
+            type="button"
+            className="choice"
+            data-focusable
+            data-testid="next-episode"
+            onClick={() => onTake({ type: "next_episode" })}
+          >
+            Next episode
+          </button>
+        </section>
+      ) : null}
+    </>
+  );
+}
+
+/**
+ * One track in the menu. Pressing it selects that track — the same Action a
+ * remote client sends, carrying the id the Snapshot published — and the mark
+ * beside it says what the container said about it. A subtitle track can only be
+ * chosen, not turned off here: that is the "Subtitles off" choice.
+ */
+function TrackChoice({
+  track,
+  onTake,
+}: {
+  track: Track;
+  onTake: (action: Action) => void;
+}) {
+  const marks = trackMarks(track);
+  return (
+    <button
+      type="button"
+      className="choice"
+      data-focusable
+      data-testid={`track-${track.kind}-${track.id}`}
+      aria-pressed={track.selected}
+      onClick={() =>
+        onTake(
+          track.kind === "audio"
+            ? { type: "set_audio_track", track: track.id }
+            : { type: "set_subtitle_track", track: track.id },
+        )
+      }
+    >
+      <span className="track-label">{trackLabel(track)}</span>
+      {marks.map((mark) => (
+        <span className="track-mark" key={mark}>
+          {mark}
+        </span>
+      ))}
+    </button>
   );
 }
 

@@ -553,3 +553,116 @@ body.picture-behind .window {
 .picture-toggle:focus-visible {
   outline-offset: -3px;
 }
+
+/* The player menu: the compact bar stays at the bottom, and the panel unfolds
+   above it with the whole control set. It is drawn over the picture, so it
+   carries its own background rather than borrowing the page's, and it scrolls
+   within itself rather than growing past the window. */
+.menu {
+  position: absolute;
+  right: 1.25rem;
+  bottom: 5rem;
+  z-index: 3;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.5rem 1.5rem;
+  width: min(46rem, calc(100vw - 2.5rem));
+  max-height: calc(100vh - 7rem);
+  overflow: auto;
+  padding: 1rem 1.25rem;
+  border: 1px solid #33333d;
+  border-radius: 0.6rem;
+  background: #101014f5;
+  box-shadow: 0 1rem 2rem #00000088;
+}
+
+.menu-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  align-content: start;
+}
+
+.menu-group h3 {
+  flex-basis: 100%;
+  margin: 0.25rem 0 0;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #9a9aa6;
+}
+
+.menu-empty {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.8rem;
+  color: #767680;
+}
+
+.menu .choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.85rem;
+  border-radius: 0.4rem;
+}
+
+/* The selected control, whatever kind it is: a border that reads at a glance
+   without changing the control's size, so the panel does not move when it does. */
+.menu .choice[aria-pressed="true"] {
+  border-color: #7aa2f7;
+  background: #1d2233;
+}
+
+.track-mark {
+  padding: 0.05rem 0.35rem;
+  border-radius: 0.35rem;
+  background: #26262e;
+  font-family: ui-monospace, monospace;
+  font-size: 0.65rem;
+  color: #9a9aa6;
+}
+
+.menu .readout {
+  min-width: 3.5rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.85rem;
+  color: #c9c9d1;
+  font-variant-numeric: tabular-nums;
+}
+
+.menu input[type="range"] {
+  flex: 1 1 8rem;
+  min-width: 6rem;
+}
+
+.menu .chapters {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.menu .statistics {
+  flex-basis: 100%;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.15rem 0.75rem;
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+}
+
+.menu .statistics dt {
+  color: #9a9aa6;
+}
+
+.menu .statistics dd {
+  margin: 0;
+  font-family: ui-monospace, monospace;
+}

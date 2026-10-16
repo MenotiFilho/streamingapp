@@ -30,6 +30,17 @@ const NOTHING_SAID: Snapshot = {
     nowPlaying: null,
     position: null,
     duration: null,
+    tracks: [],
+    chapters: [],
+    chapter: null,
+    speed: null,
+    volume: null,
+    muted: null,
+    subtitleDelay: null,
+    crop: null,
+    aspect: null,
+    resolution: null,
+    statistics: null,
   },
   preferences: { subtitleLanguage: null },
   addons: [],
@@ -198,6 +209,57 @@ function playback(
     },
     position: 12.5,
     duration: 8100,
+    // The whole control set a live Stream carries: an embedded audio track that
+    // is on, a commentary track added to the Stream, and an embedded subtitle
+    // track that is off. The menu is drawn from these.
+    tracks: [
+      {
+        id: 1,
+        kind: "audio",
+        language: "eng",
+        title: "English stereo",
+        codec: "aac",
+        embedded: true,
+        selected: true,
+        default: true,
+        forced: false,
+      },
+      {
+        id: 2,
+        kind: "audio",
+        language: "eng",
+        title: "Commentary",
+        codec: "aac",
+        embedded: false,
+        selected: false,
+        default: false,
+        forced: false,
+      },
+      {
+        id: 3,
+        kind: "subtitle",
+        language: "por",
+        title: null,
+        codec: "subrip",
+        embedded: true,
+        selected: false,
+        default: false,
+        forced: false,
+      },
+    ],
+    chapters: [
+      { index: 0, title: "Intro", time: 0 },
+      { index: 1, title: null, time: 300 },
+    ],
+    chapter: 0,
+    speed: 1,
+    volume: 100,
+    muted: false,
+    subtitleDelay: 0,
+    crop: null,
+    aspect: { kind: "source" },
+    resolution: { width: 1920, height: 1080 },
+    statistics: { bitrate: 4_000_000, droppedFrames: 0, hardwareDecode: "no" },
     ...overrides,
   };
 }
@@ -432,6 +494,18 @@ function fakeHost(
             },
             position: null,
             duration: null,
+            // A Stream that has only just been opened has nothing reported yet.
+            tracks: [],
+            chapters: [],
+            chapter: null,
+            speed: null,
+            volume: null,
+            muted: null,
+            subtitleDelay: null,
+            crop: null,
+            aspect: null,
+            resolution: null,
+            statistics: null,
           },
         });
         response.snapshots = [state];
@@ -1729,4 +1803,187 @@ test("a card shows what the Addon said about the item, which is how two releases
     screen.getByTestId("card-tt0133093").querySelector(".card-note"),
     "an item the Addon said nothing about is given no caption",
   ).not.toBeInTheDocument();
+});
+
+/**
+ * A live Stream with the player menu open: the preamble every control-set test
+ * needs, and exactly what makes a client reach for the whole control set.
+ */
+async function watchWithMenu(overrides: Partial<PlaybackSnapshot> = {}) {
+  const host = fakeHost({
+    initial: { ...NOTHING_SAID, revision: 9, addons: [ADDON], playback: playback(overrides) },
+  });
+  windowOver(host.transport);
+  await screen.findByTestId("now-playing");
+  fireEvent.click(screen.getByTestId("toggle-menu"));
+  const menu = await screen.findByTestId("player-menu");
+  return { host, menu };
+}
+
+test("the player menu lists the tracks embedded-first, and choosing one takes its Action", async () => {
+  const { host, menu } = await watchWithMenu();
+
+  // Embedded first, with mpv's order kept inside each group, and the one that is
+  // on shown as selected.
+  const audio = within(menu).getAllByTestId(/^track-audio-/);
+  expect(audio.map((button) => button.getAttribute("data-testid"))).toEqual([
+    "track-audio-1",
+    "track-audio-2",
+  ]);
+  expect(within(menu).getByTestId("track-audio-1")).toHaveTextContent("English stereo");
+  expect(within(menu).getByTestId("track-audio-1")).toHaveTextContent("embedded");
+  expect(within(menu).getByTestId("track-audio-1")).toHaveAttribute("aria-pressed", "true");
+  expect(within(menu).getByTestId("track-audio-2")).toHaveTextContent("Commentary");
+
+  fireEvent.click(within(menu).getByTestId("track-audio-2"));
+
+  await waitFor(() =>
+    expect(dispatched(host.invocations, "set_audio_track").args).toEqual({
+      envelope: { version: 1, action: { type: "set_audio_track", track: 2 } },
+    }),
+  );
+
+  fireEvent.click(within(menu).getByTestId("track-subtitle-3"));
+  await waitFor(() =>
+    expect(dispatched(host.invocations, "set_subtitle_track").args).toEqual({
+      envelope: { version: 1, action: { type: "set_subtitle_track", track: 3 } },
+    }),
+  );
+
+  // Subtitles off is the same Action with no track at all.
+  fireEvent.click(within(menu).getByTestId("subtitles-off"));
+  await waitFor(() =>
+    expect(host.invocations.at(-1)?.args).toEqual({
+      envelope: { version: 1, action: { type: "set_subtitle_track", track: null } },
+    }),
+  );
+});
+
+test("the menu sends the delay, speed, volume, mute, chapter, crop and aspect Actions", async () => {
+  // The size the frozen example uses, so the computed crops are the same ones.
+  const { host, menu } = await watchWithMenu({ resolution: { width: 128, height: 72 } });
+
+  fireEvent.click(within(menu).getByTestId("delay-forward"));
+  await waitFor(() =>
+    expect(dispatched(host.invocations, "set_subtitle_delay").args).toEqual({
+      envelope: { version: 1, action: { type: "set_subtitle_delay", seconds: 0.1 } },
+    }),
+  );
+
+  fireEvent.click(within(menu).getByTestId("speed-1.5"));
+  await waitFor(() =>
+    expect(dispatched(host.invocations, "set_speed").args).toEqual({
+      envelope: { version: 1, action: { type: "set_speed", rate: 1.5 } },
+    }),
+  );
+
+  const volume = within(menu).getByTestId("volume");
+  fireEvent.change(volume, { target: { value: "40" } });
+  fireEvent.pointerUp(volume);
+  await waitFor(() =>
+    expect(dispatched(host.invocations, "set_volume").args).toEqual({
+      envelope: { version: 1, action: { type: "set_volume", level: 40 } },
+    }),
+  );
+
+  fireEvent.click(within(menu).getByTestId("mute"));
+  await waitFor(() =>
+    expect(dispatched(host.invocations, "set_muted").args).toEqual({
+      envelope: { version: 1, action: { type: "set_muted", muted: true } },
+    }),
+  );
+
+  fireEvent.click(within(menu).getByRole("button", { name: "Previous chapter" }));
+  await waitFor(() =>
+    expect(dispatched(host.invocations, "previous_chapter").args).toEqual({
+      envelope: { version: 1, action: { type: "previous_chapter" } },
+    }),
+  );
+
+  fireEvent.click(within(menu).getByTestId("chapter-1"));
+  await waitFor(() =>
+    expect(dispatched(host.invocations, "set_chapter").args).toEqual({
+      envelope: { version: 1, action: { type: "set_chapter", index: 1 } },
+    }),
+  );
+
+  // The crop is computed from the picture's own size: 128×72 cut to 4:3.
+  fireEvent.click(within(menu).getByTestId("crop-4:3"));
+  await waitFor(() =>
+    expect(dispatched(host.invocations, "set_crop").args).toEqual({
+      envelope: {
+        version: 1,
+        action: {
+          type: "set_crop",
+          crop: { kind: "rectangle", width: 96, height: 72, x: 16, y: 0 },
+        },
+      },
+    }),
+  );
+
+  fireEvent.click(within(menu).getByTestId("aspect-4:3"));
+  await waitFor(() =>
+    expect(dispatched(host.invocations, "set_aspect").args).toEqual({
+      envelope: {
+        version: 1,
+        action: { type: "set_aspect", aspect: { kind: "ratio", value: 4 / 3 } },
+      },
+    }),
+  );
+
+  // The statistics are a readout, shown on request.
+  fireEvent.click(within(menu).getByTestId("toggle-statistics"));
+  expect(within(menu).getByTestId("statistics")).toHaveTextContent("4.0 Mbps");
+  expect(within(menu).getByTestId("statistics")).toHaveTextContent("Hardware decode");
+});
+
+test("a series offers the next episode", async () => {
+  const { host, menu } = await watchWithMenu({
+    nowPlaying: {
+      video: { type: "series", id: "tt0903747:1:1" },
+      addon: AIOSTREAMS,
+      name: "AIOStreams\n1080p",
+      description: null,
+      filename: null,
+      bingeGroup: null,
+    },
+  });
+
+  fireEvent.click(within(menu).getByTestId("next-episode"));
+  await waitFor(() =>
+    expect(dispatched(host.invocations, "next_episode").args).toEqual({
+      envelope: { version: 1, action: { type: "next_episode" } },
+    }),
+  );
+});
+
+test("a film in the player offers no next episode", async () => {
+  const { menu } = await watchWithMenu();
+  expect(within(menu).queryByTestId("next-episode")).not.toBeInTheDocument();
+});
+
+test("Escape closes the player menu before it goes back", async () => {
+  const { menu } = await watchWithMenu();
+  expect(menu).toBeInTheDocument();
+
+  fireEvent.keyDown(document, { key: "Escape" });
+
+  await waitFor(() => expect(screen.queryByTestId("player-menu")).not.toBeInTheDocument());
+  expect(screen.getByTestId("picture"), "still the player").toBeInTheDocument();
+});
+
+test("a Stream at its end offers no menu the Host would refuse", async () => {
+  const host = fakeHost({
+    initial: {
+      ...NOTHING_SAID,
+      revision: 9,
+      addons: [ADDON],
+      playback: playback({ state: "ended", position: 8100 }),
+    },
+  });
+  windowOver(host.transport);
+  await screen.findByTestId("stream-ended");
+
+  expect(screen.queryByTestId("toggle-menu")).not.toBeInTheDocument();
+  expect(screen.queryByTestId("player-menu")).not.toBeInTheDocument();
 });

@@ -48,8 +48,80 @@ export type NowPlaying = {
 };
 
 /**
+ * The two kinds of track the Host offers a control for. Video is deliberately
+ * not one: the picture's own track is the Player's business, and no client asks
+ * which one carries it. Mirrors `TrackKind` in `host-core`.
+ */
+export type TrackKind = "audio" | "subtitle";
+
+/**
+ * One track a Stream carries, as the Player lists it. Mirrors `Track` in
+ * `host-core`: a word the container gave is carried verbatim, `embedded`
+ * separates the tracks that came in the file from the ones added to the Stream
+ * afterwards, and `selected` is which one is on right now — what the player
+ * menu draws as chosen.
+ */
+export type Track = {
+  /** The Player's own number for the track, which is what a selection names. */
+  id: number;
+  kind: TrackKind;
+  language: string | null;
+  title: string | null;
+  codec: string | null;
+  embedded: boolean;
+  selected: boolean;
+  default: boolean;
+  forced: boolean;
+};
+
+/** One chapter marker, and where it starts. Mirrors `Chapter` in `host-core`. */
+export type Chapter = {
+  index: number;
+  title: string | null;
+  time: number;
+};
+
+/** How large the picture is, in pixels. Mirrors `VideoSize` in `host-core`. */
+export type VideoSize = { width: number; height: number };
+
+/** The part of the picture left after cropping, in the source's own pixels. */
+export type CropRectangle = { width: number; height: number; x: number; y: number };
+
+/**
+ * What to do about the black bars around a picture. Mirrors `Crop` in
+ * `host-core`: `off` keeps the whole frame, and a rectangle is measured in the
+ * source's own pixels.
+ */
+export type Crop =
+  | { kind: "off" }
+  | { kind: "rectangle"; width: number; height: number; x: number; y: number };
+
+/**
+ * What shape the picture is drawn at. Mirrors `Aspect` in `host-core`: `source`
+ * is the shape the Stream itself is, and a ratio stretches the picture to one.
+ */
+export type Aspect = { kind: "source" } | { kind: "ratio"; value: number };
+
+/**
+ * What the Player reports about how a Stream is playing, where it reports
+ * anything. Mirrors `Statistics` in `host-core`.
+ */
+export type Statistics = {
+  /** Bits per second, where a picture is being decoded at all. */
+  bitrate: number | null;
+  droppedFrames: number | null;
+  /** `"no"` for software, a hardware API's name otherwise; verbatim. */
+  hardwareDecode: string | null;
+};
+
+/**
  * What every client is told about playback: the one genuinely shared state.
  * Mirrors `PlaybackSnapshot` in `host-core`.
+ *
+ * It carries the whole control set as much as the transport: the tracks and
+ * chapters a client can name, the speed, volume and delay in force, the crop and
+ * aspect being drawn, and what the Player says about how it is going. The window
+ * renders these and takes Actions from them; it decides none of them.
  */
 export type PlaybackSnapshot = {
   state: PlaybackState;
@@ -60,6 +132,22 @@ export type PlaybackSnapshot = {
   /** Where playback is in seconds, and how long the Stream is, where known. */
   position: number | null;
   duration: number | null;
+  /** The Stream's tracks — audio and subtitles — in the Player's own order. */
+  tracks: Track[];
+  /** The Stream's chapters, in the container's order. */
+  chapters: Chapter[];
+  /** Which chapter is playing, by its position in `chapters`. */
+  chapter: number | null;
+  speed: number | null;
+  volume: number | null;
+  muted: boolean | null;
+  subtitleDelay: number | null;
+  /** The rectangle kept after cropping, or null while uncropped. */
+  crop: CropRectangle | null;
+  /** The shape being drawn at, or null until something is loaded. */
+  aspect: Aspect | null;
+  resolution: VideoSize | null;
+  statistics: Statistics | null;
 };
 
 /**
@@ -278,7 +366,22 @@ export type Action =
     }
   | { type: "set_paused"; paused: boolean }
   | { type: "seek"; target: SeekTarget }
-  | { type: "stop_playback" };
+  | { type: "stop_playback" }
+  | { type: "set_audio_track"; track: number }
+  | { type: "set_subtitle_track"; track: number | null }
+  | { type: "set_subtitle_delay"; seconds: number }
+  | { type: "set_speed"; rate: number }
+  | { type: "set_volume"; level: number }
+  | { type: "set_muted"; muted: boolean }
+  | { type: "next_chapter" }
+  | { type: "previous_chapter" }
+  | { type: "set_chapter"; index: number }
+  | { type: "set_crop"; crop: Crop }
+  | { type: "set_aspect"; aspect: Aspect }
+  // The Host implements this in a later slice; the Action is what the window
+  // sends for a series' next episode, and the Host answers whether it is one it
+  // can move to.
+  | { type: "next_episode" };
 
 /**
  * Where a seek goes: to a second of the Stream, or by some seconds from where
@@ -303,11 +406,18 @@ export const HOST_ERROR_KINDS = [
   "invalid_title_ref",
   "invalid_video_ref",
   "invalid_seek_target",
+  "invalid_speed",
+  "invalid_volume",
+  "invalid_subtitle_delay",
+  "invalid_aspect",
+  "invalid_crop",
   "manifest",
   "fetch",
   "unknown_addon",
   "unknown_catalog",
   "unknown_title",
+  "unknown_track",
+  "unknown_chapter",
   "extra",
   "query",
   "catalog",
@@ -315,10 +425,31 @@ export const HOST_ERROR_KINDS = [
   "stream",
   "unplayable",
   "nothing_playing",
+  "no_next_episode",
   "playback",
   "store",
   "secret",
 ] as const;
+
+/**
+ * The control a refusal names, in the Host's own tags. Mirrors `Control` in
+ * `host-core`; every control that can be refused is here, and a client reads it
+ * to say which one was refused.
+ */
+export type Control =
+  | "pause"
+  | "seek"
+  | "stop"
+  | "audio_track"
+  | "subtitle_track"
+  | "subtitle_delay"
+  | "speed"
+  | "volume"
+  | "mute"
+  | "chapter"
+  | "crop"
+  | "aspect"
+  | "next_episode";
 
 /**
  * Why an Action was not taken, in the Host's own vocabulary, plus `unreachable`
@@ -331,17 +462,25 @@ export type ActionError = {
   supported?: number;
   language?: string;
   url?: string;
-  id?: string;
+  /** An Addon's id, or a track's number: two refusals name an `id`. */
+  id?: string | number;
   addon?: string;
   which?: string;
   value?: string;
   catalog?: { type: string; id: string };
   title?: { type: string; id: string };
   video?: { type: string; id: string };
-  /** The value a refusal carries: the seconds a seek could not use. */
+  /** The value a refusal carries: the seconds a seek or a delay could not use. */
   seconds?: string;
+  /** The value a refused speed or volume carries. */
+  rate?: string;
+  level?: string;
+  /** The rectangle a refused crop would keep. */
+  crop?: string;
+  /** The position a refused chapter names. */
+  index?: number;
   /** The control a refusal is about, where the refusal is about one. */
-  control?: "pause" | "seek" | "stop";
+  control?: Control;
 };
 
 /**
@@ -409,6 +548,16 @@ export function explain(error: ActionError): string {
       return `${JSON.stringify(error.value)} is not a Video ${error.which}.`;
     case "invalid_seek_target":
       return `${JSON.stringify(error.seconds)} is not a number of seconds to seek by.`;
+    case "invalid_speed":
+      return `${JSON.stringify(error.rate)} is not a playback speed — a speed is a number from 0.05 to 100.`;
+    case "invalid_volume":
+      return `${JSON.stringify(error.level)} is not a volume — a volume is a number from 0 to 130.`;
+    case "invalid_subtitle_delay":
+      return `${JSON.stringify(error.seconds)} is not a subtitle delay — a delay is at most an hour either way.`;
+    case "invalid_aspect":
+      return `${JSON.stringify(error.value)} is not a picture shape — an aspect ratio is greater than 0 and at most 100.`;
+    case "invalid_crop":
+      return `${JSON.stringify(error.crop)} is not a crop — a crop needs a width and a height, both greater than zero.`;
     case "manifest":
       return `The Host could not read that Addon's manifest${error.detail ? `: ${error.detail}` : ""}.`;
     case "fetch":
@@ -419,6 +568,12 @@ export function explain(error: ActionError): string {
       return `The Addon ${JSON.stringify(error.addon)} offers no catalog ${error.catalog?.type ?? "?"}/${error.catalog?.id ?? "?"}.`;
     case "unknown_title":
       return `The Addon ${JSON.stringify(error.addon)} offers no meta for ${error.title?.type ?? "?"}/${error.title?.id ?? "?"}.`;
+    case "unknown_track":
+      // The `control` a Host sends for a track is its own tag (`audio_track`),
+      // so it is put back into the words a person reads rather than shown raw.
+      return `The Stream carries no ${error.control === "subtitle_track" ? "subtitle" : "audio"} track numbered ${error.id}.`;
+    case "unknown_chapter":
+      return `The Stream has no chapter at position ${error.index}.`;
     case "extra":
       return error.detail ?? "The Host will not ask for that catalog with those values.";
     case "query":
@@ -432,7 +587,9 @@ export function explain(error: ActionError): string {
     case "unplayable":
       return `The Host will not play that Stream: ${error.detail ?? "it is not one it can open"}`;
     case "nothing_playing":
-      return `Nothing is playing, so the Host cannot ${error.control ?? "do that"}.`;
+      return `Nothing is playing, so the Host cannot ${controlWords(error.control)}.`;
+    case "no_next_episode":
+      return `The Host could not move to the next episode${error.detail ? `: ${error.detail}` : ""}.`;
     case "playback":
       return `The Host's player could not do that${error.detail ? `: ${error.detail}` : ""}.`;
     case "store":
@@ -441,6 +598,44 @@ export function explain(error: ActionError): string {
       return `The Host could not keep that credential${error.detail ? `: ${error.detail}` : ""}.`;
     case "unreachable":
       return `The window could not reach the Host${error.detail ? `: ${error.detail}` : ""}.`;
+  }
+}
+
+/**
+ * The control a `nothing_playing` refusal names, as the words a sentence uses.
+ * The Host sends its own tag (`audio_track`); this is the other half of that
+ * vocabulary, so a refusal reads as a sentence rather than as a tag.
+ */
+function controlWords(control: Control | undefined): string {
+  switch (control) {
+    case "pause":
+      return "pause";
+    case "seek":
+      return "seek";
+    case "stop":
+      return "stop";
+    case "audio_track":
+      return "change the audio track";
+    case "subtitle_track":
+      return "change the subtitle track";
+    case "subtitle_delay":
+      return "shift the subtitles";
+    case "speed":
+      return "change the speed";
+    case "volume":
+      return "change the volume";
+    case "mute":
+      return "change the mute";
+    case "chapter":
+      return "move between chapters";
+    case "crop":
+      return "crop the picture";
+    case "aspect":
+      return "change the aspect";
+    case "next_episode":
+      return "play the next episode";
+    default:
+      return "do that";
   }
 }
 

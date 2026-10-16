@@ -1,0 +1,269 @@
+/**
+ * The full control set: the pure decisions the player menu is drawn from.
+ *
+ * The Host's own window is one of its two equal clients, so every control the
+ * Host accepts while something plays has to be reachable here — and as the same
+ * Action a remote client sends, not as a private path (ADR-0002). The Host
+ * decides — which tracks a Stream carries and which is on, how much is left to
+ * crop, what the Player says about the bitrate — and this module only says what
+ * those facts read as and what a press sends.
+ *
+ * Nothing here holds playback state: a choice is an Action, and what a control
+ * shows is the Snapshot that came back.
+ */
+
+import type {
+  Aspect,
+  Chapter,
+  Crop,
+  CropRectangle,
+  NowPlaying,
+  PlaybackState,
+  Statistics,
+  Track,
+  TrackKind,
+  VideoSize,
+} from "./host-client";
+import { formatTime } from "./playback";
+
+/**
+ * Whether the Host would take a control right now: a Stream that is opening,
+ * playing or paused. A Stream that has ended is not one the Host will control —
+ * only Stop is left — so the player menu is not offered there, and neither is a
+ * control it would refuse (ADR-0013's rule for pause and seek, generalised).
+ */
+export function controllable(state: PlaybackState): boolean {
+  return state === "opening" || state === "playing" || state === "paused";
+}
+
+/** The rates a person can pick from, slowest to fastest. */
+export const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const;
+
+/** How far one press of a subtitle-delay button shifts the subtitles. */
+export const DELAY_STEP = 0.1;
+
+/**
+ * The shapes a picture can be stretched to; `source` is the Stream's own shape,
+ * which is what "no override" means. Mirrors the ratios the Host validates.
+ */
+export const ASPECTS: ReadonlyArray<{ label: string; aspect: Aspect }> = [
+  { label: "Source", aspect: { kind: "source" } },
+  { label: "16:9", aspect: { kind: "ratio", value: 16 / 9 } },
+  { label: "4:3", aspect: { kind: "ratio", value: 4 / 3 } },
+  { label: "21:9", aspect: { kind: "ratio", value: 21 / 9 } },
+];
+
+/** The shapes a centred crop can be cut to, derived from the aspect ratios. */
+export const CROP_RATIOS: ReadonlyArray<{ label: string; ratio: number }> =
+  ASPECTS.flatMap((choice) =>
+    choice.aspect.kind === "ratio" ? [{ label: choice.label, ratio: choice.aspect.value }] : [],
+  );
+
+/**
+ * The tracks of one kind, embedded first. The Player lists audio and subtitles
+ * in mpv's own order, and that order is kept inside each group: a track that
+ * came in the file is what a person reaches for first, and the ones added to the
+ * Stream afterwards follow.
+ */
+export function orderedTracks(tracks: Track[], kind: TrackKind): Track[] {
+  const ofKind = tracks.filter((track) => track.kind === kind);
+  return [...ofKind.filter((track) => track.embedded), ...ofKind.filter((track) => !track.embedded)];
+}
+
+/** Whether a subtitle track is on at all; when none is, subtitles are off. */
+export function subtitlesOn(tracks: Track[]): boolean {
+  return tracks.some((track) => track.kind === "subtitle" && track.selected);
+}
+
+/**
+ * How a track is named: whatever the container said about it, and the number the
+ * Player gave where it said nothing a person could use to tell two apart.
+ */
+export function trackLabel(track: Track): string {
+  const words = [track.title, track.language, track.codec].filter(
+    (word): word is string => Boolean(word),
+  );
+  return words.length > 0 ? words.join(" · ") : `Track ${track.id}`;
+}
+
+/**
+ * What is worth marking on a track: that it came in the file, that it is forced,
+ * or that the container made it the default of its kind.
+ */
+export function trackMarks(track: Track): string[] {
+  const marks: string[] = [];
+  if (track.embedded) {
+    marks.push("embedded");
+  }
+  if (track.forced) {
+    marks.push("forced");
+  }
+  if (track.default) {
+    marks.push("default");
+  }
+  return marks;
+}
+
+/**
+ * The delay one step on, rounded to the tenth of a second the buttons work in,
+ * so repeated steps do not accumulate a floating-point tail a person never asked
+ * for.
+ */
+export function stepDelay(seconds: number, by: number): number {
+  return Math.round((seconds + by) * 10) / 10;
+}
+
+/** A subtitle delay as a person reads it: `0.0 s`, `+0.1 s`, `−0.2 s`. */
+export function formatDelay(seconds: number): string {
+  const tenths = Math.round(seconds * 10) / 10;
+  if (tenths === 0) {
+    return "0.0 s";
+  }
+  const magnitude = Math.abs(tenths).toFixed(1);
+  return tenths > 0 ? `+${magnitude} s` : `−${magnitude} s`;
+}
+
+/** A rate as a person reads it: `1×`, `1.5×`. */
+export function formatSpeed(rate: number): string {
+  return `${rate}×`;
+}
+
+/** Whether a rate the Host published is a choice the menu offers. */
+export function speedSelected(rate: number | null, choice: number): boolean {
+  return rate !== null && Math.abs(rate - choice) < 1e-6;
+}
+
+/** A volume as a person reads it, on the Player's scale where 100 is full. */
+export function formatVolume(level: number): string {
+  return `${Math.round(level)}%`;
+}
+
+/** How a chapter is named: where it starts, and its title where it has one. */
+export function chapterLabel(chapter: Chapter): string {
+  const at = formatTime(chapter.time);
+  return chapter.title ? `${at} — ${chapter.title}` : at;
+}
+
+/**
+ * The largest centred rectangle of `ratio` that fits the source, in the source's
+ * own pixels.
+ *
+ * The picture is not scaled to the ratio — a strip of it is cut away — so the
+ * crop is as large as the source allows and is centred: the wider side keeps its
+ * full extent and the other is trimmed, then what is left over is split evenly.
+ * A source already at the ratio crops to itself.
+ */
+export function centredCrop(size: VideoSize, ratio: number): CropRectangle {
+  const sourceRatio = size.width / size.height;
+  let width: number;
+  let height: number;
+
+  if (sourceRatio > ratio) {
+    // The source is wider than the shape wanted: keep the height, trim the sides.
+    height = size.height;
+    width = Math.max(1, Math.min(size.width, Math.round(size.height * ratio)));
+  } else {
+    // The source is taller than the shape wanted: keep the width, trim top and bottom.
+    width = size.width;
+    height = Math.max(1, Math.min(size.height, Math.round(size.width / ratio)));
+  }
+
+  return {
+    width,
+    height,
+    x: Math.floor((size.width - width) / 2),
+    y: Math.floor((size.height - height) / 2),
+  };
+}
+
+/**
+ * The crop choices: the whole frame, then one centred rectangle per ratio, each
+ * computed from the picture's own size. A Stream whose size the Player has not
+ * reported offers only the whole frame — a crop cannot be computed from nothing,
+ * and inventing one would be a rectangle of the wrong picture.
+ */
+export function cropChoices(size: VideoSize | null): Array<{ label: string; crop: Crop }> {
+  const whole: { label: string; crop: Crop } = {
+    label: "Full frame",
+    crop: { kind: "off" },
+  };
+  if (!size) {
+    return [whole];
+  }
+
+  return [
+    whole,
+    ...CROP_RATIOS.map(({ label, ratio }) => ({
+      label,
+      crop: { kind: "rectangle", ...centredCrop(size, ratio) } as Crop,
+    })),
+  ];
+}
+
+/** Whether the picture's current crop is this choice. `null` is the whole frame. */
+export function cropSelected(current: CropRectangle | null, choice: Crop): boolean {
+  if (choice.kind === "off") {
+    return current === null;
+  }
+  return (
+    current !== null &&
+    current.width === choice.width &&
+    current.height === choice.height &&
+    current.x === choice.x &&
+    current.y === choice.y
+  );
+}
+
+/**
+ * Whether the picture is being drawn at this shape. Nothing loaded has no
+ * override yet, so the Stream's own shape reads as selected until a ratio is put
+ * on it.
+ */
+export function aspectSelected(current: Aspect | null, choice: Aspect): boolean {
+  if (choice.kind === "source") {
+    return current === null || current.kind === "source";
+  }
+  return current?.kind === "ratio" && Math.abs(current.value - choice.value) < 1e-3;
+}
+
+/**
+ * What the Player says about how a Stream is playing, in a person's words. Every
+ * field is optional at the source — the Player reports what the platform gives —
+ * so an absent one reads as unknown rather than as zero.
+ */
+export function statisticsLines(
+  statistics: Statistics | null,
+): Array<{ label: string; value: string }> {
+  return [
+    { label: "Bitrate", value: formatBitrate(statistics?.bitrate ?? null) },
+    {
+      label: "Dropped frames",
+      value: statistics?.droppedFrames === null || statistics?.droppedFrames === undefined
+        ? "—"
+        : String(statistics.droppedFrames),
+    },
+    { label: "Hardware decode", value: statistics?.hardwareDecode ?? "—" },
+  ];
+}
+
+function formatBitrate(bits: number | null): string {
+  if (bits === null) {
+    return "—";
+  }
+  if (bits >= 1_000_000) {
+    return `${(bits / 1_000_000).toFixed(1)} Mbps`;
+  }
+  if (bits >= 1_000) {
+    return `${Math.round(bits / 1_000)} kbps`;
+  }
+  return `${bits} bps`;
+}
+
+/**
+ * Whether what is playing is an episode of a series, which is what a next one
+ * would follow. A film has no next episode, so the control is not offered for
+ * one.
+ */
+export function hasNextEpisode(playing: NowPlaying | null): boolean {
+  return playing?.video.type === "series";
+}
