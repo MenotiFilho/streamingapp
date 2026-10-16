@@ -6,8 +6,8 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, CredentialKind, FixtureFetcher, Host, InMemorySecretStore, InMemoryStore,
-    SecretBackend, Store, ACTION_VERSION,
+    Action, ActionError, AddonProvider, CredentialKind, FixtureFetcher, Host, InMemorySecretStore,
+    InMemoryStore, SecretBackend, Store, ACTION_VERSION,
 };
 
 const STREMBOXD: &str = "https://api.stremboxd.com/manifest.json";
@@ -27,14 +27,17 @@ fn secrets() -> Arc<InMemorySecretStore> {
 }
 
 fn host_over(secrets: Arc<InMemorySecretStore>) -> Host {
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(STREMBOXD, STREMBOXD_MANIFEST)
+            .serving(MANIFEST_URL_COULD_HIDE_A_KEY, STREMBOXD_MANIFEST),
+    );
+    let provider = Arc::new(AddonProvider::new(fetcher.clone()));
     Host::new(
         Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
-        Arc::new(
-            FixtureFetcher::new()
-                .serving(STREMBOXD, STREMBOXD_MANIFEST)
-                .serving(MANIFEST_URL_COULD_HIDE_A_KEY, STREMBOXD_MANIFEST),
-        ),
+        fetcher,
         secrets,
+        provider,
     )
     .expect("a Host over a store starts")
 }

@@ -117,3 +117,45 @@ record at all.
   outright: a series `in_production` with no `last_air_date` to end the range
   (`2020–`), which a recording would only catch by being run in that window.
 
+## Stream responses
+
+A Video's candidates, as finding a Stream asks for them. Recorded the same way,
+and trimmed the same way.
+
+- `torrentio-manifest.json` — `https://torrentio.strem.fun/manifest.json`, as
+  served on 2026-10-15. Carries `background`, `logo` and a long `description`
+  this Host has no use for.
+- `torrentio-streams-matrix.json` —
+  `https://torrentio.strem.fun/stream/movie/tt0133093.json`, the first 5 of its
+  97 streams, each trimmed to its first two `sources`. Carries `fileIdx` and
+  `sources` beside the fields the Host reads, and the Cyrillic release name one
+  of its scraped providers gave a film — the shape of a real answer, not a tidy
+  one. Every candidate locates its bytes with `infoHash` and nothing else: a
+  torrent, the candidate this version lists and marks unplayable.
+- `torrentio-streams-bb-s1e1.json` — the same for
+  `.../stream/series/tt0903747:1:1.json`, the first 3 of its 61.
+- `watchhub-manifest.json` — `https://watchhub.strem.io/manifest.json`, the same
+  day.
+- `watchhub-streams-matrix.json` —
+  `https://watchhub.strem.io/stream/movie/tt0133093.json`, its 3 streams. Every
+  one locates its bytes with `externalUrl` — a link to Amazon, Google Play,
+  Telecine — and carries per-platform URLs (`rokuUrl`, `androidUrl`, …) this Host
+  ignores. An answer of places to *watch* is not an answer of candidates this
+  Host can *play*; the tests assert it reads as no candidates rather than as an
+  error.
+- `watchhub-streams-bb-s1e1.json` — the same for the episode, both of its
+  streams.
+- `aiostreams-manifest.json` — written by hand, not recorded: AIOStreams' real
+  manifest URL carries the owner's debrid configuration inside it, which is
+  exactly why ADR-0009 keeps a manifest URL out of Snapshots. It is the Addon a
+  debrid answer belongs to, so the direct-URL case has a source of its own.
+- `streams-direct-url.json` — written by hand: a debrid-style answer of direct
+  URLs, one carrying `notWebReady` and `proxyHeaders` hints. Not recorded
+  because a recorded one would carry a debrid session's tokens inside its URLs.
+- `streams-with-a-bad-item.json` — written by hand: one object locating its
+  bytes twice (`url` *and* `infoHash`) and one locating them not at all, around
+  two that read. The two that lie are dropped and the two that do not stand.
+- `hostile-streams.json` — written by hand: a response whose `streams` is a
+  string. That is a fact about the Addon rather than about one candidate, so it
+  is refused.
+

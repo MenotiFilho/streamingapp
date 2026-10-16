@@ -9,12 +9,16 @@
 //! ```
 //! use std::sync::Arc;
 //!
-//! use host_core::{Action, FixtureFetcher, Host, InMemorySecretStore, InMemoryStore, SubtitleLanguage};
+//! use host_core::{
+//!     Action, AddonProvider, FixtureFetcher, Host, InMemorySecretStore, InMemoryStore,
+//!     SubtitleLanguage,
+//! };
 //!
 //! let store = Arc::new(InMemoryStore::new());
 //! let secrets = Arc::new(InMemorySecretStore::new());
 //! let fetcher = Arc::new(FixtureFetcher::new());
-//! let mut host = Host::new(store, fetcher, secrets)?;
+//! let provider = Arc::new(AddonProvider::new(fetcher.clone()));
+//! let mut host = Host::new(store, fetcher, secrets, provider)?;
 //! let action = Action::parse(r#"{"version":1,"action":{"type":"set_subtitle_language","language":"pt-BR"}}"#)?;
 //! let response = host.dispatch(action)?;
 //!
@@ -32,12 +36,14 @@ mod fetcher;
 mod host;
 mod meta;
 mod preferences;
+mod provider;
 mod request;
 mod response;
 mod secret;
 mod snapshot;
 mod state;
 mod store;
+mod stream;
 mod tmdb;
 
 pub use action::{Action, ActionError, ValidatedAction, ACTION_VERSION};
@@ -51,9 +57,10 @@ pub use fetcher::{FetchError, Fetcher, FixtureFetcher};
 pub use host::Host;
 pub use meta::{MetaError, Title, TitleKey, Video, MAX_META_BYTES};
 pub use preferences::{InvalidSubtitleLanguage, Preferences, SubtitleLanguage};
+pub use provider::{AddonProvider, FixtureProvider, Provider};
 pub use request::{
-    CatalogRef, Extra, InvalidCatalogRef, InvalidExtra, InvalidTitleRef, ResourceRequest, TitleRef,
-    CATALOG, MAX_EXTRAS, META, SEARCH, SKIP,
+    CatalogRef, Extra, InvalidCatalogRef, InvalidExtra, InvalidTitleRef, InvalidVideoRef,
+    ResourceRequest, TitleRef, VideoRef, CATALOG, MAX_EXTRAS, META, SEARCH, SKIP, STREAM,
 };
 pub use response::{Answer, Response};
 pub use secret::{
@@ -62,6 +69,7 @@ pub use secret::{
 };
 pub use snapshot::{PreferencesSnapshot, ProtectionSnapshot, Snapshot};
 pub use store::{InMemoryStore, Store, StoreError};
+pub use stream::{AddonStreams, Playback, Stream, StreamError, Warning, MAX_STREAM_BYTES};
 pub use tmdb::{
     Credential, ExternalId, Kind, TmdbDetails, TmdbError, TmdbId, TmdbRequest, IMAGE_ROOT,
     TMDB_ROOT,

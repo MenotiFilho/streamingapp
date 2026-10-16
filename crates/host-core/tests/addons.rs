@@ -5,8 +5,8 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, FetchError, FixtureFetcher, Host, InMemorySecretStore, InMemoryStore,
-    Manifest, Snapshot, Store, ACTION_VERSION,
+    Action, ActionError, AddonProvider, FetchError, FixtureFetcher, Host, InMemorySecretStore,
+    InMemoryStore, Manifest, Snapshot, Store, ACTION_VERSION,
 };
 
 /// Recorded manifests, and the URLs they answer on.
@@ -29,7 +29,9 @@ fn action(body: &str) -> Action {
 }
 
 fn host_over(store: Arc<dyn Store>, fetcher: FixtureFetcher) -> Host {
-    Host::new(store, Arc::new(fetcher), secrets()).expect("a Host over a store starts")
+    let fetcher = Arc::new(fetcher);
+    let provider = Arc::new(AddonProvider::new(fetcher.clone()));
+    Host::new(store, fetcher, secrets(), provider).expect("a Host over a store starts")
 }
 
 /// The in-memory stand-in for the OS keyring: tests speak a credential into it
@@ -49,8 +51,9 @@ fn host_with_recorded_addons() -> (Host, Arc<InMemoryStore>, Arc<FixtureFetcher>
             .serving(CINEMETA, CINEMETA_MANIFEST)
             .serving(AIOSTREAMS, STREMBOXD_MANIFEST),
     );
-    let host =
-        Host::new(store.clone(), fetcher.clone(), secrets()).expect("a Host over a store starts");
+    let provider = Arc::new(AddonProvider::new(fetcher.clone()));
+    let host = Host::new(store.clone(), fetcher.clone(), secrets(), provider)
+        .expect("a Host over a store starts");
     (host, store, fetcher)
 }
 

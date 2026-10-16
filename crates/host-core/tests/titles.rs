@@ -5,8 +5,8 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, FetchError, FixtureFetcher, Host, InMemorySecretStore, InMemoryStore,
-    SecretBackend, Store, Title, TitleKey, TitleRef, ACTION_VERSION,
+    Action, ActionError, AddonProvider, FetchError, FixtureFetcher, Host, InMemorySecretStore,
+    InMemoryStore, Provider, SecretBackend, Store, Title, TitleKey, TitleRef, ACTION_VERSION,
 };
 
 const CINEMETA: &str = "https://v3-cinemeta.strem.io/manifest.json";
@@ -78,6 +78,7 @@ fn host_with_recorded_addons() -> (Host, Arc<FixtureFetcher>) {
         Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
         fetcher.clone(),
         secrets(),
+        provider(&fetcher),
     )
     .expect("a Host over a store starts");
     configure(&mut host, CINEMETA);
@@ -95,6 +96,13 @@ fn configure(host: &mut Host, url: &str) {
 /// A Host needs somewhere to look a credential up; tests hold theirs here.
 fn secrets() -> Arc<InMemorySecretStore> {
     Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring))
+}
+
+/// The real Provider over this fetcher: the addon protocol, so a `find_streams`
+/// in a file that recorded no `stream` answer fails loudly rather than reaching
+/// anywhere.
+fn provider(fetcher: &Arc<FixtureFetcher>) -> Arc<dyn Provider> {
+    Arc::new(AddonProvider::new(fetcher.clone()))
 }
 
 /// Enter a TMDB key the way the window's form does.
@@ -201,8 +209,9 @@ fn a_sparse_meta_response_still_leaves_the_title_open() {
     );
     let mut host = Host::new(
         Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
-        fetcher,
+        fetcher.clone(),
         secrets(),
+        provider(&fetcher),
     )
     .expect("a Host over a store starts");
     configure(&mut host, CINEMETA);
@@ -261,8 +270,9 @@ fn opening_a_title_whose_addon_cannot_be_reached_is_reported_rather_than_answere
     );
     let mut host = Host::new(
         Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
-        fetcher,
+        fetcher.clone(),
         secrets(),
+        provider(&fetcher),
     )
     .expect("a Host over a store starts");
     configure(&mut host, CINEMETA);
@@ -284,8 +294,9 @@ fn a_meta_response_that_lies_is_reported_rather_than_opened() {
     );
     let mut host = Host::new(
         Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
-        fetcher,
+        fetcher.clone(),
         secrets(),
+        provider(&fetcher),
     )
     .expect("a Host over a store starts");
     configure(&mut host, CINEMETA);
@@ -354,8 +365,9 @@ const TMDB_TOKEN: &str = "eyJhbGciOiJIUzI1NiJ9.eyJzY29wZSI6InJlYWQifQ.a-signatur
 fn host_over(fetcher: Arc<FixtureFetcher>, key: Option<&str>) -> Host {
     let mut host = Host::new(
         Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
-        fetcher,
+        fetcher.clone(),
         secrets(),
+        provider(&fetcher),
     )
     .expect("a Host over a store starts");
     configure(&mut host, CINEMETA);

@@ -12,7 +12,7 @@ mod paths;
 use std::sync::{Arc, Mutex};
 
 use host_addon::HttpFetcher;
-use host_core::Host;
+use host_core::{AddonProvider, Host};
 use host_sqlite::SqliteStore;
 use tauri::Manager;
 
@@ -60,10 +60,15 @@ fn main() {
                 "credentials are held through the secret store",
             );
 
+            // The one Provider this Host is built with: the Stremio addon
+            // protocol, over the one Fetcher. Which Addons it asks, and which
+            // of them answers for an id, is the Host's decision above it.
+            let fetcher: Arc<dyn host_core::Fetcher> = Arc::new(HttpFetcher::new());
             app.manage(ipc::HostHandle::new(Host::new(
                 Arc::new(store),
-                Arc::new(HttpFetcher::new()),
+                fetcher.clone(),
                 secrets.into(),
+                Arc::new(AddonProvider::new(fetcher)),
             )?));
             // Held, not read: the guard inside keeps the log writer alive for as
             // long as the Host runs.

@@ -6,12 +6,14 @@ use crate::cache::CatalogCache;
 use crate::catalog::{CatalogRow, Page};
 use crate::fetcher::Fetcher;
 use crate::meta::Title;
-use crate::request::{CatalogRef, Extra, ResourceRequest, TitleRef, CATALOG, META};
+use crate::provider::Provider;
+use crate::request::{CatalogRef, Extra, ResourceRequest, TitleRef, CATALOG, META, STREAM};
 use crate::response::{Answer, Response};
 use crate::secret::{CredentialKind, SecretStore};
 use crate::snapshot::Snapshot;
 use crate::state::{Change, Persist, Protection, State};
 use crate::store::{Store, StoreError};
+use crate::stream::AddonStreams;
 use crate::{meta, tmdb};
 
 /// The Host: its state, and the one door to it.
@@ -24,6 +26,10 @@ pub struct Host {
     store: Arc<dyn Store>,
     fetcher: Arc<dyn Fetcher>,
     secrets: Arc<dyn SecretStore>,
+    /// Where playable candidates come from. The real Host is built with the
+    /// addon protocol; a test hands in a fake (ADR-0010's questions, applied
+    /// to Streams).
+    provider: Arc<dyn Provider>,
     state: State,
     revision: u64,
     /// Pages the Addons have already answered, so that a re-request inside the
@@ -47,6 +53,7 @@ impl Host {
         store: Arc<dyn Store>,
         fetcher: Arc<dyn Fetcher>,
         secrets: Arc<dyn SecretStore>,
+        provider: Arc<dyn Provider>,
     ) -> Result<Self, StoreError> {
         let tmdb_held = match secrets.read(CredentialKind::TmdbKey) {
             Ok(Some(_)) => true,
@@ -68,6 +75,7 @@ impl Host {
             store,
             fetcher,
             secrets,
+            provider,
             state,
             revision: 0,
             cache: CatalogCache::default(),
@@ -231,6 +239,32 @@ impl Host {
                 let mut title = self.fetch_title(&configured, &title, &requested)?;
                 self.tmdb_refine(&mut title);
                 Resolved::Answer(Answer::Title(Box::new(title)))
+            }
+            ValidatedAction::FindStreams { video } => {
+                // Every configured Addon that answers for it, in the order
+                // they were configured, each answer a group of its own: one
+                // Addon failing is that group with nothing in it, not a
+                // question that fails (ADR-0010 — a search's rule, applied to
+                // Streams).
+                let requested = ResourceRequest::new(STREAM, &video.r#type, &video.id);
+                let groups = self
+                    .state
+                    .addons()
+                    .iter()
+                    .filter(|addon| addon.manifest().answers(&requested))
+                    .map(|addon| {
+                        let (streams, failure) = match self.provider.streams(addon, &requested) {
+                            Ok(streams) => (streams, None),
+                            Err(failure) => (Vec::new(), Some(failure)),
+                        };
+                        AddonStreams {
+                            addon: addon.id().clone(),
+                            streams,
+                            failure,
+                        }
+                    })
+                    .collect();
+                Resolved::Answer(Answer::Streams(groups))
             }
         })
     }

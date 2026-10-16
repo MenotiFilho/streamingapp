@@ -6,13 +6,20 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use host_core::{
-    Action, ActionError, CatalogRow, FetchError, Fetcher, FixtureFetcher, Host,
-    InMemorySecretStore, InMemoryStore, Response, SecretBackend, Store, ACTION_VERSION,
+    Action, ActionError, AddonProvider, CatalogRow, FetchError, Fetcher, FixtureFetcher, Host,
+    InMemorySecretStore, InMemoryStore, Provider, Response, SecretBackend, Store, ACTION_VERSION,
 };
 
 /// A Host needs somewhere to look a credential up; tests hold theirs here.
 fn secrets() -> Arc<InMemorySecretStore> {
     Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring))
+}
+
+/// The real Provider over this fetcher: the addon protocol, so a `find_streams`
+/// in a file that recorded no `stream` answer fails loudly rather than reaching
+/// anywhere.
+fn provider(fetcher: &Arc<FixtureFetcher>) -> Arc<dyn Provider> {
+    Arc::new(AddonProvider::new(fetcher.clone()))
 }
 
 /// The recorded Addons, and the pages recorded from them.
@@ -104,6 +111,7 @@ fn host_with_recorded_addons() -> (Host, Arc<FixtureFetcher>) {
         Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
         fetcher.clone(),
         secrets(),
+        provider(&fetcher),
     )
     .expect("a Host over a store starts");
     configure(&mut host, CINEMETA);
@@ -468,6 +476,7 @@ fn a_page_the_addon_said_may_outlive_itself_is_served_when_the_addon_goes_away()
         Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
         switchboard.clone(),
         secrets(),
+        Arc::new(AddonProvider::new(switchboard.clone())),
     )
     .expect("a Host over a store starts");
     configure(&mut host, SEARCHABLE);
@@ -498,6 +507,7 @@ fn a_page_the_addon_said_nothing_about_serving_stale_is_reported_when_it_fails()
         Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
         switchboard.clone(),
         secrets(),
+        Arc::new(AddonProvider::new(switchboard.clone())),
     )
     .expect("a Host over a store starts");
     configure(&mut host, SEARCHABLE);
@@ -632,8 +642,9 @@ const WITHOUT_SEARCH: &str = "https://plain.example.com/manifest.json";
 fn host_over(fetcher: Arc<FixtureFetcher>) -> Host {
     Host::new(
         Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
-        fetcher,
+        fetcher.clone(),
         secrets(),
+        provider(&fetcher),
     )
     .expect("a Host over a store starts")
 }

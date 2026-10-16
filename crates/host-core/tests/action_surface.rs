@@ -5,8 +5,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, FixtureFetcher, Host, InMemorySecretStore, InMemoryStore, Preferences,
-    SecretBackend, Snapshot, Store, StoreError, SubtitleLanguage, ACTION_VERSION,
+    Action, ActionError, AddonProvider, FixtureFetcher, Host, InMemorySecretStore, InMemoryStore,
+    Preferences, SecretBackend, Snapshot, Store, StoreError, SubtitleLanguage, ACTION_VERSION,
 };
 
 /// An Action as a client sends it: the versioned envelope, as JSON text.
@@ -26,10 +26,12 @@ fn secrets() -> Arc<InMemorySecretStore> {
 }
 
 /// A Host over a store, with a fetcher that has no fixtures: an Action that asks
-/// the network for anything fails the test that took it.
+/// the network for anything fails the test that took it. The Provider is the
+/// real one over that same fetcher, so a stream ask fails the same way.
 fn host_over(store: Arc<dyn Store>) -> Host {
-    Host::new(store, Arc::new(FixtureFetcher::new()), secrets())
-        .expect("a Host over a store starts")
+    let fetcher = Arc::new(FixtureFetcher::new());
+    let provider = Arc::new(AddonProvider::new(fetcher.clone()));
+    Host::new(store, fetcher, secrets(), provider).expect("a Host over a store starts")
 }
 
 fn host() -> Host {
@@ -297,7 +299,9 @@ fn no_field_a_snapshot_carries_could_hold_a_credential() {
     let url = "https://api.stremboxd.com/manifest.json";
     let fetcher =
         FixtureFetcher::new().serving(url, include_str!("fixtures/stremboxd-manifest.json"));
-    let mut host = Host::new(Arc::new(InMemoryStore::new()), Arc::new(fetcher), secrets())
+    let fetcher = Arc::new(fetcher);
+    let provider = Arc::new(AddonProvider::new(fetcher.clone()));
+    let mut host = Host::new(Arc::new(InMemoryStore::new()), fetcher, secrets(), provider)
         .expect("a Host over a store starts");
     host.dispatch(action(&format!(r#"{{"type":"add_addon","url":"{url}"}}"#)))
         .expect("adding the recorded Addon should work");

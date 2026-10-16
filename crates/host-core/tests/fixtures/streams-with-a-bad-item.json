@@ -1,0 +1,1 @@
+{"streams":[{"name":"usable","url":"https://example.org/one.mkv"},{"name":"two locations","url":"https://example.org/two.mkv","infoHash":"0123456789abcdef0123456789abcdef01234567"},{"name":"no location at all","title":"I am not a Stream"},{"name":"usable too","infoHash":"abcdef0123456789abcdef0123456789abcdef01"}]}

@@ -1,0 +1,1 @@
+{"id":"community.aiostreams","version":"2.0.0","name":"AIOStreams","description":"Aggregates Streams from many Addons and debrid services into one list","resources":[{"name":"stream","types":["movie","series"],"idPrefixes":["tt"]}],"types":["movie","series"],"catalogs":[],"behaviorHints":{"configurable":true,"configurationRequired":true}}

@@ -4,7 +4,9 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use host_core::{Action, FixtureFetcher, Host, InMemorySecretStore, Snapshot, SubtitleLanguage};
+use host_core::{
+    Action, AddonProvider, FixtureFetcher, Host, InMemorySecretStore, Snapshot, SubtitleLanguage,
+};
 use host_sqlite::SqliteStore;
 
 /// The in-memory stand-in for the OS keyring.
@@ -43,7 +45,9 @@ fn fetcher() -> Arc<FixtureFetcher> {
 /// Start a Host on this database, as launching the app does.
 fn start(path: &Path) -> Host {
     let store = SqliteStore::open(path).expect("the database opens");
-    Host::new(Arc::new(store), fetcher(), secrets()).expect("the Host starts")
+    let fetcher = fetcher();
+    let provider = Arc::new(AddonProvider::new(fetcher.clone()));
+    Host::new(Arc::new(store), fetcher, secrets(), provider).expect("the Host starts")
 }
 
 fn take(host: &mut Host, action: &str) {

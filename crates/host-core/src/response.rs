@@ -17,6 +17,7 @@ use serde::Serialize;
 use crate::catalog::CatalogRow;
 use crate::meta::Title;
 use crate::snapshot::Snapshot;
+use crate::stream::AddonStreams;
 
 /// What taking an Action produced: what every client is owed, and what the one
 /// that asked is owed on its own.
@@ -62,6 +63,16 @@ impl Response {
             _ => None,
         }
     }
+
+    /// The Streams a client asked to see, when that is what it asked: one
+    /// group per Addon that answered for the Video, in the order the Addons
+    /// were configured.
+    pub fn streams(&self) -> Option<&[AddonStreams]> {
+        match &self.answer {
+            Some(Answer::Streams(groups)) => Some(groups),
+            _ => None,
+        }
+    }
 }
 
 /// Something only the client that asked is owed.
@@ -73,4 +84,7 @@ pub enum Answer {
     /// The Title a client asked to open, with the Videos it can be watched as.
     /// Boxed because a Title is many fields and a `Vec` of rows is three words.
     Title(Box<Title>),
+    /// The Streams a Video can be played as: one group per Addon that answered
+    /// the `stream` request, in the order the Addons were configured.
+    Streams(Vec<AddonStreams>),
 }

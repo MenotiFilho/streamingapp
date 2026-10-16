@@ -2,7 +2,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::addon::{AddonId, InvalidAddonId, InvalidManifestUrl, ManifestUrl, MAX_STRING_LEN};
 use crate::preferences::{InvalidSubtitleLanguage, SubtitleLanguage};
-use crate::request::{CatalogRef, Extra, InvalidCatalogRef, InvalidTitleRef, TitleRef, MAX_EXTRAS};
+use crate::request::{
+    CatalogRef, Extra, InvalidCatalogRef, InvalidTitleRef, InvalidVideoRef, TitleRef, VideoRef,
+    MAX_EXTRAS,
+};
 use crate::secret::{InvalidTmdbKey, TmdbKey};
 
 /// The version of the Action wire form this Host speaks.
@@ -69,6 +72,17 @@ pub enum Action {
         addon: String,
         /// The Title to open, by the type and id the item carried.
         title: TitleRef,
+    },
+    /// Find the Streams a Video can be played as.
+    ///
+    /// A question rather than a change, like browsing and opening a Title.
+    /// Every configured Addon that answers for the Video's `stream` request is
+    /// asked, in the order they were configured; each one's candidates go to
+    /// the client that asked and to no one else (ADR-0005).
+    FindStreams {
+        /// The Video, by the type its Title carries and the id its Addon
+        /// indexes it by (`tt0903747:1:1`).
+        video: VideoRef,
     },
 }
 
@@ -157,6 +171,10 @@ impl Action {
                 let title = TitleRef::parse(&title.r#type, &title.id)?;
                 Ok(ValidatedAction::OpenTitle { addon, title })
             }
+            Action::FindStreams { video } => {
+                let video = VideoRef::parse(&video.r#type, &video.id)?;
+                Ok(ValidatedAction::FindStreams { video })
+            }
         }
     }
 }
@@ -225,6 +243,9 @@ pub enum ValidatedAction {
         addon: AddonId,
         title: TitleRef,
     },
+    FindStreams {
+        video: VideoRef,
+    },
 }
 
 /// The wire form of an Action: a version and the Action.
@@ -256,6 +277,8 @@ pub enum ActionError {
     InvalidCatalogRef(#[from] InvalidCatalogRef),
     #[error("{0}")]
     InvalidTitleRef(#[from] InvalidTitleRef),
+    #[error("{0}")]
+    InvalidVideoRef(#[from] InvalidVideoRef),
     #[error("the Addon's manifest could not be read: {detail}")]
     Manifest { detail: String },
     #[error("{detail}")]
@@ -274,6 +297,8 @@ pub enum ActionError {
     Catalog { detail: String },
     #[error("the Addon's meta response could not be read: {detail}")]
     Meta { detail: String },
+    #[error("the Addon's stream response could not be read: {detail}")]
+    Stream { detail: String },
     #[error("the Host could not keep that change: {detail}")]
     Store { detail: String },
     #[error("the Host could not keep that credential: {detail}")]
@@ -330,6 +355,38 @@ mod tests {
                 "extra": [{ "name": "skip", "value": "100" }],
             })
         );
+    }
+
+    #[test]
+    fn an_action_that_asks_for_a_videos_streams_is_flat_enough_to_write_by_hand() {
+        let value = serde_json::to_value(Action::FindStreams {
+            video: VideoRef::parse("series", "tt0903747:1:1")
+                .expect("a Video a request could name"),
+        })
+        .expect("an Action serializes");
+
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "type": "find_streams",
+                "video": { "type": "series", "id": "tt0903747:1:1" },
+            }),
+            "the Video is named inside the Action, because the Action already has a `type`"
+        );
+    }
+
+    #[test]
+    fn an_action_that_asks_for_a_video_that_is_not_one_is_refused_before_an_addon_hears_of_it() {
+        assert!(matches!(
+            Action::FindStreams {
+                video: VideoRef {
+                    r#type: "ser ies".to_owned(),
+                    id: "tt0903747:1:1".to_owned(),
+                },
+            }
+            .validate(),
+            Err(ActionError::InvalidVideoRef(_))
+        ));
     }
 
     #[test]

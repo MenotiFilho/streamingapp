@@ -29,6 +29,10 @@ pub const CATALOG: &str = "catalog";
 /// asks for.
 pub const META: &str = "meta";
 
+/// The resource that answers with a Video's playable candidates — what finding
+/// a Stream asks for.
+pub const STREAM: &str = "stream";
+
 /// The `extra` name that carries a search query.
 pub const SEARCH: &str = "search";
 
@@ -182,6 +186,45 @@ impl TitleRef {
     }
 }
 
+/// Which Video a `stream` request is about: the type its Title carries and the
+/// id its Addon indexes it by (`tt0903747:1:1`).
+///
+/// The same `{type}/{id}` pair a [`TitleRef`] is, because the protocol asks for
+/// a Video's Streams at `{resource}/{type}/{id}.json` — kept a type of its own
+/// so that a message about a Video does not name a Title, and a Video is the
+/// unit both Streams and Watch progress are keyed by.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct VideoRef {
+    /// The content type of the Title the Video belongs to: `movie`, `series`,
+    /// `channel`, `tv`, …
+    #[serde(rename = "type")]
+    pub r#type: String,
+    /// The id the Addon indexes the Video by: `tt0903747:1:1`, `tt0133093`.
+    pub id: String,
+}
+
+impl std::fmt::Display for VideoRef {
+    /// How a Video is named in a message a person reads: `series/tt0903747:1:1`.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}/{}", self.r#type, self.id)
+    }
+}
+
+impl VideoRef {
+    /// A Video named by its type and id, or why the Host will not ask for it.
+    pub fn parse(r#type: &str, id: &str) -> Result<Self, InvalidVideoRef> {
+        if let Some((which, value)) = unusable(r#type, id) {
+            return Err(InvalidVideoRef { which, value });
+        }
+
+        Ok(Self {
+            r#type: r#type.to_owned(),
+            id: id.to_owned(),
+        })
+    }
+}
+
 /// Which of a `{type}/{id}` pair is not usable, and the value offered for it.
 ///
 /// A catalog and a Title are addressed the same way — `{type}/{id}` — so what a
@@ -214,6 +257,14 @@ pub struct InvalidCatalogRef {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
 #[error("{value:?} is not a Title {which}")]
 pub struct InvalidTitleRef {
+    pub which: &'static str,
+    pub value: String,
+}
+
+/// A string that is not a Video's type or id, offered as one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
+#[error("{value:?} is not a Video {which}")]
+pub struct InvalidVideoRef {
     pub which: &'static str,
     pub value: String,
 }
@@ -455,6 +506,37 @@ mod tests {
                 .to_string(),
             "series/tt0903747"
         );
+    }
+
+    #[test]
+    fn a_video_is_named_the_way_a_message_would_name_it() {
+        assert_eq!(
+            VideoRef::parse("series", "tt0903747:1:1")
+                .expect("a Video a request could name")
+                .to_string(),
+            "series/tt0903747:1:1",
+            "a Video's id is the one its Addon indexes it by, season and episode and all"
+        );
+    }
+
+    #[test]
+    fn a_video_type_or_id_that_is_not_one_is_refused_and_says_which_it_was() {
+        for (r#type, id, which) in [
+            ("", "tt0903747:1:1", "type"),
+            ("series", "", "id"),
+            ("ser ies", "tt0903747:1:1", "type"),
+            ("series", "tt\t0903747:1:1", "id"),
+            ("series", &"a".repeat(MAX_STRING_LEN + 1), "id"),
+        ] {
+            assert_eq!(
+                VideoRef::parse(r#type, id),
+                Err(InvalidVideoRef {
+                    which,
+                    value: if which == "type" { r#type } else { id }.to_owned(),
+                }),
+                "{type:?}/{id:?} is not a Video, and the {which} is what is wrong with it"
+            );
+        }
     }
 
     #[test]
