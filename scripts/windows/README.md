@@ -8,7 +8,9 @@ run the same way twice:
 - `build.ps1` — run on Windows: fetches libmpv, makes it linkable, and does a
   release build of the app shell.
 - `verify.ps1` — run on Windows: walks the window's manual checklist, asserting
-  through UI Automation and screenshots each step into `evidence\`.
+  through UI Automation and screenshots each step into `evidence\`. Any subset of
+  it can be walked on its own (`-Only`, `-From`, `-List`) — see "Walking part of
+  the checklist" below.
 
 The checklist covers the whole window: the preference and the Action surface, the
 Addon by its manifest URL, the home surface's catalog rows, paging one, searching,
@@ -71,6 +73,54 @@ else interrupts them:
 This is a **by-hand walkthrough, not a test suite**. The spec's testing decision
 stands: windowed behaviour is covered by manual checklists rather than GUI
 automation in the build, so these scripts are run deliberately, never in CI.
+
+## Walking part of the checklist
+
+The whole checklist is 22 steps and takes minutes. To iterate on one step, run
+just that one: the runner builds the ground the step declares first — an empty
+data directory, one Host on `-Monitor`, the fixture Addon configured by manifest
+URL, at the catalog rows — and reuses it when several selected steps need it, so
+you never sit through the earlier steps to see whether step 13 works now:
+
+```sh
+# 1. the whole checklist, in order (what "The route, in full" below does)
+powershell.exe -NoProfile -ExecutionPolicy Bypass \
+  -File 'C:\...\scripts\windows\verify.ps1' -Tree 'C:\...' -Monitor 1
+
+# 2. what the steps are, and what each one needs, without starting a Host — the
+#    discovery path, and the cheap syntax check
+powershell.exe -NoProfile -ExecutionPolicy Bypass \
+  -File 'C:\...\scripts\windows\verify.ps1' -List
+
+# 3. just the control set (step 13). It sets up first: one Host from an empty
+#    data directory, the fixture Addon configured by manifest URL, at the rows.
+powershell.exe -NoProfile -ExecutionPolicy Bypass \
+  -File 'C:\...\scripts\windows\verify.ps1' -Tree 'C:\...' -Monitor 1 -Only 13
+
+# 4. from step 13 on: the control set, the Title, the series, paging, search,
+#    the TMDB key, removing the Addon, the log and the data directory
+powershell.exe -NoProfile -ExecutionPolicy Bypass \
+  -File 'C:\...\scripts\windows\verify.ps1' -Tree 'C:\...' -Monitor 1 -From 13
+```
+
+`-Only` takes a comma list (`-Only 13,15`) or an array, and a single quoted list
+(`-Only '13,15'`) is split too. Steps always run in checklist order, and the
+screenshots keep their names, so a partial run's `evidence\` compares with a full
+one's.
+
+A handful of steps read what an earlier step left behind and cannot rebuild it:
+step 4 needs step 3's second launch in the log, step 12 needs the Title step 11
+opened, step 18 needs the search surface step 17 left showing, and step 21 needs
+the log steps 19 and 20 wrote. Run alone, one of these **refuses loudly** — it
+prints the step it needs and the selection to run instead, and exits non-zero
+without touching the machine — rather than checking the wrong state. `-List`
+prints the same `needs:` line for every step.
+
+When the fixture Addon is what a step needs, it is the same parameter the full
+route uses: pass `-Addon`, `-AddonName`, `-AddonId` and `-AddonCatalog` as in
+"The route, in full" (the `fixture-addon.ps1` server, with `-Addon
+'http://127.0.0.1:8099/manifest.json' -AddonName Verify -AddonId
+dev.streamingapp.verify -AddonCatalog Verify`).
 
 ## The route, in full
 
