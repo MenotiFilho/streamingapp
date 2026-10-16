@@ -56,6 +56,12 @@ type and id the Addon gave it, with the `extra` values it declared (`skip` to pa
 on, `search` to search, `genre` to filter).
 _Avoid_: feed, list, collection
 
+**Featured catalog**:
+The one Catalog the owner has marked as the Host's featured feed — what a
+client's Home hero is drawn from, its first items in the Addon's own order. A
+preference of the Host's, not a client's: every client draws the same hero.
+_Avoid_: pinned catalog, top shelf, hero row
+
 **Meta preview**:
 One item in a Row, as the addon protocol carries it: the id, name, poster, year
 and description a card is drawn from, before opening it makes a Title. The
@@ -137,12 +143,19 @@ how long it is, and whether it counts as watched. Recorded while it plays, so it
 outlives a Host that was killed rather than stopped.
 _Avoid_: progress (unqualified), history
 
+**Continue watching**:
+The row a client draws from the Host's Watch progress — one card per Video, most
+recently played first — and the first row of a client's Home. It is drawn from
+the Host's own record, so every client shows the same row. Real and offline: it
+needs no account and no network, and an entry whose Addon is gone stays listed,
+marked unplayable.
+_Avoid_: library, history, watchlist, resume
+
 **Library**:
-The Host's own store of the Videos it has Watch progress in, with enough of each
-Title to draw a card — what a client's resume row is drawn from. Real and
-offline: it needs no account and no network, and an entry whose Addon is gone
-stays listed, marked unplayable.
-_Avoid_: history, watchlist, collection
+The collection of Titles held in the owner's Stremio account, reconciled by
+Account sync. Not built: nothing stores it today, and a client's Library screen
+is a stub until something does.
+_Avoid_: history, watchlist, collection, continue watching
 
 **Playback position**:
 How far into the Stream playing now the Host is, in seconds: the Host's own
