@@ -1586,8 +1586,15 @@ function Step-20($ctx) {
     $text = Wait-Text $app 'No Addons are configured' 20
     Shot $app '20-addon-removed.png'
     Check 'the Addon is gone' ($text -match 'No Addons are configured') "showed: $text"
+    # The rows are the Addon's own catalog headings, and they go with it. The
+    # match is case-*sensitive* on purpose: a library entry whose Addon is gone
+    # stays on the home surface, marked unplayable, and it names that Addon
+    # (`Unplayable - the Addon dev.streamingapp.verify ...`, #29) — the lowercase
+    # id inside it is not a row heading, and a case-insensitive `-match` would
+    # read it as one. The pager goes with the row too.
     Check 'and its rows are gone with it' (
-        -not ($text -match [regex]::Escape($AddonCatalog))) "showed: $text"
+        (-not ($text -cmatch [regex]::Escape($AddonCatalog))) -and
+        (-not ($text -match ('More from ' + [regex]::Escape($AddonCatalog))))) "showed: $text"
 
     Stop-Host $app
 }
