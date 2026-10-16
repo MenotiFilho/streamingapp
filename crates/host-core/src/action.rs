@@ -1,12 +1,14 @@
 use serde::{Deserialize, Serialize};
 
 use crate::addon::{AddonId, InvalidAddonId, InvalidManifestUrl, ManifestUrl, MAX_STRING_LEN};
+use crate::playback::{ChosenStream, InvalidSeekTarget, SeekTarget, Unplayable};
 use crate::preferences::{InvalidSubtitleLanguage, SubtitleLanguage};
 use crate::request::{
     CatalogRef, Extra, InvalidCatalogRef, InvalidTitleRef, InvalidVideoRef, TitleRef, VideoRef,
     MAX_EXTRAS,
 };
 use crate::secret::{InvalidTmdbKey, TmdbKey};
+use crate::stream::Stream;
 
 /// The version of the Action wire form this Host speaks.
 ///
@@ -26,7 +28,7 @@ pub const ACTION_VERSION: u16 = 1;
 /// action does not make an older Host refuse it, while an unknown or misspelled
 /// field at the envelope, which is where the version lives, is malformed. A field
 /// a variant does require is still required.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Action {
     /// Prefer `language` when the Host chooses a subtitle track.
@@ -84,6 +86,34 @@ pub enum Action {
         /// indexes it by (`tt0903747:1:1`).
         video: VideoRef,
     },
+    /// Play a Stream a client chose.
+    ///
+    /// The candidate a client sends back is one the Host answered it with, and
+    /// it is sent whole — the Addon's own words about it, and where its bytes
+    /// are — because the Host re-asks nothing: what plays is the candidate the
+    /// client picked. What travels outward again is the words, never the URL
+    /// (ADR-0013).
+    ///
+    /// A change, not a question: playback is the one genuinely shared state, so
+    /// every client is told what is playing.
+    PlayStream {
+        /// The Video being watched, as the Streams were asked for.
+        video: VideoRef,
+        /// The Addon whose answer the candidate came from.
+        addon: String,
+        /// The candidate itself, as it was answered.
+        stream: Box<Stream>,
+    },
+    /// Hold the picture where it is, or let it run.
+    SetPaused { paused: bool },
+    /// Move within the Stream being played.
+    Seek {
+        /// Where to go, or how far to move.
+        target: SeekTarget,
+    },
+    /// Stop playing: nothing is playing afterwards, and the client is back to
+    /// whatever it was reading.
+    StopPlayback,
 }
 
 impl Action {
@@ -175,6 +205,25 @@ impl Action {
                 let video = VideoRef::parse(&video.r#type, &video.id)?;
                 Ok(ValidatedAction::FindStreams { video })
             }
+            Action::PlayStream {
+                video,
+                addon,
+                stream,
+            } => {
+                let video = VideoRef::parse(&video.r#type, &video.id)?;
+                let addon = AddonId::parse(&addon)?;
+                let chosen = ChosenStream::parse(video, addon, &stream)?;
+                Ok(ValidatedAction::PlayStream(Box::new(chosen)))
+            }
+            // A seek that is not a number of seconds is refused before a Player
+            // hears of it, the way a Video that is not one is refused before an
+            // Addon does.
+            Action::Seek { target } => {
+                let target = target.checked()?;
+                Ok(ValidatedAction::Seek { target })
+            }
+            Action::SetPaused { paused } => Ok(ValidatedAction::SetPaused { paused }),
+            Action::StopPlayback => Ok(ValidatedAction::StopPlayback),
         }
     }
 }
@@ -223,7 +272,7 @@ fn search_query(raw: &str) -> Result<String, ActionError> {
 /// Only [`Action::validate`] yields this, and only this reaches the Host's state,
 /// so "validated before it mutated anything" is a property of the types rather
 /// than of the order of two statements.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ValidatedAction {
     SetSubtitleLanguage(SubtitleLanguage),
     ClearSubtitleLanguage,
@@ -246,10 +295,21 @@ pub enum ValidatedAction {
     FindStreams {
         video: VideoRef,
     },
+    /// A candidate judged: the URL a Player will be given, and the words that
+    /// will be published about it. Boxed because a Stream carries its own words
+    /// and the enum's other variants are a word or two wide.
+    PlayStream(Box<ChosenStream>),
+    SetPaused {
+        paused: bool,
+    },
+    Seek {
+        target: SeekTarget,
+    },
+    StopPlayback,
 }
 
 /// The wire form of an Action: a version and the Action.
-#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ActionEnvelope {
     version: u16,
@@ -258,7 +318,7 @@ struct ActionEnvelope {
 
 /// An Action that cannot be taken, and why — in the Host's own vocabulary, so a
 /// client can act on the kind and a person can read the message.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, Serialize, thiserror::Error)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ActionError {
     #[error("that is not an Action: {detail}")]
@@ -279,6 +339,8 @@ pub enum ActionError {
     InvalidTitleRef(#[from] InvalidTitleRef),
     #[error("{0}")]
     InvalidVideoRef(#[from] InvalidVideoRef),
+    #[error("{0}")]
+    InvalidSeekTarget(#[from] InvalidSeekTarget),
     #[error("the Addon's manifest could not be read: {detail}")]
     Manifest { detail: String },
     #[error("{detail}")]
@@ -299,6 +361,19 @@ pub enum ActionError {
     Meta { detail: String },
     #[error("the Addon's stream response could not be read: {detail}")]
     Stream { detail: String },
+    /// The Stream a client asked to play is not one this Host can play: an
+    /// `infoHash` with no bridge to fetch it, or a URL this Host will not open.
+    #[error("{0}")]
+    Unplayable(#[from] Unplayable),
+    /// There is nothing playing to do that to. A control that arrives for a
+    /// Stream that has already ended or been stopped is refused rather than
+    /// silently obeyed, so a client hears why nothing happened.
+    #[error("nothing is playing, so the Host cannot {what}")]
+    NothingPlaying { what: String },
+    /// The Player is the Host's own limb and its refusal is not the client's
+    /// fault: it says what it could not do, in the Player's own words.
+    #[error("{detail}")]
+    Playback { detail: String },
     #[error("the Host could not keep that change: {detail}")]
     Store { detail: String },
     #[error("the Host could not keep that credential: {detail}")]
@@ -387,6 +462,88 @@ mod tests {
             .validate(),
             Err(ActionError::InvalidVideoRef(_))
         ));
+    }
+
+    #[test]
+    fn an_action_that_plays_a_chosen_stream_is_flat_enough_to_write_by_hand() {
+        // The candidate a client sends back is the one it was answered, whole:
+        // what the Host acts on is where its bytes are, and what travels outward
+        // again is the Addon's own words (ADR-0013).
+        let action = Action::parse(&format!(
+            r#"{{"version":{ACTION_VERSION},"action":{{"type":"play_stream",
+                "video":{{"type":"movie","id":"tt0133093"}},
+                "addon":"community.aiostreams",
+                "stream":{{"name":"AIOStreams\n1080p","playback":{{"kind":"direct","url":"https://stream.example.org/v/x.mkv"}}}}}}}}"#
+        ))
+        .expect("a client's own envelope parses");
+
+        let Action::PlayStream {
+            video,
+            addon,
+            stream,
+        } = action
+        else {
+            panic!("that is the Action a client sent");
+        };
+        assert_eq!(video.id, "tt0133093");
+        assert_eq!(addon, "community.aiostreams");
+        assert_eq!(
+            stream.playback,
+            crate::stream::Playback::Direct {
+                url: "https://stream.example.org/v/x.mkv".to_owned(),
+            }
+        );
+
+        let chosen = Action::PlayStream {
+            video,
+            addon,
+            stream,
+        }
+        .validate()
+        .expect("a direct URL is a candidate this Host plays");
+        assert_eq!(
+            chosen,
+            ValidatedAction::PlayStream(Box::new(
+                crate::playback::ChosenStream::parse(
+                    VideoRef::parse("movie", "tt0133093").expect("a Video"),
+                    AddonId::parse("community.aiostreams").expect("an Addon id"),
+                    &crate::stream::Stream {
+                        name: Some("AIOStreams\n1080p".to_owned()),
+                        description: None,
+                        playback: crate::stream::Playback::Direct {
+                            url: "https://stream.example.org/v/x.mkv".to_owned(),
+                        },
+                        warnings: Vec::new(),
+                        filename: None,
+                        binge_group: None,
+                    },
+                )
+                .expect("a direct URL is a candidate this Host plays")
+            ))
+        );
+    }
+
+    #[test]
+    fn the_playback_controls_are_flat_enough_to_write_by_hand() {
+        assert_eq!(
+            serde_json::to_value(Action::SetPaused { paused: true }).expect("an Action serializes"),
+            serde_json::json!({ "type": "set_paused", "paused": true })
+        );
+        assert_eq!(
+            serde_json::to_value(Action::StopPlayback).expect("an Action serializes"),
+            serde_json::json!({ "type": "stop_playback" })
+        );
+        assert_eq!(
+            serde_json::to_value(Action::Seek {
+                target: crate::playback::SeekTarget::By { seconds: -10.0 },
+            })
+            .expect("an Action serializes"),
+            serde_json::json!({
+                "type": "seek",
+                "target": { "kind": "by", "seconds": -10.0 },
+            }),
+            "a seek says whether it is a place to go or a distance to move"
+        );
     }
 
     #[test]

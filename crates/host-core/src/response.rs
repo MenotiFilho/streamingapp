@@ -21,7 +21,7 @@ use crate::stream::AddonStreams;
 
 /// What taking an Action produced: what every client is owed, and what the one
 /// that asked is owed on its own.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Response {
     /// The Snapshots published, in order. Empty when the Action changed nothing
@@ -76,7 +76,7 @@ impl Response {
 }
 
 /// Something only the client that asked is owed.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Answer {
     /// The catalog rows a client asked to see, one per catalog asked about.

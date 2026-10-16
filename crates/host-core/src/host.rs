@@ -6,6 +6,7 @@ use crate::cache::CatalogCache;
 use crate::catalog::{CatalogRow, Page};
 use crate::fetcher::Fetcher;
 use crate::meta::Title;
+use crate::playback::{Picture, Player};
 use crate::provider::Provider;
 use crate::request::{CatalogRef, Extra, ResourceRequest, TitleRef, CATALOG, META, STREAM};
 use crate::response::{Answer, Response};
@@ -22,6 +23,10 @@ use crate::{meta, tmdb};
 /// at [`Host::dispatch`], and every publication leaves as a [`Response`]: the
 /// Snapshots every client is owed, and the answer only the client that asked
 /// gets. There is no second path (ADR-0002).
+///
+/// The one thing that is not an Action is the Host reading its own Player
+/// ([`Host::sample`]): playback moves on its own, and what the Player reports is
+/// folded in where the Host's clock looks at it.
 pub struct Host {
     store: Arc<dyn Store>,
     fetcher: Arc<dyn Fetcher>,
@@ -30,6 +35,13 @@ pub struct Host {
     /// addon protocol; a test hands in a fake (ADR-0010's questions, applied
     /// to Streams).
     provider: Arc<dyn Provider>,
+    /// What plays a Stream. The real Host is built with mpv, in-process; a test
+    /// hands in a fake.
+    player: Arc<dyn Player>,
+    /// Where the Player puts the picture, asked of it once: a fact about the
+    /// machine rather than about a Stream, and one every Snapshot carries so a
+    /// client sharing the Host's window knows where the hole for it goes.
+    picture: Picture,
     state: State,
     revision: u64,
     /// Pages the Addons have already answered, so that a re-request inside the
@@ -54,6 +66,7 @@ impl Host {
         fetcher: Arc<dyn Fetcher>,
         secrets: Arc<dyn SecretStore>,
         provider: Arc<dyn Provider>,
+        player: Arc<dyn Player>,
     ) -> Result<Self, StoreError> {
         let tmdb_held = match secrets.read(CredentialKind::TmdbKey) {
             Ok(Some(_)) => true,
@@ -71,11 +84,14 @@ impl Host {
                 tmdb_held,
             },
         );
+        let picture = player.picture();
         Ok(Self {
             store,
             fetcher,
             secrets,
             provider,
+            player,
+            picture,
             state,
             revision: 0,
             cache: CatalogCache::default(),
@@ -85,7 +101,7 @@ impl Host {
     /// The state as it stands — what a client that has just connected, or just
     /// reconnected, is owed.
     pub fn snapshot(&self) -> Snapshot {
-        Snapshot::build(&self.state, self.revision)
+        Snapshot::build(&self.state, self.revision, self.picture)
     }
 
     /// Take an Action, and publish or answer what came of it.
@@ -120,6 +136,26 @@ impl Host {
         self.state = next;
         self.revision += 1;
         Ok(Response::published(vec![self.snapshot()]))
+    }
+
+    /// Read the Player, and publish where playback stands now.
+    ///
+    /// The one door that is not an Action: playback moves on its own, so the
+    /// Host looks at its own Player between Actions and folds what it reports
+    /// into state. A report that says the same thing as last time moves nothing
+    /// and publishes nothing; a position that moved, a Stream that ended, and an
+    /// open that failed all do.
+    ///
+    /// The Host holds no clock of its own — host-core has no threads and no
+    /// timers — so whoever owns the shell's event loop calls this while
+    /// something is playing (ADR-0013).
+    pub fn sample(&mut self) -> Option<Snapshot> {
+        let observation = self.player.observe();
+        let next = self.state.playback().advanced(&observation)?;
+
+        self.state.set_playback(next);
+        self.revision += 1;
+        Some(self.snapshot())
     }
 
     /// Turn a validated Action into the change it will make, or the answer it
@@ -266,6 +302,61 @@ impl Host {
                     .collect();
                 Resolved::Answer(Answer::Streams(groups))
             }
+            ValidatedAction::PlayStream(chosen) => {
+                // The Player is handed the URL and nothing else; whether the
+                // Stream it leads to opens is found out later, through
+                // `observe`, because agreeing to try is not playing.
+                self.player
+                    .open(&chosen.url)
+                    .map_err(|error| ActionError::Playback {
+                        detail: error.to_string(),
+                    })?;
+                Resolved::Change(Change::Play(*chosen))
+            }
+            ValidatedAction::SetPaused { paused } => {
+                self.playing("pause")?;
+                self.player
+                    .set_paused(paused)
+                    .map_err(|error| ActionError::Playback {
+                        detail: error.to_string(),
+                    })?;
+                Resolved::Change(Change::SetPaused(paused))
+            }
+            ValidatedAction::Seek { target } => {
+                self.playing("seek")?;
+                self.player
+                    .seek(target)
+                    .map_err(|error| ActionError::Playback {
+                        detail: error.to_string(),
+                    })?;
+                Resolved::Change(Change::Seek(target))
+            }
+            ValidatedAction::StopPlayback => {
+                // A stop is allowed whenever the Host is on a Stream at all,
+                // including a Stream that failed to open: it is how a client
+                // clears the failure and goes back to what it was reading.
+                if !self.state.playback().has_stream() {
+                    return Err(ActionError::NothingPlaying {
+                        what: "stop".to_owned(),
+                    });
+                }
+                self.player.stop().map_err(|error| ActionError::Playback {
+                    detail: error.to_string(),
+                })?;
+                Resolved::Change(Change::Stop)
+            }
+        })
+    }
+
+    /// Refuse an Action about a Stream the Player is not on: one that never
+    /// played, or one that has already ended.
+    fn playing(&self, what: &str) -> Result<(), ActionError> {
+        if self.state.playback().is_live() {
+            return Ok(());
+        }
+
+        Err(ActionError::NothingPlaying {
+            what: what.to_owned(),
         })
     }
 

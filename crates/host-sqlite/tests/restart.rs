@@ -5,9 +5,16 @@ use std::path::Path;
 use std::sync::Arc;
 
 use host_core::{
-    Action, AddonProvider, FixtureFetcher, Host, InMemorySecretStore, Snapshot, SubtitleLanguage,
+    Action, AddonProvider, FixtureFetcher, FixturePlayer, Host, InMemorySecretStore, Snapshot,
+    SubtitleLanguage,
 };
 use host_sqlite::SqliteStore;
+
+/// A Player a test drives by hand: nothing plays unless a test says so, and
+/// every telling is remembered.
+fn player() -> Arc<FixturePlayer> {
+    Arc::new(FixturePlayer::new())
+}
 
 /// The in-memory stand-in for the OS keyring.
 fn secrets() -> Arc<InMemorySecretStore> {
@@ -47,7 +54,7 @@ fn start(path: &Path) -> Host {
     let store = SqliteStore::open(path).expect("the database opens");
     let fetcher = fetcher();
     let provider = Arc::new(AddonProvider::new(fetcher.clone()));
-    Host::new(Arc::new(store), fetcher, secrets(), provider).expect("the Host starts")
+    Host::new(Arc::new(store), fetcher, secrets(), provider, player()).expect("the Host starts")
 }
 
 fn take(host: &mut Host, action: &str) {

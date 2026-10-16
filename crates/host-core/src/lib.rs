@@ -10,15 +10,15 @@
 //! use std::sync::Arc;
 //!
 //! use host_core::{
-//!     Action, AddonProvider, FixtureFetcher, Host, InMemorySecretStore, InMemoryStore,
-//!     SubtitleLanguage,
+//!     Action, AddonProvider, FixtureFetcher, FixturePlayer, Host, InMemorySecretStore,
+//!     InMemoryStore, SubtitleLanguage,
 //! };
 //!
 //! let store = Arc::new(InMemoryStore::new());
 //! let secrets = Arc::new(InMemorySecretStore::new());
 //! let fetcher = Arc::new(FixtureFetcher::new());
 //! let provider = Arc::new(AddonProvider::new(fetcher.clone()));
-//! let mut host = Host::new(store, fetcher, secrets, provider)?;
+//! let mut host = Host::new(store, fetcher, secrets, provider, Arc::new(FixturePlayer::new()))?;
 //! let action = Action::parse(r#"{"version":1,"action":{"type":"set_subtitle_language","language":"pt-BR"}}"#)?;
 //! let response = host.dispatch(action)?;
 //!
@@ -35,6 +35,7 @@ mod catalog;
 mod fetcher;
 mod host;
 mod meta;
+mod playback;
 mod preferences;
 mod provider;
 mod request;
@@ -56,6 +57,11 @@ pub use catalog::{CacheHints, CatalogError, CatalogRow, MetaPreview, Page, MAX_C
 pub use fetcher::{FetchError, Fetcher, FixtureFetcher};
 pub use host::Host;
 pub use meta::{MetaError, Title, TitleKey, Video, MAX_META_BYTES};
+pub use playback::{
+    ChosenStream, FixturePlayer, InvalidSeekTarget, InvalidStreamUrl, NowPlaying, Observation,
+    Picture, PlaybackError, PlaybackSnapshot, PlaybackState, Player, SeekTarget, StreamUrl,
+    Unplayable,
+};
 pub use preferences::{InvalidSubtitleLanguage, Preferences, SubtitleLanguage};
 pub use provider::{AddonProvider, FixtureProvider, Provider};
 pub use request::{

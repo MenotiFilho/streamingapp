@@ -5,9 +5,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, AddonProvider, FixtureFetcher, Host, InMemorySecretStore, InMemoryStore,
-    Preferences, SecretBackend, Snapshot, Store, StoreError, SubtitleLanguage, ACTION_VERSION,
+    Action, ActionError, AddonProvider, FixtureFetcher, FixturePlayer, Host, InMemorySecretStore,
+    InMemoryStore, Preferences, SecretBackend, Snapshot, Store, StoreError, SubtitleLanguage,
+    ACTION_VERSION,
 };
+
+/// A Player a test drives by hand: nothing plays unless a test says so, and
+/// every telling is remembered.
+fn player() -> Arc<FixturePlayer> {
+    Arc::new(FixturePlayer::new())
+}
 
 /// An Action as a client sends it: the versioned envelope, as JSON text.
 fn action(body: &str) -> Action {
@@ -31,7 +38,7 @@ fn secrets() -> Arc<InMemorySecretStore> {
 fn host_over(store: Arc<dyn Store>) -> Host {
     let fetcher = Arc::new(FixtureFetcher::new());
     let provider = Arc::new(AddonProvider::new(fetcher.clone()));
-    Host::new(store, fetcher, secrets(), provider).expect("a Host over a store starts")
+    Host::new(store, fetcher, secrets(), provider, player()).expect("a Host over a store starts")
 }
 
 fn host() -> Host {
@@ -284,6 +291,14 @@ fn the_snapshot_declares_only_fields_it_can_safely_carry() {
         published,
         serde_json::json!({
             "revision": 1,
+            "playback": {
+                "state": "idle",
+                "picture": "in_window",
+                "failure": serde_json::Value::Null,
+                "nowPlaying": serde_json::Value::Null,
+                "position": serde_json::Value::Null,
+                "duration": serde_json::Value::Null,
+            },
             "preferences": { "subtitleLanguage": "pt-BR" },
             "addons": [],
             "protection": { "backend": "keyring", "tmdbHeld": false },
@@ -301,8 +316,14 @@ fn no_field_a_snapshot_carries_could_hold_a_credential() {
         FixtureFetcher::new().serving(url, include_str!("fixtures/stremboxd-manifest.json"));
     let fetcher = Arc::new(fetcher);
     let provider = Arc::new(AddonProvider::new(fetcher.clone()));
-    let mut host = Host::new(Arc::new(InMemoryStore::new()), fetcher, secrets(), provider)
-        .expect("a Host over a store starts");
+    let mut host = Host::new(
+        Arc::new(InMemoryStore::new()),
+        fetcher,
+        secrets(),
+        provider,
+        player(),
+    )
+    .expect("a Host over a store starts");
     host.dispatch(action(&format!(r#"{{"type":"add_addon","url":"{url}"}}"#)))
         .expect("adding the recorded Addon should work");
     set_subtitle_language(&mut host, "pt-BR");

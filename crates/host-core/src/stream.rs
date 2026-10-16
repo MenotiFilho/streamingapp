@@ -49,7 +49,7 @@
 //! (ADR-0009). #12's bridge is where a torrent's file index and trackers
 //! arrive, and the subtitles ticket where a stream's own `subtitles` do.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::action::ActionError;
@@ -82,27 +82,38 @@ const LOCATIONS: [&str; 10] = [
 ];
 
 /// One candidate a Provider returned for a Video, as the Host lists it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+///
+/// Readable as well as readable-from: a client that chooses a candidate sends it
+/// back in the Action that plays it. Everything but where the bytes are may be
+/// missing — a candidate with no badge line is still a candidate — and the
+/// fields a variant does not know are ignored, the way every Action's own object
+/// is (ADR-0009's wire rule).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Stream {
     /// The Addon's own word for the candidate, verbatim: its badges —
     /// resolution, quality, source, cached — as its formatter wrote them.
+    #[serde(default)]
     pub name: Option<String>,
     /// The Addon's longer description: the release, the size, the seeders.
     /// Read from `description`, falling back to the deprecated `title` that
     /// Addons in the wild still answer with.
+    #[serde(default)]
     pub description: Option<String>,
     /// Where the bytes are, and whether this Host can open them.
     pub playback: Playback,
     /// What the Addon's hints say about playing it, in the order they were
     /// read. Surfaced, never acted on: a warning is not a filter.
+    #[serde(default)]
     pub warnings: Vec<Warning>,
     /// The file's own name, where the Addon knows it
     /// (`behaviorHints.filename`).
+    #[serde(default)]
     pub filename: Option<String>,
     /// The release the Addon binge-groups a series' episodes by
     /// (`behaviorHints.bingeGroup`), so two releases can be told apart and a
     /// later ticket can binge on one.
+    #[serde(default)]
     pub binge_group: Option<String>,
 }
 
@@ -111,7 +122,7 @@ pub struct Stream {
 /// The two shapes, and the only two: a direct URL mpv opens as itself, and an
 /// `infoHash` that something must turn into bytes first — something this
 /// version does not have.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
     rename_all = "snake_case",
@@ -132,7 +143,7 @@ pub enum Playback {
 /// they are the Addon's expectations about clients, and the clients here are
 /// mpv and a browser on another device, which do not agree about what they can
 /// play.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Warning {
     /// The URL is not fit for a browser — no https, or not an MP4
@@ -154,7 +165,7 @@ pub enum Warning {
 /// a Snapshot). `failure` is what a search's row already carries, for the same
 /// reason: one Addon being down is one group that says so, not a question that
 /// fails (ADR-0010).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AddonStreams {
     pub addon: AddonId,
@@ -321,10 +332,21 @@ fn hint(object: &Map<String, Value>, name: &str) -> Option<String> {
 /// a number is not one, because nothing can play it.
 fn string(value: &Value) -> Option<String> {
     let text = value.as_str()?;
-    if text.is_empty() || text.len() > MAX_STRING_LEN {
+    if !holdable(text) {
         return None;
     }
     Some(text.to_owned())
+}
+
+/// Whether a word is one the Host will hold: it says something and it is short
+/// enough to keep.
+///
+/// The rule a Stream's own words are read by, applied wherever a word arrives —
+/// from an Addon's answer, and from a client sending a candidate back to play.
+/// Line breaks are kept: AIOStreams writes its badges as one string with a
+/// newline in it, and that string is the Addon's own word for the candidate.
+pub(crate) fn holdable(word: &str) -> bool {
+    !word.is_empty() && word.len() <= MAX_STRING_LEN
 }
 
 #[cfg(test)]

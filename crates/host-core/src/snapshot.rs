@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::addon::Manifest;
+use crate::playback::{Picture, PlaybackSnapshot};
 use crate::preferences::SubtitleLanguage;
 use crate::secret::SecretBackend;
 use crate::state::State;
@@ -12,12 +13,20 @@ use crate::state::State;
 /// and no free-form map one could be smuggled through. Whatever later tickets add
 /// here has to keep that true; `the_snapshot_declares_only_fields_it_can_safely_carry`
 /// holds the line.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// The same rule covers a Stream's URL, which is a credential by the same
+/// presumption an Addon's manifest URL is: what a Snapshot says about playback
+/// is the candidate's own words, never where its bytes are (ADR-0009, ADR-0013).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Snapshot {
     /// Moves forward by one with every Action that changes state, so a client can
     /// tell a newer Snapshot from an older one and ignore the older.
     pub revision: u64,
+    /// What is playing, where it is, and how the last open went — the one
+    /// genuinely shared state the spec names, which is why it is a Snapshot and
+    /// not an answer.
+    pub playback: PlaybackSnapshot,
     pub preferences: PreferencesSnapshot,
     /// The configured Addons, as what they say they offer. Never where they live:
     /// an Addon's manifest URL can carry its credentials, and a Snapshot reaches
@@ -51,11 +60,16 @@ pub struct ProtectionSnapshot {
 }
 
 impl Snapshot {
-    /// Build the Snapshot for a state. Pure: the same state and revision always
-    /// build the same Snapshot.
-    pub(crate) fn build(state: &State, revision: u64) -> Self {
+    /// Build the Snapshot for a state. Pure: the same state, revision and
+    /// picture always build the same Snapshot.
+    ///
+    /// `picture` is the Player's answer to where it draws: a fact about the
+    /// machine the Host was built on, like which backend holds a credential, and
+    /// not something any Action changes.
+    pub(crate) fn build(state: &State, revision: u64, picture: Picture) -> Self {
         Self {
             revision,
+            playback: state.playback().snapshot(picture),
             preferences: PreferencesSnapshot {
                 subtitle_language: state.preferences().subtitle_language().cloned(),
             },

@@ -1,4 +1,5 @@
 use crate::addon::{Addon, AddonId};
+use crate::playback::{ChosenStream, PlaybackSession, SeekTarget};
 use crate::preferences::{Preferences, SubtitleLanguage};
 use crate::secret::SecretBackend;
 
@@ -7,7 +8,7 @@ use crate::secret::SecretBackend;
 /// Private to the Host on purpose: nothing outside reads this. It is written
 /// through the [`crate::Store`] seam and published as a [`crate::Snapshot`], and
 /// a client only ever sees the latter.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct State {
     preferences: Preferences,
     /// The configured Addons, in the order they were configured: a handful of
@@ -17,6 +18,11 @@ pub(crate) struct State {
     /// for — without the credentials themselves, which are read from the secret
     /// store at the moment they are used and never copied in here.
     protection: Protection,
+    /// What is playing, and what the Player last said about it. The one piece
+    /// of state every client shares, and the one piece that is never stored:
+    /// playback does not survive a restart (#29's Watch progress is the part
+    /// that does).
+    playback: PlaybackSession,
 }
 
 /// Which credentials the Host is known to hold, and where the store that holds
@@ -31,7 +37,8 @@ pub(crate) struct Protection {
 }
 
 impl State {
-    /// The state, holding these preferences, these Addons, and this protection.
+    /// The state, holding these preferences, these Addons, and this protection
+    /// — with nothing playing, which is how every Host starts.
     pub(crate) fn holding(
         preferences: Preferences,
         addons: Vec<Addon>,
@@ -41,6 +48,7 @@ impl State {
             preferences,
             addons,
             protection,
+            playback: PlaybackSession::idle(),
         }
     }
 
@@ -54,6 +62,15 @@ impl State {
 
     pub(crate) fn protection(&self) -> Protection {
         self.protection
+    }
+
+    pub(crate) fn playback(&self) -> &PlaybackSession {
+        &self.playback
+    }
+
+    /// What is playing, as the Player's latest report leaves it.
+    pub(crate) fn set_playback(&mut self, playback: PlaybackSession) {
+        self.playback = playback;
     }
 
     pub(crate) fn has_addon(&self, id: &AddonId) -> bool {
@@ -106,6 +123,24 @@ impl State {
                 self.protection.tmdb_held = false;
                 Persist::Nothing
             }
+            // Playback is state every client shares and no store keeps: what
+            // was on screen when a Host stopped is not what it resumes with.
+            Change::Play(chosen) => {
+                self.playback = PlaybackSession::opening(chosen);
+                Persist::Nothing
+            }
+            Change::SetPaused(paused) => {
+                self.playback.set_paused(paused);
+                Persist::Nothing
+            }
+            Change::Seek(target) => {
+                self.playback.seek(target);
+                Persist::Nothing
+            }
+            Change::Stop => {
+                self.playback.stop();
+                Persist::Nothing
+            }
         }
     }
 }
@@ -120,7 +155,7 @@ impl State {
 /// here is what lets the state change itself stay pure and un-failable, with the
 /// Addon behind a pointer because a manifest is a document and every other variant
 /// is a word or two wide.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Change {
     SetSubtitleLanguage(SubtitleLanguage),
     ClearSubtitleLanguage,
@@ -133,6 +168,18 @@ pub(crate) enum Change {
         backend: SecretBackend,
     },
     ClearTmdbKey,
+    /// A Stream was chosen and the Player agreed to open it, so the Host is on
+    /// that Stream from here on and the open is in flight.
+    Play(ChosenStream),
+    /// The Player was told to hold the picture or let it run. Like the change
+    /// the credentials make, this is not something the store keeps.
+    SetPaused(bool),
+    /// The Player was told to move, and the Host's own record of where playback
+    /// is moved with it — the Player's next report is what corrects it.
+    Seek(SeekTarget),
+    /// The Player was told to let the Stream go: nothing is playing, and what
+    /// failed no longer is.
+    Stop,
 }
 
 /// Which part of the store a [`Change`] leaves out of date, so the Host knows

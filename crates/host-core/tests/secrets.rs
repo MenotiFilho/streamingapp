@@ -6,8 +6,8 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, AddonProvider, CredentialKind, FixtureFetcher, Host, InMemorySecretStore,
-    InMemoryStore, SecretBackend, Store, ACTION_VERSION,
+    Action, ActionError, AddonProvider, CredentialKind, FixtureFetcher, FixturePlayer, Host,
+    InMemorySecretStore, InMemoryStore, SecretBackend, Store, ACTION_VERSION,
 };
 
 const STREMBOXD: &str = "https://api.stremboxd.com/manifest.json";
@@ -19,6 +19,12 @@ const MANIFEST_URL_COULD_HIDE_A_KEY: &str =
 fn action(body: &serde_json::Value) -> Action {
     let envelope = format!(r#"{{"version":{ACTION_VERSION},"action":{body}}}"#);
     Action::parse(&envelope).unwrap_or_else(|error| panic!("{envelope} should parse: {error}"))
+}
+
+/// A Player a test drives by hand: nothing plays unless a test says so, and
+/// every telling is remembered.
+fn player() -> Arc<FixturePlayer> {
+    Arc::new(FixturePlayer::new())
 }
 
 /// The in-memory stand-in for the OS keyring, with the hooks tests read it by.
@@ -38,6 +44,7 @@ fn host_over(secrets: Arc<InMemorySecretStore>) -> Host {
         fetcher,
         secrets,
         provider,
+        player(),
     )
     .expect("a Host over a store starts")
 }

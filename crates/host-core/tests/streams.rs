@@ -6,10 +6,16 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, AddonProvider, AddonStreams, FetchError, FixtureFetcher, FixtureProvider,
-    Host, InMemorySecretStore, InMemoryStore, Playback, Provider, Response, SecretBackend, Store,
-    Stream, Warning, ACTION_VERSION,
+    Action, ActionError, AddonProvider, AddonStreams, FetchError, FixtureFetcher, FixturePlayer,
+    FixtureProvider, Host, InMemorySecretStore, InMemoryStore, Playback, Provider, Response,
+    SecretBackend, Store, Stream, Warning, ACTION_VERSION,
 };
+
+/// A Player a test drives by hand: nothing plays unless a test says so, and
+/// every telling is remembered.
+fn player() -> Arc<FixturePlayer> {
+    Arc::new(FixturePlayer::new())
+}
 
 /// The recorded Addons. Cinemeta and Stremboxd answer metadata; Torrentio and
 /// WatchHub answer `stream`.
@@ -79,6 +85,7 @@ fn host_over(fetcher: Arc<FixtureFetcher>, provider: Arc<dyn Provider>) -> Host 
         fetcher,
         secrets(),
         provider,
+        player(),
     )
     .expect("a Host over a store starts")
 }

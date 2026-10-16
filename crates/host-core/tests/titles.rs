@@ -5,8 +5,9 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, AddonProvider, FetchError, FixtureFetcher, Host, InMemorySecretStore,
-    InMemoryStore, Provider, SecretBackend, Store, Title, TitleKey, TitleRef, ACTION_VERSION,
+    Action, ActionError, AddonProvider, FetchError, FixtureFetcher, FixturePlayer, Host,
+    InMemorySecretStore, InMemoryStore, Provider, SecretBackend, Store, Title, TitleKey, TitleRef,
+    ACTION_VERSION,
 };
 
 const CINEMETA: &str = "https://v3-cinemeta.strem.io/manifest.json";
@@ -36,6 +37,12 @@ const TMDB_FIND_MOVIE_BODY: &str = include_str!("fixtures/tmdb-find-matrix.json"
 const TMDB_FIND_SERIES_BODY: &str = include_str!("fixtures/tmdb-find-bb.json");
 const TMDB_MOVIE_DETAILS: &str = include_str!("fixtures/tmdb-movie-details.json");
 const TMDB_TV_DETAILS: &str = include_str!("fixtures/tmdb-tv-details.json");
+
+/// A Player a test drives by hand: nothing plays unless a test says so, and
+/// every telling is remembered.
+fn player() -> Arc<FixturePlayer> {
+    Arc::new(FixturePlayer::new())
+}
 
 /// An Action as a client sends it: the versioned envelope, as JSON text.
 fn action(body: &serde_json::Value) -> Action {
@@ -79,6 +86,7 @@ fn host_with_recorded_addons() -> (Host, Arc<FixtureFetcher>) {
         fetcher.clone(),
         secrets(),
         provider(&fetcher),
+        player(),
     )
     .expect("a Host over a store starts");
     configure(&mut host, CINEMETA);
@@ -212,6 +220,7 @@ fn a_sparse_meta_response_still_leaves_the_title_open() {
         fetcher.clone(),
         secrets(),
         provider(&fetcher),
+        player(),
     )
     .expect("a Host over a store starts");
     configure(&mut host, CINEMETA);
@@ -273,6 +282,7 @@ fn opening_a_title_whose_addon_cannot_be_reached_is_reported_rather_than_answere
         fetcher.clone(),
         secrets(),
         provider(&fetcher),
+        player(),
     )
     .expect("a Host over a store starts");
     configure(&mut host, CINEMETA);
@@ -297,6 +307,7 @@ fn a_meta_response_that_lies_is_reported_rather_than_opened() {
         fetcher.clone(),
         secrets(),
         provider(&fetcher),
+        player(),
     )
     .expect("a Host over a store starts");
     configure(&mut host, CINEMETA);
@@ -368,6 +379,7 @@ fn host_over(fetcher: Arc<FixtureFetcher>, key: Option<&str>) -> Host {
         fetcher.clone(),
         secrets(),
         provider(&fetcher),
+        player(),
     )
     .expect("a Host over a store starts");
     configure(&mut host, CINEMETA);

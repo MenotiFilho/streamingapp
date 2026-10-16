@@ -222,7 +222,7 @@ fn hint(object: &serde_json::Map<String, serde_json::Value>, name: &str) -> Opti
 /// Addons at once and the answer has to say which is which (ADR-0005 — a
 /// client's browsing is its own, so a row travels as an answer and never as a
 /// Snapshot).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogRow {
     pub addon: AddonId,

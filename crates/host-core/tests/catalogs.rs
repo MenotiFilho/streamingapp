@@ -6,9 +6,16 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use host_core::{
-    Action, ActionError, AddonProvider, CatalogRow, FetchError, Fetcher, FixtureFetcher, Host,
-    InMemorySecretStore, InMemoryStore, Provider, Response, SecretBackend, Store, ACTION_VERSION,
+    Action, ActionError, AddonProvider, CatalogRow, FetchError, Fetcher, FixtureFetcher,
+    FixturePlayer, Host, InMemorySecretStore, InMemoryStore, Provider, Response, SecretBackend,
+    Store, ACTION_VERSION,
 };
+
+/// A Player a test drives by hand: nothing plays unless a test says so, and
+/// every telling is remembered.
+fn player() -> Arc<FixturePlayer> {
+    Arc::new(FixturePlayer::new())
+}
 
 /// A Host needs somewhere to look a credential up; tests hold theirs here.
 fn secrets() -> Arc<InMemorySecretStore> {
@@ -112,6 +119,7 @@ fn host_with_recorded_addons() -> (Host, Arc<FixtureFetcher>) {
         fetcher.clone(),
         secrets(),
         provider(&fetcher),
+        player(),
     )
     .expect("a Host over a store starts");
     configure(&mut host, CINEMETA);
@@ -477,6 +485,7 @@ fn a_page_the_addon_said_may_outlive_itself_is_served_when_the_addon_goes_away()
         switchboard.clone(),
         secrets(),
         Arc::new(AddonProvider::new(switchboard.clone())),
+        player(),
     )
     .expect("a Host over a store starts");
     configure(&mut host, SEARCHABLE);
@@ -508,6 +517,7 @@ fn a_page_the_addon_said_nothing_about_serving_stale_is_reported_when_it_fails()
         switchboard.clone(),
         secrets(),
         Arc::new(AddonProvider::new(switchboard.clone())),
+        player(),
     )
     .expect("a Host over a store starts");
     configure(&mut host, SEARCHABLE);
@@ -645,6 +655,7 @@ fn host_over(fetcher: Arc<FixtureFetcher>) -> Host {
         fetcher.clone(),
         secrets(),
         provider(&fetcher),
+        player(),
     )
     .expect("a Host over a store starts")
 }
