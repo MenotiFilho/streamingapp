@@ -103,10 +103,33 @@ _Avoid_: storage, security, exposure
 
 ### Playback
 
+**Player**:
+The Host's seam for playing a Stream: open it, hold it, move in it, let it go —
+and what it says about where playback is. mpv is the implementation, linked
+in-process, and it keeps the picture; the Host's interface is drawn above or
+beside the video and never sees a frame.
+_Avoid_: mpv (for the seam), backend, engine, renderer
+
+**Picture**:
+Where the Player draws the video: inside the same window as the Host's
+interface, in a window of its own, or nowhere at all. A fact about the machine
+— not a setting, and no Action changes it — and one every Snapshot carries, so
+that a client sharing the Host's window knows where the hole for it goes.
+_Avoid_: video output, surface, canvas, screen
+
+**Now playing**:
+The Stream the Host is on, as every client is told of it: the Video, the Addon
+whose answer it came from, and the Addon's own words about the candidate. Never
+where its bytes are — a Stream URL can carry a debrid session, and a Snapshot
+reaches every paired client.
+_Avoid_: current stream, playing media, file
+
 **Watch progress**:
 The resume state the Host stores for a Video.
 _Avoid_: progress (unqualified), history
 
 **Playback position**:
-How far into the currently playing media the Host is, in seconds.
+How far into the Stream playing now the Host is, in seconds: the Host's own
+record, moved at the moment of a control and corrected by the Player's next
+report.
 _Avoid_: progress, timestamp
