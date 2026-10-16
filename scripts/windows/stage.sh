@@ -26,4 +26,10 @@ cp -r dist "$target/dist"
 cp scripts/windows/*.ps1 "$target/scripts/windows/"
 
 echo "staged $(git rev-parse --short HEAD) at $target"
+if [ -f "$target/fixture/verify-720p.mp4" ]; then
+  echo "fixture video: $(wc -c <"$target/fixture/verify-720p.mp4") bytes (scripts/windows/fixture-video.sh)"
+else
+  echo "no fixture video yet — 'scripts/windows/fixture-video.sh $target' makes one,"
+  echo "which is what lets a walkthrough play a Stream without a debrid Addon"
+fi
 echo "next: powershell -NoProfile -ExecutionPolicy Bypass -File 'C:\\...\\scripts\\windows\\build.ps1' -Tree '<windows path>'"

@@ -106,6 +106,36 @@ public class W {
   }
 
   public static bool Close(IntPtr h) { return PostMessage(h, 0x0010 /*WM_CLOSE*/, IntPtr.Zero, IntPtr.Zero); }
+
+  // The children of a window, in the order Windows keeps them: the topmost
+  // first. mpv's picture is one of these, and the interface's webview another,
+  // so the order is what says which of the two is on top.
+  [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent, EnumProc cb, IntPtr lParam);
+  public static List<string> Children(IntPtr h) {
+    var found = new List<string>();
+    EnumChildWindows(h, delegate(IntPtr child, IntPtr l) {
+      var cls = new StringBuilder(256); GetClassNameW(child, cls, 256);
+      RECT r; GetWindowRect(child, out r);
+      found.Add(String.Format("{0} ({1}x{2})", cls.ToString(), (r.Right - r.Left), (r.Bottom - r.Top)));
+      return true;
+    }, IntPtr.Zero);
+    return found;
+  }
+
+  // A real click at a point on the screen, the way a mouse does it. The picture
+  // is a window of its own behind the webview, so whether a click reaches the
+  // interface is not something an InvokePattern can answer: the pointer has to
+  // actually be there. Moves the pointer, which is why the walkthrough fills
+  // the leftmost monitor and puts the Host at the front.
+  [DllImport("user32.dll")] public static extern bool SetCursorPos(int x, int y);
+  [DllImport("user32.dll")] public static extern void mouse_event(uint flags, uint dx, uint dy, uint data, IntPtr extra);
+  public static void Click(int x, int y) {
+    SetCursorPos(x, y);
+    System.Threading.Thread.Sleep(150);
+    mouse_event(0x0002 /*MOUSEEVENTF_LEFTDOWN*/, 0, 0, 0, IntPtr.Zero);
+    System.Threading.Thread.Sleep(60);
+    mouse_event(0x0004 /*MOUSEEVENTF_LEFTUP*/, 0, 0, 0, IntPtr.Zero);
+  }
 }
 "@
 
@@ -316,6 +346,159 @@ function Press($app, $label) {
     Start-Sleep -Seconds 1
 }
 
+# The candidates on the Streams surface. They are the only buttons there whose
+# accessible name is the Addon's own words about a Stream — badges, description
+# and file name, which is long — where the surface's own controls ("Back to the
+# Videos") are two words. An unplayable candidate says so in that same name.
+function Candidates($app) {
+    $buttons = (Window-Root $app).FindAll(
+        [Windows.Automation.TreeScope]::Descendants,
+        (New-Object Windows.Automation.PropertyCondition(
+            [Windows.Automation.AutomationElement]::ControlTypeProperty,
+            [Windows.Automation.ControlType]::Button)))
+    @($buttons | Where-Object {
+        $_.Current.Name -and $_.Current.Name.Length -gt 40
+    })
+}
+
+# The children of the Host's window, topmost first.
+function Children-Of($app) {
+    [W]::Children($app.Handle)
+}
+
+# Where playback is, in seconds, read off the OSD's clock: `12:34 / 1:20:00`,
+# or `--:--` while a Stream is still opening. -1 when there is no clock to read.
+function Clock-Seconds($app) {
+    $text = Page-Text $app
+    $hours = [regex]::Match($text, '(\d+):(\d\d):(\d\d) / ')
+    if ($hours.Success) {
+        return ([int]$hours.Groups[1].Value * 3600) + ([int]$hours.Groups[2].Value * 60) +
+            [int]$hours.Groups[3].Value
+    }
+    $minutes = [regex]::Match($text, '(\d+):(\d\d) / ')
+    if ($minutes.Success) {
+        return ([int]$minutes.Groups[1].Value * 60) + [int]$minutes.Groups[2].Value
+    }
+    return -1
+}
+
+# Choose a candidate and walk what playing it looks like, reporting as it goes.
+#
+# A candidate the Host can play starts playing when it is pressed; one it cannot
+# says so and stays in the list. Whether the Addon answered either is the
+# Addon's business, which is why this walks whatever is there and says what it
+# found.
+function Play-A-Candidate($app) {
+    $candidates = Candidates $app
+    if (-not $candidates) {
+        'the Addon answered no candidates at all, so there is nothing to play:'
+        'run with -Addon <an Addon that answers playable Streams> to walk playback'
+        return
+    }
+
+    $playable = @($candidates | Where-Object { $_.Current.Name -notmatch 'Not playable yet' })
+    $chosen = if ($playable) { $playable[0] } else { $candidates[0] }
+    $chosen.GetCurrentPattern([Windows.Automation.InvokePattern]::Pattern).Invoke()
+    Start-Sleep -Seconds 2
+
+    if (-not $playable) {
+        # Every candidate is one this version cannot open: the window says so
+        # and the video never appears.
+        $text = Wait-Text $app 'Not playable yet' 20
+        Shot $app '12-stream-unplayable.png'
+        Check 'a candidate this Host cannot play says so rather than pretending' (
+            $text -match 'Not playable yet') "showed: $text"
+        Check 'and nothing is drawn for a Stream that will not play' (
+            -not (Shows $app 'Play or pause' 2)) "showed: $text"
+        return
+    }
+
+    $text = Wait-Text $app 'Playing ' 30
+    Shot $app '12b-playing.png'
+    Check 'choosing a candidate the Host can play starts playing it' (
+        $text -match 'Playing ') "showed: $text"
+
+    '--- 12b. the picture is mpv''s, the interface is drawn above it, and the controls work'
+
+    # The picture is a window of mpv's own, made a child of the Host's window;
+    # the interface is the webview, and it has to be above the picture or the
+    # video would cover every control.
+    $children = Children-Of $app
+    $mpvAt = -1
+    $webviewAt = -1
+    for ($i = 0; $i -lt $children.Count; $i++) {
+        if ($mpvAt -lt 0 -and $children[$i] -match '^mpv') { $mpvAt = $i }
+        if ($webviewAt -lt 0 -and $children[$i] -match 'Chrome_WidgetWin|WebView') { $webviewAt = $i }
+    }
+    Check 'the picture is mpv''s own window, inside the Host''s window' (
+        $mpvAt -ge 0) "children of the window, topmost first: $($children -join ' | ')"
+    Check 'the interface is drawn above the picture' (
+        ($webviewAt -ge 0) -and ($webviewAt -lt $mpvAt)) (
+        "the webview is at $webviewAt and the picture at $mpvAt: $($children -join ' | ')")
+
+    # A click in the middle of the picture has to reach the interface: the
+    # picture's window must not be the one that hears it. Pressing the picture
+    # pauses, and the OSD then offers Play where it offered Pause.
+    $rect = New-Object W+RECT
+    [W]::GetWindowRect($app.Handle, [ref]$rect) | Out-Null
+    $atX = [int](($rect.Left + $rect.Right) / 2)
+    $atY = [int]($rect.Top + (($rect.Bottom - $rect.Top) * 0.35))
+    if (Shows $app 'Pause' 10) {
+        [W]::Click($atX, $atY)
+        Check 'a click over the video lands on the interface rather than on the picture' (
+            (Shows $app 'Play' 15)) (Page-Text $app)
+    } else {
+        'the Stream is not playing, so the click-over-the-video step is skipped'
+    }
+
+    # Play, pause, seek and stop, through the interface the Host's own window
+    # draws: the same Actions a remote client takes (ADR-0002).
+    Press $app 'Play'
+    $text = Wait-Text $app 'Pause' 15
+    Check 'the interface plays and pauses' (Shows $app 'Pause' 10) "showed: $text"
+
+    $before = Clock-Seconds $app
+    Press $app 'Forward ten seconds'
+    Start-Sleep -Seconds 2
+    $after = Clock-Seconds $app
+    Check 'seeking forward moves playback on' (
+        ($after -gt $before) -and ($before -ge 0)) "the clock went $before -> $after"
+
+    Press $app 'Back ten seconds'
+    Start-Sleep -Seconds 2
+    $back = Clock-Seconds $app
+    Check 'seeking back moves it back' (
+        ($back -lt $after) -and ($back -ge 0)) "the clock went $after -> $back"
+
+    Press $app 'Pause'
+    $text = Wait-Text $app 'Play' 15
+    Check 'pausing is the same door as playing' (Shows $app 'Play' 10) "showed: $text"
+
+    $revision = ([regex]::Match((Page-Text $app), 'Snapshot revision\s*\|\s*(\d+)')).Groups[1].Value
+
+    # What mpv is decoding with is in the Host's log, because no Snapshot
+    # carries it yet (#28's statistics are where a client reads it): a Stream
+    # playing is the only moment it can be read.
+    Start-Sleep -Seconds 1
+    $decode = Select-String -Path $log -Pattern 'the picture is playing' |
+        Select-Object -Last 1
+    Check 'the Host logged what mpv is decoding with' (
+        $decode -ne $null) 'no "the picture is playing" line in host.log'
+    Check 'hardware decode is engaged (not "no")' (
+        $decode -and $decode.Line -notmatch 'hwdec="no"') "logged: $($decode.Line)"
+    Check 'and the picture is mpv''s own output, not a texture the Host made' (
+        $decode -and $decode.Line -match 'pixelformat="(d3d11|dxva|nv12|p010|yuv420p|yuv420p10)"') (
+        "logged: $($decode.Line)")
+
+    Press $app 'Stop'
+    $text = Wait-Text $app ("Streams $dash") 20
+    Shot $app '12c-stopped.png'
+    Check 'stopping returns the client to the Stream list it chose from' (
+        $text -match ("Streams $dash")) "showed: $text"
+    Check 'and playback published Snapshots of its own along the way' (
+        $revision -ne '') "showed: $text"
+}
+
 # --- the checklist ------------------------------------------------------------
 
 Remove-Item $log -ErrorAction SilentlyContinue
@@ -510,15 +693,7 @@ if ($series) {
         'the configured Addon answers no `stream` resource, so the list is empty:'
         'run with -Addon <a stream Addon> to walk the candidates themselves'
     } else {
-        # The episode list went away, so focus went back to the first control;
-        # two presses down land on the first candidate, and OK chooses it.
-        # Nothing plays yet (#27): the window says what the choice means.
-        Press-Keys $app '{DOWN}{DOWN}'
-        Press-Keys $app '{ENTER}'
-        $text = Wait-Text $app 'Chose ' 20
-        Shot $app '12-stream-chosen.png'
-        Check 'a Stream can be chosen, and the window says what that means' (
-            $text -match 'Chose ') "showed: $text"
+        Play-A-Candidate $app
     }
     Press-Keys $app '{ESC}'
     $text = Wait-Text $app 'Season' 15
@@ -534,6 +709,12 @@ if ($series) {
     Shot $app '12-film-streams.png'
     Check 'pressing play on a film asks for its Streams, and the list is what came back' (
         $text -match ("Streams $dash")) "showed: $text"
+    if ($text -match 'No configured Addon offers Streams') {
+        'the configured Addon answers no `stream` resource, so the list is empty:'
+        'run with -Addon <a stream Addon> to walk the candidates themselves'
+    } else {
+        Play-A-Candidate $app
+    }
     Press-Keys $app '{ESC}'
     $text = Wait-Text $app 'one Video: the film itself' 15
     Check 'Back leaves the Streams and returns to the film' (
