@@ -8,6 +8,7 @@ import {
   type AddonManifest,
   type AddonStreams,
   type MetaPreview,
+  type PlaybackSnapshot,
   type Response,
   type Snapshot,
   type Stream,
@@ -22,6 +23,14 @@ type Invocation = { command: string; args?: Record<string, unknown> };
 /** The Snapshot of a Host that holds nothing yet, with credentials as published at rest. */
 const NOTHING_SAID: Snapshot = {
   revision: 0,
+  playback: {
+    state: "idle",
+    picture: "in_window",
+    failure: null,
+    nowPlaying: null,
+    position: null,
+    duration: null,
+  },
   preferences: { subtitleLanguage: null },
   addons: [],
   protection: { backend: "keyring", tmdbHeld: false },
@@ -166,6 +175,31 @@ function streamGroups(videoId: string): AddonStreams[] {
       failure: null,
     },
   ];
+}
+
+/**
+ * What the Host says about playback while the AIOStreams candidate is playing:
+ * the Addon's own words about it, and where it is.
+ */
+function playback(
+  overrides: Partial<PlaybackSnapshot> = {},
+): PlaybackSnapshot {
+  return {
+    state: "playing",
+    picture: "in_window",
+    failure: null,
+    nowPlaying: {
+      video: { type: "movie", id: "tt0133093" },
+      addon: AIOSTREAMS,
+      name: "AIOStreams\n1080p",
+      description: "The Matrix 1999 1080p BluRay x265-GROUP\n💾 4.21 GB ⚙️ TorBox",
+      filename: "The.Matrix.1999.1080p.BluRay.x265-GROUP.mkv",
+      bingeGroup: null,
+    },
+    position: 12.5,
+    duration: 8100,
+    ...overrides,
+  };
 }
 
 /**
@@ -378,6 +412,66 @@ function fakeHost(
         };
         break;
       }
+      case "play_stream": {
+        // The Host's own rule: what is published about a Stream is the Addon's
+        // own words about it, and never where its bytes are.
+        publish({
+          ...state,
+          revision: state.revision + 1,
+          playback: {
+            state: "opening",
+            picture: state.playback.picture,
+            failure: null,
+            nowPlaying: {
+              video: action.video,
+              addon: action.addon,
+              name: action.stream.name,
+              description: action.stream.description,
+              filename: action.stream.filename,
+              bingeGroup: action.stream.bingeGroup,
+            },
+            position: null,
+            duration: null,
+          },
+        });
+        response.snapshots = [state];
+        break;
+      }
+      case "set_paused":
+        publish({
+          ...state,
+          revision: state.revision + 1,
+          playback: {
+            ...state.playback,
+            state: action.paused ? "paused" : "playing",
+          },
+        });
+        response.snapshots = [state];
+        break;
+      case "seek": {
+        const from = state.playback.position ?? 0;
+        const to =
+          action.target.kind === "to" ? action.target.seconds : from + action.target.seconds;
+        const end = state.playback.duration ?? Number.POSITIVE_INFINITY;
+        publish({
+          ...state,
+          revision: state.revision + 1,
+          playback: {
+            ...state.playback,
+            position: Math.max(0, Math.min(to, end)),
+          },
+        });
+        response.snapshots = [state];
+        break;
+      }
+      case "stop_playback":
+        publish({
+          ...state,
+          revision: state.revision + 1,
+          playback: { ...state.playback, state: "idle", nowPlaying: null, failure: null },
+        });
+        response.snapshots = [state];
+        break;
       case "find_streams": {
         asked.push(`streams/${action.video.type}/${action.video.id}`);
         if (options.refuseStreams) {
@@ -423,7 +517,14 @@ function fakeHost(
     },
   };
 
-  return { transport, invocations, publish, asked };
+  return {
+    transport,
+    invocations,
+    /** The state as it stands — for a test that wants to publish the next one. */
+    current: () => state,
+    publish,
+    asked,
+  };
 }
 
 function windowOver(transport: Transport) {
@@ -1160,24 +1261,252 @@ test("a hint is shown beside a candidate without removing it", async () => {
   expect(hinted).toHaveTextContent("The.Matrix.1999.1080p.BluRay.x265-GROUP.mkv");
 });
 
-test("choosing a Stream marks it, and says what playing it means", async () => {
-  await filmStreams({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
+test("choosing a candidate the Host can play starts playing it, candidate and all", async () => {
+  const host = await filmStreams({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
 
   fireEvent.click(screen.getByTestId(`candidate-${AIOSTREAMS}-0`));
 
-  expect(screen.getByTestId(`candidate-${AIOSTREAMS}-0`)).toHaveAttribute("aria-pressed", "true");
-  expect(screen.getByTestId(`candidate-${TORRENTIO}-0`)).toHaveAttribute("aria-pressed", "false");
-  expect(screen.getByTestId("chosen-stream")).toHaveTextContent("Chose AIOStreams");
-  expect(screen.getByTestId("chosen-stream")).toHaveTextContent("playing it arrives in #27");
+  // The candidate goes back whole, under the Addon whose answer it was, because
+  // the Host re-asks nothing: what plays is the candidate this client picked.
+  await waitFor(() =>
+    expect(dispatched(host.invocations, "play_stream").args).toEqual({
+      envelope: {
+        version: 1,
+        action: {
+          type: "play_stream",
+          video: { type: "movie", id: "tt0133093" },
+          addon: AIOSTREAMS,
+          stream: {
+            name: "AIOStreams\n1080p",
+            description: "The Matrix 1999 1080p BluRay x265-GROUP\n💾 4.21 GB ⚙️ TorBox",
+            playback: {
+              kind: "direct",
+              url: "https://stream.example.org/v/tt0133093-1080p.mkv",
+            },
+            warnings: ["not_web_ready", "proxy_headers"],
+            filename: "The.Matrix.1999.1080p.BluRay.x265-GROUP.mkv",
+            bingeGroup: null,
+          },
+        },
+      },
+    }),
+  );
+
+  // And the window is the player while the Host is opening it: the picture's
+  // rectangle, and the interface over it.
+  expect(await screen.findByTestId("picture")).toHaveAttribute("data-picture", "in_window");
+  expect(screen.getByTestId("opening-stream")).toHaveTextContent("Opening AIOStreams");
 });
 
 test("choosing a Stream the Host cannot play says so rather than promising playback", async () => {
-  await filmStreams({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
+  const host = await filmStreams({ initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] } });
 
   fireEvent.click(screen.getByTestId(`candidate-${TORRENTIO}-0`));
 
   expect(screen.getByTestId("chosen-stream")).toHaveTextContent("Not playable yet");
-  expect(screen.getByTestId("chosen-stream")).not.toHaveTextContent("#27");
+  expect(screen.getByTestId("chosen-stream")).toHaveTextContent("a torrent this Host cannot fetch");
+  expect(
+    host.invocations.some(
+      ({ args }) =>
+        (args?.envelope as { action: Action } | undefined)?.action.type === "play_stream",
+    ),
+    "nothing is asked of the Host for a candidate it cannot play",
+  ).toBe(false);
+  expect(screen.queryByTestId("picture"), "nothing is playing").not.toBeInTheDocument();
+});
+
+test("the player surface says what is playing, where it is, and offers the controls", async () => {
+  windowOver(
+    fakeHost({
+      initial: { ...NOTHING_SAID, revision: 9, addons: [ADDON], playback: playback() },
+    }).transport,
+  );
+
+  expect(await screen.findByTestId("now-playing")).toHaveTextContent("Playing AIOStreams · 1080p");
+  expect(screen.getByTestId("clock")).toHaveTextContent("0:12 / 2:15:00");
+  expect(screen.getByTestId("position")).toHaveValue("12.5");
+  expect(screen.getByTestId("picture")).toHaveAttribute("data-picture", "in_window");
+
+  expect(screen.getByRole("button", { name: "Pause" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Back ten seconds" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Forward ten seconds" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
+
+  // The window is the player: browsing is not under the picture as well, and
+  // the page itself stops painting so that the video behind it shows through.
+  expect(screen.queryByTestId("revision")).not.toBeInTheDocument();
+  expect(document.body).toHaveClass("picture-behind");
+});
+
+test("a picture in another window leaves the page painting as usual", async () => {
+  windowOver(
+    fakeHost({
+      initial: {
+        ...NOTHING_SAID,
+        revision: 4,
+        addons: [ADDON],
+        playback: playback({ picture: "own_window" }),
+      },
+    }).transport,
+  );
+
+  await screen.findByTestId("picture");
+
+  expect(document.body).not.toHaveClass("picture-behind");
+});
+
+test("pausing and seeking take the Actions a remote client would take", async () => {
+  const host = fakeHost({
+    initial: { ...NOTHING_SAID, revision: 9, addons: [ADDON], playback: playback() },
+  });
+  windowOver(host.transport);
+  await screen.findByTestId("now-playing");
+
+  fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+  await waitFor(() =>
+    expect(dispatched(host.invocations, "set_paused").args).toEqual({
+      envelope: { version: 1, action: { type: "set_paused", paused: true } },
+    }),
+  );
+
+  fireEvent.click(screen.getByRole("button", { name: "Forward ten seconds" }));
+  await waitFor(() =>
+    expect(dispatched(host.invocations, "seek").args).toEqual({
+      envelope: {
+        version: 1,
+        action: { type: "seek", target: { kind: "by", seconds: 10 } },
+      },
+    }),
+  );
+
+  // The scrubber is the same Action, to a place rather than a distance.
+  const slider = screen.getByTestId("position");
+  fireEvent.change(slider, { target: { value: "120" } });
+  fireEvent.pointerUp(slider);
+  await waitFor(() =>
+    expect(
+      host.invocations.filter(
+        ({ args }) =>
+          (args?.envelope as { action: Action } | undefined)?.action.type === "seek",
+      ).length,
+      "the first seek, and the one the scrubber took",
+    ).toBe(2),
+  );
+  expect(host.invocations.at(-1)?.args).toEqual({
+    envelope: {
+      version: 1,
+      action: { type: "seek", target: { kind: "to", seconds: 120 } },
+    },
+  });
+});
+
+test("a Stream that failed to open says so, and the client is back on the list", async () => {
+  const host = await filmStreams({
+    initial: { ...NOTHING_SAID, revision: 1, addons: [ADDON] },
+  });
+
+  // The Player reports a moment later that the Stream could not be opened: the
+  // Host is left doing nothing, and says why.
+  act(() =>
+    host.publish({
+      ...host.current(),
+      revision: host.current().revision + 1,
+      playback: playback({
+        state: "idle",
+        position: null,
+        duration: null,
+        failure: "That Stream could not be opened — mpv could not load it.",
+      }),
+    }),
+  );
+
+  expect(await screen.findByTestId("playback-failure")).toHaveTextContent(
+    "That Stream could not be opened — mpv could not load it.",
+  );
+  expect(screen.getByTestId("playback-failure")).toHaveTextContent("Pick another Stream");
+  expect(screen.queryByTestId("picture")).not.toBeInTheDocument();
+  expect(screen.getByTestId("streams-heading"), "the list is where the client stays").toBeInTheDocument();
+});
+
+test("a Stream at its end stays named, and stopping returns the client to the list", async () => {
+  const host = fakeHost({
+    initial: {
+      ...NOTHING_SAID,
+      revision: 9,
+      addons: [ADDON],
+      playback: playback({ state: "ended", position: 8100 }),
+    },
+  });
+  windowOver(host.transport);
+
+  expect(await screen.findByTestId("stream-ended")).toHaveTextContent("reached its end");
+  expect(
+    screen.queryByTestId("pause"),
+    "a Stream at its end is not one to pause",
+  ).not.toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+
+  await waitFor(() =>
+    expect(dispatched(host.invocations, "stop_playback").args).toEqual({
+      envelope: { version: 1, action: { type: "stop_playback" } },
+    }),
+  );
+  await waitFor(() => expect(screen.queryByTestId("picture")).not.toBeInTheDocument());
+  expect(screen.getByTestId("revision")).toHaveTextContent("10");
+});
+
+test("where the picture is in mpv's own window, the interface says where it is", async () => {
+  windowOver(
+    fakeHost({
+      initial: {
+        ...NOTHING_SAID,
+        revision: 4,
+        addons: [ADDON],
+        playback: playback({ picture: "own_window" }),
+      },
+    }).transport,
+  );
+
+  expect(await screen.findByTestId("picture")).toHaveAttribute("data-picture", "own_window");
+  expect(screen.getByTestId("picture")).toHaveTextContent("in mpv's own window");
+});
+
+test("pressing the picture is playing and pausing it, heard by the interface", async () => {
+  const host = fakeHost({
+    initial: { ...NOTHING_SAID, revision: 9, addons: [ADDON], playback: playback() },
+  });
+  windowOver(host.transport);
+  await screen.findByTestId("now-playing");
+
+  // The picture is behind the webview, so the press reaches the page rather
+  // than the video — which is the whole of "clicks land on the interface".
+  fireEvent.click(screen.getByTestId("picture-toggle"));
+
+  await waitFor(() =>
+    expect(dispatched(host.invocations, "set_paused").args).toEqual({
+      envelope: { version: 1, action: { type: "set_paused", paused: true } },
+    }),
+  );
+});
+
+test("a Stream that is still opening offers no controls it would refuse", async () => {
+  windowOver(
+    fakeHost({
+      initial: {
+        ...NOTHING_SAID,
+        revision: 3,
+        addons: [ADDON],
+        playback: playback({ state: "opening", position: null, duration: null }),
+      },
+    }).transport,
+  );
+
+  expect(await screen.findByTestId("opening-stream")).toHaveTextContent("Opening");
+  expect(screen.getByTestId("clock"), "nothing to read yet").toHaveTextContent("--:-- / --:--");
+  expect(screen.queryByRole("button", { name: "Pause" })).not.toBeInTheDocument();
+  expect(screen.queryByTestId("position")).not.toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument();
 });
 
 test("an Addon that failed says so without blanking the other Addons' candidates", async () => {

@@ -25,6 +25,7 @@ import {
   type AddonStreams,
   type Extra,
   type MetaPreview,
+  type PlaybackSnapshot,
   type Protection,
   type Response,
   type Snapshot,
@@ -33,10 +34,17 @@ import {
   type Video,
 } from "./host-client";
 import {
+  formatTime,
+  pictureNote,
+  playingName,
+  transportable,
+  watching,
+} from "./playback";
+import {
   badgeLines,
-  chosenNote,
   playabilityNote,
   theFilm,
+  unplayableNote,
   warningNote,
 } from "./stream";
 import { isSeries, labelOf, nameOf, posterOf, releaseOf, seasonName, seasonsOf } from "./title";
@@ -272,6 +280,36 @@ export function App({ client }: { client?: HostClient }) {
     [take, title],
   );
 
+  /**
+   * Choose a candidate. A Stream this Host can open starts playing it at once —
+   * the common case is one click (story 19) — and one it cannot says so and
+   * stays in the list.
+   *
+   * The candidate goes back whole, with the Addon whose answer it came from:
+   * the Host re-asks nothing, so what plays is the candidate this client picked,
+   * and what every client is told about it is the Addon's own words (ADR-0013).
+   */
+  const chooseStream = useCallback(
+    async (addon: string, stream: Stream) => {
+      if (!title || !selected) {
+        return;
+      }
+      if (playabilityNote(stream.playback) !== null) {
+        setChosen(stream);
+        return;
+      }
+
+      setChosen(null);
+      await take({
+        type: "play_stream",
+        video: { type: title.type, id: selected.id },
+        addon,
+        stream,
+      });
+    },
+    [take, title, selected],
+  );
+
   /** Close the Stream list and go back to the Videos it was asked from. */
   const closeStreams = useCallback(() => {
     setStreams(null);
@@ -360,194 +398,359 @@ export function App({ client }: { client?: HostClient }) {
   };
 
   const showing = results ?? rows;
+  // Playback is the one genuinely shared state, so while it is doing anything
+  // this window *is* the player: the picture, and the interface over it. A
+  // Stream that failed is `idle` — nothing is playing — which is what puts the
+  // client back on the list it chose from, with the failure said beside it.
+  const playback = snapshot?.playback ?? null;
+  const isWatching = playback !== null && watching(playback.state);
+
+  // Where the picture is in *this* window, the page has to stop painting its
+  // rectangle: mpv's child window is behind the webview, and an opaque body
+  // would cover the video with the page (ADR-0003). The Host said where the
+  // picture is; this is the window acting on it.
+  const pictureBehind = isWatching && playback?.picture === "in_window";
+
+  useEffect(() => {
+    document.body.classList.toggle("picture-behind", pictureBehind);
+    return () => document.body.classList.remove("picture-behind");
+  }, [pictureBehind]);
 
   return (
-    <main className="window" ref={surface}>
-      <h1>streamingapp</h1>
-      <p className="lede">
-        The Host owns everything you see here. This window is one of its clients.
-      </p>
-
-      {snapshot ? (
-        <p className="revision" data-testid="revision">
-          Snapshot revision {snapshot.revision}
-        </p>
+    <main className={`window${isWatching ? " watching" : ""}`} ref={surface}>
+      {isWatching && playback ? (
+        <PlayerSurface playback={playback} onTake={(action) => void take(action)} />
       ) : (
-        <p className="revision">Waiting for the Host…</p>
-      )}
+        <>
+          <h1>streamingapp</h1>
+          <p className="lede">
+            The Host owns everything you see here. This window is one of its clients.
+          </p>
 
-      <section aria-labelledby="browse-heading">
-        <h2 id="browse-heading">Browse</h2>
-        {title ? (
-          // Opening a Title replaces what this client was browsing: a person can
-          // go back to it, and two clients can be on different screens at once
-          // (ADR-0005).
-          <TitleView
-            title={title}
-            preview={preview}
-            selected={selected}
-            streams={streams}
-            chosen={chosen}
-            onPlay={play}
-            onChoose={setChosen}
-            onCloseStreams={closeStreams}
-            onBack={closeTitle}
-          />
-        ) : (
-          <>
-            <form onSubmit={runSearch}>
-              <label htmlFor="search">Search the Addons that offer it</label>
+          {snapshot ? (
+            <p className="revision" data-testid="revision">
+              Snapshot revision {snapshot.revision}
+            </p>
+          ) : (
+            <p className="revision">Waiting for the Host…</p>
+          )}
+
+          <section aria-labelledby="browse-heading">
+            <h2 id="browse-heading">Browse</h2>
+            {title ? (
+              // Opening a Title replaces what this client was browsing: a person can
+              // go back to it, and two clients can be on different screens at once
+              // (ADR-0005).
+              <TitleView
+                title={title}
+                preview={preview}
+                selected={selected}
+                streams={streams}
+                chosen={chosen}
+                onPlay={play}
+                onChoose={(addon, stream) => void chooseStream(addon, stream)}
+                onCloseStreams={closeStreams}
+                onBack={closeTitle}
+              />
+            ) : (
+              <>
+                <form onSubmit={runSearch}>
+                  <label htmlFor="search">Search the Addons that offer it</label>
+                  <input
+                    id="search"
+                    placeholder="a title"
+                    size={32}
+                    value={queryDraft}
+                    onChange={(event) => setQueryDraft(event.target.value)}
+                    data-focusable
+                  />
+                  <button type="submit" data-focusable>
+                    Search
+                  </button>
+                  {results ? (
+                    <button type="button" onClick={back} data-focusable>
+                      Back to browsing
+                    </button>
+                  ) : null}
+                </form>
+
+                {opening ? (
+                  <p role="status" data-testid="opening-title">
+                    Opening {opening.name}…
+                  </p>
+                ) : null}
+
+                {loading ? <p data-testid="catalogs-loading">Loading…</p> : null}
+                {!loading && showing.length === 0 ? (
+                  <p data-testid="catalogs-empty">
+                    {results
+                      ? "No Addon answered that search."
+                      : snapshot && snapshot.addons.length > 0
+                        ? "The configured Addons offer no catalog to browse."
+                        : "No Addons are configured yet."}
+                  </p>
+                ) : null}
+
+                {showing.map((row) => (
+                  <CatalogSection
+                    key={keyOf(row)}
+                    row={row}
+                    paging={pageable(snapshot, row)}
+                    onMore={page}
+                    onOpen={(meta) => void openTitle(row.addon, meta)}
+                  />
+                ))}
+              </>
+            )}
+          </section>
+
+          <section aria-labelledby="state-heading">
+            <h2 id="state-heading">State</h2>
+            <p data-testid="addon-count">
+              {snapshot
+                ? `${snapshot.addons.length} Addon${snapshot.addons.length === 1 ? "" : "s"} configured.`
+                : "Waiting for the Host…"}
+            </p>
+          </section>
+
+          <section aria-labelledby="addons-heading">
+            <h2 id="addons-heading">Addons</h2>
+            <p className="lede">
+              Paste an Addon's manifest URL. The Host fetches it, reads it, and keeps
+              it; your Addons are the Host's, not this window's.
+            </p>
+            <form onSubmit={configure}>
+              <label htmlFor="manifest-url">Addon manifest URL</label>
               <input
-                id="search"
-                placeholder="a title"
-                size={32}
-                value={queryDraft}
-                onChange={(event) => setQueryDraft(event.target.value)}
+                id="manifest-url"
+                placeholder="https://example.com/manifest.json"
+                size={48}
+                value={urlDraft}
+                onChange={(event) => setUrlDraft(event.target.value)}
                 data-focusable
               />
               <button type="submit" data-focusable>
-                Search
+                Add
               </button>
-              {results ? (
-                <button type="button" onClick={back} data-focusable>
-                  Back to browsing
-                </button>
-              ) : null}
             </form>
 
-            {opening ? (
-              <p role="status" data-testid="opening-title">
-                Opening {opening.name}…
-              </p>
-            ) : null}
+            {addonList(snapshot, (id) => void take({ type: "remove_addon", id }))}
+          </section>
 
-            {loading ? <p data-testid="catalogs-loading">Loading…</p> : null}
-            {!loading && showing.length === 0 ? (
-              <p data-testid="catalogs-empty">
-                {results
-                  ? "No Addon answered that search."
-                  : snapshot && snapshot.addons.length > 0
-                    ? "The configured Addons offer no catalog to browse."
-                    : "No Addons are configured yet."}
-              </p>
-            ) : null}
-
-            {showing.map((row) => (
-              <CatalogSection
-                key={keyOf(row)}
-                row={row}
-                paging={pageable(snapshot, row)}
-                onMore={page}
-                onOpen={(meta) => void openTitle(row.addon, meta)}
+          <section aria-labelledby="tmdb-heading">
+            <h2 id="tmdb-heading">TMDB key</h2>
+            <p className="lede">
+              Where an Addon's id maps to a TMDB record, TMDB's metadata stands over
+              the Addon's. The Host reads the key when it asks, and no Snapshot
+              carries it.
+            </p>
+            {/* Where a credential actually lives is the machine's answer, not this
+                window's: it is read off the Snapshot the Host publishes. */}
+            <p className="lede" data-testid="protection">
+              {snapshot ? protectionOf(snapshot.protection) : "Waiting for the Host…"}
+            </p>
+            <form onSubmit={storeKey}>
+              <label htmlFor="tmdb-key">TMDB API key or read-access token</label>
+              <input
+                id="tmdb-key"
+                type="password"
+                autoComplete="off"
+                placeholder="the key TMDB gave you"
+                size={40}
+                value={keyDraft}
+                onChange={(event) => setKeyDraft(event.target.value)}
+                data-focusable
               />
-            ))}
-          </>
-        )}
-      </section>
+              <button type="submit" data-focusable>
+                Save key
+              </button>
+              <button
+                type="button"
+                data-focusable
+                onClick={() => void take({ type: "clear_tmdb_key" })}
+              >
+                Clear key
+              </button>
+            </form>
+          </section>
 
-      <section aria-labelledby="state-heading">
-        <h2 id="state-heading">State</h2>
-        <p data-testid="addon-count">
-          {snapshot
-            ? `${snapshot.addons.length} Addon${snapshot.addons.length === 1 ? "" : "s"} configured.`
-            : "Waiting for the Host…"}
-        </p>
-      </section>
+          <section aria-labelledby="preference-heading">
+            <h2 id="preference-heading">Subtitle language</h2>
+            <p data-testid="subtitle-language">
+              {snapshot?.preferences.subtitleLanguage ?? "none — the Host picks per Video"}
+            </p>
+            <form onSubmit={save}>
+              <label htmlFor="subtitle-language">Prefer a language tag</label>
+              <input
+                id="subtitle-language"
+                placeholder="pt-BR"
+                value={languageDraft}
+                onChange={(event) => setLanguageDraft(event.target.value)}
+                data-focusable
+              />
+              <button type="submit" data-focusable>
+                Save
+              </button>
+              <button
+                type="button"
+                data-focusable
+                onClick={() => void take({ type: "clear_subtitle_language" })}
+              >
+                Clear
+              </button>
+            </form>
+          </section>
 
-      <section aria-labelledby="addons-heading">
-        <h2 id="addons-heading">Addons</h2>
-        <p className="lede">
-          Paste an Addon's manifest URL. The Host fetches it, reads it, and keeps
-          it; your Addons are the Host's, not this window's.
-        </p>
-        <form onSubmit={configure}>
-          <label htmlFor="manifest-url">Addon manifest URL</label>
-          <input
-            id="manifest-url"
-            placeholder="https://example.com/manifest.json"
-            size={48}
-            value={urlDraft}
-            onChange={(event) => setUrlDraft(event.target.value)}
-            data-focusable
-          />
-          <button type="submit" data-focusable>
-            Add
-          </button>
-        </form>
-
-        {addonList(snapshot, (id) => void take({ type: "remove_addon", id }))}
-      </section>
-
-      <section aria-labelledby="tmdb-heading">
-        <h2 id="tmdb-heading">TMDB key</h2>
-        <p className="lede">
-          Where an Addon's id maps to a TMDB record, TMDB's metadata stands over
-          the Addon's. The Host reads the key when it asks, and no Snapshot
-          carries it.
-        </p>
-        {/* Where a credential actually lives is the machine's answer, not this
-            window's: it is read off the Snapshot the Host publishes. */}
-        <p className="lede" data-testid="protection">
-          {snapshot ? protectionOf(snapshot.protection) : "Waiting for the Host…"}
-        </p>
-        <form onSubmit={storeKey}>
-          <label htmlFor="tmdb-key">TMDB API key or read-access token</label>
-          <input
-            id="tmdb-key"
-            type="password"
-            autoComplete="off"
-            placeholder="the key TMDB gave you"
-            size={40}
-            value={keyDraft}
-            onChange={(event) => setKeyDraft(event.target.value)}
-            data-focusable
-          />
-          <button type="submit" data-focusable>
-            Save key
-          </button>
-          <button
-            type="button"
-            data-focusable
-            onClick={() => void take({ type: "clear_tmdb_key" })}
-          >
-            Clear key
-          </button>
-        </form>
-      </section>
-
-      <section aria-labelledby="preference-heading">
-        <h2 id="preference-heading">Subtitle language</h2>
-        <p data-testid="subtitle-language">
-          {snapshot?.preferences.subtitleLanguage ?? "none — the Host picks per Video"}
-        </p>
-        <form onSubmit={save}>
-          <label htmlFor="subtitle-language">Prefer a language tag</label>
-          <input
-            id="subtitle-language"
-            placeholder="pt-BR"
-            value={languageDraft}
-            onChange={(event) => setLanguageDraft(event.target.value)}
-            data-focusable
-          />
-          <button type="submit" data-focusable>
-            Save
-          </button>
-          <button
-            type="button"
-            data-focusable
-            onClick={() => void take({ type: "clear_subtitle_language" })}
-          >
-            Clear
-          </button>
-        </form>
-      </section>
-
+        </>
+      )}
       {error ? (
         <p role="alert" className="error">
           {explain(error)}
         </p>
       ) : null}
+
+      {/* A Stream that failed to open is said so here, wherever the client has
+          got to: it is what sends it back to the list it chose from. */}
+      {playback?.failure ? (
+        <p role="alert" className="error" data-testid="playback-failure">
+          {`${playback.failure} Pick another Stream from the list.`}
+        </p>
+      ) : null}
     </main>
+  );
+}
+
+/**
+ * The Host's picture, with this window's interface drawn over it.
+ *
+ * The Host put the picture where this platform can put it (ADR-0003), and this
+ * surface is the other half of that decision: where the picture is in the same
+ * window as the interface, the page paints nothing over its rectangle and the
+ * video shows through; where it is in mpv's own window, the interface says so
+ * instead of pretending. The OSD is the control set the Host accepts Actions
+ * for, and every one of them is an Action like any other (ADR-0002).
+ */
+function PlayerSurface({
+  playback,
+  onTake,
+}: {
+  playback: PlaybackSnapshot;
+  onTake: (action: Action) => void;
+}) {
+  const { state, picture, nowPlaying, position, duration } = playback;
+  const note = pictureNote(picture);
+  // What the slider shows while it is being dragged: the position the Host
+  // published, until a person moves the thumb, and then what they moved it to.
+  const [scrub, setScrub] = useState<number | null>(null);
+  const shown = scrub ?? position ?? 0;
+
+  const seekTo = (seconds: number) => {
+    setScrub(null);
+    onTake({ type: "seek", target: { kind: "to", seconds } });
+  };
+
+  return (
+    <section className="player" aria-label="Playing">
+      {/* The rectangle the picture goes in. Where the picture is in this window
+          the page leaves it unpainted — mpv's child window is behind it — and
+          where it is not, this is where that is said. It is also the largest
+          button in the window: pressing the video is how a person pauses it,
+          and it is what makes "a click lands on the interface rather than on
+          the video" something a person can do. */}
+      <div
+        className="picture"
+        data-testid="picture"
+        data-picture={picture}
+        data-state={state}
+      >
+        <button
+          type="button"
+          className="picture-toggle"
+          data-testid="picture-toggle"
+          data-focusable
+          aria-label="Play or pause"
+          onClick={() => onTake({ type: "set_paused", paused: state === "playing" })}
+        />
+        {note ? <p className="picture-note">{note}</p> : null}
+        {state === "opening" ? (
+          <p className="picture-note" data-testid="opening-stream">
+            {`Opening ${playingName(nowPlaying)}…`}
+          </p>
+        ) : null}
+        {state === "ended" ? (
+          <p className="picture-note" data-testid="stream-ended">
+            The Stream reached its end.
+          </p>
+        ) : null}
+      </div>
+
+      <div className="osd">
+        <p className="now-playing" data-testid="now-playing">
+          {`Playing ${playingName(nowPlaying)}`}
+        </p>
+
+        <div className="transport">
+          {transportable(state) ? (
+            <>
+              <button
+                type="button"
+                data-focusable
+                aria-label="Back ten seconds"
+                onClick={() => onTake({ type: "seek", target: { kind: "by", seconds: -10 } })}
+              >
+                −10 s
+              </button>
+              <button
+                type="button"
+                data-focusable
+                data-testid={state === "playing" ? "pause" : "play"}
+                aria-label={state === "playing" ? "Pause" : "Play"}
+                onClick={() => onTake({ type: "set_paused", paused: state === "playing" })}
+              >
+                {state === "playing" ? "Pause" : "Play"}
+              </button>
+              <button
+                type="button"
+                data-focusable
+                aria-label="Forward ten seconds"
+                onClick={() => onTake({ type: "seek", target: { kind: "by", seconds: 10 } })}
+              >
+                +10 s
+              </button>
+
+              <input
+                type="range"
+                aria-label="Position"
+                data-testid="position"
+                min={0}
+                max={duration ?? 0}
+                step={1}
+                value={shown}
+                disabled={duration === null}
+                onChange={(event) => setScrub(Number(event.target.value))}
+                onPointerUp={() => scrub !== null && seekTo(scrub)}
+                onKeyUp={() => scrub !== null && seekTo(scrub)}
+                data-focusable
+              />
+            </>
+          ) : null}
+          {/* The readout is not a control: where playback is and how long the
+              Stream is are worth saying even while it is still opening. */}
+          <span className="clock" data-testid="clock">
+            {`${formatTime(position)} / ${formatTime(duration)}`}
+          </span>
+        </div>
+
+        <button
+          type="button"
+          className="stop"
+          data-focusable
+          onClick={() => onTake({ type: "stop_playback" })}
+        >
+          Stop
+        </button>
+      </div>
+    </section>
   );
 }
 
@@ -559,8 +762,10 @@ export function App({ client }: { client?: HostClient }) {
  * Title, and the card this client opened as the fallback for whatever a sparse
  * answer left out; a Title no record met is marked unmapped rather than hidden.
  * The Videos are grouped into seasons in the Addon's own order, and pressing
- * one asks the Host for its Streams. Which Stream is chosen is this client's own
- * choosing — playing it arrives in #27 — so it is held here and shown, not sent.
+ * one asks the Host for its Streams. Choosing a candidate plays it, unless it is
+ * one this Host has no way to open: what is chosen is this client's own — a
+ * Remote client choosing among candidates must move nothing on another
+ * (ADR-0005) — and what is *playing* travels to everyone as a Snapshot.
  */
 function TitleView({
   title,
@@ -579,7 +784,7 @@ function TitleView({
   streams: AddonStreams[] | null;
   chosen: Stream | null;
   onPlay: (video: Video) => void;
-  onChoose: (stream: Stream) => void;
+  onChoose: (addon: string, stream: Stream) => void;
   onCloseStreams: () => void;
   onBack: () => void;
 }) {
@@ -708,7 +913,7 @@ function StreamList({
   subject: string;
   groups: AddonStreams[];
   chosen: Stream | null;
-  onChoose: (stream: Stream) => void;
+  onChoose: (addon: string, stream: Stream) => void;
   onClose: () => void;
 }) {
   return (
@@ -747,7 +952,7 @@ function StreamList({
                   stream={stream}
                   testId={`candidate-${group.addon}-${index}`}
                   chosen={chosen === stream}
-                  onChoose={onChoose}
+                  onChoose={(stream) => onChoose(group.addon, stream)}
                 />
               </li>
             ))}
@@ -757,7 +962,7 @@ function StreamList({
 
       {chosen ? (
         <p role="status" data-testid="chosen-stream">
-          {chosenNote(chosen)}
+          {unplayableNote(chosen)}
         </p>
       ) : null}
     </section>

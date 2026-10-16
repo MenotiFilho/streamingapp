@@ -428,3 +428,128 @@ button:hover {
   margin-top: 1rem;
 }
 
+
+/* --- the player surface ------------------------------------------------------
+ *
+ * While the Host is playing something, the window *is* the player: the picture
+ * fills it and the interface is drawn over the picture rather than beside it.
+ *
+ * Where the picture is in the same window as the interface, the page paints
+ * nothing where the video is — mpv's child window sits behind the webview, and
+ * anything painted over its rectangle would hide it (ADR-0003). That is why the
+ * body itself stops painting while a Stream is playing, and why the OSD carries
+ * its own background.
+ */
+
+body.picture-behind,
+body.picture-behind .window {
+  background: transparent;
+}
+
+.window.watching {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+.player {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The rectangle the picture goes in. Left unpainted where the picture is in
+   this window; a black place with a note in it anywhere else — a Stream that is
+   still opening, a platform whose mpv has a window of its own. */
+.picture {
+  position: relative;
+  flex: 1 1 auto;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: #0b0b0f;
+}
+
+.picture[data-picture="in_window"]:is(
+    [data-state="playing"],
+    [data-state="paused"],
+    [data-state="ended"]
+  ) {
+  background: transparent;
+}
+
+.picture-note {
+  margin: 0;
+  max-width: 44rem;
+  text-align: center;
+  color: #c9c9d1;
+}
+
+/* The interface over the picture: it is drawn above the video, so it carries
+   its own background rather than borrowing the page's. */
+.osd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  padding: 0.75rem 1.25rem;
+  background: #101014f2;
+  border-top: 1px solid #26262e;
+}
+
+.now-playing {
+  margin: 0;
+  font-weight: 600;
+  white-space: pre-line;
+}
+
+.transport {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+}
+
+.transport input[type="range"] {
+  flex: 1 1 12rem;
+  min-width: 8rem;
+}
+
+.clock {
+  font-family: ui-monospace, monospace;
+  font-size: 0.9rem;
+  color: #c9c9d1;
+  font-variant-numeric: tabular-nums;
+}
+
+.osd .stop {
+  margin-left: auto;
+}
+
+/* An Action the Host refused while a Stream is playing is said over the
+   picture: the OSD is the whole of what is on screen. */
+.window.watching .error {
+  position: fixed;
+  top: 1rem;
+  left: 50%;
+  translate: -50% 0;
+  z-index: 2;
+  max-width: min(40rem, 90vw);
+}
+
+/* The picture is a button: pressing the video is how a person pauses it, and
+   it is the interface that hears the press — mpv's child window is beneath the
+   webview and never takes a click. */
+.picture-toggle {
+  position: absolute;
+  inset: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.picture-toggle:focus-visible {
+  outline-offset: -3px;
+}

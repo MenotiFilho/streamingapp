@@ -8,8 +8,8 @@
  * it), so nothing here re-words or re-orders a Stream: what a person configured
  * their Addon to say is what the list shows.
  *
- * Playing a Stream is #27's business; until then a chosen candidate is this
- * client's own selection, held here and shown.
+ * Choosing a candidate this Host can open plays it (#27); one it cannot stays in
+ * the list, marked, so the list is what exists rather than only what will work.
  */
 
 import type { Playback, Stream, StreamWarning, Title, Video } from "./host-client";
@@ -25,10 +25,11 @@ export function theFilm(title: Title): Video {
 /**
  * A candidate's badge lines: the Addon's name for it, split on its own line
  * breaks. An Addon may write several badges in one string (`4k DV | HDR` under
- * `Torrentio`), and each line is drawn as its own.
+ * `Torrentio`), and each line is drawn as its own. Takes anything with a name —
+ * a candidate in a list, and the Stream that is playing.
  */
-export function badgeLines(stream: Stream): string[] {
-  return (stream.name ?? "")
+export function badgeLines(named: { name: string | null }): string[] {
+  return (named.name ?? "")
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
@@ -37,7 +38,8 @@ export function badgeLines(stream: Stream): string[] {
 /**
  * What the list says about playing a candidate: nothing for a URL the Host can
  * open, and the reason for one it cannot. A candidate is never hidden for being
- * unplayable — it is listed and marked.
+ * unplayable — it is listed and marked, and pressing it says so rather than
+ * pretending to play.
  */
 export function playabilityNote(playback: Playback): string | null {
   switch (playback.kind) {
@@ -70,12 +72,11 @@ export function streamName(stream: Stream): string {
 }
 
 /**
- * What the window says once a candidate is chosen. An unplayable candidate is
- * said to be one; a playable one waits for the ticket that plays it (#27).
+ * What the window says about a candidate it will not play: the Addon's own name
+ * for it, and why it stays in the list. A candidate the Host can open never
+ * reaches this — pressing it plays it.
  */
-export function chosenNote(stream: Stream): string {
-  const note = playabilityNote(stream.playback);
-  return note
-    ? `Chose ${streamName(stream)}. ${note}`
-    : `Chose ${streamName(stream)} — playing it arrives in #27.`;
+export function unplayableNote(stream: Stream): string {
+  const why = playabilityNote(stream.playback);
+  return why === null ? streamName(stream) : `${streamName(stream)} — ${why}`;
 }

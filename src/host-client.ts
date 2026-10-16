@@ -13,9 +13,53 @@ export const SNAPSHOT_EVENT = "host://snapshot";
 /** The Host's state as it travels outward. Mirrors `Snapshot` in `host-core`. */
 export type Snapshot = {
   revision: number;
+  playback: PlaybackSnapshot;
   preferences: { subtitleLanguage: string | null };
   addons: AddonManifest[];
   protection: Protection;
+};
+
+/**
+ * What the Player is doing. Mirrors `PlaybackState` in `host-core`. A Stream
+ * that failed is not a state of its own: nothing is playing, so the state is
+ * `idle` and `failure` says why.
+ */
+export type PlaybackState = "idle" | "opening" | "playing" | "paused" | "ended";
+
+/**
+ * Where the Player's picture is drawn — a fact about the machine, not a setting.
+ * Mirrors `Picture` in `host-core`; a client sharing the Host's window leaves
+ * the picture's rectangle unpainted where it is in the same window.
+ */
+export type Picture = "in_window" | "own_window" | "nowhere";
+
+/**
+ * The Stream that is playing, in the Addon's own words, without its URL: where
+ * its bytes are never travels outward (a Stream URL can carry a debrid
+ * session, and a Snapshot reaches every paired client). Mirrors `NowPlaying`.
+ */
+export type NowPlaying = {
+  video: { type: string; id: string };
+  addon: string;
+  name: string | null;
+  description: string | null;
+  filename: string | null;
+  bingeGroup: string | null;
+};
+
+/**
+ * What every client is told about playback: the one genuinely shared state.
+ * Mirrors `PlaybackSnapshot` in `host-core`.
+ */
+export type PlaybackSnapshot = {
+  state: PlaybackState;
+  picture: Picture;
+  /** Why the last Stream could not be opened, in the Player's own words. */
+  failure: string | null;
+  nowPlaying: NowPlaying | null;
+  /** Where playback is in seconds, and how long the Stream is, where known. */
+  position: number | null;
+  duration: number | null;
 };
 
 /**
@@ -225,7 +269,24 @@ export type Action =
       addon: string;
       title: { type: string; id: string };
     }
-  | { type: "find_streams"; video: { type: string; id: string } };
+  | { type: "find_streams"; video: { type: string; id: string } }
+  | {
+      type: "play_stream";
+      video: { type: string; id: string };
+      addon: string;
+      stream: Stream;
+    }
+  | { type: "set_paused"; paused: boolean }
+  | { type: "seek"; target: SeekTarget }
+  | { type: "stop_playback" };
+
+/**
+ * Where a seek goes: to a second of the Stream, or by some seconds from where
+ * playback is. Mirrors `SeekTarget` in `host-core`.
+ */
+export type SeekTarget =
+  | { kind: "to"; seconds: number }
+  | { kind: "by"; seconds: number };
 
 /**
  * The failures the Host itself reports. Mirrors the variants of `ActionError` in
@@ -241,6 +302,7 @@ export const HOST_ERROR_KINDS = [
   "invalid_catalog_ref",
   "invalid_title_ref",
   "invalid_video_ref",
+  "invalid_seek_target",
   "manifest",
   "fetch",
   "unknown_addon",
@@ -251,6 +313,9 @@ export const HOST_ERROR_KINDS = [
   "catalog",
   "meta",
   "stream",
+  "unplayable",
+  "nothing_playing",
+  "playback",
   "store",
   "secret",
 ] as const;
@@ -273,6 +338,9 @@ export type ActionError = {
   catalog?: { type: string; id: string };
   title?: { type: string; id: string };
   video?: { type: string; id: string };
+  /** The value a refusal carries: seconds a seek could not use, an Action a control could not be taken for. */
+  seconds?: string;
+  what?: string;
 };
 
 /**
@@ -338,6 +406,8 @@ export function explain(error: ActionError): string {
       return `${JSON.stringify(error.value)} is not a Title ${error.which}.`;
     case "invalid_video_ref":
       return `${JSON.stringify(error.value)} is not a Video ${error.which}.`;
+    case "invalid_seek_target":
+      return `${JSON.stringify(error.seconds)} is not a number of seconds to seek by.`;
     case "manifest":
       return `The Host could not read that Addon's manifest${error.detail ? `: ${error.detail}` : ""}.`;
     case "fetch":
@@ -358,6 +428,12 @@ export function explain(error: ActionError): string {
       return `The Host could not read that Addon's meta response${error.detail ? `: ${error.detail}` : ""}.`;
     case "stream":
       return `The Host could not read that Addon's stream response${error.detail ? `: ${error.detail}` : ""}.`;
+    case "unplayable":
+      return `The Host will not play that Stream: ${error.detail ?? "it is not one it can open"}`;
+    case "nothing_playing":
+      return `Nothing is playing, so the Host cannot ${error.what ?? "do that"}.`;
+    case "playback":
+      return `The Host's player could not do that${error.detail ? `: ${error.detail}` : ""}.`;
     case "store":
       return `The Host could not save that change${error.detail ? `: ${error.detail}` : ""}.`;
     case "secret":
