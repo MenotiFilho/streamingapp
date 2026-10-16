@@ -5,8 +5,20 @@
 //! [`observe`] — a pure function of the two, returning the Host's
 //! [`Observation`]. Everything mpv-shaped stops here: nothing above this module
 //! names `time-pos` or `eof-reached` (ADR-0013).
+//!
+//! mpv's own vocabulary is *shaped* rather than re-exported: [`Properties`] is
+//! the raw answers (a `"sub"` for a track's type, `96x72+16+0` for the crop, a
+//! `0.0` for "no aspect override"), and [`observe`] is the one place that turns
+//! them into the Host's [`Aspect`](host_core::Aspect),
+//! [`Track`](host_core::Track) and
+//! [`CropRectangle`](host_core::CropRectangle). Keeping the deciding here, and
+//! the reading of the handle in `lib.rs`, is what makes every one of these rules
+//! testable without an mpv.
 
-use host_core::{Observation, PlaybackState};
+use host_core::{
+    Aspect, Chapter, CropRectangle, Observation, PlaybackState, Statistics, Track, TrackId,
+    TrackKind, VideoSize,
+};
 
 /// What mpv's own events have said about the open the Player was given.
 ///
@@ -96,8 +108,49 @@ impl Memory {
     pub(crate) fn let_go(&mut self) {}
 }
 
-/// What mpv's properties answer at one moment.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// One track as mpv lists it, before the Host's own vocabulary is applied.
+///
+/// `track-list/N/...` verbatim: `kind` is mpv's `audio`/`sub`/`video`, and
+/// `external` is mpv's own sense of the word — a track added after the file —
+/// which is why the Host's `embedded` is its inverse.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RawTrack {
+    /// mpv's number for the track (`track-list/N/id`).
+    pub(crate) id: i64,
+    /// mpv's own kind word (`track-list/N/type`).
+    pub(crate) kind: String,
+    /// What the container says the track's language is.
+    pub(crate) language: Option<String>,
+    /// The track's own title.
+    pub(crate) title: Option<String>,
+    /// The codec the container names.
+    pub(crate) codec: Option<String>,
+    /// mpv's `external`: true for a track that did not come in the file.
+    pub(crate) external: bool,
+    /// Whether this is the track playing now.
+    pub(crate) selected: bool,
+    /// Whether the Stream marks this its default of the kind.
+    pub(crate) default: bool,
+    /// Whether the subtitles are forced.
+    pub(crate) forced: bool,
+}
+
+/// One chapter as mpv lists it, before it is numbered.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct RawChapter {
+    /// The chapter's name, where the container gives one.
+    pub(crate) title: Option<String>,
+    /// Where the chapter starts, in seconds.
+    pub(crate) time: f64,
+}
+
+/// What mpv's properties answer at one moment, in mpv's own shapes.
+///
+/// The whole of what the Player reads off the handle: everything mpv-shaped
+/// stops at this type, and [`observe`] is where a `"sub"` becomes a
+/// [`TrackKind::Subtitle`], where `WxH+x+y` becomes a [`CropRectangle`], and
+/// where a `0.0` becomes [`Aspect::Source`].
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Properties {
     /// Whether a file is loaded: mpv answers with a `path`.
     pub(crate) loaded: bool,
@@ -110,6 +163,34 @@ pub(crate) struct Properties {
     pub(crate) position: Option<f64>,
     /// How long the file is in seconds, where it says — a live Stream does not.
     pub(crate) duration: Option<f64>,
+    /// `track-list/N/...`, in mpv's own order.
+    pub(crate) tracks: Vec<RawTrack>,
+    /// `chapter-list/N/...`, in the order the container gives them.
+    pub(crate) chapters: Vec<RawChapter>,
+    /// mpv's `chapter`: which chapter is playing, negative with no chapters.
+    pub(crate) chapter: Option<i64>,
+    /// The rate playback runs at: mpv's `speed`.
+    pub(crate) speed: Option<f64>,
+    /// The level playback runs at: mpv's `volume`.
+    pub(crate) volume: Option<f64>,
+    /// Whether the sound is held: mpv's `mute`.
+    pub(crate) muted: Option<bool>,
+    /// How far the subtitles are shifted: mpv's `sub-delay`.
+    pub(crate) subtitle_delay: Option<f64>,
+    /// mpv's `video-crop`, verbatim (`96x72+16+0`, `0x0+0+0`, empty).
+    pub(crate) crop: Option<String>,
+    /// mpv's `video-aspect-override`: `0.0` means no override.
+    pub(crate) aspect: Option<f64>,
+    /// The picture's width, where a file is loaded.
+    pub(crate) width: Option<i64>,
+    /// The picture's height, where a file is loaded.
+    pub(crate) height: Option<i64>,
+    /// mpv's `video-bitrate`, absent for a Stream it does not measure.
+    pub(crate) video_bitrate: Option<i64>,
+    /// mpv's `frame-drop-count`.
+    pub(crate) dropped_frames: Option<i64>,
+    /// mpv's `hwdec-current`, verbatim (`no`, `d3d11va`, …).
+    pub(crate) hardware_decode: Option<String>,
 }
 
 /// What the Player is doing, from the memory of mpv's events and the properties
@@ -121,6 +202,11 @@ pub(crate) struct Properties {
 /// `paused`, because mpv pauses the player itself when a file reaches its end
 /// with `keep-open`, and "paused" would then be the truth about a property and a
 /// lie about the Stream.
+///
+/// The controls are read whether or not a file has been loaded, because mpv
+/// answers them whether or not one has; the three facts that only mean something
+/// about a picture — the aspect, the resolution and the statistics — are absent
+/// until a file is loaded, because mpv has no picture to answer them about.
 pub(crate) fn observe(memory: &Memory, properties: &Properties) -> Observation {
     if let Some(Ending::Failed(words)) = &memory.ending {
         return Observation {
@@ -147,8 +233,159 @@ pub(crate) fn observe(memory: &Memory, properties: &Properties) -> Observation {
         state,
         position: properties.position,
         duration: properties.duration,
-        ..Observation::idle()
+        failure: None,
+        tracks: properties.tracks.iter().filter_map(track).collect(),
+        chapters: properties
+            .chapters
+            .iter()
+            .enumerate()
+            .map(|(index, chapter)| Chapter {
+                index,
+                title: chapter.title.clone().filter(|title| !title.is_empty()),
+                time: chapter.time,
+            })
+            .collect(),
+        // mpv's chapter is an index from zero, and negative (or absent) when
+        // there are none.
+        chapter: properties
+            .chapter
+            .and_then(|index| usize::try_from(index).ok()),
+        speed: properties.speed,
+        volume: properties.volume,
+        muted: properties.muted,
+        subtitle_delay: properties.subtitle_delay,
+        crop: properties.crop.as_deref().and_then(crop_rectangle),
+        aspect: aspect(properties.aspect, properties.loaded),
+        resolution: resolution(properties.width, properties.height, properties.loaded),
+        statistics: statistics(properties),
     }
+}
+
+/// One mpv track as a track the Host controls, where it is one this Host has a
+/// control for.
+///
+/// The video track is deliberately left out: no client asks which track carries
+/// the picture, and the Host has no control for it. A track mpv numbers zero or
+/// below is not a track anything can select, so it is not one either.
+fn track(raw: &RawTrack) -> Option<Track> {
+    let kind = match raw.kind.as_str() {
+        "audio" => TrackKind::Audio,
+        "sub" => TrackKind::Subtitle,
+        _ => return None,
+    };
+
+    Some(
+        Track {
+            id: TrackId::new(raw.id)?,
+            kind,
+            language: raw.language.clone(),
+            title: raw.title.clone(),
+            codec: raw.codec.clone(),
+            // mpv's `external` is the opposite of the Host's `embedded`.
+            embedded: !raw.external,
+            selected: raw.selected,
+            default: raw.default,
+            forced: raw.forced,
+        }
+        .bounded(),
+    )
+}
+
+/// The rectangle mpv's `video-crop` names, or nothing where it is uncropped.
+///
+/// mpv reads back an empty string when no crop is set, and `0x0+0+0` after a
+/// crop was cleared — the "full frame, cropping disabled" spelling the Host uses
+/// because `no` is rejected by mpv 0.41 (ADR-0003). Both mean the whole picture,
+/// so both are `None` here; a rectangle with no width or no height could not be
+/// a picture anyway.
+fn crop_rectangle(raw: &str) -> Option<CropRectangle> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+
+    // `[W]x[H][+X[+Y]]`: mpv always writes the `WxH` and its read-back carries
+    // an offset, but a bare size is parsed all the same.
+    let (size, offset) = match raw.split_once('+') {
+        Some((size, offset)) => (size, Some(offset)),
+        None => (raw, None),
+    };
+    let (width, height) = size.split_once('x')?;
+    let width: u32 = width.trim().parse().ok()?;
+    let height: u32 = height.trim().parse().ok()?;
+    if width == 0 || height == 0 {
+        return None;
+    }
+
+    let (x, y) = match offset {
+        Some(offset) => {
+            let (x, y) = offset.split_once('+').unwrap_or((offset, "0"));
+            (x.trim().parse().ok()?, y.trim().parse().ok()?)
+        }
+        None => (0, 0),
+    };
+
+    Some(CropRectangle {
+        width,
+        height,
+        x,
+        y,
+    })
+}
+
+/// The shape mpv says the picture is drawn at, where a picture is loaded at all.
+///
+/// mpv answers `video-aspect-override` as a number: zero (or anything not a
+/// positive ratio) is its "no override", which is the Stream's own shape.
+fn aspect(value: Option<f64>, loaded: bool) -> Option<Aspect> {
+    if !loaded {
+        return None;
+    }
+
+    match value {
+        Some(value) if value.is_finite() && value > 0.0 => Some(Aspect::Ratio { value }),
+        _ => Some(Aspect::Source),
+    }
+}
+
+/// How large the picture is, where a file is loaded and mpv gives both sides.
+fn resolution(width: Option<i64>, height: Option<i64>, loaded: bool) -> Option<VideoSize> {
+    if !loaded {
+        return None;
+    }
+
+    let (width, height) = (width?, height?);
+    Some(VideoSize {
+        width: u32::try_from(width).ok()?,
+        height: u32::try_from(height).ok()?,
+    })
+}
+
+/// What mpv says about how the Stream is playing, where one is loaded to say it
+/// about.
+///
+/// `video-bitrate` is absent for a Stream mpv does not measure — which a
+/// headless test's `vo=null` is — so the bitrate is legitimately `None` while
+/// the dropped-frame count and the decode mode are not.
+fn statistics(properties: &Properties) -> Option<Statistics> {
+    if !properties.loaded {
+        return None;
+    }
+
+    Some(
+        Statistics {
+            bitrate: count(properties.video_bitrate),
+            dropped_frames: count(properties.dropped_frames),
+            hardware_decode: properties.hardware_decode.clone(),
+        }
+        .bounded(),
+    )
+}
+
+/// An mpv count as a number the Host will publish: a negative answer is not a
+/// count of anything.
+fn count(value: Option<i64>) -> Option<u64> {
+    value.and_then(|value| u64::try_from(value).ok())
 }
 
 /// The words the Host publishes when a Stream could not be opened.
@@ -171,6 +408,8 @@ pub(crate) fn failure_words(code: i32) -> String {
 mod tests {
     use super::*;
 
+    /// An mpv that has taken an open but has not loaded a file yet: the state a
+    /// control is read in is the same, so every test starts here.
     fn loading() -> Properties {
         Properties {
             loaded: false,
@@ -178,6 +417,44 @@ mod tests {
             ended: false,
             position: None,
             duration: None,
+            tracks: Vec::new(),
+            chapters: Vec::new(),
+            chapter: None,
+            speed: None,
+            volume: None,
+            muted: None,
+            subtitle_delay: None,
+            crop: None,
+            aspect: None,
+            width: None,
+            height: None,
+            video_bitrate: None,
+            dropped_frames: None,
+            hardware_decode: None,
+        }
+    }
+
+    /// The same, with a file loaded — what every control's own test builds from.
+    fn loaded() -> Properties {
+        Properties {
+            loaded: true,
+            position: Some(0.2),
+            duration: Some(600.0),
+            ..loading()
+        }
+    }
+
+    fn track(id: i64, kind: &str) -> RawTrack {
+        RawTrack {
+            id,
+            kind: kind.to_owned(),
+            language: None,
+            title: None,
+            codec: None,
+            external: false,
+            selected: false,
+            default: false,
+            forced: false,
         }
     }
 
@@ -208,13 +485,7 @@ mod tests {
             "agreeing to open is not playing"
         );
 
-        let loaded = Properties {
-            loaded: true,
-            position: Some(0.2),
-            duration: Some(600.0),
-            ..loading()
-        };
-        let observation = observe(&asking, &loaded);
+        let observation = observe(&asking, &loaded());
         assert_eq!(observation.state, PlaybackState::Playing);
         assert_eq!(observation.position, Some(0.2));
         assert_eq!(observation.duration, Some(600.0));
@@ -224,11 +495,10 @@ mod tests {
     #[test]
     fn a_file_at_its_end_is_ended_before_it_is_paused() {
         let at_the_end = Properties {
-            loaded: true,
             paused: true,
             ended: true,
             position: Some(600.0),
-            duration: Some(600.0),
+            ..loaded()
         };
 
         let observation = observe(&Memory::asking(), &at_the_end);
@@ -244,11 +514,9 @@ mod tests {
     #[test]
     fn a_paused_file_is_paused_and_holds_its_position() {
         let paused = Properties {
-            loaded: true,
             paused: true,
-            ended: false,
             position: Some(12.5),
-            duration: Some(600.0),
+            ..loaded()
         };
 
         let observation = observe(&Memory::asking(), &paused);
@@ -276,11 +544,9 @@ mod tests {
     fn a_streams_picture_is_reported_on_once_and_only_once() {
         let mut memory = Memory::asking();
         let playing = Properties {
-            loaded: true,
-            paused: false,
-            ended: false,
             position: Some(1.0),
             duration: Some(10.0),
+            ..loaded()
         };
 
         let first = observe(&memory, &playing);
@@ -318,5 +584,286 @@ mod tests {
             observation.failure, None,
             "a new open is not the last one's failure"
         );
+    }
+
+    #[test]
+    fn a_track_is_the_kind_the_host_controls_and_the_video_track_is_skipped() {
+        let properties = Properties {
+            tracks: vec![
+                track(1, "video"),
+                RawTrack {
+                    title: Some("English stereo".to_owned()),
+                    codec: Some("aac".to_owned()),
+                    selected: true,
+                    default: true,
+                    ..track(2, "audio")
+                },
+                track(3, "sub"),
+                RawTrack {
+                    language: Some("por".to_owned()),
+                    external: true,
+                    ..track(4, "sub")
+                },
+                // A track mpv numbers zero is not one anything can select.
+                track(0, "audio"),
+            ],
+            ..loaded()
+        };
+
+        let observation = observe(&Memory::asking(), &properties);
+
+        assert_eq!(
+            observation.tracks,
+            vec![
+                Track {
+                    id: TrackId::new(2).expect("a positive id"),
+                    kind: TrackKind::Audio,
+                    language: None,
+                    title: Some("English stereo".to_owned()),
+                    codec: Some("aac".to_owned()),
+                    embedded: true,
+                    selected: true,
+                    default: true,
+                    forced: false,
+                },
+                Track {
+                    id: TrackId::new(3).expect("a positive id"),
+                    kind: TrackKind::Subtitle,
+                    language: None,
+                    title: None,
+                    codec: None,
+                    embedded: true,
+                    selected: false,
+                    default: false,
+                    forced: false,
+                },
+                Track {
+                    id: TrackId::new(4).expect("a positive id"),
+                    kind: TrackKind::Subtitle,
+                    language: Some("por".to_owned()),
+                    title: None,
+                    codec: None,
+                    // mpv's `external` is the opposite of the Host's `embedded`.
+                    embedded: false,
+                    selected: false,
+                    default: false,
+                    forced: false,
+                },
+            ],
+            "the video track is not a control, and an added track is not embedded"
+        );
+    }
+
+    #[test]
+    fn a_word_the_container_left_empty_is_no_word_at_all() {
+        let properties = Properties {
+            tracks: vec![RawTrack {
+                language: Some(String::new()),
+                title: Some(String::new()),
+                codec: Some(String::new()),
+                ..track(1, "audio")
+            }],
+            ..loaded()
+        };
+
+        let observation = observe(&Memory::asking(), &properties);
+
+        assert_eq!(
+            observation.tracks[0],
+            Track {
+                id: TrackId::new(1).expect("a positive id"),
+                kind: TrackKind::Audio,
+                language: None,
+                title: None,
+                codec: None,
+                embedded: true,
+                selected: false,
+                default: false,
+                forced: false,
+            }
+        );
+    }
+
+    #[test]
+    fn chapters_are_numbered_and_the_one_playing_is_an_index_from_zero() {
+        let properties = Properties {
+            chapters: vec![
+                RawChapter {
+                    title: Some("Intro".to_owned()),
+                    time: 0.0,
+                },
+                RawChapter {
+                    title: Some(String::new()),
+                    time: 5.0,
+                },
+            ],
+            chapter: Some(1),
+            ..loaded()
+        };
+
+        let observation = observe(&Memory::asking(), &properties);
+
+        assert_eq!(
+            observation.chapters,
+            vec![
+                Chapter {
+                    index: 0,
+                    title: Some("Intro".to_owned()),
+                    time: 0.0,
+                },
+                Chapter {
+                    index: 1,
+                    title: None,
+                    time: 5.0,
+                },
+            ]
+        );
+        assert_eq!(observation.chapter, Some(1));
+    }
+
+    #[test]
+    fn no_chapters_is_no_chapter_and_a_negative_index_is_none() {
+        let properties = Properties {
+            chapter: Some(-1),
+            ..loaded()
+        };
+
+        let observation = observe(&Memory::asking(), &properties);
+
+        assert_eq!(observation.chapters, Vec::new());
+        assert_eq!(observation.chapter, None);
+    }
+
+    #[test]
+    fn a_crop_reads_as_a_rectangle_and_a_full_frame_is_uncropped() {
+        assert_eq!(
+            crop_rectangle("96x72+16+0"),
+            Some(CropRectangle {
+                width: 96,
+                height: 72,
+                x: 16,
+                y: 0,
+            })
+        );
+        assert_eq!(
+            crop_rectangle("0x0+0+0"),
+            None,
+            "the spelling mpv reads back after a crop was cleared is the whole picture"
+        );
+        assert_eq!(crop_rectangle(""), None);
+        assert_eq!(crop_rectangle("not a crop"), None);
+    }
+
+    #[test]
+    fn a_crop_from_mpv_is_the_hosts_rectangle_and_uncropped_is_none() {
+        let cropped = Properties {
+            crop: Some("96x72+16+0".to_owned()),
+            ..loaded()
+        };
+        assert_eq!(
+            observe(&Memory::asking(), &cropped).crop,
+            Some(CropRectangle {
+                width: 96,
+                height: 72,
+                x: 16,
+                y: 0,
+            })
+        );
+
+        let cleared = Properties {
+            crop: Some("0x0+0+0".to_owned()),
+            ..loaded()
+        };
+        assert_eq!(observe(&Memory::asking(), &cleared).crop, None);
+    }
+
+    #[test]
+    fn a_zero_override_is_the_streams_own_shape_and_a_ratio_is_not() {
+        assert_eq!(
+            aspect(Some(0.0), true),
+            Some(Aspect::Source),
+            "mpv's no-override reads back as zero"
+        );
+        assert_eq!(
+            aspect(Some(-1.0), true),
+            Some(Aspect::Source),
+            "anything that is not a positive ratio is no override"
+        );
+        assert_eq!(
+            aspect(Some(1.7778), true),
+            Some(Aspect::Ratio { value: 1.7778 })
+        );
+        assert_eq!(
+            aspect(Some(0.0), false),
+            None,
+            "there is no picture to have a shape before one is loaded"
+        );
+    }
+
+    #[test]
+    fn resolution_is_answered_only_where_a_picture_is_loaded() {
+        assert_eq!(
+            resolution(Some(128), Some(72), true),
+            Some(VideoSize {
+                width: 128,
+                height: 72,
+            })
+        );
+        assert_eq!(
+            resolution(Some(128), Some(72), false),
+            None,
+            "mpv's picture size is about a picture, and there is none yet"
+        );
+        assert_eq!(resolution(None, Some(72), true), None);
+    }
+
+    #[test]
+    fn statistics_say_what_is_decoding_and_what_was_dropped() {
+        let properties = Properties {
+            video_bitrate: None,
+            dropped_frames: Some(3),
+            hardware_decode: Some("no".to_owned()),
+            ..loaded()
+        };
+
+        assert_eq!(
+            observe(&Memory::asking(), &properties).statistics,
+            Some(Statistics {
+                bitrate: None,
+                dropped_frames: Some(3),
+                hardware_decode: Some("no".to_owned()),
+            }),
+            "a headless Stream has no bitrate to report and still reports the rest"
+        );
+        assert_eq!(
+            observe(&Memory::asking(), &loading()).statistics,
+            None,
+            "nothing loaded, nothing to say about how it plays"
+        );
+    }
+
+    #[test]
+    fn a_negative_count_is_not_a_count() {
+        assert_eq!(count(Some(-1)), None);
+        assert_eq!(count(Some(0)), Some(0));
+        assert_eq!(count(None), None);
+    }
+
+    #[test]
+    fn the_controls_are_read_off_the_properties_as_mpv_answers_them() {
+        let properties = Properties {
+            speed: Some(1.5),
+            volume: Some(80.0),
+            muted: Some(true),
+            subtitle_delay: Some(-0.5),
+            ..loaded()
+        };
+
+        let observation = observe(&Memory::asking(), &properties);
+
+        assert_eq!(observation.speed, Some(1.5));
+        assert_eq!(observation.volume, Some(80.0));
+        assert_eq!(observation.muted, Some(true));
+        assert_eq!(observation.subtitle_delay, Some(-0.5));
     }
 }

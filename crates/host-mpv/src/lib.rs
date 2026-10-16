@@ -34,18 +34,41 @@
 //! see and resume from (#29); and the options that only mean something at
 //! initialization — `wid` among them — are set on the handle before
 //! `mpv_initialize` runs.
+//!
+//! ## Black bars are mpv's own business
+//!
+//! ADR-0003 settles that the picture is mpv's and the Host never composites a
+//! frame, so the black bars around a Stream are handled by mpv's own tooling
+//! rather than a reimplementation: mpv ships `TOOLS/lua/autocrop.lua`, which
+//! drives `cropdetect` and the `video-crop` property, and it is vendored here
+//! verbatim as `scripts/autocrop.lua` and loaded into every Player. mpv's own
+//! script is the behaviour a person gets from mpv, and the Host's job is to not
+//! fight it: a manual `video-crop` the Host sets is overwritten by the script's
+//! next run, which is exactly what "a stock mpv script driving the property"
+//! means. mpv's script is GPL-compatible with this crate's own licence, and the
+//! checked-in copy is used as it came from upstream.
 
 mod observing;
 mod telling;
 
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 use host_core::{Observation, Picture, PlaybackError, Player, StreamUrl, Telling};
 use libmpv2::events::Event;
 use libmpv2::mpv_end_file_reason as EndFileReason;
 use libmpv2::Mpv;
 
-use crate::observing::{failure_words, observe, Memory, Properties};
+use crate::observing::{failure_words, observe, Memory, Properties, RawChapter, RawTrack};
+
+/// mpv's stock autocrop script, vendored from upstream (ADR-0003).
+///
+/// `TOOLS/lua/autocrop.lua` from mpv's own tree, unmodified and embedded so
+/// that a Player gets the same black-bar behaviour as the command-line player
+/// without shipping a separate file beside the binary. It was taken from
+/// <https://raw.githubusercontent.com/mpv-player/mpv/master/TOOLS/lua/autocrop.lua>
+/// (sha256 `2e7afdc366b4c54451b4faab1e350a3f6119a4cd4a1c6d984d98e2347a6fbb20`)
+/// and is GPL-compatible with this crate's own licence.
+const AUTOCROP: &str = include_str!("../scripts/autocrop.lua");
 
 /// Where the picture is put, as this platform can manage it.
 ///
@@ -91,6 +114,38 @@ pub(crate) fn picture(surface: Placement) -> Picture {
     }
 }
 
+/// Where the vendored autocrop script was written for this process, if it could
+/// be written at all.
+///
+/// mpv's `scripts` is an initialization-only option that takes *paths*, so the
+/// script embedded above has to exist on disk before mpv starts. It is written
+/// once per process — every Player a process builds is handed the same path —
+/// under a name that carries the process id so two processes do not overwrite
+/// each other's copy. A failure to write it is logged and returns nothing: a
+/// Player without the stock autocrop still plays, and that is the only failure
+/// a person would accept here.
+fn autocrop_script() -> Option<&'static str> {
+    static ON_DISK: OnceLock<Option<String>> = OnceLock::new();
+
+    ON_DISK
+        .get_or_init(|| {
+            let path = std::env::temp_dir()
+                .join(format!("streamingapp-autocrop-{}.lua", std::process::id()));
+            match std::fs::write(&path, AUTOCROP) {
+                Ok(()) => path.to_str().map(str::to_owned),
+                Err(error) => {
+                    tracing::warn!(
+                        %error,
+                        "mpv's stock autocrop script could not be written; playback \
+                         continues without it"
+                    );
+                    None
+                }
+            }
+        })
+        .as_deref()
+}
+
 /// The real Player: mpv, in this process, with the picture wherever `Placement`
 /// says.
 pub struct MpvPlayer {
@@ -110,9 +165,14 @@ impl MpvPlayer {
     /// `wid` can be set, and the event queue is drained rather than waited on
     /// afterwards: the Host asks a Player what it is doing, and a Player that
     /// blocked on mpv's event loop would block the Action surface with it.
+    ///
+    /// mpv's stock autocrop script is written out and loaded here — as an
+    /// option, before mpv starts — unless writing it failed, in which case
+    /// playback goes on without it.
     pub fn start(surface: Placement) -> Result<Self, MpvError> {
+        let script = autocrop_script();
         let mpv = Mpv::with_initializer(|init| {
-            for (name, value) in options(surface) {
+            for (name, value) in options(surface, script) {
                 init.set_option(name, value.as_str())?;
             }
             Ok(())
@@ -181,6 +241,11 @@ impl MpvPlayer {
     }
 
     /// What mpv's properties answer right now.
+    ///
+    /// Lists — the tracks and the chapters — come through mpv's indexed
+    /// property syntax, one property per field, because the safe crate reads
+    /// only scalars off a handle (no `NODE`/JSON), and everything is handed on
+    /// in mpv's own shape for [`observe`] to decide.
     fn properties(&self) -> Properties {
         Properties {
             // A `path` is the one property that says a file is loaded: a
@@ -194,6 +259,20 @@ impl MpvPlayer {
                 .unwrap_or(false),
             position: self.position(),
             duration: self.duration(),
+            tracks: self.tracks(),
+            chapters: self.chapters(),
+            chapter: self.mpv.get_property::<i64>("chapter").ok(),
+            speed: self.number("speed"),
+            volume: self.number("volume"),
+            muted: self.mpv.get_property::<bool>("mute").ok(),
+            subtitle_delay: self.number("sub-delay"),
+            crop: self.mpv.get_property::<String>("video-crop").ok(),
+            aspect: self.number("video-aspect-override"),
+            width: self.mpv.get_property::<i64>("width").ok(),
+            height: self.mpv.get_property::<i64>("height").ok(),
+            video_bitrate: self.mpv.get_property::<i64>("video-bitrate").ok(),
+            dropped_frames: self.mpv.get_property::<i64>("frame-drop-count").ok(),
+            hardware_decode: self.text("hwdec-current"),
         }
     }
 
@@ -211,6 +290,86 @@ impl MpvPlayer {
             .get_property::<f64>("duration")
             .ok()
             .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
+    }
+
+    /// One real property, where mpv answers with a number.
+    fn number(&self, name: &str) -> Option<f64> {
+        self.mpv
+            .get_property::<f64>(name)
+            .ok()
+            .filter(|value| value.is_finite())
+    }
+
+    /// One string property, where it says something rather than nothing.
+    fn text(&self, name: &str) -> Option<String> {
+        self.mpv
+            .get_property::<String>(name)
+            .ok()
+            .filter(|word| !word.is_empty())
+    }
+
+    /// Every track mpv lists, in mpv's own order.
+    ///
+    /// `track-list/count` answers zero when nothing is loaded, and each track
+    /// is a numbered set of properties beneath it. A track mpv cannot name a
+    /// type for is not one anything here could control, so it is left out.
+    fn tracks(&self) -> Vec<RawTrack> {
+        let count = self
+            .mpv
+            .get_property::<i64>("track-list/count")
+            .unwrap_or(0);
+
+        (0..count.max(0))
+            .filter_map(|index| {
+                Some(RawTrack {
+                    id: self
+                        .mpv
+                        .get_property::<i64>(&format!("track-list/{index}/id"))
+                        .ok()?,
+                    kind: self
+                        .mpv
+                        .get_property::<String>(&format!("track-list/{index}/type"))
+                        .ok()?,
+                    language: self.text(&format!("track-list/{index}/lang")),
+                    title: self.text(&format!("track-list/{index}/title")),
+                    codec: self.text(&format!("track-list/{index}/codec")),
+                    external: self
+                        .mpv
+                        .get_property::<bool>(&format!("track-list/{index}/external"))
+                        .unwrap_or(false),
+                    selected: self
+                        .mpv
+                        .get_property::<bool>(&format!("track-list/{index}/selected"))
+                        .unwrap_or(false),
+                    default: self
+                        .mpv
+                        .get_property::<bool>(&format!("track-list/{index}/default"))
+                        .unwrap_or(false),
+                    forced: self
+                        .mpv
+                        .get_property::<bool>(&format!("track-list/{index}/forced"))
+                        .unwrap_or(false),
+                })
+            })
+            .collect()
+    }
+
+    /// Every chapter mpv lists, in the order the container gives them.
+    fn chapters(&self) -> Vec<RawChapter> {
+        let count = self
+            .mpv
+            .get_property::<i64>("chapter-list/count")
+            .unwrap_or(0);
+
+        (0..count.max(0))
+            .map(|index| RawChapter {
+                title: self.text(&format!("chapter-list/{index}/title")),
+                time: self
+                    .mpv
+                    .get_property::<f64>(&format!("chapter-list/{index}/time"))
+                    .unwrap_or(0.0),
+            })
+            .collect()
     }
 }
 
@@ -294,7 +453,11 @@ impl Player for MpvPlayer {
 /// hardware decode is engaged where the machine can and playback still works
 /// where it cannot; `keep-open` so that a Stream at its end stays loaded, which
 /// is what makes "ended" and a resume from it possible (#29).
-fn options(surface: Placement) -> Vec<(&'static str, String)> {
+///
+/// `scripts` is where mpv's stock autocrop goes, and it is an option only mpv
+/// reads before it starts — like `wid` — so its path is resolved by the caller
+/// and passed in rather than written by this pure half.
+fn options(surface: Placement, script: Option<&str>) -> Vec<(&'static str, String)> {
     let mut options: Vec<(&'static str, String)> = vec![
         (
             "vo",
@@ -314,6 +477,15 @@ fn options(surface: Placement) -> Vec<(&'static str, String)> {
         ("osc", "no".to_owned()),
         ("input-default-bindings", "no".to_owned()),
     ];
+
+    // mpv's own autocrop script, from a path that exists on disk; absent when
+    // it could not be written, which is a Player without autocrop and not a
+    // Player that will not start. The option's name is `scripts`, a list:
+    // `script` is only an alias for `--scripts-append` on the command line and
+    // is not an option the client API knows.
+    if let Some(script) = script {
+        options.push(("scripts", script.to_owned()));
+    }
 
     match surface {
         // `wid`, before mpv is initialized: it is an option, and mpv reads it
@@ -350,7 +522,7 @@ mod tests {
 
     #[test]
     fn a_host_window_is_told_to_mpv_before_it_is_initialized() {
-        let options = options(Placement::InWindow { handle: 1234 });
+        let options = options(Placement::InWindow { handle: 1234 }, None);
 
         assert_eq!(
             option(&options, "wid"),
@@ -367,7 +539,7 @@ mod tests {
 
     #[test]
     fn a_platform_without_a_place_to_draw_gets_a_window_of_mpvs_own() {
-        let options = options(Placement::OwnWindow);
+        let options = options(Placement::OwnWindow, None);
 
         assert_eq!(option(&options, "wid"), None);
         assert_eq!(
@@ -379,11 +551,33 @@ mod tests {
 
     #[test]
     fn a_headless_player_draws_nowhere_and_says_nothing() {
-        let options = options(Placement::Headless);
+        let options = options(Placement::Headless, None);
 
         assert_eq!(option(&options, "vo"), Some("null"));
         assert_eq!(option(&options, "ao"), Some("null"));
         assert_eq!(option(&options, "wid"), None);
+    }
+
+    #[test]
+    fn the_stock_autocrop_script_is_loaded_before_mpv_starts() {
+        // `scripts` is an option mpv reads once, at initialization, and the
+        // Player hands it the path it wrote the vendored script to.
+        let with_script = options(
+            Placement::Headless,
+            Some("/tmp/streamingapp-autocrop-1.lua"),
+        );
+
+        assert_eq!(
+            option(&with_script, "scripts"),
+            Some("/tmp/streamingapp-autocrop-1.lua"),
+            "mpv's own autocrop runs for every Player (ADR-0003)"
+        );
+
+        assert_eq!(
+            option(&options(Placement::Headless, None), "scripts"),
+            None,
+            "a Player whose script could not be written starts without it"
+        );
     }
 
     #[test]
@@ -405,7 +599,7 @@ mod tests {
             Placement::Headless,
         ] {
             assert_eq!(
-                option(&options(surface), "keep-open"),
+                option(&options(surface, None), "keep-open"),
                 Some("yes"),
                 "{surface:?} leaves a Stream at its end rather than unloading it"
             );
