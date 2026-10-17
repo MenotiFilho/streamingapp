@@ -32,7 +32,7 @@ import {
   formatDelay,
   formatSpeed,
   formatVolume,
-  hasNextEpisode,
+  nextEpisodeDisabled,
   orderedTracks,
   speedSelected,
   statisticsLines,
@@ -1065,8 +1065,9 @@ function PlayerSurface({
         {/* A Stream that reached its end is where a series' next episode is
             looked for: the control is offered here because the menu, which is
             the other place it lives, is not offered for a Stream the Host will
-            not control (#29). */}
-        {state === "ended" && hasNextEpisode(nowPlaying) ? (
+            not control (#29). What counts as an episode is the Host's own
+            reading, published beside Now playing (ADR-0021). */}
+        {state === "ended" && !nextEpisodeDisabled(playback.episode) ? (
           <button
             type="button"
             className="next-episode"
@@ -1337,7 +1338,7 @@ function PlayerMenu({
         ) : null}
       </section>
 
-      {hasNextEpisode(playback.nowPlaying) ? (
+      {!nextEpisodeDisabled(playback.episode) ? (
         <section className="menu-group" aria-label="Next episode">
           <button
             type="button"
@@ -1459,7 +1460,7 @@ function TitleView({
               nodes, which a reader of the accessibility tree sees as fragments
               of a phrase rather than the phrase. */}
           <p className="addon-id" data-testid="title-id">
-            {`${title.addon} · ${title.type}/${title.id}`}
+            {`${title.addon ?? "TMDB"} · ${title.type}/${title.id}`}
           </p>
           {/* Keyed by the Addon is the unchanged key of a Title nothing mapped:
               it stays visible, keyed as its Addon indexes it (CONTEXT.md). */}

@@ -4,8 +4,14 @@
   "belongs_to_collection": null,
   "budget": 63000000,
   "genres": [
-    { "id": 28, "name": "Action" },
-    { "id": 878, "name": "Science Fiction" }
+    {
+      "id": 28,
+      "name": "Action"
+    },
+    {
+      "id": 878,
+      "name": "Science Fiction"
+    }
   ],
   "homepage": "https://www.warnerbros.com/movies/matrix",
   "id": 603,
@@ -22,5 +28,6 @@
   "status": "Released",
   "title": "The Matrix",
   "vote_average": 8.2,
-  "vote_count": 21000
+  "vote_count": 21000,
+  "logo_path": "/matrix-logo.png"
 }

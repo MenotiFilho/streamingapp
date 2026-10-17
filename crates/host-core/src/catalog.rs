@@ -27,8 +27,10 @@ pub const MAX_CATALOG_BYTES: usize = 4 * 1024 * 1024;
 /// One item in a catalog row, as the Host needs it to draw a card.
 ///
 /// A *preview*: the protocol's shorter Meta shape, which is what a catalog
-/// returns. Fields the Host has no use for yet — `background`, `logo`, `links`,
-/// `trailers`, `behaviorHints`, `videos` — are ignored rather than refused.
+/// returns. Fields the Host has no use for — `logo`, `links`, `trailers`,
+/// `behaviorHints`, `videos` — are ignored rather than refused. `logo` stays
+/// unread though real Addons send it, because Home's hero draws the backdrop,
+/// the name and the description and not a wordmark.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MetaPreview {
@@ -41,6 +43,12 @@ pub struct MetaPreview {
     pub poster: Option<String>,
     /// `poster`, `square` or `landscape`; the protocol assumes `poster`.
     pub poster_shape: Option<String>,
+    /// The backdrop's address, where the source sent one: the 16:9 art Home's
+    /// hero is drawn from, where the poster beside it is portrait. Not in the
+    /// protocol's documented preview shape, but the SDK's own type carries it
+    /// and real Addons send it on every item; a Discover row carries TMDB's
+    /// here (#75, ADR-0020).
+    pub background: Option<String>,
     /// The year, or a series' years: `1999`, `2008-2013`, `2020-`.
     pub release_info: Option<String>,
     pub imdb_rating: Option<String>,
@@ -184,6 +192,7 @@ fn meta_preview(value: &serde_json::Value) -> Option<MetaPreview> {
         name: non_empty_string(object.get("name")?)?,
         poster: object.get("poster").and_then(non_empty_string),
         poster_shape: object.get("posterShape").and_then(non_empty_string),
+        background: object.get("background").and_then(non_empty_string),
         release_info: object.get("releaseInfo").and_then(non_empty_string),
         imdb_rating: object.get("imdbRating").and_then(non_empty_string),
         // A genre list that is not a list of strings is ignored rather than
@@ -290,6 +299,61 @@ mod tests {
             page.metas[0].id, page.metas[1].id,
             "the order is the Addon's, and an item is not reordered or dropped"
         );
+    }
+
+    #[test]
+    fn a_recorded_items_backdrop_is_read_and_its_logo_is_left_unread() {
+        // Cinemeta sends both on every catalog item; Home's hero draws the
+        // backdrop with the name and description, and no wordmark (ADR-0011's
+        // #62 amendment).
+        let page = parsed(TOP);
+
+        assert_eq!(
+            page.metas[0].background.as_deref(),
+            Some("https://images.metahub.space/background/medium/tt22084616/img")
+        );
+        let published = serde_json::to_value(&page.metas[0]).expect("an item serializes");
+        assert_eq!(
+            published.get("logo"),
+            None,
+            "an item carries the art a hero draws, and a logo is not one"
+        );
+    }
+
+    #[test]
+    fn an_item_with_no_backdrop_is_read_with_none_rather_than_refused() {
+        // An Addon that sends none is not an Addon that lied, and an item read
+        // back from one is an item the Host still holds.
+        let page = parsed(
+            r#"{"metas":[{"id":"tt1","type":"movie","name":"One",
+                 "poster":"https://images.example.org/one.jpg"}]}"#,
+        );
+        assert_eq!(page.metas[0].background, None);
+
+        let item: MetaPreview =
+            serde_json::from_str(r#"{"id":"tt1","type":"movie","name":"One","genres":[]}"#)
+                .expect("an item without a backdrop deserializes");
+        assert_eq!(item.background, None);
+    }
+
+    #[test]
+    fn a_backdrop_that_is_not_a_url_the_host_will_hold_is_no_backdrop() {
+        for background in [
+            serde_json::json!(7),
+            serde_json::json!(""),
+            serde_json::json!("x".repeat(MAX_STRING_LEN + 1)),
+        ] {
+            let body = serde_json::json!({
+                "metas": [{ "id": "tt1", "type": "movie", "name": "One", "background": background }],
+            })
+            .to_string();
+
+            assert_eq!(
+                parsed(&body).metas[0].background,
+                None,
+                "in {body}, the backdrop is not one the Host will hold"
+            );
+        }
     }
 
     #[test]

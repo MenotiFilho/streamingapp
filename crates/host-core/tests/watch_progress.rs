@@ -121,6 +121,7 @@ fn play(fixture: &mut Fixture, r#type: &str, video: &str) {
                 "type": r#type,
                 "name": "Breaking Bad",
                 "poster": "https://images.example.org/bb.jpg",
+                "background": "https://images.example.org/bb-backdrop.jpg",
             },
             "stream": {
                 "name": "1080p",
@@ -144,8 +145,8 @@ fn watching(fixture: &mut Fixture, position: f64, duration: f64, at: i64) {
         .expect("the Player says something new about what is playing");
 }
 
-/// The library as every client is told it.
-fn library(fixture: &Host) -> Vec<host_core::ResumeEntry> {
+/// Continue watching, as every client is told it.
+fn continue_watching(fixture: &Host) -> Vec<host_core::ResumeEntry> {
     fixture.snapshot().watch_progress
 }
 
@@ -155,12 +156,12 @@ fn playing_a_video_records_where_it_got_to_and_the_snapshot_carries_it() {
 
     play(&mut fixture, "series", "tt0903747:1:2");
     assert!(
-        library(&fixture.host).len() == 1,
+        continue_watching(&fixture.host).len() == 1,
         "a play is a library entry from the moment it is chosen"
     );
     watching(&mut fixture, 402.0, 2820.0, 10_000);
 
-    let entry = &library(&fixture.host)[0];
+    let entry = &continue_watching(&fixture.host)[0];
     assert_eq!(entry.video.id, "tt0903747:1:2");
     assert_eq!(entry.video.season, Some(1));
     assert_eq!(entry.video.episode, Some(2));
@@ -169,6 +170,42 @@ fn playing_a_video_records_where_it_got_to_and_the_snapshot_carries_it() {
     assert_eq!(entry.duration, Some(2820.0));
     assert!(!entry.watched, "a Stream at 402 seconds is not finished");
     assert_eq!(entry.unplayable, None);
+}
+
+#[test]
+fn the_card_a_client_hands_back_carries_its_backdrop_into_continue_watching() {
+    // Continue watching draws 16:9 art (#62), and the client has the backdrop
+    // in hand — so the card it sends on `play_stream` is where the Host gets
+    // it, and the Snapshot is where every client gets it back.
+    let mut fixture = fixture();
+    play(&mut fixture, "series", "tt0903747:1:2");
+    watching(&mut fixture, 402.0, 2820.0, 10_000);
+
+    let entry = &continue_watching(&fixture.host)[0];
+    assert_eq!(
+        entry.title.background(),
+        Some("https://images.example.org/bb-backdrop.jpg")
+    );
+    assert_eq!(
+        entry.title.poster(),
+        Some("https://images.example.org/bb.jpg"),
+        "the poster the backdrop falls back from rides beside it"
+    );
+
+    let published = serde_json::to_value(fixture.host.snapshot()).expect("a Snapshot serializes");
+    assert_eq!(
+        published["watchProgress"][0]["title"]["background"],
+        "https://images.example.org/bb-backdrop.jpg",
+        "the art is published on the Snapshot, camelCased for a JavaScript client"
+    );
+
+    // And the Host that comes back over the same store finds it again.
+    let restarted = fixture_over(fixture.store.clone());
+    assert_eq!(
+        continue_watching(&restarted.host)[0].title.background(),
+        Some("https://images.example.org/bb-backdrop.jpg"),
+        "the backdrop survives a Host that was killed without a stop"
+    );
 }
 
 #[test]
@@ -181,7 +218,7 @@ fn watch_progress_survives_a_host_that_was_killed_without_a_stop() {
 
     let restarted = fixture_over(fixture.store.clone());
 
-    let entry = &library(&restarted.host)[0];
+    let entry = &continue_watching(&restarted.host)[0];
     assert_eq!(entry.video.id, "tt0903747:1:2");
     assert_eq!(
         entry.position,
@@ -204,7 +241,7 @@ fn every_episode_of_a_series_keeps_its_own_progress() {
     play(&mut fixture, "series", "tt0903747:1:4");
     watching(&mut fixture, 200.0, 2820.0, 20_000);
 
-    let mut held: Vec<(String, Option<f64>)> = library(&fixture.host)
+    let mut held: Vec<(String, Option<f64>)> = continue_watching(&fixture.host)
         .iter()
         .map(|entry| (entry.video.id.clone(), entry.position))
         .collect();
@@ -230,7 +267,7 @@ fn the_library_comes_back_most_recently_played_first() {
     watching(&mut fixture, 200.0, 2820.0, 20_000);
 
     assert_eq!(
-        library(&fixture.host)
+        continue_watching(&fixture.host)
             .iter()
             .map(|entry| entry.video.id.as_str())
             .collect::<Vec<_>>(),
@@ -245,7 +282,7 @@ fn a_video_that_finishes_or_stops_within_its_last_moments_is_marked_watched() {
     watching(&mut fixture, 2800.0, 2820.0, 10_000);
 
     assert!(
-        library(&fixture.host)[0].watched,
+        continue_watching(&fixture.host)[0].watched,
         "the last thirty seconds of a Stream are the end of it"
     );
 }
@@ -256,7 +293,7 @@ fn a_video_that_reaches_its_end_is_watched_and_paused_in_the_wrong_place_is_not(
     play(&mut fixture, "series", "tt0903747:1:1");
     watching(&mut fixture, 600.0, 2820.0, 10_000);
     assert!(
-        !library(&fixture.host)[0].watched,
+        !continue_watching(&fixture.host)[0].watched,
         "ten minutes into a forty-seven minute episode is not watched"
     );
 
@@ -269,7 +306,7 @@ fn a_video_that_reaches_its_end_is_watched_and_paused_in_the_wrong_place_is_not(
     fixture.clock.set(20_000);
     fixture.host.sample().expect("reaching the end is a change");
 
-    assert!(library(&fixture.host)[0].watched);
+    assert!(continue_watching(&fixture.host)[0].watched);
 }
 
 #[test]
@@ -284,7 +321,7 @@ fn the_next_episode_is_a_new_entry_under_the_same_title_and_the_one_watched_stay
         .dispatch(action(&serde_json::json!({ "type": "next_episode" })))
         .expect("the next episode of a series plays");
 
-    let held = library(&fixture.host);
+    let held = continue_watching(&fixture.host);
     assert_eq!(held.len(), 2);
     assert_eq!(held[0].video.id, "tt0903747:1:2", "the new episode leads");
     assert_eq!(
@@ -292,7 +329,48 @@ fn the_next_episode_is_a_new_entry_under_the_same_title_and_the_one_watched_stay
         "tt0903747",
         "the next episode is recorded against the same Title"
     );
+    assert_eq!(
+        held[0].title.background(),
+        Some("https://images.example.org/bb-backdrop.jpg"),
+        "the card the Title was told with — backdrop included — carries forward"
+    );
     assert!(held[1].watched, "the episode that finished stays watched");
+}
+
+#[test]
+fn the_previous_episode_is_a_new_entry_and_the_one_left_carries_on() {
+    // Stepping back is a play like stepping forward: the earlier Video becomes
+    // its own entry against the same Title, and the one left behind keeps what
+    // it had (ADR-0015, ADR-0021).
+    let mut fixture = fixture();
+    play(&mut fixture, "series", "tt0903747:1:2");
+    watching(&mut fixture, 2810.0, 2820.0, 10_000);
+
+    fixture.clock.set(20_000);
+    fixture
+        .host
+        .dispatch(action(&serde_json::json!({ "type": "previous_episode" })))
+        .expect("the previous episode of a series plays");
+
+    let held = continue_watching(&fixture.host);
+    assert_eq!(held.len(), 2);
+    assert_eq!(
+        held[0].video.id, "tt0903747:1:1",
+        "the earlier episode leads"
+    );
+    assert_eq!(
+        held[0].title.id(),
+        "tt0903747",
+        "the previous episode is recorded against the same Title"
+    );
+    assert!(
+        held[0].position.is_none(),
+        "it starts fresh, where the play opened it"
+    );
+    assert!(
+        held[1].watched,
+        "the episode that had finished keeps its progress"
+    );
 }
 
 #[test]
@@ -426,5 +504,274 @@ fn resuming_asks_the_addons_that_answer_for_the_videos_streams() {
         fixture.provider.asked()[asked..].to_vec(),
         vec![SERIES_ID.to_owned()],
         "the Streams are asked of the Addons that answer, through the one Provider"
+    );
+}
+
+// --- The TMDB key unifies the two ways into one Title ------------------------
+
+/// The owner's TMDB credential, as the v3 api-key shape the Host takes.
+const TMDB_KEY: &str = "0123456789abcdef0123456789abcdef";
+const TMDB_FIND_SERIES: &str =
+    "https://api.themoviedb.org/3/find/tt0903747?external_source=imdb_id&api_key=0123456789abcdef0123456789abcdef";
+const TMDB_TV_1396: &str =
+    "https://api.themoviedb.org/3/tv/1396?api_key=0123456789abcdef0123456789abcdef";
+const TMDB_TV_1396_SEASON_0: &str =
+    "https://api.themoviedb.org/3/tv/1396/season/0?api_key=0123456789abcdef0123456789abcdef";
+const TMDB_TV_1396_SEASON_1: &str =
+    "https://api.themoviedb.org/3/tv/1396/season/1?api_key=0123456789abcdef0123456789abcdef";
+const TMDB_TV_1396_SEASON_2: &str =
+    "https://api.themoviedb.org/3/tv/1396/season/2?api_key=0123456789abcdef0123456789abcdef";
+const TMDB_EXTERNAL_IDS_BB: &str =
+    "https://api.themoviedb.org/3/tv/1396/external_ids?api_key=0123456789abcdef0123456789abcdef";
+
+const TMDB_FIND_SERIES_BODY: &str = include_str!("fixtures/tmdb-find-bb.json");
+const TMDB_TV_DETAILS: &str = include_str!("fixtures/tmdb-tv-details.json");
+const TMDB_TV_SEASON_0: &str = include_str!("fixtures/tmdb-tv-season-0.json");
+const TMDB_TV_SEASON_1: &str = include_str!("fixtures/tmdb-tv-season-1.json");
+const TMDB_TV_SEASON_2: &str = include_str!("fixtures/tmdb-tv-season-2.json");
+const TMDB_EXTERNAL_BB: &str = include_str!("fixtures/tmdb-external-ids-bb.json");
+
+/// The same Addon, declaring the one id namespace a TMDB-keyed Video reaches it
+/// by — `tt` — so a resume of a TMDB-keyed Video can be asked of it.
+fn manifest_declaring_tt() -> String {
+    format!(
+        r#"{{"id":"{SERIES_ID}","name":"Series","version":"1.0.0",
+             "resources":["meta",{{"name":"stream","types":["movie","series"],"idPrefixes":["tt"]}}],
+             "types":["movie","series"],"catalogs":[]}}"#
+    )
+}
+
+/// A Host with a TMDB key held, the recorded Addon, and every TMDB answer the
+/// mapping needs recorded.
+fn tmdb_fixture() -> Fixture {
+    let player = Arc::new(FixturePlayer::new());
+    let provider = Arc::new(
+        FixtureProvider::new().offering(SERIES_ID, vec![candidate(EPISODE), candidate(FILM)]),
+    );
+    let fetcher = FixtureFetcher::new()
+        .serving(SERIES, manifest_declaring_tt())
+        .serving(META_URL, SERIES_META)
+        .serving(TMDB_FIND_SERIES, TMDB_FIND_SERIES_BODY)
+        .serving(TMDB_TV_1396, TMDB_TV_DETAILS)
+        .serving(TMDB_TV_1396_SEASON_0, TMDB_TV_SEASON_0)
+        .serving(TMDB_TV_1396_SEASON_1, TMDB_TV_SEASON_1)
+        .serving(TMDB_TV_1396_SEASON_2, TMDB_TV_SEASON_2)
+        .serving(TMDB_EXTERNAL_IDS_BB, TMDB_EXTERNAL_BB);
+    let store = Arc::new(InMemoryStore::new());
+    let clock = Arc::new(FixtureClock::new().at(1_000));
+
+    let mut host = Host::new(
+        store.clone() as Arc<dyn Store>,
+        Arc::new(fetcher),
+        Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
+        provider.clone(),
+        player.clone(),
+        clock.clone(),
+    )
+    .expect("a Host over a store starts");
+    host.dispatch(action(
+        &serde_json::json!({ "type": "add_addon", "url": SERIES }),
+    ))
+    .expect("configuring the Addon should work");
+    host.dispatch(action(
+        &serde_json::json!({ "type": "set_tmdb_key", "key": TMDB_KEY }),
+    ))
+    .expect("entering a TMDB key should work");
+
+    Fixture {
+        host,
+        player,
+        provider,
+        store,
+        clock,
+    }
+}
+
+/// Play one Video, with the Title card a client reading that Title would send:
+/// the Addon's id for one opened from a catalog card, `null` for a Discovered
+/// Title (ADR-0020).
+fn play_as(fixture: &mut Fixture, r#type: &str, video: &str, card: serde_json::Value) {
+    fixture
+        .host
+        .dispatch(action(&serde_json::json!({
+            "type": "play_stream",
+            "video": { "type": r#type, "id": video },
+            "addon": SERIES_ID,
+            "title": {
+                "addon": card,
+                "id": video,
+                "type": r#type,
+                "name": "Breaking Bad",
+                "poster": null,
+            },
+            "stream": {
+                "name": "1080p",
+                "playback": { "kind": "direct", "url": EPISODE },
+                "warnings": [],
+            },
+        })))
+        .unwrap_or_else(|error| panic!("playing a direct candidate should work: {error}"));
+}
+
+#[test]
+fn a_series_played_through_an_addon_card_and_through_discover_is_one_entry() {
+    let mut fixture = tmdb_fixture();
+
+    // The Addon path: the Title is TMDB-first, so the Video the client plays is
+    // TMDB's own episode, keyed `tmdb:<id>:<s>:<e>`.
+    let opened = fixture
+        .host
+        .dispatch(action(&serde_json::json!({
+            "type": "open_title",
+            "addon": SERIES_ID,
+            "title": { "type": "series", "id": "tt0903747" },
+        })))
+        .expect("the recorded series opens");
+    let from_addon = opened
+        .title()
+        .expect("opening a Title answers with one")
+        .videos
+        .iter()
+        .find(|video| video.id == "tmdb:1396:1:1")
+        .expect("TMDB supplies the Videos, keyed by TMDB's id")
+        .id
+        .clone();
+
+    play_as(
+        &mut fixture,
+        "series",
+        &from_addon,
+        serde_json::json!(SERIES_ID),
+    );
+    let entry = fixture.host.snapshot().watch_progress;
+
+    // The Discover path: the Title has no Addon, and its Video is the same one.
+    let discovered = fixture
+        .host
+        .dispatch(action(&serde_json::json!({
+            "type": "open_discovered_title",
+            "key": { "kind": "tmdb", "id": 1396 },
+            "kind": "series",
+        })))
+        .expect("the Discovered Title opens");
+    let from_discover = discovered
+        .title()
+        .expect("opening a Title answers with one")
+        .videos
+        .iter()
+        .find(|video| video.id == from_addon)
+        .expect("both ways in name the same Video")
+        .id
+        .clone();
+
+    play_as(
+        &mut fixture,
+        "series",
+        &from_discover,
+        serde_json::Value::Null,
+    );
+
+    let unified = fixture.host.snapshot().watch_progress;
+    assert_eq!(
+        unified.len(),
+        1,
+        "one Video is one entry however many ways the Title was reached: {unified:?}"
+    );
+    assert_eq!(unified[0].video.id, "tmdb:1396:1:1");
+    assert_eq!(
+        (
+            entry[0].video.id.as_str(),
+            entry[0].title.addon().map(host_core::AddonId::as_str),
+        ),
+        ("tmdb:1396:1:1", Some(SERIES_ID)),
+        "the first play's entry was the Addon's card, as told"
+    );
+    assert_eq!(
+        unified[0].unplayable, None,
+        "a Title with no Addon behind it has no removal to be marked by"
+    );
+}
+
+#[test]
+fn a_discovered_titles_progress_resumes_through_the_addons_that_answer_by_tt() {
+    let mut fixture = tmdb_fixture();
+    play_as(
+        &mut fixture,
+        "series",
+        "tmdb:1396:1:2",
+        serde_json::Value::Null,
+    );
+    watching(&mut fixture, 402.0, 2820.0, 10_000);
+    let asked = fixture.provider.asked().len();
+    fixture.player.openings();
+
+    fixture
+        .host
+        .dispatch(action(&serde_json::json!({
+            "type": "resume",
+            "video": { "type": "series", "id": "tmdb:1396:1:2" },
+        })))
+        .expect("a Discovered Title's progress resumes");
+
+    assert_eq!(
+        fixture.provider.asked()[asked..].to_vec(),
+        vec![SERIES_ID.to_owned()],
+        "the TMDB-keyed Video reaches the Addon that declares the `tt` spelling"
+    );
+    assert_eq!(
+        fixture.player.openings().last().map(|open| open.1),
+        Some(Some(402.0)),
+        "and it opens where the Host's own record left it"
+    );
+}
+
+#[test]
+fn a_discovered_titles_entry_never_wears_the_addon_removed_mark() {
+    let mut fixture = tmdb_fixture();
+    play_as(
+        &mut fixture,
+        "series",
+        "tmdb:1396:1:2",
+        serde_json::Value::Null,
+    );
+
+    // The Addon is taken away, and the entry stays listed — unmarked, because
+    // there was no Addon behind this Title to lose (ADR-0020).
+    fixture
+        .host
+        .dispatch(action(
+            &serde_json::json!({ "type": "remove_addon", "id": SERIES_ID }),
+        ))
+        .expect("the Addon is removed");
+
+    let published = fixture.host.snapshot().watch_progress;
+    assert_eq!(published.len(), 1);
+    assert_eq!(
+        published[0].unplayable, None,
+        "a Title that never had an Addon cannot have lost one: {published:?}"
+    );
+
+    // And the same Snapshot against an entry that *did* have one marks it, so
+    // the absence above is a decision rather than a missing feature.
+    let mut was_the_addons = tmdb_fixture();
+    play_as(
+        &mut was_the_addons,
+        "series",
+        "tmdb:1396:1:2",
+        serde_json::json!(SERIES_ID),
+    );
+    was_the_addons
+        .host
+        .dispatch(action(
+            &serde_json::json!({ "type": "remove_addon", "id": SERIES_ID }),
+        ))
+        .expect("the Addon is removed");
+    let marked = was_the_addons.host.snapshot().watch_progress;
+    assert!(
+        matches!(
+            &marked[0].unplayable,
+            Some(entry) if entry.reason == UnplayableReason::AddonRemoved
+        ),
+        "an entry whose Addon is gone is still marked: {marked:?}"
     );
 }

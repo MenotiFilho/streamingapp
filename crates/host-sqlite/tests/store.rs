@@ -2,12 +2,30 @@
 
 use std::path::{Path, PathBuf};
 
-use host_core::{Addon, Manifest, ManifestUrl, Preferences, Store, StoreError, SubtitleLanguage};
+use host_core::{
+    Addon, AddonId, CatalogRef, FeaturedCatalog, Manifest, ManifestUrl, Preferences, Store,
+    StoreError, SubtitleLanguage,
+};
 use host_sqlite::SqliteStore;
 use rusqlite::Connection;
 
 fn language(tag: &str) -> SubtitleLanguage {
     SubtitleLanguage::parse(tag).unwrap_or_else(|error| panic!("{tag} is a language tag: {error}"))
+}
+
+/// A Featured catalog as the Host would have written it.
+fn featured(addon: &str, kind: &str, id: &str) -> FeaturedCatalog {
+    FeaturedCatalog {
+        addon: AddonId::parse(addon).expect("an Addon id"),
+        catalog: CatalogRef::parse(kind, id).expect("a Catalog reference"),
+    }
+}
+
+/// The preferences a store holding just this marking would hold.
+fn featured_preferences(marking: FeaturedCatalog) -> Preferences {
+    let mut preferences = Preferences::new();
+    preferences.set_featured_catalog(Some(marking));
+    preferences
 }
 
 /// An Addon as the Host would have parsed it, without needing a fixture file.
@@ -117,6 +135,106 @@ fn clearing_the_subtitle_language_removes_the_row_rather_than_blanking_it() {
         .expect("the store takes a cleared preference");
 
     assert_eq!(stored_rows(&path, "subtitle_language"), 0);
+}
+
+#[test]
+fn a_featured_catalog_round_trips() {
+    let store = store();
+    let written = featured_preferences(featured("org.example.first", "movie", "top"));
+
+    store
+        .write_preferences(&written)
+        .expect("the store takes a preference");
+
+    assert_eq!(store.read_preferences(), Ok(written));
+}
+
+#[test]
+fn a_featured_catalog_round_trips_beside_the_subtitle_language() {
+    let store = store();
+    let mut written = Preferences::with_subtitle_language(Some(language("pt-BR")));
+    written.set_featured_catalog(Some(featured("org.example.first", "movie", "top")));
+
+    store
+        .write_preferences(&written)
+        .expect("the store takes both preferences");
+
+    assert_eq!(store.read_preferences(), Ok(written));
+}
+
+#[test]
+fn clearing_the_featured_catalog_removes_the_row_rather_than_blanking_it() {
+    let (_directory, path) = store_on_disk();
+    let store = SqliteStore::open(&path).expect("the store opens");
+    store
+        .write_preferences(&featured_preferences(featured(
+            "org.example.first",
+            "movie",
+            "top",
+        )))
+        .expect("the store takes a preference");
+
+    store
+        .write_preferences(&Preferences::new())
+        .expect("the store takes a cleared marking");
+
+    assert_eq!(stored_rows(&path, "featured_catalog"), 0);
+}
+
+#[test]
+fn a_stored_featured_catalog_that_is_not_a_document_is_reported_and_not_a_panic() {
+    let (_directory, path) = store_on_disk();
+    let store = SqliteStore::open(&path).expect("the store opens");
+    store
+        .write_preferences(&featured_preferences(featured(
+            "org.example.first",
+            "movie",
+            "top",
+        )))
+        .expect("the store takes a preference");
+    Connection::open(&path)
+        .expect("the database opens")
+        .execute(
+            "UPDATE preferences SET value = 'not json at all' WHERE key = 'featured_catalog'",
+            [],
+        )
+        .expect("the stored marking is made unusable");
+
+    let read = store.read_preferences();
+
+    assert!(
+        matches!(read, Err(StoreError::Read { .. })),
+        "an unusable stored marking is a read failure, not a crash: {read:?}"
+    );
+}
+
+#[test]
+fn a_stored_featured_catalog_naming_an_unusable_catalog_is_reported_and_not_a_panic() {
+    let (_directory, path) = store_on_disk();
+    let store = SqliteStore::open(&path).expect("the store opens");
+    store
+        .write_preferences(&featured_preferences(featured(
+            "org.example.first",
+            "movie",
+            "top",
+        )))
+        .expect("the store takes a preference");
+    Connection::open(&path)
+        .expect("the database opens")
+        .execute(
+            "UPDATE preferences
+             SET value = '{\"addon\":\"org.example.first\",\"catalog\":{\"type\":\"mov ie\",\"id\":\"top\"}}'
+             WHERE key = 'featured_catalog'",
+            [],
+        )
+        .expect("the stored Catalog is made unusable");
+
+    let read = store.read_preferences();
+
+    assert!(
+        matches!(read, Err(StoreError::Read { .. })),
+        "a Catalog the parser would refuse is refused however it arrives: {read:?}"
+    );
 }
 
 #[test]

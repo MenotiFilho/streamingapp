@@ -621,11 +621,12 @@ mod tests {
 
     fn stub(kind: &str, id: &str) -> TitleStub {
         TitleStub::parse(&TitleCard {
-            addon: AddonId::parse("com.linvo.cinemeta").expect("an Addon id"),
+            addon: Some(AddonId::parse("com.linvo.cinemeta").expect("an Addon id")),
             id: id.to_owned(),
             r#type: kind.to_owned(),
             name: "Breaking Bad".to_owned(),
             poster: None,
+            background: None,
         })
         .expect("a card the Host will keep")
     }

@@ -675,6 +675,9 @@ pub enum Control {
     Aspect,
     /// S4: skipping to the Video after this one in its Title.
     NextEpisode,
+    /// S4: skipping back to the Video before this one in its Title, the mirror
+    /// of `NextEpisode` (ADR-0021).
+    PreviousEpisode,
 }
 
 impl std::fmt::Display for Control {
@@ -693,6 +696,7 @@ impl std::fmt::Display for Control {
             Control::Crop => "crop",
             Control::Aspect => "aspect",
             Control::NextEpisode => "next episode",
+            Control::PreviousEpisode => "previous episode",
         })
     }
 }
@@ -913,6 +917,14 @@ impl PlaybackSession {
                 .playing
                 .as_ref()
                 .map(|chosen| chosen.now_playing.clone()),
+            // The Host's own reading of the Video's id — no Addon is asked, and
+            // whether a neighbour exists is the press's business, not the
+            // field's (ADR-0021).
+            episode: self
+                .playing
+                .as_ref()
+                .and_then(|chosen| crate::meta::episode_of(&chosen.now_playing.video.id))
+                .map(|(_, season, episode)| Episode { season, episode }),
             position: self.position,
             duration: self.duration,
             tracks: self.tracks.clone(),
@@ -1135,6 +1147,20 @@ impl PlaybackSession {
     }
 }
 
+/// Where in its Title a Video sits: which season, and which episode.
+///
+/// The Host's own reading of the Video's id and nothing else — the shape the
+/// protocol writes an episode's id in, read through [`crate::meta::episode_of`],
+/// the way the library's card reads it too. It is deliberately not a verdict: a
+/// numbered `S1E1` can be wrong for a season that starts at specials, so whether
+/// a neighbour exists stays the refusal an episode step answers with (ADR-0021).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Episode {
+    pub season: u32,
+    pub episode: u32,
+}
+
 /// What every client is told about playback: the one genuinely shared state
 /// (the spec's own words), so it travels as a Snapshot and never as an answer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1153,6 +1179,12 @@ pub struct PlaybackSnapshot {
     /// Never where its bytes are: a Stream URL can carry a debrid credential,
     /// and a Snapshot reaches every paired client (ADR-0009).
     pub now_playing: Option<NowPlaying>,
+    /// Which season and episode the Stream playing is, where the Video's own id
+    /// says — the reading both clients grey their episode steps from, beside
+    /// `position` and `crop` rather than inside `now_playing`, which is the
+    /// Addon's words and knows nothing of the protocol's id shape (ADR-0021).
+    /// Null for a film.
+    pub episode: Option<Episode>,
     /// Where playback is, in seconds from the Stream's start.
     pub position: Option<f64>,
     /// How long the Stream is, in seconds, where the Stream says.
@@ -1593,6 +1625,7 @@ mod tests {
                     .expect("a direct URL is a candidate this Host plays")
                     .now_playing
                 ),
+                episode: None,
                 position: None,
                 duration: None,
                 tracks: Vec::new(),
@@ -1750,6 +1783,7 @@ mod tests {
                     "filename": "The.Matrix.1999.1080p.mkv",
                     "bingeGroup": "aiostreams|1080p",
                 },
+                "episode": null,
                 "position": null,
                 "duration": null,
                 "tracks": [],
@@ -2120,6 +2154,7 @@ mod tests {
                     "addon": "community.aiostreams",
                     "name": "1080p", "description": null, "filename": null, "bingeGroup": null
                 },
+                "episode": { "season": 1, "episode": 1 },
                 "position": 12.5,
                 "duration": 600.0,
                 "tracks": [

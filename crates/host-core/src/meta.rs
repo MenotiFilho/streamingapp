@@ -26,12 +26,17 @@
 //! is ignored instead, because genres decorate a Title while its Videos are what a
 //! Title *is* — the same leniency a catalog item's genres already get.
 //!
-//! Only the fields this Host acts on are read. A meta response carries far more —
-//! Cinemeta's `cast`, `director`, `trailers`, `links`, `slug`, `popularities`,
-//! `imdb_id`, `background` and `logo`, and a Video's `thumbnail`, `overview`,
-//! `rating`, `firstAired` and `tvdb_id` — and all of it is ignored rather than
-//! refused, because reading a field nothing acts on is a promise this Host would
-//! not be keeping (ADR-0009). It arrives when a ticket that acts on it does.
+//! Only the fields this Host acts on are read, and art is now among them: a
+//! Title's `background` and `logo` and a Video's `thumbnail` are carried so the
+//! Title screen and a series' episode rows can be drawn (ADR-0011's #62
+//! amendment) — the same widening Home's hero got from a catalog item. Where a
+//! key is held, ADR-0020 gives TMDB's record the last word on this art as well
+//! (#76). A meta response carries far more — Cinemeta's `cast`, `director`,
+//! `trailers`, `links`, `slug`, `popularities`, `imdb_id`, and a Video's
+//! `overview`, `rating`, `firstAired` and `tvdb_id` — and all of it is ignored
+//! rather than refused, because reading a field nothing acts on is a promise
+//! this Host would not be keeping (ADR-0009). It arrives when a ticket that
+//! acts on it does.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -50,12 +55,15 @@ pub const MAX_META_BYTES: usize = 4 * 1024 * 1024;
 ///
 /// The [`addon`](Self::addon) that answered travels with it, because that is what
 /// later tickets ask for Streams of one of its Videos, and because a Title here is
-/// always one Addon's answer to one client (ADR-0005), never shared state.
+/// always one Addon's answer to one client (ADR-0005), never shared state. It is
+/// absent for a **Discovered Title** — one TMDB named before any Addon did, which
+/// may be unknown to every configured Addon (ADR-0020).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Title {
-    /// The Addon that answered. Never where its manifest lives.
-    pub addon: AddonId,
+    /// The Addon that answered, or `None` for a Discovered Title. Never where its
+    /// manifest lives.
+    pub addon: Option<AddonId>,
     /// The id the client opened, which is the id its Addon indexes it by —
     /// `tt0903747`, `tmdb:603`.
     pub id: String,
@@ -69,6 +77,14 @@ pub struct Title {
     /// Title always has something to be called.
     pub name: String,
     pub poster: Option<String>,
+    /// The backdrop's address, where it has one — the Addon's, or TMDB's where
+    /// a key is held: the art a Title screen is drawn from, where the poster
+    /// beside it is portrait (#62, ADR-0020).
+    pub background: Option<String>,
+    /// The logo's address, where it has one — the Addon's, or TMDB's where a key
+    /// is held: a wordmark a Title screen overlays on the backdrop, where a
+    /// client draws one (#62, ADR-0020).
+    pub logo: Option<String>,
     pub description: Option<String>,
     /// The year, or a series' years: `1999`, `2008–2013`, `2020-`.
     pub release_info: Option<String>,
@@ -114,14 +130,18 @@ pub struct Video {
     pub season: Option<u32>,
     /// The number within the season.
     pub episode: Option<u32>,
+    /// The episode's still, where the Addon gave one: the 16:9 art a series'
+    /// episode row is drawn from (#62).
+    pub thumbnail: Option<String>,
 }
 
 impl Video {
     /// A Video named by its id alone: the id it is keyed by, and the season and
     /// episode the protocol indexes at the end of it, where both are numbers.
     ///
-    /// What a library entry is drawn from when no Addon answered about the
-    /// Video — the entry is keyed by the id Watch progress was recorded against.
+    /// What a Continue watching entry is drawn from when no Addon answered about
+    /// the Video — the entry is keyed by the id Watch progress was recorded
+    /// against.
     /// The episode's name is deliberately absent: it is not in the id, and the
     /// Host does not invent one.
     pub fn keyed(id: &str) -> Self {
@@ -132,6 +152,7 @@ impl Video {
             name: None,
             season,
             episode,
+            thumbnail: None,
         }
     }
 }
@@ -144,9 +165,9 @@ impl Video {
 /// parts: an Addon keyed by a namespaced id (`kitsu:12345`) indexes its episodes
 /// as `kitsu:12345:1:1`, so the shape is "two numeric parts at the end" rather
 /// than "exactly three parts". This is the one reading of that shape — the
-/// library's card and the Host's next-episode rule both go through it — so the
-/// two cannot disagree about what an episode is. A Video whose id does not end
-/// that way — a film's — is not an episode, and the answer is `None`.
+/// Continue watching card and the Host's next-episode rule both go through it —
+/// so the two cannot disagree about what an episode is. A Video whose id does
+/// not end that way — a film's — is not an episode, and the answer is `None`.
 pub fn episode_of(id: &str) -> Option<(&str, u32, u32)> {
     let mut parts = id.rsplitn(3, ':');
     let episode = parts.next()?.parse::<u32>().ok()?;
@@ -220,7 +241,7 @@ impl Title {
             // *is* the item that was asked about, and an Addon cannot rename it.
             // A fresh answer is keyed by the Addon that gave it, until TMDB's
             // own records say otherwise — which is a decision above the parse.
-            addon: addon.clone(),
+            addon: Some(addon.clone()),
             id: asked.id.clone(),
             key: TitleKey::Addon {
                 addon,
@@ -231,6 +252,8 @@ impl Title {
                 .and_then(|meta| field(meta, "name"))
                 .unwrap_or_else(|| asked.id.clone()),
             poster: meta.and_then(|meta| field(meta, "poster")),
+            background: meta.and_then(|meta| field(meta, "background")),
+            logo: meta.and_then(|meta| field(meta, "logo")),
             description: meta.and_then(|meta| field(meta, "description")),
             release_info: meta.and_then(|meta| field(meta, "releaseInfo")),
             runtime: meta.and_then(|meta| field(meta, "runtime")),
@@ -287,6 +310,7 @@ fn video(value: &Value) -> Option<Video> {
         // both: Cinemeta's `episode` and the SDK's own `number`. `episode` is
         // read first because it is the one that names what the number is.
         episode: number(object, "episode").or_else(|| number(object, "number")),
+        thumbnail: field(object, "thumbnail"),
     })
 }
 
@@ -362,7 +386,10 @@ mod tests {
     fn a_recorded_film_is_read_into_its_metadata_and_no_videos() {
         let title = parsed(MOVIE, &asked("movie", "tt0133093"));
 
-        assert_eq!(title.addon.as_str(), "com.linvo.cinemeta");
+        assert_eq!(
+            title.addon.as_ref().map(AddonId::as_str),
+            Some("com.linvo.cinemeta")
+        );
         assert_eq!(title.id, "tt0133093");
         assert_eq!(title.r#type, "movie");
         assert_eq!(title.name, "The Matrix");
@@ -370,6 +397,16 @@ mod tests {
             .poster
             .as_deref()
             .is_some_and(|poster| poster.starts_with("https://")));
+        assert_eq!(
+            title.background.as_deref(),
+            Some("https://images.metahub.space/background/medium/tt0133093/img"),
+            "the backdrop is read: Home's hero and the Title hero are drawn from it"
+        );
+        assert_eq!(
+            title.logo.as_deref(),
+            Some("https://images.metahub.space/logo/medium/tt0133093/img"),
+            "the wordmark is read: a Title screen draws it over the backdrop"
+        );
         assert_eq!(title.release_info.as_deref(), Some("1999"));
         assert_eq!(title.runtime.as_deref(), Some("136 min"));
         assert_eq!(title.imdb_rating.as_deref(), Some("8.7"));
@@ -378,6 +415,16 @@ mod tests {
             .description
             .as_deref()
             .is_some_and(|description| description.contains("hacker")));
+        assert_eq!(
+            title.background.as_deref(),
+            Some("https://images.metahub.space/background/medium/tt0133093/img"),
+            "the backdrop a Title screen is drawn from"
+        );
+        assert_eq!(
+            title.logo.as_deref(),
+            Some("https://images.metahub.space/logo/medium/tt0133093/img"),
+            "the wordmark a Title screen overlays on it"
+        );
         assert!(
             title.videos.is_empty(),
             "a film has no Videos: {:?}",
@@ -411,6 +458,20 @@ mod tests {
         let pilot = &title.videos[1];
         assert_eq!(pilot.id, "tt0903747:1:1");
         assert_eq!(pilot.name.as_deref(), Some("Pilot"));
+        assert_eq!(
+            pilot.thumbnail.as_deref(),
+            Some("https://episodes.metahub.space/tt0903747/1/1/w780.jpg"),
+            "Cinemeta sends every episode its own 16:9 still"
+        );
+        assert!(
+            title.videos.iter().all(|video| video.thumbnail.is_some()),
+            "the specials carry one too: {:?}",
+            title
+                .videos
+                .iter()
+                .map(|video| video.thumbnail.as_deref())
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -446,6 +507,8 @@ mod tests {
         assert_eq!(title.r#type, "movie");
         assert_eq!(title.name, "The Matrix");
         assert_eq!(title.poster, None);
+        assert_eq!(title.background, None, "no art to draw, and no failure");
+        assert_eq!(title.logo, None);
         assert_eq!(title.description, None);
         assert_eq!(title.release_info, None);
         assert_eq!(title.runtime, None);
@@ -570,13 +633,41 @@ mod tests {
     #[test]
     fn fields_this_host_has_no_use_for_are_ignored_rather_than_refused() {
         // Cinemeta's meta carries `cast`, `director`, `trailers`, `links`,
-        // `slug`, `popularities`, `imdb_id`, `moviedb_id`, `background` and
-        // `logo` beside the fields the Host reads, and a Title that knows more
-        // than the Host does still opens.
+        // `slug`, `popularities`, `imdb_id`, `moviedb_id` and a Video's
+        // `overview`, `rating`, `firstAired` and `tvdb_id` beside the fields the
+        // Host reads, and a Title that knows more than the Host does still opens.
         let title = parsed(SERIES, &asked("series", "tt0903747"));
 
         assert_eq!(title.imdb_rating.as_deref(), Some("9.5"));
         assert_eq!(title.genres, vec!["Crime", "Drama", "Thriller"]);
+    }
+
+    #[test]
+    fn art_of_a_shape_the_host_will_not_hold_is_art_the_addon_did_not_send() {
+        // The same leniency every field gets: a backdrop or a still that is not
+        // a string the Host will hold is absent rather than a refusal of the
+        // whole answer.
+        let title = parsed(
+            r#"{"meta":{"id":"tt1","type":"series","name":"One",
+                "background":7,"logo":"","videos":[{"id":"tt1:1:1","thumbnail":false}]}}"#,
+            &asked("series", "tt1"),
+        );
+
+        assert_eq!(title.background, None);
+        assert_eq!(title.logo, None, "an empty wordmark is no wordmark");
+        assert_eq!(title.videos[0].thumbnail, None);
+
+        let too_long = "https://example.org/".to_owned() + &"a".repeat(MAX_STRING_LEN);
+        let title = parsed(
+            &format!(
+                r#"{{"meta":{{"id":"tt1","type":"movie","name":"One","background":"{too_long}"}}}}"#
+            ),
+            &asked("movie", "tt1"),
+        );
+        assert_eq!(
+            title.background, None,
+            "a backdrop too long to hold is no backdrop"
+        );
     }
 
     #[test]
@@ -674,6 +765,14 @@ mod tests {
         assert_eq!(published["type"], "movie");
         assert_eq!(published["releaseInfo"], "1999");
         assert_eq!(published["imdbRating"], "8.7");
+        assert_eq!(
+            published["background"], "https://images.metahub.space/background/medium/tt0133093/img",
+            "the art rides the answer to the client that opened the Title"
+        );
+        assert_eq!(
+            published["logo"],
+            "https://images.metahub.space/logo/medium/tt0133093/img"
+        );
         assert_eq!(
             published["videos"],
             serde_json::json!([]),

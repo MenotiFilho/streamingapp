@@ -77,6 +77,46 @@ pub const MIGRATIONS: &[Migration] = &[
                  paired_at    INTEGER NOT NULL
              );",
     },
+    Migration {
+        // The Continue watching card's backdrop (#62, #73): the row draws 16:9
+        // art, and the poster the card already carried is portrait. It sits
+        // beside that poster, which is what a client falls back to, and is null
+        // for every entry written before this column existed.
+        version: 5,
+        sql: "ALTER TABLE watch_progress ADD COLUMN title_background TEXT;",
+    },
+    Migration {
+        // A Watch progress entry's Title may have no Addon behind it at all:
+        // a **Discovered Title** is one TMDB named before any Addon did, and
+        // there is no Addon whose removal could be judged against it (ADR-0020).
+        // SQLite cannot drop a `NOT NULL` in place, so the table is rebuilt and
+        // the rows copied across — the backdrop column the step before this one
+        // added included. A row written before this step has an Addon and keeps
+        // it.
+        version: 6,
+        sql: "ALTER TABLE watch_progress RENAME TO watch_progress_v5;
+              CREATE TABLE watch_progress (
+                  video_id         TEXT PRIMARY KEY NOT NULL,
+                  video_type       TEXT NOT NULL,
+                  title_addon      TEXT,
+                  title_id         TEXT NOT NULL,
+                  title_type       TEXT NOT NULL,
+                  title_name       TEXT NOT NULL,
+                  title_poster     TEXT,
+                  title_background TEXT,
+                  position         REAL,
+                  duration         REAL,
+                  watched          INTEGER NOT NULL,
+                  updated_at       INTEGER NOT NULL
+              );
+              INSERT INTO watch_progress
+                  (video_id, video_type, title_addon, title_id, title_type, title_name,
+                   title_poster, title_background, position, duration, watched, updated_at)
+                  SELECT video_id, video_type, title_addon, title_id, title_type, title_name,
+                         title_poster, title_background, position, duration, watched, updated_at
+                  FROM watch_progress_v5;
+              DROP TABLE watch_progress_v5;",
+    },
 ];
 
 /// The version a database is at once every migration in `migrations` has run.

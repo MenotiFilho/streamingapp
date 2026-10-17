@@ -10,15 +10,38 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use host_core::{
-    Addon, AddonId, Device, DeviceId, DeviceName, Manifest, ManifestUrl, Preferences, Store,
-    StoreError, SubtitleLanguage, TitleCard, TitleStub, TokenDigest, VideoRef, WatchProgress,
+    Addon, AddonId, CatalogRef, Device, DeviceId, DeviceName, FeaturedCatalog, Manifest,
+    ManifestUrl, Preferences, Store, StoreError, SubtitleLanguage, TitleCard, TitleStub,
+    TokenDigest, VideoRef, WatchProgress,
 };
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, Transaction};
 
 pub use migrations::{latest_version, migrate, schema_version, Migration, MIGRATIONS};
 
 /// The key the subtitle language preference is stored under.
 const SUBTITLE_LANGUAGE: &str = "subtitle_language";
+
+/// The key the Featured catalog preference is stored under.
+const FEATURED_CATALOG: &str = "featured_catalog";
+
+/// Write one preference row, or drop it when the value is `None`: setting and
+/// clearing are one decision, so the two preferences cannot drift apart.
+fn put_preference(
+    transaction: &Transaction<'_>,
+    key: &str,
+    value: Option<&str>,
+) -> Result<(), StoreError> {
+    let written = match value {
+        Some(value) => transaction.execute(
+            "INSERT INTO preferences (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        ),
+        None => transaction.execute("DELETE FROM preferences WHERE key = ?1", params![key]),
+    };
+
+    written.map(|_| ()).map_err(StoreError::write)
+}
 
 /// The Host's database.
 pub struct SqliteStore {
@@ -80,6 +103,7 @@ impl Store for SqliteStore {
             .map_err(StoreError::read)?;
 
         let mut subtitle_language = None;
+        let mut featured_catalog = None;
         for row in rows {
             let (key, value) = row.map_err(StoreError::read)?;
             match key.as_str() {
@@ -90,38 +114,48 @@ impl Store for SqliteStore {
                         }
                     })?);
                 }
+                FEATURED_CATALOG => {
+                    // The document is read back, and the Catalog inside it is
+                    // judged as it was written: a row that somehow drifted is a
+                    // read failure and never a Catalog a Snapshot points Home at.
+                    let unusable = |error: String| StoreError::Read {
+                        detail: format!("the stored featured catalog is unusable: {error}"),
+                    };
+                    let featured: FeaturedCatalog = serde_json::from_str(&value)
+                        .map_err(|error| unusable(error.to_string()))?;
+                    CatalogRef::parse(&featured.catalog.r#type, &featured.catalog.id)
+                        .map_err(|error| unusable(error.to_string()))?;
+                    featured_catalog = Some(featured);
+                }
                 // A preference written by a newer Host than this one: leaving it
                 // alone keeps it for the Host that understands it.
                 _ => continue,
             }
         }
 
-        Ok(Preferences::with_subtitle_language(subtitle_language))
+        let mut preferences = Preferences::with_subtitle_language(subtitle_language);
+        preferences.set_featured_catalog(featured_catalog);
+        Ok(preferences)
     }
 
     fn write_preferences(&self, preferences: &Preferences) -> Result<(), StoreError> {
         let mut connection = self.locked()?;
         let transaction = connection.transaction().map_err(StoreError::write)?;
 
-        match preferences.subtitle_language() {
-            Some(language) => {
-                transaction
-                    .execute(
-                        "INSERT INTO preferences (key, value) VALUES (?1, ?2)
-                         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                        params![SUBTITLE_LANGUAGE, language.as_str()],
-                    )
-                    .map_err(StoreError::write)?;
-            }
-            None => {
-                transaction
-                    .execute(
-                        "DELETE FROM preferences WHERE key = ?1",
-                        params![SUBTITLE_LANGUAGE],
-                    )
-                    .map_err(StoreError::write)?;
-            }
-        }
+        put_preference(
+            &transaction,
+            SUBTITLE_LANGUAGE,
+            preferences
+                .subtitle_language()
+                .map(SubtitleLanguage::as_str),
+        )?;
+        // The whole pair as one document: an id is only half of what an Addon's
+        // Catalog is, and two rows could disagree.
+        let featured = match preferences.featured_catalog() {
+            Some(featured) => Some(serde_json::to_string(featured).map_err(StoreError::write)?),
+            None => None,
+        };
+        put_preference(&transaction, FEATURED_CATALOG, featured.as_deref())?;
 
         transaction.commit().map_err(StoreError::write)
     }
@@ -189,7 +223,7 @@ impl Store for SqliteStore {
         let mut statement = connection
             .prepare(
                 "SELECT video_type, video_id, title_addon, title_id, title_type, title_name,
-                        title_poster, position, duration, watched, updated_at
+                        title_poster, title_background, position, duration, watched, updated_at
                  FROM watch_progress ORDER BY updated_at DESC",
             )
             .map_err(StoreError::read)?;
@@ -198,15 +232,16 @@ impl Store for SqliteStore {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(2)?,
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
                     row.get::<_, String>(5)?,
                     row.get::<_, Option<String>>(6)?,
-                    row.get::<_, Option<f64>>(7)?,
+                    row.get::<_, Option<String>>(7)?,
                     row.get::<_, Option<f64>>(8)?,
-                    row.get::<_, i64>(9)?,
+                    row.get::<_, Option<f64>>(9)?,
                     row.get::<_, i64>(10)?,
+                    row.get::<_, i64>(11)?,
                 ))
             })
             .map_err(StoreError::read)?;
@@ -214,8 +249,8 @@ impl Store for SqliteStore {
         let mut watch = Vec::new();
         for row in rows {
             // Nothing here is named in the message: a Title's addon and id are
-            // the owner's library, and a read failure ends up in a log or in an
-            // error a client sees.
+            // the owner's Watch progress, and a read failure ends up in a log or
+            // in an error a client sees.
             let (
                 video_type,
                 video_id,
@@ -224,6 +259,7 @@ impl Store for SqliteStore {
                 title_type,
                 title_name,
                 title_poster,
+                title_background,
                 position,
                 duration,
                 watched,
@@ -233,9 +269,17 @@ impl Store for SqliteStore {
             let video = VideoRef::parse(&video_type, &video_id).map_err(|_| StoreError::Read {
                 detail: "a stored Watch progress entry names no Video".to_owned(),
             })?;
-            let addon = AddonId::parse(&title_addon).map_err(|_| StoreError::Read {
-                detail: "a stored Watch progress entry names no Addon".to_owned(),
-            })?;
+            // No Addon is a Discovered Title rather than a broken row: a Title
+            // TMDB named before any Addon did has none (ADR-0020). What is one is
+            // an Addon id that cannot be read at all.
+            let addon = title_addon
+                .as_deref()
+                .map(|addon| {
+                    AddonId::parse(addon).map_err(|_| StoreError::Read {
+                        detail: "a stored Watch progress entry names no Addon".to_owned(),
+                    })
+                })
+                .transpose()?;
             // The Title is read back through the same judgement it was written
             // with, so a row that somehow drifted cannot reach a Snapshot.
             let title = TitleStub::parse(&TitleCard {
@@ -244,6 +288,7 @@ impl Store for SqliteStore {
                 r#type: title_type,
                 name: title_name,
                 poster: title_poster,
+                background: title_background,
             })
             .map_err(|_| StoreError::Read {
                 detail: "a stored Watch progress entry names no Title".to_owned(),
@@ -270,27 +315,29 @@ impl Store for SqliteStore {
             .execute(
                 "INSERT INTO watch_progress
                      (video_id, video_type, title_addon, title_id, title_type, title_name,
-                      title_poster, position, duration, watched, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                      title_poster, title_background, position, duration, watched, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
                  ON CONFLICT(video_id) DO UPDATE SET
-                     video_type   = excluded.video_type,
-                     title_addon  = excluded.title_addon,
-                     title_id     = excluded.title_id,
-                     title_type   = excluded.title_type,
-                     title_name   = excluded.title_name,
-                     title_poster = excluded.title_poster,
-                     position     = excluded.position,
-                     duration     = excluded.duration,
-                     watched      = excluded.watched,
-                     updated_at   = excluded.updated_at",
+                     video_type       = excluded.video_type,
+                     title_addon      = excluded.title_addon,
+                     title_id         = excluded.title_id,
+                     title_type       = excluded.title_type,
+                     title_name       = excluded.title_name,
+                     title_poster     = excluded.title_poster,
+                     title_background = excluded.title_background,
+                     position         = excluded.position,
+                     duration         = excluded.duration,
+                     watched          = excluded.watched,
+                     updated_at       = excluded.updated_at",
                 params![
                     progress.video.id,
                     progress.video.r#type,
-                    progress.title.addon().as_str(),
+                    progress.title.addon().map(|addon| addon.as_str()),
                     progress.title.id(),
                     progress.title.r#type(),
                     progress.title.name(),
                     progress.title.poster(),
+                    progress.title.background(),
                     progress.position,
                     progress.duration,
                     i64::from(progress.watched),

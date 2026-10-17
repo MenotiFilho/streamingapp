@@ -1,4 +1,4 @@
-//! Watch progress, and the library every client reads it from.
+//! Watch progress, and the Continue watching row every client reads it from.
 //!
 //! Two things live here, and they are two halves of one feature (#29).
 //!
@@ -10,13 +10,13 @@
 //! was. Playback itself is not stored (ADR-0013): what survives is the progress,
 //! not the Stream.
 //!
-//! **The library** is what a client sees of it: a [`ResumeEntry`] per Video,
-//! carrying the Video and enough of its Title to draw a card without opening it.
-//! The card is what the client was reading when it pressed play — a Title is a
-//! client's own business (ADR-0005), so the Host is *told* which Title a Video
-//! belongs to rather than working it out from an Addon — and the Addon that
-//! supplied it is what a removed Addon is judged against: an entry whose Addon
-//! is gone stays listed, marked unplayable, rather than vanishing.
+//! **Continue watching** is what a client sees of it: a [`ResumeEntry`] per
+//! Video, carrying the Video and enough of its Title to draw a card without
+//! opening it. The card is what the client was reading when it pressed play — a
+//! Title is a client's own business (ADR-0005), so the Host is *told* which
+//! Title a Video belongs to rather than working it out from an Addon — and the
+//! Addon that supplied it is what a removed Addon is judged against: an entry
+//! whose Addon is gone stays listed, marked unplayable, rather than vanishing.
 //!
 //! ## Finished is a moment, not a state
 //!
@@ -56,13 +56,15 @@ pub const PROGRESS_EVERY: f64 = 5.0;
 /// not in the Stream, and the Addon that supplied it is not necessarily the one
 /// the Stream came from. So the client that opened it hands back the least of it
 /// a card is drawn from, and the Host keeps that rather than re-asking an Addon
-/// — which is also what lets the library work with no network at all.
+/// — which is also what lets Continue watching work with no network at all.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TitleCard {
-    /// The Addon the client opened the Title from. Held as an `AddonId`, which
-    /// is the type that judges it, so a card can only ever name a real one.
-    pub addon: AddonId,
+    /// The Addon the client opened the Title from, or `None` for a Discovered
+    /// Title: one TMDB named and no Addon did, which has no Addon to judge a
+    /// removal against (ADR-0020). Held as an `AddonId`, which is the type that
+    /// judges it, so a card can only ever name a real one.
+    pub addon: Option<AddonId>,
     /// The id the Addon indexes the Title by: `tt0903747` for its episodes too.
     pub id: String,
     /// The Title's content type: `movie`, `series`, …
@@ -72,23 +74,28 @@ pub struct TitleCard {
     pub name: String,
     /// The Title's poster, where the Addon gave one.
     pub poster: Option<String>,
+    /// The Title's backdrop, where the Addon gave one. Continue watching draws
+    /// 16:9 cards, and the poster beside it is portrait.
+    pub background: Option<String>,
 }
 
-/// The least of a Title a library card is drawn from — judged.
+/// The least of a Title a Continue watching card is drawn from — judged.
 ///
 /// Valid by construction: [`TitleStub::parse`] is the only way to make one, and
 /// it refuses a Title whose type and id are not ones a request could name. The
 /// words are bounded the way every word that travels to a client is: a name too
-/// long to hold falls back to the id, and a poster that is not one is dropped.
+/// long to hold falls back to the id, and a poster or a backdrop that is not one
+/// is dropped.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TitleStub {
-    addon: AddonId,
+    addon: Option<AddonId>,
     id: String,
     #[serde(rename = "type")]
     r#type: String,
     name: String,
     poster: Option<String>,
+    background: Option<String>,
 }
 
 impl TitleStub {
@@ -102,13 +109,15 @@ impl TitleStub {
             id: title.id,
             r#type: title.r#type,
             name: held(&card.name).unwrap_or_else(|| card.id.clone()),
-            poster: held(&card.poster.clone().unwrap_or_default()),
+            poster: held(card.poster.as_deref().unwrap_or_default()),
+            background: held(card.background.as_deref().unwrap_or_default()),
         })
     }
 
-    /// The Addon the Title came from — what a removed Addon is judged against.
-    pub fn addon(&self) -> &AddonId {
-        &self.addon
+    /// The Addon the Title came from — what a removed Addon is judged against —
+    /// or `None` for a Discovered Title, which none supplied (ADR-0020).
+    pub fn addon(&self) -> Option<&AddonId> {
+        self.addon.as_ref()
     }
 
     /// The id the Addon indexes the Title by.
@@ -130,14 +139,21 @@ impl TitleStub {
     pub fn poster(&self) -> Option<&str> {
         self.poster.as_deref()
     }
+
+    /// The Title's backdrop, where it had one the Host will hold: the 16:9 art
+    /// Continue watching draws, where the poster beside it is portrait.
+    pub fn background(&self) -> Option<&str> {
+        self.background.as_deref()
+    }
 }
 
 /// One Video's Watch progress, as the Host stores it.
 ///
 /// Keyed by the Video — one entry per Video, and the unit the spec names for it
-/// — and carrying the Title it belongs to so the library can draw a card without
-/// opening anything. `updated_at` is not published: it is what orders the entry
-/// and what #30's merge resolves two writes by, not something a client reads.
+/// — and carrying the Title it belongs to so Continue watching can draw a card
+/// without opening anything. `updated_at` is not published: it is what orders
+/// the entry and what #30's merge resolves two writes by, not something a client
+/// reads.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WatchProgress {
@@ -208,11 +224,12 @@ impl WatchProgress {
     }
 
     /// The entry as every client is told it, given whether the Addon that
-    /// supplied its Title is still configured.
+    /// supplied its Title — where one did — is still configured.
     ///
     /// The stub is a mark and not a hiding: an entry whose Addon is gone is
     /// published exactly as it was, with [`UnplayableEntry`] saying why it cannot
-    /// be played now.
+    /// be played now. An entry with **no** Addon behind it — a Discovered Title —
+    /// has no removal to judge and is never marked (ADR-0020).
     pub fn resume_entry(&self, addon_held: bool) -> ResumeEntry {
         ResumeEntry {
             video: Video::keyed(&self.video.id),
@@ -220,10 +237,14 @@ impl WatchProgress {
             position: self.position,
             duration: self.duration,
             watched: self.watched,
-            unplayable: (!addon_held).then(|| UnplayableEntry {
-                reason: UnplayableReason::AddonRemoved,
-                addon: self.title.addon().clone(),
-            }),
+            unplayable: self
+                .title
+                .addon()
+                .filter(|_| !addon_held)
+                .map(|addon| UnplayableEntry {
+                    reason: UnplayableReason::AddonRemoved,
+                    addon: addon.clone(),
+                }),
         }
     }
 }
@@ -255,7 +276,7 @@ pub struct ResumeEntry {
     pub unplayable: Option<UnplayableEntry>,
 }
 
-/// Why a library entry is not one the Host will play.
+/// Why a Continue watching entry is not one the Host will play.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UnplayableEntry {
@@ -264,7 +285,7 @@ pub struct UnplayableEntry {
     pub addon: AddonId,
 }
 
-/// The reasons a library entry is marked unplayable.
+/// The reasons a Continue watching entry is marked unplayable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UnplayableReason {
@@ -296,11 +317,12 @@ mod tests {
 
     fn card(name: &str) -> TitleCard {
         TitleCard {
-            addon: addon(),
+            addon: Some(addon()),
             id: "tt0903747".to_owned(),
             r#type: "series".to_owned(),
             name: name.to_owned(),
             poster: Some("https://images.example.org/bb.jpg".to_owned()),
+            background: Some("https://images.example.org/bb-backdrop.jpg".to_owned()),
         }
     }
 
@@ -323,11 +345,66 @@ mod tests {
     fn a_card_is_kept_as_the_least_of_a_title_a_card_is_drawn_from() {
         let stub = stub();
 
-        assert_eq!(stub.addon().as_str(), "com.linvo.cinemeta");
+        assert_eq!(
+            stub.addon().map(AddonId::as_str),
+            Some("com.linvo.cinemeta")
+        );
         assert_eq!(stub.id(), "tt0903747");
         assert_eq!(stub.r#type(), "series");
         assert_eq!(stub.name(), "Breaking Bad");
         assert_eq!(stub.poster(), Some("https://images.example.org/bb.jpg"));
+        assert_eq!(
+            stub.background(),
+            Some("https://images.example.org/bb-backdrop.jpg"),
+            "16:9 Continue watching art rides the card the client handed back"
+        );
+    }
+
+    #[test]
+    fn a_title_with_no_addon_keeps_no_addon_and_is_never_marked_removed() {
+        // A Discovered Title has no Addon to lose: `addon_removed` is a mark
+        // about an Addon that is gone, and there is none to be gone (ADR-0020).
+        let stub = TitleStub::parse(&TitleCard {
+            addon: None,
+            id: "tmdb:1396".to_owned(),
+            r#type: "series".to_owned(),
+            name: "Breaking Bad".to_owned(),
+            poster: None,
+            background: None,
+        })
+        .expect("a Discovered Title is one the Host will key by its own id");
+
+        assert_eq!(stub.addon(), None);
+
+        let entry = WatchProgress {
+            video: video("series", "tmdb:1396:1:1"),
+            title: stub.clone(),
+            position: Some(120.0),
+            duration: Some(2820.0),
+            watched: false,
+            updated_at: 1_000,
+        };
+        assert_eq!(
+            entry.resume_entry(false).unplayable,
+            None,
+            "there is no removed Addon where there was no Addon"
+        );
+
+        let was_the_addons = WatchProgress {
+            title: TitleStub::parse(&card("Breaking Bad")).expect("a card the Host will keep"),
+            ..entry
+        };
+        assert!(
+            matches!(
+                was_the_addons.resume_entry(false).unplayable,
+                Some(UnplayableEntry {
+                    reason: UnplayableReason::AddonRemoved,
+                    ..
+                })
+            ),
+            "a Title that did have an Addon keeps the mark when it is gone"
+        );
+        assert_eq!(was_the_addons.resume_entry(true).unplayable, None);
     }
 
     #[test]
@@ -356,12 +433,18 @@ mod tests {
         let stub = TitleStub::parse(&TitleCard {
             name: String::new(),
             poster: Some("\u{0}".to_owned()),
+            background: Some("\u{0}".to_owned()),
             ..card("One")
         })
         .expect("the Title is still one the Host will key by");
 
         assert_eq!(stub.name(), "tt0903747");
         assert_eq!(stub.poster(), None);
+        assert_eq!(
+            stub.background(),
+            None,
+            "a backdrop that is not one is not art Continue watching draws"
+        );
     }
 
     #[test]
@@ -373,6 +456,7 @@ mod tests {
                 name: None,
                 season: Some(1),
                 episode: Some(2),
+                thumbnail: None,
             }
         );
         assert_eq!(
@@ -382,6 +466,7 @@ mod tests {
                 name: None,
                 season: Some(0),
                 episode: Some(1),
+                thumbnail: None,
             },
             "a title id is not always one part, so the numbers read from the right"
         );
@@ -392,6 +477,7 @@ mod tests {
                 name: None,
                 season: None,
                 episode: None,
+                thumbnail: None,
             },
             "a film is one Video and carries no episode numbers"
         );
@@ -402,6 +488,7 @@ mod tests {
                 name: None,
                 season: None,
                 episode: None,
+                thumbnail: None,
             },
             "two numbers are what an episode is; one is not one"
         );
@@ -531,6 +618,10 @@ mod tests {
             serde_json::json!({ "reason": "addon_removed", "addon": "com.linvo.cinemeta" })
         );
         assert_eq!(published["title"]["type"], "series");
+        assert_eq!(
+            published["title"]["background"], "https://images.example.org/bb-backdrop.jpg",
+            "the backdrop is published beside the poster it falls back from"
+        );
         assert_eq!(
             published["updatedAt"],
             serde_json::Value::Null,

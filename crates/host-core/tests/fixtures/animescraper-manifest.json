@@ -1,0 +1,12 @@
+{
+  "id": "community.animescraper",
+  "name": "Anime Scraper",
+  "version": "1.0.0",
+  "description": "A stream Addon that declares one namespace of its own, and neither of the two a TMDB Video can be asked in.",
+  "resources": [
+    { "name": "stream", "types": ["movie", "series"], "idPrefixes": ["kitsu"] }
+  ],
+  "types": ["movie", "series"],
+  "idPrefixes": ["kitsu"],
+  "catalogs": []
+}

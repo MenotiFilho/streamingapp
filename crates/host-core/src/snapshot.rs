@@ -4,7 +4,7 @@ use crate::addon::Manifest;
 use crate::device::DeviceSummary;
 use crate::pairing::PairingCode;
 use crate::playback::{Picture, PlaybackSnapshot};
-use crate::preferences::SubtitleLanguage;
+use crate::preferences::{FeaturedCatalog, SubtitleLanguage};
 use crate::progress::ResumeEntry;
 use crate::secret::SecretBackend;
 use crate::state::State;
@@ -35,15 +35,22 @@ pub struct Snapshot {
     /// an Addon's manifest URL can carry its credentials, and a Snapshot reaches
     /// every paired client (ADR-0009).
     pub addons: Vec<Manifest>,
+    /// The one Catalog the owner has marked as the Host's featured feed, where
+    /// there is one: the row a client's Home hero is drawn from, its first items
+    /// in the Addon's own order. A preference of the Host's rather than a
+    /// client's, so every client draws the same hero — and one that names an
+    /// Addon the Host no longer has is cleared in the same change that removes it
+    /// (#74, and CONTEXT.md's "Featured catalog").
+    pub featured_catalog: Option<FeaturedCatalog>,
     /// Where the Host's credentials live, and which it knows it holds — the one
     /// thing about credentials that is not itself one, and is what the interface
     /// shows when it says how exposed they are.
     pub protection: ProtectionSnapshot,
-    /// The library: one entry per Video the Host has Watch progress in, most
-    /// recently played first. This is the shared state the spec names beside
-    /// playback — what is in the library, and where in each Video the owner got
-    /// to — so it travels as a Snapshot rather than as an answer, and every
-    /// client sees the same Continue watching row (#29).
+    /// Continue watching: one entry per Video the Host has Watch progress in,
+    /// most recently played first. This is the shared state the spec names beside
+    /// playback — which Videos are on the row, and where in each one the owner
+    /// got to — so it travels as a Snapshot rather than as an answer, and every
+    /// client sees the same row (#29).
     pub watch_progress: Vec<ResumeEntry>,
     /// The devices the Host has paired, in the order they paired. Enough to list
     /// them and to name one when revoking; what a device *holds* is not here, and
@@ -110,6 +117,7 @@ impl Snapshot {
                 .iter()
                 .map(|addon| addon.manifest().clone())
                 .collect(),
+            featured_catalog: state.preferences().featured_catalog().cloned(),
             protection: ProtectionSnapshot {
                 backend: state.protection().backend,
                 tmdb_held: state.protection().tmdb_held,
@@ -118,7 +126,16 @@ impl Snapshot {
             watch_progress: state
                 .watch()
                 .iter()
-                .map(|entry| entry.resume_entry(state.has_addon(entry.title.addon())))
+                .map(|entry| {
+                    // A Title with no Addon behind it is never marked: there is
+                    // no removal to judge (ADR-0020).
+                    entry.resume_entry(
+                        entry
+                            .title
+                            .addon()
+                            .is_none_or(|addon| state.has_addon(addon)),
+                    )
+                })
                 .collect(),
             devices: state
                 .devices()

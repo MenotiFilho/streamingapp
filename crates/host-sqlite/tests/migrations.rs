@@ -133,3 +133,51 @@ fn a_database_at_the_first_schema_upgrades_without_losing_what_it_held() {
         .expect("the table the upgrade added is there");
     assert_eq!(addons, 0);
 }
+
+#[test]
+fn a_library_written_before_the_addon_became_optional_upgrades_with_its_rows_intact() {
+    // The fifth schema is the one that lets a Watch progress entry name no
+    // Addon, because a Discovered Title has none (ADR-0020). A row written
+    // before that step keeps everything it had.
+    let mut connection = connection();
+    migrate(&mut connection, &MIGRATIONS[..4]).expect("the fourth schema applies");
+    connection
+        .execute(
+            "INSERT INTO watch_progress
+                 (video_id, video_type, title_addon, title_id, title_type, title_name,
+                  title_poster, position, duration, watched, updated_at)
+             VALUES ('tt0903747:1:2', 'series', 'com.linvo.cinemeta', 'tt0903747', 'series',
+                     'Breaking Bad', NULL, 402.0, 2820.0, 0, 1000)",
+            [],
+        )
+        .expect("the fourth schema takes a progress entry");
+    assert_eq!(schema_version(&connection), Ok(4));
+
+    let version = migrate(&mut connection, MIGRATIONS).expect("the database upgrades");
+
+    assert_eq!(version, latest_version(MIGRATIONS));
+    let kept: (String, String) = connection
+        .query_row(
+            "SELECT video_id, title_addon FROM watch_progress",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("the entry written before the upgrade is still there");
+    assert_eq!(
+        kept,
+        ("tt0903747:1:2".to_owned(), "com.linvo.cinemeta".to_owned())
+    );
+
+    // And the rebuilt table takes the row this step exists for: one with no
+    // Addon at all.
+    connection
+        .execute(
+            "INSERT INTO watch_progress
+                 (video_id, video_type, title_addon, title_id, title_type, title_name,
+                  title_poster, position, duration, watched, updated_at)
+             VALUES ('tmdb:1396:1:1', 'series', NULL, 'tmdb:1396', 'series',
+                     'Breaking Bad', NULL, NULL, NULL, 0, 2000)",
+            [],
+        )
+        .expect("the fifth schema takes an entry with no Addon");
+}

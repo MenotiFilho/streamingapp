@@ -36,11 +36,32 @@ const WATCHHUB_MOVIE: &str = "https://watchhub.strem.io/stream/movie/tt0133093.j
 const WATCHHUB_EPISODE: &str = "https://watchhub.strem.io/stream/series/tt0903747%3A1%3A1.json";
 const AIOSTREAMS_MOVIE: &str = "https://aiostreams.example.com/stream/movie/tt0133093.json";
 
+/// The Addons the per-Addon id bridge is driven with: one that declares `tt`,
+/// one that declares `tmdb:` beside it, and one that declares neither — the
+/// three outcomes ADR-0020 names.
+const MEDIAFUSION: &str = "https://mediafusion.example.com/manifest.json";
+const ANIMESCRAPER: &str = "https://animescraper.example.org/manifest.json";
+
+const MEDIAFUSION_MOVIE: &str = "https://mediafusion.example.com/stream/movie/tmdb%3A603.json";
+const MEDIAFUSION_EPISODE: &str =
+    "https://mediafusion.example.com/stream/series/tmdb%3A1396%3A1%3A2.json";
+const AIOSTREAMS_EPISODE: &str =
+    "https://aiostreams.example.com/stream/series/tt0903747%3A1%3A2.json";
+
+/// The owner's TMDB credential, as the v3 api-key shape the Host takes.
+const TMDB_KEY: &str = "0123456789abcdef0123456789abcdef";
+const TMDB_EXTERNAL_IDS_MATRIX: &str =
+    "https://api.themoviedb.org/3/movie/603/external_ids?api_key=0123456789abcdef0123456789abcdef";
+const TMDB_EXTERNAL_IDS_BB: &str =
+    "https://api.themoviedb.org/3/tv/1396/external_ids?api_key=0123456789abcdef0123456789abcdef";
+
 const CINEMETA_MANIFEST: &str = include_str!("fixtures/cinemeta-manifest.json");
 const STREMBOXD_MANIFEST: &str = include_str!("fixtures/stremboxd-manifest.json");
 const TORRENTIO_MANIFEST: &str = include_str!("fixtures/torrentio-manifest.json");
 const WATCHHUB_MANIFEST: &str = include_str!("fixtures/watchhub-manifest.json");
 const AIOSTREAMS_MANIFEST: &str = include_str!("fixtures/aiostreams-manifest.json");
+const MEDIAFUSION_MANIFEST: &str = include_str!("fixtures/mediafusion-manifest.json");
+const ANIMESCRAPER_MANIFEST: &str = include_str!("fixtures/animescraper-manifest.json");
 
 const TORRENTIO_STREAMS: &str = include_str!("fixtures/torrentio-streams-matrix.json");
 const TORRENTIO_EPISODE_STREAMS: &str = include_str!("fixtures/torrentio-streams-bb-s1e1.json");
@@ -48,6 +69,14 @@ const WATCHHUB_STREAMS: &str = include_str!("fixtures/watchhub-streams-matrix.js
 const WATCHHUB_EPISODE_STREAMS: &str = include_str!("fixtures/watchhub-streams-bb-s1e1.json");
 const DIRECT_STREAMS: &str = include_str!("fixtures/streams-direct-url.json");
 const HOSTILE_STREAMS: &str = include_str!("fixtures/hostile-streams.json");
+const EXTERNAL_MATRIX: &str = include_str!("fixtures/tmdb-external-ids-matrix.json");
+const EXTERNAL_BB: &str = include_str!("fixtures/tmdb-external-ids-bb.json");
+
+/// A body a `tmdb:`-declaring Addon answers with. Written by hand: what the
+/// tests assert about is the spelling the request travelled in.
+const MEDIAFUSION_STREAMS: &str = r#"{"streams":[
+    {"name":"MediaFusion\ntmdb","url":"https://stream.example.org/v/tmdb.mkv"}
+]}"#;
 
 /// An Action as a client sends it: the versioned envelope, as JSON text.
 fn action(body: &serde_json::Value) -> Action {
@@ -134,6 +163,14 @@ fn host_with_recorded_addons() -> (Host, Arc<FixtureFetcher>) {
     (host, fetcher)
 }
 
+/// Enter a TMDB key the way the window's form does.
+fn set_tmdb_key(host: &mut Host, key: &str) {
+    host.dispatch(action(
+        &serde_json::json!({ "type": "set_tmdb_key", "key": key }),
+    ))
+    .unwrap_or_else(|error| panic!("entering a TMDB key should work: {error}"));
+}
+
 #[test]
 fn asking_for_a_films_streams_asks_every_addon_that_answers_and_no_other() {
     let (mut host, fetcher) = host_with_recorded_addons();
@@ -147,7 +184,7 @@ fn asking_for_a_films_streams_asks_every_addon_that_answers_and_no_other() {
         fetcher.asked()[asked_before..].to_vec(),
         vec![TORRENTIO_MOVIE, WATCHHUB_MOVIE],
         "the Addons that answer `stream` are asked at the item's own path, in the \
-         order they were configured; the metadata Addons are not asked at all"
+         configured order; the metadata Addons are not asked at all"
     );
     assert_eq!(
         streams(&response)
@@ -326,6 +363,155 @@ fn finding_streams_publishes_no_snapshot_and_moves_no_revision() {
 }
 
 #[test]
+fn finding_streams_for_a_tmdb_film_asks_every_addon_in_its_own_spelling() {
+    let fetcher = Arc::new(
+        recorded_fetcher()
+            .serving(MEDIAFUSION, MEDIAFUSION_MANIFEST)
+            .serving(ANIMESCRAPER, ANIMESCRAPER_MANIFEST)
+            .serving(TMDB_EXTERNAL_IDS_MATRIX, EXTERNAL_MATRIX)
+            .serving(MEDIAFUSION_MOVIE, MEDIAFUSION_STREAMS),
+    );
+    let mut host = host_over(fetcher.clone(), addon_provider(&fetcher));
+    configure(&mut host, AIOSTREAMS);
+    configure(&mut host, MEDIAFUSION);
+    configure(&mut host, ANIMESCRAPER);
+    set_tmdb_key(&mut host, TMDB_KEY);
+    let asked_before = fetcher.asked().len();
+
+    let response = host
+        .dispatch(find("movie", "tmdb:603"))
+        .expect("a TMDB-keyed film's Streams are a question like any other");
+
+    assert_eq!(
+        fetcher.asked()[asked_before..].to_vec(),
+        vec![
+            TMDB_EXTERNAL_IDS_MATRIX.to_owned(),
+            AIOSTREAMS_MOVIE.to_owned(),
+            MEDIAFUSION_MOVIE.to_owned(),
+        ],
+        "the IMDb id is resolved once, then each Addon is asked in the spelling its own \
+         manifest declares; the Addon that declares neither is not asked"
+    );
+    let groups = streams(&response);
+    assert_eq!(
+        groups
+            .iter()
+            .map(|group| group.addon.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "community.aiostreams",
+            "community.mediafusion",
+            "community.animescraper",
+        ],
+        "every Addon that offers the resource has a group, in configuration order"
+    );
+    assert_eq!(names(&groups[0])[0], "AIOStreams\n1080p");
+    assert_eq!(groups[0].failure, None);
+    assert_eq!(
+        names(&groups[1])[0],
+        "MediaFusion\ntmdb",
+        "the Addon that declares `tmdb:` is asked with `tmdb:603`, not resolved through anywhere"
+    );
+    assert_eq!(groups[1].failure, None);
+    assert!(
+        groups[2].streams.is_empty() && groups[2].failure.is_none(),
+        "an Addon that declares neither is considered and its group is empty: {groups:?}"
+    );
+}
+
+#[test]
+fn finding_streams_for_a_tmdb_episode_carries_the_season_to_each_spelling() {
+    let fetcher = Arc::new(
+        recorded_fetcher()
+            .serving(MEDIAFUSION, MEDIAFUSION_MANIFEST)
+            .serving(TMDB_EXTERNAL_IDS_BB, EXTERNAL_BB)
+            .serving(MEDIAFUSION_EPISODE, MEDIAFUSION_STREAMS)
+            .serving(AIOSTREAMS_EPISODE, DIRECT_STREAMS),
+    );
+    let mut host = host_over(fetcher.clone(), addon_provider(&fetcher));
+    configure(&mut host, AIOSTREAMS);
+    configure(&mut host, MEDIAFUSION);
+    set_tmdb_key(&mut host, TMDB_KEY);
+    let asked_before = fetcher.asked().len();
+
+    host.dispatch(find("series", "tmdb:1396:1:2"))
+        .expect("a TMDB-keyed episode's Streams are a question like any other");
+
+    assert_eq!(
+        fetcher.asked()[asked_before..].to_vec(),
+        vec![
+            TMDB_EXTERNAL_IDS_BB.to_owned(),
+            AIOSTREAMS_EPISODE.to_owned(),
+            MEDIAFUSION_EPISODE.to_owned(),
+        ],
+        "the episode's season and number are carried into both spellings"
+    );
+}
+
+#[test]
+fn a_tmdb_video_is_never_resolved_for_an_addon_without_a_key() {
+    // The `tt` spelling is a hop only a credential can make. Without one the
+    // Addon that needs it is not asked, and the Addon that takes `tmdb:`
+    // straight is asked anyway — the question is not lost to one Addon's
+    // missing spelling.
+    let fetcher = Arc::new(
+        recorded_fetcher()
+            .serving(MEDIAFUSION, MEDIAFUSION_MANIFEST)
+            .failing(TMDB_EXTERNAL_IDS_MATRIX, FetchError::Status { status: 401 })
+            .serving(MEDIAFUSION_MOVIE, MEDIAFUSION_STREAMS),
+    );
+    let mut host = host_over(fetcher.clone(), addon_provider(&fetcher));
+    configure(&mut host, AIOSTREAMS);
+    configure(&mut host, MEDIAFUSION);
+    let asked_before = fetcher.asked().len();
+
+    let response = host
+        .dispatch(find("movie", "tmdb:603"))
+        .expect("a TMDB-keyed film's Streams are a question like any other");
+
+    assert_eq!(
+        fetcher.asked()[asked_before..].to_vec(),
+        vec![MEDIAFUSION_MOVIE.to_owned()],
+        "no credential means no `/external_ids` ask, and no asked Addon that needed one"
+    );
+    let groups = streams(&response);
+    assert_eq!(groups[0].addon.as_str(), "community.aiostreams");
+    assert!(groups[0].streams.is_empty() && groups[0].failure.is_none());
+    assert_eq!(groups[1].addon.as_str(), "community.mediafusion");
+    assert_eq!(names(&groups[1])[0], "MediaFusion\ntmdb");
+}
+
+#[test]
+fn one_addon_failing_a_tmdb_ask_still_shows_what_the_others_returned() {
+    let fetcher = Arc::new(
+        recorded_fetcher()
+            .serving(MEDIAFUSION, MEDIAFUSION_MANIFEST)
+            .serving(TMDB_EXTERNAL_IDS_MATRIX, EXTERNAL_MATRIX)
+            .failing(AIOSTREAMS_MOVIE, FetchError::Status { status: 503 })
+            .serving(MEDIAFUSION_MOVIE, MEDIAFUSION_STREAMS),
+    );
+    let mut host = host_over(fetcher.clone(), addon_provider(&fetcher));
+    configure(&mut host, AIOSTREAMS);
+    configure(&mut host, MEDIAFUSION);
+    set_tmdb_key(&mut host, TMDB_KEY);
+
+    let response = host
+        .dispatch(find("movie", "tmdb:603"))
+        .expect("one Addon being down is not a failed question");
+    let groups = streams(&response);
+
+    assert!(
+        matches!(&groups[0].failure, Some(ActionError::Fetch { detail }) if detail.contains("503")),
+        "the Addon that did not answer says why: {groups:?}"
+    );
+    assert_eq!(
+        names(&groups[1]),
+        vec!["MediaFusion\ntmdb"],
+        "the other Addon's answer is unaffected"
+    );
+}
+
+#[test]
 fn a_video_no_addon_answers_for_answers_with_no_groups() {
     // Cinemeta and Stremboxd answer metadata, not `stream`: nothing here has a
     // candidate, and that is an answer with nothing in it rather than a
@@ -407,7 +593,7 @@ fn the_host_asks_every_answering_addon_in_configuration_order_and_re_ranks_nothi
             .map(|group| group.addon.as_str())
             .collect::<Vec<_>>(),
         vec!["org.stremio.watchhub", "com.stremio.torrentio.addon"],
-        "the order the Addons were configured in is the order of the list"
+        "the configured order is the order of the list"
     );
     assert_eq!(names(&groups[0]), vec!["first", "second"]);
     assert_eq!(names(&groups[1]), vec!["third"]);

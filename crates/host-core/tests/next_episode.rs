@@ -146,6 +146,14 @@ fn next_episode() -> Action {
     action(&serde_json::json!({ "type": "next_episode" }))
 }
 
+/// Enter a TMDB key the way the window's form does.
+fn set_key(host: &mut Host, key: &str) {
+    host.dispatch(action(
+        &serde_json::json!({ "type": "set_tmdb_key", "key": key }),
+    ))
+    .unwrap_or_else(|error| panic!("entering a TMDB key should work: {error}"));
+}
+
 #[test]
 fn the_next_episode_of_the_same_title_plays_from_the_same_addon_and_release() {
     let player = Arc::new(FixturePlayer::new());
@@ -320,6 +328,69 @@ fn a_series_with_no_next_video_is_refused() {
     );
 }
 
+/// A second Addon that answers `meta` for the same Title with its own list:
+/// the numbering hazard ADR-0020 recorded, made explicit.
+const OTHER_SERIES: &str = "https://other.example.org/manifest.json";
+const OTHER_SERIES_ID: &str = "org.example.other-series";
+const OTHER_META_URL: &str = "https://other.example.org/meta/series/tt0903747.json";
+const OTHER_META: &str = r#"{"meta":{"id":"tt0903747","type":"series","name":"Breaking Bad",
+    "videos":[
+        {"id":"tt0903747:1:1","name":"Pilot","season":1,"episode":1},
+        {"id":"tt0903747:1:2","name":"Cat's in the Bag...","season":1,"episode":2}
+    ]}}"#;
+
+/// The same Title ending at its first episode, as the Addon already playing
+/// lists it.
+const FIRST_ONLY_META: &str = r#"{"meta":{"id":"tt0903747","type":"series","name":"Breaking Bad",
+    "videos":[{"id":"tt0903747:1:1","name":"Pilot","season":1,"episode":1}]}}"#;
+
+#[test]
+fn the_first_addons_own_order_decides_even_where_another_lists_a_later_episode() {
+    // Two Addons answer `meta`. The first lists the Video playing as its last
+    // listed one, so *its* order decides and the Action is refused — a second
+    // Addon listing an episode after it does not get to move the viewer into a
+    // list whose order the Host never chose for what is playing (ADR-0020,
+    // ADR-0014).
+    let player = Arc::new(FixturePlayer::new());
+    let provider = Arc::new(FixtureProvider::new());
+    let mut host = host_with(
+        player.clone(),
+        provider.clone(),
+        &[
+            Configured::answering(SERIES, SERIES_ID, r#""meta","stream""#)
+                .with_meta(META_URL, FIRST_ONLY_META),
+            Configured::answering(OTHER_SERIES, OTHER_SERIES_ID, r#""meta","stream""#)
+                .with_meta(OTHER_META_URL, OTHER_META),
+        ],
+    );
+
+    play(
+        &mut host,
+        SERIES_ID,
+        "series",
+        "tt0903747:1:1",
+        PLAYING,
+        Some("the-release"),
+    );
+
+    assert!(
+        matches!(
+            host.dispatch(next_episode()),
+            Err(ActionError::NoNextEpisode { .. })
+        ),
+        "the first answering Addon's list ends at the Video playing"
+    );
+    assert_eq!(
+        player.opened(),
+        vec![PLAYING.to_owned()],
+        "a refusal opens nothing, from any Addon"
+    );
+    assert!(
+        provider.asked().is_empty(),
+        "no candidate is asked for when the deciding list has no episode after the one playing"
+    );
+}
+
 #[test]
 fn a_setup_where_no_addon_answers_meta_is_refused() {
     let player = Arc::new(FixturePlayer::new());
@@ -425,5 +496,156 @@ fn a_title_whose_id_carries_a_namespace_still_has_a_next_episode() {
             .map(|now| now.video.id.as_str()),
         Some("kitsu:12345:1:2"),
         "the next Video is the Addon's own, from the same Title the namespace names"
+    );
+}
+
+// --- stepping a TMDB-keyed Video ---------------------------------------------
+
+/// The Addons a TMDB-keyed episode is stepped and asked through, and the TMDB
+/// answers that say what comes next. The Addon answers `stream` only: it is not
+/// the source of the order, TMDB is.
+const TMDB_STREAM_ADDON: &str = "https://mediafusion.example.com/manifest.json";
+const TMDB_STREAM_ADDON_ID: &str = "community.mediafusion";
+const TMDB_STREAM_ADDON_MANIFEST: &str = r#"{
+    "id": "community.mediafusion",
+    "name": "MediaFusion",
+    "version": "4.0.0",
+    "resources": [
+        { "name": "stream", "types": ["movie", "series"], "idPrefixes": ["tt"] }
+    ],
+    "types": ["movie", "series"],
+    "catalogs": []
+}"#;
+
+/// The playing episode, and TMDB's next one, asked for at the URL the playing
+/// Addon's own declaration gives: `tt`, resolved from TMDB's `/external_ids`.
+const NEXT_EPISODE_STREAM: &str =
+    "https://mediafusion.example.com/stream/series/tt0903747%3A1%3A2.json";
+const NEXT_EPISODE_NEXT: &str = "https://stream.example.org/v/tt0903747-1-2-1080p.mkv";
+
+const TMDB_KEY: &str = "0123456789abcdef0123456789abcdef";
+const TMDB_TV_1396: &str =
+    "https://api.themoviedb.org/3/tv/1396?api_key=0123456789abcdef0123456789abcdef";
+const TMDB_TV_1396_SEASON_0: &str =
+    "https://api.themoviedb.org/3/tv/1396/season/0?api_key=0123456789abcdef0123456789abcdef";
+const TMDB_TV_1396_SEASON_1: &str =
+    "https://api.themoviedb.org/3/tv/1396/season/1?api_key=0123456789abcdef0123456789abcdef";
+const TMDB_TV_1396_SEASON_2: &str =
+    "https://api.themoviedb.org/3/tv/1396/season/2?api_key=0123456789abcdef0123456789abcdef";
+const TMDB_EXTERNAL_IDS_BB: &str =
+    "https://api.themoviedb.org/3/tv/1396/external_ids?api_key=0123456789abcdef0123456789abcdef";
+
+const TMDB_TV_DETAILS: &str = include_str!("fixtures/tmdb-tv-details.json");
+const TMDB_TV_SEASON_0: &str = include_str!("fixtures/tmdb-tv-season-0.json");
+const TMDB_TV_SEASON_1: &str = include_str!("fixtures/tmdb-tv-season-1.json");
+const TMDB_TV_SEASON_2: &str = include_str!("fixtures/tmdb-tv-season-2.json");
+const TMDB_EXTERNAL_BB: &str = include_str!("fixtures/tmdb-external-ids-bb.json");
+
+#[test]
+fn a_tmdb_keyed_episode_steps_to_tmdbs_own_next_and_is_asked_in_the_playing_addons_spelling() {
+    // The Video is TMDB's, so the list is TMDB's: the Addon cannot say what
+    // comes next — it answers no `meta` at all — and the step still lands on
+    // the episode the client's own Title screen was showing. The Stream ask
+    // then travels in the spelling the playing Addon declares (ADR-0020).
+    let player = Arc::new(FixturePlayer::new());
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(TMDB_STREAM_ADDON, TMDB_STREAM_ADDON_MANIFEST)
+            .serving(
+                NEXT_EPISODE_STREAM,
+                format!(r#"{{"streams":[{{"name":"1080p","url":"{NEXT_EPISODE_NEXT}"}}]}}"#),
+            )
+            .serving(TMDB_TV_1396, TMDB_TV_DETAILS)
+            .serving(TMDB_TV_1396_SEASON_0, TMDB_TV_SEASON_0)
+            .serving(TMDB_TV_1396_SEASON_1, TMDB_TV_SEASON_1)
+            .serving(TMDB_TV_1396_SEASON_2, TMDB_TV_SEASON_2)
+            .serving(TMDB_EXTERNAL_IDS_BB, TMDB_EXTERNAL_BB),
+    );
+    let mut host = Host::new(
+        Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
+        fetcher.clone(),
+        Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
+        Arc::new(host_core::AddonProvider::new(fetcher.clone())),
+        player.clone(),
+        Arc::new(FixtureClock::new()),
+    )
+    .expect("a Host over a store starts");
+    host.dispatch(action(&serde_json::json!({
+        "type": "add_addon",
+        "url": TMDB_STREAM_ADDON,
+    })))
+    .expect("the Addon's manifest is recorded");
+    set_key(&mut host, TMDB_KEY);
+    // The Title card the play carries is the Addon's stream card: the Watch
+    // progress entry that unifies the two ways in is keyed by the Video, and
+    // the Addon is only what a later removal is judged against.
+    play(
+        &mut host,
+        TMDB_STREAM_ADDON_ID,
+        "series",
+        "tmdb:1396:1:1",
+        PLAYING,
+        Some("the-release"),
+    );
+
+    let published = host
+        .dispatch(next_episode())
+        .expect("TMDB lists an episode after the one playing");
+
+    assert_eq!(
+        published.snapshots[0]
+            .playback
+            .now_playing
+            .as_ref()
+            .map(|now| now.video.id.as_str()),
+        Some("tmdb:1396:1:2"),
+        "the next Video is TMDB's own, keyed the way the one playing was"
+    );
+    assert_eq!(
+        player.opened(),
+        vec![PLAYING.to_owned(), NEXT_EPISODE_NEXT.to_owned()],
+        "the release the one playing came from continues"
+    );
+    assert!(
+        fetcher.asked().contains(&NEXT_EPISODE_STREAM.to_owned()),
+        "the playing Addon was asked in the `tt` spelling it declares, resolved from TMDB: {:?}",
+        fetcher.asked()
+    );
+}
+
+#[test]
+fn a_tmdb_keyed_film_has_no_next_episode() {
+    let player = Arc::new(FixturePlayer::new());
+    let fetcher =
+        Arc::new(FixtureFetcher::new().serving(TMDB_STREAM_ADDON, TMDB_STREAM_ADDON_MANIFEST));
+    let mut host = Host::new(
+        Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
+        fetcher.clone(),
+        Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
+        Arc::new(host_core::AddonProvider::new(fetcher.clone())),
+        player,
+        Arc::new(FixtureClock::new()),
+    )
+    .expect("a Host over a store starts");
+    host.dispatch(action(&serde_json::json!({
+        "type": "add_addon",
+        "url": TMDB_STREAM_ADDON,
+    })))
+    .expect("the Addon's manifest is recorded");
+    play(
+        &mut host,
+        TMDB_STREAM_ADDON_ID,
+        "movie",
+        "tmdb:603",
+        PLAYING,
+        Some("the-release"),
+    );
+
+    assert!(
+        matches!(
+            host.dispatch(next_episode()),
+            Err(ActionError::NoNextEpisode { .. })
+        ),
+        "a TMDB record for a film is one Video, and there is no next episode of it"
     );
 }
