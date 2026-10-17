@@ -6,7 +6,7 @@
 //! difference matters:
 //!
 //! - [`Snapshot`]s, which are state and go to *every* client — what is playing,
-//!   what is in the library, which Addons are configured.
+//!   what is on the Continue watching row, which Addons are configured.
 //! - An [`Answer`], which is what the client that asked is owed and nobody else.
 //!   Browsing is a client's own business (ADR-0005): what one client is looking
 //!   at must not move what another one is looking at, so a catalog row can never
@@ -74,8 +74,7 @@ impl Response {
     }
 
     /// The Streams a client asked to see, when that is what it asked: one
-    /// group per Addon that answered for the Video, in the order the Addons
-    /// were configured.
+    /// group per Addon that answered for the Video, in the configured order.
     pub fn streams(&self) -> Option<&[AddonStreams]> {
         match &self.answer {
             Some(Answer::Streams(groups)) => Some(groups),
@@ -98,7 +97,7 @@ pub enum Answer {
     /// Boxed because a Title is many fields and a `Vec` of rows is three words.
     Title(Box<Title>),
     /// The Streams a Video can be played as: one group per Addon that answered
-    /// the `stream` request, in the order the Addons were configured.
+    /// the `stream` request, in the configured order.
     Streams(Vec<AddonStreams>),
     /// The token a pairing was just issued, and the device it belongs to. The one
     /// answer that carries something a client holds rather than something it

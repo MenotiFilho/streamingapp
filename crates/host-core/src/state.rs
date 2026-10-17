@@ -4,7 +4,7 @@ use crate::pairing::PairingCode;
 use crate::playback::{
     Aspect, ChapterStep, ChosenStream, Crop, PlaybackSession, SeekTarget, TrackId, TrackKind,
 };
-use crate::preferences::{Preferences, SubtitleLanguage};
+use crate::preferences::{FeaturedCatalog, Preferences, SubtitleLanguage};
 use crate::progress::{TitleStub, WatchProgress};
 use crate::request::VideoRef;
 use crate::secret::SecretBackend;
@@ -17,7 +17,8 @@ use crate::secret::SecretBackend;
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct State {
     preferences: Preferences,
-    /// The configured Addons, in the order they were configured: a handful of
+    /// The Addons the Host is configured with, in the owner's order: the order
+    /// they were configured, until a reorder moves one (#74). A handful of
     /// them, so a list is lookup enough and keeps that order.
     addons: Vec<Addon>,
     /// Where the Host's credentials live, and which kinds a credential is held
@@ -29,9 +30,10 @@ pub(crate) struct State {
     /// playback does not survive a restart (#29's Watch progress is the part
     /// that does).
     playback: PlaybackSession,
-    /// The library: one entry per Video the Host has Watch progress in, most
-    /// recently written first. Loaded from the store at startup, so a Host that
-    /// was killed mid-Stream comes back knowing where it was.
+    /// The Continue watching row's entries: one per Video the Host has Watch
+    /// progress in, most recently written first. Loaded from the store at
+    /// startup, so a Host that was killed mid-Stream comes back knowing where it
+    /// was.
     watch: Vec<WatchProgress>,
     /// The devices the Host has paired, in the order they paired. The tokens
     /// themselves are not here — a [`Device`] holds a digest — so a Snapshot can
@@ -70,7 +72,7 @@ impl State {
         devices: Vec<Device>,
         pairing: PairingCode,
     ) -> Self {
-        Self {
+        let mut state = Self {
             preferences,
             addons,
             protection,
@@ -78,7 +80,15 @@ impl State {
             watch,
             devices,
             pairing,
-        }
+        };
+        // A marking the store cannot honour — an Addon that is not configured,
+        // or a Catalog the Addon's manifest does not offer — is not one the
+        // Host holds: a store written by another Host, or a write that only
+        // half landed, starts without it rather than with Home pointed at
+        // nothing (#74). The row is left where it is; the next preference
+        // write takes it away.
+        state.clear_dead_featured();
+        state
     }
 
     pub(crate) fn preferences(&self) -> &Preferences {
@@ -97,7 +107,7 @@ impl State {
         &self.playback
     }
 
-    /// The library, most recently written first.
+    /// The Continue watching entries, most recently written first.
     pub(crate) fn watch(&self) -> &[WatchProgress] {
         &self.watch
     }
@@ -165,6 +175,18 @@ impl State {
                 self.preferences.set_subtitle_language(None);
                 Persist::Preferences
             }
+            // The Featured catalog is a preference of the Host's, and it is
+            // taken as given: whether the Addon it names is configured, and
+            // whether the Addon offers the Catalog, was judged where the state
+            // was readable (#74).
+            Change::SetFeaturedCatalog(featured) => {
+                self.preferences.set_featured_catalog(Some(featured));
+                Persist::Preferences
+            }
+            Change::ClearFeaturedCatalog => {
+                self.preferences.set_featured_catalog(None);
+                Persist::Preferences
+            }
             Change::AddAddon(addon) => {
                 let addon = *addon;
                 match self.addons.iter_mut().find(|held| held.id() == addon.id()) {
@@ -173,6 +195,25 @@ impl State {
                     Some(held) => *held = addon,
                     None => self.addons.push(addon),
                 }
+                // A reconfiguration can stop a Catalog existing — an Addon's
+                // catalogs are its own, and this one was fetched again — which
+                // takes a Featured catalog that named it away in the same
+                // change (#74).
+                self.addons_persist()
+            }
+            // The Addon leaves where it stood and stands where the client put
+            // it: the order is the list itself, so the move is a removal and an
+            // insertion rather than a sort key (#74). The position is a place
+            // the list has — the Host judged it before this — so the insertion
+            // is in range.
+            Change::ReorderAddon { id, position } => {
+                if let Some(from) = self.addons.iter().position(|held| held.id() == &id) {
+                    let addon = self.addons.remove(from);
+                    self.addons.insert(position, addon);
+                }
+                // A move cannot change which Catalogs exist, so the marking
+                // stands or falls as it did and the preferences are not
+                // rewritten.
                 Persist::Addons
             }
             Change::RemoveAddon(id) => {
@@ -180,7 +221,11 @@ impl State {
                 // longer configured is a stub the Snapshot marks unplayable, not
                 // a row that vanishes with it (#29).
                 self.addons.retain(|held| held.id() != &id);
-                Persist::Addons
+                // Taking the Addon away takes the Featured catalog with it: a
+                // preference that named a removed Addon would be a hero drawn
+                // from nothing, so Home falls back to no hero in the same
+                // change (#74).
+                self.addons_persist()
             }
             Change::SetTmdbKey { backend } => {
                 self.protection = Protection {
@@ -249,7 +294,8 @@ impl State {
                     }
                     // A Stream with no Title behind it — a next episode whose
                     // Title the Host was never told — is played and not
-                    // recorded: the entry a library is a card of is the Title.
+                    // recorded: the entry a Continue watching card is drawn
+                    // from is the Title.
                     None => Persist::Nothing,
                 }
             }
@@ -337,10 +383,49 @@ impl State {
         }
     }
 
+    /// The part of the store a change to the Addons left out of date: the Addons
+    /// themselves, and — where the change left the Featured catalog standing on
+    /// nothing — the preference beside it (#74).
+    fn addons_persist(&mut self) -> Persist {
+        if self.clear_dead_featured() {
+            Persist::AddonsAndPreferences
+        } else {
+            Persist::Addons
+        }
+    }
+
+    /// Take the Featured catalog away where it names an Addon the Host does not
+    /// have, or a Catalog that Addon no longer offers: the one preference a
+    /// change to the Addons can leave standing on nothing. Answers whether one
+    /// was cleared, so the caller knows the store holds a stale row.
+    ///
+    /// Called after every change that moves the Addons, and once at startup, so
+    /// a dead reference never reaches a Snapshot — not from a removal, not from
+    /// a reconfiguration that took the Catalog away, and not from a store
+    /// written before the Addon was.
+    fn clear_dead_featured(&mut self) -> bool {
+        let Some(featured) = self.preferences.featured_catalog() else {
+            return false;
+        };
+        let stands = self.addons.iter().any(|held| {
+            held.id() == &featured.addon
+                && held
+                    .manifest()
+                    .catalog(&featured.catalog.r#type, &featured.catalog.id)
+                    .is_some()
+        });
+        if stands {
+            return false;
+        }
+
+        self.preferences.set_featured_catalog(None);
+        true
+    }
+
     /// Take in an entry that was merged from the account (#30): it replaces the
-    /// one for its Video, and the library keeps its order by *when each was
-    /// written* — a pulled position is as recent as the account's write, not as
-    /// recent as the moment it arrived, so it does not jump the row.
+    /// one for its Video, and the row keeps its order by *when each was written*
+    /// — a pulled position is as recent as the account's write, not as recent as
+    /// the moment it arrived, so it does not jump the row.
     pub(crate) fn merge_watch(&mut self, entry: WatchProgress) {
         self.watch.retain(|held| held.video != entry.video);
         self.watch.push(entry);
@@ -349,7 +434,7 @@ impl State {
     }
 
     /// Put one entry where it belongs: one per Video, and the one just written
-    /// leads the library, so "most recent" is the order it is held in.
+    /// leads the row, so "most recent" is the order it is held in.
     fn put_watch(&mut self, entry: WatchProgress) -> WatchProgress {
         self.watch.retain(|held| held.video != entry.video);
         self.watch.insert(0, entry.clone());
@@ -371,7 +456,17 @@ impl State {
 pub(crate) enum Change {
     SetSubtitleLanguage(SubtitleLanguage),
     ClearSubtitleLanguage,
+    /// The one Catalog marked as the Host's featured feed, resolved against the
+    /// Addon that offers it (#74).
+    SetFeaturedCatalog(FeaturedCatalog),
+    ClearFeaturedCatalog,
     AddAddon(Box<Addon>),
+    /// The configured Addon written back at `position` in the order, which is
+    /// the list itself: `position` was judged against it before this (#74).
+    ReorderAddon {
+        id: AddonId,
+        position: usize,
+    },
     RemoveAddon(AddonId),
     /// The credential itself is not in the change — it was sent to the secret
     /// store on the way here, and the store answered. What reaches state is
@@ -397,9 +492,10 @@ pub(crate) enum Change {
     RevokeDevice(DeviceId),
     /// A Stream was chosen and the Player agreed to open it, so the Host is on
     /// that Stream from here on and the open is in flight. `title` is the Title
-    /// the Video belongs to, where the Host was told it: the library records the
-    /// Video's progress against it, and a play with no Title behind it — a next
-    /// episode whose Title the Host never saw — is played and not recorded.
+    /// the Video belongs to, where the Host was told it: Continue watching
+    /// records the Video's progress against it, and a play with no Title behind
+    /// it — a next episode whose Title the Host never saw — is played and not
+    /// recorded.
     /// `start` is where the open begins, which is a resume point and `None` for
     /// a Stream that starts at its beginning. Boxed because a `ChosenStream` and
     /// a `TitleStub` are both many words wide and every other variant here is a
@@ -440,6 +536,10 @@ pub(crate) enum Change {
 pub(crate) enum Persist {
     Preferences,
     Addons,
+    /// Removing the Addon that owned the Featured catalog left two parts of the
+    /// store out of date in the one change: the Addons it was configured with,
+    /// and the preference that named it (#74).
+    AddonsAndPreferences,
     /// One Video's Watch progress was written: the store keeps it, and the entry
     /// here is what it is to be written as. Boxed because an entry is a Title
     /// and a Video and is many times the width of the two words the other

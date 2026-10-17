@@ -274,6 +274,27 @@ fn a_stream_plays_and_reports_where_it_is_and_how_long_it_is() {
     );
 }
 
+/// Wait for the position to stop moving, and answer where it stopped.
+///
+/// "Paused" as the picture means it rather than as the flag means it: the flag
+/// flips the moment mpv takes the command, and the picture can still advance for
+/// a moment afterwards — under load, for longer than any fixed sleep covers.
+fn settled(player: &MpvPlayer) -> f64 {
+    let deadline = Instant::now() + PATIENCE;
+    let mut last = player.observe().position;
+
+    while Instant::now() < deadline {
+        thread::sleep(Duration::from_millis(100));
+        let now = player.observe().position;
+        if now == last {
+            return now.expect("a Stream that has a position keeps it");
+        }
+        last = now;
+    }
+
+    panic!("the picture never stopped moving");
+}
+
 #[test]
 fn pausing_holds_the_picture_and_resuming_lets_it_run() {
     let streams = serve(20.0);
@@ -291,24 +312,30 @@ fn pausing_holds_the_picture_and_resuming_lets_it_run() {
     let paused = until(&player, "held the picture", |observation| {
         observation.state == PlaybackState::Paused
     });
+    // The pause flag flips the moment the command is taken; the picture can
+    // still advance for a moment after, so this waits for it to stand still
+    // and then checks that it stayed there.
+    let held = settled(&player);
     thread::sleep(Duration::from_millis(500));
     let still = player.observe();
 
     assert_eq!(
-        still.position, paused.position,
+        still.position,
+        Some(held),
         "a paused Stream stays where it was: {paused:?} then {still:?}"
     );
 
     player
         .tell(Telling::Pause(false))
         .expect("mpv takes the resume");
-    let resumed = until(&player, "moved again", |observation| {
-        observation.state == PlaybackState::Playing
-    });
-    thread::sleep(Duration::from_millis(400));
-    assert!(
-        player.observe().position > resumed.position,
-        "resuming plays on from where the pause left it"
+    // Resuming is "the picture moves past where the pause held it", and that is
+    // what this waits for: the state flips a moment before the position does.
+    until(
+        &player,
+        "played on from where the pause left it",
+        |observation| {
+            observation.state == PlaybackState::Playing && observation.position > Some(held)
+        },
     );
 }
 
@@ -442,7 +469,11 @@ fn selecting_an_audio_track_moves_the_selection_without_restarting_playback() {
     let streams = serve(6.0);
     let player = controlling(&streams);
 
-    let before = player.observe();
+    // Wait for a position before it is read as the "before" of a comparison:
+    // the state is Playing a moment before `time-pos` is answered.
+    let before = until(&player, "said where it is", |observation| {
+        observation.position.is_some()
+    });
     let wanted = said(&before)
         .iter()
         .find(|track| track.kind == TrackKind::Audio && !track.selected)
@@ -680,8 +711,16 @@ fn the_statistics_say_what_is_decoding_and_what_was_dropped() {
     let streams = serve(6.0);
     let player = controlling(&streams);
 
-    let playing = until(&player, "said how it is playing", |observation| {
-        observation.statistics.is_some()
+    // `statistics` appears as soon as mpv has numbers to report, and the
+    // decoding word arrives with `hwdec-current` a moment later — on a loaded
+    // machine the two are far enough apart that waiting for the former alone
+    // reads the latter before it is there. So this waits for the fact it
+    // asserts, as the autocrop test does.
+    let playing = until(&player, "said how it is decoding", |observation| {
+        observation
+            .statistics
+            .as_ref()
+            .is_some_and(|statistics| statistics.hardware_decode.is_some())
     });
     let statistics: Statistics = playing.statistics.expect("waited for it");
 

@@ -14,8 +14,9 @@ import {
   formatDelay,
   formatSpeed,
   formatVolume,
-  hasNextEpisode,
+  nextEpisodeDisabled,
   orderedTracks,
+  previousEpisodeDisabled,
   speedSelected,
   statisticsLines,
   stepDelay,
@@ -247,18 +248,24 @@ describe("statistics", () => {
   });
 });
 
-describe("next episode", () => {
-  test("a series has a next episode; a film does not", () => {
-    const playing = (type: string) => ({
-      video: { type, id: "tt0903747:1:1" },
-      addon: "community.aiostreams",
-      name: null,
-      description: null,
-      filename: null,
-      bingeGroup: null,
-    });
-    expect(hasNextEpisode(playing("series"))).toBe(true);
-    expect(hasNextEpisode(playing("movie"))).toBe(false);
-    expect(hasNextEpisode(null)).toBe(false);
+describe("the step to a neighbouring episode", () => {
+  test("a film has neither a previous nor a next episode to offer", () => {
+    expect(nextEpisodeDisabled(null)).toBe(true);
+    expect(previousEpisodeDisabled(null)).toBe(true);
+  });
+
+  test("an episode offers a next step, and a previous one everywhere but S1E1", () => {
+    expect(nextEpisodeDisabled({ season: 1, episode: 1 })).toBe(false);
+    expect(previousEpisodeDisabled({ season: 1, episode: 1 })).toBe(true);
+    expect(previousEpisodeDisabled({ season: 1, episode: 2 })).toBe(false);
+    expect(previousEpisodeDisabled({ season: 2, episode: 1 })).toBe(false);
+  });
+
+  test("a season zero special is not S1E1, so the step back stays live", () => {
+    // The Host may still refuse — the Addon's list may begin at it — but a
+    // special is not the first episode *of season one*, and the press is what
+    // answers (ADR-0021).
+    expect(previousEpisodeDisabled({ season: 0, episode: 1 })).toBe(false);
+    expect(previousEpisodeDisabled({ season: 0, episode: 0 })).toBe(false);
   });
 });

@@ -8,12 +8,13 @@ use crate::clock::Clock;
 use crate::device::{Device, DeviceSummary, DeviceToken};
 use crate::discover::DiscoverRow;
 use crate::fetcher::{FetchError, Fetcher};
-use crate::meta::Title;
+use crate::meta::{Title, Video};
 use crate::pairing::PairingCode;
 use crate::playback::{
     ChapterStep, ChosenStream, Control, Observation, Picture, PlaybackState, Player, Telling,
     TrackId, TrackKind, Unplayable,
 };
+use crate::preferences::FeaturedCatalog;
 use crate::progress::TitleStub;
 use crate::provider::Provider;
 use crate::request::{
@@ -214,9 +215,17 @@ impl Host {
 
         let mut next = self.state.clone();
         let persist = next.apply(change, self.clock.now_millis());
-        match persist {
+        let kept = match persist {
             Persist::Preferences => self.store.write_preferences(next.preferences()),
             Persist::Addons => self.store.write_addons(next.addons()),
+            // One change — removing the Addon that owned the Featured catalog —
+            // left two parts of the store out of date, and both are written: the
+            // preference first, so a store read between the two writes never has
+            // a Featured catalog naming the Addon the change is removing (#74).
+            Persist::AddonsAndPreferences => self
+                .store
+                .write_preferences(next.preferences())
+                .and_then(|()| self.store.write_addons(next.addons())),
             // One Video's Watch progress, written where it happened: the part of
             // a play that outlives the play (#29).
             Persist::Watch(entry) => self.store.write_watch_progress(&entry),
@@ -229,8 +238,8 @@ impl Host {
             // is not stored at all: nothing the non-secret store holds was left
             // behind by those.
             Persist::Nothing => Ok(()),
-        }
-        .map_err(|error| ActionError::Store {
+        };
+        kept.map_err(|error| ActionError::Store {
             detail: error.to_string(),
         })?;
 
@@ -249,8 +258,8 @@ impl Host {
         Ok(Response::changed(vec![self.snapshot()], answer))
     }
 
-    /// Merge what the Stremio account holds into the library: remote progress
-    /// that is newer than the Host's record is taken in.
+    /// Merge what the Stremio account holds into the Host's Watch progress:
+    /// remote progress that is newer than the Host's record is taken in.
     ///
     /// The Host's *open* (#30): the shell calls it once at startup, and signing
     /// in calls it too. It is a door beside [`Host::sample`] rather than an
@@ -260,7 +269,7 @@ impl Host {
     /// is when it is known to be the newer write.
     ///
     /// With no account signed in it asks nothing, and a Stremio that cannot
-    /// answer leaves the library as it was.
+    /// answer leaves the Host's Watch progress as it was.
     pub fn pull_remote(&mut self) -> Option<Snapshot> {
         let (stremio, key) = self.account()?;
         let items = stremio.library(&key, None).ok()?;
@@ -568,6 +577,48 @@ impl Host {
                 })?;
                 Resolved::Change(Change::AddAddon(Box::new(Addon::new(url, manifest))))
             }
+            ValidatedAction::ReorderAddon { id, position } => {
+                if !self.state.has_addon(&id) {
+                    return Err(ActionError::UnknownAddon {
+                        id: id.as_str().to_owned(),
+                    });
+                }
+                // A position is a place in the list the Host has, 0-based: the
+                // last Addon stands at `count - 1`, and every number that is
+                // not one of those places — a negative a client counted to, a
+                // place past the end — is the same refusal (#74).
+                let count = self.state.addons().len();
+                let position = usize::try_from(position)
+                    .ok()
+                    .filter(|position| *position < count)
+                    .ok_or_else(|| ActionError::InvalidPosition {
+                        id: id.as_str().to_owned(),
+                        position,
+                        count,
+                    })?;
+                Resolved::Change(Change::ReorderAddon { id, position })
+            }
+            ValidatedAction::SetFeaturedCatalog { addon, catalog } => {
+                let configured = self.addon(&addon)?;
+                // The Catalog is the Addon's own: one the manifest does not
+                // declare is one the Host could never ask for, so it is refused
+                // where it is named rather than left to fail on Home (#74).
+                if configured
+                    .manifest()
+                    .catalog(&catalog.r#type, &catalog.id)
+                    .is_none()
+                {
+                    return Err(ActionError::UnknownCatalog {
+                        addon: configured.id().clone(),
+                        catalog,
+                    });
+                }
+                Resolved::Change(Change::SetFeaturedCatalog(FeaturedCatalog {
+                    addon,
+                    catalog,
+                }))
+            }
+            ValidatedAction::ClearFeaturedCatalog => Resolved::Change(Change::ClearFeaturedCatalog),
             ValidatedAction::RemoveAddon(id) => {
                 if !self.state.has_addon(&id) {
                     return Err(ActionError::UnknownAddon {
@@ -675,7 +726,7 @@ impl Host {
             }
             ValidatedAction::SearchCatalogs { query } => {
                 // Every catalog that offers a search, in the order the Addons
-                // were configured and each Addon's own order within that. One
+                // are configured, and each Addon's own order within that. One
                 // Addon failing is one row with nothing in it, not a failed
                 // search (ADR-0010).
                 let plan: Vec<(Addon, ResourceRequest)> = self
@@ -734,7 +785,7 @@ impl Host {
             }
             ValidatedAction::FindStreams { video } => {
                 // Every configured Addon that answers for it, in the order
-                // they were configured, each answer a group of its own: one
+                // they are configured, each answer a group of its own: one
                 // Addon failing is that group with nothing in it, not a
                 // question that fails (ADR-0010 — a search's rule, applied to
                 // Streams).
@@ -862,28 +913,8 @@ impl Host {
                 self.told(Telling::Aspect(aspect))?;
                 Resolved::Change(Change::SetAspect(aspect))
             }
-            ValidatedAction::NextEpisode => {
-                // One of the two controls that legitimately open a Stream — the
-                // other is a resume: the Host asks the Addons what comes after
-                // what is playing and plays it, so this is a change like a
-                // `PlayStream` and not a telling.
-                self.playing(Control::NextEpisode)?;
-                let chosen = self.next_episode()?;
-                // The Title that is playing's is the next episode's too — the
-                // Host was told it when the Stream started — so the new Video's
-                // progress is recorded against the same card.
-                let title = self.playing_title();
-                self.player
-                    .open(&chosen.url, None)
-                    .map_err(|error| ActionError::Playback {
-                        detail: error.to_string(),
-                    })?;
-                Resolved::Change(Change::Play {
-                    chosen: Box::new(chosen),
-                    title: title.map(Box::new),
-                    start: None,
-                })
-            }
+            ValidatedAction::NextEpisode => self.stepped(EpisodeStep::Next)?,
+            ValidatedAction::PreviousEpisode => self.stepped(EpisodeStep::Previous)?,
             ValidatedAction::StopPlayback => {
                 // A stop is allowed whenever the Host is on a Stream at all,
                 // including a Stream that failed to open: it is how a client
@@ -938,36 +969,65 @@ impl Host {
             })
     }
 
-    /// The Stream to play when a client asks for the next episode, or why the
-    /// Host will not open one.
+    /// Take one episode step: the neighbouring Stream chosen and opened, and
+    /// the change every client is told.
     ///
-    /// The Video playing must be an episode of a series, the Host asks the
-    /// Addons that answer `meta` for its Title and takes the next Video in the
-    /// Addon's own order, and then asks the Addon that is playing for that
-    /// Video's Streams — preferring the release the one playing came from (the
-    /// same `bingeGroup`) and falling back to that Addon's first playable
-    /// candidate. Nothing here invents an id by arithmetic and nothing re-ranks
-    /// the candidates: the next Video is the Addon's own, and continuing the
-    /// release is continuity rather than a score (ADR-0012, ADR-0014).
-    fn next_episode(&self) -> Result<ChosenStream, ActionError> {
+    /// A step is one of the two controls that legitimately open a Stream — the
+    /// other is a resume — so it is a change like a `PlayStream` and not a
+    /// telling: the Host asks the Addons beside what is playing and opens it.
+    /// The Title that is playing's is the neighbour's too — the Host was told it
+    /// when the Stream started — so the new Video's progress is recorded against
+    /// the same card.
+    fn stepped(&self, step: EpisodeStep) -> Result<Resolved, ActionError> {
+        self.playing(step.control())?;
+        let chosen = self.adjacent_episode(step)?;
+        let title = self.playing_title();
+        self.player
+            .open(&chosen.url, None)
+            .map_err(|error| ActionError::Playback {
+                detail: error.to_string(),
+            })?;
+        Ok(Resolved::Change(Change::Play {
+            chosen: Box::new(chosen),
+            title: title.map(Box::new),
+            start: None,
+        }))
+    }
+
+    /// The Stream one step from the one playing in the direction `step` names,
+    /// or why the Host will not open one.
+    ///
+    /// The Video playing must be an episode of a series — a reading of the id's
+    /// own shape, never of the Title's `type` — and the Host asks the Addons
+    /// that answer `meta` for its Title, in the order they were configured, for
+    /// the list that still holds the Video playing. The Video standing beside it
+    /// in that Addon's own order is the one that plays, from the Addon already
+    /// playing so continuity is kept: the same `bingeGroup` where that Addon
+    /// offers one, and otherwise its first playable candidate. Nothing here
+    /// invents an id by arithmetic and nothing re-ranks the candidates: the
+    /// neighbour is the Addon's own, and continuing the release is continuity
+    /// rather than a score (ADR-0012, ADR-0014).
+    fn adjacent_episode(&self, step: EpisodeStep) -> Result<ChosenStream, ActionError> {
         let Some(playing) = self.state.playback().chosen() else {
-            // Behind `playing(Control::NextEpisode)` this cannot happen, and it
-            // is a refusal rather than a panic all the same.
+            // Behind `playing(Control::…)` this cannot happen, and it is a
+            // refusal rather than a panic all the same.
             return Err(ActionError::NothingPlaying {
-                control: Control::NextEpisode,
+                control: step.control(),
             });
         };
         let now = &playing.now_playing;
-        let title_id = episode_title(&now.video)?;
-        let refused = |detail: String| ActionError::NoNextEpisode { detail };
+        let title_id = episode_title(step, &now.video)?;
+        let refused = |detail: String| step.refusal(detail);
         let asked = TitleRef::parse(&now.video.r#type, &title_id)
             .map_err(|error| refused(error.to_string()))?;
 
         // The Title's Videos come from the first Addon that answers `meta` for
-        // it and still lists the Video playing; the Addon's own order decides
-        // what comes next.
+        // it and still lists the Video playing, and *that* list decides what
+        // stands beside it — whether or not anything does. Two Addons can
+        // number a series differently (ADR-0020), so only the list that
+        // contains the Video playing is known to put the right one next to it.
         let requested_meta = ResourceRequest::new(META, &now.video.r#type, &title_id);
-        let mut next_id = None;
+        let mut neighbour_id = None;
         for addon in self.state.addons() {
             if !addon.manifest().answers(&requested_meta) {
                 continue;
@@ -982,31 +1042,31 @@ impl Host {
             else {
                 continue;
             };
-            let Some(following) = title.videos.get(index + 1) else {
-                continue;
-            };
-            next_id = Some(following.id.clone());
+            neighbour_id = step
+                .neighbour(&title.videos, index)
+                .map(|video| video.id.clone());
             break;
         }
-        let Some(next_id) = next_id else {
+        let Some(neighbour_id) = neighbour_id else {
             return Err(refused(format!(
-                "no Addon offers an episode after {}",
+                "no Addon lists an episode {} {}",
+                step.side(),
                 now.video
             )));
         };
 
-        // The next episode is played from the Addon already playing, so that the
+        // The neighbour is played from the Addon already playing, so that the
         // release continues: another Addon's candidates would be a different set
-        // of releases, which is not "the next episode of what is playing".
+        // of releases, which is not "the episode beside what is playing".
         let playing_addon =
             self.state.addon(&now.addon).cloned().ok_or_else(|| {
                 refused(format!("the Addon {} is no longer configured", now.addon))
             })?;
-        let requested_stream = ResourceRequest::new(STREAM, &now.video.r#type, &next_id);
+        let requested_stream = ResourceRequest::new(STREAM, &now.video.r#type, &neighbour_id);
         if !playing_addon.manifest().answers(&requested_stream) {
             return Err(refused(format!(
                 "{} has nothing for {}/{}",
-                now.addon, now.video.r#type, next_id
+                now.addon, now.video.r#type, neighbour_id
             )));
         }
         let streams = self
@@ -1014,7 +1074,7 @@ impl Host {
             .streams(&playing_addon, &requested_stream)
             .map_err(|error| refused(error.to_string()))?;
 
-        let video = VideoRef::parse(&now.video.r#type, &next_id)
+        let video = VideoRef::parse(&now.video.r#type, &neighbour_id)
             .map_err(|error| refused(error.to_string()))?;
 
         streams
@@ -1029,7 +1089,7 @@ impl Host {
             .ok_or_else(|| {
                 refused(format!(
                     "no candidate for {}/{} is one this Host can play",
-                    now.video.r#type, next_id
+                    now.video.r#type, neighbour_id
                 ))
             })
     }
@@ -1076,9 +1136,9 @@ impl Host {
     }
 
     /// The first candidate this Host can play for a Video, asked of every
-    /// configured Addon that answers for it, in the order they were configured —
-    /// the rule `FindStreams` asks every Addon by, folded to the one a Host that
-    /// is opening a Stream itself needs (a resume, ADR-0015).
+    /// configured Addon that answers for it, in the configured order — the rule
+    /// `FindStreams` asks every Addon by, folded to the one a Host that is
+    /// opening a Stream itself needs (a resume, ADR-0015).
     fn first_playable(&self, video: &VideoRef) -> Option<ChosenStream> {
         let requested = ResourceRequest::new(STREAM, &video.r#type, &video.id);
 
@@ -1103,8 +1163,8 @@ impl Host {
     }
 
     /// The Title of the Video playing, as the Host was told it — which is also
-    /// the next episode's Title. `None` for a Stream the Host was never told a
-    /// Title of, which is played and not recorded.
+    /// the neighbouring episode's Title. `None` for a Stream the Host was never
+    /// told a Title of, which is played and not recorded.
     fn playing_title(&self) -> Option<TitleStub> {
         let video = self.state.playback().chosen()?.now_playing.video.clone();
         self.state
@@ -1380,16 +1440,66 @@ fn tmdb_failure(error: FetchError) -> ActionError {
 /// it for an episode.
 ///
 /// The one reading of the protocol's episode-id shape is [`meta::episode_of`],
-/// which the library's card goes through too, so the two cannot disagree about
-/// what an episode is. The season and the episode numbers are deliberately not
-/// returned: the next Video comes from the Addon's own list, and inventing an id
-/// by arithmetic is exactly what ADR-0014 forbids.
-fn episode_title(video: &VideoRef) -> Result<String, ActionError> {
+/// which a Continue watching card goes through too, so the two cannot disagree
+/// about what an episode is. The season and the episode numbers are deliberately
+/// not returned: the neighbouring Video comes from the Addon's own list, and
+/// inventing an id by arithmetic is exactly what ADR-0014 forbids.
+fn episode_title(step: EpisodeStep, video: &VideoRef) -> Result<String, ActionError> {
     meta::episode_of(&video.id)
         .map(|(title, _, _)| title.to_owned())
-        .ok_or_else(|| ActionError::NoNextEpisode {
-            detail: format!("{video} is playing, and it is not an episode of a series"),
+        .ok_or_else(|| {
+            step.refusal(format!(
+                "{video} is playing, and it is not an episode of a series"
+            ))
         })
+}
+
+/// Which way a step from the Video playing goes: to the one after it in its
+/// Title's order, or the one before (ADR-0014, ADR-0021).
+///
+/// The two directions are one rule read the other way, so the refusal they name
+/// and the Video they take from the Addon's list are decided here once rather
+/// than copied per direction.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EpisodeStep {
+    Next,
+    Previous,
+}
+
+impl EpisodeStep {
+    /// The Video standing beside `index` in the Addon's own whole-list order,
+    /// in this direction: the next one after it, or the one before — `None` at
+    /// either end, which is how "the list begins here" refuses the step.
+    fn neighbour(self, videos: &[Video], index: usize) -> Option<&Video> {
+        match self {
+            Self::Next => videos.get(index + 1),
+            Self::Previous => index.checked_sub(1).and_then(|before| videos.get(before)),
+        }
+    }
+
+    /// The one word a refusal's sentence uses for this direction.
+    fn side(self) -> &'static str {
+        match self {
+            Self::Next => "after",
+            Self::Previous => "before",
+        }
+    }
+
+    /// The control a refusal with nothing playing names.
+    fn control(self) -> Control {
+        match self {
+            Self::Next => Control::NextEpisode,
+            Self::Previous => Control::PreviousEpisode,
+        }
+    }
+
+    /// The refusal this direction reports: `no_next_episode`, or its twin.
+    fn refusal(self, detail: String) -> ActionError {
+        match self {
+            Self::Next => ActionError::NoNextEpisode { detail },
+            Self::Previous => ActionError::NoPreviousEpisode { detail },
+        }
+    }
 }
 
 /// The values a catalog requires, filled in from what it offers when the client

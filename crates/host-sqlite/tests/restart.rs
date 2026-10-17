@@ -5,8 +5,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use host_core::{
-    Action, AddonProvider, FixtureClock, FixtureFetcher, FixturePlayer, Host, InMemorySecretStore,
-    Snapshot, SubtitleLanguage,
+    Action, AddonId, AddonProvider, CatalogRef, FeaturedCatalog, FixtureClock, FixtureFetcher,
+    FixturePlayer, Host, InMemorySecretStore, Snapshot, SubtitleLanguage,
 };
 use host_sqlite::SqliteStore;
 
@@ -36,6 +36,17 @@ const MANIFEST: &str = r#"{
     "catalogs": [{ "type": "movie", "id": "letterboxd-popular", "name": "Popular This Week" }]
 }"#;
 
+/// A second Addon, so a test can watch an *order* survive a restart.
+const SECOND_URL: &str = "https://v3-cinemeta.strem.io/manifest.json";
+const SECOND_MANIFEST: &str = r#"{
+    "id": "com.linvo.cinemeta",
+    "name": "Cinemeta",
+    "version": "3.0.0",
+    "resources": ["catalog", { "name": "meta", "types": ["movie"], "idPrefixes": ["tt"] }],
+    "types": ["movie"],
+    "catalogs": [{ "type": "movie", "id": "top", "name": "Popular" }]
+}"#;
+
 fn preference(snapshot: &Snapshot) -> Option<&str> {
     snapshot
         .preferences
@@ -44,14 +55,18 @@ fn preference(snapshot: &Snapshot) -> Option<&str> {
         .map(SubtitleLanguage::as_str)
 }
 
-fn subtitle_language(action: &str) -> Action {
-    Action::parse(&format!(r#"{{"version":1,"action":{action}}}"#))
-        .unwrap_or_else(|error| panic!("{action} should parse: {error}"))
+fn action(body: &str) -> Action {
+    Action::parse(&format!(r#"{{"version":1,"action":{body}}}"#))
+        .unwrap_or_else(|error| panic!("{body} should parse: {error}"))
 }
 
-/// The recorded Addon a test's Host is configured with, when it needs one.
+/// The recorded Addons a test's Host is configured with, when it needs one.
 fn fetcher() -> Arc<FixtureFetcher> {
-    Arc::new(FixtureFetcher::new().serving(MANIFEST_URL, MANIFEST))
+    Arc::new(
+        FixtureFetcher::new()
+            .serving(MANIFEST_URL, MANIFEST)
+            .serving(SECOND_URL, SECOND_MANIFEST),
+    )
 }
 
 /// Start a Host on this database, as launching the app does.
@@ -70,9 +85,9 @@ fn start(path: &Path) -> Host {
     .expect("the Host starts")
 }
 
-fn take(host: &mut Host, action: &str) {
-    host.dispatch(subtitle_language(action))
-        .unwrap_or_else(|error| panic!("{action} should be taken: {error}"));
+fn take(host: &mut Host, body: &str) {
+    host.dispatch(action(body))
+        .unwrap_or_else(|error| panic!("{body} should be taken: {error}"));
 }
 
 fn addons(snapshot: &Snapshot) -> Vec<&str> {
@@ -178,4 +193,85 @@ fn a_removed_addon_stays_removed_across_a_restart() {
     drop(host);
 
     assert_eq!(addons(&start(&database).snapshot()), Vec::<&str>::new());
+}
+
+#[test]
+fn the_host_remembers_the_addon_order_across_a_restart() {
+    let directory = tempfile::tempdir().expect("a temporary directory is available");
+    let database = directory.path().join("host.sqlite3");
+
+    let mut host = start(&database);
+    take(
+        &mut host,
+        &format!(r#"{{"type":"add_addon","url":"{MANIFEST_URL}"}}"#),
+    );
+    take(
+        &mut host,
+        &format!(r#"{{"type":"add_addon","url":"{SECOND_URL}"}}"#),
+    );
+    take(
+        &mut host,
+        r#"{"type":"reorder_addon","id":"com.linvo.cinemeta","position":0}"#,
+    );
+    drop(host);
+
+    assert_eq!(
+        addons(&start(&database).snapshot()),
+        vec!["com.linvo.cinemeta", "community.stremboxd"],
+        "the order the owner chose is the order the next run reads"
+    );
+}
+
+#[test]
+fn the_host_remembers_the_featured_catalog_across_a_restart() {
+    let directory = tempfile::tempdir().expect("a temporary directory is available");
+    let database = directory.path().join("host.sqlite3");
+
+    let mut host = start(&database);
+    take(
+        &mut host,
+        &format!(r#"{{"type":"add_addon","url":"{MANIFEST_URL}"}}"#),
+    );
+    take(
+        &mut host,
+        r#"{"type":"set_featured_catalog","addon":"community.stremboxd",
+            "catalog":{"type":"movie","id":"letterboxd-popular"}}"#,
+    );
+    drop(host);
+
+    assert_eq!(
+        start(&database).snapshot().featured_catalog,
+        Some(FeaturedCatalog {
+            addon: AddonId::parse("community.stremboxd").expect("an Addon id"),
+            catalog: CatalogRef::parse("movie", "letterboxd-popular").expect("a Catalog reference"),
+        })
+    );
+}
+
+#[test]
+fn removing_the_featured_addon_leaves_no_marking_across_a_restart() {
+    let directory = tempfile::tempdir().expect("a temporary directory is available");
+    let database = directory.path().join("host.sqlite3");
+
+    let mut host = start(&database);
+    take(
+        &mut host,
+        &format!(r#"{{"type":"add_addon","url":"{MANIFEST_URL}"}}"#),
+    );
+    take(
+        &mut host,
+        r#"{"type":"set_featured_catalog","addon":"community.stremboxd",
+            "catalog":{"type":"movie","id":"letterboxd-popular"}}"#,
+    );
+    take(
+        &mut host,
+        r#"{"type":"remove_addon","id":"community.stremboxd"}"#,
+    );
+    drop(host);
+
+    assert_eq!(
+        start(&database).snapshot().featured_catalog,
+        None,
+        "the marking went with the Addon, and stays gone"
+    );
 }

@@ -43,8 +43,27 @@ pub enum Action {
     SetSubtitleLanguage { language: String },
     /// Carry no subtitle-language preference; the Host chooses per Video.
     ClearSubtitleLanguage,
+    /// Mark the Addon's Catalog as the Host's featured feed.
+    ///
+    /// A preference of the Host's rather than a client's: every client's Home
+    /// hero is drawn from this Catalog's first items, so the marking travels in
+    /// every Snapshot rather than stopping at the client that made it (#74).
+    SetFeaturedCatalog { addon: String, catalog: CatalogRef },
+    /// Carry no Featured catalog: a client's Home has no hero to draw. The
+    /// mirror of [`Action::SetFeaturedCatalog`], and never refused — taking a
+    /// preference away is always something the Host can do.
+    ClearFeaturedCatalog,
     /// Configure the Addon whose manifest is at `url`.
     AddAddon { url: String },
+    /// Move the configured Addon with manifest `id` to the 0-based `position`
+    /// in the persisted order.
+    ///
+    /// The order is the Host's, shared across every client — a client's Home
+    /// rows follow it — so the move is published like any other change (#74).
+    /// A position is signed on the wire so that every number the list does not
+    /// have, a negative one included, is refused as [`ActionError::InvalidPosition`]
+    /// rather than as a malformed Action.
+    ReorderAddon { id: String, position: i64 },
     /// Take the Addon with this manifest id out of the Host's configuration.
     RemoveAddon { id: String },
     /// Store the key TMDB answers metadata with, in the secret store.
@@ -136,7 +155,7 @@ pub enum Action {
     ///
     /// A question rather than a change, like browsing and opening a Title.
     /// Every configured Addon that answers for the Video's `stream` request is
-    /// asked, in the order they were configured; each one's candidates go to
+    /// asked, in the configured order; each one's candidates go to
     /// the client that asked and to no one else (ADR-0005).
     FindStreams {
         /// The Video, by the type its Title carries and the id its Addon
@@ -161,11 +180,13 @@ pub enum Action {
         /// The candidate itself, as it was answered.
         stream: Box<Stream>,
         /// The Title the Video belongs to, as the client was reading it: enough
-        /// of it for the library to draw a card, and the Addon a removed one is
-        /// judged against (#29). The client has it open — a Title is the
+        /// of it for Continue watching to draw a card, and the Addon a removed
+        /// one is judged against (#29). The client has it open — a Title is the
         /// client's own (ADR-0005) — so the Host is told which Title a Video is
         /// of rather than guessing one from an Addon that may not answer `meta`.
-        title: TitleCard,
+        /// Boxed because a card is the largest payload an Action carries beside
+        /// a Stream, which is boxed beside it for the same reason.
+        title: Box<TitleCard>,
     },
     /// Play a Video again from where it was left.
     ///
@@ -212,6 +233,13 @@ pub enum Action {
     /// asks the Addons what comes next and plays it, and every client is told of
     /// the new Now playing.
     NextEpisode,
+    /// Play the Video *before* the one playing, in its Title: the Addon's own
+    /// previous episode, and the release the one playing came from (ADR-0021).
+    ///
+    /// The mirror of [`Action::NextEpisode`], and a change for the same reason:
+    /// the Host asks the Addons what the Addon's own order puts before what is
+    /// playing and opens it, and every client is told of the new Now playing.
+    PreviousEpisode,
     /// Stop playing: nothing is playing afterwards, and the client is back to
     /// whatever it was reading.
     StopPlayback,
@@ -248,7 +276,10 @@ macro_rules! action_spellings {
 action_spellings! {
     Action::SetSubtitleLanguage { .. } => "set_subtitle_language",
     Action::ClearSubtitleLanguage => "clear_subtitle_language",
+    Action::SetFeaturedCatalog { .. } => "set_featured_catalog",
+    Action::ClearFeaturedCatalog => "clear_featured_catalog",
     Action::AddAddon { .. } => "add_addon",
+    Action::ReorderAddon { .. } => "reorder_addon",
     Action::RemoveAddon { .. } => "remove_addon",
     Action::SetTmdbKey { .. } => "set_tmdb_key",
     Action::ClearTmdbKey => "clear_tmdb_key",
@@ -277,6 +308,7 @@ action_spellings! {
     Action::SetCrop { .. } => "set_crop",
     Action::SetAspect { .. } => "set_aspect",
     Action::NextEpisode => "next_episode",
+    Action::PreviousEpisode => "previous_episode",
     Action::StopPlayback => "stop_playback",
 }
 
@@ -329,9 +361,19 @@ impl Action {
                 Ok(ValidatedAction::SetSubtitleLanguage(language))
             }
             Action::ClearSubtitleLanguage => Ok(ValidatedAction::ClearSubtitleLanguage),
+            Action::SetFeaturedCatalog { addon, catalog } => {
+                let addon = AddonId::parse(&addon)?;
+                let catalog = CatalogRef::parse(&catalog.r#type, &catalog.id)?;
+                Ok(ValidatedAction::SetFeaturedCatalog { addon, catalog })
+            }
+            Action::ClearFeaturedCatalog => Ok(ValidatedAction::ClearFeaturedCatalog),
             Action::AddAddon { url } => {
                 let url = ManifestUrl::parse(&url)?;
                 Ok(ValidatedAction::AddAddon(url))
+            }
+            Action::ReorderAddon { id, position } => {
+                let id = AddonId::parse(&id)?;
+                Ok(ValidatedAction::ReorderAddon { id, position })
             }
             Action::RemoveAddon { id } => {
                 let id = AddonId::parse(&id)?;
@@ -450,6 +492,7 @@ impl Action {
                 Ok(ValidatedAction::SetAspect { aspect })
             }
             Action::NextEpisode => Ok(ValidatedAction::NextEpisode),
+            Action::PreviousEpisode => Ok(ValidatedAction::PreviousEpisode),
             Action::SetPaused { paused } => Ok(ValidatedAction::SetPaused { paused }),
             Action::StopPlayback => Ok(ValidatedAction::StopPlayback),
         }
@@ -514,7 +557,21 @@ fn search_query(raw: &str) -> Result<String, ActionError> {
 pub enum ValidatedAction {
     SetSubtitleLanguage(SubtitleLanguage),
     ClearSubtitleLanguage,
+    /// A Catalog the owner marked as the featured one, with both halves judged
+    /// before either is looked up: a marked Catalog exists.
+    SetFeaturedCatalog {
+        addon: AddonId,
+        catalog: CatalogRef,
+    },
+    ClearFeaturedCatalog,
     AddAddon(ManifestUrl),
+    /// An Addon to write back at `position` in the order. Judged here as an id
+    /// and a number; whether the number is a place the list has is the Host's
+    /// judgement, made where the list is known (#74).
+    ReorderAddon {
+        id: AddonId,
+        position: i64,
+    },
     RemoveAddon(AddonId),
     SetTmdbKey(TmdbKey),
     ClearTmdbKey,
@@ -548,9 +605,10 @@ pub enum ValidatedAction {
         video: VideoRef,
     },
     /// A candidate judged: the URL a Player will be given, the words that will
-    /// be published about it, and the Title the Video is of — which is what the
-    /// library records the play against. Boxed because a Stream carries its own
-    /// words and the enum's other variants are a word or two wide.
+    /// be published about it, and the Title the Video is of — which is what
+    /// Continue watching records the play against. Boxed because a Stream
+    /// carries its own words and the enum's other variants are a word or two
+    /// wide.
     PlayStream {
         chosen: Box<ChosenStream>,
         title: TitleStub,
@@ -597,6 +655,9 @@ pub enum ValidatedAction {
     /// The next episode of the Title playing, asked of the Addons and played:
     /// one of the two controls that open a Stream, the other being `Resume`.
     NextEpisode,
+    /// The previous episode of the Title playing, asked of the Addons and
+    /// played — the mirror of `NextEpisode` (ADR-0021).
+    PreviousEpisode,
     StopPlayback,
 }
 
@@ -670,12 +731,29 @@ pub enum ActionError {
     /// A chapter a control named that the Stream does not have.
     #[error("the Stream has no chapter at position {index}")]
     UnknownChapter { index: usize },
+    /// A place in the configured Addons that the list does not have: the order
+    /// is 0-based, and moving an Addon somewhere off either end — a negative
+    /// number included — is a refusal rather than a clamp (#74).
+    #[error(
+        "the Addon {id:?} cannot be moved to position {position}: the Host has {count} configured"
+    )]
+    InvalidPosition {
+        id: String,
+        position: i64,
+        count: usize,
+    },
     /// There is no next episode to play: what is playing is not an episode of a
     /// series, no Addon offers a Video after it, or none of an Addon's
     /// candidates for that Video is one this Host can play. The Host says so
     /// rather than playing something else, which is what ADR-0014 asks of it.
     #[error("{detail}")]
     NoNextEpisode { detail: String },
+    /// There is no previous episode to play: the mirror of
+    /// [`Self::NoNextEpisode`] — what is playing is not an episode of a series,
+    /// the Addon's own order begins at it, or none of an Addon's candidates for
+    /// the Video before it is one this Host can play (ADR-0021).
+    #[error("{detail}")]
+    NoPreviousEpisode { detail: String },
     /// A resume named a Video the Host has no Watch progress for: there is
     /// nothing to resume from, and playing it from the start would not be the
     /// thing the client asked for.
@@ -840,15 +918,16 @@ mod tests {
         // The candidate a client sends back is the one it was answered, whole:
         // what the Host acts on is where its bytes are, and what travels outward
         // again is the Addon's own words (ADR-0013). The Title rides beside it,
-        // because the library draws a card from what the client was reading
-        // (#29), and the Addon that supplied it is what a removed one is judged
-        // against.
+        // because Continue watching draws a card from what the client was
+        // reading (#29), and the Addon that supplied it is what a removed one is
+        // judged against.
         let action = Action::parse(&format!(
             r#"{{"version":{ACTION_VERSION},"action":{{"type":"play_stream",
                 "video":{{"type":"movie","id":"tt0133093"}},
                 "addon":"community.aiostreams",
                 "title":{{"addon":"com.linvo.cinemeta","id":"tt0133093","type":"movie",
-                    "name":"The Matrix","poster":"https://images.example.org/matrix.jpg"}},
+                    "name":"The Matrix","poster":"https://images.example.org/matrix.jpg",
+                    "background":"https://images.example.org/matrix-backdrop.jpg"}},
                 "stream":{{"name":"AIOStreams\n1080p","playback":{{"kind":"direct","url":"https://stream.example.org/v/x.mkv"}}}}}}}}"#
         ))
         .expect("a client's own envelope parses");
@@ -906,6 +985,7 @@ mod tests {
                     r#type: "movie".to_owned(),
                     name: "The Matrix".to_owned(),
                     poster: Some("https://images.example.org/matrix.jpg".to_owned()),
+                    background: Some("https://images.example.org/matrix-backdrop.jpg".to_owned()),
                 })
                 .expect("a Title a request could name"),
             }
@@ -967,6 +1047,110 @@ mod tests {
             .validate(),
             Err(ActionError::Extra { .. })
         ));
+    }
+
+    #[test]
+    fn the_addon_order_and_the_featured_catalog_are_flat_enough_to_write_by_hand() {
+        assert_eq!(
+            serde_json::to_value(Action::ReorderAddon {
+                id: "community.example".to_owned(),
+                position: 1,
+            })
+            .expect("an Action serializes"),
+            serde_json::json!({
+                "type": "reorder_addon",
+                "id": "community.example",
+                "position": 1,
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(Action::SetFeaturedCatalog {
+                addon: "community.example".to_owned(),
+                catalog: CatalogRef::parse("movie", "top")
+                    .expect("a catalog a manifest could declare"),
+            })
+            .expect("an Action serializes"),
+            serde_json::json!({
+                "type": "set_featured_catalog",
+                "addon": "community.example",
+                "catalog": { "type": "movie", "id": "top" },
+            }),
+            "the Catalog is named inside the Action, because the Action already has a `type`"
+        );
+        assert_eq!(
+            serde_json::to_value(Action::ClearFeaturedCatalog).expect("an Action serializes"),
+            serde_json::json!({ "type": "clear_featured_catalog" })
+        );
+    }
+
+    #[test]
+    fn a_reorder_and_a_featured_catalog_are_judged_before_the_host_is_asked() {
+        assert!(matches!(
+            Action::ReorderAddon {
+                id: "not an id at all".to_owned(),
+                position: 0,
+            }
+            .validate(),
+            Err(ActionError::InvalidAddonId(_))
+        ));
+        assert!(matches!(
+            Action::SetFeaturedCatalog {
+                addon: "community.example".to_owned(),
+                catalog: CatalogRef {
+                    r#type: "mov ie".to_owned(),
+                    id: "top".to_owned(),
+                },
+            }
+            .validate(),
+            Err(ActionError::InvalidCatalogRef(_))
+        ));
+
+        assert_eq!(
+            Action::ReorderAddon {
+                id: "community.example".to_owned(),
+                position: 2,
+            }
+            .validate(),
+            Ok(ValidatedAction::ReorderAddon {
+                id: AddonId::parse("community.example").expect("an Addon id"),
+                position: 2,
+            })
+        );
+        assert_eq!(
+            Action::SetFeaturedCatalog {
+                addon: "community.example".to_owned(),
+                catalog: CatalogRef::parse("movie", "top").expect("a catalog"),
+            }
+            .validate(),
+            Ok(ValidatedAction::SetFeaturedCatalog {
+                addon: AddonId::parse("community.example").expect("an Addon id"),
+                catalog: CatalogRef::parse("movie", "top").expect("a catalog"),
+            })
+        );
+        assert_eq!(
+            Action::ClearFeaturedCatalog.validate(),
+            Ok(ValidatedAction::ClearFeaturedCatalog)
+        );
+    }
+
+    #[test]
+    fn a_position_the_configured_addons_do_not_have_names_its_own_kind() {
+        let refused = ActionError::InvalidPosition {
+            id: "community.example".to_owned(),
+            position: 2,
+            count: 2,
+        };
+
+        assert_eq!(
+            serde_json::to_value(&refused).expect("a refusal serializes"),
+            serde_json::json!({
+                "kind": "invalid_position",
+                "id": "community.example",
+                "position": 2,
+                "count": 2,
+            }),
+            "a client acts on the kind, and the numbers say what the list had"
+        );
     }
 
     #[test]
@@ -1288,6 +1472,38 @@ mod tests {
     }
 
     #[test]
+    fn an_action_that_asks_for_the_previous_episode_is_flat_and_judged_before_anything_is_asked() {
+        let envelope =
+            format!(r#"{{"version":{ACTION_VERSION},"action":{{"type":"previous_episode"}}}}"#);
+
+        assert_eq!(Action::parse(&envelope), Ok(Action::PreviousEpisode));
+        assert_eq!(
+            Action::PreviousEpisode.validate(),
+            Ok(ValidatedAction::PreviousEpisode)
+        );
+        assert_eq!(
+            serde_json::to_value(Action::PreviousEpisode).expect("an Action serializes"),
+            serde_json::json!({ "type": "previous_episode" })
+        );
+    }
+
+    #[test]
+    fn a_refusal_to_skip_to_the_previous_episode_names_its_own_kind() {
+        let refused = ActionError::NoPreviousEpisode {
+            detail: "no Addon offers an episode before series/tt0903747:0:1".to_owned(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(&refused).expect("a refusal serializes"),
+            serde_json::json!({
+                "kind": "no_previous_episode",
+                "detail": "no Addon offers an episode before series/tt0903747:0:1",
+            }),
+            "the twin of `no_next_episode`, so a client tells the two apart by kind"
+        );
+    }
+
+    #[test]
     fn the_controls_wire_shape_is_the_declared_one() {
         assert_eq!(
             serde_json::to_value(Action::SetSpeed { rate: 1.5 }).expect("an Action serializes"),
@@ -1335,7 +1551,10 @@ mod tests {
     const EVERY_ACTION: &[&str] = &[
         r#"{"type":"set_subtitle_language","language":"en"}"#,
         r#"{"type":"clear_subtitle_language"}"#,
+        r#"{"type":"set_featured_catalog","addon":"community.example","catalog":{"type":"movie","id":"top"}}"#,
+        r#"{"type":"clear_featured_catalog"}"#,
         r#"{"type":"add_addon","url":"https://example.com/manifest.json"}"#,
+        r#"{"type":"reorder_addon","id":"community.example","position":1}"#,
         r#"{"type":"remove_addon","id":"community.example"}"#,
         r#"{"type":"set_tmdb_key","key":"0123456789abcdef"}"#,
         r#"{"type":"clear_tmdb_key"}"#,
@@ -1364,6 +1583,7 @@ mod tests {
         r#"{"type":"set_crop","crop":{"kind":"off"}}"#,
         r#"{"type":"set_aspect","aspect":{"kind":"source"}}"#,
         r#"{"type":"next_episode"}"#,
+        r#"{"type":"previous_episode"}"#,
         r#"{"type":"stop_playback"}"#,
     ];
 
