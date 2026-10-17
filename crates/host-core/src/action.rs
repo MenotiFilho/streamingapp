@@ -188,6 +188,13 @@ pub enum Action {
     /// asks the Addons what comes next and plays it, and every client is told of
     /// the new Now playing.
     NextEpisode,
+    /// Play the Video *before* the one playing, in its Title: the Addon's own
+    /// previous episode, and the release the one playing came from (ADR-0021).
+    ///
+    /// The mirror of [`Action::NextEpisode`], and a change for the same reason:
+    /// the Host asks the Addons what the Addon's own order puts before what is
+    /// playing and opens it, and every client is told of the new Now playing.
+    PreviousEpisode,
     /// Stop playing: nothing is playing afterwards, and the client is back to
     /// whatever it was reading.
     StopPlayback,
@@ -252,6 +259,7 @@ action_spellings! {
     Action::SetCrop { .. } => "set_crop",
     Action::SetAspect { .. } => "set_aspect",
     Action::NextEpisode => "next_episode",
+    Action::PreviousEpisode => "previous_episode",
     Action::StopPlayback => "stop_playback",
 }
 
@@ -411,6 +419,7 @@ impl Action {
                 Ok(ValidatedAction::SetAspect { aspect })
             }
             Action::NextEpisode => Ok(ValidatedAction::NextEpisode),
+            Action::PreviousEpisode => Ok(ValidatedAction::PreviousEpisode),
             Action::SetPaused { paused } => Ok(ValidatedAction::SetPaused { paused }),
             Action::StopPlayback => Ok(ValidatedAction::StopPlayback),
         }
@@ -554,6 +563,9 @@ pub enum ValidatedAction {
     /// The next episode of the Title playing, asked of the Addons and played:
     /// one of the two controls that open a Stream, the other being `Resume`.
     NextEpisode,
+    /// The previous episode of the Title playing, asked of the Addons and
+    /// played — the mirror of `NextEpisode` (ADR-0021).
+    PreviousEpisode,
     StopPlayback,
 }
 
@@ -623,6 +635,12 @@ pub enum ActionError {
     /// rather than playing something else, which is what ADR-0014 asks of it.
     #[error("{detail}")]
     NoNextEpisode { detail: String },
+    /// There is no previous episode to play: the mirror of
+    /// [`Self::NoNextEpisode`] — what is playing is not an episode of a series,
+    /// the Addon's own order begins at it, or none of an Addon's candidates for
+    /// the Video before it is one this Host can play (ADR-0021).
+    #[error("{detail}")]
+    NoPreviousEpisode { detail: String },
     /// A resume named a Video the Host has no Watch progress for: there is
     /// nothing to resume from, and playing it from the start would not be the
     /// thing the client asked for.
@@ -1146,6 +1164,38 @@ mod tests {
     }
 
     #[test]
+    fn an_action_that_asks_for_the_previous_episode_is_flat_and_judged_before_anything_is_asked() {
+        let envelope =
+            format!(r#"{{"version":{ACTION_VERSION},"action":{{"type":"previous_episode"}}}}"#);
+
+        assert_eq!(Action::parse(&envelope), Ok(Action::PreviousEpisode));
+        assert_eq!(
+            Action::PreviousEpisode.validate(),
+            Ok(ValidatedAction::PreviousEpisode)
+        );
+        assert_eq!(
+            serde_json::to_value(Action::PreviousEpisode).expect("an Action serializes"),
+            serde_json::json!({ "type": "previous_episode" })
+        );
+    }
+
+    #[test]
+    fn a_refusal_to_skip_to_the_previous_episode_names_its_own_kind() {
+        let refused = ActionError::NoPreviousEpisode {
+            detail: "no Addon offers an episode before series/tt0903747:0:1".to_owned(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(&refused).expect("a refusal serializes"),
+            serde_json::json!({
+                "kind": "no_previous_episode",
+                "detail": "no Addon offers an episode before series/tt0903747:0:1",
+            }),
+            "the twin of `no_next_episode`, so a client tells the two apart by kind"
+        );
+    }
+
+    #[test]
     fn the_controls_wire_shape_is_the_declared_one() {
         assert_eq!(
             serde_json::to_value(Action::SetSpeed { rate: 1.5 }).expect("an Action serializes"),
@@ -1221,6 +1271,7 @@ mod tests {
         r#"{"type":"set_crop","crop":{"kind":"off"}}"#,
         r#"{"type":"set_aspect","aspect":{"kind":"source"}}"#,
         r#"{"type":"next_episode"}"#,
+        r#"{"type":"previous_episode"}"#,
         r#"{"type":"stop_playback"}"#,
     ];
 

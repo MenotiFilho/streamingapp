@@ -7,6 +7,7 @@ import {
   type Action,
   type AddonManifest,
   type AddonStreams,
+  type Episode,
   type MetaPreview,
   type PlaybackSnapshot,
   type Response,
@@ -29,6 +30,7 @@ const NOTHING_SAID: Snapshot = {
     picture: "in_window",
     failure: null,
     nowPlaying: null,
+    episode: null,
     position: null,
     duration: null,
     tracks: [],
@@ -138,6 +140,16 @@ function episode(id: string, name: string, season: number, episodeNumber: number
   return { id, name, season, episode: episodeNumber };
 }
 
+/**
+ * The Host's own reading of an episode id, mirrored for the fake: the last two
+ * numeric parts of the id are the season and the episode (`tt0903747:1:2`,
+ * `kitsu:12345:1:2`), and anything else is a film (ADR-0021).
+ */
+function episodeOf(id: string): Episode | null {
+  const parts = /^(.*?):(\d+):(\d+)$/.exec(id);
+  return parts ? { season: Number(parts[2]), episode: Number(parts[3]) } : null;
+}
+
 /** Every item the fake Addon has, so an `open_title` can answer about one. */
 const ITEMS = [...POPULAR_PAGES.flat(), SERIES_META];
 
@@ -214,6 +226,7 @@ function playback(
       filename: "The.Matrix.1999.1080p.BluRay.x265-GROUP.mkv",
       bingeGroup: null,
     },
+    episode: null,
     position: 12.5,
     duration: 8100,
     // The whole control set a live Stream carries: an embedded audio track that
@@ -547,6 +560,7 @@ function fakeHost(
               filename: action.stream.filename,
               bingeGroup: action.stream.bingeGroup,
             },
+            episode: episodeOf(action.video.id),
             position: null,
             duration: null,
             // A Stream that has only just been opened has nothing reported yet.
@@ -588,6 +602,7 @@ function fakeHost(
               filename: null,
               bingeGroup: null,
             },
+            episode: episodeOf(action.video.id),
             position: entry.position,
             duration: entry.duration,
           },
@@ -626,7 +641,7 @@ function fakeHost(
         publish({
           ...state,
           revision: state.revision + 1,
-          playback: { ...state.playback, state: "idle", nowPlaying: null, failure: null },
+          playback: { ...state.playback, state: "idle", nowPlaying: null, episode: null, failure: null },
         });
         response.snapshots = [state];
         break;
@@ -2257,6 +2272,7 @@ test("the menu sends the delay, speed, volume, mute, chapter, crop and aspect Ac
 
 test("a series offers the next episode", async () => {
   const { host, menu } = await watchWithMenu({
+    episode: { season: 1, episode: 1 },
     nowPlaying: {
       video: { type: "series", id: "tt0903747:1:1" },
       addon: AIOSTREAMS,
@@ -2409,6 +2425,7 @@ test("a Stream at its end offers the next episode, because the menu is not offer
       playback: playback({
         state: "ended",
         position: 2820,
+        episode: { season: 1, episode: 1 },
         nowPlaying: {
           video: { type: "series", id: "tt0903747:1:1" },
           addon: AIOSTREAMS,

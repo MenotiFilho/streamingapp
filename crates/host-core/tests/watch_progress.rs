@@ -338,6 +338,42 @@ fn the_next_episode_is_a_new_entry_under_the_same_title_and_the_one_watched_stay
 }
 
 #[test]
+fn the_previous_episode_is_a_new_entry_and_the_one_left_carries_on() {
+    // Stepping back is a play like stepping forward: the earlier Video becomes
+    // its own entry against the same Title, and the one left behind keeps what
+    // it had (ADR-0015, ADR-0021).
+    let mut fixture = fixture();
+    play(&mut fixture, "series", "tt0903747:1:2");
+    watching(&mut fixture, 2810.0, 2820.0, 10_000);
+
+    fixture.clock.set(20_000);
+    fixture
+        .host
+        .dispatch(action(&serde_json::json!({ "type": "previous_episode" })))
+        .expect("the previous episode of a series plays");
+
+    let held = continue_watching(&fixture.host);
+    assert_eq!(held.len(), 2);
+    assert_eq!(
+        held[0].video.id, "tt0903747:1:1",
+        "the earlier episode leads"
+    );
+    assert_eq!(
+        held[0].title.id(),
+        "tt0903747",
+        "the previous episode is recorded against the same Title"
+    );
+    assert!(
+        held[0].position.is_none(),
+        "it starts fresh, where the play opened it"
+    );
+    assert!(
+        held[1].watched,
+        "the episode that had finished keeps its progress"
+    );
+}
+
+#[test]
 fn removing_the_addon_that_supplied_a_title_leaves_a_stub_that_is_still_listed() {
     let mut fixture = fixture();
     play(&mut fixture, "series", "tt0903747:1:2");
