@@ -1,5 +1,18 @@
 # Opening a Title: a lenient meta answer, Videos as the unit, and no page cache
 
+> **Two amendments since this was written.**
+> [ADR-0020](0020-tmdb-as-a-second-content-source.md) makes TMDB the metadata
+> source for every Title on a key-held Host: its record supplies the poster, the
+> description, the backdrop, the rating, the genres and the **Videos**, and the
+> Addon's `meta` answer is drawn only where no key is held or TMDB met no record —
+> so the Videos rule below holds only without a key. And ticket #62 widened what
+> this Host reads so that art can be drawn rather than dropped: `background` on a
+> catalog item (`MetaPreview`) and on a meta answer (`Title`), `logo` on a meta
+> answer, and a Video's `thumbnail`. Read the ignored-field list below with those
+> three struck — Home's hero, the Title screen, and a series' episode rows draw
+> them. The `meta.rs`/`catalog.rs` comments and the `meta.rs` test comment that
+> repeat the old list move with the build ticket, not with this decision.
+
 Ticket #24 ("Open a Title and see its Videos") is the second ticket that reads
 from an Addon, and the first whose answer is about **one item** rather than a page
 of them. ADR-0010 said a question is answered with an `Answer` rather than a

@@ -5,6 +5,11 @@
 > `CONTEXT.md` now calls **Continue watching**. **Library** today means the
 > Stremio-account collection, which is not built.
 
+> **Amended (#62).** The card carries one field more: the Title's `background`.
+> The **Continue watching** row draws `16:9` art (the component kit, #50), and the
+> poster the card already carried is portrait, so the backdrop rides the same
+> client-supplied `TitleCard` and reaches the Snapshot's `watchProgress` beside it.
+
 Ticket #29 ("Watch progress, the library, and resume") is where the Host starts
 remembering something between runs. Eleven decisions are worth writing down; the
 rest is mechanical once they are made. ADR-0013 predicted the shape — "#29
