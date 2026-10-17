@@ -328,6 +328,69 @@ fn a_series_with_no_next_video_is_refused() {
     );
 }
 
+/// A second Addon that answers `meta` for the same Title with its own list:
+/// the numbering hazard ADR-0020 recorded, made explicit.
+const OTHER_SERIES: &str = "https://other.example.org/manifest.json";
+const OTHER_SERIES_ID: &str = "org.example.other-series";
+const OTHER_META_URL: &str = "https://other.example.org/meta/series/tt0903747.json";
+const OTHER_META: &str = r#"{"meta":{"id":"tt0903747","type":"series","name":"Breaking Bad",
+    "videos":[
+        {"id":"tt0903747:1:1","name":"Pilot","season":1,"episode":1},
+        {"id":"tt0903747:1:2","name":"Cat's in the Bag...","season":1,"episode":2}
+    ]}}"#;
+
+/// The same Title ending at its first episode, as the Addon already playing
+/// lists it.
+const FIRST_ONLY_META: &str = r#"{"meta":{"id":"tt0903747","type":"series","name":"Breaking Bad",
+    "videos":[{"id":"tt0903747:1:1","name":"Pilot","season":1,"episode":1}]}}"#;
+
+#[test]
+fn the_first_addons_own_order_decides_even_where_another_lists_a_later_episode() {
+    // Two Addons answer `meta`. The first lists the Video playing as its last
+    // listed one, so *its* order decides and the Action is refused — a second
+    // Addon listing an episode after it does not get to move the viewer into a
+    // list whose order the Host never chose for what is playing (ADR-0020,
+    // ADR-0014).
+    let player = Arc::new(FixturePlayer::new());
+    let provider = Arc::new(FixtureProvider::new());
+    let mut host = host_with(
+        player.clone(),
+        provider.clone(),
+        &[
+            Configured::answering(SERIES, SERIES_ID, r#""meta","stream""#)
+                .with_meta(META_URL, FIRST_ONLY_META),
+            Configured::answering(OTHER_SERIES, OTHER_SERIES_ID, r#""meta","stream""#)
+                .with_meta(OTHER_META_URL, OTHER_META),
+        ],
+    );
+
+    play(
+        &mut host,
+        SERIES_ID,
+        "series",
+        "tt0903747:1:1",
+        PLAYING,
+        Some("the-release"),
+    );
+
+    assert!(
+        matches!(
+            host.dispatch(next_episode()),
+            Err(ActionError::NoNextEpisode { .. })
+        ),
+        "the first answering Addon's list ends at the Video playing"
+    );
+    assert_eq!(
+        player.opened(),
+        vec![PLAYING.to_owned()],
+        "a refusal opens nothing, from any Addon"
+    );
+    assert!(
+        provider.asked().is_empty(),
+        "no candidate is asked for when the deciding list has no episode after the one playing"
+    );
+}
+
 #[test]
 fn a_setup_where_no_addon_answers_meta_is_refused() {
     let player = Arc::new(FixturePlayer::new());

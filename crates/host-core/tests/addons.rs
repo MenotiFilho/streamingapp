@@ -86,6 +86,13 @@ fn remove(host: &mut Host, id: &str) -> Result<Vec<Snapshot>, ActionError> {
         .map(|response| response.snapshots)
 }
 
+fn reorder(host: &mut Host, id: &str, position: i64) -> Result<Vec<Snapshot>, ActionError> {
+    host.dispatch(action(&format!(
+        r#"{{"type":"reorder_addon","id":{id:?},"position":{position}}}"#
+    )))
+    .map(|response| response.snapshots)
+}
+
 fn added(host: &mut Host, url: &str) -> Vec<Snapshot> {
     add(host, url).unwrap_or_else(|error| panic!("adding {url} should work: {error}"))
 }
@@ -204,6 +211,173 @@ fn addons_are_listed_in_the_order_they_were_configured() {
     assert_eq!(
         ids(&published[0]),
         vec!["community.stremboxd", "com.linvo.cinemeta"]
+    );
+}
+
+#[test]
+fn reordering_an_addon_moves_it_to_that_position_in_the_order() {
+    let (mut host, store) = host_holding_three_addons();
+
+    let published =
+        reorder(&mut host, "org.example.third", 0).expect("moving a configured Addon should work");
+
+    assert_eq!(
+        ids(&published[0]),
+        vec![
+            "org.example.third",
+            "org.example.first",
+            "org.example.second"
+        ]
+    );
+    assert_eq!(
+        ids(&host.snapshot()),
+        ids(&published[0]),
+        "the state followed the published order"
+    );
+    assert_eq!(
+        stored_ids(&store),
+        vec![
+            "org.example.third",
+            "org.example.first",
+            "org.example.second"
+        ],
+        "the store kept the new order, not just the state"
+    );
+}
+
+#[test]
+fn moving_an_addon_to_the_last_position_leaves_the_others_in_their_order() {
+    let (mut host, store) = host_holding_three_addons();
+
+    let published =
+        reorder(&mut host, "org.example.first", 2).expect("the last configured position is one");
+
+    assert_eq!(
+        ids(&published[0]),
+        vec![
+            "org.example.second",
+            "org.example.third",
+            "org.example.first"
+        ]
+    );
+    assert_eq!(
+        stored_ids(&store),
+        vec![
+            "org.example.second",
+            "org.example.third",
+            "org.example.first"
+        ]
+    );
+}
+
+#[test]
+fn moving_an_addon_onto_the_position_it_already_stands_at_publishes_the_order_it_had() {
+    let (mut host, _store) = host_holding_three_addons();
+
+    let published =
+        reorder(&mut host, "org.example.second", 1).expect("moving an Addon onto itself is a move");
+
+    assert_eq!(
+        published[0].revision, 1,
+        "it is still a change, and every client hears of it"
+    );
+    assert_eq!(
+        ids(&published[0]),
+        vec![
+            "org.example.first",
+            "org.example.second",
+            "org.example.third"
+        ]
+    );
+}
+
+#[test]
+fn reordering_an_addon_the_host_does_not_have_is_refused() {
+    let (mut host, store) = host_holding_three_addons();
+    let before = host.snapshot();
+
+    let refused = reorder(&mut host, "org.example.nowhere", 0);
+
+    assert_eq!(
+        refused,
+        Err(ActionError::UnknownAddon {
+            id: "org.example.nowhere".to_owned()
+        })
+    );
+    assert_eq!(host.snapshot(), before);
+    assert_eq!(
+        stored_ids(&store).len(),
+        3,
+        "a refused move touches neither the state nor the store"
+    );
+}
+
+#[test]
+fn a_position_the_configured_addons_do_not_have_is_refused_in_the_hosts_own_terms() {
+    let (mut host, store) = host_holding_three_addons();
+    let before = host.snapshot();
+
+    // Every place the list does not have is the same refusal: the last Addon
+    // stands at 2, and a negative is a position no list can have.
+    for position in [-1, 3, i64::from(i32::MAX)] {
+        let refused = reorder(&mut host, "org.example.first", position);
+
+        assert_eq!(
+            refused,
+            Err(ActionError::InvalidPosition {
+                id: "org.example.first".to_owned(),
+                position,
+                count: 3,
+            }),
+            "position {position} is not a place this Host has"
+        );
+        assert_eq!(host.snapshot(), before);
+    }
+
+    assert_eq!(
+        stored_ids(&store),
+        vec![
+            "org.example.first",
+            "org.example.second",
+            "org.example.third"
+        ],
+        "nothing was written"
+    );
+}
+
+#[test]
+fn the_order_a_reorder_left_is_the_order_a_restarted_host_reads() {
+    let (mut host, store) = host_holding_three_addons();
+    reorder(&mut host, "org.example.third", 0).expect("moving a configured Addon should work");
+
+    let restarted = host_over(store, FixtureFetcher::new());
+
+    assert_eq!(
+        ids(&restarted.snapshot()),
+        vec![
+            "org.example.third",
+            "org.example.first",
+            "org.example.second"
+        ]
+    );
+}
+
+#[test]
+fn a_store_that_refuses_the_write_leaves_the_order_alone() {
+    let (mut host, store) = host_holding_three_addons();
+    let before = host.snapshot();
+    store.failing_writes();
+
+    let refused = reorder(&mut host, "org.example.third", 0);
+
+    assert!(
+        matches!(refused, Err(ActionError::Store { .. })),
+        "a store that refuses the write is reported as a store failure: {refused:?}"
+    );
+    assert_eq!(
+        host.snapshot(),
+        before,
+        "an order the store did not accept is not the Host's"
     );
 }
 
@@ -406,6 +580,35 @@ fn adding_an_addon_moves_the_revision_on() {
     let published = added(&mut host, STREMBOXD);
 
     assert_eq!(published[0].revision, 1);
+}
+
+/// A Host configured with three Addons, in the order the store read them: no
+/// fetch is needed, because the store already holds the manifests.
+fn host_holding_three_addons() -> (Host, Arc<InMemoryStore>) {
+    let store = Arc::new(InMemoryStore::new().holding_addons(vec![
+        stored_addon("org.example.first"),
+        stored_addon("org.example.second"),
+        stored_addon("org.example.third"),
+    ]));
+    (host_over(store.clone(), FixtureFetcher::new()), store)
+}
+
+/// One Addon as a store would have read it back.
+fn stored_addon(id: &str) -> host_core::Addon {
+    host_core::Addon::new(
+        host_core::ManifestUrl::parse(&format!("https://{id}/manifest.json"))
+            .expect("an Addon id makes a URL"),
+        Manifest::parse(&addon_manifest(id, "1.0.0")).expect("the fixture is a manifest"),
+    )
+}
+
+/// The ids the store holds, in the order it holds them.
+fn stored_ids(store: &InMemoryStore) -> Vec<String> {
+    store
+        .persisted_addons()
+        .iter()
+        .map(|addon| addon.id().as_str().to_owned())
+        .collect()
 }
 
 /// The smallest manifest an Addon could publish, for the tests that care about

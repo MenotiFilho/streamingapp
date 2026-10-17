@@ -626,6 +626,7 @@ mod tests {
             r#type: kind.to_owned(),
             name: "Breaking Bad".to_owned(),
             poster: None,
+            background: None,
         })
         .expect("a card the Host will keep")
     }

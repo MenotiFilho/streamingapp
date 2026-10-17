@@ -1,4 +1,4 @@
-//! Watch progress, and the library every client reads it from.
+//! Watch progress, and the Continue watching row every client reads it from.
 //!
 //! Two things live here, and they are two halves of one feature (#29).
 //!
@@ -10,13 +10,13 @@
 //! was. Playback itself is not stored (ADR-0013): what survives is the progress,
 //! not the Stream.
 //!
-//! **The library** is what a client sees of it: a [`ResumeEntry`] per Video,
-//! carrying the Video and enough of its Title to draw a card without opening it.
-//! The card is what the client was reading when it pressed play — a Title is a
-//! client's own business (ADR-0005), so the Host is *told* which Title a Video
-//! belongs to rather than working it out from an Addon — and the Addon that
-//! supplied it is what a removed Addon is judged against: an entry whose Addon
-//! is gone stays listed, marked unplayable, rather than vanishing.
+//! **Continue watching** is what a client sees of it: a [`ResumeEntry`] per
+//! Video, carrying the Video and enough of its Title to draw a card without
+//! opening it. The card is what the client was reading when it pressed play — a
+//! Title is a client's own business (ADR-0005), so the Host is *told* which
+//! Title a Video belongs to rather than working it out from an Addon — and the
+//! Addon that supplied it is what a removed Addon is judged against: an entry
+//! whose Addon is gone stays listed, marked unplayable, rather than vanishing.
 //!
 //! ## Finished is a moment, not a state
 //!
@@ -56,7 +56,7 @@ pub const PROGRESS_EVERY: f64 = 5.0;
 /// not in the Stream, and the Addon that supplied it is not necessarily the one
 /// the Stream came from. So the client that opened it hands back the least of it
 /// a card is drawn from, and the Host keeps that rather than re-asking an Addon
-/// — which is also what lets the library work with no network at all.
+/// — which is also what lets Continue watching work with no network at all.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TitleCard {
@@ -74,14 +74,18 @@ pub struct TitleCard {
     pub name: String,
     /// The Title's poster, where the Addon gave one.
     pub poster: Option<String>,
+    /// The Title's backdrop, where the Addon gave one. Continue watching draws
+    /// 16:9 cards, and the poster beside it is portrait.
+    pub background: Option<String>,
 }
 
-/// The least of a Title a library card is drawn from — judged.
+/// The least of a Title a Continue watching card is drawn from — judged.
 ///
 /// Valid by construction: [`TitleStub::parse`] is the only way to make one, and
 /// it refuses a Title whose type and id are not ones a request could name. The
 /// words are bounded the way every word that travels to a client is: a name too
-/// long to hold falls back to the id, and a poster that is not one is dropped.
+/// long to hold falls back to the id, and a poster or a backdrop that is not one
+/// is dropped.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TitleStub {
@@ -91,6 +95,7 @@ pub struct TitleStub {
     r#type: String,
     name: String,
     poster: Option<String>,
+    background: Option<String>,
 }
 
 impl TitleStub {
@@ -104,7 +109,8 @@ impl TitleStub {
             id: title.id,
             r#type: title.r#type,
             name: held(&card.name).unwrap_or_else(|| card.id.clone()),
-            poster: held(&card.poster.clone().unwrap_or_default()),
+            poster: held(card.poster.as_deref().unwrap_or_default()),
+            background: held(card.background.as_deref().unwrap_or_default()),
         })
     }
 
@@ -133,14 +139,21 @@ impl TitleStub {
     pub fn poster(&self) -> Option<&str> {
         self.poster.as_deref()
     }
+
+    /// The Title's backdrop, where it had one the Host will hold: the 16:9 art
+    /// Continue watching draws, where the poster beside it is portrait.
+    pub fn background(&self) -> Option<&str> {
+        self.background.as_deref()
+    }
 }
 
 /// One Video's Watch progress, as the Host stores it.
 ///
 /// Keyed by the Video — one entry per Video, and the unit the spec names for it
-/// — and carrying the Title it belongs to so the library can draw a card without
-/// opening anything. `updated_at` is not published: it is what orders the entry
-/// and what #30's merge resolves two writes by, not something a client reads.
+/// — and carrying the Title it belongs to so Continue watching can draw a card
+/// without opening anything. `updated_at` is not published: it is what orders
+/// the entry and what #30's merge resolves two writes by, not something a client
+/// reads.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WatchProgress {
@@ -263,7 +276,7 @@ pub struct ResumeEntry {
     pub unplayable: Option<UnplayableEntry>,
 }
 
-/// Why a library entry is not one the Host will play.
+/// Why a Continue watching entry is not one the Host will play.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UnplayableEntry {
@@ -272,7 +285,7 @@ pub struct UnplayableEntry {
     pub addon: AddonId,
 }
 
-/// The reasons a library entry is marked unplayable.
+/// The reasons a Continue watching entry is marked unplayable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UnplayableReason {
@@ -309,6 +322,7 @@ mod tests {
             r#type: "series".to_owned(),
             name: name.to_owned(),
             poster: Some("https://images.example.org/bb.jpg".to_owned()),
+            background: Some("https://images.example.org/bb-backdrop.jpg".to_owned()),
         }
     }
 
@@ -339,6 +353,11 @@ mod tests {
         assert_eq!(stub.r#type(), "series");
         assert_eq!(stub.name(), "Breaking Bad");
         assert_eq!(stub.poster(), Some("https://images.example.org/bb.jpg"));
+        assert_eq!(
+            stub.background(),
+            Some("https://images.example.org/bb-backdrop.jpg"),
+            "16:9 Continue watching art rides the card the client handed back"
+        );
     }
 
     #[test]
@@ -351,6 +370,7 @@ mod tests {
             r#type: "series".to_owned(),
             name: "Breaking Bad".to_owned(),
             poster: None,
+            background: None,
         })
         .expect("a Discovered Title is one the Host will key by its own id");
 
@@ -413,12 +433,18 @@ mod tests {
         let stub = TitleStub::parse(&TitleCard {
             name: String::new(),
             poster: Some("\u{0}".to_owned()),
+            background: Some("\u{0}".to_owned()),
             ..card("One")
         })
         .expect("the Title is still one the Host will key by");
 
         assert_eq!(stub.name(), "tt0903747");
         assert_eq!(stub.poster(), None);
+        assert_eq!(
+            stub.background(),
+            None,
+            "a backdrop that is not one is not art Continue watching draws"
+        );
     }
 
     #[test]
@@ -592,6 +618,10 @@ mod tests {
             serde_json::json!({ "reason": "addon_removed", "addon": "com.linvo.cinemeta" })
         );
         assert_eq!(published["title"]["type"], "series");
+        assert_eq!(
+            published["title"]["background"], "https://images.example.org/bb-backdrop.jpg",
+            "the backdrop is published beside the poster it falls back from"
+        );
         assert_eq!(
             published["updatedAt"],
             serde_json::Value::Null,

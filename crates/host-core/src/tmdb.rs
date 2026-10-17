@@ -35,12 +35,25 @@
 //! spelling each Addon declares at the moment Streams are asked for (ADR-0020).
 //! The season endpoints cost one ask per season, which is what the ADR left to
 //! the build to find out; the episodes of a season that could not be read are
-//! dropped rather than blanking the ones around them, and a Titles' Videos are
+//! dropped rather than blanking the ones around them, and a Title's Videos are
 //! replaced only when *something* was read.
+//!
+//! ## The feed
+//!
+//! Discover (CONTEXT.md, *Discover*) is the one page of Titles that is not an
+//! Addon's: the week TMDB says is trending, or a `/discover` page filtered by
+//! genre and sort order. [`DiscoverQuery`] is a client's ask after it has been
+//! judged — the two kinds do not share their genres or their `sort_by` values,
+//! so the filters are judged against the kind's own lists — and it becomes one
+//! of the two [`TmdbRequest`]s; [`read_page`] reads the answer leniently into
+//! [`MetaPreview`]s keyed `tmdb:<id>`, the same shape a catalog row carries so
+//! that a client draws both with one card. A page is never cached: it is a live
+//! thing whose staleness is worse than its latency (ADR-0020).
 
 use serde_json::{Map, Value};
 
-use crate::addon::MAX_STRING_LEN;
+use crate::addon::{MAX_ITEMS, MAX_STRING_LEN};
+use crate::catalog::MetaPreview;
 use crate::meta::Video;
 
 /// Where TMDB answers questions at, in the version the marked one.
@@ -54,10 +67,6 @@ pub const TMDB_ROOT: &str = "https://api.themoviedb.org/3";
 /// largest documented still is `w300`, and `logo_sizes` ends at `w500` before
 /// `original`.
 pub const IMAGE_ROOT: &str = "https://image.tmdb.org/t/p/w780";
-
-/// Where TMDB takes a backdrop from, at the size a 16:9 hero is drawn at. The
-/// size is one of the documented `backdrop_sizes`.
-pub const BACKGROUND_ROOT: &str = "https://image.tmdb.org/t/p/w780";
 
 /// Where TMDB takes a wordmark from, at the size a Title screen draws one.
 pub const LOGO_ROOT: &str = "https://image.tmdb.org/t/p/w500";
@@ -95,10 +104,10 @@ impl Kind {
         }
     }
 
-    /// The kind as the addon protocol spells it, which is what a Title's `type`
-    /// and a Video's id carry: a film is `movie` on both sides, a series is
+    /// The addon protocol's spelling of it, which is what a `MetaPreview`'s
+    /// `type` — and a Title's — is: a film is `movie` on both sides, a series is
     /// `series` here and `tv` in TMDB's paths.
-    pub fn as_protocol(self) -> &'static str {
+    pub(crate) fn as_protocol(self) -> &'static str {
         match self {
             Self::Movie => "movie",
             Self::Tv => "series",
@@ -113,6 +122,180 @@ impl Kind {
             Self::Tv => "name",
         }
     }
+
+    /// The date a record of this kind is dated by on a feed: a film's release
+    /// and a series' first airing.
+    fn as_date_field(self) -> &'static str {
+        match self {
+            Self::Movie => "release_date",
+            Self::Tv => "first_air_date",
+        }
+    }
+
+    /// The `sort_by` values TMDB documents for this kind.
+    ///
+    /// The two enums are not the same set: a film has `revenue` and a series
+    /// does not, and a series has `first_air_date` where a film has
+    /// `primary_release_date`. Asking one kind's sort of the other is asking
+    /// TMDB a question it does not answer.
+    fn sorts(self) -> &'static [&'static str] {
+        match self {
+            Self::Movie => MOVIE_SORTS,
+            Self::Tv => TV_SORTS,
+        }
+    }
+
+    /// Whether `genre` is one of the genre ids TMDB lists for this kind.
+    fn knows_genre(self, genre: u32) -> bool {
+        match self {
+            Self::Movie => MOVIE_GENRES,
+            Self::Tv => TV_GENRES,
+        }
+        .contains(&genre)
+    }
+}
+
+impl std::fmt::Display for Kind {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_protocol())
+    }
+}
+
+/// The genre ids TMDB lists for films, from `/genre/movie/list`.
+///
+/// The ids are stable and the names beside them are translations, which is why
+/// a filter travels by id (research note §3). Kept here because it is the list
+/// a movie's `with_genres` is judged against.
+const MOVIE_GENRES: &[u32] = &[
+    12, 14, 16, 18, 27, 28, 35, 36, 37, 53, 80, 99, 878, 9648, 10402, 10749, 10751, 10752, 10770,
+];
+
+/// The genre ids TMDB lists for series, from `/genre/tv/list`: not the movie
+/// set. `28` is a film's Action and no series' genre, and `10759` is a series'
+/// Action & Adventure and no film's.
+const TV_GENRES: &[u32] = &[
+    16, 18, 35, 37, 80, 99, 9648, 10751, 10759, 10762, 10763, 10764, 10765, 10766, 10767, 10768,
+];
+
+/// The `sort_by` values TMDB documents for `/discover/movie`.
+const MOVIE_SORTS: &[&str] = &[
+    "original_title.asc",
+    "original_title.desc",
+    "popularity.asc",
+    "popularity.desc",
+    "revenue.asc",
+    "revenue.desc",
+    "primary_release_date.asc",
+    "primary_release_date.desc",
+    "title.asc",
+    "title.desc",
+    "vote_average.asc",
+    "vote_average.desc",
+    "vote_count.asc",
+    "vote_count.desc",
+];
+
+/// The `sort_by` values TMDB documents for `/discover/tv`, which are not the
+/// movie set either.
+const TV_SORTS: &[&str] = &[
+    "first_air_date.asc",
+    "first_air_date.desc",
+    "name.asc",
+    "name.desc",
+    "original_name.asc",
+    "original_name.desc",
+    "popularity.asc",
+    "popularity.desc",
+    "vote_average.asc",
+    "vote_average.desc",
+    "vote_count.asc",
+    "vote_count.desc",
+];
+
+/// A Discover ask, judged: the kind, the page, and the filters a client chose,
+/// in TMDB's own terms.
+///
+/// What a client sends is the protocol's words — a `movie` or a `series`, a
+/// page numbered from 1, a genre id, a `sort_by` value — and what this holds is
+/// the same ask after it has been judged: the kind is TMDB's, the page is one
+/// TMDB numbers, and a genre or sort is one *that kind's* list holds. Judging
+/// is per kind because the two kinds' sets differ (research note §3–§5): a
+/// movie genre sent to a series, or a film's `revenue` sort sent to one, is
+/// refused here rather than sent to be answered with an empty page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscoverQuery {
+    pub kind: Kind,
+    pub page: u32,
+    pub genre: Option<u32>,
+    pub sort: Option<String>,
+}
+
+impl DiscoverQuery {
+    /// Judge a client's ask, or why it is not one TMDB can be given.
+    pub fn parse(
+        kind: &str,
+        page: u32,
+        genre: Option<u32>,
+        sort: Option<String>,
+    ) -> Result<Self, DiscoverQueryError> {
+        let kind = Kind::parse(kind).ok_or_else(|| DiscoverQueryError::Kind {
+            kind: kind.to_owned(),
+        })?;
+        if page == 0 {
+            return Err(DiscoverQueryError::Page { page });
+        }
+        if let Some(genre) = genre {
+            if !kind.knows_genre(genre) {
+                return Err(DiscoverQueryError::Genre { kind, genre });
+            }
+        }
+        if let Some(sort) = &sort {
+            if !kind.sorts().contains(&sort.as_str()) {
+                return Err(DiscoverQueryError::Sort {
+                    kind,
+                    sort: sort.clone(),
+                });
+            }
+        }
+
+        Ok(Self {
+            kind,
+            page,
+            genre,
+            sort,
+        })
+    }
+
+    /// The request this ask is: the week's trending feed where nothing filters
+    /// it, and a `/discover` page where a genre or a sort order does (ADR-0020).
+    pub fn request(&self) -> TmdbRequest {
+        if self.genre.is_none() && self.sort.is_none() {
+            TmdbRequest::Trending {
+                kind: self.kind,
+                page: self.page,
+            }
+        } else {
+            TmdbRequest::Discover {
+                kind: self.kind,
+                page: self.page,
+                genre: self.genre,
+                sort: self.sort.clone(),
+            }
+        }
+    }
+}
+
+/// Why a Discover ask is not one TMDB can be given.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum DiscoverQueryError {
+    #[error("`{kind}` is not a kind TMDB discovers: it answers for a `movie` or a `series`")]
+    Kind { kind: String },
+    #[error("page {page} is not a page TMDB answers: its pages are numbered from 1")]
+    Page { page: u32 },
+    #[error("genre {genre} is not one of the genres TMDB lists for a {kind}")]
+    Genre { kind: Kind, genre: u32 },
+    #[error("`{sort}` is not one of the sort orders TMDB offers for a {kind}")]
+    Sort { kind: Kind, sort: String },
 }
 
 /// A TMDB id: the number one of its records is addressed by.
@@ -279,6 +462,15 @@ pub enum TmdbRequest {
     /// One season's episodes, by the record and the season number TMDB gave it.
     /// Seasons are a series' shape only.
     Season { id: TmdbId, season: u32 },
+    /// The week of what a kind has trending, at `page`.
+    Trending { kind: Kind, page: u32 },
+    /// A `/discover` page for a kind: the filters a [`DiscoverQuery`] judged.
+    Discover {
+        kind: Kind,
+        page: u32,
+        genre: Option<u32>,
+        sort: Option<String>,
+    },
 }
 
 impl TmdbRequest {
@@ -310,6 +502,31 @@ impl TmdbRequest {
                 url.push_str(&id.0.to_string());
                 url.push_str("/season/");
                 url.push_str(&season.to_string());
+            }
+            Self::Trending { kind, page } => {
+                url.push_str("/trending/");
+                url.push_str(kind.as_resource());
+                url.push_str("/week?page=");
+                url.push_str(&page.to_string());
+            }
+            Self::Discover {
+                kind,
+                page,
+                genre,
+                sort,
+            } => {
+                url.push_str("/discover/");
+                url.push_str(kind.as_resource());
+                url.push_str("?page=");
+                url.push_str(&page.to_string());
+                if let Some(genre) = genre {
+                    url.push_str("&with_genres=");
+                    url.push_str(&genre.to_string());
+                }
+                if let Some(sort) = sort {
+                    url.push_str("&sort_by=");
+                    url.push_str(&encode(sort));
+                }
             }
         }
 
@@ -421,8 +638,8 @@ impl TmdbDetails {
 pub enum TmdbError {
     #[error("that is not a TMDB answer: {detail}")]
     NotJson { detail: String },
-    #[error("that TMDB answer is larger than this Host will hold: {detail}")]
-    TooLarge { detail: String },
+    #[error("the {field} is longer than this Host will hold ({limit})")]
+    TooLarge { field: String, limit: usize },
 }
 
 /// Which TMDB record an IMDb id is — `Some` when it mapped, `None` when TMDB
@@ -477,11 +694,11 @@ pub fn read_details(body: &str, kind: Kind) -> Result<TmdbDetails, TmdbError> {
         name: record.name(),
         overview: string(record.object, "overview"),
         poster: record.poster(),
-        background: record.image("backdrop_path", BACKGROUND_ROOT),
+        background: image(record.object, "backdrop_path"),
         logo: record.image("logo_path", LOGO_ROOT),
         release_info: record.release_info(),
         runtime: record.runtime(),
-        rating: record.rating(),
+        rating: rating(record.object),
         genres: record.genres(),
         seasons: record.seasons(),
         videos: None,
@@ -532,12 +749,10 @@ pub fn read_season(body: &str, id: TmdbId, season: u32) -> Result<Vec<Video>, Tm
             detail: "a season's episodes should be an array".to_owned(),
         })?,
     };
-    if episodes.len() > crate::addon::MAX_ITEMS {
+    if episodes.len() > MAX_ITEMS {
         return Err(TmdbError::TooLarge {
-            detail: format!(
-                "a season lists more than {} episodes",
-                crate::addon::MAX_ITEMS
-            ),
+            field: "episodes".to_owned(),
+            limit: MAX_ITEMS,
         });
     }
 
@@ -561,6 +776,115 @@ pub fn read_season(body: &str, id: TmdbId, season: u32) -> Result<Vec<Video>, Tm
     Ok(videos)
 }
 
+/// One page of TMDB records, read into the previews a row is drawn from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TmdbPage {
+    /// How many results the answer carried, including any this Host could not
+    /// read — the same count a catalog row carries, so a page with one unread
+    /// record in it does not look like a shorter one.
+    pub sent: usize,
+    /// The items, in TMDB's own order, each keyed `tmdb:<id>`.
+    pub metas: Vec<MetaPreview>,
+}
+
+/// One page of a trending or discover answer, after the manner a catalog page
+/// is read.
+///
+/// A result that lies — no id, no name, a type that is not this kind's — is
+/// *dropped* rather than allowed to blank the page around it; a body that is
+/// not a page at all is refused, because that is a fact about TMDB rather than
+/// about one record. The kind is the one the page was asked for, and it is what
+/// decides where a record's name and date live (`title` for a film, `name` for
+/// a series).
+pub fn read_page(body: &str, kind: Kind) -> Result<TmdbPage, TmdbError> {
+    let value: Value = serde_json::from_str(body).map_err(|error| TmdbError::NotJson {
+        detail: error.to_string(),
+    })?;
+    let object = value.as_object().ok_or_else(|| TmdbError::NotJson {
+        detail: "a page answer is a JSON object".to_owned(),
+    })?;
+
+    let results = object
+        .get("results")
+        .and_then(Value::as_array)
+        .ok_or_else(|| TmdbError::NotJson {
+            detail: "the results should be an array".to_owned(),
+        })?;
+    if results.len() > MAX_ITEMS {
+        return Err(TmdbError::TooLarge {
+            field: "results".to_owned(),
+            limit: MAX_ITEMS,
+        });
+    }
+
+    Ok(TmdbPage {
+        sent: results.len(),
+        metas: results
+            .iter()
+            .filter_map(|result| preview(result, kind))
+            .collect(),
+    })
+}
+
+/// One TMDB record, as the Meta preview a row carries — or nothing when it
+/// cannot be read as one.
+fn preview(value: &Value, kind: Kind) -> Option<MetaPreview> {
+    let record = value.as_object()?;
+    let id = record
+        .get("id")
+        .and_then(Value::as_u64)
+        .and_then(|id| u32::try_from(id).ok())
+        .filter(|id| *id > 0)?;
+
+    Some(MetaPreview {
+        id: format!("tmdb:{id}"),
+        r#type: kind.as_protocol().to_owned(),
+        name: string(record, kind.as_name_field())?,
+        poster: image(record, "poster_path"),
+        // A card drawn from a feed says what the protocol assumes of a poster
+        // and nothing else: TMDB sends no `poster_shape`, and inventing one
+        // would be the Host speaking for it.
+        poster_shape: None,
+        background: image(record, "backdrop_path"),
+        release_info: date(record, kind.as_date_field()).map(|when| when.year.to_string()),
+        imdb_rating: rating(record),
+        // The genre *ids* are in the answer and the genre *names* are not;
+        // naming them would be a second list this Host keeps, and a card drawn
+        // from Discover shows the poster and the name.
+        genres: Vec::new(),
+        description: string(record, "overview"),
+    })
+}
+
+/// One of a record's image fields, as the absolute URL a card is drawn from:
+/// the path is relative in the answer, and an address builds only from one that
+/// says it is.
+fn image(record: &Map<String, Value>, field: &str) -> Option<String> {
+    image_at(record, field, IMAGE_ROOT)
+}
+
+/// The same, at the size asked for: a poster and a backdrop are both drawn at
+/// `IMAGE_ROOT`'s `w780`, a wordmark at `LOGO_ROOT`'s `w500` and an episode's
+/// still at `STILL_ROOT`'s `w300` — every one of them a size `/configuration`
+/// documents.
+fn image_at(record: &Map<String, Value>, field: &str, root: &str) -> Option<String> {
+    let path = string(record, field)?;
+    path.starts_with('/').then(|| format!("{root}{path}"))
+}
+
+/// TMDB's own score on the record, where anybody has voted on it: nobody's zero
+/// is not a rating, so an unvoted record carries none.
+fn rating(record: &Map<String, Value>) -> Option<String> {
+    let voted = record
+        .get("vote_count")
+        .and_then(Value::as_u64)
+        .unwrap_or(0)
+        > 0;
+    let average = record.get("vote_average").and_then(Value::as_f64)?;
+
+    (voted && average > 0.0).then(|| format!("{average:.1}"))
+}
+
 /// A details record behind the kind that says how its own fields are spelled.
 struct Record<'a> {
     object: &'a Map<String, Value>,
@@ -576,25 +900,14 @@ impl Record<'_> {
     /// The poster is a relative path in the answer, and an absolute URL in the
     /// Title — the size the Host draws cards at.
     fn poster(&self) -> Option<String> {
-        let path = string(self.object, "poster_path")?;
-        Some(format!("{IMAGE_ROOT}{path}"))
+        image(self.object, "poster_path")
     }
 
-    /// One image field, built into an absolute URL at the size asked for —
-    /// `None` where the record carried no path, which is a record with no art
-    /// of that kind.
+    /// One image field, at the size asked for — the wordmark and a still are
+    /// not drawn at a card's size.
     fn image(&self, field: &str, root: &str) -> Option<String> {
-        let path = string(self.object, field)?;
-        Some(format!("{root}{path}"))
+        image_at(self.object, field, root)
     }
-
-    /// TMDB's own score, which is the rating a TMDB-supplied Title carries.
-    /// A score TMDB never sent is nothing, not a zero.
-    fn rating(&self) -> Option<String> {
-        let score = self.object.get("vote_average")?.as_f64()?;
-        (score > 0.0).then(|| format!("{score:.1}"))
-    }
-
     /// The season numbers the record lists, ascending and each once. `0` is a
     /// series' specials, which are episodes like any others; a film lists no
     /// seasons, whatever a body pretending to be its record carries.
@@ -698,9 +1011,16 @@ fn date(record: &Map<String, Value>, name: &str) -> Option<Date> {
     Some(Date { year: year.0 })
 }
 
-/// One named field of a record, read as a string.
+/// One named field of a record, read as a non-empty string of a length the Host
+/// will hold. A field of the wrong shape, an empty one and an overlong one are
+/// all absence — the leniency the module's preamble describes, applied to every
+/// field.
 fn string(object: &Map<String, Value>, name: &str) -> Option<String> {
-    object.get(name)?.as_str().map(str::to_owned)
+    let text = object.get(name)?.as_str()?;
+    if text.is_empty() || text.len() > MAX_STRING_LEN {
+        return None;
+    }
+    Some(text.to_owned())
 }
 
 /// One named field of a record, read as a number.
@@ -713,8 +1033,7 @@ fn unsigned(object: &Map<String, Value>, name: &str) -> Option<u32> {
 
 /// An episode's still, at the size an episode row draws it.
 fn still(episode: &Map<String, Value>) -> Option<String> {
-    let path = string(episode, "still_path")?;
-    Some(format!("{STILL_ROOT}{path}"))
+    image_at(episode, "still_path", STILL_ROOT)
 }
 
 /// One path component, encoded the way the addon protocol encodes its own
@@ -729,7 +1048,7 @@ mod tests {
     use crate::addon::AddonId;
     use crate::meta::Title;
     use crate::request::TitleRef;
-    use crate::{BACKGROUND_ROOT, IMAGE_ROOT, TMDB_ROOT};
+    use crate::{IMAGE_ROOT, TMDB_ROOT};
 
     const FIND_MATRIX: &str = include_str!("../tests/fixtures/tmdb-find-matrix.json");
     const MOVIE_DETAILS: &str = include_str!("../tests/fixtures/tmdb-movie-details.json");
@@ -739,6 +1058,8 @@ mod tests {
     const SEASON_1: &str = include_str!("../tests/fixtures/tmdb-tv-season-1.json");
     const EXTERNAL_MATRIX: &str = include_str!("../tests/fixtures/tmdb-external-ids-matrix.json");
     const EXTERNAL_BB: &str = include_str!("../tests/fixtures/tmdb-external-ids-bb.json");
+    const PAGE_MOVIE: &str = include_str!("../tests/fixtures/tmdb-page-movie.json");
+    const PAGE_TV: &str = include_str!("../tests/fixtures/tmdb-page-tv.json");
 
     const CINEMETA_SERIES: &str = include_str!("../tests/fixtures/cinemeta-meta-series.json");
 
@@ -969,7 +1290,7 @@ mod tests {
             details
                 .background
                 .as_deref()
-                .is_some_and(|background| background.starts_with(BACKGROUND_ROOT)),
+                .is_some_and(|background| background.starts_with(IMAGE_ROOT)),
             "the backdrop is at the size a 16:9 hero draws: {:?}",
             details.background
         );
@@ -1376,6 +1697,322 @@ mod tests {
                 "kind": "addon",
                 "addon": "com.linvo.cinemeta",
                 "id": "tt0133093",
+            })
+        );
+    }
+
+    #[test]
+    fn a_discover_ask_becomes_the_trending_feed_when_nothing_filters_it() {
+        let ask = DiscoverQuery::parse("movie", 1, None, None).expect("an ask TMDB can be given");
+
+        assert_eq!(ask.kind, Kind::Movie);
+        assert_eq!(
+            ask.request(),
+            TmdbRequest::Trending {
+                kind: Kind::Movie,
+                page: 1,
+            },
+            "neither a genre nor a sort: the week TMDB calls trending"
+        );
+    }
+
+    #[test]
+    fn a_discover_ask_with_a_filter_becomes_a_discover_page() {
+        let ask = DiscoverQuery::parse(
+            "series",
+            2,
+            Some(10765),
+            Some("vote_average.desc".to_owned()),
+        )
+        .expect("an ask TMDB can be given");
+
+        assert_eq!(ask.kind, Kind::Tv);
+        assert_eq!(
+            ask.request(),
+            TmdbRequest::Discover {
+                kind: Kind::Tv,
+                page: 2,
+                genre: Some(10765),
+                sort: Some("vote_average.desc".to_owned()),
+            },
+            "a genre alone and a sort alone filter it too, and both become /discover"
+        );
+
+        let genre_only = DiscoverQuery::parse("movie", 1, Some(28), None).expect("an ask");
+        assert_eq!(
+            genre_only.request(),
+            TmdbRequest::Discover {
+                kind: Kind::Movie,
+                page: 1,
+                genre: Some(28),
+                sort: None,
+            }
+        );
+    }
+
+    #[test]
+    fn a_discover_ask_is_judged_against_its_own_kinds_genres_and_sorts() {
+        // The two lists are not the same set (research note §3): Action is 28
+        // for a film and 10759 for a series, and neither id is the other's.
+        assert!(DiscoverQuery::parse("movie", 1, Some(28), None).is_ok());
+        assert!(DiscoverQuery::parse("series", 1, Some(10759), None).is_ok());
+        assert!(DiscoverQuery::parse("movie", 1, None, Some("revenue.desc".to_owned())).is_ok());
+        assert!(
+            DiscoverQuery::parse("series", 1, None, Some("first_air_date.asc".to_owned())).is_ok()
+        );
+
+        assert_eq!(
+            DiscoverQuery::parse("series", 1, Some(28), None),
+            Err(DiscoverQueryError::Genre {
+                kind: Kind::Tv,
+                genre: 28,
+            }),
+            "a film's Action is not a series' genre"
+        );
+        assert_eq!(
+            DiscoverQuery::parse("movie", 1, Some(10759), None),
+            Err(DiscoverQueryError::Genre {
+                kind: Kind::Movie,
+                genre: 10759,
+            }),
+            "a series' Action & Adventure is not a film's genre"
+        );
+        assert_eq!(
+            DiscoverQuery::parse("series", 1, None, Some("revenue.desc".to_owned())),
+            Err(DiscoverQueryError::Sort {
+                kind: Kind::Tv,
+                sort: "revenue.desc".to_owned(),
+            }),
+            "a film has revenue and a series does not"
+        );
+        assert_eq!(
+            DiscoverQuery::parse("movie", 1, None, Some("first_air_date.desc".to_owned())),
+            Err(DiscoverQueryError::Sort {
+                kind: Kind::Movie,
+                sort: "first_air_date.desc".to_owned(),
+            }),
+            "a series has a first air date and a film does not"
+        );
+    }
+
+    #[test]
+    fn a_discover_ask_that_is_not_one_says_what_is_wrong() {
+        assert_eq!(
+            DiscoverQuery::parse("channel", 1, None, None),
+            Err(DiscoverQueryError::Kind {
+                kind: "channel".to_owned()
+            }),
+            "the protocol's kinds that TMDB does not answer for are not kinds here"
+        );
+        assert_eq!(
+            DiscoverQuery::parse("tv", 1, None, None),
+            Err(DiscoverQueryError::Kind {
+                kind: "tv".to_owned()
+            }),
+            "TMDB's own word for a series is not the client's"
+        );
+        assert_eq!(
+            DiscoverQuery::parse("movie", 0, None, None),
+            Err(DiscoverQueryError::Page { page: 0 }),
+            "TMDB numbers its pages from 1"
+        );
+    }
+
+    #[test]
+    fn a_discover_request_asks_tmdb_where_the_kinds_own_parameters_go() {
+        let trending = TmdbRequest::Trending {
+            kind: Kind::Movie,
+            page: 2,
+        };
+        assert_eq!(
+            trending.url(&token("a-key")),
+            "https://api.themoviedb.org/3/trending/movie/week?page=2&api_key=a-key",
+        );
+
+        let filtered = TmdbRequest::Discover {
+            kind: Kind::Tv,
+            page: 3,
+            genre: Some(10765),
+            sort: Some("vote_average.desc".to_owned()),
+        };
+        assert_eq!(
+            filtered.url(&token("a-key")),
+            "https://api.themoviedb.org/3/discover/tv?page=3&with_genres=10765&sort_by=vote_average.desc&api_key=a-key",
+        );
+
+        let bare = TmdbRequest::Discover {
+            kind: Kind::Movie,
+            page: 1,
+            genre: None,
+            sort: None,
+        };
+        assert_eq!(
+            bare.url(&token("a-key")),
+            "https://api.themoviedb.org/3/discover/movie?page=1&api_key=a-key",
+            "a filter the client did not choose is not sent at all"
+        );
+    }
+
+    #[test]
+    fn a_token_makes_a_feeds_url_clean_of_every_credential_it_carries() {
+        let the_token = "eyJhbGciOiJIUzI1NiJ9.eyJzY29wZSI6InJlYWQifQ.a-signature";
+
+        for request in [
+            TmdbRequest::Trending {
+                kind: Kind::Movie,
+                page: 1,
+            },
+            TmdbRequest::Discover {
+                kind: Kind::Tv,
+                page: 1,
+                genre: Some(10765),
+                sort: None,
+            },
+        ] {
+            let built = request.url(&token(the_token));
+            assert!(
+                !built.contains(the_token) && !built.contains("api_key"),
+                "a token in the header never appears in the URL it travelled beside: {built}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_recorded_film_page_is_read_into_tmdb_keyed_previews() {
+        let page = read_page(PAGE_MOVIE, Kind::Movie).expect("a page answer");
+
+        assert_eq!(page.sent, 2);
+        let first = &page.metas[0];
+        assert_eq!(
+            first.id, "tmdb:603",
+            "the id is TMDB's own, keyed so a client can act on it"
+        );
+        assert_eq!(first.r#type, "movie");
+        assert_eq!(first.name, "The Matrix");
+        assert_eq!(first.release_info.as_deref(), Some("1999"));
+        assert_eq!(first.imdb_rating.as_deref(), Some("8.2"));
+        assert!(
+            first.poster.as_deref().is_some_and(
+                |poster| poster == "https://image.tmdb.org/t/p/w780/p96dm7kpeOlUwhich.jpg"
+            ),
+            "the poster is the path asked at the size a card draws: {:?}",
+            first.poster
+        );
+        assert!(
+            first
+                .background
+                .as_deref()
+                .is_some_and(|background| background
+                    == "https://image.tmdb.org/t/p/w780/f89U3ADr1oiBwOy1K7t4E93Xu5A.jpg"),
+            "the backdrop beside it is the 16:9 art a hero draws: {:?}",
+            first.background
+        );
+        assert!(first.description.is_some());
+        assert_eq!(
+            page.metas[1].id, "tmdb:640146",
+            "the order is TMDB's, and an item is not reordered or dropped"
+        );
+    }
+
+    #[test]
+    fn a_recorded_series_page_is_read_the_way_a_series_spells_itself() {
+        let page = read_page(PAGE_TV, Kind::Tv).expect("a page answer");
+
+        assert_eq!(page.sent, 2);
+        let first = &page.metas[0];
+        assert_eq!(first.id, "tmdb:1396");
+        assert_eq!(first.r#type, "series", "the protocol's word for TMDB's tv");
+        assert_eq!(
+            first.name, "Breaking Bad",
+            "a series names itself in `name`"
+        );
+        assert_eq!(
+            first.release_info.as_deref(),
+            Some("2008"),
+            "a feed dates a series by its first airing"
+        );
+        assert_eq!(first.imdb_rating.as_deref(), Some("8.9"));
+        assert!(first.poster.is_some() && first.background.is_some());
+    }
+
+    #[test]
+    fn a_page_item_that_lies_is_dropped_rather_than_blanking_the_page() {
+        let body = serde_json::json!({
+            "page": 1,
+            "results": [
+                { "id": 603, "title": "The Matrix", "release_date": "1999-03-31" },
+                5,
+                { "title": "no id", "release_date": "1999-03-31" },
+                { "id": 0, "title": "no record is numbered zero" },
+                { "id": 604, "title": "" },
+                { "id": 605, "name": "a series' name on a film's page" },
+                { "id": 606, "title": "One", "poster_path": "not-a-path" },
+            ],
+        })
+        .to_string();
+
+        let page = read_page(&body, Kind::Movie).expect("a page answer");
+
+        assert_eq!(
+            page.sent, 7,
+            "every result was in the page, readable or not"
+        );
+        assert_eq!(
+            page.metas
+                .iter()
+                .map(|meta| meta.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["tmdb:603", "tmdb:606"],
+            "the records that read survive the ones that do not"
+        );
+        assert_eq!(
+            page.metas[1].poster, None,
+            "a path that is not one is no address rather than a broken one"
+        );
+    }
+
+    #[test]
+    fn a_record_that_nobody_voted_on_carries_no_rating() {
+        let body = r#"{"results":[{"id":1,"title":"Unreleased","vote_average":0,"vote_count":0}]}"#;
+        let page = read_page(body, Kind::Movie).expect("a page answer");
+
+        assert_eq!(page.metas[0].imdb_rating, None);
+    }
+
+    #[test]
+    fn a_page_that_is_not_one_is_refused() {
+        for body in [
+            "",
+            "not json",
+            "[]",
+            "5",
+            "null",
+            "\"a page\"",
+            r#"{"page":1}"#,
+            r#"{"page":1,"results":"The Matrix"}"#,
+        ] {
+            assert!(
+                matches!(read_page(body, Kind::Movie), Err(TmdbError::NotJson { .. })),
+                "{body:?} is not a TMDB page"
+            );
+        }
+    }
+
+    #[test]
+    fn a_page_longer_than_the_host_holds_is_refused() {
+        let body = serde_json::json!({
+            "results": vec![
+                serde_json::json!({ "id": 1, "title": "One" });
+                MAX_ITEMS + 1
+            ],
+        })
+        .to_string();
+
+        assert_eq!(
+            read_page(&body, Kind::Movie),
+            Err(TmdbError::TooLarge {
+                field: "results".to_owned(),
+                limit: MAX_ITEMS,
             })
         );
     }

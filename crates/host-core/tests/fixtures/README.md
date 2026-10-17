@@ -127,6 +127,13 @@ record at all.
   so the two sources can be compared episode for episode. The still paths are
   invented; season 0's is absent, which is the episode row that degrades to
   text.
+- `tmdb-page-movie.json` — a page of film results as `/trending/movie/week` and
+  `/discover/movie` answer: two records with the ids, poster and backdrop paths,
+  release dates, ratings and `genre_ids` TMDB sends, beside noise fields the Host
+  ignores. Hand-written to the documented shape and trimmed to what the read
+  asserts on, the same way the details fixtures are.
+- `tmdb-page-tv.json` — the same for series, where the name is `name` and the
+  date is `first_air_date`; `/trending/tv/week` and `/discover/tv`.
 
 ## Stream Addon manifests, hand-written
 

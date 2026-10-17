@@ -121,6 +121,7 @@ fn play(fixture: &mut Fixture, r#type: &str, video: &str) {
                 "type": r#type,
                 "name": "Breaking Bad",
                 "poster": "https://images.example.org/bb.jpg",
+                "background": "https://images.example.org/bb-backdrop.jpg",
             },
             "stream": {
                 "name": "1080p",
@@ -144,8 +145,8 @@ fn watching(fixture: &mut Fixture, position: f64, duration: f64, at: i64) {
         .expect("the Player says something new about what is playing");
 }
 
-/// The library as every client is told it.
-fn library(fixture: &Host) -> Vec<host_core::ResumeEntry> {
+/// Continue watching, as every client is told it.
+fn continue_watching(fixture: &Host) -> Vec<host_core::ResumeEntry> {
     fixture.snapshot().watch_progress
 }
 
@@ -155,12 +156,12 @@ fn playing_a_video_records_where_it_got_to_and_the_snapshot_carries_it() {
 
     play(&mut fixture, "series", "tt0903747:1:2");
     assert!(
-        library(&fixture.host).len() == 1,
+        continue_watching(&fixture.host).len() == 1,
         "a play is a library entry from the moment it is chosen"
     );
     watching(&mut fixture, 402.0, 2820.0, 10_000);
 
-    let entry = &library(&fixture.host)[0];
+    let entry = &continue_watching(&fixture.host)[0];
     assert_eq!(entry.video.id, "tt0903747:1:2");
     assert_eq!(entry.video.season, Some(1));
     assert_eq!(entry.video.episode, Some(2));
@@ -169,6 +170,42 @@ fn playing_a_video_records_where_it_got_to_and_the_snapshot_carries_it() {
     assert_eq!(entry.duration, Some(2820.0));
     assert!(!entry.watched, "a Stream at 402 seconds is not finished");
     assert_eq!(entry.unplayable, None);
+}
+
+#[test]
+fn the_card_a_client_hands_back_carries_its_backdrop_into_continue_watching() {
+    // Continue watching draws 16:9 art (#62), and the client has the backdrop
+    // in hand — so the card it sends on `play_stream` is where the Host gets
+    // it, and the Snapshot is where every client gets it back.
+    let mut fixture = fixture();
+    play(&mut fixture, "series", "tt0903747:1:2");
+    watching(&mut fixture, 402.0, 2820.0, 10_000);
+
+    let entry = &continue_watching(&fixture.host)[0];
+    assert_eq!(
+        entry.title.background(),
+        Some("https://images.example.org/bb-backdrop.jpg")
+    );
+    assert_eq!(
+        entry.title.poster(),
+        Some("https://images.example.org/bb.jpg"),
+        "the poster the backdrop falls back from rides beside it"
+    );
+
+    let published = serde_json::to_value(fixture.host.snapshot()).expect("a Snapshot serializes");
+    assert_eq!(
+        published["watchProgress"][0]["title"]["background"],
+        "https://images.example.org/bb-backdrop.jpg",
+        "the art is published on the Snapshot, camelCased for a JavaScript client"
+    );
+
+    // And the Host that comes back over the same store finds it again.
+    let restarted = fixture_over(fixture.store.clone());
+    assert_eq!(
+        continue_watching(&restarted.host)[0].title.background(),
+        Some("https://images.example.org/bb-backdrop.jpg"),
+        "the backdrop survives a Host that was killed without a stop"
+    );
 }
 
 #[test]
@@ -181,7 +218,7 @@ fn watch_progress_survives_a_host_that_was_killed_without_a_stop() {
 
     let restarted = fixture_over(fixture.store.clone());
 
-    let entry = &library(&restarted.host)[0];
+    let entry = &continue_watching(&restarted.host)[0];
     assert_eq!(entry.video.id, "tt0903747:1:2");
     assert_eq!(
         entry.position,
@@ -204,7 +241,7 @@ fn every_episode_of_a_series_keeps_its_own_progress() {
     play(&mut fixture, "series", "tt0903747:1:4");
     watching(&mut fixture, 200.0, 2820.0, 20_000);
 
-    let mut held: Vec<(String, Option<f64>)> = library(&fixture.host)
+    let mut held: Vec<(String, Option<f64>)> = continue_watching(&fixture.host)
         .iter()
         .map(|entry| (entry.video.id.clone(), entry.position))
         .collect();
@@ -230,7 +267,7 @@ fn the_library_comes_back_most_recently_played_first() {
     watching(&mut fixture, 200.0, 2820.0, 20_000);
 
     assert_eq!(
-        library(&fixture.host)
+        continue_watching(&fixture.host)
             .iter()
             .map(|entry| entry.video.id.as_str())
             .collect::<Vec<_>>(),
@@ -245,7 +282,7 @@ fn a_video_that_finishes_or_stops_within_its_last_moments_is_marked_watched() {
     watching(&mut fixture, 2800.0, 2820.0, 10_000);
 
     assert!(
-        library(&fixture.host)[0].watched,
+        continue_watching(&fixture.host)[0].watched,
         "the last thirty seconds of a Stream are the end of it"
     );
 }
@@ -256,7 +293,7 @@ fn a_video_that_reaches_its_end_is_watched_and_paused_in_the_wrong_place_is_not(
     play(&mut fixture, "series", "tt0903747:1:1");
     watching(&mut fixture, 600.0, 2820.0, 10_000);
     assert!(
-        !library(&fixture.host)[0].watched,
+        !continue_watching(&fixture.host)[0].watched,
         "ten minutes into a forty-seven minute episode is not watched"
     );
 
@@ -269,7 +306,7 @@ fn a_video_that_reaches_its_end_is_watched_and_paused_in_the_wrong_place_is_not(
     fixture.clock.set(20_000);
     fixture.host.sample().expect("reaching the end is a change");
 
-    assert!(library(&fixture.host)[0].watched);
+    assert!(continue_watching(&fixture.host)[0].watched);
 }
 
 #[test]
@@ -284,7 +321,7 @@ fn the_next_episode_is_a_new_entry_under_the_same_title_and_the_one_watched_stay
         .dispatch(action(&serde_json::json!({ "type": "next_episode" })))
         .expect("the next episode of a series plays");
 
-    let held = library(&fixture.host);
+    let held = continue_watching(&fixture.host);
     assert_eq!(held.len(), 2);
     assert_eq!(held[0].video.id, "tt0903747:1:2", "the new episode leads");
     assert_eq!(
@@ -292,7 +329,48 @@ fn the_next_episode_is_a_new_entry_under_the_same_title_and_the_one_watched_stay
         "tt0903747",
         "the next episode is recorded against the same Title"
     );
+    assert_eq!(
+        held[0].title.background(),
+        Some("https://images.example.org/bb-backdrop.jpg"),
+        "the card the Title was told with — backdrop included — carries forward"
+    );
     assert!(held[1].watched, "the episode that finished stays watched");
+}
+
+#[test]
+fn the_previous_episode_is_a_new_entry_and_the_one_left_carries_on() {
+    // Stepping back is a play like stepping forward: the earlier Video becomes
+    // its own entry against the same Title, and the one left behind keeps what
+    // it had (ADR-0015, ADR-0021).
+    let mut fixture = fixture();
+    play(&mut fixture, "series", "tt0903747:1:2");
+    watching(&mut fixture, 2810.0, 2820.0, 10_000);
+
+    fixture.clock.set(20_000);
+    fixture
+        .host
+        .dispatch(action(&serde_json::json!({ "type": "previous_episode" })))
+        .expect("the previous episode of a series plays");
+
+    let held = continue_watching(&fixture.host);
+    assert_eq!(held.len(), 2);
+    assert_eq!(
+        held[0].video.id, "tt0903747:1:1",
+        "the earlier episode leads"
+    );
+    assert_eq!(
+        held[0].title.id(),
+        "tt0903747",
+        "the previous episode is recorded against the same Title"
+    );
+    assert!(
+        held[0].position.is_none(),
+        "it starts fresh, where the play opened it"
+    );
+    assert!(
+        held[1].watched,
+        "the episode that had finished keeps its progress"
+    );
 }
 
 #[test]

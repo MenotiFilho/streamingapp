@@ -154,6 +154,16 @@ fn opening_a_film_answers_with_its_metadata_and_no_videos() {
     assert_eq!(title.imdb_rating.as_deref(), Some("8.7"));
     assert!(title.description.is_some());
     assert!(title.poster.is_some());
+    assert_eq!(
+        title.background.as_deref(),
+        Some("https://images.metahub.space/background/medium/tt0133093/img"),
+        "the backdrop a Title screen draws rides the Addon's answer through the Host"
+    );
+    assert_eq!(
+        title.logo.as_deref(),
+        Some("https://images.metahub.space/logo/medium/tt0133093/img"),
+        "the wordmark overlays it"
+    );
     assert!(
         title.videos.is_empty(),
         "a film is not broken into Videos unless its Addon does it: {:?}",
@@ -198,6 +208,16 @@ fn opening_a_series_answers_with_its_videos_in_the_addons_own_order() {
         (last.season, last.episode),
         (Some(2), Some(1)),
         "a Video says where it sits in its season, which is how a client names it"
+    );
+    let pilot = title
+        .videos
+        .iter()
+        .find(|video| video.id == "tt0903747:1:1")
+        .expect("the recorded series has a pilot");
+    assert_eq!(
+        pilot.thumbnail.as_deref(),
+        Some("https://episodes.metahub.space/tt0903747/1/1/w780.jpg"),
+        "the 16:9 still a series' episode row draws rides the Addon's answer"
     );
     assert_eq!(
         fetcher.asked().last().map(String::as_str),
@@ -945,13 +965,14 @@ fn a_discovered_title_without_a_key_is_refused_cleanly() {
         ))
         .expect_err("a Discovered Title is TMDB's, and there is no key to ask with");
 
-    assert!(
-        matches!(refused, ActionError::Tmdb { ref detail } if detail.contains("key")),
-        "the refusal says the credential is what is missing: {refused:?}"
+    assert_eq!(
+        refused,
+        ActionError::NoTmdbCredential,
+        "the refusal says the credential is what is missing"
     );
     assert_eq!(
         serde_json::to_value(&refused).expect("a refusal serializes")["kind"],
-        "tmdb",
+        "no_tmdb_credential",
         "a client acts on the kind and a person reads the sentence"
     );
     assert_eq!(

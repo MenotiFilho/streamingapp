@@ -142,6 +142,7 @@ mod tests {
             name: "The Matrix".to_owned(),
             poster: None,
             poster_shape: None,
+            background: None,
             release_info: None,
             imdb_rating: None,
             genres: Vec::new(),

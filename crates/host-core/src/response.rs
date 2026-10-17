@@ -6,7 +6,7 @@
 //! difference matters:
 //!
 //! - [`Snapshot`]s, which are state and go to *every* client — what is playing,
-//!   what is in the library, which Addons are configured.
+//!   what is on the Continue watching row, which Addons are configured.
 //! - An [`Answer`], which is what the client that asked is owed and nobody else.
 //!   Browsing is a client's own business (ADR-0005): what one client is looking
 //!   at must not move what another one is looking at, so a catalog row can never
@@ -16,6 +16,7 @@ use serde::Serialize;
 
 use crate::catalog::CatalogRow;
 use crate::device::{DeviceSummary, DeviceToken};
+use crate::discover::DiscoverRow;
 use crate::meta::Title;
 use crate::snapshot::Snapshot;
 use crate::stream::AddonStreams;
@@ -56,6 +57,14 @@ impl Response {
         }
     }
 
+    /// The Discover rows a client asked to see, when that is what it asked.
+    pub fn discover(&self) -> Option<&[DiscoverRow]> {
+        match &self.answer {
+            Some(Answer::Discover(rows)) => Some(rows),
+            _ => None,
+        }
+    }
+
     /// The Title a client asked to open, when that is what it asked.
     pub fn title(&self) -> Option<&Title> {
         match &self.answer {
@@ -65,8 +74,7 @@ impl Response {
     }
 
     /// The Streams a client asked to see, when that is what it asked: one
-    /// group per Addon that answered for the Video, in the order the Addons
-    /// were configured.
+    /// group per Addon that answered for the Video, in the configured order.
     pub fn streams(&self) -> Option<&[AddonStreams]> {
         match &self.answer {
             Some(Answer::Streams(groups)) => Some(groups),
@@ -81,11 +89,15 @@ impl Response {
 pub enum Answer {
     /// The catalog rows a client asked to see, one per catalog asked about.
     Catalogs(Vec<CatalogRow>),
+    /// The one feed that is not an Addon's: TMDB's page of Discovered Titles,
+    /// its items keyed `tmdb:<id>` (ADR-0020). The variant is what tells a
+    /// client that opening a card goes the Discovered Title way.
+    Discover(Vec<DiscoverRow>),
     /// The Title a client asked to open, with the Videos it can be watched as.
     /// Boxed because a Title is many fields and a `Vec` of rows is three words.
     Title(Box<Title>),
     /// The Streams a Video can be played as: one group per Addon that answered
-    /// the `stream` request, in the order the Addons were configured.
+    /// the `stream` request, in the configured order.
     Streams(Vec<AddonStreams>),
     /// The token a pairing was just issued, and the device it belongs to. The one
     /// answer that carries something a client holds rather than something it

@@ -16,6 +16,14 @@ export type Snapshot = {
   playback: PlaybackSnapshot;
   preferences: { subtitleLanguage: string | null };
   addons: AddonManifest[];
+  /**
+   * The one Catalog the owner has marked as the Host's featured feed, where
+   * there is one: what Home's hero is drawn from, its first items in the Addon's
+   * own order (#74). A preference of the Host's, not this client's, so every
+   * client draws the same hero — and one the Host clears when the Addon that
+   * offered it is removed, so it never names an Addon that is gone.
+   */
+  featuredCatalog: FeaturedCatalog | null;
   protection: Protection;
   /**
    * The library: one entry per Video the Host has Watch progress in, most
@@ -55,11 +63,33 @@ export type DeviceSummary = {
 };
 
 /**
+ * The Featured catalog: the one Catalog the owner has marked as the Host's
+ * featured feed, by the Addon that offers it and the Catalog's own type and id.
+ * Mirrors `FeaturedCatalog` in `host-core`; the Addon goes beside the Catalog
+ * because a catalog id is only unique within the Addon that declared it.
+ */
+export type FeaturedCatalog = {
+  addon: string;
+  catalog: { type: string; id: string };
+};
+
+/**
  * What the Player is doing. Mirrors `PlaybackState` in `host-core`. A Stream
  * that failed is not a state of its own: nothing is playing, so the state is
  * `idle` and `failure` says why.
  */
 export type PlaybackState = "idle" | "opening" | "playing" | "paused" | "ended";
+
+/**
+ * Which season and episode the Stream playing is, as the Host read it off the
+ * playing Video's id. Mirrors `Episode` in `host-core`: a position, not a
+ * verdict — whether a neighbouring episode exists is what the Host refuses an
+ * episode step with, not something a client decides (ADR-0021).
+ */
+export type Episode = {
+  season: number;
+  episode: number;
+};
 
 /**
  * Where the Player's picture is drawn — a fact about the machine, not a setting.
@@ -164,6 +194,11 @@ export type PlaybackSnapshot = {
   /** Why the last Stream could not be opened, in the Player's own words. */
   failure: string | null;
   nowPlaying: NowPlaying | null;
+  /**
+   * Which season and episode the Stream playing is, where the Video's id says —
+   * what the episode steps grey themselves from. Null for a film.
+   */
+  episode: Episode | null;
   /** Where playback is in seconds, and how long the Stream is, where known. */
   position: number | null;
   duration: number | null;
@@ -272,6 +307,19 @@ export type CatalogRow = {
   type: string;
   id: string;
   name: string;
+  sent: number;
+  metas: MetaPreview[];
+  failure: ActionError | null;
+};
+
+/**
+ * One Discover page, on its way to the client that asked for it. Mirrors
+ * `DiscoverRow` in `host-core`: a catalog row minus the Addon, because TMDB is
+ * the source — the items are keyed `tmdb:<id>`, and `sent` is the count a
+ * client pages by (#75, ADR-0020).
+ */
+export type DiscoverRow = {
+  type: string;
   sent: number;
   metas: MetaPreview[];
   failure: ActionError | null;
@@ -410,12 +458,14 @@ export type AddonStreams = {
 /**
  * What taking an Action produced. Mirrors `Response` in `host-core`: the
  * Snapshots every client is owed, and the answer only the client that asked gets.
- * A question is answered with catalogs, a Title or Streams, never several.
+ * A question is answered with catalogs, Discover rows, a Title or Streams, never
+ * several.
  */
 export type Response = {
   snapshots: Snapshot[];
   answer:
     | { catalogs: CatalogRow[] }
+    | { discover: DiscoverRow[] }
     | { title: Title }
     | { streams: AddonStreams[] }
     | { paired: { device: DeviceSummary; token: string } }
@@ -426,7 +476,18 @@ export type Response = {
 export type Action =
   | { type: "set_subtitle_language"; language: string }
   | { type: "clear_subtitle_language" }
+  // The Featured catalog (#74): a preference of the Host's rather than this
+  // client's, so marking one changes what *every* client's Home is drawn from.
+  | {
+      type: "set_featured_catalog";
+      addon: string;
+      catalog: { type: string; id: string };
+    }
+  | { type: "clear_featured_catalog" }
   | { type: "add_addon"; url: string }
+  // The configured Addons' order is the Host's, and a client's rows follow it:
+  // the move is a position in that list, 0-based, judged by the Host (#74).
+  | { type: "reorder_addon"; id: string; position: number }
   | { type: "remove_addon"; id: string }
   | { type: "set_tmdb_key"; key: string }
   | { type: "clear_tmdb_key" }
@@ -443,6 +504,17 @@ export type Action =
       extra: Extra[];
     }
   | { type: "search_catalogs"; query: string }
+  // TMDB's page of Discovered Titles (#75, ADR-0020): with neither filter it is
+  // the week's trending feed, and a genre or a sort order makes it a /discover
+  // page judged in the kind's own terms. The Host holds the credential and
+  // builds the URL; this window never does.
+  | {
+      type: "discover";
+      kind: string;
+      page: number;
+      genre?: number | null;
+      sort?: string | null;
+    }
   | {
       type: "open_title";
       addon: string;
@@ -481,6 +553,8 @@ export type Action =
   // which Video that is — asking its Addons, not counting up an id — and answers
   // whether it can move to one at all.
   | { type: "next_episode" }
+  // The same step back, decided by the Host the same way (ADR-0021).
+  | { type: "previous_episode" }
   // Pairing and devices (#31). `pair_device` is the one Action an unpaired
   // connection may take; this window is the Host's own and is already in, so what
   // it sends is the revoke: one device's token is taken away and every other
@@ -525,14 +599,17 @@ export const HOST_ERROR_KINDS = [
   "tmdb",
   "unknown_track",
   "unknown_chapter",
+  "invalid_position",
   "extra",
   "query",
   "catalog",
   "meta",
   "stream",
+  "subtitles",
   "unplayable",
   "nothing_playing",
   "no_next_episode",
+  "no_previous_episode",
   "no_progress",
   "playback",
   "store",
@@ -547,6 +624,8 @@ export const HOST_ERROR_KINDS = [
   "unknown_device",
   "unpaired",
   "already_paired",
+  "invalid_discover",
+  "no_tmdb_credential",
 ] as const;
 
 /**
@@ -567,7 +646,8 @@ export type Control =
   | "chapter"
   | "crop"
   | "aspect"
-  | "next_episode";
+  | "next_episode"
+  | "previous_episode";
 
 /**
  * Why an Action was not taken, in the Host's own vocabulary, plus `unreachable`
@@ -597,6 +677,10 @@ export type ActionError = {
   crop?: string;
   /** The position a refused chapter names. */
   index?: number;
+  /** The position a refused reorder asked for. */
+  position?: number;
+  /** How many Addons the Host was configured with when it refused the reorder. */
+  count?: number;
   /** The control a refusal is about, where the refusal is about one. */
   control?: Control;
   /** The pairing code a refusal names, where the refusal is about one. */
@@ -623,7 +707,7 @@ export function answeredTitle(response: Response | null): Title | null {
 
 /**
  * The Stream groups an answer carries, when the Action was a `find_streams`:
- * one per Addon that answered, in the order the Addons were configured.
+ * one per Addon that answered, in the configured order.
  */
 export function answeredStreams(response: Response | null): AddonStreams[] {
   const answer = response?.answer;
@@ -693,29 +777,39 @@ export function explain(error: ActionError): string {
     case "not_discovered_title":
       return `That is not a Discovered Title${error.detail ? `: ${error.detail}` : ""}.`;
     case "tmdb":
-      return `The Host could not answer that from TMDB${error.detail ? `: ${error.detail}` : ""}.`;
+      return `TMDB did not answer${error.detail ? `: ${error.detail}` : ""}.`;
     case "unknown_track":
       // The `control` a Host sends for a track is its own tag (`audio_track`),
       // so it is put back into the words a person reads rather than shown raw.
       return `The Stream carries no ${error.control === "subtitle_track" ? "subtitle" : "audio"} track numbered ${error.id}.`;
     case "unknown_chapter":
       return `The Stream has no chapter at position ${error.index}.`;
+    case "invalid_position":
+      return `The Host has no Addon position ${error.position} — it is configured with ${error.count}.`;
     case "extra":
       return error.detail ?? "The Host will not ask for that catalog with those values.";
     case "query":
       return error.detail ?? "The Host will not search for that.";
+    case "invalid_discover":
+      return error.detail ?? "The Host will not discover that.";
+    case "no_tmdb_credential":
+      return "This Host holds no TMDB key, so it cannot ask TMDB.";
     case "catalog":
       return `The Host could not read that Addon's catalog${error.detail ? `: ${error.detail}` : ""}.`;
     case "meta":
       return `The Host could not read that Addon's meta response${error.detail ? `: ${error.detail}` : ""}.`;
     case "stream":
       return `The Host could not read that Addon's stream response${error.detail ? `: ${error.detail}` : ""}.`;
+    case "subtitles":
+      return `The Host could not read that Addon's subtitles response${error.detail ? `: ${error.detail}` : ""}.`;
     case "unplayable":
       return `The Host will not play that Stream: ${error.detail ?? "it is not one it can open"}`;
     case "nothing_playing":
       return `Nothing is playing, so the Host cannot ${controlWords(error.control)}.`;
     case "no_next_episode":
       return `The Host could not move to the next episode${error.detail ? `: ${error.detail}` : ""}.`;
+    case "no_previous_episode":
+      return `The Host could not move to the previous episode${error.detail ? `: ${error.detail}` : ""}.`;
     case "no_progress":
       return `The Host has no Watch progress for ${error.video?.type ?? "?"}/${error.video?.id ?? "?"}, so there is nothing to resume.`;
     case "playback":
@@ -786,6 +880,8 @@ function controlWords(control: Control | undefined): string {
       return "change the aspect";
     case "next_episode":
       return "play the next episode";
+    case "previous_episode":
+      return "play the previous episode";
     default:
       return "do that";
   }

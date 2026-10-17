@@ -16,6 +16,7 @@ fn title(name: &str) -> TitleStub {
         r#type: "series".to_owned(),
         name: name.to_owned(),
         poster: Some("https://images.example.org/bb.jpg".to_owned()),
+        background: Some("https://images.example.org/bb-backdrop.jpg".to_owned()),
     })
     .expect("a Title a request could name")
 }
@@ -28,6 +29,7 @@ fn discovered() -> TitleStub {
         r#type: "series".to_owned(),
         name: "Breaking Bad".to_owned(),
         poster: None,
+        background: None,
     })
     .expect("a Discovered Title is one the Host will key by its own id")
 }
@@ -98,6 +100,28 @@ fn a_title_with_no_addon_round_trips_as_one_with_none() {
 
     assert_eq!(read, vec![written.clone()], "the row is what was written");
     assert_eq!(read[0].title.addon(), None);
+}
+
+#[test]
+fn the_backdrop_a_client_sent_round_trips_beside_the_poster() {
+    // Continue watching draws 16:9 art (#62), so the backdrop is part of the
+    // card a restart over this store must find again.
+    let store = SqliteStore::open_in_memory().expect("an in-memory store opens");
+    store
+        .write_watch_progress(&entry("tt0903747:1:2", 402.0, 1_000))
+        .expect("the store takes a progress entry");
+
+    let read = store.read_watch_progress().expect("the store reads back");
+
+    assert_eq!(
+        read[0].title.background(),
+        Some("https://images.example.org/bb-backdrop.jpg")
+    );
+    assert_eq!(
+        read[0].title.poster(),
+        Some("https://images.example.org/bb.jpg"),
+        "the poster the backdrop falls back from is kept too"
+    );
 }
 
 #[test]

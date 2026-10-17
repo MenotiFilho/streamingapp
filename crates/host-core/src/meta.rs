@@ -26,16 +26,17 @@
 //! is ignored instead, because genres decorate a Title while its Videos are what a
 //! Title *is* — the same leniency a catalog item's genres already get.
 //!
-//! Only the fields this Host acts on are read. A meta response carries far more —
-//! Cinemeta's `cast`, `director`, `trailers`, `links`, `slug`, `popularities`,
-//! `imdb_id`, and a Video's `overview`, `rating`, `firstAired` and `tvdb_id` —
-//! and all of it is ignored rather than refused, because reading a field nothing
-//! acts on is a promise this Host would not be keeping (ADR-0009). It arrives
-//! when a ticket that acts on it does.
-//!
-//! The art a Title screen draws *is* read: a Title's `background` and `logo` and
-//! a Video's `thumbnail`, because Home's hero, the Title hero and a series'
-//! episode rows draw them (#62, ADR-0011's amendment).
+//! Only the fields this Host acts on are read, and art is now among them: a
+//! Title's `background` and `logo` and a Video's `thumbnail` are carried so the
+//! Title screen and a series' episode rows can be drawn (ADR-0011's #62
+//! amendment) — the same widening Home's hero got from a catalog item. Where a
+//! key is held, ADR-0020 gives TMDB's record the last word on this art as well
+//! (#76). A meta response carries far more — Cinemeta's `cast`, `director`,
+//! `trailers`, `links`, `slug`, `popularities`, `imdb_id`, and a Video's
+//! `overview`, `rating`, `firstAired` and `tvdb_id` — and all of it is ignored
+//! rather than refused, because reading a field nothing acts on is a promise
+//! this Host would not be keeping (ADR-0009). It arrives when a ticket that
+//! acts on it does.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -76,11 +77,13 @@ pub struct Title {
     /// Title always has something to be called.
     pub name: String,
     pub poster: Option<String>,
-    /// The Title's backdrop, where it has one: the 16:9 art a hero is drawn from
-    /// while the poster beside it is portrait (#62).
+    /// The backdrop's address, where it has one — the Addon's, or TMDB's where
+    /// a key is held: the art a Title screen is drawn from, where the poster
+    /// beside it is portrait (#62, ADR-0020).
     pub background: Option<String>,
-    /// The Title's wordmark, where it has one: what a Title screen draws over its
-    /// backdrop in place of its text name (#62).
+    /// The logo's address, where it has one — the Addon's, or TMDB's where a key
+    /// is held: a wordmark a Title screen overlays on the backdrop, where a
+    /// client draws one (#62, ADR-0020).
     pub logo: Option<String>,
     pub description: Option<String>,
     /// The year, or a series' years: `1999`, `2008–2013`, `2020-`.
@@ -127,8 +130,8 @@ pub struct Video {
     pub season: Option<u32>,
     /// The number within the season.
     pub episode: Option<u32>,
-    /// The episode's 16:9 still, where it has one: what a Title screen's episode
-    /// row is drawn from (#62).
+    /// The episode's still, where the Addon gave one: the 16:9 art a series'
+    /// episode row is drawn from (#62).
     pub thumbnail: Option<String>,
 }
 
@@ -136,8 +139,9 @@ impl Video {
     /// A Video named by its id alone: the id it is keyed by, and the season and
     /// episode the protocol indexes at the end of it, where both are numbers.
     ///
-    /// What a library entry is drawn from when no Addon answered about the
-    /// Video — the entry is keyed by the id Watch progress was recorded against.
+    /// What a Continue watching entry is drawn from when no Addon answered about
+    /// the Video — the entry is keyed by the id Watch progress was recorded
+    /// against.
     /// The episode's name is deliberately absent: it is not in the id, and the
     /// Host does not invent one.
     pub fn keyed(id: &str) -> Self {
@@ -161,9 +165,9 @@ impl Video {
 /// parts: an Addon keyed by a namespaced id (`kitsu:12345`) indexes its episodes
 /// as `kitsu:12345:1:1`, so the shape is "two numeric parts at the end" rather
 /// than "exactly three parts". This is the one reading of that shape — the
-/// library's card and the Host's next-episode rule both go through it — so the
-/// two cannot disagree about what an episode is. A Video whose id does not end
-/// that way — a film's — is not an episode, and the answer is `None`.
+/// Continue watching card and the Host's next-episode rule both go through it —
+/// so the two cannot disagree about what an episode is. A Video whose id does
+/// not end that way — a film's — is not an episode, and the answer is `None`.
 pub fn episode_of(id: &str) -> Option<(&str, u32, u32)> {
     let mut parts = id.rsplitn(3, ':');
     let episode = parts.next()?.parse::<u32>().ok()?;
@@ -411,6 +415,16 @@ mod tests {
             .description
             .as_deref()
             .is_some_and(|description| description.contains("hacker")));
+        assert_eq!(
+            title.background.as_deref(),
+            Some("https://images.metahub.space/background/medium/tt0133093/img"),
+            "the backdrop a Title screen is drawn from"
+        );
+        assert_eq!(
+            title.logo.as_deref(),
+            Some("https://images.metahub.space/logo/medium/tt0133093/img"),
+            "the wordmark a Title screen overlays on it"
+        );
         assert!(
             title.videos.is_empty(),
             "a film has no Videos: {:?}",
@@ -444,12 +458,19 @@ mod tests {
         let pilot = &title.videos[1];
         assert_eq!(pilot.id, "tt0903747:1:1");
         assert_eq!(pilot.name.as_deref(), Some("Pilot"));
+        assert_eq!(
+            pilot.thumbnail.as_deref(),
+            Some("https://episodes.metahub.space/tt0903747/1/1/w780.jpg"),
+            "Cinemeta sends every episode its own 16:9 still"
+        );
         assert!(
-            pilot
-                .thumbnail
-                .as_deref()
-                .is_some_and(|thumbnail| thumbnail.starts_with("https://")),
-            "an episode's still is read: a Title screen's episode rows are drawn from it"
+            title.videos.iter().all(|video| video.thumbnail.is_some()),
+            "the specials carry one too: {:?}",
+            title
+                .videos
+                .iter()
+                .map(|video| video.thumbnail.as_deref())
+                .collect::<Vec<_>>()
         );
     }
 
@@ -486,6 +507,8 @@ mod tests {
         assert_eq!(title.r#type, "movie");
         assert_eq!(title.name, "The Matrix");
         assert_eq!(title.poster, None);
+        assert_eq!(title.background, None, "no art to draw, and no failure");
+        assert_eq!(title.logo, None);
         assert_eq!(title.description, None);
         assert_eq!(title.release_info, None);
         assert_eq!(title.runtime, None);
@@ -620,19 +643,19 @@ mod tests {
     }
 
     #[test]
-    fn art_that_is_not_an_address_is_a_field_the_addon_did_not_send() {
-        // The widened reads are as lenient as every other field: a `background`
-        // of the wrong type, or one too long to hold, is absence rather than a
-        // Title refused over its artwork.
+    fn art_of_a_shape_the_host_will_not_hold_is_art_the_addon_did_not_send() {
+        // The same leniency every field gets: a backdrop or a still that is not
+        // a string the Host will hold is absent rather than a refusal of the
+        // whole answer.
         let title = parsed(
-            r#"{"meta":{"id":"tt1","type":"movie","name":"One",
-                 "background":7,"logo":"","poster":"https://example.org/p.jpg"}}"#,
-            &asked("movie", "tt1"),
+            r#"{"meta":{"id":"tt1","type":"series","name":"One",
+                "background":7,"logo":"","videos":[{"id":"tt1:1:1","thumbnail":false}]}}"#,
+            &asked("series", "tt1"),
         );
 
         assert_eq!(title.background, None);
         assert_eq!(title.logo, None, "an empty wordmark is no wordmark");
-        assert_eq!(title.poster.as_deref(), Some("https://example.org/p.jpg"));
+        assert_eq!(title.videos[0].thumbnail, None);
 
         let too_long = "https://example.org/".to_owned() + &"a".repeat(MAX_STRING_LEN);
         let title = parsed(
@@ -641,7 +664,10 @@ mod tests {
             ),
             &asked("movie", "tt1"),
         );
-        assert_eq!(title.background, None);
+        assert_eq!(
+            title.background, None,
+            "a backdrop too long to hold is no backdrop"
+        );
     }
 
     #[test]
@@ -739,6 +765,14 @@ mod tests {
         assert_eq!(published["type"], "movie");
         assert_eq!(published["releaseInfo"], "1999");
         assert_eq!(published["imdbRating"], "8.7");
+        assert_eq!(
+            published["background"], "https://images.metahub.space/background/medium/tt0133093/img",
+            "the art rides the answer to the client that opened the Title"
+        );
+        assert_eq!(
+            published["logo"],
+            "https://images.metahub.space/logo/medium/tt0133093/img"
+        );
         assert_eq!(
             published["videos"],
             serde_json::json!([]),

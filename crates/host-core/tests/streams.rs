@@ -184,7 +184,7 @@ fn asking_for_a_films_streams_asks_every_addon_that_answers_and_no_other() {
         fetcher.asked()[asked_before..].to_vec(),
         vec![TORRENTIO_MOVIE, WATCHHUB_MOVIE],
         "the Addons that answer `stream` are asked at the item's own path, in the \
-         order they were configured; the metadata Addons are not asked at all"
+         configured order; the metadata Addons are not asked at all"
     );
     assert_eq!(
         streams(&response)
@@ -593,7 +593,7 @@ fn the_host_asks_every_answering_addon_in_configuration_order_and_re_ranks_nothi
             .map(|group| group.addon.as_str())
             .collect::<Vec<_>>(),
         vec!["org.stremio.watchhub", "com.stremio.torrentio.addon"],
-        "the order the Addons were configured in is the order of the list"
+        "the configured order is the order of the list"
     );
     assert_eq!(names(&groups[0]), vec!["first", "second"]);
     assert_eq!(names(&groups[1]), vec!["third"]);
