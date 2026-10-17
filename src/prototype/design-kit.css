@@ -1,0 +1,1688 @@
+/* ==========================================================================
+ * PROTOTYPE — Ticket #50: Design Tokens & Component Kit (Desktop + Phone)
+ * Throwaway prototype stylesheet. Three distinct structural + token variants:
+ *   Variant A: "Projector Room" (Warm Tungsten Amber, Editorial Serif + Sans, 68px Dock Rail)
+ *   Variant B: "Reference Monitor" (Mastering Cyan, Neo-Grotesque Technical, 200px Spine Rail)
+ *   Variant C: "Velvet Curtains" (Signal Crimson, Smoked Glass, Floating Pill Rail)
+ * ========================================================================== */
+
+@import url("https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Syne:wght@600;700;800&display=swap");
+
+/* --------------------------------------------------------------------------
+ * 1. VARIANT TOKENS
+ * -------------------------------------------------------------------------- */
+
+.proto-root,
+.proto-root[data-variant="A"] {
+  --variant-name: "A · Projector Room";
+  --variant-summary: "Warm 3200K tungsten amber accent, editorial serif display + tabular grotesque, fixed 68px icon+label dock rail, borderless poster tiles, detached cinema OSD.";
+
+  /* Colour tokens */
+  --bg-canvas: #08080a;
+  --bg-stage: #101014;
+  --bg-raised: #17171d;
+  --bg-elevated: #202029;
+  --bg-glass: rgba(16, 16, 20, 0.88);
+  --border-subtle: #23232c;
+  --border-strong: #343442;
+
+  --ink-primary: #f3f1ec;
+  --ink-secondary: #9e9ca8;
+  --ink-muted: #686674;
+  --ink-on-accent: #090806;
+
+  --accent: #f5a623;
+  --accent-soft: rgba(245, 166, 35, 0.16);
+  --accent-glow: rgba(245, 166, 35, 0.42);
+  --status-warn: #e0af68;
+  --status-danger: #e5484d;
+  --status-danger-bg: rgba(229, 72, 77, 0.14);
+  --status-ok: #4cc38a;
+
+  /* Typography */
+  --font-display: "Instrument Serif", Georgia, "Times New Roman", serif;
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "Plus Jakarta Sans", ui-monospace, monospace;
+  --display-weight: 400;
+  --display-tracking: -0.01em;
+
+  /* Type scale (10-foot calibrated) */
+  --text-hero: clamp(2.25rem, 3.2vw, 3.35rem);
+  --text-title: clamp(1.5rem, 2vw, 2.1rem);
+  --text-section: 1.125rem;
+  --text-body: 0.95rem;
+  --text-caption: 0.8125rem;
+  --text-micro: 0.72rem;
+
+  /* Spacing & Radii */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2.25rem;
+
+  --radius-card: 6px;
+  --radius-panel: 12px;
+  --radius-pill: 999px;
+  --radius-control: 8px;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 120ms;
+  --dur-med: 220ms;
+  --dur-slow: 360ms;
+
+  /* Focus ring — THE LOUDEST THING ON SCREEN */
+  --focus-ring: 0 0 0 2px var(--bg-canvas), 0 0 0 5px var(--accent), 0 12px 30px -4px var(--accent-glow);
+  --focus-transform: translateY(-3px) scale(1.03);
+}
+
+.proto-root[data-variant="B"] {
+  --variant-name: "B · Reference Monitor";
+  --variant-summary: "Broadcast reference black, mastering cyan accent, unified neo-grotesque type with tabular timecodes, 196px full-label architectural spine rail, framed cards, edge-to-edge studio OSD deck.";
+
+  /* Colour tokens */
+  --bg-canvas: #050608;
+  --bg-stage: #0b0d12;
+  --bg-raised: #12161f;
+  --bg-elevated: #191f2b;
+  --bg-glass: rgba(11, 13, 18, 0.94);
+  --border-subtle: #1f2633;
+  --border-strong: #313b4e;
+
+  --ink-primary: #f5f7fa;
+  --ink-secondary: #8e98a8;
+  --ink-muted: #596273;
+  --ink-on-accent: #04080e;
+
+  --accent: #38bdf8;
+  --accent-soft: rgba(56, 189, 248, 0.15);
+  --accent-glow: rgba(56, 189, 248, 0.5);
+  --status-warn: #f59e0b;
+  --status-danger: #f43f5e;
+  --status-danger-bg: rgba(244, 63, 94, 0.14);
+  --status-ok: #10b981;
+
+  /* Typography */
+  --font-display: "Space Grotesk", system-ui, -apple-system, sans-serif;
+  --font-sans: "Space Grotesk", system-ui, -apple-system, sans-serif;
+  --font-mono: "Space Grotesk", ui-monospace, monospace;
+  --display-weight: 700;
+  --display-tracking: -0.03em;
+
+  /* Type scale */
+  --text-hero: clamp(1.9rem, 2.6vw, 2.75rem);
+  --text-title: clamp(1.35rem, 1.8vw, 1.85rem);
+  --text-section: 1.05rem;
+  --text-body: 0.925rem;
+  --text-caption: 0.8rem;
+  --text-micro: 0.7rem;
+
+  /* Spacing & Radii */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+
+  --radius-card: 3px;
+  --radius-panel: 6px;
+  --radius-pill: 4px;
+  --radius-control: 4px;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 90ms;
+  --dur-med: 160ms;
+  --dur-slow: 260ms;
+
+  /* Focus ring — Double Reference Bezel */
+  --focus-ring: 0 0 0 2px #f5f7fa, 0 0 0 5px var(--accent), 0 0 24px 0 var(--accent-glow);
+  --focus-transform: translateY(-2px) scale(1.015);
+}
+
+.proto-root[data-variant="C"] {
+  --variant-name: "C · Velvet Curtains";
+  --variant-summary: "Deep obsidian canvas, smoked translucent glass, signal crimson accent, bold humanist display, floating inset icon rail, poster-wall cards, split top/bottom glass OSD.";
+
+  /* Colour tokens */
+  --bg-canvas: #09080c;
+  --bg-stage: #121018;
+  --bg-raised: #1a1723;
+  --bg-elevated: #242030;
+  --bg-glass: rgba(22, 19, 30, 0.78);
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  --ink-primary: #faf8f5;
+  --ink-secondary: #a39eb2;
+  --ink-muted: #696478;
+  --ink-on-accent: #ffffff;
+
+  --accent: #ff4d4d;
+  --accent-soft: rgba(255, 77, 77, 0.18);
+  --accent-glow: rgba(255, 77, 77, 0.48);
+  --status-warn: #f5b041;
+  --status-danger: #ff5c77;
+  --status-danger-bg: rgba(255, 92, 119, 0.16);
+  --status-ok: #58d68d;
+
+  /* Typography */
+  --font-display: "Syne", "Plus Jakarta Sans", system-ui, sans-serif;
+  --font-sans: "Plus Jakarta Sans", system-ui, -apple-system, sans-serif;
+  --font-mono: "Plus Jakarta Sans", ui-monospace, monospace;
+  --display-weight: 700;
+  --display-tracking: -0.025em;
+
+  /* Type scale */
+  --text-hero: clamp(2rem, 2.8vw, 3rem);
+  --text-title: clamp(1.4rem, 1.9vw, 1.95rem);
+  --text-section: 1.1rem;
+  --text-body: 0.95rem;
+  --text-caption: 0.8125rem;
+  --text-micro: 0.72rem;
+
+  /* Spacing & Radii */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2.25rem;
+
+  --radius-card: 12px;
+  --radius-panel: 18px;
+  --radius-pill: 999px;
+  --radius-control: 12px;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 140ms;
+  --dur-med: 240ms;
+  --dur-slow: 400ms;
+
+  /* Focus ring — White Core + Crimson Halo */
+  --focus-ring: 0 0 0 3px #faf8f5, 0 0 0 6px var(--accent), 0 16px 36px -4px rgba(0, 0, 0, 0.85);
+  --focus-transform: translateY(-4px) scale(1.04);
+}
+
+/* --------------------------------------------------------------------------
+ * 2. BASE & WORKBENCH CHROME
+ * -------------------------------------------------------------------------- */
+
+.proto-root {
+  min-height: 100vh;
+  background: var(--bg-canvas);
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: 1.45;
+  padding-bottom: 5.5rem;
+  box-sizing: border-box;
+}
+
+.proto-root *,
+.proto-root *::before,
+.proto-root *::after {
+  box-sizing: border-box;
+}
+
+.proto-root h1,
+.proto-root h2,
+.proto-root h3,
+.proto-root h4,
+.proto-root p {
+  margin: 0;
+  text-transform: none;
+  letter-spacing: normal;
+  color: inherit;
+}
+
+.proto-root button {
+  margin: 0;
+  font-family: inherit;
+  text-transform: none;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Top workbench header so the owner can switch views & inspect what's locked vs provisional */
+.proto-workbench-bar {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem 1.25rem;
+  padding: 0.65rem 1.5rem;
+  background: rgba(8, 8, 12, 0.92);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.proto-workbench-title {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.proto-pill-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--text-micro);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.proto-workbench-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.proto-tab {
+  padding: 0.38rem 0.8rem;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-stage);
+  color: var(--ink-secondary);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+
+.proto-tab[aria-pressed="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  color: var(--ink-primary);
+}
+
+/* --------------------------------------------------------------------------
+ * 3. THE FOCUS TREATMENT (THE LOUDEST THING ON SCREEN)
+ * -------------------------------------------------------------------------- */
+
+.proto-root [data-focusable] {
+  position: relative;
+  transition:
+    transform var(--dur-med) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+.proto-root [data-focusable]:focus,
+.proto-root [data-focusable]:focus-visible,
+.proto-root [data-focusable][data-sim-focus="true"] {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  z-index: 5;
+}
+
+.proto-root .poster-card[data-focusable]:focus,
+.proto-root .poster-card[data-focusable][data-sim-focus="true"],
+.proto-root .cw-card[data-focusable]:focus,
+.proto-root .cw-card[data-focusable][data-sim-focus="true"] {
+  transform: var(--focus-transform);
+}
+
+/* Variant B and Variant C (locked Round 1 choice) invert focused action buttons & rail items */
+.proto-root[data-variant="B"] .kit-btn[data-focusable]:focus,
+.proto-root[data-variant="B"] .kit-btn[data-focusable][data-sim-focus="true"],
+.proto-root[data-variant="B"] .rail-item[data-focusable]:focus,
+.proto-root[data-variant="B"] .rail-item[data-focusable][data-sim-focus="true"],
+.proto-root[data-variant="C"] .kit-btn[data-focusable]:focus,
+.proto-root[data-variant="C"] .kit-btn[data-focusable][data-sim-focus="true"],
+.proto-root[data-variant="C"] .rail-item[data-focusable]:focus,
+.proto-root[data-variant="C"] .rail-item[data-focusable][data-sim-focus="true"],
+.proto-root[data-variant="C"] .uosc-icon-btn[data-focusable]:focus,
+.proto-root[data-variant="C"] .uosc-icon-btn[data-focusable][data-sim-focus="true"] {
+  background: var(--accent);
+  color: var(--ink-on-accent);
+  border-color: #faf8f5;
+}
+.proto-root[data-variant="C"] .rail-item[data-focusable]:focus .rail-icon,
+.proto-root[data-variant="C"] .rail-item[data-focusable][data-sim-focus="true"] .rail-icon {
+  color: var(--ink-on-accent);
+}
+
+/* --------------------------------------------------------------------------
+ * 4. DESKTOP TEN-FOOT SHELL + NAV RAIL + HOME STAGE
+ * -------------------------------------------------------------------------- */
+
+.tenfoot-stage-frame {
+  margin: 1.25rem 1.5rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-panel);
+  background: var(--bg-canvas);
+  overflow: hidden;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.65);
+}
+
+.tenfoot-shell {
+  display: grid;
+  min-height: 700px;
+  position: relative;
+}
+
+/* Structural Rail Differences across A, B, C */
+.proto-root[data-variant="A"] .tenfoot-shell {
+  grid-template-columns: 76px minmax(0, 1fr);
+}
+.proto-root[data-variant="B"] .tenfoot-shell {
+  grid-template-columns: 204px minmax(0, 1fr);
+}
+.proto-root[data-variant="C"] .tenfoot-shell {
+  grid-template-columns: 92px minmax(0, 1fr);
+}
+
+.nav-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 1.25rem 0.6rem;
+  background: var(--bg-stage);
+  border-right: 1px solid var(--border-subtle);
+  z-index: 10;
+}
+
+.proto-root[data-variant="C"] .nav-rail {
+  margin: 1rem 0 1rem 1rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-panel);
+  background: var(--bg-glass);
+  backdrop-filter: blur(20px);
+  justify-content: center;
+}
+
+.rail-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.4rem 0.5rem 1rem;
+  color: var(--accent);
+  font-family: var(--font-display);
+  font-weight: var(--display-weight);
+  font-size: 1.25rem;
+  letter-spacing: var(--display-tracking);
+}
+
+.proto-root[data-variant="B"] .rail-brand {
+  justify-content: flex-start;
+  padding-left: 0.85rem;
+  font-size: 1.1rem;
+}
+
+.rail-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 0.65rem 0.5rem;
+  border-radius: var(--radius-control);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-secondary);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+/* Variant A: stacked icon + micro label in a compact 76px column */
+.proto-root[data-variant="A"] .rail-item {
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.6rem 0.25rem;
+  text-align: center;
+}
+
+.proto-root[data-variant="A"] .rail-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+/* Variant B: horizontal icon + full label spine */
+.proto-root[data-variant="B"] .rail-item {
+  flex-direction: row;
+  padding: 0.65rem 0.85rem;
+  font-weight: 600;
+}
+
+/* Variant C: floating glass pill with icon + compact label */
+.proto-root[data-variant="C"] .rail-item {
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.2rem;
+  padding: 0.65rem 0.3rem;
+  text-align: center;
+}
+
+.proto-root[data-variant="C"] .rail-label {
+  font-size: 0.66rem;
+  font-weight: 600;
+}
+
+.rail-item[aria-current="page"] {
+  color: var(--ink-primary);
+  background: var(--bg-raised);
+  border-color: var(--border-strong);
+}
+
+.rail-item[aria-current="page"] .rail-icon {
+  color: var(--accent);
+}
+
+.rail-icon {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.tenfoot-main {
+  min-width: 0;
+  overflow-y: auto;
+  padding-bottom: 2.5rem;
+}
+
+/* --------------------------------------------------------------------------
+ * 5. HOME HERO CAROUSEL (4 SLIDES, FEATURED CATALOG)
+ * -------------------------------------------------------------------------- */
+
+.hero-stage {
+  position: relative;
+  width: 100%;
+  overflow: hidden;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  color: var(--ink-primary);
+  background: var(--bg-stage);
+  cursor: pointer;
+  display: block;
+}
+
+/* Variant A: Full-bleed cinema stage */
+.proto-root[data-variant="A"] .hero-stage {
+  min-height: 360px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+/* Variant B: Split asymmetric studio frame */
+.proto-root[data-variant="B"] .hero-stage {
+  min-height: 320px;
+  display: grid;
+  grid-template-columns: 44% 56%;
+  border-bottom: 1px solid var(--border-strong);
+}
+
+/* Variant C: Inset rounded billboard card */
+.proto-root[data-variant="C"] .hero-stage {
+  width: calc(100% - 2.5rem);
+  margin: 1rem 1.25rem 0.5rem;
+  min-height: 340px;
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--border-strong);
+}
+
+.hero-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 22%;
+  filter: saturate(1.08);
+  transition: transform var(--dur-slow) var(--ease-out);
+}
+
+.proto-root[data-variant="B"] .hero-backdrop-wrap {
+  position: relative;
+  order: 2;
+  min-height: 320px;
+  overflow: hidden;
+}
+
+.proto-root[data-variant="B"] .hero-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, var(--bg-stage) 0%, rgba(11, 13, 18, 0.25) 45%, rgba(11, 13, 18, 0.1) 100%);
+}
+
+.proto-root:not([data-variant="B"]) .hero-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(8, 8, 10, 0.94) 0%, rgba(8, 8, 10, 0.72) 48%, rgba(8, 8, 10, 0.18) 100%),
+    linear-gradient(0deg, var(--bg-canvas) 0%, rgba(8, 8, 10, 0) 55%);
+}
+
+.hero-copy {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 0.55rem;
+  padding: 2rem 2rem 1.6rem;
+  max-width: 40rem;
+  min-height: 340px;
+}
+
+.proto-root[data-variant="B"] .hero-copy {
+  min-height: 320px;
+  justify-content: center;
+  padding: 1.75rem 2rem;
+}
+
+.proto-root[data-variant="C"] .hero-copy {
+  background: linear-gradient(90deg, rgba(14, 12, 20, 0.88) 0%, rgba(14, 12, 20, 0.45) 75%, transparent 100%);
+}
+
+.hero-kicker {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: var(--text-caption);
+  color: var(--ink-secondary);
+}
+
+.hero-kicker-source {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.hero-logo {
+  max-width: 15rem;
+  max-height: 4.2rem;
+  object-fit: contain;
+  object-position: left center;
+}
+
+.hero-headline {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-hero);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+  line-height: 1.05;
+}
+
+.hero-description {
+  margin: 0;
+  color: var(--ink-secondary);
+  font-size: var(--text-body);
+  line-height: 1.45;
+  max-width: 56ch;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.hero-footer {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 0.35rem;
+}
+
+.hero-dots {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.hero-dot {
+  width: 1.6rem;
+  height: 0.28rem;
+  border-radius: var(--radius-pill);
+  border: 0;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.24);
+  cursor: pointer;
+}
+
+.hero-dot[aria-current="true"] {
+  width: 2.6rem;
+  background: var(--accent);
+}
+
+/* --------------------------------------------------------------------------
+ * 6. ROWS, CONTINUE WATCHING & POSTER CARDS
+ * -------------------------------------------------------------------------- */
+
+.catalog-section {
+  padding: 1.25rem 1.75rem 0;
+}
+
+.row-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+
+.row-title-group {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.row-title {
+  margin: 0;
+  font-size: var(--text-section);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.row-addon-tag {
+  font-size: var(--text-caption);
+  color: var(--ink-muted);
+}
+
+/* Continue watching row */
+.cw-strip {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.9rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cw-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-stage);
+  color: var(--ink-primary);
+  text-align: left;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.cw-card[data-unplayable="true"] {
+  opacity: 0.58;
+  border-style: dashed;
+}
+
+.cw-art-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: var(--bg-raised);
+  overflow: hidden;
+}
+
+.cw-art {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.cw-progress-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 4px;
+  background: rgba(0, 0, 0, 0.65);
+}
+
+.cw-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.cw-body {
+  padding: 0.6rem 0.75rem 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.cw-name {
+  font-weight: 600;
+  font-size: 0.88rem;
+  line-height: 1.25;
+}
+
+.cw-meta {
+  font-size: var(--text-caption);
+  color: var(--ink-secondary);
+}
+
+.cw-meta-warn {
+  font-size: var(--text-caption);
+  color: var(--status-warn);
+}
+
+/* Poster cards (2:3) */
+.poster-strip {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.9rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.poster-card {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0;
+  border-radius: var(--radius-card);
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--ink-primary);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+/* Variant A: borderless art tile, metadata cleanly below */
+.proto-root[data-variant="A"] .poster-art-wrap {
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+}
+
+/* Variant B: framed technical card with enclosed footer */
+.proto-root[data-variant="B"] .poster-card {
+  background: var(--bg-stage);
+  border: 1px solid var(--border-subtle);
+}
+
+/* Variant C: rounded poster-wall card with subtle bottom gradient */
+.proto-root[data-variant="C"] .poster-card {
+  position: relative;
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-stage);
+}
+
+.poster-art-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  background: var(--bg-raised);
+}
+
+.poster-art {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.poster-badge-unmapped {
+  position: absolute;
+  top: 0.45rem;
+  left: 0.45rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: var(--radius-pill);
+  background: rgba(12, 12, 16, 0.88);
+  border: 1px solid var(--status-warn);
+  color: var(--status-warn);
+  font-size: var(--text-micro);
+  font-weight: 600;
+}
+
+.poster-info {
+  padding: 0.5rem 0.25rem 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.proto-root[data-variant="B"] .poster-info,
+.proto-root[data-variant="C"] .poster-info {
+  padding: 0.55rem 0.65rem 0.65rem;
+}
+
+.poster-name {
+  font-size: 0.86rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.poster-sub {
+  font-size: var(--text-micro);
+  color: var(--ink-secondary);
+}
+
+/* Inline row failure banner */
+.row-failure {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--status-danger);
+  background: var(--status-danger-bg);
+  color: var(--ink-primary);
+  font-size: var(--text-caption);
+}
+
+/* --------------------------------------------------------------------------
+ * 7. BUTTONS & CONTROLS KIT
+ * -------------------------------------------------------------------------- */
+
+.kit-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  padding: 0.55rem 1rem;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-strong);
+  background: var(--bg-raised);
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.kit-btn-primary {
+  background: var(--accent);
+  color: var(--ink-on-accent);
+  border-color: transparent;
+}
+
+.kit-btn-ghost {
+  background: transparent;
+  border-color: var(--border-subtle);
+  color: var(--ink-secondary);
+}
+
+/* Selected choice — reads at a glance without changing control dimensions */
+.kit-btn-choice[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--ink-primary);
+}
+
+.kit-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* --------------------------------------------------------------------------
+ * 8. FULL-SCREEN PLAYER OSD (DESKTOP — UOSC-INSPIRED EDGE-TO-EDGE)
+ * -------------------------------------------------------------------------- */
+
+.osd-stage {
+  position: relative;
+  min-height: 480px;
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--border-strong);
+  overflow: hidden;
+  background: #050507;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.osd-film-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.78;
+}
+
+.osd-vignette {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(180deg, rgba(6, 6, 8, 0.65) 0%, transparent 24%, transparent 62%, rgba(6, 6, 8, 0.88) 100%);
+  pointer-events: none;
+}
+
+/* Top-left pill tags + top-right window/close icons */
+.uosc-top-bar {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+}
+
+.uosc-top-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+}
+
+.uosc-top-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.uosc-badge-index {
+  padding: 0.25rem 0.55rem;
+  border-radius: 5px;
+  background: rgba(235, 235, 240, 0.88);
+  color: #09080c;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.uosc-badge-title {
+  padding: 0.25rem 0.65rem;
+  border-radius: 5px;
+  background: rgba(9, 8, 12, 0.88);
+  color: var(--ink-primary);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.uosc-badge-sub {
+  margin-left: 0.6rem;
+  padding: 0.18rem 0.6rem;
+  border-radius: 5px;
+  background: rgba(9, 8, 12, 0.86);
+  color: var(--ink-secondary);
+  font-size: 0.76rem;
+  font-style: italic;
+}
+
+/* Right-side vertical volume pillar + floating menu */
+.uosc-middle-layer {
+  position: relative;
+  z-index: 2;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 1rem;
+}
+
+.uosc-menu-popover {
+  width: 21rem;
+  max-height: 18rem;
+  overflow-y: auto;
+  padding: 0.6rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: rgba(9, 8, 12, 0.94);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.8);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.uosc-menu-tabs {
+  display: flex;
+  gap: 0.25rem;
+  padding-bottom: 0.45rem;
+  margin-bottom: 0.25rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.uosc-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0.45rem 0.65rem;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-primary);
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.uosc-menu-item[aria-pressed="true"] {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.uosc-volume-pillar {
+  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.uosc-volume-track {
+  position: relative;
+  width: 2.3rem;
+  height: 7.5rem;
+  border-radius: 7px;
+  background: rgba(9, 8, 12, 0.9);
+  border: 1px solid var(--border-subtle);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.uosc-volume-fill {
+  width: 100%;
+  background: #faf8f5;
+  color: #09080c;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 0.3rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+/* Bottom uosc stack: floating icon strip + flush edge-to-edge timeline bar */
+.uosc-bottom-stack {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+}
+
+.uosc-control-strip {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  padding: 0 0.85rem 0.55rem;
+}
+
+.uosc-icon-cluster-left {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  justify-self: start;
+}
+
+.uosc-icon-cluster-center {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  justify-self: center;
+}
+
+.uosc-icon-cluster-right {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  justify-self: end;
+}
+
+.uosc-icon-anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+.uosc-icon-popover {
+  position: absolute;
+  bottom: calc(100% + 0.55rem);
+  left: 0;
+  z-index: 20;
+  width: 18.5rem;
+  max-height: 16rem;
+  overflow-y: auto;
+  padding: 0.5rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: rgba(9, 8, 12, 0.95);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.85);
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.uosc-icon-popover-right {
+  left: auto;
+  right: 0;
+}
+
+.uosc-popover-heading {
+  padding: 0.25rem 0.55rem 0.4rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--ink-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 0.2rem;
+}
+
+.uosc-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  min-width: 2.15rem;
+  height: 2.15rem;
+  padding: 0 0.5rem;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--ink-primary);
+  font-size: 0.78rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.uosc-icon-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+/* Active uosc icon button matches the solid light pill from uosc */
+.uosc-icon-btn[aria-pressed="true"] {
+  background: #faf8f5;
+  color: #09080c;
+}
+
+.uosc-icon-btn svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+/* Edge-to-edge flush bottom timeline bar */
+.uosc-timeline {
+  position: relative;
+  width: 100%;
+  height: 2.6rem;
+  background: rgba(9, 8, 12, 0.92);
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  user-select: none;
+}
+
+.uosc-timeline-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: var(--accent);
+  opacity: 0.42;
+  pointer-events: none;
+}
+
+.uosc-timeline-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #faf8f5;
+  pointer-events: none;
+}
+
+/* Chapter diamonds along the top edge of the timeline (hover reveals chapter name) */
+.uosc-chapter-marker {
+  position: absolute;
+  top: -8px;
+  width: 18px;
+  height: 18px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.uosc-chapter-diamond {
+  width: 7px;
+  height: 7px;
+  background: rgba(250, 248, 245, 0.88);
+  transform: rotate(45deg);
+  transition: transform var(--dur-fast) var(--ease-out), background var(--dur-fast) var(--ease-out);
+}
+
+.uosc-chapter-marker:hover .uosc-chapter-diamond {
+  background: var(--accent);
+  transform: rotate(45deg) scale(1.35);
+}
+
+/* Hover-only chapter & time pill right above the hovered chapter diamond */
+.uosc-hover-callout {
+  position: absolute;
+  bottom: calc(100% + 0.35rem);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.uosc-chapter-marker:hover .uosc-hover-callout,
+.uosc-chapter-marker[data-hovered="true"] .uosc-hover-callout {
+  opacity: 1;
+}
+
+.uosc-hover-chapter,
+.uosc-hover-time {
+  padding: 0.18rem 0.55rem;
+  border-radius: 4px;
+  background: rgba(9, 8, 12, 0.94);
+  color: var(--ink-primary);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.uosc-time-left,
+.uosc-time-right {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--ink-primary);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+}
+
+.uosc-time-left {
+  left: 0.85rem;
+}
+
+.uosc-time-right {
+  right: 0.85rem;
+}
+
+/* --------------------------------------------------------------------------
+ * 9. CAST REMOTE (PHONE WIDTH — NETFLIX 3-SURFACE REFERENCE)
+ * -------------------------------------------------------------------------- */
+
+.phone-triptych {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.25rem;
+  margin-top: 0.75rem;
+}
+
+@media (max-width: 1120px) {
+  .phone-triptych {
+    grid-template-columns: 1fr;
+  }
+}
+
+.phone-bezel {
+  width: 100%;
+  max-width: 370px;
+  min-height: 670px;
+  margin: 0 auto;
+  border-radius: 28px;
+  border: 2px solid var(--border-strong);
+  background: var(--bg-canvas);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.75);
+  position: relative;
+}
+
+/* Surface 1: Mobile Browse + Docked Cast Mini-Strip + Bottom Nav */
+.cast-browse-hero {
+  position: relative;
+  height: 310px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 1rem;
+  text-align: center;
+}
+
+.cast-browse-hero img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cast-browse-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(9, 8, 12, 0.35) 0%, rgba(9, 8, 12, 0.15) 45%, var(--bg-canvas) 100%);
+}
+
+.cast-browse-hero-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.cast-browse-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1.5rem;
+  width: 100%;
+  margin-top: 0.25rem;
+}
+
+.cast-ministrip {
+  margin-top: auto;
+  display: grid;
+  grid-template-columns: 44px 1fr 44px;
+  align-items: center;
+  padding: 0.55rem 0.75rem;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border-strong);
+  border-bottom: 1px solid var(--border-subtle);
+  cursor: pointer;
+}
+
+.cast-ministrip-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  min-width: 0;
+}
+
+.cast-bottom-nav {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  padding: 0.45rem 0.25rem 0.6rem;
+  background: #07060a;
+}
+
+.cast-bottom-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.2rem;
+  border: 0;
+  background: transparent;
+  color: var(--ink-muted);
+  font-size: 0.65rem;
+  cursor: pointer;
+}
+
+.cast-bottom-nav-item[aria-current="page"] {
+  color: var(--ink-primary);
+}
+
+/* Surface 2: Full-Screen Cast Remote (Centered Poster + 3 Utility Icons + Red Thumb Scrubber + Big Transport) */
+.cast-remote-screen {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 1rem 1.35rem 1.1rem;
+  background: #131118;
+}
+
+.cast-remote-header {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0.15rem;
+}
+
+.cast-remote-poster-wrap {
+  display: flex;
+  justify-content: center;
+  margin: 0.75rem 0;
+}
+
+.cast-remote-poster {
+  width: 156px;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 6px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.65);
+}
+
+.cast-utility-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 0.4rem 0.5rem;
+}
+
+.cast-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 999px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-secondary);
+  cursor: pointer;
+}
+
+.cast-icon-btn:hover,
+.cast-icon-btn[aria-pressed="true"] {
+  color: var(--ink-primary);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.cast-icon-btn:disabled {
+  opacity: 0.28;
+  cursor: not-allowed;
+  background: transparent;
+}
+
+.cast-scrubber-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.cast-scrubber-times {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  color: var(--ink-secondary);
+}
+
+.cast-scrubber-track {
+  position: relative;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.cast-scrubber-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+.cast-scrubber-thumb {
+  position: absolute;
+  top: 50%;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+}
+
+.cast-transport-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  padding: 0.5rem 0;
+}
+
+.cast-target-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  font-size: 0.78rem;
+  color: var(--ink-muted);
+  padding-top: 0.35rem;
+}
+
+/* Surface 3: Full-Screen Translucent Audio & Subtitles Sheet */
+.cast-track-overlay {
+  position: relative;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 1.35rem 1.25rem 1.15rem;
+  background: rgba(8, 7, 11, 0.94);
+}
+
+.cast-track-section h4 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin-bottom: 0.65rem;
+}
+
+.cast-track-list {
+  list-style: none;
+  margin: 0 0 1.4rem;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.cast-track-row {
+  display: grid;
+  grid-template-columns: 1.5rem 1fr;
+  align-items: center;
+  width: 100%;
+  padding: 0.45rem 0.25rem;
+  border: 0;
+  background: transparent;
+  color: var(--ink-secondary);
+  font-size: 0.88rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cast-track-row[aria-pressed="true"] {
+  color: var(--ink-primary);
+  font-weight: 700;
+}
+
+.cast-sheet-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  padding-top: 0.75rem;
+}
+
+/* --------------------------------------------------------------------------
+ * 10. TOKEN & COMPONENT MATRIX LAYOUT
+ * -------------------------------------------------------------------------- */
+
+.kit-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  padding: 0 1.5rem 1.5rem;
+}
+
+.kit-panel {
+  padding: 1.25rem 1.5rem;
+  border-radius: var(--radius-panel);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-stage);
+  margin-bottom: 1.25rem;
+}
+
+.kit-panel h3 {
+  margin: 0 0 0.85rem;
+  font-size: var(--text-section);
+}
+
+.swatch-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 0.65rem;
+}
+
+.swatch-card {
+  padding: 0.65rem;
+  border-radius: var(--radius-control);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-canvas);
+}
+
+.swatch-chip {
+  height: 2.25rem;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  margin-bottom: 0.45rem;
+}
+
+/* --------------------------------------------------------------------------
+ * 11. FLOATING PROTOTYPE VARIANT SWITCHER (prototype/UI.md)
+ * -------------------------------------------------------------------------- */
+
+.proto-floating-switcher {
+  position: fixed;
+  bottom: 1.1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.45rem 0.65rem;
+  border-radius: 999px;
+  background: #f5f7fa;
+  color: #090a0f;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.25);
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.proto-floating-switcher button {
+  padding: 0.3rem 0.65rem;
+  border-radius: 999px;
+  border: 1px solid #d0d5dd;
+  background: #ffffff;
+  color: #090a0f;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.proto-floating-switcher button:hover {
+  background: #eef2f6;
+}
