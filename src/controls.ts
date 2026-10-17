@@ -17,7 +17,7 @@ import type {
   Chapter,
   Crop,
   CropRectangle,
-  NowPlaying,
+  Episode,
   PlaybackState,
   Statistics,
   Track,
@@ -260,16 +260,26 @@ function formatBitrate(bits: number | null): string {
 }
 
 /**
- * Whether what is playing is a series episode, which is the only thing a next
- * one could follow. A film has no next episode, so the control is not offered
- * for one.
+ * Whether the episode step back is one the Host might take, from the position
+ * it published: a film has no episodes at all, and S1E1 is the one episode a
+ * position alone can say has nothing before it (ADR-0021).
  *
- * This is the window offering an affordance, not the Host's rule: whether a next
- * Video *exists* is the Host's answer, and it may refuse — a series whose id is
- * not an episode's, or one whose Addon lists nothing after it. Re-deciding that
- * here would be a second rule for one question, which is the duplicate ADR-0002
- * exists to prevent.
+ * This is the window greying a control, not the Host's rule: whether an earlier
+ * Video *exists* is the Host's answer, and it may still refuse — the Addon's
+ * list begins at the episode playing, or begins somewhere the numbers do not
+ * describe — so a press at the boundary returns `no_previous_episode` and is
+ * shown where it happened. Re-deciding existence here would be a second rule
+ * for one question, which is the duplicate ADR-0002 exists to prevent.
  */
-export function hasNextEpisode(playing: NowPlaying | null): boolean {
-  return playing?.video.type === "series";
+export function previousEpisodeDisabled(episode: Episode | null): boolean {
+  return episode === null || (episode.season === 1 && episode.episode === 1);
+}
+
+/**
+ * The same rule for the step forward: every episode has a next one until the
+ * Addon's own list runs out, which only a press can find out, so only a film —
+ * no episode at all — greys the control.
+ */
+export function nextEpisodeDisabled(episode: Episode | null): boolean {
+  return episode === null;
 }
