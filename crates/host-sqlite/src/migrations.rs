@@ -77,6 +77,14 @@ pub const MIGRATIONS: &[Migration] = &[
                  paired_at    INTEGER NOT NULL
              );",
     },
+    Migration {
+        // The Continue watching card's backdrop (#62, #73): the row draws 16:9
+        // art, and the poster the card already carried is portrait. It sits
+        // beside that poster, which is what a client falls back to, and is null
+        // for every entry written before this column existed.
+        version: 5,
+        sql: "ALTER TABLE watch_progress ADD COLUMN title_background TEXT;",
+    },
 ];
 
 /// The version a database is at once every migration in `migrations` has run.

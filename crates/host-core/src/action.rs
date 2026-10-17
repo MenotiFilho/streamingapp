@@ -135,11 +135,13 @@ pub enum Action {
         /// The candidate itself, as it was answered.
         stream: Box<Stream>,
         /// The Title the Video belongs to, as the client was reading it: enough
-        /// of it for the library to draw a card, and the Addon a removed one is
-        /// judged against (#29). The client has it open — a Title is the
+        /// of it for Continue watching to draw a card, and the Addon a removed
+        /// one is judged against (#29). The client has it open — a Title is the
         /// client's own (ADR-0005) — so the Host is told which Title a Video is
         /// of rather than guessing one from an Addon that may not answer `meta`.
-        title: TitleCard,
+        /// Boxed because a card is the largest payload an Action carries beside
+        /// a Stream, which is boxed beside it for the same reason.
+        title: Box<TitleCard>,
     },
     /// Play a Video again from where it was left.
     ///
@@ -511,9 +513,10 @@ pub enum ValidatedAction {
         video: VideoRef,
     },
     /// A candidate judged: the URL a Player will be given, the words that will
-    /// be published about it, and the Title the Video is of — which is what the
-    /// library records the play against. Boxed because a Stream carries its own
-    /// words and the enum's other variants are a word or two wide.
+    /// be published about it, and the Title the Video is of — which is what
+    /// Continue watching records the play against. Boxed because a Stream
+    /// carries its own words and the enum's other variants are a word or two
+    /// wide.
     PlayStream {
         chosen: Box<ChosenStream>,
         title: TitleStub,
@@ -797,15 +800,16 @@ mod tests {
         // The candidate a client sends back is the one it was answered, whole:
         // what the Host acts on is where its bytes are, and what travels outward
         // again is the Addon's own words (ADR-0013). The Title rides beside it,
-        // because the library draws a card from what the client was reading
-        // (#29), and the Addon that supplied it is what a removed one is judged
-        // against.
+        // because Continue watching draws a card from what the client was
+        // reading (#29), and the Addon that supplied it is what a removed one is
+        // judged against.
         let action = Action::parse(&format!(
             r#"{{"version":{ACTION_VERSION},"action":{{"type":"play_stream",
                 "video":{{"type":"movie","id":"tt0133093"}},
                 "addon":"community.aiostreams",
                 "title":{{"addon":"com.linvo.cinemeta","id":"tt0133093","type":"movie",
-                    "name":"The Matrix","poster":"https://images.example.org/matrix.jpg"}},
+                    "name":"The Matrix","poster":"https://images.example.org/matrix.jpg",
+                    "background":"https://images.example.org/matrix-backdrop.jpg"}},
                 "stream":{{"name":"AIOStreams\n1080p","playback":{{"kind":"direct","url":"https://stream.example.org/v/x.mkv"}}}}}}}}"#
         ))
         .expect("a client's own envelope parses");
@@ -863,6 +867,7 @@ mod tests {
                     r#type: "movie".to_owned(),
                     name: "The Matrix".to_owned(),
                     poster: Some("https://images.example.org/matrix.jpg".to_owned()),
+                    background: Some("https://images.example.org/matrix-backdrop.jpg".to_owned()),
                 })
                 .expect("a Title a request could name"),
             }
