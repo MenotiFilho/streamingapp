@@ -121,10 +121,11 @@ credential fact a Snapshot carries.
 _Avoid_: storage, security, exposure
 
 **Account sync** (or **Stremio sync**):
-Optional, bidirectional reconciliation between the Host's Library and a personal
-Stremio account. Remote progress newer than local records is pulled on open; local
-progress is pushed on pause, stop, and exit. Conflicts resolve by timestamp, and
-per-episode watched bitfields are merged without clobbering positions.
+Optional, bidirectional reconciliation between the Host's Watch progress and a
+personal Stremio account. Remote progress newer than local records is pulled on
+open; local progress is pushed on pause, stop, and exit. Conflicts resolve by
+timestamp, and per-episode watched bitfields are merged without clobbering
+positions. It does not sync Library membership — that is not built.
 _Avoid_: backup, cloud storage
 
 ### Playback
@@ -165,9 +166,10 @@ marked unplayable.
 _Avoid_: library, history, watchlist, resume
 
 **Library**:
-The collection of Titles held in the owner's Stremio account, reconciled by
-Account sync. Not built: nothing stores it today, and a client's Library screen
-is a stub until something does.
+The collection of Titles held in the owner's Stremio account. Its *membership* —
+what is saved to the account and removed from it, and the sync that would carry
+it — is not built: nothing stores it today, and a client's Library screen is a
+stub until something does. Account sync reconciles Watch progress, not membership.
 _Avoid_: history, watchlist, collection, continue watching
 
 **Playback position**:
