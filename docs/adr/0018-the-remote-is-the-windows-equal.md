@@ -85,6 +85,12 @@ reason a remote has); **a control set only reachable from the bar with no sheet*
 
 ## 4. "Previous episode" is not on the surface, and is not invented here
 
+> **Revised by [ADR-0021](0021-previous-episode-on-the-surface.md).** The owner has
+> since decided the companion and the window both want a `Previous episode`; the
+> surface grew a `previous_episode` Action, the mirror of `next_episode`. The
+> reasoning below is kept for its shape, and one of its predictions — a `Telling` —
+> is dropped by ADR-0021 §2.
+
 The ticket's acceptance list names "next/previous episode". The Action surface
 has `NextEpisode` and no `PreviousEpisode`: what plays next is a rule the Host
 owns (ADR-0014), and the surface never grew a "previous" it does not need — a
