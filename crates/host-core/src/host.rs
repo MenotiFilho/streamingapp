@@ -6,7 +6,8 @@ use crate::cache::CatalogCache;
 use crate::catalog::{CatalogRow, Page};
 use crate::clock::Clock;
 use crate::device::{Device, DeviceSummary, DeviceToken};
-use crate::fetcher::Fetcher;
+use crate::discover::DiscoverRow;
+use crate::fetcher::{FetchError, Fetcher};
 use crate::meta::Title;
 use crate::pairing::PairingCode;
 use crate::playback::{
@@ -703,6 +704,18 @@ impl Host {
                     .collect();
                 Resolved::Answer(Answer::Catalogs(rows))
             }
+            ValidatedAction::Discover { query } => {
+                // A Discover page is never cached: TMDB sends no cache hints to
+                // honour and a feed is a live thing whose staleness is worse
+                // than its latency, so every page reaches it (ADR-0020). A
+                // credential that is not held refuses the ask itself, before a
+                // row exists: there is nothing to ask TMDB with.
+                let credential = self
+                    .tmdb_credential()
+                    .ok_or(ActionError::NoTmdbCredential)?;
+                let row = self.discover_row(&query, &credential);
+                Resolved::Answer(Answer::Discover(vec![row]))
+            }
             ValidatedAction::OpenTitle { addon, title } => {
                 let configured = self.addon(&addon)?;
                 let requested = ResourceRequest::new(META, &title.r#type, &title.id);
@@ -1158,6 +1171,41 @@ impl Host {
         Ok(page)
     }
 
+    /// One Discover row: what TMDB answered for an ask, or why it could not —
+    /// the failure in the Host's vocabulary, as a row rather than as a refused
+    /// screen, so one failed call does not blank the feed (ADR-0020).
+    ///
+    /// Nothing is kept: the page is read and dropped with the answer that
+    /// carried it, so the same page asked for twice reaches TMDB twice.
+    fn discover_row(
+        &self,
+        query: &tmdb::DiscoverQuery,
+        credential: &tmdb::Credential,
+    ) -> DiscoverRow {
+        let kind = query.kind.as_protocol().to_owned();
+        let failed = |failure: ActionError| DiscoverRow {
+            r#type: kind.clone(),
+            sent: 0,
+            metas: Vec::new(),
+            failure: Some(failure),
+        };
+
+        match self.fetch_tmdb(&query.request(), credential) {
+            Err(error) => failed(tmdb_failure(error)),
+            Ok(body) => match tmdb::read_page(&body, query.kind) {
+                Ok(page) => DiscoverRow {
+                    r#type: kind,
+                    sent: page.sent,
+                    metas: page.metas,
+                    failure: None,
+                },
+                Err(error) => failed(ActionError::Tmdb {
+                    detail: error.to_string(),
+                }),
+            },
+        }
+    }
+
     /// Open one Title: what its Addon answers about the item the client asked for.
     ///
     /// A meta answer is not kept in the page cache: a Title is one item the owner
@@ -1224,7 +1272,7 @@ impl Host {
                     kind,
                     imdb: imdb.clone(),
                 };
-                let Some(answer) = self.fetch_tmdb(&request, &key) else {
+                let Some(answer) = self.fetch_tmdb(&request, &key).ok() else {
                     return;
                 };
                 match tmdb::read_find(&answer, kind) {
@@ -1244,7 +1292,10 @@ impl Host {
             Some(kind) => kind,
             None => return,
         };
-        let Some(record) = self.fetch_tmdb(&tmdb::TmdbRequest::Details { kind, id }, &key) else {
+        let Some(record) = self
+            .fetch_tmdb(&tmdb::TmdbRequest::Details { kind, id }, &key)
+            .ok()
+        else {
             return;
         };
         match tmdb::read_details(&record, kind) {
@@ -1268,21 +1319,20 @@ impl Host {
         Some(tmdb::Credential::parse(&key))
     }
 
-    /// Fetch one TMDB answer, or nothing. The URL a query credential built
-    /// carries the credential in it, and is dropped when the fetch is over:
-    /// a fetch failure is reported to nobody but this join, which degrades.
+    /// Fetch one TMDB answer, or why it could not be fetched. The URL a query
+    /// credential built carries the credential in it and is dropped when the
+    /// fetch is over: a caller reads the answer, or TMDB's failure, and never
+    /// the URL the credential rode in.
     fn fetch_tmdb(
         &self,
         request: &tmdb::TmdbRequest,
         credential: &tmdb::Credential,
-    ) -> Option<String> {
+    ) -> Result<String, FetchError> {
         let url = request.url(credential);
         if let Some((name, value)) = credential.header() {
-            self.fetcher
-                .fetch_with_headers(&url, &[(name, &value)])
-                .ok()
+            self.fetcher.fetch_with_headers(&url, &[(name, &value)])
         } else {
-            self.fetcher.fetch(&url).ok()
+            self.fetcher.fetch(&url)
         }
     }
 }
@@ -1304,6 +1354,26 @@ enum Resolved {
 /// when this Host cannot open it — an `infoHash`, or a URL it will not open.
 fn playable(video: &VideoRef, addon: &AddonId, stream: &Stream) -> Option<ChosenStream> {
     ChosenStream::parse(video.clone(), addon.clone(), stream).ok()
+}
+
+/// Why a TMDB call failed, in TMDB's name.
+///
+/// The shared [`Fetcher`] speaks of the Addon it was built for, and a Discover
+/// row that said "the Addon answered with status 429" would name the wrong
+/// party: what a client reads is that TMDB did not answer, and with what
+/// (ADR-0020).
+fn tmdb_failure(error: FetchError) -> ActionError {
+    ActionError::Tmdb {
+        detail: match error {
+            FetchError::Status { status } => format!("TMDB answered with status {status}"),
+            FetchError::Unreachable { detail } => {
+                format!("TMDB could not be reached: {detail}")
+            }
+            FetchError::Body { detail } => {
+                format!("TMDB answered with something that is not text: {detail}")
+            }
+        },
+    }
 }
 
 /// The Title id an episode's Video id carries, or why this Host will not take

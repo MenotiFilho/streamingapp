@@ -27,8 +27,8 @@ pub const MAX_CATALOG_BYTES: usize = 4 * 1024 * 1024;
 /// One item in a catalog row, as the Host needs it to draw a card.
 ///
 /// A *preview*: the protocol's shorter Meta shape, which is what a catalog
-/// returns. Fields the Host has no use for yet — `background`, `logo`, `links`,
-/// `trailers`, `behaviorHints`, `videos` — are ignored rather than refused.
+/// returns. Fields the Host has no use for yet — `logo`, `links`, `trailers`,
+/// `behaviorHints`, `videos` — are ignored rather than refused.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MetaPreview {
@@ -41,6 +41,11 @@ pub struct MetaPreview {
     pub poster: Option<String>,
     /// `poster`, `square` or `landscape`; the protocol assumes `poster`.
     pub poster_shape: Option<String>,
+    /// The backdrop's address, where the item has one: the 16:9 art a hero or a
+    /// wide card is drawn from, where the poster beside it is portrait. A
+    /// Discover row carries TMDB's here, and a catalog row whatever the Addon
+    /// sent (ADR-0011's #62 amendment).
+    pub background: Option<String>,
     /// The year, or a series' years: `1999`, `2008-2013`, `2020-`.
     pub release_info: Option<String>,
     pub imdb_rating: Option<String>,
@@ -184,6 +189,7 @@ fn meta_preview(value: &serde_json::Value) -> Option<MetaPreview> {
         name: non_empty_string(object.get("name")?)?,
         poster: object.get("poster").and_then(non_empty_string),
         poster_shape: object.get("posterShape").and_then(non_empty_string),
+        background: object.get("background").and_then(non_empty_string),
         release_info: object.get("releaseInfo").and_then(non_empty_string),
         imdb_rating: object.get("imdbRating").and_then(non_empty_string),
         // A genre list that is not a list of strings is ignored rather than
@@ -289,6 +295,24 @@ mod tests {
         assert_ne!(
             page.metas[0].id, page.metas[1].id,
             "the order is the Addon's, and an item is not reordered or dropped"
+        );
+    }
+
+    #[test]
+    fn a_recorded_items_backdrop_is_read_and_its_logo_is_left_unread() {
+        // Cinemeta sends both on every item; a hero is drawn from the backdrop,
+        // and no wordmark is (ADR-0011's #62 amendment).
+        let page = parsed(TOP);
+
+        assert_eq!(
+            page.metas[0].background.as_deref(),
+            Some("https://images.metahub.space/background/medium/tt22084616/img")
+        );
+        let published = serde_json::to_value(&page.metas[0]).expect("an item serializes");
+        assert_eq!(
+            published.get("logo"),
+            None,
+            "an item carries the art a hero draws, and a logo is not one"
         );
     }
 

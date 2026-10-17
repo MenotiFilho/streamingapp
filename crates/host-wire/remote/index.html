@@ -144,7 +144,7 @@
         a comment: a control wired to an Action this list does not name throws
         rather than sending it.
       -->
-      <script type="application/json" id="action-capabilities">["set_subtitle_language","clear_subtitle_language","add_addon","remove_addon","set_tmdb_key","clear_tmdb_key","sign_in_stremio","sign_out_stremio","pair_device","revoke_device","browse_catalog","search_catalogs","open_title","find_streams","play_stream","resume","set_paused","seek","set_audio_track","set_subtitle_track","set_subtitle_delay","set_speed","set_volume","set_muted","next_chapter","previous_chapter","set_chapter","set_crop","set_aspect","next_episode","stop_playback"]</script>
+      <script type="application/json" id="action-capabilities">["set_subtitle_language","clear_subtitle_language","add_addon","remove_addon","set_tmdb_key","clear_tmdb_key","sign_in_stremio","sign_out_stremio","pair_device","revoke_device","browse_catalog","search_catalogs","discover","open_title","find_streams","play_stream","resume","set_paused","seek","set_audio_track","set_subtitle_track","set_subtitle_delay","set_speed","set_volume","set_muted","next_chapter","previous_chapter","set_chapter","set_crop","set_aspect","next_episode","stop_playback"]</script>
 
       <!-- The pairing card: what a device that has not paired sees. -->
       <section id="pairing" class="card hidden">
@@ -568,6 +568,7 @@
             return "The Addon " + JSON.stringify(error.addon) + " offers no meta for that Title.";
           case "extra": return error.detail || "The Host will not ask for that catalog with those values.";
           case "query": return error.detail || "The Host will not search for that.";
+          case "invalid_discover": return error.detail || "The Host will not discover that.";
           case "catalog": return "The Host could not read that Addon's catalog" + because(error.detail);
           case "meta": return "The Host could not read that Addon's meta response" + because(error.detail);
           case "stream": return "The Host could not read that Addon's stream response" + because(error.detail);
@@ -577,6 +578,8 @@
             return "The Host will not play that Stream: " + (error.detail || "it is not one it can open");
           case "nothing_playing": return "Nothing is playing, so the Host cannot do that.";
           case "no_next_episode": return "There is no next episode to play" + because(error.detail);
+          case "no_tmdb_credential": return "This Host holds no TMDB key, so it cannot ask TMDB for a feed.";
+          case "tmdb": return "TMDB did not answer" + because(error.detail);
           case "no_progress": return "The Host has no Watch progress for that Video.";
           case "playback": return "The Host's player could not do that" + because(error.detail);
           case "store": return "The Host could not save that change" + because(error.detail);

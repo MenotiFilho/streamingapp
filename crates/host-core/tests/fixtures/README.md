@@ -116,6 +116,13 @@ record at all.
 - `tmdb-tv-details-making.json` — written by hand, not recorded, and invented
   outright: a series `in_production` with no `last_air_date` to end the range
   (`2020–`), which a recording would only catch by being run in that window.
+- `tmdb-page-movie.json` — a page of film results as `/trending/movie/week` and
+  `/discover/movie` answer: two records with the ids, poster and backdrop paths,
+  release dates, ratings and `genre_ids` TMDB sends, beside noise fields the Host
+  ignores. Hand-written to the documented shape and trimmed to what the read
+  asserts on, the same way the details fixtures are.
+- `tmdb-page-tv.json` — the same for series, where the name is `name` and the
+  date is `first_air_date`; `/trending/tv/week` and `/discover/tv`.
 
 ## Stream responses
 

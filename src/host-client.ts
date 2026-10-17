@@ -534,6 +534,9 @@ export const HOST_ERROR_KINDS = [
   "unknown_device",
   "unpaired",
   "already_paired",
+  "invalid_discover",
+  "no_tmdb_credential",
+  "tmdb",
 ] as const;
 
 /**
@@ -687,6 +690,12 @@ export function explain(error: ActionError): string {
       return error.detail ?? "The Host will not ask for that catalog with those values.";
     case "query":
       return error.detail ?? "The Host will not search for that.";
+    case "invalid_discover":
+      return error.detail ?? "The Host will not discover that.";
+    case "no_tmdb_credential":
+      return "This Host holds no TMDB key, so it cannot ask TMDB for a feed.";
+    case "tmdb":
+      return `TMDB did not answer${error.detail ? `: ${error.detail}` : ""}.`;
     case "catalog":
       return `The Host could not read that Addon's catalog${error.detail ? `: ${error.detail}` : ""}.`;
     case "meta":
