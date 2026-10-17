@@ -10,15 +10,38 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use host_core::{
-    Addon, AddonId, Device, DeviceId, DeviceName, Manifest, ManifestUrl, Preferences, Store,
-    StoreError, SubtitleLanguage, TitleCard, TitleStub, TokenDigest, VideoRef, WatchProgress,
+    Addon, AddonId, CatalogRef, Device, DeviceId, DeviceName, FeaturedCatalog, Manifest,
+    ManifestUrl, Preferences, Store, StoreError, SubtitleLanguage, TitleCard, TitleStub,
+    TokenDigest, VideoRef, WatchProgress,
 };
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, Transaction};
 
 pub use migrations::{latest_version, migrate, schema_version, Migration, MIGRATIONS};
 
 /// The key the subtitle language preference is stored under.
 const SUBTITLE_LANGUAGE: &str = "subtitle_language";
+
+/// The key the Featured catalog preference is stored under.
+const FEATURED_CATALOG: &str = "featured_catalog";
+
+/// Write one preference row, or drop it when the value is `None`: setting and
+/// clearing are one decision, so the two preferences cannot drift apart.
+fn put_preference(
+    transaction: &Transaction<'_>,
+    key: &str,
+    value: Option<&str>,
+) -> Result<(), StoreError> {
+    let written = match value {
+        Some(value) => transaction.execute(
+            "INSERT INTO preferences (key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        ),
+        None => transaction.execute("DELETE FROM preferences WHERE key = ?1", params![key]),
+    };
+
+    written.map(|_| ()).map_err(StoreError::write)
+}
 
 /// The Host's database.
 pub struct SqliteStore {
@@ -80,6 +103,7 @@ impl Store for SqliteStore {
             .map_err(StoreError::read)?;
 
         let mut subtitle_language = None;
+        let mut featured_catalog = None;
         for row in rows {
             let (key, value) = row.map_err(StoreError::read)?;
             match key.as_str() {
@@ -90,38 +114,48 @@ impl Store for SqliteStore {
                         }
                     })?);
                 }
+                FEATURED_CATALOG => {
+                    // The document is read back, and the Catalog inside it is
+                    // judged as it was written: a row that somehow drifted is a
+                    // read failure and never a Catalog a Snapshot points Home at.
+                    let unusable = |error: String| StoreError::Read {
+                        detail: format!("the stored featured catalog is unusable: {error}"),
+                    };
+                    let featured: FeaturedCatalog = serde_json::from_str(&value)
+                        .map_err(|error| unusable(error.to_string()))?;
+                    CatalogRef::parse(&featured.catalog.r#type, &featured.catalog.id)
+                        .map_err(|error| unusable(error.to_string()))?;
+                    featured_catalog = Some(featured);
+                }
                 // A preference written by a newer Host than this one: leaving it
                 // alone keeps it for the Host that understands it.
                 _ => continue,
             }
         }
 
-        Ok(Preferences::with_subtitle_language(subtitle_language))
+        let mut preferences = Preferences::with_subtitle_language(subtitle_language);
+        preferences.set_featured_catalog(featured_catalog);
+        Ok(preferences)
     }
 
     fn write_preferences(&self, preferences: &Preferences) -> Result<(), StoreError> {
         let mut connection = self.locked()?;
         let transaction = connection.transaction().map_err(StoreError::write)?;
 
-        match preferences.subtitle_language() {
-            Some(language) => {
-                transaction
-                    .execute(
-                        "INSERT INTO preferences (key, value) VALUES (?1, ?2)
-                         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-                        params![SUBTITLE_LANGUAGE, language.as_str()],
-                    )
-                    .map_err(StoreError::write)?;
-            }
-            None => {
-                transaction
-                    .execute(
-                        "DELETE FROM preferences WHERE key = ?1",
-                        params![SUBTITLE_LANGUAGE],
-                    )
-                    .map_err(StoreError::write)?;
-            }
-        }
+        put_preference(
+            &transaction,
+            SUBTITLE_LANGUAGE,
+            preferences
+                .subtitle_language()
+                .map(SubtitleLanguage::as_str),
+        )?;
+        // The whole pair as one document: an id is only half of what an Addon's
+        // Catalog is, and two rows could disagree.
+        let featured = match preferences.featured_catalog() {
+            Some(featured) => Some(serde_json::to_string(featured).map_err(StoreError::write)?),
+            None => None,
+        };
+        put_preference(&transaction, FEATURED_CATALOG, featured.as_deref())?;
 
         transaction.commit().map_err(StoreError::write)
     }

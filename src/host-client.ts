@@ -16,6 +16,14 @@ export type Snapshot = {
   playback: PlaybackSnapshot;
   preferences: { subtitleLanguage: string | null };
   addons: AddonManifest[];
+  /**
+   * The one Catalog the owner has marked as the Host's featured feed, where
+   * there is one: what Home's hero is drawn from, its first items in the Addon's
+   * own order (#74). A preference of the Host's, not this client's, so every
+   * client draws the same hero — and one the Host clears when the Addon that
+   * offered it is removed, so it never names an Addon that is gone.
+   */
+  featuredCatalog: FeaturedCatalog | null;
   protection: Protection;
   /**
    * The library: one entry per Video the Host has Watch progress in, most
@@ -52,6 +60,17 @@ export type DeviceSummary = {
   id: string;
   name: string;
   pairedAt: number;
+};
+
+/**
+ * The Featured catalog: the one Catalog the owner has marked as the Host's
+ * featured feed, by the Addon that offers it and the Catalog's own type and id.
+ * Mirrors `FeaturedCatalog` in `host-core`; the Addon goes beside the Catalog
+ * because a catalog id is only unique within the Addon that declared it.
+ */
+export type FeaturedCatalog = {
+  addon: string;
+  catalog: { type: string; id: string };
 };
 
 /**
@@ -419,7 +438,18 @@ export type Response = {
 export type Action =
   | { type: "set_subtitle_language"; language: string }
   | { type: "clear_subtitle_language" }
+  // The Featured catalog (#74): a preference of the Host's rather than this
+  // client's, so marking one changes what *every* client's Home is drawn from.
+  | {
+      type: "set_featured_catalog";
+      addon: string;
+      catalog: { type: string; id: string };
+    }
+  | { type: "clear_featured_catalog" }
   | { type: "add_addon"; url: string }
+  // The configured Addons' order is the Host's, and a client's rows follow it:
+  // the move is a position in that list, 0-based, judged by the Host (#74).
+  | { type: "reorder_addon"; id: string; position: number }
   | { type: "remove_addon"; id: string }
   | { type: "set_tmdb_key"; key: string }
   | { type: "clear_tmdb_key" }
@@ -512,11 +542,13 @@ export const HOST_ERROR_KINDS = [
   "unknown_title",
   "unknown_track",
   "unknown_chapter",
+  "invalid_position",
   "extra",
   "query",
   "catalog",
   "meta",
   "stream",
+  "subtitles",
   "unplayable",
   "nothing_playing",
   "no_next_episode",
@@ -584,6 +616,10 @@ export type ActionError = {
   crop?: string;
   /** The position a refused chapter names. */
   index?: number;
+  /** The position a refused reorder asked for. */
+  position?: number;
+  /** How many Addons the Host was configured with when it refused the reorder. */
+  count?: number;
   /** The control a refusal is about, where the refusal is about one. */
   control?: Control;
   /** The pairing code a refusal names, where the refusal is about one. */
@@ -610,7 +646,7 @@ export function answeredTitle(response: Response | null): Title | null {
 
 /**
  * The Stream groups an answer carries, when the Action was a `find_streams`:
- * one per Addon that answered, in the order the Addons were configured.
+ * one per Addon that answered, in the configured order.
  */
 export function answeredStreams(response: Response | null): AddonStreams[] {
   const answer = response?.answer;
@@ -683,6 +719,8 @@ export function explain(error: ActionError): string {
       return `The Stream carries no ${error.control === "subtitle_track" ? "subtitle" : "audio"} track numbered ${error.id}.`;
     case "unknown_chapter":
       return `The Stream has no chapter at position ${error.index}.`;
+    case "invalid_position":
+      return `The Host has no Addon position ${error.position} — it is configured with ${error.count}.`;
     case "extra":
       return error.detail ?? "The Host will not ask for that catalog with those values.";
     case "query":
@@ -693,6 +731,8 @@ export function explain(error: ActionError): string {
       return `The Host could not read that Addon's meta response${error.detail ? `: ${error.detail}` : ""}.`;
     case "stream":
       return `The Host could not read that Addon's stream response${error.detail ? `: ${error.detail}` : ""}.`;
+    case "subtitles":
+      return `The Host could not read that Addon's subtitles response${error.detail ? `: ${error.detail}` : ""}.`;
     case "unplayable":
       return `The Host will not play that Stream: ${error.detail ?? "it is not one it can open"}`;
     case "nothing_playing":
