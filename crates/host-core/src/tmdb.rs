@@ -630,7 +630,7 @@ fn preview(value: &Value, kind: Kind) -> Option<MetaPreview> {
     Some(MetaPreview {
         id: format!("tmdb:{id}"),
         r#type: kind.as_protocol().to_owned(),
-        name: held_string(record, kind.as_name_field())?,
+        name: non_empty_string(record, kind.as_name_field())?,
         poster: image(record, "poster_path"),
         // A card drawn from a feed says what the protocol assumes of a poster
         // and nothing else: TMDB sends no `poster_shape`, and inventing one
@@ -643,7 +643,7 @@ fn preview(value: &Value, kind: Kind) -> Option<MetaPreview> {
         // naming them would be a second list this Host keeps, and a card drawn
         // from Discover shows the poster and the name.
         genres: Vec::new(),
-        description: held_string(record, "overview"),
+        description: non_empty_string(record, "overview"),
     })
 }
 
@@ -651,7 +651,7 @@ fn preview(value: &Value, kind: Kind) -> Option<MetaPreview> {
 /// the path is relative in the answer, and an address builds only from one that
 /// says it is.
 fn image(record: &Map<String, Value>, field: &str) -> Option<String> {
-    let path = held_string(record, field)?;
+    let path = non_empty_string(record, field)?;
     path.starts_with('/').then(|| format!("{IMAGE_ROOT}{path}"))
 }
 
@@ -671,7 +671,7 @@ fn rating(record: &Map<String, Value>) -> Option<String> {
 /// One named field of a record, read as a non-empty string of a length the Host
 /// will hold. A field of the wrong shape, an empty one and an overlong one are
 /// all absence.
-fn held_string(record: &Map<String, Value>, name: &str) -> Option<String> {
+fn non_empty_string(record: &Map<String, Value>, name: &str) -> Option<String> {
     let text = string(record, name)?;
     if text.is_empty() || text.len() > MAX_STRING_LEN {
         return None;

@@ -278,6 +278,19 @@ export type CatalogRow = {
 };
 
 /**
+ * One Discover page, on its way to the client that asked for it. Mirrors
+ * `DiscoverRow` in `host-core`: a catalog row minus the Addon, because TMDB is
+ * the source — the items are keyed `tmdb:<id>`, and `sent` is the count a
+ * client pages by (#75, ADR-0020).
+ */
+export type DiscoverRow = {
+  type: string;
+  sent: number;
+  metas: MetaPreview[];
+  failure: ActionError | null;
+};
+
+/**
  * One playable unit of a Title: the film itself, or a single episode. Mirrors
  * `Video` in `host-core`; `id` is the id its Addon indexes it by
  * (`tt0903747:1:1`), and it is what Watch progress is recorded against. Only the
@@ -403,12 +416,14 @@ export type AddonStreams = {
 /**
  * What taking an Action produced. Mirrors `Response` in `host-core`: the
  * Snapshots every client is owed, and the answer only the client that asked gets.
- * A question is answered with catalogs, a Title or Streams, never several.
+ * A question is answered with catalogs, Discover rows, a Title or Streams, never
+ * several.
  */
 export type Response = {
   snapshots: Snapshot[];
   answer:
     | { catalogs: CatalogRow[] }
+    | { discover: DiscoverRow[] }
     | { title: Title }
     | { streams: AddonStreams[] }
     | { paired: { device: DeviceSummary; token: string } }
@@ -436,6 +451,17 @@ export type Action =
       extra: Extra[];
     }
   | { type: "search_catalogs"; query: string }
+  // TMDB's page of Discovered Titles (#75, ADR-0020): with neither filter it is
+  // the week's trending feed, and a genre or a sort order makes it a /discover
+  // page judged in the kind's own terms. The Host holds the credential and
+  // builds the URL; this window never does.
+  | {
+      type: "discover";
+      kind: string;
+      page: number;
+      genre?: number | null;
+      sort?: string | null;
+    }
   | {
       type: "open_title";
       addon: string;
