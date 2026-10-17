@@ -313,6 +313,19 @@ export type CatalogRow = {
 };
 
 /**
+ * One Discover page, on its way to the client that asked for it. Mirrors
+ * `DiscoverRow` in `host-core`: a catalog row minus the Addon, because TMDB is
+ * the source — the items are keyed `tmdb:<id>`, and `sent` is the count a
+ * client pages by (#75, ADR-0020).
+ */
+export type DiscoverRow = {
+  type: string;
+  sent: number;
+  metas: MetaPreview[];
+  failure: ActionError | null;
+};
+
+/**
  * One playable unit of a Title: the film itself, or a single episode. Mirrors
  * `Video` in `host-core`; `id` is the id its Addon indexes it by
  * (`tt0903747:1:1`), and it is what Watch progress is recorded against. Only the
@@ -438,12 +451,14 @@ export type AddonStreams = {
 /**
  * What taking an Action produced. Mirrors `Response` in `host-core`: the
  * Snapshots every client is owed, and the answer only the client that asked gets.
- * A question is answered with catalogs, a Title or Streams, never several.
+ * A question is answered with catalogs, Discover rows, a Title or Streams, never
+ * several.
  */
 export type Response = {
   snapshots: Snapshot[];
   answer:
     | { catalogs: CatalogRow[] }
+    | { discover: DiscoverRow[] }
     | { title: Title }
     | { streams: AddonStreams[] }
     | { paired: { device: DeviceSummary; token: string } }
@@ -482,6 +497,17 @@ export type Action =
       extra: Extra[];
     }
   | { type: "search_catalogs"; query: string }
+  // TMDB's page of Discovered Titles (#75, ADR-0020): with neither filter it is
+  // the week's trending feed, and a genre or a sort order makes it a /discover
+  // page judged in the kind's own terms. The Host holds the credential and
+  // builds the URL; this window never does.
+  | {
+      type: "discover";
+      kind: string;
+      page: number;
+      genre?: number | null;
+      sort?: string | null;
+    }
   | {
       type: "open_title";
       addon: string;
@@ -585,6 +611,9 @@ export const HOST_ERROR_KINDS = [
   "unknown_device",
   "unpaired",
   "already_paired",
+  "invalid_discover",
+  "no_tmdb_credential",
+  "tmdb",
 ] as const;
 
 /**
@@ -745,6 +774,12 @@ export function explain(error: ActionError): string {
       return error.detail ?? "The Host will not ask for that catalog with those values.";
     case "query":
       return error.detail ?? "The Host will not search for that.";
+    case "invalid_discover":
+      return error.detail ?? "The Host will not discover that.";
+    case "no_tmdb_credential":
+      return "This Host holds no TMDB key, so it cannot ask TMDB for a feed.";
+    case "tmdb":
+      return `TMDB did not answer${error.detail ? `: ${error.detail}` : ""}.`;
     case "catalog":
       return `The Host could not read that Addon's catalog${error.detail ? `: ${error.detail}` : ""}.`;
     case "meta":

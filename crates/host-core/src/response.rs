@@ -16,6 +16,7 @@ use serde::Serialize;
 
 use crate::catalog::CatalogRow;
 use crate::device::{DeviceSummary, DeviceToken};
+use crate::discover::DiscoverRow;
 use crate::meta::Title;
 use crate::snapshot::Snapshot;
 use crate::stream::AddonStreams;
@@ -56,6 +57,14 @@ impl Response {
         }
     }
 
+    /// The Discover rows a client asked to see, when that is what it asked.
+    pub fn discover(&self) -> Option<&[DiscoverRow]> {
+        match &self.answer {
+            Some(Answer::Discover(rows)) => Some(rows),
+            _ => None,
+        }
+    }
+
     /// The Title a client asked to open, when that is what it asked.
     pub fn title(&self) -> Option<&Title> {
         match &self.answer {
@@ -80,6 +89,10 @@ impl Response {
 pub enum Answer {
     /// The catalog rows a client asked to see, one per catalog asked about.
     Catalogs(Vec<CatalogRow>),
+    /// The one feed that is not an Addon's: TMDB's page of Discovered Titles,
+    /// its items keyed `tmdb:<id>` (ADR-0020). The variant is what tells a
+    /// client that opening a card goes the Discovered Title way.
+    Discover(Vec<DiscoverRow>),
     /// The Title a client asked to open, with the Videos it can be watched as.
     /// Boxed because a Title is many fields and a `Vec` of rows is three words.
     Title(Box<Title>),

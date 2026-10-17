@@ -16,6 +16,7 @@ use crate::request::{
 };
 use crate::secret::{InvalidStremioLogin, InvalidTmdbKey, Password, StremioLogin, TmdbKey};
 use crate::stream::Stream;
+use crate::tmdb;
 
 /// The version of the Action wire form this Host speaks.
 ///
@@ -113,6 +114,31 @@ pub enum Action {
     },
     /// Search every configured Addon whose catalogs offer search.
     SearchCatalogs { query: String },
+    /// Browse the one feed that is not an Addon's: TMDB's page of Discovered
+    /// Titles (#75, ADR-0020).
+    ///
+    /// A question rather than a change, like browsing and searching: what TMDB
+    /// answers goes to the client that asked and to no one else (ADR-0005).
+    /// With neither a genre nor a sort order it is the week's trending feed;
+    /// with one it is a `/discover` page, filtered in the terms that kind is
+    /// discovered by — the two kinds do not share their genres or their sort
+    /// orders. Every page is asked fresh, and a failed call (a `429` included)
+    /// comes back as a row carrying why rather than as a refused Action. The
+    /// ask needs a held TMDB Credential, and with none it refuses cleanly.
+    Discover {
+        /// The kind to discover: a `movie` or a `series`.
+        kind: String,
+        /// Which page of the feed, numbered from 1.
+        page: u32,
+        /// A genre id from the list TMDB has for the kind, where the client
+        /// chose one.
+        #[serde(default)]
+        genre: Option<u32>,
+        /// A `sort_by` value from TMDB's enum for the kind, where the client
+        /// chose one.
+        #[serde(default)]
+        sort: Option<String>,
+    },
     /// Open a Title: its metadata, and the Videos it can be watched as.
     ///
     /// A question rather than a change, like browsing: what one Addon says about
@@ -263,6 +289,7 @@ action_spellings! {
     Action::RevokeDevice { .. } => "revoke_device",
     Action::BrowseCatalog { .. } => "browse_catalog",
     Action::SearchCatalogs { .. } => "search_catalogs",
+    Action::Discover { .. } => "discover",
     Action::OpenTitle { .. } => "open_title",
     Action::FindStreams { .. } => "find_streams",
     Action::PlayStream { .. } => "play_stream",
@@ -383,6 +410,20 @@ impl Action {
             Action::SearchCatalogs { query } => {
                 let query = search_query(&query)?;
                 Ok(ValidatedAction::SearchCatalogs { query })
+            }
+            Action::Discover {
+                kind,
+                page,
+                genre,
+                sort,
+            } => {
+                let query =
+                    tmdb::DiscoverQuery::parse(&kind, page, genre, sort).map_err(|error| {
+                        ActionError::InvalidDiscover {
+                            detail: error.to_string(),
+                        }
+                    })?;
+                Ok(ValidatedAction::Discover { query })
             }
             Action::OpenTitle { addon, title } => {
                 let addon = AddonId::parse(&addon)?;
@@ -551,6 +592,11 @@ pub enum ValidatedAction {
     SearchCatalogs {
         query: String,
     },
+    /// A Discover ask judged: the feed, its page and its filters, in TMDB's own
+    /// terms (#75, ADR-0020).
+    Discover {
+        query: tmdb::DiscoverQuery,
+    },
     OpenTitle {
         addon: AddonId,
         title: TitleRef,
@@ -668,6 +714,16 @@ pub enum ActionError {
     UnknownCatalog { addon: AddonId, catalog: CatalogRef },
     #[error("the Addon {addon} offers no meta for {title}")]
     UnknownTitle { addon: AddonId, title: TitleRef },
+    /// A Discover ask TMDB cannot be given: a kind it does not discover, a page
+    /// it does not number, a genre or a sort order from the other kind's set
+    /// (#75, ADR-0020).
+    #[error("{detail}")]
+    InvalidDiscover { detail: String },
+    /// A Discover ask with no TMDB Credential held: the Host has nothing to ask
+    /// TMDB with, and says so rather than answering an empty feed (#75,
+    /// ADR-0020).
+    #[error("this Host holds no TMDB key, so it cannot ask TMDB for a feed")]
+    NoTmdbCredential,
     /// A track a control named that the Stream does not carry: refused before
     /// the Player hears of it, so a client is told rather than obeyed.
     #[error("the Stream has no {control} numbered {id}")]
@@ -711,6 +767,11 @@ pub enum ActionError {
     Catalog { detail: String },
     #[error("the Addon's meta response could not be read: {detail}")]
     Meta { detail: String },
+    /// TMDB itself did not answer, in the Host's words rather than the shared
+    /// `Fetcher`'s Addon ones: the one source whose failure a client reads as a
+    /// row rather than as a refused Action (#75, ADR-0020).
+    #[error("{detail}")]
+    Tmdb { detail: String },
     #[error("the Addon's stream response could not be read: {detail}")]
     Stream { detail: String },
     #[error("the Addon's subtitles response could not be read: {detail}")]
@@ -1309,6 +1370,92 @@ mod tests {
     }
 
     #[test]
+    fn an_action_that_asks_to_discover_is_flat_and_judged_before_tmdb_is_asked() {
+        let envelope = format!(
+            r#"{{"version":{ACTION_VERSION},"action":{{"type":"discover","kind":"series","page":2,"genre":10765}}}}"#
+        );
+
+        let action = Action::parse(&envelope).expect("a client's own envelope parses");
+        assert_eq!(
+            action,
+            Action::Discover {
+                kind: "series".to_owned(),
+                page: 2,
+                genre: Some(10765),
+                sort: None,
+            },
+            "a filter the client left out is a filter it did not choose"
+        );
+        assert_eq!(
+            action.clone().validate(),
+            Ok(ValidatedAction::Discover {
+                query: tmdb::DiscoverQuery {
+                    kind: tmdb::Kind::Tv,
+                    page: 2,
+                    genre: Some(10765),
+                    sort: None,
+                },
+            }),
+            "the ask reaches the Host as TMDB's own terms"
+        );
+        assert_eq!(
+            serde_json::to_value(action).expect("an Action serializes"),
+            serde_json::json!({
+                "type": "discover",
+                "kind": "series",
+                "page": 2,
+                "genre": 10765,
+                "sort": null,
+            })
+        );
+    }
+
+    #[test]
+    fn a_discover_ask_that_is_not_one_is_refused_with_what_is_wrong() {
+        let refused = Action::Discover {
+            kind: "series".to_owned(),
+            page: 1,
+            genre: Some(28),
+            sort: None,
+        }
+        .validate();
+
+        assert_eq!(
+            refused,
+            Err(ActionError::InvalidDiscover {
+                detail: "genre 28 is not one of the genres TMDB lists for a series".to_owned(),
+            }),
+            "a film's genre on a series is refused before TMDB hears of it"
+        );
+    }
+
+    #[test]
+    fn a_discover_ask_with_no_credential_held_names_its_own_kind() {
+        let refused = ActionError::NoTmdbCredential;
+
+        assert_eq!(
+            serde_json::to_value(&refused).expect("a refusal serializes"),
+            serde_json::json!({ "kind": "no_tmdb_credential" }),
+            "a client acts on the kind and a person reads the sentence"
+        );
+    }
+
+    #[test]
+    fn a_tmdb_answer_that_could_not_be_read_names_tmdb_rather_than_an_addon() {
+        let refused = ActionError::Tmdb {
+            detail: "TMDB answered with status 429".to_owned(),
+        };
+
+        assert_eq!(
+            serde_json::to_value(&refused).expect("a refusal serializes"),
+            serde_json::json!({
+                "kind": "tmdb",
+                "detail": "TMDB answered with status 429",
+            })
+        );
+    }
+
+    #[test]
     fn a_refusal_to_skip_to_the_next_episode_names_its_own_kind() {
         let refused = ActionError::NoNextEpisode {
             detail: "no Addon offers an episode after series/tt0903747:1:3".to_owned(),
@@ -1417,6 +1564,7 @@ mod tests {
         r#"{"type":"revoke_device","id":"4K7Q2M"}"#,
         r#"{"type":"browse_catalog","addon":"community.example","catalog":{"type":"movie","id":"top"},"extra":[]}"#,
         r#"{"type":"search_catalogs","query":"matrix"}"#,
+        r#"{"type":"discover","kind":"movie","page":1}"#,
         r#"{"type":"open_title","addon":"community.example","title":{"type":"movie","id":"tt0133093"}}"#,
         r#"{"type":"find_streams","video":{"type":"movie","id":"tt0133093"}}"#,
         r#"{"type":"play_stream","video":{"type":"movie","id":"tt0133093"},"addon":"community.example","title":{"addon":"community.example","id":"tt0133093","type":"movie","name":"The Matrix","poster":null},"stream":{"name":null,"description":null,"playback":{"kind":"direct","url":"https://stream.example.org/x.mkv"},"warnings":[],"filename":null,"bingeGroup":null}}"#,

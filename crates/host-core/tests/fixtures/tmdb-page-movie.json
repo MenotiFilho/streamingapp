@@ -1,0 +1,41 @@
+{
+  "page": 1,
+  "results": [
+    {
+      "adult": false,
+      "backdrop_path": "/f89U3ADr1oiBwOy1K7t4E93Xu5A.jpg",
+      "genre_ids": [28, 878],
+      "id": 603,
+      "media_type": "movie",
+      "original_language": "en",
+      "original_title": "The Matrix",
+      "overview": "Set in the 22nd century, The Matrix tells the story of a computer hacker, Neo, who is drawn into a rebellion led by Morpheus against a worldwide conspiracy controlled by intelligent machines.",
+      "popularity": 81.234,
+      "poster_path": "/p96dm7kpeOlUwhich.jpg",
+      "release_date": "1999-03-31",
+      "title": "The Matrix",
+      "video": false,
+      "vote_average": 8.2,
+      "vote_count": 21000
+    },
+    {
+      "adult": false,
+      "backdrop_path": "/8YFL5QQVPy3AgrEQxNYVSgiPEbe.jpg",
+      "genre_ids": [28, 12, 878],
+      "id": 640146,
+      "media_type": "movie",
+      "original_language": "en",
+      "original_title": "Ant-Man and the Wasp: Quantumania",
+      "overview": "Super-Hero partners Scott Lang and Hope van Dyne, along with Hope's parents Janet van Dyne and Hank Pym, and Scott's daughter Cassie Lang, find themselves exploring the Quantum Realm.",
+      "popularity": 9272.643,
+      "poster_path": "/ngl2FKBlU4fhbdsrtdom9LVLBXw.jpg",
+      "release_date": "2023-02-15",
+      "title": "Ant-Man and the Wasp: Quantumania",
+      "video": false,
+      "vote_average": 6.5,
+      "vote_count": 1856
+    }
+  ],
+  "total_pages": 1000,
+  "total_results": 20000
+}

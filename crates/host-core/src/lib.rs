@@ -41,6 +41,7 @@ mod cache;
 mod catalog;
 mod clock;
 mod device;
+mod discover;
 mod fetcher;
 mod host;
 mod meta;
@@ -75,6 +76,7 @@ pub use device::{
     Device, DeviceId, DeviceName, DeviceSummary, DeviceToken, InvalidDeviceId, InvalidDeviceName,
     InvalidDeviceToken, InvalidTokenDigest, TokenDigest,
 };
+pub use discover::DiscoverRow;
 pub use fetcher::{FetchError, Fetcher, FixtureFetcher};
 pub use host::Host;
 pub use meta::{MetaError, Title, TitleKey, Video, MAX_META_BYTES};
@@ -109,7 +111,7 @@ pub use stremio::{FixtureStremio, StremioApi, SyncError};
 pub use subtitles::{Subtitle, SubtitleError, MAX_FALLBACK_SUBTITLES, MAX_SUBTITLES_BYTES};
 pub use sync::{merge, BitField, Merged, RemoteItem, WatchedField};
 pub use tmdb::{
-    Credential, ExternalId, Kind, TmdbDetails, TmdbError, TmdbId, TmdbRequest, IMAGE_ROOT,
-    TMDB_ROOT,
+    Credential, DiscoverQuery, DiscoverQueryError, ExternalId, Kind, TmdbDetails, TmdbError,
+    TmdbId, TmdbRequest, IMAGE_ROOT, TMDB_ROOT,
 };
 pub use wire::{permitted, ClientFrame, Refusal, ServerFrame, WIRE_VERSION};

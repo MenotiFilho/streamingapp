@@ -43,10 +43,11 @@ pub struct MetaPreview {
     pub poster: Option<String>,
     /// `poster`, `square` or `landscape`; the protocol assumes `poster`.
     pub poster_shape: Option<String>,
-    /// The backdrop's address, where the Addon sent one: the 16:9 art Home's
+    /// The backdrop's address, where the source sent one: the 16:9 art Home's
     /// hero is drawn from, where the poster beside it is portrait. Not in the
     /// protocol's documented preview shape, but the SDK's own type carries it
-    /// and real Addons send it on every item.
+    /// and real Addons send it on every item; a Discover row carries TMDB's
+    /// here (#75, ADR-0020).
     pub background: Option<String>,
     /// The year, or a series' years: `1999`, `2008-2013`, `2020-`.
     pub release_info: Option<String>,
