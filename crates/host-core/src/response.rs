@@ -65,8 +65,7 @@ impl Response {
     }
 
     /// The Streams a client asked to see, when that is what it asked: one
-    /// group per Addon that answered for the Video, in the order the Addons
-    /// were configured.
+    /// group per Addon that answered for the Video, in the configured order.
     pub fn streams(&self) -> Option<&[AddonStreams]> {
         match &self.answer {
             Some(Answer::Streams(groups)) => Some(groups),
@@ -85,7 +84,7 @@ pub enum Answer {
     /// Boxed because a Title is many fields and a `Vec` of rows is three words.
     Title(Box<Title>),
     /// The Streams a Video can be played as: one group per Addon that answered
-    /// the `stream` request, in the order the Addons were configured.
+    /// the `stream` request, in the configured order.
     Streams(Vec<AddonStreams>),
     /// The token a pairing was just issued, and the device it belongs to. The one
     /// answer that carries something a client holds rather than something it

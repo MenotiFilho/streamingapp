@@ -20,7 +20,9 @@ pub trait Store: Send + Sync + 'static {
     /// Replace the persisted preferences.
     fn write_preferences(&self, preferences: &Preferences) -> Result<(), StoreError>;
 
-    /// The Addons the Host is configured with, in the order they were configured.
+    /// The Addons the Host is configured with, in the configured order: the
+    /// order they were configured in, as a reorder may have moved one since
+    /// (#74).
     fn read_addons(&self) -> Result<Vec<Addon>, StoreError>;
 
     /// Replace the configured Addons.

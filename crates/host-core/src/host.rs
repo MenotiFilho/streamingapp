@@ -13,6 +13,7 @@ use crate::playback::{
     ChapterStep, ChosenStream, Control, Observation, Picture, PlaybackState, Player, Telling,
     TrackId, TrackKind, Unplayable,
 };
+use crate::preferences::FeaturedCatalog;
 use crate::progress::TitleStub;
 use crate::provider::Provider;
 use crate::request::{
@@ -213,9 +214,17 @@ impl Host {
 
         let mut next = self.state.clone();
         let persist = next.apply(change, self.clock.now_millis());
-        match persist {
+        let kept = match persist {
             Persist::Preferences => self.store.write_preferences(next.preferences()),
             Persist::Addons => self.store.write_addons(next.addons()),
+            // One change — removing the Addon that owned the Featured catalog —
+            // left two parts of the store out of date, and both are written: the
+            // preference first, so a store read between the two writes never has
+            // a Featured catalog naming the Addon the change is removing (#74).
+            Persist::AddonsAndPreferences => self
+                .store
+                .write_preferences(next.preferences())
+                .and_then(|()| self.store.write_addons(next.addons())),
             // One Video's Watch progress, written where it happened: the part of
             // a play that outlives the play (#29).
             Persist::Watch(entry) => self.store.write_watch_progress(&entry),
@@ -228,8 +237,8 @@ impl Host {
             // is not stored at all: nothing the non-secret store holds was left
             // behind by those.
             Persist::Nothing => Ok(()),
-        }
-        .map_err(|error| ActionError::Store {
+        };
+        kept.map_err(|error| ActionError::Store {
             detail: error.to_string(),
         })?;
 
@@ -567,6 +576,48 @@ impl Host {
                 })?;
                 Resolved::Change(Change::AddAddon(Box::new(Addon::new(url, manifest))))
             }
+            ValidatedAction::ReorderAddon { id, position } => {
+                if !self.state.has_addon(&id) {
+                    return Err(ActionError::UnknownAddon {
+                        id: id.as_str().to_owned(),
+                    });
+                }
+                // A position is a place in the list the Host has, 0-based: the
+                // last Addon stands at `count - 1`, and every number that is
+                // not one of those places — a negative a client counted to, a
+                // place past the end — is the same refusal (#74).
+                let count = self.state.addons().len();
+                let position = usize::try_from(position)
+                    .ok()
+                    .filter(|position| *position < count)
+                    .ok_or_else(|| ActionError::InvalidPosition {
+                        id: id.as_str().to_owned(),
+                        position,
+                        count,
+                    })?;
+                Resolved::Change(Change::ReorderAddon { id, position })
+            }
+            ValidatedAction::SetFeaturedCatalog { addon, catalog } => {
+                let configured = self.addon(&addon)?;
+                // The Catalog is the Addon's own: one the manifest does not
+                // declare is one the Host could never ask for, so it is refused
+                // where it is named rather than left to fail on Home (#74).
+                if configured
+                    .manifest()
+                    .catalog(&catalog.r#type, &catalog.id)
+                    .is_none()
+                {
+                    return Err(ActionError::UnknownCatalog {
+                        addon: configured.id().clone(),
+                        catalog,
+                    });
+                }
+                Resolved::Change(Change::SetFeaturedCatalog(FeaturedCatalog {
+                    addon,
+                    catalog,
+                }))
+            }
+            ValidatedAction::ClearFeaturedCatalog => Resolved::Change(Change::ClearFeaturedCatalog),
             ValidatedAction::RemoveAddon(id) => {
                 if !self.state.has_addon(&id) {
                     return Err(ActionError::UnknownAddon {
@@ -674,7 +725,7 @@ impl Host {
             }
             ValidatedAction::SearchCatalogs { query } => {
                 // Every catalog that offers a search, in the order the Addons
-                // were configured and each Addon's own order within that. One
+                // are configured, and each Addon's own order within that. One
                 // Addon failing is one row with nothing in it, not a failed
                 // search (ADR-0010).
                 let plan: Vec<(Addon, ResourceRequest)> = self
@@ -721,7 +772,7 @@ impl Host {
             }
             ValidatedAction::FindStreams { video } => {
                 // Every configured Addon that answers for it, in the order
-                // they were configured, each answer a group of its own: one
+                // they are configured, each answer a group of its own: one
                 // Addon failing is that group with nothing in it, not a
                 // question that fails (ADR-0010 — a search's rule, applied to
                 // Streams).
@@ -1072,9 +1123,9 @@ impl Host {
     }
 
     /// The first candidate this Host can play for a Video, asked of every
-    /// configured Addon that answers for it, in the order they were configured —
-    /// the rule `FindStreams` asks every Addon by, folded to the one a Host that
-    /// is opening a Stream itself needs (a resume, ADR-0015).
+    /// configured Addon that answers for it, in the configured order — the rule
+    /// `FindStreams` asks every Addon by, folded to the one a Host that is
+    /// opening a Stream itself needs (a resume, ADR-0015).
     fn first_playable(&self, video: &VideoRef) -> Option<ChosenStream> {
         let requested = ResourceRequest::new(STREAM, &video.r#type, &video.id);
 

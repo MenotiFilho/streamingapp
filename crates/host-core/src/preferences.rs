@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+use crate::addon::AddonId;
+use crate::request::CatalogRef;
+
 /// The Host's global preferences: the choices that are not made per Video.
 ///
 /// Only preferences a client is allowed to see live here — and everything in
@@ -8,6 +11,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Preferences {
     subtitle_language: Option<SubtitleLanguage>,
+    featured_catalog: Option<FeaturedCatalog>,
 }
 
 impl Preferences {
@@ -27,13 +31,42 @@ impl Preferences {
         self.subtitle_language = language;
     }
 
+    /// The one Catalog the owner has marked as the Host's featured feed, where
+    /// one is marked: what a client's Home hero is drawn from.
+    pub fn featured_catalog(&self) -> Option<&FeaturedCatalog> {
+        self.featured_catalog.as_ref()
+    }
+
+    /// Mark a Catalog as the featured one, or take the marking away.
+    pub fn set_featured_catalog(&mut self, featured: Option<FeaturedCatalog>) {
+        self.featured_catalog = featured;
+    }
+
     /// The same preferences, with a subtitle language, for a store that has just
     /// read one back.
     pub fn with_subtitle_language(language: Option<SubtitleLanguage>) -> Self {
         Self {
             subtitle_language: language,
+            ..Self::default()
         }
     }
+}
+
+/// The Featured catalog: the one Catalog the owner has marked as the Host's
+/// featured feed — what a client's Home hero is drawn from, its first items in
+/// the Addon's own order (CONTEXT.md, #74).
+///
+/// A preference of the Host's rather than a client's, so every client draws the
+/// same hero. The Addon goes beside the Catalog because neither names the other
+/// — a catalog id is only unique within the Addon that declared it — and the
+/// pair is what the Host asks with ([`crate::Action::BrowseCatalog`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct FeaturedCatalog {
+    /// The Addon that offers it, by the id its manifest answers to.
+    pub addon: AddonId,
+    /// The Catalog itself, by the type and id its manifest declared.
+    pub catalog: CatalogRef,
 }
 
 /// The language the Host prefers when it chooses a subtitle track.

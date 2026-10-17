@@ -47,6 +47,7 @@ const NOTHING_SAID: Snapshot = {
   },
   preferences: { subtitleLanguage: null },
   addons: [],
+  featuredCatalog: null,
   protection: { backend: "keyring", tmdbHeld: false, stremioHeld: false },
   watchProgress: [],
   // A Host that is serving, with a code it is showing and no device paired yet
