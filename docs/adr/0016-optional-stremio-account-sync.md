@@ -1,5 +1,10 @@
 # Optional Stremio account sync: bidirectional merge, pure decision surface, and credential storage
 
+> **Terminology note (#55).** This ADR says it reconciles "the Host's Library";
+> after the Library / Continue watching split that is the Host's **Watch
+> progress** (Continue watching). Library *membership* sync is not built, and is
+> out of scope for the new-UI effort.
+
 Ticket #30 ("Optional Stremio account sync") adds bidirectional reconciliation
 between the Host's Library and a personal Stremio account. Eight architectural
 decisions are recorded here.

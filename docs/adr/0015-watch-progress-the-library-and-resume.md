@@ -1,5 +1,10 @@
 # Watch progress, the library, and resume: written while it plays, and a card the client hands back
 
+> **Terminology note (#55).** This ADR predates the Library / Continue watching
+> split: where it says "the library" it means the Host's Watch progress — the row
+> `CONTEXT.md` now calls **Continue watching**. **Library** today means the
+> Stremio-account collection, which is not built.
+
 Ticket #29 ("Watch progress, the library, and resume") is where the Host starts
 remembering something between runs. Eleven decisions are worth writing down; the
 rest is mechanical once they are made. ADR-0013 predicted the shape — "#29
