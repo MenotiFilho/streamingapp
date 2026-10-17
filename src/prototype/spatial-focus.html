@@ -296,9 +296,11 @@ ol.log li:first-child { color: var(--ink); }
         <li><strong>Out to a sibling region</strong> — but only one that <em>overlaps</em> us across the way. That single
           rule is what stops Right at the end of a short row falling diagonally into the next row down, while still
           letting Left reach the rail (which spans the height) and Down reach the row below (which spans the width).</li>
-        <li><strong>Entering a region:</strong> the item that lines up with where you came from, else the region's
-          remembered card, else its head. The rail is the exception that proves it: pressing Right from the rail's
-          Library icon enters at whatever card sits at that height.</li>
+        <li><strong>Entering a region:</strong> the item whose own span covers the <em>middle</em> of
+          what you came from, else the nearest one, else the region's remembered card, else its head — and the head
+          outright when the thing you came from is wider than the whole region, which is why Down from the hero or
+          from the search box lands on the row's first card. The rail is the exception that proves the rule: Right
+          from the rail's Library icon enters at whatever card sits at that height.</li>
         <li><strong>The edges are walls with one rule each:</strong> a row's end, the rail's end, and Up off the top of
           the content. Each can stop, wrap, or (Up) hand you to the rail — that is what the switch panel is for.</li>
       </ul>
@@ -331,6 +333,11 @@ ol.log li:first-child { color: var(--ink); }
           mirrors pure decisions from <code>src/*.ts</code>; a test asserting the companion's copy equals the window's
           (the precedent is <code>host-wire::remote</code> asserting the companion's capability list equals
           <code>Action::SPELLINGS</code>) keeps the two from drifting.</li>
+        <li><strong>The pad column is the window's alone, and only on Windows.</strong> The research found the Gamepad
+          API off by default in WebKitGTK, so on Linux — the dev environment — the window is keyboard-only until
+          someone needs a pad there, which would take a Rust-side reader (gilrs) publishing these same intents. The
+          companion is keyboard and touch on every platform, and that is not a gap: its page is served over plain
+          HTTP, an insecure origin, where <code>getGamepads()</code> returns nothing at all.</li>
       </ul>
       <h3>What is deliberately not here</h3>
       <ul>
@@ -445,25 +452,78 @@ var SpatialFocus = (function () {
     return Math.max(0, Math.min(index, length - 1));
   }
 
-  // Where focus lands arriving in a leaf region: whatever lines up with where it
-  // came from, unless the rules say to trust the region's memory first.
+  // The extent of a rect across the direction: x for a vertical move, y for a
+  // horizontal one.
+  function crossExtent(rect, dir) {
+    if (isVertical(dir)) return { lo: rect.x, hi: rect.x + rect.w };
+    return { lo: rect.y, hi: rect.y + rect.h };
+  }
+
+  // A thing wider than everything the target region holds has no middle worth
+  // aiming at: Down from the hero gets the row's head, not its last card.
+  function widerThan(from, rects, dir) {
+    var a = crossExtent(from, dir);
+    var lo = Infinity;
+    var hi = -Infinity;
+    for (var i = 0; i < rects.length; i += 1) {
+      var c = crossExtent(rects[i], dir);
+      if (c.lo < lo) lo = c.lo;
+      if (c.hi > hi) hi = c.hi;
+    }
+    return a.hi - a.lo > hi - lo + ALIGNED;
+  }
+
+  // The rect whose span covers the middle of `from`, if one does: the card you
+  // are actually standing over, rather than the nearest one by arithmetic.
+  function covering(from, rects, dir) {
+    var a = crossExtent(from, dir);
+    var middle = (a.lo + a.hi) / 2;
+    var best = -1;
+    var bestStep = 0;
+    for (var i = 0; i < rects.length; i += 1) {
+      var c = crossExtent(rects[i], dir);
+      if (middle < c.lo || middle > c.hi) continue;
+      var ahead = step(from, rects[i], dir);
+      if (ahead <= MIN_STEP) continue;
+      if (best < 0 || ahead < bestStep) {
+        best = i;
+        bestStep = ahead;
+      }
+    }
+    return best;
+  }
+
+  // Where focus lands arriving in a leaf region: the item under the middle of
+  // where it came from, else the nearest, unless the rules say to trust the
+  // region's memory first. `how` is what the page narrates.
   function enter(layout, region, from, dir, rules) {
     var remembered = layout.memory[region.id];
     if (rules.entry === "remember" && remembered != null) {
-      return { index: clamp(remembered, region.itemRects.length), aligned: false };
+      return { index: clamp(remembered, region.itemRects.length), how: "memory" };
     }
+    if (region.itemRects.length === 0) return { index: 0, how: "head" };
+    if (widerThan(from, region.itemRects, dir)) return { index: 0, how: "head" };
+    var under = covering(from, region.itemRects, dir);
+    if (under >= 0) return { index: under, how: "aligned" };
     var lined = nearest(from, region.itemRects, dir);
-    if (lined >= 0) return { index: lined, aligned: true };
-    if (remembered != null) return { index: clamp(remembered, region.itemRects.length), aligned: false };
-    return { index: 0, aligned: false };
+    if (lined >= 0) return { index: lined, how: "nearest" };
+    if (remembered != null) return { index: clamp(remembered, region.itemRects.length), how: "memory" };
+    return { index: 0, how: "head" };
   }
+
+  var LANDED = {
+    aligned: "the card under your middle",
+    nearest: "the nearest card — nothing lined up",
+    head: "the region's head — what you came from is wider than the whole region",
+    memory: "the region's memory"
+  };
 
   // Arriving in a region; if it is a branch (the screen), walk down to the child
   // region that lines up first.
   function land(layout, region, from, dir, rules) {
     if (region.children.length === 0) {
       var landing = enter(layout, region, from, dir, rules);
-      return { regionId: region.id, index: landing.index, aligned: landing.aligned };
+      return { regionId: region.id, index: landing.index, how: landing.how };
     }
     var rects = [];
     for (var i = 0; i < region.children.length; i += 1) {
@@ -514,7 +574,7 @@ var SpatialFocus = (function () {
         var target = land(layout, sib, from, dir, rules);
         return {
           kind: "crossed", direction: dir, regionId: target.regionId, index: target.index,
-          landedBy: target.aligned ? "lined up" : "the region's own rule",
+          landedBy: LANDED[target.how] || target.how,
           why: "nothing " + dir + " inside " + node.label + ", so focus crossed into " + sib.label
         };
       }
@@ -550,7 +610,7 @@ var SpatialFocus = (function () {
         var landing = enter(layout, rail, from, "up", rules);
         return {
           kind: "crossed", direction: dir, regionId: rail.id, index: landing.index,
-          landedBy: landing.aligned ? "lined up" : "the rail's memory",
+          landedBy: LANDED[landing.how] || landing.how,
           why: "the top of the content, and the rule says up goes to the rail"
         };
       }
@@ -559,13 +619,20 @@ var SpatialFocus = (function () {
     return { kind: "blocked", direction: dir, why: "nothing that way, and no rule for it" };
   }
 
-  // A control is gone. Two answers, per the rules; and if the whole region went
-  // with it, focus falls back to the rail.
+  // A control is gone. The rules pick between stepping back, keeping the place
+  // and starting over; and if the whole region went with it, focus falls back to
+  // the rail.
   function rehome(layout, focus, rules) {
     var region = layout.regions[focus.regionId];
     if (region && region.itemRects.length > 0) {
       if (rules.gone === "head") {
         return { regionId: region.id, index: 0, why: "the control went away, and the rule says the region's head" };
+      }
+      if (rules.gone === "previous") {
+        return {
+          regionId: region.id, index: clamp(focus.index - 1, region.itemRects.length),
+          why: "the control went away; focus stepped back to the control before the gap"
+        };
       }
       return {
         regionId: region.id, index: clamp(focus.index, region.itemRects.length),
@@ -640,7 +707,7 @@ var SpatialFocus = (function () {
   var RESULT_ROW = { id: "row:results", label: "Results", items: ["Arrival", "Contact", "Interstellar", "Moon", "Solaris", "Annihilation"] };
   var RAIL = ["Home", "Discover", "Search", "Library", "Addons", "Settings"];
 
-  var DEFAULT_RULES = { rowEnd: "stop", railEnd: "wrap", upFromContent: "rail", entry: "align", gone: "place" };
+  var DEFAULT_RULES = { rowEnd: "stop", railEnd: "wrap", upFromContent: "rail", entry: "align", gone: "previous" };
 
   var state = {
     source: "button",
@@ -1074,9 +1141,9 @@ var SpatialFocus = (function () {
     { key: "railEnd", name: "The end of the rail", question: "Up from Home, or Down from Settings.", options: ["stop", "wrap"] },
     { key: "upFromContent", name: "Up off the top of the content", question: "Up from the hero, which nothing sits above.", options: ["nothing", "rail"] },
     { key: "entry", name: "Entering a region", question: "Which card you land on when focus crosses into a region.", options: ["align", "remember"] },
-    { key: "gone", name: "The focused control disappears", question: "A row loses the card you are on.", options: ["place", "head"] }
+    { key: "gone", name: "The focused control disappears", question: "A row loses the card you are on.", options: ["previous", "place", "head"] }
   ];
-  var RECOMMENDED = { rowEnd: "stop", railEnd: "wrap", upFromContent: "rail", entry: "align", gone: "place" };
+  var RECOMMENDED = { rowEnd: "stop", railEnd: "wrap", upFromContent: "rail", entry: "align", gone: "previous" };
 
   var rulesPanel = document.getElementById("panel-rules");
   function renderRules() {
@@ -1226,13 +1293,13 @@ var SpatialFocus = (function () {
     },
     {
       name: "5 · The focused control disappears",
-      blurb: "A card is removed from a row — a catalog refresh, a paged row, a Continue-watching entry deleted on another client. Focus must not be left pointing at nothing.",
-      setup: { screen: "home", focus: { regionId: "row:featured", index: 3 }, rules: { gone: "place" } },
+      blurb: "A card is removed from a row — a catalog refresh, a paged row, a Continue-watching entry deleted on another client. Focus must not be left pointing at nothing, and it should not be yanked away from where it was standing either: it steps back to the card before the gap.",
+      setup: { screen: "home", focus: { regionId: "row:featured", index: 3 }, rules: { gone: "previous" } },
       steps: [
         { label: "Remove the focused card", act: act("remove", null) },
-        { label: "Look at the log: focus stayed put and the next card slid into it", act: act("intent", "right") },
-        { label: "Switch the rule to “head”", act: act("rule", { key: "gone", value: "head" }) },
-        { label: "Remove another card", act: act("remove", null) },
+        { label: "Look at the log: focus stepped back to the card before the gap", act: act("intent", "right") },
+        { label: "Switch the rule to “place”", act: act("rule", { key: "gone", value: "place" }) },
+        { label: "Remove another card — this time the ring stays put", act: act("remove", null) },
         { label: "Now switch the screen out from under focus — the whole region goes", act: act("screen", "search") },
         { label: "Back to Home — where did focus go?", act: act("screen", "home") }
       ]
