@@ -1,5 +1,13 @@
 # TMDB as a second content source: Discover, the Discovered Title, and an id bridge per Addon
 
+> **A second consumer since this was written.** Ticket #64 made **Search**
+> TMDB's whenever a credential is held: the Search screen asks the new
+> `Action::Search` against TMDB (`/search/movie` + `/search/tv`, one row per
+> kind, no cache) and falls back to the Addons' own search catalogs only when no
+> key is held. So the path decided here — TMDB-keyed results, the per-Addon id
+> bridge, the no-Addon Discovered Title, no cache, a `failure` per row — has two
+> consumers, not one. ADR-0010's search section carries the amendment.
+
 Ticket #53 ("Discover from TMDB: the model and the Host seam") is the first time
 a Title can come from somewhere that is not an Addon, and the first time the
 Host's own metadata source (TMDB, ADR-0009) and its content sources (Addons) meet

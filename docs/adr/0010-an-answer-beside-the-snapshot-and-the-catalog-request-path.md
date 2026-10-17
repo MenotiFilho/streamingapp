@@ -1,5 +1,16 @@
 # An answer beside the Snapshot, cache hints on the response, and the catalog request path
 
+> **An amendment since this was written.** Ticket #64 made **Search
+> key-gated**, turning the search section below from one rule into two arms.
+> With no TMDB Credential held, `SearchCatalogs` stands exactly as written:
+> every Addon's catalogs that declare `search`, in configuration order, one
+> failure one row. With a credential held, Search is TMDB's instead — its own
+> question `Action::Search { query, kind, page }` answering one
+> `Answer::Search(SearchRow)`, drawn as a Movies row and a Series row with no
+> toggle — and the Addons' catalogs are not asked at all. The ranking/merging
+> rejection below stands for both arms. The search section below is revised;
+> the rest of this ADR is untouched.
+
 Ticket #23 ("Browse and search the catalogs") is the first ticket that *reads*
 from an Addon rather than configuring one, and the first that has to get something
 back to the client that asked for it. Five decisions are worth writing down; one of
@@ -122,7 +133,22 @@ does once:
   unbounded map of pages would be a slowly growing record of everything the owner
   looked for. The oldest page goes when the map is full.
 
-## A search asks every catalog that offers one, and one failure is one row
+## A search is key-gated: the Addons' catalogs with no key, TMDB with one
+
+Ticket #64 split this rule in two, gated on the Snapshot's `protection.tmdb_held`.
+**With a TMDB Credential held, Search is TMDB's**: its own question,
+`Action::Search { query, kind, page }` — a query, a kind (`movie`/`series`) and a
+page — answered with one `Answer::Search(SearchRow)`. The client fires it once per
+kind to draw the screen's **Movies row and Series row** (there is no toggle; both
+always show), and again per kind to page one row on its own. The row is the shape
+a `DiscoverRow` is — the items, and a `failure` — so a client draws it with the
+card it already draws for Discover, and a hit opens as a Discovered Title
+(ADR-0020). Like Discover, the TMDB arm is **not cached**, and a failed call, the
+`429` included, is a row carrying a `failure`. Ranking and merging are refused
+here too: the two rows are the two kinds, never sorted into one.
+
+**With no key held, the section that follows stands exactly as written** — the
+Addons' own catalogs are the whole of Search.
 
 `SearchCatalogs` asks every configured Addon's catalogs that declare `search`, in
 the order the Addons were configured and each Addon's own order within that. Every
@@ -155,7 +181,19 @@ fetch); **acting on `staleRevalidate`** (nothing here can revalidate behind a
 client's back); and **ranking or merging search results across Addons** (the
 spec's Stream rule generalised: the Addon's order is the order).
 
+By #64, for the TMDB arm: **one `Search` whose answer shape flips on the
+credential** (a question's `Answer` does not change type because a secret is
+held — that is two variants wearing one name); **growing `SearchCatalogs` a TMDB
+arm** (it blurs what the name means, and puts TMDB on the Addon-shaped request
+path ADR-0009/0010 keep Addon-shaped); **`/search/multi`** (it mixes people into
+a result set that wants two kind rows); **a merged ranked list** (the ranking this
+ADR already refuses); **caching the TMDB arm** (TMDB sends no hint to honour, and
+ADR-0020 already refuses a cached feed); and **live as-you-type search** (a
+keystroke fan-out against a rate limit nothing promises capacity for).
+
 Consequences: a new question is an `Action` variant, a `ValidatedAction` variant
 and a variant of `Answer`; the cache is in memory and bounded; and anything that
 wants to ask an Addon for a resource goes through `ResourceRequest`,
-`Manifest::answers` and the one `Fetcher`.
+`Manifest::answers` and the one `Fetcher`. By #64 the rule carries a second
+search question — `Search`, answered with a Discover-shaped row — whose source is
+TMDB (not the `Fetcher`) and whose cache rule is ADR-0020's: none.
