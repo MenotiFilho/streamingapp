@@ -1,0 +1,1335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Prototype — spatial focus and D-pad navigation (issue #51)</title>
+<style>
+:root {
+  color-scheme: dark;
+  /* Restrained on purpose: the real visuals come from the component kit. */
+  --canvas: #09080C;
+  --panel: #121018;
+  --panel-2: #1A1720;
+  --line: #2A2530;
+  --ink: #F4F1EA;
+  --muted: #9A93A6;
+  --accent: #FF4D4D;
+  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--canvas);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.5;
+}
+.page { max-width: 1500px; margin: 0 auto; padding: 28px 24px 80px; }
+.kicker {
+  margin: 0 0 6px; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase;
+  color: var(--accent); font-weight: 700;
+}
+h1 { margin: 0 0 8px; font-size: 26px; letter-spacing: -0.02em; }
+h2 {
+  margin: 0 0 10px; font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase;
+  color: var(--muted); font-weight: 700;
+}
+h3 { margin: 0 0 4px; font-size: 16px; }
+p { margin: 0 0 10px; }
+.lede { max-width: 78ch; color: #CFC9DA; }
+.question { max-width: 78ch; border-left: 3px solid var(--accent); padding-left: 14px; color: #E6E1F0; }
+.question strong { color: var(--ink); }
+.cols { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(360px, 0.85fr); gap: 24px; align-items: start; margin-top: 22px; }
+@media (max-width: 1150px) { .cols { grid-template-columns: 1fr; } }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
+.section { margin-top: 26px; }
+
+/* ---------- the demo surface: the nav shell, roughly ---------- */
+.surface-shell { position: relative; }
+.surface {
+  position: relative;
+  display: grid;
+  grid-template-columns: 78px minmax(0, 1fr);
+  gap: 16px;
+  height: 540px;
+  padding: 16px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  overflow: hidden;
+}
+.rail {
+  /* Spread down the shell's full height: a rail packed at the top would make
+     Left from a row land on an icon that has nothing to do with that row. */
+  display: flex; flex-direction: column; justify-content: space-between; padding: 8px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--line); border-radius: 14px;
+}
+.rail .icon {
+  height: 44px; width: 100%; display: flex; align-items: center; justify-content: center;
+  font-size: 9px; line-height: 1.05; letter-spacing: 0.06em; text-transform: uppercase;
+  text-align: center; padding: 0 4px; border-radius: 10px; color: var(--muted);
+}
+.rail .icon.is-here { color: var(--ink); background: rgba(255, 77, 77, 0.16); }
+.screen {
+  overflow-y: auto; overflow-x: hidden;
+  display: flex; flex-direction: column; gap: 26px; padding-right: 8px;
+  scrollbar-width: thin;
+}
+.hero {
+  border-radius: 16px; padding: 14px; min-height: 150px;
+  background: linear-gradient(100deg, #241B2E, #3A1D22 70%, #15121B);
+  border: 1px solid var(--line);
+}
+.hero-card {
+  display: block; width: 100%; height: 122px; text-align: left; padding: 16px;
+  border-radius: 12px; border: 1px dashed rgba(255, 255, 255, 0.16);
+  background: rgba(0, 0, 0, 0.25); color: var(--ink); font: inherit;
+}
+.hero-card .hero-label { font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.hero-card .hero-title { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; margin-top: 4px; }
+.row-title { font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; font-weight: 700; }
+.strip {
+  display: flex; gap: 12px; overflow-x: auto; padding: 6px 6px 10px; margin: -6px -6px -10px;
+  scrollbar-width: thin;
+}
+.card-face {
+  flex: 0 0 138px; height: 196px; border-radius: 12px; border: 1px solid var(--line);
+  background: linear-gradient(160deg, hsl(var(--tone, 210) 26% 24%), hsl(var(--tone, 210) 30% 12%));
+  color: var(--ink); font: inherit; text-align: left; padding: 10px;
+  display: flex; align-items: flex-end; font-size: 12px; line-height: 1.25; font-weight: 600;
+  overflow: hidden;
+}
+.card-label { display: block; }
+.search-field { background: var(--panel-2); border: 1px solid var(--line); border-radius: 14px; padding: 12px; }
+.search-field input {
+  width: 100%; font: inherit; font-size: 15px; padding: 10px 12px; border-radius: 10px;
+  border: 1px solid var(--line); background: #0E0C12; color: var(--ink);
+}
+.focused {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 6px rgba(255, 77, 77, 0.45);
+}
+.surface-note { margin-top: 10px; color: var(--muted); font-size: 13px; }
+.title-level {
+  position: absolute; inset: 0; display: none; place-items: center;
+  background: rgba(9, 8, 12, 0.86); border-radius: 18px; padding: 24px;
+}
+.title-level.is-up { display: grid; }
+.title-sheet { width: min(560px, 100%); background: var(--panel-2); border: 1px solid var(--line); border-radius: 16px; padding: 18px; }
+.title-sheet .poster { height: 150px; border-radius: 12px; background: linear-gradient(150deg, #33233C, #1A1620); margin-bottom: 14px; }
+.actions { display: flex; gap: 10px; flex-wrap: wrap; padding: 6px; margin: -6px; }
+.actions button { font: inherit; padding: 10px 16px; border-radius: 10px; border: 1px solid var(--line); background: #221F29; color: var(--ink); }
+.actions .primary { background: var(--accent); border-color: var(--accent); color: #1A0A0A; font-weight: 700; }
+
+/* ---------- panels ---------- */
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
+.panel + .panel { margin-top: 16px; }
+.field { display: grid; grid-template-columns: 128px 1fr; gap: 10px; padding: 6px 0; border-bottom: 1px dashed var(--line); }
+.field:last-child { border-bottom: 0; }
+.field dt { color: var(--muted); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; margin: 0; padding-top: 1px; }
+.field dd { margin: 0; }
+.now { font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+.why { color: #D6CFE2; }
+.kind { display: inline-block; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.pill {
+  display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; letter-spacing: 0.06em;
+  text-transform: uppercase; background: rgba(255, 77, 77, 0.16); color: #FFB8B8; margin-left: 6px;
+}
+.pill.muted { background: rgba(255, 255, 255, 0.08); color: var(--muted); }
+ol.log { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13px; }
+ol.log li { margin-bottom: 4px; }
+ol.log li:first-child { color: var(--ink); }
+.levels { margin: 0; padding: 0; list-style: none; font-size: 13px; }
+.levels li { padding: 4px 8px; border-radius: 8px; color: var(--muted); }
+.levels li.is-active { background: rgba(255, 255, 255, 0.06); color: var(--ink); font-weight: 600; }
+
+/* ---------- rules ---------- */
+.rule { padding: 10px 0; border-bottom: 1px dashed var(--line); }
+.rule:last-child { border-bottom: 0; }
+.rule .rule-name { font-weight: 600; }
+.rule .rule-question { color: var(--muted); font-size: 13px; margin-bottom: 6px; }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg button {
+  font: inherit; font-size: 13px; padding: 6px 12px; border: 0; background: transparent; color: var(--muted); cursor: pointer;
+}
+.seg button.is-on { background: rgba(255, 77, 77, 0.18); color: var(--ink); font-weight: 600; }
+.rec { color: var(--accent); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; margin-left: 6px; }
+
+/* ---------- free play + walkthroughs ---------- */
+.pad { display: flex; flex-wrap: wrap; gap: 22px; align-items: flex-start; }
+.dpad { display: grid; grid-template-columns: repeat(3, 46px); grid-template-rows: repeat(3, 46px); gap: 6px; }
+.dpad button, .keys button {
+  font: inherit; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink);
+  border-radius: 10px; cursor: pointer;
+}
+.dpad button:hover, .keys button:hover { border-color: var(--accent); }
+.dpad .up { grid-area: 1 / 2; } .dpad .left { grid-area: 2 / 1; }
+.dpad .ok { grid-area: 2 / 2; background: var(--accent); color: #1A0A0A; font-weight: 700; }
+.dpad .right { grid-area: 2 / 3; } .dpad .down { grid-area: 3 / 2; }
+.keys { display: flex; flex-direction: column; gap: 6px; }
+.keys button { padding: 8px 12px; text-align: left; }
+.tabs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.tabs button {
+  font: inherit; font-size: 13px; padding: 7px 12px; border-radius: 999px;
+  border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer;
+}
+.tabs button.is-on { background: var(--ink); color: #14121A; border-color: var(--ink); font-weight: 700; }
+.steps { margin: 0; padding: 0; list-style: none; }
+.steps li { display: flex; gap: 10px; align-items: baseline; padding: 4px 0; color: var(--muted); font-size: 14px; }
+.steps li .num { color: var(--muted); font-size: 12px; min-width: 16px; }
+.steps li.is-next { color: var(--ink); }
+.steps li.is-done { color: #7E7790; }
+.steps button {
+  font: inherit; text-align: left; padding: 5px 10px; border-radius: 8px; cursor: pointer;
+  border: 1px solid transparent; background: transparent; color: inherit;
+}
+.steps button:hover { background: rgba(255, 255, 255, 0.06); }
+.steps li.is-next button { border-color: var(--accent); }
+.walk-blurb { color: #CFC9DA; max-width: 80ch; }
+.walk-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.reset { font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--muted); cursor: pointer; }
+.prose { max-width: 82ch; color: #CFC9DA; }
+.prose code { background: #1C1923; padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+.prose ul { margin: 0 0 10px; padding-left: 20px; }
+.prose li { margin-bottom: 6px; }
+.prose h3 { color: var(--ink); margin-top: 16px; }
+.pad-status { font-size: 13px; color: var(--muted); margin-top: 8px; }
+.pad-status.is-live { color: #8CE0A8; }
+</style>
+</head>
+<body>
+<div class="page">
+  <p class="kicker">Prototype · throwaway · issue #51</p>
+  <h1>Spatial focus and D-pad navigation</h1>
+  <p class="lede">
+    Today focus is one flat line: <em>next control in DOM order</em>, wrapping. This prototype replaces that with a
+    <strong>spatial</strong> model and puts it under a real Home grid and nav rail, so you can feel whether it is right.
+    Click the buttons, use the arrow keys, plug in a pad — all three drive the same model.
+  </p>
+  <p class="question">
+    <strong>The question.</strong> Is a spatial-focus model — movement by geometry inside a region, a defined crossing
+    between stacked regions, a region stack for Back — the right input model for the window, and does it hold up at the
+    edges (a row's end, a short row, a vanished control, a caret in a text field)?
+  </p>
+
+  <div class="cols">
+    <div>
+      <div class="surface-shell">
+        <!-- The shell root is a region too: the rail and the content are its
+             children, and crossing between them is decided at this level. -->
+        <div class="surface" id="surface" data-region="shell" data-kind="branch" data-label="the shell"></div>
+        <div class="title-level" id="title-level"></div>
+      </div>
+      <p class="surface-note">
+        Arrows move · Enter / Space is OK (the control's own click — nothing here re-implements activation) · Escape or
+        Backspace is Back. A focused card is the one with the ivory ring and crimson halo.
+      </p>
+    </div>
+
+    <div>
+      <div class="panel">
+        <h2>State</h2>
+        <div id="panel-state"></div>
+      </div>
+      <div class="panel">
+        <h2>The rules under test</h2>
+        <div id="panel-rules"></div>
+      </div>
+      <div class="panel">
+        <h2>Decisions, newest first</h2>
+        <ol class="log" id="panel-log"></ol>
+      </div>
+    </div>
+  </div>
+
+  <div class="section card">
+    <h2>Free play</h2>
+    <p class="surface-note">Every intent, by hand. The source is recorded, so you can see a pad press and a button press change the same state.</p>
+    <div class="pad">
+      <div class="dpad">
+        <button class="up" data-intent="up">▲</button>
+        <button class="left" data-intent="left">◀</button>
+        <button class="ok" data-intent="activate">OK</button>
+        <button class="right" data-intent="right">▶</button>
+        <button class="down" data-intent="down">▼</button>
+      </div>
+      <div class="keys">
+        <button data-intent="back">Back</button>
+        <button id="act-remove">Remove the focused control</button>
+        <button id="act-switch">Switch screen: Home ⇄ Search</button>
+        <button id="act-reset">Reset the surface</button>
+      </div>
+      <p class="pad-status" id="pad-status">Gamepad: not seen.</p>
+    </div>
+  </div>
+
+  <div class="section card">
+    <h2>Guided walkthroughs</h2>
+    <div class="tabs" id="tabs"></div>
+    <div class="walk-head">
+      <h3 id="walk-name"></h3>
+      <button class="reset" id="walk-reset">Restart this scenario</button>
+    </div>
+    <p class="walk-blurb" id="walk-blurb"></p>
+    <ol class="steps" id="walk-steps"></ol>
+  </div>
+
+  <div class="section card">
+    <h2>The model, in words</h2>
+    <div class="prose">
+      <h3>One snapshot, one decision</h3>
+      <p>
+        Nothing in the model keeps a running position. Each move hands the pure module a <strong>layout</strong> — every
+        region with its rectangle, its parent, and the rectangles of its items — plus where focus is and which rule set
+        applies. It returns where focus goes and <em>why</em>. The page around it only measures boxes, paints the ring,
+        and scrolls.
+      </p>
+      <h3>The decision, in order</h3>
+      <ul>
+        <li><strong>Inside the region, by geometry.</strong> The nearest rect in that direction wins: lined-up candidates
+          first (a card <em>below</em>, not below-and-to-the-side), then the smallest sideways gap, then the shortest
+          step, then the closest centre across. This is what makes Down land on the card below and Right walk a strip.</li>
+        <li><strong>Out to a sibling region</strong> — but only one that <em>overlaps</em> us across the way. That single
+          rule is what stops Right at the end of a short row falling diagonally into the next row down, while still
+          letting Left reach the rail (which spans the height) and Down reach the row below (which spans the width).</li>
+        <li><strong>Entering a region:</strong> the item that lines up with where you came from, else the region's
+          remembered card, else its head. The rail is the exception that proves it: pressing Right from the rail's
+          Library icon enters at whatever card sits at that height.</li>
+        <li><strong>The edges are walls with one rule each:</strong> a row's end, the rail's end, and Up off the top of
+          the content. Each can stop, wrap, or (Up) hand you to the rail — that is what the switch panel is for.</li>
+      </ul>
+      <h3>The region stack</h3>
+      <p>
+        Back pops one level and restores that level's focus exactly — including the level below it, untouched. Screens
+        switched from the rail are <em>not</em> pushed: the rail is persistent, so Back on a screen returns to Home
+        rather than walking back through every icon you visited. That is the nav shell's decision (#52), not this
+        prototype's; it is here so the stack has something real to push and pop.
+      </p>
+      <h3>The same behaviour in the companion's page (no React)</h3>
+      <p>
+        The companion is one hand-written file with no build step (ADR-0017), so nothing is imported from
+        <code>src/</code>. What carries over is the shape, not the code:
+      </p>
+      <ul>
+        <li><strong>The pure functions are inlined.</strong> The geometry functions above are a few dozen lines of plain
+          arithmetic with no DOM in them; they paste into the companion's single <code>&lt;script&gt;</code> unchanged,
+          because <code>getBoundingClientRect</code> feeds them the same rectangles on either side.</li>
+        <li><strong>The layout is described in markup.</strong> The window would use a <code>data-region</code> /
+          <code>data-focusable</code> convention; the companion gets the same attributes by hand on its three surfaces
+          (browse, mini-strip, remote), and the same "read the DOM, decide, paint" pass runs there.</li>
+        <li><strong>Only the key column of the intent table.</strong> The companion is served over plain HTTP on the LAN
+          — an insecure origin, where <code>getGamepads()</code> returns nothing (research #49). So it dispatches
+          move / back from <code>keydown</code> and drops the pad column entirely. Its existing single
+          <code>keydown</code> listener for Escape becomes the dispatch point.</li>
+        <li><strong>Shallow tree, same rules.</strong> The companion has no rail and no stacked rows, so its region tree
+          is two levels deep — and the walls (a sheet's edge) are where its Back goes, not an arrow.</li>
+        <li><strong>One copy to keep honest.</strong> The intent table is mirrored by hand, the way the companion already
+          mirrors pure decisions from <code>src/*.ts</code>; a test asserting the companion's copy equals the window's
+          (the precedent is <code>host-wire::remote</code> asserting the companion's capability list equals
+          <code>Action::SPELLINGS</code>) keeps the two from drifting.</li>
+      </ul>
+      <h3>What is deliberately not here</h3>
+      <ul>
+        <li>Visuals: the tokens and component kit are ticket #50's answer, not this one.</li>
+        <li>The media intents (play/pause, seek, stop, menu) from the research table — this prototype only decides the
+          focus model, so it carries move / activate / back.</li>
+        <li>Tests: it is a prototype. The pure module is the part worth lifting, and it lifts tested (the repo's TDD
+          norm), not here.</li>
+      </ul>
+    </div>
+  </div>
+</div>
+
+<script id="pure-module">
+/* ===================================================================== *
+ * PURE MODULE — lift this into src/focus.ts and src/input.ts            *
+ *                                                                       *
+ * Data in, decision out. No DOM, no events, no React. The page around   *
+ * it measures rectangles and paints focus; it never decides where       *
+ * focus goes.                                                           *
+ * ===================================================================== */
+var SpatialFocus = (function () {
+  "use strict";
+
+  var MIN_STEP = 1;  // px a rect must clear the origin by to count as "that way"
+  var ALIGNED = 1;   // px two sideways gaps may differ by and still count as lined up
+
+  function isVertical(dir) {
+    return dir === "up" || dir === "down";
+  }
+
+  // How far past the origin's leading edge a rect begins, along the direction.
+  // Negative when they overlap on that axis, or the rect is behind.
+  function step(from, to, dir) {
+    if (dir === "down") return to.y - (from.y + from.h);
+    if (dir === "up") return from.y - (to.y + to.h);
+    if (dir === "right") return to.x - (from.x + from.w);
+    return from.x - (to.x + to.w);
+  }
+
+  // The gap between the two rects on the axis across the direction: 0 when they
+  // overlap, so "the card below" beats "the card below and off to the side".
+  function gap(from, to, dir) {
+    if (isVertical(dir)) {
+      return Math.max(Math.max(from.x, to.x) - Math.min(from.x + from.w, to.x + to.w), 0);
+    }
+    return Math.max(Math.max(from.y, to.y) - Math.min(from.y + from.h, to.y + to.h), 0);
+  }
+
+  // Centre-to-centre distance on the axis across the direction: the last
+  // tie-break, so Down from a full-width hero lands on the card nearest its
+  // middle rather than whichever card happens to be first.
+  function across(from, to, dir) {
+    if (isVertical(dir)) {
+      return Math.abs((from.x + from.w / 2) - (to.x + to.w / 2));
+    }
+    return Math.abs((from.y + from.h / 2) - (to.y + to.h / 2));
+  }
+
+  // The nearest rect in `dir`. -1 when nothing is that way.
+  function nearest(from, rects, dir) {
+    var best = -1;
+    var bestGap = 0;
+    var bestStep = 0;
+    var bestAcross = 0;
+    for (var i = 0; i < rects.length; i += 1) {
+      var to = rects[i];
+      if (!to) continue;
+      var ahead = step(from, to, dir);
+      if (ahead <= MIN_STEP) continue;
+      var sideways = gap(from, to, dir);
+      var acrossBy = across(from, to, dir);
+      var better =
+        best === -1 ||
+        sideways < bestGap - ALIGNED ||
+        (Math.abs(sideways - bestGap) <= ALIGNED && ahead < bestStep - ALIGNED) ||
+        (Math.abs(sideways - bestGap) <= ALIGNED && Math.abs(ahead - bestStep) <= ALIGNED && acrossBy < bestAcross);
+      if (better) {
+        best = i;
+        bestGap = sideways;
+        bestStep = ahead;
+        bestAcross = acrossBy;
+      }
+    }
+    return best;
+  }
+
+  // A sibling region we may cross into this way: strictly in the direction, and
+  // overlapping where we are on the other axis. The overlap test is the whole
+  // guard against a short row leaking focus diagonally into the row below.
+  function siblingInDirection(regions, region, from, dir) {
+    var parent = regions[region.parent];
+    if (!parent) return null;
+    var best = null;
+    var bestStep = 0;
+    for (var i = 0; i < parent.children.length; i += 1) {
+      var sib = regions[parent.children[i]];
+      if (!sib || sib.id === region.id) continue;
+      var ahead = step(from, sib.rect, dir);
+      if (ahead <= MIN_STEP) continue;
+      if (gap(from, sib.rect, dir) > ALIGNED) continue;
+      if (!best || ahead < bestStep) {
+        best = sib;
+        bestStep = ahead;
+      }
+    }
+    return best;
+  }
+
+  function clamp(index, length) {
+    if (length <= 0) return 0;
+    return Math.max(0, Math.min(index, length - 1));
+  }
+
+  // Where focus lands arriving in a leaf region: whatever lines up with where it
+  // came from, unless the rules say to trust the region's memory first.
+  function enter(layout, region, from, dir, rules) {
+    var remembered = layout.memory[region.id];
+    if (rules.entry === "remember" && remembered != null) {
+      return { index: clamp(remembered, region.itemRects.length), aligned: false };
+    }
+    var lined = nearest(from, region.itemRects, dir);
+    if (lined >= 0) return { index: lined, aligned: true };
+    if (remembered != null) return { index: clamp(remembered, region.itemRects.length), aligned: false };
+    return { index: 0, aligned: false };
+  }
+
+  // Arriving in a region; if it is a branch (the screen), walk down to the child
+  // region that lines up first.
+  function land(layout, region, from, dir, rules) {
+    if (region.children.length === 0) {
+      var landing = enter(layout, region, from, dir, rules);
+      return { regionId: region.id, index: landing.index, aligned: landing.aligned };
+    }
+    var rects = [];
+    for (var i = 0; i < region.children.length; i += 1) {
+      rects.push(layout.regions[region.children[i]].rect);
+    }
+    var pick = nearest(from, rects, dir);
+    if (pick < 0) pick = 0;
+    return land(layout, layout.regions[region.children[pick]], from, dir, rules);
+  }
+
+  function findRail(layout) {
+    var ids = Object.keys(layout.regions);
+    for (var i = 0; i < ids.length; i += 1) {
+      if (layout.regions[ids[i]].kind === "rail" && layout.regions[ids[i]].itemRects.length > 0) {
+        return layout.regions[ids[i]];
+      }
+    }
+    return null;
+  }
+
+  /**
+   * One intent, one answer.
+   * layout: { regions: { id: { id, label, kind, parent, children, rect, itemRects } }, memory: {} }
+   * focus:  { regionId, index }
+   * rules:  { rowEnd, railEnd, upFromContent, entry, gone }
+   */
+  function decideMove(layout, focus, dir, rules) {
+    var region = layout.regions[focus.regionId];
+    if (!region || region.itemRects.length === 0) {
+      return { kind: "blocked", direction: dir, why: "the focused region is gone or has nothing in it" };
+    }
+    var from = region.itemRects[focus.index] || region.itemRects[0];
+
+    // 1. Inside the region, by geometry alone.
+    var inside = nearest(from, region.itemRects, dir);
+    if (inside >= 0) {
+      return {
+        kind: "moved", direction: dir, regionId: region.id, index: inside,
+        why: "the nearest control " + dir + " inside " + region.label
+      };
+    }
+
+    // 2. Out to a sibling, if one overlaps us across the way.
+    var node = region;
+    while (node.parent) {
+      var sib = siblingInDirection(layout.regions, node, from, dir);
+      if (sib) {
+        var target = land(layout, sib, from, dir, rules);
+        return {
+          kind: "crossed", direction: dir, regionId: target.regionId, index: target.index,
+          landedBy: target.aligned ? "lined up" : "the region's own rule",
+          why: "nothing " + dir + " inside " + node.label + ", so focus crossed into " + sib.label
+        };
+      }
+      node = layout.regions[node.parent];
+    }
+
+    // 3. The end of a list: a wall, or the wrap the rules ask for.
+    if (region.kind === "rail" && isVertical(dir)) {
+      if (rules.railEnd === "wrap") {
+        return {
+          kind: "wrapped", direction: dir, regionId: region.id,
+          index: dir === "down" ? 0 : region.itemRects.length - 1,
+          why: "the end of the rail, and the rail rule says wrap to the other end"
+        };
+      }
+      return { kind: "blocked", direction: dir, why: "the end of the rail, and the rail rule says stop" };
+    }
+    if (region.kind === "row" && !isVertical(dir)) {
+      if (rules.rowEnd === "wrap") {
+        return {
+          kind: "wrapped", direction: dir, regionId: region.id,
+          index: dir === "right" ? 0 : region.itemRects.length - 1,
+          why: "the end of the row, and the row rule says wrap to the other end"
+        };
+      }
+      return { kind: "blocked", direction: dir, why: "the end of the row, and the row rule says stop — it does not fall into the row below" };
+    }
+
+    // 4. The one wall a rule can fill: up out of the content, to the rail.
+    if (dir === "up" && rules.upFromContent === "rail") {
+      var rail = findRail(layout);
+      if (rail) {
+        var landing = enter(layout, rail, from, "up", rules);
+        return {
+          kind: "crossed", direction: dir, regionId: rail.id, index: landing.index,
+          landedBy: landing.aligned ? "lined up" : "the rail's memory",
+          why: "the top of the content, and the rule says up goes to the rail"
+        };
+      }
+    }
+
+    return { kind: "blocked", direction: dir, why: "nothing that way, and no rule for it" };
+  }
+
+  // A control is gone. Two answers, per the rules; and if the whole region went
+  // with it, focus falls back to the rail.
+  function rehome(layout, focus, rules) {
+    var region = layout.regions[focus.regionId];
+    if (region && region.itemRects.length > 0) {
+      if (rules.gone === "head") {
+        return { regionId: region.id, index: 0, why: "the control went away, and the rule says the region's head" };
+      }
+      return {
+        regionId: region.id, index: clamp(focus.index, region.itemRects.length),
+        why: "the control went away; focus stayed in place and the next control slid into it"
+      };
+    }
+    var rail = findRail(layout);
+    if (rail) {
+      var remembered = layout.memory[rail.id];
+      return {
+        regionId: rail.id, index: clamp(remembered == null ? 0 : remembered, rail.itemRects.length),
+        why: "the whole region went away, so focus fell back to the rail"
+      };
+    }
+    return null;
+  }
+
+  /* ---- the intent table (liftable to src/input.ts) ------------------- *
+   * One table, two source columns, from the input research (#49): the     *
+   * window reads the pad column too, the companion reads only the key     *
+   * column. Mirror the companion's copy by hand and assert they match.    */
+  var KEY_INTENTS = {
+    ArrowUp: "up", ArrowDown: "down", ArrowLeft: "left", ArrowRight: "right",
+    Escape: "back", Backspace: "back", GoBack: "back"
+  };
+  // Standard mapping only (gamepad.mapping === "standard").
+  var PAD_BUTTONS = { 12: "up", 13: "down", 14: "left", 15: "right", 0: "activate", 1: "back", 8: "back" };
+  var PAD_AXES = { 0: { negative: "left", positive: "right" }, 1: { negative: "up", positive: "down" } };
+  var AXIS_THRESHOLD = 0.5;
+
+  function padIntents(pad) {
+    var held = [];
+    if (!pad || pad.mapping !== "standard") return held;
+    for (var i = 0; i < pad.buttons.length; i += 1) {
+      var intent = PAD_BUTTONS[i];
+      if (intent && pad.buttons[i] && pad.buttons[i].pressed) held.push(intent);
+    }
+    for (var a = 0; a < pad.axes.length; a += 1) {
+      var axis = PAD_AXES[a];
+      if (!axis) continue;
+      if (pad.axes[a] < -AXIS_THRESHOLD) held.push(axis.negative);
+      if (pad.axes[a] > AXIS_THRESHOLD) held.push(axis.positive);
+    }
+    return held;
+  }
+
+  return {
+    isVertical: isVertical,
+    nearest: nearest,
+    decideMove: decideMove,
+    rehome: rehome,
+    KEY_INTENTS: KEY_INTENTS,
+    PAD_BUTTONS: PAD_BUTTONS,
+    PAD_AXES: PAD_AXES,
+    padIntents: padIntents
+  };
+})();
+</script>
+
+<script>
+/* ===================================================================== *
+ * THE PAGE — throwaway. Measures rectangles, paints focus, talks.       *
+ * ===================================================================== */
+(function () {
+  "use strict";
+
+  var HOME_ROWS = [
+    { id: "row:continue", label: "Continue watching", items: ["Sicario", "Severance · S2E4", "Andor · S1E7"] },
+    { id: "row:featured", label: "Featured catalog", items: ["Dune: Part Two", "The Batman", "Arrival", "Blade Runner 2049", "Oppenheimer", "Prisoners", "Enemy", "Sicario"] },
+    { id: "row:new", label: "New on the addon", items: ["Challengers", "Civil War", "Poor Things", "The Zone of Interest", "Anatomy of a Fall", "Past Lives"] }
+  ];
+  var RESULT_ROW = { id: "row:results", label: "Results", items: ["Arrival", "Contact", "Interstellar", "Moon", "Solaris", "Annihilation"] };
+  var RAIL = ["Home", "Discover", "Search", "Library", "Addons", "Settings"];
+
+  var DEFAULT_RULES = { rowEnd: "stop", railEnd: "wrap", upFromContent: "rail", entry: "align", gone: "place" };
+
+  var state = {
+    source: "button",
+    screen: "home",
+    rules: Object.assign({}, DEFAULT_RULES),
+    stack: [],
+    log: []
+  };
+
+  var surface = document.getElementById("surface");
+  var titleLevel = document.getElementById("title-level");
+
+  function el(tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text != null) node.textContent = text;
+    return node;
+  }
+
+  function cardFace(title) {
+    var b = el("button", "card-face");
+    b.setAttribute("data-focusable", "");
+    b.setAttribute("data-opens", "title");
+    b.setAttribute("data-title", title);
+    b.style.setProperty("--tone", String((title.length * 37) % 360));
+    b.appendChild(el("span", "card-label", title));
+    return b;
+  }
+
+  function buildRail() {
+    var rail = el("nav", "rail");
+    rail.setAttribute("data-region", "rail");
+    rail.setAttribute("data-kind", "rail");
+    rail.setAttribute("data-label", "the rail");
+    RAIL.forEach(function (name) {
+      var b = el("button", "icon");
+      b.setAttribute("data-focusable", "");
+      b.setAttribute("data-screen", name.toLowerCase());
+      b.setAttribute("data-title", name);
+      b.setAttribute("title", name);
+      b.appendChild(el("span", null, name));
+      rail.appendChild(b);
+    });
+    return rail;
+  }
+
+  function buildScreen() {
+    var screen = el("div", "screen");
+    screen.setAttribute("data-region", "screen");
+    screen.setAttribute("data-kind", "branch");
+    screen.setAttribute("data-label", "the content");
+
+    if (state.screen === "home") {
+      var hero = el("div", "hero");
+      hero.setAttribute("data-region", "hero");
+      hero.setAttribute("data-kind", "row");
+      hero.setAttribute("data-label", "Featured (the hero)");
+      var heroCard = el("button", "hero-card");
+      heroCard.setAttribute("data-focusable", "");
+      heroCard.setAttribute("data-opens", "title");
+      heroCard.setAttribute("data-title", "Dune: Part Two");
+      heroCard.appendChild(el("span", "hero-label", "Featured catalog · the hero"));
+      heroCard.appendChild(el("span", "hero-title", "Dune: Part Two"));
+      hero.appendChild(heroCard);
+      screen.appendChild(hero);
+
+      HOME_ROWS.forEach(function (row) {
+        var section = el("section", "row");
+        section.setAttribute("data-region", row.id);
+        section.setAttribute("data-kind", "row");
+        section.setAttribute("data-label", row.label);
+        section.appendChild(el("div", "row-title", row.label));
+        var strip = el("div", "strip");
+        row.items.forEach(function (title) { strip.appendChild(cardFace(title)); });
+        section.appendChild(strip);
+        screen.appendChild(section);
+      });
+    } else {
+      var field = el("div", "search-field");
+      field.setAttribute("data-region", "search-field");
+      field.setAttribute("data-kind", "row");
+      field.setAttribute("data-label", "the search box");
+      var input = el("input");
+      input.type = "text";
+      input.value = "arrival";
+      input.setAttribute("data-focusable", "");
+      input.setAttribute("data-title", "search box (a text field)");
+      field.appendChild(input);
+      screen.appendChild(field);
+
+      var results = el("section", "row");
+      results.setAttribute("data-region", RESULT_ROW.id);
+      results.setAttribute("data-kind", "row");
+      results.setAttribute("data-label", RESULT_ROW.label);
+      results.appendChild(el("div", "row-title", "Results · from the addon"));
+      var strip2 = el("div", "strip");
+      RESULT_ROW.items.forEach(function (title) { strip2.appendChild(cardFace(title)); });
+      results.appendChild(strip2);
+      screen.appendChild(results);
+    }
+    return screen;
+  }
+
+  function drawSurface() {
+    surface.innerHTML = "";
+    surface.appendChild(buildRail());
+    surface.appendChild(buildScreen());
+    titleLevel.classList.remove("is-up");
+    titleLevel.innerHTML = "";
+    markRail();
+  }
+
+  function markRail() {
+    var icons = surface.querySelectorAll("[data-screen]");
+    for (var i = 0; i < icons.length; i += 1) {
+      icons[i].classList.toggle("is-here", icons[i].getAttribute("data-screen") === state.screen);
+    }
+  }
+
+    /* ---- reading the DOM into a layout: rectangles only, no decisions -- */
+  function rectOf(node) {
+    var r = node.getBoundingClientRect();
+    return { x: r.left, y: r.top, w: r.width, h: r.height };
+  }
+
+  function regionIdOf(node, root) {
+    var walk = node.parentElement;
+    while (walk && walk !== root.parentElement) {
+      if (walk.hasAttribute("data-region")) return walk.getAttribute("data-region");
+      walk = walk.parentElement;
+    }
+    return null;
+  }
+
+  // Returns { layout, els }: the pure module sees `layout` only — no elements.
+  function readLevel(level) {
+    var root = level.root;
+    var layout = { regions: {}, memory: level.memory };
+    var els = {};
+    // The root may itself be a region (the shell is), and querySelectorAll
+    // never returns its own root — so it goes in first.
+    var regionEls = root.hasAttribute("data-region") ? [root] : [];
+    regionEls = regionEls.concat(Array.prototype.slice.call(root.querySelectorAll("[data-region]")));
+    var i;
+    for (i = 0; i < regionEls.length; i += 1) {
+      var id = regionEls[i].getAttribute("data-region");
+      layout.regions[id] = {
+        id: id,
+        label: regionEls[i].getAttribute("data-label") || id,
+        kind: regionEls[i].getAttribute("data-kind") || "row",
+        parent: regionIdOf(regionEls[i], root),
+        children: [],
+        rect: rectOf(regionEls[i]),
+        itemRects: []
+      };
+      els[id] = [];
+    }
+    Object.keys(layout.regions).forEach(function (id) {
+      var parent = layout.regions[id].parent;
+      if (parent && layout.regions[parent]) layout.regions[parent].children.push(id);
+    });
+    var focusables = root.querySelectorAll("[data-focusable]");
+    for (i = 0; i < focusables.length; i += 1) {
+      var regionId = regionIdOf(focusables[i], root);
+      if (regionId && layout.regions[regionId]) {
+        layout.regions[regionId].itemRects.push(rectOf(focusables[i]));
+        els[regionId].push(focusables[i]);
+      }
+    }
+    return { layout: layout, els: els };
+  }
+
+  function active() {
+    return state.stack[state.stack.length - 1];
+  }
+
+  function titleOf(node) {
+    if (!node) return "—";
+    return node.getAttribute("data-title") || node.textContent.trim();
+  }
+
+  /* ---- painting focus ------------------------------------------------- */
+  function paint(level, focus, els) {
+    var seen = level.root.querySelectorAll(".focused");
+    for (var i = 0; i < seen.length; i += 1) seen[i].classList.remove("focused");
+    var list = els[focus.regionId] || [];
+    var node = list[focus.index];
+    if (!node) return;
+    node.classList.add("focused");
+    if (document.activeElement !== node) node.focus({ preventScroll: true });
+    if (node.scrollIntoView) node.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+
+  function setFocus(level, focus) {
+    level.focus = { regionId: focus.regionId, index: focus.index };
+    level.memory[focus.regionId] = focus.index;
+    var read = readLevel(level);
+    paint(level, level.focus, read.els);
+  }
+
+  function pushLog(entry) {
+    state.log.unshift(entry);
+    state.log = state.log.slice(0, 12);
+  }
+
+  /* ---- the intents ---------------------------------------------------- */
+  function runIntent(intent, source) {
+    state.source = source;
+    var level = active();
+    if (intent === "back") { goBack(source); return; }
+    if (intent === "activate") { activate(source); return; }
+
+    var read = readLevel(level);
+    var decision = SpatialFocus.decideMove(read.layout, level.focus, intent, state.rules);
+    pushLog({
+      intent: intent, source: source, kind: decision.kind,
+      text: describe(level, read, decision)
+    });
+    if (decision.kind !== "blocked") {
+      setFocus(level, { regionId: decision.regionId, index: decision.index });
+    }
+    render();
+  }
+
+  function describe(level, read, decision) {
+    var from = read.layout.regions[level.focus.regionId];
+    var fromItem = from && read.els[from.id] ? titleOf(read.els[from.id][level.focus.index]) : "?";
+    if (decision.kind === "blocked") {
+      return decision.direction + " from " + fromItem + " — nothing happened: " + decision.why;
+    }
+    var to = read.els[decision.regionId] ? titleOf(read.els[decision.regionId][decision.index]) : "?";
+    var where = read.layout.regions[decision.regionId].label;
+    return decision.direction + " from " + fromItem + " → " + to + " (" + where + "): " + decision.why +
+      (decision.landedBy ? " · landed by " + decision.landedBy : "");
+  }
+
+  function activate(source) {
+    var node = document.activeElement;
+    if (!node) return;
+    // Enter, Space and a pad's A all arrive here the same way: the control's own
+    // click. Nothing in this file re-implements activation.
+    if (node.getAttribute && node.hasAttribute("data-focusable")) node.click();
+  }
+
+  function goBack(source) {
+    if (state.stack.length > 1) {
+      var popped = state.stack.pop();
+      titleLevel.classList.remove("is-up");
+      titleLevel.innerHTML = "";
+      var level = active();
+      var read = readLevel(level);
+      paint(level, level.focus, read.els);
+      pushLog({ intent: "back", source: source, kind: "popped", text: "Back closed the “" + popped.name + "” level; focus returned to " + titleOf(read.els[level.focus.regionId][level.focus.index]) });
+      render();
+      return;
+    }
+    if (state.screen !== "home") {
+      state.screen = "home";
+      redrawKeepingFocus("Back returned to Home");
+      return;
+    }
+    pushLog({ intent: "back", source: source, kind: "blocked", text: "Back at the shell — nothing above Home" });
+    render();
+  }
+
+  function removeFocused(source) {
+    var level = active();
+    var read = readLevel(level);
+    var list = read.els[level.focus.regionId] || [];
+    var node = list[level.focus.index];
+    if (!node || !node.parentElement) {
+      pushLog({ intent: "remove", source: source, kind: "blocked", text: "nothing focusable here to remove" });
+      render();
+      return;
+    }
+    var wasTitle = titleOf(node);
+    node.parentElement.removeChild(node);
+
+    var after = readLevel(level);
+    var landing = SpatialFocus.rehome(after.layout, level.focus, state.rules);
+    if (landing) {
+      setFocus(level, landing);
+      pushLog({ intent: "remove", source: source, kind: "rehomed", text: "“" + wasTitle + "” was removed — " + landing.why });
+    } else {
+      pushLog({ intent: "remove", source: source, kind: "blocked", text: "“" + wasTitle + "” was removed and there was nowhere left for focus" });
+    }
+    render();
+  }
+
+  function switchScreen(source) {
+    state.screen = state.screen === "home" ? "search" : "home";
+    redrawKeepingFocus("Switched to " + state.screen + " from the rail", source);
+  }
+
+  function redrawKeepingFocus(note, source) {
+    var level = active();
+    var before = { regionId: level.focus.regionId, index: level.focus.index };
+    drawSurface();
+    var read = readLevel(level);
+    if (read.layout.regions[before.regionId] && (read.els[before.regionId] || []).length > 0) {
+      setFocus(level, before);
+    } else {
+      var landing = SpatialFocus.rehome(read.layout, before, state.rules);
+      if (landing) setFocus(level, landing);
+    }
+    pushLog({ intent: "screen", source: source || "button", kind: "redrew", text: note + " — focus is now " + titleOf((readLevel(level).els[level.focus.regionId] || [])[level.focus.index]) });
+    render();
+  }
+
+  // A mouse click is first-class: it moves the model's focus before it acts, so
+  // the ring and Back agree with the last thing the pointer touched.
+  function adopt(node) {
+    var level = active();
+    var read = readLevel(level);
+    var ids = Object.keys(read.els);
+    for (var i = 0; i < ids.length; i += 1) {
+      var at = read.els[ids[i]].indexOf(node);
+      if (at >= 0) {
+        setFocus(level, { regionId: ids[i], index: at });
+        return true;
+      }
+    }
+    return false;
+  }
+
+  function openTitle(title, source) {
+    var level = active();
+    var read = readLevel(level);
+    pushLog({ intent: "activate", source: source || state.source, kind: "pushed", text: "OK on “" + title + "” — pushed the Title level; the shell below keeps its focus" });
+
+    titleLevel.innerHTML = "";
+    var sheet = el("div", "title-sheet");
+    sheet.setAttribute("data-region", "title");
+    sheet.setAttribute("data-kind", "branch");
+    sheet.setAttribute("data-label", "the Title level");
+    sheet.appendChild(el("div", "poster"));
+    sheet.appendChild(el("h3", null, title));
+    var note = el("p", "surface-note", "A pushed level. Back pops it; the shell's focus is untouched underneath.");
+    sheet.appendChild(note);
+    var actions = el("div", "actions");
+    actions.setAttribute("data-region", "title-actions");
+    actions.setAttribute("data-kind", "row");
+    actions.setAttribute("data-label", "the Title's actions");
+    [["Play", true], ["Add to Library", false], ["Details", false]].forEach(function (pair) {
+      var b = el("button", pair[1] ? "primary" : null, pair[0]);
+      b.setAttribute("data-focusable", "");
+      b.setAttribute("data-title", pair[0] + " (on " + title + ")");
+      actions.appendChild(b);
+    });
+    sheet.appendChild(actions);
+    titleLevel.appendChild(sheet);
+    titleLevel.classList.add("is-up");
+
+    var level2 = {
+      kind: "title",
+      name: "Title · " + title,
+      root: titleLevel,
+      focus: { regionId: "title-actions", index: 0 },
+      memory: {}
+    };
+    state.stack.push(level2);
+    var read2 = readLevel(level2);
+    paint(level2, level2.focus, read2.els);
+    render();
+  }
+
+  /* ---- the surface's own clicks (one path for mouse, Enter and pad A) -- */
+  surface.addEventListener("click", function (event) {
+    var node = event.target.closest ? event.target.closest("[data-focusable]") : null;
+    if (!node || !adopt(node)) return;
+    if (node.getAttribute("data-screen")) {
+      state.screen = node.getAttribute("data-screen");
+      redrawKeepingFocus("Rail: " + node.getAttribute("data-screen"));
+      return;
+    }
+    if (node.getAttribute("data-opens") === "title") {
+      openTitle(node.getAttribute("data-title"));
+    }
+  });
+
+  /* ---- keyboard: the window and a remote are the same channel ---------- */
+  document.addEventListener("keydown", function (event) {
+    var node = document.activeElement;
+    var typing = node && (node.tagName === "INPUT" || node.tagName === "TEXTAREA");
+    if (typing && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      return; // the caret keeps Left and Right; Up and Down still move on
+    }
+    var intent = SpatialFocus.KEY_INTENTS[event.key];
+    if (!intent) return; // Enter and Space are the control's own — nothing to re-implement
+    event.preventDefault();
+    runIntent(intent, "keyboard");
+  });
+
+  /* ---- the pad: polled, never a key event ----------------------------- */
+  var pad = { held: {}, next: {} };
+  var padStatus = document.getElementById("pad-status");
+  var REPEAT_AFTER = 400;
+  var REPEAT_EVERY = 160;
+
+  function pollPads(now) {
+    var pads = navigator.getGamepads ? navigator.getGamepads() : [];
+    var found = null;
+    for (var i = 0; i < pads.length; i += 1) if (pads[i] && pads[i].connected) found = pads[i];
+    if (found) {
+      padStatus.className = "pad-status is-live";
+      padStatus.textContent = "Gamepad: " + found.id + (found.mapping === "standard" ? " (standard mapping)" : " (NOT the standard mapping — the indexes are device-specific, so it is ignored; the research noted pads only appear after a button press)");
+    }
+    var intents = found ? SpatialFocus.padIntents(found) : [];
+    var seen = {};
+    intents.forEach(function (intent) {
+      seen[intent] = true;
+      if (!pad.held[intent]) {
+        pad.held[intent] = true;
+        pad.next[intent] = now + REPEAT_AFTER;
+        runIntent(intent, "gamepad");
+        return;
+      }
+      if (now >= pad.next[intent]) {
+        pad.next[intent] = now + REPEAT_EVERY;
+        runIntent(intent, "gamepad");
+      }
+    });
+    Object.keys(pad.held).forEach(function (intent) { if (!seen[intent]) pad.held[intent] = false; });
+    window.requestAnimationFrame(pollPads);
+  }
+  if (navigator.getGamepads) window.requestAnimationFrame(pollPads);
+
+  /* ---- rendering the panels ------------------------------------------- */
+  var RULES = [
+    { key: "rowEnd", name: "The end of a row", question: "Right from the last card of a row.", options: ["stop", "wrap"] },
+    { key: "railEnd", name: "The end of the rail", question: "Up from Home, or Down from Settings.", options: ["stop", "wrap"] },
+    { key: "upFromContent", name: "Up off the top of the content", question: "Up from the hero, which nothing sits above.", options: ["nothing", "rail"] },
+    { key: "entry", name: "Entering a region", question: "Which card you land on when focus crosses into a region.", options: ["align", "remember"] },
+    { key: "gone", name: "The focused control disappears", question: "A row loses the card you are on.", options: ["place", "head"] }
+  ];
+  var RECOMMENDED = { rowEnd: "stop", railEnd: "wrap", upFromContent: "rail", entry: "align", gone: "place" };
+
+  var rulesPanel = document.getElementById("panel-rules");
+  function renderRules() {
+    rulesPanel.innerHTML = "";
+    RULES.forEach(function (rule) {
+      var wrap = el("div", "rule");
+      wrap.appendChild(el("div", "rule-name", rule.name));
+      wrap.appendChild(el("div", "rule-question", rule.question));
+      var seg = el("div", "seg");
+      rule.options.forEach(function (option) {
+        var b = el("button", state.rules[rule.key] === option ? "is-on" : null, option);
+        b.addEventListener("click", function () {
+          state.rules[rule.key] = option;
+          pushLog({ intent: "rule", source: "button", kind: "rule", text: rule.name + " → " + option + (RECOMMENDED[rule.key] === option ? " (the recommended answer)" : "") });
+          render();
+        });
+        if (RECOMMENDED[rule.key] === option) {
+          var star = el("span", "rec", "rec");
+          b.appendChild(star);
+        }
+        seg.appendChild(b);
+      });
+      wrap.appendChild(seg);
+      rulesPanel.appendChild(wrap);
+    });
+  }
+
+  var statePanel = document.getElementById("panel-state");
+  var logPanel = document.getElementById("panel-log");
+
+  function render() {
+    var level = active();
+    var read = readLevel(level);
+    var region = read.layout.regions[level.focus.regionId];
+    var items = read.els[level.focus.regionId] || [];
+    var node = items[level.focus.index];
+
+    statePanel.innerHTML = "";
+    function field(name, value) {
+      var row = el("dl", "field");
+      row.appendChild(el("dt", null, name));
+      var dd = el("dd");
+      if (typeof value === "string") dd.textContent = value;
+      else dd.appendChild(value);
+      row.appendChild(dd);
+      statePanel.appendChild(row);
+    }
+
+    var levels = el("ul", "levels");
+    state.stack.forEach(function (lv) {
+      var li = el("li", lv === level ? "is-active" : null, lv.kind === "shell" ? "the shell — " + state.screen : lv.name);
+      levels.appendChild(li);
+    });
+    field("Levels", levels);
+
+    var now = el("div", "now", titleOf(node) + (region ? "" : ""));
+    now.appendChild(el("span", "pill", state.source));
+    field("Focused", now);
+
+    field("Region", region ? region.label + " · " + region.kind + " · card " + (level.focus.index + 1) + " of " + items.length : "—");
+
+    var memory = Object.keys(level.memory).map(function (id) {
+      var label = read.layout.regions[id] ? read.layout.regions[id].label : id;
+      return label + " → " + (Number(level.memory[id]) + 1);
+    });
+    field("Memory", memory.length ? memory.join(" · ") : "nothing remembered yet");
+
+    var last = state.log[0];
+    if (last) {
+      var why = el("div", "why", last.text);
+      why.appendChild(el("span", "pill muted", last.kind));
+      field("Last decision", why);
+    }
+    var summary = Object.keys(read.layout.regions)
+      .filter(function (id) { return read.layout.regions[id].kind !== "branch"; })
+      .map(function (id) {
+        var r = read.layout.regions[id];
+        return r.label + " (" + r.itemRects.length + ")";
+      });
+    field("On this level", summary.join(" · "));
+
+    logPanel.innerHTML = "";
+    state.log.forEach(function (entry) {
+      var li = el("li", null, entry.text);
+      logPanel.appendChild(li);
+    });
+    renderRules();
+  }
+
+  /* ---- walkthroughs ---------------------------------------------------- */
+  function act(kind, value) { return { kind: kind, value: value }; }
+
+  var scenarios = [
+    {
+      name: "1 · Down a column, off the bottom",
+      blurb: "Down from the rail into the content, then down through the rows and past the last one. Watch focus find the card below by geometry across a row boundary — and then hit a wall.",
+      setup: { screen: "home", focus: { regionId: "rail", index: 0 }, rules: {} },
+      steps: [
+        { label: "Right — cross from the rail's Home icon into the content", act: act("intent", "right") },
+        { label: "Down — the card below the hero", act: act("intent", "down") },
+        { label: "Down — the next row down", act: act("intent", "down") },
+        { label: "Down — the bottom row", act: act("intent", "down") },
+        { label: "Down again — off the bottom of the content", act: act("intent", "down") },
+        { label: "Up four times — back the way you came", act: act("intent", "up") },
+        { label: "And once more — off the top of the content", act: act("intent", "up") }
+      ]
+    },
+    {
+      name: "2 · Left to the rail, and back",
+      blurb: "The rail and the content overlap, so Left crosses. Which icon you land on, and which card you get back, is decided by where you are standing.",
+      setup: { screen: "home", focus: { regionId: "row:continue", index: 0 }, rules: {} },
+      steps: [
+        { label: "Left — from the first card of a row to the rail", act: act("intent", "left") },
+        { label: "Down — Library → Addons on the rail", act: act("intent", "down") },
+        { label: "Right — back into the content: which card did you land on?", act: act("intent", "right") },
+        { label: "Down — down the rail from wherever you are", act: act("intent", "down") },
+        { label: "Right — again: did the landing follow the icon?", act: act("intent", "right") },
+        { label: "Now switch the rule to “remember” and try Right again", act: act("rule", { key: "entry", value: "remember" }) },
+        { label: "Right — the same press, the other rule", act: act("intent", "right") }
+      ]
+    },
+    {
+      name: "3 · The end of a short row",
+      blurb: "Continue watching has three cards; the row below has eight. Right at its end is where a naive search falls diagonally into the row below and steals focus. The overlap rule is what stops it.",
+      setup: { screen: "home", focus: { regionId: "row:continue", index: 2 }, rules: { rowEnd: "stop" } },
+      steps: [
+        { label: "Right — the end of a three-card row", act: act("intent", "right") },
+        { label: "Switch the row rule to “wrap”", act: act("rule", { key: "rowEnd", value: "wrap" }) },
+        { label: "Right — the same press, with wrap on", act: act("intent", "right") },
+        { label: "Switch it back to “stop”", act: act("rule", { key: "rowEnd", value: "stop" }) },
+        { label: "Down — from a short row to the row below: which card?", act: act("intent", "down") },
+        { label: "Down — and again", act: act("intent", "down") }
+      ]
+    },
+    {
+      name: "4 · Open a Title, then Back",
+      blurb: "Activate pushes a level. The shell underneath keeps its focus untouched. Back pops one level and restores exactly where you were — that is the whole point of the stack.",
+      setup: { screen: "home", focus: { regionId: "row:featured", index: 3 }, rules: {} },
+      steps: [
+        { label: "Right, Down — wander a little, so there is somewhere to come back to", act: act("intent", "right") },
+        { label: "Down — one row down", act: act("intent", "down") },
+        { label: "OK on that card — the Title level is pushed", act: act("intent", "activate") },
+        { label: "Right, then Left — move inside the pushed level", act: act("intent", "right") },
+        { label: "Back — the level pops; where is focus?", act: act("intent", "back") },
+        { label: "Back again — the shell, and nothing above Home", act: act("intent", "back") }
+      ]
+    },
+    {
+      name: "5 · The focused control disappears",
+      blurb: "A card is removed from a row — a catalog refresh, a paged row, a Continue-watching entry deleted on another client. Focus must not be left pointing at nothing.",
+      setup: { screen: "home", focus: { regionId: "row:featured", index: 3 }, rules: { gone: "place" } },
+      steps: [
+        { label: "Remove the focused card", act: act("remove", null) },
+        { label: "Look at the log: focus stayed put and the next card slid into it", act: act("intent", "right") },
+        { label: "Switch the rule to “head”", act: act("rule", { key: "gone", value: "head" }) },
+        { label: "Remove another card", act: act("remove", null) },
+        { label: "Now switch the screen out from under focus — the whole region goes", act: act("screen", "search") },
+        { label: "Back to Home — where did focus go?", act: act("screen", "home") }
+      ]
+    },
+    {
+      name: "6 · The caret keeps Left and Right",
+      blurb: "A person typing a search must be able to fix a typo without leaving the box. Left and Right belong to the caret; Up and Down still move on, which is how a remote with no Backspace leaves the field at all.",
+      setup: { screen: "search", focus: { regionId: "search-field", index: 0 }, rules: {} },
+      steps: [
+        { label: "Left, Right — the caret moves, focus does not", act: act("intent", "right") },
+        { label: "Right again", act: act("intent", "right") },
+        { label: "Down — leaves the field for the results row", act: act("intent", "down") },
+        { label: "Right — walk the results", act: act("intent", "right") },
+        { label: "Up — back to the field", act: act("intent", "up") }
+      ]
+    },
+    {
+      name: "7 · One rail, two screens",
+      blurb: "Screens are not pushed: the rail is persistent, so switching a screen swaps the content and Back on a screen returns to Home. Watch what happens to focus when its region is swapped away.",
+      setup: { screen: "home", focus: { regionId: "row:featured", index: 2 }, rules: {} },
+      steps: [
+        { label: "Switch to Search from the rail", act: act("screen", "search") },
+        { label: "Back — a screen is not a level: it goes Home", act: act("intent", "back") },
+        { label: "Back again — now there is nothing above Home", act: act("intent", "back") },
+        { label: "Switch to Search while focused on a card", act: act("intent", "right") },
+        { label: "Switch to Search again, and read where focus fell", act: act("screen", "search") }
+      ]
+    }
+  ];
+
+  var current = 0;
+  var stepIndex = 0;
+  var tabs = document.getElementById("tabs");
+  var walkName = document.getElementById("walk-name");
+  var walkBlurb = document.getElementById("walk-blurb");
+  var walkSteps = document.getElementById("walk-steps");
+
+  function renderWalk() {
+    tabs.innerHTML = "";
+    scenarios.forEach(function (scenario, i) {
+      var b = el("button", i === current ? "is-on" : null, String(i + 1));
+      b.setAttribute("title", scenario.name);
+      b.addEventListener("click", function () { current = i; restartWalk(); });
+      tabs.appendChild(b);
+    });
+    var scenario = scenarios[current];
+    walkName.textContent = scenario.name;
+    walkBlurb.textContent = scenario.blurb;
+    walkSteps.innerHTML = "";
+    scenario.steps.forEach(function (step, i) {
+      var li = el("li", i === stepIndex ? "is-next" : (i < stepIndex ? "is-done" : null));
+      li.appendChild(el("span", "num", String(i + 1)));
+      var b = el("button", null, step.label);
+      b.addEventListener("click", function () {
+        stepIndex = i + 1;
+        runStep(step);
+      });
+      li.appendChild(b);
+      walkSteps.appendChild(li);
+    });
+  }
+
+  function runStep(step) {
+    if (step.act.kind === "intent") { runIntent(step.act.value, "button"); }
+    else if (step.act.kind === "rule") { state.rules[step.act.value.key] = step.act.value.value; render(); }
+    else if (step.act.kind === "remove") { removeFocused("button"); }
+    else if (step.act.kind === "screen") { state.screen = step.act.value; redrawKeepingFocus("Switched to " + step.act.value); }
+    renderWalk();
+  }
+
+  function restartWalk() {
+    var scenario = scenarios[current];
+    stepIndex = 0;
+    state.rules = Object.assign({}, DEFAULT_RULES, scenario.setup.rules || {});
+    state.screen = scenario.setup.screen;
+    state.log = [];
+    state.stack = [];
+    state.stack.push({ kind: "shell", name: "the shell", root: surface, focus: { regionId: scenario.setup.focus.regionId, index: scenario.setup.focus.index }, memory: {} });
+    drawSurface();
+    var read = readLevel(active());
+    setFocus(active(), active().focus);
+    pushLog({ intent: "reset", source: "button", kind: "reset", text: scenario.name + " — reset to its starting state" });
+    render();
+    renderWalk();
+  }
+
+  /* ---- wiring ---------------------------------------------------------- */
+  document.querySelectorAll("[data-intent]").forEach(function (b) {
+    b.addEventListener("click", function () { runIntent(b.getAttribute("data-intent"), "button"); });
+  });
+  document.getElementById("act-remove").addEventListener("click", function () { removeFocused("button"); });
+  document.getElementById("act-switch").addEventListener("click", function () { switchScreen("button"); });
+  document.getElementById("act-reset").addEventListener("click", function () { restartWalk(); });
+  document.getElementById("walk-reset").addEventListener("click", function () { restartWalk(); });
+
+  restartWalk();
+})();
+</script>
+</body>
+</html>
