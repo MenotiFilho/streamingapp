@@ -26,9 +26,12 @@
 //! is ignored instead, because genres decorate a Title while its Videos are what a
 //! Title *is* — the same leniency a catalog item's genres already get.
 //!
-//! Only the fields this Host acts on are read. A meta response carries far more —
-//! Cinemeta's `cast`, `director`, `trailers`, `links`, `slug`, `popularities`,
-//! `imdb_id`, `background` and `logo`, and a Video's `thumbnail`, `overview`,
+//! Only the fields this Host acts on are read, and art is now among them: a
+//! Title's `background` and `logo` and a Video's `thumbnail` are carried so the
+//! Title screen and a series' episode rows can be drawn (ADR-0011's #62
+//! amendment) — the same widening Home's hero got from a catalog item. A meta
+//! response carries far more — Cinemeta's `cast`, `director`, `trailers`,
+//! `links`, `slug`, `popularities`, `imdb_id`, and a Video's `overview`,
 //! `rating`, `firstAired` and `tvdb_id` — and all of it is ignored rather than
 //! refused, because reading a field nothing acts on is a promise this Host would
 //! not be keeping (ADR-0009). It arrives when a ticket that acts on it does.
@@ -69,6 +72,12 @@ pub struct Title {
     /// Title always has something to be called.
     pub name: String,
     pub poster: Option<String>,
+    /// The backdrop's address, where the Addon sent one: the art a Title screen
+    /// is drawn from, where the poster beside it is portrait.
+    pub background: Option<String>,
+    /// The logo's address, where the Addon sent one: a wordmark a Title screen
+    /// overlays on the backdrop, where a client draws one.
+    pub logo: Option<String>,
     pub description: Option<String>,
     /// The year, or a series' years: `1999`, `2008–2013`, `2020-`.
     pub release_info: Option<String>,
@@ -110,6 +119,9 @@ pub struct Video {
     pub id: String,
     /// The episode's name, where the Addon gave one.
     pub name: Option<String>,
+    /// The episode's still, where the Addon gave one: the 16:9 art a series'
+    /// episode row is drawn from.
+    pub thumbnail: Option<String>,
     /// The season, where the Addon numbered one. `0` is a series' specials.
     pub season: Option<u32>,
     /// The number within the season.
@@ -130,6 +142,7 @@ impl Video {
         Self {
             id: id.to_owned(),
             name: None,
+            thumbnail: None,
             season,
             episode,
         }
@@ -231,6 +244,8 @@ impl Title {
                 .and_then(|meta| field(meta, "name"))
                 .unwrap_or_else(|| asked.id.clone()),
             poster: meta.and_then(|meta| field(meta, "poster")),
+            background: meta.and_then(|meta| field(meta, "background")),
+            logo: meta.and_then(|meta| field(meta, "logo")),
             description: meta.and_then(|meta| field(meta, "description")),
             release_info: meta.and_then(|meta| field(meta, "releaseInfo")),
             runtime: meta.and_then(|meta| field(meta, "runtime")),
@@ -282,6 +297,7 @@ fn video(value: &Value) -> Option<Video> {
         // `name` is what Cinemeta calls an episode's title and `title` is what
         // the SDK's own type calls it.
         name: field(object, "name").or_else(|| field(object, "title")),
+        thumbnail: field(object, "thumbnail"),
         season: number(object, "season"),
         // The protocol spells an episode's number two ways and real Addons send
         // both: Cinemeta's `episode` and the SDK's own `number`. `episode` is
@@ -378,6 +394,16 @@ mod tests {
             .description
             .as_deref()
             .is_some_and(|description| description.contains("hacker")));
+        assert_eq!(
+            title.background.as_deref(),
+            Some("https://images.metahub.space/background/medium/tt0133093/img"),
+            "the backdrop a Title screen is drawn from"
+        );
+        assert_eq!(
+            title.logo.as_deref(),
+            Some("https://images.metahub.space/logo/medium/tt0133093/img"),
+            "the wordmark a Title screen overlays on it"
+        );
         assert!(
             title.videos.is_empty(),
             "a film has no Videos: {:?}",
@@ -411,6 +437,20 @@ mod tests {
         let pilot = &title.videos[1];
         assert_eq!(pilot.id, "tt0903747:1:1");
         assert_eq!(pilot.name.as_deref(), Some("Pilot"));
+        assert_eq!(
+            pilot.thumbnail.as_deref(),
+            Some("https://episodes.metahub.space/tt0903747/1/1/w780.jpg"),
+            "Cinemeta sends every episode its own 16:9 still"
+        );
+        assert!(
+            title.videos.iter().all(|video| video.thumbnail.is_some()),
+            "the specials carry one too: {:?}",
+            title
+                .videos
+                .iter()
+                .map(|video| video.thumbnail.as_deref())
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -446,6 +486,8 @@ mod tests {
         assert_eq!(title.r#type, "movie");
         assert_eq!(title.name, "The Matrix");
         assert_eq!(title.poster, None);
+        assert_eq!(title.background, None, "no art to draw, and no failure");
+        assert_eq!(title.logo, None);
         assert_eq!(title.description, None);
         assert_eq!(title.release_info, None);
         assert_eq!(title.runtime, None);
@@ -570,13 +612,29 @@ mod tests {
     #[test]
     fn fields_this_host_has_no_use_for_are_ignored_rather_than_refused() {
         // Cinemeta's meta carries `cast`, `director`, `trailers`, `links`,
-        // `slug`, `popularities`, `imdb_id`, `moviedb_id`, `background` and
-        // `logo` beside the fields the Host reads, and a Title that knows more
-        // than the Host does still opens.
+        // `slug`, `popularities`, `imdb_id` and `moviedb_id` beside the fields
+        // the Host reads, and a Title that knows more than the Host does still
+        // opens.
         let title = parsed(SERIES, &asked("series", "tt0903747"));
 
         assert_eq!(title.imdb_rating.as_deref(), Some("9.5"));
         assert_eq!(title.genres, vec!["Crime", "Drama", "Thriller"]);
+    }
+
+    #[test]
+    fn art_of_a_shape_the_host_will_not_hold_is_art_the_addon_did_not_send() {
+        // The same leniency every field gets: a backdrop or a still that is not
+        // a string the Host will hold is absent rather than a refusal of the
+        // whole answer.
+        let title = parsed(
+            r#"{"meta":{"id":"tt1","type":"series","name":"One",
+                "background":7,"logo":"","videos":[{"id":"tt1:1:1","thumbnail":false}]}}"#,
+            &asked("series", "tt1"),
+        );
+
+        assert_eq!(title.background, None);
+        assert_eq!(title.logo, None);
+        assert_eq!(title.videos[0].thumbnail, None);
     }
 
     #[test]
@@ -674,6 +732,14 @@ mod tests {
         assert_eq!(published["type"], "movie");
         assert_eq!(published["releaseInfo"], "1999");
         assert_eq!(published["imdbRating"], "8.7");
+        assert_eq!(
+            published["background"], "https://images.metahub.space/background/medium/tt0133093/img",
+            "the art rides the answer to the client that opened the Title"
+        );
+        assert_eq!(
+            published["logo"],
+            "https://images.metahub.space/logo/medium/tt0133093/img"
+        );
         assert_eq!(
             published["videos"],
             serde_json::json!([]),

@@ -248,8 +248,8 @@ impl Host {
         Ok(Response::changed(vec![self.snapshot()], answer))
     }
 
-    /// Merge what the Stremio account holds into the library: remote progress
-    /// that is newer than the Host's record is taken in.
+    /// Merge what the Stremio account holds into the Host's Watch progress:
+    /// remote progress that is newer than the Host's record is taken in.
     ///
     /// The Host's *open* (#30): the shell calls it once at startup, and signing
     /// in calls it too. It is a door beside [`Host::sample`] rather than an
@@ -259,7 +259,7 @@ impl Host {
     /// is when it is known to be the newer write.
     ///
     /// With no account signed in it asks nothing, and a Stremio that cannot
-    /// answer leaves the library as it was.
+    /// answer leaves the Host's Watch progress as it was.
     pub fn pull_remote(&mut self) -> Option<Snapshot> {
         let (stremio, key) = self.account()?;
         let items = stremio.library(&key, None).ok()?;
@@ -1310,10 +1310,10 @@ fn playable(video: &VideoRef, addon: &AddonId, stream: &Stream) -> Option<Chosen
 /// it for an episode.
 ///
 /// The one reading of the protocol's episode-id shape is [`meta::episode_of`],
-/// which the library's card goes through too, so the two cannot disagree about
-/// what an episode is. The season and the episode numbers are deliberately not
-/// returned: the next Video comes from the Addon's own list, and inventing an id
-/// by arithmetic is exactly what ADR-0014 forbids.
+/// which a Continue watching card goes through too, so the two cannot disagree
+/// about what an episode is. The season and the episode numbers are deliberately
+/// not returned: the next Video comes from the Addon's own list, and inventing
+/// an id by arithmetic is exactly what ADR-0014 forbids.
 fn episode_title(video: &VideoRef) -> Result<String, ActionError> {
     meta::episode_of(&video.id)
         .map(|(title, _, _)| title.to_owned())

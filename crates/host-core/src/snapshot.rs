@@ -39,11 +39,11 @@ pub struct Snapshot {
     /// thing about credentials that is not itself one, and is what the interface
     /// shows when it says how exposed they are.
     pub protection: ProtectionSnapshot,
-    /// The library: one entry per Video the Host has Watch progress in, most
-    /// recently played first. This is the shared state the spec names beside
-    /// playback — what is in the library, and where in each Video the owner got
-    /// to — so it travels as a Snapshot rather than as an answer, and every
-    /// client sees the same Continue watching row (#29).
+    /// Continue watching: one entry per Video the Host has Watch progress in,
+    /// most recently played first. This is the shared state the spec names beside
+    /// playback — which Videos are on the row, and where in each one the owner
+    /// got to — so it travels as a Snapshot rather than as an answer, and every
+    /// client sees the same row (#29).
     pub watch_progress: Vec<ResumeEntry>,
     /// The devices the Host has paired, in the order they paired. Enough to list
     /// them and to name one when revoking; what a device *holds* is not here, and

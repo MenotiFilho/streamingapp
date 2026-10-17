@@ -139,7 +139,9 @@ pub enum Action {
         /// judged against (#29). The client has it open — a Title is the
         /// client's own (ADR-0005) — so the Host is told which Title a Video is
         /// of rather than guessing one from an Addon that may not answer `meta`.
-        title: TitleCard,
+        /// Boxed because a card is the largest payload an Action carries beside
+        /// a Stream, which is boxed beside it for the same reason.
+        title: Box<TitleCard>,
     },
     /// Play a Video again from where it was left.
     ///
@@ -787,7 +789,8 @@ mod tests {
                 "video":{{"type":"movie","id":"tt0133093"}},
                 "addon":"community.aiostreams",
                 "title":{{"addon":"com.linvo.cinemeta","id":"tt0133093","type":"movie",
-                    "name":"The Matrix","poster":"https://images.example.org/matrix.jpg"}},
+                    "name":"The Matrix","poster":"https://images.example.org/matrix.jpg",
+                    "background":"https://images.example.org/matrix-backdrop.jpg"}},
                 "stream":{{"name":"AIOStreams\n1080p","playback":{{"kind":"direct","url":"https://stream.example.org/v/x.mkv"}}}}}}}}"#
         ))
         .expect("a client's own envelope parses");
@@ -845,6 +848,7 @@ mod tests {
                     r#type: "movie".to_owned(),
                     name: "The Matrix".to_owned(),
                     poster: Some("https://images.example.org/matrix.jpg".to_owned()),
+                    background: Some("https://images.example.org/matrix-backdrop.jpg".to_owned()),
                 })
                 .expect("a Title a request could name"),
             }

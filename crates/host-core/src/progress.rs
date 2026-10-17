@@ -72,6 +72,9 @@ pub struct TitleCard {
     pub name: String,
     /// The Title's poster, where the Addon gave one.
     pub poster: Option<String>,
+    /// The Title's backdrop, where the Addon gave one. Continue watching draws
+    /// 16:9 cards, and the poster beside it is portrait.
+    pub background: Option<String>,
 }
 
 /// The least of a Title a library card is drawn from — judged.
@@ -79,7 +82,8 @@ pub struct TitleCard {
 /// Valid by construction: [`TitleStub::parse`] is the only way to make one, and
 /// it refuses a Title whose type and id are not ones a request could name. The
 /// words are bounded the way every word that travels to a client is: a name too
-/// long to hold falls back to the id, and a poster that is not one is dropped.
+/// long to hold falls back to the id, and a poster or a backdrop that is not one
+/// is dropped.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TitleStub {
@@ -89,6 +93,7 @@ pub struct TitleStub {
     r#type: String,
     name: String,
     poster: Option<String>,
+    background: Option<String>,
 }
 
 impl TitleStub {
@@ -103,6 +108,7 @@ impl TitleStub {
             r#type: title.r#type,
             name: held(&card.name).unwrap_or_else(|| card.id.clone()),
             poster: held(&card.poster.clone().unwrap_or_default()),
+            background: held(&card.background.clone().unwrap_or_default()),
         })
     }
 
@@ -129,6 +135,12 @@ impl TitleStub {
     /// The Title's poster, where it had one the Host will hold.
     pub fn poster(&self) -> Option<&str> {
         self.poster.as_deref()
+    }
+
+    /// The Title's backdrop, where it had one the Host will hold: the 16:9 art
+    /// Continue watching draws, where the poster beside it is portrait.
+    pub fn background(&self) -> Option<&str> {
+        self.background.as_deref()
     }
 }
 
@@ -301,6 +313,7 @@ mod tests {
             r#type: "series".to_owned(),
             name: name.to_owned(),
             poster: Some("https://images.example.org/bb.jpg".to_owned()),
+            background: Some("https://images.example.org/bb-backdrop.jpg".to_owned()),
         }
     }
 
@@ -328,6 +341,11 @@ mod tests {
         assert_eq!(stub.r#type(), "series");
         assert_eq!(stub.name(), "Breaking Bad");
         assert_eq!(stub.poster(), Some("https://images.example.org/bb.jpg"));
+        assert_eq!(
+            stub.background(),
+            Some("https://images.example.org/bb-backdrop.jpg"),
+            "16:9 Continue watching art rides the card the client handed back"
+        );
     }
 
     #[test]
@@ -356,12 +374,18 @@ mod tests {
         let stub = TitleStub::parse(&TitleCard {
             name: String::new(),
             poster: Some("\u{0}".to_owned()),
+            background: Some("\u{0}".to_owned()),
             ..card("One")
         })
         .expect("the Title is still one the Host will key by");
 
         assert_eq!(stub.name(), "tt0903747");
         assert_eq!(stub.poster(), None);
+        assert_eq!(
+            stub.background(),
+            None,
+            "a backdrop that is not one is not art Continue watching draws"
+        );
     }
 
     #[test]
@@ -371,6 +395,7 @@ mod tests {
             Video {
                 id: "tt0903747:1:2".to_owned(),
                 name: None,
+                thumbnail: None,
                 season: Some(1),
                 episode: Some(2),
             }
@@ -380,6 +405,7 @@ mod tests {
             Video {
                 id: "kitsu:12345:0:1".to_owned(),
                 name: None,
+                thumbnail: None,
                 season: Some(0),
                 episode: Some(1),
             },
@@ -390,6 +416,7 @@ mod tests {
             Video {
                 id: "tt0133093".to_owned(),
                 name: None,
+                thumbnail: None,
                 season: None,
                 episode: None,
             },
@@ -400,6 +427,7 @@ mod tests {
             Video {
                 id: "tt0903747:1".to_owned(),
                 name: None,
+                thumbnail: None,
                 season: None,
                 episode: None,
             },
@@ -531,6 +559,10 @@ mod tests {
             serde_json::json!({ "reason": "addon_removed", "addon": "com.linvo.cinemeta" })
         );
         assert_eq!(published["title"]["type"], "series");
+        assert_eq!(
+            published["title"]["background"], "https://images.example.org/bb-backdrop.jpg",
+            "the backdrop is published beside the poster it falls back from"
+        );
         assert_eq!(
             published["updatedAt"],
             serde_json::Value::Null,

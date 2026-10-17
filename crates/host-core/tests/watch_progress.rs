@@ -121,6 +121,7 @@ fn play(fixture: &mut Fixture, r#type: &str, video: &str) {
                 "type": r#type,
                 "name": "Breaking Bad",
                 "poster": "https://images.example.org/bb.jpg",
+                "background": "https://images.example.org/bb-backdrop.jpg",
             },
             "stream": {
                 "name": "1080p",
@@ -169,6 +170,42 @@ fn playing_a_video_records_where_it_got_to_and_the_snapshot_carries_it() {
     assert_eq!(entry.duration, Some(2820.0));
     assert!(!entry.watched, "a Stream at 402 seconds is not finished");
     assert_eq!(entry.unplayable, None);
+}
+
+#[test]
+fn the_card_a_client_hands_back_carries_its_backdrop_into_continue_watching() {
+    // Continue watching draws 16:9 art (#62), and the client has the backdrop
+    // in hand — so the card it sends on `play_stream` is where the Host gets
+    // it, and the Snapshot is where every client gets it back.
+    let mut fixture = fixture();
+    play(&mut fixture, "series", "tt0903747:1:2");
+    watching(&mut fixture, 402.0, 2820.0, 10_000);
+
+    let entry = &library(&fixture.host)[0];
+    assert_eq!(
+        entry.title.background(),
+        Some("https://images.example.org/bb-backdrop.jpg")
+    );
+    assert_eq!(
+        entry.title.poster(),
+        Some("https://images.example.org/bb.jpg"),
+        "the poster the backdrop falls back from rides beside it"
+    );
+
+    let published = serde_json::to_value(fixture.host.snapshot()).expect("a Snapshot serializes");
+    assert_eq!(
+        published["watchProgress"][0]["title"]["background"],
+        "https://images.example.org/bb-backdrop.jpg",
+        "the art is published on the Snapshot, camelCased for a JavaScript client"
+    );
+
+    // And the Host that comes back over the same store finds it again.
+    let restarted = fixture_over(fixture.store.clone());
+    assert_eq!(
+        library(&restarted.host)[0].title.background(),
+        Some("https://images.example.org/bb-backdrop.jpg"),
+        "the backdrop survives a Host that was killed without a stop"
+    );
 }
 
 #[test]
@@ -291,6 +328,11 @@ fn the_next_episode_is_a_new_entry_under_the_same_title_and_the_one_watched_stay
         held[0].title.id(),
         "tt0903747",
         "the next episode is recorded against the same Title"
+    );
+    assert_eq!(
+        held[0].title.background(),
+        Some("https://images.example.org/bb-backdrop.jpg"),
+        "the card the Title was told with — backdrop included — carries forward"
     );
     assert!(held[1].watched, "the episode that finished stays watched");
 }
