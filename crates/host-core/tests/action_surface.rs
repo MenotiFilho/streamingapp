@@ -304,6 +304,7 @@ fn the_snapshot_declares_only_fields_it_can_safely_carry() {
                 "picture": "in_window",
                 "failure": serde_json::Value::Null,
                 "nowPlaying": serde_json::Value::Null,
+                "episode": serde_json::Value::Null,
                 "position": serde_json::Value::Null,
                 "duration": serde_json::Value::Null,
                 "tracks": [],

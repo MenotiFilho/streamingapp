@@ -81,6 +81,17 @@ export type FeaturedCatalog = {
 export type PlaybackState = "idle" | "opening" | "playing" | "paused" | "ended";
 
 /**
+ * Which season and episode the Stream playing is, as the Host read it off the
+ * playing Video's id. Mirrors `Episode` in `host-core`: a position, not a
+ * verdict — whether a neighbouring episode exists is what the Host refuses an
+ * episode step with, not something a client decides (ADR-0021).
+ */
+export type Episode = {
+  season: number;
+  episode: number;
+};
+
+/**
  * Where the Player's picture is drawn — a fact about the machine, not a setting.
  * Mirrors `Picture` in `host-core`; a client sharing the Host's window leaves
  * the picture's rectangle unpainted where it is in the same window.
@@ -183,6 +194,11 @@ export type PlaybackSnapshot = {
   /** Why the last Stream could not be opened, in the Player's own words. */
   failure: string | null;
   nowPlaying: NowPlaying | null;
+  /**
+   * Which season and episode the Stream playing is, where the Video's id says —
+   * what the episode steps grey themselves from. Null for a film.
+   */
+  episode: Episode | null;
   /** Where playback is in seconds, and how long the Stream is, where known. */
   position: number | null;
   duration: number | null;
@@ -500,6 +516,8 @@ export type Action =
   // which Video that is — asking its Addons, not counting up an id — and answers
   // whether it can move to one at all.
   | { type: "next_episode" }
+  // The same step back, decided by the Host the same way (ADR-0021).
+  | { type: "previous_episode" }
   // Pairing and devices (#31). `pair_device` is the one Action an unpaired
   // connection may take; this window is the Host's own and is already in, so what
   // it sends is the revoke: one device's token is taken away and every other
@@ -552,6 +570,7 @@ export const HOST_ERROR_KINDS = [
   "unplayable",
   "nothing_playing",
   "no_next_episode",
+  "no_previous_episode",
   "no_progress",
   "playback",
   "store",
@@ -586,7 +605,8 @@ export type Control =
   | "chapter"
   | "crop"
   | "aspect"
-  | "next_episode";
+  | "next_episode"
+  | "previous_episode";
 
 /**
  * Why an Action was not taken, in the Host's own vocabulary, plus `unreachable`
@@ -739,6 +759,8 @@ export function explain(error: ActionError): string {
       return `Nothing is playing, so the Host cannot ${controlWords(error.control)}.`;
     case "no_next_episode":
       return `The Host could not move to the next episode${error.detail ? `: ${error.detail}` : ""}.`;
+    case "no_previous_episode":
+      return `The Host could not move to the previous episode${error.detail ? `: ${error.detail}` : ""}.`;
     case "no_progress":
       return `The Host has no Watch progress for ${error.video?.type ?? "?"}/${error.video?.id ?? "?"}, so there is nothing to resume.`;
     case "playback":
@@ -809,6 +831,8 @@ function controlWords(control: Control | undefined): string {
       return "change the aspect";
     case "next_episode":
       return "play the next episode";
+    case "previous_episode":
+      return "play the previous episode";
     default:
       return "do that";
   }

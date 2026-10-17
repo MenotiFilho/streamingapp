@@ -144,7 +144,7 @@
         a comment: a control wired to an Action this list does not name throws
         rather than sending it.
       -->
-      <script type="application/json" id="action-capabilities">["set_subtitle_language","clear_subtitle_language","set_featured_catalog","clear_featured_catalog","add_addon","reorder_addon","remove_addon","set_tmdb_key","clear_tmdb_key","sign_in_stremio","sign_out_stremio","pair_device","revoke_device","browse_catalog","search_catalogs","open_title","find_streams","play_stream","resume","set_paused","seek","set_audio_track","set_subtitle_track","set_subtitle_delay","set_speed","set_volume","set_muted","next_chapter","previous_chapter","set_chapter","set_crop","set_aspect","next_episode","stop_playback"]</script>
+      <script type="application/json" id="action-capabilities">["set_subtitle_language","clear_subtitle_language","set_featured_catalog","clear_featured_catalog","add_addon","reorder_addon","remove_addon","set_tmdb_key","clear_tmdb_key","sign_in_stremio","sign_out_stremio","pair_device","revoke_device","browse_catalog","search_catalogs","open_title","find_streams","play_stream","resume","set_paused","seek","set_audio_track","set_subtitle_track","set_subtitle_delay","set_speed","set_volume","set_muted","next_chapter","previous_chapter","set_chapter","set_crop","set_aspect","next_episode","previous_episode","stop_playback"]</script>
 
       <!-- The pairing card: what a device that has not paired sees. -->
       <section id="pairing" class="card hidden">
@@ -367,8 +367,11 @@
         if (track.default) { marks.push("default"); }
         return marks;
       }
-      function hasNextEpisode(playing) {
-        return Boolean(playing) && playing.video.type === "series";
+      function hasNextEpisode(episode) {
+        // The Host's own reading of the playing Video's id, published beside
+        // Now playing: null for a film (ADR-0021). Whether a next Video
+        // *exists* stays the Host's answer, delivered where the press refuses.
+        return Boolean(episode);
       }
       function controllable(state) {
         return state === "opening" || state === "playing" || state === "paused";
@@ -577,6 +580,7 @@
             return "The Host will not play that Stream: " + (error.detail || "it is not one it can open");
           case "nothing_playing": return "Nothing is playing, so the Host cannot do that.";
           case "no_next_episode": return "There is no next episode to play" + because(error.detail);
+          case "no_previous_episode": return "There is no previous episode to play" + because(error.detail);
           case "no_progress": return "The Host has no Watch progress for that Video.";
           case "playback": return "The Host's player could not do that" + because(error.detail);
           case "store": return "The Host could not save that change" + because(error.detail);
@@ -1021,7 +1025,7 @@
               <span class="clock" data-clock></span>
               <button type="button" data-a="stop">Stop</button>
               ${controllable(p.state) ? html`<button type="button" data-a="controls-toggle">Controls</button>` : null}
-              ${p.state === "ended" && hasNextEpisode(p.nowPlaying)
+              ${p.state === "ended" && hasNextEpisode(p.episode)
                 ? html`<button type="button" class="primary" data-a="next-episode">Next episode</button>`
                 : null}
             </div>
@@ -1161,7 +1165,7 @@
                 : null}
             </div>
 
-            ${hasNextEpisode(p.nowPlaying)
+            ${hasNextEpisode(p.episode)
               ? html`<div class="menu-group">
                   <button type="button" data-a="next-episode">Next episode</button>
                 </div>`
