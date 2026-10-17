@@ -236,7 +236,7 @@ ol.log li:first-child { color: var(--ink); }
         <div id="panel-state"></div>
       </div>
       <div class="panel">
-        <h2>The rules under test</h2>
+        <h2>The rules, and what was decided</h2>
         <div id="panel-rules"></div>
       </div>
       <div class="panel">
@@ -301,8 +301,10 @@ ol.log li:first-child { color: var(--ink); }
           outright when the thing you came from is wider than the whole region, which is why Down from the hero or
           from the search box lands on the row's first card. The rail is the exception that proves the rule: Right
           from the rail's Library icon enters at whatever card sits at that height.</li>
-        <li><strong>The edges are walls with one rule each:</strong> a row's end, the rail's end, and Up off the top of
-          the content. Each can stop, wrap, or (Up) hand you to the rail — that is what the switch panel is for.</li>
+        <li><strong>Every edge stops.</strong> A row's end, the rail's end, and Up off the top of the content are
+          all walls: nothing wraps, and Up from the hero goes nowhere, so the hero is left with Left or Back. The
+          switches above can make those edges wrap or hand you to the rail; none of them is switched on, and they
+          are kept only so the alternative can still be felt.</li>
       </ul>
       <h3>The region stack</h3>
       <p>
@@ -339,6 +341,20 @@ ol.log li:first-child { color: var(--ink); }
           companion is keyboard and touch on every platform, and that is not a gap: its page is served over plain
           HTTP, an insecure origin, where <code>getGamepads()</code> returns nothing at all.</li>
       </ul>
+      <h3>The decisions this artifact settled (2026-10-16, map ticket #51)</h3>
+      <ul>
+        <li>The model as above, taken as it stands: geometry inside a region, crossing only to a region that
+          overlaps you across the way, entry at the card under your middle, Back as a stack of levels.</li>
+        <li>Entering a region: the card under your middle, else the nearest; and the region's head when what you
+          came from is wider than the whole region.</li>
+        <li>Every edge stops: no wrap at a row's end or at the rail's end, and Up off the top of the content goes
+          nowhere.</li>
+        <li>A control that disappears: focus steps back to the control before the gap.</li>
+        <li>Screens replace the content and Back on a screen returns to Home; only an overlay is a pushed level.</li>
+        <li>The companion carries the same pass, inlined and keyboard-only, over a two-level tree.</li>
+        <li>The pad column belongs to the window and only works on Windows until a Rust-side reader exists.</li>
+      </ul>
+
       <h3>What is deliberately not here</h3>
       <ul>
         <li>Visuals: the tokens and component kit are ticket #50's answer, not this one.</li>
@@ -616,7 +632,7 @@ var SpatialFocus = (function () {
       }
     }
 
-    return { kind: "blocked", direction: dir, why: "nothing that way, and no rule for it" };
+    return { kind: "blocked", direction: dir, why: dir === "up" ? "nothing above, and no rule sends Up anywhere" : "nothing that way, and no rule sends focus anywhere" };
   }
 
   // A control is gone. The rules pick between stepping back, keeping the place
@@ -707,7 +723,10 @@ var SpatialFocus = (function () {
   var RESULT_ROW = { id: "row:results", label: "Results", items: ["Arrival", "Contact", "Interstellar", "Moon", "Solaris", "Annihilation"] };
   var RAIL = ["Home", "Discover", "Search", "Library", "Addons", "Settings"];
 
-  var DEFAULT_RULES = { rowEnd: "stop", railEnd: "wrap", upFromContent: "rail", entry: "align", gone: "previous" };
+  // The decisions of 2026-10-16 (map ticket #51): every edge of the shell stops.
+  // There is no wrap anywhere and Up out of the content goes nowhere; the rail is
+  // entered and left with Right and Left, and the hero is left with Left or Back.
+  var DEFAULT_RULES = { rowEnd: "stop", railEnd: "stop", upFromContent: "nothing", entry: "align", gone: "previous" };
 
   var state = {
     source: "button",
@@ -1143,7 +1162,7 @@ var SpatialFocus = (function () {
     { key: "entry", name: "Entering a region", question: "Which card you land on when focus crosses into a region.", options: ["align", "remember"] },
     { key: "gone", name: "The focused control disappears", question: "A row loses the card you are on.", options: ["previous", "place", "head"] }
   ];
-  var RECOMMENDED = { rowEnd: "stop", railEnd: "wrap", upFromContent: "rail", entry: "align", gone: "previous" };
+  var RECOMMENDED = { rowEnd: "stop", railEnd: "stop", upFromContent: "nothing", entry: "align", gone: "previous" };
 
   var rulesPanel = document.getElementById("panel-rules");
   function renderRules() {
@@ -1161,7 +1180,7 @@ var SpatialFocus = (function () {
           render();
         });
         if (RECOMMENDED[rule.key] === option) {
-          var star = el("span", "rec", "rec");
+          var star = el("span", "rec", "chosen");
           b.appendChild(star);
         }
         seg.appendChild(b);
