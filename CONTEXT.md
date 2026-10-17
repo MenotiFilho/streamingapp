@@ -34,6 +34,12 @@ A Title still keyed by the addon that supplied it: nothing mapped it to a TMDB
 record. It stays visible and says so — unmapped is a mark, not a hiding.
 _Avoid_: unmatched, missing, broken item
 
+**Discovered Title**:
+A Title TMDB named before any Addon did — the inverse of an Unmapped Title:
+always keyed by its TMDB id, and possibly unknown to every Addon. A client opens
+it against TMDB, and its Streams are asked of whichever Addons accept the id.
+_Avoid_: TMDB item, found title, catalog item
+
 **Video**:
 One playable unit of a Title: the film itself, or a single episode. Watch
 progress is recorded against a Video.
@@ -61,6 +67,13 @@ The one Catalog the owner has marked as the Host's featured feed — what a
 client's Home hero is drawn from, its first items in the Addon's own order. A
 preference of the Host's, not a client's: every client draws the same hero.
 _Avoid_: pinned catalog, top shelf, hero row
+
+**Discover**:
+The one feed of Discovered Titles a client browses that is not an Addon's: the
+page TMDB offers, asked for by TMDB's own filters (type, genre, sort, page)
+rather than a Catalog's declared `extra`. It needs a TMDB Credential; with none
+it is a screen that says so rather than a hidden one.
+_Avoid_: TMDB catalog, discover catalog
 
 **Meta preview**:
 One item in a Row, as the addon protocol carries it: the id, name, poster, year
