@@ -116,6 +116,17 @@ record at all.
 - `tmdb-tv-details-making.json` — written by hand, not recorded, and invented
   outright: a series `in_production` with no `last_air_date` to end the range
   (`2020–`), which a recording would only catch by being run in that window.
+- `tmdb-external-ids-matrix.json` and `tmdb-external-ids-bb.json` — written by
+  hand: the `/movie/603/external_ids` and `/tv/1396/external_ids` answers, whose
+  `imdb_id` is one hop of the per-Addon id bridge (ADR-0020). The ids are TMDB's
+  own; the nulls beside them are what a real answer carries.
+- `tmdb-tv-season-0.json`, `-1.json`, `-2.json` — written by hand: the three
+  season answers `/tv/1396` lists, each with the episodes this Host reads into
+  Videos keyed `tmdb:1396:<season>:<episode>`. Trimmed to the same five episodes
+  as `cinemeta-meta-series.json` (a special, three of season 1, one of season 2)
+  so the two sources can be compared episode for episode. The still paths are
+  invented; season 0's is absent, which is the episode row that degrades to
+  text.
 - `tmdb-page-movie.json` — a page of film results as `/trending/movie/week` and
   `/discover/movie` answer: two records with the ids, poster and backdrop paths,
   release dates, ratings and `genre_ids` TMDB sends, beside noise fields the Host
@@ -123,6 +134,16 @@ record at all.
   asserts on, the same way the details fixtures are.
 - `tmdb-page-tv.json` — the same for series, where the name is `name` and the
   date is `first_air_date`; `/trending/tv/week` and `/discover/tv`.
+
+## Stream Addon manifests, hand-written
+
+- `mediafusion-manifest.json` — a stream Addon declaring `["tt", "tmdb:", …]` on
+  its `stream` resource, the shape `mhdzumair/MediaFusion` really declares
+  (`docs/research/tmdb-discovery-and-id-mapping.md` §7.3). It is what drives the
+  per-Addon id bridge: the Addon is asked with `tmdb:<id>` rather than resolved.
+- `animescraper-manifest.json` — a stream Addon declaring one namespace of its
+  own (`kitsu`) and neither of the two a TMDB-keyed Video can be asked in: the
+  Addon the bridge considers and does not ask, whose group comes back empty.
 
 ## Stream responses
 

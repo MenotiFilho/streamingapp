@@ -397,3 +397,84 @@ fn a_player_that_cannot_say_what_the_stream_carries_does_not_spend_the_attempt()
         "the report the Host can act on is the one the attempt is spent on"
     );
 }
+
+// --- the fallback for a Video TMDB keys --------------------------------------
+
+/// An Addon that answers `subtitles` in the one namespace a TMDB-keyed Video
+/// reaches it by, declaring it the way a real subtitles Addon does.
+const SUBS_TT: &str = "https://subs-tt.example.org/manifest.json";
+const SUBS_TT_ID: &str = "org.example.subsTT";
+const SUBS_TT_MANIFEST: &str = r#"{
+    "id": "org.example.subsTT",
+    "name": "Subs TT",
+    "version": "1.0.0",
+    "resources": [
+        { "name": "stream", "types": ["movie", "series"], "idPrefixes": ["tt"] },
+        { "name": "subtitles", "types": ["movie", "series"], "idPrefixes": ["tt"] }
+    ],
+    "types": ["movie", "series"],
+    "catalogs": []
+}"#;
+
+const SUBS_TT_EPISODE: &str = "https://subs-tt.example.org/subtitles/series/tt0903747%3A1%3A1.json";
+const SUBS_TT_BODY: &str = r#"{"subtitles":[
+    {"id":"tt-ep-eng","url":"https://subs.example.org/tt-ep.srt","lang":"eng"}
+]}"#;
+
+const TMDB_KEY: &str = "0123456789abcdef0123456789abcdef";
+const TMDB_EXTERNAL_IDS_BB: &str =
+    "https://api.themoviedb.org/3/tv/1396/external_ids?api_key=0123456789abcdef0123456789abcdef";
+const TMDB_EXTERNAL_BB: &str = include_str!("fixtures/tmdb-external-ids-bb.json");
+
+#[test]
+fn a_tmdb_keyed_videos_subtitles_are_asked_in_the_addons_own_spelling() {
+    // The Stream's Video is TMDB's (`tmdb:1396:1:1`), so the fallback travels
+    // in the spelling the Addon declares — `tt`, resolved through TMDB — the
+    // same per-Addon bridge the Stream ask uses (ADR-0020). Without it a
+    // TMDB-first Stream would quietly lose the subtitles an Addon-keyed one
+    // gets.
+    let player = Arc::new(FixturePlayer::new());
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(SUBS_TT, SUBS_TT_MANIFEST)
+            .serving(SUBS_TT_EPISODE, SUBS_TT_BODY)
+            .serving(TMDB_EXTERNAL_IDS_BB, TMDB_EXTERNAL_BB),
+    );
+    let mut host = Host::new(
+        Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
+        fetcher.clone(),
+        Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
+        Arc::new(host_core::AddonProvider::new(fetcher.clone())),
+        player.clone(),
+        Arc::new(FixtureClock::new()),
+    )
+    .expect("a Host over a store starts");
+    host.dispatch(action(
+        &serde_json::json!({ "type": "add_addon", "url": SUBS_TT }),
+    ))
+    .expect("configuring the Addon should work");
+    host.dispatch(action(
+        &serde_json::json!({ "type": "set_tmdb_key", "key": TMDB_KEY }),
+    ))
+    .expect("entering a TMDB key should work");
+
+    play(&mut host, SUBS_TT_ID, "series", "tmdb:1396:1:1");
+    player.now_reporting(without_subtitles());
+    host.sample()
+        .expect("the Player's first report is a change");
+
+    assert_eq!(
+        added(&player),
+        vec![(
+            "https://subs.example.org/tt-ep.srt".to_owned(),
+            Some("tt-ep-eng".to_owned()),
+            Some("eng".to_owned()),
+        )],
+        "the subtitles arrive from the Addon the Video was asked of in its own spelling"
+    );
+    assert!(
+        fetcher.asked().contains(&SUBS_TT_EPISODE.to_owned()),
+        "the ask travelled as `tt0903747:1:1`: {:?}",
+        fetcher.asked()
+    );
+}

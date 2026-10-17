@@ -30,13 +30,13 @@
 //! Title's `background` and `logo` and a Video's `thumbnail` are carried so the
 //! Title screen and a series' episode rows can be drawn (ADR-0011's #62
 //! amendment) — the same widening Home's hero got from a catalog item. Where a
-//! key is held, ADR-0020 gives TMDB's record the last word on this art as well;
-//! that read arrives with the ticket that acts on it. A meta response carries
-//! far more — Cinemeta's `cast`, `director`, `trailers`, `links`, `slug`,
-//! `popularities`, `imdb_id`, and a Video's `overview`, `rating`, `firstAired`
-//! and `tvdb_id` — and all of it is ignored rather than refused, because reading
-//! a field nothing acts on is a promise this Host would not be keeping
-//! (ADR-0009). It arrives when a ticket that acts on it does.
+//! key is held, ADR-0020 gives TMDB's record the last word on this art as well
+//! (#76). A meta response carries far more — Cinemeta's `cast`, `director`,
+//! `trailers`, `links`, `slug`, `popularities`, `imdb_id`, and a Video's
+//! `overview`, `rating`, `firstAired` and `tvdb_id` — and all of it is ignored
+//! rather than refused, because reading a field nothing acts on is a promise
+//! this Host would not be keeping (ADR-0009). It arrives when a ticket that
+//! acts on it does.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -55,12 +55,15 @@ pub const MAX_META_BYTES: usize = 4 * 1024 * 1024;
 ///
 /// The [`addon`](Self::addon) that answered travels with it, because that is what
 /// later tickets ask for Streams of one of its Videos, and because a Title here is
-/// always one Addon's answer to one client (ADR-0005), never shared state.
+/// always one Addon's answer to one client (ADR-0005), never shared state. It is
+/// absent for a **Discovered Title** — one TMDB named before any Addon did, which
+/// may be unknown to every configured Addon (ADR-0020).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Title {
-    /// The Addon that answered. Never where its manifest lives.
-    pub addon: AddonId,
+    /// The Addon that answered, or `None` for a Discovered Title. Never where its
+    /// manifest lives.
+    pub addon: Option<AddonId>,
     /// The id the client opened, which is the id its Addon indexes it by —
     /// `tt0903747`, `tmdb:603`.
     pub id: String,
@@ -74,11 +77,13 @@ pub struct Title {
     /// Title always has something to be called.
     pub name: String,
     pub poster: Option<String>,
-    /// The backdrop's address, where the Addon sent one: the art a Title screen
-    /// is drawn from, where the poster beside it is portrait.
+    /// The backdrop's address, where it has one — the Addon's, or TMDB's where
+    /// a key is held: the art a Title screen is drawn from, where the poster
+    /// beside it is portrait (#62, ADR-0020).
     pub background: Option<String>,
-    /// The logo's address, where the Addon sent one: a wordmark a Title screen
-    /// overlays on the backdrop, where a client draws one.
+    /// The logo's address, where it has one — the Addon's, or TMDB's where a key
+    /// is held: a wordmark a Title screen overlays on the backdrop, where a
+    /// client draws one (#62, ADR-0020).
     pub logo: Option<String>,
     pub description: Option<String>,
     /// The year, or a series' years: `1999`, `2008–2013`, `2020-`.
@@ -121,13 +126,13 @@ pub struct Video {
     pub id: String,
     /// The episode's name, where the Addon gave one.
     pub name: Option<String>,
-    /// The episode's still, where the Addon gave one: the 16:9 art a series'
-    /// episode row is drawn from.
-    pub thumbnail: Option<String>,
     /// The season, where the Addon numbered one. `0` is a series' specials.
     pub season: Option<u32>,
     /// The number within the season.
     pub episode: Option<u32>,
+    /// The episode's still, where the Addon gave one: the 16:9 art a series'
+    /// episode row is drawn from (#62).
+    pub thumbnail: Option<String>,
 }
 
 impl Video {
@@ -145,9 +150,9 @@ impl Video {
         Self {
             id: id.to_owned(),
             name: None,
-            thumbnail: None,
             season,
             episode,
+            thumbnail: None,
         }
     }
 }
@@ -236,7 +241,7 @@ impl Title {
             // *is* the item that was asked about, and an Addon cannot rename it.
             // A fresh answer is keyed by the Addon that gave it, until TMDB's
             // own records say otherwise — which is a decision above the parse.
-            addon: addon.clone(),
+            addon: Some(addon.clone()),
             id: asked.id.clone(),
             key: TitleKey::Addon {
                 addon,
@@ -300,12 +305,12 @@ fn video(value: &Value) -> Option<Video> {
         // `name` is what Cinemeta calls an episode's title and `title` is what
         // the SDK's own type calls it.
         name: field(object, "name").or_else(|| field(object, "title")),
-        thumbnail: field(object, "thumbnail"),
         season: number(object, "season"),
         // The protocol spells an episode's number two ways and real Addons send
         // both: Cinemeta's `episode` and the SDK's own `number`. `episode` is
         // read first because it is the one that names what the number is.
         episode: number(object, "episode").or_else(|| number(object, "number")),
+        thumbnail: field(object, "thumbnail"),
     })
 }
 
@@ -381,7 +386,10 @@ mod tests {
     fn a_recorded_film_is_read_into_its_metadata_and_no_videos() {
         let title = parsed(MOVIE, &asked("movie", "tt0133093"));
 
-        assert_eq!(title.addon.as_str(), "com.linvo.cinemeta");
+        assert_eq!(
+            title.addon.as_ref().map(AddonId::as_str),
+            Some("com.linvo.cinemeta")
+        );
         assert_eq!(title.id, "tt0133093");
         assert_eq!(title.r#type, "movie");
         assert_eq!(title.name, "The Matrix");
@@ -389,6 +397,16 @@ mod tests {
             .poster
             .as_deref()
             .is_some_and(|poster| poster.starts_with("https://")));
+        assert_eq!(
+            title.background.as_deref(),
+            Some("https://images.metahub.space/background/medium/tt0133093/img"),
+            "the backdrop is read: Home's hero and the Title hero are drawn from it"
+        );
+        assert_eq!(
+            title.logo.as_deref(),
+            Some("https://images.metahub.space/logo/medium/tt0133093/img"),
+            "the wordmark is read: a Title screen draws it over the backdrop"
+        );
         assert_eq!(title.release_info.as_deref(), Some("1999"));
         assert_eq!(title.runtime.as_deref(), Some("136 min"));
         assert_eq!(title.imdb_rating.as_deref(), Some("8.7"));
@@ -615,9 +633,9 @@ mod tests {
     #[test]
     fn fields_this_host_has_no_use_for_are_ignored_rather_than_refused() {
         // Cinemeta's meta carries `cast`, `director`, `trailers`, `links`,
-        // `slug`, `popularities`, `imdb_id` and `moviedb_id` beside the fields
-        // the Host reads, and a Title that knows more than the Host does still
-        // opens.
+        // `slug`, `popularities`, `imdb_id`, `moviedb_id` and a Video's
+        // `overview`, `rating`, `firstAired` and `tvdb_id` beside the fields the
+        // Host reads, and a Title that knows more than the Host does still opens.
         let title = parsed(SERIES, &asked("series", "tt0903747"));
 
         assert_eq!(title.imdb_rating.as_deref(), Some("9.5"));
@@ -636,8 +654,20 @@ mod tests {
         );
 
         assert_eq!(title.background, None);
-        assert_eq!(title.logo, None);
+        assert_eq!(title.logo, None, "an empty wordmark is no wordmark");
         assert_eq!(title.videos[0].thumbnail, None);
+
+        let too_long = "https://example.org/".to_owned() + &"a".repeat(MAX_STRING_LEN);
+        let title = parsed(
+            &format!(
+                r#"{{"meta":{{"id":"tt1","type":"movie","name":"One","background":"{too_long}"}}}}"#
+            ),
+            &asked("movie", "tt1"),
+        );
+        assert_eq!(
+            title.background, None,
+            "a backdrop too long to hold is no backdrop"
+        );
     }
 
     #[test]

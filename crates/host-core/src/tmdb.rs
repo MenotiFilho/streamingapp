@@ -28,11 +28,15 @@
 //! a `find` with neither the results the kind asked for nor an id in them — is
 //! an answer too, and it is not mapping.
 //!
-//! Videos are not TMDB's to renumber here. A series' episodes keep the ids
-//! their Addon indexes them by (`tt0903747:1:1`), because that is what Watch
-//! progress and Stream requests are keyed by; matching a TMDB episode to an
-//! addon Video is a decision this Host has not taken yet, and a metadata
-//! refinement is not a place where it can be improvised.
+//! Videos are TMDB's where a key is held: a series' seasons and episodes are
+//! read into Videos keyed `tmdb:<id>:<season>:<episode>`, which is the
+//! protocol's `{title}:{season}:{episode}` rule applied to TMDB's id, and a
+//! per-Addon bridge ([`ExternalId`], [`video_id`]) rewrites one into the
+//! spelling each Addon declares at the moment Streams are asked for (ADR-0020).
+//! The season endpoints cost one ask per season, which is what the ADR left to
+//! the build to find out; the episodes of a season that could not be read are
+//! dropped rather than blanking the ones around them, and a Title's Videos are
+//! replaced only when *something* was read.
 //!
 //! ## The feed
 //!
@@ -50,12 +54,26 @@ use serde_json::{Map, Value};
 
 use crate::addon::{MAX_ITEMS, MAX_STRING_LEN};
 use crate::catalog::MetaPreview;
+use crate::meta::Video;
 
 /// Where TMDB answers questions at, in the version the marked one.
 pub const TMDB_ROOT: &str = "https://api.themoviedb.org/3";
 
-/// Where TMDB takes its images from, at the size a card is drawn at.
+/// Where TMDB takes a poster from, at the size a card is drawn at.
+///
+/// TMDB documents its sizes under `/configuration`
+/// (<https://developer.themoviedb.org/reference/configuration-details>):
+/// `poster_sizes` has `w780`, `backdrop_sizes` has `w780` and `w1280`, the
+/// largest documented still is `w300`, and `logo_sizes` ends at `w500` before
+/// `original`.
 pub const IMAGE_ROOT: &str = "https://image.tmdb.org/t/p/w780";
+
+/// Where TMDB takes a wordmark from, at the size a Title screen draws one.
+pub const LOGO_ROOT: &str = "https://image.tmdb.org/t/p/w500";
+
+/// Where TMDB takes an episode's still from: the 16:9 art an episode row shows,
+/// at the largest still size TMDB documents.
+pub const STILL_ROOT: &str = "https://image.tmdb.org/t/p/w300";
 
 /// Which of the addon protocol's kinds TMDB answers for.
 ///
@@ -87,7 +105,8 @@ impl Kind {
     }
 
     /// The addon protocol's spelling of it, which is what a `MetaPreview`'s
-    /// `type` — and a Title's — is.
+    /// `type` — and a Title's — is: a film is `movie` on both sides, a series is
+    /// `series` here and `tv` in TMDB's paths.
     pub(crate) fn as_protocol(self) -> &'static str {
         match self {
             Self::Movie => "movie",
@@ -289,7 +308,13 @@ impl TmdbId {
     /// The Host will not send a zero or read more than fits a `u32`: an id
     /// that long is not TMDB's.
     pub fn parse(raw: &str) -> Option<Self> {
-        raw.parse::<u32>().ok().filter(|id| *id > 0).map(Self)
+        raw.parse::<u32>().ok().and_then(Self::from_number)
+    }
+
+    /// An id already a number, where it is one TMDB could have given: no
+    /// record is numbered zero.
+    pub fn from_number(id: u32) -> Option<Self> {
+        (id > 0).then_some(Self(id))
     }
 }
 
@@ -327,6 +352,55 @@ impl ExternalId {
         // The find ask carries the id as its Addon spells it, `tt` and all:
         // that is what TMDB's `find` endpoint is asked with.
         Some(Self::Imdb(id.to_owned()))
+    }
+}
+
+/// A Video id in TMDB's own spelling: the record it plays, and where in a
+/// series it sits.
+///
+/// `tmdb:603` is a film — the protocol's film rule is one Video whose id is the
+/// item's — and `tmdb:1396:1:2` is an episode of a series by the protocol's
+/// `{title}:{season}:{episode}` rule. [`crate::meta::episode_of`] is the one
+/// reading of that shape, so an id it does not read as an episode is read here
+/// as the record and nothing else. The kind travels with it because it was
+/// judged to read the id at all, and every later question about the record —
+/// which `/external_ids` to ask, which path a Title's record is at — needs it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TmdbVideo {
+    pub kind: Kind,
+    pub id: TmdbId,
+    /// The season and the episode, where the id carries them.
+    pub at: Option<(u32, u32)>,
+}
+
+/// A Video id in TMDB's spelling, or nothing where it is not one.
+///
+/// The kind is the one the client carried: only films and series have TMDB
+/// records, so a `tmdb:` id of any other kind names nothing.
+pub fn video_id(kind: &str, id: &str) -> Option<TmdbVideo> {
+    let kind = Kind::parse(kind)?;
+
+    let (record, at) = match crate::meta::episode_of(id) {
+        Some((record, season, episode)) => (record, Some((season, episode))),
+        None => (id, None),
+    };
+    let record = TmdbId::parse(record.strip_prefix("tmdb:")?)?;
+
+    Some(TmdbVideo {
+        kind,
+        id: record,
+        at,
+    })
+}
+
+/// A Video id in TMDB's spelling: `tmdb:<id>`, or `tmdb:<id>:<season>:<episode>`
+/// where the Video is an episode of one. The one place the spelling is built,
+/// so a Video read from a season, a Title built from a record and an episode
+/// step's next id cannot disagree about it.
+pub fn video_spelling(id: TmdbId, at: Option<(u32, u32)>) -> String {
+    match at {
+        Some((season, episode)) => format!("tmdb:{}:{season}:{episode}", id.0),
+        None => format!("tmdb:{}", id.0),
     }
 }
 
@@ -382,6 +456,12 @@ pub enum TmdbRequest {
     Find { kind: Kind, imdb: String },
     /// One record's metadata, by the id TMDB addresses it by.
     Details { kind: Kind, id: TmdbId },
+    /// The ids TMDB keeps for a record: which `tt…` string it answers to, one
+    /// hop of the per-Addon bridge (ADR-0020).
+    ExternalIds { kind: Kind, id: TmdbId },
+    /// One season's episodes, by the record and the season number TMDB gave it.
+    /// Seasons are a series' shape only.
+    Season { id: TmdbId, season: u32 },
     /// The week of what a kind has trending, at `page`.
     Trending { kind: Kind, page: u32 },
     /// A `/discover` page for a kind: the filters a [`DiscoverQuery`] judged.
@@ -409,6 +489,19 @@ impl TmdbRequest {
                 url.push_str(kind.as_resource());
                 url.push('/');
                 url.push_str(&id.0.to_string());
+            }
+            Self::ExternalIds { kind, id } => {
+                url.push('/');
+                url.push_str(kind.as_resource());
+                url.push('/');
+                url.push_str(&id.0.to_string());
+                url.push_str("/external_ids");
+            }
+            Self::Season { id, season } => {
+                url.push_str("/tv/");
+                url.push_str(&id.0.to_string());
+                url.push_str("/season/");
+                url.push_str(&season.to_string());
             }
             Self::Trending { kind, page } => {
                 url.push_str("/trending/");
@@ -459,28 +552,62 @@ pub struct TmdbDetails {
     /// The poster at TMDB's size for a card, built from the path the answer
     /// carried.
     pub poster: Option<String>,
+    /// The backdrop, built the same way, at the size a 16:9 hero is drawn at.
+    pub background: Option<String>,
+    /// The wordmark, where TMDB has one.
+    pub logo: Option<String>,
     /// The year a film was released, or a series' years: `1999`, `2008–2013`,
     /// the shape the Host already publishes.
     pub release_info: Option<String>,
     /// How long it runs, as the Host spells it: `136 min`.
     pub runtime: Option<String>,
+    /// TMDB's own score for the record — `vote_average`, one decimal — which is
+    /// the rating a TMDB-supplied Title carries. The Title has one rating field
+    /// — `imdbRating`, which is what the facts row draws — and where TMDB
+    /// answered, its score is what fills it; an Addon's `imdbRating` stands only
+    /// where TMDB said nothing at all. TMDB's score is not IMDb's, and it is not
+    /// offered as IMDb's: it is the record's word for how good the thing is.
+    pub rating: Option<String>,
     /// The genres' names, where TMDB answered with any.
     pub genres: Vec<String>,
+    /// Which seasons the record lists, ascending: each is asked for its
+    /// episodes when a series' Videos are read. Empty for a film.
+    pub seasons: Vec<u32>,
+    /// The record's Videos, where they were read: a series' seasons and
+    /// episodes, keyed `tmdb:<id>:<season>:<episode>`. `None` is "not read" —
+    /// a film's list, or a series whose season answers were not read — and
+    /// leaves the Title's own Videos standing (ADR-0011's amendment).
+    pub videos: Option<Vec<Video>>,
 }
 
 impl TmdbDetails {
+    /// The same record with its Videos read, so that one merge carries both.
+    pub fn with_videos(mut self, videos: Option<Vec<Video>>) -> Self {
+        self.videos = videos;
+        self
+    }
+
     /// TMDB metadata onto the Title that was asking, where TMDB has it.
     ///
     /// Every field TMDB did not send keeps the Addon's word; every field it did
     /// send takes TMDB's. The Title's identity fields — the Addon that
-    /// answered and the id it opened by — are not TMDB's to speak for, and
-    /// neither are its Videos, whose ids the Streams are asked for by.
+    /// answered and the id it opened by — are not TMDB's to speak for. Its
+    /// Videos are: where they were read, they replace the Addon's episode list
+    /// whole, because a season's episodes are one answer and half of TMDB's
+    /// list beside half of an Addon's would be a series nobody could play in
+    /// order (ADR-0011's amendment, ADR-0020).
     pub fn onto(self, title: &mut crate::meta::Title) {
         if let Some(name) = self.name {
             title.name = name;
         }
         if let Some(poster) = self.poster {
             title.poster = Some(poster);
+        }
+        if let Some(background) = self.background {
+            title.background = Some(background);
+        }
+        if let Some(logo) = self.logo {
+            title.logo = Some(logo);
         }
         if let Some(description) = self.overview {
             title.description = Some(description);
@@ -491,8 +618,14 @@ impl TmdbDetails {
         if let Some(runtime) = self.runtime {
             title.runtime = Some(runtime);
         }
+        if let Some(rating) = self.rating {
+            title.imdb_rating = Some(rating);
+        }
         if !self.genres.is_empty() {
             title.genres = self.genres;
+        }
+        if let Some(videos) = self.videos {
+            title.videos = videos;
         }
     }
 }
@@ -561,10 +694,86 @@ pub fn read_details(body: &str, kind: Kind) -> Result<TmdbDetails, TmdbError> {
         name: record.name(),
         overview: string(record.object, "overview"),
         poster: record.poster(),
+        background: image(record.object, "backdrop_path"),
+        logo: record.image("logo_path", LOGO_ROOT),
         release_info: record.release_info(),
         runtime: record.runtime(),
+        rating: rating(record.object),
         genres: record.genres(),
+        seasons: record.seasons(),
+        videos: None,
     })
+}
+
+/// Which IMDb id TMDB keeps for a record, where it keeps one.
+///
+/// The answer to `/movie/{id}/external_ids` is `{"id":…,"imdb_id":"tt…",…}`,
+/// and the id is read only where it is an IMDb one — an `imdb_id` that is not
+/// `tt` and digits is a field the answer did not carry. An answer that is not
+/// an object at all is a fact about TMDB, not a record with no IMDb id.
+pub fn read_external_ids(body: &str) -> Result<Option<String>, TmdbError> {
+    let value: Value = serde_json::from_str(body).map_err(|error| TmdbError::NotJson {
+        detail: error.to_string(),
+    })?;
+    let record = value.as_object().ok_or_else(|| TmdbError::NotJson {
+        detail: "an external ids answer is a JSON object".to_owned(),
+    })?;
+
+    Ok(string(record, "imdb_id").filter(|imdb| {
+        imdb.strip_prefix("tt")
+            .is_some_and(|digits| !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()))
+    }))
+}
+
+/// One season's episodes, read into the Host's Videos.
+///
+/// The episodes arrive at `/tv/{id}/season/{season}` as an `episodes` array,
+/// each carrying the `episode_number` TMDB numbered it by and, where there is
+/// one, the `still_path` of its 16:9 still. Each becomes a Video keyed
+/// `tmdb:<id>:<season>:<episode>` — the id every Stream ask and every Watch
+/// progress entry is keyed by (ADR-0020). A record that cannot be read is
+/// dropped rather than blanking the season around it, the way one bad catalog
+/// item is dropped; an `episodes` that is not a list is a body that is not a
+/// season answer and is refused.
+pub fn read_season(body: &str, id: TmdbId, season: u32) -> Result<Vec<Video>, TmdbError> {
+    let value: Value = serde_json::from_str(body).map_err(|error| TmdbError::NotJson {
+        detail: error.to_string(),
+    })?;
+    let record = value.as_object().ok_or_else(|| TmdbError::NotJson {
+        detail: "a season answer is a JSON object".to_owned(),
+    })?;
+
+    let episodes = match record.get("episodes") {
+        None | Some(Value::Null) => return Ok(Vec::new()),
+        Some(value) => value.as_array().ok_or_else(|| TmdbError::NotJson {
+            detail: "a season's episodes should be an array".to_owned(),
+        })?,
+    };
+    if episodes.len() > MAX_ITEMS {
+        return Err(TmdbError::TooLarge {
+            field: "episodes".to_owned(),
+            limit: MAX_ITEMS,
+        });
+    }
+
+    let mut videos: Vec<Video> = episodes
+        .iter()
+        .filter_map(|episode| {
+            let episode = episode.as_object()?;
+            let number = unsigned(episode, "episode_number")?;
+
+            Some(Video {
+                id: video_spelling(id, Some((season, number))),
+                name: string(episode, "name"),
+                season: Some(season),
+                episode: Some(number),
+                thumbnail: still(episode),
+            })
+        })
+        .collect();
+    videos.sort_by_key(|video| video.episode);
+
+    Ok(videos)
 }
 
 /// One page of TMDB records, read into the previews a row is drawn from.
@@ -630,7 +839,7 @@ fn preview(value: &Value, kind: Kind) -> Option<MetaPreview> {
     Some(MetaPreview {
         id: format!("tmdb:{id}"),
         r#type: kind.as_protocol().to_owned(),
-        name: non_empty_string(record, kind.as_name_field())?,
+        name: string(record, kind.as_name_field())?,
         poster: image(record, "poster_path"),
         // A card drawn from a feed says what the protocol assumes of a poster
         // and nothing else: TMDB sends no `poster_shape`, and inventing one
@@ -643,7 +852,7 @@ fn preview(value: &Value, kind: Kind) -> Option<MetaPreview> {
         // naming them would be a second list this Host keeps, and a card drawn
         // from Discover shows the poster and the name.
         genres: Vec::new(),
-        description: non_empty_string(record, "overview"),
+        description: string(record, "overview"),
     })
 }
 
@@ -651,8 +860,16 @@ fn preview(value: &Value, kind: Kind) -> Option<MetaPreview> {
 /// the path is relative in the answer, and an address builds only from one that
 /// says it is.
 fn image(record: &Map<String, Value>, field: &str) -> Option<String> {
-    let path = non_empty_string(record, field)?;
-    path.starts_with('/').then(|| format!("{IMAGE_ROOT}{path}"))
+    image_at(record, field, IMAGE_ROOT)
+}
+
+/// The same, at the size asked for: a poster and a backdrop are both drawn at
+/// `IMAGE_ROOT`'s `w780`, a wordmark at `LOGO_ROOT`'s `w500` and an episode's
+/// still at `STILL_ROOT`'s `w300` — every one of them a size `/configuration`
+/// documents.
+fn image_at(record: &Map<String, Value>, field: &str, root: &str) -> Option<String> {
+    let path = string(record, field)?;
+    path.starts_with('/').then(|| format!("{root}{path}"))
 }
 
 /// TMDB's own score on the record, where anybody has voted on it: nobody's zero
@@ -666,17 +883,6 @@ fn rating(record: &Map<String, Value>) -> Option<String> {
     let average = record.get("vote_average").and_then(Value::as_f64)?;
 
     (voted && average > 0.0).then(|| format!("{average:.1}"))
-}
-
-/// One named field of a record, read as a non-empty string of a length the Host
-/// will hold. A field of the wrong shape, an empty one and an overlong one are
-/// all absence.
-fn non_empty_string(record: &Map<String, Value>, name: &str) -> Option<String> {
-    let text = string(record, name)?;
-    if text.is_empty() || text.len() > MAX_STRING_LEN {
-        return None;
-    }
-    Some(text)
 }
 
 /// A details record behind the kind that says how its own fields are spelled.
@@ -694,8 +900,38 @@ impl Record<'_> {
     /// The poster is a relative path in the answer, and an absolute URL in the
     /// Title — the size the Host draws cards at.
     fn poster(&self) -> Option<String> {
-        let path = string(self.object, "poster_path")?;
-        Some(format!("{IMAGE_ROOT}{path}"))
+        image(self.object, "poster_path")
+    }
+
+    /// One image field, at the size asked for — the wordmark and a still are
+    /// not drawn at a card's size.
+    fn image(&self, field: &str, root: &str) -> Option<String> {
+        image_at(self.object, field, root)
+    }
+    /// The season numbers the record lists, ascending and each once. `0` is a
+    /// series' specials, which are episodes like any others; a film lists no
+    /// seasons, whatever a body pretending to be its record carries.
+    fn seasons(&self) -> Vec<u32> {
+        if self.kind != Kind::Tv {
+            return Vec::new();
+        }
+        let mut seasons: Vec<u32> = self
+            .object
+            .get("seasons")
+            .and_then(Value::as_array)
+            .map(|seasons| {
+                seasons
+                    .iter()
+                    .filter_map(|season| season.as_object())
+                    .filter_map(|season| unsigned(season, "season_number"))
+                    .collect()
+            })
+            .unwrap_or_default();
+        seasons.sort_unstable();
+        seasons.dedup();
+        seasons.truncate(crate::addon::MAX_ITEMS);
+
+        seasons
     }
 
     fn release_info(&self) -> Option<String> {
@@ -775,9 +1011,16 @@ fn date(record: &Map<String, Value>, name: &str) -> Option<Date> {
     Some(Date { year: year.0 })
 }
 
-/// One named field of a record, read as a string.
+/// One named field of a record, read as a non-empty string of a length the Host
+/// will hold. A field of the wrong shape, an empty one and an overlong one are
+/// all absence — the leniency the module's preamble describes, applied to every
+/// field.
 fn string(object: &Map<String, Value>, name: &str) -> Option<String> {
-    object.get(name)?.as_str().map(str::to_owned)
+    let text = object.get(name)?.as_str()?;
+    if text.is_empty() || text.len() > MAX_STRING_LEN {
+        return None;
+    }
+    Some(text.to_owned())
 }
 
 /// One named field of a record, read as a number.
@@ -786,6 +1029,11 @@ fn unsigned(object: &Map<String, Value>, name: &str) -> Option<u32> {
         .get(name)
         .and_then(Value::as_u64)
         .and_then(|number| u32::try_from(number).ok())
+}
+
+/// An episode's still, at the size an episode row draws it.
+fn still(episode: &Map<String, Value>) -> Option<String> {
+    image_at(episode, "still_path", STILL_ROOT)
 }
 
 /// One path component, encoded the way the addon protocol encodes its own
@@ -806,6 +1054,10 @@ mod tests {
     const MOVIE_DETAILS: &str = include_str!("../tests/fixtures/tmdb-movie-details.json");
     const TV_DETAILS: &str = include_str!("../tests/fixtures/tmdb-tv-details.json");
     const TV_DETAILS_MAKING: &str = include_str!("../tests/fixtures/tmdb-tv-details-making.json");
+    const SEASON_0: &str = include_str!("../tests/fixtures/tmdb-tv-season-0.json");
+    const SEASON_1: &str = include_str!("../tests/fixtures/tmdb-tv-season-1.json");
+    const EXTERNAL_MATRIX: &str = include_str!("../tests/fixtures/tmdb-external-ids-matrix.json");
+    const EXTERNAL_BB: &str = include_str!("../tests/fixtures/tmdb-external-ids-bb.json");
     const PAGE_MOVIE: &str = include_str!("../tests/fixtures/tmdb-page-movie.json");
     const PAGE_TV: &str = include_str!("../tests/fixtures/tmdb-page-tv.json");
 
@@ -923,6 +1175,26 @@ mod tests {
             details.url(&token("a-key")),
             "https://api.themoviedb.org/3/tv/1396?api_key=a-key",
         );
+
+        let external = TmdbRequest::ExternalIds {
+            kind: Kind::Movie,
+            id: TmdbId(603),
+        };
+        assert_eq!(
+            external.url(&token("a-key")),
+            "https://api.themoviedb.org/3/movie/603/external_ids?api_key=a-key",
+            "the ids TMDB keeps are a record's own sub-resource"
+        );
+
+        let season = TmdbRequest::Season {
+            id: TmdbId(1396),
+            season: 0,
+        };
+        assert_eq!(
+            season.url(&token("a-key")),
+            "https://api.themoviedb.org/3/tv/1396/season/0?api_key=a-key",
+            "specials are season zero, which is a season number like any other"
+        );
     }
 
     #[test]
@@ -937,6 +1209,14 @@ mod tests {
             TmdbRequest::Details {
                 kind: Kind::Movie,
                 id: TmdbId(603),
+            },
+            TmdbRequest::ExternalIds {
+                kind: Kind::Tv,
+                id: TmdbId(1396),
+            },
+            TmdbRequest::Season {
+                id: TmdbId(1396),
+                season: 1,
             },
         ] {
             let built = request.url(&token(the_token));
@@ -1006,9 +1286,27 @@ mod tests {
             "the poster is asked at the size a card draws: {:?}",
             details.poster
         );
+        assert!(
+            details
+                .background
+                .as_deref()
+                .is_some_and(|background| background.starts_with(IMAGE_ROOT)),
+            "the backdrop is at the size a 16:9 hero draws: {:?}",
+            details.background
+        );
+        assert_eq!(
+            details.rating.as_deref(),
+            Some("8.2"),
+            "TMDB's own score, which is the rating a TMDB-supplied Title carries"
+        );
         assert_eq!(details.release_info.as_deref(), Some("1999"));
         assert_eq!(details.runtime.as_deref(), Some("136 min"));
         assert_eq!(details.genres, vec!["Action", "Science Fiction"]);
+        assert!(
+            details.seasons.is_empty(),
+            "a film has no seasons to ask for: {:?}",
+            details.seasons
+        );
         assert!(details
             .overview
             .as_deref()
@@ -1031,6 +1329,222 @@ mod tests {
             "a series runs as TMDB spells an episode's length"
         );
         assert_eq!(details.genres, vec!["Drama", "Crime"]);
+        assert_eq!(
+            details.seasons,
+            vec![0, 1, 2],
+            "the record says which seasons to ask for, ascending, specials included"
+        );
+        assert_eq!(
+            details.logo.as_deref(),
+            Some("https://image.tmdb.org/t/p/w500/bb-logo.png")
+        );
+    }
+
+    #[test]
+    fn a_season_is_read_into_videos_keyed_by_tmdb_and_carrying_its_stills() {
+        let videos = read_season(SEASON_1, TmdbId(1396), 1).expect("a season answer");
+
+        assert_eq!(
+            videos
+                .iter()
+                .map(|video| video.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["tmdb:1396:1:1", "tmdb:1396:1:2", "tmdb:1396:1:3",],
+            "the protocol's `{{title}}:{{season}}:{{episode}}` rule over TMDB's id"
+        );
+        assert_eq!(videos[0].name.as_deref(), Some("Pilot"));
+        assert_eq!((videos[0].season, videos[0].episode), (Some(1), Some(1)));
+        assert_eq!(
+            videos[1].thumbnail.as_deref(),
+            Some("https://image.tmdb.org/t/p/w300/still-1396-1-2.jpg"),
+            "an episode row draws the 16:9 still TMDB sent"
+        );
+    }
+
+    #[test]
+    fn specials_are_a_season_like_any_other_with_nothing_to_draw() {
+        let videos = read_season(SEASON_0, TmdbId(1396), 0).expect("a season answer");
+
+        assert_eq!(videos.len(), 1);
+        assert_eq!(videos[0].id, "tmdb:1396:0:1");
+        assert_eq!(
+            (videos[0].season, videos[0].episode),
+            (Some(0), Some(1)),
+            "season zero is how the protocol spells a special"
+        );
+        assert_eq!(
+            videos[0].thumbnail, None,
+            "a still TMDB did not send is absence, not a broken URL"
+        );
+    }
+
+    #[test]
+    fn a_season_answer_that_is_not_one_is_refused_or_read_as_empty() {
+        for body in ["", "not json", "[]", "5", "\"a season\""] {
+            assert!(
+                matches!(
+                    read_season(body, TmdbId(1396), 1),
+                    Err(TmdbError::NotJson { .. })
+                ),
+                "{body:?} is not a season answer"
+            );
+        }
+        assert_eq!(
+            read_season(r#"{"episodes":5}"#, TmdbId(1396), 1),
+            Err(TmdbError::NotJson {
+                detail: "a season's episodes should be an array".to_owned()
+            })
+        );
+        assert_eq!(
+            read_season(r#"{"season_number":1}"#, TmdbId(1396), 1),
+            Ok(Vec::new()),
+            "a season with no episodes to read is a season with none"
+        );
+    }
+
+    #[test]
+    fn a_season_record_that_cannot_be_read_is_dropped_rather_than_blanking_the_season() {
+        let videos = read_season(
+            r#"{"episodes":[
+                {"episode_number":1,"name":"One","still_path":"/one.jpg"},
+                {"name":"no number, so nobody can play it"},
+                "not an episode",
+                {"episode_number":3,"name":"Three"}
+            ]}"#,
+            TmdbId(1396),
+            1,
+        )
+        .expect("a season answer");
+
+        assert_eq!(
+            videos
+                .iter()
+                .map(|video| video.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["tmdb:1396:1:1", "tmdb:1396:1:3"],
+            "the two that read survive the two that do not"
+        );
+        assert_eq!(
+            videos[1].thumbnail, None,
+            "an episode with no still is one with no still"
+        );
+    }
+
+    #[test]
+    fn an_external_ids_answer_carries_the_imdb_id_or_nothing() {
+        assert_eq!(
+            read_external_ids(EXTERNAL_MATRIX),
+            Ok(Some("tt0133093".to_owned()))
+        );
+        assert_eq!(
+            read_external_ids(EXTERNAL_BB),
+            Ok(Some("tt0903747".to_owned()))
+        );
+
+        for body in [
+            r#"{"id":603,"imdb_id":null}"#,
+            r#"{"id":603}"#,
+            r#"{"id":603,"imdb_id":"nm0000206"}"#,
+            r#"{"id":603,"imdb_id":"tt"}"#,
+            r#"{"id":603,"imdb_id":5}"#,
+        ] {
+            assert_eq!(
+                read_external_ids(body),
+                Ok(None),
+                "{body} names no IMDb id this Host will send, which is not a failed read"
+            );
+        }
+
+        for body in ["", "not json", "[]", "5", "null"] {
+            assert!(
+                matches!(read_external_ids(body), Err(TmdbError::NotJson { .. })),
+                "{body:?} is not an external ids answer"
+            );
+        }
+    }
+
+    #[test]
+    fn a_tmdb_video_id_names_the_record_and_where_a_video_sits_in_it() {
+        assert_eq!(
+            video_id("movie", "tmdb:603"),
+            Some(TmdbVideo {
+                kind: Kind::Movie,
+                id: TmdbId(603),
+                at: None
+            }),
+            "a film is one Video whose id is the record's"
+        );
+        assert_eq!(
+            video_id("series", "tmdb:1396:1:2"),
+            Some(TmdbVideo {
+                kind: Kind::Tv,
+                id: TmdbId(1396),
+                at: Some((1, 2))
+            })
+        );
+        assert_eq!(
+            video_id("series", "tmdb:1396:0:1"),
+            Some(TmdbVideo {
+                kind: Kind::Tv,
+                id: TmdbId(1396),
+                at: Some((0, 1))
+            }),
+            "specials are season zero"
+        );
+
+        for (kind, id) in [
+            ("movie", "tt0133093"),
+            ("movie", "tmdb:0"),
+            ("movie", "tmdb:"),
+            ("series", "tmdb:1396:1"),
+            ("series", "tmdb:1396:x:1"),
+            ("channel", "tmdb:603"),
+        ] {
+            assert_eq!(
+                video_id(kind, id),
+                None,
+                "{kind}/{id} is not a Video TMDB keys"
+            );
+        }
+    }
+
+    #[test]
+    fn details_onto_replace_every_video_only_where_they_were_read() {
+        let mut title = addon_movie();
+        read_details(MOVIE_DETAILS, Kind::Movie)
+            .expect("a details answer")
+            .with_videos(Some(vec![crate::meta::Video {
+                id: "tmdb:603".to_owned(),
+                name: Some("The Matrix".to_owned()),
+                season: None,
+                episode: None,
+                thumbnail: None,
+            }]))
+            .onto(&mut title);
+        assert_eq!(
+            title
+                .videos
+                .iter()
+                .map(|video| video.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["tmdb:603"],
+            "the Videos TMDB answered with are the Title's"
+        );
+
+        let mut series_title = Title::parse(
+            CINEMETA_SERIES,
+            cinematic(),
+            &TitleRef::parse("series", "tt0903747").expect("a Title"),
+        )
+        .expect("the Addon's Title parses");
+        let before = series_title.videos.clone();
+        read_details(TV_DETAILS, Kind::Tv)
+            .expect("a details answer")
+            .onto(&mut series_title);
+        assert_eq!(
+            series_title.videos, before,
+            "a merge that read no Videos leaves the Addon's episode list standing"
+        );
     }
 
     #[test]
@@ -1093,10 +1607,24 @@ mod tests {
         assert_eq!(title.genres, vec!["Action", "Science Fiction"]);
         assert_eq!(title.release_info.as_deref(), Some("1999"));
         assert_eq!(title.runtime.as_deref(), Some("136 min"));
+        assert_eq!(
+            title.imdb_rating.as_deref(),
+            Some("8.2"),
+            "the rating became TMDB's own score, which is the one it has"
+        );
+        assert!(
+            title.background.is_some(),
+            "the backdrop arrived: {title:?}"
+        );
+        assert_eq!(
+            title.logo.as_deref(),
+            Some("https://image.tmdb.org/t/p/w500/matrix-logo.png"),
+            "and so did the wordmark"
+        );
     }
 
     #[test]
-    fn the_identity_and_the_videos_are_never_tmdbs_to_rename() {
+    fn the_identity_is_never_tmdbs_to_rename() {
         let mut series_title = Title::parse(
             CINEMETA_SERIES,
             cinematic(),
@@ -1107,7 +1635,10 @@ mod tests {
             .expect("a details answer")
             .onto(&mut series_title);
 
-        assert_eq!(series_title.addon.as_str(), "com.linvo.cinemeta");
+        assert_eq!(
+            series_title.addon.as_ref().map(|addon| addon.as_str()),
+            Some("com.linvo.cinemeta")
+        );
         assert_eq!(series_title.id, "tt0903747");
         assert_eq!(
             series_title
@@ -1122,7 +1653,7 @@ mod tests {
                 "tt0903747:1:3",
                 "tt0903747:2:1",
             ],
-            "the Videos keep the ids Streams are asked for by; a refinement never renumbers"
+            "a details answer rekeys nothing: the Videos TMDB read replace the list whole, and nothing else does"
         );
     }
 

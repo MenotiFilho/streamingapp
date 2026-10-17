@@ -1460,7 +1460,7 @@ function TitleView({
               nodes, which a reader of the accessibility tree sees as fragments
               of a phrase rather than the phrase. */}
           <p className="addon-id" data-testid="title-id">
-            {`${title.addon} · ${title.type}/${title.id}`}
+            {`${title.addon ?? "TMDB"} · ${title.type}/${title.id}`}
           </p>
           {/* Keyed by the Addon is the unchanged key of a Title nothing mapped:
               it stays visible, keyed as its Addon indexes it (CONTEXT.md). */}

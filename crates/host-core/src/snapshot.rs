@@ -126,7 +126,16 @@ impl Snapshot {
             watch_progress: state
                 .watch()
                 .iter()
-                .map(|entry| entry.resume_entry(state.has_addon(entry.title.addon())))
+                .map(|entry| {
+                    // A Title with no Addon behind it is never marked: there is
+                    // no removal to judge (ADR-0020).
+                    entry.resume_entry(
+                        entry
+                            .title
+                            .addon()
+                            .is_none_or(|addon| state.has_addon(addon)),
+                    )
+                })
                 .collect(),
             devices: state
                 .devices()

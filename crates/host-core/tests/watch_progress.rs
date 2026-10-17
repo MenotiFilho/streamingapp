@@ -506,3 +506,272 @@ fn resuming_asks_the_addons_that_answer_for_the_videos_streams() {
         "the Streams are asked of the Addons that answer, through the one Provider"
     );
 }
+
+// --- The TMDB key unifies the two ways into one Title ------------------------
+
+/// The owner's TMDB credential, as the v3 api-key shape the Host takes.
+const TMDB_KEY: &str = "0123456789abcdef0123456789abcdef";
+const TMDB_FIND_SERIES: &str =
+    "https://api.themoviedb.org/3/find/tt0903747?external_source=imdb_id&api_key=0123456789abcdef0123456789abcdef";
+const TMDB_TV_1396: &str =
+    "https://api.themoviedb.org/3/tv/1396?api_key=0123456789abcdef0123456789abcdef";
+const TMDB_TV_1396_SEASON_0: &str =
+    "https://api.themoviedb.org/3/tv/1396/season/0?api_key=0123456789abcdef0123456789abcdef";
+const TMDB_TV_1396_SEASON_1: &str =
+    "https://api.themoviedb.org/3/tv/1396/season/1?api_key=0123456789abcdef0123456789abcdef";
+const TMDB_TV_1396_SEASON_2: &str =
+    "https://api.themoviedb.org/3/tv/1396/season/2?api_key=0123456789abcdef0123456789abcdef";
+const TMDB_EXTERNAL_IDS_BB: &str =
+    "https://api.themoviedb.org/3/tv/1396/external_ids?api_key=0123456789abcdef0123456789abcdef";
+
+const TMDB_FIND_SERIES_BODY: &str = include_str!("fixtures/tmdb-find-bb.json");
+const TMDB_TV_DETAILS: &str = include_str!("fixtures/tmdb-tv-details.json");
+const TMDB_TV_SEASON_0: &str = include_str!("fixtures/tmdb-tv-season-0.json");
+const TMDB_TV_SEASON_1: &str = include_str!("fixtures/tmdb-tv-season-1.json");
+const TMDB_TV_SEASON_2: &str = include_str!("fixtures/tmdb-tv-season-2.json");
+const TMDB_EXTERNAL_BB: &str = include_str!("fixtures/tmdb-external-ids-bb.json");
+
+/// The same Addon, declaring the one id namespace a TMDB-keyed Video reaches it
+/// by — `tt` — so a resume of a TMDB-keyed Video can be asked of it.
+fn manifest_declaring_tt() -> String {
+    format!(
+        r#"{{"id":"{SERIES_ID}","name":"Series","version":"1.0.0",
+             "resources":["meta",{{"name":"stream","types":["movie","series"],"idPrefixes":["tt"]}}],
+             "types":["movie","series"],"catalogs":[]}}"#
+    )
+}
+
+/// A Host with a TMDB key held, the recorded Addon, and every TMDB answer the
+/// mapping needs recorded.
+fn tmdb_fixture() -> Fixture {
+    let player = Arc::new(FixturePlayer::new());
+    let provider = Arc::new(
+        FixtureProvider::new().offering(SERIES_ID, vec![candidate(EPISODE), candidate(FILM)]),
+    );
+    let fetcher = FixtureFetcher::new()
+        .serving(SERIES, manifest_declaring_tt())
+        .serving(META_URL, SERIES_META)
+        .serving(TMDB_FIND_SERIES, TMDB_FIND_SERIES_BODY)
+        .serving(TMDB_TV_1396, TMDB_TV_DETAILS)
+        .serving(TMDB_TV_1396_SEASON_0, TMDB_TV_SEASON_0)
+        .serving(TMDB_TV_1396_SEASON_1, TMDB_TV_SEASON_1)
+        .serving(TMDB_TV_1396_SEASON_2, TMDB_TV_SEASON_2)
+        .serving(TMDB_EXTERNAL_IDS_BB, TMDB_EXTERNAL_BB);
+    let store = Arc::new(InMemoryStore::new());
+    let clock = Arc::new(FixtureClock::new().at(1_000));
+
+    let mut host = Host::new(
+        store.clone() as Arc<dyn Store>,
+        Arc::new(fetcher),
+        Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
+        provider.clone(),
+        player.clone(),
+        clock.clone(),
+    )
+    .expect("a Host over a store starts");
+    host.dispatch(action(
+        &serde_json::json!({ "type": "add_addon", "url": SERIES }),
+    ))
+    .expect("configuring the Addon should work");
+    host.dispatch(action(
+        &serde_json::json!({ "type": "set_tmdb_key", "key": TMDB_KEY }),
+    ))
+    .expect("entering a TMDB key should work");
+
+    Fixture {
+        host,
+        player,
+        provider,
+        store,
+        clock,
+    }
+}
+
+/// Play one Video, with the Title card a client reading that Title would send:
+/// the Addon's id for one opened from a catalog card, `null` for a Discovered
+/// Title (ADR-0020).
+fn play_as(fixture: &mut Fixture, r#type: &str, video: &str, card: serde_json::Value) {
+    fixture
+        .host
+        .dispatch(action(&serde_json::json!({
+            "type": "play_stream",
+            "video": { "type": r#type, "id": video },
+            "addon": SERIES_ID,
+            "title": {
+                "addon": card,
+                "id": video,
+                "type": r#type,
+                "name": "Breaking Bad",
+                "poster": null,
+            },
+            "stream": {
+                "name": "1080p",
+                "playback": { "kind": "direct", "url": EPISODE },
+                "warnings": [],
+            },
+        })))
+        .unwrap_or_else(|error| panic!("playing a direct candidate should work: {error}"));
+}
+
+#[test]
+fn a_series_played_through_an_addon_card_and_through_discover_is_one_entry() {
+    let mut fixture = tmdb_fixture();
+
+    // The Addon path: the Title is TMDB-first, so the Video the client plays is
+    // TMDB's own episode, keyed `tmdb:<id>:<s>:<e>`.
+    let opened = fixture
+        .host
+        .dispatch(action(&serde_json::json!({
+            "type": "open_title",
+            "addon": SERIES_ID,
+            "title": { "type": "series", "id": "tt0903747" },
+        })))
+        .expect("the recorded series opens");
+    let from_addon = opened
+        .title()
+        .expect("opening a Title answers with one")
+        .videos
+        .iter()
+        .find(|video| video.id == "tmdb:1396:1:1")
+        .expect("TMDB supplies the Videos, keyed by TMDB's id")
+        .id
+        .clone();
+
+    play_as(
+        &mut fixture,
+        "series",
+        &from_addon,
+        serde_json::json!(SERIES_ID),
+    );
+    let entry = fixture.host.snapshot().watch_progress;
+
+    // The Discover path: the Title has no Addon, and its Video is the same one.
+    let discovered = fixture
+        .host
+        .dispatch(action(&serde_json::json!({
+            "type": "open_discovered_title",
+            "key": { "kind": "tmdb", "id": 1396 },
+            "kind": "series",
+        })))
+        .expect("the Discovered Title opens");
+    let from_discover = discovered
+        .title()
+        .expect("opening a Title answers with one")
+        .videos
+        .iter()
+        .find(|video| video.id == from_addon)
+        .expect("both ways in name the same Video")
+        .id
+        .clone();
+
+    play_as(
+        &mut fixture,
+        "series",
+        &from_discover,
+        serde_json::Value::Null,
+    );
+
+    let unified = fixture.host.snapshot().watch_progress;
+    assert_eq!(
+        unified.len(),
+        1,
+        "one Video is one entry however many ways the Title was reached: {unified:?}"
+    );
+    assert_eq!(unified[0].video.id, "tmdb:1396:1:1");
+    assert_eq!(
+        (
+            entry[0].video.id.as_str(),
+            entry[0].title.addon().map(host_core::AddonId::as_str),
+        ),
+        ("tmdb:1396:1:1", Some(SERIES_ID)),
+        "the first play's entry was the Addon's card, as told"
+    );
+    assert_eq!(
+        unified[0].unplayable, None,
+        "a Title with no Addon behind it has no removal to be marked by"
+    );
+}
+
+#[test]
+fn a_discovered_titles_progress_resumes_through_the_addons_that_answer_by_tt() {
+    let mut fixture = tmdb_fixture();
+    play_as(
+        &mut fixture,
+        "series",
+        "tmdb:1396:1:2",
+        serde_json::Value::Null,
+    );
+    watching(&mut fixture, 402.0, 2820.0, 10_000);
+    let asked = fixture.provider.asked().len();
+    fixture.player.openings();
+
+    fixture
+        .host
+        .dispatch(action(&serde_json::json!({
+            "type": "resume",
+            "video": { "type": "series", "id": "tmdb:1396:1:2" },
+        })))
+        .expect("a Discovered Title's progress resumes");
+
+    assert_eq!(
+        fixture.provider.asked()[asked..].to_vec(),
+        vec![SERIES_ID.to_owned()],
+        "the TMDB-keyed Video reaches the Addon that declares the `tt` spelling"
+    );
+    assert_eq!(
+        fixture.player.openings().last().map(|open| open.1),
+        Some(Some(402.0)),
+        "and it opens where the Host's own record left it"
+    );
+}
+
+#[test]
+fn a_discovered_titles_entry_never_wears_the_addon_removed_mark() {
+    let mut fixture = tmdb_fixture();
+    play_as(
+        &mut fixture,
+        "series",
+        "tmdb:1396:1:2",
+        serde_json::Value::Null,
+    );
+
+    // The Addon is taken away, and the entry stays listed — unmarked, because
+    // there was no Addon behind this Title to lose (ADR-0020).
+    fixture
+        .host
+        .dispatch(action(
+            &serde_json::json!({ "type": "remove_addon", "id": SERIES_ID }),
+        ))
+        .expect("the Addon is removed");
+
+    let published = fixture.host.snapshot().watch_progress;
+    assert_eq!(published.len(), 1);
+    assert_eq!(
+        published[0].unplayable, None,
+        "a Title that never had an Addon cannot have lost one: {published:?}"
+    );
+
+    // And the same Snapshot against an entry that *did* have one marks it, so
+    // the absence above is a decision rather than a missing feature.
+    let mut was_the_addons = tmdb_fixture();
+    play_as(
+        &mut was_the_addons,
+        "series",
+        "tmdb:1396:1:2",
+        serde_json::json!(SERIES_ID),
+    );
+    was_the_addons
+        .host
+        .dispatch(action(
+            &serde_json::json!({ "type": "remove_addon", "id": SERIES_ID }),
+        ))
+        .expect("the Addon is removed");
+    let marked = was_the_addons.host.snapshot().watch_progress;
+    assert!(
+        matches!(
+            &marked[0].unplayable,
+            Some(entry) if entry.reason == UnplayableReason::AddonRemoved
+        ),
+        "an entry whose Addon is gone is still marked: {marked:?}"
+    );
+}

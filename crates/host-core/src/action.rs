@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::addon::{AddonId, InvalidAddonId, InvalidManifestUrl, ManifestUrl, MAX_STRING_LEN};
 use crate::device::{DeviceId, DeviceName, InvalidDeviceId, InvalidDeviceName};
+use crate::meta::TitleKey;
 use crate::pairing::{InvalidPairingCode, PairingCode};
 use crate::playback::{
     checked_aspect, checked_crop, checked_speed, checked_subtitle_delay, checked_volume, Aspect,
@@ -151,6 +152,22 @@ pub enum Action {
         /// The Title to open, by the type and id the item carried.
         title: TitleRef,
     },
+    /// Open a Discovered Title: one TMDB named before any Addon did.
+    ///
+    /// A question rather than a change, like opening any Title: what TMDB says
+    /// about one record goes to the client that asked and to no one else
+    /// (ADR-0005). It is its own Action rather than `open_title` with no Addon,
+    /// because `open_title`'s meaning is "ask this Addon" and a Discovered
+    /// Title has none to ask (ADR-0020).
+    OpenDiscoveredTitle {
+        /// What the Title is keyed by. A Discovered Title is TMDB's, by
+        /// definition: a key naming an Addon is refused, and `open_title` is
+        /// the question for it.
+        key: TitleKey,
+        /// The kind TMDB has a record for, in the protocol's spelling:
+        /// `movie` or `series`.
+        kind: String,
+    },
     /// Find the Streams a Video can be played as.
     ///
     /// A question rather than a change, like browsing and opening a Title.
@@ -291,6 +308,7 @@ action_spellings! {
     Action::SearchCatalogs { .. } => "search_catalogs",
     Action::Discover { .. } => "discover",
     Action::OpenTitle { .. } => "open_title",
+    Action::OpenDiscoveredTitle { .. } => "open_discovered_title",
     Action::FindStreams { .. } => "find_streams",
     Action::PlayStream { .. } => "play_stream",
     Action::Resume { .. } => "resume",
@@ -429,6 +447,27 @@ impl Action {
                 let addon = AddonId::parse(&addon)?;
                 let title = TitleRef::parse(&title.r#type, &title.id)?;
                 Ok(ValidatedAction::OpenTitle { addon, title })
+            }
+            Action::OpenDiscoveredTitle { key, kind } => {
+                // The kind is judged first: an id names nothing without the
+                // kind whose records it is a number in.
+                let kind =
+                    tmdb::Kind::parse(&kind).ok_or_else(|| ActionError::NotDiscoveredTitle {
+                        detail: format!("{kind:?} is not a kind TMDB has records for"),
+                    })?;
+                let TitleKey::Tmdb { id } = key else {
+                    return Err(ActionError::NotDiscoveredTitle {
+                        detail: "the key names an Addon, which is `open_title`'s question"
+                            .to_owned(),
+                    });
+                };
+                let id = tmdb::TmdbId::from_number(id).ok_or_else(|| {
+                    ActionError::NotDiscoveredTitle {
+                        detail: "no TMDB record is numbered zero".to_owned(),
+                    }
+                })?;
+
+                Ok(ValidatedAction::OpenDiscoveredTitle { id, kind })
             }
             Action::FindStreams { video } => {
                 let video = VideoRef::parse(&video.r#type, &video.id)?;
@@ -601,6 +640,12 @@ pub enum ValidatedAction {
         addon: AddonId,
         title: TitleRef,
     },
+    /// A Discovered Title to open against TMDB: the record, and the kind whose
+    /// records its number is in.
+    OpenDiscoveredTitle {
+        id: tmdb::TmdbId,
+        kind: tmdb::Kind,
+    },
     FindStreams {
         video: VideoRef,
     },
@@ -714,16 +759,28 @@ pub enum ActionError {
     UnknownCatalog { addon: AddonId, catalog: CatalogRef },
     #[error("the Addon {addon} offers no meta for {title}")]
     UnknownTitle { addon: AddonId, title: TitleRef },
+    /// `open_discovered_title` was handed something that is not a Discovered
+    /// Title: a key that names an Addon, a kind TMDB keeps no records for, or
+    /// an id no record is numbered by. A Title with an Addon behind it is
+    /// `open_title`'s question, not this one's (#76, ADR-0020).
+    #[error("that is not a Discovered Title: {detail}")]
+    NotDiscoveredTitle { detail: String },
     /// A Discover ask TMDB cannot be given: a kind it does not discover, a page
     /// it does not number, a genre or a sort order from the other kind's set
     /// (#75, ADR-0020).
     #[error("{detail}")]
     InvalidDiscover { detail: String },
-    /// A Discover ask with no TMDB Credential held: the Host has nothing to ask
-    /// TMDB with, and says so rather than answering an empty feed (#75,
-    /// ADR-0020).
-    #[error("this Host holds no TMDB key, so it cannot ask TMDB for a feed")]
+    /// A question only TMDB can answer, asked of a Host that holds no TMDB key:
+    /// Discover, and a Discovered Title — both are TMDB's, and neither has an
+    /// Addon to fall back to (#75, #76, ADR-0020).
+    #[error("this Host holds no TMDB key, so it cannot ask TMDB")]
     NoTmdbCredential,
+    /// TMDB could not answer a question that only TMDB can: the ask failed, or
+    /// the answer could not be read. TMDB is not an Addon, and what was to come
+    /// from its record has no other source to fall back to (#75, #76,
+    /// ADR-0020). The detail never carries the URL a credential rode in.
+    #[error("{detail}")]
+    Tmdb { detail: String },
     /// A track a control named that the Stream does not carry: refused before
     /// the Player hears of it, so a client is told rather than obeyed.
     #[error("the Stream has no {control} numbered {id}")]
@@ -767,11 +824,6 @@ pub enum ActionError {
     Catalog { detail: String },
     #[error("the Addon's meta response could not be read: {detail}")]
     Meta { detail: String },
-    /// TMDB itself did not answer, in the Host's words rather than the shared
-    /// `Fetcher`'s Addon ones: the one source whose failure a client reads as a
-    /// row rather than as a refused Action (#75, ADR-0020).
-    #[error("{detail}")]
-    Tmdb { detail: String },
     #[error("the Addon's stream response could not be read: {detail}")]
     Stream { detail: String },
     #[error("the Addon's subtitles response could not be read: {detail}")]
@@ -980,7 +1032,7 @@ mod tests {
                     .expect("a direct URL is a candidate this Host plays")
                 ),
                 title: TitleStub::parse(&TitleCard {
-                    addon: AddonId::parse("com.linvo.cinemeta").expect("an Addon id"),
+                    addon: Some(AddonId::parse("com.linvo.cinemeta").expect("an Addon id")),
                     id: "tt0133093".to_owned(),
                     r#type: "movie".to_owned(),
                     name: "The Matrix".to_owned(),
@@ -1566,6 +1618,7 @@ mod tests {
         r#"{"type":"search_catalogs","query":"matrix"}"#,
         r#"{"type":"discover","kind":"movie","page":1}"#,
         r#"{"type":"open_title","addon":"community.example","title":{"type":"movie","id":"tt0133093"}}"#,
+        r#"{"type":"open_discovered_title","key":{"kind":"tmdb","id":603},"kind":"movie"}"#,
         r#"{"type":"find_streams","video":{"type":"movie","id":"tt0133093"}}"#,
         r#"{"type":"play_stream","video":{"type":"movie","id":"tt0133093"},"addon":"community.example","title":{"addon":"community.example","id":"tt0133093","type":"movie","name":"The Matrix","poster":null},"stream":{"name":null,"description":null,"playback":{"kind":"direct","url":"https://stream.example.org/x.mkv"},"warnings":[],"filename":null,"bingeGroup":null}}"#,
         r#"{"type":"resume","video":{"type":"movie","id":"tt0133093"}}"#,

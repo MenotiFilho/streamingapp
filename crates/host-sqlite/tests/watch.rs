@@ -11,7 +11,7 @@ fn video(id: &str) -> VideoRef {
 
 fn title(name: &str) -> TitleStub {
     TitleStub::parse(&TitleCard {
-        addon: AddonId::parse("com.linvo.cinemeta").expect("an Addon id"),
+        addon: Some(AddonId::parse("com.linvo.cinemeta").expect("an Addon id")),
         id: "tt0903747".to_owned(),
         r#type: "series".to_owned(),
         name: name.to_owned(),
@@ -19,6 +19,19 @@ fn title(name: &str) -> TitleStub {
         background: Some("https://images.example.org/bb-backdrop.jpg".to_owned()),
     })
     .expect("a Title a request could name")
+}
+
+/// A Discovered Title: one TMDB named, with no Addon behind it (ADR-0020).
+fn discovered() -> TitleStub {
+    TitleStub::parse(&TitleCard {
+        addon: None,
+        id: "tmdb:1396".to_owned(),
+        r#type: "series".to_owned(),
+        name: "Breaking Bad".to_owned(),
+        poster: None,
+        background: None,
+    })
+    .expect("a Discovered Title is one the Host will key by its own id")
 }
 
 fn entry(id: &str, position: f64, at: i64) -> WatchProgress {
@@ -61,10 +74,32 @@ fn a_title_read_back_keeps_the_addon_a_removal_is_judged_against() {
 
     let read = store.read_watch_progress().expect("the store reads back");
 
-    assert_eq!(read[0].title.addon().as_str(), "com.linvo.cinemeta");
+    assert_eq!(
+        read[0].title.addon().map(AddonId::as_str),
+        Some("com.linvo.cinemeta")
+    );
     assert_eq!(read[0].title.name(), "Breaking Bad");
     assert_eq!(read[0].position, Some(402.0));
     assert_eq!(read[0].duration, Some(2820.0));
+}
+
+#[test]
+fn a_title_with_no_addon_round_trips_as_one_with_none() {
+    // A Discovered Title has no Addon to store: the column is absent rather
+    // than a broken Addon id, and the row reads back whole (ADR-0020).
+    let store = SqliteStore::open_in_memory().expect("an in-memory store opens");
+    let written = WatchProgress {
+        title: discovered(),
+        ..entry("tmdb:1396:1:2", 402.0, 1_000)
+    };
+    store
+        .write_watch_progress(&written)
+        .expect("the store takes a progress entry");
+
+    let read = store.read_watch_progress().expect("the store reads back");
+
+    assert_eq!(read, vec![written.clone()], "the row is what was written");
+    assert_eq!(read[0].title.addon(), None);
 }
 
 #[test]
