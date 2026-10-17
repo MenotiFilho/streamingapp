@@ -289,6 +289,8 @@ export type Video = {
   name: string | null;
   season: number | null;
   episode: number | null;
+  /** The episode's 16:9 still, where it has one. */
+  thumbnail: string | null;
 };
 
 /**
@@ -306,12 +308,17 @@ export type TitleKey =
  * is what a later client asks for a Video's Streams of.
  */
 export type Title = {
-  addon: string;
+  /** The Addon that answered, or `null` for a Discovered Title. */
+  addon: string | null;
   id: string;
   key: TitleKey;
   type: string;
   name: string;
   poster: string | null;
+  /** The Title's backdrop: the 16:9 art a hero is drawn from. */
+  background: string | null;
+  /** The Title's wordmark, drawn over the backdrop in place of the name. */
+  logo: string | null;
   description: string | null;
   releaseInfo: string | null;
   runtime: string | null;
@@ -326,7 +333,7 @@ export type Title = {
  * Continue watching row can draw a card without opening anything.
  */
 export type TitleStub = {
-  addon: string;
+  addon: string | null;
   id: string;
   type: string;
   name: string;
@@ -441,6 +448,10 @@ export type Action =
       addon: string;
       title: { type: string; id: string };
     }
+  // A Discovered Title: one TMDB named before any Addon did, opened against
+  // TMDB itself rather than through an Addon (ADR-0020). The key says TMDB's
+  // record; `kind` is the protocol's spelling of what it is (`movie`/`series`).
+  | { type: "open_discovered_title"; key: TitleKey; kind: string }
   | { type: "find_streams"; video: { type: string; id: string } }
   | {
       type: "play_stream";
@@ -510,6 +521,8 @@ export const HOST_ERROR_KINDS = [
   "unknown_addon",
   "unknown_catalog",
   "unknown_title",
+  "not_discovered_title",
+  "tmdb",
   "unknown_track",
   "unknown_chapter",
   "extra",
@@ -677,6 +690,10 @@ export function explain(error: ActionError): string {
       return `The Addon ${JSON.stringify(error.addon)} offers no catalog ${error.catalog?.type ?? "?"}/${error.catalog?.id ?? "?"}.`;
     case "unknown_title":
       return `The Addon ${JSON.stringify(error.addon)} offers no meta for ${error.title?.type ?? "?"}/${error.title?.id ?? "?"}.`;
+    case "not_discovered_title":
+      return `That is not a Discovered Title${error.detail ? `: ${error.detail}` : ""}.`;
+    case "tmdb":
+      return `The Host could not answer that from TMDB${error.detail ? `: ${error.detail}` : ""}.`;
     case "unknown_track":
       // The `control` a Host sends for a track is its own tag (`audio_track`),
       // so it is put back into the words a person reads rather than shown raw.

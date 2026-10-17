@@ -198,7 +198,7 @@ impl Store for SqliteStore {
                 Ok((
                     row.get::<_, String>(0)?,
                     row.get::<_, String>(1)?,
-                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(2)?,
                     row.get::<_, String>(3)?,
                     row.get::<_, String>(4)?,
                     row.get::<_, String>(5)?,
@@ -233,9 +233,17 @@ impl Store for SqliteStore {
             let video = VideoRef::parse(&video_type, &video_id).map_err(|_| StoreError::Read {
                 detail: "a stored Watch progress entry names no Video".to_owned(),
             })?;
-            let addon = AddonId::parse(&title_addon).map_err(|_| StoreError::Read {
-                detail: "a stored Watch progress entry names no Addon".to_owned(),
-            })?;
+            // No Addon is a Discovered Title rather than a broken row: a Title
+            // TMDB named before any Addon did has none (ADR-0020). What is one is
+            // an Addon id that cannot be read at all.
+            let addon = title_addon
+                .as_deref()
+                .map(|addon| {
+                    AddonId::parse(addon).map_err(|_| StoreError::Read {
+                        detail: "a stored Watch progress entry names no Addon".to_owned(),
+                    })
+                })
+                .transpose()?;
             // The Title is read back through the same judgement it was written
             // with, so a row that somehow drifted cannot reach a Snapshot.
             let title = TitleStub::parse(&TitleCard {
@@ -286,7 +294,7 @@ impl Store for SqliteStore {
                 params![
                     progress.video.id,
                     progress.video.r#type,
-                    progress.title.addon().as_str(),
+                    progress.title.addon().map(|addon| addon.as_str()),
                     progress.title.id(),
                     progress.title.r#type(),
                     progress.title.name(),

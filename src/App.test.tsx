@@ -135,7 +135,7 @@ const EPISODES: Video[] = [
 ];
 
 function episode(id: string, name: string, season: number, episodeNumber: number): Video {
-  return { id, name, season, episode: episodeNumber };
+  return { id, name, season, episode: episodeNumber, thumbnail: null };
 }
 
 /** Every item the fake Addon has, so an `open_title` can answer about one. */
@@ -501,6 +501,8 @@ function fakeHost(
             type: item.type,
             name: bare ? item.id : item.name,
             poster: bare ? null : item.poster,
+            background: null,
+            logo: null,
             description: bare ? null : `${item.name}, as the Addon describes it.`,
             releaseInfo: bare ? null : item.releaseInfo,
             runtime: bare ? null : "136 min",
@@ -521,7 +523,7 @@ function fakeHost(
         // own words about it, and never where its bytes are — and a play is
         // Watch progress in a Video of the Title the client was reading (#29).
         const watched: ResumeEntry = {
-          video: { id: action.video.id, name: null, season: null, episode: null },
+          video: { id: action.video.id, name: null, season: null, episode: null, thumbnail: null },
           title: action.title,
           position: null,
           duration: null,
@@ -582,7 +584,10 @@ function fakeHost(
             failure: null,
             nowPlaying: {
               video: action.video,
-              addon: entry.title.addon,
+              // The Addon a candidate came from, which is never absent: only an
+              // Addon answers `stream` today. A Discovered Title's card names
+              // no Addon, and the fake's own configured one stands in.
+              addon: entry.title.addon ?? ADDON.id,
               name: null,
               description: null,
               filename: null,
@@ -2309,7 +2314,7 @@ test("a Stream at its end offers no menu the Host would refuse", async () => {
 /** One Video with Watch progress, the way the Host publishes it (#29). */
 function resumeEntry(overrides: Partial<ResumeEntry> = {}): ResumeEntry {
   return {
-    video: { id: "tt0133093", name: null, season: null, episode: null },
+    video: { id: "tt0133093", name: null, season: null, episode: null, thumbnail: null },
     title: {
       addon: ADDON.id,
       id: "tt0133093",
@@ -2328,7 +2333,7 @@ function resumeEntry(overrides: Partial<ResumeEntry> = {}): ResumeEntry {
 test("the Continue watching row draws the Host's library, one card per Video", async () => {
   const film = resumeEntry();
   const episode = resumeEntry({
-    video: { id: "tt0903747:1:2", name: "Cat's in the Bag...", season: 1, episode: 2 },
+    video: { id: "tt0903747:1:2", name: "Cat's in the Bag...", season: 1, episode: 2, thumbnail: null },
     title: {
       addon: ADDON.id,
       id: "tt0903747",

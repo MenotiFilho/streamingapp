@@ -28,10 +28,14 @@
 //!
 //! Only the fields this Host acts on are read. A meta response carries far more —
 //! Cinemeta's `cast`, `director`, `trailers`, `links`, `slug`, `popularities`,
-//! `imdb_id`, `background` and `logo`, and a Video's `thumbnail`, `overview`,
-//! `rating`, `firstAired` and `tvdb_id` — and all of it is ignored rather than
-//! refused, because reading a field nothing acts on is a promise this Host would
-//! not be keeping (ADR-0009). It arrives when a ticket that acts on it does.
+//! `imdb_id`, and a Video's `overview`, `rating`, `firstAired` and `tvdb_id` —
+//! and all of it is ignored rather than refused, because reading a field nothing
+//! acts on is a promise this Host would not be keeping (ADR-0009). It arrives
+//! when a ticket that acts on it does.
+//!
+//! The art a Title screen draws *is* read: a Title's `background` and `logo` and
+//! a Video's `thumbnail`, because Home's hero, the Title hero and a series'
+//! episode rows draw them (#62, ADR-0011's amendment).
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -50,12 +54,15 @@ pub const MAX_META_BYTES: usize = 4 * 1024 * 1024;
 ///
 /// The [`addon`](Self::addon) that answered travels with it, because that is what
 /// later tickets ask for Streams of one of its Videos, and because a Title here is
-/// always one Addon's answer to one client (ADR-0005), never shared state.
+/// always one Addon's answer to one client (ADR-0005), never shared state. It is
+/// absent for a **Discovered Title** — one TMDB named before any Addon did, which
+/// may be unknown to every configured Addon (ADR-0020).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Title {
-    /// The Addon that answered. Never where its manifest lives.
-    pub addon: AddonId,
+    /// The Addon that answered, or `None` for a Discovered Title. Never where its
+    /// manifest lives.
+    pub addon: Option<AddonId>,
     /// The id the client opened, which is the id its Addon indexes it by —
     /// `tt0903747`, `tmdb:603`.
     pub id: String,
@@ -69,6 +76,12 @@ pub struct Title {
     /// Title always has something to be called.
     pub name: String,
     pub poster: Option<String>,
+    /// The Title's backdrop, where it has one: the 16:9 art a hero is drawn from
+    /// while the poster beside it is portrait (#62).
+    pub background: Option<String>,
+    /// The Title's wordmark, where it has one: what a Title screen draws over its
+    /// backdrop in place of its text name (#62).
+    pub logo: Option<String>,
     pub description: Option<String>,
     /// The year, or a series' years: `1999`, `2008–2013`, `2020-`.
     pub release_info: Option<String>,
@@ -114,6 +127,9 @@ pub struct Video {
     pub season: Option<u32>,
     /// The number within the season.
     pub episode: Option<u32>,
+    /// The episode's 16:9 still, where it has one: what a Title screen's episode
+    /// row is drawn from (#62).
+    pub thumbnail: Option<String>,
 }
 
 impl Video {
@@ -132,6 +148,7 @@ impl Video {
             name: None,
             season,
             episode,
+            thumbnail: None,
         }
     }
 }
@@ -220,7 +237,7 @@ impl Title {
             // *is* the item that was asked about, and an Addon cannot rename it.
             // A fresh answer is keyed by the Addon that gave it, until TMDB's
             // own records say otherwise — which is a decision above the parse.
-            addon: addon.clone(),
+            addon: Some(addon.clone()),
             id: asked.id.clone(),
             key: TitleKey::Addon {
                 addon,
@@ -231,6 +248,8 @@ impl Title {
                 .and_then(|meta| field(meta, "name"))
                 .unwrap_or_else(|| asked.id.clone()),
             poster: meta.and_then(|meta| field(meta, "poster")),
+            background: meta.and_then(|meta| field(meta, "background")),
+            logo: meta.and_then(|meta| field(meta, "logo")),
             description: meta.and_then(|meta| field(meta, "description")),
             release_info: meta.and_then(|meta| field(meta, "releaseInfo")),
             runtime: meta.and_then(|meta| field(meta, "runtime")),
@@ -287,6 +306,7 @@ fn video(value: &Value) -> Option<Video> {
         // both: Cinemeta's `episode` and the SDK's own `number`. `episode` is
         // read first because it is the one that names what the number is.
         episode: number(object, "episode").or_else(|| number(object, "number")),
+        thumbnail: field(object, "thumbnail"),
     })
 }
 
@@ -362,7 +382,10 @@ mod tests {
     fn a_recorded_film_is_read_into_its_metadata_and_no_videos() {
         let title = parsed(MOVIE, &asked("movie", "tt0133093"));
 
-        assert_eq!(title.addon.as_str(), "com.linvo.cinemeta");
+        assert_eq!(
+            title.addon.as_ref().map(AddonId::as_str),
+            Some("com.linvo.cinemeta")
+        );
         assert_eq!(title.id, "tt0133093");
         assert_eq!(title.r#type, "movie");
         assert_eq!(title.name, "The Matrix");
@@ -370,6 +393,16 @@ mod tests {
             .poster
             .as_deref()
             .is_some_and(|poster| poster.starts_with("https://")));
+        assert_eq!(
+            title.background.as_deref(),
+            Some("https://images.metahub.space/background/medium/tt0133093/img"),
+            "the backdrop is read: Home's hero and the Title hero are drawn from it"
+        );
+        assert_eq!(
+            title.logo.as_deref(),
+            Some("https://images.metahub.space/logo/medium/tt0133093/img"),
+            "the wordmark is read: a Title screen draws it over the backdrop"
+        );
         assert_eq!(title.release_info.as_deref(), Some("1999"));
         assert_eq!(title.runtime.as_deref(), Some("136 min"));
         assert_eq!(title.imdb_rating.as_deref(), Some("8.7"));
@@ -411,6 +444,13 @@ mod tests {
         let pilot = &title.videos[1];
         assert_eq!(pilot.id, "tt0903747:1:1");
         assert_eq!(pilot.name.as_deref(), Some("Pilot"));
+        assert!(
+            pilot
+                .thumbnail
+                .as_deref()
+                .is_some_and(|thumbnail| thumbnail.starts_with("https://")),
+            "an episode's still is read: a Title screen's episode rows are drawn from it"
+        );
     }
 
     #[test]
@@ -570,13 +610,38 @@ mod tests {
     #[test]
     fn fields_this_host_has_no_use_for_are_ignored_rather_than_refused() {
         // Cinemeta's meta carries `cast`, `director`, `trailers`, `links`,
-        // `slug`, `popularities`, `imdb_id`, `moviedb_id`, `background` and
-        // `logo` beside the fields the Host reads, and a Title that knows more
-        // than the Host does still opens.
+        // `slug`, `popularities`, `imdb_id`, `moviedb_id` and a Video's
+        // `overview`, `rating`, `firstAired` and `tvdb_id` beside the fields the
+        // Host reads, and a Title that knows more than the Host does still opens.
         let title = parsed(SERIES, &asked("series", "tt0903747"));
 
         assert_eq!(title.imdb_rating.as_deref(), Some("9.5"));
         assert_eq!(title.genres, vec!["Crime", "Drama", "Thriller"]);
+    }
+
+    #[test]
+    fn art_that_is_not_an_address_is_a_field_the_addon_did_not_send() {
+        // The widened reads are as lenient as every other field: a `background`
+        // of the wrong type, or one too long to hold, is absence rather than a
+        // Title refused over its artwork.
+        let title = parsed(
+            r#"{"meta":{"id":"tt1","type":"movie","name":"One",
+                 "background":7,"logo":"","poster":"https://example.org/p.jpg"}}"#,
+            &asked("movie", "tt1"),
+        );
+
+        assert_eq!(title.background, None);
+        assert_eq!(title.logo, None, "an empty wordmark is no wordmark");
+        assert_eq!(title.poster.as_deref(), Some("https://example.org/p.jpg"));
+
+        let too_long = "https://example.org/".to_owned() + &"a".repeat(MAX_STRING_LEN);
+        let title = parsed(
+            &format!(
+                r#"{{"meta":{{"id":"tt1","type":"movie","name":"One","background":"{too_long}"}}}}"#
+            ),
+            &asked("movie", "tt1"),
+        );
+        assert_eq!(title.background, None);
     }
 
     #[test]

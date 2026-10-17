@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use crate::action::{Action, ActionError, ValidatedAction};
-use crate::addon::{Addon, AddonId, Manifest};
+use crate::addon::{Addon, AddonId, Manifest, MAX_ITEMS};
 use crate::cache::CatalogCache;
 use crate::catalog::{CatalogRow, Page};
 use crate::clock::Clock;
 use crate::device::{Device, DeviceSummary, DeviceToken};
 use crate::fetcher::Fetcher;
-use crate::meta::Title;
+use crate::meta::{self, Title, TitleKey, Video};
 use crate::pairing::PairingCode;
 use crate::playback::{
     ChapterStep, ChosenStream, Control, Observation, Picture, PlaybackState, Player, Telling,
@@ -27,7 +27,7 @@ use crate::stream::{AddonStreams, Stream};
 use crate::stremio::StremioApi;
 use crate::subtitles::MAX_FALLBACK_SUBTITLES;
 use crate::sync::{merge, Merged, RemoteItem};
-use crate::{meta, tmdb};
+use crate::tmdb;
 
 /// The Host: its state, and the one door to it.
 ///
@@ -383,7 +383,9 @@ impl Host {
         if stub.r#type() == "movie" {
             return None;
         }
-        let addon = self.state.addon(stub.addon())?;
+        // A Discovered Title has no Addon to ask: none of its episodes is
+        // ordered by one (ADR-0020).
+        let addon = self.state.addon(stub.addon()?)?;
         let requested = ResourceRequest::new(META, stub.r#type(), stub.id());
         if !addon.manifest().answers(&requested) {
             return None;
@@ -496,24 +498,21 @@ impl Host {
             return;
         };
         let video = chosen.now_playing.video.clone();
-        let requested = ResourceRequest::new(SUBTITLES, &video.r#type, &video.id);
-        let addons: Vec<Addon> = self
-            .state
-            .addons()
-            .iter()
-            .filter(|addon| addon.manifest().answers(&requested))
-            .cloned()
+        let addons: Vec<(Addon, ResourceRequest)> = self
+            .asks_for(SUBTITLES, &video)
+            .into_iter()
+            .filter_map(|asked| Some((asked.addon, asked.requested?)))
             .collect();
 
         let mut added = 0usize;
-        for addon in &addons {
+        for (addon, requested) in &addons {
             if added >= MAX_FALLBACK_SUBTITLES {
                 break;
             }
             // A fetch that fails, or an answer that cannot be read, is this
             // Addon having nothing: the Host does not invent a subtitle for it,
             // and the next Addon is still asked.
-            let Ok(subtitles) = self.provider.subtitles(addon, &requested) else {
+            let Ok(subtitles) = self.provider.subtitles(addon, requested) else {
                 continue;
             };
             for subtitle in subtitles {
@@ -719,28 +718,40 @@ impl Host {
                 self.tmdb_refine(&mut title);
                 Resolved::Answer(Answer::Title(Box::new(title)))
             }
+            ValidatedAction::OpenDiscoveredTitle { id, kind } => {
+                Resolved::Answer(Answer::Title(Box::new(self.open_discovered(id, kind)?)))
+            }
             ValidatedAction::FindStreams { video } => {
                 // Every configured Addon that answers for it, in the order
                 // they were configured, each answer a group of its own: one
                 // Addon failing is that group with nothing in it, not a
                 // question that fails (ADR-0010 — a search's rule, applied to
-                // Streams).
-                let requested = ResourceRequest::new(STREAM, &video.r#type, &video.id);
+                // Streams). A TMDB-keyed Video is asked of each Addon in the
+                // spelling that Addon declares (ADR-0020).
                 let groups = self
-                    .state
-                    .addons()
-                    .iter()
-                    .filter(|addon| addon.manifest().answers(&requested))
-                    .map(|addon| {
-                        let (streams, failure) = match self.provider.streams(addon, &requested) {
-                            Ok(streams) => (streams, None),
-                            Err(failure) => (Vec::new(), Some(failure)),
-                        };
-                        AddonStreams {
-                            addon: addon.id().clone(),
-                            streams,
-                            failure,
+                    .asks_for(STREAM, &video)
+                    .into_iter()
+                    .map(|asked| match asked.requested {
+                        Some(requested) => {
+                            let (streams, failure) =
+                                match self.provider.streams(&asked.addon, &requested) {
+                                    Ok(streams) => (streams, None),
+                                    Err(failure) => (Vec::new(), Some(failure)),
+                                };
+                            AddonStreams {
+                                addon: asked.addon.id().clone(),
+                                streams,
+                                failure,
+                            }
                         }
+                        // An Addon that declares no spelling this Host can
+                        // build is not asked, and its group is empty — which is
+                        // what "marked" means (ADR-0020).
+                        None => AddonStreams {
+                            addon: asked.addon.id().clone(),
+                            streams: Vec::new(),
+                            failure: None,
+                        },
                     })
                     .collect();
                 Resolved::Answer(Answer::Streams(groups))
@@ -928,14 +939,18 @@ impl Host {
     /// The Stream to play when a client asks for the next episode, or why the
     /// Host will not open one.
     ///
-    /// The Video playing must be an episode of a series, the Host asks the
-    /// Addons that answer `meta` for its Title and takes the next Video in the
-    /// Addon's own order, and then asks the Addon that is playing for that
-    /// Video's Streams — preferring the release the one playing came from (the
-    /// same `bingeGroup`) and falling back to that Addon's first playable
-    /// candidate. Nothing here invents an id by arithmetic and nothing re-ranks
-    /// the candidates: the next Video is the Addon's own, and continuing the
-    /// release is continuity rather than a score (ADR-0012, ADR-0014).
+    /// The Video playing must be an episode of a series. Where the Video is an
+    /// Addon's own, the Host asks the Addons for its Title and takes the next
+    /// Video in the Addon's own order; where it is TMDB's — a TMDB-first
+    /// series' episode — the next is the next in **TMDB's** episode list, the
+    /// list the client is looking at, whose numbering the Addons may not share
+    /// (ADR-0020's known hazard). Either way the Stream is asked of the Addon
+    /// already playing, in the spelling its own manifest declares, preferring
+    /// the release the one playing came from (the same `bingeGroup`) and
+    /// falling back to that Addon's first playable candidate. Nothing here
+    /// invents an id by arithmetic and nothing re-ranks the candidates: the
+    /// next Video is the source's own, and continuing the release is continuity
+    /// rather than a score (ADR-0012, ADR-0014).
     fn next_episode(&self) -> Result<ChosenStream, ActionError> {
         let Some(playing) = self.state.playback().chosen() else {
             // Behind `playing(Control::NextEpisode)` this cannot happen, and it
@@ -945,41 +960,22 @@ impl Host {
             });
         };
         let now = &playing.now_playing;
-        let title_id = episode_title(&now.video)?;
         let refused = |detail: String| ActionError::NoNextEpisode { detail };
-        let asked = TitleRef::parse(&now.video.r#type, &title_id)
-            .map_err(|error| refused(error.to_string()))?;
 
-        // The Title's Videos come from the first Addon that answers `meta` for
-        // it and still lists the Video playing; the Addon's own order decides
-        // what comes next.
-        let requested_meta = ResourceRequest::new(META, &now.video.r#type, &title_id);
-        let mut next_id = None;
-        for addon in self.state.addons() {
-            if !addon.manifest().answers(&requested_meta) {
-                continue;
+        let next_id = match tmdb::video_id(&now.video.r#type, &now.video.id) {
+            Some(video) => self
+                .tmdb_next_episode(video)
+                .ok_or_else(|| refused(format!("TMDB lists no episode after {}", now.video)))?,
+            None => {
+                // The Title's Videos come from the first Addon that answers
+                // `meta` for it and still lists the Video playing; the Addon's
+                // own order decides what comes next.
+                let title_id = episode_title(&now.video)?;
+                self.addon_next_episode(&now.video, &title_id)
+                    .ok_or_else(|| {
+                        refused(format!("no Addon offers an episode after {}", now.video))
+                    })?
             }
-            let Ok(title) = self.fetch_title(addon, &asked, &requested_meta) else {
-                continue;
-            };
-            let Some(index) = title
-                .videos
-                .iter()
-                .position(|video| video.id == now.video.id)
-            else {
-                continue;
-            };
-            let Some(following) = title.videos.get(index + 1) else {
-                continue;
-            };
-            next_id = Some(following.id.clone());
-            break;
-        }
-        let Some(next_id) = next_id else {
-            return Err(refused(format!(
-                "no Addon offers an episode after {}",
-                now.video
-            )));
         };
 
         // The next episode is played from the Addon already playing, so that the
@@ -989,19 +985,17 @@ impl Host {
             self.state.addon(&now.addon).cloned().ok_or_else(|| {
                 refused(format!("the Addon {} is no longer configured", now.addon))
             })?;
-        let requested_stream = ResourceRequest::new(STREAM, &now.video.r#type, &next_id);
-        if !playing_addon.manifest().answers(&requested_stream) {
+        let video = VideoRef::parse(&now.video.r#type, &next_id)
+            .map_err(|error| refused(error.to_string()))?;
+        let Some(requested_stream) = self.ask_of(&playing_addon, STREAM, &video) else {
             return Err(refused(format!(
                 "{} has nothing for {}/{}",
                 now.addon, now.video.r#type, next_id
             )));
-        }
+        };
         let streams = self
             .provider
             .streams(&playing_addon, &requested_stream)
-            .map_err(|error| refused(error.to_string()))?;
-
-        let video = VideoRef::parse(&now.video.r#type, &next_id)
             .map_err(|error| refused(error.to_string()))?;
 
         streams
@@ -1019,6 +1013,49 @@ impl Host {
                     now.video.r#type, next_id
                 ))
             })
+    }
+
+    /// The next Video in TMDB's own episode list for what is playing, in TMDB's
+    /// spelling — or nothing where TMDB lists no further episode, the Video is
+    /// a film, or this Host cannot read the list (ADR-0020).
+    fn tmdb_next_episode(&self, video: tmdb::TmdbVideo) -> Option<String> {
+        let at = video.at?;
+        let key = self.tmdb_credential()?;
+        let kind = tmdb::Kind::Tv;
+        let details = self.tmdb_details(kind, video.id, &key).ok()?;
+        let videos = self.tmdb_videos(&details, video.id, &key)?;
+
+        let index = videos
+            .iter()
+            .position(|held| (held.season, held.episode) == (Some(at.0), Some(at.1)))?;
+        videos.get(index + 1).map(|video| video.id.clone())
+    }
+
+    /// The next Video the Addons' own lists give for what is playing, or
+    /// nothing where no Addon offers one — the path a Video in the addon
+    /// protocol's own namespace takes. `title_id` is the Title the episode id
+    /// carries, which is what the `meta` request is built with.
+    fn addon_next_episode(&self, now: &VideoRef, title_id: &str) -> Option<String> {
+        let asked = TitleRef::parse(&now.r#type, title_id).ok()?;
+        let requested_meta = ResourceRequest::new(META, &now.r#type, title_id);
+
+        for addon in self.state.addons() {
+            if !addon.manifest().answers(&requested_meta) {
+                continue;
+            }
+            let Ok(title) = self.fetch_title(addon, &asked, &requested_meta) else {
+                continue;
+            };
+            let Some(index) = title.videos.iter().position(|video| video.id == now.id) else {
+                continue;
+            };
+            let Some(following) = title.videos.get(index + 1) else {
+                continue;
+            };
+            return Some(following.id.clone());
+        }
+
+        None
     }
 
     /// The Stream a resume plays and where in it to start, or why the Host will
@@ -1042,13 +1079,16 @@ impl Host {
                     video: video.clone(),
                 })?;
 
-        if !self.state.has_addon(entry.title.addon()) {
-            return Err(ActionError::Unplayable(Unplayable {
-                detail: format!(
-                    "the Addon {} that supplied this Title is no longer configured",
-                    entry.title.addon()
-                ),
-            }));
+        // An entry with no Addon behind it — a Discovered Title — has no
+        // configured Addon to check and resumes like any other (ADR-0020).
+        if let Some(addon) = entry.title.addon() {
+            if !self.state.has_addon(addon) {
+                return Err(ActionError::Unplayable(Unplayable {
+                    detail: format!(
+                        "the Addon {addon} that supplied this Title is no longer configured"
+                    ),
+                }));
+            }
         }
 
         let chosen = self.first_playable(video).ok_or_else(|| {
@@ -1065,22 +1105,21 @@ impl Host {
     /// The first candidate this Host can play for a Video, asked of every
     /// configured Addon that answers for it, in the order they were configured —
     /// the rule `FindStreams` asks every Addon by, folded to the one a Host that
-    /// is opening a Stream itself needs (a resume, ADR-0015).
+    /// is opening a Stream itself needs (a resume, ADR-0015). A TMDB-keyed
+    /// Video reaches each Addon in the spelling it declares (ADR-0020).
     fn first_playable(&self, video: &VideoRef) -> Option<ChosenStream> {
-        let requested = ResourceRequest::new(STREAM, &video.r#type, &video.id);
-
-        for addon in self.state.addons() {
-            if !addon.manifest().answers(&requested) {
+        for asked in self.asks_for(STREAM, video) {
+            let Some(requested) = asked.requested else {
                 continue;
-            }
+            };
             // An Addon that cannot answer is one Addon with nothing, and the
             // next is still asked (ADR-0010's rule for a search).
-            let Ok(streams) = self.provider.streams(addon, &requested) else {
+            let Ok(streams) = self.provider.streams(&asked.addon, &requested) else {
                 continue;
             };
             if let Some(candidate) = streams
                 .iter()
-                .find_map(|stream| playable(video, addon.id(), stream))
+                .find_map(|stream| playable(video, asked.addon.id(), stream))
             {
                 return Some(candidate);
             }
@@ -1188,6 +1227,112 @@ impl Host {
         })
     }
 
+    /// Open a Discovered Title: the record TMDB keeps for it, read whole.
+    ///
+    /// The one question that needs a TMDB credential to answer at all: a
+    /// Discovered Title *is* its TMDB record, so a Host that holds no key has
+    /// nothing to open it from, and a TMDB that cannot answer is the answer
+    /// refused rather than degraded (ADR-0020).
+    fn open_discovered(&self, id: tmdb::TmdbId, kind: tmdb::Kind) -> Result<Title, ActionError> {
+        let key = self.tmdb_credential().ok_or_else(|| ActionError::Tmdb {
+            detail: "a Discovered Title is TMDB's, and this Host holds no TMDB key".to_owned(),
+        })?;
+        let details = self
+            .tmdb_details(kind, id, &key)
+            .map_err(|detail| ActionError::Tmdb { detail })?;
+        let videos = self.tmdb_videos(&details, id, &key);
+
+        // The record is the whole of it: no Addon answered, and every field
+        // TMDB did not give stays empty rather than being invented.
+        let mut title = Title {
+            addon: None,
+            id: tmdb::video_spelling(id, None),
+            key: TitleKey::Tmdb { id: id.0 },
+            r#type: kind.as_protocol().to_owned(),
+            name: tmdb::video_spelling(id, None),
+            poster: None,
+            background: None,
+            logo: None,
+            description: None,
+            release_info: None,
+            runtime: None,
+            imdb_rating: None,
+            genres: Vec::new(),
+            videos: Vec::new(),
+        };
+        details.with_videos(videos).onto(&mut title);
+
+        Ok(title)
+    }
+
+    /// One record's details, read — or why TMDB could not answer at all.
+    fn tmdb_details(
+        &self,
+        kind: tmdb::Kind,
+        id: tmdb::TmdbId,
+        key: &tmdb::Credential,
+    ) -> Result<tmdb::TmdbDetails, String> {
+        let request = tmdb::TmdbRequest::Details { kind, id };
+        let Some(body) = self.fetch_tmdb(&request, key) else {
+            return Err(format!(
+                "TMDB could not be asked for {}/{}",
+                kind.as_protocol(),
+                tmdb::video_spelling(id, None)
+            ));
+        };
+
+        tmdb::read_details(&body, kind).map_err(|error| error.to_string())
+    }
+
+    /// TMDB's Videos for a record: a series' seasons and episodes, read one
+    /// season at a time, or `None` where there were none to read.
+    ///
+    /// `None` is not "a film": it is "TMDB's Videos were not read" — a record
+    /// that listed no seasons, or every season's answer failing — and it leaves
+    /// the Title's own Videos standing rather than replacing them with
+    /// emptiness. A season that could not be fetched or read is skipped rather
+    /// than blanking the series around it, the way one bad catalog item is.
+    ///
+    /// A film is the case where TMDB's Videos and the Title's are one and the
+    /// same Video, so there is nothing to replace: the film is played by the id
+    /// its Title carries, `tt0133093` through an Addon and `tmdb:603` through
+    /// Discover. The two unify in **Continue watching** when the client plays
+    /// the spelling TMDB keys — which a TMDB-first Title screen does by its
+    /// `key` — and not before; the Host will not renumber a Video the client
+    /// named, because the id is what its Streams were found by (ADR-0011).
+    fn tmdb_videos(
+        &self,
+        details: &tmdb::TmdbDetails,
+        id: tmdb::TmdbId,
+        key: &tmdb::Credential,
+    ) -> Option<Vec<Video>> {
+        if details.seasons.is_empty() {
+            return None;
+        }
+
+        let mut read_any = false;
+        let mut videos: Vec<Video> = Vec::new();
+        for season in &details.seasons {
+            if videos.len() >= MAX_ITEMS {
+                break;
+            }
+            let request = tmdb::TmdbRequest::Season {
+                id,
+                season: *season,
+            };
+            let Some(body) = self.fetch_tmdb(&request, key) else {
+                continue;
+            };
+            if let Ok(episodes) = tmdb::read_season(&body, id, *season) {
+                read_any = true;
+                videos.extend(episodes);
+            }
+        }
+        videos.truncate(MAX_ITEMS);
+
+        read_any.then_some(videos)
+    }
+
     /// Where TMDB's own record meets a Title it already names, deliver its
     /// metadata onto the Addon's answer — and key the Title by that record.
     ///
@@ -1197,6 +1342,12 @@ impl Host {
     /// that refuses to be read all leave the Title exactly the Addon's — open,
     /// keyed by the Addon, unmapped by whatever the interface commits to. A
     /// TMDB outage blanks nothing.
+    ///
+    /// Where TMDB *does* answer, its word is the Title's: the art, the
+    /// description, the runtime, the rating, the genres — and the **Videos**,
+    /// which are its seasons and episodes where they were read, so a series
+    /// played through an Addon card and through Discover is one series with one
+    /// set of Videos (ADR-0011's amendment, ADR-0020).
     ///
     /// The credential is read here, at the moment of the request it builds,
     /// and kept no further: it reaches neither state nor Snapshot nor log.
@@ -1249,7 +1400,8 @@ impl Host {
         };
         match tmdb::read_details(&record, kind) {
             Ok(details) => {
-                details.onto(title);
+                let videos = self.tmdb_videos(&details, id, &key);
+                details.with_videos(videos).onto(title);
                 title.key = meta::TitleKey::Tmdb { id: id.0 };
             }
             // A details answer that was not one: the id stood — the find said
@@ -1266,6 +1418,106 @@ impl Host {
     fn tmdb_credential(&self) -> Option<tmdb::Credential> {
         let key = self.secrets.read(CredentialKind::TmdbKey).ok().flatten()?;
         Some(tmdb::Credential::parse(&key))
+    }
+
+    /// The Addons a Video's Streams — or subtitles — are asked of, each with
+    /// the request its own manifest declares.
+    ///
+    /// For a Video in the addon protocol's own namespace this is
+    /// `Manifest::answers`'s judgement, the one ADR-0010 wrote down: an Addon
+    /// that does not answer is not asked, and appears nowhere. For a Video TMDB
+    /// keys — `tmdb:603`, `tmdb:1396:1:2` — the request is built **per Addon**,
+    /// in the spelling that Addon declares: `tmdb:` stays as it is,
+    /// `tt`-declaring Addons are asked with the `/external_ids`-resolved IMDb
+    /// id, and an Addon that declares neither is considered and not asked, its
+    /// group empty (ADR-0020). The `/external_ids` ask happens once for the
+    /// Video however many Addons want that spelling.
+    ///
+    /// The request built is still judged with `Manifest::answers` before it is
+    /// returned: the request judged is the request asked.
+    fn asks_for(&self, resource: &str, video: &VideoRef) -> Vec<Asked> {
+        let plain = |video: &VideoRef| ResourceRequest::new(resource, &video.r#type, &video.id);
+
+        let Some(tmdb_video) = tmdb::video_id(&video.r#type, &video.id) else {
+            return self
+                .state
+                .addons()
+                .iter()
+                .filter(|addon| addon.manifest().answers(&plain(video)))
+                .map(|addon| Asked {
+                    addon: addon.clone(),
+                    requested: Some(plain(video)),
+                })
+                .collect();
+        };
+
+        let kind = tmdb_video.kind;
+        // Which spelling each Addon that offers the resource wants, settled
+        // before anything is resolved: an Addon with no `stream` resource is
+        // never worth an `/external_ids` ask.
+        let spelled: Vec<(&Addon, Option<Spelling>)> = self
+            .state
+            .addons()
+            .iter()
+            .filter(|addon| addon.manifest().declares(resource, &video.r#type))
+            .map(|addon| {
+                let spelling = addon
+                    .manifest()
+                    .declared_prefixes(resource)
+                    .and_then(spelling_of);
+                (addon, spelling)
+            })
+            .collect();
+
+        let wants_imdb = spelled
+            .iter()
+            .any(|(_, spelling)| *spelling == Some(Spelling::Imdb));
+        let imdb = wants_imdb
+            .then(|| self.tmdb_imdb(kind, tmdb_video.id))
+            .flatten();
+
+        spelled
+            .into_iter()
+            .map(|(addon, spelling)| {
+                let requested = match (spelling, imdb.as_deref()) {
+                    (Some(Spelling::Tmdb), _) => Some(plain(video)),
+                    (Some(Spelling::Imdb), Some(imdb)) => Some(ResourceRequest::new(
+                        resource,
+                        &video.r#type,
+                        episode_spelling(imdb, tmdb_video.at),
+                    )),
+                    // A spelling this Host could not build — the IMDb id TMDB
+                    // does not keep, or an Addon that declared neither — is an
+                    // Addon that is not asked.
+                    _ => None,
+                };
+
+                Asked {
+                    addon: addon.clone(),
+                    requested: requested.filter(|requested| addon.manifest().answers(requested)),
+                }
+            })
+            .collect()
+    }
+
+    /// The request one named Addon is asked one Video by, in the spelling its
+    /// own manifest declares — or `None` where it declares none, or does not
+    /// answer for the Video (ADR-0020).
+    fn ask_of(&self, addon: &Addon, resource: &str, video: &VideoRef) -> Option<ResourceRequest> {
+        self.asks_for(resource, video)
+            .into_iter()
+            .find(|asked| asked.addon.id() == addon.id())
+            .and_then(|asked| asked.requested)
+    }
+
+    /// The IMDb id TMDB keeps for a record, where a key is held and TMDB
+    /// answers: one hop of the per-Addon bridge (ADR-0020).
+    fn tmdb_imdb(&self, kind: tmdb::Kind, id: tmdb::TmdbId) -> Option<String> {
+        let key = self.tmdb_credential()?;
+        let request = tmdb::TmdbRequest::ExternalIds { kind, id };
+        let answer = self.fetch_tmdb(&request, &key)?;
+
+        tmdb::read_external_ids(&answer).ok().flatten()
     }
 
     /// Fetch one TMDB answer, or nothing. The URL a query credential built
@@ -1298,6 +1550,52 @@ enum Resolved {
         answer: Answer,
     },
     Answer(Answer),
+}
+
+/// One Addon, and the request one Video is asked of it by — or `None` where the
+/// Addon was considered and not asked, which for a TMDB-keyed Video is its own
+/// kind of answer: an empty group (ADR-0020).
+struct Asked {
+    addon: Addon,
+    requested: Option<ResourceRequest>,
+}
+
+/// How one Addon's manifest says a TMDB-keyed Video is spelled to it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Spelling {
+    /// `tmdb:<id>`, or `tmdb:<id>:<season>:<episode>`: the id the client
+    /// named, which needs no second ask.
+    Tmdb,
+    /// `tt…`, or `tt…:<season>:<episode>`: TMDB's `/external_ids` answer,
+    /// re-spelled.
+    Imdb,
+}
+
+/// The spelling an Addon's declared id prefixes ask for, where it declares one.
+///
+/// `tmdb:` is preferred where an Addon declares both spellings, because it is
+/// the id in hand and the `tt` one is a network hop. An Addon that declares
+/// neither family — including one that declares nothing at all, which the
+/// protocol reads as "every id" — is not asked: which of two namespaces to
+/// guess is not the Host's to guess, and the ADR says the group is empty
+/// (ADR-0020).
+fn spelling_of(prefixes: &[String]) -> Option<Spelling> {
+    if prefixes.iter().any(|prefix| prefix.starts_with("tmdb")) {
+        Some(Spelling::Tmdb)
+    } else if prefixes.iter().any(|prefix| prefix == "tt") {
+        Some(Spelling::Imdb)
+    } else {
+        None
+    }
+}
+
+/// The id an Addon keyed by `tt` is asked an episode by: TMDB's IMDb id with
+/// the season and episode the playing Video carried.
+fn episode_spelling(imdb: &str, at: Option<(u32, u32)>) -> String {
+    match at {
+        Some((season, episode)) => format!("{imdb}:{season}:{episode}"),
+        None => imdb.to_owned(),
+    }
 }
 
 /// A candidate for the next episode, judged: the Stream to play, or nothing

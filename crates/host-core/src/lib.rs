@@ -109,7 +109,7 @@ pub use stremio::{FixtureStremio, StremioApi, SyncError};
 pub use subtitles::{Subtitle, SubtitleError, MAX_FALLBACK_SUBTITLES, MAX_SUBTITLES_BYTES};
 pub use sync::{merge, BitField, Merged, RemoteItem, WatchedField};
 pub use tmdb::{
-    Credential, ExternalId, Kind, TmdbDetails, TmdbError, TmdbId, TmdbRequest, IMAGE_ROOT,
-    TMDB_ROOT,
+    video_id, Credential, ExternalId, Kind, TmdbDetails, TmdbError, TmdbId, TmdbRequest, TmdbVideo,
+    BACKGROUND_ROOT, IMAGE_ROOT, LOGO_ROOT, STILL_ROOT, TMDB_ROOT,
 };
 pub use wire::{permitted, ClientFrame, Refusal, ServerFrame, WIRE_VERSION};

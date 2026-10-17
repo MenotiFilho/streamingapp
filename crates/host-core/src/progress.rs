@@ -60,9 +60,11 @@ pub const PROGRESS_EVERY: f64 = 5.0;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TitleCard {
-    /// The Addon the client opened the Title from. Held as an `AddonId`, which
-    /// is the type that judges it, so a card can only ever name a real one.
-    pub addon: AddonId,
+    /// The Addon the client opened the Title from, or `None` for a Discovered
+    /// Title: one TMDB named and no Addon did, which has no Addon to judge a
+    /// removal against (ADR-0020). Held as an `AddonId`, which is the type that
+    /// judges it, so a card can only ever name a real one.
+    pub addon: Option<AddonId>,
     /// The id the Addon indexes the Title by: `tt0903747` for its episodes too.
     pub id: String,
     /// The Title's content type: `movie`, `series`, …
@@ -83,7 +85,7 @@ pub struct TitleCard {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TitleStub {
-    addon: AddonId,
+    addon: Option<AddonId>,
     id: String,
     #[serde(rename = "type")]
     r#type: String,
@@ -106,9 +108,10 @@ impl TitleStub {
         })
     }
 
-    /// The Addon the Title came from — what a removed Addon is judged against.
-    pub fn addon(&self) -> &AddonId {
-        &self.addon
+    /// The Addon the Title came from — what a removed Addon is judged against —
+    /// or `None` for a Discovered Title, which none supplied (ADR-0020).
+    pub fn addon(&self) -> Option<&AddonId> {
+        self.addon.as_ref()
     }
 
     /// The id the Addon indexes the Title by.
@@ -208,11 +211,12 @@ impl WatchProgress {
     }
 
     /// The entry as every client is told it, given whether the Addon that
-    /// supplied its Title is still configured.
+    /// supplied its Title — where one did — is still configured.
     ///
     /// The stub is a mark and not a hiding: an entry whose Addon is gone is
     /// published exactly as it was, with [`UnplayableEntry`] saying why it cannot
-    /// be played now.
+    /// be played now. An entry with **no** Addon behind it — a Discovered Title —
+    /// has no removal to judge and is never marked (ADR-0020).
     pub fn resume_entry(&self, addon_held: bool) -> ResumeEntry {
         ResumeEntry {
             video: Video::keyed(&self.video.id),
@@ -220,10 +224,14 @@ impl WatchProgress {
             position: self.position,
             duration: self.duration,
             watched: self.watched,
-            unplayable: (!addon_held).then(|| UnplayableEntry {
-                reason: UnplayableReason::AddonRemoved,
-                addon: self.title.addon().clone(),
-            }),
+            unplayable: self
+                .title
+                .addon()
+                .filter(|_| !addon_held)
+                .map(|addon| UnplayableEntry {
+                    reason: UnplayableReason::AddonRemoved,
+                    addon: addon.clone(),
+                }),
         }
     }
 }
@@ -296,7 +304,7 @@ mod tests {
 
     fn card(name: &str) -> TitleCard {
         TitleCard {
-            addon: addon(),
+            addon: Some(addon()),
             id: "tt0903747".to_owned(),
             r#type: "series".to_owned(),
             name: name.to_owned(),
@@ -323,11 +331,60 @@ mod tests {
     fn a_card_is_kept_as_the_least_of_a_title_a_card_is_drawn_from() {
         let stub = stub();
 
-        assert_eq!(stub.addon().as_str(), "com.linvo.cinemeta");
+        assert_eq!(
+            stub.addon().map(AddonId::as_str),
+            Some("com.linvo.cinemeta")
+        );
         assert_eq!(stub.id(), "tt0903747");
         assert_eq!(stub.r#type(), "series");
         assert_eq!(stub.name(), "Breaking Bad");
         assert_eq!(stub.poster(), Some("https://images.example.org/bb.jpg"));
+    }
+
+    #[test]
+    fn a_title_with_no_addon_keeps_no_addon_and_is_never_marked_removed() {
+        // A Discovered Title has no Addon to lose: `addon_removed` is a mark
+        // about an Addon that is gone, and there is none to be gone (ADR-0020).
+        let stub = TitleStub::parse(&TitleCard {
+            addon: None,
+            id: "tmdb:1396".to_owned(),
+            r#type: "series".to_owned(),
+            name: "Breaking Bad".to_owned(),
+            poster: None,
+        })
+        .expect("a Discovered Title is one the Host will key by its own id");
+
+        assert_eq!(stub.addon(), None);
+
+        let entry = WatchProgress {
+            video: video("series", "tmdb:1396:1:1"),
+            title: stub.clone(),
+            position: Some(120.0),
+            duration: Some(2820.0),
+            watched: false,
+            updated_at: 1_000,
+        };
+        assert_eq!(
+            entry.resume_entry(false).unplayable,
+            None,
+            "there is no removed Addon where there was no Addon"
+        );
+
+        let was_the_addons = WatchProgress {
+            title: TitleStub::parse(&card("Breaking Bad")).expect("a card the Host will keep"),
+            ..entry
+        };
+        assert!(
+            matches!(
+                was_the_addons.resume_entry(false).unplayable,
+                Some(UnplayableEntry {
+                    reason: UnplayableReason::AddonRemoved,
+                    ..
+                })
+            ),
+            "a Title that did have an Addon keeps the mark when it is gone"
+        );
+        assert_eq!(was_the_addons.resume_entry(true).unplayable, None);
     }
 
     #[test]
@@ -373,6 +430,7 @@ mod tests {
                 name: None,
                 season: Some(1),
                 episode: Some(2),
+                thumbnail: None,
             }
         );
         assert_eq!(
@@ -382,6 +440,7 @@ mod tests {
                 name: None,
                 season: Some(0),
                 episode: Some(1),
+                thumbnail: None,
             },
             "a title id is not always one part, so the numbers read from the right"
         );
@@ -392,6 +451,7 @@ mod tests {
                 name: None,
                 season: None,
                 episode: None,
+                thumbnail: None,
             },
             "a film is one Video and carries no episode numbers"
         );
@@ -402,6 +462,7 @@ mod tests {
                 name: None,
                 season: None,
                 episode: None,
+                thumbnail: None,
             },
             "two numbers are what an episode is; one is not one"
         );

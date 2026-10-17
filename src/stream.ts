@@ -19,7 +19,7 @@ import type { Playback, Stream, StreamWarning, Title, Video } from "./host-clien
  * Videos, so pressing play on it asks for the Streams of the Title's own id.
  */
 export function theFilm(title: Title): Video {
-  return { id: title.id, name: null, season: null, episode: null };
+  return { id: title.id, name: null, season: null, episode: null, thumbnail: null };
 }
 
 /**

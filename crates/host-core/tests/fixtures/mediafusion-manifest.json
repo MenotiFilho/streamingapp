@@ -1,0 +1,12 @@
+{
+  "id": "community.mediafusion",
+  "name": "MediaFusion",
+  "version": "4.0.0",
+  "description": "Streams in more id namespaces than one, exactly as the per-Addon bridge needs.",
+  "resources": [
+    { "name": "stream", "types": ["movie", "series"], "idPrefixes": ["tt", "tmdb:", "tvdb:", "mal:"] }
+  ],
+  "types": ["movie", "series"],
+  "idPrefixes": ["tt", "tmdb:", "tvdb:", "mal:"],
+  "catalogs": []
+}

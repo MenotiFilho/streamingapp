@@ -25,6 +25,12 @@ const TMDB_MOVIE_603: &str =
     "https://api.themoviedb.org/3/movie/603?api_key=0123456789abcdef0123456789abcdef";
 const TMDB_TV_1396: &str =
     "https://api.themoviedb.org/3/tv/1396?api_key=0123456789abcdef0123456789abcdef";
+const TMDB_TV_1396_SEASON_0: &str =
+    "https://api.themoviedb.org/3/tv/1396/season/0?api_key=0123456789abcdef0123456789abcdef";
+const TMDB_TV_1396_SEASON_1: &str =
+    "https://api.themoviedb.org/3/tv/1396/season/1?api_key=0123456789abcdef0123456789abcdef";
+const TMDB_TV_1396_SEASON_2: &str =
+    "https://api.themoviedb.org/3/tv/1396/season/2?api_key=0123456789abcdef0123456789abcdef";
 
 const CINEMETA_MANIFEST: &str = include_str!("fixtures/cinemeta-manifest.json");
 const STREMBOXD_MANIFEST: &str = include_str!("fixtures/stremboxd-manifest.json");
@@ -37,6 +43,9 @@ const TMDB_FIND_MOVIE_BODY: &str = include_str!("fixtures/tmdb-find-matrix.json"
 const TMDB_FIND_SERIES_BODY: &str = include_str!("fixtures/tmdb-find-bb.json");
 const TMDB_MOVIE_DETAILS: &str = include_str!("fixtures/tmdb-movie-details.json");
 const TMDB_TV_DETAILS: &str = include_str!("fixtures/tmdb-tv-details.json");
+const TMDB_TV_SEASON_0: &str = include_str!("fixtures/tmdb-tv-season-0.json");
+const TMDB_TV_SEASON_1: &str = include_str!("fixtures/tmdb-tv-season-1.json");
+const TMDB_TV_SEASON_2: &str = include_str!("fixtures/tmdb-tv-season-2.json");
 
 /// A Player a test drives by hand: nothing plays unless a test says so, and
 /// every telling is remembered.
@@ -133,7 +142,10 @@ fn opening_a_film_answers_with_its_metadata_and_no_videos() {
 
     let title = opened(&mut host, open("com.linvo.cinemeta", "movie", "tt0133093"));
 
-    assert_eq!(title.addon.as_str(), "com.linvo.cinemeta");
+    assert_eq!(
+        title.addon.as_ref().map(host_core::AddonId::as_str),
+        Some("com.linvo.cinemeta")
+    );
     assert_eq!(title.id, "tt0133093");
     assert_eq!(title.r#type, "movie");
     assert_eq!(title.name, "The Matrix");
@@ -399,6 +411,30 @@ fn host_over(fetcher: Arc<FixtureFetcher>, key: Option<&str>) -> Host {
     host
 }
 
+/// The Breaking Bad mapping, recorded whole: the Addon's answer, the find, the
+/// record, and each of the three seasons it lists.
+fn breaking_bad_fetcher() -> Arc<FixtureFetcher> {
+    Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(CINEMETA_SERIES, SERIES_BODY)
+            .serving(TMDB_FIND_SERIES, TMDB_FIND_SERIES_BODY)
+            .serving(TMDB_TV_1396, TMDB_TV_DETAILS)
+            .serving(TMDB_TV_1396_SEASON_0, TMDB_TV_SEASON_0)
+            .serving(TMDB_TV_1396_SEASON_1, TMDB_TV_SEASON_1)
+            .serving(TMDB_TV_1396_SEASON_2, TMDB_TV_SEASON_2),
+    )
+}
+
+/// Open a Discovered Title the way a Discover card does.
+fn open_discovered(key: serde_json::Value, kind: &str) -> Action {
+    action(&serde_json::json!({
+        "type": "open_discovered_title",
+        "key": key,
+        "kind": kind,
+    }))
+}
+
 /// Where `url` happened in the asks a fetcher recorded, or a complaint.
 fn position_of(asked: &[String], url: &str) -> usize {
     asked
@@ -410,7 +446,10 @@ fn position_of(asked: &[String], url: &str) -> usize {
 /// The unmapped key of a Title Cinemeta answered about `tt0133093`.
 fn addon_key(movie: &Title) -> TitleKey {
     TitleKey::Addon {
-        addon: movie.addon.clone(),
+        addon: movie
+            .addon
+            .clone()
+            .expect("Cinemeta answered about this one"),
         id: movie.id.clone(),
     }
 }
@@ -599,15 +638,8 @@ fn a_details_answer_that_was_not_one_keeps_the_key_and_the_addons_metadata() {
 }
 
 #[test]
-fn a_series_maps_to_tmdb_and_its_record_runs_over_the_addons_word() {
-    let fetcher = Arc::new(
-        FixtureFetcher::new()
-            .serving(CINEMETA, CINEMETA_MANIFEST)
-            .serving(CINEMETA_SERIES, SERIES_BODY)
-            .serving(TMDB_FIND_SERIES, TMDB_FIND_SERIES_BODY)
-            .serving(TMDB_TV_1396, TMDB_TV_DETAILS),
-    );
-    let mut host = host_over(fetcher, Some(TMDB_KEY));
+fn a_series_maps_to_tmdb_and_its_record_supplies_its_videos() {
+    let mut host = host_over(breaking_bad_fetcher(), Some(TMDB_KEY));
 
     let title = opened(&mut host, open("com.linvo.cinemeta", "series", "tt0903747"));
 
@@ -630,13 +662,71 @@ fn a_series_maps_to_tmdb_and_its_record_runs_over_the_addons_word() {
             .map(|video| video.id.as_str())
             .collect::<Vec<_>>(),
         vec![
+            "tmdb:1396:0:1",
+            "tmdb:1396:1:1",
+            "tmdb:1396:1:2",
+            "tmdb:1396:1:3",
+            "tmdb:1396:2:1",
+        ],
+        "the Videos are TMDB's, in TMDB's order, and keyed the way Streams are asked for"
+    );
+    assert_eq!(
+        title.videos[1].thumbnail.as_deref(),
+        Some("https://image.tmdb.org/t/p/w300/still-1396-1-1.jpg"),
+        "an episode row draws TMDB's 16:9 still"
+    );
+    assert_eq!(
+        title.videos[0].thumbnail, None,
+        "a special TMDB kept no still for is one with none to draw"
+    );
+    assert!(
+        title
+            .background
+            .as_deref()
+            .is_some_and(|background| background.starts_with("https://image.tmdb.org/t/p/w780"))
+            && title
+                .logo
+                .as_deref()
+                .is_some_and(|logo| logo.starts_with("https://image.tmdb.org/t/p/w500")),
+        "the art a Title hero draws is TMDB's: {:?}",
+        (title.background.as_deref(), title.logo.as_deref())
+    );
+}
+
+#[test]
+fn a_series_whose_seasons_are_not_recorded_keeps_the_addons_episode_list() {
+    // The record answered, and its seasons did not: TMDB's Videos were not
+    // read, so the Addon's list stands rather than being replaced with the
+    // emptiness of an outage (ADR-0011's amendment).
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(CINEMETA_SERIES, SERIES_BODY)
+            .serving(TMDB_FIND_SERIES, TMDB_FIND_SERIES_BODY)
+            .serving(TMDB_TV_1396, TMDB_TV_DETAILS)
+            .failing(TMDB_TV_1396_SEASON_0, FetchError::Status { status: 503 })
+            .failing(TMDB_TV_1396_SEASON_1, FetchError::Status { status: 503 })
+            .failing(TMDB_TV_1396_SEASON_2, FetchError::Status { status: 503 }),
+    );
+    let mut host = host_over(fetcher, Some(TMDB_KEY));
+
+    let title = opened(&mut host, open("com.linvo.cinemeta", "series", "tt0903747"));
+
+    assert_eq!(title.key, TitleKey::Tmdb { id: 1396 }, "the record met it");
+    assert_eq!(
+        title
+            .videos
+            .iter()
+            .map(|video| video.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![
             "tt0903747:0:1",
             "tt0903747:1:1",
             "tt0903747:1:2",
             "tt0903747:1:3",
             "tt0903747:2:1",
         ],
-        "the episodes keep the ids Streams are asked for by; a refinement never renumbers"
+        "the Addon's episodes stand where TMDB's could not be read"
     );
 }
 
@@ -711,5 +801,245 @@ fn the_wire_of_a_mapped_answer_declares_what_it_is_keyed_by() {
     assert_eq!(
         published["answer"]["title"]["key"],
         serde_json::json!({ "kind": "tmdb", "id": 603 })
+    );
+}
+
+// --- Discovered Titles: TMDB's own, with no Addon behind them -----------------
+
+#[test]
+fn a_discovered_film_opens_from_tmdb_alone_with_no_addon() {
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(TMDB_MOVIE_603, TMDB_MOVIE_DETAILS),
+    );
+    let mut host = host_over(fetcher.clone(), Some(TMDB_KEY));
+
+    let title = opened(
+        &mut host,
+        open_discovered(serde_json::json!({ "kind": "tmdb", "id": 603 }), "movie"),
+    );
+
+    assert_eq!(title.addon, None, "no Addon named it, and none is asked");
+    assert_eq!(title.id, "tmdb:603");
+    assert_eq!(title.key, TitleKey::Tmdb { id: 603 });
+    assert_eq!(title.r#type, "movie");
+    assert_eq!(title.name, "The Matrix");
+    assert_eq!(title.release_info.as_deref(), Some("1999"));
+    assert_eq!(title.runtime.as_deref(), Some("136 min"));
+    assert_eq!(title.imdb_rating.as_deref(), Some("8.2"));
+    assert_eq!(title.genres, vec!["Action", "Science Fiction"]);
+    assert!(title.description.is_some());
+    assert!(
+        title
+            .background
+            .as_deref()
+            .is_some_and(|background| background.starts_with("https://image.tmdb.org/t/p/w780")),
+        "the backdrop is drawn at a hero's size: {:?}",
+        title.background
+    );
+    assert!(
+        title
+            .logo
+            .as_deref()
+            .is_some_and(|logo| logo.starts_with("https://image.tmdb.org/t/p/w500")),
+        "the wordmark is TMDB's, over a text name: {:?}",
+        title.logo
+    );
+    assert!(
+        title.videos.is_empty(),
+        "a film is one Video: itself: {:?}",
+        title.videos
+    );
+    assert_eq!(
+        fetcher.asked(),
+        vec![CINEMETA.to_owned(), TMDB_MOVIE_603.to_owned()],
+        "the record is the whole of it: no Addon is asked for a Title it never named"
+    );
+}
+
+#[test]
+fn a_discovered_series_opens_with_tmdbs_seasons_and_their_stills() {
+    let fetcher = breaking_bad_fetcher();
+    let mut host = host_over(fetcher.clone(), Some(TMDB_KEY));
+
+    let title = opened(
+        &mut host,
+        open_discovered(serde_json::json!({ "kind": "tmdb", "id": 1396 }), "series"),
+    );
+
+    assert_eq!(title.addon, None);
+    assert_eq!(title.id, "tmdb:1396");
+    assert_eq!(title.r#type, "series");
+    assert_eq!(
+        title
+            .videos
+            .iter()
+            .map(|video| video.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "tmdb:1396:0:1",
+            "tmdb:1396:1:1",
+            "tmdb:1396:1:2",
+            "tmdb:1396:1:3",
+            "tmdb:1396:2:1",
+        ],
+        "TMDB's seasons, in TMDB's order, specials included"
+    );
+    assert_eq!(
+        title.videos[2].thumbnail.as_deref(),
+        Some("https://image.tmdb.org/t/p/w300/still-1396-1-2.jpg")
+    );
+    assert!(
+        title
+            .logo
+            .as_deref()
+            .is_some_and(|logo| logo.starts_with("https://image.tmdb.org/t/p/w500")),
+        "the wordmark is TMDB's: {:?}",
+        title.logo
+    );
+    assert!(
+        !fetcher
+            .asked()
+            .iter()
+            .any(|url| url.contains("cinemeta") && url.contains("/meta/")),
+        "no Addon's metadata is asked: a Discovered Title is TMDB's"
+    );
+}
+
+#[test]
+fn a_discovered_title_is_a_question_that_publishes_nothing() {
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(TMDB_MOVIE_603, TMDB_MOVIE_DETAILS),
+    );
+    let mut host = host_over(fetcher, Some(TMDB_KEY));
+    let before = host.snapshot();
+
+    let response = host
+        .dispatch(open_discovered(
+            serde_json::json!({ "kind": "tmdb", "id": 603 }),
+            "movie",
+        ))
+        .expect("a Discovered Title opens");
+
+    assert!(response.snapshots.is_empty(), "it is a question");
+    assert_eq!(host.snapshot(), before);
+}
+
+#[test]
+fn a_discovered_title_without_a_key_is_refused_cleanly() {
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(TMDB_MOVIE_603, TMDB_MOVIE_DETAILS),
+    );
+    let mut host = host_over(fetcher.clone(), None);
+    let asked_before = fetcher.asked().len();
+
+    let refused = host
+        .dispatch(open_discovered(
+            serde_json::json!({ "kind": "tmdb", "id": 603 }),
+            "movie",
+        ))
+        .expect_err("a Discovered Title is TMDB's, and there is no key to ask with");
+
+    assert!(
+        matches!(refused, ActionError::Tmdb { ref detail } if detail.contains("key")),
+        "the refusal says the credential is what is missing: {refused:?}"
+    );
+    assert_eq!(
+        serde_json::to_value(&refused).expect("a refusal serializes")["kind"],
+        "tmdb",
+        "a client acts on the kind and a person reads the sentence"
+    );
+    assert_eq!(
+        fetcher.asked().len(),
+        asked_before,
+        "nothing was asked: the Host knew before it left home"
+    );
+}
+
+#[test]
+fn a_key_that_names_an_addon_is_not_a_discovered_title() {
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(TMDB_MOVIE_603, TMDB_MOVIE_DETAILS),
+    );
+    let mut host = host_over(fetcher, Some(TMDB_KEY));
+
+    for (key, kind) in [
+        (
+            serde_json::json!({ "kind": "addon", "addon": "com.linvo.cinemeta", "id": "tt0133093" }),
+            "movie",
+        ),
+        (serde_json::json!({ "kind": "tmdb", "id": 603 }), "channel"),
+        (serde_json::json!({ "kind": "tmdb", "id": 0 }), "movie"),
+    ] {
+        let refused = host
+            .dispatch(open_discovered(key.clone(), kind))
+            .expect_err("that is not a Discovered Title");
+
+        assert!(
+            matches!(refused, ActionError::NotDiscoveredTitle { .. }),
+            "{key} as {kind} is refused as a Title this question is not for: {refused:?}"
+        );
+        assert_eq!(
+            serde_json::to_value(&refused).expect("a refusal serializes")["kind"],
+            "not_discovered_title"
+        );
+    }
+}
+
+#[test]
+fn opening_a_discovered_title_is_flat_enough_to_write_by_hand() {
+    let value = serde_json::to_value(open_discovered(
+        serde_json::json!({ "kind": "tmdb", "id": 1396 }),
+        "series",
+    ))
+    .expect("an Action serializes");
+
+    assert_eq!(
+        value,
+        serde_json::json!({
+            "type": "open_discovered_title",
+            "key": { "kind": "tmdb", "id": 1396 },
+            "kind": "series",
+        }),
+        "the record is named inside the Action, because the Action already has a `type`"
+    );
+}
+
+#[test]
+fn a_discovered_answer_declares_a_title_with_no_addon_on_the_wire() {
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(TMDB_MOVIE_603, TMDB_MOVIE_DETAILS),
+    );
+    let mut host = host_over(fetcher, Some(TMDB_KEY));
+    let response = host
+        .dispatch(open_discovered(
+            serde_json::json!({ "kind": "tmdb", "id": 603 }),
+            "movie",
+        ))
+        .expect("a Discovered Title opens");
+    let published = serde_json::to_value(&response).expect("a Response serializes");
+
+    assert_eq!(
+        published["answer"]["title"]["addon"],
+        serde_json::Value::Null
+    );
+    assert_eq!(published["answer"]["title"]["id"], "tmdb:603");
+    assert_eq!(
+        published["answer"]["title"]["key"],
+        serde_json::json!({ "kind": "tmdb", "id": 603 })
+    );
+    assert!(
+        published["answer"]["title"]["background"].is_string(),
+        "the hero's art travels: {}",
+        published["answer"]["title"]
     );
 }

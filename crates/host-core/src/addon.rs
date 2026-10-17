@@ -436,6 +436,50 @@ impl Manifest {
             .find(|catalog| catalog.r#type == r#type && catalog.id == id)
     }
 
+    /// Whether this Addon declares this resource for this content type,
+    /// whatever the id is — the question the per-Addon id bridge asks before it
+    /// decides which spelling to build, so that an Addon with no `stream`
+    /// resource is not resolved an IMDb id it would not be asked with anyway
+    /// (ADR-0020).
+    pub fn declares(&self, resource: &str, r#type: &str) -> bool {
+        let Some(declared) = self
+            .resources
+            .iter()
+            .find(|declared| declared.name == resource)
+        else {
+            return false;
+        };
+
+        let types = declared.types.as_ref().unwrap_or(&self.types);
+        types.iter().any(|declared| declared == r#type)
+    }
+
+    /// The id prefixes this Addon declares for one resource.
+    ///
+    /// A resource's own list where it declares one — real Addons do, AIOStreams
+    /// and Torrentio name `["tt"]` on their `stream` resource — and the
+    /// manifest's top-level list where it does not, which is how Cinemeta and
+    /// WatchHub declare theirs. `None` is an Addon that declared neither, which
+    /// the protocol reads as "every id" and which the per-Addon id bridge reads
+    /// as "no spelling this Host can build" (ADR-0020).
+    ///
+    /// An explicit empty list is the one place the two readings part: `answers`
+    /// takes it as "every id", as the protocol says, while the bridge sees a
+    /// list with no family in it and builds nothing — an Addon that declared
+    /// nothing is not a reason to guess which namespace to send.
+    pub fn declared_prefixes(&self, resource: &str) -> Option<&[String]> {
+        let resource = self
+            .resources
+            .iter()
+            .find(|declared| declared.name == resource)?;
+
+        match &resource.id_prefixes {
+            Some(prefixes) => Some(prefixes),
+            None if self.id_prefixes.is_empty() => None,
+            None => Some(&self.id_prefixes),
+        }
+    }
+
     /// Whether this Addon answers for this request.
     ///
     /// `catalog` is the special case the protocol asks about by name: an Addon is
@@ -1581,6 +1625,54 @@ mod tests {
         );
 
         assert!(manifest.answers(&ResourceRequest::new("meta", "movie", "anything")));
+    }
+
+    #[test]
+    fn the_prefixes_a_resource_declares_are_its_own_or_the_manifests() {
+        // Real declarations both ways: Cinemeta names `["tt"]` at the top level
+        // and leaves its resources bare; AIOStreams names `["tt"]` on the
+        // `stream` resource itself. The per-Addon id bridge reads this to know
+        // which spelling to build (ADR-0020).
+        let manifest = parsed(
+            r#"{
+                "id": "org.example.addon",
+                "name": "Example",
+                "version": "1.0.0",
+                "resources": [
+                    { "name": "meta" },
+                    { "name": "stream", "types": ["movie"], "idPrefixes": ["tt", "tmdb:"] }
+                ],
+                "types": ["movie"],
+                "idPrefixes": ["tt"],
+                "catalogs": []
+            }"#,
+        );
+
+        assert_eq!(
+            manifest.declared_prefixes("meta"),
+            Some(["tt".to_owned()].as_slice()),
+            "a resource that declares none is covered by the manifest's list"
+        );
+        assert_eq!(
+            manifest.declared_prefixes("stream"),
+            Some(["tt".to_owned(), "tmdb:".to_owned()].as_slice()),
+            "a resource's own list is the one that counts"
+        );
+        assert_eq!(
+            manifest.declared_prefixes("subtitles"),
+            None,
+            "a resource the Addon never declared declares nothing"
+        );
+
+        let bare = parsed(
+            r#"{ "id": "org.example.addon", "name": "Example", "version": "1.0.0",
+                 "resources": ["meta"], "types": ["movie"], "catalogs": [] }"#,
+        );
+        assert_eq!(
+            bare.declared_prefixes("meta"),
+            None,
+            "an Addon that declared neither reaches every id, which is no spelling to build"
+        );
     }
 
     #[test]
