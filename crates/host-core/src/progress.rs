@@ -1,4 +1,4 @@
-//! Watch progress, and the library every client reads it from.
+//! Watch progress, and the Continue watching row every client reads it from.
 //!
 //! Two things live here, and they are two halves of one feature (#29).
 //!
@@ -10,13 +10,13 @@
 //! was. Playback itself is not stored (ADR-0013): what survives is the progress,
 //! not the Stream.
 //!
-//! **The library** is what a client sees of it: a [`ResumeEntry`] per Video,
-//! carrying the Video and enough of its Title to draw a card without opening it.
-//! The card is what the client was reading when it pressed play — a Title is a
-//! client's own business (ADR-0005), so the Host is *told* which Title a Video
-//! belongs to rather than working it out from an Addon — and the Addon that
-//! supplied it is what a removed Addon is judged against: an entry whose Addon
-//! is gone stays listed, marked unplayable, rather than vanishing.
+//! **Continue watching** is what a client sees of it: a [`ResumeEntry`] per
+//! Video, carrying the Video and enough of its Title to draw a card without
+//! opening it. The card is what the client was reading when it pressed play — a
+//! Title is a client's own business (ADR-0005), so the Host is *told* which
+//! Title a Video belongs to rather than working it out from an Addon — and the
+//! Addon that supplied it is what a removed Addon is judged against: an entry
+//! whose Addon is gone stays listed, marked unplayable, rather than vanishing.
 //!
 //! ## Finished is a moment, not a state
 //!
@@ -56,7 +56,7 @@ pub const PROGRESS_EVERY: f64 = 5.0;
 /// not in the Stream, and the Addon that supplied it is not necessarily the one
 /// the Stream came from. So the client that opened it hands back the least of it
 /// a card is drawn from, and the Host keeps that rather than re-asking an Addon
-/// — which is also what lets the library work with no network at all.
+/// — which is also what lets Continue watching work with no network at all.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TitleCard {
@@ -77,7 +77,7 @@ pub struct TitleCard {
     pub background: Option<String>,
 }
 
-/// The least of a Title a library card is drawn from — judged.
+/// The least of a Title a Continue watching card is drawn from — judged.
 ///
 /// Valid by construction: [`TitleStub::parse`] is the only way to make one, and
 /// it refuses a Title whose type and id are not ones a request could name. The
@@ -107,8 +107,8 @@ impl TitleStub {
             id: title.id,
             r#type: title.r#type,
             name: held(&card.name).unwrap_or_else(|| card.id.clone()),
-            poster: held(&card.poster.clone().unwrap_or_default()),
-            background: held(&card.background.clone().unwrap_or_default()),
+            poster: held(card.poster.as_deref().unwrap_or_default()),
+            background: held(card.background.as_deref().unwrap_or_default()),
         })
     }
 
@@ -147,9 +147,10 @@ impl TitleStub {
 /// One Video's Watch progress, as the Host stores it.
 ///
 /// Keyed by the Video — one entry per Video, and the unit the spec names for it
-/// — and carrying the Title it belongs to so the library can draw a card without
-/// opening anything. `updated_at` is not published: it is what orders the entry
-/// and what #30's merge resolves two writes by, not something a client reads.
+/// — and carrying the Title it belongs to so Continue watching can draw a card
+/// without opening anything. `updated_at` is not published: it is what orders
+/// the entry and what #30's merge resolves two writes by, not something a client
+/// reads.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WatchProgress {
@@ -267,7 +268,7 @@ pub struct ResumeEntry {
     pub unplayable: Option<UnplayableEntry>,
 }
 
-/// Why a library entry is not one the Host will play.
+/// Why a Continue watching entry is not one the Host will play.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UnplayableEntry {
@@ -276,7 +277,7 @@ pub struct UnplayableEntry {
     pub addon: AddonId,
 }
 
-/// The reasons a library entry is marked unplayable.
+/// The reasons a Continue watching entry is marked unplayable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UnplayableReason {

@@ -29,9 +29,10 @@ pub(crate) struct State {
     /// playback does not survive a restart (#29's Watch progress is the part
     /// that does).
     playback: PlaybackSession,
-    /// The library: one entry per Video the Host has Watch progress in, most
-    /// recently written first. Loaded from the store at startup, so a Host that
-    /// was killed mid-Stream comes back knowing where it was.
+    /// The Continue watching row's entries: one per Video the Host has Watch
+    /// progress in, most recently written first. Loaded from the store at
+    /// startup, so a Host that was killed mid-Stream comes back knowing where it
+    /// was.
     watch: Vec<WatchProgress>,
     /// The devices the Host has paired, in the order they paired. The tokens
     /// themselves are not here — a [`Device`] holds a digest — so a Snapshot can
@@ -97,7 +98,7 @@ impl State {
         &self.playback
     }
 
-    /// The library, most recently written first.
+    /// The Continue watching entries, most recently written first.
     pub(crate) fn watch(&self) -> &[WatchProgress] {
         &self.watch
     }
@@ -249,7 +250,8 @@ impl State {
                     }
                     // A Stream with no Title behind it — a next episode whose
                     // Title the Host was never told — is played and not
-                    // recorded: the entry a library is a card of is the Title.
+                    // recorded: the entry a Continue watching card is drawn
+                    // from is the Title.
                     None => Persist::Nothing,
                 }
             }
@@ -338,9 +340,9 @@ impl State {
     }
 
     /// Take in an entry that was merged from the account (#30): it replaces the
-    /// one for its Video, and the library keeps its order by *when each was
-    /// written* — a pulled position is as recent as the account's write, not as
-    /// recent as the moment it arrived, so it does not jump the row.
+    /// one for its Video, and the row keeps its order by *when each was written*
+    /// — a pulled position is as recent as the account's write, not as recent as
+    /// the moment it arrived, so it does not jump the row.
     pub(crate) fn merge_watch(&mut self, entry: WatchProgress) {
         self.watch.retain(|held| held.video != entry.video);
         self.watch.push(entry);
@@ -349,7 +351,7 @@ impl State {
     }
 
     /// Put one entry where it belongs: one per Video, and the one just written
-    /// leads the library, so "most recent" is the order it is held in.
+    /// leads the row, so "most recent" is the order it is held in.
     fn put_watch(&mut self, entry: WatchProgress) -> WatchProgress {
         self.watch.retain(|held| held.video != entry.video);
         self.watch.insert(0, entry.clone());
@@ -397,9 +399,10 @@ pub(crate) enum Change {
     RevokeDevice(DeviceId),
     /// A Stream was chosen and the Player agreed to open it, so the Host is on
     /// that Stream from here on and the open is in flight. `title` is the Title
-    /// the Video belongs to, where the Host was told it: the library records the
-    /// Video's progress against it, and a play with no Title behind it — a next
-    /// episode whose Title the Host never saw — is played and not recorded.
+    /// the Video belongs to, where the Host was told it: Continue watching
+    /// records the Video's progress against it, and a play with no Title behind
+    /// it — a next episode whose Title the Host never saw — is played and not
+    /// recorded.
     /// `start` is where the open begins, which is a resume point and `None` for
     /// a Stream that starts at its beginning. Boxed because a `ChosenStream` and
     /// a `TitleStub` are both many words wide and every other variant here is a

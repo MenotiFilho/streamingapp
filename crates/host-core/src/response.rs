@@ -6,7 +6,7 @@
 //! difference matters:
 //!
 //! - [`Snapshot`]s, which are state and go to *every* client — what is playing,
-//!   what is in the library, which Addons are configured.
+//!   what is on the Continue watching row, which Addons are configured.
 //! - An [`Answer`], which is what the client that asked is owed and nobody else.
 //!   Browsing is a client's own business (ADR-0005): what one client is looking
 //!   at must not move what another one is looking at, so a catalog row can never

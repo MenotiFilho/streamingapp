@@ -215,8 +215,8 @@ impl Store for SqliteStore {
         let mut watch = Vec::new();
         for row in rows {
             // Nothing here is named in the message: a Title's addon and id are
-            // the owner's library, and a read failure ends up in a log or in an
-            // error a client sees.
+            // the owner's Watch progress, and a read failure ends up in a log or
+            // in an error a client sees.
             let (
                 video_type,
                 video_id,

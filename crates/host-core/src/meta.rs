@@ -29,12 +29,14 @@
 //! Only the fields this Host acts on are read, and art is now among them: a
 //! Title's `background` and `logo` and a Video's `thumbnail` are carried so the
 //! Title screen and a series' episode rows can be drawn (ADR-0011's #62
-//! amendment) — the same widening Home's hero got from a catalog item. A meta
-//! response carries far more — Cinemeta's `cast`, `director`, `trailers`,
-//! `links`, `slug`, `popularities`, `imdb_id`, and a Video's `overview`,
-//! `rating`, `firstAired` and `tvdb_id` — and all of it is ignored rather than
-//! refused, because reading a field nothing acts on is a promise this Host would
-//! not be keeping (ADR-0009). It arrives when a ticket that acts on it does.
+//! amendment) — the same widening Home's hero got from a catalog item. Where a
+//! key is held, ADR-0020 gives TMDB's record the last word on this art as well;
+//! that read arrives with the ticket that acts on it. A meta response carries
+//! far more — Cinemeta's `cast`, `director`, `trailers`, `links`, `slug`,
+//! `popularities`, `imdb_id`, and a Video's `overview`, `rating`, `firstAired`
+//! and `tvdb_id` — and all of it is ignored rather than refused, because reading
+//! a field nothing acts on is a promise this Host would not be keeping
+//! (ADR-0009). It arrives when a ticket that acts on it does.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -132,8 +134,9 @@ impl Video {
     /// A Video named by its id alone: the id it is keyed by, and the season and
     /// episode the protocol indexes at the end of it, where both are numbers.
     ///
-    /// What a library entry is drawn from when no Addon answered about the
-    /// Video — the entry is keyed by the id Watch progress was recorded against.
+    /// What a Continue watching entry is drawn from when no Addon answered about
+    /// the Video — the entry is keyed by the id Watch progress was recorded
+    /// against.
     /// The episode's name is deliberately absent: it is not in the id, and the
     /// Host does not invent one.
     pub fn keyed(id: &str) -> Self {
@@ -157,9 +160,9 @@ impl Video {
 /// parts: an Addon keyed by a namespaced id (`kitsu:12345`) indexes its episodes
 /// as `kitsu:12345:1:1`, so the shape is "two numeric parts at the end" rather
 /// than "exactly three parts". This is the one reading of that shape — the
-/// library's card and the Host's next-episode rule both go through it — so the
-/// two cannot disagree about what an episode is. A Video whose id does not end
-/// that way — a film's — is not an episode, and the answer is `None`.
+/// Continue watching card and the Host's next-episode rule both go through it —
+/// so the two cannot disagree about what an episode is. A Video whose id does
+/// not end that way — a film's — is not an episode, and the answer is `None`.
 pub fn episode_of(id: &str) -> Option<(&str, u32, u32)> {
     let mut parts = id.rsplitn(3, ':');
     let episode = parts.next()?.parse::<u32>().ok()?;

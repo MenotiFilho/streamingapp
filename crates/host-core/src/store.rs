@@ -28,7 +28,7 @@ pub trait Store: Send + Sync + 'static {
 
     /// Every Video the Host has Watch progress in, most recently written first.
     ///
-    /// The whole library in one read: the Host holds it in memory and consults it
+    /// The whole of it in one read: the Host holds it in memory and consults it
     /// between Actions (a resume point, a next episode), so it is read once at
     /// startup rather than per Action.
     fn read_watch_progress(&self) -> Result<Vec<WatchProgress>, StoreError>;

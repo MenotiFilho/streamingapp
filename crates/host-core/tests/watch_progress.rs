@@ -145,8 +145,8 @@ fn watching(fixture: &mut Fixture, position: f64, duration: f64, at: i64) {
         .expect("the Player says something new about what is playing");
 }
 
-/// The library as every client is told it.
-fn library(fixture: &Host) -> Vec<host_core::ResumeEntry> {
+/// Continue watching, as every client is told it.
+fn continue_watching(fixture: &Host) -> Vec<host_core::ResumeEntry> {
     fixture.snapshot().watch_progress
 }
 
@@ -156,12 +156,12 @@ fn playing_a_video_records_where_it_got_to_and_the_snapshot_carries_it() {
 
     play(&mut fixture, "series", "tt0903747:1:2");
     assert!(
-        library(&fixture.host).len() == 1,
+        continue_watching(&fixture.host).len() == 1,
         "a play is a library entry from the moment it is chosen"
     );
     watching(&mut fixture, 402.0, 2820.0, 10_000);
 
-    let entry = &library(&fixture.host)[0];
+    let entry = &continue_watching(&fixture.host)[0];
     assert_eq!(entry.video.id, "tt0903747:1:2");
     assert_eq!(entry.video.season, Some(1));
     assert_eq!(entry.video.episode, Some(2));
@@ -181,7 +181,7 @@ fn the_card_a_client_hands_back_carries_its_backdrop_into_continue_watching() {
     play(&mut fixture, "series", "tt0903747:1:2");
     watching(&mut fixture, 402.0, 2820.0, 10_000);
 
-    let entry = &library(&fixture.host)[0];
+    let entry = &continue_watching(&fixture.host)[0];
     assert_eq!(
         entry.title.background(),
         Some("https://images.example.org/bb-backdrop.jpg")
@@ -202,7 +202,7 @@ fn the_card_a_client_hands_back_carries_its_backdrop_into_continue_watching() {
     // And the Host that comes back over the same store finds it again.
     let restarted = fixture_over(fixture.store.clone());
     assert_eq!(
-        library(&restarted.host)[0].title.background(),
+        continue_watching(&restarted.host)[0].title.background(),
         Some("https://images.example.org/bb-backdrop.jpg"),
         "the backdrop survives a Host that was killed without a stop"
     );
@@ -218,7 +218,7 @@ fn watch_progress_survives_a_host_that_was_killed_without_a_stop() {
 
     let restarted = fixture_over(fixture.store.clone());
 
-    let entry = &library(&restarted.host)[0];
+    let entry = &continue_watching(&restarted.host)[0];
     assert_eq!(entry.video.id, "tt0903747:1:2");
     assert_eq!(
         entry.position,
@@ -241,7 +241,7 @@ fn every_episode_of_a_series_keeps_its_own_progress() {
     play(&mut fixture, "series", "tt0903747:1:4");
     watching(&mut fixture, 200.0, 2820.0, 20_000);
 
-    let mut held: Vec<(String, Option<f64>)> = library(&fixture.host)
+    let mut held: Vec<(String, Option<f64>)> = continue_watching(&fixture.host)
         .iter()
         .map(|entry| (entry.video.id.clone(), entry.position))
         .collect();
@@ -267,7 +267,7 @@ fn the_library_comes_back_most_recently_played_first() {
     watching(&mut fixture, 200.0, 2820.0, 20_000);
 
     assert_eq!(
-        library(&fixture.host)
+        continue_watching(&fixture.host)
             .iter()
             .map(|entry| entry.video.id.as_str())
             .collect::<Vec<_>>(),
@@ -282,7 +282,7 @@ fn a_video_that_finishes_or_stops_within_its_last_moments_is_marked_watched() {
     watching(&mut fixture, 2800.0, 2820.0, 10_000);
 
     assert!(
-        library(&fixture.host)[0].watched,
+        continue_watching(&fixture.host)[0].watched,
         "the last thirty seconds of a Stream are the end of it"
     );
 }
@@ -293,7 +293,7 @@ fn a_video_that_reaches_its_end_is_watched_and_paused_in_the_wrong_place_is_not(
     play(&mut fixture, "series", "tt0903747:1:1");
     watching(&mut fixture, 600.0, 2820.0, 10_000);
     assert!(
-        !library(&fixture.host)[0].watched,
+        !continue_watching(&fixture.host)[0].watched,
         "ten minutes into a forty-seven minute episode is not watched"
     );
 
@@ -306,7 +306,7 @@ fn a_video_that_reaches_its_end_is_watched_and_paused_in_the_wrong_place_is_not(
     fixture.clock.set(20_000);
     fixture.host.sample().expect("reaching the end is a change");
 
-    assert!(library(&fixture.host)[0].watched);
+    assert!(continue_watching(&fixture.host)[0].watched);
 }
 
 #[test]
@@ -321,7 +321,7 @@ fn the_next_episode_is_a_new_entry_under_the_same_title_and_the_one_watched_stay
         .dispatch(action(&serde_json::json!({ "type": "next_episode" })))
         .expect("the next episode of a series plays");
 
-    let held = library(&fixture.host);
+    let held = continue_watching(&fixture.host);
     assert_eq!(held.len(), 2);
     assert_eq!(held[0].video.id, "tt0903747:1:2", "the new episode leads");
     assert_eq!(
