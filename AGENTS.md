@@ -20,6 +20,10 @@
 - Do not leave warnings or errors introduced by the task unresolved.
 - A container has no GPU here (no `/dev/dri`), so it cannot verify HDR passthrough
   or hardware decode. Those are verified on the Windows-native build.
+- Every change lands through a pull request. `main` is protected by the `verify`
+  check, so do not push to it. After the review trail is on the PR and the branch
+  is current with `main`, add the `automerge` label; GitHub merges it once
+  `verify` is green. The full sequence is in `docs/agents/ci.md`.
 
 ## Verifying the window (Windows, from WSL)
 
