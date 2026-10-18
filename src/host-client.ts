@@ -326,6 +326,14 @@ export type DiscoverRow = {
 };
 
 /**
+ * One Search page, on its way to the client that asked for it. Mirrors
+ * `SearchRow` in `host-core`: the shape a `DiscoverRow` is, because a client
+ * draws both with one card — the items are keyed `tmdb:<id>`, and `sent` is the
+ * count a client pages by (#78, ADR-0010's amendment).
+ */
+export type SearchRow = DiscoverRow;
+
+/**
  * One playable unit of a Title: the film itself, or a single episode. Mirrors
  * `Video` in `host-core`; `id` is the id its Addon indexes it by
  * (`tt0903747:1:1`), and it is what Watch progress is recorded against. Only the
@@ -458,14 +466,15 @@ export type AddonStreams = {
 /**
  * What taking an Action produced. Mirrors `Response` in `host-core`: the
  * Snapshots every client is owed, and the answer only the client that asked gets.
- * A question is answered with catalogs, Discover rows, a Title or Streams, never
- * several.
+ * A question is answered with catalogs, Discover rows, a Search row, a Title or
+ * Streams, never several.
  */
 export type Response = {
   snapshots: Snapshot[];
   answer:
     | { catalogs: CatalogRow[] }
     | { discover: DiscoverRow[] }
+    | { search: SearchRow }
     | { title: Title }
     | { streams: AddonStreams[] }
     | { paired: { device: DeviceSummary; token: string } }
@@ -515,6 +524,10 @@ export type Action =
       genre?: number | null;
       sort?: string | null;
     }
+  // TMDB's answer to a query, one kind and one page at a time (#78, ADR-0010's
+  // amendment). A key held makes Search TMDB's; with none the window sends
+  // `search_catalogs` instead and the Addons' own catalogs answer.
+  | { type: "search"; query: string; kind: string; page: number }
   | {
       type: "open_title";
       addon: string;
@@ -625,6 +638,7 @@ export const HOST_ERROR_KINDS = [
   "unpaired",
   "already_paired",
   "invalid_discover",
+  "invalid_search",
   "no_tmdb_credential",
 ] as const;
 
@@ -792,6 +806,8 @@ export function explain(error: ActionError): string {
       return error.detail ?? "The Host will not search for that.";
     case "invalid_discover":
       return error.detail ?? "The Host will not discover that.";
+    case "invalid_search":
+      return error.detail ?? "The Host will not search TMDB for that.";
     case "no_tmdb_credential":
       return "This Host holds no TMDB key, so it cannot ask TMDB.";
     case "catalog":

@@ -298,6 +298,54 @@ pub enum DiscoverQueryError {
     Sort { kind: Kind, sort: String },
 }
 
+/// A Search ask, judged: a query, the kind TMDB searches it in, and the page.
+///
+/// The query itself is judged where it enters — the one `search_query` rule the
+/// Addons' `SearchCatalogs` is held to as well — so what this holds has already
+/// been trimmed of the space around it and found non-empty. What is judged here
+/// is what is TMDB's: the kind is one TMDB keeps records for, and the page is
+/// one it numbers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchQuery {
+    pub query: String,
+    pub kind: Kind,
+    pub page: u32,
+}
+
+impl SearchQuery {
+    /// Judge an ask whose query the Action layer already read.
+    pub fn parse(query: String, kind: &str, page: u32) -> Result<Self, SearchQueryError> {
+        let kind = Kind::parse(kind).ok_or_else(|| SearchQueryError::Kind {
+            kind: kind.to_owned(),
+        })?;
+        if page == 0 {
+            return Err(SearchQueryError::Page { page });
+        }
+
+        Ok(Self { query, kind, page })
+    }
+
+    /// The request this ask is: TMDB's search for the kind, never `/search/multi`
+    /// — the two kinds are two rows, and people are not Titles (ADR-0010's
+    /// amendment).
+    pub fn request(&self) -> TmdbRequest {
+        TmdbRequest::Search {
+            kind: self.kind,
+            page: self.page,
+            query: self.query.clone(),
+        }
+    }
+}
+
+/// Why a Search ask is not one TMDB can be given.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum SearchQueryError {
+    #[error("`{kind}` is not a kind TMDB searches: it answers for a `movie` or a `series`")]
+    Kind { kind: String },
+    #[error("page {page} is not a page TMDB answers: its pages are numbered from 1")]
+    Page { page: u32 },
+}
+
 /// A TMDB id: the number one of its records is addressed by.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct TmdbId(pub u32);
@@ -471,6 +519,13 @@ pub enum TmdbRequest {
         genre: Option<u32>,
         sort: Option<String>,
     },
+    /// A `/search` page for a kind: the query a [`SearchQuery`] judged, asked
+    /// of the kind's own endpoint rather than `/search/multi`.
+    Search {
+        kind: Kind,
+        page: u32,
+        query: String,
+    },
 }
 
 impl TmdbRequest {
@@ -527,6 +582,14 @@ impl TmdbRequest {
                     url.push_str("&sort_by=");
                     url.push_str(&encode(sort));
                 }
+            }
+            Self::Search { kind, page, query } => {
+                url.push_str("/search/");
+                url.push_str(kind.as_resource());
+                url.push_str("?query=");
+                url.push_str(&encode(query));
+                url.push_str("&page=");
+                url.push_str(&page.to_string());
             }
         }
 
@@ -1868,6 +1931,11 @@ mod tests {
                 genre: Some(10765),
                 sort: None,
             },
+            TmdbRequest::Search {
+                kind: Kind::Movie,
+                page: 1,
+                query: "matrix".to_owned(),
+            },
         ] {
             let built = request.url(&token(the_token));
             assert!(
@@ -1875,6 +1943,54 @@ mod tests {
                 "a token in the header never appears in the URL it travelled beside: {built}"
             );
         }
+    }
+
+    #[test]
+    fn a_search_ask_becomes_a_search_of_its_own_kind() {
+        let ask =
+            SearchQuery::parse("matrix".to_owned(), "series", 2).expect("an ask TMDB can be given");
+
+        assert_eq!(ask.kind, Kind::Tv);
+        assert_eq!(
+            ask.request(),
+            TmdbRequest::Search {
+                kind: Kind::Tv,
+                page: 2,
+                query: "matrix".to_owned(),
+            },
+            "a series searches /search/tv, never /search/multi"
+        );
+    }
+
+    #[test]
+    fn a_search_ask_that_is_not_one_says_what_is_wrong() {
+        assert_eq!(
+            SearchQuery::parse("matrix".to_owned(), "channel", 1),
+            Err(SearchQueryError::Kind {
+                kind: "channel".to_owned()
+            }),
+            "the protocol's kinds that TMDB does not answer for are not kinds here"
+        );
+        assert_eq!(
+            SearchQuery::parse("matrix".to_owned(), "movie", 0),
+            Err(SearchQueryError::Page { page: 0 }),
+            "TMDB numbers its pages from 1"
+        );
+    }
+
+    #[test]
+    fn a_search_request_carries_its_query_encoded_and_its_page_beside_it() {
+        let request = TmdbRequest::Search {
+            kind: Kind::Movie,
+            page: 1,
+            query: "blood & guts".to_owned(),
+        };
+
+        assert_eq!(
+            request.url(&token("a-key")),
+            "https://api.themoviedb.org/3/search/movie?query=blood%20%26%20guts&page=1&api_key=a-key",
+            "an Ampersand in a query survives only encoded"
+        );
     }
 
     #[test]
