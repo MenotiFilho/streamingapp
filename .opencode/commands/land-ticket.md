@@ -31,20 +31,23 @@ finds no container.
 
 4. **Push the updated branch** (`source ~/.keychain/*-sh` first; verify with
    `ssh-add -l`). If the branch has no PR yet, open one —
-   `gh pr create --base main --head <branch>`. Then wait for `verify` on the
-   pushed head with `gh pr checks <n> --watch`: `main` is protected, so the
-   check must be green. Fix failures on the branch; a new push reruns the check.
-   Do not merge by hand — the repository lands through the `automerge` label.
+   `gh pr create --base main --head <branch>`. Then resolve the pull request
+   number once — `n=$(gh pr view <branch> --json number --jq .number)` — and use
+   it below. Wait for `verify` on the pushed head with `gh pr checks "$n"
+   --watch`: `main` is protected, so the check must be green. Fix failures on
+   the branch; a new push reruns the check. Do not merge by hand — the
+   repository lands through the `automerge` label.
 
 5. **Comment the review trail on the PR** — what the reviews found, what
    changed, what was deliberately kept. Then confirm the branch is current:
    `git fetch origin`; if `origin/main` moved, merge it, push, and let `verify`
    run again. The required check is strict, so a branch behind `main` cannot
    land — auto-merge waits for the sync instead of merging the old base, and the
-   sync's push is what reruns `verify`. Add the `automerge` label only after
-   both: the `Auto-merge` workflow enables GitHub's auto-merge (a merge commit,
-   leaving the branch), and GitHub lands the PR once `verify` is green. Removing
-   the label cancels auto-merge.
+   sync's push is what reruns `verify`. Add the `automerge` label
+   (`gh pr edit "$n" --add-label automerge`) only after both: the `Auto-merge`
+   workflow enables GitHub's auto-merge (a merge commit, leaving the branch),
+   and GitHub lands the PR once `verify` is green. Removing the label cancels
+   auto-merge.
 
 6. **Confirm `main` afterwards**: `git fetch origin`, check the PR merged with
    a merge commit, and that `git diff origin/main <branch>` is empty — the
