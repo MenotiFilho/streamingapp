@@ -53,6 +53,8 @@ jobs:
           fi
           git fetch --no-tags origin "$BASE_REF"
           code=false
+          # --no-renames: a rename into docs/ deletes its old path, and rename
+          # detection would hide that side of it from --name-only.
           while IFS= read -r file; do
             case "$file" in
               *.md|docs/*) ;;
@@ -61,7 +63,7 @@ jobs:
                 break
                 ;;
             esac
-          done < <(git diff --name-only "FETCH_HEAD...HEAD")
+          done < <(git diff --no-renames --name-only "FETCH_HEAD...HEAD")
           echo "code=$code" >> "$GITHUB_OUTPUT"
           if [ "$code" = true ]; then
             echo "Code changed: the suites run."
