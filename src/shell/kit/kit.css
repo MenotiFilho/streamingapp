@@ -1,0 +1,517 @@
+/*
+ * The Velvet Curtains component kit (#77).
+ *
+ * The window's new shell imports this through `src/shell/kit`; it carries the
+ * self-hosted fonts, the token sheet, the one focus treatment, and the primitives'
+ * own layout. Every colour comes from `src/tokens.css` — no palette value lives
+ * in this file.
+ */
+
+@import "@fontsource-variable/syne";
+@import "@fontsource-variable/plus-jakarta-sans";
+@import "../../tokens.css";
+
+/* --------------------------------------------------------------------------
+ * Type & focus
+ * -------------------------------------------------------------------------- */
+
+/* A clock, rating, episode code or bitrate never jitters as it ticks. */
+.kit-tabular {
+  font-variant-numeric: var(--numeric-figures);
+}
+
+/*
+ * Focus is the cursor. The same dual ivory + crimson halo is drawn for every
+ * focusable primitive; cards add the lift and controls invert their fill.
+ */
+[data-focusable] {
+  position: relative;
+  transition:
+    transform var(--dur-med) var(--ease-out),
+    box-shadow var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out);
+}
+
+[data-focusable]:focus,
+[data-focusable]:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  z-index: 5;
+}
+
+/*
+ * The two halves of the treatment, so every later primitive (rail items, OSD
+ * icon buttons, hero slides) reuses the same pair rather than restating it.
+ */
+.kit-focus-lift[data-focusable]:focus,
+.kit-focus-lift[data-focusable]:focus-visible {
+  transform: var(--focus-transform);
+}
+
+.kit-focus-invert[data-focusable]:focus,
+.kit-focus-invert[data-focusable]:focus-visible {
+  border-color: var(--focus-fill-border);
+  background: var(--focus-fill);
+  color: var(--focus-fill-ink);
+}
+
+/* --------------------------------------------------------------------------
+ * Poster card — 2:3
+ * -------------------------------------------------------------------------- */
+
+.kit-poster {
+  display: flex;
+  flex-direction: column;
+  width: clamp(9rem, 14vw, 12.5rem);
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--bg-stage);
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.kit-poster-art-frame {
+  position: relative;
+  display: block;
+  width: 100%;
+  background: var(--bg-raised);
+  overflow: hidden;
+}
+
+.kit-poster-art-frame[data-aspect="2:3"] {
+  aspect-ratio: 2 / 3;
+}
+
+.kit-poster-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.kit-poster-art-empty {
+  background: linear-gradient(160deg, var(--bg-elevated), var(--bg-raised));
+}
+
+.kit-badge-unmapped {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  padding: 0.15rem var(--space-2);
+  border: 1px solid var(--status-warn);
+  border-radius: var(--radius-pill);
+  background: var(--bg-glass);
+  color: var(--status-warn);
+  font-size: var(--text-micro);
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.kit-poster-info {
+  display: grid;
+  gap: 0.15rem;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+}
+
+.kit-poster-name {
+  font-size: 0.86rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.kit-poster-sub {
+  color: var(--ink-secondary);
+  font-size: var(--text-micro);
+}
+
+.kit-poster:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* --------------------------------------------------------------------------
+ * Continue watching card — 16:9 with the crimson progress bar
+ * -------------------------------------------------------------------------- */
+
+.kit-continue {
+  display: flex;
+  flex-direction: column;
+  width: clamp(15rem, 24vw, 21rem);
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--bg-stage);
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* An entry whose Addon is gone stays listed, dimmed and marked — never hidden. */
+.kit-continue[data-unplayable="true"] {
+  border-style: dashed;
+  opacity: 0.58;
+  cursor: not-allowed;
+}
+
+.kit-continue-art-frame {
+  position: relative;
+  display: block;
+  width: 100%;
+  background: var(--bg-raised);
+  overflow: hidden;
+}
+
+.kit-continue-art-frame[data-aspect="16:9"] {
+  aspect-ratio: 16 / 9;
+}
+
+.kit-continue-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.kit-continue-art-empty {
+  background: linear-gradient(160deg, var(--bg-elevated), var(--bg-raised));
+}
+
+.kit-continue-progress {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: block;
+  height: 4px;
+  background: color-mix(in srgb, var(--bg-canvas) 72%, transparent);
+}
+
+.kit-continue-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.kit-continue-info {
+  display: grid;
+  gap: 0.2rem;
+  padding: var(--space-2) var(--space-3) var(--space-3);
+}
+
+.kit-continue-name {
+  font-size: 0.88rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.kit-continue-note {
+  color: var(--ink-secondary);
+  font-size: var(--text-caption);
+}
+
+.kit-continue-note-warn {
+  color: var(--status-warn);
+}
+
+/* --------------------------------------------------------------------------
+ * Row / carousel
+ * -------------------------------------------------------------------------- */
+
+.kit-row {
+  min-width: 0;
+  margin: 0;
+  padding: var(--space-5) 0 0;
+}
+
+.kit-row-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-3);
+  padding: 0 var(--space-1);
+}
+
+.kit-row-heading-group {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.kit-row-title {
+  margin: 0;
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-section);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.kit-row-tag {
+  color: var(--ink-muted);
+  font-size: var(--text-caption);
+}
+
+.kit-row-action {
+  flex: none;
+}
+
+/*
+ * The track scrolls horizontally, and its block padding leaves room for the
+ * focus halo and the card's lift, which an overflow clip would otherwise cut.
+ */
+.kit-row-track {
+  display: flex;
+  gap: var(--space-4);
+  margin: 0;
+  padding: var(--space-3);
+  list-style: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scroll-behavior: smooth;
+  scroll-snap-type: x proximity;
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
+}
+
+.kit-row-item {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+}
+
+/* --------------------------------------------------------------------------
+ * Buttons & chips
+ * -------------------------------------------------------------------------- */
+
+.kit-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 2.75rem;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--bg-raised);
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.kit-button[data-variant="primary"] {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--ink-on-accent);
+}
+
+.kit-button[data-variant="ghost"] {
+  border-color: var(--border-subtle);
+  background: transparent;
+  color: var(--ink-secondary);
+}
+
+.kit-button[data-tone="danger"] {
+  border-color: transparent;
+  background: var(--status-danger);
+  color: var(--ink-on-accent);
+}
+
+/* A selected choice keeps its dimensions: only border and fill change. */
+.kit-button[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--ink-primary);
+}
+
+.kit-button:disabled,
+.kit-choice:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.kit-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0.15rem var(--space-2);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--bg-raised);
+  color: var(--ink-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--text-micro);
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.kit-chip[data-tone="accent"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.kit-chip[data-tone="warn"] {
+  border-color: var(--status-warn);
+  background: color-mix(in srgb, var(--status-warn) 14%, transparent);
+  color: var(--status-warn);
+}
+
+.kit-chip[data-tone="danger"] {
+  border-color: var(--status-danger);
+  background: var(--status-danger-bg);
+  color: var(--status-danger);
+}
+
+.kit-chip[data-tone="ok"] {
+  border-color: var(--status-ok);
+  background: color-mix(in srgb, var(--status-ok) 14%, transparent);
+  color: var(--status-ok);
+}
+
+.kit-choice {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  padding: 0.3rem var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+  background: var(--bg-raised);
+  color: var(--ink-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.kit-choice[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--ink-primary);
+}
+
+/* --------------------------------------------------------------------------
+ * Confirmation surface
+ * -------------------------------------------------------------------------- */
+
+.kit-dialog-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+  background: var(--bg-glass);
+  backdrop-filter: blur(18px);
+}
+
+.kit-dialog {
+  width: min(32rem, 100%);
+  padding: var(--space-5);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-panel);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-panel);
+  box-sizing: border-box;
+}
+
+.kit-dialog-title {
+  margin: 0 0 var(--space-2);
+  color: var(--ink-primary);
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+  line-height: 1.1;
+}
+
+.kit-dialog-body {
+  color: var(--ink-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: 1.45;
+}
+
+.kit-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  margin-top: var(--space-5);
+}
+
+/* --------------------------------------------------------------------------
+ * Popover surface
+ * -------------------------------------------------------------------------- */
+
+/* The control a popover belongs to sits inside this anchor. */
+.kit-popover-anchor {
+  position: relative;
+}
+
+.kit-popover {
+  position: absolute;
+  bottom: calc(100% + var(--space-3));
+  left: 0;
+  z-index: 20;
+  display: grid;
+  gap: var(--space-2);
+  min-width: 14rem;
+  max-width: min(22rem, calc(100vw - var(--space-6)));
+  padding: var(--space-3);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-panel);
+  background: var(--bg-glass);
+  box-shadow: var(--shadow-panel);
+  backdrop-filter: blur(20px);
+  box-sizing: border-box;
+}
+
+.kit-popover[data-align="end"] {
+  right: 0;
+  left: auto;
+}
+
+.kit-popover-heading {
+  color: var(--ink-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--text-micro);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.kit-popover-body {
+  display: grid;
+  gap: var(--space-1);
+}
+
+/* --------------------------------------------------------------------------
+ * Reduced motion
+ * -------------------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  [data-focusable] {
+    transition: none;
+  }
+
+  .kit-row-track {
+    scroll-behavior: auto;
+  }
+}

@@ -1,0 +1,111 @@
+/*
+ * The locked Velvet Curtains (Variant C) design tokens (#77).
+ *
+ * This is the single source for the new shell: it imports the file through
+ * `src/shell/kit`, and the served companion will splice it in at serve time
+ * (#88). The shipping old shell keeps its own stylesheet until cutover (#87).
+ * Nothing here draws anything; it only names the values the kit and the shell
+ * use.
+ *
+ * The palette, the type scale, the spacing steps, the radii, the motion curves,
+ * and the focus treatment are the design record's, not a starting point to
+ * adjust per screen.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Canvas & stage */
+  --bg-canvas: #09080c;
+  --bg-stage: #121018;
+  --bg-raised: #1a1723;
+  --bg-elevated: #242030;
+  --bg-glass: rgba(22, 19, 30, 0.78);
+  /*
+   * The high-opacity scrim for the in_window player's OSD: mpv owns the child
+   * window, so backdrop-filter cannot sample the video underneath it.
+   */
+  --bg-glass-solid: #101014f2;
+
+  /* Borders & ink */
+  --border-subtle: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --ink-primary: #faf8f5;
+  --ink-secondary: #a39eb2;
+  --ink-muted: #696478;
+  --ink-on-accent: #ffffff;
+
+  /* Accent & status */
+  --accent: #ff4d4d;
+  --accent-soft: rgba(255, 77, 77, 0.18);
+  --accent-glow: rgba(255, 77, 77, 0.48);
+  --status-warn: #f5b041;
+  --status-danger: #ff5c77;
+  --status-danger-bg: rgba(255, 92, 119, 0.16);
+  --status-ok: #58d68d;
+
+  /* Typography. Both families are bundled offline by @fontsource-variable. */
+  --font-display: "Syne Variable", "Syne", "Plus Jakarta Sans Variable", system-ui, sans-serif;
+  --font-sans: "Plus Jakarta Sans Variable", "Plus Jakarta Sans", system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --font-mono: "Plus Jakarta Sans Variable", "Plus Jakarta Sans", ui-monospace, "SFMono-Regular",
+    monospace;
+  --display-weight: 700;
+  --display-tracking: -0.025em;
+  --numeric-figures: tabular-nums;
+
+  /* Type scale (10-foot calibrated) */
+  --text-hero: clamp(2rem, 2.8vw, 3rem);
+  --text-title: clamp(1.4rem, 1.9vw, 1.95rem);
+  --text-section: 1.1rem;
+  --text-body: 0.95rem;
+  --text-caption: 0.8125rem;
+  --text-micro: 0.72rem;
+
+  /* Spacing */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2.25rem;
+
+  /* Radii */
+  --radius-card: 12px;
+  --radius-panel: 18px;
+  --radius-control: 12px;
+  --radius-pill: 999px;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --dur-fast: 140ms;
+  --dur-med: 240ms;
+  --dur-slow: 400ms;
+
+  /* Elevation */
+  --shadow-panel: 0 24px 64px -8px rgba(0, 0, 0, 0.72);
+
+  /*
+   * Focus treatment — the loudest thing on screen. Cards take the dual ivory
+   * core + crimson halo and lift; buttons, rail items and OSD icons take the
+   * same dual ring and invert to a solid crimson fill (kit.css draws both).
+   */
+  --focus-ring: 0 0 0 3px var(--ink-primary), 0 0 0 6px var(--accent),
+    0 16px 36px -4px rgba(0, 0, 0, 0.85);
+  --focus-transform: translateY(-4px) scale(1.04);
+  --focus-fill: var(--accent);
+  --focus-fill-ink: var(--ink-on-accent);
+  --focus-fill-border: var(--ink-primary);
+}
+
+/*
+ * Reduced motion collapses the motion tokens themselves, so every transition
+ * and the card lift fall away without each component repeating the media query.
+ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-fast: 0ms;
+    --dur-med: 0ms;
+    --dur-slow: 0ms;
+    --focus-transform: none;
+  }
+}
