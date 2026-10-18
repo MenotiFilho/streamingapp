@@ -18,6 +18,7 @@ use crate::catalog::CatalogRow;
 use crate::device::{DeviceSummary, DeviceToken};
 use crate::discover::DiscoverRow;
 use crate::meta::Title;
+use crate::search::SearchRow;
 use crate::snapshot::Snapshot;
 use crate::stream::AddonStreams;
 
@@ -65,6 +66,15 @@ impl Response {
         }
     }
 
+    /// The Search row a client asked for, when that is what it asked: one page
+    /// of one kind, in TMDB's own order.
+    pub fn search(&self) -> Option<&SearchRow> {
+        match &self.answer {
+            Some(Answer::Search(row)) => Some(row),
+            _ => None,
+        }
+    }
+
     /// The Title a client asked to open, when that is what it asked.
     pub fn title(&self) -> Option<&Title> {
         match &self.answer {
@@ -93,6 +103,10 @@ pub enum Answer {
     /// its items keyed `tmdb:<id>` (ADR-0020). The variant is what tells a
     /// client that opening a card goes the Discovered Title way.
     Discover(Vec<DiscoverRow>),
+    /// One page of TMDB's answer to a query, its items keyed `tmdb:<id>`
+    /// (ADR-0010's amendment). The variant is what tells a client that a hit
+    /// opens as a Discovered Title rather than through an Addon.
+    Search(SearchRow),
     /// The Title a client asked to open, with the Videos it can be watched as.
     /// Boxed because a Title is many fields and a `Vec` of rows is three words.
     Title(Box<Title>),

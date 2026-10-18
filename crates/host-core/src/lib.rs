@@ -53,6 +53,7 @@ mod provider;
 mod random;
 mod request;
 mod response;
+mod search;
 mod secret;
 mod snapshot;
 mod state;
@@ -100,6 +101,7 @@ pub use request::{
     SUBTITLES,
 };
 pub use response::{Answer, Response};
+pub use search::SearchRow;
 pub use secret::{
     CredentialKind, InMemorySecretStore, InvalidTmdbKey, SecretBackend, SecretError, SecretStore,
     TmdbKey,
@@ -112,7 +114,7 @@ pub use subtitles::{Subtitle, SubtitleError, MAX_FALLBACK_SUBTITLES, MAX_SUBTITL
 pub use sync::{merge, BitField, Merged, RemoteItem, WatchedField};
 pub use tmdb::{
     video_id, video_spelling, Credential, DiscoverQuery, DiscoverQueryError, ExternalId, Kind,
-    TmdbDetails, TmdbError, TmdbId, TmdbRequest, TmdbVideo, IMAGE_ROOT, LOGO_ROOT, STILL_ROOT,
-    TMDB_ROOT,
+    SearchQuery, SearchQueryError, TmdbDetails, TmdbError, TmdbId, TmdbRequest, TmdbVideo,
+    IMAGE_ROOT, LOGO_ROOT, STILL_ROOT, TMDB_ROOT,
 };
 pub use wire::{permitted, ClientFrame, Refusal, ServerFrame, WIRE_VERSION};

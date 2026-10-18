@@ -763,8 +763,20 @@ impl Host {
                 let credential = self
                     .tmdb_credential()
                     .ok_or(ActionError::NoTmdbCredential)?;
-                let row = self.discover_row(&query, &credential);
+                let row = self.tmdb_row(&query.request(), query.kind, &credential);
                 Resolved::Answer(Answer::Discover(vec![row]))
+            }
+            ValidatedAction::Search { query } => {
+                // Search with a key held is TMDB's, and never cached: every
+                // submit and every page reaches it (ADR-0010's amendment). With
+                // no key held the Addons' catalogs are the whole of Search, and
+                // this question names no Addon to fall back to, so it refuses
+                // before a row exists.
+                let credential = self
+                    .tmdb_credential()
+                    .ok_or(ActionError::NoTmdbCredential)?;
+                let row = self.tmdb_row(&query.request(), query.kind, &credential);
+                Resolved::Answer(Answer::Search(row))
             }
             ValidatedAction::OpenTitle { addon, title } => {
                 let configured = self.addon(&addon)?;
@@ -1274,30 +1286,32 @@ impl Host {
         Ok(page)
     }
 
-    /// One Discover row: what TMDB answered for an ask, or why it could not —
-    /// the failure in the Host's vocabulary, as a row rather than as a refused
-    /// screen, so one failed call does not blank the feed (ADR-0020).
+    /// One page of TMDB's, whether a Discover feed or a Search: what TMDB
+    /// answered, or why it could not — the failure in the Host's vocabulary, as
+    /// a row rather than as a refused screen, so one failed call does not blank
+    /// the feed or the row (ADR-0010's amendment, ADR-0020).
     ///
     /// Nothing is kept: the page is read and dropped with the answer that
     /// carried it, so the same page asked for twice reaches TMDB twice.
-    fn discover_row(
+    fn tmdb_row(
         &self,
-        query: &tmdb::DiscoverQuery,
+        request: &tmdb::TmdbRequest,
+        kind: tmdb::Kind,
         credential: &tmdb::Credential,
     ) -> DiscoverRow {
-        let kind = query.kind.as_protocol().to_owned();
+        let protocol = kind.as_protocol().to_owned();
         let failed = |failure: ActionError| DiscoverRow {
-            r#type: kind.clone(),
+            r#type: protocol.clone(),
             sent: 0,
             metas: Vec::new(),
             failure: Some(failure),
         };
 
-        match self.fetch_tmdb(&query.request(), credential) {
+        match self.fetch_tmdb(request, credential) {
             Err(error) => failed(tmdb_failure(error)),
-            Ok(body) => match tmdb::read_page(&body, query.kind) {
+            Ok(body) => match tmdb::read_page(&body, kind) {
                 Ok(page) => DiscoverRow {
-                    r#type: kind,
+                    r#type: protocol,
                     sent: page.sent,
                     metas: page.metas,
                     failure: None,

@@ -140,6 +140,22 @@ pub enum Action {
         #[serde(default)]
         sort: Option<String>,
     },
+    /// Search TMDB for Titles of one kind (#78, ADR-0010's amendment).
+    ///
+    /// The question a client asks when it holds a TMDB key, once per kind: the
+    /// screen draws a Movies row and a Series row, and pages each on its own.
+    /// With no key held the Addons' own catalogs are the whole of Search, and
+    /// [`Action::SearchCatalogs`] is the question — this one refuses cleanly.
+    /// Every page is asked fresh, and a failed call (a `429` included) comes
+    /// back as a row carrying why rather than as a refused Action.
+    Search {
+        /// What to search for, trimmed of the space around it.
+        query: String,
+        /// The kind to search: a `movie` or a `series`.
+        kind: String,
+        /// Which page of results, numbered from 1.
+        page: u32,
+    },
     /// Open a Title: its metadata, and the Videos it can be watched as.
     ///
     /// A question rather than a change, like browsing: what one Addon says about
@@ -307,6 +323,7 @@ action_spellings! {
     Action::BrowseCatalog { .. } => "browse_catalog",
     Action::SearchCatalogs { .. } => "search_catalogs",
     Action::Discover { .. } => "discover",
+    Action::Search { .. } => "search",
     Action::OpenTitle { .. } => "open_title",
     Action::OpenDiscoveredTitle { .. } => "open_discovered_title",
     Action::FindStreams { .. } => "find_streams",
@@ -442,6 +459,15 @@ impl Action {
                         }
                     })?;
                 Ok(ValidatedAction::Discover { query })
+            }
+            Action::Search { query, kind, page } => {
+                let query = search_query(&query)?;
+                let query = tmdb::SearchQuery::parse(query, &kind, page).map_err(|error| {
+                    ActionError::InvalidSearch {
+                        detail: error.to_string(),
+                    }
+                })?;
+                Ok(ValidatedAction::Search { query })
             }
             Action::OpenTitle { addon, title } => {
                 let addon = AddonId::parse(&addon)?;
@@ -636,6 +662,11 @@ pub enum ValidatedAction {
     Discover {
         query: tmdb::DiscoverQuery,
     },
+    /// A Search ask judged: the query, the kind it searches and its page, in
+    /// TMDB's own terms (#78, ADR-0010's amendment).
+    Search {
+        query: tmdb::SearchQuery,
+    },
     OpenTitle {
         addon: AddonId,
         title: TitleRef,
@@ -770,9 +801,16 @@ pub enum ActionError {
     /// (#75, ADR-0020).
     #[error("{detail}")]
     InvalidDiscover { detail: String },
+    /// A Search ask TMDB cannot be given: a kind it does not search, or a page
+    /// it does not number (#78, ADR-0010's amendment). The query itself is
+    /// judged by the one search rule and refuses as [`Self::Query`].
+    #[error("{detail}")]
+    InvalidSearch { detail: String },
     /// A question only TMDB can answer, asked of a Host that holds no TMDB key:
-    /// Discover, and a Discovered Title — both are TMDB's, and neither has an
-    /// Addon to fall back to (#75, #76, ADR-0020).
+    /// Discover, a Discovered Title and a keyed Search — all are TMDB's, and
+    /// none names an Addon to ask instead. (Search's keyless arm is a different
+    /// question, `SearchCatalogs`, which never reaches here.) (#75, #76, #78,
+    /// ADR-0020).
     #[error("this Host holds no TMDB key, so it cannot ask TMDB")]
     NoTmdbCredential,
     /// TMDB could not answer a question that only TMDB can: the ask failed, or
@@ -1482,6 +1520,109 @@ mod tests {
     }
 
     #[test]
+    fn an_action_that_asks_to_search_is_flat_and_judged_before_tmdb_is_asked() {
+        let envelope = format!(
+            r#"{{"version":{ACTION_VERSION},"action":{{"type":"search","query":"matrix","kind":"movie","page":2}}}}"#
+        );
+
+        let action = Action::parse(&envelope).expect("a client's own envelope parses");
+        assert_eq!(
+            action.clone().validate(),
+            Ok(ValidatedAction::Search {
+                query: tmdb::SearchQuery {
+                    query: "matrix".to_owned(),
+                    kind: tmdb::Kind::Movie,
+                    page: 2,
+                },
+            }),
+            "the ask reaches the Host as TMDB's own terms"
+        );
+        assert_eq!(
+            serde_json::to_value(action).expect("an Action serializes"),
+            serde_json::json!({
+                "type": "search",
+                "query": "matrix",
+                "kind": "movie",
+                "page": 2,
+            })
+        );
+    }
+
+    #[test]
+    fn a_search_ask_is_judged_and_carries_tmdbs_own_terms() {
+        let action = Action::Search {
+            query: "  matrix  ".to_owned(),
+            kind: "series".to_owned(),
+            page: 2,
+        };
+        let validated = action.clone().validate().expect("an ask TMDB can be given");
+
+        match validated {
+            ValidatedAction::Search { query } => {
+                assert_eq!(
+                    query.query, "matrix",
+                    "the space around it is not the query"
+                );
+                assert_eq!(query.kind, tmdb::Kind::Tv);
+                assert_eq!(query.page, 2);
+            }
+            other => panic!("a Search ask validates as one: {other:?}"),
+        }
+        assert_eq!(
+            serde_json::to_value(action).expect("an Action serializes"),
+            serde_json::json!({
+                "type": "search",
+                "query": "  matrix  ",
+                "kind": "series",
+                "page": 2,
+            }),
+            "the ask reaches the Host with the query as it was typed"
+        );
+    }
+
+    #[test]
+    fn a_search_ask_that_is_not_one_is_refused_with_what_is_wrong() {
+        assert_eq!(
+            Action::Search {
+                query: "matrix".to_owned(),
+                kind: "channel".to_owned(),
+                page: 1,
+            }
+            .validate(),
+            Err(ActionError::InvalidSearch {
+                detail:
+                    "`channel` is not a kind TMDB searches: it answers for a `movie` or a `series`"
+                        .to_owned(),
+            }),
+            "a kind TMDB keeps no records for is refused before TMDB hears of it"
+        );
+        assert!(
+            matches!(
+                Action::Search {
+                    query: "matrix".to_owned(),
+                    kind: "movie".to_owned(),
+                    page: 0,
+                }
+                .validate(),
+                Err(ActionError::InvalidSearch { .. })
+            ),
+            "TMDB numbers its pages from 1"
+        );
+        assert!(
+            matches!(
+                Action::Search {
+                    query: "  ".to_owned(),
+                    kind: "movie".to_owned(),
+                    page: 1,
+                }
+                .validate(),
+                Err(ActionError::Query { .. })
+            ),
+            "the query is judged by the one search rule both arms share"
+        );
+    }
+
+    #[test]
     fn a_discover_ask_with_no_credential_held_names_its_own_kind() {
         let refused = ActionError::NoTmdbCredential;
 
@@ -1617,6 +1758,7 @@ mod tests {
         r#"{"type":"browse_catalog","addon":"community.example","catalog":{"type":"movie","id":"top"},"extra":[]}"#,
         r#"{"type":"search_catalogs","query":"matrix"}"#,
         r#"{"type":"discover","kind":"movie","page":1}"#,
+        r#"{"type":"search","query":"matrix","kind":"movie","page":1}"#,
         r#"{"type":"open_title","addon":"community.example","title":{"type":"movie","id":"tt0133093"}}"#,
         r#"{"type":"open_discovered_title","key":{"kind":"tmdb","id":603},"kind":"movie"}"#,
         r#"{"type":"find_streams","video":{"type":"movie","id":"tt0133093"}}"#,
