@@ -12,6 +12,14 @@ the development container uses:
 The job is `verify`, and `main` is protected: the `verify` check must pass,
 administrators are included, and force pushes and deletions are refused.
 
+## Docs-only pull requests
+
+`verify` runs on every pull request because it is the required check. When every
+changed path ends in `.md` or lives under `docs/`, the job skips the image build
+and the suites and finishes in seconds; the required check is still green. Any
+other change — including this workflow — runs the full list, and pushes to
+`main` always run it.
+
 ## The landing sequence
 
 1. Work in a worktree on a branch, never in the main checkout.

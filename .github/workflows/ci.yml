@@ -4,6 +4,10 @@ name: CI
 # pull request into `main` and on every push that lands there. The image is the
 # only supported toolchain: the Host links libmpv and the window needs WebKitGTK,
 # so a bare `ubuntu-latest` job would not be the environment the code is built in.
+#
+# A docs-only pull request still runs `verify` — it is the required check — but
+# the job short-circuits before building the image. Everything else, including
+# this workflow, runs the full list.
 
 on:
   pull_request:
@@ -29,11 +33,48 @@ jobs:
     steps:
       - name: Check out
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # `verify` is required by `main`'s protection, so it must conclude on every
+      # pull request. Path filters would skip the whole workflow and leave the
+      # check "Expected" forever; deciding inside the job keeps that contract.
+      - name: Decide whether the suites are needed
+        id: scope
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != "pull_request" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          git fetch --no-tags origin "$BASE_REF"
+          code=false
+          while IFS= read -r file; do
+            case "$file" in
+              *.md|docs/*) ;;
+              *)
+                code=true
+                break
+                ;;
+            esac
+          done < <(git diff --name-only "FETCH_HEAD...HEAD")
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" = true ]; then
+            echo "Code changed: the suites run."
+          else
+            echo "Docs only: the suites are skipped."
+          fi
 
       - name: Set up Buildx
+        if: steps.scope.outputs.code == 'true'
         uses: docker/setup-buildx-action@v4
 
       - name: Build the development image
+        if: steps.scope.outputs.code == 'true'
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -44,22 +85,33 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Install the window's dependencies
+        if: steps.scope.outputs.code == 'true'
         run: .github/scripts/dev-run.sh pnpm install --frozen-lockfile
 
       - name: Typecheck the window
+        if: steps.scope.outputs.code == 'true'
         run: .github/scripts/dev-run.sh pnpm typecheck
 
       - name: Build the window
+        if: steps.scope.outputs.code == 'true'
         run: .github/scripts/dev-run.sh pnpm build
 
       - name: Test the window
+        if: steps.scope.outputs.code == 'true'
         run: .github/scripts/dev-run.sh pnpm test
 
       - name: Check Rust formatting
+        if: steps.scope.outputs.code == 'true'
         run: .github/scripts/dev-run.sh cargo fmt --check
 
       - name: Clippy
+        if: steps.scope.outputs.code == 'true'
         run: .github/scripts/dev-run.sh cargo clippy --all-targets -- -D warnings
 
       - name: Test the Rust workspace
+        if: steps.scope.outputs.code == 'true'
         run: .github/scripts/dev-run.sh cargo test --workspace --no-fail-fast
+
+      - name: Nothing to build
+        if: steps.scope.outputs.code != 'true'
+        run: echo "Docs-only change; no build or test step is needed."
