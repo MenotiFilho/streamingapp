@@ -4,9 +4,14 @@ name: Auto-merge
 # the review trail is on it and the branch is current with `main`. GitHub then
 # lands it with a merge commit as soon as the required `verify` check is green.
 # Taking the label away turns auto-merge off again.
+#
+# `pull_request_target` so the label flow also works for fork and Dependabot
+# PRs, whose `pull_request` token is read-only. This job never checks out or
+# executes PR code: it reads the PR number and calls the merge API with the base
+# repository's token.
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, reopened, synchronize, labeled, unlabeled, ready_for_review]
 
 permissions:
