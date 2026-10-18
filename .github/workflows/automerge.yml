@@ -1,0 +1,47 @@
+name: Auto-merge
+
+# The merge is opt-in: a person or agent puts `automerge` on a pull request after
+# the review trail is on it and the branch is current with `main`. GitHub then
+# lands it with a merge commit as soon as the required `verify` check is green.
+# Taking the label away turns auto-merge off again.
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled, ready_for_review]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: automerge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  label:
+    name: automerge label
+    if: >-
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enable auto-merge
+        if: contains(github.event.pull_request.labels.*.name, 'automerge')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          if gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --auto --merge; then
+            exit 0
+          fi
+          # Enabling it a second time is the one failure that is not a failure.
+          gh pr view "$PR" --repo "$GITHUB_REPOSITORY" \
+            --json autoMergeRequest --jq '.autoMergeRequest != null' | grep -qx true
+
+      - name: Turn auto-merge off when the label goes
+        if: ${{ !contains(github.event.pull_request.labels.*.name, 'automerge') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: gh pr merge "$PR" --repo "$GITHUB_REPOSITORY" --disable-auto || true
