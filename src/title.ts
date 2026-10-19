@@ -14,7 +14,7 @@
  * person already saw on the card stand in for what the Addon did not repeat.
  */
 
-import type { MetaPreview, Title, TitleStub, Video } from "./host-client";
+import type { MetaPreview, Title, TitleKey, TitleStub, Video } from "./host-client";
 
 /** The protocol's type for the episodic kind of Title, the one with seasons. */
 export const SERIES = "series";
@@ -25,6 +25,11 @@ export const SERIES = "series";
  */
 export type TitlePreview = Pick<MetaPreview, "name" | "poster"> &
   Partial<Pick<MetaPreview, "background">>;
+
+/** The same, plus the identity a card carries into an Action. */
+export type OpenablePreview = TitlePreview &
+  Pick<MetaPreview, "id" | "type"> &
+  Partial<Pick<MetaPreview, "releaseInfo">>;
 
 /** One season's Videos, in the order the Addon listed them. */
 export type Season = {
@@ -113,10 +118,19 @@ export function posterOf(
 
 export function releaseOf(
   title: Title,
-  preview?: Pick<MetaPreview, "releaseInfo"> | null,
+  preview?: Partial<Pick<MetaPreview, "releaseInfo">> | null,
 ): string | null {
   return title.releaseInfo ?? preview?.releaseInfo ?? null;
 }
+
+/** Where a Title screen's hero art came from, which is also what a test reads. */
+export type TitleArtKind = "background" | "poster" | "none";
+
+/** The hero art a Title screen draws, and which part of the fallback gave it. */
+export type TitleArt = {
+  src: string | null;
+  kind: TitleArtKind;
+};
 
 /**
  * The art a Title screen draws first: the Title's own backdrop, then the
@@ -124,8 +138,46 @@ export function releaseOf(
  * backdrop is 16:9, so it beats a portrait poster when the meta answer is
  * sparse.
  */
-export function backdropOf(title: Title, preview?: TitlePreview | null): string | null {
-  return title.background ?? preview?.background ?? posterOf(title, preview) ?? null;
+export function titleArtOf(
+  title: Title,
+  preview?: TitlePreview | null,
+): TitleArt {
+  if (title.background) {
+    return { src: title.background, kind: "background" };
+  }
+  if (preview?.background) {
+    return { src: preview.background, kind: "background" };
+  }
+  const poster = posterOf(title, preview);
+  return poster ? { src: poster, kind: "poster" } : { src: null, kind: "none" };
+}
+
+/** The protocol's prefix for a TMDB-keyed id: `tmdb:<id>`. */
+const TMDB_ID_PREFIX = "tmdb:";
+
+/** The protocol's spelling of a film's TMDB-keyed Video id. */
+export function tmdbFilmId(id: number): string {
+  return `${TMDB_ID_PREFIX}${id}`;
+}
+
+/** TMDB's numeric id, where the id was spelled `tmdb:<id>`. */
+export function tmdbIdOf(id: string): number | null {
+  if (!id.startsWith(TMDB_ID_PREFIX)) {
+    return null;
+  }
+  const rest = id.slice(TMDB_ID_PREFIX.length);
+  return /^\d+$/.test(rest) ? Number(rest) : null;
+}
+
+/**
+ * The TMDB id a Discovered Title's card names, as the key `open_discovered_title`
+ * takes. A card that is not `tmdb:<id>` has no Discovered Title behind it.
+ */
+export function discoveredKeyOf(
+  id: string,
+): Extract<TitleKey, { kind: "tmdb" }> | null {
+  const tmdb = tmdbIdOf(id);
+  return tmdb === null ? null : { kind: "tmdb", id: tmdb };
 }
 
 /**
@@ -137,8 +189,9 @@ export function backdropOf(title: Title, preview?: TitlePreview | null): string 
  * whatever a sparse meta answer left out, the same fallback the Title screen
  * uses.
  */
-export function titleStubOf(title: Title, preview?: MetaPreview | null): TitleStub {
-  const background = title.background ?? preview?.background ?? null;
+export function titleStubOf(title: Title, preview?: TitlePreview | null): TitleStub {
+  const art = titleArtOf(title, preview);
+  const background = art.kind === "background" ? art.src : null;
 
   return {
     addon: title.addon,

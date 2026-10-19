@@ -13,13 +13,21 @@
  */
 
 import type { Playback, Stream, StreamWarning, Title, Video } from "./host-client";
+import { tmdbFilmId } from "./title";
 
 /**
  * The Video a film is watched as: the film itself. A film's Title lists no
- * Videos, so pressing play on it asks for the Streams of the Title's own id.
+ * Videos, so pressing play on it asks for the Streams of one Video.
+ *
+ * A Title a TMDB record met is played in TMDB's spelling, which is what unifies
+ * it in Continue watching with the same film opened as a Discovered Title: the
+ * Host keys progress by the Video, and `tmdb:<id>` is the spelling both paths
+ * share (ADR-0020). A Title keyed by its Addon keeps the id its Addon indexes.
+ * The Host does not renumber the Video a client named.
  */
 export function theFilm(title: Title): Video {
-  return { id: title.id, name: null, season: null, episode: null, thumbnail: null };
+  const id = title.key.kind === "tmdb" ? tmdbFilmId(title.key.id) : title.id;
+  return { id, name: null, season: null, episode: null, thumbnail: null };
 }
 
 /**

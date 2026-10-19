@@ -11,6 +11,7 @@
 
 import type { MetaPreview, ResumeEntry, Snapshot } from "../host-client";
 import type { Row } from "../browse";
+import type { OpenablePreview } from "../title";
 
 /** How many of the Featured catalog's first items a hero shows (#52). */
 export const HERO_SLIDES = 4;
@@ -49,16 +50,10 @@ export function heroArt(meta: MetaPreview): { art: string | null; kind: HeroArtK
 }
 
 /**
- * What a card knows before the Host answers `open_title`: enough to name the
- * Title and draw its art if the meta answer is sparse (ADR-0011).
+ * What a card knows before the Host answers `open_title`: the same identity and
+ * art every card carries into the Title screen (ADR-0011), under Home's name.
  */
-export type HomeCard = {
-  id: string;
-  type: string;
-  name: string;
-  poster: string | null;
-  background?: string | null;
-};
+export type HomeCard = OpenablePreview;
 
 /** The first four items of the Featured catalog's row as hero slides. */
 export function heroSlides(metas: readonly MetaPreview[]): HeroSlide[] {

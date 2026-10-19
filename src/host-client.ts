@@ -291,9 +291,10 @@ export type MetaPreview = {
   poster: string | null;
   posterShape: string | null;
   /**
-   * The item's 16:9 backdrop, where the Addon sent one. Home's hero is drawn
-   * from it without opening the Title; absent is not a failure, because the
-   * landscape-poster and text-slide fallbacks still have something to draw.
+   * The meta preview's 16:9 backdrop, where the Host sent one — an Addon's word
+   * for a Catalog row, or TMDB's for a Discover or Search row. Home's hero and
+   * the Title screen draw it; absent is not a failure, because a landscape
+   * poster, the text, or the Title's own poster still has something to draw.
    */
   background?: string | null;
   releaseInfo: string | null;

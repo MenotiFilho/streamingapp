@@ -11,19 +11,14 @@ import {
   unaskable,
   type Row,
 } from "../browse";
-import {
-  answeredCatalogs,
-  answeredTitle,
-  explain,
-  type Extra,
-} from "../host-client";
+import { answeredCatalogs, explain, type Extra } from "../host-client";
 import { cardName, cardNote, progressOf, resumable } from "../library";
 import { useShell } from "./context";
 import { addonName, continueArt, featuredRow, heroSlides, type HomeCard } from "./home";
 import { HomeHero } from "./HomeHero";
 import { Button, ContinueWatchingCard, PosterCard, RowTrack } from "./kit";
 import { FOCUSABLE } from "./layout";
-import { TitleArrival } from "./TitleArrival";
+import { useTitleOpener } from "./TitleScreen";
 import "./home.css";
 
 /**
@@ -38,13 +33,13 @@ import "./home.css";
  * client is looking at must not move what another one is looking at (ADR-0005).
  */
 export function HomeScreen() {
-  const { snapshot, chosenDestination, choose, ask, take, push } = useShell();
+  const { snapshot, chosenDestination, choose, ask, take } = useShell();
+  const { openTitle: openTitleLevel } = useTitleOpener();
   const [rows, setRows] = useState<Row[]>([]);
   const [paging, setPaging] = useState<string[]>([]);
   const [answered, setAnswered] = useState<string[]>([]);
   const root = useRef<HTMLElement | null>(null);
   const focusedAtLaunch = useRef(false);
-  const openingTitle = useRef<string | null>(null);
 
   const catalogFingerprint = useMemo(
     () => declaredCatalogs(snapshot).map(catalogKey).join("|"),
@@ -147,35 +142,8 @@ export function HomeScreen() {
 
   /** Open a Title's card, then push its screen over Home. */
   const openTitle = useCallback(
-    async (addon: string, card: HomeCard) => {
-      // A second Activate before the first answer arrives would push a second
-      // identical Title level; one open is in flight at a time.
-      const key = `${addon}/${card.type}/${card.id}`;
-      if (openingTitle.current !== null) {
-        return;
-      }
-      openingTitle.current = key;
-      try {
-        const response = await take({
-          type: "open_title",
-          addon,
-          title: { type: card.type, id: card.id },
-        });
-        const title = answeredTitle(response);
-        if (title) {
-          push({
-            name: "Title",
-            kind: "overlay",
-            render: () => <TitleArrival title={title} preview={card} />,
-          });
-        }
-      } finally {
-        if (openingTitle.current === key) {
-          openingTitle.current = null;
-        }
-      }
-    },
-    [push, take],
+    (addon: string, card: HomeCard) => openTitleLevel(addon, card),
+    [openTitleLevel],
   );
 
   const featured = featuredRow(snapshot, rows);
