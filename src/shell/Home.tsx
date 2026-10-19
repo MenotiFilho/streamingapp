@@ -40,7 +40,6 @@ export function HomeScreen() {
   const [answered, setAnswered] = useState<string[]>([]);
   const root = useRef<HTMLElement | null>(null);
   const focusedAtLaunch = useRef(false);
-  const openingTitle = useRef<string | null>(null);
 
   const catalogFingerprint = useMemo(
     () => declaredCatalogs(snapshot).map(catalogKey).join("|"),
@@ -143,22 +142,7 @@ export function HomeScreen() {
 
   /** Open a Title's card, then push its screen over Home. */
   const openTitle = useCallback(
-    async (addon: string, card: HomeCard) => {
-      // A second Activate before the first answer arrives would push a second
-      // identical Title level; one open is in flight at a time.
-      const key = `${addon}/${card.type}/${card.id}`;
-      if (openingTitle.current !== null) {
-        return;
-      }
-      openingTitle.current = key;
-      try {
-        await openTitleLevel(addon, card);
-      } finally {
-        if (openingTitle.current === key) {
-          openingTitle.current = null;
-        }
-      }
-    },
+    (addon: string, card: HomeCard) => openTitleLevel(addon, card),
     [openTitleLevel],
   );
 

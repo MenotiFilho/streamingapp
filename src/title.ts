@@ -153,10 +153,10 @@ export function titleArtOf(
 }
 
 /** The protocol's prefix for a TMDB-keyed id: `tmdb:<id>`. */
-export const TMDB_ID_PREFIX = "tmdb:";
+const TMDB_ID_PREFIX = "tmdb:";
 
-/** The protocol's spelling of a TMDB id, as a card or Video id carries it. */
-export function tmdbVideoId(id: number): string {
+/** The protocol's spelling of a film's TMDB-keyed Video id. */
+export function tmdbFilmId(id: number): string {
   return `${TMDB_ID_PREFIX}${id}`;
 }
 
@@ -178,11 +178,6 @@ export function discoveredKeyOf(
 ): Extract<TitleKey, { kind: "tmdb" }> | null {
   const tmdb = tmdbIdOf(id);
   return tmdb === null ? null : { kind: "tmdb", id: tmdb };
-}
-
-/** The art alone, for a caller that does not need to know its source. */
-export function backdropOf(title: Title, preview?: TitlePreview | null): string | null {
-  return titleArtOf(title, preview).src;
 }
 
 /**

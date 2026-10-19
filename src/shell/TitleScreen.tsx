@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import {
   answeredStreams,
@@ -35,14 +35,25 @@ import "./title.css";
  */
 export function useTitleOpener() {
   const { take, push } = useShell();
+  // A second Activate before the first answer arrives would push a second
+  // identical Title; one open is in flight at a time, whichever screen asked.
+  const opening = useRef(false);
 
   /** Take one open Action, and push the Title only where the Host answered one. */
   const openWith = useCallback(
     async (action: Action, preview: OpenablePreview) => {
-      const response = await take(action);
-      const title = answeredTitle(response);
-      if (title) {
-        push(titleLevelOf(title, preview));
+      if (opening.current) {
+        return;
+      }
+      opening.current = true;
+      try {
+        const response = await take(action);
+        const title = answeredTitle(response);
+        if (title) {
+          push(titleLevelOf(title, preview));
+        }
+      } finally {
+        opening.current = false;
       }
     },
     [push, take],

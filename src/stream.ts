@@ -13,7 +13,7 @@
  */
 
 import type { Playback, Stream, StreamWarning, Title, Video } from "./host-client";
-import { tmdbVideoId } from "./title";
+import { tmdbFilmId } from "./title";
 
 /**
  * The Video a film is watched as: the film itself. A film's Title lists no
@@ -26,7 +26,7 @@ import { tmdbVideoId } from "./title";
  * The Host does not renumber the Video a client named.
  */
 export function theFilm(title: Title): Video {
-  const id = title.key.kind === "tmdb" ? tmdbVideoId(title.key.id) : title.id;
+  const id = title.key.kind === "tmdb" ? tmdbFilmId(title.key.id) : title.id;
   return { id, name: null, season: null, episode: null, thumbnail: null };
 }
 
