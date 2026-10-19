@@ -15,11 +15,12 @@
     var(--bg-canvas);
 }
 
+/* The level paints over the rail, so the whole width is the Title's; there is
+   no rail-width gutter to reserve. */
 .shell-title {
   max-width: 96rem;
   margin: 0 auto;
-  padding: clamp(1rem, 2vw, 2rem) clamp(1.5rem, 4vw, 4rem) 5rem
-    calc(92px + 18px + clamp(1.5rem, 4vw, 4rem));
+  padding: clamp(1rem, 2vw, 2rem) clamp(1.5rem, 4vw, 4rem) 5rem;
   box-sizing: border-box;
 }
 

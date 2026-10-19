@@ -152,24 +152,32 @@ export function titleArtOf(
   return poster ? { src: poster, kind: "poster" } : { src: null, kind: "none" };
 }
 
-/** The art alone, where only the source matters. */
-export function backdropOf(title: Title, preview?: TitlePreview | null): string | null {
-  return titleArtOf(title, preview).src;
+/** The protocol's prefix for a TMDB-keyed id: `tmdb:<id>`. */
+export const TMDB_ID_PREFIX = "tmdb:";
+
+/** The protocol's spelling of a TMDB id, as a card or Video id carries it. */
+export function tmdbVideoId(id: number): string {
+  return `${TMDB_ID_PREFIX}${id}`;
+}
+
+/** TMDB's numeric id, where the id was spelled `tmdb:<id>`. */
+export function tmdbIdOf(id: string): number | null {
+  if (!id.startsWith(TMDB_ID_PREFIX)) {
+    return null;
+  }
+  const rest = id.slice(TMDB_ID_PREFIX.length);
+  return /^\d+$/.test(rest) ? Number(rest) : null;
 }
 
 /**
  * The TMDB id a Discovered Title's card names, as the key `open_discovered_title`
- * takes. The protocol spells a TMDB-keyed item `tmdb:<id>`; a card that is not
- * one has no Discovered Title behind it.
+ * takes. A card that is not `tmdb:<id>` has no Discovered Title behind it.
  */
 export function discoveredKeyOf(
   id: string,
 ): Extract<TitleKey, { kind: "tmdb" }> | null {
-  const match = /^tmdb:(\d+)$/.exec(id);
-  if (!match) {
-    return null;
-  }
-  return { kind: "tmdb", id: Number(match[1]) };
+  const tmdb = tmdbIdOf(id);
+  return tmdb === null ? null : { kind: "tmdb", id: tmdb };
 }
 
 /**

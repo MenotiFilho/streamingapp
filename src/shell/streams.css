@@ -8,8 +8,7 @@
 
 .shell-streams {
   min-height: 100%;
-  padding: clamp(1.25rem, 3vw, 2.75rem) clamp(1.5rem, 4vw, 4rem) 5rem
-    calc(92px + 18px + clamp(1.5rem, 4vw, 4rem));
+  padding: clamp(1.25rem, 3vw, 2.75rem) clamp(1.5rem, 4vw, 4rem) 5rem;
   box-sizing: border-box;
   background: color-mix(in srgb, var(--bg-canvas) 94%, transparent);
   backdrop-filter: blur(18px);

@@ -1437,7 +1437,7 @@ function TitleView({
   // What the Streams are Streams *of*: an episode by its number and name, or
   // the film itself.
   const subject =
-    selected && selected.id !== title.id
+    selected && isSeries(title)
       ? [labelOf(selected) ?? selected.id, selected.name]
           .filter((part): part is string => Boolean(part))
           .join(" — ")
