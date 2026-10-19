@@ -18,6 +18,15 @@ describe("the Poster card", () => {
     expect(container.querySelector(".kit-badge-unmapped")).toBeNull();
   });
 
+  test("carries the release description clamped on the card and whole in its tooltip", () => {
+    const description = "Carrie.S01E01.1080p.WEB-DL.x264-GROUP.mkv";
+    render(<PosterCard name="Carrie" subtitle="S1E1" description={description} />);
+
+    const note = screen.getByText(description);
+    expect(note).toHaveClass("kit-poster-note");
+    expect(note).toHaveAttribute("title", description);
+  });
+
   test("leaves an empty frame rather than a broken image when the poster is absent", () => {
     render(<PosterCard name="Missing Art" poster={null} />);
 

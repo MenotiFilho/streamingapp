@@ -13,7 +13,7 @@ import { watching } from "../playback";
 import { DestinationScreen } from "./DestinationScreens";
 import { PlayerOverlay } from "./PlayerOverlay";
 import { ShellFrame } from "./ShellFrame";
-import { ShellContext, type NewShellLevel } from "./context";
+import { ShellContext, type ActionOutcome, type NewShellLevel } from "./context";
 import {
   INITIAL_NAVIGATION,
   navigate,
@@ -38,6 +38,7 @@ export function Shell({ client }: { client?: HostClient }) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [error, setError] = useState<ActionError | null>(null);
   const [nav, dispatch] = useReducer(navigate, INITIAL_NAVIGATION);
+  const [chosenDestination, setChosenDestination] = useState(false);
   const nextLevelId = useRef(0);
 
   const publish = useCallback((next: Snapshot) => {
@@ -63,21 +64,33 @@ export function Shell({ client }: { client?: HostClient }) {
     };
   }, [host, publish]);
 
-  /** Take an Action and answer with what came of it, or why the Host refused it. */
-  const take = useCallback(
-    async (action: Action): Promise<Response | null> => {
-      setError(null);
+  /** The same, with the refusal returned rather than raised as the window's alert. */
+  const ask = useCallback(
+    async (action: Action): Promise<ActionOutcome> => {
       try {
-        return await host.dispatch(action);
+        return { response: await host.dispatch(action), error: null };
       } catch (caught) {
-        setError(asActionError(caught));
-        return null;
+        return { response: null, error: asActionError(caught) };
       }
     },
     [host],
   );
 
+  /** Take an Action a person asked for: a refusal becomes the window's alert. */
+  const take = useCallback(
+    async (action: Action): Promise<Response | null> => {
+      setError(null);
+      const { response, error } = await ask(action);
+      if (error) {
+        setError(error);
+      }
+      return response;
+    },
+    [ask],
+  );
+
   const choose = useCallback((destination: Destination) => {
+    setChosenDestination(true);
     dispatch({ type: "choose", destination });
   }, []);
 
@@ -136,13 +149,15 @@ export function Shell({ client }: { client?: HostClient }) {
       snapshot,
       error,
       destination: nav.destination,
+      chosenDestination,
       choose,
       push,
       pop,
       back,
+      ask,
       take,
     }),
-    [snapshot, error, nav.destination, choose, push, pop, back, take],
+    [snapshot, error, nav.destination, chosenDestination, choose, push, pop, back, ask, take],
   );
 
   return (

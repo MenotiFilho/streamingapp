@@ -19,6 +19,13 @@ import type { MetaPreview, Title, TitleStub, Video } from "./host-client";
 /** The protocol's type for the episodic kind of Title, the one with seasons. */
 export const SERIES = "series";
 
+/**
+ * What a card may already know about the Title it opens: enough to name it and
+ * draw its art when the Host's meta answer is sparse (ADR-0011).
+ */
+export type TitlePreview = Pick<MetaPreview, "name" | "poster"> &
+  Partial<Pick<MetaPreview, "background">>;
+
 /** One season's Videos, in the order the Addon listed them. */
 export type Season = {
   /** The season number, or `null` for Videos the Addon placed in no season. */
@@ -89,7 +96,7 @@ export function labelOf(video: Video): string | null {
  * nothing — and a client that opened it from a card has a better name than an id
  * already in its hand.
  */
-export function nameOf(title: Title, preview?: MetaPreview | null): string {
+export function nameOf(title: Title, preview?: Pick<MetaPreview, "name"> | null): string {
   if (title.name === title.id && preview && preview.name) {
     return preview.name;
   }
@@ -97,12 +104,28 @@ export function nameOf(title: Title, preview?: MetaPreview | null): string {
 }
 
 /** The same, for the poster and the year a card shows. */
-export function posterOf(title: Title, preview?: MetaPreview | null): string | null {
+export function posterOf(
+  title: Title,
+  preview?: Pick<MetaPreview, "poster"> | null,
+): string | null {
   return title.poster ?? preview?.poster ?? null;
 }
 
-export function releaseOf(title: Title, preview?: MetaPreview | null): string | null {
+export function releaseOf(
+  title: Title,
+  preview?: Pick<MetaPreview, "releaseInfo"> | null,
+): string | null {
   return title.releaseInfo ?? preview?.releaseInfo ?? null;
+}
+
+/**
+ * The art a Title screen draws first: the Title's own backdrop, then the
+ * backdrop of the card it was opened from, then either poster. A card's
+ * backdrop is 16:9, so it beats a portrait poster when the meta answer is
+ * sparse.
+ */
+export function backdropOf(title: Title, preview?: TitlePreview | null): string | null {
+  return title.background ?? preview?.background ?? posterOf(title, preview) ?? null;
 }
 
 /**
@@ -115,11 +138,16 @@ export function releaseOf(title: Title, preview?: MetaPreview | null): string | 
  * uses.
  */
 export function titleStubOf(title: Title, preview?: MetaPreview | null): TitleStub {
+  const background = title.background ?? preview?.background ?? null;
+
   return {
     addon: title.addon,
     id: title.id,
     type: title.type,
     name: nameOf(title, preview),
     poster: posterOf(title, preview),
+    // Only carried when there is one: the field is part of the ready card (#73),
+    // and a Host that never sent a backdrop has no key to learn.
+    ...(background ? { background } : {}),
   };
 }
