@@ -132,6 +132,18 @@
   font-size: var(--text-micro);
 }
 
+/* The filename or description that tells two releases apart (ADR-0010). */
+.kit-poster-note {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--ink-muted);
+  font-size: var(--text-micro);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .kit-poster:disabled {
   opacity: 0.45;
   cursor: not-allowed;
