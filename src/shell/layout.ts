@@ -36,7 +36,8 @@ export function regionKind(declared: string | null): RegionKind {
 }
 
 /** The nearest `data-region` ancestor of a node, stopping at the level's root. */
-export function regionIdOf(node: Element, root: HTMLElement): string | null {  let walk: Element | null = node.parentElement;
+export function regionIdOf(node: Element, root: HTMLElement): string | null {
+  let walk: Element | null = node.parentElement;
   while (walk && walk !== root.parentElement) {
     const id = walk.getAttribute("data-region");
     if (id) {
@@ -61,7 +62,8 @@ export function readLevel(
   root: HTMLElement,
   memory: Record<string, number | undefined>,
   measure: Measure = measureRect,
-): LevelLayout {  const layout: Layout = { regions: {}, memory };
+): LevelLayout {
+  const layout: Layout = { regions: {}, memory };
   const elements: Record<string, HTMLElement[]> = {};
 
   const regionElements: Element[] = root.hasAttribute("data-region") ? [root] : [];
