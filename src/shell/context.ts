@@ -6,6 +6,12 @@ import type { Destination, ShellLevel } from "./navigation";
 /** A level a screen asks the shell to push; the shell gives it its id. */
 export type NewShellLevel = Omit<ShellLevel, "id"> & { id?: string };
 
+/** What taking an Action came to: the answer, or why the Host refused it. */
+export type ActionOutcome = {
+  response: Response | null;
+  error: ActionError | null;
+};
+
 /** What every screen under the shell can ask of it. */
 export type ShellContextValue = {
   /** What the Host last published, or null before the first answer. */
@@ -13,6 +19,8 @@ export type ShellContextValue = {
   /** Why the last Action this window took was refused, where one was. */
   error: ActionError | null;
   destination: Destination;
+  /** Whether a person has chosen a destination from the rail. */
+  chosenDestination: boolean;
   choose: (destination: Destination) => void;
   /** Push an overlay level. Returns the id the shell gave it. */
   push: (level: NewShellLevel) => string;
@@ -20,6 +28,13 @@ export type ShellContextValue = {
   pop: () => void;
   /** Back, with the player's stop rule applied. */
   back: () => void;
+  /**
+   * Take an Action and answer with what came of it, or why the Host refused
+   * it. Unlike `take`, a refusal is not raised as the window's one alert: a row
+   * that could not load says so in the row, and leaves the rest of the screen
+   * alone.
+   */
+  ask: (action: Action) => Promise<ActionOutcome>;
   /** Take an Action through the Host's one door. */
   take: (action: Action) => Promise<Response | null>;
 };

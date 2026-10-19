@@ -214,14 +214,21 @@ function Harness({
     }
   };
 
+  const ask = async (action: Action) => ({
+    response: await take(action),
+    error: null,
+  });
+
   const value: ShellContextValue = {
     snapshot: NOTHING_SAID,
     error: null,
     destination: "home",
+    chosenDestination: false,
     choose: () => {},
     push,
     pop,
     back: pop,
+    ask,
     take,
   };
 

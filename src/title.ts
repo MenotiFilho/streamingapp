@@ -180,6 +180,11 @@ export function discoveredKeyOf(
   return tmdb === null ? null : { kind: "tmdb", id: tmdb };
 }
 
+/** The art alone, for a caller that does not need to know its source. */
+export function backdropOf(title: Title, preview?: TitlePreview | null): string | null {
+  return titleArtOf(title, preview).src;
+}
+
 /**
  * The least of a Title the Host is told when a Stream is chosen (#29).
  *

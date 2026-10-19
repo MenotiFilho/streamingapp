@@ -1,40 +1,23 @@
 import type { ReactNode } from "react";
 
+import { HomeScreen } from "./Home";
 import { useShell } from "./context";
 import { destinationLabel, type Destination } from "./navigation";
 
 /**
  * The base screen for one destination.
  *
- * These are the shell's honest placeholders: the frame, the rail and the level
- * stack are what #79 built, and each destination's own screen is filled in by
- * its ticket. The words still say what the Host holds, so the frame can be
- * driven and looked at without pretending a screen is finished.
+ * Home is built (#80); the other destinations are the shell's honest
+ * placeholders until their tickets fill them in. The words still say what the
+ * Host holds, so the frame can be driven and looked at without pretending a
+ * screen is finished.
  */
 export function DestinationScreen({ destination }: { destination: Destination }) {
   const { snapshot } = useShell();
 
   switch (destination) {
-    case "home": {
-      const addons = snapshot?.addons.length ?? 0;
-      const continueWatching = snapshot?.watchProgress.length ?? 0;
-      return (
-        <Screen
-          destination="home"
-          lede={
-            snapshot
-              ? `The Host holds ${addons} ${addons === 1 ? "Addon" : "Addons"} and ${continueWatching} Continue watching ${continueWatching === 1 ? "entry" : "entries"}.`
-              : "Waiting for the Host…"
-          }
-        >
-          {snapshot && addons === 0 ? (
-            <p className="shell-note" data-testid="home-no-addons">
-              No Addons are configured, so Home has no Catalog to draw a row from.
-            </p>
-          ) : null}
-        </Screen>
-      );
-    }
+    case "home":
+      return <HomeScreen />;
     case "discover": {
       const keyed = snapshot?.protection.tmdbHeld ?? false;
       return (

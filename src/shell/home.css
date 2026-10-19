@@ -1,0 +1,225 @@
+/*
+ * Home: the Featured catalog's billboard, Continue watching, and the Catalog
+ * rows (#80). The kit owns the cards and the focus treatment; this sheet is
+ * the screen's own composition and its two surfaces — the hero and the Title
+ * arrival Home pushes.
+ *
+ * Every colour, type size, space and motion curve is a token from
+ * `src/tokens.css`; nothing here invents a palette value.
+ */
+
+.home-screen {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* --------------------------------------------------------------------------
+ * The Featured hero
+ * -------------------------------------------------------------------------- */
+
+.home-hero {
+  position: relative;
+  margin-bottom: var(--space-2);
+}
+
+/*
+ * The section does not clip: the focus halo is drawn outside the button's box.
+ * The button clips only its own art, which is what gives the billboard its
+ * rounded corners.
+ */
+.home-hero-button {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-height: clamp(19rem, 34vw, 30rem);
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-panel);
+  background: var(--bg-stage);
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* A text slide is a neutral field with the Title's own words, not a fake frame. */
+.home-hero-button[data-art="text"] {
+  background:
+    radial-gradient(120% 140% at 12% 100%, var(--accent-soft) 0%, transparent 62%),
+    linear-gradient(150deg, var(--bg-elevated), var(--bg-stage) 70%);
+}
+
+.home-hero-art {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 22%;
+}
+
+.home-hero-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--bg-canvas) 94%, transparent) 0%,
+      color-mix(in srgb, var(--bg-canvas) 68%, transparent) 46%,
+      color-mix(in srgb, var(--bg-canvas) 8%, transparent) 100%
+    ),
+    linear-gradient(0deg, var(--bg-canvas) 0%, transparent 58%);
+}
+
+.home-hero-copy {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  max-width: 44rem;
+  min-height: clamp(19rem, 34vw, 30rem);
+  padding: var(--space-6);
+  box-sizing: border-box;
+}
+
+.home-hero-kicker {
+  color: var(--accent);
+  font-size: var(--text-caption);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.home-hero-name {
+  font-family: var(--font-display);
+  font-size: var(--text-hero);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+  line-height: 1.02;
+}
+
+.home-hero-description {
+  display: -webkit-box;
+  max-width: 56ch;
+  overflow: hidden;
+  color: var(--ink-secondary);
+  font-size: var(--text-body);
+  line-height: 1.5;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.home-hero-footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-2) 0;
+}
+
+.home-hero-dots {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.home-hero-dot {
+  display: block;
+  width: 1.45rem;
+  height: 0.24rem;
+  border-radius: var(--radius-pill);
+  background: var(--border-strong);
+  transition:
+    width var(--dur-med) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
+}
+
+.home-hero-dot[data-active="true"] {
+  width: 2.45rem;
+  background: var(--accent);
+}
+
+.home-hero-status {
+  color: var(--ink-muted);
+  font-size: var(--text-micro);
+}
+
+/* --------------------------------------------------------------------------
+ * Rows, paging and failures
+ * -------------------------------------------------------------------------- */
+
+.home-row {
+  min-width: 0;
+}
+
+.home-more {
+  display: grid;
+  place-items: center;
+  align-self: stretch;
+  min-width: 7.5rem;
+  padding: 0 var(--space-2);
+}
+
+/*
+ * One Addon's failure belongs to its row: it says so under that row and leaves
+ * the hero, Continue watching and every other row untouched.
+ */
+.home-row-failure {
+  margin: var(--space-1) var(--space-3) 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--status-danger);
+  border-radius: var(--radius-control);
+  background: var(--status-danger-bg);
+  color: var(--status-danger);
+  font-size: var(--text-caption);
+  line-height: 1.45;
+}
+
+/* --------------------------------------------------------------------------
+ * Empty state
+ * -------------------------------------------------------------------------- */
+
+.home-empty {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+  max-width: 48rem;
+  margin-top: var(--space-6);
+  padding: var(--space-6);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--bg-stage);
+}
+
+.home-empty-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+}
+
+.home-empty-body {
+  max-width: 52ch;
+  margin: 0;
+  color: var(--ink-secondary);
+  font-size: var(--text-body);
+  line-height: 1.55;
+}
+
+.home-waiting {
+  margin: var(--space-5) 0;
+  color: var(--ink-muted);
+  font-size: var(--text-body);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-hero-dot {
+    transition: none;
+  }
+}
