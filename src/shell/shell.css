@@ -1,0 +1,273 @@
+/*
+ * The ten-foot shell frame (#79).
+ *
+ * The rail is the only permanent furniture: a floating 92px glass column,
+ * inset from the window's edges. The content sits beside it, and any pushed
+ * level paints above without taking the base out of the DOM — an overlay keeps
+ * the screen underneath, and its focus, alive.
+ *
+ * The tokens, the self-hosted fonts and the focus treatment come from
+ * `src/shell/kit`; this file is layout and the player takeover only.
+ */
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-canvas);
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+}
+
+/*
+ * Where the picture is in this window, the page stops painting its own
+ * rectangle so mpv's child window shows through (ADR-0003).
+ */
+body.picture-behind,
+body.picture-behind .shell-frame,
+body.picture-behind .shell-base {
+  background: transparent;
+}
+
+.shell-frame {
+  position: relative;
+  min-height: 100%;
+  background: var(--bg-canvas);
+}
+
+.shell-base {
+  min-height: 100vh;
+  transition: opacity var(--dur-med) var(--ease-out);
+}
+
+/*
+ * The player takes over the window: the browsing stack stays mounted (and keeps
+ * its focus for when it comes back) but paints nothing over the video.
+ */
+.shell-base[data-takeover="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* --------------------------------------------------------------------------
+ * The rail
+ * -------------------------------------------------------------------------- */
+
+.shell-rail {
+  position: fixed;
+  top: 18px;
+  bottom: 18px;
+  left: 18px;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 6px;
+  width: 92px;
+  padding: 14px 8px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-subtle);
+  border-radius: 18px;
+  background: var(--bg-glass);
+  box-shadow: var(--shadow-panel);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.shell-rail-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 4px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--ink-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--text-micro);
+  font-weight: 600;
+  line-height: 1.1;
+  text-align: center;
+  cursor: pointer;
+}
+
+.shell-rail-item[aria-current="page"] {
+  border-color: var(--accent-soft);
+  background: var(--accent-soft);
+  color: var(--ink-primary);
+}
+
+.shell-rail-icon {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+}
+
+.shell-rail-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.shell-rail-label {
+  display: block;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+/* --------------------------------------------------------------------------
+ * The base screen
+ * -------------------------------------------------------------------------- */
+
+.shell-stage {
+  min-height: 100vh;
+  margin-left: calc(92px + 36px);
+  padding: clamp(2rem, 4vw, 4rem) clamp(1.5rem, 4vw, 4rem) 5rem;
+  box-sizing: border-box;
+}
+
+.shell-screen {
+  max-width: 90rem;
+}
+
+.shell-screen-title {
+  margin: 0 0 var(--space-3);
+  font-family: var(--font-display);
+  font-size: var(--text-hero);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+  line-height: 1.02;
+}
+
+.shell-lede {
+  max-width: 60ch;
+  margin: 0;
+  color: var(--ink-secondary);
+  font-size: var(--text-body);
+  line-height: 1.6;
+}
+
+.shell-note {
+  max-width: 60ch;
+  margin: var(--space-4) 0;
+  color: var(--ink-muted);
+  font-size: var(--text-body);
+  line-height: 1.5;
+}
+
+/* --------------------------------------------------------------------------
+ * Pushed levels
+ * -------------------------------------------------------------------------- */
+
+.shell-level {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  overflow: auto;
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+}
+
+.shell-level[data-level-kind="player"] {
+  z-index: 60;
+}
+
+/* --------------------------------------------------------------------------
+ * The player takeover
+ * -------------------------------------------------------------------------- */
+
+.shell-player {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  pointer-events: none;
+}
+
+.shell-player-picture {
+  position: absolute;
+  inset: 0;
+}
+
+.shell-player-bar {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-5) clamp(1.5rem, 4vw, 4rem);
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--bg-canvas) 92%, transparent),
+    transparent
+  );
+  pointer-events: auto;
+}
+
+.shell-player-now {
+  min-width: 0;
+}
+
+.shell-player-title {
+  margin: 0;
+  overflow: hidden;
+  color: var(--ink-primary);
+  font-family: var(--font-display);
+  font-size: var(--text-section);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-player-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* --------------------------------------------------------------------------
+ * Refusals and failures
+ * -------------------------------------------------------------------------- */
+
+.shell-alert-stack {
+  position: fixed;
+  right: clamp(1.5rem, 4vw, 4rem);
+  bottom: clamp(1.5rem, 4vw, 4rem);
+  z-index: 100;
+  display: grid;
+  max-width: min(42rem, 70vw);
+  gap: var(--space-2);
+}
+
+.shell-alert {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--status-danger);
+  border-radius: var(--radius-panel);
+  background: var(--status-danger-bg);
+  color: var(--ink-primary);
+  font-size: var(--text-body);
+  box-shadow: var(--shadow-panel);
+}
+
+.shell-player-alert {
+  position: fixed;
+  top: var(--space-5);
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: auto;
+}
+
+/* The kit's own chrome is laid out for content, not for the frame's titles. */
+.shell-screen-body .kit-button {
+  margin-top: var(--space-3);
+}
