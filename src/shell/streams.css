@@ -1,0 +1,129 @@
+/*
+ * The Streams level, pushed over the Title screen (#81).
+ *
+ * A scrim of Addon-grouped candidates: the Title stays mounted underneath, so
+ * Back returns to the exact season row and episode that asked. Every colour and
+ * radius is a Velvet Curtains token; the kit owns the focus ring and the lift.
+ */
+
+.shell-streams {
+  min-height: 100%;
+  padding: clamp(1.25rem, 3vw, 2.75rem) clamp(1.5rem, 4vw, 4rem) 5rem
+    calc(92px + 18px + clamp(1.5rem, 4vw, 4rem));
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--bg-canvas) 94%, transparent);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.shell-streams-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.shell-streams-title {
+  margin: 0;
+  color: var(--ink-primary);
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+  line-height: 1.05;
+}
+
+.shell-stream-group {
+  margin-top: var(--space-5);
+}
+
+.shell-stream-addon {
+  margin: 0 0 var(--space-2);
+  color: var(--ink-secondary);
+  font-family: var(--font-sans);
+  font-size: var(--text-caption);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.shell-stream-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.shell-candidate {
+  display: grid;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-card);
+  background: var(--bg-stage);
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.shell-candidate[aria-pressed="true"] {
+  border-color: var(--status-warn);
+  background: color-mix(in srgb, var(--status-warn) 10%, var(--bg-stage));
+}
+
+.shell-candidate-badges,
+.shell-candidate-notes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.shell-candidate-file {
+  color: var(--ink-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-caption);
+  overflow-wrap: anywhere;
+}
+
+.shell-candidate-description {
+  color: var(--ink-secondary);
+  font-size: var(--text-body);
+  line-height: 1.5;
+  white-space: pre-line;
+}
+
+.shell-streams-note {
+  max-width: 60ch;
+  margin: var(--space-3) 0;
+  color: var(--ink-muted);
+  font-size: var(--text-body);
+  line-height: 1.5;
+}
+
+.shell-stream-failure {
+  max-width: 70ch;
+  margin: var(--space-2) 0;
+  color: var(--status-danger);
+  font-size: var(--text-body);
+  line-height: 1.5;
+}
+
+.shell-streams-chosen {
+  position: sticky;
+  bottom: var(--space-3);
+  max-width: 70ch;
+  margin: var(--space-5) 0 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--status-warn);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--status-warn) 12%, var(--bg-glass-solid));
+  color: var(--status-warn);
+  font-size: var(--text-body);
+  font-weight: 600;
+}

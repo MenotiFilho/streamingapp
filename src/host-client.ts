@@ -291,9 +291,10 @@ export type MetaPreview = {
   poster: string | null;
   posterShape: string | null;
   /**
-   * The item's 16:9 backdrop, where the Addon sent one. The Title screen draws
-   * it over the poster; absent is not a failure, because the poster still has
-   * something to draw.
+   * The meta preview's 16:9 backdrop, where the Host sent one — an Addon's word
+   * for a Catalog row, or TMDB's for a Discover or Search row. The Title screen
+   * draws it over the poster; absent is not a failure, because the poster still
+   * has something to draw.
    */
   background?: string | null;
   releaseInfo: string | null;

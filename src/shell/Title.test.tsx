@@ -338,6 +338,15 @@ describe("the Title screen", () => {
     expect(screen.queryByTestId("title-unmapped")).not.toBeInTheDocument();
   });
 
+  test("a mapped Addon Title keeps its Addon and loses the Unmapped mark", async () => {
+    await openTitleOrDiscovered({
+      title: matrixTitle({ key: { kind: "tmdb", id: 603 } }),
+    });
+
+    expect(screen.getByTestId("title-addon")).toHaveTextContent(CINEMETA);
+    expect(screen.queryByTestId("title-unmapped")).not.toBeInTheDocument();
+  });
+
   test("the poster stands in for an absent backdrop, and the card for a sparse answer", async () => {
     const title = matrixTitle({
       name: "tt0133093",
@@ -552,6 +561,28 @@ describe("the Streams overlay", () => {
           filename: "The.Matrix.1999.1080p.BluRay.x265-GROUP.mkv",
           bingeGroup: null,
         },
+      }),
+    );
+  });
+
+  test("a mapped film plays in TMDB's spelling, so Continue watching unifies", async () => {
+    const { actions } = await openTitleOrDiscovered({
+      title: matrixTitle({ key: { kind: "tmdb", id: 603 } }),
+    });
+    fireEvent.click(screen.getByTestId("play-film"));
+    await screen.findByTestId("streams-heading");
+
+    expect(screen.getByTestId("streams-heading")).toHaveTextContent("Streams — The Matrix");
+    expect(actionOf(actions, "find_streams")).toEqual({
+      type: "find_streams",
+      video: { type: "movie", id: "tmdb:603" },
+    });
+
+    fireEvent.click(screen.getByTestId(`candidate-${AIOSTREAMS}-0`));
+    await waitFor(() =>
+      expect(actionOf(actions, "play_stream")).toMatchObject({
+        type: "play_stream",
+        video: { type: "movie", id: "tmdb:603" },
       }),
     );
   });

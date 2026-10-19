@@ -14,7 +14,7 @@
  * person already saw on the card stand in for what the Addon did not repeat.
  */
 
-import type { MetaPreview, Title, TitleStub, Video } from "./host-client";
+import type { MetaPreview, Title, TitleKey, TitleStub, Video } from "./host-client";
 
 /** The protocol's type for the episodic kind of Title, the one with seasons. */
 export const SERIES = "series";
@@ -123,14 +123,38 @@ export function releaseOf(
   return title.releaseInfo ?? preview?.releaseInfo ?? null;
 }
 
+/** Where a Title screen's hero art came from, which is also what a test reads. */
+export type TitleArtKind = "background" | "poster" | "none";
+
+/** The hero art a Title screen draws, and which part of the fallback gave it. */
+export type TitleArt = {
+  src: string | null;
+  kind: TitleArtKind;
+};
+
 /**
  * The art a Title screen draws first: the Title's own backdrop, then the
  * backdrop of the card it was opened from, then either poster. A card's
  * backdrop is 16:9, so it beats a portrait poster when the meta answer is
  * sparse.
  */
+export function titleArtOf(
+  title: Title,
+  preview?: TitlePreview | null,
+): TitleArt {
+  if (title.background) {
+    return { src: title.background, kind: "background" };
+  }
+  if (preview?.background) {
+    return { src: preview.background, kind: "background" };
+  }
+  const poster = posterOf(title, preview);
+  return poster ? { src: poster, kind: "poster" } : { src: null, kind: "none" };
+}
+
+/** The art alone, where only the source matters. */
 export function backdropOf(title: Title, preview?: TitlePreview | null): string | null {
-  return title.background ?? preview?.background ?? posterOf(title, preview) ?? null;
+  return titleArtOf(title, preview).src;
 }
 
 /**
@@ -138,7 +162,9 @@ export function backdropOf(title: Title, preview?: TitlePreview | null): string 
  * takes. The protocol spells a TMDB-keyed item `tmdb:<id>`; a card that is not
  * one has no Discovered Title behind it.
  */
-export function discoveredKeyOf(id: string): { kind: "tmdb"; id: number } | null {
+export function discoveredKeyOf(
+  id: string,
+): Extract<TitleKey, { kind: "tmdb" }> | null {
   const match = /^tmdb:(\d+)$/.exec(id);
   if (!match) {
     return null;
@@ -156,7 +182,8 @@ export function discoveredKeyOf(id: string): { kind: "tmdb"; id: number } | null
  * uses.
  */
 export function titleStubOf(title: Title, preview?: TitlePreview | null): TitleStub {
-  const background = title.background ?? preview?.background ?? null;
+  const art = titleArtOf(title, preview);
+  const background = art.kind === "background" ? art.src : null;
 
   return {
     addon: title.addon,
