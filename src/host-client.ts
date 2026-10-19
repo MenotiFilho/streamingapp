@@ -290,6 +290,12 @@ export type MetaPreview = {
   name: string;
   poster: string | null;
   posterShape: string | null;
+  /**
+   * The item's 16:9 backdrop, where the Addon sent one. The Title screen draws
+   * it over the poster; absent is not a failure, because the poster still has
+   * something to draw.
+   */
+  background?: string | null;
   releaseInfo: string | null;
   imdbRating: string | null;
   genres: string[];
@@ -394,6 +400,11 @@ export type TitleStub = {
   type: string;
   name: string;
   poster: string | null;
+  /**
+   * The Title's 16:9 backdrop, carried so a Continue watching card can be drawn
+   * from the Host's record rather than from a portrait poster (#73).
+   */
+  background?: string | null;
 };
 
 /** Why a library entry is not one the Host will play. Mirrors `UnplayableReason`. */
