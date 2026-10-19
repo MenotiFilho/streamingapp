@@ -1,4 +1,4 @@
-import { useCallback, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, type ReactNode } from "react";
 
 import { Rail } from "./Rail";
 import type { Destination, ShellLevel } from "./navigation";
@@ -35,6 +35,7 @@ export function ShellFrame({
 }: ShellFrameProps) {
   const base = useRef<HTMLDivElement | null>(null);
   const levelNodes = useRef(new Map<string, HTMLDivElement>());
+  const firstDestination = useRef(true);
   const top = levels[levels.length - 1] ?? null;
   const takeover = levels.some((level) => level.kind === "player");
   const topIndex = levels.length - 1;
@@ -61,6 +62,20 @@ export function ShellFrame({
     levelKey: top ? `level:${top.id}` : `base:${destination}`,
     onBack,
   });
+
+  // A destination change is a deliberate choice: focus lands on the rail item
+  // that was chosen, so the level key's memory holds that item rather than the
+  // card the previous screen happened to leave focus on. The first paint is not
+  // a choice — the base screen decides where focus starts.
+  useEffect(() => {
+    if (firstDestination.current) {
+      firstDestination.current = false;
+      return;
+    }
+    base.current
+      ?.querySelector<HTMLElement>(`[data-destination="${destination}"]`)
+      ?.focus({ preventScroll: true });
+  }, [destination]);
 
   return (
     <div className="shell-frame" data-testid="shell-frame">

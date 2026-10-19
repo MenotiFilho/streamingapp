@@ -179,6 +179,8 @@ describe("the shell", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     await screen.findByRole("heading", { name: "Settings" });
+    const settings = screen.getByRole("button", { name: "Settings" });
+    await waitFor(() => expect(document.activeElement).toBe(settings));
 
     act(() => host.publish({ ...NOTHING_SAID, revision: 1, playback: playback() }));
     await screen.findByTestId("shell-player");
@@ -190,6 +192,10 @@ describe("the shell", () => {
     await waitFor(() => expect(screen.queryByTestId("shell-player")).not.toBeInTheDocument());
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(document.body).not.toHaveClass("picture-behind");
+    expect(
+      document.activeElement,
+      "the rail item chosen before playback is where focus comes back",
+    ).toBe(settings);
   });
 
   test("a picture in another window leaves the shell browsing", async () => {
