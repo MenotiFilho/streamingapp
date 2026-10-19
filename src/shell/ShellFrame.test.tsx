@@ -82,10 +82,14 @@ describe("the shell frame", () => {
 
     const back = await screen.findByRole("button", { name: "Back to browsing" });
     expect(screen.getByText("Open the Title"), "the base is still there").toBeInTheDocument();
-    expect(screen.getByTestId("shell-frame").lastElementChild).toHaveAttribute(
-      "data-level-kind",
-      "overlay",
+    const frame = screen.getByTestId("shell-frame");
+    expect(frame.firstElementChild, "the base is out of the tab order under an overlay").toHaveAttribute(
+      "inert",
     );
+    expect(frame.lastElementChild, "the top level is the one focus belongs to").not.toHaveAttribute(
+      "inert",
+    );
+    expect(frame.lastElementChild).toHaveAttribute("data-level-kind", "overlay");
     await waitFor(() => expect(document.activeElement).toBe(back));
     expect(onBack).not.toHaveBeenCalled();
   });

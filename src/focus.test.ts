@@ -8,6 +8,7 @@ import {
   type Layout,
   type Rect,
   type Region,
+  type RegionKind,
 } from "./focus";
 
 const rect = (x: number, y: number, w: number, h: number): Rect => ({ x, y, w, h });
@@ -15,7 +16,7 @@ const rect = (x: number, y: number, w: number, h: number): Rect => ({ x, y, w, h
 function region(
   id: string,
   options: {
-    kind?: string;
+    kind?: RegionKind;
     label?: string;
     parent?: string | null;
     rect?: Rect;
@@ -188,6 +189,33 @@ describe("crossing between regions", () => {
 
     expect(decision.kind).toBe("blocked");
     expect(decision.kind === "blocked" && decision.why).toContain("end of the row");
+  });
+
+  test("does not cross into a sibling that is below and off to the side", () => {
+    // The overlap guard is what makes the rule above hold: a region that is
+    // strictly to the right and below, but does not overlap us across the way,
+    // is not a sibling to cross into. Without the guard this test would land
+    // in the wide row's first card.
+    const rows = [
+      { id: "row:short", y: 0, items: cards(0, 3) },
+      { id: "row:wide", y: 120, items: cards(120, 8) },
+    ];
+    const held = shell(rows);
+    const wide = held.regions["row:wide"];
+    if (!wide) {
+      throw new Error("the fixture has no wide row");
+    }
+    wide.rect = rect(1200, 120, 800, 100);
+    wide.itemRects = cards(120, 8).map((card) => ({ ...card, x: card.x + 1080 }));
+
+    const decision = decideMove(
+      held,
+      { regionId: "row:short", index: 2 },
+      "right",
+      DEFAULT_RULES,
+    );
+
+    expect(decision.kind).toBe("blocked");
   });
 });
 

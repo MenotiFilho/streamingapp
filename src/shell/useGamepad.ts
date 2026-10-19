@@ -7,6 +7,9 @@ import { padIntents } from "../input";
 const REPEAT_AFTER = 400;
 const REPEAT_EVERY = 160;
 
+/** Only a direction repeats on a held button; activating or going Back fires once per press. */
+const REPEATABLE = new Set<Intent>(["up", "down", "left", "right"]);
+
 /**
  * Poll the standard-mapping gamepad, because the Gamepad API has no key event
  * to listen to.
@@ -51,7 +54,7 @@ export function useGamepad(onIntent: (intent: Intent) => void) {
           continue;
         }
         const due = next.get(intent) ?? 0;
-        if (now >= due) {
+        if (REPEATABLE.has(intent) && now >= due) {
           next.set(intent, now + REPEAT_EVERY);
           latest.current(intent);
         }

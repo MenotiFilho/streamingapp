@@ -37,6 +37,7 @@ export function ShellFrame({
   const levelNodes = useRef(new Map<string, HTMLDivElement>());
   const top = levels[levels.length - 1] ?? null;
   const takeover = levels.some((level) => level.kind === "player");
+  const topIndex = levels.length - 1;
 
   // A stable ref callback: React only detaches a callback ref when its identity
   // changes, so the level nodes stay in the map across ordinary renders.
@@ -71,6 +72,7 @@ export function ShellFrame({
         data-label="the shell"
         data-takeover={takeover ? "true" : undefined}
         aria-hidden={levels.length > 0 ? true : undefined}
+        inert={levels.length > 0 ? true : undefined}
       >
         <Rail active={destination} onChoose={onChooseDestination} />
         <main className="shell-stage">
@@ -85,7 +87,7 @@ export function ShellFrame({
         </main>
       </div>
 
-      {levels.map((level) => (
+      {levels.map((level, index) => (
         <div
           key={level.id}
           ref={attachLevel}
@@ -96,6 +98,8 @@ export function ShellFrame({
           data-region={`level:${level.id}`}
           data-kind="branch"
           data-label={level.name}
+          aria-hidden={index < topIndex ? true : undefined}
+          inert={index < topIndex ? true : undefined}
         >
           {level.render()}
         </div>

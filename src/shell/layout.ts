@@ -8,7 +8,7 @@
  * measures.
  */
 
-import type { Focus, Layout, Rect, Region } from "../focus";
+import type { Focus, Layout, Rect, Region, RegionKind } from "../focus";
 
 /** How a region or control is measured; injectable so a test need not lay out a page. */
 export type Measure = (element: Element) => Rect;
@@ -26,9 +26,17 @@ export type LevelLayout = {
   elements: Record<string, HTMLElement[]>;
 };
 
+/**
+ * The kind a region declares. A region with no `data-kind` is a row — it holds
+ * a line of controls and stops at its own end — and an unknown spelling is
+ * treated the same rather than inventing a wall.
+ */
+export function regionKind(declared: string | null): RegionKind {
+  return declared === "rail" || declared === "branch" ? declared : "row";
+}
+
 /** The nearest `data-region` ancestor of a node, stopping at the level's root. */
-export function regionIdOf(node: Element, root: HTMLElement): string | null {
-  let walk: Element | null = node.parentElement;
+export function regionIdOf(node: Element, root: HTMLElement): string | null {  let walk: Element | null = node.parentElement;
   while (walk && walk !== root.parentElement) {
     const id = walk.getAttribute("data-region");
     if (id) {
@@ -67,7 +75,7 @@ export function readLevel(
     const region: Region = {
       id,
       label: element.getAttribute("data-label") ?? id,
-      kind: element.getAttribute("data-kind") ?? "row",
+      kind: regionKind(element.getAttribute("data-kind")),
       parent: regionIdOf(element, root),
       children: [],
       rect: measure(element),

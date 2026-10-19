@@ -36,12 +36,14 @@ export type Rect = { x: number; y: number; w: number; h: number };
 /** Which of the four directions a person asked for. */
 export type Direction = "up" | "down" | "left" | "right";
 
+/** Which kind of region this is; only a rail and a row have walls of their own. */
+export type RegionKind = "rail" | "row" | "branch";
+
 /** One region of a level: the rail, a row, or a branch that holds others. */
 export type Region = {
   id: string;
   label: string;
-  /** `rail`, `row`, or `branch`; only `rail` and `row` are walls. */
-  kind: string;
+  kind: RegionKind;
   /** The containing region, or null at the level's root. */
   parent: string | null;
   children: string[];
