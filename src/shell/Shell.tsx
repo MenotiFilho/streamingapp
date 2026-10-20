@@ -105,6 +105,9 @@ export function Shell({ client }: { client?: HostClient }) {
   const playback = snapshot?.playback ?? null;
   const playerActive =
     playback !== null && watching(playback.state) && playback.picture === "in_window";
+  // The player's open OSD popover, where there is one: its own level, so Back
+  // puts it away before it reaches the player's stop rule.
+  const popover = nav.levels.find((level) => level.kind === "popover")?.id ?? null;
 
   const back = useCallback(() => {
     const top = nav.levels[nav.levels.length - 1];
@@ -150,6 +153,7 @@ export function Shell({ client }: { client?: HostClient }) {
       error,
       destination: nav.destination,
       chosenDestination,
+      popover,
       choose,
       push,
       pop,
@@ -157,7 +161,19 @@ export function Shell({ client }: { client?: HostClient }) {
       ask,
       take,
     }),
-    [snapshot, error, nav.destination, chosenDestination, choose, push, pop, back, ask, take],
+    [
+      snapshot,
+      error,
+      nav.destination,
+      chosenDestination,
+      popover,
+      choose,
+      push,
+      pop,
+      back,
+      ask,
+      take,
+    ],
   );
 
   return (

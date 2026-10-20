@@ -21,6 +21,11 @@ export type ShellContextValue = {
   destination: Destination;
   /** Whether a person has chosen a destination from the rail. */
   chosenDestination: boolean;
+  /**
+   * The OSD popover currently open above the player, by level id — the player
+   * reads it to mark its icon and to keep itself from hiding under one.
+   */
+  popover: string | null;
   choose: (destination: Destination) => void;
   /** Push an overlay level. Returns the id the shell gave it. */
   push: (level: NewShellLevel) => string;

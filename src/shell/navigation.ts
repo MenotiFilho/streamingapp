@@ -27,13 +27,14 @@ export type Destination = (typeof DESTINATIONS)[number]["id"];
 /**
  * One pushed level. `kind` is what Back needs to know beyond "pop it": a
  * `player` level is the one Back stops, and every other level is a surface the
- * shell can put away.
+ * shell can put away. A `popover` is the player's own furniture — an icon's
+ * menu — and paints above the player rather than beside it.
  */
 export type ShellLevel = {
   id: string;
   /** What the level is, for a test, an announcement, or a settings sub-screen. */
   name: string;
-  kind: "overlay" | "player";
+  kind: "overlay" | "player" | "popover";
   /** The level's contents, drawn when it is on top of the stack. */
   render: () => ReactNode;
   /**

@@ -224,6 +224,7 @@ function Harness({
     error: null,
     destination: "home",
     chosenDestination: false,
+    popover: null,
     choose: () => {},
     push,
     pop,
