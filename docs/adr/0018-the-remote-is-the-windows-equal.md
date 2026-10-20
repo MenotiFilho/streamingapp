@@ -11,7 +11,7 @@ remote "arrives as a bigger page"; this records the decisions that shape it.
 > three surfaces in a phone's shape, with Title/Streams/Settings pushed as
 > levels. The self-contained-document decision below stands, with one serve-time
 > step: the template is completed before it is served from `src/tokens.css`, the
-> shared subtitle-language list, the TMDB mark and the version, through one
+> shared subtitle-language list, and the TMDB mark, through one
 > marker convention. That keeps the window's palette and language list
 > single-sourced while the bytes a browser receives remain one document with no
 > build step (ADR-0017 §2, as amended). The capability list and the parity

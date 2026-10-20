@@ -198,8 +198,8 @@
       .hero-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
       .hero-scrim {
         position: absolute; inset: 0;
-        background: linear-gradient(0deg, rgba(9, 8, 12, 0.94) 0%, rgba(9, 8, 12, 0.45) 42%, transparent 75%),
-          linear-gradient(90deg, rgba(9, 8, 12, 0.55), transparent 60%);
+        background: linear-gradient(0deg, color-mix(in srgb, var(--bg-canvas) 94%, transparent) 0%, color-mix(in srgb, var(--bg-canvas) 45%, transparent) 42%, transparent 75%),
+          linear-gradient(90deg, color-mix(in srgb, var(--bg-canvas) 55%, transparent), transparent 60%);
       }
       .hero-copy { position: absolute; left: 0; right: 0; bottom: 0; display: grid; gap: 0.25rem; padding: 0.9rem 1rem 1.1rem; }
       .hero-kicker { color: var(--accent); font-size: var(--text-micro); font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; }
@@ -349,7 +349,7 @@
 
       /* --- pushed levels ------------------------------------------------ */
       .level-host {
-        position: fixed; inset: 0; z-index: 40; overflow-y: auto;
+        position: fixed; inset: 0; z-index: 50; overflow-y: auto;
         background:
           radial-gradient(70rem 34rem at 50% -14rem, var(--accent-soft), transparent 62%),
           var(--bg-canvas);
@@ -366,7 +366,7 @@
       .level-body { padding: 1rem; }
       .title-hero { position: relative; min-height: 15rem; padding: 0.75rem 1rem 1.1rem; overflow: hidden; }
       .title-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
-      .title-scrim { position: absolute; inset: 0; background: linear-gradient(0deg, var(--bg-canvas) 2%, rgba(9, 8, 12, 0.55) 45%, rgba(9, 8, 12, 0.2) 100%); }
+      .title-scrim { position: absolute; inset: 0; background: linear-gradient(0deg, var(--bg-canvas) 2%, color-mix(in srgb, var(--bg-canvas) 55%, transparent) 45%, color-mix(in srgb, var(--bg-canvas) 20%, transparent) 100%); }
       .title-copy { position: relative; z-index: 2; display: grid; gap: 0.5rem; margin-top: 5.5rem; }
       .title-logo { display: block; max-width: min(18rem, 80%); max-height: 5rem; object-fit: contain; object-position: left center; }
       .title-name { margin: 0; font-family: var(--font-display); font-size: var(--text-title); font-weight: var(--display-weight); letter-spacing: var(--display-tracking); line-height: 1.04; }
@@ -393,7 +393,7 @@
       .stream-desc { color: var(--ink-muted); font-size: var(--text-micro); overflow-wrap: anywhere; }
       .stream-warn { color: var(--status-warn); font-size: var(--text-micro); }
       .stream-danger { color: var(--status-danger); font-size: var(--text-micro); }
-      .confirm-layer { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 1.25rem; background: rgba(4, 3, 6, 0.72); }
+      .confirm-layer { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 1.25rem; background: color-mix(in srgb, var(--bg-canvas) 72%, transparent); }
       .confirm-card {
         width: min(24rem, 100%); padding: 1.25rem;
         border: 1px solid var(--border-strong); border-radius: var(--radius-panel);
@@ -453,7 +453,7 @@
       /* --- surface 3: the Audio & Subtitles sheet ---------------------- */
       .sheet-layer {
         position: fixed; inset: 0; z-index: 55; display: flex; align-items: flex-end; justify-content: center;
-        background: rgba(4, 3, 6, 0.64); backdrop-filter: blur(6px);
+        background: color-mix(in srgb, var(--bg-canvas) 64%, transparent); backdrop-filter: blur(6px);
       }
       .sheet-panel {
         width: min(38rem, 100%); max-height: 86dvh; overflow-y: auto;
@@ -559,8 +559,6 @@
       // two clients. The picker does not carry a second copy.
       const SUBTITLE_LANGUAGES = /*__SPLICE_SUBTITLE_LANGUAGES__*/;
       const HOST_PICKS_PER_VIDEO = "Host picks per Video";
-      // Spliced from the crate's own version, so About reads the binary's.
-      const APP_VERSION = /*__SPLICE_VERSION__*/;
 
       // The keyboard column of `src/input.ts`, inlined because this page has no
       // build step. The overlap with the window's table is asserted by
@@ -646,6 +644,14 @@
         { id: "settings", label: "Settings", icon: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1"/>' },
       ];
 
+      /** The four Settings categories, shared by the list and its pushed titles. */
+      const SETTINGS_CATEGORIES = [
+        { id: "credentials", title: "Credentials", note: "The secret store, the TMDB key, and the Stremio account." },
+        { id: "preferences", title: "Preferences", note: "Subtitle language and the one Catalog Home's hero is drawn from." },
+        { id: "remote-devices", title: "Remote devices", note: "The address a browser pairs with, the code, and paired devices." },
+        { id: "about", title: "About/Credits", note: "The licences and TMDB attribution." },
+      ];
+
       const MOVIE_GENRES = [
         { id: 28, name: "Action" }, { id: 12, name: "Adventure" }, { id: 16, name: "Animation" },
         { id: 35, name: "Comedy" }, { id: 80, name: "Crime" }, { id: 99, name: "Documentary" },
@@ -696,9 +702,6 @@
       function chapterLabel(chapter) {
         const at = formatTime(chapter.time);
         return chapter.title ? at + " \u2014 " + chapter.title : at;
-      }
-      function chapterName(chapter) {
-        return chapter.title || "Chapter " + (chapter.index + 1);
       }
       function speedSelected(rate, choice) {
         return rate !== null && rate !== undefined && Math.abs(rate - choice) < 1e-6;
@@ -781,9 +784,6 @@
         return marks;
       }
       function watching(state) { return state !== "idle"; }
-      function controllable(state) {
-        return state === "opening" || state === "playing" || state === "paused";
-      }
       function transportable(state) { return state === "playing" || state === "paused"; }
       function previousEpisodeDisabled(episode) {
         return episode === null || (episode.season === 1 && episode.episode === 1);
@@ -1218,8 +1218,8 @@
       }
       function activeScope() {
         if (!$("sheet").classList.contains("hidden")) { return $("sheet"); }
-        if (!$("surface-remote").classList.contains("hidden")) { return $("surface-remote"); }
         if (!$("level-host").classList.contains("hidden")) { return $("level-host"); }
+        if (!$("surface-remote").classList.contains("hidden")) { return $("surface-remote"); }
         return $("surface-browse");
       }
       function moveFocus(scope, direction) {
@@ -1956,18 +1956,12 @@
 
       // --- Settings ---------------------------------------------------------
       function renderSettings() {
-        const categories = [
-          { id: "credentials", title: "Credentials", note: "The secret store, the TMDB key, and the Stremio account." },
-          { id: "preferences", title: "Preferences", note: "Subtitle language and the one Catalog Home's hero is drawn from." },
-          { id: "remote-devices", title: "Remote devices", note: "The address a browser pairs with, the code, and paired devices." },
-          { id: "about", title: "About/Credits", note: "The app version, the licences, and TMDB attribution." },
-        ];
         return html`
           <h1 class="screen-title">Settings</h1>
           <p class="lede">The Host's credentials, preferences, paired devices, and the credits its
             software and data sources ask it to carry.</p>
           <ul class="settings-list">
-            ${categories.map((category) => html`
+            ${SETTINGS_CATEGORIES.map((category) => html`
               <li>
                 <button type="button" class="settings-category" data-focusable
                         data-a="settings-category" data-category="${category.id}"
@@ -2190,17 +2184,13 @@
       }
 
       function renderSettingsLevel(level) {
-        const titles = {
-          credentials: "Credentials",
-          preferences: "Preferences",
-          "remote-devices": "Remote devices",
-          about: "About/Credits",
-        };
+        const category = SETTINGS_CATEGORIES.find((held) => held.id === level.category);
+        const title = category ? category.title : "Settings";
         const body = level.category === "credentials" ? renderCredentials()
           : level.category === "preferences" ? renderPreferences()
           : level.category === "remote-devices" ? renderRemoteDevices()
           : renderAbout();
-        return levelFrame(titles[level.category] || "Settings", body);
+        return levelFrame(title, body);
       }
 
       function settingsSection(title, body) {
@@ -2324,9 +2314,6 @@
               <span class="tmdb-logo">/*__SPLICE_TMDB_LOGO__*/</span>
               <p class="credit-notice">This product uses the TMDB API but is not endorsed or certified by TMDB</p>
             </div>`)}
-
-          ${settingsSection("Version", html`<p class="settings-copy">streamingapp
-            <span class="tabular">${APP_VERSION}</span></p>`)}
 
           ${settingsSection("Licences", html`<p class="settings-copy">streamingapp is free software,
             released under the GNU General Public License, version 3 or later (GPL-3.0-or-later).
@@ -2624,7 +2611,7 @@
 
             <footer class="cast-footer">
               ${state.online
-                ? "Connected to " + (state.device ? state.device.name : "the Host") +
+                ? "Connected to the Host" +
                   (state.snapshot && state.snapshot.address ? " \u00b7 " + state.snapshot.address : "")
                 : "Reconnecting\u2026"}
             </footer>
@@ -3079,13 +3066,11 @@
         paint();
       }
 
-      async function openTitleFrom(addon, preview) {
+      async function openTitleLevel(action, preview) {
         const level = pushLevel({
           kind: "title", loading: true, preview, title: null, shownSeason: null, selected: null, failure: null,
         });
-        const { response, error } = await ask({
-          type: "open_title", addon, title: { type: preview.type, id: preview.id },
-        });
+        const { response, error } = await ask(action);
         if (!state.levels.includes(level)) { return; }
         if (error) {
           state.levels = state.levels.filter((held) => held !== level);
@@ -3107,38 +3092,22 @@
         renderLevel();
       }
 
-      async function openDiscovered(preview) {
+      function openTitleFrom(addon, preview) {
+        return openTitleLevel({
+          type: "open_title", addon, title: { type: preview.type, id: preview.id },
+        }, preview);
+      }
+
+      function openDiscovered(preview) {
         const key = discoveredKeyOf(preview.id);
         if (!key) {
           state.error = { kind: "not_discovered_title", detail: "it has no tmdb: id" };
           renderError();
-          return;
+          return Promise.resolve();
         }
-        const level = pushLevel({
-          kind: "title", loading: true, preview, title: null, shownSeason: null, selected: null, failure: null,
-        });
-        const { response, error } = await ask({
+        return openTitleLevel({
           type: "open_discovered_title", key, kind: preview.type,
-        });
-        if (!state.levels.includes(level)) { return; }
-        if (error) {
-          state.levels = state.levels.filter((held) => held !== level);
-          state.error = error;
-          state.focusTarget = level.returnFocus ? { key: level.returnFocus } : "screen";
-          paint();
-          return;
-        }
-        const title = answeredTitle(response);
-        if (!title) {
-          state.levels = state.levels.filter((held) => held !== level);
-          state.focusTarget = level.returnFocus ? { key: level.returnFocus } : "screen";
-          paint();
-          return;
-        }
-        level.loading = false;
-        level.title = title;
-        level.shownSeason = seasonsOf(title)[0] ? seasonsOf(title)[0].season : null;
-        renderLevel();
+        }, preview);
       }
 
       function pushStreams(level, video) {
@@ -3198,14 +3167,43 @@
       // --- the playing series' Episodes, on demand --------------------------
       function seriesRefOf(nowPlaying) {
         const video = nowPlaying.video;
+        const entry = state.snapshot
+          ? state.snapshot.watchProgress.find((held) => held.video.id === video.id) || null
+          : null;
+        const held = entry ? entry.title : null;
+
+        // The Addon that supplied the *Title* is the one that can list its
+        // episodes; the Addon that supplied the Stream is often a different one,
+        // and is only the fallback when the Watch-progress card does not say.
+        if (held && held.addon) {
+          return {
+            kind: "addon",
+            addon: held.addon,
+            title: { type: held.type, id: held.id },
+            cache: held.addon + "|" + held.type + "|" + held.id,
+          };
+        }
+        if (held) {
+          const key = discoveredKeyOf(held.id);
+          if (key) {
+            return {
+              kind: "discovered",
+              key,
+              type: held.type,
+              fallbackAddon: nowPlaying.addon,
+              cache: "tmdb|" + held.type + "|" + key.id,
+            };
+          }
+        }
+
         const tmdb = video.id.match(/^tmdb:(\d+):\d+:\d+$/);
         if (tmdb) {
           return {
             kind: "discovered",
             key: { kind: "tmdb", id: Number(tmdb[1]) },
             type: video.type,
+            fallbackAddon: nowPlaying.addon,
             cache: "tmdb|" + video.type + "|" + tmdb[1],
-            name: null,
           };
         }
         const addonEpisode = video.id.match(/^(.+):\d+:\d+$/);
@@ -3215,7 +3213,6 @@
           addon: nowPlaying.addon,
           title: { type: video.type, id },
           cache: nowPlaying.addon + "|" + video.type + "|" + id,
-          name: null,
         };
       }
 
@@ -3240,10 +3237,26 @@
       }
 
       async function loadEpisodes(level, series) {
-        const action = series.kind === "discovered"
-          ? { type: "open_discovered_title", key: series.key, kind: series.type }
-          : { type: "open_title", addon: series.addon, title: series.title };
-        const { response, error } = await ask(action);
+        let response = null;
+        let error = null;
+        if (series.kind === "discovered") {
+          ({ response, error } = await ask({
+            type: "open_discovered_title", key: series.key, kind: series.type,
+          }));
+          if (error && series.fallbackAddon) {
+            // No TMDB key, or TMDB could not answer: an Addon may still hold the
+            // series. The id is the one the playing Video already spells.
+            ({ response, error } = await ask({
+              type: "open_title",
+              addon: series.fallbackAddon,
+              title: { type: series.type, id: "tmdb:" + series.key.id },
+            }));
+          }
+        } else {
+          ({ response, error } = await ask({
+            type: "open_title", addon: series.addon, title: series.title,
+          }));
+        }
         if (!state.levels.includes(level)) { return; }
         level.loading = false;
         if (error) {
@@ -3253,7 +3266,11 @@
         }
         const title = answeredTitle(response);
         if (!title) {
-          level.failure = { kind: "unknown_title", addon: series.addon || "TMDB", detail: "no episodes were listed" };
+          level.failure = {
+            kind: "unknown_title",
+            addon: series.addon || series.fallbackAddon || "TMDB",
+            detail: "no episodes were listed",
+          };
           renderLevel();
           return;
         }
@@ -3815,11 +3832,15 @@
           state.online = true;
           net.send({ version: VERSION, hello: { token: state.token } });
           renderConnection();
+          renderMini();
+          if (state.cast) { renderCast(); }
           return;
         }
         if (event.close) {
           state.online = false;
           renderConnection();
+          renderMini();
+          if (state.cast) { renderCast(); }
           setTimeout(connect, 1000);
           return;
         }

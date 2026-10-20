@@ -18,12 +18,11 @@
 //!
 //! The template on disk is not quite the page that is served. The palette
 //! (`src/tokens.css`), the curated subtitle languages (`src/subtitle-languages.json`),
-//! the approved TMDB mark, and the app version are spliced in here, at serve
-//! time, through one marker convention (`/*__SPLICE_NAME__*/`). That keeps
-//! `src/tokens.css` the single palette in the tree and the language list one
-//! list for two clients, while the bytes a browser receives are still one
-//! self-contained document with no build step (#88, amending ADR-0017 §2 and
-//! ADR-0018 §1).
+//! and the approved TMDB mark are spliced in here, at serve time, through one
+//! marker convention (`/*__SPLICE_NAME__*/`). That keeps `src/tokens.css` the
+//! single palette in the tree and the language list one list for two clients,
+//! while the bytes a browser receives are still one self-contained document
+//! with no build step (#88, amending ADR-0017 §2 and ADR-0018 §1).
 
 use std::io;
 use std::net::TcpStream;
@@ -56,7 +55,9 @@ const KEY_INTENTS_SOURCE: &str = include_str!("../../../src/input.ts");
 const TOKENS_MARKER: &str = "/*__SPLICE_TOKENS__*/";
 const SUBTITLE_LANGUAGES_MARKER: &str = "/*__SPLICE_SUBTITLE_LANGUAGES__*/";
 const TMDB_LOGO_MARKER: &str = "/*__SPLICE_TMDB_LOGO__*/";
-const VERSION_MARKER: &str = "/*__SPLICE_VERSION__*/";
+
+/// Every marker the template must carry, in the order it is spliced.
+const MARKERS: [&str; 3] = [TOKENS_MARKER, SUBTITLE_LANGUAGES_MARKER, TMDB_LOGO_MARKER];
 
 /// The page, spliced once per process.
 fn page() -> &'static str {
@@ -70,12 +71,7 @@ fn page() -> &'static str {
 /// browser's request can create: the page would silently lose its palette or its
 /// language list, so the first serve fails loudly instead.
 fn splice(template: &str) -> String {
-    for marker in [
-        TOKENS_MARKER,
-        SUBTITLE_LANGUAGES_MARKER,
-        TMDB_LOGO_MARKER,
-        VERSION_MARKER,
-    ] {
+    for marker in MARKERS {
         assert!(
             template.contains(marker),
             "the remote template carries the {marker} marker"
@@ -86,10 +82,6 @@ fn splice(template: &str) -> String {
         .replace(TOKENS_MARKER, TOKENS)
         .replace(SUBTITLE_LANGUAGES_MARKER, SUBTITLE_LANGUAGES)
         .replace(TMDB_LOGO_MARKER, TMDB_LOGO)
-        .replace(
-            VERSION_MARKER,
-            &format!("\"{}\"", env!("CARGO_PKG_VERSION")),
-        )
 }
 
 /// Answer a request that is not an upgrade: the page, or nothing.
@@ -122,8 +114,7 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use super::{
-        page, splice, KEY_INTENTS_SOURCE, SUBTITLE_LANGUAGES, TEMPLATE, TMDB_LOGO, TOKENS,
-        VERSION_MARKER,
+        page, KEY_INTENTS_SOURCE, MARKERS, SUBTITLE_LANGUAGES, TEMPLATE, TMDB_LOGO, TOKENS,
     };
 
     /// The page's capability list: the Actions it says it can send, read out of
@@ -244,12 +235,7 @@ mod tests {
         // The bytes a browser receives are the finished page: no marker survives
         // to be read as content, and the template names what gets spliced.
         let served = page();
-        for marker in [
-            "/*__SPLICE_TOKENS__*/",
-            "/*__SPLICE_SUBTITLE_LANGUAGES__*/",
-            "/*__SPLICE_TMDB_LOGO__*/",
-            "/*__SPLICE_VERSION__*/",
-        ] {
+        for marker in MARKERS {
             assert!(
                 !served.contains(marker),
                 "the served page consumed {marker}"
@@ -309,13 +295,5 @@ mod tests {
         ] {
             assert!(!served.contains(pad), "the remote carries no pad column");
         }
-    }
-
-    #[test]
-    fn the_version_marker_is_replaced_with_a_json_string() {
-        let spliced = splice(TEMPLATE);
-        let marker = VERSION_MARKER;
-        assert!(!spliced.contains(marker));
-        assert!(spliced.contains(&format!("\"{}\"", env!("CARGO_PKG_VERSION"))));
     }
 }
