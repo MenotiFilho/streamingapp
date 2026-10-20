@@ -118,6 +118,8 @@ glossary entry, and "a single episode" already lives inside **Video**'s.
 - Both clients replace `hasNextEpisode`'s `type === "series"` with the `episode`
   reading. The transport's `Prev Ep` on the window's OSD is the OSD ticket's (#57,
   unblocked by this decision); the companion's is its own build.
-- The `PlaybackState::Ended` gap surfaced while deciding — a state never produced,
-  and a window `Next` button drawn for it — is a Host matter, not a client one, and
-  is left to a standalone issue rather than decided here.
+- The `PlaybackState::Ended` gap surfaced while deciding, and the standalone issue
+  (#68) resolved it: the Player does produce `Ended`, and both episode steps stay
+  takeable from it. A finished Stream is still a position in its Title — that is
+  what the after-end affordance draws — while every other control remains refused.
+  A stop or a failed open has no such position and stays refused.

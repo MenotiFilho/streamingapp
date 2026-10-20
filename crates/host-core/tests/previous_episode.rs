@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 use host_core::{
     Action, ActionError, Control, Episode, FixtureClock, FixtureFetcher, FixturePlayer,
-    FixtureProvider, Host, InMemorySecretStore, InMemoryStore, Playback, PlaybackState,
-    SecretBackend, Store, Stream, ACTION_VERSION,
+    FixtureProvider, Host, InMemorySecretStore, InMemoryStore, Observation, Playback,
+    PlaybackState, SecretBackend, Store, Stream, ACTION_VERSION,
 };
 
 /// The Addon that answers both `meta` and `stream` for a series.
@@ -457,6 +457,49 @@ fn a_previous_episode_with_nothing_playing_is_refused_as_a_control() {
             })
         ),
         "a control with nothing live names itself, like every other control"
+    );
+}
+
+#[test]
+fn a_stream_that_reached_its_end_can_still_step_to_the_previous_episode() {
+    // #68's mirror: a finished episode is still a position in its Title, so
+    // stepping back from it is not a control on a Stream that is over.
+    let player = Arc::new(FixturePlayer::new());
+    let provider = Arc::new(FixtureProvider::new().offering(
+        SERIES_ID,
+        vec![candidate("1080p", SAME_RELEASE, Some("the-release"))],
+    ));
+    let mut host = host_with(
+        player.clone(),
+        provider,
+        &[
+            Configured::answering(SERIES, SERIES_ID, r#""meta","stream""#)
+                .with_meta(META_URL, SERIES_META),
+        ],
+    );
+
+    play(
+        &mut host,
+        SERIES_ID,
+        "series",
+        "tt0903747:2:1",
+        PLAYING,
+        Some("the-release"),
+    );
+    player.now_reporting(Observation {
+        state: PlaybackState::Ended,
+        position: Some(2820.0),
+        duration: Some(2820.0),
+        ..Observation::idle()
+    });
+    host.sample().expect("reaching the end is a change");
+
+    host.dispatch(previous_episode())
+        .expect("a finished episode still has the one before it");
+
+    assert_eq!(
+        player.opened(),
+        vec![PLAYING.to_owned(), SAME_RELEASE.to_owned()]
     );
 }
 
