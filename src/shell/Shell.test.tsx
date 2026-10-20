@@ -207,6 +207,21 @@ describe("the shell", () => {
     expect(document.body).not.toHaveClass("picture-behind");
   });
 
+  test("a Stream that failed to open says so, and the shell is not the player", async () => {
+    const failure = "That Stream could not be opened - mpv could not load it.";
+    const host = fakeHost({
+      ...NOTHING_SAID,
+      playback: { ...NOTHING_SAID.playback, state: "idle", failure },
+    });
+    render(<Shell client={host.client} />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(failure);
+    expect(alert).toHaveTextContent("Pick another Stream from the list.");
+    expect(screen.queryByTestId("shell-player")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Home" })).toBeInTheDocument();
+  });
+
   test("the Stop control takes the same Action Back does", async () => {
     const host = fakeHost({ ...NOTHING_SAID, playback: playback() });
     render(<Shell client={host.client} />);
