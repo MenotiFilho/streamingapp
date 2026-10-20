@@ -5,7 +5,14 @@ import { useShell } from "./context";
 import { confirmActionLevel } from "./ConfirmAction";
 import { Button } from "./kit";
 import { Refusal } from "./Refusal";
-import { catalogsOf, joinOrNone, moveTarget, resourcesOf } from "./addons";
+import {
+  addOutcome,
+  catalogsOf,
+  joinOrNone,
+  moveTarget,
+  resourcesOf,
+  type AddOutcome,
+} from "./addons";
 import "./addons.css";
 
 /**
@@ -25,6 +32,7 @@ export function AddonsScreen() {
   const [url, setUrl] = useState("");
   const [addError, setAddError] = useState<ActionError | null>(null);
   const [listError, setListError] = useState<ActionError | null>(null);
+  const [addStatus, setAddStatus] = useState<AddOutcome | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   /**
@@ -59,7 +67,9 @@ export function AddonsScreen() {
       return;
     }
     setAddError(null);
+    setAddStatus(null);
     setAdding(true);
+    const before = addons;
     const outcome = await ask({ type: "add_addon", url: trimmed });
     setAdding(false);
     if (outcome.error) {
@@ -68,6 +78,12 @@ export function AddonsScreen() {
       setAddError(outcome.error);
       return;
     }
+    // The answer's Snapshot says whether the manifest was new or one the Host
+    // already knew: a re-add reconfigures that entry instead of growing the
+    // list, which a cleared field would otherwise make look like a failure.
+    setAddStatus(
+      addOutcome(before, outcome.response?.snapshots.at(-1)?.addons ?? null),
+    );
     setUrl("");
   };
 
@@ -138,6 +154,16 @@ export function AddonsScreen() {
         </Button>
         <Refusal error={addError} testId="add-addon-error" />
       </form>
+
+      {addStatus ? (
+        <p className="addons-status" role="status" data-testid="add-addon-status">
+          {addStatus.kind === "added"
+            ? `${addStatus.name} was added.`
+            : addStatus.name
+              ? `That manifest is already configured as ${addStatus.name}; the Host refreshed that Addon instead of adding a second one.`
+              : "That manifest is already configured; the Host refreshed that Addon instead of adding a second one."}
+        </p>
+      ) : null}
 
       {snapshot === null ? (
         <p className="shell-note">Waiting for the Host…</p>

@@ -38,6 +38,18 @@
   grid-column: 1 / -1;
 }
 
+/* A taken add says what happened: a new entry, or one the Host refreshed. */
+.addons-status {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--status-ok);
+  border-radius: var(--radius-control);
+  background: color-mix(in srgb, var(--status-ok) 12%, transparent);
+  color: var(--ink-primary);
+  font-size: var(--text-body);
+  line-height: 1.45;
+}
+
 .addons-list {
   display: grid;
   gap: var(--space-2);

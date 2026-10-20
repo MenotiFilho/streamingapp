@@ -97,7 +97,11 @@ type Invocation = { command: string; args?: Record<string, unknown> };
 
 function fakeHost(
   initial: Snapshot,
-  options: { refuse?: (action: Action) => ActionError | null } = {},
+  options: {
+    refuse?: (action: Action) => ActionError | null;
+    /** The Addon the Host would carry after an accepted `add_addon`. */
+    addAddon?: AddonManifest;
+  } = {},
 ) {
   const invocations: Invocation[] = [];
   let current = initial;
@@ -113,6 +117,19 @@ function fakeHost(
       const refusal = options.refuse?.(action);
       if (refusal) {
         throw refusal;
+      }
+      const added = options.addAddon;
+      if (action.type === "add_addon" && added) {
+        const held = current.addons.some((addon) => addon.id === added.id);
+        current = {
+          ...current,
+          revision: current.revision + 1,
+          addons: held
+            ? current.addons.map((addon) => (addon.id === added.id ? added : addon))
+            : [...current.addons, added],
+        };
+        listener?.({ payload: current });
+        return { snapshots: [current], answer: null } as T;
       }
       return { snapshots: [], answer: null } as T;
     },
@@ -232,6 +249,39 @@ describe("the Addons screen", () => {
     const row = await screen.findByTestId(`addon-${CINEMETA.id}`);
     expect(row).toHaveTextContent("Cinemeta");
     expect(row).not.toHaveTextContent("https://example.test/manifest.json");
+  });
+
+  test("adding a new Addon says which Addon was added", async () => {
+    const host = fakeHost(snap({ addons: [] }), { addAddon: CINEMETA });
+    await openAddons(host);
+
+    fireEvent.change(screen.getByLabelText("Addon manifest URL"), {
+      target: { value: "https://example.test/manifest.json" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+
+    expect(await screen.findByTestId("add-addon-status")).toHaveTextContent(
+      "Cinemeta was added.",
+    );
+    expect(await screen.findByTestId(`addon-${CINEMETA.id}`)).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+  });
+
+  test("re-adding a configured manifest says it refreshed that Addon", async () => {
+    const refreshed: AddonManifest = { ...CINEMETA, version: "3.0.1" };
+    const host = fakeHost(snap({ addons: [CINEMETA] }), { addAddon: refreshed });
+    await openAddons(host);
+
+    fireEvent.change(screen.getByLabelText("Addon manifest URL"), {
+      target: { value: "https://example.test/manifest.json" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+
+    expect(await screen.findByTestId("add-addon-status")).toHaveTextContent(
+      "That manifest is already configured as Cinemeta; the Host refreshed that Addon instead of adding a second one.",
+    );
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+    expect(screen.getByTestId(`addon-${CINEMETA.id}`)).toHaveTextContent("3.0.1");
   });
 
   test("a refused Addon is explained beside the form and the pasted URL is kept", async () => {
