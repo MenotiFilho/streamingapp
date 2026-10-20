@@ -15,12 +15,10 @@
  */
 
 import type { Action, AddonManifest, DiscoverRow, MetaPreview } from "./host-client";
+import { SERIES } from "./title";
 
 /** The protocol's spelling of a film's kind. */
 export const MOVIE = "movie";
-
-/** The protocol's spelling of a series' kind. */
-export const SERIES = "series";
 
 /** The two kinds Discover can ask TMDB for. */
 export type DiscoverKind = typeof MOVIE | typeof SERIES;
@@ -84,48 +82,46 @@ export function genresOf(kind: DiscoverKind): readonly DiscoverGenre[] {
  * The ask for one page: the week's trending feed where no genre is chosen,
  * and a `/discover` page where one is. The Host builds the URL and judges the
  * genre against the kind's own list (ADR-0020); this client only says what a
- * person chose.
+ * person chose, and no sort control has been asked for yet.
  */
 export function discoverAsk(
   kind: DiscoverKind,
   page: number,
   genre: number | null,
-  sort: string | null = null,
 ): Action {
   return {
     type: "discover",
     kind,
     page,
     ...(genre === null ? {} : { genre }),
-    ...(sort === null ? {} : { sort }),
   };
 }
 
 /** One Discover feed as this client has read it so far. */
 export type DiscoverFeed = {
-  kind: DiscoverKind;
-  genre: number | null;
   /** The last page answered, or 0 before one was. A failed page is asked again. */
   page: number;
   /** The items read so far, in TMDB's order, one of each id. */
   items: MetaPreview[];
   failure: DiscoverRow["failure"];
-  /** Set when a page brought nothing new, so there is no more to ask for. */
+  /** Set when a page brought nothing at all, so there is no more to ask for. */
   done: boolean;
 };
 
 /** A feed with nothing read yet: where a kind or a genre change starts. */
-export function blankFeed(kind: DiscoverKind, genre: number | null = null): DiscoverFeed {
-  return { kind, genre, page: 0, items: [], failure: null, done: false };
+export function blankFeed(): DiscoverFeed {
+  return { page: 0, items: [], failure: null, done: false };
 }
 
 /**
  * The same feed with one page folded in.
  *
- * A page is appended, duplicates are dropped (TMDB's feed is live and can
+ * A page is appended and duplicates are dropped (TMDB's feed is live and can
  * repeat an item across pages), and the page number only moves on a page that
  * answered: a failed call keeps the feed — and the way to ask that page again —
- * exactly where it was (ADR-0020).
+ * exactly where it was (ADR-0020). `sent` is what TMDB sent, unreadable items
+ * included, so only a page TMDB left empty ends the feed; a page that held
+ * nothing this Host could read is a page the next one still follows.
  */
 export function feedWith(feed: DiscoverFeed, answer: DiscoverRow): DiscoverFeed {
   const fresh = answer.failure
@@ -137,7 +133,7 @@ export function feedWith(feed: DiscoverFeed, answer: DiscoverRow): DiscoverFeed 
     page: answer.failure ? feed.page : feed.page + 1,
     items: [...feed.items, ...fresh],
     failure: answer.failure,
-    done: answer.failure ? feed.done : answer.sent === 0 || fresh.length === 0,
+    done: answer.failure ? feed.done : answer.sent === 0,
   };
 }
 

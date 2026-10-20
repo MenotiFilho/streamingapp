@@ -30,12 +30,16 @@ export type ShellContextValue = {
    * Titles this client has learned are unplayable, by the id their card
    * carries. A Discover card is marked locally when no configured Addon could
    * ever answer for it, and marked here when a Title is opened and every
-   * Addon's Streams answer comes back empty (ADR-0020). It is this client's own
+   * Addon's Streams answer came back empty (ADR-0020). It is this client's own
    * knowledge, not the Host's state: a fresh window starts without it.
    */
   unplayable: ReadonlySet<string>;
-  /** Remember that a Title's Streams came back with no candidate at all. */
-  markUnplayable: (id: string) => void;
+  /**
+   * Remember what a Title's Streams answer said: `true` when every Addon
+   * answered with no candidate, `false` when a later answer carried one. A
+   * failed Addon proves nothing either way, so its caller leaves the mark be.
+   */
+  markUnplayable: (id: string, unplayable: boolean) => void;
   choose: (destination: Destination) => void;
   /** Push an overlay level. Returns the id the shell gave it. */
   push: (level: NewShellLevel) => string;

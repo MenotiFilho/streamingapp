@@ -24,15 +24,15 @@ type SettingsCategory = {
   screen: () => ReactNode;
 };
 
-const CREDENTIALS = "credentials";
+const CREDENTIALS_CATEGORY: SettingsCategory = {
+  id: "credentials",
+  title: "Credentials",
+  note: "The secret store, the TMDB key, and the Stremio account.",
+  screen: () => <CredentialsScreen />,
+};
 
 const CATEGORIES: readonly SettingsCategory[] = [
-  {
-    id: CREDENTIALS,
-    title: "Credentials",
-    note: "The secret store, the TMDB key, and the Stremio account.",
-    screen: () => <CredentialsScreen />,
-  },
+  CREDENTIALS_CATEGORY,
   {
     id: "preferences",
     title: "Preferences",
@@ -52,6 +52,16 @@ const CATEGORIES: readonly SettingsCategory[] = [
     screen: () => <AboutScreen />,
   },
 ];
+
+/** The pushed level one category is, whether Settings or another screen opens it. */
+function categoryLevel(category: SettingsCategory): NewShellLevel {
+  return {
+    id: `settings-${category.id}`,
+    name: `Settings — ${category.title}`,
+    kind: "overlay",
+    render: category.screen,
+  };
+}
 
 /**
  * Settings: four categories, each a sub-screen pushed over this list (#82).
@@ -86,14 +96,7 @@ export function SettingsScreen() {
               variant="secondary"
               aria-label={category.title}
               data-testid={`settings-category-${category.id}`}
-              onClick={() =>
-                push({
-                  id: `settings-${category.id}`,
-                  name: `Settings — ${category.title}`,
-                  kind: "overlay",
-                  render: category.screen,
-                })
-              }
+              onClick={() => push(categoryLevel(category))}
             >
               <span className="settings-category-title">{category.title}</span>
               <span className="settings-category-note">{category.note}</span>
@@ -114,12 +117,7 @@ export function SettingsScreen() {
  * pretending to be a Settings screen itself.
  */
 export function credentialsLevel(): NewShellLevel {
-  return {
-    id: `settings-${CREDENTIALS}`,
-    name: "Settings — Credentials",
-    kind: "overlay",
-    render: () => <CredentialsScreen />,
-  };
+  return categoryLevel(CREDENTIALS_CATEGORY);
 }
 
 /** The frame every Settings sub-screen shares: Back, a title, and a lede. */

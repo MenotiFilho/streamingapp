@@ -1,15 +1,8 @@
 import { describe, expect, test } from "vitest";
 
 import type { AddonManifest, DiscoverRow, MetaPreview } from "./host-client";
-import {
-  blankFeed,
-  discoverAsk,
-  discoverPlayable,
-  feedWith,
-  genresOf,
-  MOVIE,
-  SERIES,
-} from "./discover";
+import { blankFeed, discoverAsk, discoverPlayable, feedWith, genresOf, MOVIE } from "./discover";
+import { SERIES } from "./title";
 
 function meta(overrides: Partial<MetaPreview> = {}): MetaPreview {
   return {
@@ -85,7 +78,7 @@ describe("the Discover ask", () => {
 
 describe("a Discover feed", () => {
   test("a page is appended in TMDB's order and the next page is one on", () => {
-    const first = feedWith(blankFeed(MOVIE), row([meta()], 1));
+    const first = feedWith(blankFeed(), row([meta()], 1));
     expect(first.page).toBe(1);
     expect(first.items.map((item) => item.id)).toEqual(["tmdb:603"]);
     expect(first.done).toBe(false);
@@ -99,22 +92,25 @@ describe("a Discover feed", () => {
     expect(second.done).toBe(false);
   });
 
-  test("an item TMDB repeats across pages is held once, and a page holding nothing new ends the feed", () => {
-    const first = feedWith(blankFeed(MOVIE), row([meta()], 1));
+  test("an item TMDB repeats across pages is held once", () => {
+    const first = feedWith(blankFeed(), row([meta()], 1));
     const repeated = feedWith(first, row([meta()], 1));
 
     expect(repeated.items).toHaveLength(1);
-    expect(repeated.done).toBe(true);
+    expect(
+      repeated.done,
+      "TMDB sent a page, so the next one is still worth asking for",
+    ).toBe(false);
   });
 
   test("an empty page is the end of the feed", () => {
-    const first = feedWith(blankFeed(MOVIE), row([], 0));
+    const first = feedWith(blankFeed(), row([], 0));
     expect(first.page).toBe(1);
     expect(first.done).toBe(true);
   });
 
   test("a failed page keeps the items already held and the page it was on", () => {
-    const first = feedWith(blankFeed(MOVIE), row([meta()], 1));
+    const first = feedWith(blankFeed(), row([meta()], 1));
     const failed = feedWith(
       first,
       row([], 0, { kind: "tmdb", detail: "TMDB answered with status 429" }),
@@ -139,7 +135,7 @@ describe("a Discover feed", () => {
 
   test("a feed that fails before its first page asks that page again", () => {
     const failed = feedWith(
-      blankFeed(MOVIE),
+      blankFeed(),
       row([], 0, { kind: "tmdb", detail: "TMDB answered with status 429" }),
     );
     expect(failed.page).toBe(0);
@@ -151,10 +147,7 @@ describe("a Discover feed", () => {
   });
 
   test("switching kind or genre starts a blank feed", () => {
-    const series = blankFeed(SERIES, 10765);
-    expect(series).toEqual({
-      kind: "series",
-      genre: 10765,
+    expect(blankFeed()).toEqual({
       page: 0,
       items: [],
       failure: null,

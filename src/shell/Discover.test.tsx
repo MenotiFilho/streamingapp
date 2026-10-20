@@ -4,6 +4,7 @@ import { describe, expect, test } from "vitest";
 import {
   HostClient,
   type Action,
+  type ActionError,
   type AddonManifest,
   type DiscoverRow,
   type MetaPreview,
@@ -114,7 +115,7 @@ function fakeHost(
   initial: Snapshot,
   options: {
     discover?: (action: DiscoverAction) => DiscoverRow;
-    streams?: Array<{ addon: string; streams: []; failure: null }>;
+    streams?: Array<{ addon: string; streams: []; failure: ActionError | null }>;
   } = {},
 ) {
   const invocations: Invocation[] = [];
@@ -178,6 +179,9 @@ describe("Discover without a TMDB key", () => {
     expect(empty).toHaveTextContent("powered by TMDB");
     expect(empty).toHaveTextContent("Settings → Credentials");
     expect(screen.getByRole("heading", { name: "Discover" })).toBeInTheDocument();
+    expect(screen.getByTestId("discover-tmdb-credit")).toHaveTextContent(
+      "This product uses the TMDB API but is not endorsed or certified by TMDB",
+    );
     expect(discoverAsks(host.invocations)).toEqual([]);
   });
 
@@ -396,6 +400,33 @@ describe("the unplayable mark on Discover", () => {
     const card = await screen.findByTestId("discover-card-tmdb:603");
     expect(card).not.toHaveAttribute("data-unplayable");
     expect(card).not.toHaveTextContent("Unplayable");
+  });
+
+  test("a failed Streams answer proves nothing and leaves the card unmarked", async () => {
+    const host = fakeHost(snapshot(), {
+      streams: [
+        {
+          addon: CINEMETA.id,
+          streams: [],
+          failure: { kind: "fetch", detail: "the Addon answered with status 503" },
+        },
+      ],
+    });
+    await openDiscover(host);
+
+    fireEvent.click(await screen.findByTestId("discover-card-tmdb:603"));
+    await screen.findByTestId("title-tmdb:603");
+    fireEvent.click(screen.getByTestId("play-film"));
+    await screen.findByTestId("streams-heading");
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("streams-heading")).not.toBeInTheDocument());
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByTestId("title-level")).not.toBeInTheDocument());
+
+    expect(await screen.findByTestId("discover-card-tmdb:603")).not.toHaveAttribute(
+      "data-unplayable",
+    );
   });
 
   test("is added on demand when every Addon answers a Video with no Stream", async () => {

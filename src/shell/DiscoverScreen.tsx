@@ -7,11 +7,12 @@ import {
   feedWith,
   genresOf,
   MOVIE,
-  SERIES,
   type DiscoverFeed,
   type DiscoverKind,
 } from "../discover";
 import { answeredDiscover, explain } from "../host-client";
+import { SERIES } from "../title";
+import tmdbLogo from "../assets/tmdb-logo.svg";
 import { useShell } from "./context";
 import { Button, ChoiceChip, PosterCard } from "./kit";
 import { credentialsLevel } from "./SettingsScreen";
@@ -39,7 +40,7 @@ export function DiscoverScreen() {
   const { openDiscoveredTitle } = useTitleOpener();
   const [kind, setKind] = useState<DiscoverKind>(MOVIE);
   const [genre, setGenre] = useState<number | null>(null);
-  const [feed, setFeed] = useState<DiscoverFeed>(() => blankFeed(MOVIE));
+  const [feed, setFeed] = useState<DiscoverFeed>(blankFeed);
   const [loading, setLoading] = useState(false);
   // Which ask owns the feed: an answer for a kind or genre a person has left
   // must not land in the one they are looking at.
@@ -48,10 +49,10 @@ export function DiscoverScreen() {
   const keyed = snapshot?.protection.tmdbHeld ?? false;
 
   const load = useCallback(
-    async (base: DiscoverFeed, page: number) => {
+    async (kind: DiscoverKind, genre: number | null, page: number) => {
       const token = (serial.current += 1);
       setLoading(true);
-      const { response, error } = await ask(discoverAsk(base.kind, page, base.genre));
+      const { response, error } = await ask(discoverAsk(kind, page, genre));
       if (token !== serial.current) {
         return;
       }
@@ -76,13 +77,12 @@ export function DiscoverScreen() {
   useEffect(() => {
     if (!keyed) {
       serial.current += 1;
-      setFeed(blankFeed(kind, genre));
+      setFeed(blankFeed());
       setLoading(false);
       return;
     }
-    const fresh = blankFeed(kind, genre);
-    setFeed(fresh);
-    void load(fresh, 1);
+    setFeed(blankFeed());
+    void load(kind, genre, 1);
     return () => {
       serial.current += 1;
     };
@@ -92,8 +92,8 @@ export function DiscoverScreen() {
     if (loading) {
       return;
     }
-    void load(feed, feed.page + 1);
-  }, [feed, load, loading]);
+    void load(kind, genre, feed.page + 1);
+  }, [feed.page, genre, kind, load, loading]);
 
   const chooseKind = (next: DiscoverKind) => {
     if (next === kind) {
@@ -228,6 +228,18 @@ export function DiscoverScreen() {
           </section>
         </>
       ) : null}
+
+      <footer className="discover-credit" data-testid="discover-tmdb-credit">
+        <img
+          className="discover-tmdb-logo"
+          src={tmdbLogo}
+          alt="TMDB"
+          data-testid="discover-tmdb-logo"
+        />
+        <p className="discover-credit-notice" data-testid="discover-tmdb-notice">
+          This product uses the TMDB API but is not endorsed or certified by TMDB
+        </p>
+      </footer>
     </section>
   );
 }

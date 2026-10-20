@@ -101,8 +101,19 @@ export function Shell({ client }: { client?: HostClient }) {
     dispatch({ type: "choose", destination });
   }, []);
 
-  const markUnplayable = useCallback((id: string) => {
-    setUnplayable((held) => (held.has(id) ? held : new Set(held).add(id)));
+  const markUnplayable = useCallback((id: string, unplayable: boolean) => {
+    setUnplayable((held) => {
+      if (held.has(id) === unplayable) {
+        return held;
+      }
+      const next = new Set(held);
+      if (unplayable) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
   }, []);
 
   const push = useCallback((level: NewShellLevel): string => {

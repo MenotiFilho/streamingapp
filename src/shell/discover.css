@@ -99,3 +99,35 @@
   font-size: var(--text-caption);
   line-height: 1.45;
 }
+
+/* --------------------------------------------------------------------------
+ * TMDB attribution
+ * -------------------------------------------------------------------------- */
+
+/*
+ * ADR-0020 makes the logo and the notice a condition of using TMDB's API, so
+ * they live on the screen that spends the key, not only in Settings.
+ */
+.discover-credit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-4);
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.discover-tmdb-logo {
+  display: block;
+  width: clamp(7rem, 12vw, 10rem);
+  height: auto;
+}
+
+.discover-credit-notice {
+  max-width: 48ch;
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: var(--text-caption);
+  line-height: 1.5;
+}

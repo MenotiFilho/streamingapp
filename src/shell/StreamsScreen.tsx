@@ -61,10 +61,14 @@ export function StreamsLoader({
       } else {
         const groups = answeredStreams(response);
         // The second half of ADR-0020's unplayable mark: no Addon carried a
-        // candidate, so this Title is marked in the client that opened it. It
-        // costs nothing extra — the answer is already here.
-        if (groups.every((group) => group.streams.length === 0)) {
-          markUnplayable(title.id);
+        // candidate, so this Title is marked in the client that opened it. A
+        // candidate anywhere clears the mark; a failed Addon alone proves
+        // nothing either way, so the mark is only touched when every group
+        // actually answered.
+        if (groups.some((group) => group.streams.length > 0)) {
+          markUnplayable(title.id, false);
+        } else if (groups.every((group) => group.failure === null)) {
+          markUnplayable(title.id, true);
         }
         setState({ groups });
       }
