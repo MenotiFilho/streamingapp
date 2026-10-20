@@ -246,7 +246,7 @@ export function statisticsLines(
   ];
 }
 
-function formatBitrate(bits: number | null): string {
+export function formatBitrate(bits: number | null): string {
   if (bits === null) {
     return "—";
   }

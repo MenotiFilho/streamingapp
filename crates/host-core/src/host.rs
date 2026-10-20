@@ -956,9 +956,23 @@ impl Host {
     }
 
     /// Refuse a control about a Stream the Player is not on: one that never
-    /// played, or one that has already ended.
+    /// played, one whose open failed, or one that has ended. The episode steps
+    /// are the exception and go through [`Self::stepping`] instead.
     fn playing(&self, control: Control) -> Result<(), ActionError> {
         if self.state.playback().is_live() {
+            return Ok(());
+        }
+
+        Err(ActionError::NothingPlaying { control })
+    }
+
+    /// Refuse an episode step about a Stream the Player is not on. A Stream
+    /// that reached its end is still a position in its Title, so the step after
+    /// it stays takeable — that is what the after-end affordance draws (#68);
+    /// a stop or a failed open is not a position to step from.
+    fn stepping(&self, control: Control) -> Result<(), ActionError> {
+        let playback = self.state.playback();
+        if playback.is_live() || playback.has_ended() {
             return Ok(());
         }
 
@@ -1002,7 +1016,7 @@ impl Host {
     /// when the Stream started — so the new Video's progress is recorded against
     /// the same card.
     fn stepped(&self, step: EpisodeStep) -> Result<Resolved, ActionError> {
-        self.playing(step.control())?;
+        self.stepping(step.control())?;
         let chosen = self.adjacent_episode(step)?;
         let title = self.playing_title();
         self.player

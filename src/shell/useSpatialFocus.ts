@@ -180,6 +180,8 @@ export function useSpatialFocus({ root, levelKey, onBack }: SpatialFocusOptions)
   runRef.current = run;
   const rememberRef = useRef(rememberElement);
   rememberRef.current = rememberElement;
+  const ensureRef = useRef(ensureFocus);
+  ensureRef.current = ensureFocus;
 
   // Something is always focused on the level that is on top. This also puts
   // focus back when an overlay pops, and re-homes it when a control vanished.
@@ -206,6 +208,37 @@ export function useSpatialFocus({ root, levelKey, onBack }: SpatialFocusOptions)
       }
     };
 
+    // A control can leave while the level stays: a screen inside the level
+    // answers and swaps its waiting state for the real one. The focus engine
+    // only re-homes on a render, and that swap is a child's render, so focus
+    // would be left on the removed control. Put it back on the next control the
+    // level offers.
+    const onFocusOut = (event: FocusEvent) => {
+      const root = rootRef.current();
+      if (!root) {
+        return;
+      }
+      const next = event.relatedTarget;
+      if (next instanceof Node && root.contains(next)) {
+        return;
+      }
+      queueMicrotask(() => {
+        const latest = rootRef.current();
+        if (!latest) {
+          return;
+        }
+        const active = document.activeElement;
+        if (
+          active instanceof HTMLElement &&
+          latest.contains(active) &&
+          active.hasAttribute("data-focusable")
+        ) {
+          return;
+        }
+        ensureRef.current();
+      });
+    };
+
     const onClick = (event: MouseEvent) => {
       const target = event.target;
       if (!(target instanceof Element)) {
@@ -219,10 +252,12 @@ export function useSpatialFocus({ root, levelKey, onBack }: SpatialFocusOptions)
 
     document.addEventListener("keydown", onKeyDown);
     document.addEventListener("focusin", onFocusIn);
+    document.addEventListener("focusout", onFocusOut, true);
     document.addEventListener("click", onClick, true);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("focusin", onFocusIn);
+      document.removeEventListener("focusout", onFocusOut, true);
       document.removeEventListener("click", onClick, true);
     };
   }, []);

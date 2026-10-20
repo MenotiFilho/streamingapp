@@ -871,8 +871,10 @@ pub enum ActionError {
     #[error("{0}")]
     Unplayable(#[from] Unplayable),
     /// There is nothing playing to do that to. A control that arrives for a
-    /// Stream that has already ended or been stopped is refused rather than
-    /// silently obeyed, so a client hears why nothing happened.
+    /// Stream that has been stopped, or whose open failed, is refused rather
+    /// than silently obeyed, so a client hears why nothing happened. A Stream
+    /// that reached its end is the one exception for episode steps: its Video is
+    /// still the position the neighbouring episode is read from (#68).
     #[error("nothing is playing, so the Host cannot {control}")]
     NothingPlaying { control: Control },
     /// The Player is the Host's own limb and its refusal is not the client's

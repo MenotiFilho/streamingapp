@@ -99,7 +99,10 @@ function fakeHost(
   initial: Snapshot,
   options: {
     refuse?: (action: Action) => ActionError | null;
-    /** The Addon the Host would carry after an accepted `add_addon`. */
+    /**
+     * The Addon the Host would carry after an accepted `add_addon`, published
+     * before the dispatch call resolves.
+     */
     addAddon?: AddonManifest;
   } = {},
 ) {
@@ -214,6 +217,21 @@ describe("the Addons screen", () => {
     await waitFor(() =>
       expect(screen.queryByTestId(`addon-details-${CINEMETA.id}`)).not.toBeInTheDocument(),
     );
+  });
+
+  test("the list follows a Snapshot the Host publishes before the dispatch answer", async () => {
+    const host = fakeHost(snap({ addons: [] }), { addAddon: CINEMETA });
+    await openAddons(host);
+
+    fireEvent.change(screen.getByLabelText("Addon manifest URL"), {
+      target: { value: "https://example.test/manifest.json" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+
+    expect(await screen.findByTestId(`addon-${CINEMETA.id}`)).toHaveTextContent(
+      "Cinemeta",
+    );
+    expect(screen.queryByTestId("addons-empty")).not.toBeInTheDocument();
   });
 
   test("with no Addons, the empty state points at the manifest-URL form", async () => {

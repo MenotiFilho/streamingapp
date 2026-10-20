@@ -40,6 +40,8 @@ export function Shell({ client }: { client?: HostClient }) {
   const [nav, dispatch] = useReducer(navigate, INITIAL_NAVIGATION);
   const [chosenDestination, setChosenDestination] = useState(false);
   const nextLevelId = useRef(0);
+  const levelsRef = useRef(nav.levels);
+  levelsRef.current = nav.levels;
 
   const publish = useCallback((next: Snapshot) => {
     setSnapshot((current) => (current && current.revision > next.revision ? current : next));
@@ -100,11 +102,19 @@ export function Shell({ client }: { client?: HostClient }) {
     return id;
   }, []);
 
+  const remove = useCallback((id: string) => dispatch({ type: "remove", id }), []);
+  const levelExists = useCallback(
+    (id: string) => levelsRef.current.some((level) => level.id === id),
+    [],
+  );
   const pop = useCallback(() => dispatch({ type: "pop" }), []);
 
   const playback = snapshot?.playback ?? null;
   const playerActive =
     playback !== null && watching(playback.state) && playback.picture === "in_window";
+  // The player's open OSD popover, where there is one: its own level, so Back
+  // puts it away before it reaches the player's stop rule.
+  const popover = nav.levels.find((level) => level.kind === "popover")?.id ?? null;
 
   const back = useCallback(() => {
     const top = nav.levels[nav.levels.length - 1];
@@ -138,10 +148,15 @@ export function Shell({ client }: { client?: HostClient }) {
   }, [playerActive]);
 
   // Where the picture is in this window, the page must stop painting its own
-  // rectangle so mpv's child window shows through (ADR-0003).
+  // rectangle so mpv's child window shows through (ADR-0003), and the browsing
+  // page underneath must stop offering a scrollbar the player does not need.
   useEffect(() => {
     document.body.classList.toggle("picture-behind", playerActive);
-    return () => document.body.classList.remove("picture-behind");
+    document.documentElement.classList.toggle("picture-behind", playerActive);
+    return () => {
+      document.body.classList.remove("picture-behind");
+      document.documentElement.classList.remove("picture-behind");
+    };
   }, [playerActive]);
 
   const value = useMemo(
@@ -150,14 +165,31 @@ export function Shell({ client }: { client?: HostClient }) {
       error,
       destination: nav.destination,
       chosenDestination,
+      popover,
       choose,
       push,
+      remove,
+      levelExists,
       pop,
       back,
       ask,
       take,
     }),
-    [snapshot, error, nav.destination, chosenDestination, choose, push, pop, back, ask, take],
+    [
+      snapshot,
+      error,
+      nav.destination,
+      chosenDestination,
+      popover,
+      choose,
+      push,
+      remove,
+      levelExists,
+      pop,
+      back,
+      ask,
+      take,
+    ],
   );
 
   return (

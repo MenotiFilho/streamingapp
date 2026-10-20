@@ -1,0 +1,646 @@
+/*
+ * The in-window player OSD (#83).
+ *
+ * The picture is mpv's; this file draws only the furniture over it, in the
+ * uosc shape #50 locked: top-left stream pills, a top-right Stop, the right-edge
+ * volume pillar, the control strip, and the flush bottom timeline. The scrim is
+ * the high-opacity glass token because backdrop-filter cannot sample the native
+ * child window underneath (ADR-0003).
+ *
+ * The kit owns the focus ring and the icon inversion; every colour here is a
+ * Velvet Curtains token.
+ */
+
+.shell-player {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  pointer-events: none;
+}
+
+/* The hole the picture goes in. Clicking it is play/pause, not summoning. It
+   is its own stacking context so the full-screen button's focus cannot rise
+   above the OSD and swallow every press. */
+.shell-player-picture {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: auto;
+}
+
+.shell-picture-toggle {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* The picture is not a menu button: it takes no focus ring and no focus
+   elevation, so the OSD's controls stay on top and keep their own ring. */
+.shell-player .shell-picture-toggle:focus,
+.shell-player .shell-picture-toggle:focus-visible {
+  z-index: auto;
+  box-shadow: none;
+}
+
+.shell-picture-note {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  max-width: min(42rem, 80vw);
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--bg-glass-solid);
+  color: var(--ink-primary);
+  font-size: var(--text-body);
+  text-align: center;
+  transform: translate(-50%, -50%);
+}
+
+/* The wait for mpv: the Title's own backdrop, poster or episode still fills the
+   hole until the first frame arrives, so the window is never blank between
+   pressing Play and the picture starting. */
+.shell-player-preview {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+  background: var(--bg-canvas);
+}
+
+.shell-player-preview-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.shell-player-preview-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--bg-canvas) 45%, transparent) 0%,
+    transparent 30%,
+    color-mix(in srgb, var(--bg-canvas) 92%, transparent) 100%
+  );
+}
+
+.shell-player-preview-copy {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0 clamp(1.5rem, 4vw, 4rem) 9rem;
+  box-sizing: border-box;
+}
+
+.shell-player-preview-title {
+  margin: 0;
+  color: var(--ink-primary);
+  font-family: var(--font-display);
+  font-size: var(--text-hero);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+  line-height: 1.02;
+}
+
+.shell-player-preview-subtitle {
+  margin: 0;
+  color: var(--ink-secondary);
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
+.shell-player-preview-note {
+  margin: var(--space-1) 0 0;
+  color: var(--ink-muted);
+  font-size: var(--text-caption);
+}
+
+/* The top-right pair: fullscreen and Stop. */
+.shell-osd-window {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  pointer-events: auto;
+}
+
+/* --------------------------------------------------------------------------
+ * The OSD surface
+ * -------------------------------------------------------------------------- */
+
+.shell-osd {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.shell-osd-vignette {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--bg-canvas) 72%, transparent) 0%,
+      transparent 22%
+    ),
+    linear-gradient(
+      0deg,
+      color-mix(in srgb, var(--bg-canvas) 86%, transparent) 0%,
+      transparent 34%
+    );
+  pointer-events: none;
+}
+
+.shell-osd-top,
+.shell-osd-middle,
+.shell-osd-bottom {
+  position: relative;
+  z-index: 1;
+}
+
+/* --------------------------------------------------------------------------
+ * Top-left pills and the top-right Stop
+ * -------------------------------------------------------------------------- */
+
+.shell-osd-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: clamp(0.9rem, 2vw, 1.5rem) clamp(1rem, 3vw, 2.5rem) 0;
+  pointer-events: none;
+}
+
+.shell-osd-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.shell-osd-line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.shell-osd-quality {
+  flex: none;
+  padding: 0.22rem 0.55rem;
+  border-radius: 5px;
+  background: var(--ink-primary);
+  color: var(--bg-canvas);
+  font-size: var(--text-caption);
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.shell-osd-title {
+  min-width: 0;
+  padding: 0.22rem 0.65rem;
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--bg-glass-solid);
+  color: var(--ink-primary);
+  font-size: var(--text-body);
+  font-weight: 600;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-osd-details {
+  max-width: min(58rem, 80vw);
+  margin: 0 0 0 0.6rem;
+  padding: 0.16rem 0.6rem;
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--bg-glass-solid);
+  color: var(--ink-secondary);
+  font-size: var(--text-caption);
+  font-style: italic;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-osd-window > .shell-osd-icon {
+  pointer-events: auto;
+}
+
+/* --------------------------------------------------------------------------
+ * The right-edge volume pillar
+ * -------------------------------------------------------------------------- */
+
+.shell-osd-middle {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 clamp(1rem, 3vw, 2.5rem);
+  pointer-events: none;
+}
+
+.shell-osd-spacer {
+  flex: 1 1 auto;
+}
+
+.shell-osd-volume {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-control);
+  background: var(--bg-glass-solid);
+  pointer-events: auto;
+}
+
+.shell-osd-volume-level {
+  color: var(--ink-primary);
+  font-size: var(--text-caption);
+  font-weight: 700;
+}
+
+.shell-osd-volume-slider {
+  width: 1.6rem;
+  height: 7.5rem;
+  margin: 0;
+  accent-color: var(--ink-primary);
+  cursor: pointer;
+  /* A vertical range, rotated so the rail sits on the right edge like uosc's. */
+  writing-mode: vertical-lr;
+  direction: rtl;
+}
+
+/* --------------------------------------------------------------------------
+ * Control strip
+ * -------------------------------------------------------------------------- */
+
+.shell-osd-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-bottom: 0;
+  pointer-events: none;
+}
+
+.shell-osd-strip {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 0 clamp(1rem, 3vw, 2.5rem) var(--space-2);
+  pointer-events: auto;
+}
+
+.shell-osd-cluster {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.shell-osd-cluster-left {
+  justify-self: start;
+}
+
+.shell-osd-cluster-center {
+  justify-self: center;
+  gap: var(--space-2);
+}
+
+.shell-osd-cluster-right {
+  justify-self: end;
+}
+
+.shell-osd-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  min-width: 2.5rem;
+  height: 2.5rem;
+  padding: 0 0.6rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: var(--bg-glass-solid);
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-caption);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.shell-osd-icon svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.shell-osd-icon[aria-pressed="true"] {
+  background: var(--ink-primary);
+  color: var(--bg-canvas);
+}
+
+.shell-osd-icon:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.shell-osd-glyph {
+  font-size: var(--text-caption);
+  font-variant-numeric: var(--numeric-figures);
+}
+
+.shell-osd-ended {
+  display: flex;
+  justify-content: center;
+  padding: 0 clamp(1rem, 3vw, 2.5rem) var(--space-2);
+  pointer-events: auto;
+}
+
+.shell-osd-refusal {
+  padding: 0 clamp(1rem, 3vw, 2.5rem) var(--space-2);
+  pointer-events: auto;
+}
+
+/* --------------------------------------------------------------------------
+ * The flush bottom timeline
+ * -------------------------------------------------------------------------- */
+
+.shell-osd-timeline {
+  position: relative;
+  height: 2.8rem;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-glass-solid);
+  pointer-events: auto;
+}
+
+.shell-osd-track {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.shell-osd-progress {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  background: var(--accent);
+  opacity: 0.42;
+}
+
+.shell-osd-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--ink-primary);
+  transform: translateX(-1px);
+}
+
+.shell-osd-scrubber {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.shell-osd-elapsed,
+.shell-osd-remaining {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  color: var(--ink-primary);
+  font-size: var(--text-body);
+  font-weight: 600;
+  text-shadow: 0 1px 2px color-mix(in srgb, var(--bg-canvas) 90%, transparent);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.shell-osd-elapsed {
+  left: clamp(1rem, 3vw, 2.5rem);
+}
+
+.shell-osd-remaining {
+  right: clamp(1rem, 3vw, 2.5rem);
+}
+
+/* Chapter diamonds sit on the top edge; their callout is hover-only. */
+.shell-osd-chapter {
+  position: absolute;
+  top: -9px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  transform: translateX(-50%);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.shell-osd-diamond {
+  color: var(--ink-primary);
+  font-size: 0.7rem;
+  line-height: 1;
+  transition: color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+
+.shell-osd-chapter:hover .shell-osd-diamond {
+  color: var(--accent);
+  transform: scale(1.35);
+}
+
+.shell-osd-callout {
+  position: absolute;
+  bottom: calc(100% + 0.45rem);
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.25rem 0.55rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg-glass-solid);
+  color: var(--ink-primary);
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateX(-50%);
+  transition: opacity var(--dur-fast) var(--ease-out);
+  pointer-events: none;
+}
+
+.shell-osd-chapter:hover .shell-osd-callout {
+  opacity: 1;
+}
+
+.shell-osd-callout-name {
+  font-size: var(--text-micro);
+  font-weight: 700;
+}
+
+.shell-osd-callout-time {
+  color: var(--ink-secondary);
+  font-size: var(--text-micro);
+}
+
+/* --------------------------------------------------------------------------
+ * The per-icon popover levels
+ * -------------------------------------------------------------------------- */
+
+.shell-level[data-level-kind="popover"] {
+  z-index: 70;
+  overflow: visible;
+  background: transparent;
+  pointer-events: none;
+}
+
+/* A popover is a passing surface: the transparent scrim under it catches a
+   click anywhere else and closes it, so the player is one press away again. */
+.shell-osd-popover-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.shell-osd-popover-scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+}
+
+.shell-osd-popover {
+  position: fixed;
+  bottom: 6.6rem;
+  left: clamp(1rem, 3vw, 2.5rem);
+  z-index: 1;
+  max-width: min(24rem, calc(100vw - 2rem));
+  pointer-events: auto;
+}
+
+.shell-osd-popover[data-side="right"] {
+  right: clamp(1rem, 3vw, 2.5rem);
+  left: auto;
+}
+
+/* The kit popover is already the surface; here it is one fixed panel above the
+   strip rather than an absolutely positioned child of its anchor. */
+.shell-osd-popover .kit-popover {
+  position: static;
+  width: min(22rem, calc(100vw - 2rem));
+  max-height: min(60vh, 26rem);
+  overflow-y: auto;
+  background: var(--bg-glass-solid);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.shell-osd-group {
+  display: grid;
+  gap: 0.15rem;
+  padding-top: var(--space-1);
+}
+
+.shell-osd-group-title {
+  margin: var(--space-2) 0 0.15rem;
+  color: var(--ink-secondary);
+  font-size: var(--text-micro);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.shell-osd-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  font-size: var(--text-caption);
+  text-align: left;
+  cursor: pointer;
+}
+
+.shell-osd-item[aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  font-weight: 600;
+}
+
+.shell-osd-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.shell-osd-marks,
+.shell-osd-note,
+.shell-osd-readout {
+  color: var(--ink-secondary);
+  font-size: var(--text-micro);
+  line-height: 1.4;
+}
+
+.shell-osd-note,
+.shell-osd-readout {
+  margin: 0.2rem 0.65rem;
+}
+
+.shell-osd-delay {
+  display: grid;
+  gap: 0.15rem;
+}
+
+.shell-osd-statistics {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0.1rem var(--space-3);
+  margin: var(--space-1) 0.65rem;
+  color: var(--ink-secondary);
+  font-size: var(--text-micro);
+}
+
+.shell-osd-statistics dt {
+  color: var(--ink-muted);
+}
+
+.shell-osd-statistics dd {
+  margin: 0;
+  color: var(--ink-primary);
+  font-variant-numeric: var(--numeric-figures);
+}

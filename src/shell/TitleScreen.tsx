@@ -1,12 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 
-import {
-  answeredStreams,
-  answeredTitle,
-  type Action,
-  type Title,
-  type Video,
-} from "../host-client";
+import { answeredTitle, type Action, type Title, type Video } from "../host-client";
 import {
   discoveredKeyOf,
   isSeries,
@@ -21,7 +15,7 @@ import {
 import { theFilm } from "../stream";
 import { useShell, type NewShellLevel } from "./context";
 import { Button, Chip, ChoiceChip } from "./kit";
-import { StreamsScreen } from "./StreamsScreen";
+import { StreamsLoader } from "./StreamsScreen";
 import "./title.css";
 
 /**
@@ -34,29 +28,52 @@ import "./title.css";
  * travels back to the Host until a Video's Streams are asked for.
  */
 export function useTitleOpener() {
-  const { take, push } = useShell();
+  const { take, push, remove, levelExists } = useShell();
   // A second Activate before the first answer arrives would push a second
   // identical Title; one open is in flight at a time, whichever screen asked.
   const opening = useRef(false);
 
-  /** Take one open Action, and push the Title only where the Host answered one. */
+  /**
+   * Open a Title at once: the card's own art and name are drawn as the level
+   * while the Host asks for the full record, and the same level is replaced by
+   * the real Title when the answer arrives. A Back while it loads takes the
+   * level away, and an answer that comes later does not bring it back.
+   */
   const openWith = useCallback(
     async (action: Action, preview: OpenablePreview) => {
       if (opening.current) {
         return;
       }
       opening.current = true;
+      let cancelled = false;
+      const id = push({
+        name: "Title",
+        kind: "overlay",
+        render: () => <TitleLoading preview={preview} />,
+        onBack: () => {
+          // Backing out of the waiting Title lets the next card be pressed
+          // without waiting for the first answer; the late answer is dropped.
+          cancelled = true;
+          opening.current = false;
+          return false;
+        },
+      });
       try {
         const response = await take(action);
+        if (cancelled || !levelExists(id)) {
+          return;
+        }
         const title = answeredTitle(response);
         if (title) {
-          push(titleLevelOf(title, preview));
+          push({ ...titleLevelOf(title, preview), id });
+        } else {
+          remove(id);
         }
       } finally {
         opening.current = false;
       }
     },
-    [push, take],
+    [levelExists, push, remove, take],
   );
 
   const openTitle = useCallback(
@@ -118,7 +135,7 @@ export function TitleScreen({
   title: Title;
   preview?: OpenablePreview | null;
 }) {
-  const { pop, push, take } = useShell();
+  const { pop, push } = useShell();
   const seasons = seasonsOf(title);
   const [shownSeason, setShownSeason] = useState<number | null>(
     seasons[0]?.season ?? null,
@@ -134,34 +151,24 @@ export function TitleScreen({
   const shown = seasons.find((season) => season.season === shownSeason) ?? seasons[0];
 
   /**
-   * Ask for a Video's Streams and put the list over this screen. The Video is
-   * remembered before the ask so a Back from the list finds its row still
-   * chosen, and the ask's refusal leaves the Title where it was.
+   * Put the Streams level over this screen at once. The level asks the Host
+   * itself and draws its own waiting state, so a slow Addon is visible as a
+   * list being looked for rather than as a button that seems not to have been
+   * pressed. The Video is remembered before the push so a Back finds its row
+   * still chosen.
    */
   const play = useCallback(
-    async (video: Video) => {
+    (video: Video) => {
       setSelected(video);
-      const response = await take({
-        type: "find_streams",
-        video: { type: title.type, id: video.id },
-      });
-      if (!response) {
-        return;
-      }
       push({
         name: "Streams",
         kind: "overlay",
         render: () => (
-          <StreamsScreen
-            title={title}
-            preview={preview}
-            video={video}
-            groups={answeredStreams(response)}
-          />
+          <StreamsLoader title={title} preview={preview} video={video} />
         ),
       });
     },
-    [preview, push, take, title],
+    [preview, push, title],
   );
 
   return (
@@ -191,7 +198,7 @@ export function TitleScreen({
 
           <div className="shell-title-copy">
             <div className="shell-title-head">
-              <Button variant="ghost" onClick={pop}>
+              <Button variant="ghost" autoFocus onClick={pop}>
                 Back
               </Button>
             </div>
@@ -309,6 +316,48 @@ export function TitleScreen({
           )}
         </div>
       </article>
+    </div>
+  );
+}
+
+/**
+ * The Title level while the Host is still answering `open_title`: the card the
+ * person pressed, at the size the real Title will take, so the press has an
+ * immediate result. Back works here like it does on the Title itself.
+ */
+function TitleLoading({ preview }: { preview: OpenablePreview }) {
+  const { pop } = useShell();
+  const art = preview.background ?? preview.poster ?? null;
+
+  return (
+    <div className="shell-title-level">
+      <section
+        className="shell-title shell-title-loading"
+        data-testid="title-loading"
+        data-region="title"
+        data-kind="branch"
+        data-label={`Opening ${preview.name}`}
+        aria-label={`Opening ${preview.name}`}
+      >
+        <header
+          className="shell-title-hero"
+          data-art={preview.background ? "background" : preview.poster ? "poster" : "none"}
+        >
+          {art ? <img className="shell-title-art" src={art} alt="" /> : null}
+          <span className="shell-title-scrim" aria-hidden="true" />
+          <div className="shell-title-copy">
+            <div className="shell-title-head">
+              <Button variant="ghost" autoFocus onClick={pop}>
+                Back
+              </Button>
+            </div>
+            <h1 className="shell-title-name">{preview.name}</h1>
+            <p className="shell-title-note" data-testid="title-loading-note">
+              Looking for this Title…
+            </p>
+          </div>
+        </header>
+      </section>
     </div>
   );
 }

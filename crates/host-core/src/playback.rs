@@ -957,6 +957,13 @@ impl PlaybackSession {
             )
     }
 
+    /// Whether the Host is on a Stream that reached its end. No control moves a
+    /// finished Stream, but its Video is still the position an episode step
+    /// reads from: the after-end affordance is exactly that step (#68).
+    pub(crate) fn has_ended(&self) -> bool {
+        self.playing.is_some() && self.state == PlaybackState::Ended
+    }
+
     /// The chapters the Stream offers, as the Player last reported them.
     pub(crate) fn chapters(&self) -> &[Chapter] {
         &self.chapters

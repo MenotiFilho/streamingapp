@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use host_core::{
     Action, ActionError, Control, FixtureClock, FixtureFetcher, FixturePlayer, FixtureProvider,
-    Host, InMemorySecretStore, InMemoryStore, Playback, SecretBackend, Store, Stream,
-    ACTION_VERSION,
+    Host, InMemorySecretStore, InMemoryStore, Observation, Playback, PlaybackState, SecretBackend,
+    Store, Stream, ACTION_VERSION,
 };
 
 /// The Addon that answers both `meta` and `stream` for a series.
@@ -207,6 +207,50 @@ fn the_next_episode_of_the_same_title_plays_from_the_same_addon_and_release() {
         provider.asked(),
         vec![SERIES_ID.to_owned()],
         "the Addon already playing is the one asked for the next episode's Streams"
+    );
+}
+
+#[test]
+fn a_stream_that_reached_its_end_can_still_step_to_the_next_episode() {
+    // #68: the after-end Next is a real step from the Video that finished, not
+    // a button the Host would refuse. The Stream is over, but its position in
+    // the Addon's list is exactly what the next one is read from.
+    let player = Arc::new(FixturePlayer::new());
+    let provider = Arc::new(FixtureProvider::new().offering(
+        SERIES_ID,
+        vec![candidate("1080p", SAME_RELEASE, Some("the-release"))],
+    ));
+    let mut host = host_with(
+        player.clone(),
+        provider,
+        &[
+            Configured::answering(SERIES, SERIES_ID, r#""meta","stream""#)
+                .with_meta(META_URL, SERIES_META),
+        ],
+    );
+
+    play(
+        &mut host,
+        SERIES_ID,
+        "series",
+        "tt0903747:1:1",
+        PLAYING,
+        Some("the-release"),
+    );
+    player.now_reporting(Observation {
+        state: PlaybackState::Ended,
+        position: Some(2820.0),
+        duration: Some(2820.0),
+        ..Observation::idle()
+    });
+    host.sample().expect("reaching the end is a change");
+
+    host.dispatch(next_episode())
+        .expect("a finished episode still has the one after it");
+
+    assert_eq!(
+        player.opened(),
+        vec![PLAYING.to_owned(), SAME_RELEASE.to_owned()]
     );
 }
 

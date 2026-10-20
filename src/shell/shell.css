@@ -27,6 +27,11 @@ body {
  * Where the picture is in this window, the page stops painting its own
  * rectangle so mpv's child window shows through (ADR-0003).
  */
+html.picture-behind,
+body.picture-behind {
+  overflow: hidden;
+}
+
 body.picture-behind,
 body.picture-behind .shell-frame,
 body.picture-behind .shell-base {
@@ -131,8 +136,9 @@ body.picture-behind .shell-base {
   box-sizing: border-box;
 }
 
+/* The screen owns the window's width: rows and the hero are sized from it. */
 .shell-screen {
-  max-width: 90rem;
+  max-width: none;
 }
 
 /* A heading the page needs and the screen does not draw. */
@@ -191,6 +197,17 @@ body.picture-behind .shell-base {
   z-index: 60;
 }
 
+/*
+ * The player's hole is transparent so mpv shows through. Everything the player
+ * was opened over must therefore stop painting, or the Title or Streams list
+ * would show through that hole over the picture. The levels keep their focus
+ * and their state; only their paint is taken away until the player stops.
+ */
+.shell-level[data-under-player="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
 /* --------------------------------------------------------------------------
  * Forms shared by the configuration screens
  * -------------------------------------------------------------------------- */
@@ -243,63 +260,6 @@ body.picture-behind .shell-base {
 }
 
 /* --------------------------------------------------------------------------
- * The player takeover
- * -------------------------------------------------------------------------- */
-
-.shell-player {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  pointer-events: none;
-}
-
-.shell-player-picture {
-  position: absolute;
-  inset: 0;
-}
-
-.shell-player-bar {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding: var(--space-5) clamp(1.5rem, 4vw, 4rem);
-  background: linear-gradient(
-    to top,
-    color-mix(in srgb, var(--bg-canvas) 92%, transparent),
-    transparent
-  );
-  pointer-events: auto;
-}
-
-.shell-player-now {
-  min-width: 0;
-}
-
-.shell-player-title {
-  margin: 0;
-  overflow: hidden;
-  color: var(--ink-primary);
-  font-family: var(--font-display);
-  font-size: var(--text-section);
-  font-weight: var(--display-weight);
-  letter-spacing: var(--display-tracking);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.shell-player-controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-/* --------------------------------------------------------------------------
  * Refusals and failures
  * -------------------------------------------------------------------------- */
 
@@ -322,14 +282,6 @@ body.picture-behind .shell-base {
   color: var(--ink-primary);
   font-size: var(--text-body);
   box-shadow: var(--shadow-panel);
-}
-
-.shell-player-alert {
-  position: fixed;
-  top: var(--space-5);
-  left: 50%;
-  transform: translateX(-50%);
-  pointer-events: auto;
 }
 
 /*
