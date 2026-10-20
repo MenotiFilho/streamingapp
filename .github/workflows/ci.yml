@@ -30,6 +30,9 @@ jobs:
     timeout-minutes: 45
     env:
       IMAGE: streamingapp-dev:ci
+      # Incremental artifacts are large and rarely reused across a fresh
+      # checkout; the dependency artifacts below are the ones worth keeping.
+      CARGO_INCREMENTAL: "0"
     steps:
       - name: Check out
         uses: actions/checkout@v7
@@ -86,9 +89,53 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      # The container keeps its build output in named volumes, which are fresh
+      # on every runner. These host directories are restored instead, so a run
+      # reuses the cargo registry and the compiled dependencies rather than
+      # downloading and rebuilding them from scratch. The container runs as the
+      # runner user, so `actions/cache` can read what it wrote when saving.
+      #
+      # A pull request's cache belongs to that PR's merge ref: the first run on
+      # a PR populates it, and later commits to the same PR restore it.
+      - name: Restore the Rust build tree
+        if: steps.scope.outputs.code == 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/cargo-home
+            ${{ runner.temp }}/cargo-target
+          key: rust-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'docker/dev.Dockerfile') }}
+          restore-keys: |
+            rust-${{ runner.os }}-
+
+      - name: Restore the pnpm store
+        if: steps.scope.outputs.code == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/pnpm-store
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'package.json') }}
+          restore-keys: |
+            pnpm-${{ runner.os }}-
+
+      - name: Point the container at the cached directories
+        if: steps.scope.outputs.code == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p \
+            "$RUNNER_TEMP/cargo-home" \
+            "$RUNNER_TEMP/cargo-target" \
+            "$RUNNER_TEMP/node-modules" \
+            "$RUNNER_TEMP/pnpm-store"
+          {
+            echo "CI_CARGO_HOME=$RUNNER_TEMP/cargo-home"
+            echo "CI_CARGO_TARGET_DIR=$RUNNER_TEMP/cargo-target"
+            echo "CI_NODE_MODULES=$RUNNER_TEMP/node-modules"
+            echo "CI_PNPM_STORE=$RUNNER_TEMP/pnpm-store"
+          } >> "$GITHUB_ENV"
+
       - name: Install the window's dependencies
         if: steps.scope.outputs.code == 'true'
-        run: .github/scripts/dev-run.sh pnpm install --frozen-lockfile
+        run: .github/scripts/dev-run.sh pnpm install --frozen-lockfile --store-dir=/pnpm-store
 
       - name: Typecheck the window
         if: steps.scope.outputs.code == 'true'
