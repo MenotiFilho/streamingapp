@@ -731,6 +731,15 @@ export function answeredDiscover(response: Response | null): DiscoverRow[] {
   return answer && "discover" in answer ? answer.discover : [];
 }
 
+/**
+ * The Search row an answer carries, when the Action was a `search` (#78): one
+ * kind's page, or null when the Action was something else.
+ */
+export function answeredSearch(response: Response | null): SearchRow | null {
+  const answer = response?.answer;
+  return answer && "search" in answer ? answer.search : null;
+}
+
 /** The Title an answer carries, when the Action was an `open_title`. */
 export function answeredTitle(response: Response | null): Title | null {
   const answer = response?.answer;
