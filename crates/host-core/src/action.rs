@@ -737,6 +737,78 @@ pub enum ValidatedAction {
     StopPlayback,
 }
 
+impl ValidatedAction {
+    /// Whether this Action asks the Host something rather than changing it.
+    ///
+    /// The seven questions are the Actions that resolve from a [`crate::HostView`]
+    /// outside the change lock (ADR-0022). Classification lives here, in the
+    /// Host's vocabulary, so that the door, the window and the wire cannot each
+    /// have their own list: a capability added to the surface is classified once.
+    pub fn is_question(&self) -> bool {
+        matches!(
+            self,
+            Self::BrowseCatalog { .. }
+                | Self::SearchCatalogs { .. }
+                | Self::Discover { .. }
+                | Self::Search { .. }
+                | Self::OpenTitle { .. }
+                | Self::OpenDiscoveredTitle { .. }
+                | Self::FindStreams { .. }
+        )
+    }
+
+    /// The Addon this question names, where it names one.
+    ///
+    /// Only browsing a Catalog and opening a Title name an Addon among the
+    /// questions; the other questions ask every configured Addon, or none of
+    /// them. Changes may name an Addon too — adding, removing, reordering,
+    /// featuring one, or playing a Stream from one — but this method is for the
+    /// question timing line, which has a slot only for a question's Addon. The
+    /// id is what a timing line may carry; a manifest URL, a Stream URL and a
+    /// query may not.
+    pub fn question_addon(&self) -> Option<&AddonId> {
+        match self {
+            Self::BrowseCatalog { addon, .. } | Self::OpenTitle { addon, .. } => Some(addon),
+            Self::SearchCatalogs { .. }
+            | Self::Discover { .. }
+            | Self::Search { .. }
+            | Self::OpenDiscoveredTitle { .. }
+            | Self::FindStreams { .. }
+            | Self::SetSubtitleLanguage(_)
+            | Self::ClearSubtitleLanguage
+            | Self::SetFeaturedCatalog { .. }
+            | Self::ClearFeaturedCatalog
+            | Self::AddAddon(_)
+            | Self::ReorderAddon { .. }
+            | Self::RemoveAddon(_)
+            | Self::SetTmdbKey(_)
+            | Self::ClearTmdbKey
+            | Self::SignInStremio(_)
+            | Self::SignOutStremio
+            | Self::PairDevice { .. }
+            | Self::RevokeDevice(_)
+            | Self::PlayStream { .. }
+            | Self::Resume { .. }
+            | Self::SetPaused { .. }
+            | Self::Seek { .. }
+            | Self::SetAudioTrack { .. }
+            | Self::SetSubtitleTrack { .. }
+            | Self::SetSubtitleDelay { .. }
+            | Self::SetSpeed { .. }
+            | Self::SetVolume { .. }
+            | Self::SetMuted { .. }
+            | Self::NextChapter
+            | Self::PreviousChapter
+            | Self::SetChapter { .. }
+            | Self::SetCrop { .. }
+            | Self::SetAspect { .. }
+            | Self::NextEpisode
+            | Self::PreviousEpisode
+            | Self::StopPlayback => None,
+        }
+    }
+}
+
 /// The wire form of an Action: a version and the Action.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -919,6 +991,70 @@ pub enum ActionError {
     /// yet, and a device that is in already has everything pairing would buy it.
     #[error("this connection has already paired; a device pairs by being unpaired")]
     AlreadyPaired,
+}
+
+impl ActionError {
+    /// This refusal's stable name: the `kind` its own serde tag carries.
+    ///
+    /// The strings are the serde spelling, and they are what a log line may
+    /// say. A refusal's detail can quote a URL, a query or whatever a third
+    /// party answered, so it is never the thing a log records (ADR-0022).
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Malformed { .. } => "malformed",
+            Self::UnsupportedVersion { .. } => "unsupported_version",
+            Self::InvalidSubtitleLanguage(_) => "invalid_subtitle_language",
+            Self::InvalidManifestUrl(_) => "invalid_manifest_url",
+            Self::InvalidAddonId(_) => "invalid_addon_id",
+            Self::InvalidTmdbKey(_) => "invalid_tmdb_key",
+            Self::InvalidCatalogRef(_) => "invalid_catalog_ref",
+            Self::InvalidTitleRef(_) => "invalid_title_ref",
+            Self::InvalidVideoRef(_) => "invalid_video_ref",
+            Self::InvalidSeekTarget(_) => "invalid_seek_target",
+            Self::InvalidSpeed(_) => "invalid_speed",
+            Self::InvalidVolume(_) => "invalid_volume",
+            Self::InvalidSubtitleDelay(_) => "invalid_subtitle_delay",
+            Self::InvalidAspect(_) => "invalid_aspect",
+            Self::InvalidCrop(_) => "invalid_crop",
+            Self::Manifest { .. } => "manifest",
+            Self::Fetch { .. } => "fetch",
+            Self::UnknownAddon { .. } => "unknown_addon",
+            Self::UnknownCatalog { .. } => "unknown_catalog",
+            Self::UnknownTitle { .. } => "unknown_title",
+            Self::NotDiscoveredTitle { .. } => "not_discovered_title",
+            Self::InvalidDiscover { .. } => "invalid_discover",
+            Self::InvalidSearch { .. } => "invalid_search",
+            Self::NoTmdbCredential => "no_tmdb_credential",
+            Self::Tmdb { .. } => "tmdb",
+            Self::UnknownTrack { .. } => "unknown_track",
+            Self::UnknownChapter { .. } => "unknown_chapter",
+            Self::InvalidPosition { .. } => "invalid_position",
+            Self::NoNextEpisode { .. } => "no_next_episode",
+            Self::NoPreviousEpisode { .. } => "no_previous_episode",
+            Self::NoProgress { .. } => "no_progress",
+            Self::Extra { .. } => "extra",
+            Self::Query { .. } => "query",
+            Self::Catalog { .. } => "catalog",
+            Self::Meta { .. } => "meta",
+            Self::Stream { .. } => "stream",
+            Self::Subtitles { .. } => "subtitles",
+            Self::Unplayable(_) => "unplayable",
+            Self::NothingPlaying { .. } => "nothing_playing",
+            Self::Playback { .. } => "playback",
+            Self::Store { .. } => "store",
+            Self::Secret { .. } => "secret",
+            Self::InvalidStremioLogin(_) => "invalid_stremio_login",
+            Self::SyncUnavailable => "sync_unavailable",
+            Self::Sync { .. } => "sync",
+            Self::InvalidPairingCode(_) => "invalid_pairing_code",
+            Self::InvalidDeviceId(_) => "invalid_device_id",
+            Self::InvalidDeviceName(_) => "invalid_device_name",
+            Self::Pairing => "pairing",
+            Self::UnknownDevice { .. } => "unknown_device",
+            Self::Unpaired => "unpaired",
+            Self::AlreadyPaired => "already_paired",
+        }
+    }
 }
 
 #[cfg(test)]
@@ -1809,5 +1945,242 @@ mod tests {
             Action::SPELLINGS.len(),
             "the two lists are the same length, so neither can quietly shrink"
         );
+    }
+
+    #[test]
+    fn the_seven_questions_are_named_once_and_only_they_escape() {
+        let questions: Vec<&str> = EVERY_ACTION
+            .iter()
+            .filter(|body| {
+                let envelope = format!(r#"{{"version":{ACTION_VERSION},"action":{body}}}"#);
+                Action::parse(&envelope)
+                    .expect("a listed Action parses")
+                    .validate()
+                    .expect("a listed Action validates")
+                    .is_question()
+            })
+            .map(|body| action_spelling(body))
+            .collect();
+
+        assert_eq!(
+            questions,
+            vec![
+                "browse_catalog",
+                "search_catalogs",
+                "discover",
+                "search",
+                "open_title",
+                "open_discovered_title",
+                "find_streams",
+            ],
+            "the questions are the seven the door resolves outside the change lock"
+        );
+
+        let browse = Action::parse(&format!(
+            r#"{{"version":{ACTION_VERSION},"action":{{"type":"browse_catalog","addon":"community.example","catalog":{{"type":"movie","id":"top"}},"extra":[]}}}}"#
+        ))
+        .expect("a browse parses")
+        .validate()
+        .expect("a browse validates");
+        assert_eq!(
+            browse.question_addon().map(AddonId::as_str),
+            Some("community.example")
+        );
+
+        let search = Action::parse(&format!(
+            r#"{{"version":{ACTION_VERSION},"action":{{"type":"search_catalogs","query":"matrix"}}}}"#
+        ))
+        .expect("a search parses")
+        .validate()
+        .expect("a search validates");
+        assert_eq!(search.question_addon(), None, "a search names no Addon");
+    }
+
+    #[test]
+    fn a_refusals_stable_kind_is_its_serde_tag() {
+        // One value per variant: the match in `ActionError::kind` is exhaustive,
+        // and this table is what holds each of its strings to the tag serde
+        // actually writes. Adding a variant breaks the match; adding an arm
+        // without a case here leaves that arm unguarded.
+        let addon = || AddonId::parse("community.example").expect("an Addon id");
+        let title = || TitleRef::parse("movie", "tt0133093").expect("a Title");
+
+        let cases = [
+            ActionError::Malformed {
+                detail: "not an Action".to_owned(),
+            },
+            ActionError::UnsupportedVersion {
+                got: 99,
+                supported: ACTION_VERSION,
+            },
+            ActionError::InvalidSubtitleLanguage(InvalidSubtitleLanguage {
+                language: "not a language".to_owned(),
+            }),
+            ActionError::InvalidManifestUrl(InvalidManifestUrl {
+                url: "not a URL".to_owned(),
+            }),
+            ActionError::InvalidAddonId(InvalidAddonId {
+                id: "not an id".to_owned(),
+            }),
+            ActionError::InvalidTmdbKey(InvalidTmdbKey {
+                detail: "not a key",
+            }),
+            ActionError::InvalidCatalogRef(InvalidCatalogRef {
+                which: "type",
+                value: "mov ie".to_owned(),
+            }),
+            ActionError::InvalidTitleRef(InvalidTitleRef {
+                which: "type",
+                value: "mov ie".to_owned(),
+            }),
+            ActionError::InvalidVideoRef(InvalidVideoRef {
+                which: "type",
+                value: "mov ie".to_owned(),
+            }),
+            ActionError::InvalidSeekTarget(InvalidSeekTarget {
+                seconds: "NaN".to_owned(),
+            }),
+            ActionError::InvalidSpeed(InvalidSpeed {
+                rate: "NaN".to_owned(),
+            }),
+            ActionError::InvalidVolume(InvalidVolume {
+                level: "NaN".to_owned(),
+            }),
+            ActionError::InvalidSubtitleDelay(InvalidSubtitleDelay {
+                seconds: "NaN".to_owned(),
+            }),
+            ActionError::InvalidAspect(InvalidAspect {
+                value: "NaN".to_owned(),
+            }),
+            ActionError::InvalidCrop(InvalidCrop {
+                crop: "0x0+0+0".to_owned(),
+            }),
+            ActionError::Manifest {
+                detail: "a manifest".to_owned(),
+            },
+            ActionError::Fetch {
+                detail: "https://example.com/secret".to_owned(),
+            },
+            ActionError::UnknownAddon {
+                id: "community.example".to_owned(),
+            },
+            ActionError::UnknownCatalog {
+                addon: addon(),
+                catalog: CatalogRef::parse("movie", "top").expect("a catalog"),
+            },
+            ActionError::UnknownTitle {
+                addon: addon(),
+                title: title(),
+            },
+            ActionError::NotDiscoveredTitle {
+                detail: "a key naming an Addon".to_owned(),
+            },
+            ActionError::InvalidDiscover {
+                detail: "a genre from the other kind".to_owned(),
+            },
+            ActionError::InvalidSearch {
+                detail: "a page TMDB does not number".to_owned(),
+            },
+            ActionError::NoTmdbCredential,
+            ActionError::Tmdb {
+                detail: "TMDB answered with status 429".to_owned(),
+            },
+            ActionError::UnknownTrack {
+                control: Control::AudioTrack,
+                id: 7,
+            },
+            ActionError::UnknownChapter { index: 3 },
+            ActionError::InvalidPosition {
+                id: "community.example".to_owned(),
+                position: -1,
+                count: 2,
+            },
+            ActionError::NoNextEpisode {
+                detail: "the last episode".to_owned(),
+            },
+            ActionError::NoPreviousEpisode {
+                detail: "the first episode".to_owned(),
+            },
+            ActionError::NoProgress {
+                video: VideoRef::parse("movie", "tt0133093").expect("a Video"),
+            },
+            ActionError::Extra {
+                detail: "an extra value".to_owned(),
+            },
+            ActionError::Query {
+                detail: "an empty query".to_owned(),
+            },
+            ActionError::Catalog {
+                detail: "a catalog page".to_owned(),
+            },
+            ActionError::Meta {
+                detail: "a meta answer".to_owned(),
+            },
+            ActionError::Stream {
+                detail: "a stream answer".to_owned(),
+            },
+            ActionError::Subtitles {
+                detail: "a subtitles answer".to_owned(),
+            },
+            ActionError::Unplayable(Unplayable {
+                detail: "an infoHash with no bridge".to_owned(),
+            }),
+            ActionError::NothingPlaying {
+                control: Control::Pause,
+            },
+            ActionError::Playback {
+                detail: "the Player refused".to_owned(),
+            },
+            ActionError::Store {
+                detail: "the store refused".to_owned(),
+            },
+            ActionError::Secret {
+                detail: "the secret store refused".to_owned(),
+            },
+            ActionError::InvalidStremioLogin(InvalidStremioLogin {
+                detail: "not a login",
+            }),
+            ActionError::SyncUnavailable,
+            ActionError::Sync {
+                detail: "Stremio refused".to_owned(),
+            },
+            ActionError::InvalidPairingCode(InvalidPairingCode {
+                code: "not a code".to_owned(),
+            }),
+            ActionError::InvalidDeviceId(InvalidDeviceId {
+                id: "not an id".to_owned(),
+            }),
+            ActionError::InvalidDeviceName(InvalidDeviceName {
+                name: "not a name".to_owned(),
+            }),
+            ActionError::Pairing,
+            ActionError::UnknownDevice {
+                id: "not paired".to_owned(),
+            },
+            ActionError::Unpaired,
+            ActionError::AlreadyPaired,
+        ];
+
+        let mut kinds: Vec<&str> = cases.iter().map(ActionError::kind).collect();
+        for error in &cases {
+            let json = serde_json::to_value(error).expect("a refusal serializes");
+            assert_eq!(
+                Some(error.kind()),
+                json.get("kind").and_then(|kind| kind.as_str()),
+                "{error:?} names the same kind its wire form does"
+            );
+            assert!(!error.kind().is_empty(), "every kind is a name");
+        }
+        kinds.sort_unstable();
+        kinds.dedup();
+        assert_eq!(kinds.len(), cases.len(), "the kinds are distinct");
+    }
+
+    /// The spelling of a hand-written Action body, as serde reads it.
+    fn action_spelling(body: &str) -> &'static str {
+        let envelope = format!(r#"{{"version":{ACTION_VERSION},"action":{body}}}"#);
+        Action::parse(&envelope)
+            .expect("a listed Action parses")
+            .spelling()
     }
 }

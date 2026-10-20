@@ -42,6 +42,7 @@ mod catalog;
 mod clock;
 mod device;
 mod discover;
+mod door;
 mod fetcher;
 mod host;
 mod meta;
@@ -63,6 +64,7 @@ mod stremio;
 mod subtitles;
 mod sync;
 mod tmdb;
+mod view;
 mod wire;
 
 pub use action::{Action, ActionError, ValidatedAction, ACTION_VERSION};
@@ -78,6 +80,7 @@ pub use device::{
     InvalidDeviceToken, InvalidTokenDigest, TokenDigest,
 };
 pub use discover::DiscoverRow;
+pub use door::HostDoor;
 pub use fetcher::{FetchError, Fetcher, FixtureFetcher};
 pub use host::Host;
 pub use meta::{MetaError, Title, TitleKey, Video, MAX_META_BYTES};
@@ -117,4 +120,5 @@ pub use tmdb::{
     SearchQuery, SearchQueryError, TmdbDetails, TmdbError, TmdbId, TmdbRequest, TmdbVideo,
     IMAGE_ROOT, LOGO_ROOT, STILL_ROOT, TMDB_ROOT,
 };
+pub use view::HostView;
 pub use wire::{permitted, ClientFrame, Refusal, ServerFrame, WIRE_VERSION};
