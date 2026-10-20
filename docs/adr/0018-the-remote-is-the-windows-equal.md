@@ -7,6 +7,16 @@ choosing among its Streams, the full control set, and the Host's own settings
 Action surface. ADR-0017 §9 left the page deliberately minimal and said the full
 remote "arrives as a bigger page"; this records the decisions that shape it.
 
+> **Amended by #88.** The page is now the **Cast Remote**: six destinations and
+> three surfaces in a phone's shape, with Title/Streams/Settings pushed as
+> levels. The self-contained-document decision below stands, with one serve-time
+> step: the template is completed before it is served from `src/tokens.css`, the
+> shared subtitle-language list, the TMDB mark and the version, through one
+> marker convention. That keeps the window's palette and language list
+> single-sourced while the bytes a browser receives remain one document with no
+> build step (ADR-0017 §2, as amended). The capability list and the parity
+> assertion are unchanged.
+
 ## 1. One hand-written, self-contained, compiled-in page
 
 `crates/host-wire/remote/index.html` grows from the pairing-and-playback page of
@@ -82,6 +92,13 @@ Rejected, with reasons: **swapping to a full-screen player surface, as the windo
 does** (it would stop a phone from browsing while the television plays, for no
 reason a remote has); **a control set only reachable from the bar with no sheet**
 (the full set is the ticket's point, and a phone has the room for it).
+
+> **Refined by #88.** The bar is now a docked cast strip, and tapping it expands
+> into a full-screen Cast Remote that can be collapsed again. It is still not a
+> takeover: Surface 1 keeps its destination and scroll position underneath, the
+> expansion is the person's own action, and collapsing returns to the strip. The
+> control set lives on the expanded surface and its Audio & Subtitles sheet, not
+> in a second browser route.
 
 ## 4. "Previous episode" is not on the surface, and is not invented here
 
