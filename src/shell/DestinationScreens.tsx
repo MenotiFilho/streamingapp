@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import { AddonsScreen } from "./AddonsScreen";
 import { HomeScreen } from "./Home";
+import { LibraryScreen } from "./LibraryScreen";
 import { SettingsScreen } from "./SettingsScreen";
 import { useShell } from "./context";
 import { destinationLabel, type Destination } from "./navigation";
@@ -9,10 +10,11 @@ import { destinationLabel, type Destination } from "./navigation";
 /**
  * The base screen for one destination.
  *
- * Home (#80), Addons (#82), and Settings (#82) are built; Discover, Search,
- * and Library are the shell's honest placeholders until their tickets fill
- * them in. The words still say what the Host holds, so the frame can be
- * driven and looked at without pretending a screen is finished.
+ * Home (#80), Addons and Settings (#82), and Library's sign-in-gated stub
+ * (#84) are built; Discover and Search are the shell's honest placeholders
+ * until their tickets fill them in. The words still say what the Host holds,
+ * so the frame can be driven and looked at without pretending a screen is
+ * finished.
  */
 export function DestinationScreen({ destination }: { destination: Destination }) {
   const { snapshot } = useShell();
@@ -52,19 +54,8 @@ export function DestinationScreen({ destination }: { destination: Destination })
         </Screen>
       );
     }
-    case "library": {
-      const signedIn = snapshot?.protection.stremioHeld ?? false;
-      return (
-        <Screen
-          destination="library"
-          lede={
-            signedIn
-              ? "Signed in to Stremio. Library membership is not built yet, so this screen holds no collection."
-              : "Library needs a Stremio account. Sign in to hold one."
-          }
-        />
-      );
-    }
+    case "library":
+      return <LibraryScreen />;
     case "addons":
       return <AddonsScreen />;
     case "settings":
