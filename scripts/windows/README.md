@@ -39,11 +39,14 @@ has something to move; the series has two episodes, so `Next episode` and
 `Previous episode` have somewhere to go. One film's candidate is an `infoHash`,
 which this Host lists and marks unplayable rather than pretending to play.
 
-The remote steps (25 and 26) still pair and drive the existing companion page:
-the restyle is ticket #88's, and until it lands these steps walk the window's
+The remote steps (25 and 26) pair and drive the **Cast Remote** (#88): the page
+is the window's equal in a phone's shape, with six destinations (Home · Discover ·
+Search · Library · Addons · Settings), pushed Title and Streams levels, a docked
+cast strip that expands into the full-screen remote, and an Audio & Subtitles
+sheet whose choices reach the Host immediately. `verify.ps1` walks the window's
 shared-state half (the paired device, and a Stream the remote starts showing up
-in the Host's own OSD) while the companion page is the operator's evidence for
-the rest.
+in the Host's own OSD); the remote's own surfaces are the operator's evidence as
+they walk the printed route, because the script cannot screenshot another device.
 
 The steps that depend on what a third-party Addon serves are structural — the
 rows stopped loading, the search arm is showing, the Title names the Addon that

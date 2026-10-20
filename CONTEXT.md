@@ -222,6 +222,13 @@ A client on another machine that reaches the Host's Action surface over the wire
 Host serves, paired to that device alone.
 _Avoid_: phone app, second screen, companion
 
+**Cast Remote**:
+The three-surface shape the served Remote client is drawn in: the six-destination
+browse surface with the docked strip, the expanded full-screen remote the strip
+opens, and the Audio & Subtitles sheet over it. It is a way the Remote client is
+drawn, not a second client.
+_Avoid_: companion, remote app
+
 **Pairing code**:
 The short code the Host shows, which a client redeems once for a Device token.
 Single-use: redeeming it rotates the one the Host shows. Not a password, and not
