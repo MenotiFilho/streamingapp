@@ -12,100 +12,48 @@ run the same way twice:
   it can be walked on its own (`-Only`, `-From`, `-List`) — see "Walking part of
   the checklist" below.
 
-The checklist covers the whole window: the preference and the Action surface, the
-Addon by its manifest URL, the home surface's catalog rows, paging one, searching,
-going Back, and the same controls reached with the arrow keys and OK rather than
-the mouse (tickets #23 and #24), and — from #24 — opening a Title, a series'
-seasons and episodes, backing out and opening the Title again, and — from #25 —
-the TMDB key's round trip (entered, held, refused by TMDB without blanking a
-Title, and cleared again), the backend the window says is holding it, and a
-Title no TMDB record met marked unmapped. From #26 the walkthrough presses play
-on a Video — an episode, or a film's own Play — and checks that the Streams
-surface opens, that a candidate can be chosen, and that Back leaves it for the
-Videos it was asked from; whether candidates actually arrive depends on the
-Addon the run is pointed at, so walking the candidates themselves needs
-`-Addon` naming an Addon that answers `stream` (Cinemeta, the default, answers
-none, and the step says so rather than failing). From #27 the walkthrough goes
-further when a candidate *can* be played: choosing one starts it, and the step
-then checks that the picture is a window of mpv's own made a child of the Host's
-window, that the interface's webview is above it, that a **real click in the
-middle of the video** reaches the interface (the picture pauses, so the OSD
-offers Play where it offered Pause), that play, pause, ±10 s and stop work
-through the interface, and that Stop puts the client back on the list it chose
-from. A run whose candidates are all `info_hash` — a torrent Addon with no
-debrid configuration, say — checks the other half of the rule: the candidate is
-listed, says it is not playable yet, and nothing is drawn for it. From #28 the
-walkthrough walks the whole control set (step 13), over the fixture's own file:
-the menu's groups are all asserted present, the file's two audio tracks and two
-embedded subtitle tracks are listed (embedded first) and selectable by their
-toggle state, a subtitle track is chosen and then turned off with `Subtitles
-off`, the subtitle delay is stepped (`0.0 s` to `+0.1 s`) and reset, a speed is
-picked and the pressed choice moves with it, the volume is moved and mute flips
-the control to `Unmute`, the two chapters are stepped and jumped to, a crop is
-applied and cleared over a file that really has black bars, an aspect ratio is
-set and returned to `Source`, the statistics are shown and the readout names the
-hardware decode mode, and — because an episode is what plays — `Next episode`
-follows the fixture's series to the next one. From #29 the walkthrough watches
-part of an episode, **kills the Host rather than closing it**, starts it again,
-and picks the Video up from the Continue watching row: the row is there because
-Watch progress is written while playback runs, and the resume plays from where it
-was left rather than from the beginning. From #30 the walkthrough walks the
-Stremio account: it starts with no account and **waits while the operator signs
-in by hand** in the window's own form — the password is typed straight into the
-password field and never passes through the script, a console, or a variable —
-then checks the protection line says an account is held and that the `authKey` is
-nowhere in the window, signs out again, and checks the log names no part of the
-sign-in and the host exits through the hook sync added with `"account":false`. It
-is runnable on its own with `-Only 24`; the merge and the push need a Title
-watched while signed in, and `crates/host-core/tests/stremio_sync.rs` covers them
-rather than a by-hand run that would push a fixture Title into a real account.
-From #31 the walkthrough walks the remote: it checks the Host is serving and
-announcing itself, reads the address and the pairing code off the window, and
-then **waits while the operator pairs a browser on another device by hand** —
-open the address, type the code, nothing passes through the script — before
-checking that the device joined the list, that the code rotated, and that
-revoking it on its own takes it off the list again. It is runnable on its own
-with `-Only 25`, and it needs a second device on the same network (a phone is
-the obvious one). The parts a phone cannot be asked to prove — an unpaired
-connection reaching only the pairing exchange, and a revoked one being cut off —
-are driven over a real socket by `crates/host-wire/tests/wire.rs`.
+The checklist is the **ten-foot shell** (#87), now the window's only client. It
+covers the whole surface: the six-destination rail (**Home · Discover · Search ·
+Library · Addons · Settings**) with its D-pad geometry; Home's Featured hero, its
+rotation and its text fallback, Continue watching and one row per Catalog; the
+Title and the Streams level above it; the player OSD, with one popover per icon,
+auto-hide, the episode steps and the volume pillar; Settings' Preferences,
+Credentials, Remote devices and About/Credits sub-screens; the key-gated Discover
+and Search; the Library sign-in gate; and the TMDB attribution.
 
-From #32 the walkthrough walks the **full remote**: with a second device you open
-the same address, pair, and then *from the browser* search or browse, open a
-Title, pick a Stream and press play — and the step checks the half that is shared
-state, that the Host's own window shows the Stream playing and offers Pause,
-because the window is another client of the same Snapshot. You then pause, seek
-and switch a subtitle from the phone, and the script waits for the pause to reach
-the window and for the remote's controls to publish Snapshots like any other
-client (the phone's own screen is not something `verify.ps1` can screenshot, so
-the operator's screen is the evidence for the remote's own surface). It is
-runnable on its own with `-Only 26`, needs a playable Stream (the fixture Addon
-with `-Video`, or an Addon whose candidates this Host can open), and revokes the
-device at the end so a run leaves nothing paired behind. The remote's capability
-list — that it is the Host's window's equal and not a curated subset — is
-asserted against the Action surface by `crates/host-wire/src/remote.rs`, not by
-hand.
+The Addon it configures is a parameter, so the walkthrough can be run against the
+Addon the owner actually uses — including one whose manifest URL carries a debrid
+configuration, which is the case the "the URL never leaves the Host" checks are
+for:
 
-The announcement is the half of discovery a browser cannot use. To see the record
-the Host put out, from another machine on the same network: on Linux
-`avahi-browse -rt _streamingapp._tcp`, on macOS `dns-sd -B _streamingapp._tcp`
-(and `dns-sd -L <instance> _streamingapp._tcp` for its TXT record). Look for the
-instance named after the machine, on the port the window read out, with
-`version=1` beside it. Nothing needs it to connect — the address does that — so a
-network where mDNS is blocked just means typing the address, which is what step 25
-does anyway.
+```sh
+... -Addon 'https://api.stremboxd.com/manifest.json' -AddonName Stremboxd `
+    -AddonId community.stremboxd -AddonCatalog 'Popular This Week'
+```
 
-For the steps that depend on what a third-party Addon happens to serve — that
-the posters are drawn, that a search returns something, which candidates a
-Stream list holds — the assertion is structural (the rows stopped saying
-`Loading`, the search surface is showing, the Title names the Addon that
-answered, the revision did not move, a window class is or is not among the
-Host's children) and the screenshot is the evidence a person reads. The one
-thing these steps *cannot* walk is a Stream that fails to open: that needs an
-Addon whose URLs are dead, so it is checked by the tests instead
-(`crates/host-mpv/tests/mpv.rs` drives a real headless mpv at a URL that 404s,
-and `src/App.test.tsx` renders the failure) — by hand, point `-Addon` at a
-deaddressed Stream to see it.
+The fixture Addon (`fixture-addon.ps1`) is what makes playback walkable: it
+serves a movie Catalog, a series Catalog, their metadata, and Stream answers
+whose candidates are a local video file. The file carries two audio tracks, two
+embedded subtitle tracks, two chapters and letterbox bars, so every OSD control
+has something to move; the series has two episodes, so `Next episode` and
+`Previous episode` have somewhere to go. One film's candidate is an `infoHash`,
+which this Host lists and marks unplayable rather than pretending to play.
+
+The remote steps (25 and 26) still pair and drive the existing companion page:
+the restyle is ticket #88's, and until it lands these steps walk the window's
+shared-state half (the paired device, and a Stream the remote starts showing up
+in the Host's own OSD) while the companion page is the operator's evidence for
+the rest.
+
+The steps that depend on what a third-party Addon serves are structural — the
+rows stopped loading, the search arm is showing, the Title names the Addon that
+answered, a window class is or is not among the Host's children — and the
+screenshot is the evidence a person reads. The one thing these steps *cannot*
+walk is a Stream that fails to open: that needs an Addon whose URLs are dead, so
+it is checked by the tests instead (`crates/host-mpv/tests/mpv.rs` drives a real
+headless mpv at a URL that 404s, and `src/shell/Shell.test.tsx` renders the
+failure alert beside Home with no player). By hand, point `-Addon` at a dead
+Stream to see it.
 
 The window is placed on `-Monitor` (1-based, numbered left to right) and filled to
 that monitor's working area, so a run on a multi-monitor machine does not sit on
@@ -122,13 +70,30 @@ This is a **by-hand walkthrough, not a test suite**. The spec's testing decision
 stands: windowed behaviour is covered by manual checklists rather than GUI
 automation in the build, so these scripts are run deliberately, never in CI.
 
+## What the steps stand on
+
+The new shell has no revision line to read: its Snapshots are followed silently.
+Where a check has to say "this question moved nothing", `verify.ps1` counts the
+Host's own `publishing a Snapshot` log lines instead — the same record every
+client is told of, and one that cannot be scrolled off the window. A step that
+publishes takes a baseline, waits for the next line, and a step that must not
+publish compares the count either side of the question.
+
+The rail is the only control that changes the base screen, and a pushed level
+makes everything under it inert. The helpers that move around therefore pop any
+open levels with Back (Escape) before pressing a destination. The OSD puts itself
+away after five idle seconds: a step that needs an icon awake moves the pointer
+before looking for it, and the auto-hide step is the one that deliberately waits
+the five seconds out.
+
 ## Walking part of the checklist
 
-The whole checklist is 25 steps and takes minutes. To iterate on one step, run
+The whole checklist is 32 steps and takes minutes. To iterate on one step, run
 just that one: the runner builds the ground the step declares first — an empty
 data directory, one Host on `-Monitor`, the fixture Addon configured by manifest
-URL, at the catalog rows — and reuses it when several selected steps need it, so
-you never sit through the earlier steps to see whether step 13 works now:
+URL, its first Catalog featured, at Home — and reuses it when several selected
+steps need it, so you never sit through the earlier steps to see whether step 13
+works now:
 
 ```sh
 # 1. the whole checklist, in order (what "The route, in full" below does)
@@ -140,13 +105,13 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass \
 powershell.exe -NoProfile -ExecutionPolicy Bypass \
   -File 'C:\...\scripts\windows\verify.ps1' -List
 
-# 3. just the control set (step 13). It sets up first: one Host from an empty
-#    data directory, the fixture Addon configured by manifest URL, at the rows.
+# 3. just the OSD (step 13). It sets up first: one Host from an empty data
+#    directory, the fixture Addon configured and featured, at Home.
 powershell.exe -NoProfile -ExecutionPolicy Bypass \
   -File 'C:\...\scripts\windows\verify.ps1' -Tree 'C:\...' -Monitor 1 -Only 13
 
-# 4. from step 13 on: the control set, the Title, the series, paging, search,
-#    the TMDB key, removing the Addon, the log and the data directory
+# 4. from step 13 on: the OSD, the Title, the series, paging, Search, the TMDB
+#    key, removing the Addon, the log and the data directory
 powershell.exe -NoProfile -ExecutionPolicy Bypass \
   -File 'C:\...\scripts\windows\verify.ps1' -Tree 'C:\...' -Monitor 1 -From 13
 ```
@@ -157,18 +122,22 @@ screenshots keep their names, so a partial run's `evidence\` compares with a ful
 one's.
 
 A handful of steps read what an earlier step left behind and cannot rebuild it:
-step 4 needs step 3's second launch in the log, step 12 needs the Title step 11
-opened, step 18 needs the search surface step 17 left showing, and step 21 needs
-the log steps 19 and 20 wrote. Run alone, one of these **refuses loudly** — it
-prints the step it needs and the selection to run instead, and exits non-zero
-without touching the machine — rather than checking the wrong state. `-List`
-prints the same `needs:` line for every step.
+step 4 needs steps 2 and 3 (the saved language, and the second launch in the
+log), step 12 needs the Title step 11 opened, step 18 needs the Search screen step
+17 left showing, and step 21 needs the log steps 19 and 20 wrote. Run alone, one
+of these **refuses loudly** — it prints the step it needs and the selection to run
+instead, and exits non-zero without touching the machine — rather than checking
+the wrong state. `-List` prints the same `needs:` line for every step.
 
 When the fixture Addon is what a step needs, it is the same parameter the full
 route uses: pass `-Addon`, `-AddonName`, `-AddonId` and `-AddonCatalog` as in
 "The route, in full" (the `fixture-addon.ps1` server, with `-Addon
 'http://127.0.0.1:8099/manifest.json' -AddonName Verify -AddonId
 dev.streamingapp.verify -AddonCatalog Verify`).
+
+A partial run that needs a Continue watching row (the short-row half of step 27)
+has none to rebuild: it says so and skips that check, with exit code 2, rather
+than reporting a pass it did not walk.
 
 ## The route, in full
 
@@ -204,20 +173,20 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass \
   -AddonId dev.streamingapp.verify -AddonCatalog Verify
 ```
 
-`fixture-addon.ps1` is worth the second window whenever a run has to *play*
-something: it serves a manifest, a movie catalog of two films and a series
-catalog, their metadata, and a stream answer for each Video whose candidate is
-the fixture video — one film that plays and one whose candidate is an `infoHash`,
-so the "listed but not playable" half is walked too. The series carries two
-episodes under the same `bingeGroup`, so `Next episode` has somewhere to go; the
-viewer walks the control set over an episode rather than the film for exactly
-that reason (a film offers no `Next episode`). Without the fixture the run is
-pointed at a third-party Addon: `Cinemeta` answers no Streams at all, and a
-torrent Addon without debrid configuration answers only candidates this version
-cannot fetch.
+Two steps are deliberately by hand and block the run until a person acts: step
+24 waits while you sign in to Stremio in the window (up to five minutes), and
+steps 25 and 26 wait while you pair a browser on another device (up to five
+minutes each). A run that means to walk them needs the account and the second
+device; a run of the rest can use `-Only` with the steps it wants.
 
-Screenshots, the assertion report and the log tail land in
-`<Tree>\evidence\` — read them from WSL as `/mnt/c/Users/<you>/streamingapp-verify/evidence/`.
+Steps 19 and 30 enter a test TMDB key and clear it again. The key lives in the
+OS keyring, which the data-directory wipe at the top does not touch, so both
+steps clear whatever a crashed earlier run left behind before they start and
+leave no key behind. Running the walkthrough does remove a real key you had
+configured: it is a verification Host, not the daily one.
+
+Screenshots, the assertion report and the log tail land in `<Tree>\evidence\` —
+read them from WSL as `/mnt/c/Users/<you>/streamingapp-verify/evidence/`.
 
 ## libmpv, on the Windows side
 
@@ -328,11 +297,10 @@ or started).
   `~/.local/share`). Anything that assumes two distinct paths will look fine here
   and wrong there.
 - **The TMDB key lives in the OS keyring, which the data-directory wipe at the
-  top does not touch.** Step 19 enters its own test key, clears it again, and
-  clears whatever a crashed earlier run left behind before it starts, so a run
-  is honest about "no key is held" either way. Running the walkthrough does
-  remove a real key you had configured: it is a verification Host, not the daily
-  one.
+  top does not touch.** Steps 19 and 30 clear a key left behind before they
+  start, enter their own test key, and clear it again, so a run is honest about
+  "no key is held" either way. Running the walkthrough does remove a real key you
+  had configured: it is a verification Host, not the daily one.
 - **The black bars are gone before the crop step, and that is mpv, not the Host.**
   `host-mpv` vendors mpv's own `TOOLS/lua/autocrop.lua`, which fires about five
   seconds after the file loads and sets `video-crop` itself. The fixture is
@@ -342,7 +310,7 @@ or started).
   is the one in force until the Host is asked for one, and then that asking for
   one takes effect.
 - **UI Automation needs a moment.** Chromium builds its accessibility tree only
-  once a client asks for it, so `Find-Named`/`Page-Text` retry for a few seconds
+  once a client asks for it, so `Find-Element`/`Page-Text` retry for a few seconds
   before giving up.
 - **Close the Host, don't kill it, when you want its log tail.** The log writer is
   asynchronous and flushes on exit; `Stop-Process -Force` skips that. `verify.ps1`
@@ -352,8 +320,20 @@ or started).
   clean close would hide a Host that only wrote on the way out.
 - **The keyboard steps send real keys to the focused window**, so the run needs the
   Host in the foreground: `verify.ps1` calls `SetForegroundWindow` first and says so
-  when it does not take. `{DOWN}` past the search box and onto a poster, `{ENTER}` to
-  choose it — the same as a TV remote would.
+  when it does not take. `{DOWN}` past the hero and onto a card, `{ENTER}` to
+  choose it, `{RIGHT}` out of the rail — the same as a TV remote would.
+- **The OSD is not always there.** It hides itself after five idle seconds and
+  comes back on any key or pointer movement. A step that reads the transport or
+  an icon after a wait moves the pointer first (the same motion a person makes),
+  and the auto-hide check is the one that waits the five seconds out on purpose.
+- **The rail is inert under a pushed level.** A destination cannot be pressed
+  while a Title, a Streams list, a Settings sub-screen, or a confirmation is open,
+  because everything under the top level is inert. `Open-Destination` presses Back
+  a few times first; a by-hand run does the same with Escape.
+- **The new shell has no revision line.** Where an older run read
+  `Snapshot revision | 4` off the window, the walkthrough now counts the Host's
+  `publishing a Snapshot` log lines. That is the same record every client is told
+  of, and it does not go stale when the window scrolls.
 
 ## Windows will not have
 

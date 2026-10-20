@@ -12,7 +12,7 @@
 > — [W3C Gamepad, Working Draft 10 July 2025, §1](https://www.w3.org/TR/gamepad/)
 
 So a gamepad and a TV remote arrive on **two different JavaScript channels**:
-* a **TV / IR remote** presents as a normal keyboard, so it arrives as `keydown` / `keyup` events (`KeyboardEvent.key`) — the channel `src/useArrowKeys.ts` already listens on;
+* a **TV / IR remote** presents as a normal keyboard, so it arrives as `keydown` / `keyup` events (`KeyboardEvent.key`) — the channel the old shell's `src/useArrowKeys.ts` listened on (removed in #87; `src/shell/useSpatialFocus.ts` is its successor);
 * a **gamepad** (Xbox/PS/Bluetooth pad) arrives **only** through the `Gamepad` API, which must be **polled**; it emits no DOM events per button.
 
 ---
@@ -159,7 +159,7 @@ There are three different "Back" behaviours, and only one is a JS key you can ha
 
 * **A desktop browser tab (the companion on a laptop).** Back is the browser's own session-history navigation. You cannot cancel it, but `popstate` fires after it: "the `popstate` event will be triggered by doing a browser action such as a click on the back or forward button (or calling `history.back()`)". Crucially, "browsers may not fire the `popstate` event at all unless the page has been interacted with" — so the *first* Back can leave the page with no event ([MDN, `Window: popstate`](https://developer.mozilla.org/en-US/docs/Web/API/Window/popstate_event)). The common single-page-app "back trap" (push a state, re-push on `popstate`) is a workaround, not a guarantee, and cannot stop a tab close.
 * **An Android WebView (Tauri on Android / Android TV).** `BACK` is handled by the host Activity by default, not by the page. Android's own guidance introduces `onBackPressed()` (and the older `onKeyDown(KEYCODE_BACK, …)` pattern) as the way an Activity intercepts Back ([Android Developers Blog, "Back and other hard keys: three stories", 2009-12-18](https://android-developers.googleblog.com/2009/12/back-and-other-hard-keys-three-stories.html)), and `WebView.canGoBack()` / `goBack()` is the host's WebView navigation ([LogRocket, "WebView and Android back button navigation"](https://blog.logrocket.com/customize-androids-back-button-navigation-webview/)). JS sees `"GoBack"` **only if the embedding app forwards the key** to the WebView; `[inference]` Tauri would need Rust/Kotlin glue to do that.
-* **A desktop Tauri window (Windows/Linux).** There is no browser chrome and no Back button; "Back" is whatever the app's own `back()` does. Escape is that, today, in `src/useArrowKeys.ts`.
+* **A desktop Tauri window (Windows/Linux).** There is no browser chrome and no Back button; "Back" is whatever the app's own `back()` does. Escape is that, today, in the shell's `useSpatialFocus` (the note below describes the old shell's `src/useArrowKeys.ts`, removed in #87).
 
 ---
 
@@ -218,11 +218,16 @@ Chromium-based Android WebView inherits Chromium's Gamepad API, but a phone/TV p
 
 ---
 
-## 4. What the existing input handling covers, and misses
+## 4. What the old shell's input handling covered, and missed
 
-### 4.1 Covered, today
+> This section and §4.1 describe the shell as it stood when the note was written.
+> Its `src/useArrowKeys.ts` was removed at the #87 cutover; the ten-foot shell's
+> `src/shell/useSpatialFocus.ts` reads that file's findings and adds the gamepad
+> and spatial movement it called for.
 
-`src/useArrowKeys.ts` listens on `document` for `keydown` and:
+### 4.1 Covered, at the time
+
+`src/useArrowKeys.ts` listened on `document` for `keydown` and:
 
 * `ArrowRight` / `ArrowLeft` — move to the next/previous `[data-focusable]` in DOM order, wrapping; **Left/Right are yielded to the caret when the focused control is a text field**.
 * `ArrowDown` / `ArrowUp` — same move, and they still move when a text field is focused (the comment calls this "how a remote with no Backspace leaves the field at all").
@@ -234,10 +239,10 @@ The companion page (`crates/host-wire/remote/index.html`) has only a single keyb
 
 ### 4.2 Missed, for a gamepad/dpad
 
-* **No Gamepad API at all.** A gamepad's D-pad, sticks and buttons emit **no key events**, so `useArrowKeys.ts` never sees them. On Windows/Linux this is the whole gap; on Android TV and for IR remotes it does not apply.
+* **No Gamepad API at all.** A gamepad's D-pad, sticks and buttons emit **no key events**, so the old shell's keyboard handler never saw them. On Windows/Linux this is the whole gap; on Android TV and for IR remotes it does not apply.
 * **No polling loop, no `gamepadconnected` / `gamepaddisconnected`,** no `gamepad.mapping === "standard"` check, no axis dead-zone/edge-detection (a stick must be turned into discrete move steps, not a key-repeat flood).
 * **No transport or menu intents.** Play/pause, seek back/forward, stop and menu have no mapping in either client. The window's playback controls are only reachable by moving focus to the control and pressing Enter.
-* **No `"GoBack"`.** The Android Back key value is not handled anywhere; `useArrowKeys.ts` handles `Escape` and `Backspace` only.
+* **No `"GoBack"`.** The Android Back key value is not handled anywhere; the old handler took `Escape` and `Backspace` only.
 * **No media keys.** `"MediaPlayPause"`, `"MediaRewind"`, `"MediaFastForward"`, `"MediaStop"`, `"ContextMenu"`, `"Accept"` are all unhandled.
 * **DOM order, not geometry.** Movement is `querySelectorAll` order, so a D-pad moves through the controls in reading order rather than by spatial direction. `[inference]` For a poster wall or a grid this will feel wrong (a Right press after the last card of a row jumps to the next row's first card only because that happens to be DOM order).
 
@@ -325,7 +330,7 @@ Platforms and bugs
 * Linux kernel, **Remote controller tables** — <https://www.kernel.org/doc/html/v4.9/media/uapi/rc/rc-tables.html>
 
 This repository
-* `src/useArrowKeys.ts` — the current `keydown` handler.
+* `src/shell/useSpatialFocus.ts` — the keydown and gamepad handler that replaced the old shell's `src/useArrowKeys.ts` (the subject of §4, removed in #87).
 * `crates/host-wire/remote/index.html` — the single-file companion (`Escape` only).
 * `crates/host-wire/src/server.rs`, `remote.rs`; `docs/adr/0017-pairing-and-the-wire-protocol.md` — the companion is plain HTTP on the LAN.
 * `docs/research/gui-toolkit-performance-multiplatform.md` §0, §3 — Tauri version and webview engines.
