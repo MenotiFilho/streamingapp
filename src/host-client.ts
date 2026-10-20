@@ -725,6 +725,12 @@ export function answeredCatalogs(response: Response | null): CatalogRow[] {
   return answer && "catalogs" in answer ? answer.catalogs : [];
 }
 
+/** The Discover rows an answer carries, when the Action was a `discover` (#75). */
+export function answeredDiscover(response: Response | null): DiscoverRow[] {
+  const answer = response?.answer;
+  return answer && "discover" in answer ? answer.discover : [];
+}
+
 /** The Title an answer carries, when the Action was an `open_title`. */
 export function answeredTitle(response: Response | null): Title | null {
   const answer = response?.answer;

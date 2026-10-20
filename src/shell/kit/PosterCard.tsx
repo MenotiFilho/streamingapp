@@ -18,6 +18,12 @@ export type PosterCardProps = Omit<ComponentPropsWithoutRef<"button">, "children
   description?: string | null;
   /** An Unmapped Title keeps its amber mark; unmapped is a mark, not a hiding. */
   unmapped?: boolean;
+  /**
+   * A Title no configured Addon could answer for is marked, not hidden: it can
+   * still be opened for what TMDB knows, and the mark says why it will not play
+   * (ADR-0020).
+   */
+  unplayable?: boolean;
   /** A stable id for a screen's tests. */
   testId?: string;
 };
@@ -34,6 +40,7 @@ export function PosterCard({
   subtitle,
   description,
   unmapped = false,
+  unplayable = false,
   testId,
   className,
   ...button
@@ -46,6 +53,7 @@ export function PosterCard({
       data-focusable
       data-testid={testId}
       data-unmapped={unmapped ? "true" : undefined}
+      data-unplayable={unplayable ? "true" : undefined}
     >
       <span className="kit-poster-art-frame" data-aspect="2:3">
         {poster ? (
@@ -54,6 +62,7 @@ export function PosterCard({
           <span className="kit-poster-art kit-poster-art-empty" aria-hidden="true" />
         )}
         {unmapped ? <span className="kit-badge-unmapped">Unmapped</span> : null}
+        {unplayable ? <span className="kit-badge-unplayable">Unplayable</span> : null}
       </span>
       <span className="kit-poster-info">
         <span className="kit-poster-name">{name}</span>

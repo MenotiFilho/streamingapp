@@ -100,7 +100,8 @@
   background: linear-gradient(160deg, var(--bg-elevated), var(--bg-raised));
 }
 
-.kit-badge-unmapped {
+.kit-badge-unmapped,
+.kit-badge-unplayable {
   position: absolute;
   top: var(--space-2);
   left: var(--space-2);
@@ -108,11 +109,19 @@
   border: 1px solid var(--status-warn);
   border-radius: var(--radius-pill);
   background: var(--bg-glass);
-  color: var(--status-warn);
   font-size: var(--text-micro);
   font-weight: 600;
   line-height: 1.4;
   white-space: nowrap;
+}
+
+.kit-badge-unmapped {
+  color: var(--status-warn);
+}
+
+.kit-badge-unplayable {
+  border-color: var(--status-danger);
+  color: var(--status-danger);
 }
 
 .kit-poster-info {

@@ -41,7 +41,7 @@ export function StreamsLoader({
   preview?: OpenablePreview | null;
   video: Video;
 }) {
-  const { ask, pop } = useShell();
+  const { ask, pop, markUnplayable } = useShell();
   const subject = isSeries(title) ? subjectOf(video) : nameOf(title, preview);
   const [state, setState] = useState<{ groups: AddonStreams[] } | { failure: ActionError } | null>(
     null,
@@ -59,13 +59,24 @@ export function StreamsLoader({
       if (error) {
         setState({ failure: error });
       } else {
-        setState({ groups: answeredStreams(response) });
+        const groups = answeredStreams(response);
+        // The second half of ADR-0020's unplayable mark: no Addon carried a
+        // candidate, so this Title is marked in the client that opened it. A
+        // candidate anywhere clears the mark; a failed Addon alone proves
+        // nothing either way, so the mark is only touched when every group
+        // actually answered.
+        if (groups.some((group) => group.streams.length > 0)) {
+          markUnplayable(title.id, false);
+        } else if (groups.every((group) => group.failure === null)) {
+          markUnplayable(title.id, true);
+        }
+        setState({ groups });
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [ask, title.type, video.id]);
+  }, [ask, markUnplayable, title.id, title.type, video.id]);
 
   if (!state) {
     return (
