@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import { AddonsScreen } from "./AddonsScreen";
+import { DiscoverScreen } from "./DiscoverScreen";
 import { HomeScreen } from "./Home";
 import { LibraryScreen } from "./LibraryScreen";
 import { SettingsScreen } from "./SettingsScreen";
@@ -10,11 +11,10 @@ import { destinationLabel, type Destination } from "./navigation";
 /**
  * The base screen for one destination.
  *
- * Home (#80), Addons and Settings (#82), and Library's sign-in-gated stub
- * (#84) are built; Discover and Search are the shell's honest placeholders
- * until their tickets fill them in. The words still say what the Host holds,
- * so the frame can be driven and looked at without pretending a screen is
- * finished.
+ * Home (#80), Discover (#85), Addons and Settings (#82), and Library's
+ * sign-in-gated stub (#84) are built; Search is the shell's honest placeholder
+ * until its ticket fills it in. The words still say what the Host holds, so the
+ * frame can be driven and looked at without pretending a screen is finished.
  */
 export function DestinationScreen({ destination }: { destination: Destination }) {
   const { snapshot } = useShell();
@@ -22,23 +22,8 @@ export function DestinationScreen({ destination }: { destination: Destination })
   switch (destination) {
     case "home":
       return <HomeScreen />;
-    case "discover": {
-      const keyed = snapshot?.protection.tmdbHeld ?? false;
-      return (
-        <Screen
-          destination="discover"
-          lede="Discover is TMDB's weekly Trending feed, with a Movie or Series kind and a genre filter."
-        >
-          {snapshot ? (
-            <p className="shell-note" data-testid="discover-key-state">
-              {keyed
-                ? "A TMDB key is held, so Discover can ask TMDB."
-                : "No TMDB key is held, so Discover has nothing to ask yet."}
-            </p>
-          ) : null}
-        </Screen>
-      );
-    }
+    case "discover":
+      return <DiscoverScreen />;
     case "search": {
       const keyed = snapshot?.protection.tmdbHeld ?? false;
       return (

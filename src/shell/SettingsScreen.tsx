@@ -9,7 +9,7 @@ import {
 } from "../languages";
 import { version as appVersion } from "../../package.json";
 import tmdbLogo from "../assets/tmdb-logo.svg";
-import { useShell } from "./context";
+import { useShell, type NewShellLevel } from "./context";
 import { confirmActionLevel } from "./ConfirmAction";
 import { Button, ChoiceChip } from "./kit";
 import { Refusal } from "./Refusal";
@@ -24,9 +24,11 @@ type SettingsCategory = {
   screen: () => ReactNode;
 };
 
+const CREDENTIALS = "credentials";
+
 const CATEGORIES: readonly SettingsCategory[] = [
   {
-    id: "credentials",
+    id: CREDENTIALS,
     title: "Credentials",
     note: "The secret store, the TMDB key, and the Stremio account.",
     screen: () => <CredentialsScreen />,
@@ -104,6 +106,20 @@ export function SettingsScreen() {
       </ul>
     </section>
   );
+}
+
+/**
+ * The Credentials sub-screen as a pushed level, for another screen that points
+ * at it: Discover's no-key state sends a person to where a key is saved without
+ * pretending to be a Settings screen itself.
+ */
+export function credentialsLevel(): NewShellLevel {
+  return {
+    id: `settings-${CREDENTIALS}`,
+    name: "Settings — Credentials",
+    kind: "overlay",
+    render: () => <CredentialsScreen />,
+  };
 }
 
 /** The frame every Settings sub-screen shares: Back, a title, and a lede. */

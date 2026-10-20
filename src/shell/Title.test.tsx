@@ -237,6 +237,7 @@ function Harness({
     destination: "home",
     chosenDestination: false,
     popover: null,
+    unplayable: new Set<string>(),
     choose: () => {},
     push,
     remove,
@@ -245,6 +246,7 @@ function Harness({
     back: pop,
     ask,
     take,
+    markUnplayable: () => {},
   };
 
   return (

@@ -1,0 +1,101 @@
+/*
+ * Discover: TMDB's Trending feed as a spatial poster grid (#85). The kit owns
+ * the cards and the focus treatment; this sheet owns the screen's filters, the
+ * no-key state, and the grid's own measure.
+ *
+ * Every colour, type size, space and motion curve is a token from
+ * `src/tokens.css`; nothing here invents a palette value.
+ */
+
+.discover-screen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+/* --------------------------------------------------------------------------
+ * The no-key state
+ * -------------------------------------------------------------------------- */
+
+.discover-empty {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+  max-width: 48rem;
+  margin-top: var(--space-4);
+  padding: var(--space-6);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--bg-stage);
+}
+
+.discover-empty-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+}
+
+.discover-empty-body {
+  max-width: 52ch;
+  margin: 0;
+  color: var(--ink-secondary);
+  font-size: var(--text-body);
+  line-height: 1.55;
+}
+
+/* --------------------------------------------------------------------------
+ * Kind and genre filters
+ * -------------------------------------------------------------------------- */
+
+.discover-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.discover-kinds,
+.discover-genres {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+/* --------------------------------------------------------------------------
+ * The grid and its paging
+ * -------------------------------------------------------------------------- */
+
+.discover-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: var(--space-4);
+  min-width: 0;
+  margin-top: var(--space-3);
+}
+
+/* The cards fill their grid cell rather than keeping the row track's width. */
+.discover-grid > .kit-poster {
+  width: 100%;
+}
+
+.discover-more {
+  display: grid;
+  place-items: center;
+  align-self: stretch;
+  min-height: 100%;
+  padding: var(--space-2);
+}
+
+.discover-failure {
+  margin: var(--space-1) 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--status-danger);
+  border-radius: var(--radius-control);
+  background: var(--status-danger-bg);
+  color: var(--status-danger);
+  font-size: var(--text-caption);
+  line-height: 1.45;
+}

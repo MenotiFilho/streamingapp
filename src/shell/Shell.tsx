@@ -39,6 +39,11 @@ export function Shell({ client }: { client?: HostClient }) {
   const [error, setError] = useState<ActionError | null>(null);
   const [nav, dispatch] = useReducer(navigate, INITIAL_NAVIGATION);
   const [chosenDestination, setChosenDestination] = useState(false);
+  // What this client has learned about Titles that cannot be played (ADR-0020).
+  // It is not the Host's state and is not published anywhere: a mark earned by
+  // opening a Title stays for this window's lifetime, and a new window starts
+  // as ignorant as the Host is.
+  const [unplayable, setUnplayable] = useState<ReadonlySet<string>>(() => new Set());
   const nextLevelId = useRef(0);
   const levelsRef = useRef(nav.levels);
   levelsRef.current = nav.levels;
@@ -94,6 +99,10 @@ export function Shell({ client }: { client?: HostClient }) {
   const choose = useCallback((destination: Destination) => {
     setChosenDestination(true);
     dispatch({ type: "choose", destination });
+  }, []);
+
+  const markUnplayable = useCallback((id: string) => {
+    setUnplayable((held) => (held.has(id) ? held : new Set(held).add(id)));
   }, []);
 
   const push = useCallback((level: NewShellLevel): string => {
@@ -166,6 +175,7 @@ export function Shell({ client }: { client?: HostClient }) {
       destination: nav.destination,
       chosenDestination,
       popover,
+      unplayable,
       choose,
       push,
       remove,
@@ -174,6 +184,7 @@ export function Shell({ client }: { client?: HostClient }) {
       back,
       ask,
       take,
+      markUnplayable,
     }),
     [
       snapshot,
@@ -181,6 +192,7 @@ export function Shell({ client }: { client?: HostClient }) {
       nav.destination,
       chosenDestination,
       popover,
+      unplayable,
       choose,
       push,
       remove,
@@ -189,6 +201,7 @@ export function Shell({ client }: { client?: HostClient }) {
       back,
       ask,
       take,
+      markUnplayable,
     ],
   );
 

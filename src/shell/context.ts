@@ -26,6 +26,16 @@ export type ShellContextValue = {
    * reads it to mark its icon and to keep itself from hiding under one.
    */
   popover: string | null;
+  /**
+   * Titles this client has learned are unplayable, by the id their card
+   * carries. A Discover card is marked locally when no configured Addon could
+   * ever answer for it, and marked here when a Title is opened and every
+   * Addon's Streams answer comes back empty (ADR-0020). It is this client's own
+   * knowledge, not the Host's state: a fresh window starts without it.
+   */
+  unplayable: ReadonlySet<string>;
+  /** Remember that a Title's Streams came back with no candidate at all. */
+  markUnplayable: (id: string) => void;
   choose: (destination: Destination) => void;
   /** Push an overlay level. Returns the id the shell gave it. */
   push: (level: NewShellLevel) => string;
