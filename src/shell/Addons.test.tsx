@@ -97,7 +97,11 @@ type Invocation = { command: string; args?: Record<string, unknown> };
 
 function fakeHost(
   initial: Snapshot,
-  options: { refuse?: (action: Action) => ActionError | null } = {},
+  options: {
+    refuse?: (action: Action) => ActionError | null;
+    /** A Host publishes its Snapshot before the dispatch call resolves. */
+    addAddon?: AddonManifest;
+  } = {},
 ) {
   const invocations: Invocation[] = [];
   let current = initial;
@@ -113,6 +117,14 @@ function fakeHost(
       const refusal = options.refuse?.(action);
       if (refusal) {
         throw refusal;
+      }
+      if (action.type === "add_addon" && options.addAddon) {
+        current = {
+          ...current,
+          revision: current.revision + 1,
+          addons: [...current.addons, options.addAddon],
+        };
+        listener?.({ payload: current });
       }
       return { snapshots: [], answer: null } as T;
     },
@@ -197,6 +209,21 @@ describe("the Addons screen", () => {
     await waitFor(() =>
       expect(screen.queryByTestId(`addon-details-${CINEMETA.id}`)).not.toBeInTheDocument(),
     );
+  });
+
+  test("the list follows a Snapshot the Host publishes before the dispatch answer", async () => {
+    const host = fakeHost(snap({ addons: [] }), { addAddon: CINEMETA });
+    await openAddons(host);
+
+    fireEvent.change(screen.getByLabelText("Addon manifest URL"), {
+      target: { value: "https://example.test/manifest.json" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+
+    expect(await screen.findByTestId(`addon-${CINEMETA.id}`)).toHaveTextContent(
+      "Cinemeta",
+    );
+    expect(screen.queryByTestId("addons-empty")).not.toBeInTheDocument();
   });
 
   test("with no Addons, the empty state points at the manifest-URL form", async () => {
