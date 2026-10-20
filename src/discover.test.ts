@@ -59,7 +59,7 @@ describe("Discover's genres", () => {
 
 describe("the Discover ask", () => {
   test("with no genre it is the week's trending feed", () => {
-    expect(discoverAsk(MOVIE, 1, null)).toEqual({
+    expect(discoverAsk({ kind: MOVIE, page: 1, genre: null })).toEqual({
       type: "discover",
       kind: "movie",
       page: 1,
@@ -67,7 +67,7 @@ describe("the Discover ask", () => {
   });
 
   test("a genre travels by TMDB's id for the kind", () => {
-    expect(discoverAsk(SERIES, 3, 10765)).toEqual({
+    expect(discoverAsk({ kind: SERIES, page: 3, genre: 10765 })).toEqual({
       type: "discover",
       kind: "series",
       page: 3,
@@ -146,7 +146,7 @@ describe("a Discover feed", () => {
     expect(answered.failure).toBeNull();
   });
 
-  test("switching kind or genre starts a blank feed", () => {
+  test("a blank feed has read nothing and holds no page", () => {
     expect(blankFeed()).toEqual({
       page: 0,
       items: [],

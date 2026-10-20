@@ -3,8 +3,8 @@
  * window draws it from.
  *
  * Discover is not a Catalog (CONTEXT.md): it takes TMDB's own filters — the
- * kind, a page, a genre and a sort order — rather than an Addon's declared
- * `extra`, and every page is asked fresh (ADR-0020). The feed this client has
+ * kind, a page and a genre — rather than an Addon's declared `extra`, and every
+ * page is asked fresh (ADR-0020). The feed this client has
  * read so far is its own, like a catalog row: paging it moves nothing on any
  * other device (ADR-0005).
  *
@@ -78,17 +78,20 @@ export function genresOf(kind: DiscoverKind): readonly DiscoverGenre[] {
   return kind === SERIES ? SERIES_GENRES : MOVIE_GENRES;
 }
 
+/** One page a client is asking for: the kind, the page, and the genre filter. */
+export type DiscoverPage = {
+  kind: DiscoverKind;
+  page: number;
+  genre: number | null;
+};
+
 /**
  * The ask for one page: the week's trending feed where no genre is chosen,
  * and a `/discover` page where one is. The Host builds the URL and judges the
  * genre against the kind's own list (ADR-0020); this client only says what a
  * person chose, and no sort control has been asked for yet.
  */
-export function discoverAsk(
-  kind: DiscoverKind,
-  page: number,
-  genre: number | null,
-): Action {
+export function discoverAsk({ kind, page, genre }: DiscoverPage): Action {
   return {
     type: "discover",
     kind,
@@ -147,11 +150,10 @@ const IMDB_PREFIX = "tt";
  * manifest's, and `tmdb` is preferred over `tt` where both are declared
  * (ADR-0020, `Manifest::declared_prefixes`).
  */
-function spellingOf(addon: AddonManifest, resourceIndex: number): "tmdb" | "tt" | null {
-  const resource = addon.resources[resourceIndex];
-  if (!resource) {
-    return null;
-  }
+function spellingOf(
+  addon: AddonManifest,
+  resource: AddonManifest["resources"][number],
+): "tmdb" | "tt" | null {
   const declared =
     resource.idPrefixes ?? (addon.idPrefixes.length === 0 ? [] : addon.idPrefixes);
   if (declared.some((prefix) => prefix.startsWith(TMDB_PREFIX))) {
@@ -190,6 +192,6 @@ export function discoverPlayable(
       return false;
     }
     const types = resource.types ?? addon.types;
-    return types.includes(kind) && spellingOf(addon, index) !== null;
+    return types.includes(kind) && spellingOf(addon, resource) !== null;
   });
 }

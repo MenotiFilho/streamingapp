@@ -52,7 +52,7 @@ export function DiscoverScreen() {
     async (kind: DiscoverKind, genre: number | null, page: number) => {
       const token = (serial.current += 1);
       setLoading(true);
-      const { response, error } = await ask(discoverAsk(kind, page, genre));
+      const { response, error } = await ask(discoverAsk({ kind, page, genre }));
       if (token !== serial.current) {
         return;
       }
