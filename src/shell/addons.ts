@@ -39,3 +39,38 @@ export function moveTarget(index: number, delta: -1 | 1, count: number): number 
   const target = index + delta;
   return target < 0 || target >= count ? null : target;
 }
+
+/** What an `add_addon` press did to the configured list. */
+export type AddOutcome =
+  | { kind: "added"; name: string }
+  | { kind: "refreshed"; name: string | null };
+
+/**
+ * Read the Snapshot an add answered with: was this a new Addon, or a manifest
+ * the Host already knew?
+ *
+ * An Addon is identified by its manifest id (ADR-0009), so re-adding one
+ * reconfigures the entry in place. The form says which happened, because a
+ * cleared field and an unchanged list otherwise read as a failed add.
+ *
+ * `after` is the Snapshot on the successful response; null means the answer
+ * carried none and there is nothing honest to say.
+ */
+export function addOutcome(
+  before: readonly AddonManifest[],
+  after: readonly AddonManifest[] | null,
+): AddOutcome | null {
+  if (!after) {
+    return null;
+  }
+  const known = new Map(before.map((addon) => [addon.id, addon]));
+  const added = after.find((addon) => !known.has(addon.id));
+  if (added) {
+    return { kind: "added", name: added.name };
+  }
+  const changed = after.find((addon) => {
+    const previous = known.get(addon.id);
+    return previous !== undefined && JSON.stringify(previous) !== JSON.stringify(addon);
+  });
+  return { kind: "refreshed", name: changed?.name ?? null };
+}

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import type { AddonManifest } from "../host-client";
-import { catalogsOf, joinOrNone, moveTarget, resourcesOf } from "./addons";
+import { addOutcome, catalogsOf, joinOrNone, moveTarget, resourcesOf } from "./addons";
 
 const ADDON: AddonManifest = {
   id: "com.linvo.cinemeta",
@@ -45,5 +45,17 @@ describe("the Addons screen's readings", () => {
     expect(moveTarget(1, 1, 3)).toBe(2);
     expect(moveTarget(0, -1, 3)).toBeNull();
     expect(moveTarget(2, 1, 3)).toBeNull();
+  });
+
+  test("an add names a new Addon, and says when it refreshed one that was already known", () => {
+    expect(addOutcome([], [ADDON])).toEqual({ kind: "added", name: "Cinemeta" });
+    expect(addOutcome([ADDON], [ADDON])).toEqual({
+      kind: "refreshed",
+      name: null,
+    });
+    expect(
+      addOutcome([ADDON], [{ ...ADDON, version: "3.0.1" }]),
+    ).toEqual({ kind: "refreshed", name: "Cinemeta" });
+    expect(addOutcome([], null)).toBeNull();
   });
 });
