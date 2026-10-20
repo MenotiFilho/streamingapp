@@ -21,10 +21,13 @@
   pointer-events: none;
 }
 
-/* The hole the picture goes in. Clicking it is play/pause, not summoning. */
+/* The hole the picture goes in. Clicking it is play/pause, not summoning. It
+   is its own stacking context so the full-screen button's focus cannot rise
+   above the OSD and swallow every press. */
 .shell-player-picture {
   position: absolute;
   inset: 0;
+  z-index: 0;
   pointer-events: auto;
 }
 
@@ -39,11 +42,12 @@
   cursor: pointer;
 }
 
-/* The picture is not a menu button: its focus stays a quiet inset halo rather
-   than the full ring the strip draws. */
-.shell-picture-toggle:focus,
-.shell-picture-toggle:focus-visible {
-  box-shadow: inset 0 0 0 3px var(--accent-glow);
+/* The picture is not a menu button: it takes no focus ring and no focus
+   elevation, so the OSD's controls stay on top and keep their own ring. */
+.shell-player .shell-picture-toggle:focus,
+.shell-player .shell-picture-toggle:focus-visible {
+  z-index: auto;
+  box-shadow: none;
 }
 
 .shell-picture-note {
@@ -62,6 +66,78 @@
   transform: translate(-50%, -50%);
 }
 
+/* The wait for mpv: the Title's own backdrop, poster or episode still fills the
+   hole until the first frame arrives, so the window is never blank between
+   pressing Play and the picture starting. */
+.shell-player-preview {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
+  background: var(--bg-canvas);
+}
+
+.shell-player-preview-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.shell-player-preview-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--bg-canvas) 45%, transparent) 0%,
+    transparent 30%,
+    color-mix(in srgb, var(--bg-canvas) 92%, transparent) 100%
+  );
+}
+
+.shell-player-preview-copy {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0 clamp(1.5rem, 4vw, 4rem) 9rem;
+  box-sizing: border-box;
+}
+
+.shell-player-preview-title {
+  margin: 0;
+  color: var(--ink-primary);
+  font-family: var(--font-display);
+  font-size: var(--text-hero);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+  line-height: 1.02;
+}
+
+.shell-player-preview-subtitle {
+  margin: 0;
+  color: var(--ink-secondary);
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
+.shell-player-preview-note {
+  margin: var(--space-1) 0 0;
+  color: var(--ink-muted);
+  font-size: var(--text-caption);
+}
+
+/* The top-right pair: fullscreen and Stop. */
+.shell-osd-window {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  pointer-events: auto;
+}
+
 /* --------------------------------------------------------------------------
  * The OSD surface
  * -------------------------------------------------------------------------- */
@@ -69,6 +145,7 @@
 .shell-osd {
   position: absolute;
   inset: 0;
+  z-index: 1;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -166,7 +243,7 @@
   white-space: nowrap;
 }
 
-.shell-osd-top > .shell-osd-icon {
+.shell-osd-window > .shell-osd-icon {
   pointer-events: auto;
 }
 

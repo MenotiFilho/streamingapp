@@ -141,10 +141,15 @@ export function Shell({ client }: { client?: HostClient }) {
   }, [playerActive]);
 
   // Where the picture is in this window, the page must stop painting its own
-  // rectangle so mpv's child window shows through (ADR-0003).
+  // rectangle so mpv's child window shows through (ADR-0003), and the browsing
+  // page underneath must stop offering a scrollbar the player does not need.
   useEffect(() => {
     document.body.classList.toggle("picture-behind", playerActive);
-    return () => document.body.classList.remove("picture-behind");
+    document.documentElement.classList.toggle("picture-behind", playerActive);
+    return () => {
+      document.body.classList.remove("picture-behind");
+      document.documentElement.classList.remove("picture-behind");
+    };
   }, [playerActive]);
 
   const value = useMemo(

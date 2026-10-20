@@ -27,6 +27,11 @@ body {
  * Where the picture is in this window, the page stops painting its own
  * rectangle so mpv's child window shows through (ADR-0003).
  */
+html.picture-behind,
+body.picture-behind {
+  overflow: hidden;
+}
+
 body.picture-behind,
 body.picture-behind .shell-frame,
 body.picture-behind .shell-base {

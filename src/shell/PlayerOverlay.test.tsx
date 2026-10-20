@@ -5,6 +5,7 @@ import {
   HostClient,
   type Action,
   type PlaybackSnapshot,
+  type ResumeEntry,
   type Snapshot,
   type Transport,
 } from "../host-client";
@@ -173,14 +174,40 @@ function actions(
 async function renderPlayer(
   overrides: Partial<PlaybackSnapshot> = {},
   reject?: Rejection,
+  watchProgress: ResumeEntry[] = [],
 ) {
   const host = fakeHost(
-    { ...NOTHING_SAID, revision: 9, playback: playback(overrides) },
+    { ...NOTHING_SAID, revision: 9, playback: playback(overrides), watchProgress },
     reject,
   );
   render(<Shell client={host.client} />);
   await screen.findByTestId("shell-player");
   return host;
+}
+
+function resumeEntry(overrides: Partial<ResumeEntry> = {}): ResumeEntry {
+  return {
+    video: {
+      id: "tt7777777:1:1",
+      name: "Episode One",
+      season: 1,
+      episode: 1,
+      thumbnail: "https://images.test/episode-one.jpg",
+    },
+    title: {
+      addon: "community.aiostreams",
+      id: "tt7777777",
+      type: "series",
+      name: "A Series That Plays",
+      poster: "https://images.test/series-poster.jpg",
+      background: "https://images.test/series-backdrop.jpg",
+    },
+    position: 0,
+    duration: null,
+    watched: false,
+    unplayable: null,
+    ...overrides,
+  };
 }
 
 /** Close the open popover the way Back does, and wait for its level to go. */
@@ -224,6 +251,10 @@ describe("the player OSD", () => {
 
     expect(screen.queryByTestId("player-menu")).not.toBeInTheDocument();
     expect(screen.queryByTestId("toggle-menu")).not.toBeInTheDocument();
+    expect(
+      document.documentElement,
+      "the browsing page underneath offers no scrollbar while the player owns the window",
+    ).toHaveClass("picture-behind");
   });
 
   test("each icon pushes its own popover, and Back closes it before stopping", async () => {
@@ -475,6 +506,63 @@ describe("the player OSD", () => {
     expect(screen.queryByTestId("rewind")).not.toBeInTheDocument();
     expect(screen.getByTestId("osd-picture")).toBeInTheDocument();
     expect(screen.getByTestId("volume")).toBeInTheDocument();
+  });
+
+  test("the wait for mpv shows the Title's own art instead of an empty hole", async () => {
+    await renderPlayer(
+      {
+        state: "opening",
+        position: null,
+        duration: null,
+        nowPlaying: {
+          video: { type: "series", id: "tt7777777:1:1" },
+          addon: "community.aiostreams",
+          name: "AIOStreams\nS1E1 720p",
+          description: null,
+          filename: null,
+          bingeGroup: null,
+        },
+      },
+      undefined,
+      [resumeEntry()],
+    );
+
+    const preview = screen.getByTestId("opening-preview");
+    expect(preview).toHaveAttribute("data-art", "true");
+    expect(
+      screen.getByTestId("opening-preview-art"),
+      "the episode still is the closest thing to the frame that is coming",
+    ).toHaveAttribute("src", "https://images.test/episode-one.jpg");
+    expect(preview).toHaveTextContent("A Series That Plays");
+    expect(preview).toHaveTextContent("S1E1 · Episode One");
+    expect(screen.getByTestId("opening-stream")).toHaveTextContent("Opening");
+  });
+
+  test("the scroll wheel nudges the volume once, and shows the level at once", async () => {
+    const host = await renderPlayer({ volume: 60 });
+    const player = screen.getByTestId("shell-player");
+
+    fireEvent.wheel(player, { deltaY: -100 });
+    expect(screen.getByTestId("volume-level")).toHaveTextContent("65%");
+    fireEvent.wheel(player, { deltaY: -100 });
+    expect(screen.getByTestId("volume-level")).toHaveTextContent("70%");
+
+    await waitFor(() =>
+      expect(actions(host.invocations)).toContainEqual({ type: "set_volume", level: 70 }),
+    );
+    expect(
+      actions(host.invocations).filter((action) => action.type === "set_volume"),
+      "a run of notches is one Action, not one per notch",
+    ).toHaveLength(1);
+  });
+
+  test("the OSD offers fullscreen beside Stop", async () => {
+    await renderPlayer();
+
+    const fullscreen = screen.getByTestId("fullscreen");
+    expect(fullscreen).toHaveAccessibleName("Full screen");
+    fireEvent.click(fullscreen);
+    expect(screen.getByTestId("fullscreen")).toBeInTheDocument();
   });
 
   test("an ended Stream offers no menu and the after-end episode step", async () => {

@@ -1,9 +1,11 @@
 import {
   useCallback,
+  useEffect,
   useRef,
   useState,
   type MouseEvent,
   type ReactNode,
+  type WheelEvent,
 } from "react";
 
 import {
@@ -20,6 +22,7 @@ import {
   previousEpisodeDisabled,
 } from "../controls";
 import { formatTime, playingName, transportable } from "../playback";
+import { labelOf } from "../title";
 import { useShell } from "./context";
 import { Button } from "./kit";
 import { Refusal } from "./Refusal";
@@ -57,8 +60,37 @@ export function PlayerOverlay() {
   const { snapshot, take, ask, popover, pop, push } = useShell();
   const playback = snapshot?.playback ?? null;
   const [refusal, setRefusal] = useState<ActionError | null>(null);
+  const [wheelVolume, setWheelVolume] = useState<number | null>(null);
   const chrome = useRef<HTMLDivElement | null>(null);
   const pictureButton = useRef<HTMLButtonElement | null>(null);
+  const wheel = useRef<{ level: number | null; timer: ReturnType<typeof setTimeout> | null }>({
+    level: null,
+    timer: null,
+  });
+
+  // The wheel sends one Action after a short pause rather than one per notch:
+  // a trackpad produces many events, and the Host's volume is one value.
+  useEffect(
+    () => () => {
+      if (wheel.current.timer !== null) {
+        clearTimeout(wheel.current.timer);
+      }
+    },
+    [],
+  );
+
+  // The pending level stays on screen until the Host's Snapshot agrees with it,
+  // so the pillar does not flash the old number between the wheel and the event.
+  useEffect(() => {
+    const published = playback?.volume ?? null;
+    if (
+      wheelVolume !== null &&
+      published !== null &&
+      Math.abs(published - wheelVolume) < 0.5
+    ) {
+      setWheelVolume(null);
+    }
+  }, [playback?.volume, wheelVolume]);
 
   const { visible } = useOsdVisibility({
     pinned: popover !== null,
@@ -107,8 +139,52 @@ export function PlayerOverlay() {
   const details = streamDetails(playback);
   const shownPosition = position ?? 0;
 
+  // What the opening Stream will be: the Watch progress entry the Host now
+  // holds for this Video carries the Title's backdrop, poster and episode still
+  // (#29). The player draws it in the hole while mpv is still opening, so the
+  // wait is a picture of what is coming rather than an empty window.
+  const progress =
+    nowPlaying === null
+      ? null
+      : (snapshot?.watchProgress.find((entry) => entry.video.id === nowPlaying.video.id) ?? null);
+  const preview = progress
+    ? {
+        art: progress.video.thumbnail ?? progress.title.background ?? progress.title.poster,
+        title: progress.title.name,
+        subtitle:
+          [labelOf(progress.video), progress.video.name]
+            .filter((part): part is string => Boolean(part))
+            .join(" · ") || null,
+      }
+    : null;
+
   const takeAction = (action: Action) => {
     void take(action);
+  };
+
+  const nudgeVolume = (delta: number) => {
+    const current = wheel.current.level ?? playback.volume ?? 100;
+    const next = Math.min(130, Math.max(0, Math.round(current + delta)));
+    wheel.current.level = next;
+    setWheelVolume(next);
+    if (wheel.current.timer !== null) {
+      clearTimeout(wheel.current.timer);
+    }
+    wheel.current.timer = setTimeout(() => {
+      const level = wheel.current.level;
+      wheel.current.level = null;
+      wheel.current.timer = null;
+      if (level !== null) {
+        void take({ type: "set_volume", level });
+      }
+    }, 80);
+  };
+
+  const onWheel = (event: WheelEvent<HTMLElement>) => {
+    if (!controls || event.deltaY === 0) {
+      return;
+    }
+    nudgeVolume(event.deltaY < 0 ? 5 : -5);
   };
 
   return (
@@ -122,6 +198,7 @@ export function PlayerOverlay() {
       data-region="player"
       data-kind="branch"
       data-label="Player"
+      onWheel={onWheel}
     >
       {/* The picture's hole. Where the picture is in this window the page
           paints nothing here and mpv's child window shows through; the button
@@ -141,9 +218,32 @@ export function PlayerOverlay() {
           />
         ) : null}
         {state === "opening" ? (
-          <p className="shell-picture-note" data-testid="opening-stream">
-            {`Opening ${playingName(nowPlaying)}…`}
-          </p>
+          <div
+            className="shell-player-preview"
+            data-testid="opening-preview"
+            data-art={preview?.art ? "true" : "false"}
+          >
+            {preview?.art ? (
+              <img
+                className="shell-player-preview-art"
+                data-testid="opening-preview-art"
+                src={preview.art}
+                alt=""
+              />
+            ) : null}
+            <span className="shell-player-preview-scrim" aria-hidden="true" />
+            <div className="shell-player-preview-copy">
+              {preview?.title ? (
+                <p className="shell-player-preview-title">{preview.title}</p>
+              ) : null}
+              {preview?.subtitle ? (
+                <p className="shell-player-preview-subtitle">{preview.subtitle}</p>
+              ) : null}
+              <p className="shell-player-preview-note" data-testid="opening-stream">
+                {`Opening ${playingName(nowPlaying)}…`}
+              </p>
+            </div>
+          </div>
         ) : null}
         {state === "ended" ? (
           <p className="shell-picture-note" data-testid="stream-ended">
@@ -175,23 +275,26 @@ export function PlayerOverlay() {
               ) : null}
             </div>
 
-            <button
-              type="button"
-              className="shell-osd-icon kit-focus-invert"
-              data-focusable
-              data-testid="stop"
-              aria-label="Stop"
-              title="Stop playback and return (Back)"
-              onClick={() => takeAction({ type: "stop_playback" })}
-            >
-              <CloseIcon />
-            </button>
+            <div className="shell-osd-window">
+              <FullscreenButton />
+              <button
+                type="button"
+                className="shell-osd-icon kit-focus-invert"
+                data-focusable
+                data-testid="stop"
+                aria-label="Stop"
+                title="Stop playback and return (Back)"
+                onClick={() => takeAction({ type: "stop_playback" })}
+              >
+                <CloseIcon />
+              </button>
+            </div>
           </header>
 
           <div className="shell-osd-middle">
             <div className="shell-osd-spacer" />
             {controls ? (
-              <VolumePillar playback={playback} onTake={takeAction} />
+              <VolumePillar playback={playback} pending={wheelVolume} onTake={takeAction} />
             ) : null}
           </div>
 
@@ -348,13 +451,15 @@ export function PlayerOverlay() {
  */
 function VolumePillar({
   playback,
+  pending,
   onTake,
 }: {
   playback: PlaybackSnapshot;
+  pending: number | null;
   onTake: (action: Action) => void;
 }) {
   const [scrub, setScrub] = useState<number | null>(null);
-  const shown = scrub ?? Math.round(playback.volume ?? 100);
+  const shown = scrub ?? pending ?? Math.round(playback.volume ?? 100);
   const muted = playback.muted ?? false;
 
   const send = (level: number) => {
@@ -492,6 +597,7 @@ function IconButton({
   label,
   title,
   expanded,
+  pressed,
   disabled,
   className,
   onClick,
@@ -501,6 +607,7 @@ function IconButton({
   label: string;
   title?: string;
   expanded?: boolean;
+  pressed?: boolean;
   disabled?: boolean;
   className?: string;
   onClick: (event: MouseEvent<HTMLButtonElement>) => void;
@@ -514,6 +621,7 @@ function IconButton({
       data-testid={testId}
       aria-label={label}
       aria-expanded={expanded}
+      aria-pressed={pressed}
       title={title ?? label}
       disabled={disabled}
       onClick={onClick}
@@ -523,10 +631,58 @@ function IconButton({
   );
 }
 
+/**
+ * Put the Host's window into fullscreen, or take it out again.
+ *
+ * The OSD is the player, and a player that cannot use the whole screen is one
+ * the owner has to leave the couch to fix. The call is Tauri's own window API;
+ * a browser or a test has no window to hold, and the button simply does
+ * nothing there.
+ */
+function FullscreenButton() {
+  const [fullscreen, setFullscreen] = useState(false);
+
+  const toggle = async () => {
+    try {
+      const { getCurrentWindow } = await import("@tauri-apps/api/window");
+      const hostWindow = getCurrentWindow();
+      const next = !(await hostWindow.isFullscreen());
+      await hostWindow.setFullscreen(next);
+      setFullscreen(next);
+    } catch {
+      // Not a Tauri window: there is nothing here to make fullscreen.
+    }
+  };
+
+  return (
+    <IconButton
+      testId="fullscreen"
+      label={fullscreen ? "Exit full screen" : "Full screen"}
+      title={fullscreen ? "Exit full screen" : "Full screen"}
+      pressed={fullscreen}
+      onClick={() => void toggle()}
+    >
+      <FullscreenIcon exit={fullscreen} />
+    </IconButton>
+  );
+}
+
 function CloseIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
       <path d="M18 6 6 18M6 6l12 12" />
+    </svg>
+  );
+}
+
+function FullscreenIcon({ exit }: { exit: boolean }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
+      {exit ? (
+        <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
+      ) : (
+        <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
+      )}
     </svg>
   );
 }

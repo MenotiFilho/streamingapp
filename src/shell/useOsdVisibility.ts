@@ -82,11 +82,15 @@ export function useOsdVisibility({ pinned, chrome, onHide }: OsdVisibilityOption
     document.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("pointerdown", onPointer, true);
     window.addEventListener("pointermove", onPointer, true);
+    // A wheel notch is input too: it changes the volume, and the OSD should
+    // show the level it changed rather than doing it invisibly.
+    window.addEventListener("wheel", onPointer, { passive: true });
 
     return () => {
       document.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("pointerdown", onPointer, true);
       window.removeEventListener("pointermove", onPointer, true);
+      window.removeEventListener("wheel", onPointer);
     };
   }, [wake]);
 
