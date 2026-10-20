@@ -1,16 +1,18 @@
 import type { ReactNode } from "react";
 
+import { AddonsScreen } from "./AddonsScreen";
 import { HomeScreen } from "./Home";
+import { SettingsScreen } from "./SettingsScreen";
 import { useShell } from "./context";
 import { destinationLabel, type Destination } from "./navigation";
 
 /**
  * The base screen for one destination.
  *
- * Home is built (#80); the other destinations are the shell's honest
- * placeholders until their tickets fill them in. The words still say what the
- * Host holds, so the frame can be driven and looked at without pretending a
- * screen is finished.
+ * Home (#80), Addons (#82), and Settings (#82) are built; Discover, Search,
+ * and Library are the shell's honest placeholders until their tickets fill
+ * them in. The words still say what the Host holds, so the frame can be
+ * driven and looked at without pretending a screen is finished.
  */
 export function DestinationScreen({ destination }: { destination: Destination }) {
   const { snapshot } = useShell();
@@ -64,35 +66,9 @@ export function DestinationScreen({ destination }: { destination: Destination })
       );
     }
     case "addons":
-      return (
-        <Screen
-          destination="addons"
-          lede="An Addon's manifest URL adds it; the Host keeps the Addons and their order."
-        >
-          <p className="shell-note" data-testid="addons-summary">
-            {snapshot
-              ? snapshot.addons.length === 0
-                ? "No Addons are configured yet."
-                : `${snapshot.addons.length} ${snapshot.addons.length === 1 ? "Addon is" : "Addons are"} configured.`
-              : "Waiting for the Host…"}
-          </p>
-        </Screen>
-      );
+      return <AddonsScreen />;
     case "settings":
-      return (
-        <Screen
-          destination="settings"
-          lede="Settings holds Credentials, Preferences, Remote devices, and About/Credits."
-        >
-          <p className="shell-note" data-testid="settings-summary">
-            {snapshot
-              ? snapshot.protection.tmdbHeld
-                ? "A TMDB key is held."
-                : "No TMDB key is held."
-              : "Waiting for the Host…"}
-          </p>
-        </Screen>
-      );
+      return <SettingsScreen />;
   }
 }
 
