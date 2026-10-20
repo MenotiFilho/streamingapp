@@ -24,7 +24,11 @@ import {
   streamDetails,
   timelineFraction,
 } from "./osd";
-import { osdPopoverLevel, type OsdPopoverName } from "./PlayerPopovers";
+import {
+  osdPopoverId,
+  osdPopoverLevel,
+  type OsdPopoverName,
+} from "./PlayerPopovers";
 import { useOsdVisibility } from "./useOsdVisibility";
 import "./osd.css";
 
@@ -57,7 +61,7 @@ export function PlayerOverlay() {
 
   const openPopover = useCallback(
     (name: OsdPopoverName) => {
-      const id = `popover-${name}`;
+      const id = osdPopoverId(name);
       if (popover === id) {
         pop();
         return;
@@ -201,7 +205,7 @@ export function PlayerOverlay() {
                     testId="osd-picture"
                     label="Picture"
                     title="Picture — aspect, crop and statistics"
-                    expanded={popover === "popover-picture"}
+                    expanded={popover === osdPopoverId("picture")}
                     onClick={() => openPopover("picture")}
                   >
                     <MenuIcon />
@@ -210,7 +214,7 @@ export function PlayerOverlay() {
                     testId="osd-subtitles"
                     label="Subtitles"
                     title="Subtitles"
-                    expanded={popover === "popover-subtitles"}
+                    expanded={popover === osdPopoverId("subtitles")}
                     onClick={() => openPopover("subtitles")}
                   >
                     <span className="shell-osd-glyph tabular">CC</span>
@@ -219,7 +223,7 @@ export function PlayerOverlay() {
                     testId="osd-audio"
                     label="Audio"
                     title="Audio tracks"
-                    expanded={popover === "popover-audio"}
+                    expanded={popover === osdPopoverId("audio")}
                     onClick={() => openPopover("audio")}
                   >
                     <WaveIcon />
@@ -239,14 +243,15 @@ export function PlayerOverlay() {
 
                   {canTransport ? (
                     <>
-                      <SeekButton
+                      <IconButton
+                        testId="rewind"
                         label="Back ten seconds"
                         title="Rewind 10 seconds"
-                        testId="rewind"
+                        className="shell-osd-glyph tabular"
                         onClick={() => takeAction({ type: "seek", target: { kind: "by", seconds: -10 } })}
                       >
                         ↺10
-                      </SeekButton>
+                      </IconButton>
                       <IconButton
                         testId={playing ? "pause" : "play"}
                         label={playing ? "Pause" : "Play"}
@@ -255,14 +260,15 @@ export function PlayerOverlay() {
                       >
                         {playing ? <PauseIcon /> : <PlayIcon />}
                       </IconButton>
-                      <SeekButton
+                      <IconButton
+                        testId="forward"
                         label="Forward ten seconds"
                         title="Forward 10 seconds"
-                        testId="forward"
+                        className="shell-osd-glyph tabular"
                         onClick={() => takeAction({ type: "seek", target: { kind: "by", seconds: 10 } })}
                       >
                         10↻
-                      </SeekButton>
+                      </IconButton>
                     </>
                   ) : null}
 
@@ -282,7 +288,7 @@ export function PlayerOverlay() {
                     testId="osd-speed"
                     label="Playback speed"
                     title="Playback speed"
-                    expanded={popover === "popover-speed"}
+                    expanded={popover === osdPopoverId("speed")}
                     onClick={() => openPopover("speed")}
                   >
                     <span className="shell-osd-glyph tabular">{formatSpeed(playback.speed ?? 1)}</span>
@@ -291,7 +297,7 @@ export function PlayerOverlay() {
                     testId="osd-chapters"
                     label="Chapters"
                     title="Chapters"
-                    expanded={popover === "popover-chapters"}
+                    expanded={popover === osdPopoverId("chapters")}
                     onClick={() => openPopover("chapters")}
                   >
                     <ListIcon />
@@ -484,6 +490,7 @@ function IconButton({
   title,
   expanded,
   disabled,
+  className,
   onClick,
   children,
 }: {
@@ -492,48 +499,20 @@ function IconButton({
   title?: string;
   expanded?: boolean;
   disabled?: boolean;
+  className?: string;
   onClick: () => void;
   children: ReactNode;
 }) {
   return (
     <button
       type="button"
-      className="shell-osd-icon kit-focus-invert"
+      className={`shell-osd-icon kit-focus-invert${className ? ` ${className}` : ""}`}
       data-focusable
       data-testid={testId}
       aria-label={label}
       aria-expanded={expanded}
       title={title ?? label}
       disabled={disabled}
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  );
-}
-
-/** A seek step, drawn as its own two-character glyph. */
-function SeekButton({
-  testId,
-  label,
-  title,
-  onClick,
-  children,
-}: {
-  testId: string;
-  label: string;
-  title: string;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      className="shell-osd-icon shell-osd-glyph tabular kit-focus-invert"
-      data-focusable
-      data-testid={testId}
-      aria-label={label}
-      title={title}
       onClick={onClick}
     >
       {children}

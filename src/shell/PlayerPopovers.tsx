@@ -18,12 +18,22 @@ import {
   trackLabel,
   trackMarks,
 } from "../controls";
-import type { Action, Track } from "../host-client";
+import type { Action, PlaybackSnapshot, Track } from "../host-client";
 import { useShell, type NewShellLevel } from "./context";
 import { Popover } from "./kit";
 
 /** The five menus the OSD's icon buttons open, one level each. */
 export type OsdPopoverName = "picture" | "subtitles" | "audio" | "speed" | "chapters";
+
+/** The id the shell's level stack and the OSD's icons both name a popover by. */
+export function osdPopoverId(name: OsdPopoverName): string {
+  return `popover-${name}`;
+}
+
+type MenuProps = {
+  playback: PlaybackSnapshot;
+  take: (action: Action) => Promise<unknown>;
+};
 
 const LABELS: Record<OsdPopoverName, string> = {
   picture: "Picture",
@@ -31,6 +41,33 @@ const LABELS: Record<OsdPopoverName, string> = {
   audio: "Audio",
   speed: "Speed",
   chapters: "Chapters",
+};
+
+// "Picture" is the control's name in the port contract; its visible heading
+// says what the menu actually contains, because CONTEXT's **Picture** is where
+// the Player draws, not a setting.
+const HEADINGS: Record<OsdPopoverName, string> = {
+  picture: "Aspect, crop & statistics",
+  subtitles: "Subtitles",
+  audio: "Audio",
+  speed: "Speed",
+  chapters: "Chapters",
+};
+
+const SIDES: Record<OsdPopoverName, "start" | "end"> = {
+  picture: "start",
+  subtitles: "start",
+  audio: "start",
+  speed: "end",
+  chapters: "end",
+};
+
+const MENUS: Record<OsdPopoverName, (props: MenuProps) => ReactNode> = {
+  picture: (props) => <PictureMenu {...props} />,
+  subtitles: (props) => <SubtitlesMenu {...props} />,
+  audio: (props) => <AudioMenu {...props} />,
+  speed: (props) => <SpeedMenu {...props} />,
+  chapters: (props) => <ChaptersMenu {...props} />,
 };
 
 /**
@@ -43,7 +80,7 @@ const LABELS: Record<OsdPopoverName, string> = {
  */
 export function osdPopoverLevel(name: OsdPopoverName): NewShellLevel {
   return {
-    id: `popover-${name}`,
+    id: osdPopoverId(name),
     name: `${LABELS[name]} popover`,
     kind: "popover",
     render: () => <OsdPopover name={name} />,
@@ -51,41 +88,31 @@ export function osdPopoverLevel(name: OsdPopoverName): NewShellLevel {
 }
 
 function OsdPopover({ name }: { name: OsdPopoverName }) {
-  const { snapshot } = useShell();
+  const { snapshot, take } = useShell();
   const playback = snapshot?.playback ?? null;
   if (!playback) {
     return null;
   }
 
-  const side = name === "speed" || name === "chapters" ? "right" : "left";
+  const side = SIDES[name];
 
   return (
     <div className="shell-osd-popover" data-side={side}>
       <Popover
         label={LABELS[name]}
-        heading={LABELS[name]}
-        align={side === "right" ? "end" : "start"}
-        testId={`popover-${name}`}
+        heading={HEADINGS[name]}
+        align={side}
+        testId={osdPopoverId(name)}
       >
-        {name === "picture" ? <PictureMenu /> : null}
-        {name === "subtitles" ? <SubtitlesMenu /> : null}
-        {name === "audio" ? <AudioMenu /> : null}
-        {name === "speed" ? <SpeedMenu /> : null}
-        {name === "chapters" ? <ChaptersMenu /> : null}
+        {MENUS[name]({ playback, take })}
       </Popover>
     </div>
   );
 }
 
 /** Aspect, the crop rectangle (including the one the stock autocrop keeps), and statistics. */
-function PictureMenu() {
-  const { snapshot, take } = useShell();
-  const playback = snapshot?.playback;
+function PictureMenu({ playback, take }: MenuProps) {
   const [showStatistics, setShowStatistics] = useState(false);
-  if (!playback) {
-    return null;
-  }
-
   const crop = playback.crop;
 
   return (
@@ -145,13 +172,7 @@ function PictureMenu() {
 }
 
 /** Subtitle tracks embedded-first, subtitles off, and the delay's tenth-of-a-second steps. */
-function SubtitlesMenu() {
-  const { snapshot, take } = useShell();
-  const playback = snapshot?.playback;
-  if (!playback) {
-    return null;
-  }
-
+function SubtitlesMenu({ playback, take }: MenuProps) {
   const tracks = orderedTracks(playback.tracks, "subtitle");
   const delay = playback.subtitleDelay ?? 0;
 
@@ -214,13 +235,7 @@ function SubtitlesMenu() {
 }
 
 /** The Stream's audio tracks, embedded-first. */
-function AudioMenu() {
-  const { snapshot, take } = useShell();
-  const playback = snapshot?.playback;
-  if (!playback) {
-    return null;
-  }
-
+function AudioMenu({ playback, take }: MenuProps) {
   const tracks = orderedTracks(playback.tracks, "audio");
 
   return (
@@ -236,13 +251,7 @@ function AudioMenu() {
 }
 
 /** The rates a person can pick, with the one in force marked. */
-function SpeedMenu() {
-  const { snapshot, take } = useShell();
-  const playback = snapshot?.playback;
-  if (!playback) {
-    return null;
-  }
-
+function SpeedMenu({ playback, take }: MenuProps) {
   return (
     <Group title="Playback speed">
       {SPEEDS.map((rate) => (
@@ -263,13 +272,7 @@ function SpeedMenu() {
  * The container's chapters, in its own order. Choosing one is `set_chapter`;
  * there are deliberately no step buttons here (#50, #57).
  */
-function ChaptersMenu() {
-  const { snapshot, take } = useShell();
-  const playback = snapshot?.playback;
-  if (!playback) {
-    return null;
-  }
-
+function ChaptersMenu({ playback, take }: MenuProps) {
   return (
     <Group title="Chapters">
       {playback.chapters.length === 0 ? (

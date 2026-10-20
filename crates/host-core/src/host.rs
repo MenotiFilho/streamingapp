@@ -956,7 +956,8 @@ impl Host {
     }
 
     /// Refuse a control about a Stream the Player is not on: one that never
-    /// played, or one whose open failed.
+    /// played, one whose open failed, or one that has ended. The episode steps
+    /// are the exception and go through [`Self::stepping`] instead.
     fn playing(&self, control: Control) -> Result<(), ActionError> {
         if self.state.playback().is_live() {
             return Ok(());
