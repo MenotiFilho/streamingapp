@@ -23,8 +23,23 @@ export function qualityBadge(nowPlaying: NowPlaying | null): string | null {
   if (!nowPlaying) {
     return null;
   }
-  const lines = badgeLines(nowPlaying);
-  return lines.find((line) => QUALITY.test(line)) ?? lines.at(-1) ?? null;
+  return badgeLines(nowPlaying).find((line) => QUALITY.test(line)) ?? null;
+}
+
+/**
+ * The name in the Title pill: the Addon's own words about the candidate, with
+ * the line the quality badge already took left out so the two pills do not say
+ * the same thing twice. The Snapshot carries no Title name — `NowPlaying` is the
+ * Addon's description of the Stream — so this is the most specific name a
+ * client has without asking the Host a second question.
+ */
+export function streamTitle(nowPlaying: NowPlaying | null): string {
+  if (!nowPlaying) {
+    return "a Stream";
+  }
+  const quality = qualityBadge(nowPlaying);
+  const words = badgeLines(nowPlaying).filter((line) => line !== quality);
+  return words.join(" · ") || nowPlaying.filename || "a Stream";
 }
 
 /** The track of one kind the Player says is on, where it says one. */

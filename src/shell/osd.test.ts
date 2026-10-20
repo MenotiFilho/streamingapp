@@ -7,6 +7,7 @@ import {
   remainingTime,
   selectedTrack,
   streamDetails,
+  streamTitle,
   timelineFraction,
 } from "./osd";
 
@@ -65,9 +66,19 @@ describe("the OSD's readings", () => {
   test("the quality badge is the Addon's own resolution line, wherever it sits", () => {
     expect(qualityBadge(nowPlaying({ name: "AIOStreams\n4K HDR" }))).toBe("4K HDR");
     expect(qualityBadge(nowPlaying({ name: "1080p\nTorrentio" }))).toBe("1080p");
-    expect(qualityBadge(nowPlaying({ name: "Torrentio\nWeb-DL" }))).toBe("Web-DL");
+    expect(qualityBadge(nowPlaying({ name: "Torrentio\nWeb-DL" }))).toBeNull();
     expect(qualityBadge(nowPlaying({ name: null }))).toBeNull();
     expect(qualityBadge(null)).toBeNull();
+  });
+
+  test("the title pill says the Addon's name for it without repeating the quality", () => {
+    expect(streamTitle(nowPlaying({ name: "AIOStreams\n4K HDR" }))).toBe("AIOStreams");
+    expect(streamTitle(nowPlaying({ name: "1080p\nTorrentio" }))).toBe("Torrentio");
+    expect(streamTitle(nowPlaying({ name: "Torrentio\nWeb-DL" }))).toBe("Torrentio · Web-DL");
+    expect(streamTitle(nowPlaying({ name: null, filename: "The.Matrix.1999.mkv" }))).toBe(
+      "The.Matrix.1999.mkv",
+    );
+    expect(streamTitle(null)).toBe("a Stream");
   });
 
   test("the details pill joins the Addon, the codecs on, the bitrate and the decoder", () => {

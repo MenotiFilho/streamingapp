@@ -199,6 +199,10 @@ describe("the player OSD", () => {
 
     expect(screen.getByTestId("osd-quality")).toHaveTextContent("4K HDR");
     expect(screen.getByTestId("shell-now-playing")).toHaveTextContent("AIOStreams");
+    expect(
+      screen.getByTestId("shell-now-playing"),
+      "the title pill does not say the quality pill's line a second time",
+    ).not.toHaveTextContent("4K HDR");
     expect(screen.getByTestId("osd-details")).toHaveTextContent("community.aiostreams");
     expect(screen.getByTestId("osd-details")).toHaveTextContent("truehd");
     expect(screen.getByTestId("osd-details")).toHaveTextContent("4.0 Mbps");
@@ -240,6 +244,11 @@ describe("the player OSD", () => {
 
       await closePopover(popover);
       expect(screen.getByTestId(icon)).toHaveAttribute("aria-expanded", "false");
+      await waitFor(() =>
+        expect(document.activeElement, "Back puts focus back on the icon that opened it").toBe(
+          screen.getByTestId(icon),
+        ),
+      );
     }
 
     expect(actions(host.invocations)).not.toContainEqual({ type: "stop_playback" });
@@ -532,6 +541,30 @@ describe("the player OSD", () => {
 
     expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
     expect(document.activeElement).toBe(screen.getByTestId("stop"));
+
+    vi.useRealTimers();
+  });
+
+  test("an open popover keeps the OSD up even while its own controls idle", async () => {
+    vi.useFakeTimers();
+    const host = fakeHost({ ...NOTHING_SAID, revision: 9, playback: playback() });
+    render(<Shell client={host.client} />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("osd-chapters"));
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("popover-chapters")).toBeInTheDocument();
+
+    fireEvent.pointerMove(window);
+    act(() => vi.advanceTimersByTime(5000));
+
+    expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
+    expect(screen.getByTestId("popover-chapters")).toBeInTheDocument();
 
     vi.useRealTimers();
   });

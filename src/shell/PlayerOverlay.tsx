@@ -1,4 +1,10 @@
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useRef,
+  useState,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
 
 import {
   type Action,
@@ -22,6 +28,7 @@ import {
   qualityBadge,
   remainingTime,
   streamDetails,
+  streamTitle,
   timelineFraction,
 } from "./osd";
 import {
@@ -60,16 +67,12 @@ export function PlayerOverlay() {
   });
 
   const openPopover = useCallback(
-    (name: OsdPopoverName) => {
-      const id = osdPopoverId(name);
-      if (popover === id) {
-        pop();
-        return;
-      }
+    (name: OsdPopoverName, trigger: HTMLElement) => {
       if (popover !== null) {
         pop();
       }
-      push(osdPopoverLevel(name));
+      const { left, right } = trigger.getBoundingClientRect();
+      push(osdPopoverLevel(name, { left, right }));
     },
     [pop, popover, push],
   );
@@ -162,7 +165,7 @@ export function PlayerOverlay() {
                   </span>
                 ) : null}
                 <span className="shell-osd-title" data-testid="shell-now-playing">
-                  {playingName(nowPlaying)}
+                  {streamTitle(nowPlaying)}
                 </span>
               </div>
               {details ? (
@@ -206,7 +209,7 @@ export function PlayerOverlay() {
                     label="Picture"
                     title="Picture — aspect, crop and statistics"
                     expanded={popover === osdPopoverId("picture")}
-                    onClick={() => openPopover("picture")}
+                    onClick={(event) => openPopover("picture", event.currentTarget)}
                   >
                     <MenuIcon />
                   </IconButton>
@@ -215,7 +218,7 @@ export function PlayerOverlay() {
                     label="Subtitles"
                     title="Subtitles"
                     expanded={popover === osdPopoverId("subtitles")}
-                    onClick={() => openPopover("subtitles")}
+                    onClick={(event) => openPopover("subtitles", event.currentTarget)}
                   >
                     <span className="shell-osd-glyph tabular">CC</span>
                   </IconButton>
@@ -224,7 +227,7 @@ export function PlayerOverlay() {
                     label="Audio"
                     title="Audio tracks"
                     expanded={popover === osdPopoverId("audio")}
-                    onClick={() => openPopover("audio")}
+                    onClick={(event) => openPopover("audio", event.currentTarget)}
                   >
                     <WaveIcon />
                   </IconButton>
@@ -289,7 +292,7 @@ export function PlayerOverlay() {
                     label="Playback speed"
                     title="Playback speed"
                     expanded={popover === osdPopoverId("speed")}
-                    onClick={() => openPopover("speed")}
+                    onClick={(event) => openPopover("speed", event.currentTarget)}
                   >
                     <span className="shell-osd-glyph tabular">{formatSpeed(playback.speed ?? 1)}</span>
                   </IconButton>
@@ -298,7 +301,7 @@ export function PlayerOverlay() {
                     label="Chapters"
                     title="Chapters"
                     expanded={popover === osdPopoverId("chapters")}
-                    onClick={() => openPopover("chapters")}
+                    onClick={(event) => openPopover("chapters", event.currentTarget)}
                   >
                     <ListIcon />
                   </IconButton>
@@ -500,7 +503,7 @@ function IconButton({
   expanded?: boolean;
   disabled?: boolean;
   className?: string;
-  onClick: () => void;
+  onClick: (event: MouseEvent<HTMLButtonElement>) => void;
   children: ReactNode;
 }) {
   return (

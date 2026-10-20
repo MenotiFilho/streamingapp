@@ -380,6 +380,7 @@
 .shell-osd-chapter {
   position: absolute;
   top: -9px;
+  z-index: 4;
   display: flex;
   align-items: center;
   justify-content: center;

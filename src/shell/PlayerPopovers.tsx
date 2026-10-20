@@ -30,6 +30,9 @@ export function osdPopoverId(name: OsdPopoverName): string {
   return `popover-${name}`;
 }
 
+/** Where the pressed icon sits, so its menu opens above that icon rather than the edge. */
+export type OsdPopoverAnchor = { left: number; right: number };
+
 type MenuProps = {
   playback: PlaybackSnapshot;
   take: (action: Action) => Promise<unknown>;
@@ -78,16 +81,33 @@ const MENUS: Record<OsdPopoverName, (props: MenuProps) => ReactNode> = {
  * the icon's focus. The popover reads the Snapshot when it draws, so every
  * selection is the Host's answer and never a copy this client kept.
  */
-export function osdPopoverLevel(name: OsdPopoverName): NewShellLevel {
+export function osdPopoverLevel(
+  name: OsdPopoverName,
+  anchor: OsdPopoverAnchor,
+): NewShellLevel {
   return {
     id: osdPopoverId(name),
     name: `${LABELS[name]} popover`,
     kind: "popover",
-    render: () => <OsdPopover name={name} />,
+    render: () => <OsdPopover name={name} anchor={anchor} />,
   };
 }
 
-function OsdPopover({ name }: { name: OsdPopoverName }) {
+/** The panel's width and the window's margin: enough to keep it on screen. */
+const PANEL_WIDTH = 352;
+const VIEWPORT_MARGIN = 16;
+
+function anchorStyle(side: "start" | "end", anchor: OsdPopoverAnchor) {
+  const widest = Math.max(VIEWPORT_MARGIN, window.innerWidth - PANEL_WIDTH - VIEWPORT_MARGIN);
+  const offset =
+    side === "start"
+      ? Math.min(Math.max(anchor.left, VIEWPORT_MARGIN), widest)
+      : Math.min(Math.max(window.innerWidth - anchor.right, VIEWPORT_MARGIN), widest);
+
+  return side === "start" ? { left: offset, right: "auto" } : { left: "auto", right: offset };
+}
+
+function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopoverAnchor }) {
   const { snapshot, take } = useShell();
   const playback = snapshot?.playback ?? null;
   if (!playback) {
@@ -97,7 +117,7 @@ function OsdPopover({ name }: { name: OsdPopoverName }) {
   const side = SIDES[name];
 
   return (
-    <div className="shell-osd-popover" data-side={side}>
+    <div className="shell-osd-popover" data-side={side} style={anchorStyle(side, anchor)}>
       <Popover
         label={LABELS[name]}
         heading={HEADINGS[name]}
