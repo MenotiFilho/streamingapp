@@ -1,7 +1,9 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 
 import {
+  answeredStreams,
   explain,
+  type ActionError,
   type AddonStreams,
   type Stream,
   type Title,
@@ -23,6 +25,100 @@ import {
 import { useShell } from "./context";
 import { Button, Chip } from "./kit";
 import "./streams.css";
+
+/**
+ * The Streams level, opened at once: the heading and a waiting line are drawn
+ * while the Host asks every Addon, and the same level becomes the list when
+ * the answer arrives. A slow Addon is visible as a list being looked for rather
+ * than as a press that seemed to do nothing.
+ */
+export function StreamsLoader({
+  title,
+  preview,
+  video,
+}: {
+  title: Title;
+  preview?: OpenablePreview | null;
+  video: Video;
+}) {
+  const { ask, pop } = useShell();
+  const subject = isSeries(title) ? subjectOf(video) : nameOf(title, preview);
+  const [state, setState] = useState<{ groups: AddonStreams[] } | { failure: ActionError } | null>(
+    null,
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    void ask({
+      type: "find_streams",
+      video: { type: title.type, id: video.id },
+    }).then(({ response, error }) => {
+      if (cancelled) {
+        return;
+      }
+      if (error) {
+        setState({ failure: error });
+      } else {
+        setState({ groups: answeredStreams(response) });
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [ask, title.type, video.id]);
+
+  if (!state) {
+    return (
+      <StreamsWaiting subject={subject} onBack={pop}>
+        <p className="shell-streams-note" data-testid="streams-loading">
+          Looking for Streams…
+        </p>
+      </StreamsWaiting>
+    );
+  }
+
+  if ("failure" in state) {
+    return (
+      <StreamsWaiting subject={subject} onBack={pop}>
+        <p role="alert" className="shell-stream-failure" data-testid="streams-failure">
+          {explain(state.failure)}
+        </p>
+      </StreamsWaiting>
+    );
+  }
+
+  return <StreamsScreen title={title} preview={preview} video={video} groups={state.groups} />;
+}
+
+/** The Streams level's furniture before there is a list: Back, and the subject. */
+function StreamsWaiting({
+  subject,
+  onBack,
+  children,
+}: {
+  subject: string;
+  onBack: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <section
+      className="shell-streams"
+      data-testid="streams-loading-level"
+      data-region="streams"
+      data-kind="branch"
+      data-label={`Streams — ${subject}`}
+      aria-label={`Streams — ${subject}`}
+    >
+      <header className="shell-streams-head">
+        <Button variant="ghost" autoFocus onClick={onBack}>
+          Back
+        </Button>
+        <h1 className="shell-streams-title">{`Streams — ${subject}`}</h1>
+      </header>
+      {children}
+    </section>
+  );
+}
 
 /**
  * The Streams a Video can be played as, pushed as a level over its Title.
@@ -79,7 +175,7 @@ export function StreamsScreen({
       aria-label={`Streams — ${subject}`}
     >
       <header className="shell-streams-head">
-        <Button variant="ghost" onClick={pop}>
+        <Button variant="ghost" autoFocus onClick={pop}>
           Back
         </Button>
         <h1 className="shell-streams-title" data-testid="streams-heading">

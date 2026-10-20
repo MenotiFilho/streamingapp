@@ -48,7 +48,33 @@ function harness(onBack = vi.fn()) {
   return { onBack, ...render(<Harness />) };
 }
 
+function PlayerHarness() {
+  const levels: ShellLevel[] = [
+    { id: "title", name: "Title", kind: "overlay", render: () => <div>Title</div> },
+    { id: "player", name: "Player", kind: "player", render: () => <div>Player</div> },
+  ];
+
+  return (
+    <ShellFrame
+      destination="home"
+      onChooseDestination={() => {}}
+      levels={levels}
+      onBack={() => {}}
+      screen={<div>Home</div>}
+    />
+  );
+}
+
 describe("the shell frame", () => {
+  test("the player hides the levels it was opened over, because its hole is transparent", () => {
+    const { container } = render(<PlayerHarness />);
+
+    const title = container.querySelector('[data-level-id="title"]');
+    const player = container.querySelector('[data-level-id="player"]');
+    expect(title).toHaveAttribute("data-under-player", "true");
+    expect(player).not.toHaveAttribute("data-under-player");
+  });
+
   test("draws the six destinations in order, each with a label", () => {
     harness();
     const rail = screen.getByRole("navigation", { name: "Destinations" });

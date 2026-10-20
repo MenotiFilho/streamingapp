@@ -61,8 +61,10 @@ export function PlayerOverlay() {
   const playback = snapshot?.playback ?? null;
   const [refusal, setRefusal] = useState<ActionError | null>(null);
   const [wheelVolume, setWheelVolume] = useState<number | null>(null);
+  const [previewSettled, setPreviewSettled] = useState(() => playback?.state !== "opening");
   const chrome = useRef<HTMLDivElement | null>(null);
   const pictureButton = useRef<HTMLButtonElement | null>(null);
+  const sawOpening = useRef(false);
   const wheel = useRef<{ level: number | null; timer: ReturnType<typeof setTimeout> | null }>({
     level: null,
     timer: null,
@@ -91,6 +93,28 @@ export function PlayerOverlay() {
       setWheelVolume(null);
     }
   }, [playback?.volume, wheelVolume]);
+
+  // The preview stays a moment past the Host's first `playing` report: mpv
+  // reports the file before the compositor has put the first frame on screen,
+  // and taking the art away at that instant is the transparent flash. It never
+  // appears for a player that mounts already playing (a Remote started it).
+  useEffect(() => {
+    const state = playback?.state;
+    if (state === "opening") {
+      sawOpening.current = true;
+      setPreviewSettled(false);
+      return;
+    }
+    if (state === "playing" && sawOpening.current) {
+      const timer = setTimeout(() => {
+        sawOpening.current = false;
+        setPreviewSettled(true);
+      }, 600);
+      return () => clearTimeout(timer);
+    }
+    sawOpening.current = false;
+    setPreviewSettled(true);
+  }, [playback?.state]);
 
   const { visible } = useOsdVisibility({
     pinned: popover !== null,
@@ -157,6 +181,12 @@ export function PlayerOverlay() {
             .join(" · ") || null,
       }
     : null;
+  const showPreview = state === "opening" || (!previewSettled && Boolean(preview?.art));
+  const titleText = progress
+    ? [progress.title.name, labelOf(progress.video)]
+        .filter((part): part is string => Boolean(part))
+        .join(" · ")
+    : streamTitle(nowPlaying);
 
   const takeAction = (action: Action) => {
     void take(action);
@@ -217,7 +247,7 @@ export function PlayerOverlay() {
             onClick={() => takeAction({ type: "set_paused", paused: playing })}
           />
         ) : null}
-        {state === "opening" ? (
+        {showPreview ? (
           <div
             className="shell-player-preview"
             data-testid="opening-preview"
@@ -239,9 +269,11 @@ export function PlayerOverlay() {
               {preview?.subtitle ? (
                 <p className="shell-player-preview-subtitle">{preview.subtitle}</p>
               ) : null}
-              <p className="shell-player-preview-note" data-testid="opening-stream">
-                {`Opening ${playingName(nowPlaying)}…`}
-              </p>
+              {state === "opening" ? (
+                <p className="shell-player-preview-note" data-testid="opening-stream">
+                  {`Opening ${playingName(nowPlaying)}…`}
+                </p>
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -265,7 +297,7 @@ export function PlayerOverlay() {
                   </span>
                 ) : null}
                 <span className="shell-osd-title" data-testid="shell-now-playing">
-                  {streamTitle(nowPlaying)}
+                  {titleText}
                 </span>
               </div>
               {details ? (

@@ -136,8 +136,9 @@ body.picture-behind .shell-base {
   box-sizing: border-box;
 }
 
+/* The screen owns the window's width: rows and the hero are sized from it. */
 .shell-screen {
-  max-width: 90rem;
+  max-width: none;
 }
 
 /* A heading the page needs and the screen does not draw. */
@@ -194,6 +195,17 @@ body.picture-behind .shell-base {
 
 .shell-level[data-level-kind="player"] {
   z-index: 60;
+}
+
+/*
+ * The player's hole is transparent so mpv shows through. Everything the player
+ * was opened over must therefore stop painting, or the Title or Streams list
+ * would show through that hole over the picture. The levels keep their focus
+ * and their state; only their paint is taken away until the player stops.
+ */
+.shell-level[data-under-player="true"] {
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* --------------------------------------------------------------------------

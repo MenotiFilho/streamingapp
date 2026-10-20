@@ -219,6 +219,7 @@ export function HomeScreen() {
           <RowTrack
             title="Continue watching"
             tag="Host Watch progress"
+            columns={4}
             testId="home-continue"
           >
             {continueWatching.map((entry) => {
@@ -278,6 +279,7 @@ export function HomeScreen() {
           <RowTrack
             title={row.name}
             tag={addonName(snapshot, row.addon)}
+            columns={7}
             testId={`row-${keyOf(row)}`}
           >
             {/*

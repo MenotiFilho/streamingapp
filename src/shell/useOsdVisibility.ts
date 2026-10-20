@@ -33,6 +33,13 @@ export function useOsdVisibility({ pinned, chrome, onHide }: OsdVisibilityOption
   chromeRef.current = chrome;
   const onHideRef = useRef(onHide);
   onHideRef.current = onHide;
+  /**
+   * Which kind of input moved last. A keyboard or pad user navigates by focus,
+   * and focus on a control is what keeps the OSD up for them. A mouse click also
+   * leaves focus on a control, but a person watching with the mouse wants the
+   * OSD out of the way once they stop; pointer input therefore does not pin it.
+   */
+  const lastInput = useRef<"pointer" | "key">("pointer");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const arm = useCallback(() => {
@@ -46,9 +53,10 @@ export function useOsdVisibility({ pinned, chrome, onHide }: OsdVisibilityOption
         active instanceof HTMLElement &&
         (chromeRef.current.current?.contains(active) ?? false);
 
-      // A person still in the OSD, or a popover still open above it, gets
-      // another idle window rather than having the surface pulled away.
-      if (pinnedRef.current || focusedInside) {
+      // A keyboard/pad user still in the OSD, or a popover still open above it,
+      // gets another idle window rather than having the surface pulled away. A
+      // mouse click leaves focus behind too, but it does not pin the OSD.
+      if (pinnedRef.current || (lastInput.current === "key" && focusedInside)) {
         timer.current = setTimeout(tick, OSD_IDLE_MS);
         return;
       }
@@ -61,10 +69,14 @@ export function useOsdVisibility({ pinned, chrome, onHide }: OsdVisibilityOption
     timer.current = setTimeout(tick, OSD_IDLE_MS);
   }, []);
 
-  const wake = useCallback(() => {
-    setVisible(true);
-    arm();
-  }, [arm]);
+  const wake = useCallback(
+    (input: "pointer" | "key") => {
+      lastInput.current = input;
+      setVisible(true);
+      arm();
+    },
+    [arm],
+  );
 
   useEffect(() => {
     arm();
@@ -76,8 +88,8 @@ export function useOsdVisibility({ pinned, chrome, onHide }: OsdVisibilityOption
   }, [arm]);
 
   useEffect(() => {
-    const onKeyDown = () => wake();
-    const onPointer = () => wake();
+    const onKeyDown = () => wake("key");
+    const onPointer = () => wake("pointer");
 
     document.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("pointerdown", onPointer, true);

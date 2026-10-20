@@ -192,13 +192,25 @@ function Harness({
   actions: Action[];
 }) {
   const [levels, setLevels] = useState<ShellLevel[]>([]);
+  const levelsRef = useRef(levels);
+  levelsRef.current = levels;
   const nextLevel = useRef(0);
 
   const push = (level: NewShellLevel): string => {
     const id = level.id ?? `level-${(nextLevel.current += 1)}`;
-    setLevels((held) => [...held, { ...level, id }]);
+    setLevels((held) => {
+      const at = held.findIndex((existing) => existing.id === id);
+      if (at < 0) {
+        return [...held, { ...level, id }];
+      }
+      const next = held.slice();
+      next[at] = { ...level, id };
+      return next;
+    });
     return id;
   };
+  const remove = (id: string) => setLevels((held) => held.filter((level) => level.id !== id));
+  const levelExists = (id: string) => levelsRef.current.some((level) => level.id === id);
   const pop = () => setLevels((held) => held.slice(0, -1));
 
   const take = async (action: Action): Promise<Response | null> => {
@@ -227,6 +239,8 @@ function Harness({
     popover: null,
     choose: () => {},
     push,
+    remove,
+    levelExists,
     pop,
     back: pop,
     ask,
@@ -479,7 +493,9 @@ describe("the Streams overlay", () => {
       screen.getByTestId("title-tt0903747"),
       "the Title stays painted underneath",
     ).toBeInTheDocument();
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Back" })),
+    );
   });
 
   test("Back pops the Streams level to the Title and restores the episode's focus", async () => {
@@ -508,7 +524,7 @@ describe("the Streams overlay", () => {
     fireEvent.click(back);
 
     await waitFor(() => expect(screen.queryByTestId("title-tt0133093")).not.toBeInTheDocument());
-    expect(document.activeElement).toBe(screen.getByTestId("card-tt0133093"));
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("card-tt0133093")));
   });
 
   test("each Addon's candidates carry badges, filename, description, warnings and the unplayable mark", async () => {

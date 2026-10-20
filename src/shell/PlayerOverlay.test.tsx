@@ -290,6 +290,28 @@ describe("the player OSD", () => {
     );
   });
 
+  test("a popover closes when something outside it is pressed or focused", async () => {
+    await renderPlayer();
+
+    fireEvent.click(screen.getByTestId("osd-picture"));
+    await screen.findByTestId("popover-picture");
+    fireEvent.click(screen.getByTestId("popover-scrim"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("popover-picture")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("shell-player")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("osd-audio"));
+    await screen.findByTestId("popover-audio");
+    await act(async () => {
+      screen.getByTestId("picture-toggle").focus();
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(screen.queryByTestId("popover-audio")).not.toBeInTheDocument(),
+    );
+  });
+
   test("the centered transport takes the same Actions a remote takes", async () => {
     const host = await renderPlayer({ episode: { season: 1, episode: 2 } });
 
@@ -538,6 +560,28 @@ describe("the player OSD", () => {
     expect(screen.getByTestId("opening-stream")).toHaveTextContent("Opening");
   });
 
+  test("the title pill names the Title, not the Addon's release badges", async () => {
+    await renderPlayer(
+      {
+        nowPlaying: {
+          video: { type: "series", id: "tt7777777:1:1" },
+          addon: "community.aiostreams",
+          name: "AIOStreams\n4K HDR\n(Remux)\n★★★",
+          description: null,
+          filename: null,
+          bingeGroup: null,
+        },
+      },
+      undefined,
+      [resumeEntry()],
+    );
+
+    expect(screen.getByTestId("shell-now-playing")).toHaveTextContent(
+      "A Series That Plays · S1E1",
+    );
+    expect(screen.getByTestId("shell-now-playing")).not.toHaveTextContent("Remux");
+  });
+
   test("the scroll wheel nudges the volume once, and shows the level at once", async () => {
     const host = await renderPlayer({ volume: 60 });
     const player = screen.getByTestId("shell-player");
@@ -624,11 +668,31 @@ describe("the player OSD", () => {
     await act(async () => {
       screen.getByTestId("stop").focus();
     });
-    fireEvent.pointerMove(window);
+    fireEvent.keyDown(document, { key: "x" });
     act(() => vi.advanceTimersByTime(5000));
 
     expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
     expect(document.activeElement).toBe(screen.getByTestId("stop"));
+
+    vi.useRealTimers();
+  });
+
+  test("a clicked control does not pin the OSD after the mouse stops", async () => {
+    vi.useFakeTimers();
+    const host = fakeHost({ ...NOTHING_SAID, revision: 9, playback: playback() });
+    render(<Shell client={host.client} />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      screen.getByTestId("volume").focus();
+    });
+    fireEvent.pointerMove(window);
+    act(() => vi.advanceTimersByTime(5000));
+
+    expect(screen.queryByTestId("shell-osd")).not.toBeInTheDocument();
 
     vi.useRealTimers();
   });

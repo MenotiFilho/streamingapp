@@ -1,4 +1,4 @@
-import { Fragment, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 
 import {
   ASPECTS,
@@ -108,8 +108,31 @@ function anchorStyle(side: "start" | "end", anchor: OsdPopoverAnchor) {
 }
 
 function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopoverAnchor }) {
-  const { snapshot, take } = useShell();
+  const { snapshot, take, pop } = useShell();
+  const panel = useRef<HTMLDivElement | null>(null);
   const playback = snapshot?.playback ?? null;
+
+  // A menu is a thing a person opened in passing: clicking anywhere outside it,
+  // tabbing out of it, or leaving the window closes it rather than making them
+  // find Back before they can touch the player again. The scrim catches the
+  // pointer; focusin catches the keyboard and a pad's focus moves.
+  useEffect(() => {
+    const onFocusIn = (event: FocusEvent) => {
+      const target = event.target;
+      if (target instanceof Node && panel.current && !panel.current.contains(target)) {
+        pop();
+      }
+    };
+    const onBlur = () => pop();
+
+    document.addEventListener("focusin", onFocusIn, true);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      document.removeEventListener("focusin", onFocusIn, true);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, [pop]);
+
   if (!playback) {
     return null;
   }
@@ -117,15 +140,28 @@ function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopover
   const side = SIDES[name];
 
   return (
-    <div className="shell-osd-popover" data-side={side} style={anchorStyle(side, anchor)}>
-      <Popover
-        label={LABELS[name]}
-        heading={HEADINGS[name]}
-        align={side}
-        testId={osdPopoverId(name)}
+    <div className="shell-osd-popover-layer">
+      <div
+        className="shell-osd-popover-scrim"
+        data-testid="popover-scrim"
+        aria-hidden="true"
+        onClick={pop}
+      />
+      <div
+        ref={panel}
+        className="shell-osd-popover"
+        data-side={side}
+        style={anchorStyle(side, anchor)}
       >
-        {MENUS[name]({ playback, take })}
-      </Popover>
+        <Popover
+          label={LABELS[name]}
+          heading={HEADINGS[name]}
+          align={side}
+          testId={osdPopoverId(name)}
+        >
+          {MENUS[name]({ playback, take })}
+        </Popover>
+      </div>
     </div>
   );
 }

@@ -525,10 +525,25 @@
   pointer-events: none;
 }
 
+/* A popover is a passing surface: the transparent scrim under it catches a
+   click anywhere else and closes it, so the player is one press away again. */
+.shell-osd-popover-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.shell-osd-popover-scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+}
+
 .shell-osd-popover {
   position: fixed;
   bottom: 6.6rem;
   left: clamp(1rem, 3vw, 2.5rem);
+  z-index: 1;
   max-width: min(24rem, calc(100vw - 2rem));
   pointer-events: auto;
 }

@@ -40,6 +40,8 @@ export function Shell({ client }: { client?: HostClient }) {
   const [nav, dispatch] = useReducer(navigate, INITIAL_NAVIGATION);
   const [chosenDestination, setChosenDestination] = useState(false);
   const nextLevelId = useRef(0);
+  const levelsRef = useRef(nav.levels);
+  levelsRef.current = nav.levels;
 
   const publish = useCallback((next: Snapshot) => {
     setSnapshot((current) => (current && current.revision > next.revision ? current : next));
@@ -100,6 +102,11 @@ export function Shell({ client }: { client?: HostClient }) {
     return id;
   }, []);
 
+  const remove = useCallback((id: string) => dispatch({ type: "remove", id }), []);
+  const levelExists = useCallback(
+    (id: string) => levelsRef.current.some((level) => level.id === id),
+    [],
+  );
   const pop = useCallback(() => dispatch({ type: "pop" }), []);
 
   const playback = snapshot?.playback ?? null;
@@ -161,6 +168,8 @@ export function Shell({ client }: { client?: HostClient }) {
       popover,
       choose,
       push,
+      remove,
+      levelExists,
       pop,
       back,
       ask,
@@ -174,6 +183,8 @@ export function Shell({ client }: { client?: HostClient }) {
       popover,
       choose,
       push,
+      remove,
+      levelExists,
       pop,
       back,
       ask,

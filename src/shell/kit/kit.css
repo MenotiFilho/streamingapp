@@ -281,26 +281,87 @@
 }
 
 /*
- * The track scrolls horizontally, and its block padding leaves room for the
- * focus halo and the card's lift, which an overflow clip would otherwise cut.
+ * A row fills the width with a fixed number of cards, each an equal share. The
+ * track has no scrollbar: a drag moves it, and the edge buttons move it one
+ * view. The block padding leaves room for the focus halo and the card's lift,
+ * which an overflow clip would otherwise cut.
  */
+.kit-row-viewport {
+  position: relative;
+}
+
 .kit-row-track {
+  --row-gap: var(--space-4);
   display: flex;
-  gap: var(--space-4);
+  gap: var(--row-gap);
   margin: 0;
   padding: var(--space-3);
   list-style: none;
   overflow-x: auto;
   overflow-y: hidden;
-  scroll-behavior: smooth;
   scroll-snap-type: x proximity;
-  scrollbar-color: var(--border-strong) transparent;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  touch-action: pan-y;
+}
+
+.kit-row-track::-webkit-scrollbar {
+  display: none;
 }
 
 .kit-row-item {
-  flex: 0 0 auto;
+  flex: 0 0 calc((100% - (var(--row-visible) - 1) * var(--row-gap)) / var(--row-visible));
+  min-width: 0;
   scroll-snap-align: start;
+}
+
+/* The cards fill their share of the row rather than keeping a fixed width. */
+.kit-row-item > .kit-poster,
+.kit-row-item > .kit-continue {
+  width: 100%;
+}
+
+/* A card's art is not a draggable image: the row itself is what a drag moves. */
+.kit-row-track img {
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+.kit-row-arrow {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: 2.6rem;
+  height: 4.2rem;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-control);
+  background: var(--bg-glass);
+  color: var(--ink-primary);
+  cursor: pointer;
+  transform: translateY(-50%);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+
+.kit-row-arrow svg {
+  width: 22px;
+  height: 22px;
+}
+
+.kit-row-arrow-left {
+  left: 0;
+}
+
+.kit-row-arrow-right {
+  right: 0;
+}
+
+.kit-row-arrow:disabled {
+  opacity: 0.2;
+  cursor: default;
 }
 
 /* --------------------------------------------------------------------------

@@ -29,6 +29,10 @@ export type ShellContextValue = {
   choose: (destination: Destination) => void;
   /** Push an overlay level. Returns the id the shell gave it. */
   push: (level: NewShellLevel) => string;
+  /** Take one level out by id, wherever it sits. */
+  remove: (id: string) => void;
+  /** Whether a level with this id is still on the stack. */
+  levelExists: (id: string) => boolean;
   /** Pop the top level, if there is one. */
   pop: () => void;
   /** Back, with the player's stop rule applied. */

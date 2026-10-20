@@ -37,7 +37,8 @@ export function ShellFrame({
   const levelNodes = useRef(new Map<string, HTMLDivElement>());
   const firstDestination = useRef(true);
   const top = levels[levels.length - 1] ?? null;
-  const takeover = levels.some((level) => level.kind === "player");
+  const playerIndex = levels.findIndex((level) => level.kind === "player");
+  const takeover = playerIndex >= 0;
   const topIndex = levels.length - 1;
 
   // A stable ref callback: React only detaches a callback ref when its identity
@@ -110,6 +111,7 @@ export function ShellFrame({
           data-level-id={level.id}
           data-level={level.name}
           data-level-kind={level.kind}
+          data-under-player={playerIndex >= 0 && index < playerIndex ? "true" : undefined}
           data-region={`level:${level.id}`}
           data-kind="branch"
           data-label={level.name}
