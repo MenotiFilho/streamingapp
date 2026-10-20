@@ -1,0 +1,49 @@
+import { describe, expect, test } from "vitest";
+
+import type { AddonManifest } from "../host-client";
+import { catalogsOf, joinOrNone, moveTarget, resourcesOf } from "./addons";
+
+const ADDON: AddonManifest = {
+  id: "com.linvo.cinemeta",
+  name: "Cinemeta",
+  version: "3.0.0",
+  resources: [
+    { name: "catalog", types: ["movie", "series"], idPrefixes: null },
+    { name: "stream", types: null, idPrefixes: ["tt"] },
+  ],
+  types: ["movie", "series"],
+  catalogs: [
+    {
+      type: "movie",
+      id: "top",
+      name: "Top",
+      extra: [{ name: "skip", isRequired: false, options: [], optionsLimit: 1 }],
+    },
+  ],
+  idPrefixes: ["tt"],
+  behaviorHints: { configurable: false, configurationRequired: false },
+};
+
+describe("the Addons screen's readings", () => {
+  test("a resource names its types where it declares them", () => {
+    expect(resourcesOf(ADDON)).toBe("catalog (movie, series), stream");
+    expect(resourcesOf({ ...ADDON, resources: [] })).toBe("none");
+  });
+
+  test("a Catalog is named by its own name and type", () => {
+    expect(catalogsOf(ADDON)).toBe("Top (movie)");
+    expect(catalogsOf({ ...ADDON, catalogs: [] })).toBe("none");
+  });
+
+  test("a list of words says when there are none", () => {
+    expect(joinOrNone(["movie", "series"])).toBe("movie, series");
+    expect(joinOrNone([])).toBe("none");
+  });
+
+  test("Move names a 0-based position, and stops at the ends", () => {
+    expect(moveTarget(1, -1, 3)).toBe(0);
+    expect(moveTarget(1, 1, 3)).toBe(2);
+    expect(moveTarget(0, -1, 3)).toBeNull();
+    expect(moveTarget(2, 1, 3)).toBeNull();
+  });
+});

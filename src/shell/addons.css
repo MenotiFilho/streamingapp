@@ -1,0 +1,146 @@
+/*
+ * The Addons screen (#82).
+ *
+ * The kit owns the buttons, chips and the focus treatment; this sheet is the
+ * screen's composition — the add form, one row per Addon, and the detail a
+ * focused row opens in place. Every value is a Velvet Curtains token.
+ */
+
+.addons-screen {
+  display: grid;
+  gap: var(--space-5);
+  max-width: 76rem;
+}
+
+.addons-head {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.addons-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--bg-stage);
+}
+
+/* The field is the grid's flexible column; a long URL must not widen it. */
+.addons-add .shell-field {
+  min-width: 0;
+}
+
+/* A refusal belongs to the form that raised it, across the form's width. */
+.addons-add .shell-inline-refusal {
+  grid-column: 1 / -1;
+}
+
+.addons-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-1);
+  list-style: none;
+}
+
+.addons-row {
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-panel);
+  background: var(--bg-stage);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background-color var(--dur-fast) var(--ease-out);
+}
+
+.addons-row[data-expanded="true"] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 26%, var(--bg-stage));
+}
+
+.addons-summary {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--ink-primary);
+  font-family: var(--font-sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+.addons-name {
+  font-family: var(--font-display);
+  font-size: var(--text-title);
+  font-weight: var(--display-weight);
+  letter-spacing: var(--display-tracking);
+  line-height: 1.1;
+}
+
+.addons-version {
+  flex: none;
+  color: var(--ink-muted);
+  font-size: var(--text-caption);
+  font-variant-numeric: var(--numeric-figures);
+}
+
+.addons-details {
+  display: grid;
+  gap: var(--space-4);
+  margin: var(--space-3) var(--space-2) 0;
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--border-subtle);
+}
+
+.addons-facts {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+}
+
+.addons-facts > div {
+  display: grid;
+  grid-template-columns: 8rem minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.addons-facts dt {
+  color: var(--ink-muted);
+  font-size: var(--text-caption);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.addons-facts dd {
+  margin: 0;
+  color: var(--ink-secondary);
+  font-size: var(--text-body);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.addons-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+@media (max-width: 46rem) {
+  .addons-add {
+    grid-template-columns: 1fr;
+  }
+
+  .addons-facts > div {
+    grid-template-columns: 1fr;
+    gap: var(--space-1);
+  }
+}
