@@ -314,11 +314,12 @@ fn track(raw: &RawTrack) -> Option<Track> {
 
 /// The rectangle mpv's `video-crop` names, or nothing where it is uncropped.
 ///
-/// mpv reads back an empty string when no crop is set, and `0x0+0+0` after a
-/// crop was cleared — the "full frame, cropping disabled" spelling the Host uses
-/// because `no` is rejected by mpv 0.41 (ADR-0003). Both mean the whole picture,
-/// so both are `None` here; a rectangle with no width or no height could not be
-/// a picture anyway.
+/// mpv reads back an empty string when no crop is set, and that is also the
+/// spelling the Host clears with: the stock autocrop script's own clear, and
+/// what the script tests to decide whether to clear or to detect (#119). The
+/// older `0x0+0+0` spelling still reads back as "the whole picture" here — a
+/// rectangle with no width or height could not be a picture anyway — but it is
+/// no longer used, because the script sees that non-empty string as a crop.
 fn crop_rectangle(raw: &str) -> Option<CropRectangle> {
     let raw = raw.trim();
     if raw.is_empty() {

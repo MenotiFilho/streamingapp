@@ -573,6 +573,10 @@ export type Action =
   | { type: "previous_chapter" }
   | { type: "set_chapter"; index: number }
   | { type: "set_crop"; crop: Crop }
+  // The Player's own script crops to the bars it finds, or puts the full frame
+  // back: the rectangle is its answer, so the Host records it on the next report
+  // rather than at the press (#119).
+  | { type: "autocrop" }
   | { type: "set_aspect"; aspect: Aspect }
   // The Action the window sends for a series' next episode: the Host decides
   // which Video that is — asking its Addons, not counting up an id — and answers

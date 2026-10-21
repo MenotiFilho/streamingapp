@@ -1186,18 +1186,32 @@ function Walk-Controls($app) {
     Check 'returning to the source takes: the source is pressed again' (
         Toggled (Button-Named $app 'Source')) "showed: $(Page-Text $app)"
 
-    # The bars are what make this visible: this file is 1280x540 of picture in a
-    # 1280x720 frame. mpv's *own* stock autocrop has already cut them away by
-    # now, which is why no crop choice of the menu is the one in force until the
-    # Host is asked for one - that is mpv's script, not the Host cropping.
+    # The fixture is 1280x540 of picture in a 1280x720 frame. Autocrop is off
+    # until asked (#119), so the bars are still there and the whole frame is the
+    # choice in force on the first look at this menu.
     Check 'the Crop group offers the whole frame and the ratios' (
         ((Button-Named $app 'Full frame') -ne $null) -and ($aspects.Count -ge 2)) (
         "showed: $text")
+    Check 'no crop is in force until Autocrop is asked' (
+        Toggled (Button-Named $app 'Full frame')) "showed: $(Page-Text $app)"
+    Shot $app '13-crop-uncropped.png'
+    'review 13-crop-uncropped.png: the black bars should still be there'
+
+    # The button is the script's own toggle: the first press detects, and the
+    # Host publishes the crop once the Player reports it, which is when the label
+    # becomes the way back.
+    Click-Element $app (Button-Named $app 'Autocrop')
+    $restore = Button-Named $app 'Restore full frame' 15
+    Check 'Autocrop detects the bars: the whole frame is no longer the crop in force' (
+        ($restore -ne $null) -and
+        -not (Toggled (Button-Named $app 'Full frame'))) "showed: $(Page-Text $app)"
     Shot $app '13-crop-autocrop.png'
-    'review 13-crop-autocrop.png: the black bars should already be gone'
-    Check 'the bars were already gone before the Host was asked to crop (mpv''s stock autocrop)' (
-        (-not (Toggled (Button-Named $app 'Full frame'))) -and
-        (-not (Toggled (Buttons-Named $app '4:3')[1]))) "showed: $(Page-Text $app)"
+    'review 13-crop-autocrop.png: the black bars should be gone'
+    Click-Element $app $restore
+    Check 'pressing again restores the full frame' (
+        ((Button-Named $app 'Autocrop' 15) -ne $null) -and
+        (Toggled (Button-Named $app 'Full frame'))) "showed: $(Page-Text $app)"
+
     Click-Element $app (Buttons-Named $app '4:3')[1]
     Check 'applying a crop takes: that ratio becomes the choice pressed' (
         Toggled (Buttons-Named $app '4:3')[1]) "showed: $(Page-Text $app)"
@@ -1734,10 +1748,6 @@ function Step-13($ctx) {
         Skip 'the full OSD' 'the Stream never started playing, so there was no menu to walk'
         return
     }
-    # A moment for mpv's stock autocrop, which fires about five seconds after the
-    # file loads, so the crop step sees the bars already gone rather than being
-    # the thing that removes them.
-    Start-Sleep -Seconds 4
     Walk-Controls $app
 
     Press-Button $app 'Stop'

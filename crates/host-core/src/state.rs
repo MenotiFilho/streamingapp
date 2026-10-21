@@ -339,6 +339,10 @@ impl State {
                 self.playback.cropped(crop);
                 Persist::Nothing
             }
+            // The rectangle is the Player's script's answer, and the Host's
+            // record of the crop moves when the Player reports it. No state here
+            // moves and no store keeps a crop (#119).
+            Change::Autocrop => Persist::Nothing,
             Change::SetAspect(aspect) => {
                 self.playback.shaped(aspect);
                 Persist::Nothing
@@ -524,6 +528,10 @@ pub(crate) enum Change {
     /// Move the Host's own record of which chapter is playing.
     Chapter(ChapterStep),
     SetCrop(Crop),
+    /// The Player's stock autocrop script was asked for its toggle: the crop is
+    /// the script's to find, so the Host's own record moves when the Player
+    /// reports it, not here (#119).
+    Autocrop,
     SetAspect(Aspect),
     /// The Player was told to let the Stream go: nothing is playing, and what
     /// failed no longer is.
@@ -552,4 +560,42 @@ pub(crate) enum Persist {
     /// Nothing the store holds was left behind: the change was made somewhere
     /// else, or touched nothing the store keeps.
     Nothing,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A Host's state with nothing configured and nothing playing, which is
+    /// where every Host starts.
+    fn idle_state() -> State {
+        State::holding(
+            Preferences::new(),
+            Vec::new(),
+            Protection {
+                backend: SecretBackend::File,
+                tmdb_held: false,
+                stremio_held: false,
+            },
+            Vec::new(),
+            Vec::new(),
+            PairingCode::generate(),
+        )
+    }
+
+    #[test]
+    fn autocrop_leaves_the_hosts_record_exactly_where_it_was() {
+        let mut state = idle_state();
+        let before = state.clone();
+
+        assert_eq!(
+            state.apply(Change::Autocrop, 1_000),
+            Persist::Nothing,
+            "a crop the Player's script finds is not the store's business"
+        );
+        assert_eq!(
+            state, before,
+            "the Host's record of the crop moves on the Player's next report, not on the ask"
+        );
+    }
 }

@@ -497,7 +497,7 @@
       comment: a control wired to an Action this list does not name throws
       rather than sending it.
     -->
-    <script type="application/json" id="action-capabilities">["set_subtitle_language","clear_subtitle_language","set_featured_catalog","clear_featured_catalog","add_addon","reorder_addon","remove_addon","set_tmdb_key","clear_tmdb_key","sign_in_stremio","sign_out_stremio","pair_device","revoke_device","browse_catalog","search_catalogs","discover","search","open_title","open_discovered_title","find_streams","play_stream","resume","set_paused","seek","set_audio_track","set_subtitle_track","set_subtitle_delay","set_speed","set_volume","set_muted","next_chapter","previous_chapter","set_chapter","set_crop","set_aspect","next_episode","previous_episode","stop_playback"]</script>
+    <script type="application/json" id="action-capabilities">["set_subtitle_language","clear_subtitle_language","set_featured_catalog","clear_featured_catalog","add_addon","reorder_addon","remove_addon","set_tmdb_key","clear_tmdb_key","sign_in_stremio","sign_out_stremio","pair_device","revoke_device","browse_catalog","search_catalogs","discover","search","open_title","open_discovered_title","find_streams","play_stream","resume","set_paused","seek","set_audio_track","set_subtitle_track","set_subtitle_delay","set_speed","set_volume","set_muted","next_chapter","previous_chapter","set_chapter","set_crop","autocrop","set_aspect","next_episode","previous_episode","stop_playback"]</script>
 
     <!-- What a device that has not paired sees. -->
     <section id="pairing" class="pairing hidden">
@@ -2591,6 +2591,8 @@
                             aria-pressed="${pressed(cropSelected(p.crop, choice.crop))}">${choice.label}</button>`;
                   })}
                 </div>
+                <button type="button" class="btn" data-focusable data-a="autocrop"
+                        data-focus-key="cast-autocrop">${p.crop ? "Restore full frame" : "Autocrop"}</button>
                 <p class="note">${p.crop
                   ? "Autocrop keeps " + p.crop.width + "\u00d7" + p.crop.height + "+" + p.crop.x + "+" + p.crop.y + "."
                   : "Autocrop keeps the whole frame."}</p>
@@ -3703,6 +3705,7 @@
             if (crop) { await take({ type: "set_crop", crop }); }
             return;
           }
+          case "autocrop": { await take({ type: "autocrop" }); return; }
           case "stats-toggle": {
             state.showStatistics = !state.showStatistics;
             renderCast();

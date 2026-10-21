@@ -157,7 +157,7 @@ scripts/windows/stage.sh /mnt/c/Users/<you>/streamingapp-verify
 # 3. a video for the Addon fixture, so that playback has something to play that
 #    is not a third party's content — and so that the control set has something
 #    to move: two audio tracks, two embedded subtitle tracks, two chapters, and
-#    black bars for mpv's stock autocrop (ffmpeg runs in the container)
+#    black bars for the Autocrop toggle (ffmpeg runs in the container)
 scripts/windows/fixture-video.sh /mnt/c/Users/<you>/streamingapp-verify
 
 # 4. build it there, and (in a second window) serve the fixture Addon
@@ -304,14 +304,13 @@ or started).
   start, enter their own test key, and clear it again, so a run is honest about
   "no key is held" either way. Running the walkthrough does remove a real key you
   had configured: it is a verification Host, not the daily one.
-- **The black bars are gone before the crop step, and that is mpv, not the Host.**
-  `host-mpv` vendors mpv's own `TOOLS/lua/autocrop.lua`, which fires about five
-  seconds after the file loads and sets `video-crop` itself. The fixture is
-  letterboxed (1280x540 of picture in a 1280x720 frame) so there is something to
-  find, and the crop step's first screenshot shows the bars already cut away —
-  that is the script. What the step asserts is that *no* crop choice of the menu
-  is the one in force until the Host is asked for one, and then that asking for
-  one takes effect.
+- **The black bars are there on load, and Autocrop is what removes them.**
+  `host-mpv` vendors mpv's own `TOOLS/lua/autocrop.lua` but starts it with
+  `script-opts=autocrop-auto=no`, so `file-loaded` does not crop (#119). The
+  fixture is letterboxed (1280x540 of picture in a 1280x720 frame) so there is
+  something to find: the crop step's first screenshot shows the bars, pressing
+  **Autocrop** runs the script's own detect and cuts them away, and pressing
+  **Restore full frame** puts them back. There is no timer to wait out any more.
 - **UI Automation needs a moment.** Chromium builds its accessibility tree only
   once a client asks for it, so `Find-Element`/`Page-Text` retry for a few seconds
   before giving up.

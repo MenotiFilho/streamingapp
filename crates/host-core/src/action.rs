@@ -256,6 +256,15 @@ pub enum Action {
     SetChapter { index: u32 },
     /// Crop the picture, or stop cropping it.
     SetCrop { crop: Crop },
+    /// Ask the Player to crop the picture to the black bars it finds, or to put
+    /// the full frame back where a crop is already set (#119).
+    ///
+    /// A change whose state is the Player's: the stock autocrop script detects
+    /// the rectangle and moves `video-crop`, and the Host's record of the crop
+    /// follows the Player's next report rather than this Action. Every client is
+    /// still told of the press — a control taken is a Snapshot — and nothing the
+    /// store keeps moves.
+    Autocrop,
     /// Override the shape the picture is drawn at.
     SetAspect { aspect: Aspect },
     /// Play the Video after the one playing, in its Title: the Addon's own next
@@ -341,6 +350,7 @@ action_spellings! {
     Action::PreviousChapter => "previous_chapter",
     Action::SetChapter { .. } => "set_chapter",
     Action::SetCrop { .. } => "set_crop",
+    Action::Autocrop => "autocrop",
     Action::SetAspect { .. } => "set_aspect",
     Action::NextEpisode => "next_episode",
     Action::PreviousEpisode => "previous_episode",
@@ -552,6 +562,7 @@ impl Action {
                 checked_crop(&crop)?;
                 Ok(ValidatedAction::SetCrop { crop })
             }
+            Action::Autocrop => Ok(ValidatedAction::Autocrop),
             Action::SetAspect { aspect } => {
                 checked_aspect(&aspect)?;
                 Ok(ValidatedAction::SetAspect { aspect })
@@ -725,6 +736,10 @@ pub enum ValidatedAction {
     SetCrop {
         crop: Crop,
     },
+    /// The Player's own script was asked for a crop, or to restore the full
+    /// frame: no Host state moves, because the rectangle is the script's to find
+    /// and the Player's next report is what carries it (#119).
+    Autocrop,
     SetAspect {
         aspect: Aspect,
     },
@@ -801,6 +816,7 @@ impl ValidatedAction {
             | Self::PreviousChapter
             | Self::SetChapter { .. }
             | Self::SetCrop { .. }
+            | Self::Autocrop
             | Self::SetAspect { .. }
             | Self::NextEpisode
             | Self::PreviousEpisode
@@ -1511,6 +1527,7 @@ mod tests {
                 r#"{"type":"set_crop","crop":{"kind":"off"}}"#,
                 Action::SetCrop { crop: Crop::Off },
             ),
+            (r#"{"type":"autocrop"}"#, Action::Autocrop),
             (
                 r#"{"type":"set_aspect","aspect":{"kind":"ratio","value":1.7778}}"#,
                 Action::SetAspect {
@@ -1579,6 +1596,23 @@ mod tests {
             Action::SetSubtitleTrack { track: Some(-1) }.validate(),
             Err(ActionError::UnknownTrack { .. })
         ));
+    }
+
+    #[test]
+    fn autocrop_is_a_control_a_client_names_as_a_flat_action() {
+        let envelope = format!(r#"{{"version":{ACTION_VERSION},"action":{{"type":"autocrop"}}}}"#);
+
+        assert_eq!(Action::parse(&envelope), Ok(Action::Autocrop));
+        assert_eq!(Action::Autocrop.spelling(), "autocrop");
+        assert_eq!(
+            Action::Autocrop.validate(),
+            Ok(ValidatedAction::Autocrop),
+            "autocrop carries no payload to judge"
+        );
+        assert_eq!(
+            serde_json::to_value(Action::Autocrop).expect("an Action serializes"),
+            serde_json::json!({ "type": "autocrop" })
+        );
     }
 
     #[test]
@@ -1914,6 +1948,7 @@ mod tests {
         r#"{"type":"previous_chapter"}"#,
         r#"{"type":"set_chapter","index":0}"#,
         r#"{"type":"set_crop","crop":{"kind":"off"}}"#,
+        r#"{"type":"autocrop"}"#,
         r#"{"type":"set_aspect","aspect":{"kind":"source"}}"#,
         r#"{"type":"next_episode"}"#,
         r#"{"type":"previous_episode"}"#,

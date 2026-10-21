@@ -285,6 +285,7 @@ impl HostView {
             | ValidatedAction::PreviousChapter
             | ValidatedAction::SetChapter { .. }
             | ValidatedAction::SetCrop { .. }
+            | ValidatedAction::Autocrop
             | ValidatedAction::SetAspect { .. }
             | ValidatedAction::NextEpisode
             | ValidatedAction::PreviousEpisode

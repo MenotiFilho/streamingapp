@@ -412,6 +412,33 @@ describe("the player OSD", () => {
     expect(actions(host.invocations)).not.toContainEqual({ type: "stop_playback" });
   });
 
+  test("the Picture menu's Autocrop button sends the autocrop Action", async () => {
+    const host = await renderPlayer();
+
+    fireEvent.click(screen.getByTestId("osd-picture"));
+    const picture = await screen.findByTestId("popover-picture");
+    const autocrop = within(picture).getByTestId("autocrop");
+    expect(autocrop).toHaveTextContent("Autocrop");
+    expect(
+      autocrop,
+      "a toggle the Host performs, not a choice of crop: nothing is pressed",
+    ).not.toHaveAttribute("aria-pressed");
+
+    fireEvent.click(autocrop);
+    await waitFor(() =>
+      expect(actions(host.invocations)).toContainEqual({ type: "autocrop" }),
+    );
+  });
+
+  test("with a crop set the Autocrop button offers to restore the full frame", async () => {
+    await renderPlayer({ crop: { width: 96, height: 72, x: 16, y: 0 } });
+
+    fireEvent.click(screen.getByTestId("osd-picture"));
+    const picture = await screen.findByTestId("popover-picture");
+
+    expect(within(picture).getByTestId("autocrop")).toHaveTextContent("Restore full frame");
+  });
+
   test("the popovers carry the whole control set", async () => {
     const host = await renderPlayer();
 

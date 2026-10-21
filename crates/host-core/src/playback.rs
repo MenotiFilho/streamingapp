@@ -535,6 +535,11 @@ pub enum Telling {
     Chapter(ChapterStep),
     /// Crop the picture, or stop cropping it.
     Crop(Crop),
+    /// Ask the Player's own autocrop script for its toggle: detect the picture's
+    /// black bars and crop to them, or restore the full frame where a crop is
+    /// already set (#119). The rectangle is the script's to find, so this tells
+    /// the Player nothing about it.
+    Autocrop,
     /// Override the picture's shape.
     Aspect(Aspect),
     /// The language the Player prefers when it selects a subtitle track for the
@@ -672,6 +677,8 @@ pub enum Control {
     Mute,
     Chapter,
     Crop,
+    /// The stock autocrop script's own toggle (#119).
+    Autocrop,
     Aspect,
     /// S4: skipping to the Video after this one in its Title.
     NextEpisode,
@@ -694,6 +701,7 @@ impl std::fmt::Display for Control {
             Control::Mute => "mute",
             Control::Chapter => "chapter",
             Control::Crop => "crop",
+            Control::Autocrop => "autocrop",
             Control::Aspect => "aspect",
             Control::NextEpisode => "next episode",
             Control::PreviousEpisode => "previous episode",

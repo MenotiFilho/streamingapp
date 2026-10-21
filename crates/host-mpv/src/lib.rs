@@ -35,18 +35,20 @@
 //! initialization — `wid` among them — are set on the handle before
 //! `mpv_initialize` runs.
 //!
-//! ## Black bars are mpv's own business
+//! ## Black bars are mpv's own business, asked for by a client
 //!
 //! ADR-0003 settles that the picture is mpv's and the Host never composites a
 //! frame, so the black bars around a Stream are handled by mpv's own tooling
 //! rather than a reimplementation: mpv ships `TOOLS/lua/autocrop.lua`, which
 //! drives `cropdetect` and the `video-crop` property, and it is vendored here
-//! verbatim as `scripts/autocrop.lua` and loaded into every Player. mpv's own
-//! script is the behaviour a person gets from mpv, and the Host's job is to not
-//! fight it: a manual `video-crop` the Host sets is overwritten by the script's
-//! next run, which is exactly what "a stock mpv script driving the property"
-//! means. mpv's script is GPL-compatible with this crate's own licence, and the
-//! checked-in copy is used as it came from upstream.
+//! verbatim as `scripts/autocrop.lua` and loaded into every Player. The Host
+//! starts it with `autocrop-auto=no`, so a Stream opens exactly as its source is
+//! and the first frame keeps whatever bars the Stream carries; a client asks for
+//! the script's own toggle (`autocrop/toggle_crop`) when it wants them found, and
+//! asks again to restore the full frame (#119, ADR-0014). The script is
+//! unmodified, and the Host detects nothing itself. mpv's script is
+//! GPL-compatible with this crate's own licence, and the checked-in copy is used
+//! as it came from upstream.
 
 mod observing;
 mod telling;
@@ -59,6 +61,11 @@ use libmpv2::mpv_end_file_reason as EndFileReason;
 use libmpv2::Mpv;
 
 use crate::observing::{failure_words, observe, Memory, Properties, RawChapter, RawTrack};
+
+/// The stem the vendored script is written under, and the one name mpv keys it
+/// by: the file is `<stem>.lua`, its toggle binding is `<stem>/toggle_crop`, and
+/// `script-opts` is keyed `<stem>-*` (#119).
+pub(crate) const AUTOCROP_SCRIPT_STEM: &str = "autocrop";
 
 /// mpv's stock autocrop script, vendored from upstream (ADR-0003).
 ///
@@ -120,18 +127,24 @@ pub(crate) fn picture(surface: Placement) -> Picture {
 /// mpv's `scripts` is an initialization-only option that takes *paths*, so the
 /// script embedded above has to exist on disk before mpv starts. It is written
 /// once per process — every Player a process builds is handed the same path —
-/// under a name that carries the process id so two processes do not overwrite
-/// each other's copy. A failure to write it is logged and returns nothing: a
-/// Player without the stock autocrop still plays, and that is the only failure
-/// a person would accept here.
+/// into a directory named for the process id so two processes do not overwrite
+/// each other's copy, and under [`AUTOCROP_SCRIPT_STEM`] so that the script's
+/// name, its `script-opts` key and its toggle binding are one constant (#119). A
+/// failure to write it is logged and returns nothing: a Player without the stock
+/// autocrop still plays, and that is the only failure a person would accept here.
 fn autocrop_script() -> Option<&'static str> {
     static ON_DISK: OnceLock<Option<String>> = OnceLock::new();
 
     ON_DISK
         .get_or_init(|| {
-            let path = std::env::temp_dir()
-                .join(format!("streamingapp-autocrop-{}.lua", std::process::id()));
-            match std::fs::write(&path, AUTOCROP) {
+            let directory = std::env::temp_dir().join(format!(
+                "streamingapp-{AUTOCROP_SCRIPT_STEM}-{}",
+                std::process::id()
+            ));
+            let path = directory.join(format!("{AUTOCROP_SCRIPT_STEM}.lua"));
+            let written =
+                std::fs::create_dir_all(&directory).and_then(|()| std::fs::write(&path, AUTOCROP));
+            match written {
                 Ok(()) => path.to_str().map(str::to_owned),
                 Err(error) => {
                     tracing::warn!(
@@ -167,8 +180,8 @@ impl MpvPlayer {
     /// blocked on mpv's event loop would block the Action surface with it.
     ///
     /// mpv's stock autocrop script is written out and loaded here — as an
-    /// option, before mpv starts — unless writing it failed, in which case
-    /// playback goes on without it.
+    /// option, before mpv starts — with its automatic pass switched off, unless
+    /// writing it failed, in which case playback goes on without it.
     pub fn start(surface: Placement) -> Result<Self, MpvError> {
         let script = autocrop_script();
         let mpv = Mpv::with_initializer(|init| {
@@ -489,7 +502,9 @@ impl Player for MpvPlayer {
 ///
 /// `scripts` is where mpv's stock autocrop goes, and it is an option only mpv
 /// reads before it starts — like `wid` — so its path is resolved by the caller
-/// and passed in rather than written by this pure half.
+/// and passed in rather than written by this pure half. `script-opts` turns the
+/// script's automatic pass off, so the first frame is uncropped until a client
+/// asks for its toggle (#119).
 fn options(surface: Placement, script: Option<&str>) -> Vec<(&'static str, String)> {
     let mut options: Vec<(&'static str, String)> = vec![
         (
@@ -515,9 +530,12 @@ fn options(surface: Placement, script: Option<&str>) -> Vec<(&'static str, Strin
     // it could not be written, which is a Player without autocrop and not a
     // Player that will not start. The option's name is `scripts`, a list:
     // `script` is only an alias for `--scripts-append` on the command line and
-    // is not an option the client API knows.
+    // is not an option the client API knows. `script-opts` is the script's own
+    // `auto=no`, under the name its file gives it: the script still answers its
+    // toggle, it just does not crop on `file-loaded` any more (#119).
     if let Some(script) = script {
         options.push(("scripts", script.to_owned()));
+        options.push(("script-opts", format!("{AUTOCROP_SCRIPT_STEM}-auto=no")));
     }
 
     match surface {
@@ -594,22 +612,55 @@ mod tests {
     #[test]
     fn the_stock_autocrop_script_is_loaded_before_mpv_starts() {
         // `scripts` is an option mpv reads once, at initialization, and the
-        // Player hands it the path it wrote the vendored script to.
+        // Player hands it the path it wrote the vendored script to. The script's
+        // automatic pass is switched off in the same options, so a Stream opens
+        // exactly as its source is and a client asks for the crop (#119).
         let with_script = options(
             Placement::Headless,
-            Some("/tmp/streamingapp-autocrop-1.lua"),
+            Some("/tmp/streamingapp-autocrop-1/autocrop.lua"),
         );
 
         assert_eq!(
             option(&with_script, "scripts"),
-            Some("/tmp/streamingapp-autocrop-1.lua"),
-            "mpv's own autocrop runs for every Player (ADR-0003)"
+            Some("/tmp/streamingapp-autocrop-1/autocrop.lua"),
+            "mpv's own autocrop is loaded for every Player (ADR-0014)"
+        );
+        assert_eq!(
+            option(&with_script, "script-opts"),
+            Some("autocrop-auto=no"),
+            "the script's own option is what keeps the first frame uncropped"
         );
 
         assert_eq!(
             option(&options(Placement::Headless, None), "scripts"),
             None,
             "a Player whose script could not be written starts without it"
+        );
+        assert_eq!(
+            option(&options(Placement::Headless, None), "script-opts"),
+            None,
+            "and with no script there is no option to give it"
+        );
+    }
+
+    #[test]
+    fn the_written_script_is_named_autocrop_so_its_binding_is_a_constant() {
+        let path = autocrop_script().expect("the vendored script is written to the temp directory");
+        let path = std::path::Path::new(path);
+
+        assert_eq!(
+            path.file_stem().and_then(|stem| stem.to_str()),
+            Some("autocrop"),
+            "mpv names the binding after the script's own file: autocrop/toggle_crop"
+        );
+        let directory = path
+            .parent()
+            .and_then(|parent| parent.file_name())
+            .and_then(|name| name.to_str())
+            .expect("the script lives in its own directory");
+        assert!(
+            directory.starts_with("streamingapp-autocrop-"),
+            "the directory carries the process id so two processes do not overwrite each other"
         );
     }
 
