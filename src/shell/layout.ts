@@ -52,11 +52,41 @@ export function regionIdOf(node: Element, root: HTMLElement): string | null {
 export const FOCUSABLE = "[data-focusable]:not([disabled])";
 
 /**
+ * Drop every region that cannot hold focus: one with no controls of its own and
+ * no surviving child, recursively, rebuilding each parent's `children` from the
+ * survivors. An Addon group that answered nothing is a note, not a target, and
+ * must not swallow a move on the way to the next group; a branch left with only
+ * such groups goes too. Every region left in the level can hold focus.
+ */
+function prune(layout: Layout, elements: Record<string, HTMLElement[]>): void {
+  const survives = (id: string): boolean => {
+    const region = layout.regions[id];
+    if (!region) {
+      return false;
+    }
+    region.children = region.children.filter(survives);
+    return region.itemRects.length > 0 || region.children.length > 0;
+  };
+
+  for (const id of Object.keys(layout.regions)) {
+    if (!survives(id)) {
+      delete layout.regions[id];
+      delete elements[id];
+    }
+  }
+}
+
+/**
  * Measure one level into the model the engine reads.
  *
  * The root may itself be a region — the shell is — and `querySelectorAll` never
  * returns its own root, so it goes in first. `memory` is where each region was
  * last left; the caller owns it across moves and across a level's lifetime.
+ *
+ * While the rects are read the root is marked `data-measuring`, which the kit
+ * uses to set the focus decoration aside (the lift is a transform, and
+ * `getBoundingClientRect` includes it). The mark comes off in a `finally`, so a
+ * thrown `Measure` cannot leave the page measured as if it were focused.
  */
 export function readLevel(
   root: HTMLElement,
@@ -66,43 +96,49 @@ export function readLevel(
   const layout: Layout = { regions: {}, memory };
   const elements: Record<string, HTMLElement[]> = {};
 
-  const regionElements: Element[] = root.hasAttribute("data-region") ? [root] : [];
-  regionElements.push(...Array.from(root.querySelectorAll("[data-region]")));
+  root.setAttribute("data-measuring", "");
+  try {
+    const regionElements: Element[] = root.hasAttribute("data-region") ? [root] : [];
+    regionElements.push(...Array.from(root.querySelectorAll("[data-region]")));
 
-  for (const element of regionElements) {
-    const id = element.getAttribute("data-region");
-    if (!id) {
-      continue;
+    for (const element of regionElements) {
+      const id = element.getAttribute("data-region");
+      if (!id) {
+        continue;
+      }
+      const region: Region = {
+        id,
+        label: element.getAttribute("data-label") ?? id,
+        kind: regionKind(element.getAttribute("data-kind")),
+        parent: regionIdOf(element, root),
+        children: [],
+        rect: measure(element),
+        itemRects: [],
+      };
+      layout.regions[id] = region;
+      elements[id] = [];
     }
-    const region: Region = {
-      id,
-      label: element.getAttribute("data-label") ?? id,
-      kind: regionKind(element.getAttribute("data-kind")),
-      parent: regionIdOf(element, root),
-      children: [],
-      rect: measure(element),
-      itemRects: [],
-    };
-    layout.regions[id] = region;
-    elements[id] = [];
+
+    for (const region of Object.values(layout.regions)) {
+      if (region.parent) {
+        layout.regions[region.parent]?.children.push(region.id);
+      }
+    }
+
+    for (const element of Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE))) {
+      const regionId = regionIdOf(element, root);
+      const region = regionId ? layout.regions[regionId] : undefined;
+      if (!regionId || !region) {
+        continue;
+      }
+      region.itemRects.push(measure(element));
+      elements[regionId]?.push(element);
+    }
+  } finally {
+    root.removeAttribute("data-measuring");
   }
 
-  for (const region of Object.values(layout.regions)) {
-    if (region.parent) {
-      layout.regions[region.parent]?.children.push(region.id);
-    }
-  }
-
-  for (const element of Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE))) {
-    const regionId = regionIdOf(element, root);
-    const region = regionId ? layout.regions[regionId] : undefined;
-    if (!regionId || !region) {
-      continue;
-    }
-    region.itemRects.push(measure(element));
-    elements[regionId]?.push(element);
-  }
-
+  prune(layout, elements);
   return { layout, elements };
 }
 

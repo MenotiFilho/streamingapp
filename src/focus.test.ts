@@ -219,6 +219,111 @@ describe("crossing between regions", () => {
   });
 });
 
+/**
+ * A pushed level shaped like Streams or a series' Title: a branch with its own
+ * Back control above the child rows it leads to.
+ */
+function branchWithBack(
+  rows: Array<{ id: string; y: number; x?: number; items: Rect[] }>,
+): Layout {
+  return layout([
+    region("level", {
+      kind: "branch",
+      label: "the level",
+      rect: rect(0, 0, 1200, 900),
+      children: ["streams"],
+    }),
+    region("streams", {
+      kind: "branch",
+      label: "the Streams level",
+      parent: "level",
+      rect: rect(24, 24, 1150, 850),
+      items: [rect(40, 40, 120, 44)],
+      children: rows.map((row) => row.id),
+    }),
+    ...rows.map((row) =>
+      region(row.id, {
+        kind: "row",
+        parent: "streams",
+        rect: rect(row.x ?? 40, row.y, 1000, 120),
+        items: row.items,
+      }),
+    ),
+  ]);
+}
+
+describe("descending into a branch's own children", () => {
+  test("Down from Back lands on the first child's first control", () => {
+    const held = branchWithBack([
+      { id: "group:one", y: 120, items: [rect(40, 130, 1000, 90)] },
+      { id: "group:two", y: 360, items: [rect(40, 370, 1000, 90)] },
+    ]);
+
+    const decision = decideMove(
+      held,
+      { regionId: "streams", index: 0 },
+      "down",
+      DEFAULT_RULES,
+    );
+
+    expect(decision).toMatchObject({
+      kind: "crossed",
+      regionId: "group:one",
+      index: 0,
+      landedBy: "the card under your middle",
+    });
+  });
+
+  test("does not enter a child that is below but off to the side", () => {
+    const held = branchWithBack([
+      { id: "group:aside", y: 120, x: 400, items: [rect(400, 130, 700, 90)] },
+    ]);
+
+    expect(
+      decideMove(held, { regionId: "streams", index: 0 }, "down", DEFAULT_RULES),
+    ).toMatchObject({ kind: "blocked" });
+  });
+
+  test("moves inside the branch before descending", () => {
+    const held = branchWithBack([
+      { id: "group:one", y: 200, items: [rect(40, 210, 1000, 90)] },
+    ]);
+    held.regions["streams"]?.itemRects.push(rect(40, 100, 120, 44));
+
+    const decision = decideMove(
+      held,
+      { regionId: "streams", index: 0 },
+      "down",
+      DEFAULT_RULES,
+    );
+
+    expect(decision).toMatchObject({ kind: "moved", regionId: "streams", index: 1 });
+  });
+
+  test("descends before crossing to a sibling of the branch", () => {
+    const held = branchWithBack([
+      { id: "group:one", y: 120, items: [rect(40, 130, 1000, 90)] },
+    ]);
+    held.regions["below"] = region("below", {
+      kind: "row",
+      label: "the row below",
+      parent: "level",
+      rect: rect(40, 400, 1000, 120),
+      items: [rect(40, 410, 1000, 90)],
+    });
+    held.regions["level"]?.children.push("below");
+
+    const decision = decideMove(
+      held,
+      { regionId: "streams", index: 0 },
+      "down",
+      DEFAULT_RULES,
+    );
+
+    expect(decision).toMatchObject({ kind: "crossed", regionId: "group:one", index: 0 });
+  });
+});
+
 describe("entering a region", () => {
   test("lands on the head when what came from is wider than the whole target region", () => {
     // Down from a full-width hero or search box has no meaningful middle to
