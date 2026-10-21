@@ -1,6 +1,7 @@
 import { createContext, useContext } from "react";
 
 import type { Action, ActionError, Response, Snapshot } from "../host-client";
+import type { HomeStore } from "./homeStore";
 import type { Destination, ShellLevel } from "./navigation";
 
 /** A level a screen asks the shell to push; the shell gives it its id. */
@@ -60,6 +61,13 @@ export type ShellContextValue = {
   ask: (action: Action) => Promise<ActionOutcome>;
   /** Take an Action through the Host's one door. */
   take: (action: Action) => Promise<Response | null>;
+  /**
+   * Home's session browse: the rows this client has read, their pages, and the
+   * asks still in flight. It lives above the screen so leaving Home does not
+   * throw the rows away (#112); what one client is looking at stays its own
+   * browse and never travels as a Snapshot (ADR-0005).
+   */
+  home: HomeStore;
 };
 
 export const ShellContext = createContext<ShellContextValue | null>(null);

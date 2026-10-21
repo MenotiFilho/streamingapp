@@ -14,6 +14,7 @@ import { DestinationScreen } from "./DestinationScreens";
 import { PlayerOverlay } from "./PlayerOverlay";
 import { ShellFrame } from "./ShellFrame";
 import { ShellContext, type ActionOutcome, type NewShellLevel } from "./context";
+import { HomeStore } from "./homeStore";
 import {
   INITIAL_NAVIGATION,
   navigate,
@@ -95,6 +96,13 @@ export function Shell({ client }: { client?: HostClient }) {
     },
     [ask],
   );
+
+  // Home's rows belong to the session, not to the screen: leaving the
+  // destination unmounts `HomeScreen`, and this store is what keeps the asks
+  // already sent running and their answers on hand for the return (#112).
+  // `useState`'s initializer, unlike `useMemo`, is guaranteed to be kept for
+  // the life of this Shell; `ask` is stable for that life too.
+  const [home] = useState(() => new HomeStore(ask));
 
   const choose = useCallback((destination: Destination) => {
     setChosenDestination(true);
@@ -196,6 +204,7 @@ export function Shell({ client }: { client?: HostClient }) {
       ask,
       take,
       markUnplayable,
+      home,
     }),
     [
       snapshot,
@@ -213,6 +222,7 @@ export function Shell({ client }: { client?: HostClient }) {
       ask,
       take,
       markUnplayable,
+      home,
     ],
   );
 

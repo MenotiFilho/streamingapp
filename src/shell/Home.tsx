@@ -1,17 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
 import {
-  blankRow,
   catalogKey,
   declaredCatalogs,
   keyOf,
   pageable,
-  rowWith,
-  SKIP,
-  unaskable,
   type Row,
 } from "../browse";
-import { answeredCatalogs, explain, type Extra } from "../host-client";
+import { explain } from "../host-client";
 import { cardName, cardNote, progressOf, resumable } from "../library";
 import { useShell } from "./context";
 import { addonName, continueArt, featuredRow, heroSlides, type HomeCard } from "./home";
@@ -31,13 +27,18 @@ import "./home.css";
  * Continue watching is `Snapshot.watchProgress` in the order the Host publishes
  * it. A Catalog row accumulates its pages in this client, because what one
  * client is looking at must not move what another one is looking at (ADR-0005).
+ *
+ * The rows themselves live in the Shell's `HomeStore`, not here: this screen
+ * unmounts whenever a person leaves the destination, and a return must paint
+ * what was already read instead of asking every Catalog again (#112).
  */
 export function HomeScreen() {
-  const { snapshot, chosenDestination, choose, ask, take } = useShell();
+  const { snapshot, chosenDestination, choose, take, home } = useShell();
   const { openTitle: openTitleLevel } = useTitleOpener();
-  const [rows, setRows] = useState<Row[]>([]);
-  const [paging, setPaging] = useState<string[]>([]);
-  const [answered, setAnswered] = useState<string[]>([]);
+  const { rows, answered, paging } = useSyncExternalStore(
+    home.subscribe,
+    home.getSnapshot,
+  );
   const root = useRef<HTMLElement | null>(null);
   const focusedAtLaunch = useRef(false);
 
@@ -45,100 +46,42 @@ export function HomeScreen() {
     () => declaredCatalogs(snapshot).map(catalogKey).join("|"),
     [snapshot],
   );
-
-  /** Ask the Host for one page of a row, and fold its answer into that row. */
-  const load = useCallback(
-    async (row: Row, extra: Extra[]): Promise<Row | null> => {
-      const { response, error } = await ask({
-        type: "browse_catalog",
-        addon: row.addon,
-        catalog: { type: row.type, id: row.id },
-        extra,
-      });
-      if (error) {
-        // A Catalog the Host refuses to ask for is not a row at all; anything
-        // else is a row that says what went wrong, so one Addon's trouble does
-        // not take the rest of Home with it (ADR-0010).
-        return unaskable(error) ? null : { ...row, failure: error };
-      }
-      const answer = answeredCatalogs(response)[0] ?? null;
-      return answer ? rowWith(row, answer) : null;
-    },
-    [ask],
+  // The store drops a removed Catalog in its sync effect, which runs after this
+  // render; filtering here keeps a removed row from painting for one frame.
+  const declaredKeys = useMemo(
+    () => new Set(declaredCatalogs(snapshot).map(catalogKey)),
+    [catalogFingerprint],
   );
+  const visibleRows = rows.filter((row) => declaredKeys.has(keyOf(row)));
+  const featuredCatalog = snapshot?.featuredCatalog;
+  const featuredKey = featuredCatalog
+    ? keyOf({
+        addon: featuredCatalog.addon,
+        type: featuredCatalog.catalog.type,
+        id: featuredCatalog.catalog.id,
+      })
+    : null;
 
-  // One row per Catalog the Addons declare, in the Addons' configured order.
-  // The rows are laid down before any answer so the order does not wait on a
-  // slow Addon; each answer then fills its own row. Keyed on which Catalogs
-  // there are, not on every revision: a preference change publishes a new
-  // Snapshot and must not throw away the pages a person has read.
+  // A return to Home, and only a return: paint what the store holds, join the
+  // asks still in flight, and re-ask the rows that failed. A fingerprint or
+  // Featured change is not a return and must not spend the four-ask budget on
+  // failed rows.
   useEffect(() => {
-    const catalogs = declaredCatalogs(snapshot);
-    setRows(catalogs.map(blankRow));
-    setAnswered([]);
-    if (catalogs.length === 0) {
-      return;
-    }
+    home.enter();
+  }, [home]);
 
-    // The Featured row is asked first so the hero can be drawn as soon as the
-    // one answer it needs exists; every other row follows in configured order.
-    const featured = snapshot?.featuredCatalog;
-    const featuredKey = featured
-      ? keyOf({
-          addon: featured.addon,
-          type: featured.catalog.type,
-          id: featured.catalog.id,
-        })
-      : null;
-    const ordered = catalogs
-      .slice()
-      .sort((left, right) =>
-        catalogKey(left) === featuredKey ? -1 : catalogKey(right) === featuredKey ? 1 : 0,
-      );
-
-    let cancelled = false;
-    void (async () => {
-      for (const catalog of ordered) {
-        if (cancelled) {
-          return;
-        }
-        const key = catalogKey(catalog);
-        const first = await load(blankRow(catalog), []);
-        if (cancelled) {
-          return;
-        }
-        setAnswered((held) => (held.includes(key) ? held : [...held, key]));
-        setRows((held) =>
-          first
-            ? held.map((row) => (keyOf(row) === key ? first : row))
-            : held.filter((row) => keyOf(row) !== key),
-        );
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
+  // The store owns the rows, so a Catalog the store already holds is not asked
+  // again: a preference change publishes a new Snapshot, and only a Catalog
+  // that is new to the fingerprint is fetched. The effect is keyed on the
+  // fingerprint and the Featured key rather than on every revision.
+  useEffect(() => {
+    home.sync(declaredCatalogs(snapshot), featuredKey);
     // Deliberately keyed on the fingerprint: reading `snapshot` here is how
     // the Catalogs are listed, but a new Snapshot with the same Catalogs in it
     // must not refetch what this client already holds.
-  }, [catalogFingerprint, load]);
+  }, [home, catalogFingerprint, featuredKey]);
 
-  const page = useCallback(
-    (row: Row) => {
-      const key = keyOf(row);
-      setPaging((held) => (held.includes(key) ? held : [...held, key]));
-      void load(row, [{ name: SKIP, value: String(row.offset) }]).then((answered) => {
-        setPaging((held) => held.filter((held) => held !== key));
-        if (answered) {
-          setRows((held) =>
-            held.map((held) => (keyOf(held) === key ? answered : held)),
-          );
-        }
-      });
-    },
-    [load],
-  );
+  const page = useCallback((row: Row) => home.page(keyOf(row)), [home]);
 
   /** Open a Title's card, then push its screen over Home. */
   const openTitle = useCallback(
@@ -146,31 +89,25 @@ export function HomeScreen() {
     [openTitleLevel],
   );
 
-  const featured = featuredRow(snapshot, rows);
+  const featured = featuredRow(snapshot, visibleRows);
   const slides = heroSlides(featured?.metas ?? []);
   const continueWatching = snapshot?.watchProgress ?? [];
   const catalogs = declaredCatalogs(snapshot);
   const empty = snapshot !== null && catalogs.length === 0;
-  const featuredKey = snapshot?.featuredCatalog
-    ? keyOf({
-        addon: snapshot.featuredCatalog.addon,
-        type: snapshot.featuredCatalog.catalog.type,
-        id: snapshot.featuredCatalog.catalog.id,
-      })
-    : null;
   const featuredDeclared =
     featuredKey !== null && catalogs.some((catalog) => catalogKey(catalog) === featuredKey);
 
   const hasContent =
     slides.length > 0 ||
     continueWatching.some(resumable) ||
-    rows.some((row) => row.metas.length > 0);
+    visibleRows.some((row) => row.metas.length > 0);
 
   // The hero is drawn from a row that arrives after the Snapshot does, so a
   // launch with Continue watching is a race: the cards exist first. Wait for
   // the Featured row's answer before choosing, or focus would land on Continue
   // watching and never move to the hero.
-  const heroPending = featuredDeclared && !answered.includes(featuredKey);
+  const heroPending =
+    featuredKey !== null && featuredDeclared && !answered.has(featuredKey);
 
   // Launch focus is Home's content, not the rail: hero slide 1, otherwise the
   // first pressable card of the first row. Only the launch — a destination a
@@ -267,7 +204,7 @@ export function HomeScreen() {
         </div>
       ) : null}
 
-      {rows.map((row) => (
+      {visibleRows.map((row) => (
         <div
           className="home-row"
           key={keyOf(row)}
@@ -305,7 +242,7 @@ export function HomeScreen() {
               <div className="home-more">
                 <Button
                   variant="ghost"
-                  disabled={paging.includes(keyOf(row))}
+                  disabled={paging.has(keyOf(row))}
                   onClick={() => page(row)}
                 >
                   More
