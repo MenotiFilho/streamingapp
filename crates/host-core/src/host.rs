@@ -857,6 +857,14 @@ impl Host {
                 self.told(Telling::Crop(crop.clone()))?;
                 Resolved::Change(Change::SetCrop(crop))
             }
+            ValidatedAction::Autocrop => {
+                // The Player's own script does the detecting and moves the
+                // crop; the Host only asks. Its record of the rectangle follows
+                // the next report, so this Change moves nothing (#119).
+                self.playing(Control::Autocrop)?;
+                self.told(Telling::Autocrop)?;
+                Resolved::Change(Change::Autocrop)
+            }
             ValidatedAction::SetAspect { aspect } => {
                 self.playing(Control::Aspect)?;
                 self.told(Telling::Aspect(aspect))?;

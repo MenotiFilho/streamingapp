@@ -32,9 +32,11 @@ _Avoid_: query (unqualified), read, fetch
 **Change**:
 An Action that mutates the Host's state — Addons, preferences, credentials,
 paired devices, playback — and is published as a Snapshot to every client. It
-holds the Host's one lock for the whole of its I/O (ADR-0022). (The resolved
-state transition a Change makes inside the Host is also called a `Change` in
-code; this entry is the Action.)
+holds the Host's one lock for the whole of its I/O (ADR-0022). Autocrop is a
+Change whose telling moves no Host state — the Player finds the rectangle and a
+later report carries it — and is published like any other. (The resolved state
+transition a Change makes inside the Host is also called a `Change` in code; this
+entry is the Action.)
 _Avoid_: mutation, command, update
 
 ### Identity
@@ -207,9 +209,15 @@ _Avoid_: cue, marker, bookmark
 
 **Crop**:
 The rectangle of the picture that is kept, in the source's own pixels; the rest
-is not drawn. Never a setting of the Host's: a control a client takes, and the
-stock autocrop script is the other thing that moves it.
+is not drawn. Never a setting of the Host's: a control a client takes, or what
+the Autocrop control asks the stock script to find.
 _Avoid_: zoom, pan, letterbox
+
+**Autocrop**:
+The Player finding the picture's black bars and cropping to them, or restoring
+the full frame when asked again: a control a client takes, never something that
+happens on its own. What it finds is a **Crop** like any other.
+_Avoid_: auto-crop, zoom, fit
 
 **Aspect**:
 The shape the picture is drawn at, where the owner overrides the shape the

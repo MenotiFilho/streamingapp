@@ -23,8 +23,8 @@
 //!
 //! It is 128×72 with 96×72 of picture and a 16 px black bar each side, two audio
 //! tracks (`eng`, `por`), two embedded subtitle tracks (`eng`, `por`), two
-//! chapters, and ten seconds — long enough for mpv's stock autocrop, which needs
-//! more than six seconds of remaining playtime, to find the bars.
+//! chapters, and ten seconds — long enough for the stock autocrop script to
+//! finish a detect pass when the Host asks for one.
 
 use std::io::{BufRead, BufReader, Write};
 use std::net::{TcpListener, TcpStream};
@@ -46,9 +46,9 @@ const PATIENCE: Duration = Duration::from_secs(15);
 /// Generated once in the dev container with ffmpeg (see the note in the test
 /// module docs): 128×72 with 96×72 of picture and a 16 px black bar each side,
 /// two audio tracks (`eng`, `por`), two embedded subtitle tracks (`eng`,
-/// `por`), two chapters, and ten seconds — long enough for mpv's own stock
-/// autocrop to run. It is bytes in the test binary so a test never depends on
-/// the working directory.
+/// `por`), two chapters, and ten seconds — long enough for the stock autocrop
+/// script's detect pass when the toggle asks for it. It is bytes in the test
+/// binary so a test never depends on the working directory.
 const CONTROLS: &[u8] = include_bytes!("fixtures/controls.mkv");
 
 /// A Stream served over HTTP, and the server that serves it.
@@ -212,8 +212,9 @@ fn said(observation: &Observation) -> &[Track] {
 /// Open the control fixture and wait until mpv is playing it with all four of
 /// its tracks listed — where every control test starts from.
 ///
-/// It deliberately does *not* wait for the stock autocrop: that runs on its own
-/// a few seconds in, and a test that wants it waits for it explicitly.
+/// It deliberately does not wait for a crop: the stock autocrop script's
+/// automatic pass is off, and a test that wants its toggle waits for what the
+/// press does.
 fn controlling(streams: &Streams) -> MpvPlayer {
     let player = player();
     player
@@ -636,8 +637,8 @@ fn a_crop_is_observed_and_clearing_it_is_observed_as_uncropped() {
     let streams = serve(6.0);
     let player = controlling(&streams);
 
-    // mpv's own autocrop runs a few seconds after the file loads, so a manual
-    // crop is set and observed promptly rather than after a fixed wait.
+    // A manual crop is the Host's to set, and it is observed promptly: the
+    // script's automatic pass is off, so nothing races it.
     let rectangle = CropRectangle {
         width: 64,
         height: 64,
@@ -715,7 +716,7 @@ fn the_statistics_say_what_is_decoding_and_what_was_dropped() {
     // decoding word arrives with `hwdec-current` a moment later — on a loaded
     // machine the two are far enough apart that waiting for the former alone
     // reads the latter before it is there. So this waits for the fact it
-    // asserts, as the autocrop test does.
+    // asserts, as the crop tests do.
     let playing = until(&player, "said how it is decoding", |observation| {
         observation
             .statistics
@@ -740,16 +741,43 @@ fn the_statistics_say_what_is_decoding_and_what_was_dropped() {
 }
 
 #[test]
-fn the_stock_autocrop_reads_the_black_bars_off_the_picture() {
+fn autocrop_is_off_until_asked_and_toggling_it_crops_and_restores() {
     let streams = serve(6.0);
     let player = player();
     player
         .open(&stream(&streams.movie), None)
         .expect("mpv takes the fixture");
 
-    // mpv's own TOOLS/lua/autocrop.lua waits, detects, and only then sets the
-    // crop, so this waits for the observation rather than sleeping a fixed
-    // time. The fixture is 96×72 of picture behind a 16 px bar each side.
+    // The script's automatic pass is started off (`autocrop-auto=no`), so the
+    // first frame keeps the bars the fixture carries. The old automatic pass
+    // applied a crop about six seconds in; waiting past that is what proves it
+    // is gone.
+    until(&player, "started playing uncropped", |observation| {
+        observation.state == PlaybackState::Playing && observation.crop.is_none()
+    });
+    // A negative assertion has to outlast the pass it denies, so this waits
+    // rather than reading once.
+    thread::sleep(Duration::from_secs(7));
+    assert_eq!(
+        player.observe().crop,
+        None,
+        "the script's automatic pass is off: nothing is cropped on load"
+    );
+
+    // Back near the beginning, so the detect pass still has the couple of
+    // seconds it says it needs on a ten-second fixture.
+    player
+        .tell(Telling::Seek(SeekTarget::To { seconds: 1.0 }))
+        .expect("mpv takes the seek");
+    until(&player, "moved back for the detect", |observation| {
+        observation.position.is_some_and(|seconds| seconds < 2.0)
+    });
+
+    // The Host's toggle is the script's own binding: detect the bars, then a
+    // second press clears the crop the script set.
+    player
+        .tell(Telling::Autocrop)
+        .expect("mpv takes the script's toggle");
     until(&player, "cropped the bars away", |observation| {
         observation.crop
             == Some(CropRectangle {
@@ -758,6 +786,13 @@ fn the_stock_autocrop_reads_the_black_bars_off_the_picture() {
                 x: 16,
                 y: 0,
             })
+    });
+
+    player
+        .tell(Telling::Autocrop)
+        .expect("mpv takes the script's toggle again");
+    until(&player, "restored the full frame", |observation| {
+        observation.crop.is_none()
     });
 }
 

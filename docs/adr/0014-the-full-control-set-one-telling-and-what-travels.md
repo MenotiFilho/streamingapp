@@ -17,8 +17,9 @@ fn tell(&self, telling: Telling) -> Result<(), PlaybackError>;
 
 A `Telling` is the Host's own word for one thing asked of a Player — `Pause`,
 `Seek`, `AudioTrack`, `SubtitleTrack`, `SubtitleDelay`, `Speed`, `Volume`,
-`Muted`, `Chapter`, `Crop`, `Aspect`, `SubtitleLanguage`, `AddSubtitle` — and
-`host-mpv::telling` is the only place that knows what mpv calls each one.
+`Muted`, `Chapter`, `Crop`, `Autocrop`, `Aspect`, `SubtitleLanguage`,
+`AddSubtitle` — and `host-mpv::telling` is the only place that knows what mpv
+calls each one.
 Opening a Stream and letting one go stay methods of their own: they are not
 controls a client names.
 
@@ -72,36 +73,71 @@ The statistics are three fields and no more: `bitrate`, `dropped_frames`,
 `hardware_decode`. A readout is not an excuse for a dump of mpv's property tree,
 and every field is one a client would show.
 
-## Crop is manual, and clearing it is `0x0+0+0`, never `no`
+## Crop is manual, and clearing it is the empty string
 
 A crop is a rectangle of the source, in the source's own pixels, or nothing.
-Clearing it sets `video-crop 0x0+0+0` — the manual's "override container crop and
-disable cropping", and the spelling that means the full frame. `set video-crop
-no` fails with `MPV_ERROR_COMMAND` on mpv 0.41 (the prototype's finding, ADR-0003)
-and is not used. On 0.37 the property then reads back as the string `0x0+0+0`
-rather than as empty, so the reading half treats a zero width or height as
-"uncropped" — verified, and in `docs/research/mpv-control-facts.md`.
+Clearing it sets `video-crop ""`: on 0.37 — the version probed here — the
+property reads back empty, and the reading half already treats empty as
+"uncropped". It is also the stock script's own clear (`set
+file-local-options/video-crop ''`), and the spelling the script tests for, so a
+manual clear and the script's toggle now leave the crop in the same state. On
+0.41 the same clear is expected to read back empty, but that is unverified until
+the Windows walkthrough.
 
-## Autocrop is mpv's own script; the Host does not detect anything
+`0x0+0+0` — the manual's "override container crop and disable cropping" — is
+still accepted by the reading half, which treats a zero width or height as
+uncropped, but it is **no longer used**. On 0.37 the property reads back as the
+string `0x0+0+0` rather than as empty, and the stock autocrop script treats any
+non-empty `video-crop` as a crop already set: a clear spelled that way would make
+the next toggle clear again instead of detecting. `set video-crop no` fails with
+`MPV_ERROR_COMMAND` on mpv 0.41 (the prototype's finding, ADR-0003) and is used
+by nothing. The probe facts are in `docs/research/mpv-control-facts.md` (#119).
+
+## Autocrop is manual-only, and the script is still mpv's own
 
 "Stock autocrop behaviour" means `TOOLS/lua/autocrop.lua`, the script mpv ships.
-The Player embeds it (`include_str!`), writes it to a temp file once per process
-and loads it through mpv's `scripts` option before initialization, which is the
-only time that option can be set (`--script` is a command-line alias for
-`--scripts-append`, not an option the client API knows). The Host therefore
-inherits the script's behaviour exactly: `cropdetect`, an automatic crop about
-five seconds after `file-loaded`, the `C` binding, and its own cleanup. A manual
-crop is the Host's `video-crop` set; a clear restores the full frame, and the
-script's next run re-applies whatever it detects. That interplay is stock mpv's,
-not a rule this Host invented, and it is written down so it is not mistaken for a
-bug.
+The Player embeds it (`include_str!`), writes it to a per-process temp directory
+once per process and loads it through mpv's `scripts` option before
+initialization, which is the only time that option can be set (`--script` is a
+command-line alias for `--scripts-append`, not an option the client API knows).
+The vendored copy stays **unmodified**: what changed with #119 is the option it
+is started with, and who asks it to run.
+
+The file is written as `autocrop.lua`, because mpv names a script after its
+file: the binding is `autocrop/toggle_crop` and `script-opts` is keyed
+`autocrop-*`. The Player starts it with `script-opts=autocrop-auto=no`, the
+script's own supported way to opt out of its automatic pass. `file-loaded` then
+finds `auto` false and returns, so a Stream opens exactly as its source is and
+the first frame keeps whatever black bars it carries. A client that wants them
+found takes `Action::Autocrop`, which the Player spells as `script-binding
+autocrop/toggle_crop`: the script's own toggle, which detects while `video-crop`
+is empty and clears while it is not. Pressing it again restores the full frame.
+There is no clear-first step — the script reads the property itself, and an
+explicit clear before every press would turn the second press into a third
+detect.
+
+The Host still detects nothing: the rectangle is the script's answer, and a
+Snapshot carries it only once the Player reports the `video-crop` it set. A
+manual crop and an autocropped one are the same `Crop` from that point on.
+
+**This reverses the earlier rejection of "autocrop off by default."** That
+rejection was made because the ticket then asked for the stock behaviour, and the
+script's own default is on. The owner has since chosen the opposite: a Stream
+must open uncropped, and cropping the bars is something a person asks for. The
+stock behaviour kept is the script's *toggle*; the automatic pass it performs on
+its own is the part switched off. Reversing it explicitly is the point — silently
+overriding the old decision would leave the record in this file saying something
+the Host no longer does.
 
 Rejected, with reasons: **the Host detecting black bars itself** (it would be a
 second implementation of `cropdetect` with a worse eye, and it would need the
-picture's frames, which the Host never sees); **autocrop off by default** (the
-ticket asks for the stock behaviour, and the script's own default is on);
-**fetching the script at runtime** (a Player with no network must not lose a
-player feature, and a script the Host plays must be one the Host ships).
+picture's frames, which the Host never sees); **patching the script to remove
+`on_start`** (a modified script stops being mpv's, and `auto=no` is exactly the
+option upstream provides for this); **fetching the script at runtime** (a Player
+with no network must not lose a player feature, and a script the Host plays must
+be one the Host ships); **clearing the crop before detecting** (the script uses
+an empty `video-crop` as its "nothing to clear, so detect" signal, so a clear
+first would be dead work that fights the manual crop).
 
 ## Aspect is mpv's override, and "source" is its absence
 
@@ -204,8 +240,11 @@ one control).
 Every control in the v1 set is now an Action, and the local window and the remote
 client of #31/#32 will reach them the same way. A control added later is a
 `Telling`, an `Action`, a field on the Snapshot and a property in the reading;
-nothing above the seam changes shape. #29 reads Watch progress from the position
-the Host already publishes and the `Ended` state it can see. The statistics
-reading is where #18's HDR checklist will look for what is decoding the picture
-on a real display. The Addon `subtitles` resource is where a per-Title subtitle
-preference would live, if one is ever asked for.
+nothing above the seam changes shape. #119's Autocrop is the seam holding with
+one field fewer: a `Telling` that is a script binding, an `Action` whose Change
+moves no state, and the crop field that was already there carrying what the
+script found. #29 reads Watch progress from the position the Host already
+publishes and the `Ended` state it can see. The statistics reading is where #18's
+HDR checklist will look for what is decoding the picture on a real display. The
+Addon `subtitles` resource is where a per-Title subtitle preference would live,
+if one is ever asked for.

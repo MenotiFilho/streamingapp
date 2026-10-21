@@ -42,15 +42,19 @@ workspace, so the list is read through mpv's indexed property syntax instead:
 for an idle Player. This was confirmed against a real file carrying two audio
 tracks, two embedded subtitles and two chapters.
 
-### `video-crop` cannot be cleared with `no`
+### Clearing `video-crop`
 
 `set video-crop no` fails with `MPV_ERROR_COMMAND` (`-12`) on mpv 0.41 — the
-prototype's finding (`spike-windows-embedding.md`) — and the documented way to
-restore the full frame is the empty rectangle: `set video-crop 0x0+0+0`
-("overrides container crop and disables cropping", manual). On 0.37 that command
-succeeds and the property then *reads back* as the string `0x0+0+0`, not as
-empty — so the reading half has to treat a zero width or height as "uncropped",
-which the seam does.
+prototype's finding (`spike-windows-embedding.md`). On 0.37, the version probed
+here, two spellings do work: `set video-crop ""` clears the property to empty,
+which is also the stock autocrop script's own clear; `set video-crop 0x0+0+0`
+("overrides container crop and disables cropping", manual) restores the full
+frame too, but the property then *reads back* as the string `0x0+0+0`, not as
+empty. The reading half treats both an empty string and a zero width or height as
+"uncropped", which the seam does. #119 clears with the empty string, because the
+autocrop script reads any non-empty `video-crop` as "a crop is already set" (see
+below). On 0.41 the empty-string clear is expected to behave the same, but that
+is unverified until the Windows walkthrough.
 
 ### The global subtitle language is mpv's own `slang`
 
@@ -82,7 +86,7 @@ So a headless test can assert every control's property, and can assert
 asserting a number a `vo=null` machine cannot produce. The Windows walkthrough is
 where the numbers are real.
 
-## The stock autocrop script, headless
+## The stock autocrop script: automatic pass, toggle, and opting out
 
 `TOOLS/lua/autocrop.lua` (what ADR-0003 calls the stock autocrop behaviour) was
 run against a 128×72 clip with 16 px of black bar either side. It inserted
@@ -90,14 +94,37 @@ run against a 128×72 clip with 16 px of black bar either side. It inserted
 the bars found and cropped, exactly as it does with a window. It works with
 `vo=null`, and it clears a crop with `set file-local-options/video-crop ''`.
 
-Two consequences for the seam:
+The toggle and the opt-out were probed for #119 on mpv 0.37 with the vendored
+script:
 
-- The script only runs when `playtime-remaining > auto_delay + detect_seconds + 1`
-  (≈6 s), so a fixture shorter than that never gets cropped and a test that
-  asserts autocrop must use a longer clip.
-- It fires ~5 s after `file-loaded`, so a manual crop set before then is
-  overridden by it — which is the script's own behaviour, not the Host's, and is
-  what "stock" means.
+- **The binding is `<script-name>/toggle_crop`.** The name comes from the
+  script's own file: `autocrop.lua` is `autocrop`, so the binding is
+  `autocrop/toggle_crop`. The Host therefore writes the script under exactly that
+  name (in a `streamingapp-autocrop-<pid>` directory), and the same name keys
+  `script-opts`.
+- **The toggle decides by reading `video-crop`.** Non-empty means "a crop is
+  set, so clear it"; empty means "nothing to clear, so detect".
+- **`set video-crop ""` is accepted and reads back as `""`.** That is the
+  script's own clear (`set file-local-options/video-crop ''`) and the state its
+  toggle tests for.
+- **`set video-crop 0x0+0+0` is accepted but reads back as the string
+  `0x0+0+0`, not empty.** So the script sees a crop there and a toggle would
+  clear rather than detect. The reading half still maps a zero width or height
+  to "uncropped", but the Host no longer clears with this spelling (#119).
+- **With the script named `autocrop.lua`, `script-opts=autocrop-auto=no` leaves
+  `video-crop` empty at 7 s**, while the default crops at 7 s. Opting out is the
+  script's own supported option, and it does not remove the toggle: the binding
+  still detects on demand.
+
+Consequences for the seam:
+
+- The script only runs a detection when `playtime-remaining > detect_seconds + 1`
+  (≈2 s), so a toggle near the end does nothing and says so in the log. A fixture
+  shorter than that never gets cropped.
+- With its automatic pass left on, the script fires ~5 s after `file-loaded` and
+  a manual crop set before then is overridden. The Host starts it with
+  `autocrop-auto=no` (#119), so the automatic pass does not fire, and a manual
+  crop stays until the Host or the toggle moves it.
 
 ## Not verified here (and where it is verified)
 
@@ -109,7 +136,9 @@ Two consequences for the seam:
   it the statistics readout is for.
 - **mpv 0.41 differences**: this container is 0.37 and Windows is 0.41. Every
   property and command above is long-standing; `video-crop`'s `no` spelling is
-  already known to differ and is why the clear uses `0x0+0+0`.
+  already known to differ, and the clear now uses `""` (#119), which 0.37 reads
+  back as empty. 0.41's empty-string clear is expected to be the same, but is
+  verified only by the Windows walkthrough.
 - **`video-bitrate` and `display-fps` with a real VO.**
 
 ## Windows, verified by the walkthrough (#28)
@@ -132,7 +161,11 @@ set over a real file on 2026-10-16. What the run settled, and what it did not:
   the second one can be asserted.
 - **The stock autocrop cropped the letterboxed fixture** on the GPU path exactly
   as it does headless: the picture is 1280x540 in a 1280x720 frame, and the bars
-  are gone before the Host is asked to crop anything.
+  were gone before the Host was asked to crop anything. That was this run, with
+  the script's automatic pass on; #119 starts it with `autocrop-auto=no`, so the
+  walkthrough now asserts the bars remain on load and that the Autocrop button
+  removes them (`scripts/windows/verify.ps1`, step 13) and a second press restores
+  them. The #119 run itself is not recorded here yet.
 - **`pause` belongs to the player, not the file.** A Stream stopped while the
   picture was held was followed by one that opened held — a client asking to play
   got a Stream sitting at 0:00 offering Play. Opening a Stream means playing it,

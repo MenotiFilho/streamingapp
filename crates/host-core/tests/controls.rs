@@ -164,6 +164,7 @@ fn control_bodies() -> Vec<serde_json::Value> {
             "crop": { "kind": "rectangle", "width": 96, "height": 72, "x": 16, "y": 0 },
         }),
         serde_json::json!({ "type": "set_crop", "crop": { "kind": "off" } }),
+        serde_json::json!({ "type": "autocrop" }),
         serde_json::json!({ "type": "set_aspect", "aspect": { "kind": "ratio", "value": 1.7778 } }),
         serde_json::json!({ "type": "set_aspect", "aspect": { "kind": "source" } }),
     ]
@@ -382,6 +383,29 @@ fn crop_and_aspect_move_the_hosts_own_record() {
             Telling::Aspect(Aspect::Ratio { value: 1.7778 }),
             Telling::Aspect(Aspect::Source),
         ]
+    );
+}
+
+#[test]
+fn autocrop_tells_the_player_and_moves_nothing_of_the_hosts_own() {
+    let mut fixture = playing();
+    let before = fixture.host.snapshot();
+
+    let published = published(&mut fixture, &serde_json::json!({ "type": "autocrop" }));
+
+    assert_eq!(
+        controls(&fixture.player),
+        vec![Telling::Autocrop],
+        "the toggle is the Player's own script binding, asked once"
+    );
+    assert_eq!(
+        published[0].playback, before.playback,
+        "the crop is the script's to find, and the Player's next report carries it"
+    );
+    assert_eq!(
+        published[0].revision,
+        before.revision + 1,
+        "a control taken is still a change every client is told of"
     );
 }
 

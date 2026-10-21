@@ -166,7 +166,7 @@ function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopover
   );
 }
 
-/** Aspect, the crop rectangle (including the one the stock autocrop keeps), and statistics. */
+/** Aspect, the crop choices, the Autocrop toggle, and statistics. */
 function PictureMenu({ playback, take }: MenuProps) {
   const [showStatistics, setShowStatistics] = useState(false);
   const crop = playback.crop;
@@ -197,6 +197,9 @@ function PictureMenu({ playback, take }: MenuProps) {
             {label}
           </Item>
         ))}
+        <Item testId="autocrop" onClick={() => void take({ type: "autocrop" })}>
+          {crop ? "Restore full frame" : "Autocrop"}
+        </Item>
         <p className="shell-osd-readout tabular" data-testid="osd-crop-readout">
           {crop
             ? `Autocrop keeps ${crop.width}×${crop.height}+${crop.x}+${crop.y}.`

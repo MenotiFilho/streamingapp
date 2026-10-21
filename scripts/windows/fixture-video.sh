@@ -13,10 +13,10 @@
 #     (ADR-0014);
 #   - two chapters (`Intro`, `Middle`), so the chapter controls move;
 #   - 1280x540 of picture padded into a 1280x720 frame, so there are 90 px black
-#     bars top and bottom for mpv's own stock autocrop to find;
-#   - two minutes, so a person can walk the menu while it plays and so autocrop —
-#     which fires about five seconds after the file loads and does nothing unless
-#     more than six seconds of playtime remain — has fired before the crop step;
+#     bars top and bottom for the Autocrop toggle to find;
+#   - two minutes, so a person can walk the menu while it plays and so the
+#     Autocrop detect — which needs more than a second of playtime remaining —
+#     has something to work on at the crop step;
 #   - H.264 `yuv420p`, compressed, so hardware decode has something to engage on.
 #     A raw stream would say nothing about whether a GPU decoder did anything.
 #

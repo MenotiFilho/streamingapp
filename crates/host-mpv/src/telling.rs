@@ -9,6 +9,8 @@
 
 use host_core::{Aspect, ChapterStep, Crop, SeekTarget, StreamUrl, Telling};
 
+use crate::AUTOCROP_SCRIPT_STEM;
+
 /// The command that opens a Stream, whatever was playing.
 ///
 /// Opening is not a [`Telling`]: it is a method of the Player's own, so it is
@@ -52,10 +54,15 @@ pub(crate) fn stop() -> (&'static str, Vec<String>) {
 /// the same name: mpv 0.37's `pause` command *toggles* the property and ignores
 /// its argument, so "pause" sent to an already-paused player would resume it.
 ///
-/// Clearing a crop is `video-crop 0x0+0+0`, not `video-crop no`: `no` is
-/// accepted by 0.37 and rejected by 0.41, and the empty rectangle means "keep
-/// everything" in every version probed. Source aspect is `no`, because
-/// `video-aspect-override` is a number and `no` is mpv's own word for "none".
+/// Clearing a crop is `video-crop ""`, not `video-crop no` and no longer
+/// `0x0+0+0`: `no` is rejected by mpv 0.41, and `0x0+0+0` reads back as that
+/// string rather than as empty, which the stock autocrop script reads as "a crop
+/// is set" and would clear instead of detect. The empty string is the script's
+/// own clear (`set file-local-options/video-crop ''`) and is what the reading
+/// half already treats as uncropped (#119, ADR-0014). The autocrop toggle is
+/// the script's own binding, named after the file it was written as. Source
+/// aspect is `no`, because `video-aspect-override` is a number and `no` is mpv's
+/// own word for "none".
 pub(crate) fn command(telling: &Telling) -> (&'static str, Vec<String>) {
     match telling {
         Telling::Pause(paused) => ("set", vec!["pause".to_owned(), yes_no(*paused)]),
@@ -82,7 +89,9 @@ pub(crate) fn command(telling: &Telling) -> (&'static str, Vec<String>) {
         Telling::Chapter(ChapterStep::Previous) => {
             ("add", vec!["chapter".to_owned(), "-1".to_owned()])
         }
-        Telling::Crop(Crop::Off) => ("set", vec!["video-crop".to_owned(), "0x0+0+0".to_owned()]),
+        // The empty string is mpv's "no rectangle": the script's own clear, and
+        // what the reading half treats as the whole picture.
+        Telling::Crop(Crop::Off) => ("set", vec!["video-crop".to_owned(), String::new()]),
         Telling::Crop(Crop::Rectangle {
             width,
             height,
@@ -91,6 +100,14 @@ pub(crate) fn command(telling: &Telling) -> (&'static str, Vec<String>) {
         }) => (
             "set",
             vec!["video-crop".to_owned(), format!("{width}x{height}+{x}+{y}")],
+        ),
+        // The stock script's own toggle: the first press detects the bars and
+        // crops to them, the second restores the full frame. Nothing is cleared
+        // first — the script reads `video-crop` to decide, and an empty one is
+        // exactly what makes it detect (#119).
+        Telling::Autocrop => (
+            "script-binding",
+            vec![format!("{AUTOCROP_SCRIPT_STEM}/toggle_crop")],
         ),
         Telling::Aspect(Aspect::Source) => (
             "set",
@@ -229,7 +246,7 @@ mod tests {
             ),
             (
                 Telling::Crop(Crop::Off),
-                ("set", vec!["video-crop".to_owned(), "0x0+0+0".to_owned()]),
+                ("set", vec!["video-crop".to_owned(), String::new()]),
             ),
             (
                 Telling::Crop(Crop::Rectangle {
@@ -242,6 +259,10 @@ mod tests {
                     "set",
                     vec!["video-crop".to_owned(), "96x72+16+0".to_owned()],
                 ),
+            ),
+            (
+                Telling::Autocrop,
+                ("script-binding", vec!["autocrop/toggle_crop".to_owned()]),
             ),
             (
                 Telling::Aspect(Aspect::Source),
