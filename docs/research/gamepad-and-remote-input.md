@@ -276,6 +276,8 @@ Notes that make the table usable:
 6. **Left/Right vs seek.** In a playback surface, Left/Right arrows commonly mean *seek* rather than *move*; the mapping above keeps them as **move** and puts seek on the media keys and shoulders. `[inference]` A player overlay that owns the arrows should decide by context, not by changing the table.
 7. **Sharing it across two codebases.** ADR-0017 keeps the companion a single file with no build step, so the table cannot be imported from `src/`; the workable shape is one pure, testable TypeScript table in `src/` (for the window) mirrored by hand in `remote/index.html` (for the companion), the same way the companion already mirrors the pure decisions of `src/*.ts`. A test can assert the companion's copy matches — the precedent is `host-wire::remote`'s existing assertion that the companion's capability list equals `Action::SPELLINGS`.
 
+**What the Host adopted (#120).** The proposal above stays as the research record; the Host's player adopted it with one deliberate change. The two right-cluster faces the table gave to play/pause and stop were otherwise unused, and volume is the player's own control: **2 (X · Square) = `volume_down`** and **3 (Y · Triangle) = `volume_up`**, both repeatable while held. Play/pause stays on 0 (A · Cross) through the picture button or the focused transport control, and Stop is Back on 1 (B · Circle) after an open menu has had its chance. The keyboard column is unchanged — it has no volume of its own, because hardware volume keys never reach the page (§6).
+
 ---
 
 ## 6. What is NOT deliverable (the negatives)

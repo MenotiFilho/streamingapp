@@ -9,6 +9,7 @@ import {
   type Response,
   type Snapshot,
 } from "../host-client";
+import type { Intent } from "../input";
 import { watching } from "../playback";
 import { DestinationScreen } from "./DestinationScreens";
 import { PlayerOverlay } from "./PlayerOverlay";
@@ -48,6 +49,15 @@ export function Shell({ client }: { client?: HostClient }) {
   const nextLevelId = useRef(0);
   const levelsRef = useRef(nav.levels);
   levelsRef.current = nav.levels;
+  /**
+   * The player's own first look at an intent. A level is built once and holds
+   * on to its handler, so the handler itself lives in a ref that the player
+   * rewrites on every render with the one that matches what is on screen.
+   */
+  const playerIntent = useRef<((intent: Intent) => boolean) | null>(null);
+  const setIntentHandler = useCallback((handler: ((intent: Intent) => boolean) | null) => {
+    playerIntent.current = handler;
+  }, []);
 
   const publish = useCallback((next: Snapshot) => {
     setSnapshot((current) => (current && current.revision > next.revision ? current : next));
@@ -163,6 +173,9 @@ export function Shell({ client }: { client?: HostClient }) {
   // not a place to put a player.
   useEffect(() => {
     if (!playerActive) {
+      // The level is going, and with it the handler it reads: the player
+      // rewrites this on every render, so a stale one must not answer.
+      playerIntent.current = null;
       dispatch({ type: "remove-from", id: PLAYER_LEVEL });
       return;
     }
@@ -171,6 +184,7 @@ export function Shell({ client }: { client?: HostClient }) {
       name: "Playing",
       kind: "player",
       render: () => <PlayerOverlay />,
+      onIntent: (intent) => playerIntent.current?.(intent) ?? false,
     };
     dispatch({ type: "push", level: player });
   }, [playerActive]);
@@ -205,6 +219,7 @@ export function Shell({ client }: { client?: HostClient }) {
       take,
       markUnplayable,
       home,
+      setIntentHandler,
     }),
     [
       snapshot,
@@ -223,6 +238,7 @@ export function Shell({ client }: { client?: HostClient }) {
       take,
       markUnplayable,
       home,
+      setIntentHandler,
     ],
   );
 

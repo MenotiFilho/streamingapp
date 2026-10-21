@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import {
@@ -10,6 +11,7 @@ import {
   type Transport,
 } from "../host-client";
 import { Shell } from "./Shell";
+import { OSD_IDLE_MS } from "./useOsdVisibility";
 
 const NOTHING_SAID: Snapshot = {
   revision: 0,
@@ -216,8 +218,86 @@ async function closePopover(testId: string) {
   await waitFor(() => expect(screen.queryByTestId(testId)).not.toBeInTheDocument());
 }
 
+/**
+ * jsdom measures every box as zero, so the spatial engine sees every control
+ * stacked on one point and Left/Right cannot move. Give the player's stops a
+ * screen to stand on.
+ */
+function layOutPlayer() {
+  const boxes: Record<string, [number, number, number, number]> = {
+    player: [0, 0, 1920, 1080],
+    picture: [0, 0, 1920, 1080],
+    "picture-toggle": [0, 0, 1920, 1080],
+    "osd-strip": [0, 900, 1920, 80],
+    "osd-volume": [1840, 400, 60, 300],
+    top: [1680, 16, 220, 40],
+    fullscreen: [1680, 16, 40, 40],
+    stop: [1730, 16, 40, 40],
+    "osd-picture": [40, 920, 40, 40],
+    "osd-subtitles": [90, 920, 40, 40],
+    "osd-audio": [140, 920, 40, 40],
+    "previous-episode": [700, 920, 40, 40],
+    rewind: [750, 920, 60, 40],
+    play: [820, 920, 40, 40],
+    pause: [820, 920, 40, 40],
+    forward: [870, 920, 60, 40],
+    "next-episode": [940, 920, 40, 40],
+    "osd-speed": [1560, 920, 60, 40],
+    "osd-chapters": [1630, 920, 40, 40],
+    volume: [1850, 420, 40, 200],
+    mute: [1850, 650, 40, 40],
+    position: [0, 1020, 1920, 24],
+  };
+
+  return vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement): DOMRect {
+      const key = this.dataset.testid ?? this.dataset.region ?? this.dataset.playerStop;
+      const [x, y, width, height] = (key ? boxes[key] : undefined) ?? [0, 0, 0, 0];
+      return {
+        x,
+        y,
+        width,
+        height,
+        top: y,
+        left: x,
+        right: x + width,
+        bottom: y + height,
+        toJSON: () => ({}),
+      } as DOMRect;
+    });
+}
+
+/** A standard-mapping pad jsdom's `useGamepad` can poll, with every button up. */
+function fakePad() {
+  const buttons = Array.from({ length: 16 }, () => ({ pressed: false }));
+  const pad = { connected: true, mapping: "standard", buttons, axes: [] as number[] };
+  Object.defineProperty(navigator, "getGamepads", {
+    configurable: true,
+    value: () => [pad],
+  });
+  return buttons;
+}
+
+/** Press or release one of the fake pad's buttons. */
+function press(buttons: Array<{ pressed: boolean }>, index: number, down: boolean) {
+  const button = buttons[index];
+  if (button) {
+    button.pressed = down;
+  }
+}
+
+/** The timers a pad test needs: the OSD's own clock, and the poll's frames. */
+const PAD_TIMERS: {
+  toFake: Array<"setTimeout" | "clearTimeout" | "requestAnimationFrame" | "cancelAnimationFrame">;
+} = {
+  toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame"],
+};
+
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
+  Reflect.deleteProperty(navigator, "getGamepads");
 });
 
 describe("the player OSD", () => {
@@ -657,7 +737,7 @@ describe("the player OSD", () => {
     expect(screen.queryByTestId("next-episode-after-end")).not.toBeInTheDocument();
   });
 
-  test("the OSD hides after five idle seconds and summons again on input", async () => {
+  test("the OSD hides after three idle seconds and summons again on input", async () => {
     vi.useFakeTimers();
     const host = fakeHost({ ...NOTHING_SAID, revision: 9, playback: playback() });
     render(<Shell client={host.client} />);
@@ -668,13 +748,15 @@ describe("the player OSD", () => {
     expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
 
     fireEvent.pointerMove(window);
-    act(() => vi.advanceTimersByTime(5000));
+    act(() => vi.advanceTimersByTime(OSD_IDLE_MS - 1));
+    expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1));
     expect(screen.queryByTestId("shell-osd")).not.toBeInTheDocument();
 
     fireEvent.keyDown(document, { key: "x" });
     expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
 
-    act(() => vi.advanceTimersByTime(5000));
+    act(() => vi.advanceTimersByTime(OSD_IDLE_MS));
     expect(screen.queryByTestId("shell-osd")).not.toBeInTheDocument();
 
     fireEvent.pointerMove(window);
@@ -696,7 +778,7 @@ describe("the player OSD", () => {
       screen.getByTestId("stop").focus();
     });
     fireEvent.keyDown(document, { key: "x" });
-    act(() => vi.advanceTimersByTime(5000));
+    act(() => vi.advanceTimersByTime(OSD_IDLE_MS));
 
     expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
     expect(document.activeElement).toBe(screen.getByTestId("stop"));
@@ -717,7 +799,7 @@ describe("the player OSD", () => {
       screen.getByTestId("volume").focus();
     });
     fireEvent.pointerMove(window);
-    act(() => vi.advanceTimersByTime(5000));
+    act(() => vi.advanceTimersByTime(OSD_IDLE_MS));
 
     expect(screen.queryByTestId("shell-osd")).not.toBeInTheDocument();
 
@@ -740,10 +822,322 @@ describe("the player OSD", () => {
     expect(screen.getByTestId("popover-chapters")).toBeInTheDocument();
 
     fireEvent.pointerMove(window);
-    act(() => vi.advanceTimersByTime(5000));
+    act(() => vi.advanceTimersByTime(OSD_IDLE_MS));
 
     expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
     expect(screen.getByTestId("popover-chapters")).toBeInTheDocument();
+
+    vi.useRealTimers();
+  });
+});
+
+describe("the player's focus ladder", () => {
+  test("summons the OSD on Play, walks up to Full screen and Stop, and down again", async () => {
+    vi.useFakeTimers();
+    layOutPlayer();
+    const host = fakeHost({
+      ...NOTHING_SAID,
+      revision: 9,
+      playback: playback({ state: "paused" }),
+    });
+    render(<Shell client={host.client} />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Watching without touching anything: the OSD puts itself away and the
+    // picture — the largest control in the window — keeps the focus.
+    fireEvent.pointerMove(window);
+    act(() => vi.advanceTimersByTime(OSD_IDLE_MS));
+    expect(screen.queryByTestId("shell-osd")).not.toBeInTheDocument();
+    expect(screen.getByTestId("picture-toggle")).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: "ArrowUp" });
+    expect(screen.getByTestId("shell-osd"), "Up off the picture summons the OSD").toBeInTheDocument();
+    expect(screen.getByTestId("play"), "the strip opens on its remembered control: Play").toHaveFocus();
+
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    expect(
+      screen.getByTestId("forward"),
+      "Left/Right is still the strip's own geometry: Play to Forward",
+    ).toHaveFocus();
+    fireEvent.keyDown(document, { key: "ArrowLeft" });
+    expect(screen.getByTestId("play")).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: "ArrowUp" });
+    expect(screen.getByTestId("fullscreen"), "the top row opens on Full screen").toHaveFocus();
+
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    expect(
+      screen.getByTestId("stop"),
+      "Left/Right is still the row's own geometry: Full screen to Stop",
+    ).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: "ArrowDown" });
+    expect(
+      screen.getByTestId("play"),
+      "Down from the top returns to the strip's remembered control",
+    ).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: "ArrowDown" });
+    expect(screen.getByTestId("picture-toggle")).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: "ArrowDown" });
+    expect(
+      screen.getByTestId("picture-toggle"),
+      "the bottom of the ladder is a wall",
+    ).toHaveFocus();
+
+    vi.useRealTimers();
+  });
+
+  test("each stop remembers the control it was left on", async () => {
+    await renderPlayer();
+
+    await act(async () => {
+      screen.getByTestId("osd-chapters").focus();
+    });
+    expect(screen.getByTestId("osd-chapters")).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: "ArrowUp" });
+    expect(screen.getByTestId("fullscreen")).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: "ArrowDown" });
+    expect(
+      screen.getByTestId("osd-chapters"),
+      "not Play: the strip went back to where it was left",
+    ).toHaveFocus();
+
+    await act(async () => {
+      screen.getByTestId("stop").focus();
+    });
+    expect(screen.getByTestId("stop")).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: "ArrowDown" });
+    expect(
+      screen.getByTestId("osd-chapters"),
+      "the strip's memory, not the strip's head",
+    ).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: "ArrowUp" });
+    expect(
+      screen.getByTestId("stop"),
+      "not Full screen: the top row went back to where it was left",
+    ).toHaveFocus();
+  });
+
+  test("a control outside the stops answers Up and Down as the strip does", async () => {
+    layOutPlayer();
+    await renderPlayer();
+
+    await act(async () => {
+      screen.getByTestId("volume").focus();
+    });
+    fireEvent.keyDown(document, { key: "ArrowDown" });
+    expect(screen.getByTestId("picture-toggle"), "Down reaches the picture").toHaveFocus();
+
+    await act(async () => {
+      screen.getByTestId("volume").focus();
+    });
+    fireEvent.keyDown(document, { key: "ArrowUp" });
+    expect(screen.getByTestId("fullscreen"), "Up reaches the top row").toHaveFocus();
+  });
+
+  test("Up in an opening Stream lands on the strip's head, since Play is not drawn yet", async () => {
+    // Opening has no transport, so the preferred Play does not exist: Up must
+    // still land somewhere in the strip rather than nowhere.
+    vi.useFakeTimers();
+    const host = fakeHost({
+      ...NOTHING_SAID,
+      revision: 9,
+      playback: playback({ state: "opening", position: null, duration: null }),
+    });
+    render(<Shell client={host.client} />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    fireEvent.pointerMove(window);
+    act(() => vi.advanceTimersByTime(OSD_IDLE_MS));
+    expect(screen.queryByTestId("shell-osd")).not.toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "ArrowUp" });
+    expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("osd-picture"),
+      "the strip's first focusable, because the preferred Play is not drawn yet",
+    ).toHaveFocus();
+
+    vi.useRealTimers();
+  });
+});
+
+describe("the pad in the player", () => {
+  test("a pad press summons the OSD, walks the ladder, and wakes it from the picture", async () => {
+    vi.useFakeTimers(PAD_TIMERS);
+    const buttons = fakePad();
+    const host = fakeHost({
+      ...NOTHING_SAID,
+      revision: 9,
+      playback: playback({ state: "paused" }),
+    });
+    render(<Shell client={host.client} />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    // Watching without touching anything: the OSD puts itself away and the
+    // picture — the largest control in the window — keeps the focus.
+    fireEvent.pointerMove(window);
+    act(() => vi.advanceTimersByTime(OSD_IDLE_MS));
+    expect(screen.queryByTestId("shell-osd")).not.toBeInTheDocument();
+
+    // Left is not the ladder's move, but it is still input: it summons the OSD
+    // and leaves focus where it was, because the picture has no neighbour.
+    press(buttons, 14, true); // D-pad left
+    act(() => vi.advanceTimersByTime(16));
+    expect(
+      screen.getByTestId("shell-osd"),
+      "a sideways pad press wakes the OSD too",
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("picture-toggle")).toHaveFocus();
+
+    press(buttons, 14, false);
+    act(() => vi.advanceTimersByTime(16));
+
+    // It goes away again, and Up off the picture opens it on Play.
+    fireEvent.pointerMove(window);
+    act(() => vi.advanceTimersByTime(OSD_IDLE_MS));
+    expect(screen.queryByTestId("shell-osd")).not.toBeInTheDocument();
+
+    press(buttons, 12, true); // D-pad up
+    act(() => vi.advanceTimersByTime(16));
+    expect(
+      screen.getByTestId("play"),
+      "Up off the picture opens the strip on Play",
+    ).toHaveFocus();
+
+    // Released and pressed again, the same direction takes the next rung.
+    press(buttons, 12, false);
+    act(() => vi.advanceTimersByTime(16));
+    press(buttons, 12, true);
+    act(() => vi.advanceTimersByTime(16));
+    expect(screen.getByTestId("fullscreen"), "and Up again opens the top row").toHaveFocus();
+
+    vi.useRealTimers();
+  });
+
+  test("X and Y step the volume by five, repeat while held, and wake the OSD", async () => {
+    vi.useFakeTimers(PAD_TIMERS);
+    const buttons = fakePad();
+    const host = fakeHost({ ...NOTHING_SAID, revision: 9, playback: playback({ volume: 60 }) });
+    render(<Shell client={host.client} />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    fireEvent.pointerMove(window);
+    act(() => vi.advanceTimersByTime(OSD_IDLE_MS));
+    expect(screen.queryByTestId("shell-osd")).not.toBeInTheDocument();
+
+    press(buttons, 3, true); // Y, the top face
+    act(() => vi.advanceTimersByTime(16));
+    expect(screen.getByTestId("shell-osd"), "the volume buttons wake the OSD").toBeInTheDocument();
+    expect(screen.getByTestId("volume-level")).toHaveTextContent("65%");
+
+    // The debounced send lands, and the Host publishes the level it took; a
+    // button still held steps again from that.
+    act(() => vi.advanceTimersByTime(80));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(actions(host.invocations)).toContainEqual({ type: "set_volume", level: 65 });
+    await act(async () => {
+      host.publish({ ...NOTHING_SAID, revision: 10, playback: playback({ volume: 65 }) });
+      await Promise.resolve();
+    });
+
+    act(() => vi.advanceTimersByTime(320));
+    expect(screen.getByTestId("volume-level"), "a held button repeats").toHaveTextContent("70%");
+
+    act(() => vi.advanceTimersByTime(80));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(
+      actions(host.invocations).filter((action) => action.type === "set_volume"),
+      "each press is one debounced Action, in the levels it settled on",
+    ).toEqual([
+      { type: "set_volume", level: 65 },
+      { type: "set_volume", level: 70 },
+    ]);
+
+    press(buttons, 3, false);
+    act(() => vi.advanceTimersByTime(16));
+    press(buttons, 2, true); // X, the left face
+    act(() => vi.advanceTimersByTime(16));
+    expect(screen.getByTestId("volume-level")).toHaveTextContent("60%");
+
+    vi.useRealTimers();
+  });
+
+  test("a pad press still reaches the player after StrictMode's remount", async () => {
+    vi.useFakeTimers(PAD_TIMERS);
+    const buttons = fakePad();
+    const host = fakeHost({ ...NOTHING_SAID, revision: 9, playback: playback({ volume: 60 }) });
+    render(
+      <StrictMode>
+        <Shell client={host.client} />
+      </StrictMode>,
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    press(buttons, 3, true);
+    act(() => vi.advanceTimersByTime(16));
+    act(() => vi.advanceTimersByTime(80));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(actions(host.invocations)).toContainEqual({ type: "set_volume", level: 65 });
+
+    vi.useRealTimers();
+  });
+
+  test("the volume buttons are the player's own, and are still while a popover is open", async () => {
+    vi.useFakeTimers(PAD_TIMERS);
+    const buttons = fakePad();
+    const host = fakeHost({ ...NOTHING_SAID, revision: 9, playback: playback({ volume: 60 }) });
+    render(<Shell client={host.client} />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("osd-chapters"));
+      await Promise.resolve();
+    });
+    expect(screen.getByTestId("popover-chapters")).toBeInTheDocument();
+
+    press(buttons, 3, true);
+    act(() => vi.advanceTimersByTime(16));
+    act(() => vi.advanceTimersByTime(200));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(
+      actions(host.invocations).filter((action) => action.type === "set_volume"),
+      "the popover is the level on top, and it has no volume of its own",
+    ).toEqual([]);
 
     vi.useRealTimers();
   });

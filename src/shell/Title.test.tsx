@@ -249,6 +249,7 @@ function Harness({
     take,
     markUnplayable: () => {},
     home: new HomeStore(ask),
+    setIntentHandler: () => {},
   };
 
   return (

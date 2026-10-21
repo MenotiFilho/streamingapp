@@ -62,6 +62,7 @@ export function ShellFrame({
     root: activeRoot,
     levelKey: top ? `level:${top.id}` : `base:${destination}`,
     onBack,
+    onIntent: top?.onIntent,
   });
 
   // A destination change is a deliberate choice: focus lands on the rail item

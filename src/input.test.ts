@@ -11,6 +11,7 @@ import {
   type Intent,
   type PadLike,
 } from "./input";
+import { REPEATABLE } from "./shell/useGamepad";
 
 const button = (pressed: boolean) => ({ pressed });
 
@@ -26,6 +27,18 @@ function pad(overrides: Partial<PadLike> = {}): PadLike {
 describe("the keyboard's intent table", () => {
   test("maps the four arrows and Back", () => {
     expect(KEY_INTENTS).toMatchObject({
+      ArrowUp: "up",
+      ArrowDown: "down",
+      ArrowLeft: "left",
+      ArrowRight: "right",
+      Escape: "back",
+      Backspace: "back",
+      GoBack: "back",
+    });
+  });
+
+  test("keeps the keyboard column to navigation: no volume of its own", () => {
+    expect(KEY_INTENTS).toEqual({
       ArrowUp: "up",
       ArrowDown: "down",
       ArrowLeft: "left",
@@ -82,7 +95,7 @@ describe("the keyboard's intent table", () => {
 });
 
 describe("the standard-mapping gamepad", () => {
-  test("maps the D-pad, A, B and Back", () => {
+  test("maps the D-pad, A, B, X, Y and Back", () => {
     expect(PAD_BUTTONS).toMatchObject({
       12: "up",
       13: "down",
@@ -90,8 +103,26 @@ describe("the standard-mapping gamepad", () => {
       15: "right",
       0: "activate",
       1: "back",
+      2: "volume_down",
+      3: "volume_up",
       8: "back",
     });
+  });
+
+  test("puts the volume on the right cluster's left and top faces, X and Y", () => {
+    expect(PAD_BUTTONS[2]).toBe("volume_down");
+    expect(PAD_BUTTONS[3]).toBe("volume_up");
+  });
+
+  test("repeats the directions and the volume steps while held", () => {
+    expect([...REPEATABLE].sort()).toEqual([
+      "down",
+      "left",
+      "right",
+      "up",
+      "volume_down",
+      "volume_up",
+    ]);
   });
 
   test("reads pressed buttons into intents, in index order", () => {
@@ -100,6 +131,14 @@ describe("the standard-mapping gamepad", () => {
     });
 
     expect(padIntents(held)).toEqual<Intent[]>(["back", "up"]);
+  });
+
+  test("reads X and Y as the two volume steps", () => {
+    const held = pad({
+      buttons: [button(false), button(false), button(true), button(true)],
+    });
+
+    expect(padIntents(held)).toEqual<Intent[]>(["volume_down", "volume_up"]);
   });
 
   test("reads the left stick past the threshold in both directions", () => {
