@@ -1388,7 +1388,7 @@ function Walk-Controls($app) {
     [W]::Move([int](($rect.Left + $rect.Right) / 2), [int]($rect.Top + 10))
     Start-Sleep -Seconds 7
     Shot $app '13-osd-hidden.png'
-    Check 'with the pointer idle for five seconds the OSD puts itself away' (
+    Check 'with the pointer idle for three seconds the OSD puts itself away' (
         -not (Shows $app 'Pause' 2)) "showed: $(Page-Text $app)"
     Wake-Osd $app
     Check 'and any input summons it again, on the picture it was over' (

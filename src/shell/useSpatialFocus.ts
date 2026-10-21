@@ -20,6 +20,12 @@ export type SpatialFocusOptions = {
   levelKey: string;
   /** What Back means when the top level has no more local answer. */
   onBack: () => void;
+  /**
+   * The level's own first look at an intent that is not Back — the player's
+   * Up/Down ladder and its volume. Return true when the level took it, and the
+   * focus engine leaves the intent alone.
+   */
+  onIntent?: (intent: Intent) => boolean;
 };
 
 /**
@@ -34,13 +40,15 @@ export type SpatialFocusOptions = {
  * companion has no pad column: it is served over plain HTTP, an insecure
  * origin where `getGamepads()` returns nothing (research #49).
  */
-export function useSpatialFocus({ root, levelKey, onBack }: SpatialFocusOptions) {
+export function useSpatialFocus({ root, levelKey, onBack, onIntent }: SpatialFocusOptions) {
   const rootRef = useRef(root);
   rootRef.current = root;
   const keyRef = useRef(levelKey);
   keyRef.current = levelKey;
   const backRef = useRef(onBack);
   backRef.current = onBack;
+  const intentRef = useRef(onIntent);
+  intentRef.current = onIntent;
 
   /** For each level, where each region was last left. */
   const regions = useRef(new Map<string, Record<string, number | undefined>>());
@@ -166,6 +174,11 @@ export function useSpatialFocus({ root, levelKey, onBack }: SpatialFocusOptions)
       backRef.current();
       return;
     }
+    // The level on top gets the first word: the player's Up/Down ladder and its
+    // volume are not geometry, and its own answer is the one that holds.
+    if (intentRef.current?.(intent)) {
+      return;
+    }
     if (intent === "activate") {
       const active = document.activeElement;
       if (active instanceof HTMLElement && active.hasAttribute("data-focusable")) {
@@ -173,7 +186,11 @@ export function useSpatialFocus({ root, levelKey, onBack }: SpatialFocusOptions)
       }
       return;
     }
-    move(intent);
+    // Anything the level did not claim and the engine has no use for — a
+    // volume step outside the player — is not a move and is ignored.
+    if (intent === "up" || intent === "down" || intent === "left" || intent === "right") {
+      move(intent);
+    }
   };
 
   const runRef = useRef(run);

@@ -11,6 +11,8 @@
 
 import type { ReactNode } from "react";
 
+import type { Intent } from "../input";
+
 /** The six destinations, in the rail's order. */
 export const DESTINATIONS = [
   { id: "home", label: "Home" },
@@ -43,6 +45,12 @@ export type ShellLevel = {
    * shell then leaves the stack alone.
    */
   onBack?: () => boolean;
+  /**
+   * A first chance at an intent that is not Back, before the focus engine
+   * handles it — the player's own Up/Down ladder and its volume. Return true
+   * when the level took it.
+   */
+  onIntent?: (intent: Intent) => boolean;
 };
 
 /** The shell's whole navigation state. */

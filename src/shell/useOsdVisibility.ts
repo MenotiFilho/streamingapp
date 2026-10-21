@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 
 /** How long the OSD stays up with nothing happening. */
-export const OSD_IDLE_MS = 5000;
+export const OSD_IDLE_MS = 3000;
 
 export type OsdVisibilityOptions = {
   /** Something above the OSD — an open popover — keeps it up by itself. */
@@ -14,7 +14,7 @@ export type OsdVisibilityOptions = {
 
 /**
  * The OSD's summon-and-hide rule: any key or pointer movement shows it, and it
- * goes away after five idle seconds unless the person is still in it.
+ * goes away after three idle seconds unless the person is still in it.
  *
  * "In it" is focus: a control inside the chrome keeps the OSD up, and so does
  * an open popover, which lives on its own level above the player. The picture

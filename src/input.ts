@@ -3,8 +3,8 @@
  *
  * One table, two source columns: the window reads the keyboard and the pad, and
  * a remote client reads the keyboard column alone. The intents are the physical
- * expression of the shell's vocabulary — moving focus, activating, going back —
- * and nothing here knows what a screen does with one.
+ * expression of the shell's vocabulary — moving focus, activating, going back,
+ * and stepping the volume — and nothing here knows what a screen does with one.
  *
  * The keyboard leaves Left, Right and Backspace to a text field: a person
  * typing a search has to be able to fix a typo without leaving the box, and
@@ -14,7 +14,15 @@
  */
 
 /** What a person asked the shell to do. */
-export type Intent = "up" | "down" | "left" | "right" | "activate" | "back";
+export type Intent =
+  | "up"
+  | "down"
+  | "left"
+  | "right"
+  | "activate"
+  | "back"
+  | "volume_up"
+  | "volume_down";
 
 /**
  * The keyboard column. Enter and Space are deliberately absent: they are the
@@ -33,7 +41,10 @@ export const KEY_INTENTS: Readonly<Record<string, Intent>> = {
 
 /**
  * The pad's button column, for a pad in the standard mapping. Indices are the
- * standard mapping's own: 12–15 are the D-pad, 0 is A, 1 is B, 8 is Back.
+ * standard mapping's own: 12–15 are the D-pad, 0 is A, 1 is B, 2 is X, 3 is Y,
+ * 8 is Back. The two unused faces become the player's volume: a pad has no
+ * other way to ask for it, and a keyboard's own volume keys never reach the
+ * page (research #49).
  */
 export const PAD_BUTTONS: Readonly<Record<number, Intent>> = {
   12: "up",
@@ -42,6 +53,8 @@ export const PAD_BUTTONS: Readonly<Record<number, Intent>> = {
   15: "right",
   0: "activate",
   1: "back",
+  2: "volume_down",
+  3: "volume_up",
   8: "back",
 };
 

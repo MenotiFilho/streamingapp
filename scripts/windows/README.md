@@ -85,9 +85,9 @@ publish compares the count either side of the question.
 The rail is the only control that changes the base screen, and a pushed level
 makes everything under it inert. The helpers that move around therefore pop any
 open levels with Back (Escape) before pressing a destination. The OSD puts itself
-away after five idle seconds: a step that needs an icon awake moves the pointer
+away after three idle seconds: a step that needs an icon awake moves the pointer
 before looking for it, and the auto-hide step is the one that deliberately waits
-the five seconds out.
+the three seconds out.
 
 ## Walking part of the checklist
 
@@ -324,10 +324,10 @@ or started).
   Host in the foreground: `verify.ps1` calls `SetForegroundWindow` first and says so
   when it does not take. `{DOWN}` past the hero and onto a card, `{ENTER}` to
   choose it, `{RIGHT}` out of the rail — the same as a TV remote would.
-- **The OSD is not always there.** It hides itself after five idle seconds and
+- **The OSD is not always there.** It hides itself after three idle seconds and
   comes back on any key or pointer movement. A step that reads the transport or
   an icon after a wait moves the pointer first (the same motion a person makes),
-  and the auto-hide check is the one that waits the five seconds out on purpose.
+  and the auto-hide check is the one that waits the three seconds out on purpose.
 - **The rail is inert under a pushed level.** A destination cannot be pressed
   while a Title, a Streams list, a Settings sub-screen, or a confirmation is open,
   because everything under the top level is inert. `Open-Destination` presses Back

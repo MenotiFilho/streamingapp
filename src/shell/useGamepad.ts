@@ -7,8 +7,19 @@ import { padIntents } from "../input";
 const REPEAT_AFTER = 400;
 const REPEAT_EVERY = 160;
 
-/** Only a direction repeats on a held button; activating or going Back fires once per press. */
-const REPEATABLE = new Set<Intent>(["up", "down", "left", "right"]);
+/**
+ * Which intents a held button repeats. A direction and a volume step are
+ * things a person holds to go further; activating or going Back fires once per
+ * press.
+ */
+export const REPEATABLE: ReadonlySet<Intent> = new Set<Intent>([
+  "up",
+  "down",
+  "left",
+  "right",
+  "volume_up",
+  "volume_down",
+]);
 
 /**
  * Poll the standard-mapping gamepad, because the Gamepad API has no key event

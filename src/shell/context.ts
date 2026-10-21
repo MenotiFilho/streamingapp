@@ -1,6 +1,7 @@
 import { createContext, useContext } from "react";
 
 import type { Action, ActionError, Response, Snapshot } from "../host-client";
+import type { Intent } from "../input";
 import type { HomeStore } from "./homeStore";
 import type { Destination, ShellLevel } from "./navigation";
 
@@ -68,6 +69,13 @@ export type ShellContextValue = {
    * browse and never travels as a Snapshot (ADR-0005).
    */
   home: HomeStore;
+  /**
+   * Hand the shell the player's own handler for an intent that is not Back —
+   * its Up/Down ladder and its volume. The player rewrites it on every render
+   * with the one that matches the screen; the level the shell built reads it
+   * through a ref, so the level never has to be rebuilt.
+   */
+  setIntentHandler: (handler: ((intent: Intent) => boolean) | null) => void;
 };
 
 export const ShellContext = createContext<ShellContextValue | null>(null);

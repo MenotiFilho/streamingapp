@@ -10,6 +10,7 @@ import {
   streamTitle,
   timelineFraction,
 } from "./osd";
+import { OSD_IDLE_MS } from "./useOsdVisibility";
 
 function nowPlaying(overrides: Partial<NowPlaying> = {}): NowPlaying {
   return {
@@ -157,5 +158,11 @@ describe("the OSD's readings", () => {
     ]);
     expect(chapterMarks(chapters, null)).toEqual([]);
     expect(chapterMarks(chapters, 0)).toEqual([]);
+  });
+});
+
+describe("the OSD's idle window", () => {
+  test("is three seconds", () => {
+    expect(OSD_IDLE_MS).toBe(3000);
   });
 });

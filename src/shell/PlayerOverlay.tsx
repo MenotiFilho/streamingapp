@@ -5,6 +5,7 @@ import {
   useState,
   type MouseEvent,
   type ReactNode,
+  type Ref,
   type WheelEvent,
 } from "react";
 
@@ -21,10 +22,12 @@ import {
   nextEpisodeDisabled,
   previousEpisodeDisabled,
 } from "../controls";
+import type { Intent } from "../input";
 import { formatTime, playingName, transportable } from "../playback";
 import { labelOf } from "../title";
 import { useShell } from "./context";
 import { Button } from "./kit";
+import { FOCUSABLE } from "./layout";
 import { Refusal } from "./Refusal";
 import {
   chapterMarks,
@@ -42,6 +45,45 @@ import {
 import { useOsdVisibility } from "./useOsdVisibility";
 import "./osd.css";
 
+/** One press of the pad's volume faces, on the Host's 0–130 scale. */
+const VOLUME_STEP = 5;
+
+/** The three places the player's D-pad ladder stops at, top to bottom. */
+type PlayerStop = "picture" | "strip" | "top";
+
+/**
+ * Up and Down from each stop. A missing direction is a wall: the picture is the
+ * bottom of the ladder and the top row its top.
+ */
+const LADDER: Record<PlayerStop, { up?: PlayerStop; down?: PlayerStop }> = {
+  top: { down: "strip" },
+  strip: { up: "top", down: "picture" },
+  picture: { up: "strip" },
+};
+
+/**
+ * Which stop a control belongs to, by the mark its cluster carries. A control
+ * outside the stops — the volume pillar, the timeline — answers as the strip
+ * does: Up reaches the top row and Down reaches the picture.
+ */
+function stopOf(element: Element | null): PlayerStop {
+  const stop =
+    element instanceof HTMLElement
+      ? element.closest<HTMLElement>("[data-player-stop]")?.dataset.playerStop
+      : undefined;
+  return stop === "picture" || stop === "top" ? stop : "strip";
+}
+
+/** A remembered control is worth landing on while it is still drawn and enabled. */
+function usable(element: HTMLElement | null, cluster: HTMLElement | null): element is HTMLElement {
+  return Boolean(
+    element &&
+      element.isConnected &&
+      element.matches(FOCUSABLE) &&
+      (!cluster || cluster.contains(element)),
+  );
+}
+
 /**
  * The `in_window` player: mpv's picture, with the edge-to-edge OSD over it.
  *
@@ -52,18 +94,33 @@ import "./osd.css";
  * transport and the five per-icon menus, and the flush bottom bar is the
  * timeline with the container's own chapters.
  *
- * The OSD summons on any input and puts itself away after five idle seconds
- * unless a person is still in it. An open popover is its own pushed level, so
- * Back closes the menu first and stops playback on the next press (#51, #57).
+ * The OSD summons on any input — a pad's X/Y included — and puts itself away
+ * after three idle seconds unless a person is still in it. An open popover is
+ * its own pushed level, so Back closes the menu first and stops playback on the
+ * next press (#51, #57).
+ *
+ * Up and Down are the player's own ladder rather than the row geometry the
+ * picture would otherwise swallow (#120): the picture, the strip, and the
+ * top-right window pair. Left and Right stay the geometry's — between the
+ * strip's controls, and between Full screen and Stop.
  */
 export function PlayerOverlay() {
-  const { snapshot, take, ask, popover, pop, push } = useShell();
+  const { snapshot, take, ask, popover, pop, push, setIntentHandler } = useShell();
   const playback = snapshot?.playback ?? null;
   const [refusal, setRefusal] = useState<ActionError | null>(null);
   const [wheelVolume, setWheelVolume] = useState<number | null>(null);
   const [previewSettled, setPreviewSettled] = useState(() => playback?.state !== "opening");
   const chrome = useRef<HTMLDivElement | null>(null);
   const pictureButton = useRef<HTMLButtonElement | null>(null);
+  const strip = useRef<HTMLDivElement | null>(null);
+  const top = useRef<HTMLDivElement | null>(null);
+  const playPause = useRef<HTMLButtonElement | null>(null);
+  const fullscreen = useRef<HTMLButtonElement | null>(null);
+  /** Where each stop was last left, while the OSD is up. */
+  const rememberedStrip = useRef<HTMLElement | null>(null);
+  const rememberedTop = useRef<HTMLElement | null>(null);
+  /** Where an Up that summoned the OSD should land once it is drawn. */
+  const pendingStop = useRef<PlayerStop | null>(null);
   const sawOpening = useRef(false);
   const wheel = useRef<{ level: number | null; timer: ReturnType<typeof setTimeout> | null }>({
     level: null,
@@ -116,10 +173,84 @@ export function PlayerOverlay() {
     setPreviewSettled(true);
   }, [playback?.state]);
 
-  const { visible } = useOsdVisibility({
+  const { visible, wake } = useOsdVisibility({
     pinned: popover !== null,
     chrome,
     onHide: () => pictureButton.current?.focus({ preventScroll: true }),
+  });
+
+  /** Put focus on a stop, and say whether there was a control to land on. */
+  const focusStop = (stop: PlayerStop): boolean => {
+    if (stop === "picture") {
+      const picture = pictureButton.current;
+      if (!picture) {
+        return false;
+      }
+      picture.focus({ preventScroll: true });
+      return true;
+    }
+
+    const cluster = stop === "strip" ? strip.current : top.current;
+    const remembered = stop === "strip" ? rememberedStrip.current : rememberedTop.current;
+    const preferred = stop === "strip" ? playPause.current : fullscreen.current;
+
+    for (const candidate of [remembered, preferred]) {
+      if (usable(candidate, cluster)) {
+        candidate.focus({ preventScroll: true });
+        return true;
+      }
+    }
+
+    // The remembered control and the default can both be gone — opening draws
+    // no Play, and an ended Stream draws no strip at all — so the stop's own
+    // first control answers next, and the OSD's first after that.
+    const first =
+      cluster?.querySelector<HTMLElement>(FOCUSABLE) ??
+      chrome.current?.querySelector<HTMLElement>(FOCUSABLE) ??
+      null;
+    if (!first) {
+      return false;
+    }
+    first.focus({ preventScroll: true });
+    return true;
+  };
+
+  // The strip and the top row remember the control each was left on; Up and
+  // Down are how a person goes back to it. Both forget when the OSD goes, so
+  // the next summon opens on Play and Full screen again.
+  useEffect(() => {
+    if (!visible) {
+      rememberedStrip.current = null;
+      rememberedTop.current = null;
+      return;
+    }
+
+    const onFocusIn = (event: FocusEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) {
+        return;
+      }
+      if (strip.current?.contains(target)) {
+        rememberedStrip.current = target;
+      } else if (top.current?.contains(target)) {
+        rememberedTop.current = target;
+      }
+    };
+
+    document.addEventListener("focusin", onFocusIn);
+    return () => document.removeEventListener("focusin", onFocusIn);
+  }, [visible]);
+
+  // An Up from a hidden OSD summons it and lands on its strip in the same
+  // press; the control is not in the document until the render that shows it,
+  // so the landing waits for that render.
+  useEffect(() => {
+    const stop = pendingStop.current;
+    if (!stop) {
+      return;
+    }
+    pendingStop.current = null;
+    focusStop(stop);
   });
 
   const openPopover = useCallback(
@@ -149,6 +280,86 @@ export function PlayerOverlay() {
     [ask],
   );
 
+  /** The Host's volume, moved a step and sent once the steps settle. */
+  const nudgeVolume = (delta: number) => {
+    if (!playback) {
+      return;
+    }
+    const current = wheel.current.level ?? playback.volume ?? 100;
+    const next = Math.min(130, Math.max(0, Math.round(current + delta)));
+    wheel.current.level = next;
+    setWheelVolume(next);
+    if (wheel.current.timer !== null) {
+      clearTimeout(wheel.current.timer);
+    }
+    wheel.current.timer = setTimeout(() => {
+      const level = wheel.current.level;
+      wheel.current.level = null;
+      wheel.current.timer = null;
+      if (level !== null) {
+        void take({ type: "set_volume", level });
+      }
+    }, 80);
+  };
+
+  const controls = playback !== null && controllable(playback.state);
+
+  /**
+   * The player's own intents. The pad's X and Y step the volume through the
+   * same debounced path the wheel uses; Up and Down walk the
+   * picture/strip/top ladder instead of the geometry the picture button would
+   * otherwise swallow. A direction is input, so it summons the OSD whether or
+   * not the player acts on the move; Left, Right and A stay the spatial
+   * engine's.
+   */
+  const handleIntent = (intent: Intent): boolean => {
+    if (intent === "volume_up" || intent === "volume_down") {
+      wake("key");
+      if (!controls) {
+        return false;
+      }
+      nudgeVolume(intent === "volume_up" ? VOLUME_STEP : -VOLUME_STEP);
+      return true;
+    }
+
+    if (intent !== "up" && intent !== "down" && intent !== "left" && intent !== "right") {
+      return false;
+    }
+
+    // A pad's direction is input like a key's: it summons the OSD.
+    wake("key");
+
+    if (intent === "left" || intent === "right") {
+      // The row geometry owns the move; waking the OSD is all the player does.
+      return false;
+    }
+
+    // A hidden OSD leaves focus on the picture, and its strip and top row are
+    // not drawn to ask which one is focused.
+    const here: PlayerStop = visible ? stopOf(document.activeElement) : "picture";
+    const next = LADDER[here][intent];
+    if (!next) {
+      // The ladder's own wall: the picture is its bottom, the top row its top.
+      return true;
+    }
+    if (!visible) {
+      // The stop is not drawn until the wake renders; land on it then.
+      pendingStop.current = next;
+      return true;
+    }
+    // A stop that is not drawn — the picture during opening or after the end —
+    // leaves the direction to the focus engine rather than eating it.
+    return focusStop(next);
+  };
+
+  // The level the shell built reads its handler through `playerIntent`. The
+  // handler is registered after every render so it is always the one for the
+  // screen on show; the shell is the single owner of clearing it when the
+  // player level leaves.
+  useEffect(() => {
+    setIntentHandler(handleIntent);
+  });
+
   // Nothing to draw while the Host is between Streams: the shell takes the
   // level away in the same pass that told it the Stream stopped.
   if (!playback) {
@@ -158,7 +369,6 @@ export function PlayerOverlay() {
   const { state, picture, nowPlaying, episode, position } = playback;
   const playing = state === "playing";
   const canTransport = transportable(state);
-  const controls = controllable(state);
   const quality = qualityBadge(nowPlaying);
   const details = streamDetails(playback);
   const shownPosition = position ?? 0;
@@ -192,29 +402,11 @@ export function PlayerOverlay() {
     void take(action);
   };
 
-  const nudgeVolume = (delta: number) => {
-    const current = wheel.current.level ?? playback.volume ?? 100;
-    const next = Math.min(130, Math.max(0, Math.round(current + delta)));
-    wheel.current.level = next;
-    setWheelVolume(next);
-    if (wheel.current.timer !== null) {
-      clearTimeout(wheel.current.timer);
-    }
-    wheel.current.timer = setTimeout(() => {
-      const level = wheel.current.level;
-      wheel.current.level = null;
-      wheel.current.timer = null;
-      if (level !== null) {
-        void take({ type: "set_volume", level });
-      }
-    }, 80);
-  };
-
   const onWheel = (event: WheelEvent<HTMLElement>) => {
     if (!controls || event.deltaY === 0) {
       return;
     }
-    nudgeVolume(event.deltaY < 0 ? 5 : -5);
+    nudgeVolume(event.deltaY < 0 ? VOLUME_STEP : -VOLUME_STEP);
   };
 
   return (
@@ -243,6 +435,7 @@ export function PlayerOverlay() {
             className="shell-picture-toggle"
             data-testid="picture-toggle"
             data-focusable
+            data-player-stop="picture"
             aria-label="Play or pause"
             onClick={() => takeAction({ type: "set_paused", paused: playing })}
           />
@@ -307,8 +500,8 @@ export function PlayerOverlay() {
               ) : null}
             </div>
 
-            <div className="shell-osd-window">
-              <FullscreenButton />
+            <div className="shell-osd-window" data-player-stop="top" ref={top}>
+              <FullscreenButton ref={fullscreen} />
               <button
                 type="button"
                 className="shell-osd-icon kit-focus-invert"
@@ -337,6 +530,8 @@ export function PlayerOverlay() {
                 data-region="osd-strip"
                 data-kind="row"
                 data-label="Player controls"
+                data-player-stop="strip"
+                ref={strip}
               >
                 <div className="shell-osd-cluster shell-osd-cluster-left">
                   <IconButton
@@ -394,6 +589,7 @@ export function PlayerOverlay() {
                         testId={playing ? "pause" : "play"}
                         label={playing ? "Pause" : "Play"}
                         title={playing ? "Pause" : "Play"}
+                        ref={playPause}
                         onClick={() => takeAction({ type: "set_paused", paused: playing })}
                       >
                         {playing ? <PauseIcon /> : <PlayIcon />}
@@ -633,6 +829,7 @@ function IconButton({
   disabled,
   className,
   onClick,
+  ref,
   children,
 }: {
   testId: string;
@@ -643,10 +840,12 @@ function IconButton({
   disabled?: boolean;
   className?: string;
   onClick: (event: MouseEvent<HTMLButtonElement>) => void;
+  ref?: Ref<HTMLButtonElement>;
   children: ReactNode;
 }) {
   return (
     <button
+      ref={ref}
       type="button"
       className={`shell-osd-icon kit-focus-invert${className ? ` ${className}` : ""}`}
       data-focusable
@@ -671,7 +870,7 @@ function IconButton({
  * a browser or a test has no window to hold, and the button simply does
  * nothing there.
  */
-function FullscreenButton() {
+function FullscreenButton({ ref }: { ref?: Ref<HTMLButtonElement> }) {
   const [fullscreen, setFullscreen] = useState(false);
 
   const toggle = async () => {
@@ -688,6 +887,7 @@ function FullscreenButton() {
 
   return (
     <IconButton
+      ref={ref}
       testId="fullscreen"
       label={fullscreen ? "Exit full screen" : "Full screen"}
       title={fullscreen ? "Exit full screen" : "Full screen"}
