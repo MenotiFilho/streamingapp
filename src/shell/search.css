@@ -6,7 +6,7 @@
  * rows' headings, and the inline failure a row draws for a page or Catalog that
  * did not answer. The bar spans the content's width so Down enters the first
  * row at its head, the `widerThan` rule of the spatial model (#79); the grid is
- * inset by the focus halo's room, which keeps the bar wider than everything a
+ * inset by the focus ring's room, which keeps the bar wider than everything a
  * row holds.
  *
  * Every colour, type size, space and motion curve is a token from

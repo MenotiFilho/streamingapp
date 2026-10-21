@@ -85,11 +85,11 @@
   --shadow-panel: 0 24px 64px -8px rgba(0, 0, 0, 0.72);
 
   /*
-   * Focus treatment — the loudest thing on screen. Cards take the dual ivory
-   * core + crimson halo and lift; buttons, rail items and OSD icons take the
-   * same dual ring and invert to a solid crimson fill (kit.css draws both).
+   * Focus treatment — the loudest thing on screen. Cards take the ivory ring
+   * and the lift; buttons, rail items and OSD icons take the same ring and
+   * invert to a solid crimson fill (kit.css draws both).
    */
-  --focus-ring: 0 0 0 3px var(--ink-primary), 0 0 0 6px var(--accent),
+  --focus-ring: 0 0 0 3px var(--ink-primary),
     0 16px 36px -4px rgba(0, 0, 0, 0.85);
   --focus-transform: translateY(-4px) scale(1.04);
   --focus-fill: var(--accent);

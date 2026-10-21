@@ -24,7 +24,7 @@
 }
 
 /*
- * The section does not clip: the focus halo is drawn outside the button's box.
+ * The section does not clip: the focus ring is drawn outside the button's box.
  * The button clips only its own art, which is what gives the billboard its
  * rounded corners.
  */

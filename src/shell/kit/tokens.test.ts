@@ -94,11 +94,11 @@ describe("the locked Velvet Curtains tokens", () => {
     expect(token("--numeric-figures")).toBe("tabular-nums");
   });
 
-  test("the focus treatment is the dual ivory + crimson ring with the lift", () => {
+  test("the focus treatment is the ivory ring with the lift", () => {
     const ring = token("--focus-ring");
-    expect(ring).toContain("0 0 0 3px var(--ink-primary)");
-    expect(ring).toContain("0 0 0 6px var(--accent)");
-    expect(ring).toContain("0 16px 36px -4px rgba(0, 0, 0, 0.85)");
+    expect(ring).toBe(
+      "0 0 0 3px var(--ink-primary), 0 16px 36px -4px rgba(0, 0, 0, 0.85)",
+    );
     expect(token("--focus-transform")).toBe("translateY(-4px) scale(1.04)");
     expect(token("--focus-fill")).toBe("var(--accent)");
     expect(token("--focus-fill-ink")).toBe("var(--ink-on-accent)");
@@ -122,6 +122,13 @@ describe("the kit's focus treatment", () => {
     expect(kit).toContain("background: var(--focus-fill)");
     expect(kit).toContain("border-color: var(--focus-fill-border)");
     expect(kit).toContain("color: var(--focus-fill-ink)");
+  });
+
+  test("measures the layout box while a level is being read", () => {
+    expect(kit).toContain("[data-measuring] [data-focusable]");
+    expect(kit).toContain("transition: none !important");
+    expect(kit).toContain("[data-measuring] .kit-focus-lift[data-focusable]");
+    expect(kit).toContain("transform: none !important");
   });
 });
 

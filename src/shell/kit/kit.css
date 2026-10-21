@@ -21,8 +21,8 @@
 }
 
 /*
- * Focus is the cursor. The same dual ivory + crimson halo is drawn for every
- * focusable primitive; cards add the lift and controls invert their fill.
+ * Focus is the cursor. The same ivory ring is drawn for every focusable
+ * primitive; cards add the lift and controls invert their fill.
  */
 [data-focusable] {
   position: relative;
@@ -32,6 +32,23 @@
     background-color var(--dur-fast) var(--ease-out),
     border-color var(--dur-fast) var(--ease-out),
     color var(--dur-fast) var(--ease-out);
+}
+
+/*
+ * The engine measures the layout box, not the focus decoration. While a level
+ * is being read, transitions are switched off for every control, and the lift
+ * is removed only from the focus-lift decoration: a positional transform such
+ * as `.kit-row-arrow`'s centring is part of where the control actually sits, so
+ * it stays. `!important` is needed because the lift rule matches its
+ * specificity and is declared later. `readLevel` removes the mark in a
+ * `finally`.
+ */
+[data-measuring] [data-focusable] {
+  transition: none !important;
+}
+
+[data-measuring] .kit-focus-lift[data-focusable] {
+  transform: none !important;
 }
 
 [data-focusable]:focus,
@@ -292,7 +309,7 @@
 /*
  * A row fills the width with a fixed number of cards, each an equal share. The
  * track has no scrollbar: a drag moves it, and the edge buttons move it one
- * view. The block padding leaves room for the focus halo and the card's lift,
+ * view. The block padding leaves room for the focus ring and the card's lift,
  * which an overflow clip would otherwise cut.
  */
 .kit-row-viewport {
@@ -304,7 +321,7 @@
   display: flex;
   gap: var(--row-gap);
   margin: 0;
-  padding: var(--space-3);
+  padding: var(--space-4);
   list-style: none;
   overflow-x: auto;
   overflow-y: hidden;

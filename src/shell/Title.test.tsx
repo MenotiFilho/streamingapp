@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useRef, useState } from "react";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type {
   Action,
@@ -316,6 +316,41 @@ function actionOf(actions: Action[], type: Action["type"]): Action | undefined {
   return actions.find((action) => action.type === type);
 }
 
+/** A DOMRect-shaped answer for the focus engine's measurements. */
+function rect(x: number, y: number, w: number, h: number) {
+  return {
+    x,
+    y,
+    w,
+    h,
+    left: x,
+    top: y,
+    width: w,
+    height: h,
+    right: x + w,
+    bottom: y + h,
+    toJSON: () => ({}),
+  };
+}
+
+/**
+ * Answer the focus engine's measurements for the listed elements, and zero for
+ * everything else. Restored after every test, so a failed assertion cannot leak
+ * the stub into the next one.
+ */
+function stubRects(entries: Array<[HTMLElement, ReturnType<typeof rect>]>) {
+  return vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      const found = entries.find(([element]) => element === this);
+      return found ? found[1] : rect(0, 0, 0, 0);
+    });
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("the Title screen", () => {
   test("an Addon card opens the Title with open_title, and every field is drawn", async () => {
     const { actions } = await openTitleOrDiscovered();
@@ -467,6 +502,35 @@ describe("the Title screen", () => {
     ).toEqual(["episode-tt0903747:1:1", "episode-tt0903747:1:2"]);
   });
 
+  test("Down from Back lands on the first season chip", async () => {
+    const title = breakingBadTitle();
+    const preview = matrixPreview({
+      id: "tt0903747",
+      type: "series",
+      name: "Breaking Bad",
+    });
+    await openTitleOrDiscovered({ title, preview });
+
+    const back = screen.getByRole("button", { name: "Back" });
+    const seasons = screen.getByTestId("title-seasons");
+    const specials = screen.getByTestId("season-0");
+    const seasonOne = screen.getByTestId("season-1");
+    const episodes = screen.getByTestId("title-episodes");
+
+    stubRects([
+      [back, rect(40, 40, 120, 44)],
+      [seasons, rect(40, 120, 1160, 60)],
+      [specials, rect(40, 126, 90, 48)],
+      [seasonOne, rect(140, 126, 110, 48)],
+      [episodes, rect(40, 220, 1160, 400)],
+    ]);
+
+    expect(document.activeElement).toBe(back);
+    fireEvent.keyDown(document, { key: "ArrowDown" });
+
+    await waitFor(() => expect(document.activeElement).toBe(specials));
+  });
+
   test("a series whose Addon listed no episodes says so rather than being called a film", async () => {
     const title = breakingBadTitle();
     title.videos = [];
@@ -530,6 +594,49 @@ describe("the Streams overlay", () => {
 
     await waitFor(() => expect(screen.queryByTestId("title-tt0133093")).not.toBeInTheDocument());
     await waitFor(() => expect(document.activeElement).toBe(screen.getByTestId("card-tt0133093")));
+  });
+
+  test("Down from Back enters the first playable Stream past an Addon that answered nothing", async () => {
+    const streams: AddonStreams[] = [
+      { addon: TORRENTIO, streams: [], failure: null },
+      {
+        addon: AIOSTREAMS,
+        streams: [
+          {
+            name: "AIOStreams\n1080p",
+            description: "The Matrix 1999 1080p BluRay x265-GROUP",
+            playback: {
+              kind: "direct",
+              url: "https://stream.example.org/v/tt0133093-1080p.mkv",
+            },
+            warnings: [],
+            filename: "The.Matrix.1999.1080p.BluRay.x265-GROUP.mkv",
+            bingeGroup: null,
+          },
+        ],
+        failure: null,
+      },
+    ];
+    await openTitleOrDiscovered({ streams });
+    fireEvent.click(screen.getByTestId("play-film"));
+    await screen.findByTestId("streams-heading");
+
+    const back = screen.getByRole("button", { name: "Back" });
+    const empty = screen.getByTestId(`streams-${TORRENTIO}`);
+    const answered = screen.getByTestId(`streams-${AIOSTREAMS}`);
+    const first = screen.getByTestId(`candidate-${AIOSTREAMS}-0`);
+
+    stubRects([
+      [back, rect(40, 40, 120, 44)],
+      [empty, rect(40, 120, 1160, 60)],
+      [answered, rect(40, 220, 1160, 160)],
+      [first, rect(40, 240, 1160, 120)],
+    ]);
+
+    await waitFor(() => expect(document.activeElement).toBe(back));
+    fireEvent.keyDown(document, { key: "ArrowDown" });
+
+    await waitFor(() => expect(document.activeElement).toBe(first));
   });
 
   test("each Addon's candidates carry badges, filename, description, warnings and the unplayable mark", async () => {

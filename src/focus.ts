@@ -9,6 +9,10 @@
  * - inside a region, movement is by geometry — lined-up candidates first, then
  *   the smallest sideways gap, the shortest step past `MIN_STEP`, and the
  *   closest centre across;
+ * - a region's own controls lead into its children: when nothing inside the
+ *   region lies that way, a child that is strictly in the direction and
+ *   overlaps the origin on the cross axis is entered before any sibling is
+ *   considered — a branch's Back sits above the rows it leads to;
  * - between regions, focus crosses only to a sibling strictly in the direction
  *   that overlaps the origin on the cross axis (`gap <= ALIGNED`), so a short
  *   row cannot leak diagonally into a wider one below;
@@ -39,13 +43,22 @@ export type Direction = "up" | "down" | "left" | "right";
 /** Which kind of region this is; only a rail and a row have walls of their own. */
 export type RegionKind = "rail" | "row" | "branch";
 
-/** One region of a level: the rail, a row, or a branch that holds others. */
+/**
+ * One region of a level: the rail, a row, or a branch that holds others.
+ *
+ * A branch may hold focusable controls of its own as well as children — the
+ * Streams level's Back sits above its Addon groups, and a Title's Back above
+ * its seasons — and those controls lead into the children: a move that finds
+ * nothing inside the branch and one of the branch's own children in the
+ * direction enters that child before any sibling is tried.
+ */
 export type Region = {
   id: string;
   label: string;
   kind: RegionKind;
   /** The containing region, or null at the level's root. */
   parent: string | null;
+  /** The child regions, in DOM order. */
   children: string[];
   rect: Rect;
   /** The focusable controls inside it, in DOM order. */
@@ -185,10 +198,41 @@ export function nearest(from: Rect, rects: readonly Rect[], direction: Direction
 }
 
 /**
- * A sibling region we may cross into this way: strictly in the direction, and
- * overlapping where we are on the other axis. The overlap test is the whole
- * guard against a short row leaking focus diagonally into the row below.
+ * The nearest region among `ids` that lies strictly in the direction and
+ * overlaps `from` on the other axis: the guard both a crossing to a sibling and
+ * a descent into a child use, so a short row cannot leak diagonally into a
+ * wider one and a child off to the side is not entered.
  */
+function overlappingInDirection(
+  regions: Record<string, Region>,
+  ids: readonly string[],
+  from: Rect,
+  direction: Direction,
+): Region | null {
+  let best: Region | null = null;
+  let bestStep = 0;
+  for (const id of ids) {
+    const candidate = regions[id];
+    if (!candidate) {
+      continue;
+    }
+    const ahead = step(from, candidate.rect, direction);
+    if (ahead <= MIN_STEP) {
+      continue;
+    }
+    if (gap(from, candidate.rect, direction) > ALIGNED) {
+      continue;
+    }
+    if (!best || ahead < bestStep) {
+      best = candidate;
+      bestStep = ahead;
+    }
+  }
+
+  return best;
+}
+
+/** A sibling region we may cross into this way, under the overlap guard. */
 function siblingInDirection(
   regions: Record<string, Region>,
   region: Region,
@@ -200,27 +244,22 @@ function siblingInDirection(
     return null;
   }
 
-  let best: Region | null = null;
-  let bestStep = 0;
-  for (const id of parent.children) {
-    const sibling = regions[id];
-    if (!sibling || sibling.id === region.id) {
-      continue;
-    }
-    const ahead = step(from, sibling.rect, direction);
-    if (ahead <= MIN_STEP) {
-      continue;
-    }
-    if (gap(from, sibling.rect, direction) > ALIGNED) {
-      continue;
-    }
-    if (!best || ahead < bestStep) {
-      best = sibling;
-      bestStep = ahead;
-    }
-  }
+  return overlappingInDirection(
+    regions,
+    parent.children.filter((id) => id !== region.id),
+    from,
+    direction,
+  );
+}
 
-  return best;
+/** One of the region's own children we may descend into this way. */
+function childInDirection(
+  regions: Record<string, Region>,
+  region: Region,
+  from: Rect,
+  direction: Direction,
+): Region | null {
+  return overlappingInDirection(regions, region.children, from, direction);
 }
 
 /** A remembered index clamped to the controls a region actually has. */
@@ -409,7 +448,23 @@ export function decideMove(
     };
   }
 
-  // 2. Out to a sibling, if one overlaps us across the way.
+  // 2. Down into one of this region's own children, if one lines up. A branch's
+  //    Back sits above the rows it leads to; finding nothing beside it must not
+  //    be the end of the move.
+  const child = childInDirection(layout.regions, region, from, direction);
+  if (child) {
+    const target = land(layout, child, from, direction, rules);
+    return {
+      kind: "crossed",
+      direction,
+      regionId: target.regionId,
+      index: target.index,
+      landedBy: LANDED[target.how],
+      why: `nothing ${direction} inside ${region.label}, so focus descended into ${child.label}`,
+    };
+  }
+
+  // 3. Out to a sibling, if one overlaps us across the way.
   let node = region;
   while (node.parent) {
     const sibling = siblingInDirection(layout.regions, node, from, direction);
@@ -431,7 +486,7 @@ export function decideMove(
     node = parent;
   }
 
-  // 3. The end of a list: a wall, or the wrap the rules ask for.
+  // 4. The end of a list: a wall, or the wrap the rules ask for.
   if (region.kind === "rail" && isVertical(direction)) {
     if (rules.railEnd === "wrap") {
       return {
@@ -466,7 +521,7 @@ export function decideMove(
     };
   }
 
-  // 4. The one wall a rule can fill: up out of the content, to the rail.
+  // 5. The one wall a rule can fill: up out of the content, to the rail.
   if (direction === "up" && rules.upFromContent === "rail") {
     const rail = findRail(layout);
     if (rail) {

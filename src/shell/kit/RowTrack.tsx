@@ -37,7 +37,7 @@ export type RowTrackProps = {
  * A view always holds the same number of cards (`columns`), each taking an equal
  * share of the width, so a row never ends in a clipped half-card. The track has
  * no scrollbar: a mouse drag moves it, and the two edge buttons move it one view
- * at a time. The block padding leaves the focus halo room to show.
+ * at a time. The block padding leaves the focus ring room to show.
  *
  * It is named `RowTrack` rather than `Row` because the browse model already
  * owns `Row` (`src/browse.ts`): a screen holds a Catalog's answer as a `Row` and
