@@ -10,11 +10,12 @@
 //! read-only `live_check` run is not a client here: it composes the addon path
 //! directly and never builds a `Host`.
 //!
-//! The timing lines live here too, because this is the only place that knows
-//! when an Action started and whether it was a question. They carry the Action's
-//! stable kind — the spelling the wire already claimed — the Addon id where the
-//! question names one, the duration and the outcome — never a payload, a URL, a
-//! query or an error's detail.
+//! The Action's timing lines live here too, because this is the only place that
+//! knows when an Action started and whether it was a question. They carry the
+//! Action's stable kind — the spelling the wire already claimed — the Addon id
+//! where the question names one, the duration and the outcome — never a payload,
+//! a URL, a query or an error's detail. A fan-out adds one line per Addon ask
+//! (ADR-0023); this one stays the Action's total.
 
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -23,6 +24,7 @@ use crate::action::{Action, ActionError};
 use crate::addon::AddonId;
 use crate::device::{DeviceSummary, DeviceToken};
 use crate::host::Host;
+use crate::log::millis;
 use crate::response::Response;
 use crate::snapshot::Snapshot;
 
@@ -211,9 +213,4 @@ fn outcome<T>(result: &Result<T, ActionError>, success: &'static str) -> &'stati
         Ok(_) => success,
         Err(error) => error.kind(),
     }
-}
-
-/// Milliseconds as an integer a structured log can carry.
-fn millis(duration: Duration) -> u64 {
-    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
 }

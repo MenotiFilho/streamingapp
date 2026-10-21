@@ -45,6 +45,7 @@ mod discover;
 mod door;
 mod fetcher;
 mod host;
+mod log;
 mod meta;
 mod pairing;
 mod playback;

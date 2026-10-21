@@ -179,8 +179,11 @@ impl FixtureProvider {
         self.answering_subtitles(addon, Err(error))
     }
 
-    /// Every Addon this provider was asked about, in order — for the tests that
-    /// care which Addons were asked and which were left alone.
+    /// Every Addon this provider was asked about, in the order the asks reached
+    /// it.
+    ///
+    /// A fan-out does not promise that order (ADR-0023), so a test that goes
+    /// through one asks which Addons were asked, not in what sequence.
     pub fn asked(&self) -> Vec<String> {
         self.asked
             .lock()

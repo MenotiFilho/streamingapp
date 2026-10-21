@@ -107,6 +107,21 @@ fn names(group: &AddonStreams) -> Vec<&str> {
         .collect()
 }
 
+/// The asks an Action made, as a multiset: finding Streams fans out, so the
+/// order its Addons are asked in is no longer a fact to assert (ADR-0023).
+fn in_any_order(asked: &[String]) -> Vec<String> {
+    let mut asked = asked.to_vec();
+    asked.sort();
+    asked
+}
+
+/// The same multiset, built from the URLs a test expects.
+fn expected_asks(urls: &[&str]) -> Vec<String> {
+    let mut expected: Vec<String> = urls.iter().map(|url| (*url).to_owned()).collect();
+    expected.sort();
+    expected
+}
+
 /// A Host needs somewhere to look a credential up; tests hold theirs here.
 fn secrets() -> Arc<InMemorySecretStore> {
     Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring))
@@ -181,10 +196,11 @@ fn asking_for_a_films_streams_asks_every_addon_that_answers_and_no_other() {
         .expect("finding a recorded film's Streams should work");
 
     assert_eq!(
-        fetcher.asked()[asked_before..].to_vec(),
-        vec![TORRENTIO_MOVIE, WATCHHUB_MOVIE],
-        "the Addons that answer `stream` are asked at the item's own path, in the \
-         configured order; the metadata Addons are not asked at all"
+        in_any_order(&fetcher.asked()[asked_before..]),
+        expected_asks(&[TORRENTIO_MOVIE, WATCHHUB_MOVIE]),
+        "the Addons that answer `stream` are asked at the item's own path; the \
+         metadata Addons are not asked at all. The asks overlap, so their order \
+         is not the assertion (ADR-0023)"
     );
     assert_eq!(
         streams(&response)
@@ -274,9 +290,10 @@ fn a_series_asks_for_the_episodes_own_id() {
         .expect("finding a recorded episode's Streams should work");
 
     assert_eq!(
-        fetcher.asked()[asked_before..].to_vec(),
-        vec![TORRENTIO_EPISODE, WATCHHUB_EPISODE],
-        "an episode is asked for by its own id, season and episode and all"
+        in_any_order(&fetcher.asked()[asked_before..]),
+        expected_asks(&[TORRENTIO_EPISODE, WATCHHUB_EPISODE]),
+        "an episode is asked for by its own id, season and episode and all — \
+         in whichever order the fan-out reaches the Addons"
     );
     let torrentio = &streams(&response)[0];
     assert_eq!(torrentio.addon.as_str(), "com.stremio.torrentio.addon");
@@ -382,15 +399,18 @@ fn finding_streams_for_a_tmdb_film_asks_every_addon_in_its_own_spelling() {
         .dispatch(find("movie", "tmdb:603"))
         .expect("a TMDB-keyed film's Streams are a question like any other");
 
+    let asked = &fetcher.asked()[asked_before..];
     assert_eq!(
-        fetcher.asked()[asked_before..].to_vec(),
-        vec![
-            TMDB_EXTERNAL_IDS_MATRIX.to_owned(),
-            AIOSTREAMS_MOVIE.to_owned(),
-            MEDIAFUSION_MOVIE.to_owned(),
-        ],
-        "the IMDb id is resolved once, then each Addon is asked in the spelling its own \
-         manifest declares; the Addon that declares neither is not asked"
+        asked.first().map(String::as_str),
+        Some(TMDB_EXTERNAL_IDS_MATRIX),
+        "the IMDb id is resolved once, before the fan-out: that hop stays first"
+    );
+    assert_eq!(
+        in_any_order(&asked[1..]),
+        expected_asks(&[AIOSTREAMS_MOVIE, MEDIAFUSION_MOVIE]),
+        "then each Addon is asked in the spelling its own manifest declares, in \
+         whichever order the fan-out reaches them; the Addon that declares \
+         neither is not asked"
     );
     let groups = streams(&response);
     assert_eq!(
@@ -437,14 +457,17 @@ fn finding_streams_for_a_tmdb_episode_carries_the_season_to_each_spelling() {
     host.dispatch(find("series", "tmdb:1396:1:2"))
         .expect("a TMDB-keyed episode's Streams are a question like any other");
 
+    let asked = &fetcher.asked()[asked_before..];
     assert_eq!(
-        fetcher.asked()[asked_before..].to_vec(),
-        vec![
-            TMDB_EXTERNAL_IDS_BB.to_owned(),
-            AIOSTREAMS_EPISODE.to_owned(),
-            MEDIAFUSION_EPISODE.to_owned(),
-        ],
-        "the episode's season and number are carried into both spellings"
+        asked.first().map(String::as_str),
+        Some(TMDB_EXTERNAL_IDS_BB),
+        "the external id is resolved before the Addons are fanned out to"
+    );
+    assert_eq!(
+        in_any_order(&asked[1..]),
+        expected_asks(&[AIOSTREAMS_EPISODE, MEDIAFUSION_EPISODE]),
+        "the episode's season and number are carried into both spellings, in \
+         whichever order the fan-out reaches the Addons"
     );
 }
 
@@ -566,7 +589,7 @@ fn candidate(name: &str) -> Stream {
 }
 
 #[test]
-fn the_host_asks_every_answering_addon_in_configuration_order_and_re_ranks_nothing() {
+fn the_answer_lists_every_answering_addon_in_configuration_order_and_re_ranks_nothing() {
     let fetcher = Arc::new(recorded_fetcher());
     let provider = Arc::new(
         FixtureProvider::new()
@@ -598,12 +621,11 @@ fn the_host_asks_every_answering_addon_in_configuration_order_and_re_ranks_nothi
     assert_eq!(names(&groups[0]), vec!["first", "second"]);
     assert_eq!(names(&groups[1]), vec!["third"]);
     assert_eq!(
-        provider.asked(),
-        vec![
-            "org.stremio.watchhub".to_owned(),
-            "com.stremio.torrentio.addon".to_owned(),
-        ],
-        "an Addon whose manifest does not answer for the resource is never asked"
+        in_any_order(&provider.asked()),
+        expected_asks(&["org.stremio.watchhub", "com.stremio.torrentio.addon"]),
+        "an Addon whose manifest does not answer for the resource is never \
+         asked; the answering Addons are asked in the fan-out's order, not the \
+         list's"
     );
 }
 

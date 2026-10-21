@@ -129,7 +129,8 @@ The door imposes no limit on how many questions may be in flight. A cap would be
 a Host policy with no knowledge of the client that caused the work: the window
 and the Remote client are sequential today, and #112 adds a bound of four
 requests in flight on each; fan-out inside `search_catalogs` / `find_streams`
-will bound its own concurrency in ADR-0023 (not written yet). A single
+bounds its own concurrency in
+[ADR-0023](0023-bounded-fan-out-inside-a-question.md). A single
 Host-wide semaphore would make those two decisions fight each other and would
 turn a slow client into a slow Host for everyone else.
 
@@ -142,8 +143,9 @@ or is a serialized piece of work that was always going to happen.
 ## Timing lines at the door
 
 The door is the only place that knows when an Action started and whether it was
-a question, so the timing lines live there. A question gets one `info` line
-carrying:
+a question, so the Action's timing lines live there. (ADR-0023 adds one line per
+Addon ask inside a fan-out; the door's line remains the Action's total.) A
+question gets one `info` line carrying:
 
 - `action`, the stable kind (`browse_catalog`, `find_streams`, …), never a
   payload;

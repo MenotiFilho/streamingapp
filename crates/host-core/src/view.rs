@@ -11,8 +11,13 @@
 //! still answer from it, and a change never waits for the question's fetch. The
 //! credential and the page cache are *shared* rather than copied — a credential
 //! is read at the moment of use and the cache is a memo, not state a client sees.
+//!
+//! The two questions that ask a set of Addons — `search_catalogs` and
+//! `find_streams` — fan their asks out inside the question, under a bound, and
+//! still answer in configured order (ADR-0023).
 
 use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 use crate::action::{ActionError, ValidatedAction};
 use crate::addon::{Addon, AddonId, Manifest, MAX_ITEMS};
@@ -20,6 +25,7 @@ use crate::cache::CatalogCache;
 use crate::catalog::{CatalogRow, Page};
 use crate::discover::DiscoverRow;
 use crate::fetcher::{FetchError, Fetcher};
+use crate::log::millis;
 use crate::meta::{self, Title, Video};
 use crate::provider::Provider;
 use crate::request::{
@@ -103,15 +109,17 @@ impl HostView {
                 // Every catalog that offers a search, in the order the Addons
                 // are configured, and each Addon's own order within that. One
                 // Addon failing is one row with nothing in it, not a failed
-                // search (ADR-0010).
-                let plan: Vec<(Addon, ResourceRequest)> = self
+                // search (ADR-0010). The asks fan out, and the rows are written
+                // back by plan position, so completion order changes nothing a
+                // client sees (ADR-0023).
+                let plan: Vec<(&Addon, ResourceRequest)> = self
                     .addons
                     .iter()
                     .flat_map(|addon| {
-                        addon.manifest().catalogs.iter().filter_map(|catalog| {
+                        addon.manifest().catalogs.iter().filter_map(move |catalog| {
                             let extra = catalog.search_extra(query)?;
                             Some((
-                                addon.clone(),
+                                addon,
                                 ResourceRequest::new(
                                     CATALOG,
                                     catalog.r#type.as_str(),
@@ -123,10 +131,19 @@ impl HostView {
                     })
                     .collect();
 
-                let rows = plan
-                    .iter()
-                    .map(|(addon, requested)| self.catalog_row(addon, requested))
-                    .collect();
+                let rows = fan_out(&plan, |(addon, requested)| {
+                    let started = Instant::now();
+                    let row = self.catalog_row(addon, requested);
+                    // A cache hit is still this Addon's row, and still an ask
+                    // worth timing; the line has no field for which it was.
+                    addon_ask_log(
+                        CATALOG,
+                        addon.id(),
+                        started.elapsed(),
+                        row.failure.as_ref().map_or("ok", ActionError::kind),
+                    );
+                    row
+                });
                 Answer::Catalogs(rows)
             }
             ValidatedAction::Discover { query } => {
@@ -178,34 +195,64 @@ impl HostView {
                 // Addon failing is that group with nothing in it, not a
                 // question that fails (ADR-0010 — a search's rule, applied to
                 // Streams). A TMDB-keyed Video is asked of each Addon in the
-                // spelling that Addon declares (ADR-0020).
-                let groups = self
-                    .asks_for(STREAM, video)
-                    .into_iter()
-                    .map(|asked| match asked.requested {
-                        Some(requested) => {
-                            let (streams, failure) =
-                                match self.provider.streams(&asked.addon, &requested) {
-                                    Ok(streams) => (streams, None),
-                                    Err(failure) => (Vec::new(), Some(failure)),
-                                };
-                            AddonStreams {
-                                addon: asked.addon.id().clone(),
-                                streams,
-                                failure,
-                            }
-                        }
-                        // An Addon that declares no spelling this Host can
-                        // build is not asked, and its group is empty — which is
-                        // what "marked" means (ADR-0020).
-                        None => AddonStreams {
+                // spelling that Addon declares (ADR-0020). The asks fan out and
+                // the groups come back in configured order, never completion
+                // order (ADR-0023).
+                let asked = self.asks_for(STREAM, video);
+                // An Addon that declares no spelling this Host can build is not
+                // asked: its group stays empty at its configured index, and it
+                // does not take one of the fan-out's eight slots (ADR-0020,
+                // ADR-0023). Every other Addon is one ask to be timed.
+                let mut slots: Vec<Option<AddonStreams>> = asked
+                    .iter()
+                    .map(|asked| {
+                        asked.requested.is_none().then(|| AddonStreams {
                             addon: asked.addon.id().clone(),
                             streams: Vec::new(),
                             failure: None,
-                        },
+                        })
                     })
                     .collect();
-                Answer::Streams(groups)
+                let asks: Vec<(usize, &Asked)> = asked
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, asked)| asked.requested.is_some())
+                    .collect();
+
+                let answers = fan_out(&asks, |(index, asked)| {
+                    let requested = asked
+                        .requested
+                        .as_ref()
+                        .expect("the fan-out plan holds only asked Addons");
+                    let started = Instant::now();
+                    let (streams, failure) = match self.provider.streams(&asked.addon, requested) {
+                        Ok(streams) => (streams, None),
+                        Err(failure) => (Vec::new(), Some(failure)),
+                    };
+                    addon_ask_log(
+                        STREAM,
+                        asked.addon.id(),
+                        started.elapsed(),
+                        failure.as_ref().map_or("ok", ActionError::kind),
+                    );
+                    (
+                        *index,
+                        AddonStreams {
+                            addon: asked.addon.id().clone(),
+                            streams,
+                            failure,
+                        },
+                    )
+                });
+                for (index, group) in answers {
+                    slots[index] = Some(group);
+                }
+                Answer::Streams(
+                    slots
+                        .into_iter()
+                        .map(|group| group.expect("every Streams slot is filled"))
+                        .collect(),
+                )
             }
             // The door classifies before it gets here; a change is refused
             // rather than answered. Every change is named, so adding one to
@@ -707,6 +754,86 @@ impl HostView {
             self.fetcher.fetch(&url)
         }
     }
+}
+
+/// The most Addon asks one question has in flight at once.
+///
+/// A question asks a handful of Addons, and a wider burst would be one client's
+/// search arriving at every Addon at once. Eight is wide enough that a Home-sized
+/// search overlaps most of its Addons and narrow enough that one slow Addon
+/// occupies one slot rather than the question (ADR-0023).
+const FAN_OUT_LIMIT: usize = 8;
+
+/// Ask the items up to [`FAN_OUT_LIMIT`] at a time, answering in the order they
+/// were given.
+///
+/// One scoped thread per item, and the chunk's threads are joined before the
+/// next chunk is spawned, so no more than the limit are ever in flight — even
+/// when one ask is slow, in which case the next chunk waits (ADR-0023). Every
+/// answer is written into the slot its item occupies, so completion order can
+/// never move a Row or a group. A panic in an ask is re-raised on the asking
+/// thread after the chunk's other threads have been accounted for.
+fn fan_out<T, R, F>(items: &[T], ask: F) -> Vec<R>
+where
+    T: Sync,
+    R: Send,
+    F: Fn(&T) -> R + Sync,
+{
+    let mut answers: Vec<Option<R>> = items.iter().map(|_| None).collect();
+
+    std::thread::scope(|scope| {
+        let ask = &ask;
+        for (asked, slots) in items
+            .chunks(FAN_OUT_LIMIT)
+            .zip(answers.chunks_mut(FAN_OUT_LIMIT))
+        {
+            let mut handles = Vec::with_capacity(asked.len());
+            for (item, slot) in asked.iter().zip(slots.iter_mut()) {
+                handles.push(scope.spawn(move || {
+                    *slot = Some(ask(item));
+                }));
+            }
+            // Joined before the next chunk is spawned: this is the bound. Every
+            // thread in the chunk is accounted for before a panic is re-raised,
+            // so the first failure cannot leave its siblings unjoined.
+            let mut panic = None;
+            for handle in handles {
+                if let Err(caught) = handle.join() {
+                    panic.get_or_insert(caught);
+                }
+            }
+            if let Some(panic) = panic {
+                std::panic::resume_unwind(panic);
+            }
+        }
+    });
+
+    answers
+        .into_iter()
+        .map(|answer| answer.expect("every fan-out item writes its answer"))
+        .collect()
+}
+
+/// One `info` line per Addon ask inside a fan-out.
+///
+/// The helper takes only the resource's stable name, the Addon's own id, the
+/// duration and the outcome — a stable word or an error's kind. There is no
+/// slot for a URL, a query, an `ActionError`, or an answer, so a later caller
+/// cannot accidentally widen the line, the way `HostDoor`'s question log cannot
+/// (ADR-0022, ADR-0023).
+fn addon_ask_log(
+    resource: &'static str,
+    addon: &AddonId,
+    duration: Duration,
+    outcome: &'static str,
+) {
+    tracing::info!(
+        addon = addon.as_str(),
+        resource,
+        duration_ms = millis(duration),
+        outcome,
+        "an Addon was asked"
+    );
 }
 
 /// One Addon, and the request one Video is asked of it by — or `None` where the
