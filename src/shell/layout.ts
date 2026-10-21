@@ -56,7 +56,8 @@ export const FOCUSABLE = "[data-focusable]:not([disabled])";
  * no surviving child, recursively, rebuilding each parent's `children` from the
  * survivors. An Addon group that answered nothing is a note, not a target, and
  * must not swallow a move on the way to the next group; a branch left with only
- * such groups goes too. Every region left in the level can hold focus.
+ * such groups goes too. Every region left in the level can hold focus. A pruned
+ * region is forgotten from `memory` as well, so one that returns starts fresh.
  */
 function prune(layout: Layout, elements: Record<string, HTMLElement[]>): void {
   const survives = (id: string): boolean => {
@@ -72,6 +73,7 @@ function prune(layout: Layout, elements: Record<string, HTMLElement[]>): void {
     if (!survives(id)) {
       delete layout.regions[id];
       delete elements[id];
+      delete layout.memory[id];
     }
   }
 }
@@ -81,7 +83,8 @@ function prune(layout: Layout, elements: Record<string, HTMLElement[]>): void {
  *
  * The root may itself be a region — the shell is — and `querySelectorAll` never
  * returns its own root, so it goes in first. `memory` is where each region was
- * last left; the caller owns it across moves and across a level's lifetime.
+ * last left; the caller owns it across moves and across a level's lifetime, and
+ * a region that is pruned is removed from it.
  *
  * While the rects are read the root is marked `data-measuring`, which the kit
  * uses to set the focus decoration aside (the lift is a transform, and

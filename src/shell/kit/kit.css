@@ -35,13 +35,19 @@
 }
 
 /*
- * The engine measures the layout box, not the focus decoration: while a level
- * is being read, the lift and its transition are set aside so a focused card's
- * rect is where the page actually laid it out. `readLevel` removes the mark in
- * a `finally`.
+ * The engine measures the layout box, not the focus decoration. While a level
+ * is being read, transitions are switched off for every control, and the lift
+ * is removed only from the focus-lift decoration: a positional transform such
+ * as `.kit-row-arrow`'s centring is part of where the control actually sits, so
+ * it stays. `!important` is needed because the lift rule matches its
+ * specificity and is declared later. `readLevel` removes the mark in a
+ * `finally`.
  */
 [data-measuring] [data-focusable] {
   transition: none !important;
+}
+
+[data-measuring] .kit-focus-lift[data-focusable] {
   transform: none !important;
 }
 

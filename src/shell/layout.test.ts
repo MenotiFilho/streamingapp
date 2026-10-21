@@ -106,12 +106,13 @@ describe("pruning the regions that cannot hold focus", () => {
           </section>
         </section>
       `),
-      {},
+      { "streams:empty": 2, "streams:full": 1 },
       measure,
     );
 
     expect(Object.keys(layout.regions)).toEqual(["level", "streams", "streams:full"]);
     expect(layout.regions["streams"]?.children).toEqual(["streams:full"]);
+    expect(layout.memory).toEqual({ "streams:full": 1 });
     expect(elements["streams:empty"]).toBeUndefined();
     expect(elements["streams:full"]?.map((element) => element.textContent)).toEqual([
       "Candidate",

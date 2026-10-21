@@ -127,6 +127,7 @@ describe("the kit's focus treatment", () => {
   test("measures the layout box while a level is being read", () => {
     expect(kit).toContain("[data-measuring] [data-focusable]");
     expect(kit).toContain("transition: none !important");
+    expect(kit).toContain("[data-measuring] .kit-focus-lift[data-focusable]");
     expect(kit).toContain("transform: none !important");
   });
 });

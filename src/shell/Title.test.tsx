@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useRef, useState } from "react";
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type {
   Action,
@@ -333,6 +333,24 @@ function rect(x: number, y: number, w: number, h: number) {
   };
 }
 
+/**
+ * Answer the focus engine's measurements for the listed elements, and zero for
+ * everything else. Restored after every test, so a failed assertion cannot leak
+ * the stub into the next one.
+ */
+function stubRects(entries: Array<[HTMLElement, ReturnType<typeof rect>]>) {
+  return vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement) {
+      const found = entries.find(([element]) => element === this);
+      return found ? found[1] : rect(0, 0, 0, 0);
+    });
+}
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("the Title screen", () => {
   test("an Addon card opens the Title with open_title, and every field is drawn", async () => {
     const { actions } = await openTitleOrDiscovered();
@@ -499,32 +517,18 @@ describe("the Title screen", () => {
     const seasonOne = screen.getByTestId("season-1");
     const episodes = screen.getByTestId("title-episodes");
 
-    const measured = vi
-      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
-      .mockImplementation(function (this: HTMLElement) {
-        if (this === back) {
-          return rect(40, 40, 120, 44);
-        }
-        if (this === seasons) {
-          return rect(40, 120, 1160, 60);
-        }
-        if (this === specials) {
-          return rect(40, 126, 90, 48);
-        }
-        if (this === seasonOne) {
-          return rect(140, 126, 110, 48);
-        }
-        if (this === episodes) {
-          return rect(40, 220, 1160, 400);
-        }
-        return rect(0, 0, 0, 0);
-      });
+    stubRects([
+      [back, rect(40, 40, 120, 44)],
+      [seasons, rect(40, 120, 1160, 60)],
+      [specials, rect(40, 126, 90, 48)],
+      [seasonOne, rect(140, 126, 110, 48)],
+      [episodes, rect(40, 220, 1160, 400)],
+    ]);
 
     expect(document.activeElement).toBe(back);
     fireEvent.keyDown(document, { key: "ArrowDown" });
 
     await waitFor(() => expect(document.activeElement).toBe(specials));
-    measured.mockRestore();
   });
 
   test("a series whose Addon listed no episodes says so rather than being called a film", async () => {
@@ -622,29 +626,17 @@ describe("the Streams overlay", () => {
     const answered = screen.getByTestId(`streams-${AIOSTREAMS}`);
     const first = screen.getByTestId(`candidate-${AIOSTREAMS}-0`);
 
-    const measured = vi
-      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
-      .mockImplementation(function (this: HTMLElement) {
-        if (this === back) {
-          return rect(40, 40, 120, 44);
-        }
-        if (this === empty) {
-          return rect(40, 120, 1160, 60);
-        }
-        if (this === answered) {
-          return rect(40, 220, 1160, 160);
-        }
-        if (this === first) {
-          return rect(40, 240, 1160, 120);
-        }
-        return rect(0, 0, 0, 0);
-      });
+    stubRects([
+      [back, rect(40, 40, 120, 44)],
+      [empty, rect(40, 120, 1160, 60)],
+      [answered, rect(40, 220, 1160, 160)],
+      [first, rect(40, 240, 1160, 120)],
+    ]);
 
     await waitFor(() => expect(document.activeElement).toBe(back));
     fireEvent.keyDown(document, { key: "ArrowDown" });
 
     await waitFor(() => expect(document.activeElement).toBe(first));
-    measured.mockRestore();
   });
 
   test("each Addon's candidates carry badges, filename, description, warnings and the unplayable mark", async () => {
