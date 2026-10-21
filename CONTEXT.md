@@ -17,10 +17,25 @@ library state.
 _Avoid_: state, payload, update
 
 **Action**:
-A request from a client that the Host change something, carried in a versioned
-envelope and judged before it is applied. The Action surface is the only way the
-Host is ever mutated.
+A request from a client, carried in a versioned envelope and judged before it is
+resolved. An Action is either a **Question** or a **Change**, and the Action
+surface is still the only way the Host is ever mutated.
 _Avoid_: command, request, event, message
+
+**Question**:
+An Action that reads rather than mutates: browsing a Catalog, searching,
+Discover, opening a Title, finding Streams. It is answered to the client that
+asked, publishes no Snapshot and moves no revision, and resolves from a frozen
+view of the Host taken at dispatch, outside the Host's one lock (ADR-0022).
+_Avoid_: query (unqualified), read, fetch
+
+**Change**:
+An Action that mutates the Host's state — Addons, preferences, credentials,
+paired devices, playback — and is published as a Snapshot to every client. It
+holds the Host's one lock for the whole of its I/O (ADR-0022). (The resolved
+state transition a Change makes inside the Host is also called a `Change` in
+code; this entry is the Action.)
+_Avoid_: mutation, command, update
 
 ### Identity
 

@@ -1319,7 +1319,7 @@
         heroHeld: false,
         catalogueKeys: null,
         tmdbHeld: null,
-        home: { rows: [], loading: false, generation: 0 },
+        home: { rows: [], loading: false, generation: 0, paging: [] },
         discover: { kind: MOVIE, genre: null, feed: blankFeed(), loading: false, generation: 0 },
         search: {
           draft: "", committed: null, movie: blankFeed(), series: blankFeed(),
@@ -1658,7 +1658,8 @@
                   ${row.metas.map((meta) => renderPoster(row.addon, meta))}
                   ${pageable(s, row) && !row.done && (row.metas.length > 0 || row.failure !== null)
                     ? html`<button type="button" class="more-card" data-focusable data-a="page-row"
-                            data-ref="${key}" data-focus-key="page-${key}">More</button>`
+                            data-ref="${key}" data-focus-key="page-${key}"
+                            ${off(state.home.paging.includes(key))}>More</button>`
                     : null}
                 </div>
               </section>`;
@@ -2879,10 +2880,17 @@
         return answer ? rowWith(row, answer) : null;
       }
 
+      // How many Catalogs one Home refresh asks at once (#112). Four is the
+      // batch the ticket draws — the Featured Catalog plus the first three
+      // content rows. A superseded refresh's asks are left to finish and
+      // ignored; they are not counted a second time by the next refresh.
+      const HOME_ASK_LIMIT = 4;
+
       async function loadHome() {
         const generation = (state.home.generation += 1);
         const catalogs = declaredCatalogs(state.snapshot);
         state.home.rows = catalogs.map(blankRow);
+        state.home.paging = [];
         state.home.loading = catalogs.length > 0;
         state.screenSignature = null;
         if (state.destination === "home") { renderScreen(); }
@@ -2894,27 +2902,55 @@
         const ordered = catalogs.slice().sort((left, right) =>
           catalogKey(left) === featuredKey ? -1 : catalogKey(right) === featuredKey ? 1 : 0);
 
-        for (const catalog of ordered) {
-          const key = catalogKey(catalog);
-          const first = await loadRow(blankRow(catalog), []);
-          if (generation !== state.home.generation) { return; }
-          if (first) {
-            state.home.rows = state.home.rows.map((held) => keyOf(held) === key ? first : held);
-          } else {
-            state.home.rows = state.home.rows.filter((held) => keyOf(held) !== key);
+        // A worker pool four wide: each worker takes the next Catalog, folds
+        // its answer in and paints it, so Rows appear as they arrive instead
+        // of all at the end. The generation is checked before taking a Catalog
+        // and after every answer, so a refresh that has been superseded can
+        // neither start another ask nor append to the new state.rows.
+        let next = 0;
+        const worker = async () => {
+          while (next < ordered.length && generation === state.home.generation) {
+            const catalog = ordered[next];
+            next += 1;
+            const key = catalogKey(catalog);
+            const first = await loadRow(blankRow(catalog), []);
+            if (generation !== state.home.generation) { return; }
+            if (first) {
+              state.home.rows = state.home.rows.map((held) => keyOf(held) === key ? first : held);
+            } else {
+              state.home.rows = state.home.rows.filter((held) => keyOf(held) !== key);
+            }
+            state.screenSignature = null;
+            if (state.destination === "home") { renderScreen(); }
           }
-          state.screenSignature = null;
-          if (state.destination === "home") { renderScreen(); }
-        }
+        };
+        await Promise.all(
+          Array.from({ length: Math.min(HOME_ASK_LIMIT, ordered.length) }, worker));
+        if (generation !== state.home.generation) { return; }
         state.home.loading = false;
         state.screenSignature = null;
         if (state.destination === "home") { renderScreen(); }
       }
 
       async function pageRow(key) {
+        // One page per row at a time: a double press would ask the same skip
+        // twice and could fold the second answer in again.
+        if (state.home.paging.includes(key)) { return; }
         const row = rowIndex.get(key);
         if (!row) { return; }
-        const paged = await loadRow(row, [{ name: SKIP, value: String(row.offset) }]);
+        const generation = state.home.generation;
+        state.home.paging = state.home.paging.concat([key]);
+        state.screenSignature = null;
+        renderScreen();
+        let paged = null;
+        try {
+          paged = await loadRow(row, [{ name: SKIP, value: String(row.offset) }]);
+        } finally {
+          state.home.paging = state.home.paging.filter((held) => held !== key);
+        }
+        // A page that was being read when the Catalogs changed belongs to the
+        // refresh that superseded it, not to the rows drawn now.
+        if (generation !== state.home.generation) { return; }
         if (state.destination !== "home") { return; }
         if (paged) {
           state.home.rows = state.home.rows.map((held) => keyOf(held) === key ? paged : held);

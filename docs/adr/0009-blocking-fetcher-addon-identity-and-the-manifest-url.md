@@ -28,6 +28,12 @@ async runtime at all. The intent here ("a fetch must not block the caller's loop
 is kept; the mechanism named above is superseded, because there is no runtime to
 `spawn_blocking` from._
 
+_Amended again by [ADR-0022](0022-questions-fetch-outside-the-change-lock.md): the
+Fetcher stays blocking, but the "door one client goes through at a time" rationale
+now covers changes only. A question clones a frozen view under a short lock and
+fetches outside it, so one slow Addon no longer queues every other client behind
+it._
+
 **An Addon's manifest URL is a credential by presumption.** For an Addon like
 AIOStreams the debrid configuration lives *inside* the URL, which is what the spec
 asks for ("the Host never has to hold a debrid key itself"): the Host stores the URL

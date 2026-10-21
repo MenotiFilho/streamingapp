@@ -163,7 +163,9 @@ function catalogRow(
   page: number,
   catalogAnswer: CatalogAnswer,
 ): CatalogRow {
-  if (page > 0 && catalogAnswer.failure) {
+  // The Host's failure shape: a failed page carries no items and counts none,
+  // whether it was the first page or a later one.
+  if (catalogAnswer.failure) {
     return {
       addon,
       type,
@@ -182,7 +184,7 @@ function catalogRow(
     name,
     sent: metas.length,
     metas,
-    failure: page === 0 ? (catalogAnswer.failure ?? null) : null,
+    failure: null,
   };
 }
 
@@ -200,65 +202,124 @@ function pageAt(pages: readonly MetaPreview[][], offset: number): number {
 
 type Invocation = { command: string; args?: Record<string, unknown> };
 
+/** Which Catalog answers a test keeps back until it releases them. */
+type Hold = "all" | string | readonly string[];
+
+type Deferred<T> = { promise: Promise<T>; resolve: (value: T) => void };
+
+function deferred<T>(): Deferred<T> {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((fulfil) => {
+    resolve = fulfil;
+  });
+  return { promise, resolve };
+}
+
 function fakeHost(
   initial: Snapshot,
   catalogs: CatalogAnswer[],
   opening?: Title,
-  hold?: string,
+  hold?: Hold,
   holdOpen = false,
 ) {
   const invocations: Invocation[] = [];
-  let release = () => {};
-  const gate = new Promise<void>((resolve) => {
-    release = resolve;
-  });
+  let current = initial;
+  let listener: ((event: { payload: Snapshot }) => void) | undefined;
+
+  // Answers a test keeps back: `"all"` holds every Catalog, a key or a list of
+  // keys holds those, and `release()` lets everything through — including asks
+  // that have not started yet — while `release(key)` frees one Catalog.
+  const heldKeys = new Set<string>(
+    hold === undefined || hold === "all"
+      ? []
+      : typeof hold === "string"
+        ? [hold]
+        : hold,
+  );
+  const heldAnswers = new Map<string, Deferred<void>>();
+  const released = new Set<string>();
+  let open = false;
+  const answerGate = (key: string): Promise<void> => {
+    let gate = heldAnswers.get(key);
+    if (!gate) {
+      gate = deferred<void>();
+      heldAnswers.set(key, gate);
+    }
+    return gate.promise;
+  };
+  const shouldHold = (key: string): boolean =>
+    !open && !released.has(key) && (hold === "all" || heldKeys.has(key));
+  const release = (key?: string) => {
+    if (key === undefined) {
+      open = true;
+      for (const gate of heldAnswers.values()) {
+        gate.resolve();
+      }
+      heldAnswers.clear();
+      return;
+    }
+    released.add(key);
+    heldAnswers.get(key)?.resolve();
+    heldAnswers.delete(key);
+  };
+
+  // How many `browse_catalog` asks the Host has not answered yet, and the most
+  // it ever held at once — what the Home tests bound (#112).
+  const stats = { browseInFlight: 0, browsePeak: 0 };
+
   let releaseOpen = () => {};
   const openGate = new Promise<void>((resolve) => {
     releaseOpen = resolve;
   });
+
   const transport: Transport = {
     invoke: async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
       invocations.push({ command, args });
       if (command === "snapshot") {
-        return initial as T;
+        return current as T;
       }
 
       const action = (args?.envelope as { action: Action }).action;
       if (action.type === "browse_catalog") {
-        if (
-          hold === `${action.addon}/${action.catalog.type}/${action.catalog.id}`
-        ) {
-          await gate;
+        const key = `${action.addon}/${action.catalog.type}/${action.catalog.id}`;
+        stats.browseInFlight += 1;
+        stats.browsePeak = Math.max(stats.browsePeak, stats.browseInFlight);
+        try {
+          if (shouldHold(key)) {
+            await answerGate(key);
+          }
+          const catalogAnswer = catalogs.find(
+            (held) =>
+              held.addon === action.addon &&
+              held.type === action.catalog.type &&
+              held.id === action.catalog.id,
+          );
+          if (!catalogAnswer) {
+            throw { kind: "unknown_catalog", addon: action.addon, catalog: action.catalog };
+          }
+          const skip = action.extra.find((extra) => extra.name === "skip");
+          const offset = skip ? Number(skip.value) : 0;
+          const page = pageAt(catalogAnswer.pages, offset);
+          return {
+            snapshots: [],
+            answer: {
+              catalogs: [
+                catalogRow(
+                  {
+                    addon: catalogAnswer.addon,
+                    type: catalogAnswer.type,
+                    id: catalogAnswer.id,
+                    name: catalogAnswer.name,
+                  },
+                  page,
+                  catalogAnswer,
+                ),
+              ],
+            },
+          } as T;
+        } finally {
+          stats.browseInFlight -= 1;
         }
-        const catalogAnswer = catalogs.find(
-          (held) =>
-            held.addon === action.addon &&
-            held.type === action.catalog.type &&
-            held.id === action.catalog.id,
-        );
-        if (!catalogAnswer) {
-          throw { kind: "unknown_catalog", addon: action.addon, catalog: action.catalog };
-        }
-        const skip = action.extra.find((extra) => extra.name === "skip");
-        const offset = skip ? Number(skip.value) : 0;
-        const page = pageAt(catalogAnswer.pages, offset);
-        return {
-          snapshots: [],
-          answer: {
-            catalogs: [
-              catalogRow(
-                {
-                  addon: catalogAnswer.addon,
-                  type: catalogAnswer.type,
-                  id: catalogAnswer.id,
-                  name: catalogAnswer.name,
-                },
-                page,
-                catalogAnswer,
-              ),
-            ],
-          },
-        } as T;
       }
 
       if (action.type === "open_title" && opening) {
@@ -270,16 +331,37 @@ function fakeHost(
 
       return { snapshots: [], answer: null } as T;
     },
-    listen: async () => () => {},
+    listen: async <T,>(_event: string, handler: (event: { payload: T }) => void) => {
+      listener = handler as (event: { payload: Snapshot }) => void;
+      return () => {
+        listener = undefined;
+      };
+    },
   };
 
-  return { client: new HostClient(transport), invocations, release, releaseOpen };
+  return {
+    client: new HostClient(transport),
+    invocations,
+    stats,
+    release,
+    releaseOpen,
+    /** Publish a Snapshot to the Shell, as the Host does on a change. */
+    publish(next: Snapshot) {
+      current = next;
+      listener?.({ payload: next });
+    },
+  };
 }
 
 function actions(invocations: Invocation[]): Action[] {
   return invocations
     .filter(({ command }) => command === "dispatch")
     .map(({ args }) => (args?.envelope as { action: Action }).action);
+}
+
+/** The `browse_catalog` asks, in the order Home sent them. */
+function browseActions(invocations: Invocation[]): Action[] {
+  return actions(invocations).filter((action) => action.type === "browse_catalog");
 }
 
 function browseAction(addon: string, catalog: { type: string; id: string }, skip?: string): Action {
@@ -345,6 +427,52 @@ const POPULAR_CATALOGUE: CatalogAnswer = {
   id: "letterboxd-popular",
   name: "Popular This Week",
   pages: [[meta({ id: "tt0102926", name: "The Silence of the Lambs" })]],
+};
+
+/** One Addon with eight Catalogs: enough to see the four-wide batch (#112). */
+const MANY: AddonManifest = {
+  ...CINEMETA,
+  id: "community.many",
+  name: "Many",
+  catalogs: Array.from({ length: 8 }, (_, index) => ({
+    type: "movie",
+    id: `rail-${index}`,
+    name: `Rail ${index}`,
+    extra: [{ name: "skip", isRequired: false, options: [], optionsLimit: 1 }],
+  })),
+};
+
+function manyAnswers(): CatalogAnswer[] {
+  return MANY.catalogs.map((catalog) => ({
+    addon: MANY.id,
+    type: catalog.type,
+    id: catalog.id,
+    name: catalog.name,
+    pages: [[meta({ id: `tt-${catalog.id}`, name: `Item ${catalog.id}` })]],
+  }));
+}
+
+/** An Addon Home has not read from yet, for the fingerprint test. */
+const FRESH: AddonManifest = {
+  ...CINEMETA,
+  id: "community.fresh",
+  name: "Fresh",
+  catalogs: [
+    {
+      type: "movie",
+      id: "fresh",
+      name: "Fresh",
+      extra: [{ name: "skip", isRequired: false, options: [], optionsLimit: 1 }],
+    },
+  ],
+};
+
+const FRESH_CATALOGUE: CatalogAnswer = {
+  addon: FRESH.id,
+  type: "movie",
+  id: "fresh",
+  name: "Fresh",
+  pages: [[meta({ id: "tt0088763", name: "Back to the Future" })]],
 };
 
 describe("Home", () => {
@@ -778,6 +906,207 @@ describe("Home", () => {
 
     await waitFor(() => expect(rail).toContainElement(document.activeElement as HTMLElement));
     measured.mockRestore();
+  });
+
+  test("paints a fast Row while a slower one is still pending", async () => {
+    const host = fakeHost(
+      homeSnapshot(),
+      [FEATURED_CATALOGUE, TOP_CATALOGUE, POPULAR_CATALOGUE],
+      undefined,
+      `${CINEMETA.id}/movie/top`,
+    );
+    render(<Shell client={host.client} />);
+
+    expect(await screen.findByTestId("home-hero")).toHaveTextContent("The Matrix");
+    expect(await screen.findByText("The Silence of the Lambs")).toBeInTheDocument();
+    expect(screen.getByRole("region", { name: "Top" })).toBeInTheDocument();
+    expect(
+      screen.queryByText("The Shawshank Redemption"),
+      "the slow Row is drawn blank until its answer lands",
+    ).not.toBeInTheDocument();
+    expect(host.stats.browseInFlight).toBe(1);
+
+    act(() => host.release());
+
+    expect(await screen.findByText("The Shawshank Redemption")).toBeInTheDocument();
+  });
+
+  test("an ask sent before leaving Home keeps running and is joined on the return", async () => {
+    const host = fakeHost(
+      homeSnapshot(),
+      [FEATURED_CATALOGUE, TOP_CATALOGUE, POPULAR_CATALOGUE],
+      undefined,
+      `${CINEMETA.id}/movie/top`,
+    );
+    render(<Shell client={host.client} />);
+
+    await screen.findByTestId("home-hero");
+    expect(screen.queryByText("The Shawshank Redemption")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Discover" }));
+    await screen.findByRole("heading", { name: "Discover" });
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+
+    expect(screen.getByTestId("home-hero")).toHaveTextContent("The Matrix");
+    expect(screen.getByRole("region", { name: "Top" })).toBeInTheDocument();
+    expect(
+      screen.queryByText("The Shawshank Redemption"),
+      "the Row is still waiting for the ask it already sent",
+    ).not.toBeInTheDocument();
+    expect(
+      browseActions(host.invocations).filter(
+        (action) => action.type === "browse_catalog" && action.catalog.id === "top",
+      ),
+    ).toHaveLength(1);
+
+    act(() => host.release());
+
+    expect(await screen.findByText("The Shawshank Redemption")).toBeInTheDocument();
+  });
+
+  test("starts with the Featured catalog and the first three content Rows, four at once at most", async () => {
+    const host = fakeHost(
+      homeSnapshot({
+        addons: [MANY],
+        featuredCatalog: {
+          addon: MANY.id,
+          catalog: { type: "movie", id: "rail-5" },
+        },
+      }),
+      manyAnswers(),
+      undefined,
+      "all",
+    );
+    render(<Shell client={host.client} />);
+
+    // The blank headings are all there before any answer, in configured order.
+    await waitFor(() =>
+      expect(screen.getAllByTestId(/^home-row-/)).toHaveLength(MANY.catalogs.length),
+    );
+
+    await waitFor(() => expect(host.stats.browseInFlight).toBe(4));
+    expect(browseActions(host.invocations)).toEqual([
+      browseAction(MANY.id, { type: "movie", id: "rail-5" }),
+      browseAction(MANY.id, { type: "movie", id: "rail-0" }),
+      browseAction(MANY.id, { type: "movie", id: "rail-1" }),
+      browseAction(MANY.id, { type: "movie", id: "rail-2" }),
+    ]);
+    expect(host.stats.browsePeak).toBe(4);
+
+    act(() => host.release(`${MANY.id}/movie/rail-0`));
+    await waitFor(() => expect(browseActions(host.invocations)).toHaveLength(5));
+    expect(browseActions(host.invocations)[4]).toEqual(
+      browseAction(MANY.id, { type: "movie", id: "rail-3" }),
+    );
+    expect(host.stats.browsePeak).toBe(4);
+
+    act(() => host.release());
+    await waitFor(() =>
+      expect(browseActions(host.invocations)).toHaveLength(MANY.catalogs.length),
+    );
+    expect(host.stats.browsePeak).toBe(4);
+  });
+
+  test("returning to Home paints the Rows already read and asks nothing again", async () => {
+    const host = fakeHost(homeSnapshot(), [
+      FEATURED_CATALOGUE,
+      TOP_CATALOGUE,
+      POPULAR_CATALOGUE,
+    ]);
+    render(<Shell client={host.client} />);
+
+    await screen.findByText("The Shawshank Redemption");
+    await screen.findByText("The Silence of the Lambs");
+    const asked = browseActions(host.invocations).length;
+
+    fireEvent.click(screen.getByRole("button", { name: "Discover" }));
+    await screen.findByRole("heading", { name: "Discover" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+
+    // The store paints on the return's first render, before any effect can ask.
+    expect(screen.getByText("The Shawshank Redemption")).toBeInTheDocument();
+    expect(screen.getByTestId("home-hero")).toHaveTextContent("The Matrix");
+    expect(browseActions(host.invocations)).toHaveLength(asked);
+  });
+
+  test("a failed Row is re-asked on return, and the successful Rows are not", async () => {
+    const failing: CatalogAnswer = {
+      ...TOP_CATALOGUE,
+      failure: { kind: "catalog", detail: "the Addon answered a web page" },
+    };
+    const host = fakeHost(homeSnapshot(), [
+      FEATURED_CATALOGUE,
+      failing,
+      POPULAR_CATALOGUE,
+    ]);
+    render(<Shell client={host.client} />);
+
+    await screen.findByText(/could not read that Addon's catalog/);
+
+    fireEvent.click(screen.getByRole("button", { name: "Discover" }));
+    await screen.findByRole("heading", { name: "Discover" });
+    fireEvent.click(screen.getByRole("button", { name: "Home" }));
+
+    await waitFor(() =>
+      expect(browseActions(host.invocations)).toEqual([
+        browseAction(CINEMETA.id, { type: "movie", id: "featured" }),
+        browseAction(CINEMETA.id, { type: "movie", id: "top" }),
+        browseAction(STREMBOX.id, { type: "movie", id: "letterboxd-popular" }),
+        browseAction(CINEMETA.id, { type: "movie", id: "top" }),
+      ]),
+    );
+  });
+
+  test("adding, reordering and removing Catalogs keeps the surviving Rows", async () => {
+    const host = fakeHost(homeSnapshot(), [
+      FEATURED_CATALOGUE,
+      TOP_CATALOGUE,
+      POPULAR_CATALOGUE,
+      FRESH_CATALOGUE,
+    ]);
+    render(<Shell client={host.client} />);
+
+    await screen.findByText("The Shawshank Redemption");
+    await screen.findByText("The Silence of the Lambs");
+    const asked = browseActions(host.invocations).length;
+    expect(asked).toBe(3);
+
+    // A reorder moves the Rows and asks nothing.
+    act(() => host.publish(homeSnapshot({ revision: 4, addons: [STREMBOX, CINEMETA] })));
+    await waitFor(() =>
+      expect(
+        screen.getAllByTestId(/^row-/).map((row) => row.getAttribute("data-testid")),
+      ).toEqual([
+        `row-${STREMBOX.id}/movie/letterboxd-popular`,
+        `row-${CINEMETA.id}/movie/top`,
+        `row-${CINEMETA.id}/movie/featured`,
+      ]),
+    );
+    expect(browseActions(host.invocations)).toHaveLength(asked);
+    expect(screen.getByText("The Shawshank Redemption")).toBeInTheDocument();
+
+    // A new Catalog is the only thing fetched; the survivors keep their cards.
+    act(() =>
+      host.publish(homeSnapshot({ revision: 5, addons: [STREMBOX, CINEMETA, FRESH] })),
+    );
+    expect(await screen.findByText("Back to the Future")).toBeInTheDocument();
+    expect(screen.getByText("The Shawshank Redemption")).toBeInTheDocument();
+    expect(screen.getByText("The Silence of the Lambs")).toBeInTheDocument();
+    expect(browseActions(host.invocations)).toHaveLength(asked + 1);
+    expect(browseActions(host.invocations)[asked]).toEqual(
+      browseAction(FRESH.id, { type: "movie", id: "fresh" }),
+    );
+
+    // A removed Catalog's row goes, and asks nothing.
+    act(() => host.publish(homeSnapshot({ revision: 6, addons: [CINEMETA, FRESH] })));
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("region", { name: "Popular This Week" }),
+      ).not.toBeInTheDocument(),
+    );
+    expect(screen.getByText("The Shawshank Redemption")).toBeInTheDocument();
+    expect(browseActions(host.invocations)).toHaveLength(asked + 1);
   });
 });
 

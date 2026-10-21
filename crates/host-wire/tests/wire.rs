@@ -6,12 +6,13 @@
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use host_core::{
     Action, ActionError, AddonProvider, DeviceSummary, DeviceToken, FixtureClock, FixtureFetcher,
-    FixturePlayer, Host, InMemorySecretStore, InMemoryStore, Response, Snapshot, WIRE_VERSION,
+    FixturePlayer, Host, HostDoor, InMemorySecretStore, InMemoryStore, Response, Snapshot,
+    WIRE_VERSION,
 };
 use host_wire::{Broadcast, Server, Surface};
 use serde_json::{json, Value};
@@ -22,7 +23,7 @@ use tungstenite::{connect, Message, WebSocket};
 /// real thing rather than a mock, so a frame that reaches the Host is a frame the
 /// Host acted on.
 struct Fixture {
-    host: Mutex<Host>,
+    door: HostDoor,
     broadcast: Broadcast,
 }
 
@@ -42,20 +43,14 @@ impl Fixture {
         .expect("a Host over in-memory seams starts");
 
         Arc::new(Self {
-            host: Mutex::new(host),
+            door: HostDoor::new(host),
             broadcast: Broadcast::new(),
         })
     }
 
     /// The code the Host is showing, which a client redeems.
     fn code(&self) -> String {
-        self.host
-            .lock()
-            .expect("nothing panics while holding the Host")
-            .snapshot()
-            .pairing_code
-            .as_str()
-            .to_owned()
+        self.door.snapshot().pairing_code.as_str().to_owned()
     }
 
     /// A change the Host made on its own — a clock tick, or another client:
@@ -67,11 +62,7 @@ impl Fixture {
 
 impl Surface for Fixture {
     fn dispatch(&self, action: Action) -> Result<Response, ActionError> {
-        let response = self
-            .host
-            .lock()
-            .expect("nothing panics while holding the Host")
-            .dispatch(action)?;
+        let response = self.door.dispatch(action)?;
         for snapshot in &response.snapshots {
             self.broadcast.publish(snapshot);
         }
@@ -79,17 +70,11 @@ impl Surface for Fixture {
     }
 
     fn device(&self, token: &DeviceToken) -> Option<DeviceSummary> {
-        self.host
-            .lock()
-            .expect("nothing panics while holding the Host")
-            .device(token)
+        self.door.device(token)
     }
 
     fn snapshot(&self) -> Snapshot {
-        self.host
-            .lock()
-            .expect("nothing panics while holding the Host")
-            .snapshot()
+        self.door.snapshot()
     }
 }
 

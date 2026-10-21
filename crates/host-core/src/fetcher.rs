@@ -1,11 +1,12 @@
 //! The Host's one HTTP boundary, and the fixture-backed double tests drive it with.
 //!
-//! Everything the Host fetches from an Addon — a manifest today, catalogs and
-//! Streams later — goes through [`Fetcher`]. The seam is deliberately synchronous:
-//! the Action surface is a door one client goes through at a time, and a fetch is a
-//! one-off the owner asked for, not a hot path (ADR-0009). The real implementation
-//! lives outside this crate, next to the window, because nothing in `host-core`
-//! knows about the network.
+//! Everything the Host fetches from an Addon — a manifest, catalogs, Streams —
+//! goes through [`Fetcher`]. The seam is deliberately synchronous: a change is
+//! serialized for the length of its fetch, and a question resolves outside the
+//! change lock where `find_streams` and `search_catalogs` may fan their fetches
+//! out (ADR-0009, ADR-0022, ADR-0023). The real implementation lives outside this
+//! crate, next to the window, because nothing in `host-core` knows about the
+//! network.
 //!
 //! The protocol's legacy JSON-RPC transport (`q.json`) is deliberately not
 //! implemented. It is named here so that adding it later is another implementation
@@ -72,8 +73,10 @@ impl FixtureFetcher {
         self.holding(url, Err(error))
     }
 
-    /// Every URL this fetcher was asked for, in order — for the tests that care
-    /// that the Host asked for the URL the owner pasted and no other.
+    /// Every URL this fetcher was asked for, in the order the asks reached it.
+    ///
+    /// A fan-out does not promise that order (ADR-0023), so a test that goes
+    /// through one asks which URLs were asked, not in what sequence.
     pub fn asked(&self) -> Vec<String> {
         self.asked
             .lock()

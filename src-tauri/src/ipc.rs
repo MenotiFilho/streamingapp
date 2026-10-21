@@ -10,9 +10,11 @@
 //! event bus and to every paired remote connection through the [`Broadcast`], and
 //! a client cannot tell which of the two carried it.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
-use host_core::{Action, ActionError, DeviceSummary, DeviceToken, Host, Response, Snapshot};
+use host_core::{
+    Action, ActionError, DeviceSummary, DeviceToken, Host, HostDoor, Response, Snapshot,
+};
 use host_wire::{Broadcast, Surface};
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
@@ -23,24 +25,20 @@ pub const SNAPSHOT_EVENT: &str = "host://snapshot";
 
 /// The Host, as the window's commands hold it.
 ///
-/// One mutex, held for the length of one Action: the Action surface is the only
-/// door, and it is a door one client goes through at a time. An Action that
-/// fetches — adding an Addon — holds it across the fetch, which is what keeps two
-/// Actions from interleaving into a state neither of them asked for.
-pub struct HostHandle(Mutex<Host>);
+/// A wrapper and nothing else: the lock policy is [`HostDoor`]'s in `host-core`,
+/// where the question/change split is decided (ADR-0022). The shell holds the
+/// door, forwards the calls, and owns no mutex of its own.
+pub struct HostHandle(HostDoor);
 
 impl HostHandle {
     pub fn new(host: Host) -> Self {
-        Self(Mutex::new(host))
+        Self(HostDoor::new(host))
     }
 
     /// Take an Action, without publishing what came of it: the callers differ in
     /// where they publish, and there is one place for each of them.
     pub fn dispatch(&self, action: Action) -> Result<Response, ActionError> {
-        self.0
-            .lock()
-            .expect("nothing panics while holding the Host")
-            .dispatch(action)
+        self.0.dispatch(action)
     }
 
     /// Read the Player and fold what it reports into state, publishing a
@@ -50,52 +48,34 @@ impl HostHandle {
     /// own, and the Host holds no threads and no timers of its own (ADR-0013).
     /// A report that says what the Host already held returns nothing.
     pub fn sample(&self) -> Option<Snapshot> {
-        self.0
-            .lock()
-            .expect("nothing panics while holding the Host")
-            .sample()
+        self.0.sample()
     }
 
     /// Merge newer remote watch progress from the Stremio account into the
     /// library (#30), publishing a Snapshot if anything moved.
     pub fn pull_remote(&self) -> Option<Snapshot> {
-        self.0
-            .lock()
-            .expect("nothing panics while holding the Host")
-            .pull_remote()
+        self.0.pull_remote()
     }
 
     /// The Host is going away: write down where the Stream got to, and tell the
     /// account where one is signed in (#30). Answers whether an account was told.
     pub fn shutdown(&self) -> bool {
-        self.0
-            .lock()
-            .expect("nothing panics while holding the Host")
-            .shutdown()
+        self.0.shutdown()
     }
 
     /// Tell the Host where its wire server answers, once it has bound.
     pub fn set_serving(&self, address: &str) {
-        self.0
-            .lock()
-            .expect("nothing panics while holding the Host")
-            .set_serving(address.to_owned());
+        self.0.set_serving(address);
     }
 
     /// The state as it stands — what a window that has just loaded is owed.
     pub fn snapshot(&self) -> Snapshot {
-        self.0
-            .lock()
-            .expect("nothing panics while holding the Host")
-            .snapshot()
+        self.0.snapshot()
     }
 
     /// The device a presented token belongs to, or nothing (#31).
     pub fn device(&self, token: &DeviceToken) -> Option<DeviceSummary> {
-        self.0
-            .lock()
-            .expect("nothing panics while holding the Host")
-            .device(token)
+        self.0.device(token)
     }
 }
 

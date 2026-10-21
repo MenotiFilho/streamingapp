@@ -1,14 +1,12 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use crate::action::{Action, ActionError, ValidatedAction};
-use crate::addon::{Addon, AddonId, Manifest, MAX_ITEMS};
+use crate::addon::{Addon, AddonId, Manifest};
 use crate::cache::CatalogCache;
-use crate::catalog::{CatalogRow, Page};
 use crate::clock::Clock;
 use crate::device::{Device, DeviceSummary, DeviceToken};
-use crate::discover::DiscoverRow;
-use crate::fetcher::{FetchError, Fetcher};
-use crate::meta::{self, Title, TitleKey, Video};
+use crate::fetcher::Fetcher;
+use crate::meta::{self, Video};
 use crate::pairing::PairingCode;
 use crate::playback::{
     ChapterStep, ChosenStream, Control, Observation, Picture, PlaybackState, Player, Telling,
@@ -17,26 +15,27 @@ use crate::playback::{
 use crate::preferences::FeaturedCatalog;
 use crate::progress::TitleStub;
 use crate::provider::Provider;
-use crate::request::{
-    CatalogRef, Extra, ResourceRequest, TitleRef, VideoRef, CATALOG, META, STREAM, SUBTITLES,
-};
+use crate::request::{ResourceRequest, TitleRef, VideoRef, META, STREAM, SUBTITLES};
 use crate::response::{Answer, Response};
 use crate::secret::{CredentialKind, SecretStore};
 use crate::snapshot::Snapshot;
 use crate::state::{Change, Persist, Protection, State};
 use crate::store::{Store, StoreError};
-use crate::stream::{AddonStreams, Stream};
+use crate::stream::Stream;
 use crate::stremio::StremioApi;
 use crate::subtitles::MAX_FALLBACK_SUBTITLES;
 use crate::sync::{merge, Merged, RemoteItem};
 use crate::tmdb;
+use crate::view::HostView;
 
-/// The Host: its state, and the one door to it.
+/// The Host: its state, and the surface over it.
 ///
 /// Every Action — from the window, from a remote client, from a timer — arrives
-/// at [`Host::dispatch`], and every publication leaves as a [`Response`]: the
-/// Snapshots every client is owed, and the answer only the client that asked
-/// gets. There is no second path (ADR-0002).
+/// through [`crate::HostDoor`]'s one door, and every publication leaves as a
+/// [`Response`]: the Snapshots every client is owed, and the answer only the
+/// client that asked gets. [`Host::dispatch`] is the one-call form used by tests,
+/// and it takes the same two paths the door does. There is no second surface
+/// (ADR-0002).
 ///
 /// The one thing that is not an Action is the Host reading its own Player
 /// ([`Host::sample`]): playback moves on its own, and what the Player reports is
@@ -67,8 +66,10 @@ pub struct Host {
     state: State,
     revision: u64,
     /// Pages the Addons have already answered, so that a re-request inside the
-    /// Addon's own `cacheMaxAge` never reaches the network.
-    cache: CatalogCache,
+    /// Addon's own `cacheMaxAge` never reaches the network. Shared with every
+    /// [`HostView`], behind a lock a question takes only to read or write one
+    /// page and never across a fetch (ADR-0022).
+    cache: Arc<Mutex<CatalogCache>>,
     /// Stremio's account service, where this Host was built with one (#30).
     /// `None` is a Host that cannot sync, and a Host that holds no `authKey` is
     /// one that does not: in both, nothing here is ever called.
@@ -133,7 +134,7 @@ impl Host {
             serving: None,
             state,
             revision: 0,
-            cache: CatalogCache::default(),
+            cache: Arc::new(Mutex::new(CatalogCache::default())),
             stremio: None,
         })
     }
@@ -183,24 +184,60 @@ impl Host {
         self.state.device_for(token).map(|device| device.summary())
     }
 
+    /// The Host as one question sees it: the Addon list frozen now, and the
+    /// seams the question resolves over.
+    ///
+    /// Cheap and short. The door calls this under its lock and lets the question
+    /// fetch outside it (ADR-0022); a change that needs one of the same read-only
+    /// helpers (a resume, an episode step) takes a view of its own and stays
+    /// serialized around the change itself.
+    pub fn view(&self) -> HostView {
+        HostView::new(
+            self.state.addons().to_vec(),
+            self.fetcher.clone(),
+            self.provider.clone(),
+            self.secrets.clone(),
+            self.cache.clone(),
+        )
+    }
+
     /// Take an Action, and publish or answer what came of it.
     ///
-    /// Validation is pure and comes first, then whatever I/O the Action needs,
-    /// and only then the state. An Action that is rejected, that cannot be
-    /// fetched, or that the store refuses leaves the state and every future
-    /// Snapshot exactly as they were.
+    /// Validation is pure and comes first. A question then resolves from a view
+    /// frozen at this moment; a change applies where this call stands, and an
+    /// Action that is rejected, that cannot be fetched, or that the store
+    /// refuses leaves state and every future Snapshot exactly as they were.
+    ///
+    /// This is the one-call form for tests. The app shell and the wire reach the
+    /// same two halves through [`crate::HostDoor`], which holds the change lock
+    /// around a change; a direct caller here is serialized by `&mut self`.
     pub fn dispatch(&mut self, action: Action) -> Result<Response, ActionError> {
         let validated = action.validate()?;
+        if validated.is_question() {
+            // A question changed nothing anyone else can see, so there is no
+            // Snapshot to publish and the revision does not move.
+            let answer = self.view().ask(validated)?;
+            Ok(Response::answered(answer))
+        } else {
+            self.apply(validated)
+        }
+    }
 
-        let (change, answer) = match self.resolve(validated)? {
+    /// Apply one change, publishing the Snapshot it owes and answering where it
+    /// also answers.
+    ///
+    /// The door holds the Host's change lock for the whole of this, I/O
+    /// included; a direct caller is serialized by `&mut self`. A change may
+    /// fetch (an Addon's manifest), read the Player or write a credential, and
+    /// serializing those is what keeps two changes from interleaving into a
+    /// state neither asked for (ADR-0022).
+    pub fn apply(&mut self, validated: ValidatedAction) -> Result<Response, ActionError> {
+        let (change, answer) = match self.change(validated)? {
             Resolved::Change(change) => (change, None),
             // The one Action that both changes state and answers the client that
             // asked: pairing, where the token goes to the device and the device
             // joining the list goes to every client (#31).
             Resolved::Changed { change, answer } => (change, Some(answer)),
-            // A question changed nothing anyone else can see, so there is no
-            // Snapshot to publish and the revision does not move.
-            Resolved::Answer(answer) => return Ok(Response::answered(answer)),
         };
 
         // The Title a pause or a stop leaves is the one the account is owed: the
@@ -401,7 +438,7 @@ impl Host {
             return None;
         }
         let asked = TitleRef::parse(stub.r#type(), stub.id()).ok()?;
-        let title = self.fetch_title(addon, &asked, &requested).ok()?;
+        let title = self.view().fetch_title(addon, &asked, &requested).ok()?;
 
         Some(title.videos.iter().map(|video| video.id.clone()).collect())
     }
@@ -509,6 +546,7 @@ impl Host {
         };
         let video = chosen.now_playing.video.clone();
         let addons: Vec<(Addon, ResourceRequest)> = self
+            .view()
             .asks_for(SUBTITLES, &video)
             .into_iter()
             .filter_map(|asked| Some((asked.addon, asked.requested?)))
@@ -542,14 +580,13 @@ impl Host {
         }
     }
 
-    /// Turn a validated Action into the change it will make, or the answer it
-    /// will give.
+    /// Turn a validated change into the change it will make.
     ///
-    /// This is where an Action's I/O happens: an Addon's manifest, or a page of
-    /// one of its catalogs, is fetched and read here, so that what reaches state
-    /// is already a decided thing. A failure here has touched neither state nor
-    /// store.
-    fn resolve(&mut self, validated: ValidatedAction) -> Result<Resolved, ActionError> {
+    /// This is where a change's I/O happens: an Addon's manifest is fetched and
+    /// read, a credential is written, the Player is told, so that what reaches
+    /// state is already a decided thing. A failure here has touched neither
+    /// state nor store. A question never reaches this method (ADR-0022).
+    fn change(&mut self, validated: ValidatedAction) -> Result<Resolved, ActionError> {
         Ok(match validated {
             ValidatedAction::SetSubtitleLanguage(language) => {
                 // The preference is the Host's and persists whether or not the
@@ -708,129 +745,18 @@ impl Host {
                 }
                 Resolved::Change(Change::RevokeDevice(id))
             }
-            ValidatedAction::BrowseCatalog {
-                addon,
-                catalog,
-                extra,
-            } => {
-                let configured = self.addon(&addon)?;
-                let requested = ResourceRequest::new(CATALOG, &catalog.r#type, &catalog.id)
-                    .with_extra(with_required_values(configured.manifest(), &catalog, extra));
-                if !configured.manifest().answers(&requested) {
-                    return Err(why_not(configured.manifest(), &catalog, &requested));
-                }
-
-                let row = self.catalog_row(&configured, &requested);
-                Resolved::Answer(Answer::Catalogs(vec![row]))
-            }
-            ValidatedAction::SearchCatalogs { query } => {
-                // Every catalog that offers a search, in the order the Addons
-                // are configured, and each Addon's own order within that. One
-                // Addon failing is one row with nothing in it, not a failed
-                // search (ADR-0010).
-                let plan: Vec<(Addon, ResourceRequest)> = self
-                    .state
-                    .addons()
-                    .iter()
-                    .flat_map(|addon| {
-                        addon.manifest().catalogs.iter().filter_map(|catalog| {
-                            let extra = catalog.search_extra(&query)?;
-                            Some((
-                                addon.clone(),
-                                ResourceRequest::new(
-                                    CATALOG,
-                                    catalog.r#type.as_str(),
-                                    catalog.id.as_str(),
-                                )
-                                .with_extra(extra),
-                            ))
-                        })
-                    })
-                    .collect();
-
-                let rows = plan
-                    .iter()
-                    .map(|(addon, requested)| self.catalog_row(addon, requested))
-                    .collect();
-                Resolved::Answer(Answer::Catalogs(rows))
-            }
-            ValidatedAction::Discover { query } => {
-                // A Discover page is never cached: TMDB sends no cache hints to
-                // honour and a feed is a live thing whose staleness is worse
-                // than its latency, so every page reaches it (ADR-0020). A
-                // credential that is not held refuses the ask itself, before a
-                // row exists: there is nothing to ask TMDB with.
-                let credential = self
-                    .tmdb_credential()
-                    .ok_or(ActionError::NoTmdbCredential)?;
-                let row = self.tmdb_row(&query.request(), query.kind, &credential);
-                Resolved::Answer(Answer::Discover(vec![row]))
-            }
-            ValidatedAction::Search { query } => {
-                // Search with a key held is TMDB's, and never cached: every
-                // submit and every page reaches it (ADR-0010's amendment). With
-                // no key held the Addons' catalogs are the whole of Search, and
-                // this question names no Addon to fall back to, so it refuses
-                // before a row exists.
-                let credential = self
-                    .tmdb_credential()
-                    .ok_or(ActionError::NoTmdbCredential)?;
-                let row = self.tmdb_row(&query.request(), query.kind, &credential);
-                Resolved::Answer(Answer::Search(row))
-            }
-            ValidatedAction::OpenTitle { addon, title } => {
-                let configured = self.addon(&addon)?;
-                let requested = ResourceRequest::new(META, &title.r#type, &title.id);
-                if !configured.manifest().answers(&requested) {
-                    return Err(ActionError::UnknownTitle {
-                        addon: configured.id().clone(),
-                        title,
-                    });
-                }
-
-                // The request the Addon was judged on is the one it is asked
-                // with: a second construction is a second thing that can drift.
-                let mut title = self.fetch_title(&configured, &title, &requested)?;
-                self.tmdb_refine(&mut title);
-                Resolved::Answer(Answer::Title(Box::new(title)))
-            }
-            ValidatedAction::OpenDiscoveredTitle { id, kind } => {
-                Resolved::Answer(Answer::Title(Box::new(self.open_discovered(id, kind)?)))
-            }
-            ValidatedAction::FindStreams { video } => {
-                // Every configured Addon that answers for it, in the order
-                // they are configured, each answer a group of its own: one
-                // Addon failing is that group with nothing in it, not a
-                // question that fails (ADR-0010 — a search's rule, applied to
-                // Streams). A TMDB-keyed Video is asked of each Addon in the
-                // spelling that Addon declares (ADR-0020).
-                let groups = self
-                    .asks_for(STREAM, &video)
-                    .into_iter()
-                    .map(|asked| match asked.requested {
-                        Some(requested) => {
-                            let (streams, failure) =
-                                match self.provider.streams(&asked.addon, &requested) {
-                                    Ok(streams) => (streams, None),
-                                    Err(failure) => (Vec::new(), Some(failure)),
-                                };
-                            AddonStreams {
-                                addon: asked.addon.id().clone(),
-                                streams,
-                                failure,
-                            }
-                        }
-                        // An Addon that declares no spelling this Host can
-                        // build is not asked, and its group is empty — which is
-                        // what "marked" means (ADR-0020).
-                        None => AddonStreams {
-                            addon: asked.addon.id().clone(),
-                            streams: Vec::new(),
-                            failure: None,
-                        },
-                    })
-                    .collect();
-                Resolved::Answer(Answer::Streams(groups))
+            // A question resolves from a view outside this lock; the door never
+            // sends one here. Refused rather than answered if it does.
+            ValidatedAction::BrowseCatalog { .. }
+            | ValidatedAction::SearchCatalogs { .. }
+            | ValidatedAction::Discover { .. }
+            | ValidatedAction::Search { .. }
+            | ValidatedAction::OpenTitle { .. }
+            | ValidatedAction::OpenDiscoveredTitle { .. }
+            | ValidatedAction::FindStreams { .. } => {
+                return Err(ActionError::Malformed {
+                    detail: "a question is not a change".to_owned(),
+                })
             }
             ValidatedAction::PlayStream { chosen, title } => {
                 // The Player is handed the URL and nothing else; whether the
@@ -1078,12 +1004,13 @@ impl Host {
                 // number a series differently (ADR-0020), so only the list that
                 // contains the Video playing is known to put the right one next to it.
                 let requested_meta = ResourceRequest::new(META, &now.video.r#type, &title_id);
+                let view = self.view();
                 let mut neighbour_id = None;
-                for addon in self.state.addons() {
+                for addon in view.addons() {
                     if !addon.manifest().answers(&requested_meta) {
                         continue;
                     }
-                    let Ok(title) = self.fetch_title(addon, &asked, &requested_meta) else {
+                    let Ok(title) = view.fetch_title(addon, &asked, &requested_meta) else {
                         continue;
                     };
                     let Some(index) = title
@@ -1118,7 +1045,7 @@ impl Host {
             })?;
         let video = VideoRef::parse(&now.video.r#type, &neighbour_id)
             .map_err(|error| refused(error.to_string()))?;
-        let Some(requested_stream) = self.ask_of(&playing_addon, STREAM, &video) else {
+        let Some(requested_stream) = self.view().ask_of(&playing_addon, STREAM, &video) else {
             return Err(refused(format!(
                 "{} has nothing for {}/{}",
                 now.addon, now.video.r#type, neighbour_id
@@ -1151,9 +1078,10 @@ impl Host {
     /// is a film, or this Host cannot read the list (ADR-0020).
     fn tmdb_adjacent_episode(&self, step: EpisodeStep, video: tmdb::TmdbVideo) -> Option<String> {
         let at = video.at?;
-        let key = self.tmdb_credential()?;
-        let details = self.tmdb_details(video.kind, video.id, &key).ok()?;
-        let videos = self.tmdb_videos(&details, video.id, &key)?;
+        let view = self.view();
+        let key = view.tmdb_credential()?;
+        let details = view.tmdb_details(video.kind, video.id, &key).ok()?;
+        let videos = view.tmdb_videos(&details, video.id, &key)?;
 
         let index = videos
             .iter()
@@ -1211,7 +1139,7 @@ impl Host {
     /// opening a Stream itself needs (a resume, ADR-0015). A TMDB-keyed Video
     /// reaches each Addon in the spelling it declares (ADR-0020).
     fn first_playable(&self, video: &VideoRef) -> Option<ChosenStream> {
-        for asked in self.asks_for(STREAM, video) {
+        for asked in self.view().asks_for(STREAM, video) {
             let Some(requested) = asked.requested else {
                 continue;
             };
@@ -1250,429 +1178,6 @@ impl Host {
                 id: id.as_str().to_owned(),
             })
     }
-    /// One catalog row: what is cached, or what the Addon answers, or why it
-    /// could not answer — with what was cached served instead when the Addon
-    /// said it may be.
-    fn catalog_row(&mut self, addon: &Addon, requested: &ResourceRequest) -> CatalogRow {
-        let url = requested.url(addon.manifest_url().as_str());
-        let name = addon
-            .manifest()
-            .catalog(&requested.r#type, &requested.id)
-            .map(|catalog| catalog.name.clone())
-            .unwrap_or_else(|| requested.id.clone());
-
-        let (sent, metas, failure) = match self.cache.fresh(&url) {
-            Some(page) => (page.sent, page.metas, None),
-            None => match self.fetch_page(&url) {
-                Ok(page) => (page.sent, page.metas, None),
-                Err(failure) => match self.cache.when_stale(&url) {
-                    Some(page) => (page.sent, page.metas, None),
-                    None => (0, Vec::new(), Some(failure)),
-                },
-            },
-        };
-
-        CatalogRow {
-            addon: addon.id().clone(),
-            r#type: requested.r#type.clone(),
-            id: requested.id.clone(),
-            name,
-            sent,
-            metas,
-            failure,
-        }
-    }
-
-    /// Fetch one page and keep it for as long as its Addon says it lasts.
-    fn fetch_page(&mut self, url: &str) -> Result<Page, ActionError> {
-        let body = self
-            .fetcher
-            .fetch(url)
-            .map_err(|error| ActionError::Fetch {
-                detail: error.to_string(),
-            })?;
-        let page = Page::parse(&body).map_err(|error| ActionError::Catalog {
-            detail: error.to_string(),
-        })?;
-
-        self.cache
-            .keep(url, page.sent, page.metas.clone(), page.hints);
-        Ok(page)
-    }
-
-    /// One page of TMDB's, whether a Discover feed or a Search: what TMDB
-    /// answered, or why it could not — the failure in the Host's vocabulary, as
-    /// a row rather than as a refused screen, so one failed call does not blank
-    /// the feed or the row (ADR-0010's amendment, ADR-0020).
-    ///
-    /// Nothing is kept: the page is read and dropped with the answer that
-    /// carried it, so the same page asked for twice reaches TMDB twice.
-    fn tmdb_row(
-        &self,
-        request: &tmdb::TmdbRequest,
-        kind: tmdb::Kind,
-        credential: &tmdb::Credential,
-    ) -> DiscoverRow {
-        let protocol = kind.as_protocol().to_owned();
-        let failed = |failure: ActionError| DiscoverRow {
-            r#type: protocol.clone(),
-            sent: 0,
-            metas: Vec::new(),
-            failure: Some(failure),
-        };
-
-        match self.fetch_tmdb(request, credential) {
-            Err(error) => failed(tmdb_failure(error)),
-            Ok(body) => match tmdb::read_page(&body, kind) {
-                Ok(page) => DiscoverRow {
-                    r#type: protocol,
-                    sent: page.sent,
-                    metas: page.metas,
-                    failure: None,
-                },
-                Err(error) => failed(ActionError::Tmdb {
-                    detail: error.to_string(),
-                }),
-            },
-        }
-    }
-
-    /// Open one Title: what its Addon answers about the item the client asked for.
-    ///
-    /// A meta answer is not kept in the page cache: a Title is one item the owner
-    /// opened on purpose, not a page a client pages through, and the Addon's
-    /// `cacheMaxAge` is a hint for the latter (ADR-0010). Nor does it come back as
-    /// a row with a failure in it — one Addon was asked for one Title, so an Addon
-    /// that cannot answer is an error the window explains, not a Title with
-    /// nothing in it that a person would have to guess about.
-    ///
-    /// `requested` is the request the Addon was already judged against, so the
-    /// thing asked for is the thing `Manifest::answers` said yes to.
-    fn fetch_title(
-        &self,
-        addon: &Addon,
-        asked: &TitleRef,
-        requested: &ResourceRequest,
-    ) -> Result<Title, ActionError> {
-        let url = requested.url(addon.manifest_url().as_str());
-        let body = self
-            .fetcher
-            .fetch(&url)
-            .map_err(|error| ActionError::Fetch {
-                detail: error.to_string(),
-            })?;
-
-        Title::parse(&body, addon.id().clone(), asked).map_err(|error| ActionError::Meta {
-            detail: error.to_string(),
-        })
-    }
-
-    /// Open a Discovered Title: the record TMDB keeps for it, read whole.
-    ///
-    /// The one question that needs a TMDB credential to answer at all: a
-    /// Discovered Title *is* its TMDB record, so a Host that holds no key has
-    /// nothing to open it from, and a TMDB that cannot answer is the answer
-    /// refused rather than degraded (ADR-0020).
-    fn open_discovered(&self, id: tmdb::TmdbId, kind: tmdb::Kind) -> Result<Title, ActionError> {
-        let key = self
-            .tmdb_credential()
-            .ok_or(ActionError::NoTmdbCredential)?;
-        let details = self.tmdb_details(kind, id, &key)?;
-        let videos = self.tmdb_videos(&details, id, &key);
-
-        // The record is the whole of it: no Addon answered, and every field
-        // TMDB did not give stays empty rather than being invented.
-        let mut title = Title {
-            addon: None,
-            id: tmdb::video_spelling(id, None),
-            key: TitleKey::Tmdb { id: id.0 },
-            r#type: kind.as_protocol().to_owned(),
-            name: tmdb::video_spelling(id, None),
-            poster: None,
-            background: None,
-            logo: None,
-            description: None,
-            release_info: None,
-            runtime: None,
-            imdb_rating: None,
-            genres: Vec::new(),
-            videos: Vec::new(),
-        };
-        details.with_videos(videos).onto(&mut title);
-
-        Ok(title)
-    }
-
-    /// One record's details, read — or why TMDB could not answer at all.
-    fn tmdb_details(
-        &self,
-        kind: tmdb::Kind,
-        id: tmdb::TmdbId,
-        key: &tmdb::Credential,
-    ) -> Result<tmdb::TmdbDetails, ActionError> {
-        let request = tmdb::TmdbRequest::Details { kind, id };
-        let body = self.fetch_tmdb(&request, key).map_err(tmdb_failure)?;
-
-        tmdb::read_details(&body, kind).map_err(|error| ActionError::Tmdb {
-            detail: error.to_string(),
-        })
-    }
-
-    /// TMDB's Videos for a record: a series' seasons and episodes, read one
-    /// season at a time, or `None` where there were none to read.
-    ///
-    /// `None` is not "a film": it is "TMDB's Videos were not read" — a record
-    /// that listed no seasons, or every season's answer failing — and it leaves
-    /// the Title's own Videos standing rather than replacing them with
-    /// emptiness. A season that could not be fetched or read is skipped rather
-    /// than blanking the series around it, the way one bad catalog item is.
-    ///
-    /// A film is the case where TMDB's Videos and the Title's are one and the
-    /// same Video, so there is nothing to replace: the film is played by the id
-    /// its Title carries, `tt0133093` through an Addon and `tmdb:603` through
-    /// Discover. The two unify in **Continue watching** when the client plays
-    /// the spelling TMDB keys — which a TMDB-first Title screen does by its
-    /// `key` — and not before; the Host will not renumber a Video the client
-    /// named, because the id is what its Streams were found by (ADR-0011).
-    fn tmdb_videos(
-        &self,
-        details: &tmdb::TmdbDetails,
-        id: tmdb::TmdbId,
-        key: &tmdb::Credential,
-    ) -> Option<Vec<Video>> {
-        if details.seasons.is_empty() {
-            return None;
-        }
-
-        let mut read_any = false;
-        let mut videos: Vec<Video> = Vec::new();
-        for season in &details.seasons {
-            if videos.len() >= MAX_ITEMS {
-                break;
-            }
-            let request = tmdb::TmdbRequest::Season {
-                id,
-                season: *season,
-            };
-            let Ok(body) = self.fetch_tmdb(&request, key) else {
-                continue;
-            };
-            if let Ok(episodes) = tmdb::read_season(&body, id, *season) {
-                read_any = true;
-                videos.extend(episodes);
-            }
-        }
-        videos.truncate(MAX_ITEMS);
-
-        read_any.then_some(videos)
-    }
-
-    /// Where TMDB's own record meets a Title it already names, deliver its
-    /// metadata onto the Addon's answer — and key the Title by that record.
-    ///
-    /// Every step is one that can go without: a Title whose id belongs to
-    /// nothing TMDB answers for, an owner who has entered no key, a credential
-    /// the store cannot read back, a TMDB that cannot answer, and an answer
-    /// that refuses to be read all leave the Title exactly the Addon's — open,
-    /// keyed by the Addon, unmapped by whatever the interface commits to. A
-    /// TMDB outage blanks nothing.
-    ///
-    /// Where TMDB *does* answer, its word is the Title's: the art, the
-    /// description, the runtime, the rating, the genres — and the **Videos**,
-    /// which are its seasons and episodes where they were read, so a series
-    /// played through an Addon card and through Discover is one series with one
-    /// set of Videos (ADR-0011's amendment, ADR-0020).
-    ///
-    /// The credential is read here, at the moment of the request it builds,
-    /// and kept no further: it reaches neither state nor Snapshot nor log.
-    /// What keying there is follows the identity and is not the credential's
-    /// business: a `tmdb:` id is keyed by its record whether the owner gave a
-    /// key or not, for the id is the record's own.
-    fn tmdb_refine(&self, title: &mut Title) {
-        let Some(external) = tmdb::ExternalId::parse(&title.r#type, &title.id) else {
-            return;
-        };
-        let id = match &external {
-            tmdb::ExternalId::Tmdb(id) => {
-                title.key = meta::TitleKey::Tmdb { id: id.0 };
-                *id
-            }
-            tmdb::ExternalId::Imdb(imdb) => {
-                let Some(key) = self.tmdb_credential() else {
-                    return;
-                };
-                let kind = match tmdb::Kind::parse(&title.r#type) {
-                    Some(kind) => kind,
-                    None => return,
-                };
-                let request = tmdb::TmdbRequest::Find {
-                    kind,
-                    imdb: imdb.clone(),
-                };
-                let Some(answer) = self.fetch_tmdb(&request, &key).ok() else {
-                    return;
-                };
-                match tmdb::read_find(&answer, kind) {
-                    Ok(Some(id)) => id,
-                    // An answer that says nothing mapped is an answer: the
-                    // Title stays the Addon's, visible and keyed by it.
-                    Ok(None) => return,
-                    Err(_) => return,
-                }
-            }
-        };
-
-        let Some(key) = self.tmdb_credential() else {
-            return;
-        };
-        let kind = match tmdb::Kind::parse(&title.r#type) {
-            Some(kind) => kind,
-            None => return,
-        };
-        let Some(record) = self
-            .fetch_tmdb(&tmdb::TmdbRequest::Details { kind, id }, &key)
-            .ok()
-        else {
-            return;
-        };
-        match tmdb::read_details(&record, kind) {
-            Ok(details) => {
-                let videos = self.tmdb_videos(&details, id, &key);
-                details.with_videos(videos).onto(title);
-                title.key = meta::TitleKey::Tmdb { id: id.0 };
-            }
-            // A details answer that was not one: the id stood — the find said
-            // so — and the metadata is the Addon's word.
-            Err(_) if matches!(external, tmdb::ExternalId::Imdb(_)) => {
-                title.key = meta::TitleKey::Tmdb { id: id.0 };
-            }
-            Err(_) => {}
-        }
-    }
-
-    /// The credential TMDB wants, looked up at the moment of use — or nothing,
-    /// which is the Host hearing no key is held.
-    fn tmdb_credential(&self) -> Option<tmdb::Credential> {
-        let key = self.secrets.read(CredentialKind::TmdbKey).ok().flatten()?;
-        Some(tmdb::Credential::parse(&key))
-    }
-
-    /// The Addons a Video's Streams — or subtitles — are asked of, each with
-    /// the request its own manifest declares.
-    ///
-    /// For a Video in the addon protocol's own namespace this is
-    /// `Manifest::answers`'s judgement, the one ADR-0010 wrote down: an Addon
-    /// that does not answer is not asked, and appears nowhere. For a Video TMDB
-    /// keys — `tmdb:603`, `tmdb:1396:1:2` — the request is built **per Addon**,
-    /// in the spelling that Addon declares: `tmdb:` stays as it is,
-    /// `tt`-declaring Addons are asked with the `/external_ids`-resolved IMDb
-    /// id, and an Addon that declares neither is considered and not asked, its
-    /// group empty (ADR-0020). The `/external_ids` ask happens once for the
-    /// Video however many Addons want that spelling.
-    ///
-    /// The request built is still judged with `Manifest::answers` before it is
-    /// returned: the request judged is the request asked.
-    fn asks_for(&self, resource: &str, video: &VideoRef) -> Vec<Asked> {
-        let plain = |video: &VideoRef| ResourceRequest::new(resource, &video.r#type, &video.id);
-
-        let Some(tmdb_video) = tmdb::video_id(&video.r#type, &video.id) else {
-            return self
-                .state
-                .addons()
-                .iter()
-                .filter(|addon| addon.manifest().answers(&plain(video)))
-                .map(|addon| Asked {
-                    addon: addon.clone(),
-                    requested: Some(plain(video)),
-                })
-                .collect();
-        };
-
-        let kind = tmdb_video.kind;
-        // Which spelling each Addon that offers the resource wants, settled
-        // before anything is resolved: an Addon with no `stream` resource is
-        // never worth an `/external_ids` ask.
-        let spelled: Vec<(&Addon, Option<Spelling>)> = self
-            .state
-            .addons()
-            .iter()
-            .filter(|addon| addon.manifest().declares(resource, &video.r#type))
-            .map(|addon| {
-                let spelling = addon
-                    .manifest()
-                    .declared_prefixes(resource)
-                    .and_then(spelling_of);
-                (addon, spelling)
-            })
-            .collect();
-
-        let wants_imdb = spelled
-            .iter()
-            .any(|(_, spelling)| *spelling == Some(Spelling::Imdb));
-        let imdb = wants_imdb
-            .then(|| self.tmdb_imdb(kind, tmdb_video.id))
-            .flatten();
-
-        spelled
-            .into_iter()
-            .map(|(addon, spelling)| {
-                let requested = match (spelling, imdb.as_deref()) {
-                    (Some(Spelling::Tmdb), _) => Some(plain(video)),
-                    (Some(Spelling::Imdb), Some(imdb)) => Some(ResourceRequest::new(
-                        resource,
-                        &video.r#type,
-                        episode_spelling(imdb, tmdb_video.at),
-                    )),
-                    // A spelling this Host could not build — the IMDb id TMDB
-                    // does not keep, or an Addon that declared neither — is an
-                    // Addon that is not asked.
-                    _ => None,
-                };
-
-                Asked {
-                    addon: addon.clone(),
-                    requested: requested.filter(|requested| addon.manifest().answers(requested)),
-                }
-            })
-            .collect()
-    }
-
-    /// The request one named Addon is asked one Video by, in the spelling its
-    /// own manifest declares — or `None` where it declares none, or does not
-    /// answer for the Video (ADR-0020).
-    fn ask_of(&self, addon: &Addon, resource: &str, video: &VideoRef) -> Option<ResourceRequest> {
-        self.asks_for(resource, video)
-            .into_iter()
-            .find(|asked| asked.addon.id() == addon.id())
-            .and_then(|asked| asked.requested)
-    }
-
-    /// The IMDb id TMDB keeps for a record, where a key is held and TMDB
-    /// answers: one hop of the per-Addon bridge (ADR-0020).
-    fn tmdb_imdb(&self, kind: tmdb::Kind, id: tmdb::TmdbId) -> Option<String> {
-        let key = self.tmdb_credential()?;
-        let request = tmdb::TmdbRequest::ExternalIds { kind, id };
-        let answer = self.fetch_tmdb(&request, &key).ok()?;
-
-        tmdb::read_external_ids(&answer).ok().flatten()
-    }
-
-    /// Fetch one TMDB answer, or why it could not be fetched. The URL a query
-    /// credential built carries the credential in it and is dropped when the
-    /// fetch is over: a caller reads the answer, or TMDB's failure, and never
-    /// the URL the credential rode in.
-    fn fetch_tmdb(
-        &self,
-        request: &tmdb::TmdbRequest,
-        credential: &tmdb::Credential,
-    ) -> Result<String, FetchError> {
-        let url = request.url(credential);
-        if let Some((name, value)) = credential.header() {
-            self.fetcher.fetch_with_headers(&url, &[(name, &value)])
-        } else {
-            self.fetcher.fetch(&url)
-        }
-    }
 }
 
 /// An Action with everything it needed already resolved.
@@ -1685,79 +1190,12 @@ enum Resolved {
         change: Change,
         answer: Answer,
     },
-    Answer(Answer),
-}
-
-/// One Addon, and the request one Video is asked of it by — or `None` where the
-/// Addon was considered and not asked, which for a TMDB-keyed Video is its own
-/// kind of answer: an empty group (ADR-0020).
-struct Asked {
-    addon: Addon,
-    requested: Option<ResourceRequest>,
-}
-
-/// How one Addon's manifest says a TMDB-keyed Video is spelled to it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Spelling {
-    /// `tmdb:<id>`, or `tmdb:<id>:<season>:<episode>`: the id the client
-    /// named, which needs no second ask.
-    Tmdb,
-    /// `tt…`, or `tt…:<season>:<episode>`: TMDB's `/external_ids` answer,
-    /// re-spelled.
-    Imdb,
-}
-
-/// The spelling an Addon's declared id prefixes ask for, where it declares one.
-///
-/// `tmdb:` is preferred where an Addon declares both spellings, because it is
-/// the id in hand and the `tt` one is a network hop. An Addon that declares
-/// neither family — including one that declares nothing at all, which the
-/// protocol reads as "every id" — is not asked: which of two namespaces to
-/// guess is not the Host's to guess, and the ADR says the group is empty
-/// (ADR-0020).
-fn spelling_of(prefixes: &[String]) -> Option<Spelling> {
-    if prefixes.iter().any(|prefix| prefix.starts_with("tmdb")) {
-        Some(Spelling::Tmdb)
-    } else if prefixes.iter().any(|prefix| prefix == "tt") {
-        Some(Spelling::Imdb)
-    } else {
-        None
-    }
-}
-
-/// The id an Addon keyed by `tt` is asked an episode by: TMDB's IMDb id with
-/// the season and episode the playing Video carried.
-fn episode_spelling(imdb: &str, at: Option<(u32, u32)>) -> String {
-    match at {
-        Some((season, episode)) => format!("{imdb}:{season}:{episode}"),
-        None => imdb.to_owned(),
-    }
 }
 
 /// A candidate for the next episode, judged: the Stream to play, or nothing
 /// when this Host cannot open it — an `infoHash`, or a URL it will not open.
 fn playable(video: &VideoRef, addon: &AddonId, stream: &Stream) -> Option<ChosenStream> {
     ChosenStream::parse(video.clone(), addon.clone(), stream).ok()
-}
-
-/// Why a TMDB call failed, in TMDB's name.
-///
-/// The shared [`Fetcher`] speaks of the Addon it was built for, and a Discover
-/// row that said "the Addon answered with status 429" would name the wrong
-/// party: what a client reads is that TMDB did not answer, and with what
-/// (ADR-0020).
-fn tmdb_failure(error: FetchError) -> ActionError {
-    ActionError::Tmdb {
-        detail: match error {
-            FetchError::Status { status } => format!("TMDB answered with status {status}"),
-            FetchError::Unreachable { detail } => {
-                format!("TMDB could not be reached: {detail}")
-            }
-            FetchError::Body { detail } => {
-                format!("TMDB answered with something that is not text: {detail}")
-            }
-        },
-    }
 }
 
 /// The Title id an episode's Video id carries, or why this Host will not take
@@ -1824,65 +1262,5 @@ impl EpisodeStep {
             Self::Next => ActionError::NoNextEpisode { detail },
             Self::Previous => ActionError::NoPreviousEpisode { detail },
         }
-    }
-}
-
-/// The values a catalog requires, filled in from what it offers when the client
-/// did not choose them.
-fn with_required_values(
-    manifest: &Manifest,
-    catalog: &CatalogRef,
-    chosen: Vec<Extra>,
-) -> Vec<Extra> {
-    match manifest.catalog(&catalog.r#type, &catalog.id) {
-        Some(declared) => declared.with_defaults(chosen),
-        None => chosen,
-    }
-}
-
-/// Why an Addon will not answer this request, in the Host's own words.
-///
-/// Only reached when the request is one the Addon does not answer: a catalog it
-/// never declared, a value it never declared, or one it requires and offers no
-/// value to default to.
-fn why_not(
-    manifest: &Manifest,
-    reference: &CatalogRef,
-    requested: &ResourceRequest,
-) -> ActionError {
-    let Some(catalog) = manifest.catalog(&reference.r#type, &reference.id) else {
-        return ActionError::UnknownCatalog {
-            addon: manifest.id.clone(),
-            catalog: reference.clone(),
-        };
-    };
-    let named = reference;
-
-    if let Some(unknown) = requested
-        .extra
-        .iter()
-        .find(|chosen| !catalog.extra.iter().any(|prop| prop.name == chosen.name))
-    {
-        return ActionError::Extra {
-            detail: format!("the catalog {named} does not take {:?}", unknown.name),
-        };
-    }
-    if let Some(missing) = catalog.extra.iter().find(|prop| {
-        prop.is_required
-            && !requested
-                .extra
-                .iter()
-                .any(|chosen| chosen.name == prop.name)
-    }) {
-        return ActionError::Extra {
-            detail: format!(
-                "the catalog {named} needs {:?}, and its Addon offers no value to default to",
-                missing.name
-            ),
-        };
-    }
-
-    ActionError::Extra {
-        detail: format!("the catalog {named} cannot be asked for with those values"),
     }
 }

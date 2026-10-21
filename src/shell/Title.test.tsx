@@ -13,6 +13,7 @@ import type {
   Video,
 } from "../host-client";
 import { ShellContext, type NewShellLevel, type ShellContextValue } from "./context";
+import { HomeStore } from "./homeStore";
 import { ShellFrame } from "./ShellFrame";
 import type { ShellLevel } from "./navigation";
 import { useTitleOpener } from "./TitleScreen";
@@ -247,6 +248,7 @@ function Harness({
     ask,
     take,
     markUnplayable: () => {},
+    home: new HomeStore(ask),
   };
 
   return (
