@@ -29,10 +29,19 @@ export type LevelLayout = {
 /**
  * The kind a region declares. A region with no `data-kind` is a row — it holds
  * a line of controls and stops at its own end — and an unknown spelling is
- * treated the same rather than inventing a wall.
+ * treated the same rather than inventing a wall. `window` and `dialog` are the
+ * two scoped kinds the crossing rules single out.
  */
 export function regionKind(declared: string | null): RegionKind {
-  return declared === "rail" || declared === "branch" ? declared : "row";
+  switch (declared) {
+    case "rail":
+    case "branch":
+    case "window":
+    case "dialog":
+      return declared;
+    default:
+      return "row";
+  }
 }
 
 /** The nearest `data-region` ancestor of a node, stopping at the level's root. */

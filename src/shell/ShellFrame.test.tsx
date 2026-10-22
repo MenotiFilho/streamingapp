@@ -307,7 +307,7 @@ describe("the shell frame", () => {
       "data-region",
       "window",
     );
-    expect(chrome).toHaveAttribute("data-kind", "row");
+    expect(chrome).toHaveAttribute("data-kind", "window");
     const button = within(chrome).getByRole("button", { name: "Full screen" });
     expect(button).toHaveAttribute("aria-pressed", "false");
     expect(button).toHaveAttribute("data-focusable");
@@ -355,7 +355,7 @@ describe("the shell frame", () => {
       dialog,
       "the panel is its own focus region, a sibling of the strip",
     ).toHaveAttribute("data-region", expect.stringMatching(/^dialog:/));
-    expect(dialog).toHaveAttribute("data-kind", "branch");
+    expect(dialog).toHaveAttribute("data-kind", "dialog");
     expect(dialog).toHaveAttribute("data-label", "Remove Example?");
 
     const cancel = within(dialog).getByRole("button", { name: "Cancel" });

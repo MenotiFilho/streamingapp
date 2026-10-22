@@ -139,14 +139,14 @@ function chromeOverDialog(): Layout {
       children: ["dialog", "window"],
     }),
     region("dialog", {
-      kind: "branch",
+      kind: "dialog",
       label: "Remove Example?",
       parent: "level",
       rect: rect(344, 260, 512, 240),
       items: [rect(420, 400, 120, 44), rect(560, 400, 120, 44)],
     }),
     region("window", {
-      kind: "row",
+      kind: "window",
       label: "Window",
       parent: "level",
       rect: rect(0, 0, 1200, 56),
@@ -248,10 +248,59 @@ describe("crossing between regions", () => {
     expect(decision.kind).toBe("blocked");
   });
 
+  test("a normal row with nothing under the origin keeps the nearest landing, not the head", () => {
+    // The dialog's safe-head landing is scoped to dialogs (#125). A row with no
+    // item under the control keeps the locked geometry: Down from a card at the
+    // right edge lands on the nearest card, not on the row's first.
+    const rows = [
+      { id: "row:top", y: 0, items: [rect(900, 0, 100, 100)] },
+      { id: "row:bottom", y: 120, items: cards(120, 3) },
+    ];
+    const decision = decideMove(
+      shell(rows),
+      { regionId: "row:top", index: 0 },
+      "down",
+      DEFAULT_RULES,
+    );
+
+    expect(decision).toMatchObject({
+      kind: "crossed",
+      regionId: "row:bottom",
+      index: 2,
+      landedBy: "the nearest card — nothing lined up",
+    });
+  });
+
+  test("a wide branch does not widen the anti-leak guard with its own box", () => {
+    // The Streams branch's box is wide enough to hold the target row, but the
+    // move starts on its narrow Back control at the top left. Only the window
+    // kind may speak for its full width; a branch's box must not turn an
+    // off-axis sibling into a landing (#51).
+    const held = branchWithBack([]);
+    held.regions["below"] = region("below", {
+      kind: "row",
+      label: "the row below",
+      parent: "level",
+      rect: rect(400, 400, 700, 120),
+      items: [rect(400, 410, 700, 90)],
+    });
+    held.regions["level"]?.children.push("below");
+
+    const decision = decideMove(
+      held,
+      { regionId: "streams", index: 0 },
+      "down",
+      DEFAULT_RULES,
+    );
+
+    expect(decision.kind).toBe("blocked");
+  });
+
   test("crosses from the full-width strip into the dialog under it, at its head", () => {
     // The strip's button is at the right, the dialog is centred: the button is
-    // over neither answer, so the nearest would be the confirming one. The band
-    // is what moves, and its head is the safe answer (#125).
+    // over neither answer, so the nearest would be the confirming one. Only the
+    // window kind gets the full-width band, and only the dialog kind turns
+    // "nothing under you" into its head, the safe answer (#125).
     const decision = decideMove(
       chromeOverDialog(),
       { regionId: "window", index: 0 },

@@ -36,7 +36,9 @@ export type ConfirmDialogProps = {
  *
  * The panel is its own focus region, labelled by the question: its answers are
  * items of it rather than of the level root, which is what lets the D-pad come
- * back down from the strip onto the safe answer.
+ * back down from the strip onto the safe answer. `data-kind="dialog"` is what
+ * gives that descent its safe landing: with the strip's button over neither
+ * answer, the dialog takes its head (Cancel) rather than the nearest one.
  */
 export function ConfirmDialog({
   title,
@@ -64,7 +66,7 @@ export function ConfirmDialog({
         aria-modal="true"
         aria-labelledby={titleId}
         data-region={region}
-        data-kind="branch"
+        data-kind="dialog"
         data-label={title}
         data-testid={testId}
       >

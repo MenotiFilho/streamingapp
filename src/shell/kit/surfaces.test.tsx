@@ -26,7 +26,7 @@ describe("the confirmation surface", () => {
       dialog,
       "the panel is its own focus region, labelled by the question it asks",
     ).toHaveAttribute("data-region", expect.stringMatching(/^dialog:/));
-    expect(dialog).toHaveAttribute("data-kind", "branch");
+    expect(dialog).toHaveAttribute("data-kind", "dialog");
     expect(dialog).toHaveAttribute("data-label", "Remove Addon");
     expect(within(dialog).getByText(/Cinemeta will no longer/)).toBeInTheDocument();
 

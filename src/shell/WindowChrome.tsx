@@ -15,7 +15,9 @@ import { useFullscreen } from "./useFullscreen";
  * alone: it is what Up from a screen's top row lands on, and it must not take a
  * click meant for the content underneath. `pointer-events: none` on the strip
  * and `auto` on the button is the CSS half of that promise; the button is still
- * a normal focus target.
+ * a normal focus target. `data-kind="window"` is the model half: the strip's
+ * full width is allowed to carry the cross-axis guard, so Down from its button
+ * at the right still reaches a dialog centred below. No other kind gets that.
  *
  * A page with no Tauri window — a plain browser, a test — draws no strip at
  * all: there is no window state to change, and the control would be a button
@@ -32,7 +34,7 @@ export function WindowChrome() {
       className="shell-window-chrome"
       data-testid="window-chrome"
       data-region="window"
-      data-kind="row"
+      data-kind="window"
       data-label="Window"
     >
       <FullscreenButton

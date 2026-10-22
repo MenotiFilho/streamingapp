@@ -16,11 +16,14 @@
  * - between regions, focus crosses only to a sibling strictly in the direction
  *   from the control and overlapping the band the control sits in on the cross
  *   axis (`gap <= ALIGNED`), so a short row cannot leak diagonally into a wider
- *   one below, while a full-width strip still reaches the dialog centred under
- *   its one button at the right;
+ *   one below; the window's strip is the one kind allowed to speak for its full
+ *   width, which is what reaches the dialog centred under its one button at the
+ *   right, and no other region's box widens that guard;
  * - entering a region lands on the item under the origin's middle, the
- *   region's head when what came from is wider than the whole target or is over
- *   none of it, and otherwise the nearest;
+ *   region's head when what came from is wider than the whole target, and
+ *   otherwise the nearest — except a dialog with nothing under the origin,
+ *   which lands on its head (the safe answer) rather than whichever answer is
+ *   nearest;
  * - every edge stops: no wrap at a row's or the rail's end, and Up off the top
  *   of the content goes nowhere;
  * - a control that disappears steps focus back to the control before the gap,
@@ -43,11 +46,18 @@ export type Rect = { x: number; y: number; w: number; h: number };
 /** Which of the four directions a person asked for. */
 export type Direction = "up" | "down" | "left" | "right";
 
-/** Which kind of region this is; only a rail and a row have walls of their own. */
-export type RegionKind = "rail" | "row" | "branch";
+/**
+ * Which kind of region this is. Only a rail and a row have walls of their own;
+ * a window is the strip that carries the window's control, and a dialog is the
+ * panel that asks a question. Those two kinds carry the scoped crossing rules:
+ * only the strip's full-width box speaks for the cross-axis guard, and only a
+ * dialog gets the safe-head landing when nothing in it lies under the origin.
+ */
+export type RegionKind = "rail" | "row" | "branch" | "window" | "dialog";
 
 /**
- * One region of a level: the rail, a row, or a branch that holds others.
+ * One region of a level: the rail, a row, a branch that holds others, the
+ * window's strip, or a dialog panel.
  *
  * A branch may hold focusable controls of its own as well as children — the
  * Streams level's Back sits above its Addon groups, and a Title's Back above
@@ -239,12 +249,18 @@ function overlappingInDirection(
 }
 
 /**
- * The line the focused control sits in: its region's box, when that box really
- * holds the control. A region's box contains its controls on a rendered page;
- * a region with no box (an unmeasured page) or one drawn tighter than a control
- * leaves that control as its own line instead of claiming a band it never drew.
+ * The line a control in the window's strip sits in: that strip's own full-width
+ * box, when the box really holds the control. Only the window kind may widen
+ * the cross-axis guard this way — its one button at the right must still reach
+ * a dialog centred below (#125). A row or branch never gets this, so a wide
+ * box cannot leak into a sibling that is off to the side of the control, which
+ * is the anti-leak guard #51 locked. A strip with no box (an unmeasured page)
+ * leaves the control as its own line.
  */
-function bandOf(region: Region, from: Rect): Rect {
+function windowBand(region: Region, from: Rect): Rect {
+  if (region.kind !== "window") {
+    return from;
+  }
   const box = region.rect;
   const holds =
     box.w > 0 &&
@@ -260,10 +276,11 @@ function bandOf(region: Region, from: Rect): Rect {
  * A sibling region we may cross into this way, under the overlap guard.
  *
  * The direction is the control's: the move starts where its focus is. The
- * alignment is the band's: the row or strip it sits in is the line a person is
- * on, and a full-width strip reaches the dialog centred under it even though
- * the strip's one button at the right does not (#125). A region off to the side
- * still overlaps nothing, so the wall this guard exists for stays.
+ * alignment is the band's: for the window's strip that is the strip itself, the
+ * line a person is on, and a full-width strip reaches the dialog centred under
+ * it even though the strip's one button at the right does not (#125). Every
+ * other kind is guarded by the control alone, so a wide row or branch cannot
+ * widen the wall this guard exists for.
  */
 function siblingInDirection(
   regions: Record<string, Region>,
@@ -400,11 +417,15 @@ function enter(
   if (under >= 0) {
     return { index: under, how: "aligned" };
   }
-  // Nothing in the region lies under the control at all — the chrome's one
-  // button above a centred dialog is not above either answer. The head is the
-  // honest landing; the nearest would be whichever answer happens to be on that
-  // side, and on a dialog that is often the dangerous one.
-  if (!region.itemRects.some((item) => gap(from, item, direction) <= ALIGNED)) {
+  // A dialog is the one region with a safe landing when nothing in it lies
+  // under the control at all: the chrome's one button above a centred panel is
+  // not above either answer, and the nearest would be whichever answer happens
+  // to be on that side — on a destructive question, often the dangerous one.
+  // Every other region keeps its locked nearest/covering behaviour (#128).
+  if (
+    region.kind === "dialog" &&
+    !region.itemRects.some((item) => gap(from, item, direction) <= ALIGNED)
+  ) {
     return { index: 0, how: "outside" };
   }
   const lined = nearest(from, region.itemRects, direction);
@@ -507,8 +528,8 @@ export function decideMove(
   }
 
   // 3. Out to a sibling, if one hosts us across the way. The direction comes
-  //    from the control; the band it sits in says where the line is.
-  const band = bandOf(region, from);
+  //    from the control; only the window's strip speaks for its full width.
+  const band = windowBand(region, from);
   let node = region;
   while (node.parent) {
     const sibling = siblingInDirection(layout.regions, node, from, direction, band);
