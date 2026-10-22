@@ -15,8 +15,9 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/setup-tests.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
-    // The token sheet is part of #77's contract, so its test reads the CSS as
-    // text. Vitest replaces CSS with an empty string unless it is included.
-    css: { include: [/src\/tokens\.css/, /src\/shell\/kit\/kit\.css/] },
+    // The token sheet is part of #77's contract, and the shell's window
+    // control (#125) states its pointer rule in CSS, so both are read as text.
+    // Vitest replaces CSS with an empty string unless it is included.
+    css: { include: [/src\/tokens\.css/, /src\/shell\/kit\/kit\.css/, /src\/shell\/shell\.css/] },
   },
 });

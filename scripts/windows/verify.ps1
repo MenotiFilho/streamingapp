@@ -102,6 +102,7 @@ $Steps = @(
     [pscustomobject]@{ Id = 30; Title = 'Discover: the no-key state, and the keyed feed'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it enters and clears a test TMDB key)' }
     [pscustomobject]@{ Id = 31; Title = 'the previous episode: a wall at S1E1, and a step back from S1E2'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it plays an episode)' }
     [pscustomobject]@{ Id = 32; Title = 'TMDB attribution on Discover and in About/Credits'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home' }
+    [pscustomobject]@{ Id = 33; Title = 'fullscreen: F11, the OSD''s copy, and the chrome that outlives Stop'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it plays an episode, and walks the window''s control on Home, a Title and the player)' }
 )
 
 # The discovery path and the cheap syntax check: print the checklist and what
@@ -2664,6 +2665,103 @@ function Step-32($ctx) {
         $text -match [regex]::Escape($notice)) "showed: $text"
     Check 'and names the version and the licence the app is under' (
         ($text -match '\d+\.\d+\.\d+') -and ($text -match 'GPL-3\.0')) "showed: $text"
+}
+
+function Step-33($ctx) {
+    '--- 33. fullscreen: F11, the OSD''s copy, and the chrome that outlives Stop'
+    $app = $ctx.App
+
+    # No player is open, so the OSD has no button here: the window's own control
+    # is the one the browsing surface offers, and it says what pressing it does.
+    Check 'the browsing window carries the fullscreen control' (
+        (Button-Named $app 'Full screen' 10) -ne $null) "showed: $(Page-Text $app)"
+    Shot $app '33-chrome-home.png'
+
+    # F11 belongs to the window: it works from Home, before any Stream exists,
+    # and the control relabels itself from the window's own state rather than
+    # from the key that was pressed.
+    Press-Keys $app '{F11}'
+    Check 'F11 enters fullscreen from Home, and the control says Exit full screen' (
+        Wait-Shows $app 'Exit full screen' 10) "showed: $(Page-Text $app)"
+    Shot $app '33-f11-home-fullscreen.png'
+    Press-Keys $app '{F11}'
+    $text = Wait-No-Text $app 'Exit full screen' 10
+    Check 'F11 again leaves it, and the control says Full screen' (
+        $text -notmatch 'Exit full screen') "showed: $text"
+
+    # A pushed level gets the same control, because the base underneath is inert
+    # and the player is not there to draw its OSD.
+    Open-First-Title $app
+    $text = Wait-Text $app 'This Title is one Video|Season \d+' 25
+    if ($text -match 'This Title is one Video|Season \d+') {
+        Press-Keys $app '{F11}'
+        Check 'F11 enters fullscreen from a pushed Title, and its chrome says so' (
+            Wait-Shows $app 'Exit full screen' 10) "showed: $(Page-Text $app)"
+        Shot $app '33-f11-title-fullscreen.png'
+        Press-Keys $app '{F11}'
+        $text = Wait-No-Text $app 'Exit full screen' 10
+        Check 'F11 again leaves it from the Title' (
+            $text -notmatch 'Exit full screen') "showed: $text"
+        Press-Keys $app '{ESC}'
+        Wait-Text $app 'Featured Title:' 20 | Out-Null
+    } else {
+        Skip 'fullscreen from a pushed Title' 'the Addon drew no Title to open'
+    }
+
+    # The player is the one level that hides the chrome: its OSD carries the
+    # same button, and the shared fact means F11 and the OSD agree.
+    if (-not (Open-Series $app)) {
+        Skip 'fullscreen in the player' (
+            'this Addon drew no series row: run with -AddonName Verify (or -Addon <a Series Addon>) to walk it')
+        return
+    }
+    if (-not (Open-Streams $app 'S1E1')) {
+        Skip 'fullscreen in the player' 'the series Title offers no first episode'
+        return
+    }
+    $kind = Choose-Candidate $app
+    if ($kind -ne 'playable') {
+        Skip 'fullscreen in the player' 'the Addon answered no playable candidate for the episode'
+        return
+    }
+    if (-not (Wait-Shows $app 'Pause' 45)) {
+        Skip 'fullscreen in the player' 'the Stream never started playing'
+        return
+    }
+    Wake-Osd $app
+    Check 'the player has its own fullscreen button, and no second one beside it' (
+        (Button-Named $app 'Full screen' 8) -ne $null) "showed: $(Page-Text $app)"
+    Press-Button $app 'Full screen'
+    Check 'the OSD enters fullscreen' (
+        Wait-Shows $app 'Exit full screen' 10) "showed: $(Page-Text $app)"
+    Shot $app '33-osd-fullscreen.png'
+
+    # The OSD's button is not the only way in or out: F11 is the window's, and
+    # one press is one change while the OSD is up.
+    Press-Keys $app '{F11}'
+    $text = Wait-No-Text $app 'Exit full screen' 10
+    Check 'F11 leaves fullscreen with the OSD up' (
+        $text -notmatch 'Exit full screen') "showed: $text"
+    Press-Keys $app '{F11}'
+    Check 'F11 enters it again with the OSD up' (
+        Wait-Shows $app 'Exit full screen' 10) "showed: $(Page-Text $app)"
+
+    # Stop takes the player away but not the window's fullscreen fact; the
+    # Streams level underneath must still offer the way out (#125).
+    Press-Button $app 'Stop'
+    $text = Wait-Text $app 'Streams ' 20
+    Shot $app '33-stopped-fullscreen.png'
+    Check 'Stop leaves the window fullscreen' (
+        $text -match 'Streams ') "showed: $text"
+    Check 'and the browsing chrome still says Exit full screen' (
+        (Button-Named $app 'Exit full screen' 10) -ne $null) "showed: $text"
+    Press-Element $app (Button-Named $app 'Exit full screen')
+    $text = Wait-No-Text $app 'Exit full screen' 10
+    Check 'the chrome exits fullscreen, and its label flips back' (
+        $text -notmatch 'Exit full screen') "showed: $text"
+    Shot $app '33-chrome-after-stop.png'
+    Press-Keys $app '{ESC}'
+    Wait-Text $app 'Featured Title:' 20 | Out-Null
 }
 
 # --- the dispatcher -----------------------------------------------------------

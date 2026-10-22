@@ -42,7 +42,9 @@ import {
   osdPopoverLevel,
   type OsdPopoverName,
 } from "./PlayerPopovers";
+import { useFullscreen } from "./useFullscreen";
 import { useOsdVisibility } from "./useOsdVisibility";
+import { FullscreenIcon } from "./WindowChrome";
 import "./osd.css";
 
 /** One press of the pad's volume faces, on the Host's 0–130 scale. */
@@ -863,34 +865,23 @@ function IconButton({
 }
 
 /**
- * Put the Host's window into fullscreen, or take it out again.
+ * Put the Host's window into fullscreen, or take it out again, from the OSD.
  *
- * The OSD is the player, and a player that cannot use the whole screen is one
- * the owner has to leave the couch to fix. The call is Tauri's own window API;
- * a browser or a test has no window to hold, and the button simply does
- * nothing there.
+ * The shell's chrome carries the same shared fact, so the label here follows
+ * an F11 press or a window resize too — not only this button's own click. The
+ * call is Tauri's own window API; a browser or a test has no window to hold,
+ * and the button simply does nothing there.
  */
 function FullscreenButton({ ref }: { ref?: Ref<HTMLButtonElement> }) {
-  const [fullscreen, setFullscreen] = useState(false);
-
-  const toggle = async () => {
-    try {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      const hostWindow = getCurrentWindow();
-      const next = !(await hostWindow.isFullscreen());
-      await hostWindow.setFullscreen(next);
-      setFullscreen(next);
-    } catch {
-      // Not a Tauri window: there is nothing here to make fullscreen.
-    }
-  };
+  const { fullscreen, toggle } = useFullscreen();
+  const label = fullscreen ? "Exit full screen" : "Full screen";
 
   return (
     <IconButton
       ref={ref}
       testId="fullscreen"
-      label={fullscreen ? "Exit full screen" : "Full screen"}
-      title={fullscreen ? "Exit full screen" : "Full screen"}
+      label={label}
+      title={label}
       pressed={fullscreen}
       onClick={() => void toggle()}
     >
@@ -903,18 +894,6 @@ function CloseIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
       <path d="M18 6 6 18M6 6l12 12" />
-    </svg>
-  );
-}
-
-function FullscreenIcon({ exit }: { exit: boolean }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
-      {exit ? (
-        <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
-      ) : (
-        <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
-      )}
     </svg>
   );
 }

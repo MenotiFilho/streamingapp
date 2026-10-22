@@ -126,6 +126,57 @@ body.picture-behind .shell-base {
 }
 
 /* --------------------------------------------------------------------------
+ * The window's own fullscreen control
+ * -------------------------------------------------------------------------- */
+
+/*
+ * A transparent strip across the top of whichever surface is on top (#125).
+ * It is a focus region — Up from the content's top row lands on it — and it
+ * must not take a click meant for the content underneath: the strip holds no
+ * pointer, and only the button at its right end does. Its box is measured for
+ * the D-pad, so it must not be collapsed to the button: the full width is what
+ * lets Up land here from anywhere along the top row.
+ */
+.shell-window-chrome {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  /* Above a dialog's scrim (40) — the window's way out is drawn on dialogs too
+     — and above the rail on the base. A pushed level is its own stacking
+     context (40), so the frame keeps only one of these mounted at a time. */
+  z-index: 45;
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 0.5rem clamp(1rem, 3vw, 2.5rem);
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.shell-window-chrome-button {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 50%;
+  background: var(--bg-glass);
+  color: var(--ink-secondary);
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: var(--shadow-panel);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.shell-window-chrome-button svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* --------------------------------------------------------------------------
  * The base screen
  * -------------------------------------------------------------------------- */
 

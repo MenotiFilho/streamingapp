@@ -13,6 +13,40 @@ import {
 import { Shell } from "./Shell";
 import { OSD_IDLE_MS } from "./useOsdVisibility";
 
+/**
+ * The Tauri window the player tests hold. There is one fact, the calls that
+ * changed it, and the resize handlers the shell subscribed; the module mocks
+ * `@tauri-apps/api/window` with it so fullscreen can be walked in jsdom.
+ */
+const hostWindow = vi.hoisted(() => {
+  const state = {
+    fullscreen: false,
+    calls: [] as boolean[],
+    resized: new Set<() => void>(),
+  };
+
+  return {
+    state,
+    window: {
+      isFullscreen: async () => state.fullscreen,
+      setFullscreen: async (next: boolean) => {
+        state.fullscreen = next;
+        state.calls.push(next);
+      },
+      onResized: async (handler: () => void) => {
+        state.resized.add(handler);
+        return () => {
+          state.resized.delete(handler);
+        };
+      },
+    },
+  };
+});
+
+vi.mock("@tauri-apps/api/window", () => ({
+  getCurrentWindow: () => hostWindow.window,
+}));
+
 const NOTHING_SAID: Snapshot = {
   revision: 0,
   playback: {
@@ -298,6 +332,9 @@ afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   Reflect.deleteProperty(navigator, "getGamepads");
+  hostWindow.state.fullscreen = false;
+  hostWindow.state.calls.length = 0;
+  hostWindow.state.resized.clear();
 });
 
 describe("the player OSD", () => {
@@ -707,13 +744,101 @@ describe("the player OSD", () => {
     ).toHaveLength(1);
   });
 
-  test("the OSD offers fullscreen beside Stop", async () => {
+  test("the OSD offers fullscreen beside Stop, and its label follows the window", async () => {
     await renderPlayer();
 
     const fullscreen = screen.getByTestId("fullscreen");
     expect(fullscreen).toHaveAccessibleName("Full screen");
+    expect(fullscreen).toHaveAttribute("aria-pressed", "false");
+
     fireEvent.click(fullscreen);
-    expect(screen.getByTestId("fullscreen")).toBeInTheDocument();
+
+    await waitFor(() =>
+      expect(screen.getByTestId("fullscreen")).toHaveAccessibleName("Exit full screen"),
+    );
+    expect(screen.getByTestId("fullscreen")).toHaveAttribute("aria-pressed", "true");
+    expect(hostWindow.state.calls).toEqual([true]);
+  });
+
+  test("F11 is the window's from the player, and a held key is one press", async () => {
+    await renderPlayer();
+    await waitFor(() => expect(hostWindow.state.resized.size).toBe(1));
+    expect(screen.getByTestId("fullscreen")).toHaveAccessibleName("Full screen");
+
+    let taken = false;
+    await act(async () => {
+      const event = new KeyboardEvent("keydown", {
+        key: "F11",
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(event);
+      taken = event.defaultPrevented;
+    });
+    expect(taken, "the native window's F11 is taken").toBe(true);
+    await waitFor(() =>
+      expect(screen.getByTestId("fullscreen"), "the OSD hears the same fact").toHaveAccessibleName(
+        "Exit full screen",
+      ),
+    );
+    expect(hostWindow.state.calls).toEqual([true]);
+
+    let heldTaken = false;
+    await act(async () => {
+      const event = new KeyboardEvent("keydown", {
+        key: "F11",
+        repeat: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(event);
+      heldTaken = event.defaultPrevented;
+    });
+    expect(heldTaken, "a held key is not a second press").toBe(false);
+    expect(hostWindow.state.calls).toEqual([true]);
+
+    await act(async () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "F11", bubbles: true, cancelable: true }),
+      );
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("fullscreen")).toHaveAccessibleName("Full screen"),
+    );
+    expect(hostWindow.state.calls).toEqual([true, false]);
+  });
+
+  test("Stop leaves the window fullscreen, and the browsing chrome says so", async () => {
+    const host = await renderPlayer();
+    await waitFor(() => expect(hostWindow.state.resized.size).toBe(1));
+
+    fireEvent.click(screen.getByTestId("fullscreen"));
+    await waitFor(() =>
+      expect(screen.getByTestId("fullscreen")).toHaveAccessibleName("Exit full screen"),
+    );
+
+    fireEvent.click(screen.getByTestId("stop"));
+    await waitFor(() =>
+      expect(actions(host.invocations)).toContainEqual({ type: "stop_playback" }),
+    );
+
+    // The Host answers a stop with an idle Snapshot; the shell then takes the
+    // player level away and the browsing surface gets its own control back.
+    await act(async () => {
+      host.publish({ ...NOTHING_SAID, revision: 10 });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(screen.queryByTestId("shell-player")).not.toBeInTheDocument());
+
+    const chrome = await screen.findByTestId("window-fullscreen");
+    expect(chrome).toHaveAccessibleName("Exit full screen");
+    expect(chrome).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(chrome);
+    await waitFor(() =>
+      expect(screen.getByTestId("window-fullscreen")).toHaveAccessibleName("Full screen"),
+    );
+    expect(hostWindow.state.calls).toEqual([true, false]);
   });
 
   test("an ended Stream offers no menu and the after-end episode step", async () => {

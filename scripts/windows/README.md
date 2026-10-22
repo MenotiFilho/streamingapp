@@ -17,9 +17,11 @@ covers the whole surface: the six-destination rail (**Home · Discover · Search
 Library · Addons · Settings**) with its D-pad geometry; Home's Featured hero, its
 rotation and its text fallback, Continue watching and one row per Catalog; the
 Title and the Streams level above it; the player OSD, with one popover per icon,
-auto-hide, the episode steps and the volume pillar; Settings' Preferences,
-Credentials, Remote devices and About/Credits sub-screens; the key-gated Discover
-and Search; the Library sign-in gate; and the TMDB attribution.
+auto-hide, the episode steps and the volume pillar; the window's fullscreen
+control on every browsing surface, F11, and the OSD's own copy of the button;
+Settings' Preferences, Credentials, Remote devices and About/Credits
+sub-screens; the key-gated Discover and Search; the Library sign-in gate; and the
+TMDB attribution.
 
 The Addon it configures is a parameter, so the walkthrough can be run against the
 Addon the owner actually uses — including one whose manifest URL carries a debrid
@@ -91,7 +93,7 @@ the three seconds out.
 
 ## Walking part of the checklist
 
-The whole checklist is 32 steps and takes minutes. To iterate on one step, run
+The whole checklist is 33 steps and takes minutes. To iterate on one step, run
 just that one: the runner builds the ground the step declares first — an empty
 data directory, one Host on `-Monitor`, the fixture Addon configured by manifest
 URL, its first Catalog featured, at Home — and reuses it when several selected
