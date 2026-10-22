@@ -9,11 +9,13 @@ import {
   cropChoices,
   cropSelected,
   formatDelay,
+  formatScale,
   formatSpeed,
   orderedTracks,
   speedSelected,
   statisticsLines,
   stepDelay,
+  stepScale,
   subtitlesOn,
   trackLabel,
   trackMarks,
@@ -37,6 +39,9 @@ type MenuProps = {
   playback: PlaybackSnapshot;
   take: (action: Action) => Promise<unknown>;
 };
+
+/** The Subtitles menu alone needs the size the Host draws subtitles at. */
+type SubtitlesMenuProps = MenuProps & { subtitleScale: number };
 
 const LABELS: Record<OsdPopoverName, string> = {
   picture: "Picture",
@@ -65,9 +70,8 @@ const SIDES: Record<OsdPopoverName, "start" | "end"> = {
   chapters: "end",
 };
 
-const MENUS: Record<OsdPopoverName, (props: MenuProps) => ReactNode> = {
+const MENUS: Record<Exclude<OsdPopoverName, "subtitles">, (props: MenuProps) => ReactNode> = {
   picture: (props) => <PictureMenu {...props} />,
-  subtitles: (props) => <SubtitlesMenu {...props} />,
   audio: (props) => <AudioMenu {...props} />,
   speed: (props) => <SpeedMenu {...props} />,
   chapters: (props) => <ChaptersMenu {...props} />,
@@ -111,6 +115,7 @@ function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopover
   const { snapshot, take, pop } = useShell();
   const panel = useRef<HTMLDivElement | null>(null);
   const playback = snapshot?.playback ?? null;
+  const subtitleScale = snapshot?.preferences.subtitleScale ?? 1;
 
   // A menu is a thing a person opened in passing: clicking anywhere outside it,
   // tabbing out of it, or leaving the window closes it rather than making them
@@ -159,7 +164,11 @@ function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopover
           align={side}
           testId={osdPopoverId(name)}
         >
-          {MENUS[name]({ playback, take })}
+          {name === "subtitles" ? (
+            <SubtitlesMenu playback={playback} subtitleScale={subtitleScale} take={take} />
+          ) : (
+            MENUS[name]({ playback, take })
+          )}
         </Popover>
       </div>
     </div>
@@ -230,8 +239,8 @@ function PictureMenu({ playback, take }: MenuProps) {
   );
 }
 
-/** Subtitle tracks embedded-first, subtitles off, and the delay's tenth-of-a-second steps. */
-function SubtitlesMenu({ playback, take }: MenuProps) {
+/** Subtitle tracks embedded-first, subtitles off, the delay's tenth-of-a-second steps, and the size. */
+function SubtitlesMenu({ playback, subtitleScale, take }: SubtitlesMenuProps) {
   const tracks = orderedTracks(playback.tracks, "subtitle");
   const delay = playback.subtitleDelay ?? 0;
 
@@ -286,6 +295,42 @@ function SubtitlesMenu({ playback, take }: MenuProps) {
             onClick={() => void take({ type: "set_subtitle_delay", seconds: 0 })}
           >
             Reset
+          </Item>
+        </div>
+      </Group>
+
+      <Group title="Size">
+        <p
+          className="shell-osd-readout tabular"
+          data-testid="subtitle-scale"
+          aria-label={`Subtitle size ${formatScale(subtitleScale)}`}
+        >
+          {`Subtitle size ${formatScale(subtitleScale)}`}
+        </p>
+        <div className="shell-osd-delay">
+          <Item
+            testId="subtitle-scale-down"
+            label="Smaller subtitles"
+            onClick={() =>
+              void take({
+                type: "set_subtitle_scale",
+                scale: stepScale(subtitleScale, -1),
+              })
+            }
+          >
+            −
+          </Item>
+          <Item
+            testId="subtitle-scale-up"
+            label="Larger subtitles"
+            onClick={() =>
+              void take({
+                type: "set_subtitle_scale",
+                scale: stepScale(subtitleScale, 1),
+              })
+            }
+          >
+            +
           </Item>
         </div>
       </Group>
@@ -392,11 +437,14 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
 /** One full-width row in a popover: a choice, marked with `aria-pressed` where it is one. */
 function Item({
   testId,
+  label,
   pressed,
   onClick,
   children,
 }: {
   testId?: string;
+  /** The accessible name, where the visible text is a glyph. */
+  label?: string;
   pressed?: boolean;
   onClick: () => void;
   children: ReactNode;
@@ -407,6 +455,7 @@ function Item({
       className="shell-osd-item kit-focus-invert"
       data-focusable
       data-testid={testId}
+      aria-label={label}
       aria-pressed={pressed}
       onClick={onClick}
     >

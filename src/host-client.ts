@@ -14,7 +14,19 @@ export const SNAPSHOT_EVENT = "host://snapshot";
 export type Snapshot = {
   revision: number;
   playback: PlaybackSnapshot;
-  preferences: { subtitleLanguage: string | null };
+  /**
+   * The Host's preferences: the subtitle language it prefers, and the appearance
+   * it draws subtitles in. The appearance is always a value — white and 1.0 are
+   * answers rather than absences — so a client never invents one (#126,
+   * ADR-0024).
+   */
+  preferences: {
+    subtitleLanguage: string | null;
+    /** `#RRGGBB`, uppercase, as the Host normalized it. */
+    subtitleColor: string;
+    /** A finite multiplier from 0.5 to 2.0. */
+    subtitleScale: number;
+  };
   addons: AddonManifest[];
   /**
    * The one Catalog the owner has marked as the Host's featured feed, where
@@ -497,6 +509,11 @@ export type Response = {
 export type Action =
   | { type: "set_subtitle_language"; language: string }
   | { type: "clear_subtitle_language" }
+  // The subtitle appearance (#126, ADR-0024): a preference of the Host's, so it
+  // outlives a Stream and reaches every client. The colour applies where a
+  // subtitle track leaves its own colour open; a size applies to every track.
+  | { type: "set_subtitle_color"; color: string }
+  | { type: "set_subtitle_scale"; scale: number }
   // The Featured catalog (#74): a preference of the Host's rather than this
   // client's, so marking one changes what *every* client's Home is drawn from.
   | {
@@ -607,6 +624,8 @@ export const HOST_ERROR_KINDS = [
   "malformed",
   "unsupported_version",
   "invalid_subtitle_language",
+  "invalid_subtitle_color",
+  "invalid_subtitle_scale",
   "invalid_manifest_url",
   "invalid_addon_id",
   "invalid_tmdb_key",
@@ -689,6 +708,10 @@ export type ActionError = {
   got?: number;
   supported?: number;
   language?: string;
+  /** The colour a refusal echoes: a refused subtitle colour. */
+  color?: string;
+  /** The size a refusal echoes: a refused subtitle scale. */
+  scale?: string;
   url?: string;
   /** An Addon's id, or a track's number: two refusals name an `id`. */
   id?: string | number;
@@ -782,6 +805,10 @@ export function explain(error: ActionError): string {
       return `This window speaks version ${ACTION_VERSION} and the Host ${error.supported}; the Action carried version ${error.got}.`;
     case "invalid_subtitle_language":
       return `${JSON.stringify(error.language)} is not a subtitle language tag — try "pt-BR" or "en".`;
+    case "invalid_subtitle_color":
+      return `${JSON.stringify(error.color)} is not a subtitle colour — a colour is "#RRGGBB", like "#FFFF00".`;
+    case "invalid_subtitle_scale":
+      return `${JSON.stringify(error.scale)} is not a subtitle size — a size is between 0.5 and 2.0.`;
     case "invalid_manifest_url":
       return `${JSON.stringify(error.url)} is not a manifest URL — paste the address of an Addon's manifest.json, like "https://example.com/manifest.json".`;
     case "invalid_addon_id":

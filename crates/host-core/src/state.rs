@@ -4,7 +4,9 @@ use crate::pairing::PairingCode;
 use crate::playback::{
     Aspect, ChapterStep, ChosenStream, Crop, PlaybackSession, SeekTarget, TrackId, TrackKind,
 };
-use crate::preferences::{FeaturedCatalog, Preferences, SubtitleLanguage};
+use crate::preferences::{
+    FeaturedCatalog, Preferences, SubtitleColor, SubtitleLanguage, SubtitleScale,
+};
 use crate::progress::{TitleStub, WatchProgress};
 use crate::request::VideoRef;
 use crate::secret::SecretBackend;
@@ -173,6 +175,14 @@ impl State {
             }
             Change::ClearSubtitleLanguage => {
                 self.preferences.set_subtitle_language(None);
+                Persist::Preferences
+            }
+            Change::SetSubtitleColor(color) => {
+                self.preferences.set_subtitle_color(color);
+                Persist::Preferences
+            }
+            Change::SetSubtitleScale(scale) => {
+                self.preferences.set_subtitle_scale(scale);
                 Persist::Preferences
             }
             // The Featured catalog is a preference of the Host's, and it is
@@ -460,6 +470,8 @@ impl State {
 pub(crate) enum Change {
     SetSubtitleLanguage(SubtitleLanguage),
     ClearSubtitleLanguage,
+    SetSubtitleColor(SubtitleColor),
+    SetSubtitleScale(SubtitleScale),
     /// The one Catalog marked as the Host's featured feed, resolved against the
     /// Addon that offers it (#74).
     SetFeaturedCatalog(FeaturedCatalog),

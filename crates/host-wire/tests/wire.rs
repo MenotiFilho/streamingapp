@@ -279,6 +279,40 @@ fn a_paired_client_sees_state_change_without_asking_for_it() {
 }
 
 #[test]
+fn a_paired_client_sets_the_subtitle_appearance_and_sees_the_hosts_values() {
+    let (fixture, server) = server();
+    let mut client = Client::connect(&server);
+    client.hello(None);
+    pair(&mut client, &fixture, "Test phone");
+
+    let colored = client.command(
+        3,
+        json!({ "type": "set_subtitle_color", "color": "#00ffff" }),
+    );
+    assert!(
+        colored.get("response").is_some(),
+        "the Remote can change the colour: {colored}"
+    );
+    let pushed =
+        client.snapshot_where(|snapshot| snapshot["preferences"]["subtitleColor"] == "#00FFFF");
+    assert_eq!(
+        pushed["snapshot"]["preferences"]["subtitleScale"], 1.0,
+        "the size arrives beside the colour, as the Host holds it: {pushed}"
+    );
+
+    let scaled = client.command(4, json!({ "type": "set_subtitle_scale", "scale": 1.5 }));
+    assert!(
+        scaled.get("response").is_some(),
+        "the Remote can change the size: {scaled}"
+    );
+    let pushed = client.snapshot_where(|snapshot| snapshot["preferences"]["subtitleScale"] == 1.5);
+    assert_eq!(
+        pushed["snapshot"]["preferences"]["subtitleColor"], "#00FFFF",
+        "the colour is still the one the Remote chose: {pushed}"
+    );
+}
+
+#[test]
 fn a_client_that_reconnects_is_told_the_state_as_it_stands() {
     let (fixture, server) = server();
     let mut first = Client::connect(&server);

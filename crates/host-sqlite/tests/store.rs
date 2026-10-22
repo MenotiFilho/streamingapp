@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use host_core::{
     Addon, AddonId, CatalogRef, FeaturedCatalog, Manifest, ManifestUrl, Preferences, Store,
-    StoreError, SubtitleLanguage,
+    StoreError, SubtitleColor, SubtitleLanguage, SubtitleScale,
 };
 use host_sqlite::SqliteStore;
 use rusqlite::Connection;
@@ -135,6 +135,100 @@ fn clearing_the_subtitle_language_removes_the_row_rather_than_blanking_it() {
         .expect("the store takes a cleared preference");
 
     assert_eq!(stored_rows(&path, "subtitle_language"), 0);
+}
+
+#[test]
+fn a_subtitle_appearance_round_trips() {
+    let store = store();
+    let mut written = Preferences::new();
+    written.set_subtitle_color(SubtitleColor::parse("#ffff00").expect("a colour"));
+    written.set_subtitle_scale(SubtitleScale::parse(1.25).expect("a size"));
+
+    store
+        .write_preferences(&written)
+        .expect("the store takes the appearance");
+
+    assert_eq!(store.read_preferences(), Ok(written));
+}
+
+#[test]
+fn a_subtitle_appearance_that_was_never_written_reads_back_as_white_at_full_size() {
+    let store = store();
+    let read = store.read_preferences().expect("the store answers");
+
+    assert_eq!(read.subtitle_color().as_str(), "#FFFFFF");
+    assert_eq!(read.subtitle_scale().value(), 1.0);
+}
+
+#[test]
+fn the_appearance_is_written_beside_the_language_in_one_preference_write() {
+    let (_directory, path) = store_on_disk();
+    let store = SqliteStore::open(&path).expect("the store opens");
+    store
+        .write_preferences(&Preferences::with_subtitle_language(Some(language(
+            "pt-BR",
+        ))))
+        .expect("the store takes a preference");
+
+    assert_eq!(stored_rows(&path, "subtitle_language"), 1);
+    assert_eq!(
+        stored_rows(&path, "subtitle_color"),
+        1,
+        "white is a value the Host holds, not an absent row"
+    );
+    assert_eq!(
+        stored_rows(&path, "subtitle_scale"),
+        1,
+        "1.0 is a value the Host holds, not an absent row"
+    );
+}
+
+#[test]
+fn a_stored_subtitle_colour_that_is_not_a_colour_is_reported_and_not_a_panic() {
+    let (_directory, path) = store_on_disk();
+    let store = SqliteStore::open(&path).expect("the store opens");
+    store
+        .write_preferences(&Preferences::new())
+        .expect("the store takes a preference");
+    Connection::open(&path)
+        .expect("the database opens")
+        .execute(
+            "UPDATE preferences SET value = 'red' WHERE key = 'subtitle_color'",
+            [],
+        )
+        .expect("the stored colour is made unusable");
+
+    let read = store.read_preferences();
+
+    assert!(
+        matches!(read, Err(StoreError::Read { .. })),
+        "an unusable stored colour is a read failure, not a crash: {read:?}"
+    );
+}
+
+#[test]
+fn a_stored_subtitle_size_that_is_not_a_number_is_reported_and_not_a_panic() {
+    for unusable in ["nonsense", "9", "NaN"] {
+        let (_directory, path) = store_on_disk();
+        let store = SqliteStore::open(&path).expect("the store opens");
+        store
+            .write_preferences(&Preferences::new())
+            .expect("the store takes a preference");
+        Connection::open(&path)
+            .expect("the database opens")
+            .execute(
+                "UPDATE preferences SET value = ?1 WHERE key = 'subtitle_scale'",
+                [unusable],
+            )
+            .expect("the stored size is made unusable");
+
+        let read = store.read_preferences();
+
+        assert!(
+            matches!(read, Err(StoreError::Read { .. })),
+            "a stored size of {unusable:?} is a read failure, not a crash: {read:?}"
+        );
+    }
 }
 
 #[test]

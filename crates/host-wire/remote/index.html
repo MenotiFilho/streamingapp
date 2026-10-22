@@ -475,8 +475,10 @@
       }
       .track[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
       .track-marks { color: var(--ink-muted); font-size: var(--text-micro); }
-      .delay-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
-      .delay-readout { min-width: 4.5rem; color: var(--ink-secondary); font-size: var(--text-caption); }
+      .delay-row, .size-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+      .delay-readout, .size-readout {
+        min-width: 4.5rem; color: var(--ink-secondary); font-size: var(--text-caption);
+      }
 
       @media (min-width: 720px) {
         .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -497,7 +499,7 @@
       comment: a control wired to an Action this list does not name throws
       rather than sending it.
     -->
-    <script type="application/json" id="action-capabilities">["set_subtitle_language","clear_subtitle_language","set_featured_catalog","clear_featured_catalog","add_addon","reorder_addon","remove_addon","set_tmdb_key","clear_tmdb_key","sign_in_stremio","sign_out_stremio","pair_device","revoke_device","browse_catalog","search_catalogs","discover","search","open_title","open_discovered_title","find_streams","play_stream","resume","set_paused","seek","set_audio_track","set_subtitle_track","set_subtitle_delay","set_speed","set_volume","set_muted","next_chapter","previous_chapter","set_chapter","set_crop","autocrop","set_aspect","next_episode","previous_episode","stop_playback"]</script>
+    <script type="application/json" id="action-capabilities">["set_subtitle_language","clear_subtitle_language","set_subtitle_color","set_subtitle_scale","set_featured_catalog","clear_featured_catalog","add_addon","reorder_addon","remove_addon","set_tmdb_key","clear_tmdb_key","sign_in_stremio","sign_out_stremio","pair_device","revoke_device","browse_catalog","search_catalogs","discover","search","open_title","open_discovered_title","find_streams","play_stream","resume","set_paused","seek","set_audio_track","set_subtitle_track","set_subtitle_delay","set_speed","set_volume","set_muted","next_chapter","previous_chapter","set_chapter","set_crop","autocrop","set_aspect","next_episode","previous_episode","stop_playback"]</script>
 
     <!-- What a device that has not paired sees. -->
     <section id="pairing" class="pairing hidden">
@@ -624,6 +626,12 @@
       const SKIP = "skip";
       const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
       const DELAY_STEP = 0.1;
+      // The subtitle appearance Settings offers (#126, ADR-0024). The list is
+      // spliced in from `src/subtitle-appearance.json` at serve time, the same
+      // one `src/controls.ts` imports, so the window and this page cannot drift.
+      const SUBTITLE_APPEARANCE = /*__SPLICE_SUBTITLE_APPEARANCE__*/;
+      const SUBTITLE_COLORS = SUBTITLE_APPEARANCE.colors;
+      const SUBTITLE_SCALES = SUBTITLE_APPEARANCE.scales;
       const ASPECTS = [
         { label: "Source", aspect: { kind: "source" } },
         { label: "16:9", aspect: { kind: "ratio", value: 16 / 9 } },
@@ -647,7 +655,7 @@
       /** The four Settings categories, shared by the list and its pushed titles. */
       const SETTINGS_CATEGORIES = [
         { id: "credentials", title: "Credentials", note: "The secret store, the TMDB key, and the Stremio account." },
-        { id: "preferences", title: "Preferences", note: "Subtitle language and the one Catalog Home's hero is drawn from." },
+        { id: "preferences", title: "Preferences", note: "Subtitle language and appearance, and the one Catalog Home's hero is drawn from." },
         { id: "remote-devices", title: "Remote devices", note: "The address a browser pairs with, the code, and paired devices." },
         { id: "about", title: "About/Credits", note: "The licences and TMDB attribution." },
       ];
@@ -697,6 +705,23 @@
         return tenths > 0 ? "+" + magnitude + " s" : "\u2212" + magnitude + " s";
       }
       function stepDelay(seconds, by) { return Math.round((seconds + by) * 10) / 10; }
+      function stepScale(scale, direction) {
+        if (direction > 0) {
+          const larger = SUBTITLE_SCALES.find((choice) => choice.scale > scale + 1e-6);
+          return larger ? larger.scale : SUBTITLE_SCALES[SUBTITLE_SCALES.length - 1].scale;
+        }
+        const smaller = SUBTITLE_SCALES.slice().reverse()
+          .find((choice) => choice.scale < scale - 1e-6);
+        return smaller ? smaller.scale : SUBTITLE_SCALES[0].scale;
+      }
+      function formatScale(scale) { return Math.round(scale * 100) + "%"; }
+      function scaleSelected(current, choice) { return Math.abs(current - choice) < 1e-6; }
+      function scalePreset(scale) {
+        return SUBTITLE_SCALES.some((choice) => scaleSelected(scale, choice.scale));
+      }
+      function colorSelected(current, choice) {
+        return String(current).toUpperCase() === choice.toUpperCase();
+      }
       function formatSpeed(rate) { return rate + "\u00d7"; }
       function formatVolume(level) { return Math.round(level) + "%"; }
       function chapterLabel(chapter) {
@@ -1523,7 +1548,11 @@
       function sheetSignature() {
         const p = playback();
         if (!state.sheet || !p || !watching(p.state)) { return "none"; }
-        return JSON.stringify({ tracks: p.tracks, delay: p.subtitleDelay });
+        return JSON.stringify({
+          tracks: p.tracks,
+          delay: p.subtitleDelay,
+          scale: state.snapshot ? state.snapshot.preferences.subtitleScale : null,
+        });
       }
 
       // --- the base screen -------------------------------------------------
@@ -2237,6 +2266,9 @@
       function renderPreferences() {
         const s = state.snapshot;
         const heldLanguage = s.preferences.subtitleLanguage;
+        const heldColor = s.preferences.subtitleColor || "#FFFFFF";
+        const heldScale = typeof s.preferences.subtitleScale === "number"
+          ? s.preferences.subtitleScale : 1;
         const known = SUBTITLE_LANGUAGES.some((language) => language.tag === heldLanguage);
         const catalogs = declaredCatalogs(s);
         const featured = s.featuredCatalog;
@@ -2259,6 +2291,32 @@
                 <button type="button" class="chip" data-focusable data-a="language"
                         data-tag="${language.tag}" data-focus-key="language-${language.tag}"
                         aria-pressed="${pressed(heldLanguage === language.tag)}">${language.name}</button>`)}
+            </div>`)}
+
+          ${settingsSection("Subtitle appearance", html`
+            <p class="settings-copy">The colour and size the Player draws subtitles in, on every
+              Stream. A subtitle file that carries its own styling \u2014 an ASS track \u2014 keeps the
+              colour it was authored with, and this colour applies where the track leaves it open.
+              The size applies to every subtitle.</p>
+            <p class="settings-copy">Colour \u2014 white is the default.</p>
+            <div class="chip-row" style="flex-wrap:wrap;overflow:visible">
+              ${SUBTITLE_COLORS.map((choice) => html`
+                <button type="button" class="chip" data-focusable data-a="subtitle-color"
+                        data-color="${choice.color}"
+                        data-focus-key="subtitle-color-${choice.label.toLowerCase()}"
+                        aria-pressed="${pressed(colorSelected(heldColor, choice.color))}">${choice.label}</button>`)}
+            </div>
+            <p class="settings-copy">Size \u2014 100% is the default.</p>
+            <div class="chip-row" style="flex-wrap:wrap;overflow:visible">
+              ${SUBTITLE_SCALES.map((choice) => html`
+                <button type="button" class="chip" data-focusable data-a="subtitle-scale"
+                        data-scale="${choice.scale}"
+                        data-focus-key="subtitle-scale-${choice.label.toLowerCase()}"
+                        aria-pressed="${pressed(scaleSelected(heldScale, choice.scale))}">${choice.label} \u00b7 ${formatScale(choice.scale)}</button>`)}
+              ${!scalePreset(heldScale) ? html`
+                <button type="button" class="chip" data-focusable data-a="subtitle-scale"
+                        data-scale="${heldScale}" data-focus-key="subtitle-scale-other"
+                        aria-pressed="true">Other (${formatScale(heldScale)})</button>` : null}
             </div>`)}
 
           ${settingsSection("Featured catalog", html`
@@ -2663,6 +2721,8 @@
         const audio = orderedTracks(p.tracks, "audio");
         const subtitles = orderedTracks(p.tracks, "subtitle");
         const delay = p.subtitleDelay === null ? 0 : p.subtitleDelay;
+        const scale = state.snapshot && typeof state.snapshot.preferences.subtitleScale === "number"
+          ? state.snapshot.preferences.subtitleScale : 1;
 
         sheet.innerHTML = html`
           <div class="sheet-panel">
@@ -2701,6 +2761,19 @@
                 <button type="button" class="btn" data-focusable data-a="delay"
                         data-seconds="0" data-focus-key="delay-reset"
                         aria-pressed="${pressed(delay === 0)}">Reset</button>
+              </div>
+            </div>
+
+            <div class="sheet-group">
+              <h3>Subtitle size</h3>
+              <div class="size-row">
+                <span class="size-readout tabular" data-subtitle-scale>Subtitle size ${formatScale(scale)}</span>
+                <button type="button" class="btn" data-focusable data-a="subtitle-scale"
+                        data-scale="${stepScale(scale, -1)}" data-focus-key="subtitle-scale-down"
+                        aria-label="Smaller subtitles">\u2212</button>
+                <button type="button" class="btn" data-focusable data-a="subtitle-scale"
+                        data-scale="${stepScale(scale, 1)}" data-focus-key="subtitle-scale-up"
+                        aria-label="Larger subtitles">+</button>
               </div>
             </div>
           </div>`.markup;
@@ -3567,6 +3640,14 @@
           }
 
           case "language": { chooseLanguage(data.tag); return; }
+          case "subtitle-color": {
+            await take({ type: "set_subtitle_color", color: data.color });
+            return;
+          }
+          case "subtitle-scale": {
+            await take({ type: "set_subtitle_scale", scale: Number(data.scale) });
+            return;
+          }
           case "featured": { chooseFeatured(data.ref); return; }
 
           case "title-season": {

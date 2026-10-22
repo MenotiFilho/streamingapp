@@ -25,6 +25,7 @@ import type {
   VideoSize,
 } from "./host-client";
 import { formatTime } from "./playback";
+import appearance from "./subtitle-appearance.json";
 
 /**
  * Whether the Host would take a control right now: a Stream that is opening,
@@ -126,6 +127,87 @@ export function formatDelay(seconds: number): string {
 /** A rate as a person reads it: `1×`, `1.5×`. */
 export function formatSpeed(rate: number): string {
   return `${rate}×`;
+}
+
+/**
+ * The subtitle colours Settings offers. White is the default the Host holds, so
+ * it is always a choice rather than a "clear"; the rest are the colours a person
+ * is likely to want from a television across the room (ADR-0024).
+ *
+ * The list lives in `src/subtitle-appearance.json`, beside the language list,
+ * because the served Remote splices the same JSON in at serve time — one list,
+ * two clients. ADR-0024's "same values by construction" is that file.
+ */
+export type SubtitleColorChoice = {
+  /** The colour as a person reads it. */
+  label: string;
+  /** The `#RRGGBB` the Host stores and validates. */
+  color: string;
+};
+
+export const SUBTITLE_COLORS: ReadonlyArray<SubtitleColorChoice> = appearance.colors;
+
+/** One of the four sizes Settings offers, as the scale and the words for it. */
+export type SubtitleScaleChoice = {
+  /** The size as a person reads it. */
+  label: string;
+  /** The multiplier the Host stores. */
+  scale: number;
+};
+
+/**
+ * The subtitle sizes Settings offers, and the four the OSD steps through. The
+ * default is `1`; the Host accepts 0.5 to 2.0 on the wire, for a Remote that
+ * sends a value of its own.
+ */
+export const SUBTITLE_SCALES: ReadonlyArray<SubtitleScaleChoice> = appearance.scales;
+
+/** The smallest scale the Host accepts, shared with the Remote and the Host. */
+export const SUBTITLE_SCALE_MIN = appearance.minScale;
+
+/** The largest scale the Host accepts, shared with the Remote and the Host. */
+export const SUBTITLE_SCALE_MAX = appearance.maxScale;
+
+/**
+ * The scale one OSD press from `scale`, in `direction`: the neighbouring preset,
+ * never a value between presets. `1` is up and `-1` down. A value between two
+ * presets — one a Remote set — moves to the neighbour in the direction asked,
+ * and a value outside the ladder is brought to its nearest end (50% → 80%,
+ * 160% → 150%), so a press always leaves the readout naming one of the four.
+ */
+export function stepScale(scale: number, direction: -1 | 1): number {
+  if (direction > 0) {
+    const larger = SUBTITLE_SCALES.find((choice) => choice.scale > scale + 1e-6);
+    return larger?.scale ?? SUBTITLE_SCALES[SUBTITLE_SCALES.length - 1]!.scale;
+  }
+  const smaller = [...SUBTITLE_SCALES]
+    .reverse()
+    .find((choice) => choice.scale < scale - 1e-6);
+  return smaller?.scale ?? SUBTITLE_SCALES[0]!.scale;
+}
+
+/** A subtitle size as a person reads it: `80%`, `100%`, `125%`. */
+export function formatScale(scale: number): string {
+  return `${Math.round(scale * 100)}%`;
+}
+
+/** Whether the size the Host published is this choice. */
+export function scaleSelected(current: number, choice: number): boolean {
+  return Math.abs(current - choice) < 1e-6;
+}
+
+/**
+ * Whether the size the Host holds is one of the four Settings presets. A value
+ * that is not — a Remote may set any scale the Host accepts — is shown as its
+ * own `Other (n%)` choice rather than leaving the size chips with nothing pressed.
+ */
+export function scalePreset(scale: number): boolean {
+  return SUBTITLE_SCALES.some((choice) => scaleSelected(scale, choice.scale));
+}
+
+/** Whether the colour the Host published is this choice, whatever the case. */
+export function colorSelected(current: string, choice: string): boolean {
+  return current.toUpperCase() === choice.toUpperCase();
 }
 
 /** Whether a rate the Host published is a choice the menu offers. */

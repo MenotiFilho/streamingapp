@@ -54,7 +54,7 @@ const NOTHING_SAID: Snapshot = {
     resolution: null,
     statistics: null,
   },
-  preferences: { subtitleLanguage: null },
+  preferences: { subtitleLanguage: null, subtitleColor: "#FFFFFF", subtitleScale: 1 },
   addons: [CINEMETA],
   featuredCatalog: null,
   protection: { backend: "keyring", tmdbHeld: true, stremioHeld: false },

@@ -4,7 +4,7 @@ use crate::addon::Manifest;
 use crate::device::DeviceSummary;
 use crate::pairing::PairingCode;
 use crate::playback::{Picture, PlaybackSnapshot};
-use crate::preferences::{FeaturedCatalog, SubtitleLanguage};
+use crate::preferences::{FeaturedCatalog, SubtitleColor, SubtitleLanguage, SubtitleScale};
 use crate::progress::ResumeEntry;
 use crate::secret::SecretBackend;
 use crate::state::State;
@@ -70,13 +70,20 @@ pub struct Snapshot {
 }
 
 /// The preference fields a client may see.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PreferencesSnapshot {
     /// The subtitle language the Host prefers, or `null` when it has none and
     /// chooses per Video. A language tag by construction, so the wire cannot carry
     /// anything else here.
     pub subtitle_language: Option<SubtitleLanguage>,
+    /// The colour the Player draws subtitles in where a track leaves the colour
+    /// open. Always a value — white is the default rather than an absence — so a
+    /// client never has to invent one (ADR-0024).
+    pub subtitle_color: SubtitleColor,
+    /// How large the Player draws subtitles, relative to its own size. Always a
+    /// value, for the same reason.
+    pub subtitle_scale: SubtitleScale,
 }
 
 /// Where the Host's credentials are held, as the secret store reports itself.
@@ -111,6 +118,8 @@ impl Snapshot {
             playback: state.playback().snapshot(picture),
             preferences: PreferencesSnapshot {
                 subtitle_language: state.preferences().subtitle_language().cloned(),
+                subtitle_color: state.preferences().subtitle_color().clone(),
+                subtitle_scale: state.preferences().subtitle_scale(),
             },
             addons: state
                 .addons()

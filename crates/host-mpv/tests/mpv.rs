@@ -34,7 +34,8 @@ use std::time::{Duration, Instant};
 
 use host_core::{
     Aspect, ChapterStep, Crop, CropRectangle, Observation, PlaybackState, Player, SeekTarget,
-    Statistics, StreamUrl, SubtitleLanguage, Telling, Track, TrackKind, VideoSize,
+    Statistics, StreamUrl, SubtitleColor, SubtitleLanguage, SubtitleScale, Telling, Track,
+    TrackKind, VideoSize,
 };
 use host_mpv::{MpvError, MpvPlayer, Placement};
 
@@ -824,6 +825,28 @@ fn the_subtitle_language_preference_selects_the_matching_embedded_track() {
                 })
         },
     );
+}
+
+#[test]
+fn subtitles_can_be_recoloured_and_scaled_without_overriding_their_own_styling() {
+    let streams = serve(6.0);
+    let player = controlling(&streams);
+
+    // The two spellings the Host sends are ones mpv's own property parser takes.
+    // What is asserted here is that the Player they reach accepts them; that a
+    // colour applies to unstyled text and not to an ASS track's authored style,
+    // and that the size applies to both, is the manual walkthrough's evidence —
+    // it needs a picture to look at (ADR-0024).
+    player
+        .tell(Telling::SubtitleColor(
+            SubtitleColor::parse("#FFCC00").expect("a subtitle colour"),
+        ))
+        .expect("mpv takes a subtitle colour");
+    player
+        .tell(Telling::SubtitleScale(
+            SubtitleScale::parse(1.25).expect("a subtitle size"),
+        ))
+        .expect("mpv takes a subtitle size");
 }
 
 #[test]

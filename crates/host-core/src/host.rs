@@ -123,6 +123,13 @@ impl Host {
         let _ = player.tell(Telling::SubtitleLanguage(
             state.preferences().subtitle_language().cloned(),
         ));
+        // The appearance follows, for the same reason and in the same order:
+        // the preferences are Host state, and a Stream opened after a restart
+        // must be drawn the way the owner left it (ADR-0024).
+        let _ = player.tell(Telling::SubtitleColor(
+            state.preferences().subtitle_color().clone(),
+        ));
+        let _ = player.tell(Telling::SubtitleScale(state.preferences().subtitle_scale()));
         Ok(Self {
             store,
             fetcher,
@@ -600,6 +607,17 @@ impl Host {
             ValidatedAction::ClearSubtitleLanguage => {
                 let _ = self.player.tell(Telling::SubtitleLanguage(None));
                 Resolved::Change(Change::ClearSubtitleLanguage)
+            }
+            ValidatedAction::SetSubtitleColor(color) => {
+                // A preference the Host keeps whether or not the Player takes
+                // it: a Player that refuses is not a reason a client cannot
+                // express one (ADR-0013, ADR-0024).
+                let _ = self.player.tell(Telling::SubtitleColor(color.clone()));
+                Resolved::Change(Change::SetSubtitleColor(color))
+            }
+            ValidatedAction::SetSubtitleScale(scale) => {
+                let _ = self.player.tell(Telling::SubtitleScale(scale));
+                Resolved::Change(Change::SetSubtitleScale(scale))
             }
             ValidatedAction::AddAddon(url) => {
                 let body =

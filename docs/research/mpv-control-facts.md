@@ -22,6 +22,8 @@ is answerable it is said so.
 | audio track | the `selected` flag on the `audio` track | `set aid <id>` |
 | subtitle track | the `selected` flag on the `sub` track | `set sid <id>`; off is `set sid no`, which reads back as `false` |
 | subtitle delay | `sub-delay` (f64) | `set sub-delay <seconds>` |
+| subtitle colour | — (a preference, not a Stream property) | `set sub-color #RRGGBB` |
+| subtitle size | — (a preference) | `set sub-scale <f64>` |
 | speed | `speed` (f64) | `set speed <rate>` |
 | volume / mute | `volume` (f64), `mute` (bool) | `set volume <level>`, `set mute yes\|no` |
 | chapters | `chapter-list/count`, `chapter-list/N/{title,time}`, `chapter` (index) | `set chapter <index>`, `add chapter 1` / `-1` |
@@ -67,6 +69,25 @@ preference through unchanged and does not implement its own language matching.
 
 `slang` has to be set *before* the `loadfile` that should use it, so the Host
 tells the Player the preference at startup and at every change, not at `open`.
+
+### The subtitle appearance is `sub-color`, `sub-scale` and no override (#126)
+
+Probed for #126 against mpv 0.37 in this container:
+
+- `sub-color` recolours subtitles that do **not** have styling of their own.
+- A red ASS line stayed red under `--sub-color=#00FF00`. Only
+  `sub-ass-override=force` turned it green, and that also overrides the track's
+  authored fonts and typesetting — which is why the Host does not set it
+  (ADR-0024).
+- `sub-scale` scaled the ASS line (18 px → 28 px at 1.5×) and plain text alike.
+- `sub-font-size` did not affect that ASS line, so it is not the size control.
+
+The Host's spellings are `set sub-color #RRGGBB` and `set sub-scale <f64>`. On
+the Windows side (mpv 0.41) the same behaviour is **pending** the walkthrough,
+which is the only place a colour can actually be seen: it is a fact about pixels,
+and that run is deferred to the owner's batch after #126, #127 and #128. The
+fixture video (`scripts/windows/fixture-video.sh`) carries two SRT tracks and one
+ASS track authored red for exactly that check.
 
 ## What is answerable with no video output
 
