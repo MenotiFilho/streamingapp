@@ -102,13 +102,20 @@ fn playback_of(published: &[Snapshot]) -> &host_core::PlaybackSnapshot {
     &published[0].playback
 }
 
-/// The tellings that are *controls*: everything but the subtitle language the
-/// Host tells the Player once, at startup, from the stored preference.
+/// The tellings that are *controls*: everything but the preferences the Host
+/// tells the Player once, at startup, from the store.
 fn controls(player: &FixturePlayer) -> Vec<Telling> {
     player
         .tellings()
         .into_iter()
-        .filter(|telling| !matches!(telling, Telling::SubtitleLanguage(_)))
+        .filter(|telling| {
+            !matches!(
+                telling,
+                Telling::SubtitleLanguage(_)
+                    | Telling::SubtitleColor(_)
+                    | Telling::SubtitleScale(_)
+            )
+        })
         .collect()
 }
 

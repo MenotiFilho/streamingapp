@@ -36,7 +36,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::addon::{AddonId, MAX_URL_LEN};
-use crate::preferences::SubtitleLanguage;
+use crate::preferences::{SubtitleColor, SubtitleLanguage, SubtitleScale};
 use crate::request::VideoRef;
 use crate::stream::{holdable, Playback, Stream};
 
@@ -545,6 +545,12 @@ pub enum Telling {
     /// The language the Player prefers when it selects a subtitle track for the
     /// owner: mpv's `slang`. `None` clears it.
     SubtitleLanguage(Option<SubtitleLanguage>),
+    /// The colour the Player draws subtitles in where a track leaves the colour
+    /// open. A track that styles its own text keeps that styling (ADR-0024).
+    SubtitleColor(SubtitleColor),
+    /// How large the Player draws subtitles, relative to its own size. Applies
+    /// to styled and unstyled subtitles alike (ADR-0024).
+    SubtitleScale(SubtitleScale),
     /// Load an external subtitle (the Addon `subtitles` fallback, S4).
     AddSubtitle {
         url: StreamUrl,

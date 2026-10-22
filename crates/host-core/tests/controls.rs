@@ -9,8 +9,9 @@ use std::sync::Arc;
 use host_core::{
     Action, ActionError, AddonProvider, Aspect, Chapter, ChapterStep, Control, Crop, CropRectangle,
     FixtureClock, FixtureFetcher, FixturePlayer, Host, InMemorySecretStore, InMemoryStore,
-    Observation, PlaybackError, PlaybackState, SecretBackend, Snapshot, Statistics, Store, Telling,
-    Track, TrackId, TrackKind, VideoSize, ACTION_VERSION,
+    Observation, PlaybackError, PlaybackState, Preferences, SecretBackend, Snapshot, Statistics,
+    Store, SubtitleColor, SubtitleScale, Telling, Track, TrackId, TrackKind, VideoSize,
+    ACTION_VERSION,
 };
 
 /// The URL a recorded debrid answer would carry, with a session in it.
@@ -170,13 +171,20 @@ fn control_bodies() -> Vec<serde_json::Value> {
     ]
 }
 
-/// The control tellings the Player was given: everything but the subtitle
-/// language the Host tells it once, at startup, from the stored preference.
+/// The control tellings the Player was given: everything but the preferences
+/// the Host tells it once, at startup, from the store.
 fn controls(player: &FixturePlayer) -> Vec<Telling> {
     player
         .tellings()
         .into_iter()
-        .filter(|telling| !matches!(telling, Telling::SubtitleLanguage(_)))
+        .filter(|telling| {
+            !matches!(
+                telling,
+                Telling::SubtitleLanguage(_)
+                    | Telling::SubtitleColor(_)
+                    | Telling::SubtitleScale(_)
+            )
+        })
         .collect()
 }
 
@@ -540,5 +548,96 @@ fn the_subtitle_language_preference_is_told_to_the_player_and_survives_a_refusal
             .as_ref()
             .map(host_core::SubtitleLanguage::as_str),
         Some("en")
+    );
+}
+
+#[test]
+fn the_subtitle_appearance_is_told_to_the_player_and_survives_a_refusal() {
+    let mut fixture = fixture();
+
+    let colored = published(
+        &mut fixture,
+        &serde_json::json!({ "type": "set_subtitle_color", "color": "#00ff00" }),
+    );
+    assert_eq!(
+        colored[0].preferences.subtitle_color.as_str(),
+        "#00FF00",
+        "the colour is normalized before it is published"
+    );
+    assert!(
+        matches!(
+            fixture.player.tellings().last(),
+            Some(Telling::SubtitleColor(color)) if color.as_str() == "#00FF00"
+        ),
+        "the Player is told the colour"
+    );
+
+    let scaled = published(
+        &mut fixture,
+        &serde_json::json!({ "type": "set_subtitle_scale", "scale": 1.25 }),
+    );
+    assert_eq!(scaled[0].preferences.subtitle_scale.value(), 1.25);
+    assert!(
+        matches!(
+            fixture.player.tellings().last(),
+            Some(Telling::SubtitleScale(scale)) if (scale.value() - 1.25).abs() < 1e-9
+        ),
+        "the Player is told the size"
+    );
+
+    // A Player that refuses every telling is not a reason the Host cannot hold
+    // a preference: it is Host state, and it persists either way (ADR-0024).
+    let player = Arc::new(FixturePlayer::new().refusing(PlaybackError::Command {
+        detail: "mpv is gone".to_owned(),
+    }));
+    let mut host = host_over(player);
+    let response = host
+        .dispatch(action(
+            &serde_json::json!({ "type": "set_subtitle_color", "color": "#FFCC00" }),
+        ))
+        .expect("a refused telling is not a refused preference");
+    assert_eq!(
+        response.snapshots[0].preferences.subtitle_color.as_str(),
+        "#FFCC00"
+    );
+    let response = host
+        .dispatch(action(
+            &serde_json::json!({ "type": "set_subtitle_scale", "scale": 1.5 }),
+        ))
+        .expect("a refused telling is not a refused preference");
+    assert_eq!(
+        response.snapshots[0].preferences.subtitle_scale.value(),
+        1.5
+    );
+}
+
+#[test]
+fn a_host_tells_its_player_the_stored_appearance_at_startup() {
+    let mut stored = Preferences::new();
+    stored.set_subtitle_color(SubtitleColor::parse("#ffff00").expect("a colour"));
+    stored.set_subtitle_scale(SubtitleScale::parse(1.25).expect("a size"));
+
+    let player = Arc::new(FixturePlayer::new());
+    let fetcher = Arc::new(FixtureFetcher::new());
+    let provider = Arc::new(AddonProvider::new(fetcher.clone()));
+    Host::new(
+        Arc::new(InMemoryStore::holding(stored)) as Arc<dyn Store>,
+        fetcher,
+        Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
+        provider,
+        player.clone(),
+        Arc::new(FixtureClock::new()),
+    )
+    .expect("a Host over a store starts");
+
+    let told: Vec<Telling> = player.tellings();
+    assert_eq!(
+        told,
+        vec![
+            Telling::SubtitleLanguage(None),
+            Telling::SubtitleColor(SubtitleColor::parse("#FFFF00").expect("a colour")),
+            Telling::SubtitleScale(SubtitleScale::parse(1.25).expect("a size")),
+        ],
+        "the language, then the appearance, before any Stream is opened"
     );
 }

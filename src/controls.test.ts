@@ -5,26 +5,36 @@ import {
   CROP_RATIOS,
   DELAY_STEP,
   SPEEDS,
+  SUBTITLE_COLORS,
+  SUBTITLE_SCALE_MAX,
+  SUBTITLE_SCALE_MIN,
+  SUBTITLE_SCALES,
   aspectSelected,
   centredCrop,
   chapterLabel,
+  colorSelected,
   controllable,
   cropChoices,
   cropSelected,
   formatDelay,
+  formatScale,
   formatSpeed,
   formatVolume,
   nextEpisodeDisabled,
   orderedTracks,
   previousEpisodeDisabled,
+  scalePreset,
+  scaleSelected,
   speedSelected,
   statisticsLines,
   stepDelay,
+  stepScale,
   subtitlesOn,
   trackLabel,
   trackMarks,
 } from "./controls";
 import type { Aspect, Crop, CropRectangle, Track, VideoSize } from "./host-client";
+import appearance from "./subtitle-appearance.json";
 
 function track(overrides: Partial<Track> & { id: number }): Track {
   return {
@@ -267,5 +277,96 @@ describe("the step to a neighbouring episode", () => {
     // answers (ADR-0021).
     expect(previousEpisodeDisabled({ season: 0, episode: 1 })).toBe(false);
     expect(previousEpisodeDisabled({ season: 0, episode: 0 })).toBe(false);
+  });
+});
+
+describe("the subtitle appearance a person picks", () => {
+  test("the window imports the one JSON file the Remote splices in", () => {
+    expect(SUBTITLE_COLORS).toEqual(appearance.colors);
+    expect(SUBTITLE_SCALES).toEqual(appearance.scales);
+    expect(SUBTITLE_SCALE_MIN).toBe(appearance.minScale);
+    expect(SUBTITLE_SCALE_MAX).toBe(appearance.maxScale);
+  });
+
+  test("Settings offers white, yellow, cyan and green, and the white is the default", () => {
+    expect(SUBTITLE_COLORS.map((choice) => choice.label)).toEqual([
+      "White",
+      "Yellow",
+      "Cyan",
+      "Green",
+    ]);
+    expect(SUBTITLE_COLORS.map((choice) => choice.color)).toEqual([
+      "#FFFFFF",
+      "#FFFF00",
+      "#00FFFF",
+      "#00FF00",
+    ]);
+    expect(SUBTITLE_COLORS[0]?.color).toBe("#FFFFFF");
+  });
+
+  test("Settings offers four sizes, from 80% to 150%", () => {
+    expect(SUBTITLE_SCALES).toEqual([
+      { label: "Small", scale: 0.8 },
+      { label: "Default", scale: 1 },
+      { label: "Large", scale: 1.25 },
+      { label: "Larger", scale: 1.5 },
+    ]);
+    expect(SUBTITLE_SCALES.map((choice) => formatScale(choice.scale))).toEqual([
+      "80%",
+      "100%",
+      "125%",
+      "150%",
+    ]);
+  });
+
+  test("one OSD press moves to the neighbouring preset, never between them", () => {
+    expect(stepScale(0.8, 1)).toBe(1);
+    expect(stepScale(1, 1)).toBe(1.25);
+    expect(stepScale(1.25, 1)).toBe(1.5);
+    expect(stepScale(1.5, -1)).toBe(1.25);
+    expect(stepScale(1.25, -1)).toBe(1);
+    expect(stepScale(1, -1)).toBe(0.8);
+  });
+
+  test("the OSD size clamps at the ends of the four presets", () => {
+    expect(stepScale(1.5, 1)).toBe(1.5);
+    expect(stepScale(0.8, -1)).toBe(0.8);
+  });
+
+  test("a size the Remote set is brought onto the four presets", () => {
+    // The Host accepts any scale in 0.5–2.0 on the wire; the OSD's four presses
+    // still land on a chip, and 105/120/160% are named by Settings' Other chip.
+    expect(stepScale(1.05, 1)).toBe(1.25);
+    expect(stepScale(1.05, -1)).toBe(1);
+    expect(stepScale(1.2, 1)).toBe(1.25);
+    expect(stepScale(1.2, -1)).toBe(1);
+    expect(stepScale(1.6, 1)).toBe(1.5);
+    expect(stepScale(1.6, -1)).toBe(1.5);
+    expect(stepScale(0.5, 1)).toBe(0.8);
+    expect(stepScale(0.5, -1)).toBe(0.8);
+  });
+
+  test("only the four presets press a Settings chip", () => {
+    for (const choice of SUBTITLE_SCALES) {
+      expect(scalePreset(choice.scale)).toBe(true);
+    }
+    for (const held of [0.5, 1.05, 1.2, 1.6, 2]) {
+      expect(scalePreset(held)).toBe(false);
+    }
+  });
+
+  test("a size reads as a percentage, and the pressed choice is the Host's value", () => {
+    expect(formatScale(0.8)).toBe("80%");
+    expect(formatScale(1)).toBe("100%");
+    expect(formatScale(1.05)).toBe("105%");
+    expect(formatScale(1.25)).toBe("125%");
+    expect(scaleSelected(1.25, 1.25)).toBe(true);
+    expect(scaleSelected(1.3, 1.25)).toBe(false);
+  });
+
+  test("a colour compares whatever case the Host wrote it in", () => {
+    expect(colorSelected("#FFFF00", "#FFFF00")).toBe(true);
+    expect(colorSelected("#ffcc00", "#FFCC00")).toBe(true);
+    expect(colorSelected("#FFFFFF", "#FFFF00")).toBe(false);
   });
 });

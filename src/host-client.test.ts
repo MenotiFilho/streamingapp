@@ -40,6 +40,21 @@ describe("the refusals the Host can send", () => {
     expect(explain(error)).toBe("The Host has no Addon position 3 — it is configured with 3.");
   });
 
+  test("a refused subtitle colour and size say what the Host takes instead", () => {
+    const colour = asActionError({
+      kind: "invalid_subtitle_color",
+      color: "#FFFFF",
+    });
+    expect(explain(colour)).toBe(
+      '"#FFFFF" is not a subtitle colour — a colour is "#RRGGBB", like "#FFFF00".',
+    );
+
+    const scale = asActionError({ kind: "invalid_subtitle_scale", scale: "2.5" });
+    expect(explain(scale)).toBe(
+      '"2.5" is not a subtitle size — a size is between 0.5 and 2.0.',
+    );
+  });
+
   test("a kind that is not one of the Host's stays unreachable", () => {
     expect(asActionError({ kind: "something_new" })).toEqual({
       kind: "unreachable",
