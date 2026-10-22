@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { StrictMode } from "react";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import {
   HostClient,
@@ -10,42 +10,24 @@ import {
   type Snapshot,
   type Transport,
 } from "../host-client";
+import {
+  fakeWindowState,
+  installTauriRuntime,
+  removeTauriRuntime,
+  resetFakeWindow,
+} from "./tauriWindow.testing";
 import { Shell } from "./Shell";
 import { OSD_IDLE_MS } from "./useOsdVisibility";
 
 /**
- * The Tauri window the player tests hold. There is one fact, the calls that
- * changed it, and the resize handlers the shell subscribed; the module mocks
- * `@tauri-apps/api/window` with it so fullscreen can be walked in jsdom.
+ * The Tauri window the player tests hold lives in `tauriWindow.testing`, so the
+ * hook's own tests and these share one fake; the module mock points the Tauri
+ * window API at it so fullscreen can be walked in jsdom.
  */
-const hostWindow = vi.hoisted(() => {
-  const state = {
-    fullscreen: false,
-    calls: [] as boolean[],
-    resized: new Set<() => void>(),
-  };
-
-  return {
-    state,
-    window: {
-      isFullscreen: async () => state.fullscreen,
-      setFullscreen: async (next: boolean) => {
-        state.fullscreen = next;
-        state.calls.push(next);
-      },
-      onResized: async (handler: () => void) => {
-        state.resized.add(handler);
-        return () => {
-          state.resized.delete(handler);
-        };
-      },
-    },
-  };
+vi.mock("@tauri-apps/api/window", async () => {
+  const fake = await import("./tauriWindow.testing");
+  return { getCurrentWindow: () => fake.fakeTauriWindow };
 });
-
-vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: () => hostWindow.window,
-}));
 
 const NOTHING_SAID: Snapshot = {
   revision: 0,
@@ -328,13 +310,16 @@ const PAD_TIMERS: {
   toFake: ["setTimeout", "clearTimeout", "requestAnimationFrame", "cancelAnimationFrame"],
 };
 
+beforeEach(() => {
+  resetFakeWindow();
+  installTauriRuntime();
+});
+
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
   Reflect.deleteProperty(navigator, "getGamepads");
-  hostWindow.state.fullscreen = false;
-  hostWindow.state.calls.length = 0;
-  hostWindow.state.resized.clear();
+  removeTauriRuntime();
 });
 
 describe("the player OSD", () => {
@@ -757,12 +742,12 @@ describe("the player OSD", () => {
       expect(screen.getByTestId("fullscreen")).toHaveAccessibleName("Exit full screen"),
     );
     expect(screen.getByTestId("fullscreen")).toHaveAttribute("aria-pressed", "true");
-    expect(hostWindow.state.calls).toEqual([true]);
+    expect(fakeWindowState().calls).toEqual([true]);
   });
 
   test("F11 is the window's from the player, and a held key is one press", async () => {
     await renderPlayer();
-    await waitFor(() => expect(hostWindow.state.resized.size).toBe(1));
+    await waitFor(() => expect(fakeWindowState().resized.size).toBe(1));
     expect(screen.getByTestId("fullscreen")).toHaveAccessibleName("Full screen");
 
     let taken = false;
@@ -781,7 +766,7 @@ describe("the player OSD", () => {
         "Exit full screen",
       ),
     );
-    expect(hostWindow.state.calls).toEqual([true]);
+    expect(fakeWindowState().calls).toEqual([true]);
 
     let heldTaken = false;
     await act(async () => {
@@ -795,7 +780,7 @@ describe("the player OSD", () => {
       heldTaken = event.defaultPrevented;
     });
     expect(heldTaken, "a held key is not a second press").toBe(false);
-    expect(hostWindow.state.calls).toEqual([true]);
+    expect(fakeWindowState().calls).toEqual([true]);
 
     await act(async () => {
       window.dispatchEvent(
@@ -805,12 +790,12 @@ describe("the player OSD", () => {
     await waitFor(() =>
       expect(screen.getByTestId("fullscreen")).toHaveAccessibleName("Full screen"),
     );
-    expect(hostWindow.state.calls).toEqual([true, false]);
+    expect(fakeWindowState().calls).toEqual([true, false]);
   });
 
   test("Stop leaves the window fullscreen, and the browsing chrome says so", async () => {
     const host = await renderPlayer();
-    await waitFor(() => expect(hostWindow.state.resized.size).toBe(1));
+    await waitFor(() => expect(fakeWindowState().resized.size).toBe(1));
 
     fireEvent.click(screen.getByTestId("fullscreen"));
     await waitFor(() =>
@@ -838,7 +823,18 @@ describe("the player OSD", () => {
     await waitFor(() =>
       expect(screen.getByTestId("window-fullscreen")).toHaveAccessibleName("Full screen"),
     );
-    expect(hostWindow.state.calls).toEqual([true, false]);
+    expect(fakeWindowState().calls).toEqual([true, false]);
+  });
+
+  test("without a Tauri window the OSD draws no fullscreen control", async () => {
+    removeTauriRuntime();
+    await renderPlayer();
+
+    expect(
+      screen.queryByTestId("fullscreen"),
+      "a button that cannot work is worse than no button",
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("stop"), "Stop is still the top row's control").toBeInTheDocument();
   });
 
   test("an ended Stream offers no menu and the after-end episode step", async () => {

@@ -1,3 +1,4 @@
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useSyncExternalStore } from "react";
 
 /**
@@ -12,9 +13,15 @@ import { useSyncExternalStore } from "react";
  * kept its own boolean showed the wrong label after a window-level change
  * (#125).
  *
- * A browser or a test has no Tauri window. `getCurrentWindow()` throws there,
- * so every call is a no-op, nothing is ever believed fullscreen, and the
- * Remote client keeps its own browser's F11.
+ * Whether there is a Tauri window at all is answered synchronously, from the
+ * runtime's own global (`window.__TAURI_INTERNALS__`, which Tauri v2 injects
+ * before the page runs). That is what makes `supported` true on the first
+ * render and on a remount, so a control is drawn at once and F11 is bound at
+ * once rather than waiting for the first read. A plain browser — Vite's dev
+ * window, a test — has no such global: it is never supported, is never
+ * believed fullscreen, and keeps the F11 its browser gives it. The served
+ * Remote page is a different client in a different browser tab; this module
+ * never runs there.
  */
 
 type FullscreenState = {
@@ -24,32 +31,60 @@ type FullscreenState = {
   supported: boolean;
 };
 
+declare global {
+  interface Window {
+    /** Tauri v2's runtime bridge; its presence is what makes this a Host window. */
+    __TAURI_INTERNALS__?: unknown;
+  }
+}
+
+/** Whether this page is a Tauri window, answered without awaiting the API. */
+function hasTauriRuntime(): boolean {
+  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+}
+
 /** What subscribers read. Replaced, never mutated, so React can compare. */
-let state: FullscreenState = { fullscreen: false, supported: false };
+let state: FullscreenState = { fullscreen: false, supported: hasTauriRuntime() };
 const listeners = new Set<() => void>();
 
 /**
- * The watch and the number that makes an old one stale. A subscription can
+ * The watch and the stamp that makes an old one stale. A subscription can
  * start and stop faster than `isFullscreen()` answers (React's StrictMode does
  * exactly that), and a late answer must not move a window nobody is watching.
  */
 let generation = 0;
 let unlisten: (() => void) | null = null;
 
+/**
+ * Merge a partial fact into the whole state and wake subscribers only when
+ * something moved. The comparison has to be against the merged state: a
+ * partial that leaves a field out must not read as a change to it, or every
+ * `onResized` would publish — and re-render both controls — with the same
+ * values (`supported` was the field that always looked different).
+ */
 function publish(next: Partial<FullscreenState>): void {
-  if (next.fullscreen === state.fullscreen && next.supported === state.supported) {
+  const merged = { ...state, ...next };
+  if (merged.fullscreen === state.fullscreen && merged.supported === state.supported) {
     return;
   }
-  state = { ...state, ...next };
+  state = merged;
   for (const listener of [...listeners]) {
     listener();
   }
 }
 
-/** The Host's window, or null where there is no Tauri runtime. */
-async function hostWindow() {
+/**
+ * The Host's window, or null where there is no Tauri runtime.
+ *
+ * The synchronous check comes first, so a plain browser never reaches the Tauri
+ * API at all; on a Host window the call is the window's constructor, which is
+ * cheap and happens once per read.
+ */
+function hostWindow(): ReturnType<typeof getCurrentWindow> | null {
+  if (!hasTauriRuntime()) {
+    return null;
+  }
   try {
-    const { getCurrentWindow } = await import("@tauri-apps/api/window");
     return getCurrentWindow();
   } catch {
     return null;
@@ -57,46 +92,50 @@ async function hostWindow() {
 }
 
 /** Read the fact again; a window that refuses leaves the last one standing. */
-async function refresh(watching: number): Promise<void> {
-  const host = await hostWindow();
-  if (!host || watching !== generation) {
+async function refresh(watchGeneration: number): Promise<void> {
+  const host = hostWindow();
+  if (!host || watchGeneration !== generation) {
     return;
   }
   try {
     const fullscreen = await host.isFullscreen();
-    if (watching === generation) {
+    if (watchGeneration === generation) {
       publish({ fullscreen });
     }
   } catch {
-    // Not a Tauri window after all: a browser's own state is not ours to move.
+    // The window refused this read; the last fact stands.
   }
 }
 
 async function watch(): Promise<void> {
-  const watching = generation;
-  const host = await hostWindow();
-  if (!host || watching !== generation) {
+  const watchGeneration = generation;
+  const host = hostWindow();
+  if (!host || watchGeneration !== generation) {
     return;
   }
 
-  let first: boolean;
   try {
-    first = await host.isFullscreen();
+    const first = await host.isFullscreen();
+    if (watchGeneration !== generation) {
+      return;
+    }
+    publish({ fullscreen: first });
   } catch {
-    return;
+    // A Tauri window that refuses the read is still a Tauri window: `supported`
+    // stays true, so the controls stay drawn and F11 stays bound. The first
+    // fact is simply unknown until a resize supplies one.
+    if (watchGeneration !== generation) {
+      return;
+    }
   }
-  if (watching !== generation) {
-    return;
-  }
-  publish({ fullscreen: first, supported: true });
 
   try {
     const stop = await host.onResized(() => {
-      if (watching === generation) {
-        void refresh(watching);
+      if (watchGeneration === generation) {
+        void refresh(watchGeneration);
       }
     });
-    if (watching === generation) {
+    if (watchGeneration === generation) {
       unlisten = stop;
     } else {
       stop();
@@ -107,11 +146,15 @@ async function watch(): Promise<void> {
 }
 
 function subscribe(listener: () => void): () => void {
-  listeners.add(listener);
-  if (listeners.size === 1) {
+  if (listeners.size === 0) {
+    // A fresh watch cycle starts from what the page says now: the synchronous
+    // runtime check is the first render's answer, and a remount must not trust
+    // a fact — or a support claim — from before an unmount.
     generation += 1;
+    publish({ fullscreen: false, supported: hasTauriRuntime() });
     void watch();
   }
+  listeners.add(listener);
   return () => {
     listeners.delete(listener);
     if (listeners.size > 0) {
@@ -122,7 +165,7 @@ function subscribe(listener: () => void): () => void {
     generation += 1;
     unlisten?.();
     unlisten = null;
-    state = { fullscreen: false, supported: false };
+    publish({ fullscreen: false, supported: hasTauriRuntime() });
   };
 }
 
@@ -132,16 +175,19 @@ function subscribe(listener: () => void): () => void {
  * fact rather than the wish.
  */
 export async function toggleFullscreen(): Promise<void> {
-  const host = await hostWindow();
+  if (!hasTauriRuntime()) {
+    return;
+  }
+  const host = hostWindow();
   if (!host) {
     return;
   }
   try {
     const next = !(await host.isFullscreen());
     await host.setFullscreen(next);
-    publish({ fullscreen: await host.isFullscreen(), supported: true });
+    publish({ fullscreen: await host.isFullscreen() });
   } catch {
-    // Not a Tauri window, or the window refused: there is nothing to show.
+    // The window refused: there is nothing new to show.
   }
 }
 

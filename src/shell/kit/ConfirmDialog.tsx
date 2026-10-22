@@ -23,6 +23,14 @@ export type ConfirmDialogProps = {
  * on the level stack: the shell owns the focus trap, Back and focus
  * restoration, and the primitive only paints the question, its two answers and
  * the initial focus on the safe answer.
+ *
+ * One deliberate exception to `aria-modal`: the window's fullscreen chrome is
+ * drawn by the shell above this dialog's scrim (z-index 45 against the scrim's
+ * 40) and stays reachable while the question is open. It is the shell's
+ * control, outside the dialog's own content, and a fullscreen window must keep
+ * a way out of itself (#125). The dialog's own controls remain trapped: the
+ * exception is that one shell control and nothing else — anything the question
+ * needs belongs inside it.
  */
 export function ConfirmDialog({
   title,

@@ -1,3 +1,4 @@
+import { FullscreenButton } from "./FullscreenButton";
 import { useFullscreen } from "./useFullscreen";
 
 /**
@@ -15,10 +16,16 @@ import { useFullscreen } from "./useFullscreen";
  * click meant for the content underneath. `pointer-events: none` on the strip
  * and `auto` on the button is the CSS half of that promise; the button is still
  * a normal focus target.
+ *
+ * A page with no Tauri window — a plain browser, a test — draws no strip at
+ * all: there is no window state to change, and the control would be a button
+ * that cannot work.
  */
 export function WindowChrome() {
-  const { fullscreen, toggle } = useFullscreen();
-  const label = fullscreen ? "Exit full screen" : "Full screen";
+  const { supported } = useFullscreen();
+  if (!supported) {
+    return null;
+  }
 
   return (
     <div
@@ -28,35 +35,10 @@ export function WindowChrome() {
       data-kind="row"
       data-label="Window"
     >
-      <button
-        type="button"
+      <FullscreenButton
         className="shell-window-chrome-button kit-focus-invert"
-        data-focusable
-        data-testid="window-fullscreen"
-        aria-label={label}
-        aria-pressed={fullscreen}
-        title={label}
-        onClick={() => void toggle()}
-      >
-        <FullscreenIcon exit={fullscreen} />
-      </button>
+        testId="window-fullscreen"
+      />
     </div>
-  );
-}
-
-/**
- * The one fullscreen mark. The shell's chrome and the player's OSD draw the
- * same icon, so leaving and entering fullscreen look the same wherever the
- * control is.
- */
-export function FullscreenIcon({ exit }: { exit: boolean }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
-      {exit ? (
-        <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
-      ) : (
-        <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
-      )}
-    </svg>
   );
 }

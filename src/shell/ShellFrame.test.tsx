@@ -1,19 +1,38 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { ConfirmDialog } from "./kit";
 import { ShellFrame } from "./ShellFrame";
 import type { ShellLevel } from "./navigation";
+import kitCss from "./kit/kit.css?raw";
 import shellCss from "./shell.css?raw";
+import {
+  fakeWindowState,
+  installTauriRuntime,
+  removeTauriRuntime,
+  resetFakeWindow,
+} from "./tauriWindow.testing";
+
+vi.mock("@tauri-apps/api/window", async () => {
+  const fake = await import("./tauriWindow.testing");
+  return { getCurrentWindow: () => fake.fakeTauriWindow };
+});
+
+beforeEach(() => {
+  resetFakeWindow();
+  installTauriRuntime();
+});
 
 afterEach(() => {
+  removeTauriRuntime();
   vi.restoreAllMocks();
 });
 
 /** One CSS rule's declarations, by its exact selector. */
-function declarationsOf(selector: string): string {
+function declarationsOf(selector: string, css = shellCss): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return shellCss.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
+  return css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
 }
 
 /**
@@ -210,7 +229,7 @@ describe("the shell frame", () => {
 
     const base = container.querySelector<HTMLElement>(".shell-base");
     expect(base).not.toBeNull();
-    const chrome = within(base as HTMLElement).getByTestId("window-chrome");
+    const chrome = await within(base as HTMLElement).findByTestId("window-chrome");
     expect(chrome, "the strip is its own focus region").toHaveAttribute(
       "data-region",
       "window",
@@ -231,7 +250,7 @@ describe("the shell frame", () => {
       return found as HTMLElement;
     });
 
-    expect(within(level).getByTestId("window-chrome")).toBeInTheDocument();
+    expect(await within(level).findByTestId("window-chrome")).toBeInTheDocument();
     expect(within(level).getByRole("button", { name: "Full screen" })).toBeInTheDocument();
     expect(
       container.querySelectorAll('[data-testid="window-chrome"]'),
@@ -239,11 +258,81 @@ describe("the shell frame", () => {
     ).toHaveLength(1);
   });
 
+  test("a confirm dialog keeps the window control, because a fullscreen window must have a way out", async () => {
+    const levels: ShellLevel[] = [
+      {
+        id: "confirm",
+        name: "Remove the Addon",
+        kind: "overlay",
+        render: () => (
+          <ConfirmDialog
+            title="Remove Example?"
+            confirmLabel="Remove"
+            danger
+            onConfirm={() => {}}
+            onCancel={() => {}}
+            testId="confirm-remove"
+          />
+        ),
+      },
+    ];
+    render(
+      <ShellFrame
+        destination="addons"
+        onChooseDestination={() => {}}
+        levels={levels}
+        onBack={() => {}}
+        screen={<div>Addons</div>}
+      />,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Remove Example?" });
+    const chrome = await screen.findByTestId("window-chrome");
+    expect(
+      chrome,
+      "the shell draws the window's way out above the dialog's scrim",
+    ).toBeInTheDocument();
+    expect(
+      dialog,
+      "it is the shell's control outside the dialog's own content, not one of the answers",
+    ).not.toContainElement(within(chrome).getByTestId("window-fullscreen"));
+    expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+  });
+
+  test("a Tauri window whose first read refuses still draws the control and takes F11", async () => {
+    fakeWindowState().fail = true;
+    harness();
+
+    const chrome = await screen.findByTestId("window-chrome");
+    expect(chrome).toBeInTheDocument();
+
+    const event = new KeyboardEvent("keydown", {
+      key: "F11",
+      bubbles: true,
+      cancelable: true,
+    });
+    window.dispatchEvent(event);
+    expect(event.defaultPrevented, "the key is still the window's").toBe(true);
+  });
+
   test("the player level takes the window control away: its OSD has its own", () => {
     render(<PlayerHarness />);
 
     expect(screen.queryByTestId("window-chrome")).not.toBeInTheDocument();
     expect(screen.queryByTestId("window-fullscreen")).not.toBeInTheDocument();
+  });
+
+  test("a plain browser draws no window control: there is no window state to change", async () => {
+    removeTauriRuntime();
+    harness();
+
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Home" })).toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByTestId("window-chrome"),
+      "the strip is not in the focus model either",
+    ).not.toBeInTheDocument();
   });
 
   test("Up from a top-row card lands on the window control, and the rail's top item stops", async () => {
@@ -265,6 +354,7 @@ describe("the shell frame", () => {
   });
 
   test("F11 stays the browser's outside the native window", async () => {
+    removeTauriRuntime();
     harness();
     await waitFor(() => expect(document.activeElement).not.toBeNull());
 
@@ -275,16 +365,31 @@ describe("the shell frame", () => {
     });
     window.dispatchEvent(event);
 
-    expect(event.defaultPrevented, "the Remote's F11 is its browser's").toBe(false);
+    expect(event.defaultPrevented, "a browser's F11 is its own").toBe(false);
   });
 
-  test("the strip spans the top edge and leaves the pointer to its button", () => {
+  test("the strip spans the top edge, is the band the geometry measures, and leaves the pointer to its button", () => {
     const strip = declarationsOf(".shell-window-chrome");
     expect(strip).toMatch(/position:\s*fixed/);
     expect(strip, "full width: the strip is where Up lands from anywhere along the row").toMatch(
       /left:\s*0/,
     );
     expect(strip).toMatch(/right:\s*0/);
+    expect(
+      strip,
+      "56px: the height `layOutShell` fabricates for the window region and the Windows walkthrough stands on",
+    ).toMatch(/height:\s*56px/);
+    expect(strip, "above the dialog scrim, so the way out survives a confirmation").toMatch(
+      /z-index:\s*45/,
+    );
+    expect(
+      declarationsOf(".kit-dialog-scrim", kitCss),
+      "the scrim the chrome deliberately sits above: change one and the pair must be re-checked",
+    ).toMatch(/z-index:\s*40/);
+    expect(
+      declarationsOf(".shell-rail"),
+      "the rail starts 18px down, inside the strip's band: its Up must still stop",
+    ).toMatch(/top:\s*18px/);
     expect(strip, "a click over the content goes through the strip").toMatch(
       /pointer-events:\s*none/,
     );

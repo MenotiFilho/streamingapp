@@ -142,10 +142,16 @@ body.picture-behind .shell-base {
   top: 0;
   right: 0;
   left: 0;
-  /* Above a dialog's scrim (40) — the window's way out is drawn on dialogs too
-     — and above the rail on the base. A pushed level is its own stacking
-     context (40), so the frame keeps only one of these mounted at a time. */
+  /* Above a dialog's scrim (`.kit-dialog-scrim`, 40) — the window's way out is
+     drawn on dialogs too — and above the rail on the base. A pushed level is
+     its own stacking context (40), so the frame keeps only one of these
+     mounted at a time. Keep the pair in step: the scrim has to sit below this
+     for the chrome to stay reachable, and the shell frame test asserts both. */
   z-index: 45;
+  /* The band the focus model and the Windows walkthrough stand on: 8px above
+     and below the 40px button. Stated rather than left to the padding's
+     arithmetic, because the D-pad and the geometry tests measure this box. */
+  height: 56px;
   display: flex;
   align-items: flex-start;
   justify-content: flex-end;

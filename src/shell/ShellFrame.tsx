@@ -43,18 +43,21 @@ export function ShellFrame({
   const takeover = playerIndex >= 0;
   const topIndex = levels.length - 1;
   const { supported } = useFullscreen();
-  const fullscreenAvailable = useRef(supported);
-  fullscreenAvailable.current = supported;
 
   // F11 belongs to the window, not to the shell's intent table: it works from
   // Home, Settings, a Title, a dialog, and inside the player with the OSD away,
   // and it is no key a screen can consume. One handler for the whole window;
-  // a held key is one press. A browser — which is what the Remote client is —
-  // keeps its own F11, so the key is only taken when there is a Tauri window to
-  // change.
+  // a held key is one press. `supported` is the synchronous Tauri check, so the
+  // handler binds on the first render — and stays bound when the first read is
+  // refused. A plain browser (Vite's dev window, a test) has no window to
+  // change and keeps its own F11; the served Remote page is a separate client
+  // and never runs this code.
   useEffect(() => {
+    if (!supported) {
+      return;
+    }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "F11" || event.repeat || !fullscreenAvailable.current) {
+      if (event.key !== "F11" || event.repeat) {
         return;
       }
       event.preventDefault();
@@ -63,7 +66,7 @@ export function ShellFrame({
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [supported]);
 
   // A stable ref callback: React only detaches a callback ref when its identity
   // changes, so the level nodes stay in the map across ordinary renders.

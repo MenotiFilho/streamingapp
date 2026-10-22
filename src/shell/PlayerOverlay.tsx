@@ -26,6 +26,7 @@ import type { Intent } from "../input";
 import { formatTime, playingName, transportable } from "../playback";
 import { labelOf } from "../title";
 import { useShell } from "./context";
+import { FullscreenButton } from "./FullscreenButton";
 import { Button } from "./kit";
 import { FOCUSABLE } from "./layout";
 import { Refusal } from "./Refusal";
@@ -42,9 +43,7 @@ import {
   osdPopoverLevel,
   type OsdPopoverName,
 } from "./PlayerPopovers";
-import { useFullscreen } from "./useFullscreen";
 import { useOsdVisibility } from "./useOsdVisibility";
-import { FullscreenIcon } from "./WindowChrome";
 import "./osd.css";
 
 /** One press of the pad's volume faces, on the Host's 0–130 scale. */
@@ -503,7 +502,11 @@ export function PlayerOverlay() {
             </div>
 
             <div className="shell-osd-window" data-player-stop="top" ref={top}>
-              <FullscreenButton ref={fullscreen} />
+              <FullscreenButton
+                ref={fullscreen}
+                className="shell-osd-icon kit-focus-invert"
+                testId="fullscreen"
+              />
               <button
                 type="button"
                 className="shell-osd-icon kit-focus-invert"
@@ -861,32 +864,6 @@ function IconButton({
     >
       {children}
     </button>
-  );
-}
-
-/**
- * Put the Host's window into fullscreen, or take it out again, from the OSD.
- *
- * The shell's chrome carries the same shared fact, so the label here follows
- * an F11 press or a window resize too — not only this button's own click. The
- * call is Tauri's own window API; a browser or a test has no window to hold,
- * and the button simply does nothing there.
- */
-function FullscreenButton({ ref }: { ref?: Ref<HTMLButtonElement> }) {
-  const { fullscreen, toggle } = useFullscreen();
-  const label = fullscreen ? "Exit full screen" : "Full screen";
-
-  return (
-    <IconButton
-      ref={ref}
-      testId="fullscreen"
-      label={label}
-      title={label}
-      pressed={fullscreen}
-      onClick={() => void toggle()}
-    >
-      <FullscreenIcon exit={fullscreen} />
-    </IconButton>
   );
 }
 

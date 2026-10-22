@@ -1,89 +1,111 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
+import {
+  fakeWindowState,
+  installTauriRuntime,
+  releaseReads,
+  removeTauriRuntime,
+  resetFakeWindow,
+} from "./tauriWindow.testing";
 import { useFullscreen } from "./useFullscreen";
 
-/**
- * The Tauri window a test can hold: one fact, the calls that changed it, and
- * the resize handlers the app subscribed. `fail` is a browser — `isFullscreen`
- * refuses because there is no Tauri runtime underneath.
- */
-const host = vi.hoisted(() => {
-  const state = {
-    fullscreen: false,
-    fail: false,
-    reads: 0,
-    calls: [] as boolean[],
-    resized: new Set<() => void>(),
-  };
-
-  return {
-    state,
-    window: {
-      isFullscreen: async () => {
-        state.reads += 1;
-        if (state.fail) {
-          throw new Error("there is no Tauri window here");
-        }
-        return state.fullscreen;
-      },
-      setFullscreen: async (next: boolean) => {
-        state.fullscreen = next;
-        state.calls.push(next);
-      },
-      onResized: async (handler: () => void) => {
-        state.resized.add(handler);
-        return () => {
-          state.resized.delete(handler);
-        };
-      },
-    },
-  };
+vi.mock("@tauri-apps/api/window", async () => {
+  const fake = await import("./tauriWindow.testing");
+  return { getCurrentWindow: () => fake.fakeTauriWindow };
 });
 
-vi.mock("@tauri-apps/api/window", () => ({
-  getCurrentWindow: () => host.window,
-}));
+/** Every render of the probe, so "an unchanged read publishes nothing" is visible. */
+let renders = 0;
 
-/** One control that shows the shared fact, so a test can read the label. */
+/**
+ * One control that shows the shared fact, the way the chrome and the OSD's
+ * button do. `data-supported` exposes the other half of the hook so a test can
+ * see whether the page believes there is a window at all.
+ */
 function Probe() {
-  const { fullscreen, toggle } = useFullscreen();
+  renders += 1;
+  const { fullscreen, supported, toggle } = useFullscreen();
   return (
-    <button type="button" onClick={() => void toggle()}>
+    <button
+      type="button"
+      data-supported={supported ? "yes" : "no"}
+      aria-pressed={fullscreen}
+      onClick={() => void toggle()}
+    >
       {fullscreen ? "Exit full screen" : "Full screen"}
     </button>
   );
 }
 
 beforeEach(() => {
-  host.state.fullscreen = false;
-  host.state.fail = false;
-  host.state.reads = 0;
-  host.state.calls.length = 0;
-  host.state.resized.clear();
+  resetFakeWindow();
+  installTauriRuntime();
+  renders = 0;
 });
 
 describe("the window's fullscreen fact", () => {
+  test("a Tauri window is supported before the first read answers, and the read supplies the fact", async () => {
+    // The window is there but its first answer is slow: what a person sees on
+    // launch must not depend on the read's timing.
+    fakeWindowState().hold = true;
+    fakeWindowState().fullscreen = true;
+    render(<Probe />);
+
+    expect(screen.getByRole("button")).toHaveAttribute("data-supported", "yes");
+    expect(screen.getByRole("button")).toHaveAccessibleName("Full screen");
+    // The read has been asked for and is still held: the control was already
+    // there, drawn from the synchronous runtime check.
+    await waitFor(() => expect(fakeWindowState().reads).toBe(1));
+    expect(screen.getByRole("button")).toHaveAccessibleName("Full screen");
+
+    await act(async () => {
+      releaseReads();
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("button")).toHaveAccessibleName("Exit full screen"),
+    );
+  });
+
   test("mounting reads the window, and a resize refreshes it", async () => {
-    host.state.fullscreen = true;
+    fakeWindowState().fullscreen = true;
     render(<Probe />);
 
     await waitFor(() =>
       expect(screen.getByRole("button")).toHaveAccessibleName("Exit full screen"),
     );
-    await waitFor(() => expect(host.state.resized.size).toBe(1));
-    expect(host.state.reads).toBe(1);
+    await waitFor(() => expect(fakeWindowState().resized.size).toBe(1));
+    expect(fakeWindowState().reads).toBe(1);
 
     // A window-level change the button did not ask for — F11 in the native
     // window, or the OS taking the window out again.
-    host.state.fullscreen = false;
+    fakeWindowState().fullscreen = false;
     await act(async () => {
-      for (const handler of [...host.state.resized]) {
+      for (const handler of [...fakeWindowState().resized]) {
         handler();
       }
     });
 
     await waitFor(() => expect(screen.getByRole("button")).toHaveAccessibleName("Full screen"));
+  });
+
+  test("a resize that changed nothing publishes nothing", async () => {
+    render(<Probe />);
+    await waitFor(() => expect(fakeWindowState().resized.size).toBe(1));
+    const settled = renders;
+
+    await act(async () => {
+      for (const handler of [...fakeWindowState().resized]) {
+        handler();
+      }
+    });
+
+    expect(fakeWindowState().reads, "the resize did read the window").toBe(2);
+    expect(
+      renders,
+      "the same fact is not news, so neither control re-renders",
+    ).toBe(settled);
   });
 
   test("toggling asks the window, and reads back what actually happened", async () => {
@@ -92,21 +114,104 @@ describe("the window's fullscreen fact", () => {
 
     fireEvent.click(screen.getByRole("button"));
 
-    await waitFor(() => expect(host.state.calls).toEqual([true]));
+    await waitFor(() => expect(fakeWindowState().calls).toEqual([true]));
     await waitFor(() =>
       expect(screen.getByRole("button")).toHaveAccessibleName("Exit full screen"),
     );
   });
 
-  test("a browser with no Tauri window is a no-op", async () => {
-    host.state.fail = true;
+  test("a window that refuses the change shows the fact, not the wish", async () => {
     render(<Probe />);
+    await waitFor(() => expect(screen.getByRole("button")).toHaveAccessibleName("Full screen"));
 
-    await waitFor(() => expect(host.state.reads).toBe(1));
+    // The click asks for fullscreen; the window says it is still not. The
+    // control must keep saying what the window says.
+    fakeWindowState().stubborn = true;
     fireEvent.click(screen.getByRole("button"));
 
-    expect(host.state.calls).toEqual([]);
+    await waitFor(() => expect(fakeWindowState().calls).toEqual([true]));
+    expect(fakeWindowState().reads).toBeGreaterThanOrEqual(3);
     expect(screen.getByRole("button")).toHaveAccessibleName("Full screen");
-    expect(host.state.resized.size).toBe(0);
+    expect(screen.getByRole("button")).toHaveAttribute("aria-pressed", "false");
+  });
+
+  test("a plain browser is unsupported, draws as such at once, and a click is a no-op", async () => {
+    removeTauriRuntime();
+    render(<Probe />);
+
+    expect(screen.getByRole("button")).toHaveAttribute("data-supported", "no");
+    fireEvent.click(screen.getByRole("button"));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(fakeWindowState().calls).toEqual([]);
+    expect(screen.getByRole("button")).toHaveAccessibleName("Full screen");
+  });
+
+  test("a Tauri window whose first read refuses stays supported", async () => {
+    fakeWindowState().fail = true;
+    render(<Probe />);
+
+    await waitFor(() => expect(fakeWindowState().reads).toBe(1));
+    expect(
+      screen.getByRole("button"),
+      "there is still a window to change, even if it would not say what state it is in",
+    ).toHaveAttribute("data-supported", "yes");
+  });
+
+  test("StrictMode's remount starts over, and a late read from the old watch is discarded", async () => {
+    fakeWindowState().hold = true;
+    const first = render(
+      <StrictMode>
+        <Probe />
+      </StrictMode>,
+    );
+
+    // StrictMode mounts, unmounts and mounts again. Both watches reached the
+    // window before its first answer; only the second one is still wanted.
+    await waitFor(() => expect(fakeWindowState().reads).toBe(2));
+
+    fakeWindowState().fullscreen = true;
+    const [stale] = fakeWindowState().released.splice(0, 1);
+    if (!stale) {
+      throw new Error("the stale read was never held");
+    }
+    await act(async () => {
+      stale();
+    });
+    expect(
+      screen.getByRole("button"),
+      "the discarded watch's answer moved nothing",
+    ).toHaveAccessibleName("Full screen");
+    expect(
+      fakeWindowState().resized.size,
+      "and it did not even stay to listen for resizes",
+    ).toBe(0);
+
+    await act(async () => {
+      releaseReads();
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("button")).toHaveAccessibleName("Exit full screen"),
+    );
+    expect(fakeWindowState().resized.size).toBe(1);
+
+    // The last unsubscribe resets the store, so the next mount starts from the
+    // window rather than from the fact it was holding.
+    first.unmount();
+    render(<Probe />);
+    expect(
+      screen.getByRole("button"),
+      "a remount does not trust the fact from before the unmount",
+    ).toHaveAccessibleName("Full screen");
+    await waitFor(() => expect(fakeWindowState().reads).toBe(3));
+
+    await act(async () => {
+      releaseReads();
+    });
+    await waitFor(() =>
+      expect(screen.getByRole("button")).toHaveAccessibleName("Exit full screen"),
+    );
   });
 });
