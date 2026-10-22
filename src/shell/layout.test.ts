@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { firstFocusable, focusOf, readLevel, type Measure } from "./layout";
+import { firstFocusable, focusOf, readLevel, regionKind, type Measure } from "./layout";
 
 const measure: Measure = (element) => {
   const [x, y, w, h] = (element.getAttribute("data-rect") ?? "0,0,0,0")
@@ -28,6 +28,18 @@ function level(): HTMLElement {
   `;
   return root;
 }
+
+describe("the kind a region declares", () => {
+  test("keeps the scoped kinds and treats an unknown spelling as a row", () => {
+    expect(regionKind("rail")).toBe("rail");
+    expect(regionKind("branch")).toBe("branch");
+    expect(regionKind("row")).toBe("row");
+    expect(regionKind("window")).toBe("window");
+    expect(regionKind("dialog")).toBe("dialog");
+    expect(regionKind(null)).toBe("row");
+    expect(regionKind("table")).toBe("row");
+  });
+});
 
 describe("reading a level's geometry from the DOM", () => {
   test("reads the regions, their parent and children, and the controls in each", () => {

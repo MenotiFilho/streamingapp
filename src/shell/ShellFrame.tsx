@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, type ReactNode } from "react";
 
 import { Rail } from "./Rail";
 import type { Destination, ShellLevel } from "./navigation";
+import { toggleFullscreen, useFullscreen } from "./useFullscreen";
 import { useSpatialFocus } from "./useSpatialFocus";
+import { WindowChrome } from "./WindowChrome";
 
 export type ShellFrameProps = {
   /** The base screen a person chose from the rail. */
@@ -40,6 +42,31 @@ export function ShellFrame({
   const playerIndex = levels.findIndex((level) => level.kind === "player");
   const takeover = playerIndex >= 0;
   const topIndex = levels.length - 1;
+  const { supported } = useFullscreen();
+
+  // F11 belongs to the window, not to the shell's intent table: it works from
+  // Home, Settings, a Title, a dialog, and inside the player with the OSD away,
+  // and it is no key a screen can consume. One handler for the whole window;
+  // a held key is one press. `supported` is the synchronous Tauri check, so the
+  // handler binds on the first render — and stays bound when the first read is
+  // refused. A plain browser (Vite's dev window, a test) has no window to
+  // change and keeps its own F11; the served Remote page is a separate client
+  // and never runs this code.
+  useEffect(() => {
+    if (!supported) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "F11" || event.repeat) {
+        return;
+      }
+      event.preventDefault();
+      void toggleFullscreen();
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [supported]);
 
   // A stable ref callback: React only detaches a callback ref when its identity
   // changes, so the level nodes stay in the map across ordinary renders.
@@ -102,6 +129,10 @@ export function ShellFrame({
             {screen}
           </div>
         </main>
+        {/* The base's own window control, while it is the surface on top. A
+            pushed level draws its own; the player level draws none, because its
+            OSD carries the same button over the picture. */}
+        {levels.length === 0 ? <WindowChrome /> : null}
       </div>
 
       {levels.map((level, index) => (
@@ -120,6 +151,7 @@ export function ShellFrame({
           inert={index < topIndex ? true : undefined}
         >
           {level.render()}
+          {index === topIndex && !takeover ? <WindowChrome /> : null}
         </div>
       ))}
     </div>

@@ -14,10 +14,16 @@
  *   overlaps the origin on the cross axis is entered before any sibling is
  *   considered — a branch's Back sits above the rows it leads to;
  * - between regions, focus crosses only to a sibling strictly in the direction
- *   that overlaps the origin on the cross axis (`gap <= ALIGNED`), so a short
- *   row cannot leak diagonally into a wider one below;
- * - entering a region lands on the item under the origin's middle, or the
- *   region's head when the origin is wider than the whole target;
+ *   from the control and overlapping the band the control sits in on the cross
+ *   axis (`gap <= ALIGNED`), so a short row cannot leak diagonally into a wider
+ *   one below; the window's strip is the one kind allowed to speak for its full
+ *   width, which is what reaches the dialog centred under its one button at the
+ *   right, and no other region's box widens that guard;
+ * - entering a region lands on the item under the origin's middle, the
+ *   region's head when what came from is wider than the whole target, and
+ *   otherwise the nearest — except a dialog with nothing under the origin,
+ *   which lands on its head (the safe answer) rather than whichever answer is
+ *   nearest;
  * - every edge stops: no wrap at a row's or the rail's end, and Up off the top
  *   of the content goes nowhere;
  * - a control that disappears steps focus back to the control before the gap,
@@ -40,11 +46,18 @@ export type Rect = { x: number; y: number; w: number; h: number };
 /** Which of the four directions a person asked for. */
 export type Direction = "up" | "down" | "left" | "right";
 
-/** Which kind of region this is; only a rail and a row have walls of their own. */
-export type RegionKind = "rail" | "row" | "branch";
+/**
+ * Which kind of region this is. Only a rail and a row have walls of their own;
+ * a window is the strip that carries the window's control, and a dialog is the
+ * panel that asks a question. Those two kinds carry the scoped crossing rules:
+ * only the strip's full-width box speaks for the cross-axis guard, and only a
+ * dialog gets the safe-head landing when nothing in it lies under the origin.
+ */
+export type RegionKind = "rail" | "row" | "branch" | "window" | "dialog";
 
 /**
- * One region of a level: the rail, a row, or a branch that holds others.
+ * One region of a level: the rail, a row, a branch that holds others, the
+ * window's strip, or a dialog panel.
  *
  * A branch may hold focusable controls of its own as well as children — the
  * Streams level's Back sits above its Addon groups, and a Title's Back above
@@ -199,15 +212,18 @@ export function nearest(from: Rect, rects: readonly Rect[], direction: Direction
 
 /**
  * The nearest region among `ids` that lies strictly in the direction and
- * overlaps `from` on the other axis: the guard both a crossing to a sibling and
+ * overlaps `band` on the other axis: the guard both a crossing to a sibling and
  * a descent into a child use, so a short row cannot leak diagonally into a
- * wider one and a child off to the side is not entered.
+ * wider one and a child off to the side is not entered. The step is always
+ * taken from the focused control; `band` says which line across it counts, and
+ * defaults to the control itself.
  */
 function overlappingInDirection(
   regions: Record<string, Region>,
   ids: readonly string[],
   from: Rect,
   direction: Direction,
+  band: Rect = from,
 ): Region | null {
   let best: Region | null = null;
   let bestStep = 0;
@@ -220,7 +236,7 @@ function overlappingInDirection(
     if (ahead <= MIN_STEP) {
       continue;
     }
-    if (gap(from, candidate.rect, direction) > ALIGNED) {
+    if (gap(band, candidate.rect, direction) > ALIGNED) {
       continue;
     }
     if (!best || ahead < bestStep) {
@@ -232,12 +248,47 @@ function overlappingInDirection(
   return best;
 }
 
-/** A sibling region we may cross into this way, under the overlap guard. */
+/**
+ * The line a control in the window's strip sits in: that strip's own full-width
+ * box, when the box really holds the control. Only the window kind may widen
+ * the cross-axis guard this way — its one button at the right must still reach
+ * a dialog centred below (#125). A row or branch never gets this, so a wide
+ * box cannot leak into a sibling that is off to the side of the control, which
+ * is the anti-leak guard #51 locked. A strip with no box (an unmeasured page),
+ * or a measured box drawn tighter than the control, leaves the control as its
+ * own line instead of claiming a band it never drew.
+ */
+function windowBand(region: Region, from: Rect): Rect {
+  if (region.kind !== "window") {
+    return from;
+  }
+  const box = region.rect;
+  const holds =
+    box.w > 0 &&
+    box.h > 0 &&
+    box.x <= from.x &&
+    box.y <= from.y &&
+    box.x + box.w >= from.x + from.w &&
+    box.y + box.h >= from.y + from.h;
+  return holds ? box : from;
+}
+
+/**
+ * A sibling region we may cross into this way, under the overlap guard.
+ *
+ * The direction is the control's: the move starts where its focus is. The
+ * alignment is the band's: for the window's strip that is the strip itself, the
+ * line a person is on, and a full-width strip reaches the dialog centred under
+ * it even though the strip's one button at the right does not (#125). Every
+ * other kind is guarded by the control alone, so a wide row or branch cannot
+ * widen the wall this guard exists for.
+ */
 function siblingInDirection(
   regions: Record<string, Region>,
   region: Region,
   from: Rect,
   direction: Direction,
+  band: Rect,
 ): Region | null {
   const parent = region.parent ? regions[region.parent] : undefined;
   if (!parent) {
@@ -249,6 +300,7 @@ function siblingInDirection(
     parent.children.filter((id) => id !== region.id),
     from,
     direction,
+    band,
   );
 }
 
@@ -334,6 +386,7 @@ const LANDED = {
   aligned: "the card under your middle",
   nearest: "the nearest card — nothing lined up",
   head: "the region's head — what you came from is wider than the whole region",
+  outside: "the region's head — nothing in it lies under you",
   memory: "the region's memory",
 } as const;
 
@@ -364,6 +417,17 @@ function enter(
   const under = covering(from, region.itemRects, direction);
   if (under >= 0) {
     return { index: under, how: "aligned" };
+  }
+  // A dialog is the one region with a safe landing when nothing in it lies
+  // under the control at all: the chrome's one button above a centred panel is
+  // not above either answer, and the nearest would be whichever answer happens
+  // to be on that side — on a destructive question, often the dangerous one.
+  // Every other region keeps the locked nearest/covering geometry (#51).
+  if (
+    region.kind === "dialog" &&
+    !region.itemRects.some((item) => gap(from, item, direction) <= ALIGNED)
+  ) {
+    return { index: 0, how: "outside" };
   }
   const lined = nearest(from, region.itemRects, direction);
   if (lined >= 0) {
@@ -464,10 +528,12 @@ export function decideMove(
     };
   }
 
-  // 3. Out to a sibling, if one overlaps us across the way.
+  // 3. Out to a sibling, if one hosts us across the way. The direction comes
+  //    from the control; only the window's strip speaks for its full width.
+  const band = windowBand(region, from);
   let node = region;
   while (node.parent) {
-    const sibling = siblingInDirection(layout.regions, node, from, direction);
+    const sibling = siblingInDirection(layout.regions, node, from, direction, band);
     if (sibling) {
       const target = land(layout, sibling, from, direction, rules);
       return {
