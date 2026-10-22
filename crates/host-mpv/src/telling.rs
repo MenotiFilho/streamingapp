@@ -325,20 +325,32 @@ mod tests {
 
     #[test]
     fn the_appearance_tellings_do_not_override_a_files_own_styling() {
-        // `sub-ass-override=force` would recolour an ASS track, and would also
-        // replace its authored fonts and typesetting. The appearance is a
-        // preference about the colour and size only (ADR-0024).
-        let cases = [
+        // The colour and the size are the two properties the Host sets. It
+        // deliberately never sets `sub-ass-override`: `force` would recolour an
+        // ASS track and replace its authored fonts and typesetting (ADR-0024).
+        assert_eq!(
+            command(&Telling::SubtitleColor(
+                host_core::SubtitleColor::parse("#FFCC00").expect("a subtitle colour"),
+            )),
+            ("set", vec!["sub-color".to_owned(), "#FFCC00".to_owned()])
+        );
+        assert_eq!(
+            command(&Telling::SubtitleScale(
+                host_core::SubtitleScale::parse(1.25).expect("a subtitle size")
+            )),
+            ("set", vec!["sub-scale".to_owned(), "1.25".to_owned()])
+        );
+
+        for telling in [
             Telling::SubtitleColor(
                 host_core::SubtitleColor::parse("#FFCC00").expect("a subtitle colour"),
             ),
             Telling::SubtitleScale(host_core::SubtitleScale::parse(1.25).expect("a subtitle size")),
-        ];
-        for telling in cases {
-            let (_, arguments) = command(&telling);
-            assert_ne!(
-                arguments.first().map(String::as_str),
-                Some("sub-ass-override"),
+        ] {
+            let (name, arguments) = command(&telling);
+            assert!(
+                !(name == "set"
+                    && arguments.first().map(String::as_str) == Some("sub-ass-override")),
                 "{telling:?} must not force the file's own styling"
             );
         }

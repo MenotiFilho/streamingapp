@@ -3,7 +3,6 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ASPECTS,
   DELAY_STEP,
-  SCALE_STEP,
   SPEEDS,
   aspectSelected,
   chapterLabel,
@@ -38,10 +37,11 @@ export type OsdPopoverAnchor = { left: number; right: number };
 
 type MenuProps = {
   playback: PlaybackSnapshot;
-  /** The size the Host draws subtitles at, which the Subtitles menu steps. */
-  subtitleScale: number;
   take: (action: Action) => Promise<unknown>;
 };
+
+/** The Subtitles menu alone needs the size the Host draws subtitles at. */
+type SubtitlesMenuProps = MenuProps & { subtitleScale: number };
 
 const LABELS: Record<OsdPopoverName, string> = {
   picture: "Picture",
@@ -70,9 +70,8 @@ const SIDES: Record<OsdPopoverName, "start" | "end"> = {
   chapters: "end",
 };
 
-const MENUS: Record<OsdPopoverName, (props: MenuProps) => ReactNode> = {
+const MENUS: Record<Exclude<OsdPopoverName, "subtitles">, (props: MenuProps) => ReactNode> = {
   picture: (props) => <PictureMenu {...props} />,
-  subtitles: (props) => <SubtitlesMenu {...props} />,
   audio: (props) => <AudioMenu {...props} />,
   speed: (props) => <SpeedMenu {...props} />,
   chapters: (props) => <ChaptersMenu {...props} />,
@@ -165,7 +164,11 @@ function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopover
           align={side}
           testId={osdPopoverId(name)}
         >
-          {MENUS[name]({ playback, subtitleScale, take })}
+          {name === "subtitles" ? (
+            <SubtitlesMenu playback={playback} subtitleScale={subtitleScale} take={take} />
+          ) : (
+            MENUS[name]({ playback, take })
+          )}
         </Popover>
       </div>
     </div>
@@ -237,7 +240,7 @@ function PictureMenu({ playback, take }: MenuProps) {
 }
 
 /** Subtitle tracks embedded-first, subtitles off, the delay's tenth-of-a-second steps, and the size. */
-function SubtitlesMenu({ playback, subtitleScale, take }: MenuProps) {
+function SubtitlesMenu({ playback, subtitleScale, take }: SubtitlesMenuProps) {
   const tracks = orderedTracks(playback.tracks, "subtitle");
   const delay = playback.subtitleDelay ?? 0;
 
@@ -302,7 +305,7 @@ function SubtitlesMenu({ playback, subtitleScale, take }: MenuProps) {
           data-testid="subtitle-scale"
           aria-label={`Subtitle size ${formatScale(subtitleScale)}`}
         >
-          {formatScale(subtitleScale)}
+          {`Subtitle size ${formatScale(subtitleScale)}`}
         </p>
         <div className="shell-osd-delay">
           <Item
@@ -311,7 +314,7 @@ function SubtitlesMenu({ playback, subtitleScale, take }: MenuProps) {
             onClick={() =>
               void take({
                 type: "set_subtitle_scale",
-                scale: stepScale(subtitleScale, -SCALE_STEP),
+                scale: stepScale(subtitleScale, -1),
               })
             }
           >
@@ -323,7 +326,7 @@ function SubtitlesMenu({ playback, subtitleScale, take }: MenuProps) {
             onClick={() =>
               void take({
                 type: "set_subtitle_scale",
-                scale: stepScale(subtitleScale, SCALE_STEP),
+                scale: stepScale(subtitleScale, 1),
               })
             }
           >

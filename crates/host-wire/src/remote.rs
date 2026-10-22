@@ -18,11 +18,12 @@
 //!
 //! The template on disk is not quite the page that is served. The palette
 //! (`src/tokens.css`), the curated subtitle languages (`src/subtitle-languages.json`),
-//! and the approved TMDB mark are spliced in here, at serve time, through one
-//! marker convention (`/*__SPLICE_NAME__*/`). That keeps `src/tokens.css` the
-//! single palette in the tree and the language list one list for two clients,
-//! while the bytes a browser receives are still one self-contained document
-//! with no build step (#88, amending ADR-0017 §2 and ADR-0018 §1).
+//! the subtitle appearance presets (`src/subtitle-appearance.json`), and the
+//! approved TMDB mark are spliced in here, at serve time, through one marker
+//! convention (`/*__SPLICE_NAME__*/`). That keeps `src/tokens.css` the single
+//! palette in the tree and each list one list for two clients, while the bytes a
+//! browser receives are still one self-contained document with no build step
+//! (#88, #126; amending ADR-0017 §2 and ADR-0018 §1).
 
 use std::io;
 use std::net::TcpStream;
@@ -41,6 +42,10 @@ const TOKENS: &str = include_str!("../../../src/tokens.css");
 /// The curated subtitle languages (#82), spliced as the JSON the picker reads.
 const SUBTITLE_LANGUAGES: &str = include_str!("../../../src/subtitle-languages.json");
 
+/// The subtitle appearance presets (#126), sharing one file with `src/controls.ts`
+/// so the window's chips and the Remote's cannot drift (ADR-0024 §5).
+const SUBTITLE_APPEARANCE: &str = include_str!("../../../src/subtitle-appearance.json");
+
 /// The approved TMDB mark, spliced from the window's own asset so the two
 /// clients cannot drift.
 const TMDB_LOGO: &str = include_str!("../../../src/assets/tmdb-logo.svg");
@@ -54,10 +59,16 @@ const KEY_INTENTS_SOURCE: &str = include_str!("../../../src/input.ts");
 /// valid document before it is spliced, and it is consumed in [`splice`].
 const TOKENS_MARKER: &str = "/*__SPLICE_TOKENS__*/";
 const SUBTITLE_LANGUAGES_MARKER: &str = "/*__SPLICE_SUBTITLE_LANGUAGES__*/";
+const SUBTITLE_APPEARANCE_MARKER: &str = "/*__SPLICE_SUBTITLE_APPEARANCE__*/";
 const TMDB_LOGO_MARKER: &str = "/*__SPLICE_TMDB_LOGO__*/";
 
 /// Every marker the template must carry, in the order it is spliced.
-const MARKERS: [&str; 3] = [TOKENS_MARKER, SUBTITLE_LANGUAGES_MARKER, TMDB_LOGO_MARKER];
+const MARKERS: [&str; 4] = [
+    TOKENS_MARKER,
+    SUBTITLE_LANGUAGES_MARKER,
+    SUBTITLE_APPEARANCE_MARKER,
+    TMDB_LOGO_MARKER,
+];
 
 /// The page, spliced once per process.
 fn page() -> &'static str {
@@ -81,6 +92,7 @@ fn splice(template: &str) -> String {
     template
         .replace(TOKENS_MARKER, TOKENS)
         .replace(SUBTITLE_LANGUAGES_MARKER, SUBTITLE_LANGUAGES)
+        .replace(SUBTITLE_APPEARANCE_MARKER, SUBTITLE_APPEARANCE)
         .replace(TMDB_LOGO_MARKER, TMDB_LOGO)
 }
 
@@ -114,7 +126,8 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use super::{
-        page, KEY_INTENTS_SOURCE, MARKERS, SUBTITLE_LANGUAGES, TEMPLATE, TMDB_LOGO, TOKENS,
+        page, KEY_INTENTS_SOURCE, MARKERS, SUBTITLE_APPEARANCE, SUBTITLE_LANGUAGES, TEMPLATE,
+        TMDB_LOGO, TOKENS,
     };
 
     /// The page's capability list: the Actions it says it can send, read out of
@@ -132,6 +145,16 @@ mod tests {
             + open;
         serde_json::from_str(&after[open..close])
             .expect("the capability list is a JSON array of Action spellings")
+    }
+
+    /// The body of the page's `sheetSignature`, which decides when the sheet
+    /// redraws. Its exact shape is not the point; what it carries is.
+    fn sheet_signature(page: &str) -> &str {
+        page.split("function sheetSignature()")
+            .nth(1)
+            .and_then(|rest| rest.split("return JSON.stringify").nth(1))
+            .and_then(|rest| rest.split("});").next())
+            .expect("the page has a sheet signature")
     }
 
     /// Every custom property a token sheet declares, by name.
@@ -225,15 +248,80 @@ mod tests {
 
         // The sheet is redrawn from a signature, so a size that moved has to be
         // part of it or the readout and buttons would keep the old value.
-        let signature = served
-            .split("function sheetSignature()")
-            .nth(1)
-            .and_then(|rest| rest.split("return JSON.stringify").nth(1))
-            .and_then(|rest| rest.split("});").next())
-            .expect("the page has a sheet signature");
+        let signature = sheet_signature(served);
         assert!(
             signature.contains("subtitleScale"),
             "the sheet signature carries the subtitle size: {signature}"
+        );
+    }
+
+    #[test]
+    fn the_shared_subtitle_appearance_list_agrees_with_the_hosts_bounds() {
+        // ADR-0024 §5's "the same values by construction": one JSON is imported
+        // by `src/controls.ts`, spliced into the served page, and held to the
+        // bounds `SubtitleScale` validates against here.
+        let appearance: serde_json::Value =
+            serde_json::from_str(SUBTITLE_APPEARANCE).expect("the appearance list is JSON");
+
+        assert_eq!(
+            appearance["minScale"].as_f64(),
+            Some(host_core::SubtitleScale::MIN),
+            "the list's minimum is SubtitleScale::MIN"
+        );
+        assert_eq!(
+            appearance["maxScale"].as_f64(),
+            Some(host_core::SubtitleScale::MAX),
+            "the list's maximum is SubtitleScale::MAX"
+        );
+
+        let scales = appearance["scales"]
+            .as_array()
+            .expect("the appearance list carries sizes");
+        assert_eq!(scales.len(), 4, "there are four size presets");
+        for choice in scales {
+            let scale = choice["scale"].as_f64().expect("a size is a number");
+            assert!(
+                host_core::SubtitleScale::parse(scale).is_ok(),
+                "{scale} is a size the Host accepts"
+            );
+        }
+    }
+
+    #[test]
+    fn the_served_page_carries_the_shared_subtitle_appearance_list() {
+        // The bytes a browser receives carry the file's own JSON, not a second
+        // hand-written list, so a chip added to Settings appears on both clients.
+        let served = page();
+        assert!(
+            served.contains(SUBTITLE_APPEARANCE),
+            "the served page carries src/subtitle-appearance.json verbatim"
+        );
+
+        let appearance: serde_json::Value =
+            serde_json::from_str(SUBTITLE_APPEARANCE).expect("the appearance list is JSON");
+        for (kind, field) in [("colors", "label"), ("scales", "label")] {
+            for choice in appearance[kind]
+                .as_array()
+                .expect("the appearance list has the expected groups")
+            {
+                let label = choice[field].as_str().expect("a choice has a label");
+                assert!(served.contains(label), "the served page carries {label}");
+            }
+        }
+
+        // A value off the four-preset ladder — the Remote accepts any scale in
+        // range — is named rather than leaving every chip unpressed.
+        assert!(
+            served.contains("Other (") && served.contains("scalePreset"),
+            "the page has the Other choice for a size between the presets"
+        );
+        assert!(
+            served.contains("SUBTITLE_SCALES.find") && !served.contains("SCALE_STEP"),
+            "the sheet steps the four presets rather than a percentage"
+        );
+        assert!(
+            !TEMPLATE.contains(r##""#FFFF00""##),
+            "the template keeps no local colour list"
         );
     }
 

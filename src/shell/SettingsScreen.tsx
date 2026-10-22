@@ -6,9 +6,10 @@ import {
   SUBTITLE_SCALES,
   colorSelected,
   formatScale,
+  scalePreset,
   scaleSelected,
 } from "../controls";
-import type { ActionError, DeviceSummary } from "../host-client";
+import type { Action, ActionError, DeviceSummary } from "../host-client";
 import {
   HOST_PICKS_PER_VIDEO,
   SUBTITLE_LANGUAGES,
@@ -340,17 +341,9 @@ function PreferencesScreen() {
     }
   };
 
-  const pickColor = async (color: string) => {
+  const pickAppearance = async (action: Action) => {
     setAppearanceError(null);
-    const outcome = await ask({ type: "set_subtitle_color", color });
-    if (outcome.error) {
-      setAppearanceError(outcome.error);
-    }
-  };
-
-  const pickScale = async (scale: number) => {
-    setAppearanceError(null);
-    const outcome = await ask({ type: "set_subtitle_scale", scale });
+    const outcome = await ask(action);
     if (outcome.error) {
       setAppearanceError(outcome.error);
     }
@@ -439,7 +432,9 @@ function PreferencesScreen() {
               key={choice.color}
               pressed={colorSelected(heldColor, choice.color)}
               data-testid={`subtitle-color-${choice.label.toLowerCase()}`}
-              onClick={() => void pickColor(choice.color)}
+              onClick={() =>
+                void pickAppearance({ type: "set_subtitle_color", color: choice.color })
+              }
             >
               {choice.label}
             </ChoiceChip>
@@ -457,11 +452,22 @@ function PreferencesScreen() {
               key={choice.scale}
               pressed={scaleSelected(heldScale, choice.scale)}
               data-testid={`subtitle-scale-${choice.label.toLowerCase()}`}
-              onClick={() => void pickScale(choice.scale)}
+              onClick={() => void pickAppearance({ type: "set_subtitle_scale", scale: choice.scale })}
             >
               {`${choice.label} · ${formatScale(choice.scale)}`}
             </ChoiceChip>
           ))}
+          {!scalePreset(heldScale) ? (
+            <ChoiceChip
+              pressed
+              data-testid="subtitle-scale-other"
+              onClick={() =>
+                void pickAppearance({ type: "set_subtitle_scale", scale: heldScale })
+              }
+            >
+              {`Other (${formatScale(heldScale)})`}
+            </ChoiceChip>
+          ) : null}
         </div>
         <Refusal error={appearanceError} testId="subtitle-appearance-error" />
       </SettingsSection>

@@ -4,9 +4,10 @@ import {
   ASPECTS,
   CROP_RATIOS,
   DELAY_STEP,
-  SCALE_STEP,
   SPEEDS,
   SUBTITLE_COLORS,
+  SUBTITLE_SCALE_MAX,
+  SUBTITLE_SCALE_MIN,
   SUBTITLE_SCALES,
   aspectSelected,
   centredCrop,
@@ -22,6 +23,7 @@ import {
   nextEpisodeDisabled,
   orderedTracks,
   previousEpisodeDisabled,
+  scalePreset,
   scaleSelected,
   speedSelected,
   statisticsLines,
@@ -32,6 +34,7 @@ import {
   trackMarks,
 } from "./controls";
 import type { Aspect, Crop, CropRectangle, Track, VideoSize } from "./host-client";
+import appearance from "./subtitle-appearance.json";
 
 function track(overrides: Partial<Track> & { id: number }): Track {
   return {
@@ -278,6 +281,13 @@ describe("the step to a neighbouring episode", () => {
 });
 
 describe("the subtitle appearance a person picks", () => {
+  test("the window imports the one JSON file the Remote splices in", () => {
+    expect(SUBTITLE_COLORS).toEqual(appearance.colors);
+    expect(SUBTITLE_SCALES).toEqual(appearance.scales);
+    expect(SUBTITLE_SCALE_MIN).toBe(appearance.minScale);
+    expect(SUBTITLE_SCALE_MAX).toBe(appearance.maxScale);
+  });
+
   test("Settings offers white, yellow, cyan and green, and the white is the default", () => {
     expect(SUBTITLE_COLORS.map((choice) => choice.label)).toEqual([
       "White",
@@ -309,23 +319,46 @@ describe("the subtitle appearance a person picks", () => {
     ]);
   });
 
-  test("one OSD press moves the size by five per cent and lands on a chip", () => {
-    expect(SCALE_STEP).toBe(0.05);
-    expect(stepScale(1, SCALE_STEP)).toBe(1.05);
-    expect(stepScale(1.2, SCALE_STEP)).toBe(1.25);
-    expect(stepScale(1.25, -SCALE_STEP)).toBe(1.2);
-    expect(stepScale(0.82, -SCALE_STEP)).toBe(0.77);
+  test("one OSD press moves to the neighbouring preset, never between them", () => {
+    expect(stepScale(0.8, 1)).toBe(1);
+    expect(stepScale(1, 1)).toBe(1.25);
+    expect(stepScale(1.25, 1)).toBe(1.5);
+    expect(stepScale(1.5, -1)).toBe(1.25);
+    expect(stepScale(1.25, -1)).toBe(1);
+    expect(stepScale(1, -1)).toBe(0.8);
   });
 
-  test("the OSD size stops at the range the Host accepts", () => {
-    expect(stepScale(2, SCALE_STEP)).toBe(2);
-    expect(stepScale(0.5, -SCALE_STEP)).toBe(0.5);
-    expect(stepScale(1.98, SCALE_STEP)).toBe(2);
+  test("the OSD size clamps at the ends of the four presets", () => {
+    expect(stepScale(1.5, 1)).toBe(1.5);
+    expect(stepScale(0.8, -1)).toBe(0.8);
+  });
+
+  test("a size the Remote set is brought onto the four presets", () => {
+    // The Host accepts any scale in 0.5–2.0 on the wire; the OSD's four presses
+    // still land on a chip, and 105/120/160% are named by Settings' Other chip.
+    expect(stepScale(1.05, 1)).toBe(1.25);
+    expect(stepScale(1.05, -1)).toBe(1);
+    expect(stepScale(1.2, 1)).toBe(1.25);
+    expect(stepScale(1.2, -1)).toBe(1);
+    expect(stepScale(1.6, 1)).toBe(1.5);
+    expect(stepScale(1.6, -1)).toBe(1.5);
+    expect(stepScale(0.5, 1)).toBe(0.8);
+    expect(stepScale(0.5, -1)).toBe(0.8);
+  });
+
+  test("only the four presets press a Settings chip", () => {
+    for (const choice of SUBTITLE_SCALES) {
+      expect(scalePreset(choice.scale)).toBe(true);
+    }
+    for (const held of [0.5, 1.05, 1.2, 1.6, 2]) {
+      expect(scalePreset(held)).toBe(false);
+    }
   });
 
   test("a size reads as a percentage, and the pressed choice is the Host's value", () => {
     expect(formatScale(0.8)).toBe("80%");
     expect(formatScale(1)).toBe("100%");
+    expect(formatScale(1.05)).toBe("105%");
     expect(formatScale(1.25)).toBe("125%");
     expect(scaleSelected(1.25, 1.25)).toBe(true);
     expect(scaleSelected(1.3, 1.25)).toBe(false);

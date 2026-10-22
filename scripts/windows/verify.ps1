@@ -103,7 +103,7 @@ $Steps = @(
     [pscustomobject]@{ Id = 31; Title = 'the previous episode: a wall at S1E1, and a step back from S1E2'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it plays an episode)' }
     [pscustomobject]@{ Id = 32; Title = 'TMDB attribution on Discover and in About/Credits'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home' }
     [pscustomobject]@{ Id = 33; Title = 'Settings > Preferences: the subtitle appearance goes through the Action surface, and survives a restart'; Ground = 'fresh'; After = @(); Need = 'a Host (the appearance needs no Addon)' }
-    [pscustomobject]@{ Id = 34; Title = 'subtitles on a real picture: colour on the SRT, the authored colour on the ASS, and the size from the OSD'; Ground = 'addon'; After = @(); Need = 'the fixture Addon with the fixture video (one SRT and one ASS track); it chooses the colour, plays, steps the size in the OSD, and checks Settings and the next Stream' }
+    [pscustomobject]@{ Id = 34; Title = 'subtitles on a real picture: colour on the SRT, the authored colour on the ASS at 100% and 125%, and the size from the OSD'; Ground = 'addon'; After = @(); Need = 'the fixture Addon with the fixture video (two SRT tracks and one ASS track); it chooses the colour, plays, steps the size in the OSD, and checks Settings and the next Stream' }
 )
 
 # The discovery path and the cheap syntax check: print the checklist and what
@@ -1176,10 +1176,11 @@ function Play-A-Candidate($app) {
 # asserted present, each choice asserted through the control's own state, the
 # episode steps, and the surface putting itself away.
 #
-# The fixture file is what makes it possible - two audio tracks, two embedded
-# subtitle tracks, two chapters and black bars, so every control has something
-# to move. Whether what is playing is a film or an episode changes only whether
-# the episode steps mean anything, which is the last thing checked.
+# The fixture file is what makes it possible - two audio tracks, two SRT
+# subtitle tracks plus an ASS track, two chapters and black bars, so every
+# control has something to move. Whether what is playing is a film or an episode
+# changes only whether the episode steps mean anything, which is the last thing
+# checked.
 function Walk-Controls($app) {
     Wake-Osd $app
     '--- 13a. Picture: aspect, crop, statistics'
@@ -1260,10 +1261,13 @@ function Walk-Controls($app) {
     Check 'the Subtitles icon opens its own menu' (
         $text -match 'Subtitles off') "showed: $text"
     $subtitles = Buttons-Matching $app 'subrip'
-    Check 'the file carries two embedded subtitle tracks, and both are listed' (
+    $assTrack = @(Buttons-Matching $app 'ASS styled')[0]
+    Check 'the file carries two plain-text subtitle tracks, and both are listed' (
         ($subtitles.Count -ge 2) -and
         ($subtitles[0].Current.Name -match 'embedded') -and
         ($subtitles[1].Current.Name -match 'embedded')) "showed: $text"
+    Check 'and the third, ASS track is listed and marked embedded' (
+        ($assTrack -ne $null) -and ($assTrack.Current.Name -match 'embedded')) "showed: $text"
     Check 'the file''s default subtitle track is the one in force before a choice' (
         (Toggled $subtitles[0]) -and
         -not (Toggled (Button-Named $app 'Subtitles off'))) "showed: $text"
@@ -1276,7 +1280,8 @@ function Walk-Controls($app) {
     Check 'Subtitles off turns every subtitle track off' (
         (Toggled (Button-Named $app 'Subtitles off')) -and
         (-not (Toggled (Buttons-Matching $app 'subrip')[0])) -and
-        (-not (Toggled (Buttons-Matching $app 'subrip')[1]))) "showed: $(Page-Text $app)"
+        (-not (Toggled (Buttons-Matching $app 'subrip')[1])) -and
+        (-not (Toggled (@(Buttons-Matching $app 'ASS styled')[0])))) "showed: $(Page-Text $app)"
 
     Check 'the delay readout starts at zero' (
         (Readout $app '0.0 s') -ne $null) "showed: $(Page-Text $app)"
@@ -1287,13 +1292,27 @@ function Walk-Controls($app) {
     Check 'resetting the delay moves the readout back to 0.0 s' (
         (Readout $app '0.0 s') -ne $null) "showed: $(Page-Text $app)"
 
-    Check 'the menu carries the Host''s subtitle size' (
+    Check 'the menu carries the Host''s subtitle size as visible text' (
         (Readout $app 'Subtitle size 100%') -ne $null) "showed: $(Page-Text $app)"
     Click-Element $app (Button-Named $app 'Larger subtitles')
-    Check 'one press of Larger moves the readout up a step, and publishes it' (
-        (Readout $app 'Subtitle size 105%') -ne $null) "showed: $(Page-Text $app)"
+    Check 'one press of Larger moves to the next preset: 125%, not 105%' (
+        (Readout $app 'Subtitle size 125%') -ne $null) "showed: $(Page-Text $app)"
+    Click-Element $app (Button-Named $app 'Larger subtitles')
+    Check 'the next press moves to 150%' (
+        (Readout $app 'Subtitle size 150%') -ne $null) "showed: $(Page-Text $app)"
+    Click-Element $app (Button-Named $app 'Larger subtitles')
+    Check 'the OSD stops at the largest preset rather than leaving it' (
+        (Readout $app 'Subtitle size 150%') -ne $null) "showed: $(Page-Text $app)"
     Click-Element $app (Button-Named $app 'Smaller subtitles')
-    Check 'and Smaller moves it back' (
+    Click-Element $app (Button-Named $app 'Smaller subtitles')
+    Click-Element $app (Button-Named $app 'Smaller subtitles')
+    Check 'three presses of Smaller walk back down to 80%' (
+        (Readout $app 'Subtitle size 80%') -ne $null) "showed: $(Page-Text $app)"
+    Click-Element $app (Button-Named $app 'Smaller subtitles')
+    Check 'and the smallest preset is the floor' (
+        (Readout $app 'Subtitle size 80%') -ne $null) "showed: $(Page-Text $app)"
+    Click-Element $app (Button-Named $app 'Larger subtitles')
+    Check 'one press of Larger restores the 100% default' (
         (Readout $app 'Subtitle size 100%') -ne $null) "showed: $(Page-Text $app)"
     Press-Keys $app '{ESC}'
     Start-Sleep -Milliseconds 500
@@ -2790,18 +2809,16 @@ function Step-34($ctx) {
     Shot $app '34-srt-yellow.png'
     'review 34-srt-yellow.png: the English SRT line should be yellow, not white'
 
-    # The size, from the OSD: five steps from 100% lands on the Large chip.
+    # The size, from the OSD: one press is the neighbouring preset, so 100% goes
+    # straight to 125%, not to 105%.
     Wake-Osd $app
     Press-Button $app 'Subtitles'
     Wait-Text $app 'Subtitles off' 10 | Out-Null
     $before = Snapshot-Baseline
-    for ($i = 0; $i -lt 5; $i++) {
-        Click-Element $app (Button-Named $app 'Larger subtitles')
-        Start-Sleep -Milliseconds 400
-    }
-    Check 'five presses of the OSD size land on 125%, as the readout says' (
+    Click-Element $app (Button-Named $app 'Larger subtitles')
+    Check 'one press of the OSD size lands on 125%, as the readout says' (
         (Readout $app 'Subtitle size 125%') -ne $null) "showed: $(Page-Text $app)"
-    Check 'and each press is the preference changing: Snapshots went out' (
+    Check 'and the press is the preference changing: Snapshots went out' (
         (Wait-Published $before 20) -gt $before) "the log still shows $before published Snapshot(s)"
     Shot $app '34-osd-size.png'
     Press-Keys $app '{ESC}'
@@ -2809,8 +2826,9 @@ function Step-34($ctx) {
     Shot $app '34-srt-yellow-large.png'
     'review 34-srt-yellow-large.png against 34-srt-yellow.png: the same SRT line, in the same yellow, larger at 125%'
 
-    # The ASS track: authored red, so the colour preference must not reach it,
-    # while the size does.
+    # The ASS track at both sizes: authored red, so the colour preference must
+    # not reach it, while the size does. Both shots come after the SRT pair, and
+    # the 100% one by walking the OSD one preset down from their 125%.
     Wake-Osd $app
     Press-Button $app 'Subtitles'
     Wait-Text $app 'Subtitles off' 10 | Out-Null
@@ -2819,8 +2837,28 @@ function Step-34($ctx) {
     Start-Sleep -Seconds 1
     Press-Keys $app '{ESC}'
     Start-Sleep -Seconds 5
-    Shot $app '34-ass-authored.png'
-    'review 34-ass-authored.png: the ASS line should still be the red it was authored with, and larger than at 100%'
+    Shot $app '34-ass-authored-125.png'
+    'review 34-ass-authored-125.png: the ASS line should still be the red it was authored with, at 125%'
+
+    Wake-Osd $app
+    Press-Button $app 'Subtitles'
+    Wait-Text $app 'Subtitles off' 10 | Out-Null
+    Click-Element $app (Button-Named $app 'Smaller subtitles')
+    Check 'one press down from 125% lands on 100%' (
+        (Readout $app 'Subtitle size 100%') -ne $null) "showed: $(Page-Text $app)"
+    Press-Keys $app '{ESC}'
+    Start-Sleep -Seconds 5
+    Shot $app '34-ass-authored-100.png'
+    'review 34-ass-authored-100.png against 34-ass-authored-125.png: the same authored red ASS line, smaller at 100%'
+
+    # Back to 125% for the Settings and next-Stream checks below.
+    Wake-Osd $app
+    Press-Button $app 'Subtitles'
+    Wait-Text $app 'Subtitles off' 10 | Out-Null
+    Click-Element $app (Button-Named $app 'Larger subtitles')
+    Check 'one press back up returns the size to 125%' (
+        (Readout $app 'Subtitle size 125%') -ne $null) "showed: $(Page-Text $app)"
+    Press-Keys $app '{ESC}'
 
     Wake-Osd $app
     Press-Button $app 'Stop'

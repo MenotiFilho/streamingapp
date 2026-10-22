@@ -18,9 +18,11 @@ extends), with a real ASS track and plain subtitle text:
 - `sub-scale` scaled the ASS line (18 px → 28 px at 1.5×) and plain text alike.
 - `sub-font-size` did not affect that ASS line.
 
-The Windows build runs mpv 0.41. The same behaviour is confirmed there in the
-walkthrough, against a fixture with one SRT and one ASS track; that is a manual
-check because it is a fact about pixels, which no unit test can see.
+The Windows build runs mpv 0.41. The same behaviour is **pending** there in the
+walkthrough, against a fixture with two SRT tracks and one ASS track: the owner batches
+that run after #126, #127 and #128, and it was not run as part of this change.
+It is a manual check because it is a fact about pixels, which no unit test can
+see.
 
 ## 1. Appearance is two Host preferences, not a per-Stream setting
 
@@ -101,20 +103,33 @@ its authored colour.
 
 The player OSD's Subtitles menu has a **Size** group — `−` / `+` with a
 percentage readout — because that is where a person adjusts subtitles while
-looking at them. One press moves five per cent, so every chip is reachable and a
-person can also land between them. There is deliberately **no colour control in
-the OSD**: the colour is not something a person can judge without a subtitle
-showing, and the Settings screen already has it. The Remote mirrors both: colour
-and size in Settings, size in the Audio & Subtitles sheet.
+looking at them. One press moves to the **neighbouring preset**, never between
+them: 80% → 100% → 125% → 150%, clamped at the ends (the interview settled those
+four). That keeps the OSD and the Settings chips naming the same four sizes.
+There is deliberately **no colour control in the OSD**: the colour is not
+something a person can judge without a subtitle showing, and the Settings screen
+already has it. The Remote mirrors both: colour and size in Settings, size in
+the Audio & Subtitles sheet.
+
+The Host still accepts any finite scale from 0.5 to 2.0 on the wire, so a Remote
+can set a value between the four presets (105%, 120%, 160%, or 50%). Settings
+and the Remote's Settings then show a pressed **Other (n%)** chip beside the
+four, the same way the language picker names a tag its list does not know, so no
+screen is left with every choice unpressed. The OSD's next press brings the
+value back onto the four-preset ladder.
 
 Because the values are preferences, the OSD's size change reaches the Settings
 chips and the next Stream at once, and both survive a restart.
 
-Rejected, with reasons: **a colour picker in the OSD** (another surface for one
-preference, and the sheet is already the busiest); **a stepper in Settings**
-(the chips are the presets a person wants; the OSD is where fine steps belong);
+Rejected, with reasons: **a five-per-cent OSD step** (it lands on 105% and 120%,
+sizes no Settings chip presses, and the interview chose four presets instead);
+**a colour picker in the OSD** (another surface for one preference, and the
+sheet is already the busiest); **a stepper in Settings** (the chips are the
+presets a person wants; the OSD is where the four-preset step belongs);
 **separate window and Remote lists** (ADR-0018's capability list asserts the
-surface, and the lists are the same values by construction).
+surface, and the lists are one JSON — `src/subtitle-appearance.json` — imported
+by the window and spliced into the served page, so they are the same values by
+construction).
 
 ## 6. What is verified where
 
@@ -124,7 +139,8 @@ surface, and the lists are the same values by construction).
 | startup telling and refusal keeps the preference | `host-core/tests/controls.rs` |
 | round-trip, absent row, corrupt row | `host-sqlite/tests/store.rs`, `restart.rs` |
 | `set sub-color` / `set sub-scale` spellings | `host-mpv/src/telling.rs`, and `crates/host-mpv/tests/mpv.rs` asserts a real mpv accepts them |
-| SRT recolours, ASS keeps its authored colour, both scale | the Windows walkthrough (`scripts/windows/verify.ps1`) |
+| SRT recolours, ASS keeps its authored colour, both scale | the Windows walkthrough (`scripts/windows/verify.ps1`), **pending** the owner's batch after #126–#128 |
+| the one appearance list matches the Host's bounds and reaches both clients | `src/controls.test.ts`, `host-wire`'s `remote.rs` tests |
 | the Remote declares and wires both Actions | `host-wire` capability and handler tests, `tests/wire.rs` |
 
 ## Consequences
@@ -134,6 +150,10 @@ surface, and the lists are the same values by construction).
   until it does.
 - Every Snapshot carries the appearance, so a client that has just connected
   draws the Host's values without asking.
+- The presets and the accepted range live in one JSON beside the language list:
+  the window imports it and `host-wire` splices it into the served page, so a
+  change reaches both clients and the bounds are tested against
+  `SubtitleScale::MIN`/`MAX`.
 - A stored appearance that cannot be read is a store read error, like a corrupt
   language or Featured catalog — never a value silently replaced.
 - A future "force my subtitle style" preference would be a third value and not a

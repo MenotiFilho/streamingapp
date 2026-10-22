@@ -73,31 +73,36 @@ END=120000
 title=Middle
 EOF
 
-# The lines stay on screen long enough for a person to walk the OSD and take
-# the screenshot the appearance step reviews (#126).
+# Plain-text cues sit in short windows with long gaps, all in the first 100 s.
+# They have to be on screen for step 34's first two screenshots (the SRT at 100%
+# and at 125%), and must be gone by the time later steps screenshot the picture:
+# a cue covering the whole two minutes leaks subtitle text into unrelated shots.
 cat > "$scratch/en.srt" <<'EOF'
 1
-00:00:00,500 --> 00:00:55,000
+00:00:02,000 --> 00:00:30,000
 English subtitle one - this line takes the colour chosen in Settings.
 
 2
-00:00:56,000 --> 00:01:55,000
+00:00:45,000 --> 00:00:57,000
 English subtitle two - still in the chosen colour.
 EOF
 
 cat > "$scratch/pt.srt" <<'EOF'
 1
-00:00:01,000 --> 00:00:55,000
+00:00:02,000 --> 00:00:30,000
 Legenda em portugues um - esta linha recebe a cor escolhida.
 
 2
-00:00:56,000 --> 00:01:55,000
+00:00:45,000 --> 00:00:57,000
 Legenda em portugues dois - ainda na cor escolhida.
 EOF
 
 # An ASS track with its own colour: red (ASS colour is &HBBGGRR, so &H000000FF
 # is red). Its authored colour, font and typesetting must survive the Host's
-# sub-colour preference; only the size the Host sets reaches it (ADR-0024).
+# sub-colour preference; only the size the Host sets reaches it (ADR-0024). The
+# line stays up for the ASS half of step 34 (both the 100% and the 125% shot) and
+# is only visible while the ASS track is chosen, so it cannot leak into other
+# steps' screenshots.
 cat > "$scratch/styled.ass" <<'EOF'
 [Script Info]
 ScriptType: v4.00+
@@ -112,7 +117,7 @@ Style: Styled,Arial,40,&H000000FF,&H000000FF,&H00000000,&H64000000,-1,0,0,0,100,
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
-Dialogue: 0,0:00:00.50,0:01:55.00,Styled,,0,0,0,,ASS styled line - authored red, 40 px
+Dialogue: 0,0:00:02.00,0:01:40.00,Styled,,0,0,0,,ASS styled line - authored red, 40 px
 EOF
 
 docker compose cp "$scratch/chapters.txt" dev:/tmp/verify-chapters.txt >/dev/null

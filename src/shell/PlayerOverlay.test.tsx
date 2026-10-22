@@ -537,6 +537,10 @@ describe("the player OSD", () => {
     fireEvent.click(screen.getByTestId("osd-subtitles"));
     const subtitles = await screen.findByTestId("popover-subtitles");
     expect(within(subtitles).getByTestId("subtitle-scale")).toHaveTextContent("125%");
+    // The readout is visible text, not only an aria-label a UIA walk may not name.
+    expect(within(subtitles).getByTestId("subtitle-scale")).toHaveTextContent(
+      "Subtitle size 125%",
+    );
     expect(within(subtitles).getByTestId("subtitle-scale")).toHaveAccessibleName(
       "Subtitle size 125%",
     );
@@ -545,7 +549,7 @@ describe("the player OSD", () => {
     await waitFor(() =>
       expect(actions(host.invocations)).toContainEqual({
         type: "set_subtitle_scale",
-        scale: 1.3,
+        scale: 1.5,
       }),
     );
 
@@ -553,7 +557,7 @@ describe("the player OSD", () => {
     await waitFor(() =>
       expect(actions(host.invocations)).toContainEqual({
         type: "set_subtitle_scale",
-        scale: 1.2,
+        scale: 1,
       }),
     );
 
@@ -624,7 +628,7 @@ describe("the player OSD", () => {
     await waitFor(() =>
       expect(actions(host.invocations)).toContainEqual({
         type: "set_subtitle_scale",
-        scale: 1.05,
+        scale: 1.25,
       }),
     );
     await closePopover("popover-subtitles");

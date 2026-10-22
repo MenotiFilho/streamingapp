@@ -475,8 +475,10 @@
       }
       .track[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
       .track-marks { color: var(--ink-muted); font-size: var(--text-micro); }
-      .delay-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
-      .delay-readout { min-width: 4.5rem; color: var(--ink-secondary); font-size: var(--text-caption); }
+      .delay-row, .size-row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; }
+      .delay-readout, .size-readout {
+        min-width: 4.5rem; color: var(--ink-secondary); font-size: var(--text-caption);
+      }
 
       @media (min-width: 720px) {
         .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -624,21 +626,12 @@
       const SKIP = "skip";
       const SPEEDS = [0.5, 0.75, 1, 1.25, 1.5, 2];
       const DELAY_STEP = 0.1;
-      // The subtitle appearance Settings offers, and how far one press of the
-      // sheet's size buttons moves it (#126, ADR-0024).
-      const SCALE_STEP = 0.05;
-      const SUBTITLE_COLORS = [
-        { label: "White", color: "#FFFFFF" },
-        { label: "Yellow", color: "#FFFF00" },
-        { label: "Cyan", color: "#00FFFF" },
-        { label: "Green", color: "#00FF00" },
-      ];
-      const SUBTITLE_SCALES = [
-        { label: "Small", scale: 0.8 },
-        { label: "Default", scale: 1 },
-        { label: "Large", scale: 1.25 },
-        { label: "Larger", scale: 1.5 },
-      ];
+      // The subtitle appearance Settings offers (#126, ADR-0024). The list is
+      // spliced in from `src/subtitle-appearance.json` at serve time, the same
+      // one `src/controls.ts` imports, so the window and this page cannot drift.
+      const SUBTITLE_APPEARANCE = /*__SPLICE_SUBTITLE_APPEARANCE__*/;
+      const SUBTITLE_COLORS = SUBTITLE_APPEARANCE.colors;
+      const SUBTITLE_SCALES = SUBTITLE_APPEARANCE.scales;
       const ASPECTS = [
         { label: "Source", aspect: { kind: "source" } },
         { label: "16:9", aspect: { kind: "ratio", value: 16 / 9 } },
@@ -712,12 +705,20 @@
         return tenths > 0 ? "+" + magnitude + " s" : "\u2212" + magnitude + " s";
       }
       function stepDelay(seconds, by) { return Math.round((seconds + by) * 10) / 10; }
-      function stepScale(scale, by) {
-        const next = Math.round((scale + by) * 100) / 100;
-        return Math.min(2, Math.max(0.5, next));
+      function stepScale(scale, direction) {
+        if (direction > 0) {
+          const larger = SUBTITLE_SCALES.find((choice) => choice.scale > scale + 1e-6);
+          return larger ? larger.scale : SUBTITLE_SCALES[SUBTITLE_SCALES.length - 1].scale;
+        }
+        const smaller = SUBTITLE_SCALES.slice().reverse()
+          .find((choice) => choice.scale < scale - 1e-6);
+        return smaller ? smaller.scale : SUBTITLE_SCALES[0].scale;
       }
       function formatScale(scale) { return Math.round(scale * 100) + "%"; }
       function scaleSelected(current, choice) { return Math.abs(current - choice) < 1e-6; }
+      function scalePreset(scale) {
+        return SUBTITLE_SCALES.some((choice) => scaleSelected(scale, choice.scale));
+      }
       function colorSelected(current, choice) {
         return String(current).toUpperCase() === choice.toUpperCase();
       }
@@ -2312,6 +2313,10 @@
                         data-scale="${choice.scale}"
                         data-focus-key="subtitle-scale-${choice.label.toLowerCase()}"
                         aria-pressed="${pressed(scaleSelected(heldScale, choice.scale))}">${choice.label} \u00b7 ${formatScale(choice.scale)}</button>`)}
+              ${!scalePreset(heldScale) ? html`
+                <button type="button" class="chip" data-focusable data-a="subtitle-scale"
+                        data-scale="${heldScale}" data-focus-key="subtitle-scale-other"
+                        aria-pressed="true">Other (${formatScale(heldScale)})</button>` : null}
             </div>`)}
 
           ${settingsSection("Featured catalog", html`
@@ -2761,13 +2766,13 @@
 
             <div class="sheet-group">
               <h3>Subtitle size</h3>
-              <div class="delay-row">
-                <span class="delay-readout tabular" data-subtitle-scale>${formatScale(scale)}</span>
+              <div class="size-row">
+                <span class="size-readout tabular" data-subtitle-scale>Subtitle size ${formatScale(scale)}</span>
                 <button type="button" class="btn" data-focusable data-a="subtitle-scale"
-                        data-scale="${stepScale(scale, -SCALE_STEP)}" data-focus-key="subtitle-scale-down"
+                        data-scale="${stepScale(scale, -1)}" data-focus-key="subtitle-scale-down"
                         aria-label="Smaller subtitles">\u2212</button>
                 <button type="button" class="btn" data-focusable data-a="subtitle-scale"
-                        data-scale="${stepScale(scale, SCALE_STEP)}" data-focus-key="subtitle-scale-up"
+                        data-scale="${stepScale(scale, 1)}" data-focus-key="subtitle-scale-up"
                         aria-label="Larger subtitles">+</button>
               </div>
             </div>

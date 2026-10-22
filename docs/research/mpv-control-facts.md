@@ -83,9 +83,10 @@ Probed for #126 against mpv 0.37 in this container:
 - `sub-font-size` did not affect that ASS line, so it is not the size control.
 
 The Host's spellings are `set sub-color #RRGGBB` and `set sub-scale <f64>`. On
-the Windows side (mpv 0.41) the same behaviour is confirmed by the walkthrough,
-which is the only place a colour can actually be seen: it is a fact about pixels.
-The fixture video (`scripts/windows/fixture-video.sh`) carries one SRT and one
+the Windows side (mpv 0.41) the same behaviour is **pending** the walkthrough,
+which is the only place a colour can actually be seen: it is a fact about pixels,
+and that run is deferred to the owner's batch after #126, #127 and #128. The
+fixture video (`scripts/windows/fixture-video.sh`) carries two SRT tracks and one
 ASS track authored red for exactly that check.
 
 ## What is answerable with no video output

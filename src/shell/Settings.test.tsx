@@ -391,6 +391,57 @@ describe("the Settings screen", () => {
     );
   });
 
+  test("a size between the four presets is pressed as Other, whatever the Remote set", async () => {
+    const host = fakeHost(
+      settingsSnapshot({
+        preferences: { subtitleLanguage: "en", subtitleColor: "#FFFFFF", subtitleScale: 1.05 },
+      }),
+    );
+    await openSettings(host);
+    await openCategory("Preferences");
+
+    // The Host accepts any scale 0.5–2.0, so a Remote can hold one Settings has
+    // no chip for. It is named rather than leaving every chip unpressed.
+    expect(screen.getByTestId("subtitle-scale-other")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("subtitle-scale-other")).toHaveTextContent("Other (105%)");
+    expect(screen.getByTestId("subtitle-scale-default")).toHaveAttribute("aria-pressed", "false");
+
+    for (const [scale, words] of [
+      [1.2, "Other (120%)"],
+      [1.6, "Other (160%)"],
+      [0.5, "Other (50%)"],
+    ] as const) {
+      act(() =>
+        host.publish(
+          settingsSnapshot({
+            revision: 2,
+            preferences: { subtitleLanguage: "en", subtitleColor: "#FFFFFF", subtitleScale: scale },
+          }),
+        ),
+      );
+      expect(screen.getByTestId("subtitle-scale-other")).toHaveTextContent(words);
+    }
+
+    fireEvent.click(screen.getByTestId("subtitle-scale-other"));
+    await waitFor(() =>
+      expect(actions(host.invocations)).toContainEqual({
+        type: "set_subtitle_scale",
+        scale: 0.5,
+      }),
+    );
+
+    act(() =>
+      host.publish(
+        settingsSnapshot({
+          revision: 3,
+          preferences: { subtitleLanguage: "en", subtitleColor: "#FFFFFF", subtitleScale: 1.25 },
+        }),
+      ),
+    );
+    expect(screen.queryByTestId("subtitle-scale-other")).toBeNull();
+    expect(screen.getByTestId("subtitle-scale-large")).toHaveAttribute("aria-pressed", "true");
+  });
+
   test("a refused subtitle colour is explained beside the appearance choices", async () => {
     const host = fakeHost(settingsSnapshot(), {
       refuse: (action) =>

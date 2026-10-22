@@ -332,10 +332,15 @@ or started).
   and 34 assert everything the accessibility tree can carry — the chips and
   their pressed state, the percentage readout, the Snapshots a change publishes,
   the restart — and screenshot the picture for the rest: an SRT line takes the
-  colour, an ASS line keeps the red it was authored with, and both grow at 125%.
-  The fixture's ASS track is authored red precisely so the two cases cannot be
-  confused. If step 34 skips, the configured Addon served a Stream without the
-  fixture's tracks (or no playable candidate), and the reason is printed.
+  colour, an ASS line keeps the red it was authored with, and both are shot at
+  100% and 125% so the size comparison has both images (`34-srt-yellow.png`,
+  `34-srt-yellow-large.png`, `34-ass-authored-100.png`,
+  `34-ass-authored-125.png`). The fixture's ASS track is authored red precisely
+  so the two cases cannot be confused. The SRT cues sit in short windows so they
+  do not leak into later steps' screenshots; the ASS line only shows while the
+  ASS track is chosen. If step 34 skips, the configured Addon served a Stream
+  without the fixture's tracks (or no playable candidate), and the reason is
+  printed.
 - **The OSD is not always there.** It hides itself after three idle seconds and
   comes back on any key or pointer movement. A step that reads the transport or
   an icon after a wait moves the pointer first (the same motion a person makes),

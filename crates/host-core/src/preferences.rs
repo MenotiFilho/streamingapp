@@ -66,13 +66,31 @@ impl Preferences {
         self.featured_catalog = featured;
     }
 
+    /// The preferences a store read back, in one step: every value it holds,
+    /// with an absent row already resolved to its default.
+    pub fn from_stored(
+        subtitle_language: Option<SubtitleLanguage>,
+        subtitle_color: SubtitleColor,
+        subtitle_scale: SubtitleScale,
+        featured_catalog: Option<FeaturedCatalog>,
+    ) -> Self {
+        Self {
+            subtitle_language,
+            subtitle_color,
+            subtitle_scale,
+            featured_catalog,
+        }
+    }
+
     /// The same preferences, with a subtitle language, for a store that has just
     /// read one back.
     pub fn with_subtitle_language(language: Option<SubtitleLanguage>) -> Self {
-        Self {
-            subtitle_language: language,
-            ..Self::default()
-        }
+        Self::from_stored(
+            language,
+            SubtitleColor::default(),
+            SubtitleScale::default(),
+            None,
+        )
     }
 }
 

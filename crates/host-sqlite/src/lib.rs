@@ -159,11 +159,12 @@ impl Store for SqliteStore {
             }
         }
 
-        let mut preferences = Preferences::with_subtitle_language(subtitle_language);
-        preferences.set_subtitle_color(subtitle_color);
-        preferences.set_subtitle_scale(subtitle_scale);
-        preferences.set_featured_catalog(featured_catalog);
-        Ok(preferences)
+        Ok(Preferences::from_stored(
+            subtitle_language,
+            subtitle_color,
+            subtitle_scale,
+            featured_catalog,
+        ))
     }
 
     fn write_preferences(&self, preferences: &Preferences) -> Result<(), StoreError> {
