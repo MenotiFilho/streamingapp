@@ -35,6 +35,15 @@ function declarationsOf(selector: string, css = shellCss): string {
   return css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
 }
 
+/** A single CSS length in px, for the two units the shell's contract states. */
+function lengthInPx(value: string | undefined): number {
+  const match = /^([\d.]+)(rem|px)$/.exec(value?.trim() ?? "");
+  if (!match) {
+    return Number.NaN;
+  }
+  return Number(match[1]) * (match[2] === "rem" ? 16 : 1);
+}
+
 /**
  * jsdom measures every box as zero, so give the frame a screen the D-pad can
  * stand on. An element is found by whichever identity the frame gives it: a
@@ -426,6 +435,10 @@ describe("the shell frame", () => {
       strip,
       "8px above and 8px below the 40px button: the band the D-pad measures",
     ).toMatch(/padding:\s*0\.5rem/);
+    expect(
+      lengthInPx(strip.match(/padding:\s*([\d.]+(?:rem|px))/)?.[1]),
+      "the strip's vertical padding is 8px",
+    ).toBe(8);
     expect(strip, "above the dialog scrim, so the way out survives a confirmation").toMatch(
       /z-index:\s*45/,
     );
@@ -458,7 +471,7 @@ describe("the shell frame", () => {
       clearance?.trim(),
       "4rem: content clears the 56px strip by 8px at every window width",
     ).toBe("4rem");
-    expect(parseFloat(clearance ?? "0") * 16, "4rem is 64px of content top").toBe(64);
+    expect(lengthInPx(clearance), "4rem is 64px of content top").toBe(64);
     expect(
       declarationsOf(".shell-stage"),
       "the base's first row starts below the strip",
