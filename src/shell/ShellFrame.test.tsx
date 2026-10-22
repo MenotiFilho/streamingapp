@@ -481,8 +481,16 @@ describe("the shell frame", () => {
       "a pushed level's first row starts below the strip too",
     ).toMatch(/padding-top:\s*var\(--window-chrome-clearance\)/);
     expect(
+      declarationsOf(".shell-level"),
+      "the band is the level's own canvas, not the base showing through it",
+    ).toMatch(/background:\s*var\(--bg-canvas\)/);
+    expect(
       declarationsOf('.shell-level[data-level-kind="player"]'),
       "the player's picture is the whole window: no clearance, no painted band",
     ).toMatch(/padding-top:\s*0/);
+    expect(
+      declarationsOf('.shell-level[data-level-kind="player"]'),
+      "and mpv's child window stays visible through it",
+    ).toMatch(/background:\s*transparent/);
   });
 });
