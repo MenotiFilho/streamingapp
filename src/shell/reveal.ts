@@ -16,6 +16,7 @@
  */
 
 import type { Rect } from "../focus";
+import { measureRect, type Measurable } from "./layout";
 
 /** Pixels every reveal keeps between a control and its scrollport's edge. */
 export const REVEAL_MARGIN = 24;
@@ -82,11 +83,6 @@ export function revealOffsets(
   };
 }
 
-/** The least of an element the reveal reads a rectangle from. */
-export type RevealBoxed = {
-  getBoundingClientRect: () => { left: number; top: number; width: number; height: number };
-};
-
 /** One scrollport the DOM loop can move, with the chrome's band over its top. */
 export type RevealScrollport = {
   /** The visible padding box in client coordinates; read fresh each pass. */
@@ -102,21 +98,12 @@ export type RevealScrollport = {
   scrollBy: (left: number, top: number) => void;
 };
 
-function boxOf(box: {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-}): Rect {
-  return { x: box.left, y: box.top, w: box.width, h: box.height };
-}
-
 /**
  * Reveal `target` in each port, innermost first, recomputing its rectangle
  * after every scroll: a row's horizontal move changes the card's client rect
  * before the page decides whether it also has to move vertically.
  */
-export function revealIn(target: RevealBoxed, ports: readonly RevealScrollport[]): void {
+export function revealIn(target: Measurable, ports: readonly RevealScrollport[]): void {
   for (const port of ports) {
     if (!port.moves) {
       continue;
@@ -127,7 +114,7 @@ export function revealIn(target: RevealBoxed, ports: readonly RevealScrollport[]
     }
     const { left, top } = revealOffsets(
       viewport,
-      boxOf(target.getBoundingClientRect()),
+      measureRect(target),
       REVEAL_MARGIN,
       port.insetTop,
     );
@@ -236,6 +223,35 @@ export function reveal(control: Element): void {
   revealIn(control, scrollportsOf(control));
 }
 
+/** Told when `focusAndReveal` has focused a control and revealed it. */
+type RevealedListener = (control: HTMLElement) => void;
+
+const revealedListeners = new Set<RevealedListener>();
+
+/** The last direct reveal no listener heard about yet. */
+let unreportedReveal: HTMLElement | null = null;
+
+/**
+ * Watch the controls `focusAndReveal` has focused and revealed, so a focus
+ * engine can take that reveal into its own guard and not repeat it on the next
+ * render. Returns the unsubscribe.
+ *
+ * A subscriber that arrives after a direct reveal is told about it once: a
+ * child's mount effect can focus before the engine's effects are bound, and
+ * that first reveal is still one the engine must not repeat.
+ */
+export function onRevealed(listener: RevealedListener): () => void {
+  revealedListeners.add(listener);
+  const late = unreportedReveal;
+  unreportedReveal = null;
+  if (late?.isConnected) {
+    listener(late);
+  }
+  return () => {
+    revealedListeners.delete(listener);
+  };
+}
+
 /**
  * Paint focus the one way the shell does: put focus there without the
  * browser's own scroll, then reveal it with the margin (#127). The focus moves
@@ -246,5 +262,20 @@ export function focusAndReveal(control: HTMLElement | null | undefined): void {
     return;
   }
   control.focus({ preventScroll: true });
+  // Focus can be refused — a disabled, inert or detached control — and its
+  // 0x0 rectangle would read as above/left of the margin, jolting the page for
+  // a focus that never landed. Only reveal the control that is now the active
+  // element. A wrapper passed here is what `focus()` targets, so the exact
+  // match is the narrowest proof that focus landed.
+  if (!control.isConnected || document.activeElement !== control) {
+    return;
+  }
   reveal(control);
+  if (revealedListeners.size === 0) {
+    unreportedReveal = control;
+    return;
+  }
+  for (const listener of revealedListeners) {
+    listener(control);
+  }
 }

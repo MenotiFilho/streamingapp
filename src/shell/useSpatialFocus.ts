@@ -9,7 +9,7 @@ import {
 } from "../focus";
 import { isTypingTarget, keyIntent, type Intent } from "../input";
 import { firstFocusable, focusOf, readLevel } from "./layout";
-import { reveal } from "./reveal";
+import { onRevealed, reveal } from "./reveal";
 import { useGamepad } from "./useGamepad";
 
 type Remembered = Focus & { element: HTMLElement | null };
@@ -57,6 +57,18 @@ export function useSpatialFocus({ root, levelKey, onBack, onIntent }: SpatialFoc
   const remembered = useRef(new Map<string, Remembered>());
   /** The control the reveal last ran for, so an ordinary render does not scroll again. */
   const revealed = useRef<HTMLElement | null>(null);
+
+  /**
+   * Take a direct `focusAndReveal`'s reveal as the engine's own, so the render
+   * that follows does not repeat it. A control outside the level is not the
+   * engine's to guard.
+   */
+  const seedRevealed = (element: HTMLElement) => {
+    const activeRoot = rootRef.current();
+    if (activeRoot?.contains(element)) {
+      revealed.current = element;
+    }
+  };
 
   const regionMemory = (key: string): Record<string, number | undefined> => {
     let held = regions.current.get(key);
@@ -235,6 +247,15 @@ export function useSpatialFocus({ root, levelKey, onBack, onIntent }: SpatialFoc
   ensureRef.current = ensureFocus;
   const revealRef = useRef(revealFocused);
   revealRef.current = revealFocused;
+  const seedRef = useRef(seedRevealed);
+  seedRef.current = seedRevealed;
+
+  // Direct focus moves (`focusAndReveal`) reveal without the engine, so their
+  // control seeds the guard the engine's own reveal keeps. The subscription is
+  // declared before `ensureFocus`'s effect: on a mount, a child's focus effect
+  // runs before the engine's effects, and the replay in `onRevealed` lets that
+  // same first `ensureFocus` skip the repeat. A later render is covered too.
+  useEffect(() => onRevealed((element) => seedRef.current(element)), []);
 
   // Something is always focused on the level that is on top. This also puts
   // focus back when an overlay pops, and re-homes it when a control vanished.

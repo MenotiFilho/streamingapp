@@ -4,6 +4,8 @@ import type { Rect } from "../focus";
 import {
   CHROME_CLEARANCE,
   REVEAL_MARGIN,
+  focusAndReveal,
+  onRevealed,
   reveal,
   revealIn,
   revealOffsets,
@@ -363,5 +365,111 @@ describe("the scrollport chain", () => {
     expect(ports[0]?.moves, "the menu inside the panel still scrolls").toBe(true);
     expect(ports[1]?.moves, "the level cannot move a fixed panel").toBe(false);
     expect(ports[2]?.moves, "the page cannot either").toBe(false);
+  });
+});
+
+/**
+ * A control below a 1000x600 viewport. Revealing it would scroll the page 324px
+ * (700 + 200 - (600 - 24)), so a refused focus that still revealed would be
+ * visible as a jolt of that size.
+ */
+function belowTheFold(control: HTMLElement): void {
+  vi.spyOn(control, "getBoundingClientRect").mockReturnValue({
+    x: 100,
+    y: 700,
+    width: 160,
+    height: 200,
+    top: 700,
+    left: 100,
+    right: 260,
+    bottom: 900,
+    toJSON: () => ({}),
+  } as DOMRect);
+  Object.defineProperty(document.documentElement, "clientWidth", {
+    configurable: true,
+    value: 1000,
+  });
+  Object.defineProperty(document.documentElement, "clientHeight", {
+    configurable: true,
+    value: 600,
+  });
+}
+
+describe("the reveal after a focus attempt", () => {
+  test("a successful focus reveals the control", () => {
+    const control = document.createElement("button");
+    document.body.append(control);
+    belowTheFold(control);
+
+    focusAndReveal(control);
+
+    expect(document.activeElement).toBe(control);
+    expect(document.documentElement.scrollTop).toBe(324);
+  });
+
+  test("a disabled control leaves focus and the page where they were", () => {
+    const other = document.createElement("button");
+    const control = document.createElement("button");
+    control.disabled = true;
+    document.body.append(other, control);
+    belowTheFold(control);
+    other.focus();
+
+    focusAndReveal(control);
+
+    expect(document.activeElement, "a disabled control cannot take focus").toBe(other);
+    expect(document.documentElement.scrollTop, "a refused focus must not scroll").toBe(0);
+  });
+
+  test("a detached control is not revealed", () => {
+    const control = document.createElement("button");
+    belowTheFold(control);
+    // jsdom focuses a detached element where a browser would not; the reveal
+    // must still refuse the connection-less control's 0x0 rectangle.
+    control.focus();
+
+    focusAndReveal(control);
+
+    expect(
+      document.documentElement.scrollTop,
+      "a detached control has nowhere to be shown",
+    ).toBe(0);
+  });
+
+  test("focus landing elsewhere does not move the page", () => {
+    const other = document.createElement("button");
+    const control = document.createElement("button");
+    document.body.append(other, control);
+    belowTheFold(control);
+    // A focus trap, an inert ancestor or the browser's own refusal can send
+    // the focus this call asked for somewhere else.
+    vi.spyOn(control, "focus").mockImplementation(() => other.focus());
+
+    focusAndReveal(control);
+
+    expect(document.activeElement).toBe(other);
+    expect(document.documentElement.scrollTop).toBe(0);
+  });
+
+  test("a successful direct reveal is reported once, and a refused one not at all", () => {
+    const seen = vi.fn();
+    const stop = onRevealed(seen);
+    const control = document.createElement("button");
+    const disabled = document.createElement("button");
+    disabled.disabled = true;
+    document.body.append(control, disabled);
+    belowTheFold(control);
+    belowTheFold(disabled);
+
+    try {
+      focusAndReveal(disabled);
+      expect(seen, "the engine must not guard a reveal that never ran").not.toHaveBeenCalled();
+
+      focusAndReveal(control);
+      expect(seen).toHaveBeenCalledTimes(1);
+      expect(seen).toHaveBeenCalledWith(control);
+    } finally {
+      stop();
+    }
   });
 });
