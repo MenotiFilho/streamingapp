@@ -27,12 +27,16 @@ export type ConfirmDialogProps = {
  * The window's fullscreen chrome is drawn by the shell beside this dialog,
  * inside the same level and above the scrim (z-index 45 against the scrim's
  * 40), so a pointer or the D-pad can still reach it while the question is open.
- * That is the shell's control, not one of the dialog's answers: it is outside
- * the dialog's `aria-modal` accessibility scope, so a screen-reader user exits
- * fullscreen with F11 instead of finding it in the dialog. The dialog's own
- * controls remain trapped; anything the question needs belongs inside it. The
- * chrome stays reachable because a fullscreen window must keep a way out of
- * itself (#125).
+ * The chrome is the shell's control, not one of the dialog's answers: it is
+ * outside the dialog's `aria-modal` accessibility scope, so a screen-reader
+ * user exits fullscreen with F11 instead of finding it in the dialog. The
+ * dialog's own controls remain trapped; anything the question needs belongs
+ * inside it. The chrome stays reachable because a fullscreen window must keep
+ * a way out of itself (#125).
+ *
+ * The panel is its own focus region, labelled by the question: its answers are
+ * items of it rather than of the level root, which is what lets the D-pad come
+ * back down from the strip onto the safe answer.
  */
 export function ConfirmDialog({
   title,
@@ -45,6 +49,12 @@ export function ConfirmDialog({
   testId,
 }: ConfirmDialogProps) {
   const titleId = useId();
+  // The panel is its own focus region, a sibling of the window's strip. Its
+  // answers are items of this region, so the D-pad crosses down from the strip
+  // into them and up from them back to the strip; without it the answers would
+  // be items of the level root, which the chrome (a child region) cannot reach
+  // on the way back down (#125).
+  const region = `dialog:${titleId}`;
 
   return (
     <div className="kit-dialog-scrim">
@@ -53,6 +63,9 @@ export function ConfirmDialog({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        data-region={region}
+        data-kind="branch"
+        data-label={title}
         data-testid={testId}
       >
         <h2 id={titleId} className="kit-dialog-title">

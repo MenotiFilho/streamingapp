@@ -52,6 +52,13 @@ body.picture-behind .shell-base {
  * both clear it, or the D-pad would have nothing to step onto (#125).
  */
 :root {
+  /* 56px: the band the window's chrome occupies — 8px above and below the 40px
+     button. The strip's own height, the level's canvas band and the geometry
+     fixture all stand on this one number. */
+  --window-chrome-height: 56px;
+  /* 4rem is 64px at the 16px root this window sets: the step the D-pad makes
+     onto the strip and the number `ShellFrame.test.tsx` measures. A different
+     root is a new measurement, not a quiet one. */
   --window-chrome-clearance: 4rem;
 }
 
@@ -162,7 +169,7 @@ body.picture-behind .shell-base {
   /* The band the focus model and the Windows walkthrough stand on: 8px above
      and below the 40px button. Stated rather than left to the padding's
      arithmetic, because the D-pad and the geometry tests measure this box. */
-  height: 56px;
+  height: var(--window-chrome-height);
   display: flex;
   align-items: flex-start;
   justify-content: flex-end;
@@ -257,11 +264,20 @@ body.picture-behind .shell-base {
   inset: 0;
   z-index: 40;
   overflow: auto;
-  /* A pushed level paints over the base, so the band the chrome occupies is
-     its own canvas rather than a window onto the screen underneath. Its content
-     starts below the strip for the same reason the base's does. */
+  /* The band the chrome stands on is the level's own canvas, so the strip is
+     not a window onto the surface underneath: solid for the strip's own 56px,
+     fading out over the 8px step to the content's clearance. Below that this
+     level paints nothing: the Streams screen is a 94% scrim over the Title, a
+     dialog's glass blurs the page behind it, and a Title's or Settings'
+     gradient starts at its own content. A full canvas here would composite all
+     three over flat paint instead (#125). */
   padding-top: var(--window-chrome-clearance);
-  background: var(--bg-canvas);
+  background: linear-gradient(
+    to bottom,
+    var(--bg-canvas) 0,
+    var(--bg-canvas) var(--window-chrome-height),
+    transparent var(--window-chrome-clearance)
+  );
   color: var(--ink-primary);
   font-family: var(--font-sans);
 }

@@ -2759,11 +2759,11 @@ function Step-33($ctx) {
         $text -notmatch 'Exit full screen') "showed: $text"
 
     # The strip's pointer rule is what lets a click land on the rail beneath it.
-    # The rail is inset 18px and padded 14px, so its Home item starts at ~32px
-    # while the strip runs to 56px: a click 8px below the item's top is inside
-    # both. On Settings that click must change the destination back to Home;
-    # if the strip swallowed it, Settings would stay. Click-Element cannot prove
-    # this: its centre is far below the band.
+    # The rail is inset 18px with a 1px border and 14px padding, so its Home
+    # item starts at ~33px while the strip runs to 56px: a click 8px below the
+    # item's top is inside both. On Settings that click must change the
+    # destination back to Home; if the strip swallowed it, Settings would stay.
+    # Click-Element cannot prove this: its centre is far below the band.
     $home = Button-Named $app 'Home' 5
     if (-not $home) { throw 'the rail shows no Home item to click through the strip' }
     $homeRect = $home.Current.BoundingRectangle

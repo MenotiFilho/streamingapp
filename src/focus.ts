@@ -14,10 +14,13 @@
  *   overlaps the origin on the cross axis is entered before any sibling is
  *   considered — a branch's Back sits above the rows it leads to;
  * - between regions, focus crosses only to a sibling strictly in the direction
- *   that overlaps the origin on the cross axis (`gap <= ALIGNED`), so a short
- *   row cannot leak diagonally into a wider one below;
- * - entering a region lands on the item under the origin's middle, or the
- *   region's head when the origin is wider than the whole target;
+ *   from the control and overlapping the band the control sits in on the cross
+ *   axis (`gap <= ALIGNED`), so a short row cannot leak diagonally into a wider
+ *   one below, while a full-width strip still reaches the dialog centred under
+ *   its one button at the right;
+ * - entering a region lands on the item under the origin's middle, the
+ *   region's head when what came from is wider than the whole target or is over
+ *   none of it, and otherwise the nearest;
  * - every edge stops: no wrap at a row's or the rail's end, and Up off the top
  *   of the content goes nowhere;
  * - a control that disappears steps focus back to the control before the gap,
@@ -199,15 +202,18 @@ export function nearest(from: Rect, rects: readonly Rect[], direction: Direction
 
 /**
  * The nearest region among `ids` that lies strictly in the direction and
- * overlaps `from` on the other axis: the guard both a crossing to a sibling and
+ * overlaps `band` on the other axis: the guard both a crossing to a sibling and
  * a descent into a child use, so a short row cannot leak diagonally into a
- * wider one and a child off to the side is not entered.
+ * wider one and a child off to the side is not entered. The step is always
+ * taken from the focused control; `band` says which line across it counts, and
+ * defaults to the control itself.
  */
 function overlappingInDirection(
   regions: Record<string, Region>,
   ids: readonly string[],
   from: Rect,
   direction: Direction,
+  band: Rect = from,
 ): Region | null {
   let best: Region | null = null;
   let bestStep = 0;
@@ -220,7 +226,7 @@ function overlappingInDirection(
     if (ahead <= MIN_STEP) {
       continue;
     }
-    if (gap(from, candidate.rect, direction) > ALIGNED) {
+    if (gap(band, candidate.rect, direction) > ALIGNED) {
       continue;
     }
     if (!best || ahead < bestStep) {
@@ -232,12 +238,39 @@ function overlappingInDirection(
   return best;
 }
 
-/** A sibling region we may cross into this way, under the overlap guard. */
+/**
+ * The line the focused control sits in: its region's box, when that box really
+ * holds the control. A region's box contains its controls on a rendered page;
+ * a region with no box (an unmeasured page) or one drawn tighter than a control
+ * leaves that control as its own line instead of claiming a band it never drew.
+ */
+function bandOf(region: Region, from: Rect): Rect {
+  const box = region.rect;
+  const holds =
+    box.w > 0 &&
+    box.h > 0 &&
+    box.x <= from.x &&
+    box.y <= from.y &&
+    box.x + box.w >= from.x + from.w &&
+    box.y + box.h >= from.y + from.h;
+  return holds ? box : from;
+}
+
+/**
+ * A sibling region we may cross into this way, under the overlap guard.
+ *
+ * The direction is the control's: the move starts where its focus is. The
+ * alignment is the band's: the row or strip it sits in is the line a person is
+ * on, and a full-width strip reaches the dialog centred under it even though
+ * the strip's one button at the right does not (#125). A region off to the side
+ * still overlaps nothing, so the wall this guard exists for stays.
+ */
 function siblingInDirection(
   regions: Record<string, Region>,
   region: Region,
   from: Rect,
   direction: Direction,
+  band: Rect,
 ): Region | null {
   const parent = region.parent ? regions[region.parent] : undefined;
   if (!parent) {
@@ -249,6 +282,7 @@ function siblingInDirection(
     parent.children.filter((id) => id !== region.id),
     from,
     direction,
+    band,
   );
 }
 
@@ -334,6 +368,7 @@ const LANDED = {
   aligned: "the card under your middle",
   nearest: "the nearest card — nothing lined up",
   head: "the region's head — what you came from is wider than the whole region",
+  outside: "the region's head — nothing in it lies under you",
   memory: "the region's memory",
 } as const;
 
@@ -364,6 +399,13 @@ function enter(
   const under = covering(from, region.itemRects, direction);
   if (under >= 0) {
     return { index: under, how: "aligned" };
+  }
+  // Nothing in the region lies under the control at all — the chrome's one
+  // button above a centred dialog is not above either answer. The head is the
+  // honest landing; the nearest would be whichever answer happens to be on that
+  // side, and on a dialog that is often the dangerous one.
+  if (!region.itemRects.some((item) => gap(from, item, direction) <= ALIGNED)) {
+    return { index: 0, how: "outside" };
   }
   const lined = nearest(from, region.itemRects, direction);
   if (lined >= 0) {
@@ -464,10 +506,12 @@ export function decideMove(
     };
   }
 
-  // 3. Out to a sibling, if one overlaps us across the way.
+  // 3. Out to a sibling, if one hosts us across the way. The direction comes
+  //    from the control; the band it sits in says where the line is.
+  const band = bandOf(region, from);
   let node = region;
   while (node.parent) {
-    const sibling = siblingInDirection(layout.regions, node, from, direction);
+    const sibling = siblingInDirection(layout.regions, node, from, direction, band);
     if (sibling) {
       const target = land(layout, sibling, from, direction, rules);
       return {

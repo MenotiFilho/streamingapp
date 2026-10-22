@@ -6,6 +6,7 @@ import { ConfirmDialog } from "./kit";
 import { ShellFrame } from "./ShellFrame";
 import type { ShellLevel } from "./navigation";
 import kitCss from "./kit/kit.css?raw";
+import osdCss from "./osd.css?raw";
 import shellCss from "./shell.css?raw";
 import {
   fakeWindowState,
@@ -45,19 +46,29 @@ function lengthInPx(value: string | undefined): number {
 }
 
 /**
+ * The rail's Home item top: 18px inset, 1px border and 14px padding, which is
+ * what `.shell-rail` states in CSS. Inside the 56px strip on purpose.
+ */
+const HOME_TOP = 33;
+
+/** The strip's own height: the same band the level's canvas paints. */
+const CHROME_HEIGHT = 56;
+
+/**
  * jsdom measures every box as zero, so give the frame a screen the D-pad can
  * stand on. An element is found by whichever identity the frame gives it: a
  * test id, the region it declares, a rail destination's own name, or the words
  * on a button the kit drew.
  *
  * The numbers are the CSS contract at this viewport: the chrome strip is
- * 0..56px, content starts at 64px (`--window-chrome-clearance: 4rem`), and the
- * rail's Home item starts at 32px — inside the strip's band on purpose, which
- * is why Up from it must still stop. The shell frame test pins those values.
+ * 0..56px, content starts at 64px (`--window-chrome-clearance: 4rem` at the
+ * 16px root), and the rail's Home item starts at 33px — inside the strip's band
+ * on purpose, which is why Up from it must still stop. The shell frame test
+ * pins those values.
  */
 function layOutShell(width = 1100, height = 720) {
   const railHeight = height - 36;
-  const homeTop = 32;
+  const homeTop = HOME_TOP;
   const itemStep = 62;
   const contentTop = 64;
   const contentLeft = 128;
@@ -73,8 +84,11 @@ function layOutShell(width = 1100, height = 720) {
     screen: [contentLeft, contentTop, width - contentLeft, height - contentTop],
     "row:home": [contentLeft, contentTop, Math.min(800, width - contentLeft - 32), 260],
     opener: [contentLeft, contentTop, 180, 260],
-    "window-chrome": [0, 0, width, 56],
+    "window-chrome": [0, 0, width, CHROME_HEIGHT],
     "window-fullscreen": [width - 64, 8, 40, 40],
+    // The dialog panel the level's answers belong to, centred below the strip:
+    // the chrome's button at the right is over neither answer.
+    "confirm-remove": [Math.round(width / 2) - 256, Math.round(height / 2) - 64, 512, 300],
     // The dialog's answers: below the strip, so Up from the initial one has a
     // real step onto the chrome.
     Cancel: [Math.round(width / 2) - 130, Math.round(height / 2) + 90, 120, 44],
@@ -161,6 +175,37 @@ function PlayerHarness() {
       onBack={() => {}}
       screen={<div>Home</div>}
     />
+  );
+}
+
+/** The level a destructive control on Addons pushes: a real confirm dialog. */
+function renderConfirmLevel() {
+  const levels: ShellLevel[] = [
+    {
+      id: "confirm",
+      name: "Remove the Addon",
+      kind: "overlay",
+      render: () => (
+        <ConfirmDialog
+          title="Remove Example?"
+          confirmLabel="Remove"
+          danger
+          onConfirm={() => {}}
+          onCancel={() => {}}
+          testId="confirm-remove"
+        />
+      ),
+    },
+  ];
+
+  return render(
+    <ShellFrame
+      destination="addons"
+      onChooseDestination={() => {}}
+      levels={levels}
+      onBack={() => {}}
+      screen={<div>Addons</div>}
+    />,
   );
 }
 
@@ -288,32 +333,7 @@ describe("the shell frame", () => {
 
   test("a confirm dialog keeps the window control, and Up from its first answer reaches it", async () => {
     layOutShell();
-    const levels: ShellLevel[] = [
-      {
-        id: "confirm",
-        name: "Remove the Addon",
-        kind: "overlay",
-        render: () => (
-          <ConfirmDialog
-            title="Remove Example?"
-            confirmLabel="Remove"
-            danger
-            onConfirm={() => {}}
-            onCancel={() => {}}
-            testId="confirm-remove"
-          />
-        ),
-      },
-    ];
-    const { container } = render(
-      <ShellFrame
-        destination="addons"
-        onChooseDestination={() => {}}
-        levels={levels}
-        onBack={() => {}}
-        screen={<div>Addons</div>}
-      />,
-    );
+    const { container } = renderConfirmLevel();
 
     const dialog = screen.getByRole("dialog", { name: "Remove Example?" });
     const chrome = await screen.findByTestId("window-chrome");
@@ -331,6 +351,12 @@ describe("the shell frame", () => {
       dialog,
       "the dialog keeps its modal semantics; the chrome is simply outside its accessibility scope",
     ).toHaveAttribute("aria-modal", "true");
+    expect(
+      dialog,
+      "the panel is its own focus region, a sibling of the strip",
+    ).toHaveAttribute("data-region", expect.stringMatching(/^dialog:/));
+    expect(dialog).toHaveAttribute("data-kind", "branch");
+    expect(dialog).toHaveAttribute("data-label", "Remove Example?");
 
     const cancel = within(dialog).getByRole("button", { name: "Cancel" });
     await waitFor(() => expect(document.activeElement).toBe(cancel));
@@ -342,6 +368,38 @@ describe("the shell frame", () => {
       ).toBe(within(chrome).getByTestId("window-fullscreen")),
     );
   });
+
+  test.each([
+    [720, 480],
+    [1100, 720],
+    [1920, 1080],
+  ])(
+    "the D-pad crosses the chrome and a dialog's answers both ways at %ix%i",
+    async (width, height) => {
+      layOutShell(width, height);
+      renderConfirmLevel();
+
+      const dialog = screen.getByRole("dialog", { name: "Remove Example?" });
+      const chrome = await screen.findByTestId("window-chrome");
+      const cancel = within(dialog).getByRole("button", { name: "Cancel" });
+      const fullscreen = within(chrome).getByTestId("window-fullscreen");
+      await waitFor(() => expect(document.activeElement).toBe(cancel));
+
+      fireEvent.keyDown(document, { key: "ArrowUp" });
+      await waitFor(() => expect(document.activeElement).toBe(fullscreen));
+
+      fireEvent.keyDown(document, { key: "ArrowDown" });
+      await waitFor(() =>
+        expect(
+          document.activeElement,
+          "Down returns from the strip to the dialog's initial answer, not the destructive one",
+        ).toBe(cancel),
+      );
+
+      fireEvent.keyDown(document, { key: "ArrowUp" });
+      await waitFor(() => expect(document.activeElement).toBe(fullscreen));
+    },
+  );
 
   test("a Tauri window whose first read refuses still draws the control and takes F11", async () => {
     fakeWindowState().fail = true;
@@ -430,7 +488,13 @@ describe("the shell frame", () => {
     expect(
       strip,
       "56px: the height `layOutShell` fabricates for the window region and the Windows walkthrough stands on",
-    ).toMatch(/height:\s*56px/);
+    ).toMatch(/height:\s*var\(--window-chrome-height\)/);
+    expect(
+      lengthInPx(
+        declarationsOf(":root").match(/--window-chrome-height:\s*([^;]+)/)?.[1],
+      ),
+      "the strip's band is 56px, the number the geometry fixture uses",
+    ).toBe(CHROME_HEIGHT);
     expect(
       strip,
       "8px above and 8px below the 40px button: the band the D-pad measures",
@@ -453,8 +517,15 @@ describe("the shell frame", () => {
     ).toMatch(/top:\s*18px/);
     expect(
       rail,
-      "and 14px of padding puts the Home item's top at 32px, inside the band",
+      "and 14px of padding inside the 1px border puts the Home item's top at 33px, inside the band",
     ).toMatch(/padding:\s*14px 8px/);
+    const railTop = /(?:^|;)\s*top:\s*(\d+)px/.exec(rail)?.[1];
+    const railBorder = /(?:^|;)\s*border:\s*(\d+)px/.exec(rail)?.[1];
+    const railPadding = /(?:^|;)\s*padding:\s*(\d+)px/.exec(rail)?.[1];
+    expect(
+      Number(railTop) + Number(railBorder) + Number(railPadding),
+      "the geometry fixture's HOME_TOP is the rail's inset, border and padding added up",
+    ).toBe(HOME_TOP);
 
     const button = declarationsOf(".shell-window-chrome-button");
     expect(button, "the control the 56px band holds is 40px square").toMatch(/width:\s*40px/);
@@ -480,10 +551,17 @@ describe("the shell frame", () => {
       declarationsOf(".shell-level"),
       "a pushed level's first row starts below the strip too",
     ).toMatch(/padding-top:\s*var\(--window-chrome-clearance\)/);
+    const level = declarationsOf(".shell-level");
     expect(
-      declarationsOf(".shell-level"),
-      "the band is the level's own canvas, not the base showing through it",
-    ).toMatch(/background:\s*var\(--bg-canvas\)/);
+      level,
+      "the level paints only the chrome's band, solid to the strip and fading out at the content's clearance",
+    ).toMatch(
+      /background:\s*linear-gradient\(\s*to bottom,\s*var\(--bg-canvas\) 0,\s*var\(--bg-canvas\) var\(--window-chrome-height\),\s*transparent var\(--window-chrome-clearance\)\s*\)/,
+    );
+    expect(
+      level,
+      "a full canvas would composite the Streams scrim and a dialog's glass over flat paint",
+    ).not.toMatch(/background:\s*var\(--bg-canvas\)/);
     expect(
       declarationsOf('.shell-level[data-level-kind="player"]'),
       "the player's picture is the whole window: no clearance, no painted band",
@@ -491,6 +569,15 @@ describe("the shell frame", () => {
     expect(
       declarationsOf('.shell-level[data-level-kind="player"]'),
       "and mpv's child window stays visible through it",
+    ).toMatch(/background:\s*transparent/);
+    const popover = declarationsOf('.shell-level[data-level-kind="popover"]', osdCss);
+    expect(
+      popover,
+      "a popover is anchored in the player's surface: it keeps no clearance",
+    ).toMatch(/padding-top:\s*0/);
+    expect(
+      popover,
+      "and it paints nothing of its own, so the picture stays behind it",
     ).toMatch(/background:\s*transparent/);
   });
 });
