@@ -50,21 +50,21 @@ describe("the Remote's nearest ranking", () => {
     const remote = remoteNearest();
     const from = rect(0, 0, 100, 100);
     const cards = [
-      rect(120, 0, 100, 100),
-      rect(0, 120, 100, 100),
-      rect(-120, 0, 100, 100),
-      rect(0, -120, 100, 100),
+      rect(120, 0, 100, 100), // 0: right
+      rect(0, 120, 100, 100), // 1: down
+      rect(-120, 0, 100, 100), // 2: left
+      rect(0, -120, 100, 100), // 3: up
       rect(160, 160, 100, 100),
       rect(-160, -160, 100, 100),
       rect(105, 400, 100, 100),
       rect(400, 105, 100, 100),
     ];
-    const directions: Direction[] = ["up", "down", "left", "right"];
+    const expected: Record<Direction, number> = { up: 3, down: 1, left: 2, right: 0 };
 
-    for (const direction of directions) {
-      expect(remote(from, cards, direction), direction).toBe(
-        nearest(from, cards, direction),
-      );
+    for (const direction of Object.keys(expected) as Direction[]) {
+      const pick = remote(from, cards, direction);
+      expect(pick, direction).toBe(expected[direction]);
+      expect(pick, direction).toBe(nearest(from, cards, direction));
     }
   });
 });

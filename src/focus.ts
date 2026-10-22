@@ -21,11 +21,11 @@
  *   control's region and landing there by the covering/head rules. That
  *   reverses #51's anti-leak walls: a short row can now cross into a wider one
  *   below, and a sibling or child can be entered off to the side when it holds
- *   the closest control. The window's full-width strip is the one region
- *   entered by its own box rather than by its one control, so Up from any
- *   top-row card still reaches it; the dialog's safe-head landing still
- *   applies. The rail's vertical ends stay walls, and a row's end stops only
- *   when no control exists on that side (#128, ADR-0025);
+ *   the closest control. The window's full-width strip adds its own box to that
+ *   search beside its one control, so Up from any top-row card still reaches it;
+ *   the dialog's safe-head landing still applies. The rail's vertical ends stay
+ *   walls, and a row's end stops only when no control exists on that side
+ *   (#128, ADR-0025);
  * - `edge: "stop"` keeps the old crossing guard: only a sibling overlapping the
  *   band the control sits in on the cross axis (`gap <= ALIGNED`) is entered,
  *   with no level-wide fallback, so the same layout can be compared against
@@ -336,6 +336,26 @@ function overlappingInDirection(
 }
 
 /**
+ * Whether `box` has real area and holds every control in `rects`: the guard the
+ * window strip's box must pass before it may speak for the region. A box drawn
+ * tighter than its controls, or measured as nothing, claims no reach it did not
+ * draw.
+ */
+function holdsControls(box: Rect, rects: readonly Rect[]): boolean {
+  return (
+    box.w > 0 &&
+    box.h > 0 &&
+    rects.every(
+      (rect) =>
+        box.x <= rect.x &&
+        box.y <= rect.y &&
+        box.x + box.w >= rect.x + rect.w &&
+        box.y + box.h >= rect.y + rect.h,
+    )
+  );
+}
+
+/**
  * The line a control in the window's strip sits in: that strip's own full-width
  * box, when the box really holds the control. Only the window kind may widen
  * the cross-axis guard this way — its one button at the right must still reach
@@ -350,14 +370,7 @@ function windowBand(region: Region, from: Rect): Rect {
     return from;
   }
   const box = region.rect;
-  const holds =
-    box.w > 0 &&
-    box.h > 0 &&
-    box.x <= from.x &&
-    box.y <= from.y &&
-    box.x + box.w >= from.x + from.w &&
-    box.y + box.h >= from.y + from.h;
-  return holds ? box : from;
+  return holdsControls(box, [from]) ? box : from;
 }
 
 /**
@@ -370,17 +383,7 @@ function windowBox(region: Region): Rect | null {
     return null;
   }
   const box = region.rect;
-  const holds =
-    box.w > 0 &&
-    box.h > 0 &&
-    region.itemRects.every(
-      (item) =>
-        box.x <= item.x &&
-        box.y <= item.y &&
-        box.x + box.w >= item.x + item.w &&
-        box.y + box.h >= item.y + item.h,
-    );
-  return holds ? box : null;
+  return holdsControls(box, region.itemRects) ? box : null;
 }
 
 /**
@@ -426,8 +429,11 @@ function childInDirection(
   return overlappingInDirection(regions, region.children, from, direction);
 }
 
-/** A control found somewhere in the active level. */
-type Found = { region: Region; index: number };
+/** One control in the active level: where it lives and which of its region's controls it is. */
+type LevelTarget = { region: Region; index: number };
+
+/** A candidate in the level-wide search: a control, or the strip's box standing for it. */
+type LevelCandidate = LevelTarget & { rect: Rect };
 
 /** The root of the tree a region belongs to: the level's own region. */
 function levelRoot(regions: Record<string, Region>, region: Region): Region {
@@ -445,28 +451,6 @@ function levelRoot(regions: Record<string, Region>, region: Region): Region {
 }
 
 /**
- * Whether `ancestor` already holds `region`. A control in such a region is a
- * direct landing: `land` would otherwise descend back into the child the person
- * is leaving (the Title's Back above its seasons is the case that matters).
- */
-function holdsRegion(
-  regions: Record<string, Region>,
-  ancestor: Region,
-  region: Region,
-): boolean {
-  let node: Region | undefined = region;
-  const seen = new Set<string>();
-  while (node?.parent && !seen.has(node.id)) {
-    seen.add(node.id);
-    if (node.parent === ancestor.id) {
-      return true;
-    }
-    node = regions[node.parent];
-  }
-  return false;
-}
-
-/**
  * The closest control anywhere in the focused region's active level, outside
  * the focused region itself. This is the cross-region half of `edge: "nearest"`
  * (#128): one level-wide search, direct-first then closest, finds the control
@@ -479,7 +463,7 @@ function controlInLevel(
   focused: Region,
   from: Rect,
   direction: Direction,
-): Found | null {
+): LevelTarget | null {
   const regions: Region[] = [];
   const visit = (region: Region) => {
     regions.push(region);
@@ -492,8 +476,7 @@ function controlInLevel(
   };
   visit(levelRoot(layout.regions, focused));
 
-  const rects: Rect[] = [];
-  const held: Found[] = [];
+  const candidates: LevelCandidate[] = [];
   for (const region of regions) {
     if (region.id === focused.id) {
       continue;
@@ -501,24 +484,32 @@ function controlInLevel(
     // The window strip is a direct region, not merely the control it draws:
     // its full-width box is what reaches a top-row card anywhere along the row
     // and the dialog centred under its one button (#125). Only this kind gets
-    // the proxy; every other region is searched by its controls.
+    // the proxy; every other region is searched by its controls. The strip's
+    // button stays a candidate beside the box, so the box adds reach rather
+    // than replacing the control.
     const box = windowBox(region);
     if (box) {
-      rects.push(box);
-      held.push({ region, index: 0 });
+      candidates.push({ region, index: 0, rect: box });
     }
     for (let index = 0; index < region.itemRects.length; index += 1) {
       const rect = region.itemRects[index];
       if (!rect) {
         continue;
       }
-      rects.push(rect);
-      held.push({ region, index });
+      candidates.push({ region, index, rect });
     }
   }
 
-  const pick = nearest(from, rects, direction);
-  return pick >= 0 ? held[pick] ?? null : null;
+  const pick = nearest(
+    from,
+    candidates.map((candidate) => candidate.rect),
+    direction,
+  );
+  if (pick < 0) {
+    return null;
+  }
+  const chosen = candidates[pick];
+  return chosen ? { region: chosen.region, index: chosen.index } : null;
 }
 
 /** A remembered index clamped to the controls a region actually has. */
@@ -591,7 +582,7 @@ function covering(from: Rect, rects: readonly Rect[], direction: Direction): num
 
 const LANDED = {
   aligned: "the card under your middle",
-  nearest: "the nearest card — nothing lined up",
+  nearest: "nothing under your middle",
   head: "the region's head — what you came from is wider than the whole region",
   outside: "the region's head — nothing in it lies under you",
   memory: "the region's memory",
@@ -797,10 +788,12 @@ export function decideMove(
     //    control anywhere in the active level, direct-first, then closest.
     const found = controlInLevel(layout, region, from, direction);
     if (found) {
-      // A control in a region that already holds the move — the Title's Back
-      // above its seasons — is a direct landing; `land` would descend back into
-      // the child the person is leaving.
-      if (holdsRegion(layout.regions, found.region, region)) {
+      // A control in a branch is that branch's own control, not a request to
+      // descend into one of its children. `land` would do the latter and return
+      // a different control than the search chose: the ancestor case is the
+      // Title's Back above its seasons, and a sibling branch with a Back is the
+      // same hole.
+      if (found.region.children.length > 0) {
         return {
           kind: "crossed",
           direction,

@@ -47,17 +47,19 @@ The move still tries, in order:
    control on that side, direct-first then closest; it chooses that control's
    region and lands there with the existing covering/head rules.
 
-The window's full-width strip is the one region that enters that search by its
-own box rather than by its one control. That is what lets Up from a top-row card
-reach the strip at any horizontal position, including a card whose right edge
-passes the strip's button (#125). Under `"stop"` the same reach comes from the
-strip's band in the sibling step. The child-before-sibling order is otherwise
-unchanged.
+The window's full-width strip is the one region that adds its own box to that
+search beside its one control: the strip's box is a candidate (when it really
+holds every control in the region), and the button remains one too. That is what
+lets Up from a top-row card reach the strip at any horizontal position, including
+a card whose right edge passes the strip's button (#125). Under `"stop"` the same
+reach comes from the strip's band in the sibling step. The child-before-sibling
+order is otherwise unchanged.
 
-A control in a region that already holds the focused region — the Title's Back
-above its seasons, the Streams branch's Back above its groups — is a direct
-landing in that search. `land` would otherwise descend back into the child the
-person is leaving, so the fallback returns the control itself.
+A control in a branch is a direct landing in that search, not only when the
+branch holds the focused region: the Title's Back above its seasons, the Streams
+branch's Back above its groups, and a sibling branch's own Back are all returned
+as the control itself. `land` would otherwise descend into a child and return a
+different control than the search chose.
 
 The rail's vertical ends remain walls before the level-wide search: the six
 destinations are a list, and Down on Settings must not fall into the content
@@ -94,28 +96,37 @@ cross-region fallback is naturally absent there.
 ## 4. What #125's window and dialog kinds keep
 
 The `window` and `dialog` region kinds remain scoped exactly as #125 settled
-them: only the window's full-width box widens the cross-axis band, and a dialog
-with nothing under the origin still lands on its head rather than the nearest
-answer. The dialog's safe head is a landing rule, not a crossing rule, so the
-level-wide search does not bypass it: the strip's button still reaches the
-centred confirm panel, and Up from the dialog's first answer still reaches the
-strip.
+them. Under `edge: "stop"`, only the window's full-width box widens the
+cross-axis band in the sibling step; under `"nearest"` that box is an extra
+candidate in the level-wide search rather than a widened band. A dialog with
+nothing under the origin still lands on its head rather than the nearest answer.
+The dialog's safe head is a landing rule, not a crossing rule, so the level-wide
+search does not bypass it: the strip's button still reaches the centred confirm
+panel, and Up from the dialog's first answer still reaches the strip. Both halves
+are pinned under each edge rule.
 
 ## 5. Tests and evidence
 
 `src/focus.test.ts` pins direct-first, the closest fallback, the closest-distance
-tie, the stop-vs-nearest distinction, the short-row and off-side crossings, the
-true wall, the rail end, the full-width strip (including a card at the far
-right), a row below the fold, a wrapped grid with a hole, and the direct landing
-on an ancestor's own control. `src/shell/ShellFrame.test.tsx` renders the row-end
-crossing through the real shell with stubbed rectangles, and
-`src/shell/remoteFocus.test.ts` lifts the Remote page's own `nearest` out of the
-served template and asserts it matches the window's.
+tie, the stop-vs-nearest distinction (including the stop rule's own ties), the
+short-row and off-side crossings, the true wall, the rail end, the full-width
+strip (including a card at the far right, a mid-row card where only the box
+outranks the nearer rail item, and a box drawn tighter than its control), the
+strip/dialog crossing under both edge rules, a row below the fold, a wrapped grid
+with a hole, and the direct landing on an ancestor's or another branch's own
+control. `src/shell/ShellFrame.test.tsx` renders the row-end crossing through the
+real shell with stubbed rectangles, and `src/shell/remoteFocus.test.ts` lifts the
+Remote page's own `nearest` out of the served template and asserts it matches
+the window's, with an absolute answer for each direction.
 
 The Windows walkthrough is deferred with the rest of the #126/#127/#128 batch.
-`verify.ps1` step 27 now records the crossing (Right moves focus instead of
-stopping at the short row's end); the run itself is the owner's, and was not
-performed as part of this change.
+`verify.ps1` step 27 asserts the crossing: Right at the end of a short row lands
+on the closest control on the right (a card, or a row's More where that is
+nearer), and its screenshot records the landing. The step's log also records both
+rail ends stopping; those are check-log assertions, not screenshots. Up from the
+top row to the strip is step 33's own screenshot. Down from a branch's Back into
+an off-side child is not scripted; `focus.test.ts` covers it. The run itself is
+the owner's, and was not performed as part of this change.
 
 Rejected, with reasons: **adopting Norigin** (research #129: it replaces
 measurement and keys, not this model, and cannot search the level for the

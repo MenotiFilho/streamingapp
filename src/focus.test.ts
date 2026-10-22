@@ -61,7 +61,7 @@ describe("nearest, the geometry inside a region", () => {
     expect(nearest(from, cards, "down")).toBe(1);
   });
 
-  test("breaks a tie on the sideways gap by the shorter step, then the closer centre", () => {
+  test("takes the shortest step among lined-up candidates, then the closer centre across", () => {
     const from = rect(0, 0, 100, 100);
     const shorter = [from, rect(0, 120, 100, 100), rect(0, 400, 100, 100)];
     expect(nearest(from, shorter, "down")).toBe(1);
@@ -123,6 +123,18 @@ describe("nearest, the geometry inside a region", () => {
 
     expect(nearest(from, cards, "down", "stop")).toBe(1);
   });
+
+  test("the stop rule breaks a gap tie by the shorter step, then the closer centre", () => {
+    const from = rect(0, 0, 100, 100);
+    // Both cards sit 20px to the side; the second is much closer below.
+    const steps = [from, rect(120, 300, 100, 100), rect(120, 120, 100, 100)];
+    expect(nearest(from, steps, "down", "stop")).toBe(2);
+
+    // Same gap and same step on both sides; the narrower card's centre is
+    // closer to the origin's.
+    const centres = [from, rect(120, 120, 100, 100), rect(-60, 120, 40, 100)];
+    expect(nearest(from, centres, "down", "stop")).toBe(2);
+  });
 });
 
 /**
@@ -177,6 +189,32 @@ function withChrome(held: Layout): Layout {
     parent: "shell",
     rect: rect(0, 0, 1000, 56),
     items: [rect(940, 8, 40, 40)],
+  });
+  held.regions["shell"]?.children.push("window");
+  return held;
+}
+
+/**
+ * A mid-row card under a narrow window strip, with the rail's top item above and
+ * to its left. The strip's one button is far right (≈560px) and the rail item is
+ * much closer (≈45px): only the strip's own box, which spans the card, can make
+ * the strip the region the search chooses. `window` is passed so a test can draw
+ * the box tighter than the button.
+ */
+function midRowUnderStrip(window: Rect): Layout {
+  const held = shell([{ id: "row:mid", y: 64, items: [rect(200, 64, 100, 100)] }]);
+  const rail = held.regions["rail"];
+  if (!rail) {
+    throw new Error("the fixture has no rail");
+  }
+  rail.rect = rect(0, 0, 45, 600);
+  rail.itemRects = [rect(0, 0, 45, 40)];
+  held.regions["window"] = region("window", {
+    kind: "window",
+    label: "Window",
+    parent: "shell",
+    rect: window,
+    items: [rect(560, 8, 40, 40)],
   });
   held.regions["shell"]?.children.push("window");
   return held;
@@ -281,7 +319,7 @@ describe("crossing between regions", () => {
       kind: "crossed",
       regionId: "row:wide",
       index: 3,
-      landedBy: "the nearest card — nothing lined up",
+      landedBy: "nothing under your middle",
     });
   });
 
@@ -348,7 +386,7 @@ describe("crossing between regions", () => {
       kind: "crossed",
       regionId: "row:bottom",
       index: 2,
-      landedBy: "the nearest card — nothing lined up",
+      landedBy: "nothing under your middle",
     });
   });
 
@@ -428,6 +466,33 @@ describe("crossing between regions", () => {
     );
 
     expect(decision).toMatchObject({ kind: "crossed", regionId: "window", index: 0 });
+  });
+
+  test("edge stop keeps the strip/dialog crossing", () => {
+    // The old rule stays selectable, and its #125 reach is part of what it
+    // keeps: the strip's box is the band for the dialog below, and the dialog's
+    // answers still reach the strip above.
+    const rules = { ...DEFAULT_RULES, edge: "stop" as const };
+    const down = decideMove(
+      chromeOverDialog(),
+      { regionId: "window", index: 0 },
+      "down",
+      rules,
+    );
+    const up = decideMove(
+      chromeOverDialog(),
+      { regionId: "dialog", index: 0 },
+      "up",
+      rules,
+    );
+
+    expect(down).toMatchObject({
+      kind: "crossed",
+      regionId: "dialog",
+      index: 0,
+      landedBy: "the region's head — nothing in it lies under you",
+    });
+    expect(up).toMatchObject({ kind: "crossed", regionId: "window", index: 0 });
   });
 });
 
@@ -659,7 +724,7 @@ describe("the walls", () => {
       kind: "crossed",
       regionId: "rail",
       index: 0,
-      landedBy: "the nearest card — nothing lined up",
+      landedBy: "nothing under your middle",
     });
   });
 
@@ -679,7 +744,7 @@ describe("the walls", () => {
       kind: "crossed",
       regionId: "rail",
       index: 2,
-      landedBy: "the nearest card — nothing lined up",
+      landedBy: "nothing under your middle",
     });
   });
 
@@ -712,6 +777,34 @@ describe("the walls", () => {
     );
 
     expect(decision).toMatchObject({ kind: "crossed", regionId: "window", index: 0 });
+  });
+
+  test("the strip's box decides the region when its button is farther than the rail", () => {
+    // The mid-row card is 200–300px across; the rail's top item is at 0–45px and
+    // the strip's button at 560–600px. The rail item is the closer control on
+    // its own (≈157px vs ≈260px), so only the strip's box, which spans the
+    // card, can make the strip the region the level-wide search chooses.
+    const decision = decideMove(
+      midRowUnderStrip(rect(0, 0, 600, 56)),
+      { regionId: "row:mid", index: 0 },
+      "up",
+      DEFAULT_RULES,
+    );
+
+    expect(decision).toMatchObject({ kind: "crossed", regionId: "window", index: 0 });
+  });
+
+  test("a strip box drawn tighter than its button does not claim the reach", () => {
+    // The box ends at 550px, left of the button's 560px edge: it does not hold
+    // the control it claims, so the search falls back to the rail item above.
+    const decision = decideMove(
+      midRowUnderStrip(rect(0, 0, 550, 56)),
+      { regionId: "row:mid", index: 0 },
+      "up",
+      DEFAULT_RULES,
+    );
+
+    expect(decision).toMatchObject({ kind: "crossed", regionId: "rail", index: 0 });
   });
 
   test("a control below the fold is still chosen by distance", () => {
@@ -770,6 +863,40 @@ describe("the walls", () => {
     );
 
     expect(decision).toMatchObject({ kind: "crossed", regionId: "streams", index: 0 });
+  });
+
+  test("a non-ancestor branch's own control is a direct landing too", () => {
+    // The level-wide search can reach any branch's Back, not only one that
+    // holds the focused region. `land` would descend into that branch's child
+    // instead of returning the control the search actually chose.
+    const held = branchWithBack([
+      { id: "group:one", y: 120, items: [rect(40, 130, 1000, 90)] },
+    ]);
+    held.regions["other"] = region("other", {
+      kind: "branch",
+      label: "the other branch",
+      parent: "level",
+      rect: rect(600, 24, 500, 300),
+      items: [rect(700, 40, 120, 44)],
+      children: ["other:row"],
+    });
+    held.regions["other:row"] = region("other:row", {
+      kind: "row",
+      label: "the other row",
+      parent: "other",
+      rect: rect(600, 200, 500, 80),
+      items: [rect(600, 210, 500, 60)],
+    });
+    held.regions["level"]?.children.push("other");
+
+    const decision = decideMove(
+      held,
+      { regionId: "group:one", index: 0 },
+      "up",
+      DEFAULT_RULES,
+    );
+
+    expect(decision).toMatchObject({ kind: "crossed", regionId: "other", index: 0 });
   });
 });
 

@@ -207,14 +207,16 @@ each end. The control will still be fully visible in all of them; the 24px
 margin is what shrinks, so those shots record the floor rather than a failure.
 
 **The focus crossing (#128) is scripted in step 27, but its batch run is still
-deferred.** The step now asserts the changed move: Right at the end of a short
-Continue watching row leaves the row for the next occupied card on the right,
-rather than stopping at the row's wall. The rest of the changed moves are read
-from the same run's screenshots: Down from a branch's Back entering the closest
-child below even when it is off to the side, Up from the top row still reaching
-the fullscreen strip, and both rail ends still stopping. The Remote uses the
-same ranking, but its arrows are the operator's own evidence on the second
-device; `verify.ps1` screenshots the Host's window only.
+deferred.** The step asserts the changed move: Right at the end of a short
+Continue watching row leaves the row for the closest control on the right (a
+card, or a row's own More where that is nearer), rather than stopping at the
+row's wall, and `27-dpad.png` records where focus landed. The same step's log
+records both rail ends still stopping; that is check-log evidence, not a
+screenshot. Up from the top row still reaching the fullscreen strip belongs to
+step 33, which takes its own `33-up-from-top-row.png`. Down from a branch's Back
+entering an off-side child is not scripted; the unit and shell tests cover it.
+The Remote uses the same ranking, but its arrows are the operator's own evidence
+on the second device; `verify.ps1` screenshots the Host's window only.
 
 Steps 19 and 30 enter a test TMDB key and clear it again. The key lives in the
 OS keyring, which the data-directory wipe at the top does not touch, so both
