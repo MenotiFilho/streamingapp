@@ -210,11 +210,15 @@ margin is what shrinks, so those shots record the floor rather than a failure.
 deferred.** The step asserts the changed move: Right at the end of a short
 Continue watching row leaves the row for the closest control on the right (a
 card, or a row's own More where that is nearer), rather than stopping at the
-row's wall, and `27-dpad.png` records where focus landed. The same step's log
+row's wall, and `27-dpad.png` records where focus landed. When no control lies
+on that side, the step skips rather than asserting a crossing. The same step's log
 records both rail ends still stopping; that is check-log evidence, not a
 screenshot. Up from the top row still reaching the fullscreen strip belongs to
 step 33, which takes its own `33-up-from-top-row.png`. Down from a branch's Back
-entering an off-side child is not scripted; the unit and shell tests cover it.
+entering an off-side child is not scripted; `focus.test.ts` covers it, and
+`ShellFrame.test.tsx` covers the row-end crossing. Step 27 ranks the row's own
+controls; a destination outside the row (a hero or the chrome) is outside its
+scope and skips.
 The Remote uses the same ranking, but its arrows are the operator's own evidence
 on the second device; `verify.ps1` screenshots the Host's window only.
 
