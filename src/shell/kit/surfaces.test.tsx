@@ -22,6 +22,12 @@ describe("the confirmation surface", () => {
 
     const dialog = screen.getByRole("dialog", { name: "Remove Addon" });
     expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(
+      dialog,
+      "the panel is its own focus region, labelled by the question it asks",
+    ).toHaveAttribute("data-region", expect.stringMatching(/^dialog:/));
+    expect(dialog).toHaveAttribute("data-kind", "dialog");
+    expect(dialog).toHaveAttribute("data-label", "Remove Addon");
     expect(within(dialog).getByText(/Cinemeta will no longer/)).toBeInTheDocument();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));

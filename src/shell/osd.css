@@ -521,6 +521,10 @@
 .shell-level[data-level-kind="popover"] {
   z-index: 70;
   overflow: visible;
+  /* A popover is anchored in the player's own surface, not laid out under the
+     browsing chrome: it keeps the level's clearance out of its way, and the
+     player's picture shows through its scrim. */
+  padding-top: 0;
   background: transparent;
   pointer-events: none;
 }

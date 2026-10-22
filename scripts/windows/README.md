@@ -17,10 +17,14 @@ covers the whole surface: the six-destination rail (**Home · Discover · Search
 Library · Addons · Settings**) with its D-pad geometry; Home's Featured hero, its
 rotation and its text fallback, Continue watching and one row per Catalog; the
 Title and the Streams level above it; the player OSD, with one popover per icon,
-auto-hide, the episode steps and the volume pillar; Settings' Preferences,
-Credentials, Remote devices and About/Credits sub-screens; the subtitle
-appearance (colour and size, their restart, and what they do to an SRT and an
-ASS track); the key-gated Discover and Search; the Library sign-in gate; and the
+auto-hide, the episode steps and the volume pillar; the window's fullscreen
+control on the base, a pushed Title, Settings and a confirm dialog, F11 from
+each and with the OSD hidden, the strip's Up-from-the-top-row landing and a
+click through the strip onto the rail beneath it, and the OSD's own copy of the
+button; Settings' Preferences, Credentials, Remote devices and About/Credits
+sub-screens; the subtitle appearance (colour and size, their restart, and what
+they do to an SRT and an ASS track); the key-gated Discover and Search; the
+Library sign-in gate; and the
 TMDB attribution.
 
 The Addon it configures is a parameter, so the walkthrough can be run against the
@@ -94,7 +98,7 @@ the three seconds out.
 
 ## Walking part of the checklist
 
-The whole checklist is 34 steps and takes minutes. To iterate on one step, run
+The whole checklist is 35 steps and takes minutes. To iterate on one step, run
 just that one: the runner builds the ground the step declares first — an empty
 data directory, one Host on `-Monitor`, the fixture Addon configured by manifest
 URL, its first Catalog featured, at Home — and reuses it when several selected
@@ -328,17 +332,17 @@ or started).
   Host in the foreground: `verify.ps1` calls `SetForegroundWindow` first and says so
   when it does not take. `{DOWN}` past the hero and onto a card, `{ENTER}` to
   choose it, `{RIGHT}` out of the rail — the same as a TV remote would.
-- **The subtitle colour is a fact about pixels, so a person reads it.** Steps 33
-  and 34 assert everything the accessibility tree can carry — the chips and
+- **The subtitle colour is a fact about pixels, so a person reads it.** Steps 34
+  and 35 assert everything the accessibility tree can carry — the chips and
   their pressed state, the percentage readout, the Snapshots a change publishes,
   the restart — and screenshot the picture for the rest: an SRT line takes the
   colour, an ASS line keeps the red it was authored with, and both are shot at
-  100% and 125% so the size comparison has both images (`34-srt-yellow.png`,
-  `34-srt-yellow-large.png`, `34-ass-authored-100.png`,
-  `34-ass-authored-125.png`). The fixture's ASS track is authored red precisely
+  100% and 125% so the size comparison has both images (`35-srt-yellow.png`,
+  `35-srt-yellow-large.png`, `35-ass-authored-100.png`,
+  `35-ass-authored-125.png`). The fixture's ASS track is authored red precisely
   so the two cases cannot be confused. The SRT cues sit in short windows so they
   do not leak into later steps' screenshots; the ASS line only shows while the
-  ASS track is chosen. If step 34 skips, the configured Addon served a Stream
+  ASS track is chosen. If step 35 skips, the configured Addon served a Stream
   without the fixture's tracks (or no playable candidate), and the reason is
   printed.
 - **The OSD is not always there.** It hides itself after three idle seconds and

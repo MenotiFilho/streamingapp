@@ -125,6 +125,36 @@ function shell(rows: Array<{ id: string; y: number; items: Rect[] }>): Layout {
 const cards = (y: number, count: number, width = 100) =>
   Array.from({ length: count }, (_, index) => rect(120 + index * (width + 20), y, width, 100));
 
+/**
+ * A confirm dialog under the window's chrome: the strip spans the level with
+ * its one button at the right, the panel and its answers sit centred below it
+ * (#125). The button is nowhere near the answers, which is the point.
+ */
+function chromeOverDialog(): Layout {
+  return layout([
+    region("level", {
+      kind: "branch",
+      label: "the level",
+      rect: rect(0, 0, 1200, 900),
+      children: ["dialog", "window"],
+    }),
+    region("dialog", {
+      kind: "dialog",
+      label: "Remove Example?",
+      parent: "level",
+      rect: rect(344, 260, 512, 240),
+      items: [rect(420, 400, 120, 44), rect(560, 400, 120, 44)],
+    }),
+    region("window", {
+      kind: "window",
+      label: "Window",
+      parent: "level",
+      rect: rect(0, 0, 1200, 56),
+      items: [rect(1140, 8, 40, 40)],
+    }),
+  ]);
+}
+
 describe("decideMove inside a region", () => {
   test("moves by geometry to the nearest card, and says where it went", () => {
     const rows = [{ id: "row:one", y: 0, items: cards(0, 3) }];
@@ -216,6 +246,85 @@ describe("crossing between regions", () => {
     );
 
     expect(decision.kind).toBe("blocked");
+  });
+
+  test("a normal row with nothing under the origin keeps the nearest landing, not the head", () => {
+    // The dialog's safe-head landing is scoped to dialogs (#125). A row with no
+    // item under the control keeps the locked geometry: Down from a card at the
+    // right edge lands on the nearest card, not on the row's first.
+    const rows = [
+      { id: "row:top", y: 0, items: [rect(900, 0, 100, 100)] },
+      { id: "row:bottom", y: 120, items: cards(120, 3) },
+    ];
+    const decision = decideMove(
+      shell(rows),
+      { regionId: "row:top", index: 0 },
+      "down",
+      DEFAULT_RULES,
+    );
+
+    expect(decision).toMatchObject({
+      kind: "crossed",
+      regionId: "row:bottom",
+      index: 2,
+      landedBy: "the nearest card — nothing lined up",
+    });
+  });
+
+  test("a wide branch does not widen the anti-leak guard with its own box", () => {
+    // The Streams branch's box is wide enough to hold the target row, but the
+    // move starts on its narrow Back control at the top left. Only the window
+    // kind may speak for its full width; a branch's box must not turn an
+    // off-axis sibling into a landing (#51).
+    const held = branchWithBack([]);
+    held.regions["below"] = region("below", {
+      kind: "row",
+      label: "the row below",
+      parent: "level",
+      rect: rect(400, 400, 700, 120),
+      items: [rect(400, 410, 700, 90)],
+    });
+    held.regions["level"]?.children.push("below");
+
+    const decision = decideMove(
+      held,
+      { regionId: "streams", index: 0 },
+      "down",
+      DEFAULT_RULES,
+    );
+
+    expect(decision.kind).toBe("blocked");
+  });
+
+  test("crosses from the full-width strip into the dialog under it, at its head", () => {
+    // The strip's button is at the right, the dialog is centred: the button is
+    // over neither answer, so the nearest would be the confirming one. Only the
+    // window kind gets the full-width band, and only the dialog kind turns
+    // "nothing under you" into its head, the safe answer (#125).
+    const decision = decideMove(
+      chromeOverDialog(),
+      { regionId: "window", index: 0 },
+      "down",
+      DEFAULT_RULES,
+    );
+
+    expect(decision).toMatchObject({
+      kind: "crossed",
+      regionId: "dialog",
+      index: 0,
+      landedBy: "the region's head — nothing in it lies under you",
+    });
+  });
+
+  test("crosses back up from the dialog's first answer to the strip", () => {
+    const decision = decideMove(
+      chromeOverDialog(),
+      { regionId: "dialog", index: 0 },
+      "up",
+      DEFAULT_RULES,
+    );
+
+    expect(decision).toMatchObject({ kind: "crossed", regionId: "window", index: 0 });
   });
 });
 
@@ -400,7 +509,9 @@ describe("the walls", () => {
   });
 
   test("Up out of the content can be handed to the rail when a rule says so", () => {
-    const rows = [{ id: "row:top", y: 120, items: cards(120, 3) }];
+    // The row sits below three rail items, so the rail's nearest item is not
+    // its head: the rule hands Up to the rail, and the landing is nearest.
+    const rows = [{ id: "row:top", y: 300, items: cards(300, 3) }];
     const decision = decideMove(
       shell(rows),
       { regionId: "row:top", index: 0 },
@@ -408,7 +519,12 @@ describe("the walls", () => {
       { ...DEFAULT_RULES, upFromContent: "rail" },
     );
 
-    expect(decision).toMatchObject({ kind: "crossed", regionId: "rail" });
+    expect(decision).toMatchObject({
+      kind: "crossed",
+      regionId: "rail",
+      index: 2,
+      landedBy: "the nearest card — nothing lined up",
+    });
   });
 });
 

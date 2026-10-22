@@ -26,6 +26,7 @@ import type { Intent } from "../input";
 import { formatTime, playingName, transportable } from "../playback";
 import { labelOf } from "../title";
 import { useShell } from "./context";
+import { FullscreenButton } from "./FullscreenButton";
 import { Button } from "./kit";
 import { FOCUSABLE } from "./layout";
 import { Refusal } from "./Refusal";
@@ -501,7 +502,11 @@ export function PlayerOverlay() {
             </div>
 
             <div className="shell-osd-window" data-player-stop="top" ref={top}>
-              <FullscreenButton ref={fullscreen} />
+              <FullscreenButton
+                ref={fullscreen}
+                className="shell-osd-icon kit-focus-invert"
+                testId="fullscreen"
+              />
               <button
                 type="button"
                 className="shell-osd-icon kit-focus-invert"
@@ -862,59 +867,10 @@ function IconButton({
   );
 }
 
-/**
- * Put the Host's window into fullscreen, or take it out again.
- *
- * The OSD is the player, and a player that cannot use the whole screen is one
- * the owner has to leave the couch to fix. The call is Tauri's own window API;
- * a browser or a test has no window to hold, and the button simply does
- * nothing there.
- */
-function FullscreenButton({ ref }: { ref?: Ref<HTMLButtonElement> }) {
-  const [fullscreen, setFullscreen] = useState(false);
-
-  const toggle = async () => {
-    try {
-      const { getCurrentWindow } = await import("@tauri-apps/api/window");
-      const hostWindow = getCurrentWindow();
-      const next = !(await hostWindow.isFullscreen());
-      await hostWindow.setFullscreen(next);
-      setFullscreen(next);
-    } catch {
-      // Not a Tauri window: there is nothing here to make fullscreen.
-    }
-  };
-
-  return (
-    <IconButton
-      ref={ref}
-      testId="fullscreen"
-      label={fullscreen ? "Exit full screen" : "Full screen"}
-      title={fullscreen ? "Exit full screen" : "Full screen"}
-      pressed={fullscreen}
-      onClick={() => void toggle()}
-    >
-      <FullscreenIcon exit={fullscreen} />
-    </IconButton>
-  );
-}
-
 function CloseIcon() {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
       <path d="M18 6 6 18M6 6l12 12" />
-    </svg>
-  );
-}
-
-function FullscreenIcon({ exit }: { exit: boolean }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
-      {exit ? (
-        <path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5" />
-      ) : (
-        <path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" />
-      )}
     </svg>
   );
 }

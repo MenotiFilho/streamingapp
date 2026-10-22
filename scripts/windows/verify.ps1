@@ -102,8 +102,9 @@ $Steps = @(
     [pscustomobject]@{ Id = 30; Title = 'Discover: the no-key state, and the keyed feed'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it enters and clears a test TMDB key)' }
     [pscustomobject]@{ Id = 31; Title = 'the previous episode: a wall at S1E1, and a step back from S1E2'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it plays an episode)' }
     [pscustomobject]@{ Id = 32; Title = 'TMDB attribution on Discover and in About/Credits'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home' }
-    [pscustomobject]@{ Id = 33; Title = 'Settings > Preferences: the subtitle appearance goes through the Action surface, and survives a restart'; Ground = 'fresh'; After = @(); Need = 'a Host (the appearance needs no Addon)' }
-    [pscustomobject]@{ Id = 34; Title = 'subtitles on a real picture: colour on the SRT, the authored colour on the ASS at 100% and 125%, and the size from the OSD'; Ground = 'addon'; After = @(); Need = 'the fixture Addon with the fixture video (two SRT tracks and one ASS track); it chooses the colour, plays, steps the size in the OSD, and checks Settings and the next Stream' }
+    [pscustomobject]@{ Id = 33; Title = 'fullscreen: F11, the OSD''s copy, and the chrome that outlives Stop'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it plays an episode, and walks the window''s control on Home, a pushed Title, Settings and a confirm dialog, plus F11 with the OSD visible and hidden)' }
+    [pscustomobject]@{ Id = 34; Title = 'Settings > Preferences: the subtitle appearance goes through the Action surface, and survives a restart'; Ground = 'fresh'; After = @(); Need = 'a Host (the appearance needs no Addon)' }
+    [pscustomobject]@{ Id = 35; Title = 'subtitles on a real picture: colour on the SRT, the authored colour on the ASS at 100% and 125%, and the size from the OSD'; Ground = 'addon'; After = @(); Need = 'the fixture Addon with the fixture video (two SRT tracks and one ASS track); it chooses the colour, plays, steps the size in the OSD, and checks Settings and the next Stream' }
 )
 
 # The discovery path and the cheap syntax check: print the checklist and what
@@ -2715,11 +2716,244 @@ function Step-32($ctx) {
 }
 
 function Step-33($ctx) {
-    '--- 33. Settings > Preferences: the subtitle appearance, and its restart'
+    '--- 33. fullscreen: F11, the OSD''s copy, and the chrome that outlives Stop'
+    $app = $ctx.App
+    Open-Home $app
+    Start-Sleep -Seconds 2
+    Wait-Text $app 'Featured Title:' 20 | Out-Null
+
+    # No player is open, so the OSD has no button here: the window's own control
+    # is the one the browsing surface offers, and it says what pressing it does.
+    Check 'the browsing window carries the fullscreen control' (
+        (Button-Named $app 'Full screen' 10) -ne $null) "showed: $(Page-Text $app)"
+    Shot $app '33-chrome-home.png'
+
+    # The strip is the focus region, not the button: Up from the top row lands
+    # on it, while the rail's own top item still stops (#125).
+    $hero = @(Buttons-Matching $app 'Featured Title:')[0]
+    if ($hero) {
+        $hero.SetFocus()
+        Start-Sleep -Seconds 1
+        Press-Keys $app '{UP}'
+        Check 'Up from Home''s top row lands on the window control' (
+            (Focused-Name) -eq 'Full screen') "focus is on: '$(Focused-Name)'"
+        Shot $app '33-up-from-top-row.png'
+    } else {
+        Skip 'Up from Home''s top row' 'Home drew no Featured hero to stand on'
+    }
+    Focus-On $app 'Home' ([Windows.Automation.ControlType]::Button)
+    Press-Keys $app '{UP}'
+    Check 'Up from the rail''s top item still stops' (
+        (Focused-Name) -eq 'Home') "focus is on: '$(Focused-Name)'"
+
+    # F11 belongs to the window: it works from Home, before any Stream exists,
+    # and the control relabels itself from the window's own state rather than
+    # from the key that was pressed.
+    Press-Keys $app '{F11}'
+    Check 'F11 enters fullscreen from Home, and the control says Exit full screen' (
+        Wait-Shows $app 'Exit full screen' 10) "showed: $(Page-Text $app)"
+    Shot $app '33-f11-home-fullscreen.png'
+    Press-Keys $app '{F11}'
+    $text = Wait-No-Text $app 'Exit full screen' 10
+    Check 'F11 again leaves it, and the control says Full screen' (
+        $text -notmatch 'Exit full screen') "showed: $text"
+
+    # The strip must not take a click meant for the content. The hero's own
+    # control is below the strip, so this is the content path; the rail click
+    # below is the one that stands inside the strip's band.
+    #
+    # The two F11 presses above resized the window, and a UI Automation element
+    # can go stale across that, so ask the tree for the hero again before
+    # clicking it rather than reusing the one from the Up check.
+    $hero = @(Buttons-Matching $app 'Featured Title:')[0]
+    if ($hero) {
+        Click-Element $app $hero
+        $text = Wait-Text $app 'This Title is one Video|Season \d+' 25
+        Check 'a click on Home''s first card opens the Title' (
+            $text -match 'This Title is one Video|Season \d+') "showed: $text"
+        Shot $app '33-hero-click.png'
+
+        # A pushed level gets the same control, because the base underneath is
+        # inert and the player is not there to draw its OSD.
+        Check 'a pushed Title carries the same control' (
+            (Button-Named $app 'Full screen' 10) -ne $null) "showed: $text"
+        Press-Keys $app '{F11}'
+        Check 'F11 enters fullscreen from a pushed Title, and its chrome says so' (
+            Wait-Shows $app 'Exit full screen' 10) "showed: $(Page-Text $app)"
+        Shot $app '33-f11-title-fullscreen.png'
+        Press-Keys $app '{F11}'
+        $text = Wait-No-Text $app 'Exit full screen' 10
+        Check 'F11 again leaves it from the Title' (
+            $text -notmatch 'Exit full screen') "showed: $text"
+        Press-Keys $app '{ESC}'
+        Wait-Text $app 'Featured Title:' 20 | Out-Null
+    } else {
+        Skip 'the hero click and the pushed Title' 'the Addon drew no Title to open'
+    }
+
+    # Settings is a destination rather than a level: it gets the chrome the same
+    # way, and F11 is the window's there too.
+    Open-Settings $app
+    $text = Wait-Text $app 'Preferences' 20
+    Check 'Settings carries the window control too' (
+        (Button-Named $app 'Full screen' 10) -ne $null) "showed: $text"
+    Press-Keys $app '{F11}'
+    Check 'F11 enters fullscreen from Settings' (
+        Wait-Shows $app 'Exit full screen' 10) "showed: $(Page-Text $app)"
+    Shot $app '33-f11-settings-fullscreen.png'
+    Press-Keys $app '{F11}'
+    $text = Wait-No-Text $app 'Exit full screen' 10
+    Check 'F11 again leaves it from Settings' (
+        $text -notmatch 'Exit full screen') "showed: $text"
+
+    # The strip's pointer rule is what lets a click land on the rail beneath it.
+    # The rail is inset 18px with a 1px border and 14px padding, so its Home
+    # item starts at ~33px while the strip runs to 56px: a click 8px below the
+    # item's top is inside both. On Settings that click must change the
+    # destination back to Home; if the strip swallowed it, Settings would stay.
+    # Click-Element cannot prove this: its centre is far below the band.
+    $home = Button-Named $app 'Home' 5
+    if (-not $home) { throw 'the rail shows no Home item to click through the strip' }
+    $homeRect = $home.Current.BoundingRectangle
+    if (-not (Focus $app)) { throw 'the click-through step needs the Host in the foreground' }
+    [W]::Click([int]($homeRect.Left + 10), [int]($homeRect.Top + 8))
+    $text = Wait-Text $app 'Featured Title:' 20
+    Check 'a click inside the strip reaches the rail under it' (
+        $text -match 'Featured Title:') "showed: $text"
+    Shot $app '33-click-through-strip.png'
+
+    # A dialog is a level like any other: the shell draws the chrome above its
+    # scrim, because a fullscreen window must keep a way out while a question is
+    # open. Cancel rather than Remove, so the Addon stays for the rest of the run.
+    Open-Destination $app 'Addons'
+    $summary = @(Buttons-Matching $app $AddonName)[0]
+    if ($summary) {
+        $summary.SetFocus()
+        # The row expands on focus; a short settle lets its details and the
+        # Remove control be drawn before their rectangle is read.
+        Start-Sleep -Seconds 1
+        $remove = Button-Named $app 'Remove'
+        if (-not $remove) { throw 'the expanded Addon row shows no Remove control' }
+        Start-Sleep -Milliseconds 400
+        Click-Element $app $remove
+        $text = Wait-Text $app ('Remove ' + [regex]::Escape($AddonName) + '\?') 10
+        Check 'a confirm dialog carries the window control above its scrim' (
+            (Button-Named $app 'Full screen' 10) -ne $null) "showed: $text"
+        Shot $app '33-dialog-chrome.png'
+        Press-Keys $app '{F11}'
+        Check 'F11 enters fullscreen over a dialog' (
+            Wait-Shows $app 'Exit full screen' 10) "showed: $(Page-Text $app)"
+        Press-Keys $app '{F11}'
+        $text = Wait-No-Text $app 'Exit full screen' 10
+        Check 'F11 again leaves it over a dialog' (
+            $text -notmatch 'Exit full screen') "showed: $text"
+        Press $app 'Cancel'
+        $text = Wait-No-Text $app ('Remove ' + [regex]::Escape($AddonName) + '\?') 10
+        # The summary's accessible name is the Addon's name plus its version, so
+        # ask the page text for the name rather than for an exact button name.
+        Check 'Cancel closes the question and leaves the Addon alone' (
+            ($text -notmatch ('Remove ' + [regex]::Escape($AddonName) + '\?')) -and
+            ($text -match [regex]::Escape($AddonName))) "showed: $text"
+        Shot $app '33-dialog-cancelled.png'
+    } else {
+        Skip 'fullscreen over a confirm dialog' 'the Addons screen shows no Addon row to ask about'
+    }
+    Open-Home $app
+    Wait-Text $app 'Featured Title:' 20 | Out-Null
+
+    # The player is the one level that hides the chrome: its OSD carries the
+    # same button, and the shared fact means F11 and the OSD agree.
+    if (-not (Open-Series $app)) {
+        Skip 'fullscreen in the player' (
+            'this Addon drew no series row: run with -AddonName Verify (or -Addon <a Series Addon>) to walk it')
+        return
+    }
+    if (-not (Open-Streams $app 'S1E1')) {
+        Skip 'fullscreen in the player' 'the series Title offers no first episode'
+        return
+    }
+    $kind = Choose-Candidate $app
+    if ($kind -ne 'playable') {
+        Skip 'fullscreen in the player' 'the Addon answered no playable candidate for the episode'
+        return
+    }
+    if (-not (Wait-Shows $app 'Pause' 45)) {
+        Skip 'fullscreen in the player' 'the Stream never started playing'
+        return
+    }
+    Wake-Osd $app
+    # Both labels count: the check is that there is exactly one control in the
+    # window, and the chrome is not drawn on a player level beside the OSD.
+    $fullscreenControls = @(Buttons-Named $app 'Full screen') + @(Buttons-Named $app 'Exit full screen')
+    Check 'the player has its own fullscreen button, and no second one beside it' (
+        $fullscreenControls.Count -eq 1) "found $($fullscreenControls.Count): $(Page-Text $app)"
+    Press-Button $app 'Full screen'
+    Check 'the OSD enters fullscreen' (
+        Wait-Shows $app 'Exit full screen' 10) "showed: $(Page-Text $app)"
+    Shot $app '33-osd-fullscreen.png'
+
+    # The OSD's button is not the only way in or out: F11 is the window's, and
+    # one press is one change while the OSD is up.
+    Press-Keys $app '{F11}'
+    $text = Wait-No-Text $app 'Exit full screen' 10
+    Check 'F11 leaves fullscreen with the OSD up' (
+        $text -notmatch 'Exit full screen') "showed: $text"
+    Press-Keys $app '{F11}'
+    Check 'F11 enters it again with the OSD up' (
+        Wait-Shows $app 'Exit full screen' 10) "showed: $(Page-Text $app)"
+
+    # With the OSD away there is no control to read, so the key is pressed on the
+    # picture and the label is read after waking the OSD: the same fact, and no
+    # double toggle from the key that summoned it. Focusing the picture takes the
+    # last control out of the OSD, which is what lets it put itself away.
+    Focus-On $app 'Play or pause' ([Windows.Automation.ControlType]::Button)
+    Start-Sleep -Seconds 4
+    Check 'the OSD puts itself away, so the F11 checks start with it hidden' (
+        -not (Shows $app 'Exit full screen' 2)) 'the OSD is still up'
+    Press-Keys $app '{F11}'
+    Check 'F11 leaves fullscreen with the OSD hidden, and the woken OSD says Full screen' (
+        (Button-Named $app 'Full screen' 10) -ne $null) "showed: $(Page-Text $app)"
+    Shot $app '33-f11-osd-hidden.png'
+
+    # Hiding it again is what proves the second direction: the enter happens
+    # with nothing on screen, and waking the OSD is how the label is read back.
+    Focus-On $app 'Play or pause' ([Windows.Automation.ControlType]::Button)
+    Start-Sleep -Seconds 4
+    Check 'the OSD puts itself away again for the other direction' (
+        -not (Shows $app 'Full screen' 2)) 'the OSD is still up'
+    Press-Keys $app '{F11}'
+    Check 'F11 enters fullscreen with the OSD hidden, and the woken OSD says Exit full screen' (
+        Wait-Shows $app 'Exit full screen' 10) "showed: $(Page-Text $app)"
+    Shot $app '33-f11-osd-hidden-again.png'
+
+    # Stop takes the player away but not the window's fullscreen fact; the
+    # Streams level underneath must still offer the way out (#125).
+    Wake-Osd $app
+    Press-Button $app 'Stop'
+    $text = Wait-Text $app 'Streams ' 20
+    Shot $app '33-stopped-fullscreen.png'
+    Check 'Stop leaves the window fullscreen' (
+        $text -match 'Streams ') "showed: $text"
+    Check 'and the browsing chrome still says Exit full screen' (
+        (Button-Named $app 'Exit full screen' 10) -ne $null) "showed: $text"
+    Press-Element $app (Button-Named $app 'Exit full screen')
+    $text = Wait-No-Text $app 'Exit full screen' 10
+    Check 'the chrome exits fullscreen, and its label flips back' (
+        $text -notmatch 'Exit full screen') "showed: $text"
+    Shot $app '33-chrome-after-stop.png'
+
+    # After Stop the stack is Streams -> Title -> Home, so leave all of it rather
+    # than one Escape and a wait that would still be looking at the Title.
+    Open-Home $app
+    Wait-Text $app 'Featured Title:' 45 | Out-Null
+}
+
+function Step-34($ctx) {
+    '--- 34. Settings > Preferences: the subtitle appearance, and its restart'
     $app = $ctx.App
     $before = Snapshot-Baseline
     Open-Settings-Category $app 'Preferences' 'Subtitle appearance'
-    Shot $app '33-appearance.png'
+    Shot $app '34-appearance.png'
     $text = Page-Text $app
     Check 'Preferences has a Subtitle appearance section that says what an ASS track keeps' (
         $text -match 'ASS track') "showed: $text"
@@ -2747,7 +2981,7 @@ function Step-33($ctx) {
         -not (Toggled (Button-Named $app ('Default ' + $dot + ' 100%')))) "showed: $text"
     Check 'choosing a size published one Snapshot' (
         (Wait-Published $beforeSize 20) -gt $beforeSize) "the log still shows $beforeSize published Snapshot(s)"
-    Shot $app '33-appearance-chosen.png'
+    Shot $app '34-appearance-chosen.png'
 
     Stop-Host $app
     $restarted = Start-Host
@@ -2755,15 +2989,15 @@ function Step-33($ctx) {
     Focus $restarted | Out-Null
     Start-Sleep -Seconds 2
     Open-Settings-Category $restarted 'Preferences' 'Subtitle appearance'
-    Shot $restarted '33-restarted.png'
+    Shot $restarted '34-restarted.png'
     $text = Wait-Text $restarted 'Subtitle appearance' 20
     Check 'the restarted Host still draws subtitles yellow at 125%' (
         (Toggled (Button-Named $restarted 'Yellow')) -and
         (Toggled (Button-Named $restarted ('Large ' + $dot + ' 125%')))) "showed: $text"
 }
 
-function Step-34($ctx) {
-    '--- 34. subtitles on a real picture: SRT colour, ASS authored colour, and size'
+function Step-35($ctx) {
+    '--- 35. subtitles on a real picture: SRT colour, ASS authored colour, and size'
     $app = $ctx.App
 
     # The colour is a preference, and Settings is not reachable while a Stream
@@ -2784,7 +3018,7 @@ function Step-34($ctx) {
             'this Addon answered no playable candidate for the first Title: run with the fixture Addon and its fixture video')
         return
     }
-    Shot $app '34-playing.png'
+    Shot $app '35-playing.png'
 
     Wake-Osd $app
     Press-Button $app 'Subtitles'
@@ -2806,8 +3040,8 @@ function Step-34($ctx) {
     # The OSD sits over the bottom of the picture, where the subtitles are: let
     # its three idle seconds pass so the screenshot shows the line, not the menu.
     Start-Sleep -Seconds 5
-    Shot $app '34-srt-yellow.png'
-    'review 34-srt-yellow.png: the English SRT line should be yellow, not white'
+    Shot $app '35-srt-yellow.png'
+    'review 35-srt-yellow.png: the English SRT line should be yellow, not white'
 
     # The size, from the OSD: one press is the neighbouring preset, so 100% goes
     # straight to 125%, not to 105%.
@@ -2820,11 +3054,11 @@ function Step-34($ctx) {
         (Readout $app 'Subtitle size 125%') -ne $null) "showed: $(Page-Text $app)"
     Check 'and the press is the preference changing: Snapshots went out' (
         (Wait-Published $before 20) -gt $before) "the log still shows $before published Snapshot(s)"
-    Shot $app '34-osd-size.png'
+    Shot $app '35-osd-size.png'
     Press-Keys $app '{ESC}'
     Start-Sleep -Seconds 5
-    Shot $app '34-srt-yellow-large.png'
-    'review 34-srt-yellow-large.png against 34-srt-yellow.png: the same SRT line, in the same yellow, larger at 125%'
+    Shot $app '35-srt-yellow-large.png'
+    'review 35-srt-yellow-large.png against 35-srt-yellow.png: the same SRT line, in the same yellow, larger at 125%'
 
     # The ASS track at both sizes: authored red, so the colour preference must
     # not reach it, while the size does. Both shots come after the SRT pair, and
@@ -2837,8 +3071,8 @@ function Step-34($ctx) {
     Start-Sleep -Seconds 1
     Press-Keys $app '{ESC}'
     Start-Sleep -Seconds 5
-    Shot $app '34-ass-authored-125.png'
-    'review 34-ass-authored-125.png: the ASS line should still be the red it was authored with, at 125%'
+    Shot $app '35-ass-authored-125.png'
+    'review 35-ass-authored-125.png: the ASS line should still be the red it was authored with, at 125%'
 
     Wake-Osd $app
     Press-Button $app 'Subtitles'
@@ -2848,8 +3082,8 @@ function Step-34($ctx) {
         (Readout $app 'Subtitle size 100%') -ne $null) "showed: $(Page-Text $app)"
     Press-Keys $app '{ESC}'
     Start-Sleep -Seconds 5
-    Shot $app '34-ass-authored-100.png'
-    'review 34-ass-authored-100.png against 34-ass-authored-125.png: the same authored red ASS line, smaller at 100%'
+    Shot $app '35-ass-authored-100.png'
+    'review 35-ass-authored-100.png against 35-ass-authored-125.png: the same authored red ASS line, smaller at 100%'
 
     # Back to 125% for the Settings and next-Stream checks below.
     Wake-Osd $app
@@ -2866,7 +3100,7 @@ function Step-34($ctx) {
 
     # The OSD's size is the Host's preference: Settings presses it.
     Open-Settings-Category $app 'Preferences' 'Subtitle appearance'
-    Shot $app '34-settings-after-osd.png'
+    Shot $app '35-settings-after-osd.png'
     $text = Wait-Text $app 'Subtitle appearance' 20
     Check 'the size the OSD set is the choice Settings presses' (
         Toggled (Button-Named $app ('Large ' + $dot + ' 125%'))) "showed: $text"
@@ -2883,7 +3117,7 @@ function Step-34($ctx) {
     Wait-Text $app 'Subtitles off' 10 | Out-Null
     Check 'the next Stream''s size readout is the 125% the preference holds' (
         (Readout $app 'Subtitle size 125%') -ne $null) "showed: $(Page-Text $app)"
-    Shot $app '34-next-stream.png'
+    Shot $app '35-next-stream.png'
     Press-Keys $app '{ESC}'
     Wake-Osd $app
     Press-Button $app 'Stop'

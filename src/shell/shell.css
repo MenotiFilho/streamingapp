@@ -44,6 +44,24 @@ body.picture-behind .shell-base {
   background: var(--bg-canvas);
 }
 
+/*
+ * The window's chrome owns the top 56px of whichever surface is on top, so
+ * content starts below it: 4rem (64px) leaves an 8px step from the first row
+ * up onto the strip. The rail deliberately starts inside that band — its Home
+ * item is the wall that stops Up — while the base's stage and a pushed level
+ * both clear it, or the D-pad would have nothing to step onto (#125).
+ */
+:root {
+  /* 56px: the band the window's chrome occupies — 8px above and below the 40px
+     button. The strip's own height, the level's canvas band and the geometry
+     fixture all stand on this one number. */
+  --window-chrome-height: 56px;
+  /* 4rem is 64px at the 16px root this window sets: the step the D-pad makes
+     onto the strip and the number `ShellFrame.test.tsx` measures. A different
+     root is a new measurement, not a quiet one. */
+  --window-chrome-clearance: 4rem;
+}
+
 .shell-base {
   min-height: 100vh;
   transition: opacity var(--dur-med) var(--ease-out);
@@ -126,13 +144,70 @@ body.picture-behind .shell-base {
 }
 
 /* --------------------------------------------------------------------------
+ * The window's own fullscreen control
+ * -------------------------------------------------------------------------- */
+
+/*
+ * A transparent strip across the top of whichever surface is on top (#125).
+ * It is a focus region — Up from the content's top row lands on it — and it
+ * must not take a click meant for the content underneath: the strip holds no
+ * pointer, and only the button at its right end does. Its box is measured for
+ * the D-pad, so it must not be collapsed to the button: the full width is what
+ * lets Up land here from anywhere along the top row.
+ */
+.shell-window-chrome {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  /* Above a dialog's scrim (`.kit-dialog-scrim`, 40) — the window's way out is
+     drawn on dialogs too — and above the rail on the base. A pushed level is
+     its own stacking context (40), so the frame keeps only one of these
+     mounted at a time. Keep the pair in step: the scrim has to sit below this
+     for the chrome to stay reachable, and the shell frame test asserts both. */
+  z-index: 45;
+  /* The band the focus model and the Windows walkthrough stand on: 8px above
+     and below the 40px button. Stated rather than left to the padding's
+     arithmetic, because the D-pad and the geometry tests measure this box. */
+  height: var(--window-chrome-height);
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 0.5rem clamp(1rem, 3vw, 2.5rem);
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.shell-window-chrome-button {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 50%;
+  background: var(--bg-glass);
+  color: var(--ink-secondary);
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: var(--shadow-panel);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+
+.shell-window-chrome-button svg {
+  width: 22px;
+  height: 22px;
+}
+
+/* --------------------------------------------------------------------------
  * The base screen
  * -------------------------------------------------------------------------- */
 
 .shell-stage {
   min-height: 100vh;
   margin-left: calc(92px + 36px);
-  padding: clamp(2rem, 4vw, 4rem) clamp(1.5rem, 4vw, 4rem) 5rem;
+  padding: var(--window-chrome-clearance) clamp(1.5rem, 4vw, 4rem) 5rem;
   box-sizing: border-box;
 }
 
@@ -189,12 +264,30 @@ body.picture-behind .shell-base {
   inset: 0;
   z-index: 40;
   overflow: auto;
+  /* The band the chrome stands on is the level's own canvas, so the strip is
+     not a window onto the surface underneath: solid for the strip's own 56px,
+     fading out over the 8px step to the content's clearance. Below that this
+     level paints nothing: the Streams screen is a 94% scrim over the Title, a
+     dialog's glass blurs the page behind it, and a Title's or Settings'
+     gradient starts at its own content. A full canvas here would composite all
+     three over flat paint instead (#125). */
+  padding-top: var(--window-chrome-clearance);
+  background: linear-gradient(
+    to bottom,
+    var(--bg-canvas) 0,
+    var(--bg-canvas) var(--window-chrome-height),
+    transparent var(--window-chrome-clearance)
+  );
   color: var(--ink-primary);
   font-family: var(--font-sans);
 }
 
 .shell-level[data-level-kind="player"] {
   z-index: 60;
+  /* The player's picture is the whole window: no chrome is drawn here (its OSD
+     carries the control), and mpv's child window must not be covered. */
+  padding-top: 0;
+  background: transparent;
 }
 
 /*
