@@ -375,10 +375,11 @@ gzip (§6) · a 1,295-line model that cannot be deleted while the Remote client
 still needs its geometry and #128 needs its decision.
 
 **Lines, full adoption (estimate).** The pure-model files hold **1,401** lines
-that could be removed: `focus.ts` 594 + `layout.ts` 168 + `focus.test.ts` 452 +
-`layout.test.ts` 187. At least the spike's **399** source lines of glue return for
-*one* representative slice; with eight level surfaces the added glue is plausibly
-**1,000–1,800** lines. The net is not a deletion.
+that could be removed: `focus.ts` 594 + `layout.ts` 168 (762 production) +
+`focus.test.ts` 452 + `layout.test.ts` 187 (639 test). At least the spike's
+**399** source lines of glue return for *one* representative slice; with eight
+level surfaces the added glue is plausibly **1,000–1,800** lines. The net is not
+a deletion.
 
 **Thin adoption** (library only for measurement/painting, keep `decideMove`):
 replaces `layout.ts` (168 lines) with an adapter and touches the paint path;
