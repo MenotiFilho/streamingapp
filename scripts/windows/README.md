@@ -197,13 +197,14 @@ reveal is read from screenshots: the focused card at each edge of the window
 (top, bottom, left, right, and the end of a horizontally scrolled row), a long
 Settings list scrolled past the fixed chrome, and one OSD popover. On each, the
 control's ring and lift must be fully visible and never under the 56px chrome
-strip; on the bottom, left and right the reveal keeps 24px to the edge, and at
-the top the first row sits at the layout's 64px clearance. The batch will also
-need the two shots where a scroller's own padding caps that margin: the start of
-a row, where the track's 16px padding is the floor, and the seasons strip, where
-`--space-1` (4px) caps each end. The control will still be fully visible in
-both; the 24px margin is what shrinks, so those shots record the floor rather
-than a failure.
+strip; at the top the first row sits at the layout's 64px clearance, and the
+page's own bottom keeps 24px. Left and right keep 24px only where the port can
+still scroll: a row's 16px padding caps whichever end it has reached, so the
+margin there is 16px rather than 24px. The batch will also need the shots that
+record those floors: the start and the end of a row, where the track's 16px
+padding caps the margin, and the seasons strip, where `--space-1` (4px) caps
+each end. The control will still be fully visible in all of them; the 24px
+margin is what shrinks, so those shots record the floor rather than a failure.
 
 Steps 19 and 30 enter a test TMDB key and clear it again. The key lives in the
 OS keyring, which the data-directory wipe at the top does not touch, so both

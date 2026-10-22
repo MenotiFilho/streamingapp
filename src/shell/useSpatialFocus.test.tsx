@@ -200,4 +200,64 @@ describe("the spatial focus reveal", () => {
       "focus outside focusAndReveal still goes through the guarded listener",
     ).toBe(284);
   });
+
+  test("focus leaving the level forgets the guard, so a return reveals again", async () => {
+    layOutRow();
+    render(<Harness />);
+
+    const one = document.querySelector<HTMLElement>('[data-testid="one"]');
+    const two = document.querySelector<HTMLElement>('[data-testid="two"]');
+    const track = document.querySelector<HTMLElement>('[data-testid="track"]');
+    await waitFor(() => expect(document.activeElement).toBe(one));
+
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    await waitFor(() => expect(document.activeElement).toBe(two));
+    expect(track?.scrollLeft).toBe(284);
+
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    if (track) {
+      track.scrollLeft = 0;
+    }
+
+    // A focus outside the level clears the guard. The engine's own re-home is
+    // queued, so the return is made in the same pass to stay outside it.
+    outside.focus();
+    two?.focus();
+
+    await waitFor(() => expect(document.activeElement).toBe(two));
+    expect(track?.scrollLeft, "the return reveals the same control again").toBe(284);
+  });
+
+  test("a remembered control that turned disabled is not revealed", async () => {
+    layOutRow();
+    render(<Harness />);
+
+    const one = document.querySelector<HTMLElement>('[data-testid="one"]');
+    const two = document.querySelector<HTMLElement>('[data-testid="two"]');
+    const track = document.querySelector<HTMLElement>('[data-testid="track"]');
+    await waitFor(() => expect(document.activeElement).toBe(one));
+
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    await waitFor(() => expect(document.activeElement).toBe(two));
+    expect(track?.scrollLeft).toBe(284);
+
+    // The level still remembers the second card, but it is disabled now and
+    // refuses focus. A browser moves focus off it; the engine then re-homes to
+    // the remembered control and must not reveal the refused focus.
+    two?.setAttribute("disabled", "");
+    if (track) {
+      track.scrollLeft = 0;
+    }
+    const outside = document.createElement("button");
+    document.body.append(outside);
+    outside.focus();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(document.activeElement, "a disabled control cannot take focus").toBe(outside);
+    expect(
+      track?.scrollLeft,
+      "a refused focus must not reveal the remembered control's stale box",
+    ).toBe(0);
+  });
 });

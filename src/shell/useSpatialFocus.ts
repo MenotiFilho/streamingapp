@@ -9,7 +9,7 @@ import {
 } from "../focus";
 import { isTypingTarget, keyIntent, type Intent } from "../input";
 import { firstFocusable, focusOf, readLevel } from "./layout";
-import { onRevealed, reveal } from "./reveal";
+import { focusLanded, onRevealed, reveal } from "./reveal";
 import { useGamepad } from "./useGamepad";
 
 type Remembered = Focus & { element: HTMLElement | null };
@@ -105,11 +105,17 @@ export function useSpatialFocus({ root, levelKey, onBack, onIntent }: SpatialFoc
   /**
    * Focus without the browser's own scroll, then reveal. The focusin listener
    * may have revealed it already (focus moves fire it synchronously); the guard
-   * makes the second look a no-op.
+   * makes the second look a no-op. Focus can also be refused — a remembered
+   * control that turned disabled or hidden since the level measured it — and its
+   * 0x0 rectangle would jolt the page, so only the element that now holds focus
+   * is revealed.
    */
   const focusElement = (element: HTMLElement) => {
     element.focus({ preventScroll: true });
-    revealFocused(element);
+    const landed = focusLanded(element);
+    if (landed) {
+      revealFocused(landed);
+    }
   };
 
   const rememberFocus = (focus: Focus, element: HTMLElement | null) => {

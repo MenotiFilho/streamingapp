@@ -103,7 +103,11 @@ export function ShellFrame({
       return;
     }
     focusAndReveal(
-      base.current?.querySelector<HTMLElement>(`[data-destination="${destination}"]`),
+      // The rail item is the control a destination change means; a screen's own
+      // `data-destination` marker is a section, not something focus can land on.
+      base.current?.querySelector<HTMLElement>(
+        `[data-destination="${destination}"][data-focusable]`,
+      ),
     );
   }, [destination]);
 

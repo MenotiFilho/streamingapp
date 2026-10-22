@@ -472,4 +472,45 @@ describe("the reveal after a focus attempt", () => {
       stop();
     }
   });
+
+  test("a wrapper that passes focus to a child reveals the child", () => {
+    const wrapper = document.createElement("div");
+    const child = document.createElement("button");
+    wrapper.append(child);
+    document.body.append(wrapper);
+    belowTheFold(child);
+    // A wrapper is not focusable itself; its focus delegating to the control
+    // inside is how a screen marker or a composite lands focus.
+    vi.spyOn(wrapper, "focus").mockImplementation(() => child.focus());
+
+    focusAndReveal(wrapper);
+
+    expect(document.activeElement).toBe(child);
+    expect(
+      document.documentElement.scrollTop,
+      "the reveal follows the element that holds focus, not the wrapper's empty box",
+    ).toBe(324);
+  });
+
+  test("a parked reveal is not replayed after its control lost focus", () => {
+    const control = document.createElement("button");
+    const other = document.createElement("button");
+    document.body.append(control, other);
+
+    // No subscriber yet, so the reveal is parked for the engine that binds
+    // later — the mount case. Focus then moves on before the engine arrives.
+    focusAndReveal(control);
+    other.focus();
+
+    const seen = vi.fn();
+    const stop = onRevealed(seen);
+    try {
+      expect(
+        seen,
+        "a control that no longer holds focus must not seed the engine's guard",
+      ).not.toHaveBeenCalled();
+    } finally {
+      stop();
+    }
+  });
 });

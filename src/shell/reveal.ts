@@ -223,6 +223,25 @@ export function reveal(control: Element): void {
   revealIn(control, scrollportsOf(control));
 }
 
+/**
+ * The element a focus attempt actually landed in: the control itself, or an
+ * element inside it when the control is a wrapper whose `focus()` delegates to
+ * a child. Null means focus was refused — a hidden, disabled, inert or detached
+ * control leaves the active element elsewhere — and revealing it would measure
+ * a 0x0 rectangle, read as above/left of the margin, and jolt the page for a
+ * focus that never landed.
+ */
+export function focusLanded(control: HTMLElement): HTMLElement | null {
+  if (!control.isConnected) {
+    return null;
+  }
+  const active = document.activeElement;
+  if (active === control) {
+    return control;
+  }
+  return active instanceof HTMLElement && control.contains(active) ? active : null;
+}
+
 /** Told when `focusAndReveal` has focused a control and revealed it. */
 type RevealedListener = (control: HTMLElement) => void;
 
@@ -244,7 +263,10 @@ export function onRevealed(listener: RevealedListener): () => void {
   revealedListeners.add(listener);
   const late = unreportedReveal;
   unreportedReveal = null;
-  if (late?.isConnected) {
+  // A reveal only belongs to the engine while its control is still here and
+  // still holds focus. Once focus has moved on, the guard would make the engine
+  // skip the next real focus on that control, so the stale reveal is dropped.
+  if (late && late.isConnected && document.activeElement === late) {
     listener(late);
   }
   return () => {
@@ -255,27 +277,28 @@ export function onRevealed(listener: RevealedListener): () => void {
 /**
  * Paint focus the one way the shell does: put focus there without the
  * browser's own scroll, then reveal it with the margin (#127). The focus moves
- * outside the focus engine go through here. A no-op when there is no control.
+ * outside the focus engine go through here. A no-op when there is no control,
+ * when focus is refused, or when the control takes no focus at all.
  */
 export function focusAndReveal(control: HTMLElement | null | undefined): void {
   if (!control) {
     return;
   }
   control.focus({ preventScroll: true });
-  // Focus can be refused — a disabled, inert or detached control — and its
-  // 0x0 rectangle would read as above/left of the margin, jolting the page for
-  // a focus that never landed. Only reveal the control that is now the active
-  // element. A wrapper passed here is what `focus()` targets, so the exact
-  // match is the narrowest proof that focus landed.
-  if (!control.isConnected || document.activeElement !== control) {
+  // Focus can be refused — a hidden, disabled, inert or detached control — and
+  // its 0x0 rectangle would read as above/left of the margin, jolting the page
+  // for a focus that never landed. A wrapper may delegate its focus to a child,
+  // so the element to reveal is the one that now holds it.
+  const landed = focusLanded(control);
+  if (!landed) {
     return;
   }
-  reveal(control);
+  reveal(landed);
   if (revealedListeners.size === 0) {
-    unreportedReveal = control;
+    unreportedReveal = landed;
     return;
   }
   for (const listener of revealedListeners) {
-    listener(control);
+    listener(landed);
   }
 }
