@@ -1161,10 +1161,10 @@
       // ---------------------------------------------------------------------
       // Spatial focus (keyboard only): geometry in, a decision out.
       //
-      // The window's model is in `src/focus.ts` (#79); this is the same pure
-      // geometry, inlined because the page has no build step. It measures the
-      // controls of whichever surface has focus and never decides anything a
-      // screen does with the move.
+      // The window's model is in `src/focus.ts` (#79, #128); this is the same
+      // pure geometry, inlined because the page has no build step. It measures
+      // the controls of whichever surface has focus and never decides anything
+      // a screen does with the move.
       // ---------------------------------------------------------------------
       const MIN_STEP = 1;
       const ALIGNED = 1;
@@ -1194,26 +1194,44 @@
         }
         return Math.abs(from.y + from.h / 2 - (to.y + to.h / 2));
       }
+      // The window's settled ranking (#128): a control lined up with the origin
+      // wins, and the shortest step wins among those. Only when nothing is
+      // lined up does the closest by edge distance win, with the closer centre
+      // as the tie-break. The Remote has no regions or walls; `moveFocus`
+      // already searches the whole active scope.
       function nearest(from, rects, direction) {
-        let best = -1;
-        let bestGap = 0;
-        let bestStep = 0;
-        let bestAcross = 0;
+        let aligned = -1;
+        let alignedStep = 0;
+        let alignedAcross = 0;
+        let closest = -1;
+        let closestDistance = 0;
+        let closestAcross = 0;
         for (let index = 0; index < rects.length; index += 1) {
           const to = rects[index];
           const ahead = step(from, to, direction);
           if (ahead <= MIN_STEP) { continue; }
           const sideways = gapBetween(from, to, direction);
           const acrossBy = across(from, to, direction);
-          const linedUp = Math.abs(sideways - bestGap) <= ALIGNED;
-          const better = best === -1 || sideways < bestGap - ALIGNED ||
-            (linedUp && ahead < bestStep - ALIGNED) ||
-            (linedUp && Math.abs(ahead - bestStep) <= ALIGNED && acrossBy < bestAcross);
+          if (sideways <= ALIGNED) {
+            const better = aligned === -1 || ahead < alignedStep - ALIGNED ||
+              (Math.abs(ahead - alignedStep) <= ALIGNED && acrossBy < alignedAcross);
+            if (better) {
+              aligned = index;
+              alignedStep = ahead;
+              alignedAcross = acrossBy;
+            }
+            continue;
+          }
+          const distance = Math.hypot(ahead, sideways);
+          const better = closest === -1 || distance < closestDistance - ALIGNED ||
+            (Math.abs(distance - closestDistance) <= ALIGNED && acrossBy < closestAcross);
           if (better) {
-            best = index; bestGap = sideways; bestStep = ahead; bestAcross = acrossBy;
+            closest = index;
+            closestDistance = distance;
+            closestAcross = acrossBy;
           }
         }
-        return best;
+        return aligned >= 0 ? aligned : closest;
       }
       function focusables(scope) {
         if (!scope) { return []; }

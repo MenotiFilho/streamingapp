@@ -79,6 +79,50 @@ describe("nearest, the geometry inside a region", () => {
     const from = rect(100, 100, 100, 100);
     expect(nearest(from, [from], "up")).toBe(-1);
   });
+
+  test("prefers an aligned control even when a diagonal one is closer", () => {
+    const from = rect(0, 0, 100, 100);
+    const cards = [
+      from,
+      rect(101, 400, 100, 100), // lined up, far below
+      rect(160, 120, 100, 100), // diagonal, a much shorter step
+    ];
+
+    expect(nearest(from, cards, "down")).toBe(1);
+  });
+
+  test("with nothing aligned, takes the closest by edge distance, not the smallest gap", () => {
+    const from = rect(0, 0, 100, 100);
+    const cards = [
+      from,
+      rect(120, 300, 100, 100), // smallest sideways gap, but far away
+      rect(250, 110, 100, 100), // bigger gap, but the closest edge
+    ];
+
+    expect(nearest(from, cards, "down")).toBe(2);
+  });
+
+  test("breaks a closest-distance tie by the closer centre", () => {
+    const from = rect(0, 0, 100, 100);
+    const cards = [
+      from,
+      rect(180, 160, 100, 100), // hypot(60, 80) = 100, centre 230
+      rect(160, 180, 100, 100), // hypot(80, 60) = 100, centre 210
+    ];
+
+    expect(nearest(from, cards, "down")).toBe(2);
+  });
+
+  test("the stop rule keeps #51's gap-first ranking for comparison", () => {
+    const from = rect(0, 0, 100, 100);
+    const cards = [
+      from,
+      rect(120, 300, 100, 100), // the smallest sideways gap
+      rect(250, 110, 100, 100), // the closest edge distance
+    ];
+
+    expect(nearest(from, cards, "down", "stop")).toBe(1);
+  });
 });
 
 /**
@@ -120,6 +164,22 @@ function shell(rows: Array<{ id: string; y: number; items: Rect[] }>): Layout {
       }),
     ),
   ]);
+}
+
+/**
+ * The shell above, plus the window's full-width strip at the top: the fixed
+ * chrome whose one button sits at the right (#125).
+ */
+function withChrome(held: Layout): Layout {
+  held.regions["window"] = region("window", {
+    kind: "window",
+    label: "Window",
+    parent: "shell",
+    rect: rect(0, 0, 1000, 56),
+    items: [rect(940, 8, 40, 40)],
+  });
+  held.regions["shell"]?.children.push("window");
+  return held;
 }
 
 const cards = (y: number, count: number, width = 100) =>
@@ -202,10 +262,10 @@ describe("crossing between regions", () => {
     expect(decision).toMatchObject({ kind: "crossed", regionId: "rail", index: 0 });
   });
 
-  test("does not leak Right from a short row into a wider row below", () => {
+  test("Right at the end of a short row crosses to the closest control in the row below", () => {
     // Continue watching has three cards; the row beneath has eight. Right at
-    // the end of the short row must stop, not fall diagonally into the row
-    // below, even though a card down there is to the right of where we are.
+    // the end of the short row now crosses to the next occupied card on that
+    // side (#128): the fourth card of the wide row, below and to the right.
     const rows = [
       { id: "row:short", y: 0, items: cards(0, 3) },
       { id: "row:wide", y: 120, items: cards(120, 8) },
@@ -217,15 +277,36 @@ describe("crossing between regions", () => {
       DEFAULT_RULES,
     );
 
+    expect(decision).toMatchObject({
+      kind: "crossed",
+      regionId: "row:wide",
+      index: 3,
+      landedBy: "the nearest card — nothing lined up",
+    });
+  });
+
+  test("edge stop keeps the short row's old anti-leak wall", () => {
+    // The same layout under #51's rule: focus stops at the short row's end
+    // rather than crossing diagonally into the wider row below.
+    const rows = [
+      { id: "row:short", y: 0, items: cards(0, 3) },
+      { id: "row:wide", y: 120, items: cards(120, 8) },
+    ];
+    const decision = decideMove(
+      shell(rows),
+      { regionId: "row:short", index: 2 },
+      "right",
+      { ...DEFAULT_RULES, edge: "stop" },
+    );
+
     expect(decision.kind).toBe("blocked");
     expect(decision.kind === "blocked" && decision.why).toContain("end of the row");
   });
 
-  test("does not cross into a sibling that is below and off to the side", () => {
-    // The overlap guard is what makes the rule above hold: a region that is
-    // strictly to the right and below, but does not overlap us across the way,
-    // is not a sibling to cross into. Without the guard this test would land
-    // in the wide row's first card.
+  test("crosses into a sibling that is below and off to the side when it is closest", () => {
+    // The same sibling the overlap guard used to reject is now the closest
+    // control on that side, so it is entered. The wide row's box and cards are
+    // both pushed right of the source control.
     const rows = [
       { id: "row:short", y: 0, items: cards(0, 3) },
       { id: "row:wide", y: 120, items: cards(120, 8) },
@@ -245,7 +326,7 @@ describe("crossing between regions", () => {
       DEFAULT_RULES,
     );
 
-    expect(decision.kind).toBe("blocked");
+    expect(decision).toMatchObject({ kind: "crossed", regionId: "row:wide", index: 0 });
   });
 
   test("a normal row with nothing under the origin keeps the nearest landing, not the head", () => {
@@ -271,11 +352,10 @@ describe("crossing between regions", () => {
     });
   });
 
-  test("a wide branch does not widen the anti-leak guard with its own box", () => {
-    // The Streams branch's box is wide enough to hold the target row, but the
-    // move starts on its narrow Back control at the top left. Only the window
-    // kind may speak for its full width; a branch's box must not turn an
-    // off-axis sibling into a landing (#51).
+  test("a branch below and off to the side is entered when it holds the closest control below", () => {
+    // The Streams branch's Back sits at the top left; the row below starts far
+    // to the right. Under the settled rule the row is still the closest thing
+    // below, so Down enters it; only the old overlap guard rejected it.
     const held = branchWithBack([]);
     held.regions["below"] = region("below", {
       kind: "row",
@@ -291,6 +371,29 @@ describe("crossing between regions", () => {
       { regionId: "streams", index: 0 },
       "down",
       DEFAULT_RULES,
+    );
+
+    expect(decision).toMatchObject({ kind: "crossed", regionId: "below", index: 0 });
+  });
+
+  test("edge stop keeps the branch's anti-leak wall", () => {
+    // The same off-side row under #51's rule: the branch's narrow Back does
+    // not widen the cross-axis guard, so Down stops.
+    const held = branchWithBack([]);
+    held.regions["below"] = region("below", {
+      kind: "row",
+      label: "the row below",
+      parent: "level",
+      rect: rect(400, 400, 700, 120),
+      items: [rect(400, 410, 700, 90)],
+    });
+    held.regions["level"]?.children.push("below");
+
+    const decision = decideMove(
+      held,
+      { regionId: "streams", index: 0 },
+      "down",
+      { ...DEFAULT_RULES, edge: "stop" },
     );
 
     expect(decision.kind).toBe("blocked");
@@ -383,13 +486,26 @@ describe("descending into a branch's own children", () => {
     });
   });
 
-  test("does not enter a child that is below but off to the side", () => {
+  test("enters a child that is below but off to the side when it is the closest control below", () => {
     const held = branchWithBack([
       { id: "group:aside", y: 120, x: 400, items: [rect(400, 130, 700, 90)] },
     ]);
 
     expect(
       decideMove(held, { regionId: "streams", index: 0 }, "down", DEFAULT_RULES),
+    ).toMatchObject({ kind: "crossed", regionId: "group:aside", index: 0 });
+  });
+
+  test("edge stop still refuses a child that is below but off to the side", () => {
+    const held = branchWithBack([
+      { id: "group:aside", y: 120, x: 400, items: [rect(400, 130, 700, 90)] },
+    ]);
+
+    expect(
+      decideMove(held, { regionId: "streams", index: 0 }, "down", {
+        ...DEFAULT_RULES,
+        edge: "stop",
+      }),
     ).toMatchObject({ kind: "blocked" });
   });
 
@@ -496,7 +612,41 @@ describe("the walls", () => {
     ).toMatchObject({ kind: "blocked" });
   });
 
-  test("Up from the top of the content goes nowhere, and no rule sends it to the rail", () => {
+  test("the rail's bottom stops even when content lies below it", () => {
+    // The level-wide search may not turn the rail's six destinations into a
+    // list that leaks into whatever content happens to be beside it.
+    const rows = [{ id: "row:below", y: 600, items: cards(600, 3) }];
+    const decision = decideMove(
+      shell(rows),
+      { regionId: "rail", index: 5 },
+      "down",
+      DEFAULT_RULES,
+    );
+
+    expect(decision.kind).toBe("blocked");
+    expect(decision.kind === "blocked" && decision.why).toContain("end of the rail");
+  });
+
+  test("a true edge still blocks when nothing exists anywhere on that side", () => {
+    const held = layout([
+      region("only", {
+        kind: "row",
+        label: "the only row",
+        items: [rect(0, 0, 100, 100), rect(120, 0, 100, 100)],
+      }),
+    ]);
+
+    expect(
+      decideMove(held, { regionId: "only", index: 0 }, "up", DEFAULT_RULES),
+    ).toMatchObject({ kind: "blocked" });
+    expect(
+      decideMove(held, { regionId: "only", index: 1 }, "right", DEFAULT_RULES),
+    ).toMatchObject({ kind: "blocked" });
+  });
+
+  test("Up from the top of the content crosses to the closest control above, the rail", () => {
+    // The rail item above and to the left is the closest control on that side;
+    // the old `upFromContent: "nothing"` wall no longer wins over it (#128).
     const rows = [{ id: "row:top", y: 120, items: cards(120, 3) }];
     const decision = decideMove(
       shell(rows),
@@ -505,18 +655,24 @@ describe("the walls", () => {
       DEFAULT_RULES,
     );
 
-    expect(decision).toMatchObject({ kind: "blocked" });
+    expect(decision).toMatchObject({
+      kind: "crossed",
+      regionId: "rail",
+      index: 0,
+      landedBy: "the nearest card — nothing lined up",
+    });
   });
 
-  test("Up out of the content can be handed to the rail when a rule says so", () => {
-    // The row sits below three rail items, so the rail's nearest item is not
-    // its head: the rule hands Up to the rail, and the landing is nearest.
+  test("Up out of the content can be handed to the rail under edge stop", () => {
+    // Under #51's rule the level-wide search is off, so the rule is what sends
+    // Up to the rail. The row sits below three rail items, so the landing is
+    // the nearest one, not the rail's head.
     const rows = [{ id: "row:top", y: 300, items: cards(300, 3) }];
     const decision = decideMove(
       shell(rows),
       { regionId: "row:top", index: 0 },
       "up",
-      { ...DEFAULT_RULES, upFromContent: "rail" },
+      { ...DEFAULT_RULES, edge: "stop", upFromContent: "rail" },
     );
 
     expect(decision).toMatchObject({
@@ -525,6 +681,95 @@ describe("the walls", () => {
       index: 2,
       landedBy: "the nearest card — nothing lined up",
     });
+  });
+
+  test("Up from the top row reaches the fixed chrome strip", () => {
+    const held = withChrome(
+      shell([{ id: "row:top", y: 64, items: cards(64, 3) }]),
+    );
+    const decision = decideMove(
+      held,
+      { regionId: "row:top", index: 2 },
+      "up",
+      DEFAULT_RULES,
+    );
+
+    expect(decision).toMatchObject({ kind: "crossed", regionId: "window", index: 0 });
+  });
+
+  test("the full-width strip reaches a top-row card at the far right", () => {
+    // The strip's one button is at the right; a card whose right edge passes
+    // it is not "below the button", but the strip as a region still spans the
+    // whole window (#125). Up from that card must reach the strip.
+    const held = withChrome(
+      shell([{ id: "row:top", y: 64, items: [rect(900, 64, 100, 100)] }]),
+    );
+    const decision = decideMove(
+      held,
+      { regionId: "row:top", index: 0 },
+      "up",
+      DEFAULT_RULES,
+    );
+
+    expect(decision).toMatchObject({ kind: "crossed", regionId: "window", index: 0 });
+  });
+
+  test("a control below the fold is still chosen by distance", () => {
+    const rows = [
+      { id: "row:top", y: 64, items: cards(64, 2) },
+      { id: "row:far", y: 4000, items: cards(4000, 2) },
+    ];
+    const decision = decideMove(
+      shell(rows),
+      { regionId: "row:top", index: 0 },
+      "down",
+      DEFAULT_RULES,
+    );
+
+    expect(decision).toMatchObject({ kind: "crossed", regionId: "row:far", index: 0 });
+  });
+
+  test("in a wrapped grid with a hole, the next occupied control on that side is chosen", () => {
+    const grid = region("grid", {
+      kind: "row",
+      label: "the grid",
+      rect: rect(0, 0, 400, 200),
+      items: [
+        rect(0, 0, 100, 100),
+        rect(110, 0, 100, 100),
+        // The hole is where a third card at (220, 0) would sit.
+        rect(0, 110, 100, 100),
+        rect(110, 110, 100, 100),
+        rect(220, 110, 100, 100),
+      ],
+    });
+
+    const decision = decideMove(
+      layout([grid]),
+      { regionId: "grid", index: 1 },
+      "right",
+      DEFAULT_RULES,
+    );
+
+    expect(decision).toMatchObject({ kind: "moved", regionId: "grid", index: 4 });
+  });
+
+  test("Up from a branch's child lands on the branch's own control above it", () => {
+    // The Title's Back is in the branch that holds the season row. The
+    // level-wide search finds it, and the landing is direct: `land` must not
+    // descend back into the row the person is leaving.
+    const held = branchWithBack([
+      { id: "group:one", y: 120, items: [rect(40, 130, 1000, 90)] },
+    ]);
+
+    const decision = decideMove(
+      held,
+      { regionId: "group:one", index: 0 },
+      "up",
+      DEFAULT_RULES,
+    );
+
+    expect(decision).toMatchObject({ kind: "crossed", regionId: "streams", index: 0 });
   });
 });
 

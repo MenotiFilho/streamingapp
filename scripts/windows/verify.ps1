@@ -96,7 +96,7 @@ $Steps = @(
     [pscustomobject]@{ Id = 24; Title = 'Settings > Credentials: signing in to Stremio, and out again'; Ground = 'addon'; After = @(); Need = 'a real Stremio account: it waits while you sign in by hand in the window, then checks and signs out again' }
     [pscustomobject]@{ Id = 25; Title = 'Settings > Remote devices: pairing a phone browser and revoking it'; Ground = 'addon'; After = @(); Need = 'a second device on the same network: it waits while you pair by hand in a browser, then revokes' }
     [pscustomobject]@{ Id = 26; Title = 'the full remote: browse, play and control from another device'; Ground = 'addon'; After = @(); Need = 'a playable Stream and a second device: it waits while you browse, play, pause and seek from a browser on that device' }
-    [pscustomobject]@{ Id = 27; Title = 'the rail and the D-pad: edges stop, and a short row does not leak'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (a Continue watching row makes the short-row check walkable; without one it is skipped)' }
+    [pscustomobject]@{ Id = 27; Title = 'the rail and the D-pad: edges stop, and a short row crosses to the closest control'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (a Continue watching row makes the short-row crossing walkable; without one it is skipped)' }
     [pscustomobject]@{ Id = 28; Title = 'the hero: rotation while unfocused, and its text fallback'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home, with at least two hero slides' }
     [pscustomobject]@{ Id = 29; Title = 'Library: the sign-in gate, and no collection it does not have'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home' }
     [pscustomobject]@{ Id = 30; Title = 'Discover: the no-key state, and the keyed feed'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it enters and clears a test TMDB key)' }
@@ -2450,7 +2450,7 @@ function Step-26($ctx) {
 }
 
 function Step-27($ctx) {
-    '--- 27. the rail and the D-pad: edges stop, and a short row does not leak'
+    '--- 27. the rail and the D-pad: edges stop, and a short row crosses to the closest control'
     $app = $ctx.App
     Open-Home $app
     Start-Sleep -Seconds 2
@@ -2488,11 +2488,12 @@ function Step-27($ctx) {
     Check 'and Left comes back to the rail at the matching height' (
         $destinations -contains $at) "focus is on '$at'"
 
-    # A short row stops at its own end: Right on its last card must not leak
-    # diagonally into the wider row below (the guard in focus.ts).
+    # A short row crosses to the closest control on that side: Right on its
+    # last card leaves the row for the next occupied card (the rule in
+    # focus.ts), rather than stopping at the row's own wall.
     $cards = Continue-Cards $app
     if ($cards.Count -eq 0) {
-        Skip 'the short-row crossing guard' (
+        Skip 'the short-row crossing' (
             'Home has no Continue watching row here: run the checklist through step 23, or watch something first')
     } else {
         $last = $cards[$cards.Count - 1]
@@ -2501,8 +2502,8 @@ function Step-27($ctx) {
         $before = Focused-Name
         Press-Keys $app '{RIGHT}'
         $after = Focused-Name
-        Check 'Right at the end of a short row stops there, rather than leaking into the row below' (
-            ($before -ne '') -and ($after -eq $before)) (
+        Check 'Right at the end of a short row crosses to the closest control on the right' (
+            ($before -ne '') -and ($after -ne $before)) (
             "focus went from '$before' to '$after'")
     }
     Shot $app '27-dpad.png'
