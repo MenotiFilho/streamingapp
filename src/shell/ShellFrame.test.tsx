@@ -85,6 +85,14 @@ function layOutShell(width = 1100, height = 720) {
     screen: [contentLeft, contentTop, width - contentLeft, height - contentTop],
     "row:home": [contentLeft, contentTop, Math.min(800, width - contentLeft - 32), 260],
     opener: [contentLeft, contentTop, 180, 260],
+    "row:short": [contentLeft, contentTop, 360, 200],
+    "short-a": [contentLeft, contentTop, 160, 200],
+    "short-b": [contentLeft + 180, contentTop, 160, 200],
+    "row:wide": [contentLeft, contentTop + 220, width - contentLeft - 32, 200],
+    "wide-a": [contentLeft, contentTop + 220, 160, 200],
+    "wide-b": [contentLeft + 180, contentTop + 220, 160, 200],
+    "wide-c": [contentLeft + 360, contentTop + 220, 160, 200],
+    "wide-d": [contentLeft + 540, contentTop + 220, 160, 200],
     "window-chrome": [0, 0, width, CHROME_HEIGHT],
     "window-fullscreen": [width - 64, 8, 40, 40],
     // The dialog panel the level's answers belong to, centred below the strip:
@@ -175,6 +183,48 @@ function PlayerHarness() {
       levels={levels}
       onBack={() => {}}
       screen={<div>Home</div>}
+    />
+  );
+}
+
+/**
+ * A short Home row above a wider catalog row: the pair #128 changed. The last
+ * card of the short row has no control to its right inside its own region, and
+ * the next card in the wider row below is the closest control on that side.
+ */
+function RowCrossingHarness() {
+  return (
+    <ShellFrame
+      destination="home"
+      onChooseDestination={() => {}}
+      levels={[]}
+      onBack={() => {}}
+      screen={
+        <>
+          <section data-region="row:short" data-kind="row" data-label="Short row">
+            <button data-focusable data-testid="short-a">
+              Short one
+            </button>
+            <button data-focusable data-testid="short-b">
+              Short two
+            </button>
+          </section>
+          <section data-region="row:wide" data-kind="row" data-label="Wide row">
+            <button data-focusable data-testid="wide-a">
+              Wide one
+            </button>
+            <button data-focusable data-testid="wide-b">
+              Wide two
+            </button>
+            <button data-focusable data-testid="wide-c">
+              Wide three
+            </button>
+            <button data-focusable data-testid="wide-d">
+              Wide four
+            </button>
+          </section>
+        </>
+      }
     />
   );
 }
@@ -367,6 +417,22 @@ describe("the shell frame", () => {
         document.activeElement,
         "the D-pad can leave the dialog's answers for the window's way out",
       ).toBe(within(chrome).getByTestId("window-fullscreen")),
+    );
+  });
+
+  test("Right at the end of a short row crosses to the closest card in the row below", async () => {
+    layOutShell();
+    render(<RowCrossingHarness />);
+
+    const last = screen.getByTestId("short-b");
+    last.focus();
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+
+    await waitFor(() =>
+      expect(
+        document.activeElement,
+        "the third card of the wider row is the closest control to the right",
+      ).toBe(screen.getByTestId("wide-c")),
     );
   });
 

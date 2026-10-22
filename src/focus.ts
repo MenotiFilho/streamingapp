@@ -6,32 +6,43 @@
  * goes. The model is the one the `prototype/spatial-focus-51` artifact locked
  * (#51), lifted here so it can be tested rather than felt:
  *
- * - inside a region, movement is by geometry — lined-up candidates first, then
- *   the smallest sideways gap, the shortest step past `MIN_STEP`, and the
- *   closest centre across;
+ * - inside a region, movement is direct-first: a control lined up with the
+ *   origin (`gap <= ALIGNED`) wins, and the shortest step wins among those.
+ *   Only when nothing is lined up does the closest control win, measured by
+ *   `hypot(step, gap)`, with the closer centre across as the tie-break. This is
+ *   the settled `edge: "nearest"` rule (#128); `edge: "stop"` keeps #51's
+ *   gap-first ranking beside it for comparison;
  * - a region's own controls lead into its children: when nothing inside the
  *   region lies that way, a child that is strictly in the direction and
  *   overlaps the origin on the cross axis is entered before any sibling is
  *   considered — a branch's Back sits above the rows it leads to;
- * - between regions, focus crosses only to a sibling strictly in the direction
- *   from the control and overlapping the band the control sits in on the cross
- *   axis (`gap <= ALIGNED`), so a short row cannot leak diagonally into a wider
- *   one below; the window's strip is the one kind allowed to speak for its full
- *   width, which is what reaches the dialog centred under its one button at the
- *   right, and no other region's box widens that guard;
+ * - when the focused region has nothing at all on that side, focus crosses to
+ *   the closest control anywhere in the same active level, choosing that
+ *   control's region and landing there by the covering/head rules. That
+ *   reverses #51's anti-leak walls: a short row can now cross into a wider one
+ *   below, and a sibling or child can be entered off to the side when it holds
+ *   the closest control. The window's full-width strip adds its own box to that
+ *   search beside its one control, so Up from any top-row card still reaches it;
+ *   the dialog's safe-head landing still applies. The rail's vertical ends stay
+ *   walls, and a row's end stops only when no control exists on that side
+ *   (#128, ADR-0025);
+ * - `edge: "stop"` keeps the old crossing guard: only a sibling overlapping the
+ *   band the control sits in on the cross axis (`gap <= ALIGNED`) is entered,
+ *   with no level-wide fallback, so the same layout can be compared against
+ *   #51. The window's strip is the one kind allowed to speak for its full width
+ *   in that sibling step, which is what reaches the dialog centred under its
+ *   one button at the right;
  * - entering a region lands on the item under the origin's middle, the
  *   region's head when what came from is wider than the whole target, and
  *   otherwise the nearest — except a dialog with nothing under the origin,
  *   which lands on its head (the safe answer) rather than whichever answer is
  *   nearest;
- * - every edge stops: no wrap at a row's or the rail's end, and Up off the top
- *   of the content goes nowhere;
  * - a control that disappears steps focus back to the control before the gap,
  *   or falls back to the rail when the region emptied.
  *
- * The switches the prototype exhibited are kept as `Rules`, but the shell
- * always uses `DEFAULT_RULES`: the alternatives are there to be felt, never
- * switched on.
+ * The switches the prototype exhibited are kept as `Rules`, beside the edge
+ * rule #128 added; the shell always uses `DEFAULT_RULES`, and the alternatives
+ * are there to be felt, never switched on.
  */
 
 /** Pixels a rect must clear the origin by to count as being "that way". */
@@ -88,9 +99,9 @@ export type Layout = {
 export type Focus = { regionId: string; index: number };
 
 /**
- * The switches the prototype let a person feel. The shell uses
- * `DEFAULT_RULES`; the alternatives exist so a later screen never has to guess
- * what was rejected.
+ * The switches the prototype let a person feel, plus the edge rule #128 added.
+ * The shell uses `DEFAULT_RULES`; the alternatives exist so a later screen
+ * never has to guess what was rejected.
  */
 export type Rules = {
   rowEnd: "stop" | "wrap";
@@ -98,15 +109,23 @@ export type Rules = {
   upFromContent: "nothing" | "rail";
   entry: "align" | "remember";
   gone: "previous" | "place" | "head";
+  /**
+   * How a move ranks the controls on the side it is going. `nearest` is the
+   * settled rule (#128): direct-first, then the closest by edge distance.
+   * `stop` keeps #51's gap-first ranking and its overlap-guarded crossing, so
+   * the two models can be compared without a second implementation.
+   */
+  edge: "stop" | "nearest";
 };
 
-/** The locked answers, as #51 settled them. */
+/** The locked answers, as #51 settled them and #128 amended the edge. */
 export const DEFAULT_RULES: Rules = {
   rowEnd: "stop",
   railEnd: "stop",
   upFromContent: "nothing",
   entry: "align",
   gone: "previous",
+  edge: "nearest",
 };
 
 /** Where a movement landed, and enough of the decision to say why. */
@@ -172,11 +191,30 @@ export function across(from: Rect, to: Rect, direction: Direction): number {
 /**
  * The nearest rect in `direction`, or -1 when nothing is that way.
  *
- * The candidates are ordered by the locked model: a smaller sideways gap wins
- * only by more than `ALIGNED`; inside that band the shorter step wins, and
- * then the closer centre.
+ * `nearest` is direct-first: a control lined up with the origin
+ * (`gap <= ALIGNED`) wins outright, and the shortest step wins among those.
+ * Only when nothing is lined up does the closest by edge distance —
+ * `hypot(step, gap)` — win, with the closer centre across as the tie-break.
+ * That is what lets a move cross a hole to the next occupied control instead of
+ * giving up on the smallest gap (#128).
+ *
+ * `stop` keeps #51's ranking — the smallest sideways gap first, then the
+ * shortest step inside the aligned band, then the closer centre — so the old
+ * walls can be felt beside the new rule.
  */
-export function nearest(from: Rect, rects: readonly Rect[], direction: Direction): number {
+export function nearest(
+  from: Rect,
+  rects: readonly Rect[],
+  direction: Direction,
+  edge: Rules["edge"] = "nearest",
+): number {
+  return edge === "stop"
+    ? nearestByGap(from, rects, direction)
+    : nearestDirect(from, rects, direction);
+}
+
+/** #51's ranking: the smallest sideways gap first, then step, then centre. */
+function nearestByGap(from: Rect, rects: readonly Rect[], direction: Direction): number {
   let best = -1;
   let bestGap = 0;
   let bestStep = 0;
@@ -208,6 +246,55 @@ export function nearest(from: Rect, rects: readonly Rect[], direction: Direction
   }
 
   return best;
+}
+
+/** The settled ranking: a lined-up control first, else the closest by distance. */
+function nearestDirect(from: Rect, rects: readonly Rect[], direction: Direction): number {
+  let aligned = -1;
+  let alignedStep = 0;
+  let alignedAcross = 0;
+  let closest = -1;
+  let closestDistance = 0;
+  let closestAcross = 0;
+
+  for (let index = 0; index < rects.length; index += 1) {
+    const to = rects[index];
+    if (!to) {
+      continue;
+    }
+    const ahead = step(from, to, direction);
+    if (ahead <= MIN_STEP) {
+      continue;
+    }
+    const sideways = gap(from, to, direction);
+    const acrossBy = across(from, to, direction);
+
+    if (sideways <= ALIGNED) {
+      const better =
+        aligned === -1 ||
+        ahead < alignedStep - ALIGNED ||
+        (Math.abs(ahead - alignedStep) <= ALIGNED && acrossBy < alignedAcross);
+      if (better) {
+        aligned = index;
+        alignedStep = ahead;
+        alignedAcross = acrossBy;
+      }
+      continue;
+    }
+
+    const distance = Math.hypot(ahead, sideways);
+    const better =
+      closest === -1 ||
+      distance < closestDistance - ALIGNED ||
+      (Math.abs(distance - closestDistance) <= ALIGNED && acrossBy < closestAcross);
+    if (better) {
+      closest = index;
+      closestDistance = distance;
+      closestAcross = acrossBy;
+    }
+  }
+
+  return aligned >= 0 ? aligned : closest;
 }
 
 /**
@@ -249,39 +336,67 @@ function overlappingInDirection(
 }
 
 /**
+ * Whether `box` has real area and holds every control in `rects`: the guard the
+ * window strip's box must pass before it may speak for the region. A box drawn
+ * tighter than its controls, or measured as nothing, claims no reach it did not
+ * draw.
+ */
+function holdsControls(box: Rect, rects: readonly Rect[]): boolean {
+  return (
+    box.w > 0 &&
+    box.h > 0 &&
+    rects.every(
+      (rect) =>
+        box.x <= rect.x &&
+        box.y <= rect.y &&
+        box.x + box.w >= rect.x + rect.w &&
+        box.y + box.h >= rect.y + rect.h,
+    )
+  );
+}
+
+/**
  * The line a control in the window's strip sits in: that strip's own full-width
  * box, when the box really holds the control. Only the window kind may widen
  * the cross-axis guard this way — its one button at the right must still reach
  * a dialog centred below (#125). A row or branch never gets this, so a wide
  * box cannot leak into a sibling that is off to the side of the control, which
- * is the anti-leak guard #51 locked. A strip with no box (an unmeasured page),
- * or a measured box drawn tighter than the control, leaves the control as its
- * own line instead of claiming a band it never drew.
+ * is the anti-leak guard #51 locked, and `edge: "stop"` keeps it. A strip with
+ * no box (an unmeasured page), or a measured box drawn tighter than the control,
+ * leaves the control as its own line instead of claiming a band it never drew.
  */
 function windowBand(region: Region, from: Rect): Rect {
   if (region.kind !== "window") {
     return from;
   }
   const box = region.rect;
-  const holds =
-    box.w > 0 &&
-    box.h > 0 &&
-    box.x <= from.x &&
-    box.y <= from.y &&
-    box.x + box.w >= from.x + from.w &&
-    box.y + box.h >= from.y + from.h;
-  return holds ? box : from;
+  return holdsControls(box, [from]) ? box : from;
 }
 
 /**
- * A sibling region we may cross into this way, under the overlap guard.
+ * The strip's box when it really holds the controls it claims, or null. The
+ * level-wide search may speak for the strip by this box; a window region drawn
+ * tighter than its controls (or measured as nothing) does not get that reach.
+ */
+function windowBox(region: Region): Rect | null {
+  if (region.kind !== "window" || region.itemRects.length === 0) {
+    return null;
+  }
+  const box = region.rect;
+  return holdsControls(box, region.itemRects) ? box : null;
+}
+
+/**
+ * A sibling region we may cross into this way under `edge: "stop"`: the old
+ * overlap guard.
  *
  * The direction is the control's: the move starts where its focus is. The
  * alignment is the band's: for the window's strip that is the strip itself, the
  * line a person is on, and a full-width strip reaches the dialog centred under
  * it even though the strip's one button at the right does not (#125). Every
  * other kind is guarded by the control alone, so a wide row or branch cannot
- * widen the wall this guard exists for.
+ * widen the wall this guard exists for. `edge: "nearest"` does not use this
+ * step; it searches the whole active level instead.
  */
 function siblingInDirection(
   regions: Record<string, Region>,
@@ -312,6 +427,89 @@ function childInDirection(
   direction: Direction,
 ): Region | null {
   return overlappingInDirection(regions, region.children, from, direction);
+}
+
+/** One control in the active level: where it lives and which of its region's controls it is. */
+type LevelTarget = { region: Region; index: number };
+
+/** A candidate in the level-wide search: a control, or the strip's box standing for it. */
+type LevelCandidate = LevelTarget & { rect: Rect };
+
+/** The root of the tree a region belongs to: the level's own region. */
+function levelRoot(regions: Record<string, Region>, region: Region): Region {
+  let node = region;
+  const seen = new Set<string>();
+  while (node.parent && !seen.has(node.id)) {
+    seen.add(node.id);
+    const parent = regions[node.parent];
+    if (!parent) {
+      break;
+    }
+    node = parent;
+  }
+  return node;
+}
+
+/**
+ * The closest control anywhere in the focused region's active level, outside
+ * the focused region itself. This is the cross-region half of `edge: "nearest"`
+ * (#128): one level-wide search, direct-first then closest, finds the control
+ * on that side even when it sits in a region the old overlap guard did not
+ * reach — an off-side child or sibling — rather than stopping at the region's
+ * wall.
+ */
+function controlInLevel(
+  layout: Layout,
+  focused: Region,
+  from: Rect,
+  direction: Direction,
+): LevelTarget | null {
+  const regions: Region[] = [];
+  const visit = (region: Region) => {
+    regions.push(region);
+    for (const id of region.children) {
+      const child = layout.regions[id];
+      if (child) {
+        visit(child);
+      }
+    }
+  };
+  visit(levelRoot(layout.regions, focused));
+
+  const candidates: LevelCandidate[] = [];
+  for (const region of regions) {
+    if (region.id === focused.id) {
+      continue;
+    }
+    // The window strip is a direct region, not merely the control it draws:
+    // its full-width box is what reaches a top-row card anywhere along the row
+    // and the dialog centred under its one button (#125). Only this kind gets
+    // the proxy; every other region is searched by its controls. The strip's
+    // button stays a candidate beside the box, so the box adds reach rather
+    // than replacing the control.
+    const box = windowBox(region);
+    if (box) {
+      candidates.push({ region, index: 0, rect: box });
+    }
+    for (let index = 0; index < region.itemRects.length; index += 1) {
+      const rect = region.itemRects[index];
+      if (!rect) {
+        continue;
+      }
+      candidates.push({ region, index, rect });
+    }
+  }
+
+  const pick = nearest(
+    from,
+    candidates.map((candidate) => candidate.rect),
+    direction,
+  );
+  if (pick < 0) {
+    return null;
+  }
+  const chosen = candidates[pick];
+  return chosen ? { region: chosen.region, index: chosen.index } : null;
 }
 
 /** A remembered index clamped to the controls a region actually has. */
@@ -384,7 +582,7 @@ function covering(from: Rect, rects: readonly Rect[], direction: Direction): num
 
 const LANDED = {
   aligned: "the card under your middle",
-  nearest: "the nearest card — nothing lined up",
+  nearest: "nothing under your middle",
   head: "the region's head — what you came from is wider than the whole region",
   outside: "the region's head — nothing in it lies under you",
   memory: "the region's memory",
@@ -429,7 +627,7 @@ function enter(
   ) {
     return { index: 0, how: "outside" };
   }
-  const lined = nearest(from, region.itemRects, direction);
+  const lined = nearest(from, region.itemRects, direction, rules.edge);
   if (lined >= 0) {
     return { index: lined, how: "nearest" };
   }
@@ -462,6 +660,7 @@ function land(
     from,
     children.map((child) => child.rect),
     direction,
+    rules.edge,
   );
   const child = children[pick >= 0 ? pick : 0];
   return child
@@ -500,8 +699,8 @@ export function decideMove(
     return { kind: "blocked", direction, why: "the focused region has nothing in it" };
   }
 
-  // 1. Inside the region, by geometry alone.
-  const inside = nearest(from, region.itemRects, direction);
+  // 1. Inside the region, by geometry alone: direct-first, then the closest.
+  const inside = nearest(from, region.itemRects, direction, rules.edge);
   if (inside >= 0) {
     return {
       kind: "moved",
@@ -528,32 +727,13 @@ export function decideMove(
     };
   }
 
-  // 3. Out to a sibling, if one hosts us across the way. The direction comes
-  //    from the control; only the window's strip speaks for its full width.
-  const band = windowBand(region, from);
-  let node = region;
-  while (node.parent) {
-    const sibling = siblingInDirection(layout.regions, node, from, direction, band);
-    if (sibling) {
-      const target = land(layout, sibling, from, direction, rules);
-      return {
-        kind: "crossed",
-        direction,
-        regionId: target.regionId,
-        index: target.index,
-        landedBy: LANDED[target.how],
-        why: `nothing ${direction} inside ${node.label}, so focus crossed into ${sibling.label}`,
-      };
+  // 3a. The rail's vertical ends are walls even though the rest of the level
+  //     may hold controls beyond them: the six destinations are a list, and
+  //     Down on Settings must not fall into whatever content sits beside it.
+  const railWall = (): MoveDecision | null => {
+    if (region.kind !== "rail" || !isVertical(direction)) {
+      return null;
     }
-    const parent = layout.regions[node.parent];
-    if (!parent) {
-      break;
-    }
-    node = parent;
-  }
-
-  // 4. The end of a list: a wall, or the wrap the rules ask for.
-  if (region.kind === "rail" && isVertical(direction)) {
     if (rules.railEnd === "wrap") {
       return {
         kind: "wrapped",
@@ -568,8 +748,75 @@ export function decideMove(
       direction,
       why: "the end of the rail, and the rail rule says stop",
     };
+  };
+
+  // 3b. Out to a sibling that overlaps the band the control sits in. This is
+  //     #51's crossing and `edge: "stop"` keeps it exact; under
+  //     `edge: "nearest"` the level-wide fallback below takes its place and
+  //     picks the closest control, not merely the first region that lines up.
+  if (rules.edge === "stop") {
+    const band = windowBand(region, from);
+    let node = region;
+    while (node.parent) {
+      const sibling = siblingInDirection(layout.regions, node, from, direction, band);
+      if (sibling) {
+        const target = land(layout, sibling, from, direction, rules);
+        return {
+          kind: "crossed",
+          direction,
+          regionId: target.regionId,
+          index: target.index,
+          landedBy: LANDED[target.how],
+          why: `nothing ${direction} inside ${node.label}, so focus crossed into ${sibling.label}`,
+        };
+      }
+      const parent = layout.regions[node.parent];
+      if (!parent) {
+        break;
+      }
+      node = parent;
+    }
   }
 
+  const wall = railWall();
+  if (wall) {
+    return wall;
+  }
+
+  if (rules.edge === "nearest") {
+    // 4. The focused region has nothing at all on that side: take the closest
+    //    control anywhere in the active level, direct-first, then closest.
+    const found = controlInLevel(layout, region, from, direction);
+    if (found) {
+      // A control in a branch is that branch's own control, not a request to
+      // descend into one of its children. `land` would do the latter and return
+      // a different control than the search chose: the ancestor case is the
+      // Title's Back above its seasons, and a sibling branch with a Back is the
+      // same hole.
+      if (found.region.children.length > 0) {
+        return {
+          kind: "crossed",
+          direction,
+          regionId: found.region.id,
+          index: found.index,
+          why: `nothing ${direction} inside ${region.label}, so focus crossed to the closest control in ${found.region.label}`,
+        };
+      }
+      const target = land(layout, found.region, from, direction, rules);
+      return {
+        kind: "crossed",
+        direction,
+        regionId: target.regionId,
+        index: target.index,
+        landedBy: LANDED[target.how],
+        why: `nothing ${direction} inside ${region.label}, so focus crossed to the closest control in ${found.region.label}`,
+      };
+    }
+  }
+
+  // 5. The end of a row: a wall, or the wrap the rules ask for. Under
+  //    `edge: "nearest"` this is reached only when no control exists on that
+  //    side anywhere in the level (#128).
   if (region.kind === "row" && !isVertical(direction)) {
     if (rules.rowEnd === "wrap") {
       return {
@@ -583,11 +830,11 @@ export function decideMove(
     return {
       kind: "blocked",
       direction,
-      why: "the end of the row, and the row rule says stop — it does not fall into the row below",
+      why: "the end of the row, and the row rule says stop",
     };
   }
 
-  // 5. The one wall a rule can fill: up out of the content, to the rail.
+  // 6. The one wall a rule can fill: up out of the content, to the rail.
   if (direction === "up" && rules.upFromContent === "rail") {
     const rail = findRail(layout);
     if (rail) {
