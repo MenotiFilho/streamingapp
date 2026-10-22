@@ -13,6 +13,7 @@ import { useShell, type NewShellLevel } from "./context";
 import { confirmActionLevel } from "./ConfirmAction";
 import { Button, ChoiceChip } from "./kit";
 import { Refusal } from "./Refusal";
+import { focusAndReveal } from "./reveal";
 import { StremioAccount } from "./StremioAccount";
 import { protectionReadout } from "./settings";
 import "./settings.css";
@@ -466,7 +467,7 @@ function RemoteDevicesScreen() {
       : document.querySelector<HTMLElement>(
           '[data-testid="settings-remote-devices-back"]',
         );
-    target?.focus({ preventScroll: true });
+    focusAndReveal(target);
     setRehome(null);
   }, [devices, rehome]);
 

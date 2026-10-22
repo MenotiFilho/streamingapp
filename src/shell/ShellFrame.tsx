@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, type ReactNode } from "react";
 
 import { Rail } from "./Rail";
 import type { Destination, ShellLevel } from "./navigation";
+import { focusAndReveal } from "./reveal";
 import { toggleFullscreen, useFullscreen } from "./useFullscreen";
 import { useSpatialFocus } from "./useSpatialFocus";
 import { WindowChrome } from "./WindowChrome";
@@ -101,9 +102,9 @@ export function ShellFrame({
       firstDestination.current = false;
       return;
     }
-    base.current
-      ?.querySelector<HTMLElement>(`[data-destination="${destination}"]`)
-      ?.focus({ preventScroll: true });
+    focusAndReveal(
+      base.current?.querySelector<HTMLElement>(`[data-destination="${destination}"]`),
+    );
   }, [destination]);
 
   return (

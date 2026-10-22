@@ -5,6 +5,7 @@ import { useShell } from "./context";
 import { confirmActionLevel } from "./ConfirmAction";
 import { Button } from "./kit";
 import { Refusal } from "./Refusal";
+import { focusAndReveal } from "./reveal";
 import {
   addOutcome,
   catalogsOf,
@@ -56,7 +57,7 @@ export function AddonsScreen() {
           (element) => element.dataset.addonId === rehome.previous,
         )
       : document.querySelector<HTMLElement>('[data-testid="add-addon-submit"]');
-    target?.focus({ preventScroll: true });
+    focusAndReveal(target);
     setRehome(null);
   }, [addons, rehome]);
 

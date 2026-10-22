@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { ConfirmDialog } from "./kit";
 import { ShellFrame } from "./ShellFrame";
 import type { ShellLevel } from "./navigation";
+import { CHROME_CLEARANCE } from "./reveal";
 import kitCss from "./kit/kit.css?raw";
 import osdCss from "./osd.css?raw";
 import shellCss from "./shell.css?raw";
@@ -544,6 +545,10 @@ describe("the shell frame", () => {
     ).toBe("4rem");
     expect(lengthInPx(clearance), "4rem is 64px of content top").toBe(64);
     expect(
+      lengthInPx(clearance),
+      "the reveal's chrome inset is the layout's own clearance, not a new number",
+    ).toBe(CHROME_CLEARANCE);
+    expect(
       declarationsOf(".shell-stage"),
       "the base's first row starts below the strip",
     ).toMatch(/padding:\s*var\(--window-chrome-clearance\)/);
@@ -579,5 +584,16 @@ describe("the shell frame", () => {
       popover,
       "and it paints nothing of its own, so the picture stays behind it",
     ).toMatch(/background:\s*transparent/);
+  });
+
+  test("the row track leaves the reveal's margin alone: no scroll snap (#127)", () => {
+    expect(
+      declarationsOf(".kit-row-track", kitCss),
+      "a snap would pull the focused card back to the track's edge after the reveal",
+    ).not.toMatch(/scroll-snap-type/);
+    expect(
+      declarationsOf(".kit-row-item", kitCss),
+      "and no item asks to be a snap target",
+    ).not.toMatch(/scroll-snap-align/);
   });
 });

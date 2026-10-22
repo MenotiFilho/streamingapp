@@ -43,6 +43,7 @@ import {
   osdPopoverLevel,
   type OsdPopoverName,
 } from "./PlayerPopovers";
+import { focusAndReveal } from "./reveal";
 import { useOsdVisibility } from "./useOsdVisibility";
 import "./osd.css";
 
@@ -177,7 +178,7 @@ export function PlayerOverlay() {
   const { visible, wake } = useOsdVisibility({
     pinned: popover !== null,
     chrome,
-    onHide: () => pictureButton.current?.focus({ preventScroll: true }),
+    onHide: () => focusAndReveal(pictureButton.current),
   });
 
   /** Put focus on a stop, and say whether there was a control to land on. */
@@ -187,17 +188,16 @@ export function PlayerOverlay() {
       if (!picture) {
         return false;
       }
-      picture.focus({ preventScroll: true });
+      focusAndReveal(picture);
       return true;
     }
-
     const cluster = stop === "strip" ? strip.current : top.current;
     const remembered = stop === "strip" ? rememberedStrip.current : rememberedTop.current;
     const preferred = stop === "strip" ? playPause.current : fullscreen.current;
 
     for (const candidate of [remembered, preferred]) {
       if (usable(candidate, cluster)) {
-        candidate.focus({ preventScroll: true });
+        focusAndReveal(candidate);
         return true;
       }
     }
@@ -212,7 +212,7 @@ export function PlayerOverlay() {
     if (!first) {
       return false;
     }
-    first.focus({ preventScroll: true });
+    focusAndReveal(first);
     return true;
   };
 

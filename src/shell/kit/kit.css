@@ -311,6 +311,9 @@
  * track has no scrollbar: a drag moves it, and the edge buttons move it one
  * view. The block padding leaves room for the focus ring and the card's lift,
  * which an overflow clip would otherwise cut.
+ *
+ * No scroll snap (#127): a snap would undo the reveal's 24px margin and pull
+ * the focused card back to the track's edge. The reveal does the scrolling.
  */
 .kit-row-viewport {
   position: relative;
@@ -325,7 +328,6 @@
   list-style: none;
   overflow-x: auto;
   overflow-y: hidden;
-  scroll-snap-type: x proximity;
   scrollbar-width: none;
   -ms-overflow-style: none;
   touch-action: pan-y;
@@ -338,7 +340,6 @@
 .kit-row-item {
   flex: 0 0 calc((100% - (var(--row-visible) - 1) * var(--row-gap)) / var(--row-visible));
   min-width: 0;
-  scroll-snap-align: start;
 }
 
 /* The cards fill their share of the row rather than keeping a fixed width. */

@@ -9,6 +9,7 @@ import {
 } from "../focus";
 import { isTypingTarget, keyIntent, type Intent } from "../input";
 import { firstFocusable, focusOf, readLevel } from "./layout";
+import { reveal } from "./reveal";
 import { useGamepad } from "./useGamepad";
 
 type Remembered = Focus & { element: HTMLElement | null };
@@ -54,6 +55,8 @@ export function useSpatialFocus({ root, levelKey, onBack, onIntent }: SpatialFoc
   const regions = useRef(new Map<string, Record<string, number | undefined>>());
   /** For each level, the exact control focus was on, if it is still there. */
   const remembered = useRef(new Map<string, Remembered>());
+  /** The control the reveal last ran for, so an ordinary render does not scroll again. */
+  const revealed = useRef<HTMLElement | null>(null);
 
   const regionMemory = (key: string): Record<string, number | undefined> => {
     let held = regions.current.get(key);
@@ -64,9 +67,37 @@ export function useSpatialFocus({ root, levelKey, onBack, onIntent }: SpatialFoc
     return held;
   };
 
+  /**
+   * Reveal a focused control once, and only when focus actually moved to it.
+   * The focusin path catches programmatic focus anywhere in the level; the
+   * guard keeps a re-render from scrolling a control a person deliberately
+   * wheeled away. Focus leaving the level forgets the guard, so a return to the
+   * same control reveals it again.
+   */
+  const revealFocused = (element: HTMLElement) => {
+    const activeRoot = rootRef.current();
+    if (!activeRoot) {
+      return;
+    }
+    if (!activeRoot.contains(element)) {
+      revealed.current = null;
+      return;
+    }
+    if (revealed.current === element) {
+      return;
+    }
+    revealed.current = element;
+    reveal(element);
+  };
+
+  /**
+   * Focus without the browser's own scroll, then reveal. The focusin listener
+   * may have revealed it already (focus moves fire it synchronously); the guard
+   * makes the second look a no-op.
+   */
   const focusElement = (element: HTMLElement) => {
     element.focus({ preventScroll: true });
-    element.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+    revealFocused(element);
   };
 
   const rememberFocus = (focus: Focus, element: HTMLElement | null) => {
@@ -100,6 +131,9 @@ export function useSpatialFocus({ root, levelKey, onBack, onIntent }: SpatialFoc
       activeRoot.contains(active) &&
       active.hasAttribute("data-focusable")
     ) {
+      // A control auto-focused while the level mounted reaches neither the
+      // engine nor a focusin listener that was not bound yet; reveal it once.
+      revealFocused(active);
       return;
     }
 
@@ -199,6 +233,8 @@ export function useSpatialFocus({ root, levelKey, onBack, onIntent }: SpatialFoc
   rememberRef.current = rememberElement;
   const ensureRef = useRef(ensureFocus);
   ensureRef.current = ensureFocus;
+  const revealRef = useRef(revealFocused);
+  revealRef.current = revealFocused;
 
   // Something is always focused on the level that is on top. This also puts
   // focus back when an overlay pops, and re-homes it when a control vanished.
@@ -222,6 +258,7 @@ export function useSpatialFocus({ root, levelKey, onBack, onIntent }: SpatialFoc
     const onFocusIn = (event: FocusEvent) => {
       if (event.target instanceof HTMLElement) {
         rememberRef.current(event.target);
+        revealRef.current(event.target);
       }
     };
 

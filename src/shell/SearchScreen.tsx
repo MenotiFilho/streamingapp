@@ -22,6 +22,7 @@ import { useShell } from "./context";
 import { addonName } from "./home";
 import { Button, PosterCard } from "./kit";
 import { FOCUSABLE } from "./layout";
+import { focusAndReveal } from "./reveal";
 import { SEARCH_KINDS, searchAsk, type SearchKind } from "./search";
 import { useTitleOpener } from "./TitleScreen";
 import "./search.css";
@@ -189,7 +190,7 @@ export function SearchScreen() {
     }
     event.preventDefault();
     event.stopPropagation();
-    first.focus({ preventScroll: true });
+    focusAndReveal(first);
   };
 
   const canSubmit = draft.trim().length > 0;
