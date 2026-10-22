@@ -1,3 +1,4 @@
+import { isTauri } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useSyncExternalStore } from "react";
 
@@ -13,15 +14,14 @@ import { useSyncExternalStore } from "react";
  * kept its own boolean showed the wrong label after a window-level change
  * (#125).
  *
- * Whether there is a Tauri window at all is answered synchronously, from the
- * runtime's own global (`window.__TAURI_INTERNALS__`, which Tauri v2 injects
- * before the page runs). That is what makes `supported` true on the first
- * render and on a remount, so a control is drawn at once and F11 is bound at
- * once rather than waiting for the first read. A plain browser — Vite's dev
- * window, a test — has no such global: it is never supported, is never
- * believed fullscreen, and keeps the F11 its browser gives it. The served
- * Remote page is a different client in a different browser tab; this module
- * never runs there.
+ * Whether there is a Tauri window at all is answered synchronously by the
+ * public `isTauri()` check, which reads the global Tauri sets before the page
+ * runs. That is what makes `supported` true on the first render and on a
+ * remount, so a control is drawn at once and F11 is bound at once rather than
+ * waiting for the first read. A plain browser — Vite's dev window, a test —
+ * has no such global: it is never supported, is never believed fullscreen, and
+ * keeps the F11 its browser gives it. The served Remote page is a different
+ * client in a different browser tab; this module never runs there.
  */
 
 type FullscreenState = {
@@ -31,20 +31,8 @@ type FullscreenState = {
   supported: boolean;
 };
 
-declare global {
-  interface Window {
-    /** Tauri v2's runtime bridge; its presence is what makes this a Host window. */
-    __TAURI_INTERNALS__?: unknown;
-  }
-}
-
-/** Whether this page is a Tauri window, answered without awaiting the API. */
-function hasTauriRuntime(): boolean {
-  return typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-}
-
 /** What subscribers read. Replaced, never mutated, so React can compare. */
-let state: FullscreenState = { fullscreen: false, supported: hasTauriRuntime() };
+let state: FullscreenState = { fullscreen: false, supported: isTauri() };
 const listeners = new Set<() => void>();
 
 /**
@@ -81,7 +69,7 @@ function publish(next: Partial<FullscreenState>): void {
  * cheap and happens once per read.
  */
 function hostWindow(): ReturnType<typeof getCurrentWindow> | null {
-  if (!hasTauriRuntime()) {
+  if (!isTauri()) {
     return null;
   }
   try {
@@ -148,10 +136,10 @@ async function watch(): Promise<void> {
 function subscribe(listener: () => void): () => void {
   if (listeners.size === 0) {
     // A fresh watch cycle starts from what the page says now: the synchronous
-    // runtime check is the first render's answer, and a remount must not trust
-    // a fact — or a support claim — from before an unmount.
+    // `isTauri()` check is the first render's answer, and a remount must not
+    // trust a fact — or a support claim — from before an unmount.
     generation += 1;
-    publish({ fullscreen: false, supported: hasTauriRuntime() });
+    publish({ fullscreen: false, supported: isTauri() });
     void watch();
   }
   listeners.add(listener);
@@ -165,7 +153,7 @@ function subscribe(listener: () => void): () => void {
     generation += 1;
     unlisten?.();
     unlisten = null;
-    publish({ fullscreen: false, supported: hasTauriRuntime() });
+    publish({ fullscreen: false, supported: isTauri() });
   };
 }
 
@@ -175,7 +163,7 @@ function subscribe(listener: () => void): () => void {
  * fact rather than the wish.
  */
 export async function toggleFullscreen(): Promise<void> {
-  if (!hasTauriRuntime()) {
+  if (!isTauri()) {
     return;
   }
   const host = hostWindow();

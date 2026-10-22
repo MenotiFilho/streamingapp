@@ -93,11 +93,17 @@ export function releaseReads(): void {
 }
 
 /**
- * Pretend the webview is Tauri's. `window.__TAURI_INTERNALS__` is what Tauri v2
- * injects before the page runs, and what the hook's synchronous check looks for;
- * a bare object is enough, because the mocked window module answers the calls.
+ * Pretend the webview is Tauri's. The public `isTauri()` check reads
+ * `window.isTauri`, which Tauri's bootstrap sets before the page runs, and
+ * `window.__TAURI_INTERNALS__` is the bridge behind the API; the mocked window
+ * module answers the calls, so a bare truthy pair is enough.
  */
 export function installTauriRuntime(): void {
+  Object.defineProperty(window, "isTauri", {
+    value: true,
+    configurable: true,
+    writable: true,
+  });
   Object.defineProperty(window, "__TAURI_INTERNALS__", {
     value: {},
     configurable: true,
@@ -107,5 +113,6 @@ export function installTauriRuntime(): void {
 
 /** Be a plain browser: no Tauri runtime under the page at all. */
 export function removeTauriRuntime(): void {
+  Reflect.deleteProperty(window, "isTauri");
   Reflect.deleteProperty(window, "__TAURI_INTERNALS__");
 }

@@ -38,38 +38,57 @@ function declarationsOf(selector: string, css = shellCss): string {
 /**
  * jsdom measures every box as zero, so give the frame a screen the D-pad can
  * stand on. An element is found by whichever identity the frame gives it: a
- * test id, the region it declares, or a rail destination's own name.
+ * test id, the region it declares, a rail destination's own name, or the words
+ * on a button the kit drew.
+ *
+ * The numbers are the CSS contract at this viewport: the chrome strip is
+ * 0..56px, content starts at 64px (`--window-chrome-clearance: 4rem`), and the
+ * rail's Home item starts at 32px — inside the strip's band on purpose, which
+ * is why Up from it must still stop. The shell frame test pins those values.
  */
-function layOutShell() {
+function layOutShell(width = 1100, height = 720) {
+  const railHeight = height - 36;
+  const homeTop = 32;
+  const itemStep = 62;
+  const contentTop = 64;
+  const contentLeft = 128;
   const boxes: Record<string, [number, number, number, number]> = {
-    shell: [0, 0, 1920, 1080],
-    rail: [18, 18, 92, 1044],
-    home: [18, 32, 92, 56],
-    discover: [18, 94, 92, 56],
-    search: [18, 156, 92, 56],
-    library: [18, 218, 92, 56],
-    addons: [18, 280, 92, 56],
-    settings: [18, 342, 92, 56],
-    screen: [128, 64, 1792, 1016],
-    "row:home": [128, 200, 800, 260],
-    opener: [128, 200, 180, 260],
-    "window-chrome": [0, 0, 1920, 56],
-    "window-fullscreen": [1848, 8, 40, 40],
+    shell: [0, 0, width, height],
+    rail: [18, 18, 92, railHeight],
+    home: [18, homeTop, 92, 56],
+    discover: [18, homeTop + itemStep, 92, 56],
+    search: [18, homeTop + itemStep * 2, 92, 56],
+    library: [18, homeTop + itemStep * 3, 92, 56],
+    addons: [18, homeTop + itemStep * 4, 92, 56],
+    settings: [18, homeTop + itemStep * 5, 92, 56],
+    screen: [contentLeft, contentTop, width - contentLeft, height - contentTop],
+    "row:home": [contentLeft, contentTop, Math.min(800, width - contentLeft - 32), 260],
+    opener: [contentLeft, contentTop, 180, 260],
+    "window-chrome": [0, 0, width, 56],
+    "window-fullscreen": [width - 64, 8, 40, 40],
+    // The dialog's answers: below the strip, so Up from the initial one has a
+    // real step onto the chrome.
+    Cancel: [Math.round(width / 2) - 130, Math.round(height / 2) + 90, 120, 44],
+    Remove: [Math.round(width / 2) + 10, Math.round(height / 2) + 90, 120, 44],
   };
 
   return vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
     function (this: HTMLElement): DOMRect {
-      const key = this.dataset.testid ?? this.dataset.region ?? this.dataset.destination;
-      const [x, y, width, height] = (key ? boxes[key] : undefined) ?? [0, 0, 0, 0];
+      const key =
+        this.dataset.testid ??
+        this.dataset.region ??
+        this.dataset.destination ??
+        this.textContent?.trim();
+      const [x, y, widthBy, heightBy] = (key ? boxes[key] : undefined) ?? [0, 0, 0, 0];
       return {
         x,
         y,
-        width,
-        height,
+        width: widthBy,
+        height: heightBy,
         top: y,
         left: x,
-        right: x + width,
-        bottom: y + height,
+        right: x + widthBy,
+        bottom: y + heightBy,
         toJSON: () => ({}),
       } as DOMRect;
     },
@@ -258,7 +277,8 @@ describe("the shell frame", () => {
     ).toHaveLength(1);
   });
 
-  test("a confirm dialog keeps the window control, because a fullscreen window must have a way out", async () => {
+  test("a confirm dialog keeps the window control, and Up from its first answer reaches it", async () => {
+    layOutShell();
     const levels: ShellLevel[] = [
       {
         id: "confirm",
@@ -276,7 +296,7 @@ describe("the shell frame", () => {
         ),
       },
     ];
-    render(
+    const { container } = render(
       <ShellFrame
         destination="addons"
         onChooseDestination={() => {}}
@@ -288,15 +308,30 @@ describe("the shell frame", () => {
 
     const dialog = screen.getByRole("dialog", { name: "Remove Example?" });
     const chrome = await screen.findByTestId("window-chrome");
+    const level = container.querySelector<HTMLElement>('[data-level-id="confirm"]');
+    expect(level).not.toBeNull();
     expect(
-      chrome,
-      "the shell draws the window's way out above the dialog's scrim",
-    ).toBeInTheDocument();
+      level,
+      "the chrome is the shell's control in this level, not the player's and not the base's",
+    ).toContainElement(chrome);
     expect(
       dialog,
-      "it is the shell's control outside the dialog's own content, not one of the answers",
+      "it is outside the dialog's own content, not one of the answers",
     ).not.toContainElement(within(chrome).getByTestId("window-fullscreen"));
-    expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeInTheDocument();
+    expect(
+      dialog,
+      "the dialog keeps its modal semantics; the chrome is simply outside its accessibility scope",
+    ).toHaveAttribute("aria-modal", "true");
+
+    const cancel = within(dialog).getByRole("button", { name: "Cancel" });
+    await waitFor(() => expect(document.activeElement).toBe(cancel));
+    fireEvent.keyDown(document, { key: "ArrowUp" });
+    await waitFor(() =>
+      expect(
+        document.activeElement,
+        "the D-pad can leave the dialog's answers for the window's way out",
+      ).toBe(within(chrome).getByTestId("window-fullscreen")),
+    );
   });
 
   test("a Tauri window whose first read refuses still draws the control and takes F11", async () => {
@@ -335,23 +370,30 @@ describe("the shell frame", () => {
     ).not.toBeInTheDocument();
   });
 
-  test("Up from a top-row card lands on the window control, and the rail's top item stops", async () => {
-    layOutShell();
-    harness();
+  test.each([
+    [720, 480],
+    [1100, 720],
+    [1920, 1080],
+  ])(
+    "Up from the first row reaches the chrome at %ix%i, and the rail's top item stops",
+    async (width, height) => {
+      layOutShell(width, height);
+      harness();
 
-    const home = screen.getByRole("button", { name: "Home" });
-    await waitFor(() => expect(document.activeElement).toBe(home));
+      const home = screen.getByRole("button", { name: "Home" });
+      await waitFor(() => expect(document.activeElement).toBe(home));
 
-    screen.getByTestId("opener").focus();
-    fireEvent.keyDown(document, { key: "ArrowUp" });
-    await waitFor(() =>
-      expect(document.activeElement).toBe(screen.getByTestId("window-fullscreen")),
-    );
+      screen.getByTestId("opener").focus();
+      fireEvent.keyDown(document, { key: "ArrowUp" });
+      await waitFor(() =>
+        expect(document.activeElement).toBe(screen.getByTestId("window-fullscreen")),
+      );
 
-    home.focus();
-    fireEvent.keyDown(document, { key: "ArrowUp" });
-    expect(document.activeElement, "the rail's top is still a wall").toBe(home);
-  });
+      home.focus();
+      fireEvent.keyDown(document, { key: "ArrowUp" });
+      expect(document.activeElement, "the rail's top is still a wall").toBe(home);
+    },
+  );
 
   test("F11 stays the browser's outside the native window", async () => {
     removeTauriRuntime();
@@ -371,6 +413,7 @@ describe("the shell frame", () => {
   test("the strip spans the top edge, is the band the geometry measures, and leaves the pointer to its button", () => {
     const strip = declarationsOf(".shell-window-chrome");
     expect(strip).toMatch(/position:\s*fixed/);
+    expect(strip, "top: the strip is the window's first band").toMatch(/top:\s*0/);
     expect(strip, "full width: the strip is where Up lands from anywhere along the row").toMatch(
       /left:\s*0/,
     );
@@ -379,6 +422,10 @@ describe("the shell frame", () => {
       strip,
       "56px: the height `layOutShell` fabricates for the window region and the Windows walkthrough stands on",
     ).toMatch(/height:\s*56px/);
+    expect(
+      strip,
+      "8px above and 8px below the 40px button: the band the D-pad measures",
+    ).toMatch(/padding:\s*0\.5rem/);
     expect(strip, "above the dialog scrim, so the way out survives a confirmation").toMatch(
       /z-index:\s*45/,
     );
@@ -386,16 +433,43 @@ describe("the shell frame", () => {
       declarationsOf(".kit-dialog-scrim", kitCss),
       "the scrim the chrome deliberately sits above: change one and the pair must be re-checked",
     ).toMatch(/z-index:\s*40/);
+    const rail = declarationsOf(".shell-rail");
     expect(
-      declarationsOf(".shell-rail"),
+      rail,
       "the rail starts 18px down, inside the strip's band: its Up must still stop",
     ).toMatch(/top:\s*18px/);
+    expect(
+      rail,
+      "and 14px of padding puts the Home item's top at 32px, inside the band",
+    ).toMatch(/padding:\s*14px 8px/);
+
+    const button = declarationsOf(".shell-window-chrome-button");
+    expect(button, "the control the 56px band holds is 40px square").toMatch(/width:\s*40px/);
+    expect(button).toMatch(/height:\s*40px/);
+    expect(button, "the button itself still takes a click").toMatch(/pointer-events:\s*auto/);
     expect(strip, "a click over the content goes through the strip").toMatch(
       /pointer-events:\s*none/,
     );
+
+    const clearance = declarationsOf(":root").match(
+      /--window-chrome-clearance:\s*([^;]+)/,
+    )?.[1];
     expect(
-      declarationsOf(".shell-window-chrome-button"),
-      "the button itself still takes a click",
-    ).toMatch(/pointer-events:\s*auto/);
+      clearance?.trim(),
+      "4rem: content clears the 56px strip by 8px at every window width",
+    ).toBe("4rem");
+    expect(parseFloat(clearance ?? "0") * 16, "4rem is 64px of content top").toBe(64);
+    expect(
+      declarationsOf(".shell-stage"),
+      "the base's first row starts below the strip",
+    ).toMatch(/padding:\s*var\(--window-chrome-clearance\)/);
+    expect(
+      declarationsOf(".shell-level"),
+      "a pushed level's first row starts below the strip too",
+    ).toMatch(/padding-top:\s*var\(--window-chrome-clearance\)/);
+    expect(
+      declarationsOf('.shell-level[data-level-kind="player"]'),
+      "the player's picture is the whole window: no clearance, no painted band",
+    ).toMatch(/padding-top:\s*0/);
   });
 });

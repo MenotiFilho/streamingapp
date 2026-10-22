@@ -19,8 +19,9 @@ rotation and its text fallback, Continue watching and one row per Catalog; the
 Title and the Streams level above it; the player OSD, with one popover per icon,
 auto-hide, the episode steps and the volume pillar; the window's fullscreen
 control on the base, a pushed Title, Settings and a confirm dialog, F11 from
-each and with the OSD hidden, the strip's Up-from-the-top-row landing and
-click-through, and the OSD's own copy of the button;
+each and with the OSD hidden, the strip's Up-from-the-top-row landing and a
+click through the strip onto the rail beneath it, and the OSD's own copy of the
+button;
 Settings' Preferences, Credentials, Remote devices and About/Credits
 sub-screens; the key-gated Discover and Search; the Library sign-in gate; and the
 TMDB attribution.

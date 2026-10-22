@@ -160,6 +160,32 @@ describe("the window's fullscreen fact", () => {
     ).toHaveAttribute("data-supported", "yes");
   });
 
+  test("a refused first read still binds the resize, and the next one supplies the fact", async () => {
+    fakeWindowState().fail = true;
+    render(<Probe />);
+
+    await waitFor(() => expect(fakeWindowState().reads).toBe(1));
+    expect(
+      fakeWindowState().resized.size,
+      "the window still told us when it changed, even though its first answer refused",
+    ).toBe(1);
+    expect(screen.getByRole("button")).toHaveAccessibleName("Full screen");
+
+    // The refusal was about that one read, not about the window: a later one
+    // answers, and the control shows what it said.
+    fakeWindowState().fail = false;
+    fakeWindowState().fullscreen = true;
+    await act(async () => {
+      for (const handler of [...fakeWindowState().resized]) {
+        handler();
+      }
+    });
+
+    await waitFor(() =>
+      expect(screen.getByRole("button")).toHaveAccessibleName("Exit full screen"),
+    );
+  });
+
   test("StrictMode's remount starts over, and a late read from the old watch is discarded", async () => {
     fakeWindowState().hold = true;
     const first = render(

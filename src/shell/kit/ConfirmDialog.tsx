@@ -24,13 +24,15 @@ export type ConfirmDialogProps = {
  * restoration, and the primitive only paints the question, its two answers and
  * the initial focus on the safe answer.
  *
- * One deliberate exception to `aria-modal`: the window's fullscreen chrome is
- * drawn by the shell above this dialog's scrim (z-index 45 against the scrim's
- * 40) and stays reachable while the question is open. It is the shell's
- * control, outside the dialog's own content, and a fullscreen window must keep
- * a way out of itself (#125). The dialog's own controls remain trapped: the
- * exception is that one shell control and nothing else — anything the question
- * needs belongs inside it.
+ * The window's fullscreen chrome is drawn by the shell beside this dialog,
+ * inside the same level and above the scrim (z-index 45 against the scrim's
+ * 40), so a pointer or the D-pad can still reach it while the question is open.
+ * That is the shell's control, not one of the dialog's answers: it is outside
+ * the dialog's `aria-modal` accessibility scope, so a screen-reader user exits
+ * fullscreen with F11 instead of finding it in the dialog. The dialog's own
+ * controls remain trapped; anything the question needs belongs inside it. The
+ * chrome stays reachable because a fullscreen window must keep a way out of
+ * itself (#125).
  */
 export function ConfirmDialog({
   title,

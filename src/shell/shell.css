@@ -44,6 +44,17 @@ body.picture-behind .shell-base {
   background: var(--bg-canvas);
 }
 
+/*
+ * The window's chrome owns the top 56px of whichever surface is on top, so
+ * content starts below it: 4rem (64px) leaves an 8px step from the first row
+ * up onto the strip. The rail deliberately starts inside that band — its Home
+ * item is the wall that stops Up — while the base's stage and a pushed level
+ * both clear it, or the D-pad would have nothing to step onto (#125).
+ */
+:root {
+  --window-chrome-clearance: 4rem;
+}
+
 .shell-base {
   min-height: 100vh;
   transition: opacity var(--dur-med) var(--ease-out);
@@ -189,7 +200,7 @@ body.picture-behind .shell-base {
 .shell-stage {
   min-height: 100vh;
   margin-left: calc(92px + 36px);
-  padding: clamp(2rem, 4vw, 4rem) clamp(1.5rem, 4vw, 4rem) 5rem;
+  padding: var(--window-chrome-clearance) clamp(1.5rem, 4vw, 4rem) 5rem;
   box-sizing: border-box;
 }
 
@@ -246,12 +257,21 @@ body.picture-behind .shell-base {
   inset: 0;
   z-index: 40;
   overflow: auto;
+  /* A pushed level paints over the base, so the band the chrome occupies is
+     its own canvas rather than a window onto the screen underneath. Its content
+     starts below the strip for the same reason the base's does. */
+  padding-top: var(--window-chrome-clearance);
+  background: var(--bg-canvas);
   color: var(--ink-primary);
   font-family: var(--font-sans);
 }
 
 .shell-level[data-level-kind="player"] {
   z-index: 60;
+  /* The player's picture is the whole window: no chrome is drawn here (its OSD
+     carries the control), and mpv's child window must not be covered. */
+  padding-top: 0;
+  background: transparent;
 }
 
 /*

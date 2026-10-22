@@ -2710,14 +2710,20 @@ function Step-33($ctx) {
     Check 'F11 again leaves it, and the control says Full screen' (
         $text -notmatch 'Exit full screen') "showed: $text"
 
-    # The strip must not take a click meant for the content: the hero is the
-    # top row's own control, and clicking it opens the Title underneath.
+    # The strip must not take a click meant for the content. The hero's own
+    # control is below the strip, so this is the content path; the rail click
+    # below is the one that stands inside the strip's band.
+    #
+    # The two F11 presses above resized the window, and a UI Automation element
+    # can go stale across that, so ask the tree for the hero again before
+    # clicking it rather than reusing the one from the Up check.
+    $hero = @(Buttons-Matching $app 'Featured Title:')[0]
     if ($hero) {
         Click-Element $app $hero
         $text = Wait-Text $app 'This Title is one Video|Season \d+' 25
-        Check 'a click on the top row reaches the content under the strip' (
+        Check 'a click on Home''s first card opens the Title' (
             $text -match 'This Title is one Video|Season \d+') "showed: $text"
-        Shot $app '33-click-through-strip.png'
+        Shot $app '33-hero-click.png'
 
         # A pushed level gets the same control, because the base underneath is
         # inert and the player is not there to draw its OSD.
@@ -2734,7 +2740,7 @@ function Step-33($ctx) {
         Press-Keys $app '{ESC}'
         Wait-Text $app 'Featured Title:' 20 | Out-Null
     } else {
-        Skip 'the click near the strip and the pushed Title' 'the Addon drew no Title to open'
+        Skip 'the hero click and the pushed Title' 'the Addon drew no Title to open'
     }
 
     # Settings is a destination rather than a level: it gets the chrome the same
@@ -2752,6 +2758,22 @@ function Step-33($ctx) {
     Check 'F11 again leaves it from Settings' (
         $text -notmatch 'Exit full screen') "showed: $text"
 
+    # The strip's pointer rule is what lets a click land on the rail beneath it.
+    # The rail is inset 18px and padded 14px, so its Home item starts at ~32px
+    # while the strip runs to 56px: a click 8px below the item's top is inside
+    # both. On Settings that click must change the destination back to Home;
+    # if the strip swallowed it, Settings would stay. Click-Element cannot prove
+    # this: its centre is far below the band.
+    $home = Button-Named $app 'Home' 5
+    if (-not $home) { throw 'the rail shows no Home item to click through the strip' }
+    $homeRect = $home.Current.BoundingRectangle
+    if (-not (Focus $app)) { throw 'the click-through step needs the Host in the foreground' }
+    [W]::Click([int]($homeRect.Left + 10), [int]($homeRect.Top + 8))
+    $text = Wait-Text $app 'Featured Title:' 20
+    Check 'a click inside the strip reaches the rail under it' (
+        $text -match 'Featured Title:') "showed: $text"
+    Shot $app '33-click-through-strip.png'
+
     # A dialog is a level like any other: the shell draws the chrome above its
     # scrim, because a fullscreen window must keep a way out while a question is
     # open. Cancel rather than Remove, so the Addon stays for the rest of the run.
@@ -2759,8 +2781,13 @@ function Step-33($ctx) {
     $summary = @(Buttons-Matching $app $AddonName)[0]
     if ($summary) {
         $summary.SetFocus()
+        # The row expands on focus; a short settle lets its details and the
+        # Remove control be drawn before their rectangle is read.
         Start-Sleep -Seconds 1
-        Click-Element $app (Button-Named $app 'Remove')
+        $remove = Button-Named $app 'Remove'
+        if (-not $remove) { throw 'the expanded Addon row shows no Remove control' }
+        Start-Sleep -Milliseconds 400
+        Click-Element $app $remove
         $text = Wait-Text $app ('Remove ' + [regex]::Escape($AddonName) + '\?') 10
         Check 'a confirm dialog carries the window control above its scrim' (
             (Button-Named $app 'Full screen' 10) -ne $null) "showed: $text"
@@ -2774,9 +2801,11 @@ function Step-33($ctx) {
             $text -notmatch 'Exit full screen') "showed: $text"
         Press $app 'Cancel'
         $text = Wait-No-Text $app ('Remove ' + [regex]::Escape($AddonName) + '\?') 10
+        # The summary's accessible name is the Addon's name plus its version, so
+        # ask the page text for the name rather than for an exact button name.
         Check 'Cancel closes the question and leaves the Addon alone' (
             ($text -notmatch ('Remove ' + [regex]::Escape($AddonName) + '\?')) -and
-            (Shows $app $AddonName 5)) "showed: $text"
+            ($text -match [regex]::Escape($AddonName))) "showed: $text"
         Shot $app '33-dialog-cancelled.png'
     } else {
         Skip 'fullscreen over a confirm dialog' 'the Addons screen shows no Addon row to ask about'
