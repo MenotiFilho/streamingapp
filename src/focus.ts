@@ -254,8 +254,9 @@ function overlappingInDirection(
  * the cross-axis guard this way — its one button at the right must still reach
  * a dialog centred below (#125). A row or branch never gets this, so a wide
  * box cannot leak into a sibling that is off to the side of the control, which
- * is the anti-leak guard #51 locked. A strip with no box (an unmeasured page)
- * leaves the control as its own line.
+ * is the anti-leak guard #51 locked. A strip with no box (an unmeasured page),
+ * or a measured box drawn tighter than the control, leaves the control as its
+ * own line instead of claiming a band it never drew.
  */
 function windowBand(region: Region, from: Rect): Rect {
   if (region.kind !== "window") {
@@ -421,7 +422,7 @@ function enter(
   // under the control at all: the chrome's one button above a centred panel is
   // not above either answer, and the nearest would be whichever answer happens
   // to be on that side — on a destructive question, often the dangerous one.
-  // Every other region keeps its locked nearest/covering behaviour (#128).
+  // Every other region keeps the locked nearest/covering geometry (#51).
   if (
     region.kind === "dialog" &&
     !region.itemRects.some((item) => gap(from, item, direction) <= ALIGNED)

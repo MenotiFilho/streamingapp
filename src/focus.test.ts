@@ -509,7 +509,9 @@ describe("the walls", () => {
   });
 
   test("Up out of the content can be handed to the rail when a rule says so", () => {
-    const rows = [{ id: "row:top", y: 120, items: cards(120, 3) }];
+    // The row sits below three rail items, so the rail's nearest item is not
+    // its head: the rule hands Up to the rail, and the landing is nearest.
+    const rows = [{ id: "row:top", y: 300, items: cards(300, 3) }];
     const decision = decideMove(
       shell(rows),
       { regionId: "row:top", index: 0 },
@@ -517,7 +519,12 @@ describe("the walls", () => {
       { ...DEFAULT_RULES, upFromContent: "rail" },
     );
 
-    expect(decision).toMatchObject({ kind: "crossed", regionId: "rail" });
+    expect(decision).toMatchObject({
+      kind: "crossed",
+      regionId: "rail",
+      index: 2,
+      landedBy: "the nearest card — nothing lined up",
+    });
   });
 });
 
