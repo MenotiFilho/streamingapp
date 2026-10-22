@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, type ReactNode } from "react";
 
 import { Rail } from "./Rail";
 import type { Destination, ShellLevel } from "./navigation";
+import { focusAndReveal } from "./reveal";
 import { toggleFullscreen, useFullscreen } from "./useFullscreen";
 import { useSpatialFocus } from "./useSpatialFocus";
 import { WindowChrome } from "./WindowChrome";
@@ -101,9 +102,13 @@ export function ShellFrame({
       firstDestination.current = false;
       return;
     }
-    base.current
-      ?.querySelector<HTMLElement>(`[data-destination="${destination}"]`)
-      ?.focus({ preventScroll: true });
+    focusAndReveal(
+      // The rail item is the control a destination change means; a screen's own
+      // `data-destination` marker is a section, not something focus can land on.
+      base.current?.querySelector<HTMLElement>(
+        `[data-destination="${destination}"][data-focusable]`,
+      ),
+    );
   }, [destination]);
 
   return (

@@ -13,8 +13,11 @@ import type { Focus, Layout, Rect, Region, RegionKind } from "../focus";
 /** How a region or control is measured; injectable so a test need not lay out a page. */
 export type Measure = (element: Element) => Rect;
 
+/** The least of a thing a measurement needs: its border box. */
+export type Measurable = Pick<Element, "getBoundingClientRect">;
+
 /** The page's own rectangles, with the webview's border box as the origin. */
-export const measureRect: Measure = (element) => {
+export const measureRect = (element: Measurable): Rect => {
   const box = element.getBoundingClientRect();
   return { x: box.left, y: box.top, w: box.width, h: box.height };
 };

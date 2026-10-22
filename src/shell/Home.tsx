@@ -14,6 +14,7 @@ import { addonName, continueArt, featuredRow, heroSlides, type HomeCard } from "
 import { HomeHero } from "./HomeHero";
 import { Button, ContinueWatchingCard, PosterCard, RowTrack } from "./kit";
 import { FOCUSABLE } from "./layout";
+import { focusAndReveal } from "./reveal";
 import { useTitleOpener } from "./TitleScreen";
 import "./home.css";
 
@@ -121,7 +122,7 @@ export function HomeScreen() {
       return;
     }
     focusedAtLaunch.current = true;
-    first.focus({ preventScroll: true });
+    focusAndReveal(first);
   });
 
   return (
