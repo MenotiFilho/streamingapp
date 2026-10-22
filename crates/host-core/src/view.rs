@@ -260,6 +260,8 @@ impl HostView {
             // as well as in `is_question` and `Host::change`.
             ValidatedAction::SetSubtitleLanguage(_)
             | ValidatedAction::ClearSubtitleLanguage
+            | ValidatedAction::SetSubtitleColor(_)
+            | ValidatedAction::SetSubtitleScale(_)
             | ValidatedAction::SetFeaturedCatalog { .. }
             | ValidatedAction::ClearFeaturedCatalog
             | ValidatedAction::AddAddon(_)

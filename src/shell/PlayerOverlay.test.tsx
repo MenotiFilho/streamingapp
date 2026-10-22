@@ -35,7 +35,7 @@ const NOTHING_SAID: Snapshot = {
     resolution: null,
     statistics: null,
   },
-  preferences: { subtitleLanguage: null },
+  preferences: { subtitleLanguage: null, subtitleColor: "#FFFFFF", subtitleScale: 1 },
   addons: [],
   featuredCatalog: null,
   protection: { backend: "keyring", tmdbHeld: false, stremioHeld: false },
@@ -519,6 +519,48 @@ describe("the player OSD", () => {
     expect(within(picture).getByTestId("autocrop")).toHaveTextContent("Restore full frame");
   });
 
+  test("the Subtitles menu's size readout is the Host's preference, and its buttons step it", async () => {
+    const host = await renderPlayer();
+    act(() =>
+      host.publish({
+        ...NOTHING_SAID,
+        revision: 10,
+        playback: playback(),
+        preferences: {
+          subtitleLanguage: null,
+          subtitleColor: "#FFFFFF",
+          subtitleScale: 1.25,
+        },
+      }),
+    );
+
+    fireEvent.click(screen.getByTestId("osd-subtitles"));
+    const subtitles = await screen.findByTestId("popover-subtitles");
+    expect(within(subtitles).getByTestId("subtitle-scale")).toHaveTextContent("125%");
+    expect(within(subtitles).getByTestId("subtitle-scale")).toHaveAccessibleName(
+      "Subtitle size 125%",
+    );
+
+    fireEvent.click(within(subtitles).getByTestId("subtitle-scale-up"));
+    await waitFor(() =>
+      expect(actions(host.invocations)).toContainEqual({
+        type: "set_subtitle_scale",
+        scale: 1.3,
+      }),
+    );
+
+    fireEvent.click(within(subtitles).getByTestId("subtitle-scale-down"));
+    await waitFor(() =>
+      expect(actions(host.invocations)).toContainEqual({
+        type: "set_subtitle_scale",
+        scale: 1.2,
+      }),
+    );
+
+    expect(within(subtitles).queryByTestId("subtitle-color")).toBeNull();
+    await closePopover("popover-subtitles");
+  });
+
   test("the popovers carry the whole control set", async () => {
     const host = await renderPlayer();
 
@@ -575,6 +617,15 @@ describe("the player OSD", () => {
     fireEvent.click(within(subtitles).getByTestId("delay-reset"));
     await waitFor(() =>
       expect(actions(host.invocations)).toContainEqual({ type: "set_subtitle_delay", seconds: 0 }),
+    );
+
+    expect(within(subtitles).getByTestId("subtitle-scale")).toHaveTextContent("100%");
+    fireEvent.click(within(subtitles).getByTestId("subtitle-scale-up"));
+    await waitFor(() =>
+      expect(actions(host.invocations)).toContainEqual({
+        type: "set_subtitle_scale",
+        scale: 1.05,
+      }),
     );
     await closePopover("popover-subtitles");
 

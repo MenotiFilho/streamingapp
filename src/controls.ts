@@ -128,6 +128,61 @@ export function formatSpeed(rate: number): string {
   return `${rate}×`;
 }
 
+/**
+ * The subtitle colours Settings offers. White is the default the Host holds, so
+ * it is always a choice rather than a "clear"; the rest are the colours a person
+ * is likely to want from a television across the room (ADR-0024).
+ */
+export const SUBTITLE_COLORS: ReadonlyArray<{ label: string; color: string }> = [
+  { label: "White", color: "#FFFFFF" },
+  { label: "Yellow", color: "#FFFF00" },
+  { label: "Cyan", color: "#00FFFF" },
+  { label: "Green", color: "#00FF00" },
+];
+
+/**
+ * The subtitle sizes Settings offers, as the scale the Host stores and the words
+ * a person picks by. The default is `1`, and 80% is the smallest the Host takes.
+ */
+export const SUBTITLE_SCALES: ReadonlyArray<{ label: string; scale: number }> = [
+  { label: "Small", scale: 0.8 },
+  { label: "Default", scale: 1 },
+  { label: "Large", scale: 1.25 },
+  { label: "Larger", scale: 1.5 },
+];
+
+/**
+ * How far one press of the OSD's size buttons moves the scale: five per cent, so
+ * every chip Settings offers is reachable and a person can land on a size they
+ * were not offered.
+ */
+export const SCALE_STEP = 0.05;
+
+/**
+ * The scale one step from `scale`, clamped to the range the Host accepts and
+ * rounded to the hundredth, so repeated presses do not accumulate a floating
+ * point tail a person never asked for.
+ */
+export function stepScale(scale: number, by: number): number {
+  const next = Math.round((scale + by) * 100) / 100;
+  return Math.min(2, Math.max(0.5, next));
+}
+
+/** A subtitle size as a person reads it: `80%`, `100%`, `125%`. */
+export function formatScale(scale: number): string {
+  return `${Math.round(scale * 100)}%`;
+}
+
+/** Whether the size the Host published is this choice. */
+export function scaleSelected(current: number, choice: number): boolean {
+  return Math.abs(current - choice) < 1e-6;
+}
+
+/** Whether the colour the Host published is this choice, whatever the case. */
+export function colorSelected(current: string, choice: string): boolean {
+  return current.toUpperCase() === choice.toUpperCase();
+}
+
 /** Whether a rate the Host published is a choice the menu offers. */
 export function speedSelected(rate: number | null, choice: number): boolean {
   return rate !== null && Math.abs(rate - choice) < 1e-6;

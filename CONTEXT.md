@@ -237,6 +237,14 @@ Telling before it is anything a client sees, so that no client can have one the
 seam does not (ADR-0002).
 _Avoid_: command, instruction, mpv call
 
+**Subtitle appearance**:
+The colour and size the Player draws subtitles in, held as Host **preferences**
+beside the subtitle language — white at `#FFFFFF` and `1.0` until the owner
+chooses otherwise, on every Stream. The colour reaches subtitles that leave the
+colour open, so an ASS track keeps the colour it was authored with; the size
+reaches both kinds of subtitle (ADR-0024).
+_Avoid_: subtitle style, caption settings, theme, styling
+
 ### Remote clients
 
 **Remote client**:

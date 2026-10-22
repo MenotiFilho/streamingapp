@@ -123,6 +123,18 @@ pub(crate) fn command(telling: &Telling) -> (&'static str, Vec<String>) {
             ("set", vec!["slang".to_owned(), language.to_string()])
         }
         Telling::SubtitleLanguage(None) => ("set", vec!["slang".to_owned(), String::new()]),
+        // The colour applies to subtitles that do not style themselves, and the
+        // size to every subtitle: deliberately no `sub-ass-override`, so an ASS
+        // track keeps the colour, font and typesetting it was authored with
+        // (ADR-0024). `#RRGGBB` is the form mpv's own colour parser takes.
+        Telling::SubtitleColor(color) => (
+            "set",
+            vec!["sub-color".to_owned(), color.as_str().to_owned()],
+        ),
+        Telling::SubtitleScale(scale) => (
+            "set",
+            vec!["sub-scale".to_owned(), scale.value().to_string()],
+        ),
         Telling::AddSubtitle {
             url,
             title,
@@ -288,6 +300,18 @@ mod tests {
                 Telling::SubtitleLanguage(None),
                 ("set", vec!["slang".to_owned(), String::new()]),
             ),
+            (
+                Telling::SubtitleColor(
+                    host_core::SubtitleColor::parse("#FFCC00").expect("a subtitle colour"),
+                ),
+                ("set", vec!["sub-color".to_owned(), "#FFCC00".to_owned()]),
+            ),
+            (
+                Telling::SubtitleScale(
+                    host_core::SubtitleScale::parse(1.25).expect("a subtitle size"),
+                ),
+                ("set", vec!["sub-scale".to_owned(), "1.25".to_owned()]),
+            ),
         ];
 
         for (telling, expected) in cases {
@@ -295,6 +319,27 @@ mod tests {
                 command(&telling),
                 expected,
                 "{telling:?} is not what mpv is told"
+            );
+        }
+    }
+
+    #[test]
+    fn the_appearance_tellings_do_not_override_a_files_own_styling() {
+        // `sub-ass-override=force` would recolour an ASS track, and would also
+        // replace its authored fonts and typesetting. The appearance is a
+        // preference about the colour and size only (ADR-0024).
+        let cases = [
+            Telling::SubtitleColor(
+                host_core::SubtitleColor::parse("#FFCC00").expect("a subtitle colour"),
+            ),
+            Telling::SubtitleScale(host_core::SubtitleScale::parse(1.25).expect("a subtitle size")),
+        ];
+        for telling in cases {
+            let (_, arguments) = command(&telling);
+            assert_ne!(
+                arguments.first().map(String::as_str),
+                Some("sub-ass-override"),
+                "{telling:?} must not force the file's own styling"
             );
         }
     }

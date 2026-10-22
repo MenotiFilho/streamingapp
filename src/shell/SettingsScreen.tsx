@@ -1,6 +1,13 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 
 import { catalogKey, declaredCatalogs, keyOf, type DeclaredCatalog } from "../browse";
+import {
+  SUBTITLE_COLORS,
+  SUBTITLE_SCALES,
+  colorSelected,
+  formatScale,
+  scaleSelected,
+} from "../controls";
 import type { ActionError, DeviceSummary } from "../host-client";
 import {
   HOST_PICKS_PER_VIDEO,
@@ -36,7 +43,7 @@ const CATEGORIES: readonly SettingsCategory[] = [
   {
     id: "preferences",
     title: "Preferences",
-    note: "Subtitle language and the one Catalog Home's hero is drawn from.",
+    note: "Subtitle language and appearance, and the one Catalog Home's hero is drawn from.",
     screen: () => <PreferencesScreen />,
   },
   {
@@ -304,7 +311,10 @@ function CredentialsScreen() {
 function PreferencesScreen() {
   const { snapshot, ask } = useShell();
   const heldLanguage = snapshot?.preferences.subtitleLanguage ?? null;
+  const heldColor = snapshot?.preferences.subtitleColor ?? "#FFFFFF";
+  const heldScale = snapshot?.preferences.subtitleScale ?? 1;
   const [languageError, setLanguageError] = useState<ActionError | null>(null);
+  const [appearanceError, setAppearanceError] = useState<ActionError | null>(null);
   const [featuredError, setFeaturedError] = useState<ActionError | null>(null);
 
   const known = SUBTITLE_LANGUAGES.some((language) => language.tag === heldLanguage);
@@ -330,6 +340,22 @@ function PreferencesScreen() {
     }
   };
 
+  const pickColor = async (color: string) => {
+    setAppearanceError(null);
+    const outcome = await ask({ type: "set_subtitle_color", color });
+    if (outcome.error) {
+      setAppearanceError(outcome.error);
+    }
+  };
+
+  const pickScale = async (scale: number) => {
+    setAppearanceError(null);
+    const outcome = await ask({ type: "set_subtitle_scale", scale });
+    if (outcome.error) {
+      setAppearanceError(outcome.error);
+    }
+  };
+
   const pickFeatured = async (choice: DeclaredCatalog | null) => {
     setFeaturedError(null);
     const outcome = await ask(
@@ -350,7 +376,7 @@ function PreferencesScreen() {
     <SettingsLevel
       id="preferences"
       title="Preferences"
-      lede="What the Host prefers when it picks subtitles, and the Catalog Home's hero is drawn from."
+      lede="What the Host prefers when it picks and draws subtitles, and the Catalog Home's hero is drawn from."
     >
       <SettingsSection id="subtitle-language" title="Subtitle language">
         <p className="settings-copy" data-testid="subtitle-language">
@@ -392,6 +418,52 @@ function PreferencesScreen() {
           ))}
         </div>
         <Refusal error={languageError} testId="subtitle-language-error" />
+      </SettingsSection>
+
+      <SettingsSection id="subtitle-appearance" title="Subtitle appearance">
+        <p className="settings-copy" data-testid="subtitle-appearance">
+          The colour and size the Player draws subtitles in, on every Stream. A
+          subtitle file that carries its own styling — an ASS track — keeps the
+          colour it was authored with, and this colour applies where the track
+          leaves it open. The size applies to every subtitle.
+        </p>
+        <p className="settings-copy">Colour — white is the default.</p>
+        <div
+          className="settings-choice-grid"
+          data-region="settings-subtitle-colors"
+          data-kind="branch"
+          data-label="Subtitle colour"
+        >
+          {SUBTITLE_COLORS.map((choice) => (
+            <ChoiceChip
+              key={choice.color}
+              pressed={colorSelected(heldColor, choice.color)}
+              data-testid={`subtitle-color-${choice.label.toLowerCase()}`}
+              onClick={() => void pickColor(choice.color)}
+            >
+              {choice.label}
+            </ChoiceChip>
+          ))}
+        </div>
+        <p className="settings-copy">Size — 100% is the default.</p>
+        <div
+          className="settings-choice-grid"
+          data-region="settings-subtitle-scales"
+          data-kind="branch"
+          data-label="Subtitle size"
+        >
+          {SUBTITLE_SCALES.map((choice) => (
+            <ChoiceChip
+              key={choice.scale}
+              pressed={scaleSelected(heldScale, choice.scale)}
+              data-testid={`subtitle-scale-${choice.label.toLowerCase()}`}
+              onClick={() => void pickScale(choice.scale)}
+            >
+              {`${choice.label} · ${formatScale(choice.scale)}`}
+            </ChoiceChip>
+          ))}
+        </div>
+        <Refusal error={appearanceError} testId="subtitle-appearance-error" />
       </SettingsSection>
 
       <SettingsSection id="featured-catalog" title="Featured catalog">

@@ -93,7 +93,10 @@ pub use playback::{
     PlaybackSnapshot, PlaybackState, Player, SeekTarget, Statistics, StreamUrl, Telling, Track,
     TrackId, TrackKind, Unplayable, VideoSize,
 };
-pub use preferences::{FeaturedCatalog, InvalidSubtitleLanguage, Preferences, SubtitleLanguage};
+pub use preferences::{
+    FeaturedCatalog, InvalidSubtitleColor, InvalidSubtitleLanguage, InvalidSubtitleScale,
+    Preferences, SubtitleColor, SubtitleLanguage, SubtitleScale,
+};
 pub use progress::{
     ResumeEntry, TitleCard, TitleStub, UnplayableEntry, UnplayableReason, WatchProgress,
     FINISHED_TAIL, PROGRESS_EVERY,

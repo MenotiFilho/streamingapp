@@ -46,7 +46,7 @@ const NOTHING_SAID: Snapshot = {
     resolution: null,
     statistics: null,
   },
-  preferences: { subtitleLanguage: null },
+  preferences: { subtitleLanguage: null, subtitleColor: "#FFFFFF", subtitleScale: 1 },
   addons: [],
   featuredCatalog: null,
   protection: { backend: "keyring", tmdbHeld: false, stremioHeld: false },

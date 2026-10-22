@@ -55,6 +55,14 @@ fn preference(snapshot: &Snapshot) -> Option<&str> {
         .map(SubtitleLanguage::as_str)
 }
 
+/// The subtitle appearance a Snapshot carries, as a client reads it.
+fn appearance(snapshot: &Snapshot) -> (&str, f64) {
+    (
+        snapshot.preferences.subtitle_color.as_str(),
+        snapshot.preferences.subtitle_scale.value(),
+    )
+}
+
 fn action(body: &str) -> Action {
     Action::parse(&format!(r#"{{"version":1,"action":{body}}}"#))
         .unwrap_or_else(|error| panic!("{body} should parse: {error}"))
@@ -113,6 +121,33 @@ fn the_host_remembers_the_subtitle_language_across_a_restart() {
     let restarted = start(&database);
 
     assert_eq!(preference(&restarted.snapshot()), Some("pt-BR"));
+}
+
+#[test]
+fn the_host_remembers_the_subtitle_appearance_across_a_restart() {
+    let directory = tempfile::tempdir().expect("a temporary directory is available");
+    let database = directory.path().join("host.sqlite3");
+
+    let mut host = start(&database);
+    assert_eq!(
+        appearance(&host.snapshot()),
+        ("#FFFFFF", 1.0),
+        "a Host that has never been told draws subtitles white at full size"
+    );
+    take(
+        &mut host,
+        r##"{"type":"set_subtitle_color","color":"#00ff00"}"##,
+    );
+    take(&mut host, r#"{"type":"set_subtitle_scale","scale":1.5}"#);
+    drop(host);
+
+    let restarted = start(&database);
+
+    assert_eq!(
+        appearance(&restarted.snapshot()),
+        ("#00FF00", 1.5),
+        "the appearance a Stream is drawn with outlives the process"
+    );
 }
 
 #[test]

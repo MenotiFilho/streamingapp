@@ -102,6 +102,8 @@ $Steps = @(
     [pscustomobject]@{ Id = 30; Title = 'Discover: the no-key state, and the keyed feed'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it enters and clears a test TMDB key)' }
     [pscustomobject]@{ Id = 31; Title = 'the previous episode: a wall at S1E1, and a step back from S1E2'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it plays an episode)' }
     [pscustomobject]@{ Id = 32; Title = 'TMDB attribution on Discover and in About/Credits'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home' }
+    [pscustomobject]@{ Id = 33; Title = 'Settings > Preferences: the subtitle appearance goes through the Action surface, and survives a restart'; Ground = 'fresh'; After = @(); Need = 'a Host (the appearance needs no Addon)' }
+    [pscustomobject]@{ Id = 34; Title = 'subtitles on a real picture: colour on the SRT, the authored colour on the ASS, and the size from the OSD'; Ground = 'addon'; After = @(); Need = 'the fixture Addon with the fixture video (one SRT and one ASS track); it chooses the colour, plays, steps the size in the OSD, and checks Settings and the next Stream' }
 )
 
 # The discovery path and the cheap syntax check: print the checklist and what
@@ -1025,6 +1027,24 @@ function Choose-Candidate($app) {
     return 'unplayable'
 }
 
+# Open the first Title Home offers, press its Video, choose a playable candidate,
+# and say whether it started playing. The appearance step uses it twice: once to
+# look at the SRT and ASS tracks, and once to see the size it set on a new Stream.
+function Play-The-First-Stream($app) {
+    Open-First-Title $app
+    $text = Wait-Text $app 'This Title is one Video|Season \d+' 25
+    if ($text -match 'Season \d+') {
+        if (-not (Open-Streams $app 'S1E1')) { return $false }
+    } elseif ($text -match 'This Title is one Video') {
+        if (-not (Open-Streams $app 'Play')) { return $false }
+    } else {
+        return $false
+    }
+    $kind = Choose-Candidate $app
+    if ($kind -ne 'playable') { return $false }
+    return (Wait-Shows $app 'Pause' 45)
+}
+
 # Choose a candidate and walk what playing it looks like, reporting as it goes.
 #
 # A candidate the Host can play starts playing when it is pressed; one it cannot
@@ -1266,6 +1286,15 @@ function Walk-Controls($app) {
     Click-Element $app (Button-Named $app 'Reset')
     Check 'resetting the delay moves the readout back to 0.0 s' (
         (Readout $app '0.0 s') -ne $null) "showed: $(Page-Text $app)"
+
+    Check 'the menu carries the Host''s subtitle size' (
+        (Readout $app 'Subtitle size 100%') -ne $null) "showed: $(Page-Text $app)"
+    Click-Element $app (Button-Named $app 'Larger subtitles')
+    Check 'one press of Larger moves the readout up a step, and publishes it' (
+        (Readout $app 'Subtitle size 105%') -ne $null) "showed: $(Page-Text $app)"
+    Click-Element $app (Button-Named $app 'Smaller subtitles')
+    Check 'and Smaller moves it back' (
+        (Readout $app 'Subtitle size 100%') -ne $null) "showed: $(Page-Text $app)"
     Press-Keys $app '{ESC}'
     Start-Sleep -Milliseconds 500
 
@@ -2664,6 +2693,163 @@ function Step-32($ctx) {
         $text -match [regex]::Escape($notice)) "showed: $text"
     Check 'and names the version and the licence the app is under' (
         ($text -match '\d+\.\d+\.\d+') -and ($text -match 'GPL-3\.0')) "showed: $text"
+}
+
+function Step-33($ctx) {
+    '--- 33. Settings > Preferences: the subtitle appearance, and its restart'
+    $app = $ctx.App
+    $before = Snapshot-Baseline
+    Open-Settings-Category $app 'Preferences' 'Subtitle appearance'
+    Shot $app '33-appearance.png'
+    $text = Page-Text $app
+    Check 'Preferences has a Subtitle appearance section that says what an ASS track keeps' (
+        $text -match 'ASS track') "showed: $text"
+    Check 'white and 100% are the choices pressed before anything is chosen' (
+        (Toggled (Button-Named $app 'White')) -and
+        (Toggled (Button-Named $app ('Default ' + $dot + ' 100%')))) "showed: $text"
+
+    $yellow = Button-Named $app 'Yellow' 10
+    if (-not $yellow) { throw 'the Preferences screen shows no Yellow choice' }
+    Press-Element $app $yellow
+    $text = Wait-Text $app 'Yellow' 10
+    Check 'choosing Yellow presses it and takes the press off White' (
+        (Toggled (Button-Named $app 'Yellow')) -and
+        -not (Toggled (Button-Named $app 'White'))) "showed: $text"
+    Check 'choosing a colour published one Snapshot' (
+        (Wait-Published $before 20) -gt $before) "the log still shows $before published Snapshot(s)"
+
+    $beforeSize = Snapshot-Baseline
+    $large = Button-Named $app ('Large ' + $dot + ' 125%') 10
+    if (-not $large) { throw 'the Preferences screen shows no Large choice' }
+    Press-Element $app $large
+    $text = Wait-Text $app 'Large' 10
+    Check 'choosing Large presses it and takes the press off Default' (
+        (Toggled (Button-Named $app ('Large ' + $dot + ' 125%'))) -and
+        -not (Toggled (Button-Named $app ('Default ' + $dot + ' 100%')))) "showed: $text"
+    Check 'choosing a size published one Snapshot' (
+        (Wait-Published $beforeSize 20) -gt $beforeSize) "the log still shows $beforeSize published Snapshot(s)"
+    Shot $app '33-appearance-chosen.png'
+
+    Stop-Host $app
+    $restarted = Start-Host
+    $ctx.App = $restarted
+    Focus $restarted | Out-Null
+    Start-Sleep -Seconds 2
+    Open-Settings-Category $restarted 'Preferences' 'Subtitle appearance'
+    Shot $restarted '33-restarted.png'
+    $text = Wait-Text $restarted 'Subtitle appearance' 20
+    Check 'the restarted Host still draws subtitles yellow at 125%' (
+        (Toggled (Button-Named $restarted 'Yellow')) -and
+        (Toggled (Button-Named $restarted ('Large ' + $dot + ' 125%')))) "showed: $text"
+}
+
+function Step-34($ctx) {
+    '--- 34. subtitles on a real picture: SRT colour, ASS authored colour, and size'
+    $app = $ctx.App
+
+    # The colour is a preference, and Settings is not reachable while a Stream
+    # plays: choose it before the picture starts.
+    Open-Settings-Category $app 'Preferences' 'Subtitle appearance'
+    $yellow = Button-Named $app 'Yellow' 10
+    if (-not $yellow) { throw 'the Preferences screen shows no Yellow choice' }
+    if (-not (Toggled $yellow)) { Press-Element $app $yellow; Start-Sleep -Seconds 1 }
+    $defaultSize = Button-Named $app ('Default ' + $dot + ' 100%') 10
+    if ($defaultSize -and -not (Toggled $defaultSize)) { Press-Element $app $defaultSize; Start-Sleep -Seconds 1 }
+    $text = Page-Text $app
+    Check 'the Host holds yellow at the default size before the picture starts' (
+        (Toggled (Button-Named $app 'Yellow')) -and
+        (Toggled (Button-Named $app ('Default ' + $dot + ' 100%')))) "showed: $text"
+
+    if (-not (Play-The-First-Stream $app)) {
+        Skip 'the subtitle appearance on a real picture' (
+            'this Addon answered no playable candidate for the first Title: run with the fixture Addon and its fixture video')
+        return
+    }
+    Shot $app '34-playing.png'
+
+    Wake-Osd $app
+    Press-Button $app 'Subtitles'
+    $text = Wait-Text $app 'Subtitles off' 10
+    $srt = @(Buttons-Matching $app 'subrip')[0]
+    $ass = @(Buttons-Matching $app 'ASS styled')[0]
+    if (-not $srt -or -not $ass) {
+        Skip 'the subtitle appearance on a real picture' (
+            'the Stream carries no SRT and ASS tracks to compare: the fixture video carries both (scripts/windows/fixture-video.sh)')
+        Press-Keys $app '{ESC}'
+        Press-Button $app 'Stop'
+        return
+    }
+
+    # The SRT track first: it has no styling of its own, so it takes the colour.
+    Click-Element $app $srt
+    Start-Sleep -Seconds 1
+    Press-Keys $app '{ESC}'
+    # The OSD sits over the bottom of the picture, where the subtitles are: let
+    # its three idle seconds pass so the screenshot shows the line, not the menu.
+    Start-Sleep -Seconds 5
+    Shot $app '34-srt-yellow.png'
+    'review 34-srt-yellow.png: the English SRT line should be yellow, not white'
+
+    # The size, from the OSD: five steps from 100% lands on the Large chip.
+    Wake-Osd $app
+    Press-Button $app 'Subtitles'
+    Wait-Text $app 'Subtitles off' 10 | Out-Null
+    $before = Snapshot-Baseline
+    for ($i = 0; $i -lt 5; $i++) {
+        Click-Element $app (Button-Named $app 'Larger subtitles')
+        Start-Sleep -Milliseconds 400
+    }
+    Check 'five presses of the OSD size land on 125%, as the readout says' (
+        (Readout $app 'Subtitle size 125%') -ne $null) "showed: $(Page-Text $app)"
+    Check 'and each press is the preference changing: Snapshots went out' (
+        (Wait-Published $before 20) -gt $before) "the log still shows $before published Snapshot(s)"
+    Shot $app '34-osd-size.png'
+    Press-Keys $app '{ESC}'
+    Start-Sleep -Seconds 5
+    Shot $app '34-srt-yellow-large.png'
+    'review 34-srt-yellow-large.png against 34-srt-yellow.png: the same SRT line, in the same yellow, larger at 125%'
+
+    # The ASS track: authored red, so the colour preference must not reach it,
+    # while the size does.
+    Wake-Osd $app
+    Press-Button $app 'Subtitles'
+    Wait-Text $app 'Subtitles off' 10 | Out-Null
+    $ass = @(Buttons-Matching $app 'ASS styled')[0]
+    if ($ass) { Click-Element $app $ass }
+    Start-Sleep -Seconds 1
+    Press-Keys $app '{ESC}'
+    Start-Sleep -Seconds 5
+    Shot $app '34-ass-authored.png'
+    'review 34-ass-authored.png: the ASS line should still be the red it was authored with, and larger than at 100%'
+
+    Wake-Osd $app
+    Press-Button $app 'Stop'
+    Wait-Text $app 'Streams ' 20 | Out-Null
+
+    # The OSD's size is the Host's preference: Settings presses it.
+    Open-Settings-Category $app 'Preferences' 'Subtitle appearance'
+    Shot $app '34-settings-after-osd.png'
+    $text = Wait-Text $app 'Subtitle appearance' 20
+    Check 'the size the OSD set is the choice Settings presses' (
+        Toggled (Button-Named $app ('Large ' + $dot + ' 125%'))) "showed: $text"
+    Check 'and the colour chosen before playback is still the Host''s' (
+        Toggled (Button-Named $app 'Yellow')) "showed: $text"
+
+    # And the next Stream opens at it.
+    if (-not (Play-The-First-Stream $app)) {
+        Skip 'the size on a new Stream' 'the Addon answered no playable candidate the second time'
+        return
+    }
+    Wake-Osd $app
+    Press-Button $app 'Subtitles'
+    Wait-Text $app 'Subtitles off' 10 | Out-Null
+    Check 'the next Stream''s size readout is the 125% the preference holds' (
+        (Readout $app 'Subtitle size 125%') -ne $null) "showed: $(Page-Text $app)"
+    Shot $app '34-next-stream.png'
+    Press-Keys $app '{ESC}'
+    Wake-Osd $app
+    Press-Button $app 'Stop'
+    Wait-Text $app 'Streams ' 20 | Out-Null
 }
 
 # --- the dispatcher -----------------------------------------------------------

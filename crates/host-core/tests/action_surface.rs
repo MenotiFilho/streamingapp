@@ -7,7 +7,7 @@ use std::sync::Arc;
 use host_core::{
     Action, ActionError, AddonProvider, FixtureClock, FixtureFetcher, FixturePlayer, Host,
     InMemorySecretStore, InMemoryStore, Preferences, SecretBackend, Snapshot, Store, StoreError,
-    SubtitleLanguage, ACTION_VERSION,
+    SubtitleColor, SubtitleLanguage, SubtitleScale, ACTION_VERSION,
 };
 
 /// A Player a test drives by hand: nothing plays unless a test says so, and
@@ -129,6 +129,87 @@ fn changing_a_preference_twice_publishes_a_snapshot_each_time_and_moves_the_revi
     assert_eq!(first[0].revision, 1);
     assert_eq!(second[0].revision, 2);
     assert_eq!(subtitle_language(&second[0]), Some("en"));
+}
+
+#[test]
+fn a_fresh_host_draws_subtitles_white_at_full_size() {
+    let snapshot = host().snapshot();
+
+    assert_eq!(snapshot.preferences.subtitle_color.as_str(), "#FFFFFF");
+    assert_eq!(snapshot.preferences.subtitle_scale.value(), 1.0);
+}
+
+#[test]
+fn a_host_starts_from_the_appearance_its_store_holds() {
+    let mut stored = Preferences::new();
+    stored.set_subtitle_color(SubtitleColor::parse("#ffff00").expect("a colour"));
+    stored.set_subtitle_scale(SubtitleScale::parse(1.25).expect("a size"));
+    let host = host_over(Arc::new(InMemoryStore::holding(stored)));
+
+    assert_eq!(
+        host.snapshot().preferences.subtitle_color.as_str(),
+        "#FFFF00"
+    );
+    assert_eq!(host.snapshot().preferences.subtitle_scale.value(), 1.25);
+}
+
+#[test]
+fn choosing_a_subtitle_colour_publishes_a_snapshot_that_carries_it_normalized() {
+    let mut host = host();
+
+    let published = host
+        .dispatch(action(
+            r##"{"type":"set_subtitle_color","color":"#00ff00"}"##,
+        ))
+        .expect("a colour should be taken")
+        .snapshots;
+
+    assert_eq!(published.len(), 1, "one change publishes one Snapshot");
+    assert_eq!(published[0].preferences.subtitle_color.as_str(), "#00FF00");
+    assert_eq!(
+        host.snapshot().preferences.subtitle_color.as_str(),
+        "#00FF00"
+    );
+}
+
+#[test]
+fn choosing_a_subtitle_size_publishes_a_snapshot_that_carries_it() {
+    let mut host = host();
+
+    let published = host
+        .dispatch(action(r#"{"type":"set_subtitle_scale","scale":1.5}"#))
+        .expect("a size should be taken")
+        .snapshots;
+
+    assert_eq!(published.len(), 1, "one change publishes one Snapshot");
+    assert_eq!(published[0].preferences.subtitle_scale.value(), 1.5);
+    assert_eq!(host.snapshot().preferences.subtitle_scale.value(), 1.5);
+}
+
+#[test]
+fn an_appearance_the_host_refuses_leaves_the_state_and_the_store_alone() {
+    let store = Arc::new(CountingStore::default());
+    let mut host = host_over(store.clone());
+    let before = host.snapshot();
+
+    for body in [
+        r##"{"type":"set_subtitle_color","color":"#GGGGGG"}"##,
+        r#"{"type":"set_subtitle_scale","scale":2.5}"#,
+        r#"{"type":"set_subtitle_scale","scale":0.25}"#,
+    ] {
+        let refused = host.dispatch(action(body));
+        assert!(
+            refused.is_err(),
+            "{body} is not an appearance the Host takes"
+        );
+    }
+    let refused = host
+        .dispatch(Action::SetSubtitleScale { scale: f64::NAN })
+        .expect_err("a NaN is not a size");
+    assert_eq!(refused.kind(), "invalid_subtitle_scale");
+
+    assert_eq!(host.snapshot(), before, "nothing was written");
+    assert_eq!(store.writes(), 0, "nothing reached the store");
 }
 
 #[test]
@@ -319,7 +400,11 @@ fn the_snapshot_declares_only_fields_it_can_safely_carry() {
                 "resolution": serde_json::Value::Null,
                 "statistics": serde_json::Value::Null,
             },
-            "preferences": { "subtitleLanguage": "pt-BR" },
+            "preferences": {
+                "subtitleLanguage": "pt-BR",
+                "subtitleColor": "#FFFFFF",
+                "subtitleScale": 1.0,
+            },
             "addons": [],
             "featuredCatalog": serde_json::Value::Null,
             "protection": { "backend": "keyring", "tmdbHeld": false, "stremioHeld": false },

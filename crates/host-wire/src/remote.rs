@@ -202,6 +202,42 @@ mod tests {
     }
 
     #[test]
+    fn the_served_page_carries_the_subtitle_appearance_controls() {
+        // The Remote is the window's equal (ADR-0018): the appearance is two
+        // Actions, and both clients reach them. The declaration in the
+        // capability list above is what proves it *can* send them; this is what
+        // proves an affordance is wired to each one.
+        let served = page();
+        for needle in [
+            r#"data-a="subtitle-color""#,
+            r#"data-a="subtitle-scale""#,
+            r#"case "subtitle-color": {"#,
+            r#"case "subtitle-scale": {"#,
+            "SUBTITLE_COLORS",
+            "SUBTITLE_SCALES",
+            "stepScale",
+            "formatScale",
+            "Smaller subtitles",
+            "Larger subtitles",
+        ] {
+            assert!(served.contains(needle), "the served page carries {needle}");
+        }
+
+        // The sheet is redrawn from a signature, so a size that moved has to be
+        // part of it or the readout and buttons would keep the old value.
+        let signature = served
+            .split("function sheetSignature()")
+            .nth(1)
+            .and_then(|rest| rest.split("return JSON.stringify").nth(1))
+            .and_then(|rest| rest.split("});").next())
+            .expect("the page has a sheet signature");
+        assert!(
+            signature.contains("subtitleScale"),
+            "the sheet signature carries the subtitle size: {signature}"
+        );
+    }
+
+    #[test]
     fn the_served_page_carries_every_token_the_window_uses() {
         let tokens = token_properties(TOKENS);
         assert!(!tokens.is_empty(), "the token sheet declares its palette");

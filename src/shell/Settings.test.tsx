@@ -78,7 +78,7 @@ const NOTHING_SAID: Snapshot = {
     resolution: null,
     statistics: null,
   },
-  preferences: { subtitleLanguage: null },
+  preferences: { subtitleLanguage: null, subtitleColor: "#FFFFFF", subtitleScale: 1 },
   addons: [],
   featuredCatalog: null,
   protection: { backend: "keyring", tmdbHeld: false, stremioHeld: false },
@@ -95,7 +95,7 @@ function snap(overrides: Partial<Snapshot> = {}): Snapshot {
 function settingsSnapshot(overrides: Partial<Snapshot> = {}): Snapshot {
   return snap({
     addons: [CINEMETA, STREMBOX],
-    preferences: { subtitleLanguage: "en" },
+    preferences: { subtitleLanguage: "en", subtitleColor: "#FFFFFF", subtitleScale: 1 },
     protection: { backend: "file", tmdbHeld: true, stremioHeld: false },
     devices: [LIVING_ROOM, OFFICE],
     ...overrides,
@@ -321,7 +321,7 @@ describe("the Settings screen", () => {
       host.publish(
         settingsSnapshot({
           revision: 2,
-          preferences: { subtitleLanguage: "pt-BR" },
+          preferences: { subtitleLanguage: "pt-BR", subtitleColor: "#FFFFFF", subtitleScale: 1 },
         }),
       ),
     );
@@ -329,6 +329,82 @@ describe("the Settings screen", () => {
     expect(screen.getByTestId("language-host-picks")).toHaveAttribute(
       "aria-pressed",
       "false",
+    );
+  });
+
+  test("Preferences picks a subtitle colour and size from the Host's values", async () => {
+    const host = fakeHost(settingsSnapshot());
+    await openSettings(host);
+    await openCategory("Preferences");
+
+    expect(screen.getByTestId("subtitle-appearance")).toHaveTextContent("ASS");
+    expect(screen.getByTestId("subtitle-color-white")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("subtitle-scale-default")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("subtitle-scale-default")).toHaveTextContent("100%");
+
+    fireEvent.click(screen.getByTestId("subtitle-color-yellow"));
+    await waitFor(() =>
+      expect(actions(host.invocations)).toContainEqual({
+        type: "set_subtitle_color",
+        color: "#FFFF00",
+      }),
+    );
+
+    fireEvent.click(screen.getByTestId("subtitle-scale-large"));
+    await waitFor(() =>
+      expect(actions(host.invocations)).toContainEqual({
+        type: "set_subtitle_scale",
+        scale: 1.25,
+      }),
+    );
+
+    act(() =>
+      host.publish(
+        settingsSnapshot({
+          revision: 2,
+          preferences: {
+            subtitleLanguage: "en",
+            subtitleColor: "#FFFF00",
+            subtitleScale: 1.25,
+          },
+        }),
+      ),
+    );
+    expect(screen.getByTestId("subtitle-color-yellow")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("subtitle-color-white")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.getByTestId("subtitle-scale-large")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("subtitle-scale-default")).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  test("a refused subtitle colour is explained beside the appearance choices", async () => {
+    const host = fakeHost(settingsSnapshot(), {
+      refuse: (action) =>
+        action.type === "set_subtitle_color"
+          ? { kind: "invalid_subtitle_color", color: "#00FFFF" }
+          : null,
+    });
+    await openSettings(host);
+    await openCategory("Preferences");
+
+    fireEvent.click(screen.getByTestId("subtitle-color-cyan"));
+
+    expect(await screen.findByTestId("subtitle-appearance-error")).toHaveTextContent(
+      '"#00FFFF" is not a subtitle colour',
     );
   });
 

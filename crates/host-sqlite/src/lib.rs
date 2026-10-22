@@ -11,8 +11,8 @@ use std::sync::Mutex;
 
 use host_core::{
     Addon, AddonId, CatalogRef, Device, DeviceId, DeviceName, FeaturedCatalog, Manifest,
-    ManifestUrl, Preferences, Store, StoreError, SubtitleLanguage, TitleCard, TitleStub,
-    TokenDigest, VideoRef, WatchProgress,
+    ManifestUrl, Preferences, Store, StoreError, SubtitleColor, SubtitleLanguage, SubtitleScale,
+    TitleCard, TitleStub, TokenDigest, VideoRef, WatchProgress,
 };
 use rusqlite::{params, Connection, Transaction};
 
@@ -20,6 +20,12 @@ pub use migrations::{latest_version, migrate, schema_version, Migration, MIGRATI
 
 /// The key the subtitle language preference is stored under.
 const SUBTITLE_LANGUAGE: &str = "subtitle_language";
+
+/// The key the subtitle colour preference is stored under.
+const SUBTITLE_COLOR: &str = "subtitle_color";
+
+/// The key the subtitle size preference is stored under.
+const SUBTITLE_SCALE: &str = "subtitle_scale";
 
 /// The key the Featured catalog preference is stored under.
 const FEATURED_CATALOG: &str = "featured_catalog";
@@ -103,6 +109,8 @@ impl Store for SqliteStore {
             .map_err(StoreError::read)?;
 
         let mut subtitle_language = None;
+        let mut subtitle_color = SubtitleColor::default();
+        let mut subtitle_scale = SubtitleScale::default();
         let mut featured_catalog = None;
         for row in rows {
             let (key, value) = row.map_err(StoreError::read)?;
@@ -113,6 +121,24 @@ impl Store for SqliteStore {
                             detail: format!("the stored subtitle language is unusable: {error}"),
                         }
                     })?);
+                }
+                SUBTITLE_COLOR => {
+                    subtitle_color =
+                        SubtitleColor::parse(&value).map_err(|error| StoreError::Read {
+                            detail: format!("the stored subtitle colour is unusable: {error}"),
+                        })?;
+                }
+                SUBTITLE_SCALE => {
+                    // A number read back as a number: a row that is not one, or
+                    // one outside the range the Host sets, is a read failure
+                    // rather than a size no client chose (#126, ADR-0024).
+                    let scale = value.parse::<f64>().map_err(|error| StoreError::Read {
+                        detail: format!("the stored subtitle size is unusable: {error}"),
+                    })?;
+                    subtitle_scale =
+                        SubtitleScale::parse(scale).map_err(|error| StoreError::Read {
+                            detail: format!("the stored subtitle size is unusable: {error}"),
+                        })?;
                 }
                 FEATURED_CATALOG => {
                     // The document is read back, and the Catalog inside it is
@@ -134,6 +160,8 @@ impl Store for SqliteStore {
         }
 
         let mut preferences = Preferences::with_subtitle_language(subtitle_language);
+        preferences.set_subtitle_color(subtitle_color);
+        preferences.set_subtitle_scale(subtitle_scale);
         preferences.set_featured_catalog(featured_catalog);
         Ok(preferences)
     }
@@ -149,6 +177,16 @@ impl Store for SqliteStore {
                 .subtitle_language()
                 .map(SubtitleLanguage::as_str),
         )?;
+        // The appearance is always a value — white and 1.0 are answers, not the
+        // absence of one — so both rows are written with every preference
+        // write, in the same transaction (#126, ADR-0024).
+        put_preference(
+            &transaction,
+            SUBTITLE_COLOR,
+            Some(preferences.subtitle_color().as_str()),
+        )?;
+        let scale = preferences.subtitle_scale().value().to_string();
+        put_preference(&transaction, SUBTITLE_SCALE, Some(&scale))?;
         // The whole pair as one document: an id is only half of what an Addon's
         // Catalog is, and two rows could disagree.
         let featured = match preferences.featured_catalog() {

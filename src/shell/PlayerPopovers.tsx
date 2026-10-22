@@ -3,17 +3,20 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import {
   ASPECTS,
   DELAY_STEP,
+  SCALE_STEP,
   SPEEDS,
   aspectSelected,
   chapterLabel,
   cropChoices,
   cropSelected,
   formatDelay,
+  formatScale,
   formatSpeed,
   orderedTracks,
   speedSelected,
   statisticsLines,
   stepDelay,
+  stepScale,
   subtitlesOn,
   trackLabel,
   trackMarks,
@@ -35,6 +38,8 @@ export type OsdPopoverAnchor = { left: number; right: number };
 
 type MenuProps = {
   playback: PlaybackSnapshot;
+  /** The size the Host draws subtitles at, which the Subtitles menu steps. */
+  subtitleScale: number;
   take: (action: Action) => Promise<unknown>;
 };
 
@@ -111,6 +116,7 @@ function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopover
   const { snapshot, take, pop } = useShell();
   const panel = useRef<HTMLDivElement | null>(null);
   const playback = snapshot?.playback ?? null;
+  const subtitleScale = snapshot?.preferences.subtitleScale ?? 1;
 
   // A menu is a thing a person opened in passing: clicking anywhere outside it,
   // tabbing out of it, or leaving the window closes it rather than making them
@@ -159,7 +165,7 @@ function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopover
           align={side}
           testId={osdPopoverId(name)}
         >
-          {MENUS[name]({ playback, take })}
+          {MENUS[name]({ playback, subtitleScale, take })}
         </Popover>
       </div>
     </div>
@@ -230,8 +236,8 @@ function PictureMenu({ playback, take }: MenuProps) {
   );
 }
 
-/** Subtitle tracks embedded-first, subtitles off, and the delay's tenth-of-a-second steps. */
-function SubtitlesMenu({ playback, take }: MenuProps) {
+/** Subtitle tracks embedded-first, subtitles off, the delay's tenth-of-a-second steps, and the size. */
+function SubtitlesMenu({ playback, subtitleScale, take }: MenuProps) {
   const tracks = orderedTracks(playback.tracks, "subtitle");
   const delay = playback.subtitleDelay ?? 0;
 
@@ -286,6 +292,42 @@ function SubtitlesMenu({ playback, take }: MenuProps) {
             onClick={() => void take({ type: "set_subtitle_delay", seconds: 0 })}
           >
             Reset
+          </Item>
+        </div>
+      </Group>
+
+      <Group title="Size">
+        <p
+          className="shell-osd-readout tabular"
+          data-testid="subtitle-scale"
+          aria-label={`Subtitle size ${formatScale(subtitleScale)}`}
+        >
+          {formatScale(subtitleScale)}
+        </p>
+        <div className="shell-osd-delay">
+          <Item
+            testId="subtitle-scale-down"
+            label="Smaller subtitles"
+            onClick={() =>
+              void take({
+                type: "set_subtitle_scale",
+                scale: stepScale(subtitleScale, -SCALE_STEP),
+              })
+            }
+          >
+            −
+          </Item>
+          <Item
+            testId="subtitle-scale-up"
+            label="Larger subtitles"
+            onClick={() =>
+              void take({
+                type: "set_subtitle_scale",
+                scale: stepScale(subtitleScale, SCALE_STEP),
+              })
+            }
+          >
+            +
           </Item>
         </div>
       </Group>
@@ -392,11 +434,14 @@ function Group({ title, children }: { title: string; children: ReactNode }) {
 /** One full-width row in a popover: a choice, marked with `aria-pressed` where it is one. */
 function Item({
   testId,
+  label,
   pressed,
   onClick,
   children,
 }: {
   testId?: string;
+  /** The accessible name, where the visible text is a glyph. */
+  label?: string;
   pressed?: boolean;
   onClick: () => void;
   children: ReactNode;
@@ -407,6 +452,7 @@ function Item({
       className="shell-osd-item kit-focus-invert"
       data-focusable
       data-testid={testId}
+      aria-label={label}
       aria-pressed={pressed}
       onClick={onClick}
     >

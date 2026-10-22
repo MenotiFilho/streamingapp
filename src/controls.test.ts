@@ -4,22 +4,29 @@ import {
   ASPECTS,
   CROP_RATIOS,
   DELAY_STEP,
+  SCALE_STEP,
   SPEEDS,
+  SUBTITLE_COLORS,
+  SUBTITLE_SCALES,
   aspectSelected,
   centredCrop,
   chapterLabel,
+  colorSelected,
   controllable,
   cropChoices,
   cropSelected,
   formatDelay,
+  formatScale,
   formatSpeed,
   formatVolume,
   nextEpisodeDisabled,
   orderedTracks,
   previousEpisodeDisabled,
+  scaleSelected,
   speedSelected,
   statisticsLines,
   stepDelay,
+  stepScale,
   subtitlesOn,
   trackLabel,
   trackMarks,
@@ -267,5 +274,66 @@ describe("the step to a neighbouring episode", () => {
     // answers (ADR-0021).
     expect(previousEpisodeDisabled({ season: 0, episode: 1 })).toBe(false);
     expect(previousEpisodeDisabled({ season: 0, episode: 0 })).toBe(false);
+  });
+});
+
+describe("the subtitle appearance a person picks", () => {
+  test("Settings offers white, yellow, cyan and green, and the white is the default", () => {
+    expect(SUBTITLE_COLORS.map((choice) => choice.label)).toEqual([
+      "White",
+      "Yellow",
+      "Cyan",
+      "Green",
+    ]);
+    expect(SUBTITLE_COLORS.map((choice) => choice.color)).toEqual([
+      "#FFFFFF",
+      "#FFFF00",
+      "#00FFFF",
+      "#00FF00",
+    ]);
+    expect(SUBTITLE_COLORS[0]?.color).toBe("#FFFFFF");
+  });
+
+  test("Settings offers four sizes, from 80% to 150%", () => {
+    expect(SUBTITLE_SCALES).toEqual([
+      { label: "Small", scale: 0.8 },
+      { label: "Default", scale: 1 },
+      { label: "Large", scale: 1.25 },
+      { label: "Larger", scale: 1.5 },
+    ]);
+    expect(SUBTITLE_SCALES.map((choice) => formatScale(choice.scale))).toEqual([
+      "80%",
+      "100%",
+      "125%",
+      "150%",
+    ]);
+  });
+
+  test("one OSD press moves the size by five per cent and lands on a chip", () => {
+    expect(SCALE_STEP).toBe(0.05);
+    expect(stepScale(1, SCALE_STEP)).toBe(1.05);
+    expect(stepScale(1.2, SCALE_STEP)).toBe(1.25);
+    expect(stepScale(1.25, -SCALE_STEP)).toBe(1.2);
+    expect(stepScale(0.82, -SCALE_STEP)).toBe(0.77);
+  });
+
+  test("the OSD size stops at the range the Host accepts", () => {
+    expect(stepScale(2, SCALE_STEP)).toBe(2);
+    expect(stepScale(0.5, -SCALE_STEP)).toBe(0.5);
+    expect(stepScale(1.98, SCALE_STEP)).toBe(2);
+  });
+
+  test("a size reads as a percentage, and the pressed choice is the Host's value", () => {
+    expect(formatScale(0.8)).toBe("80%");
+    expect(formatScale(1)).toBe("100%");
+    expect(formatScale(1.25)).toBe("125%");
+    expect(scaleSelected(1.25, 1.25)).toBe(true);
+    expect(scaleSelected(1.3, 1.25)).toBe(false);
+  });
+
+  test("a colour compares whatever case the Host wrote it in", () => {
+    expect(colorSelected("#FFFF00", "#FFFF00")).toBe(true);
+    expect(colorSelected("#ffcc00", "#FFCC00")).toBe(true);
+    expect(colorSelected("#FFFFFF", "#FFFF00")).toBe(false);
   });
 });

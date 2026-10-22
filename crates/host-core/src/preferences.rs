@@ -8,9 +8,11 @@ use crate::request::CatalogRef;
 /// Only preferences a client is allowed to see live here — and everything in
 /// here is published in every [`crate::Snapshot`], so nothing secret may be added
 /// to it (ADR-0002, and the spec's "Credentials and secrets").
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Preferences {
     subtitle_language: Option<SubtitleLanguage>,
+    subtitle_color: SubtitleColor,
+    subtitle_scale: SubtitleScale,
     featured_catalog: Option<FeaturedCatalog>,
 }
 
@@ -29,6 +31,28 @@ impl Preferences {
     /// Set or clear the subtitle language preference.
     pub fn set_subtitle_language(&mut self, language: Option<SubtitleLanguage>) {
         self.subtitle_language = language;
+    }
+
+    /// The colour the Player draws subtitles in, where a track leaves the colour
+    /// open. White unless the owner chose another.
+    pub fn subtitle_color(&self) -> &SubtitleColor {
+        &self.subtitle_color
+    }
+
+    /// Set the subtitle colour preference.
+    pub fn set_subtitle_color(&mut self, color: SubtitleColor) {
+        self.subtitle_color = color;
+    }
+
+    /// How large the Player draws subtitles, relative to its own size. `1.0`
+    /// unless the owner chose another.
+    pub fn subtitle_scale(&self) -> SubtitleScale {
+        self.subtitle_scale
+    }
+
+    /// Set the subtitle size preference.
+    pub fn set_subtitle_scale(&mut self, scale: SubtitleScale) {
+        self.subtitle_scale = scale;
     }
 
     /// The one Catalog the owner has marked as the Host's featured feed, where
@@ -135,6 +159,118 @@ pub struct InvalidSubtitleLanguage {
     pub language: String,
 }
 
+/// The colour the Player draws subtitles in, where a track leaves the colour open.
+///
+/// Held as `#RRGGBB`, normalized to uppercase when parsed so that the same
+/// choice has one spelling in the store, in a Snapshot and on the wire. mpv's own
+/// colour parser takes exactly this form; a named colour would be mpv's
+/// vocabulary inside the Host's state.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SubtitleColor(String);
+
+impl SubtitleColor {
+    /// White, which is what a Player draws subtitles in until it is told
+    /// otherwise. The preference has no "unset": white is an answer.
+    pub const DEFAULT: &'static str = "#FFFFFF";
+
+    /// Parse `#RRGGBB`, or say why this string is not a colour.
+    pub fn parse(raw: &str) -> Result<Self, InvalidSubtitleColor> {
+        let invalid = || InvalidSubtitleColor {
+            color: raw.to_owned(),
+        };
+        let Some(digits) = raw.strip_prefix('#') else {
+            return Err(invalid());
+        };
+        if digits.len() != 6 || !digits.chars().all(|c| c.is_ascii_hexdigit()) {
+            return Err(invalid());
+        }
+
+        Ok(Self(format!("#{}", digits.to_ascii_uppercase())))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl Default for SubtitleColor {
+    fn default() -> Self {
+        Self(Self::DEFAULT.to_owned())
+    }
+}
+
+impl std::fmt::Display for SubtitleColor {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// A string that is not a colour, offered as a subtitle colour.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
+#[error("{color:?} is not a subtitle colour — a colour is #RRGGBB")]
+pub struct InvalidSubtitleColor {
+    pub color: String,
+}
+
+/// How large the Player draws subtitles, relative to its own size.
+///
+/// A finite multiplier from a half to twice, held as the number mpv's
+/// `sub-scale` takes. One value applies to both subtitles a file styles itself
+/// and subtitles it does not; unlike colour, a track's own styling does not
+/// override it (ADR-0024).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct SubtitleScale(f64);
+
+impl SubtitleScale {
+    /// The size a Player draws subtitles at until it is told otherwise, and the
+    /// preference's default.
+    pub const DEFAULT: f64 = 1.0;
+
+    /// The smallest scale the Host will set.
+    pub const MIN: f64 = 0.5;
+
+    /// The largest scale the Host will set.
+    pub const MAX: f64 = 2.0;
+
+    /// Parse a scale, or say why this number is not one.
+    pub fn parse(raw: f64) -> Result<Self, InvalidSubtitleScale> {
+        if raw.is_finite() && (Self::MIN..=Self::MAX).contains(&raw) {
+            Ok(Self(raw))
+        } else {
+            Err(InvalidSubtitleScale {
+                scale: raw.to_string(),
+            })
+        }
+    }
+
+    /// The number as mpv's `sub-scale` takes it.
+    pub fn value(&self) -> f64 {
+        self.0
+    }
+}
+
+impl Default for SubtitleScale {
+    fn default() -> Self {
+        Self(Self::DEFAULT)
+    }
+}
+
+impl std::fmt::Display for SubtitleScale {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// A number that is not a subtitle size, offered as one.
+#[derive(Debug, Clone, PartialEq, Serialize, thiserror::Error)]
+#[error("{scale} is not a subtitle size — a size is a number from 0.5 to 2")]
+pub struct InvalidSubtitleScale {
+    /// The value offered, as a refusal can carry it: `NaN` has no JSON form.
+    pub scale: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,5 +314,79 @@ mod tests {
         assert_eq!(tag.len(), SubtitleLanguage::MAX_LEN);
         assert!(SubtitleLanguage::parse(tag).is_ok());
         assert!(SubtitleLanguage::parse(&format!("{tag}e")).is_err());
+    }
+
+    #[test]
+    fn a_colour_is_an_uppercase_hash_and_six_digits() {
+        for (raw, normalized) in [
+            ("#FFFFFF", "#FFFFFF"),
+            ("#ffcc00", "#FFCC00"),
+            ("#00ff00", "#00FF00"),
+            ("#A1b2C3", "#A1B2C3"),
+        ] {
+            assert_eq!(
+                SubtitleColor::parse(raw).map(|color| color.as_str().to_owned()),
+                Ok(normalized.to_owned()),
+                "{raw} is a colour, normalized to {normalized}"
+            );
+        }
+    }
+
+    #[test]
+    fn strings_that_are_not_colours_are_refused() {
+        for not_a_color in [
+            "",         // nothing at all
+            "FFFFFF",   // the hash is part of the colour
+            "#FFF",     // three digits are CSS's shorthand, not mpv's
+            "#FFFFFFF", // seven digits
+            "#FFFFF",   // five digits
+            "#GGGGGG",  // not hexadecimal
+            "#FF FF00", // no spaces
+            "red",      // a name is mpv's vocabulary, not the Host's
+        ] {
+            assert!(
+                SubtitleColor::parse(not_a_color).is_err(),
+                "{not_a_color:?} is not a subtitle colour"
+            );
+        }
+    }
+
+    #[test]
+    fn the_default_colour_is_white() {
+        assert_eq!(SubtitleColor::default().as_str(), "#FFFFFF");
+    }
+
+    #[test]
+    fn a_scale_is_finite_and_between_a_half_and_twice() {
+        for (raw, value) in [(0.5, 0.5), (1.0, 1.0), (1.25, 1.25), (2.0, 2.0)] {
+            assert_eq!(
+                SubtitleScale::parse(raw).map(|scale| scale.value()),
+                Ok(value),
+                "{raw} is a subtitle size"
+            );
+        }
+    }
+
+    #[test]
+    fn scales_outside_the_range_and_non_numbers_are_refused() {
+        for not_a_scale in [
+            0.0,
+            0.49,
+            2.01,
+            -1.0,
+            f64::NAN,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        ] {
+            assert!(
+                SubtitleScale::parse(not_a_scale).is_err(),
+                "{not_a_scale} is not a subtitle size"
+            );
+        }
+    }
+
+    #[test]
+    fn the_default_scale_is_one() {
+        assert_eq!(SubtitleScale::default().value(), 1.0);
     }
 }

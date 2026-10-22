@@ -9,7 +9,10 @@ use crate::playback::{
     ChosenStream, Control, Crop, InvalidAspect, InvalidCrop, InvalidSeekTarget, InvalidSpeed,
     InvalidSubtitleDelay, InvalidVolume, SeekTarget, TrackId, Unplayable,
 };
-use crate::preferences::{InvalidSubtitleLanguage, SubtitleLanguage};
+use crate::preferences::{
+    InvalidSubtitleColor, InvalidSubtitleLanguage, InvalidSubtitleScale, SubtitleColor,
+    SubtitleLanguage, SubtitleScale,
+};
 use crate::progress::{TitleCard, TitleStub};
 use crate::request::{
     CatalogRef, Extra, InvalidCatalogRef, InvalidTitleRef, InvalidVideoRef, TitleRef, VideoRef,
@@ -44,6 +47,18 @@ pub enum Action {
     SetSubtitleLanguage { language: String },
     /// Carry no subtitle-language preference; the Host chooses per Video.
     ClearSubtitleLanguage,
+    /// Draw subtitles in `color`, where a track leaves the colour open.
+    ///
+    /// A preference of the Host's rather than a client's, so it persists and
+    /// every client is told of it. A track that styles its own text — an ASS
+    /// subtitle — keeps that styling; the colour applies where the track does
+    /// not choose one (ADR-0024).
+    SetSubtitleColor { color: String },
+    /// Draw subtitles at `scale` times the Player's own size.
+    ///
+    /// The same preference for both kinds of subtitle: a track's own styling
+    /// does not override the size, unlike the colour (ADR-0024).
+    SetSubtitleScale { scale: f64 },
     /// Mark the Addon's Catalog as the Host's featured feed.
     ///
     /// A preference of the Host's rather than a client's: every client's Home
@@ -318,6 +333,8 @@ macro_rules! action_spellings {
 action_spellings! {
     Action::SetSubtitleLanguage { .. } => "set_subtitle_language",
     Action::ClearSubtitleLanguage => "clear_subtitle_language",
+    Action::SetSubtitleColor { .. } => "set_subtitle_color",
+    Action::SetSubtitleScale { .. } => "set_subtitle_scale",
     Action::SetFeaturedCatalog { .. } => "set_featured_catalog",
     Action::ClearFeaturedCatalog => "clear_featured_catalog",
     Action::AddAddon { .. } => "add_addon",
@@ -406,6 +423,14 @@ impl Action {
                 Ok(ValidatedAction::SetSubtitleLanguage(language))
             }
             Action::ClearSubtitleLanguage => Ok(ValidatedAction::ClearSubtitleLanguage),
+            Action::SetSubtitleColor { color } => {
+                let color = SubtitleColor::parse(&color)?;
+                Ok(ValidatedAction::SetSubtitleColor(color))
+            }
+            Action::SetSubtitleScale { scale } => {
+                let scale = SubtitleScale::parse(scale)?;
+                Ok(ValidatedAction::SetSubtitleScale(scale))
+            }
             Action::SetFeaturedCatalog { addon, catalog } => {
                 let addon = AddonId::parse(&addon)?;
                 let catalog = CatalogRef::parse(&catalog.r#type, &catalog.id)?;
@@ -633,6 +658,8 @@ fn search_query(raw: &str) -> Result<String, ActionError> {
 pub enum ValidatedAction {
     SetSubtitleLanguage(SubtitleLanguage),
     ClearSubtitleLanguage,
+    SetSubtitleColor(SubtitleColor),
+    SetSubtitleScale(SubtitleScale),
     /// A Catalog the owner marked as the featured one, with both halves judged
     /// before either is looked up: a marked Catalog exists.
     SetFeaturedCatalog {
@@ -791,6 +818,8 @@ impl ValidatedAction {
             | Self::FindStreams { .. }
             | Self::SetSubtitleLanguage(_)
             | Self::ClearSubtitleLanguage
+            | Self::SetSubtitleColor(_)
+            | Self::SetSubtitleScale(_)
             | Self::SetFeaturedCatalog { .. }
             | Self::ClearFeaturedCatalog
             | Self::AddAddon(_)
@@ -844,6 +873,10 @@ pub enum ActionError {
     UnsupportedVersion { got: u64, supported: u16 },
     #[error("{0}")]
     InvalidSubtitleLanguage(#[from] InvalidSubtitleLanguage),
+    #[error("{0}")]
+    InvalidSubtitleColor(#[from] InvalidSubtitleColor),
+    #[error("{0}")]
+    InvalidSubtitleScale(#[from] InvalidSubtitleScale),
     #[error("{0}")]
     InvalidManifestUrl(#[from] InvalidManifestUrl),
     #[error("{0}")]
@@ -1020,6 +1053,8 @@ impl ActionError {
             Self::Malformed { .. } => "malformed",
             Self::UnsupportedVersion { .. } => "unsupported_version",
             Self::InvalidSubtitleLanguage(_) => "invalid_subtitle_language",
+            Self::InvalidSubtitleColor(_) => "invalid_subtitle_color",
+            Self::InvalidSubtitleScale(_) => "invalid_subtitle_scale",
             Self::InvalidManifestUrl(_) => "invalid_manifest_url",
             Self::InvalidAddonId(_) => "invalid_addon_id",
             Self::InvalidTmdbKey(_) => "invalid_tmdb_key",
@@ -1089,6 +1124,54 @@ mod tests {
                 language: "pt-BR".to_owned()
             }
         );
+    }
+
+    #[test]
+    fn subtitle_appearance_actions_carry_their_value_judged_and_normalized() {
+        let color = Action::parse(
+            r##"{"version":1,"action":{"type":"set_subtitle_color","color":"#ffcc00"}}"##,
+        )
+        .expect("a colour Action parses")
+        .validate()
+        .expect("a lowercase colour is a colour");
+        assert_eq!(
+            color,
+            ValidatedAction::SetSubtitleColor(SubtitleColor::parse("#FFCC00").expect("a colour"))
+        );
+
+        let scale =
+            Action::parse(r#"{"version":1,"action":{"type":"set_subtitle_scale","scale":1.25}}"#)
+                .expect("a size Action parses")
+                .validate()
+                .expect("1.25 is a size");
+        assert_eq!(
+            scale,
+            ValidatedAction::SetSubtitleScale(SubtitleScale::parse(1.25).expect("a size"))
+        );
+    }
+
+    #[test]
+    fn a_colour_that_is_not_a_colour_and_a_size_out_of_range_are_refused() {
+        let refused = Action::SetSubtitleColor {
+            color: "#FFFFF".to_owned(),
+        }
+        .validate()
+        .expect_err("five digits are not a colour");
+        assert_eq!(refused.kind(), "invalid_subtitle_color");
+        assert_eq!(
+            refused,
+            ActionError::InvalidSubtitleColor(InvalidSubtitleColor {
+                color: "#FFFFF".to_owned(),
+            })
+        );
+
+        for not_a_scale in [0.49, 2.01, f64::NAN, f64::INFINITY] {
+            let refused = Action::SetSubtitleScale { scale: not_a_scale }
+                .validate()
+                .expect_err("that is not a size");
+            assert_eq!(refused.kind(), "invalid_subtitle_scale");
+            assert!(matches!(refused, ActionError::InvalidSubtitleScale(_)));
+        }
     }
 
     #[test]
@@ -1916,6 +1999,8 @@ mod tests {
     const EVERY_ACTION: &[&str] = &[
         r#"{"type":"set_subtitle_language","language":"en"}"#,
         r#"{"type":"clear_subtitle_language"}"#,
+        r##"{"type":"set_subtitle_color","color":"#ffcc00"}"##,
+        r#"{"type":"set_subtitle_scale","scale":1.25}"#,
         r#"{"type":"set_featured_catalog","addon":"community.example","catalog":{"type":"movie","id":"top"}}"#,
         r#"{"type":"clear_featured_catalog"}"#,
         r#"{"type":"add_addon","url":"https://example.com/manifest.json"}"#,

@@ -18,8 +18,10 @@ Library · Addons · Settings**) with its D-pad geometry; Home's Featured hero, 
 rotation and its text fallback, Continue watching and one row per Catalog; the
 Title and the Streams level above it; the player OSD, with one popover per icon,
 auto-hide, the episode steps and the volume pillar; Settings' Preferences,
-Credentials, Remote devices and About/Credits sub-screens; the key-gated Discover
-and Search; the Library sign-in gate; and the TMDB attribution.
+Credentials, Remote devices and About/Credits sub-screens; the subtitle
+appearance (colour and size, their restart, and what they do to an SRT and an
+ASS track); the key-gated Discover and Search; the Library sign-in gate; and the
+TMDB attribution.
 
 The Addon it configures is a parameter, so the walkthrough can be run against the
 Addon the owner actually uses — including one whose manifest URL carries a debrid
@@ -33,10 +35,11 @@ for:
 
 The fixture Addon (`fixture-addon.ps1`) is what makes playback walkable: it
 serves a movie Catalog, a series Catalog, their metadata, and Stream answers
-whose candidates are a local video file. The file carries two audio tracks, two
-embedded subtitle tracks, two chapters and letterbox bars, so every OSD control
-has something to move; the series has two episodes, so `Next episode` and
-`Previous episode` have somewhere to go. One film's candidate is an `infoHash`,
+whose candidates are a local video file. The file carries two audio tracks,
+three embedded subtitle tracks — two plain-text (SRT) and one ASS line authored
+red, so the colour can be checked on both kinds — two chapters and letterbox
+bars, so every OSD control has something to move; the series has two episodes,
+so `Next episode` and `Previous episode` have somewhere to go. One film's candidate is an `infoHash`,
 which this Host lists and marks unplayable rather than pretending to play.
 
 The remote steps (25 and 26) pair and drive the **Cast Remote** (#88): the page
@@ -91,7 +94,7 @@ the three seconds out.
 
 ## Walking part of the checklist
 
-The whole checklist is 32 steps and takes minutes. To iterate on one step, run
+The whole checklist is 34 steps and takes minutes. To iterate on one step, run
 just that one: the runner builds the ground the step declares first — an empty
 data directory, one Host on `-Monitor`, the fixture Addon configured by manifest
 URL, its first Catalog featured, at Home — and reuses it when several selected
@@ -156,8 +159,9 @@ scripts/windows/stage.sh /mnt/c/Users/<you>/streamingapp-verify
 
 # 3. a video for the Addon fixture, so that playback has something to play that
 #    is not a third party's content — and so that the control set has something
-#    to move: two audio tracks, two embedded subtitle tracks, two chapters, and
-#    black bars for the Autocrop toggle (ffmpeg runs in the container)
+#    to move: two audio tracks, two SRT subtitle tracks and one ASS track with
+#    its own colour, two chapters, and black bars for the Autocrop toggle
+#    (ffmpeg runs in the container)
 scripts/windows/fixture-video.sh /mnt/c/Users/<you>/streamingapp-verify
 
 # 4. build it there, and (in a second window) serve the fixture Addon
@@ -324,6 +328,14 @@ or started).
   Host in the foreground: `verify.ps1` calls `SetForegroundWindow` first and says so
   when it does not take. `{DOWN}` past the hero and onto a card, `{ENTER}` to
   choose it, `{RIGHT}` out of the rail — the same as a TV remote would.
+- **The subtitle colour is a fact about pixels, so a person reads it.** Steps 33
+  and 34 assert everything the accessibility tree can carry — the chips and
+  their pressed state, the percentage readout, the Snapshots a change publishes,
+  the restart — and screenshot the picture for the rest: an SRT line takes the
+  colour, an ASS line keeps the red it was authored with, and both grow at 125%.
+  The fixture's ASS track is authored red precisely so the two cases cannot be
+  confused. If step 34 skips, the configured Addon served a Stream without the
+  fixture's tracks (or no playable candidate), and the reason is printed.
 - **The OSD is not always there.** It hides itself after three idle seconds and
   comes back on any key or pointer movement. A step that reads the transport or
   an icon after a wait moves the pointer first (the same motion a person makes),
