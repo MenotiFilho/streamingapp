@@ -9,10 +9,11 @@ use crate::fetcher::Fetcher;
 use crate::meta::{self, Video};
 use crate::pairing::PairingCode;
 use crate::playback::{
-    ChapterStep, ChosenStream, Control, Observation, Picture, PlaybackState, Player, Telling,
-    TrackId, TrackKind, Unplayable,
+    ChapterStep, ChosenStream, Control, Observation, Picture, PlaybackState, Player, StreamUrl,
+    Telling, TrackId, TrackKind, Unplayable,
 };
 use crate::preferences::FeaturedCatalog;
+use crate::preview::{preview_ceiling, NoPreviewer, PreviewCeiling, Previewer};
 use crate::progress::TitleStub;
 use crate::provider::Provider;
 use crate::request::{ResourceRequest, TitleRef, VideoRef, META, STREAM, SUBTITLES};
@@ -51,6 +52,16 @@ pub struct Host {
     /// What plays a Stream. The real Host is built with mpv, in-process; a test
     /// hands in a fake.
     player: Arc<dyn Player>,
+    /// What takes a still of a moment of the Stream, for a timeline tooltip. The
+    /// real Host is built with a second, silent libmpv; a test hands in a fake,
+    /// and a Host that never names one has a previewer that answers nothing
+    /// (ADR-0028).
+    previewer: Arc<dyn Previewer>,
+    /// Whether the Stream now open may be previewed, once the Player's first
+    /// report has said what it costs: `None` until then, and decided once per
+    /// Stream. Never in a Snapshot — it is a brake, not something a client sees
+    /// (ADR-0028).
+    preview_decided: Option<bool>,
     /// The Host's clock: the one reading of time it makes, stamped onto the
     /// Watch progress it writes (#29). A seam, like the Player, so that "most
     /// recently played" is a fact a test decides.
@@ -141,6 +152,8 @@ impl Host {
             secrets,
             provider,
             player,
+            previewer: Arc::new(NoPreviewer),
+            preview_decided: None,
             clock,
             picture,
             serving: None,
@@ -149,6 +162,22 @@ impl Host {
             cache: Arc::new(Mutex::new(CatalogCache::default())),
             stremio: None,
         })
+    }
+
+    /// The same Host, able to take a still of a moment of the Stream playing
+    /// (ADR-0028).
+    ///
+    /// A builder rather than a seventh argument to [`Host::new`], for the same
+    /// reason sync is one: a Host built without a previewer is the default the
+    /// repository's tests are written against, and every platform that cannot
+    /// run a second player keeps it. Arm and disarm are the Host's own calls —
+    /// a Stream's open is what arms the URL, and the Player's first report is
+    /// what decides whether it may run — so nothing here needs a client to set
+    /// anything.
+    #[must_use]
+    pub fn with_previewer(mut self, previewer: Arc<dyn Previewer>) -> Self {
+        self.previewer = previewer;
+        self
     }
 
     /// The same Host, able to sync with a Stremio account (#30).
@@ -209,6 +238,7 @@ impl Host {
             self.fetcher.clone(),
             self.provider.clone(),
             self.secrets.clone(),
+            self.previewer.clone(),
             self.cache.clone(),
         )
     }
@@ -480,6 +510,28 @@ impl Host {
     /// something is playing (ADR-0013).
     pub fn sample(&mut self) -> Option<Snapshot> {
         let observation = self.player.observe();
+
+        // The first report of a Stream is where the Seek preview's ceiling is
+        // decided: a Stream too dear to ask twice, or one that will not say what
+        // it costs, is never previewed, and the worker is let go of here rather
+        // than after it has already spent the connection. The decision is taken
+        // once per Stream — a later report that says nothing is a measurement
+        // this Host does not act on — and it is never published: a brake is not
+        // something a client sees (ADR-0028). Only a Stream that is actually
+        // playing is asked about: a report that still describes the last file has
+        // nothing to say about this one.
+        if self.preview_decided.is_none()
+            && matches!(
+                observation.state,
+                PlaybackState::Playing | PlaybackState::Paused
+            )
+        {
+            match preview_ceiling(observation.statistics.as_ref()) {
+                PreviewCeiling::Waiting => {}
+                PreviewCeiling::Affordable => self.preview_decided = Some(true),
+                PreviewCeiling::Refused => self.disarm_preview(),
+            }
+        }
 
         // Reading the Player's report is also where the Host notices a Stream
         // that came up with no subtitles of its own, and offers the Addon
@@ -783,7 +835,8 @@ impl Host {
             | ValidatedAction::Search { .. }
             | ValidatedAction::OpenTitle { .. }
             | ValidatedAction::OpenDiscoveredTitle { .. }
-            | ValidatedAction::FindStreams { .. } => {
+            | ValidatedAction::FindStreams { .. }
+            | ValidatedAction::Preview { .. } => {
                 return Err(ActionError::Malformed {
                     detail: "a question is not a change".to_owned(),
                 })
@@ -799,6 +852,10 @@ impl Host {
                     .map_err(|error| ActionError::Playback {
                         detail: error.to_string(),
                     })?;
+                // Armed at the same moment the Stream opens, and cheap: the
+                // worker does not connect until the first still is asked for
+                // (ADR-0028).
+                self.arm_preview(&chosen.url);
                 Resolved::Change(Change::Play {
                     chosen,
                     title: Some(Box::new(title)),
@@ -812,6 +869,7 @@ impl Host {
                     .map_err(|error| ActionError::Playback {
                         detail: error.to_string(),
                     })?;
+                self.arm_preview(&chosen.url);
                 Resolved::Change(Change::Play {
                     chosen: Box::new(chosen),
                     title: Some(Box::new(title)),
@@ -914,6 +972,10 @@ impl Host {
                 self.player.stop().map_err(|error| ActionError::Playback {
                     detail: error.to_string(),
                 })?;
+                // Nothing is playing, so the previewer has nothing to be armed
+                // for: letting the URL go ends a second connection the Stream
+                // was only lent (ADR-0028).
+                self.disarm_preview();
                 Resolved::Change(Change::Stop)
             }
         })
@@ -970,6 +1032,23 @@ impl Host {
             })
     }
 
+    /// Arm the previewer for a Stream that is opening, and leave the ceiling
+    /// undecided until the Player's first report says what the Stream costs.
+    ///
+    /// Arming is free — the worker connects on the first still, not here — and
+    /// the URL is held by the previewer and nowhere else (ADR-0028).
+    fn arm_preview(&mut self, url: &StreamUrl) {
+        self.previewer.arm(url);
+        self.preview_decided = None;
+    }
+
+    /// Let the Stream's URL go, and with it any second connection a still was
+    /// being taken from.
+    fn disarm_preview(&mut self) {
+        self.previewer.disarm();
+        self.preview_decided = None;
+    }
+
     /// Take one episode step: the neighbouring Stream chosen and opened, and
     /// the change every client is told.
     ///
@@ -979,7 +1058,7 @@ impl Host {
     /// The Title that is playing's is the neighbour's too — the Host was told it
     /// when the Stream started — so the new Video's progress is recorded against
     /// the same card.
-    fn stepped(&self, step: EpisodeStep) -> Result<Resolved, ActionError> {
+    fn stepped(&mut self, step: EpisodeStep) -> Result<Resolved, ActionError> {
         self.stepping(step.control())?;
         let chosen = self.adjacent_episode(step)?;
         let title = self.playing_title();
@@ -988,6 +1067,7 @@ impl Host {
             .map_err(|error| ActionError::Playback {
                 detail: error.to_string(),
             })?;
+        self.arm_preview(&chosen.url);
         Ok(Resolved::Change(Change::Play {
             chosen: Box::new(chosen),
             title: title.map(Box::new),

@@ -23,3 +23,6 @@ tracing = { workspace = true }
 # what keeps this workspace free of `unsafe` (the workspace forbids it): the
 # handle, the commands, the properties and the event queue all come through it.
 libmpv2 = { version = "6", default-features = false }
+
+[dev-dependencies]
+base64 = { workspace = true }

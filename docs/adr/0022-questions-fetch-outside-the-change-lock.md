@@ -81,9 +81,9 @@ shared for the same reason — it is a memo, not state a client can see.
 
 ## Only questions escape
 
-Exactly seven Actions are questions. The classification is
+Exactly eight Actions are questions. The classification is
 `ValidatedAction::is_question`; resolving a question (`HostView::ask`) and
-refusing one on the change path (`Host::change`) necessarily name the seven
+refusing one on the change path (`Host::change`) necessarily name the eight
 variants too, so a new question cannot be added without deciding its side in
 those matches:
 
@@ -94,6 +94,7 @@ those matches:
 - `open_title`
 - `open_discovered_title`
 - `find_streams`
+- `preview`
 
 Everything else is a change and stays serialized, including the changes that
 also fetch:
@@ -198,7 +199,7 @@ holds no runtime and no network, and the app shell decides where the lines go.
   discovered later.
 - The door is one policy for the window and the wire; a new adapter holds no
   mutex of its own.
-- The seven questions are classified by `is_question`; resolving them
+- The eight questions are classified by `is_question`; resolving them
   (`HostView::ask`) and refusing them on the change path (`Host::change`) name
   the variants explicitly, so a new Action must choose a side.
 - `host-core` logs through `tracing` without gaining a runtime or a transport.

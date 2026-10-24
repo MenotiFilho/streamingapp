@@ -139,7 +139,6 @@ export function bufferedSpan(
 
 /** One chapter's diamond on the timeline, and where along it the diamond sits. */
 export type ChapterMark = { chapter: Chapter; fraction: number };
-
 /**
  * The chapter markers the timeline draws: the container's own chapters, each
  * placed by the time it starts. A Stream whose length the Player has not said
@@ -153,4 +152,34 @@ export function chapterMarks(chapters: Chapter[], duration: number | null): Chap
     chapter,
     fraction: Math.min(1, Math.max(0, chapter.time / duration)),
   }));
+}
+
+/**
+ * How many seconds of the Stream one still stands for: the Host's own bucket
+ * (ADR-0028). A client asks about a moment; the answer is the still of the
+ * bucket that moment falls in, so two pointers a second apart are one ask.
+ */
+export const PREVIEW_BUCKET_SECONDS = 5;
+
+/** The bucket a moment falls in — the key the tooltip's cache is kept by. */
+export function previewBucket(at: number): number {
+  if (!Number.isFinite(at) || at <= 0) {
+    return 0;
+  }
+  return Math.floor(at / PREVIEW_BUCKET_SECONDS);
+}
+
+/**
+ * The chapter a moment is inside, where the Stream has chapters: the last one
+ * that began at or before it. `null` before the first chapter's own start — a
+ * Stream can begin with an untitled lead-in — and where there are none at all.
+ */
+export function chapterAt(chapters: Chapter[], at: number): Chapter | null {
+  let inside: Chapter | null = null;
+  for (const chapter of chapters) {
+    if (chapter.time <= at) {
+      inside = chapter;
+    }
+  }
+  return inside;
 }

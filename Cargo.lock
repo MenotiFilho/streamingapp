@@ -1641,6 +1641,7 @@ dependencies = [
 name = "host-mpv"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "host-core",
  "libmpv2",
  "serde",

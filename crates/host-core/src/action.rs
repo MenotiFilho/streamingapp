@@ -13,6 +13,7 @@ use crate::preferences::{
     InvalidStreamBuffer, InvalidSubtitleColor, InvalidSubtitleLanguage, InvalidSubtitleScale,
     StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale,
 };
+use crate::preview::checked_preview_at;
 use crate::progress::{TitleCard, TitleStub};
 use crate::request::{
     CatalogRef, Extra, InvalidCatalogRef, InvalidTitleRef, InvalidVideoRef, TitleRef, VideoRef,
@@ -220,6 +221,19 @@ pub enum Action {
         /// indexes it by (`tt0903747:1:1`).
         video: VideoRef,
     },
+    /// Take a still of one moment of the Stream playing, for a timeline tooltip.
+    ///
+    /// A question, like finding Streams: the picture goes to the client that
+    /// asked and to nobody else, publishes no Snapshot and moves no revision
+    /// (ADR-0002). It is the one frame that crosses the Player seam — asked for
+    /// at one moment and never at the frame rate — and it is decoration: where
+    /// the Host cannot produce one it answers with nothing rather than with a
+    /// failure, so a Stream that will not open a second connection never
+    /// interrupts a film (ADR-0028).
+    Preview {
+        /// The moment, in seconds from the Stream's start.
+        at: f64,
+    },
     /// Play a Stream a client chose.
     ///
     /// The candidate a client sends back is one the Host answered it with, and
@@ -364,6 +378,7 @@ action_spellings! {
     Action::OpenTitle { .. } => "open_title",
     Action::OpenDiscoveredTitle { .. } => "open_discovered_title",
     Action::FindStreams { .. } => "find_streams",
+    Action::Preview { .. } => "preview",
     Action::PlayStream { .. } => "play_stream",
     Action::Resume { .. } => "resume",
     Action::SetPaused { .. } => "set_paused",
@@ -549,6 +564,11 @@ impl Action {
                 let video = VideoRef::parse(&video.r#type, &video.id)?;
                 Ok(ValidatedAction::FindStreams { video })
             }
+            // A moment of a Stream is a finite number of seconds from its start,
+            // judged here so a worker is never asked about a `NaN` (ADR-0028).
+            Action::Preview { at } => Ok(ValidatedAction::Preview {
+                at: checked_preview_at(at)?,
+            }),
             Action::PlayStream {
                 video,
                 addon,
@@ -736,6 +756,11 @@ pub enum ValidatedAction {
     FindStreams {
         video: VideoRef,
     },
+    /// A moment of the Stream playing to take a still of, judged: a finite
+    /// number of seconds from its start (ADR-0028).
+    Preview {
+        at: f64,
+    },
     /// A candidate judged: the URL a Player will be given, the words that will
     /// be published about it, and the Title the Video is of — which is what
     /// Continue watching records the play against. Boxed because a Stream
@@ -800,7 +825,7 @@ pub enum ValidatedAction {
 impl ValidatedAction {
     /// Whether this Action asks the Host something rather than changing it.
     ///
-    /// The seven questions are the Actions that resolve from a [`crate::HostView`]
+    /// The eight questions are the Actions that resolve from a [`crate::HostView`]
     /// outside the change lock (ADR-0022). Classification lives here, in the
     /// Host's vocabulary, so that the door, the window and the wire cannot each
     /// have their own list: a capability added to the surface is classified once.
@@ -814,6 +839,7 @@ impl ValidatedAction {
                 | Self::OpenTitle { .. }
                 | Self::OpenDiscoveredTitle { .. }
                 | Self::FindStreams { .. }
+                | Self::Preview { .. }
         )
     }
 
@@ -834,6 +860,7 @@ impl ValidatedAction {
             | Self::Search { .. }
             | Self::OpenDiscoveredTitle { .. }
             | Self::FindStreams { .. }
+            | Self::Preview { .. }
             | Self::SetSubtitleLanguage(_)
             | Self::ClearSubtitleLanguage
             | Self::SetSubtitleColor(_)
@@ -912,6 +939,10 @@ pub enum ActionError {
     InvalidVideoRef(#[from] InvalidVideoRef),
     #[error("{0}")]
     InvalidSeekTarget(#[from] InvalidSeekTarget),
+    /// A moment a Seek preview was asked about that is not one: a negative
+    /// second, a `NaN`, an infinity. The worker is never sent one (ADR-0028).
+    #[error("{0}")]
+    InvalidPreviewAt(#[from] crate::preview::InvalidPreviewAt),
     #[error("{0}")]
     InvalidSpeed(#[from] InvalidSpeed),
     #[error("{0}")]
@@ -1084,6 +1115,7 @@ impl ActionError {
             Self::InvalidTitleRef(_) => "invalid_title_ref",
             Self::InvalidVideoRef(_) => "invalid_video_ref",
             Self::InvalidSeekTarget(_) => "invalid_seek_target",
+            Self::InvalidPreviewAt(_) => "invalid_preview_at",
             Self::InvalidSpeed(_) => "invalid_speed",
             Self::InvalidVolume(_) => "invalid_volume",
             Self::InvalidSubtitleDelay(_) => "invalid_subtitle_delay",
@@ -2042,6 +2074,7 @@ mod tests {
         r#"{"type":"open_title","addon":"community.example","title":{"type":"movie","id":"tt0133093"}}"#,
         r#"{"type":"open_discovered_title","key":{"kind":"tmdb","id":603},"kind":"movie"}"#,
         r#"{"type":"find_streams","video":{"type":"movie","id":"tt0133093"}}"#,
+        r#"{"type":"preview","at":42.5}"#,
         r#"{"type":"play_stream","video":{"type":"movie","id":"tt0133093"},"addon":"community.example","title":{"addon":"community.example","id":"tt0133093","type":"movie","name":"The Matrix","poster":null},"stream":{"name":null,"description":null,"playback":{"kind":"direct","url":"https://stream.example.org/x.mkv"},"warnings":[],"filename":null,"bingeGroup":null}}"#,
         r#"{"type":"resume","video":{"type":"movie","id":"tt0133093"}}"#,
         r#"{"type":"set_paused","paused":true}"#,
@@ -2091,7 +2124,7 @@ mod tests {
     }
 
     #[test]
-    fn the_seven_questions_are_named_once_and_only_they_escape() {
+    fn the_eight_questions_are_named_once_and_only_they_escape() {
         let questions: Vec<&str> = EVERY_ACTION
             .iter()
             .filter(|body| {
@@ -2115,8 +2148,9 @@ mod tests {
                 "open_title",
                 "open_discovered_title",
                 "find_streams",
+                "preview",
             ],
-            "the questions are the seven the door resolves outside the change lock"
+            "the questions are the eight the door resolves outside the change lock"
         );
 
         let browse = Action::parse(&format!(
@@ -2181,6 +2215,9 @@ mod tests {
                 value: "mov ie".to_owned(),
             }),
             ActionError::InvalidSeekTarget(InvalidSeekTarget {
+                seconds: "NaN".to_owned(),
+            }),
+            ActionError::InvalidPreviewAt(crate::preview::InvalidPreviewAt {
                 seconds: "NaN".to_owned(),
             }),
             ActionError::InvalidSpeed(InvalidSpeed {

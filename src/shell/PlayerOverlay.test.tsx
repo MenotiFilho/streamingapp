@@ -151,7 +151,18 @@ type Rejection = { type: Action["type"]; error: { kind: string; detail?: string 
 /** A dispatch a test holds open, so the wait a control draws can be observed. */
 type Hold = { type: Action["type"]; gate: Promise<void> };
 
-function fakeHost(initial: Snapshot, reject?: Rejection, hold?: Hold) {
+/**
+ * What the fake Host answers a Seek preview with (#140): the still of the moment
+ * asked about, and a gate a test can hold the answer behind.
+ */
+type PreviewAnswers = (at: number) => { image: string | null; gate?: Promise<void> };
+
+function fakeHost(
+  initial: Snapshot,
+  reject?: Rejection,
+  hold?: Hold,
+  answers?: PreviewAnswers,
+) {
   const invocations: Array<{ command: string; args?: Record<string, unknown> }> = [];
   let listener: ((event: { payload: Snapshot }) => void) | undefined;
   let current = initial;
@@ -165,6 +176,16 @@ function fakeHost(initial: Snapshot, reject?: Rejection, hold?: Hold) {
       const action = (args?.envelope as { action: Action } | undefined)?.action;
       if (reject && action?.type === reject.type) {
         throw reject.error;
+      }
+      if (action?.type === "preview") {
+        const answered = answers?.(action.at) ?? { image: null };
+        if (answered.gate) {
+          await answered.gate;
+        }
+        return {
+          snapshots: [],
+          answer: { preview: { at: action.at, image: answered.image } },
+        } as T;
       }
       if (hold && action?.type === hold.type) {
         await hold.gate;
@@ -202,11 +223,13 @@ async function renderPlayer(
   reject?: Rejection,
   watchProgress: ResumeEntry[] = [],
   hold?: Hold,
+  answers?: PreviewAnswers,
 ) {
   const host = fakeHost(
     { ...NOTHING_SAID, revision: 9, playback: playback(overrides), watchProgress },
     reject,
     hold,
+    answers,
   );
   render(<Shell client={host.client} />);
   await screen.findByTestId("shell-player");
@@ -273,6 +296,7 @@ function layOutPlayer() {
     volume: [1850, 420, 40, 200],
     mute: [1850, 650, 40, 40],
     position: [0, 1020, 1920, 24],
+    "osd-timeline": [0, 1020, 1920, 48],
   };
 
   return vi
@@ -397,6 +421,129 @@ describe("the player OSD", () => {
       .getByTestId("osd-timeline")
       .querySelector(".shell-osd-playhead") as HTMLElement;
     expect(parseFloat(playhead.style.left)).toBeCloseTo(33.3333, 3);
+  });
+
+  describe("the Seek preview", () => {
+    /** A still a test can tell from another by its own bytes. */
+    const STILL = "data:image/jpeg;base64,Zmlyc3Q=";
+    const OTHER = "data:image/jpeg;base64,c2Vjb25k";
+
+    /** Point at the bar at this fraction of its width. */
+    function pointAt(fraction: number) {
+      fireEvent.pointerMove(screen.getByTestId("osd-timeline"), {
+        clientX: Math.round(1920 * fraction),
+      });
+    }
+
+    test("asks for the still of the moment pointed at and draws it with its time and chapter", async () => {
+      const host = await renderPlayer({}, undefined, [], undefined, () => ({ image: STILL }));
+      layOutPlayer();
+
+      pointAt(0.25);
+
+      await waitFor(() => expect(screen.getByTestId("osd-preview-still")).toHaveAttribute("src", STILL));
+      expect(actions(host.invocations)).toContainEqual({ type: "preview", at: 900 });
+      expect(screen.getByTestId("osd-preview-time")).toHaveTextContent("15:00");
+      expect(
+        screen.getByTestId("osd-preview-chapter"),
+        "15:00 is inside the chapter that began at the Stream's start",
+      ).toHaveTextContent("Opening");
+      expect(screen.getByTestId("osd-preview")).toHaveAttribute("data-pending", "false");
+    });
+
+    test("asks nothing twice for one bucket, and asks nothing at all where the pointer leaves", async () => {
+      const host = await renderPlayer({}, undefined, [], undefined, () => ({ image: STILL }));
+      layOutPlayer();
+
+      pointAt(0.25);
+      await waitFor(() => expect(screen.getByTestId("osd-preview-still")).toBeInTheDocument());
+      // A moment four seconds later is the same five-second bucket.
+      pointAt(0.25 + 4 / 3600);
+      await waitFor(() =>
+        expect(actions(host.invocations).filter((action) => action.type === "preview")).toHaveLength(1),
+      );
+
+      fireEvent.pointerLeave(screen.getByTestId("osd-timeline"));
+      await waitFor(() => expect(screen.queryByTestId("osd-preview")).not.toBeInTheDocument());
+      expect(actions(host.invocations).filter((action) => action.type === "preview")).toHaveLength(1);
+    });
+
+    test("keeps the still already drawn, dimmed, while the next bucket is not ready", async () => {
+      let release = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await renderPlayer({}, undefined, [], undefined, (at) =>
+        at === 900 ? { image: STILL } : { image: OTHER, gate },
+      );
+      layOutPlayer();
+      pointAt(0.25);
+      await waitFor(() => expect(screen.getByTestId("osd-preview-still")).toHaveAttribute("src", STILL));
+
+      pointAt(0.625);
+
+      await waitFor(() => expect(screen.getByTestId("osd-preview")).toHaveAttribute("data-pending", "true"));
+      expect(
+        screen.getByTestId("osd-preview-still"),
+        "the still already drawn stays under the pointer while the next bucket is asked for",
+      ).toHaveAttribute("src", STILL);
+      expect(screen.getByTestId("osd-preview-time")).toHaveTextContent("37:30");
+
+      await act(async () => {
+        release();
+      });
+
+      await waitFor(() => expect(screen.getByTestId("osd-preview-still")).toHaveAttribute("src", OTHER));
+      expect(screen.getByTestId("osd-preview")).toHaveAttribute("data-pending", "false");
+      expect(screen.getByTestId("osd-preview-chapter")).toHaveTextContent("The Choice");
+    });
+
+    test("draws the time and the chapter alone when the Host has no still to give", async () => {
+      await renderPlayer({}, undefined, [], undefined, () => ({ image: null }));
+      layOutPlayer();
+
+      pointAt(0.625);
+
+      await waitFor(() => expect(screen.getByTestId("osd-preview")).toHaveAttribute("data-pending", "false"));
+      expect(screen.queryByTestId("osd-preview-still")).not.toBeInTheDocument();
+      expect(screen.getByTestId("osd-preview-time")).toHaveTextContent("37:30");
+      expect(screen.getByTestId("osd-preview-chapter")).toHaveTextContent("The Choice");
+    });
+
+    test("keeps one ask in flight and lets the newest bucket win", async () => {
+      let release = () => {};
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const host = await renderPlayer({}, undefined, [], undefined, (at) =>
+        at === 900 ? { image: STILL, gate } : { image: OTHER },
+      );
+      layOutPlayer();
+
+      pointAt(0.25);
+      await waitFor(() =>
+        expect(actions(host.invocations).filter((action) => action.type === "preview")).toHaveLength(1),
+      );
+      // The pointer moves on while the first still is still being taken: the
+      // second ask is held until the first answers, and it is the newest bucket.
+      pointAt(0.625);
+      expect(
+        actions(host.invocations).filter((action) => action.type === "preview"),
+        "one ask in flight: the younger bucket waits rather than queueing behind the elder",
+      ).toHaveLength(1);
+
+      await act(async () => {
+        release();
+      });
+
+      await waitFor(() =>
+        expect(actions(host.invocations).filter((action) => action.type === "preview")).toEqual([
+          { type: "preview", at: 900 },
+          { type: "preview", at: 2250 },
+        ]),
+      );
+      await waitFor(() => expect(screen.getByTestId("osd-preview-still")).toHaveAttribute("src", OTHER));
+    });
   });
 
   test("each icon pushes its own popover, and Back closes it before stopping", async () => {

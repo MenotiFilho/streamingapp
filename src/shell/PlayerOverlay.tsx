@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type MouseEvent,
+  type PointerEvent,
   type ReactNode,
   type Ref,
   type WheelEvent,
@@ -31,8 +32,10 @@ import { Button, PendingSpinner } from "./kit";
 import { FOCUSABLE } from "./layout";
 import { Refusal } from "./Refusal";
 import { usePending } from "./usePending";
+import { usePreview } from "./usePreview";
 import {
   bufferedSpan,
+  chapterAt,
   chapterMarks,
   qualityBadge,
   remainingTime,
@@ -775,6 +778,12 @@ function VolumePillar({
  * callouts, and the two tabular clocks. The range input is only drawn while the
  * Host would take a seek — the same state gate the old transport had — and it
  * covers the whole bar when it is.
+ *
+ * Pointing at the bar asks the Host for the still of that moment (ADR-0028):
+ * one ask in flight, the newest bucket winning, and the still already drawn
+ * staying under the pointer — dimmed — until its successor arrives. A Host that
+ * cannot produce one answers with nothing, and the tooltip is then the time and
+ * the chapter alone.
  */
 function Timeline({
   playback,
@@ -789,20 +798,48 @@ function Timeline({
 }) {
   const { position, duration, chapters } = playback;
   const [scrub, setScrub] = useState<number | null>(null);
+  const [point, setPoint] = useState<{ at: number; fraction: number } | null>(null);
+  const preview = usePreview(playback.nowPlaying?.video.id ?? null);
   const at = scrub ?? shown;
   const fraction = timelineFraction(at, duration);
   const buffered = bufferedSpan(playback.buffered, duration);
   const marks = chapterMarks(chapters, duration);
   const left = formatTime(scrub ?? position);
   const right = remainingTime(at, duration);
+  const chapter = point ? chapterAt(chapters, point.at) : null;
 
   const take = (seconds: number) => {
     setScrub(null);
     onSeek(seconds);
   };
 
+  /** Where on the bar the pointer is, in seconds from the Stream's start. */
+  const pointed = (event: PointerEvent<HTMLDivElement>) => {
+    if (duration === null || !Number.isFinite(duration) || duration <= 0) {
+      return;
+    }
+    const bar = event.currentTarget.getBoundingClientRect();
+    if (bar.width <= 0) {
+      return;
+    }
+    const fraction = Math.min(1, Math.max(0, (event.clientX - bar.left) / bar.width));
+    const seconds = fraction * duration;
+    setPoint({ at: seconds, fraction });
+    preview.point(seconds);
+  };
+
+  const unpoint = () => {
+    setPoint(null);
+    preview.point(null);
+  };
+
   return (
-    <div className="shell-osd-timeline" data-testid="osd-timeline">
+    <div
+      className="shell-osd-timeline"
+      data-testid="osd-timeline"
+      onPointerMove={pointed}
+      onPointerLeave={unpoint}
+    >
       <div className="shell-osd-track" aria-hidden="true">
         {buffered && (
           <span
@@ -828,6 +865,32 @@ function Timeline({
           </span>
         ))}
       </div>
+
+      {point ? (
+        <div
+          className="shell-osd-preview"
+          data-testid="osd-preview"
+          data-pending={preview.waiting ? "true" : "false"}
+          style={{ left: `${Math.min(94, Math.max(6, point.fraction * 100))}%` }}
+        >
+          {preview.still ? (
+            <img
+              className="shell-osd-preview-still"
+              data-testid="osd-preview-still"
+              src={preview.still.image}
+              alt=""
+            />
+          ) : null}
+          <span className="shell-osd-preview-time tabular" data-testid="osd-preview-time">
+            {formatTime(point.at)}
+          </span>
+          {chapter ? (
+            <span className="shell-osd-preview-chapter" data-testid="osd-preview-chapter">
+              {chapterName(chapter)}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
 
       {interactive ? (
         <input
