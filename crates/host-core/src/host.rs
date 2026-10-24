@@ -13,7 +13,9 @@ use crate::playback::{
     Telling, TrackId, TrackKind, Unplayable,
 };
 use crate::preferences::FeaturedCatalog;
-use crate::preview::{preview_ceiling, NoPreviewer, PreviewCeiling, Previewer};
+use crate::preview::{
+    preview_ceiling, NoPreviewer, PreviewCeiling, Previewer, PREVIEW_BITRATE_GRACE_MS,
+};
 use crate::progress::TitleStub;
 use crate::provider::Provider;
 use crate::request::{ResourceRequest, TitleRef, VideoRef, META, STREAM, SUBTITLES};
@@ -58,10 +60,14 @@ pub struct Host {
     /// (ADR-0028).
     previewer: Arc<dyn Previewer>,
     /// Whether the Stream now open may be previewed, once the Player's first
-    /// report has said what it costs: `None` until then, and decided once per
-    /// Stream. Never in a Snapshot — it is a brake, not something a client sees
+    /// report has said what it costs. [`PreviewCeiling::Waiting`] until then, and
+    /// decided once per Stream: a refusal is not revisited on a later report, and
+    /// nothing here is published — it is a brake, not something a client sees
     /// (ADR-0028).
-    preview_decided: Option<bool>,
+    preview_gate: PreviewCeiling,
+    /// When the Stream was armed, in the Host's own millis: the Stream's moment
+    /// to state what it costs before an absent bitrate is refused.
+    preview_since: Option<i64>,
     /// The Host's clock: the one reading of time it makes, stamped onto the
     /// Watch progress it writes (#29). A seam, like the Player, so that "most
     /// recently played" is a fact a test decides.
@@ -153,7 +159,8 @@ impl Host {
             provider,
             player,
             previewer: Arc::new(NoPreviewer),
-            preview_decided: None,
+            preview_gate: PreviewCeiling::Refused,
+            preview_since: None,
             clock,
             picture,
             serving: None,
@@ -239,6 +246,7 @@ impl Host {
             self.provider.clone(),
             self.secrets.clone(),
             self.previewer.clone(),
+            self.preview_gate,
             self.cache.clone(),
         )
     }
@@ -515,21 +523,25 @@ impl Host {
         // decided: a Stream too dear to ask twice, or one that will not say what
         // it costs, is never previewed, and the worker is let go of here rather
         // than after it has already spent the connection. The decision is taken
-        // once per Stream — a later report that says nothing is a measurement
-        // this Host does not act on — and it is never published: a brake is not
-        // something a client sees (ADR-0028). Only a Stream that is actually
-        // playing is asked about: a report that still describes the last file has
-        // nothing to say about this one.
-        if self.preview_decided.is_none()
+        // once per Stream — a later report does not revisit it — and it is never
+        // published: a brake is not something a client sees (ADR-0028). Only a
+        // Stream that is actually playing is asked about: a report that still
+        // describes the last file has nothing to say about this one.
+        if self.preview_gate == PreviewCeiling::Waiting
             && matches!(
                 observation.state,
                 PlaybackState::Playing | PlaybackState::Paused
             )
         {
-            match preview_ceiling(observation.statistics.as_ref()) {
-                PreviewCeiling::Waiting => {}
-                PreviewCeiling::Affordable => self.preview_decided = Some(true),
-                PreviewCeiling::Refused => self.disarm_preview(),
+            let waited = self.preview_since.is_some_and(|since| {
+                self.clock.now_millis().saturating_sub(since) >= PREVIEW_BITRATE_GRACE_MS
+            });
+            let decided = preview_ceiling(observation.statistics.as_ref(), waited);
+            if decided != PreviewCeiling::Waiting {
+                if !decided.affordable() {
+                    self.previewer.disarm();
+                }
+                self.preview_gate = decided;
             }
         }
 
@@ -1039,14 +1051,16 @@ impl Host {
     /// the URL is held by the previewer and nowhere else (ADR-0028).
     fn arm_preview(&mut self, url: &StreamUrl) {
         self.previewer.arm(url);
-        self.preview_decided = None;
+        self.preview_gate = PreviewCeiling::Waiting;
+        self.preview_since = Some(self.clock.now_millis());
     }
 
     /// Let the Stream's URL go, and with it any second connection a still was
-    /// being taken from.
+    /// being taken from. Nothing is armed afterwards, so nothing may be previewed.
     fn disarm_preview(&mut self) {
         self.previewer.disarm();
-        self.preview_decided = None;
+        self.preview_gate = PreviewCeiling::Refused;
+        self.preview_since = None;
     }
 
     /// Take one episode step: the neighbouring Stream chosen and opened, and

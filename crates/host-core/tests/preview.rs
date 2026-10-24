@@ -11,7 +11,7 @@ use std::sync::Arc;
 use host_core::{
     Action, ActionError, AddonProvider, FixtureClock, FixtureFetcher, FixturePlayer,
     FixturePreviewer, Host, InMemorySecretStore, InMemoryStore, Observation, PlaybackState,
-    Previewer, SecretBackend, Statistics, Store, ACTION_VERSION,
+    Previewer, SecretBackend, Statistics, Store, ACTION_VERSION, PREVIEW_BITRATE_GRACE_MS,
 };
 
 /// The URL a recorded debrid answer would carry, with a session in it: the one
@@ -24,6 +24,9 @@ struct Fixture {
     host: Host,
     player: Arc<FixturePlayer>,
     previewer: Arc<FixturePreviewer>,
+    /// The Host's own clock, so the moment a Stream is given to state its
+    /// bitrate is a fact a test decides.
+    clock: Arc<FixtureClock>,
 }
 
 fn fixture() -> Fixture {
@@ -34,13 +37,14 @@ fn fixture_over(previewer: Arc<FixturePreviewer>) -> Fixture {
     let player = Arc::new(FixturePlayer::new());
     let fetcher = Arc::new(FixtureFetcher::new());
     let provider = Arc::new(AddonProvider::new(fetcher.clone()));
+    let clock = Arc::new(FixtureClock::new());
     let host = Host::new(
         Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
         fetcher,
         Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
         provider,
         player.clone(),
-        Arc::new(FixtureClock::new()),
+        clock.clone(),
     )
     .expect("a Host over a store starts")
     .with_previewer(previewer.clone() as Arc<dyn Previewer>);
@@ -49,6 +53,7 @@ fn fixture_over(previewer: Arc<FixturePreviewer>) -> Fixture {
         host,
         player,
         previewer,
+        clock,
     }
 }
 
@@ -239,15 +244,53 @@ fn a_stream_above_the_ceiling_is_disarmed_on_its_first_report() {
 }
 
 #[test]
-fn a_stream_whose_bitrate_nobody_states_is_disarmed_too() {
+fn a_stream_whose_bitrate_nobody_states_is_given_a_moment_and_then_disarmed() {
     let mut fixture = playing(None);
+    assert_eq!(
+        fixture.previewer.disarms(),
+        0,
+        "the report that says a file has loaded is not yet a report about its cost"
+    );
+
+    fixture.clock.tick(PREVIEW_BITRATE_GRACE_MS);
+    fixture.host.sample();
 
     assert_eq!(
         fixture.previewer.disarms(),
         1,
-        "an unknown bitrate is no bitrate to gamble the Stream on"
+        "a Stream that still will not say what it costs is not one to gamble on"
     );
     assert_eq!(preview(&mut fixture, 42.0).preview(), Some((42.0, None)));
+}
+
+#[test]
+fn a_preview_asked_before_the_ceiling_is_settled_asks_no_worker() {
+    let mut fixture = fixture();
+    fixture
+        .host
+        .dispatch(action(&a_chosen_stream()))
+        .expect("choosing a playable candidate should work");
+
+    // Nothing has reported yet: the gate is Waiting, and Waiting is not a yes.
+    let response = preview(&mut fixture, 42.0);
+
+    assert_eq!(response.preview(), Some((42.0, None)));
+    assert_eq!(
+        fixture.previewer.asks(),
+        0,
+        "the second connection is not opened for a question the ceiling has not allowed"
+    );
+
+    fixture.player.now_reporting(report(Some(8_000_000)));
+    fixture.host.sample();
+    assert!(
+        preview(&mut fixture, 42.0)
+            .preview()
+            .expect("a preview answer")
+            .1
+            .is_some(),
+        "once the report says the Stream is affordable, the still is asked for"
+    );
 }
 
 #[test]

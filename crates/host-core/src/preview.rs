@@ -61,6 +61,17 @@ pub const PREVIEW_CACHE_FRAMES: usize = 200;
 /// not worth the risk to the film (ADR-0028).
 pub const PREVIEW_CEILING_BPS: u64 = 20_000_000;
 
+/// How long a Stream is given to say what it costs before it is treated as one
+/// nobody can price.
+///
+/// `video-bitrate` is the video output's own count of what it is reading, and a
+/// report taken the moment a file loads can be missing it; a rule that refused on
+/// that first report would never preview anything at all. Three seconds is long
+/// enough for the picture to come up and short enough that an unpriced Stream is
+/// refused rather than assumed cheap — which is what *unknown refuses* means in
+/// practice (ADR-0028).
+pub const PREVIEW_BITRATE_GRACE_MS: i64 = 3_000;
+
 /// One still of a Stream: a JPEG in a `data:` URL, which is what a client hands
 /// to an `<img>` and what a wire frame can carry.
 #[derive(Clone, PartialEq, Eq)]
@@ -184,8 +195,11 @@ impl PreviewCeiling {
 /// Known and at or under the ceiling arms; over the ceiling refuses; and a
 /// bitrate that is zero or absent refuses too — there is no cumulative-bytes
 /// meter to bound what a worker with an unknown bitrate would cost, so the only
-/// honest rule is not to start one (ADR-0028).
-pub fn preview_ceiling(statistics: Option<&Statistics>) -> PreviewCeiling {
+/// honest rule is not to start one (ADR-0028). A bitrate nobody has stated yet is
+/// given until `waited` — [`PREVIEW_BITRATE_GRACE_MS`] of playback — because the
+/// report that says a file has loaded is not yet a report about what it costs;
+/// after that, absent is absent.
+pub fn preview_ceiling(statistics: Option<&Statistics>, waited: bool) -> PreviewCeiling {
     let Some(statistics) = statistics else {
         return PreviewCeiling::Waiting;
     };
@@ -194,7 +208,11 @@ pub fn preview_ceiling(statistics: Option<&Statistics>) -> PreviewCeiling {
         Some(bitrate) if bitrate > 0 && bitrate <= PREVIEW_CEILING_BPS => {
             PreviewCeiling::Affordable
         }
-        _ => PreviewCeiling::Refused,
+        Some(bitrate) if bitrate > PREVIEW_CEILING_BPS => PreviewCeiling::Refused,
+        // Zero, or nothing stated, is a rate nobody can bound. The Stream is
+        // given its moment to say; one that still will not is refused.
+        _ if waited => PreviewCeiling::Refused,
+        _ => PreviewCeiling::Waiting,
     }
 }
 
@@ -539,11 +557,11 @@ mod tests {
     #[test]
     fn a_known_bitrate_at_or_under_the_ceiling_may_be_previewed() {
         assert_eq!(
-            preview_ceiling(Some(&statistics(Some(8_000_000)))),
+            preview_ceiling(Some(&statistics(Some(8_000_000))), false),
             PreviewCeiling::Affordable
         );
         assert_eq!(
-            preview_ceiling(Some(&statistics(Some(PREVIEW_CEILING_BPS)))),
+            preview_ceiling(Some(&statistics(Some(PREVIEW_CEILING_BPS))), false),
             PreviewCeiling::Affordable,
             "the ceiling itself is still affordable"
         );
@@ -552,28 +570,39 @@ mod tests {
     #[test]
     fn a_bitrate_over_the_ceiling_is_never_previewed() {
         assert_eq!(
-            preview_ceiling(Some(&statistics(Some(PREVIEW_CEILING_BPS + 1)))),
+            preview_ceiling(Some(&statistics(Some(PREVIEW_CEILING_BPS + 1))), false),
             PreviewCeiling::Refused
         );
         assert!(!PreviewCeiling::Refused.affordable());
     }
 
     #[test]
-    fn a_bitrate_of_zero_or_none_refuses_rather_than_gambles() {
+    fn a_bitrate_that_nobody_states_is_given_a_moment_and_then_refused() {
         assert_eq!(
-            preview_ceiling(Some(&statistics(Some(0)))),
-            PreviewCeiling::Refused,
-            "a zero is a rate nobody stated, not a free Stream"
+            preview_ceiling(Some(&statistics(None)), false),
+            PreviewCeiling::Waiting,
+            "a file that has only just loaded has not said what it costs yet"
         );
         assert_eq!(
-            preview_ceiling(Some(&statistics(None))),
-            PreviewCeiling::Refused
+            preview_ceiling(Some(&statistics(None)), true),
+            PreviewCeiling::Refused,
+            "a Stream that still will not say is not one to gamble on"
+        );
+        assert_eq!(
+            preview_ceiling(Some(&statistics(Some(0))), true),
+            PreviewCeiling::Refused,
+            "a zero is a rate nobody stated, not a free Stream"
         );
     }
 
     #[test]
     fn a_player_that_has_not_reported_yet_leaves_the_ceiling_waiting() {
-        assert_eq!(preview_ceiling(None), PreviewCeiling::Waiting);
+        assert_eq!(preview_ceiling(None, false), PreviewCeiling::Waiting);
+        assert_eq!(
+            preview_ceiling(None, true),
+            PreviewCeiling::Waiting,
+            "no report at all is not an unknown bitrate: there is nothing loaded to ask about"
+        );
     }
 
     #[test]

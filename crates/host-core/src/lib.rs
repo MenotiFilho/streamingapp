@@ -101,8 +101,8 @@ pub use preferences::{
 };
 pub use preview::{
     bucket_of, bucket_start, checked_preview_at, preview_ceiling, FixturePreviewer, Frame,
-    InvalidPreviewAt, NoPreviewer, PreviewCache, PreviewCeiling, Previewer, PREVIEW_BUCKET_SECONDS,
-    PREVIEW_CACHE_FRAMES, PREVIEW_CEILING_BPS,
+    InvalidPreviewAt, NoPreviewer, PreviewCache, PreviewCeiling, Previewer,
+    PREVIEW_BITRATE_GRACE_MS, PREVIEW_BUCKET_SECONDS, PREVIEW_CACHE_FRAMES, PREVIEW_CEILING_BPS,
 };
 pub use progress::{
     ResumeEntry, TitleCard, TitleStub, UnplayableEntry, UnplayableReason, WatchProgress,

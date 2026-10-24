@@ -2957,9 +2957,28 @@
         wanted: null,
       };
 
+      /** How many seconds of the Stream one still stands for: the Host's own bucket. */
+      const PREVIEW_BUCKET_SECONDS = 5;
+
+      /** How many stills this page keeps: the Host's own two hundred buckets. */
+      const PREVIEW_STILLS_KEPT = 200;
+
+      /**
+       * What a still is kept under: one Stream, as far as this client can tell
+       * one from another. A Stream URL is never a client's — the Addon and its
+       * own words about the candidate are all there is (ADR-0009) — so those are
+       * the key, and a new one clears the stills of the Stream before it.
+       */
+      function previewStreamKey(p) {
+        if (!p || !p.nowPlaying) { return null; }
+        const n = p.nowPlaying;
+        return [n.addon, n.video.type, n.video.id, n.name || "", n.description || "",
+                n.filename || "", n.bingeGroup || ""].join("\u0000");
+      }
+
       /** The five-second bucket a moment falls in: the Host's own key. */
       function previewBucket(at) {
-        return Number.isFinite(at) && at > 0 ? Math.floor(at / 5) : 0;
+        return Number.isFinite(at) && at > 0 ? Math.floor(at / PREVIEW_BUCKET_SECONDS) : 0;
       }
 
       /** The chapter a moment is inside: the last one that began before it. */
@@ -2984,7 +3003,7 @@
           // every bucket a drag crossed would hold a film's worth (ADR-0028).
           seekPreview.cache.delete(asked.bucket);
           seekPreview.cache.set(asked.bucket, image);
-          while (seekPreview.cache.size > 200) {
+          while (seekPreview.cache.size > PREVIEW_STILLS_KEPT) {
             const oldest = seekPreview.cache.keys().next().value;
             if (oldest === undefined) { break; }
             seekPreview.cache.delete(oldest);
@@ -3015,7 +3034,7 @@
         if (!p || p.duration === null || !Number.isFinite(p.duration) || p.duration <= 0) {
           return;
         }
-        const stream = p.nowPlaying ? p.nowPlaying.video.type + "/" + p.nowPlaying.video.id : null;
+        const stream = previewStreamKey(p);
         if (stream !== seekPreview.stream) {
           // A still of one Stream is not a still of another.
           seekPreview.stream = stream;

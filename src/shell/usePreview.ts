@@ -20,9 +20,10 @@ import { answeredPreview } from "../host-client";
 import { useShell } from "./context";
 import { previewBucket } from "./osd";
 
-/** The still being drawn: the image, and the bucket it is the still of. */
+/**
+ * The still being drawn: the image, and the bucket it is the still of.
+ */
 export type PreviewStill = { bucket: number; image: string };
-
 /**
  * How many stills a client keeps: the Host keeps two hundred buckets (~2 MB)
  * and a client that kept every bucket a drag crossed would hold a film's worth
@@ -61,6 +62,12 @@ export type PreviewReads = {
   point: (at: number | null) => void;
 };
 
+/**
+ * The still a person pointing at the timeline sees, for the Stream playing now.
+ *
+ * `stream` is what a client can tell one Stream from another by — `streamKey` in
+ * `./osd` — and a new one clears the stills of the Stream before it.
+ */
 export function usePreview(stream: string | null): PreviewReads {
   const { ask } = useShell();
   const [still, setStill] = useState<PreviewStill | null>(null);

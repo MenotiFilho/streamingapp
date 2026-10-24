@@ -642,6 +642,11 @@ impl PreviewWorker {
         let path = previewing::still_path(&preview_directory(), bucket);
         let to_file = path.to_str()?.to_owned();
 
+        // A failed capture is still a use of the connection: the worker is let
+        // go of thirty seconds after the last *attempt*, not never because the
+        // first one timed out.
+        self.last_used = Some(Instant::now());
+
         if self.mpv.is_none() {
             match preview_instance() {
                 Ok(mpv) => self.mpv = Some(mpv),
@@ -919,7 +924,8 @@ fn preview_directory() -> std::path::PathBuf {
 /// keeps a machine without it playing (ADR-0003); `hwdec=auto-safe` so that
 /// hardware decode is engaged where the machine can and playback still works
 /// where it cannot; `keep-open` so that a Stream at its end stays loaded, which
-/// is what makes "ended" and a resume from it possible (#29).///
+/// is what makes "ended" and a resume from it possible (#29).
+///
 /// `scripts` is where mpv's stock autocrop goes, and it is an option only mpv
 /// reads before it starts — like `wid` — so its path is resolved by the caller
 /// and passed in rather than written by this pure half. `script-opts` turns the

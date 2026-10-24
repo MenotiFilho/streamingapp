@@ -83,6 +83,12 @@ film:
   unknown-bitrate worker, so the only honest rule is not to start one. A log line
   counts how often this happens; the decision can be reopened with that data.
 
+The report that a file has *loaded* is not yet a report about what it costs:
+`video-bitrate` is the video output's own count and can be missing on the first
+tick. So the Stream is given three seconds of playback to state one — the same
+kind of bound as the readiness timeout — and a Stream that still will not is
+treated as one nobody can price. Nothing connects while the question is open.
+
 Rejected: the byte budget this ADR originally proposed — `total-bytes` is current
 occupancy and `raw-input-rate` is explicitly unreliable, so the number would have
 been fiction with the shape of precision.

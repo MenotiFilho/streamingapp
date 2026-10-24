@@ -424,6 +424,13 @@ describe("the player OSD", () => {
   });
 
   describe("the Seek preview", () => {
+    /**
+     * A still is a Question answered by the Host: under a loaded test machine
+     * the promise chain can take longer than Testing Library's default second,
+     * and the tooltip is felt rather than unit-timed.
+     */
+    const WAIT = { timeout: 5_000 };
+
     /** A still a test can tell from another by its own bytes. */
     const STILL = "data:image/jpeg;base64,Zmlyc3Q=";
     const OTHER = "data:image/jpeg;base64,c2Vjb25k";
@@ -441,7 +448,10 @@ describe("the player OSD", () => {
 
       pointAt(0.25);
 
-      await waitFor(() => expect(screen.getByTestId("osd-preview-still")).toHaveAttribute("src", STILL));
+      await waitFor(
+        () => expect(screen.getByTestId("osd-preview-still")).toHaveAttribute("src", STILL),
+        WAIT,
+      );
       expect(actions(host.invocations)).toContainEqual({ type: "preview", at: 900 });
       expect(screen.getByTestId("osd-preview-time")).toHaveTextContent("15:00");
       expect(
@@ -456,7 +466,10 @@ describe("the player OSD", () => {
       layOutPlayer();
 
       pointAt(0.25);
-      await waitFor(() => expect(screen.getByTestId("osd-preview-still")).toBeInTheDocument());
+      await waitFor(
+        () => expect(screen.getByTestId("osd-preview-still")).toBeInTheDocument(),
+        WAIT,
+      );
       // A moment four seconds later is the same five-second bucket.
       pointAt(0.25 + 4 / 3600);
       await waitFor(() =>
@@ -464,7 +477,10 @@ describe("the player OSD", () => {
       );
 
       fireEvent.pointerLeave(screen.getByTestId("osd-timeline"));
-      await waitFor(() => expect(screen.queryByTestId("osd-preview")).not.toBeInTheDocument());
+      await waitFor(
+        () => expect(screen.queryByTestId("osd-preview")).not.toBeInTheDocument(),
+        WAIT,
+      );
       expect(actions(host.invocations).filter((action) => action.type === "preview")).toHaveLength(1);
     });
 
@@ -478,11 +494,17 @@ describe("the player OSD", () => {
       );
       layOutPlayer();
       pointAt(0.25);
-      await waitFor(() => expect(screen.getByTestId("osd-preview-still")).toHaveAttribute("src", STILL));
+      await waitFor(
+        () => expect(screen.getByTestId("osd-preview-still")).toHaveAttribute("src", STILL),
+        WAIT,
+      );
 
       pointAt(0.625);
 
-      await waitFor(() => expect(screen.getByTestId("osd-preview")).toHaveAttribute("data-pending", "true"));
+      await waitFor(
+        () => expect(screen.getByTestId("osd-preview")).toHaveAttribute("data-pending", "true"),
+        WAIT,
+      );
       expect(
         screen.getByTestId("osd-preview-still"),
         "the still already drawn stays under the pointer while the next bucket is asked for",
@@ -493,7 +515,10 @@ describe("the player OSD", () => {
         release();
       });
 
-      await waitFor(() => expect(screen.getByTestId("osd-preview-still")).toHaveAttribute("src", OTHER));
+      await waitFor(
+        () => expect(screen.getByTestId("osd-preview-still")).toHaveAttribute("src", OTHER),
+        WAIT,
+      );
       expect(screen.getByTestId("osd-preview")).toHaveAttribute("data-pending", "false");
       expect(screen.getByTestId("osd-preview-chapter")).toHaveTextContent("The Choice");
     });
@@ -504,7 +529,10 @@ describe("the player OSD", () => {
 
       pointAt(0.625);
 
-      await waitFor(() => expect(screen.getByTestId("osd-preview")).toHaveAttribute("data-pending", "false"));
+      await waitFor(
+        () => expect(screen.getByTestId("osd-preview")).toHaveAttribute("data-pending", "false"),
+        WAIT,
+      );
       expect(screen.queryByTestId("osd-preview-still")).not.toBeInTheDocument();
       expect(screen.getByTestId("osd-preview-time")).toHaveTextContent("37:30");
       expect(screen.getByTestId("osd-preview-chapter")).toHaveTextContent("The Choice");
@@ -542,7 +570,10 @@ describe("the player OSD", () => {
           { type: "preview", at: 2250 },
         ]),
       );
-      await waitFor(() => expect(screen.getByTestId("osd-preview-still")).toHaveAttribute("src", OTHER));
+      await waitFor(
+        () => expect(screen.getByTestId("osd-preview-still")).toHaveAttribute("src", OTHER),
+        WAIT,
+      );
     });
   });
 

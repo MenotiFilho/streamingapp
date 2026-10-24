@@ -12,6 +12,7 @@ import {
   selectedTrack,
   streamDetails,
   streamTitle,
+  streamKey,
   timelineFraction,
 } from "./osd";
 import { OSD_IDLE_MS } from "./useOsdVisibility";
@@ -210,6 +211,21 @@ describe("the OSD's readings", () => {
       chapterAt([{ index: 0, title: "Late", time: 60 }], 30),
       "a Stream that begins before its first chapter has no chapter there",
     ).toBeNull();
+  });
+
+  test("a still's cache is keyed by the Stream, not by the Video alone", () => {
+    const playing = nowPlaying();
+    const key = streamKey(playing);
+
+    expect(streamKey(null)).toBeNull();
+    // The same Stream is one key.
+    expect(streamKey({ ...playing })).toBe(key);
+    // Another Addon's candidate of the same Video is another Stream.
+    expect(streamKey({ ...playing, addon: "community.other" })).not.toBe(key);
+    // Another release of the same Video is another Stream.
+    expect(streamKey({ ...playing, name: "AIOStreams\n2160p" })).not.toBe(key);
+    // The binge group tells two releases of one episode apart.
+    expect(streamKey({ ...playing, bingeGroup: "aiostreams|2160p" })).not.toBe(key);
   });
 });
 

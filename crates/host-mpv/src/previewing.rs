@@ -5,9 +5,9 @@
 //! the commands that ask for one still. All of it is a list or a string, so what
 //! a preview costs mpv is a decision tested without a player (ADR-0028).
 
-use host_core::bucket_start;
-
 use std::time::Duration;
+
+use host_core::bucket_start;
 
 /// The filter chain an SDR frame is scaled by. Nothing is converted: the frame
 /// the Stream carries is the frame the tooltip shows. 320 pixels wide — a still

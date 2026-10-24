@@ -40,6 +40,7 @@ import {
   qualityBadge,
   remainingTime,
   streamDetails,
+  streamKey,
   streamTitle,
   timelineFraction,
 } from "./osd";
@@ -799,7 +800,7 @@ function Timeline({
   const { position, duration, chapters } = playback;
   const [scrub, setScrub] = useState<number | null>(null);
   const [point, setPoint] = useState<{ at: number; fraction: number } | null>(null);
-  const preview = usePreview(playback.nowPlaying?.video.id ?? null);
+  const preview = usePreview(streamKey(playback.nowPlaying));
   const at = scrub ?? shown;
   const fraction = timelineFraction(at, duration);
   const buffered = bufferedSpan(playback.buffered, duration);

@@ -139,6 +139,7 @@ export function bufferedSpan(
 
 /** One chapter's diamond on the timeline, and where along it the diamond sits. */
 export type ChapterMark = { chapter: Chapter; fraction: number };
+
 /**
  * The chapter markers the timeline draws: the container's own chapters, each
  * placed by the time it starts. A Stream whose length the Player has not said
@@ -182,4 +183,27 @@ export function chapterAt(chapters: Chapter[], at: number): Chapter | null {
     }
   }
   return inside;
+}
+
+/**
+ * What a still is kept under: one Stream, as far as a client can tell one from
+ * another. A Stream URL is never a client's (ADR-0009) — the Addon and its own
+ * words about the candidate are all there is — so those are the key. Two
+ * candidates of the same Video differ in at least one of them, and two that do
+ * not are indistinguishable to this client and would answer the same still
+ * anyway. A new key is what clears the stills of the Stream before it.
+ */
+export function streamKey(nowPlaying: NowPlaying | null): string | null {
+  if (!nowPlaying) {
+    return null;
+  }
+  return [
+    nowPlaying.addon,
+    nowPlaying.video.type,
+    nowPlaying.video.id,
+    nowPlaying.name ?? "",
+    nowPlaying.description ?? "",
+    nowPlaying.filename ?? "",
+    nowPlaying.bingeGroup ?? "",
+  ].join("\u0000");
 }
