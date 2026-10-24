@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import type { Chapter, NowPlaying, PlaybackSnapshot, Track } from "../host-client";
 import {
+  bufferedSpan,
   chapterMarks,
   qualityBadge,
   remainingTime,
@@ -48,6 +49,7 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
     episode: null,
     position: 900,
     duration: 3600,
+    buffered: null,
     tracks: [],
     chapters: [],
     chapter: null,
@@ -144,6 +146,27 @@ describe("the OSD's readings", () => {
     expect(timelineFraction(7200, 3600)).toBe(1);
     expect(timelineFraction(900, null)).toBe(0);
     expect(timelineFraction(900, 0)).toBe(0);
+  });
+
+  test("the buffered span is clamped to the Stream, and absent where there is none", () => {
+    expect(bufferedSpan({ start: 900, end: 1800 }, 3600)).toEqual({ left: 0.25, width: 0.25 });
+    expect(
+      bufferedSpan({ start: -100, end: 7200 }, 3600),
+      "a Player that read past either end is still only this Stream",
+    ).toEqual({ left: 0, width: 1 });
+    expect(
+      bufferedSpan({ start: 3000, end: 3200 }, 3600),
+      "a forward seek leaves the reading behind the picture, and it is still drawn",
+    ).toEqual({ left: 3000 / 3600, width: 200 / 3600 });
+    expect(
+      bufferedSpan({ start: 1800, end: 900 }, 3600),
+      "a span that runs backwards is no span",
+    ).toBeNull();
+    expect(bufferedSpan({ start: 900, end: 900 }, 3600)).toBeNull();
+    expect(bufferedSpan(null, 3600)).toBeNull();
+    expect(bufferedSpan({ start: 900, end: 1800 }, null)).toBeNull();
+    expect(bufferedSpan({ start: 900, end: 1800 }, 0)).toBeNull();
+    expect(bufferedSpan({ start: 900, end: 1800 }, Number.POSITIVE_INFINITY)).toBeNull();
   });
 
   test("chapter diamonds are placed by their start, and not invented without a length", () => {

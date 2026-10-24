@@ -221,6 +221,12 @@ export type PlaybackSnapshot = {
   /** Where playback is in seconds, and how long the Stream is, where known. */
   position: number | null;
   duration: number | null;
+  /**
+   * How much of the Stream the Player has read ahead, in the Stream's own
+   * seconds: `end` can sit behind `position` right after a forward seek, and
+   * that gap is what the reading is for. Null where the Player has no answer.
+   */
+  buffered: { start: number; end: number } | null;
   /** The Stream's tracks — audio and subtitles — in the Player's own order. */
   tracks: Track[];
   /** The Stream's chapters, in the container's order. */

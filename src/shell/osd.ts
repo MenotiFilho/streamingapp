@@ -100,6 +100,36 @@ export function timelineFraction(position: number | null, duration: number | nul
   return Math.min(1, Math.max(0, position / duration));
 }
 
+/**
+ * The span of the timeline the Player has read ahead, as fractions of the
+ * track: both ends clamped into the Stream they belong to, so a Player that
+ * read past either end is still only this Stream. Null where there is nothing
+ * to draw — no answer, no length to place it against, or a span the clamp
+ * emptied. The order of the ends is the Player's business, not a client's: a
+ * span that runs backwards draws nothing.
+ */
+export function bufferedSpan(
+  buffered: { start: number; end: number } | null,
+  duration: number | null,
+): { left: number; width: number } | null {
+  if (
+    buffered === null ||
+    duration === null ||
+    !Number.isFinite(duration) ||
+    duration <= 0 ||
+    !Number.isFinite(buffered.start) ||
+    !Number.isFinite(buffered.end)
+  ) {
+    return null;
+  }
+  const start = Math.min(duration, Math.max(0, buffered.start));
+  const end = Math.min(duration, Math.max(0, buffered.end));
+  if (end <= start) {
+    return null;
+  }
+  return { left: start / duration, width: (end - start) / duration };
+}
+
 /** One chapter's diamond on the timeline, and where along it the diamond sits. */
 export type ChapterMark = { chapter: Chapter; fraction: number };
 

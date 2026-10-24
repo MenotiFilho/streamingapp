@@ -39,6 +39,7 @@ const NOTHING_SAID: Snapshot = {
     episode: null,
     position: null,
     duration: null,
+    buffered: null,
     tracks: [],
     chapters: [],
     chapter: null,
@@ -77,6 +78,7 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
     episode: null,
     position: 900,
     duration: 3600,
+    buffered: { start: 900, end: 1800 },
     tracks: [
       {
         id: 1,
@@ -365,6 +367,23 @@ describe("the player OSD", () => {
       document.documentElement,
       "the browsing page underneath offers no scrollbar while the player owns the window",
     ).toHaveClass("picture-behind");
+  });
+
+  test("draws the buffered reading behind the played fill", async () => {
+    await renderPlayer();
+
+    const buffered = screen.getByTestId("osd-buffered");
+    expect(buffered).toHaveStyle({ left: "25%", width: "25%" });
+    expect(
+      screen.getByTestId("osd-timeline").querySelector(".shell-osd-track")?.firstElementChild,
+      "the muted reading is painted under the accent fill and the playhead",
+    ).toBe(buffered);
+  });
+
+  test("draws no buffered layer when the Player says nothing is read ahead", async () => {
+    await renderPlayer({ buffered: null });
+
+    expect(screen.queryByTestId("osd-buffered")).not.toBeInTheDocument();
   });
 
   test("each icon pushes its own popover, and Back closes it before stopping", async () => {
