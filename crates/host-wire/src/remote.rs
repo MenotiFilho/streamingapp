@@ -18,12 +18,13 @@
 //!
 //! The template on disk is not quite the page that is served. The palette
 //! (`src/tokens.css`), the curated subtitle languages (`src/subtitle-languages.json`),
-//! the subtitle appearance presets (`src/subtitle-appearance.json`), and the
-//! approved TMDB mark are spliced in here, at serve time, through one marker
-//! convention (`/*__SPLICE_NAME__*/`). That keeps `src/tokens.css` the single
-//! palette in the tree and each list one list for two clients, while the bytes a
-//! browser receives are still one self-contained document with no build step
-//! (#88, #126; amending ADR-0017 §2 and ADR-0018 §1).
+//! the subtitle appearance presets (`src/subtitle-appearance.json`), the Stream
+//! buffer presets (`src/stream-buffer.json`), and the approved TMDB mark are
+//! spliced in here, at serve time, through one marker convention
+//! (`/*__SPLICE_NAME__*/`). That keeps `src/tokens.css` the single palette in the
+//! tree and each list one list for two clients, while the bytes a browser
+//! receives are still one self-contained document with no build step (#88,
+//! #126, #135; amending ADR-0017 §2 and ADR-0018 §1).
 
 use std::io;
 use std::net::TcpStream;
@@ -46,6 +47,10 @@ const SUBTITLE_LANGUAGES: &str = include_str!("../../../src/subtitle-languages.j
 /// so the window's chips and the Remote's cannot drift (ADR-0024 §5).
 const SUBTITLE_APPEARANCE: &str = include_str!("../../../src/subtitle-appearance.json");
 
+/// The Stream buffer presets (#135), the same file `src/controls.ts` imports, so
+/// the two clients offer one list (ADR-0026).
+const STREAM_BUFFER: &str = include_str!("../../../src/stream-buffer.json");
+
 /// The approved TMDB mark, spliced from the window's own asset so the two
 /// clients cannot drift.
 const TMDB_LOGO: &str = include_str!("../../../src/assets/tmdb-logo.svg");
@@ -60,13 +65,15 @@ const KEY_INTENTS_SOURCE: &str = include_str!("../../../src/input.ts");
 const TOKENS_MARKER: &str = "/*__SPLICE_TOKENS__*/";
 const SUBTITLE_LANGUAGES_MARKER: &str = "/*__SPLICE_SUBTITLE_LANGUAGES__*/";
 const SUBTITLE_APPEARANCE_MARKER: &str = "/*__SPLICE_SUBTITLE_APPEARANCE__*/";
+const STREAM_BUFFER_MARKER: &str = "/*__SPLICE_STREAM_BUFFER__*/";
 const TMDB_LOGO_MARKER: &str = "/*__SPLICE_TMDB_LOGO__*/";
 
 /// Every marker the template must carry, in the order it is spliced.
-const MARKERS: [&str; 4] = [
+const MARKERS: [&str; 5] = [
     TOKENS_MARKER,
     SUBTITLE_LANGUAGES_MARKER,
     SUBTITLE_APPEARANCE_MARKER,
+    STREAM_BUFFER_MARKER,
     TMDB_LOGO_MARKER,
 ];
 
@@ -93,6 +100,7 @@ fn splice(template: &str) -> String {
         .replace(TOKENS_MARKER, TOKENS)
         .replace(SUBTITLE_LANGUAGES_MARKER, SUBTITLE_LANGUAGES)
         .replace(SUBTITLE_APPEARANCE_MARKER, SUBTITLE_APPEARANCE)
+        .replace(STREAM_BUFFER_MARKER, STREAM_BUFFER)
         .replace(TMDB_LOGO_MARKER, TMDB_LOGO)
 }
 
@@ -126,8 +134,8 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use super::{
-        page, KEY_INTENTS_SOURCE, MARKERS, SUBTITLE_APPEARANCE, SUBTITLE_LANGUAGES, TEMPLATE,
-        TMDB_LOGO, TOKENS,
+        page, KEY_INTENTS_SOURCE, MARKERS, STREAM_BUFFER, SUBTITLE_APPEARANCE, SUBTITLE_LANGUAGES,
+        TEMPLATE, TMDB_LOGO, TOKENS,
     };
 
     /// The page's capability list: the Actions it says it can send, read out of
@@ -285,6 +293,104 @@ mod tests {
                 "{scale} is a size the Host accepts"
             );
         }
+    }
+
+    #[test]
+    fn the_served_page_carries_the_stream_buffer_controls() {
+        // The Remote is the window's equal (#32, ADR-0018): the buffer is one
+        // preference, and the page carries both halves of it as chips.
+        let served = page();
+        for needle in [
+            r#"data-a="buffer-seconds""#,
+            r#"data-a="buffer-megabytes""#,
+            r#"case "buffer-seconds": {"#,
+            r#"case "buffer-megabytes": {"#,
+            "STREAM_BUFFER_SECONDS",
+            "STREAM_BUFFER_MEGABYTES",
+            "set_stream_buffer",
+            "Look-ahead",
+            "Memory ceiling",
+        ] {
+            assert!(served.contains(needle), "the served page carries {needle}");
+        }
+    }
+
+    #[test]
+    fn the_shared_stream_buffer_list_agrees_with_the_hosts_bounds() {
+        // `src/stream-buffer.json` is imported by `src/controls.ts`, spliced
+        // into the served page, and held here to the bounds `StreamBuffer`
+        // validates against — one list for two clients (ADR-0026).
+        let buffer: serde_json::Value =
+            serde_json::from_str(STREAM_BUFFER).expect("the buffer list is JSON");
+
+        assert_eq!(
+            buffer["minSeconds"].as_u64(),
+            Some(host_core::StreamBuffer::MIN_SECONDS),
+            "the list's smallest look-ahead is StreamBuffer::MIN_SECONDS"
+        );
+        assert_eq!(
+            buffer["maxSeconds"].as_u64(),
+            Some(host_core::StreamBuffer::MAX_SECONDS),
+            "the list's longest look-ahead is StreamBuffer::MAX_SECONDS"
+        );
+        assert_eq!(
+            buffer["minMegabytes"].as_u64(),
+            Some(host_core::StreamBuffer::MIN_MEGABYTES),
+            "the list's smallest ceiling is StreamBuffer::MIN_MEGABYTES"
+        );
+        assert_eq!(
+            buffer["maxMegabytes"].as_u64(),
+            Some(host_core::StreamBuffer::MAX_MEGABYTES),
+            "the list's largest ceiling is StreamBuffer::MAX_MEGABYTES"
+        );
+        assert_eq!(
+            buffer["defaultSeconds"].as_u64(),
+            Some(host_core::StreamBuffer::DEFAULT_SECONDS),
+            "the list's default look-ahead is StreamBuffer::DEFAULT_SECONDS"
+        );
+        assert_eq!(
+            buffer["defaultMegabytes"].as_u64(),
+            Some(host_core::StreamBuffer::DEFAULT_MEGABYTES),
+            "the list's default ceiling is StreamBuffer::DEFAULT_MEGABYTES"
+        );
+
+        let seconds = buffer["seconds"]
+            .as_array()
+            .expect("the buffer list carries look-aheads");
+        for choice in seconds {
+            let seconds = choice["seconds"]
+                .as_u64()
+                .expect("a look-ahead is a number");
+            assert!(
+                host_core::StreamBuffer::parse(seconds, host_core::StreamBuffer::DEFAULT_MEGABYTES)
+                    .is_ok(),
+                "{seconds} s is a look-ahead the Host accepts"
+            );
+        }
+        let megabytes = buffer["megabytes"]
+            .as_array()
+            .expect("the buffer list carries ceilings");
+        for choice in megabytes {
+            let megabytes = choice["megabytes"].as_u64().expect("a ceiling is a number");
+            assert!(
+                host_core::StreamBuffer::parse(host_core::StreamBuffer::DEFAULT_SECONDS, megabytes)
+                    .is_ok(),
+                "{megabytes} MB is a ceiling the Host accepts"
+            );
+        }
+
+        // The default pair is one of the choices: a Host that has never been
+        // told shows a chip pressed, not an Other nobody chose.
+        assert!(
+            seconds.iter().any(|choice| choice["seconds"].as_u64()
+                == Some(host_core::StreamBuffer::DEFAULT_SECONDS)),
+            "the default look-ahead has a chip"
+        );
+        assert!(
+            megabytes.iter().any(|choice| choice["megabytes"].as_u64()
+                == Some(host_core::StreamBuffer::DEFAULT_MEGABYTES)),
+            "the default ceiling has a chip"
+        );
     }
 
     #[test]

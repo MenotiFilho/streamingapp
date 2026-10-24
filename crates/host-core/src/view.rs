@@ -262,6 +262,7 @@ impl HostView {
             | ValidatedAction::ClearSubtitleLanguage
             | ValidatedAction::SetSubtitleColor(_)
             | ValidatedAction::SetSubtitleScale(_)
+            | ValidatedAction::SetStreamBuffer(_)
             | ValidatedAction::SetFeaturedCatalog { .. }
             | ValidatedAction::ClearFeaturedCatalog
             | ValidatedAction::AddAddon(_)

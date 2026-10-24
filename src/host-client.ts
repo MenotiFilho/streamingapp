@@ -26,6 +26,13 @@ export type Snapshot = {
     subtitleColor: string;
     /** A finite multiplier from 0.5 to 2.0. */
     subtitleScale: number;
+    /**
+     * How much of a Stream the Player keeps read ahead: the look-ahead it aims
+     * for, and the memory that look-ahead may take. Always a pair — a Host that
+     * has never been told keeps five minutes up to half a gigabyte (#135,
+     * ADR-0026).
+     */
+    streamBuffer: { seconds: number; megabytes: number };
   };
   addons: AddonManifest[];
   /**
@@ -514,6 +521,10 @@ export type Action =
   // subtitle track leaves its own colour open; a size applies to every track.
   | { type: "set_subtitle_color"; color: string }
   | { type: "set_subtitle_scale"; scale: number }
+  // The Stream buffer (#135, ADR-0026): the look-ahead the Player aims for and
+  // the memory it may take. One Action carries the pair, so the two limits
+  // cannot be half-applied.
+  | { type: "set_stream_buffer"; seconds: number; megabytes: number }
   // The Featured catalog (#74): a preference of the Host's rather than this
   // client's, so marking one changes what *every* client's Home is drawn from.
   | {
@@ -626,6 +637,7 @@ export const HOST_ERROR_KINDS = [
   "invalid_subtitle_language",
   "invalid_subtitle_color",
   "invalid_subtitle_scale",
+  "invalid_stream_buffer",
   "invalid_manifest_url",
   "invalid_addon_id",
   "invalid_tmdb_key",
@@ -809,6 +821,8 @@ export function explain(error: ActionError): string {
       return `${JSON.stringify(error.color)} is not a subtitle colour — a colour is "#RRGGBB", like "#FFFF00".`;
     case "invalid_subtitle_scale":
       return `${JSON.stringify(error.scale)} is not a subtitle size — a size is between 0.5 and 2.0.`;
+    case "invalid_stream_buffer":
+      return `The Host will not keep that Stream buffer${error.detail ? `: ${error.detail}` : ""}.`;
     case "invalid_manifest_url":
       return `${JSON.stringify(error.url)} is not a manifest URL — paste the address of an Addon's manifest.json, like "https://example.com/manifest.json".`;
     case "invalid_addon_id":

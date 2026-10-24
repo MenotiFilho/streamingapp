@@ -2,9 +2,17 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 
 import { catalogKey, declaredCatalogs, keyOf, type DeclaredCatalog } from "../browse";
 import {
+  STREAM_BUFFER_DEFAULT_MEGABYTES,
+  STREAM_BUFFER_DEFAULT_SECONDS,
+  STREAM_BUFFER_MEGABYTES,
+  STREAM_BUFFER_SECONDS,
   SUBTITLE_COLORS,
   SUBTITLE_SCALES,
+  bufferMegabytesPreset,
+  bufferSecondsPreset,
   colorSelected,
+  formatBufferMegabytes,
+  formatBufferSeconds,
   formatScale,
   scalePreset,
   scaleSelected,
@@ -45,7 +53,7 @@ const CATEGORIES: readonly SettingsCategory[] = [
   {
     id: "preferences",
     title: "Preferences",
-    note: "Subtitle language and appearance, and the one Catalog Home's hero is drawn from.",
+    note: "Subtitle language and appearance, the Stream buffer, and the one Catalog Home's hero is drawn from.",
     screen: () => <PreferencesScreen />,
   },
   {
@@ -315,8 +323,23 @@ function PreferencesScreen() {
   const heldLanguage = snapshot?.preferences.subtitleLanguage ?? null;
   const heldColor = snapshot?.preferences.subtitleColor ?? "#FFFFFF";
   const heldScale = snapshot?.preferences.subtitleScale ?? 1;
+  const publishedBuffer = snapshot?.preferences.streamBuffer ?? {
+    seconds: STREAM_BUFFER_DEFAULT_SECONDS,
+    megabytes: STREAM_BUFFER_DEFAULT_MEGABYTES,
+  };
+  /**
+   * The pair the chips draw before the Host has answered a press. Without it,
+   * two quick presses compose from the same Snapshot and the second silently
+   * reverts the first (ADR-0026's "the two cannot drift apart").
+   */
+  const [bufferDraft, setBufferDraft] = useState(publishedBuffer);
+  useEffect(() => {
+    setBufferDraft(publishedBuffer);
+  }, [publishedBuffer.seconds, publishedBuffer.megabytes]);
+  const heldBuffer = bufferDraft;
   const [languageError, setLanguageError] = useState<ActionError | null>(null);
   const [appearanceError, setAppearanceError] = useState<ActionError | null>(null);
+  const [bufferError, setBufferError] = useState<ActionError | null>(null);
   const [featuredError, setFeaturedError] = useState<ActionError | null>(null);
 
   const known = SUBTITLE_LANGUAGES.some((language) => language.tag === heldLanguage);
@@ -350,6 +373,22 @@ function PreferencesScreen() {
     }
   };
 
+  /**
+   * One press moves one of the pair and keeps the other where the client last
+   * put it: the Action carries both, and the draft moves before the Host
+   * answers so a second press composes from the first (ADR-0026).
+   */
+  const pickBuffer = async (seconds: number, megabytes: number) => {
+    setBufferError(null);
+    const next = { seconds, megabytes };
+    setBufferDraft(next);
+    const outcome = await ask({ type: "set_stream_buffer", ...next });
+    if (outcome.error) {
+      setBufferError(outcome.error);
+      setBufferDraft(publishedBuffer);
+    }
+  };
+
   const pickFeatured = async (choice: DeclaredCatalog | null) => {
     setFeaturedError(null);
     const outcome = await ask(
@@ -370,7 +409,7 @@ function PreferencesScreen() {
     <SettingsLevel
       id="preferences"
       title="Preferences"
-      lede="What the Host prefers when it picks and draws subtitles, and the Catalog Home's hero is drawn from."
+      lede="What the Host prefers when it picks and draws subtitles, how much of a Stream it keeps read ahead, and which Catalog Home's hero is drawn from."
     >
       <SettingsSection id="subtitle-language" title="Subtitle language">
         <p className="settings-copy" data-testid="subtitle-language">
@@ -471,6 +510,71 @@ function PreferencesScreen() {
           ) : null}
         </div>
         <Refusal error={appearanceError} testId="subtitle-appearance-error" />
+      </SettingsSection>
+
+      <SettingsSection id="stream-buffer" title="Stream buffer">
+        <p className="settings-copy" data-testid="stream-buffer">
+          How much of the Stream the Player keeps read ahead, so a dip in the
+          network is ridden out instead of interrupting playback. It aims for
+          this much of the Stream, up to this much memory — whichever limit it
+          reaches first. Raising it helps a high-bitrate Stream through a longer
+          dip; lowering it gives the memory back.
+        </p>
+        <p className="settings-copy">Look-ahead — five minutes is the default.</p>
+        <div
+          className="settings-choice-grid"
+          data-region="settings-buffer-seconds"
+          data-kind="branch"
+          data-label="Stream buffer time"
+        >
+          {STREAM_BUFFER_SECONDS.map((choice) => (
+            <ChoiceChip
+              key={choice.seconds}
+              pressed={heldBuffer.seconds === choice.seconds}
+              data-testid={`buffer-seconds-${choice.seconds}`}
+              onClick={() => void pickBuffer(choice.seconds, heldBuffer.megabytes)}
+            >
+              {choice.label}
+            </ChoiceChip>
+          ))}
+          {!bufferSecondsPreset(heldBuffer.seconds) ? (
+            <ChoiceChip
+              pressed
+              data-testid="buffer-seconds-other"
+              onClick={() => void pickBuffer(heldBuffer.seconds, heldBuffer.megabytes)}
+            >
+              {formatBufferSeconds(heldBuffer.seconds)}
+            </ChoiceChip>
+          ) : null}
+        </div>
+        <p className="settings-copy">Memory ceiling — 512 MB is the default.</p>
+        <div
+          className="settings-choice-grid"
+          data-region="settings-buffer-megabytes"
+          data-kind="branch"
+          data-label="Stream buffer memory"
+        >
+          {STREAM_BUFFER_MEGABYTES.map((choice) => (
+            <ChoiceChip
+              key={choice.megabytes}
+              pressed={heldBuffer.megabytes === choice.megabytes}
+              data-testid={`buffer-megabytes-${choice.megabytes}`}
+              onClick={() => void pickBuffer(heldBuffer.seconds, choice.megabytes)}
+            >
+              {choice.label}
+            </ChoiceChip>
+          ))}
+          {!bufferMegabytesPreset(heldBuffer.megabytes) ? (
+            <ChoiceChip
+              pressed
+              data-testid="buffer-megabytes-other"
+              onClick={() => void pickBuffer(heldBuffer.seconds, heldBuffer.megabytes)}
+            >
+              {formatBufferMegabytes(heldBuffer.megabytes)}
+            </ChoiceChip>
+          ) : null}
+        </div>
+        <Refusal error={bufferError} testId="stream-buffer-error" />
       </SettingsSection>
 
       <SettingsSection id="featured-catalog" title="Featured catalog">

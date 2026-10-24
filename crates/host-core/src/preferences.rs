@@ -13,6 +13,7 @@ pub struct Preferences {
     subtitle_language: Option<SubtitleLanguage>,
     subtitle_color: SubtitleColor,
     subtitle_scale: SubtitleScale,
+    stream_buffer: StreamBuffer,
     featured_catalog: Option<FeaturedCatalog>,
 }
 
@@ -55,6 +56,17 @@ impl Preferences {
         self.subtitle_scale = scale;
     }
 
+    /// How much of a Stream the Player keeps read ahead of where it is playing:
+    /// the look-ahead it aims for and the memory that look-ahead may take.
+    pub fn stream_buffer(&self) -> StreamBuffer {
+        self.stream_buffer
+    }
+
+    /// Set the Stream buffer preference.
+    pub fn set_stream_buffer(&mut self, buffer: StreamBuffer) {
+        self.stream_buffer = buffer;
+    }
+
     /// The one Catalog the owner has marked as the Host's featured feed, where
     /// one is marked: what a client's Home hero is drawn from.
     pub fn featured_catalog(&self) -> Option<&FeaturedCatalog> {
@@ -72,12 +84,14 @@ impl Preferences {
         subtitle_language: Option<SubtitleLanguage>,
         subtitle_color: SubtitleColor,
         subtitle_scale: SubtitleScale,
+        stream_buffer: StreamBuffer,
         featured_catalog: Option<FeaturedCatalog>,
     ) -> Self {
         Self {
             subtitle_language,
             subtitle_color,
             subtitle_scale,
+            stream_buffer,
             featured_catalog,
         }
     }
@@ -89,6 +103,7 @@ impl Preferences {
             language,
             SubtitleColor::default(),
             SubtitleScale::default(),
+            StreamBuffer::default(),
             None,
         )
     }
@@ -289,6 +304,96 @@ pub struct InvalidSubtitleScale {
     pub scale: String,
 }
 
+/// How much of a Stream the Player keeps read ahead of where it is playing.
+///
+/// Two limits, because either alone lies: five minutes at a low bitrate is a
+/// handful of megabytes, and five minutes at a 4K remux's bitrate is tens of
+/// gigabytes. The Player aims for `seconds` and stops where `megabytes` is
+/// reached, so a dip in the network is ridden out only as far as both allow. It
+/// is the Host's preference and not a Stream's, and its two values are stored as
+/// one document so they cannot drift (ADR-0026).
+///
+/// The unit of `megabytes` is the decimal megabyte, which is what the interface
+/// says; the Player converts it to the byte counts its own cache takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StreamBuffer {
+    seconds: u64,
+    megabytes: u64,
+}
+
+impl StreamBuffer {
+    /// The look-ahead the Host starts from, in seconds.
+    pub const DEFAULT_SECONDS: u64 = 300;
+
+    /// The memory ceiling the Host starts from, in megabytes.
+    pub const DEFAULT_MEGABYTES: u64 = 512;
+
+    /// The shortest look-ahead the Host will set.
+    pub const MIN_SECONDS: u64 = 5;
+
+    /// The longest look-ahead the Host will set.
+    pub const MAX_SECONDS: u64 = 3600;
+
+    /// The smallest memory ceiling the Host will set.
+    pub const MIN_MEGABYTES: u64 = 64;
+
+    /// The largest memory ceiling the Host will set.
+    pub const MAX_MEGABYTES: u64 = 4096;
+
+    /// Parse a pair of limits, or say why this pair is not one.
+    pub fn parse(seconds: u64, megabytes: u64) -> Result<Self, InvalidStreamBuffer> {
+        if !(Self::MIN_SECONDS..=Self::MAX_SECONDS).contains(&seconds) {
+            return Err(InvalidStreamBuffer {
+                detail: format!(
+                    "{seconds} is not a buffer time — a time is a whole number of seconds \
+                     from {} to {}",
+                    Self::MIN_SECONDS,
+                    Self::MAX_SECONDS
+                ),
+            });
+        }
+        if !(Self::MIN_MEGABYTES..=Self::MAX_MEGABYTES).contains(&megabytes) {
+            return Err(InvalidStreamBuffer {
+                detail: format!(
+                    "{megabytes} is not a buffer size — a size is a whole number of megabytes \
+                     from {} to {}",
+                    Self::MIN_MEGABYTES,
+                    Self::MAX_MEGABYTES
+                ),
+            });
+        }
+
+        Ok(Self { seconds, megabytes })
+    }
+
+    /// How many seconds of a Stream the Player aims to keep read ahead.
+    pub fn seconds(&self) -> u64 {
+        self.seconds
+    }
+
+    /// The ceiling on the memory that read-ahead may take, in megabytes.
+    pub fn megabytes(&self) -> u64 {
+        self.megabytes
+    }
+}
+
+impl Default for StreamBuffer {
+    fn default() -> Self {
+        Self {
+            seconds: Self::DEFAULT_SECONDS,
+            megabytes: Self::DEFAULT_MEGABYTES,
+        }
+    }
+}
+
+/// A pair of limits that is not a Stream buffer, offered as one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
+#[error("{detail}")]
+pub struct InvalidStreamBuffer {
+    pub detail: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -406,5 +511,47 @@ mod tests {
     #[test]
     fn the_default_scale_is_one() {
         assert_eq!(SubtitleScale::default().value(), 1.0);
+    }
+
+    #[test]
+    fn a_stream_buffer_is_a_look_ahead_and_a_memory_ceiling() {
+        for (seconds, megabytes) in [(5, 64), (300, 512), (3600, 4096)] {
+            assert_eq!(
+                StreamBuffer::parse(seconds, megabytes)
+                    .map(|buffer| (buffer.seconds(), buffer.megabytes())),
+                Ok((seconds, megabytes)),
+                "{seconds} s and {megabytes} MB is a buffer"
+            );
+        }
+    }
+
+    #[test]
+    fn buffer_values_outside_the_range_are_refused() {
+        for (seconds, megabytes) in [
+            (0, 512),    // no time at all
+            (4, 512),    // shorter than the shortest
+            (3601, 512), // longer than the longest
+            (300, 0),    // no memory at all
+            (300, 63),   // smaller than the smallest
+            (300, 4097), // larger than the largest
+        ] {
+            assert!(
+                StreamBuffer::parse(seconds, megabytes).is_err(),
+                "{seconds} s and {megabytes} MB is not a buffer"
+            );
+        }
+    }
+
+    #[test]
+    fn the_default_buffer_is_five_minutes_up_to_half_a_gigabyte() {
+        let buffer = StreamBuffer::default();
+
+        assert_eq!(buffer.seconds(), 300);
+        assert_eq!(buffer.megabytes(), 512);
+        assert_eq!(
+            serde_json::to_value(buffer).expect("a buffer serializes"),
+            serde_json::json!({"seconds": 300, "megabytes": 512}),
+            "the wire carries the pair as two camelCase numbers"
+        );
     }
 }

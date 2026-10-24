@@ -10,8 +10,8 @@ use crate::playback::{
     InvalidSubtitleDelay, InvalidVolume, SeekTarget, TrackId, Unplayable,
 };
 use crate::preferences::{
-    InvalidSubtitleColor, InvalidSubtitleLanguage, InvalidSubtitleScale, SubtitleColor,
-    SubtitleLanguage, SubtitleScale,
+    InvalidStreamBuffer, InvalidSubtitleColor, InvalidSubtitleLanguage, InvalidSubtitleScale,
+    StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale,
 };
 use crate::progress::{TitleCard, TitleStub};
 use crate::request::{
@@ -59,6 +59,16 @@ pub enum Action {
     /// The same preference for both kinds of subtitle: a track's own styling
     /// does not override the size, unlike the colour (ADR-0024).
     SetSubtitleScale { scale: f64 },
+    /// Keep `seconds` of the Stream read ahead of where playback is, up to
+    /// `megabytes` of memory.
+    ///
+    /// A preference of the Host's, not a client's: an owner sets it once and
+    /// every Stream and every client follows it. Two limits because either
+    /// alone lies — a look-ahead of five minutes is a handful of megabytes at a
+    /// low bitrate and tens of gigabytes at a 4K remux's bitrate (ADR-0026).
+    /// One Action carries the pair so that a client cannot set one without the
+    /// other.
+    SetStreamBuffer { seconds: u64, megabytes: u64 },
     /// Mark the Addon's Catalog as the Host's featured feed.
     ///
     /// A preference of the Host's rather than a client's: every client's Home
@@ -335,6 +345,7 @@ action_spellings! {
     Action::ClearSubtitleLanguage => "clear_subtitle_language",
     Action::SetSubtitleColor { .. } => "set_subtitle_color",
     Action::SetSubtitleScale { .. } => "set_subtitle_scale",
+    Action::SetStreamBuffer { .. } => "set_stream_buffer",
     Action::SetFeaturedCatalog { .. } => "set_featured_catalog",
     Action::ClearFeaturedCatalog => "clear_featured_catalog",
     Action::AddAddon { .. } => "add_addon",
@@ -430,6 +441,10 @@ impl Action {
             Action::SetSubtitleScale { scale } => {
                 let scale = SubtitleScale::parse(scale)?;
                 Ok(ValidatedAction::SetSubtitleScale(scale))
+            }
+            Action::SetStreamBuffer { seconds, megabytes } => {
+                let buffer = StreamBuffer::parse(seconds, megabytes)?;
+                Ok(ValidatedAction::SetStreamBuffer(buffer))
             }
             Action::SetFeaturedCatalog { addon, catalog } => {
                 let addon = AddonId::parse(&addon)?;
@@ -660,6 +675,9 @@ pub enum ValidatedAction {
     ClearSubtitleLanguage,
     SetSubtitleColor(SubtitleColor),
     SetSubtitleScale(SubtitleScale),
+    /// The look-ahead the Player aims for and the memory it may take, judged
+    /// together so the pair cannot be half-applied (ADR-0026).
+    SetStreamBuffer(StreamBuffer),
     /// A Catalog the owner marked as the featured one, with both halves judged
     /// before either is looked up: a marked Catalog exists.
     SetFeaturedCatalog {
@@ -820,6 +838,7 @@ impl ValidatedAction {
             | Self::ClearSubtitleLanguage
             | Self::SetSubtitleColor(_)
             | Self::SetSubtitleScale(_)
+            | Self::SetStreamBuffer(_)
             | Self::SetFeaturedCatalog { .. }
             | Self::ClearFeaturedCatalog
             | Self::AddAddon(_)
@@ -877,6 +896,8 @@ pub enum ActionError {
     InvalidSubtitleColor(#[from] InvalidSubtitleColor),
     #[error("{0}")]
     InvalidSubtitleScale(#[from] InvalidSubtitleScale),
+    #[error("{0}")]
+    InvalidStreamBuffer(#[from] InvalidStreamBuffer),
     #[error("{0}")]
     InvalidManifestUrl(#[from] InvalidManifestUrl),
     #[error("{0}")]
@@ -1055,6 +1076,7 @@ impl ActionError {
             Self::InvalidSubtitleLanguage(_) => "invalid_subtitle_language",
             Self::InvalidSubtitleColor(_) => "invalid_subtitle_color",
             Self::InvalidSubtitleScale(_) => "invalid_subtitle_scale",
+            Self::InvalidStreamBuffer(_) => "invalid_stream_buffer",
             Self::InvalidManifestUrl(_) => "invalid_manifest_url",
             Self::InvalidAddonId(_) => "invalid_addon_id",
             Self::InvalidTmdbKey(_) => "invalid_tmdb_key",
@@ -2001,6 +2023,7 @@ mod tests {
         r#"{"type":"clear_subtitle_language"}"#,
         r##"{"type":"set_subtitle_color","color":"#ffcc00"}"##,
         r#"{"type":"set_subtitle_scale","scale":1.25}"#,
+        r#"{"type":"set_stream_buffer","seconds":300,"megabytes":512}"#,
         r#"{"type":"set_featured_catalog","addon":"community.example","catalog":{"type":"movie","id":"top"}}"#,
         r#"{"type":"clear_featured_catalog"}"#,
         r#"{"type":"add_addon","url":"https://example.com/manifest.json"}"#,

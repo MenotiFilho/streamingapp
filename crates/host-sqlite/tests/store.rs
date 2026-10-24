@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use host_core::{
     Addon, AddonId, CatalogRef, FeaturedCatalog, Manifest, ManifestUrl, Preferences, Store,
-    StoreError, SubtitleColor, SubtitleLanguage, SubtitleScale,
+    StoreError, StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale,
 };
 use host_sqlite::SqliteStore;
 use rusqlite::Connection;
@@ -227,6 +227,75 @@ fn a_stored_subtitle_size_that_is_not_a_number_is_reported_and_not_a_panic() {
         assert!(
             matches!(read, Err(StoreError::Read { .. })),
             "a stored size of {unusable:?} is a read failure, not a crash: {read:?}"
+        );
+    }
+}
+
+#[test]
+fn a_stream_buffer_round_trips() {
+    let store = store();
+    let mut written = Preferences::new();
+    written.set_stream_buffer(StreamBuffer::parse(600, 1024).expect("a buffer"));
+
+    store
+        .write_preferences(&written)
+        .expect("the store takes the buffer");
+
+    assert_eq!(store.read_preferences(), Ok(written));
+}
+
+#[test]
+fn a_stream_buffer_that_was_never_written_reads_back_as_the_default() {
+    let store = store();
+    let read = store.read_preferences().expect("the store answers");
+
+    assert_eq!(read.stream_buffer().seconds(), 300);
+    assert_eq!(read.stream_buffer().megabytes(), 512);
+}
+
+#[test]
+fn the_buffer_is_written_beside_the_language_in_one_preference_write() {
+    let (_directory, path) = store_on_disk();
+    let store = SqliteStore::open(&path).expect("the store opens");
+    store
+        .write_preferences(&Preferences::with_subtitle_language(Some(language(
+            "pt-BR",
+        ))))
+        .expect("the store takes a preference");
+
+    assert_eq!(
+        stored_rows(&path, "stream_buffer"),
+        1,
+        "the default pair is a value the Host holds, not an absent row"
+    );
+}
+
+#[test]
+fn a_stored_stream_buffer_that_is_out_of_range_is_reported_and_not_a_panic() {
+    for unusable in [
+        r#"{"seconds":0,"megabytes":512}"#,
+        r#"{"seconds":300,"megabytes":4097}"#,
+        r#"{"seconds":300}"#,
+        "nonsense",
+    ] {
+        let (_directory, path) = store_on_disk();
+        let store = SqliteStore::open(&path).expect("the store opens");
+        store
+            .write_preferences(&Preferences::new())
+            .expect("the store takes a preference");
+        Connection::open(&path)
+            .expect("the database opens")
+            .execute(
+                "UPDATE preferences SET value = ?1 WHERE key = 'stream_buffer'",
+                [unusable],
+            )
+            .expect("the stored buffer is made unusable");
+
+        let read = store.read_preferences();
+
+        assert!(
+            matches!(read, Err(StoreError::Read { .. })),
+            "a stored buffer of {unusable:?} is a read failure, not a crash: {read:?}"
         );
     }
 }

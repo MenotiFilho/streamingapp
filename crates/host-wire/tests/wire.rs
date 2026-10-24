@@ -313,6 +313,29 @@ fn a_paired_client_sets_the_subtitle_appearance_and_sees_the_hosts_values() {
 }
 
 #[test]
+fn a_paired_client_sets_the_stream_buffer_and_sees_it_pushed() {
+    let (fixture, server) = server();
+    let mut client = Client::connect(&server);
+    client.hello(None);
+    pair(&mut client, &fixture, "Test phone");
+
+    let set = client.command(
+        3,
+        json!({ "type": "set_stream_buffer", "seconds": 600, "megabytes": 1024 }),
+    );
+    assert!(
+        set.get("response").is_some(),
+        "the Remote can change the buffer: {set}"
+    );
+    let pushed =
+        client.snapshot_where(|snapshot| snapshot["preferences"]["streamBuffer"]["seconds"] == 600);
+    assert_eq!(
+        pushed["snapshot"]["preferences"]["streamBuffer"]["megabytes"], 1024,
+        "the ceiling arrives beside the look-ahead: {pushed}"
+    );
+}
+
+#[test]
 fn a_client_that_reconnects_is_told_the_state_as_it_stands() {
     let (fixture, server) = server();
     let mut first = Client::connect(&server);

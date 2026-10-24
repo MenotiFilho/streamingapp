@@ -499,7 +499,7 @@
       comment: a control wired to an Action this list does not name throws
       rather than sending it.
     -->
-    <script type="application/json" id="action-capabilities">["set_subtitle_language","clear_subtitle_language","set_subtitle_color","set_subtitle_scale","set_featured_catalog","clear_featured_catalog","add_addon","reorder_addon","remove_addon","set_tmdb_key","clear_tmdb_key","sign_in_stremio","sign_out_stremio","pair_device","revoke_device","browse_catalog","search_catalogs","discover","search","open_title","open_discovered_title","find_streams","play_stream","resume","set_paused","seek","set_audio_track","set_subtitle_track","set_subtitle_delay","set_speed","set_volume","set_muted","next_chapter","previous_chapter","set_chapter","set_crop","autocrop","set_aspect","next_episode","previous_episode","stop_playback"]</script>
+    <script type="application/json" id="action-capabilities">["set_subtitle_language","clear_subtitle_language","set_subtitle_color","set_subtitle_scale","set_stream_buffer","set_featured_catalog","clear_featured_catalog","add_addon","reorder_addon","remove_addon","set_tmdb_key","clear_tmdb_key","sign_in_stremio","sign_out_stremio","pair_device","revoke_device","browse_catalog","search_catalogs","discover","search","open_title","open_discovered_title","find_streams","play_stream","resume","set_paused","seek","set_audio_track","set_subtitle_track","set_subtitle_delay","set_speed","set_volume","set_muted","next_chapter","previous_chapter","set_chapter","set_crop","autocrop","set_aspect","next_episode","previous_episode","stop_playback"]</script>
 
     <!-- What a device that has not paired sees. -->
     <section id="pairing" class="pairing hidden">
@@ -632,6 +632,11 @@
       const SUBTITLE_APPEARANCE = /*__SPLICE_SUBTITLE_APPEARANCE__*/;
       const SUBTITLE_COLORS = SUBTITLE_APPEARANCE.colors;
       const SUBTITLE_SCALES = SUBTITLE_APPEARANCE.scales;
+      // The Stream buffer presets (#135, ADR-0026), spliced from
+      // `src/stream-buffer.json` — the same list the window's Settings imports.
+      const STREAM_BUFFER = /*__SPLICE_STREAM_BUFFER__*/;
+      const STREAM_BUFFER_SECONDS = STREAM_BUFFER.seconds;
+      const STREAM_BUFFER_MEGABYTES = STREAM_BUFFER.megabytes;
       const ASPECTS = [
         { label: "Source", aspect: { kind: "source" } },
         { label: "16:9", aspect: { kind: "ratio", value: 16 / 9 } },
@@ -655,7 +660,7 @@
       /** The four Settings categories, shared by the list and its pushed titles. */
       const SETTINGS_CATEGORIES = [
         { id: "credentials", title: "Credentials", note: "The secret store, the TMDB key, and the Stremio account." },
-        { id: "preferences", title: "Preferences", note: "Subtitle language and appearance, and the one Catalog Home's hero is drawn from." },
+        { id: "preferences", title: "Preferences", note: "Subtitle language and appearance, the Stream buffer, and the one Catalog Home's hero is drawn from." },
         { id: "remote-devices", title: "Remote devices", note: "The address a browser pairs with, the code, and paired devices." },
         { id: "about", title: "About/Credits", note: "The licences and TMDB attribution." },
       ];
@@ -721,6 +726,24 @@
       }
       function colorSelected(current, choice) {
         return String(current).toUpperCase() === choice.toUpperCase();
+      }
+      function formatBufferSeconds(seconds) {
+        if (seconds >= 60 && seconds % 60 === 0) { return (seconds / 60) + " min"; }
+        return seconds + " s";
+      }
+      function formatBufferMegabytes(megabytes) {
+        return megabytes + " MB";
+      }
+      function bufferSecondsPreset(seconds) {
+        return STREAM_BUFFER_SECONDS.some((choice) => choice.seconds === seconds);
+      }
+      function bufferMegabytesPreset(megabytes) {
+        return STREAM_BUFFER_MEGABYTES.some((choice) => choice.megabytes === megabytes);
+      }
+      /** The pair the chips draw: the draft a press made, or what the Host says. */
+      function currentBuffer() {
+        return state.bufferDraft || (state.snapshot && state.snapshot.preferences.streamBuffer)
+          || { seconds: STREAM_BUFFER.defaultSeconds, megabytes: STREAM_BUFFER.defaultMegabytes };
       }
       function formatSpeed(rate) { return rate + "\u00d7"; }
       function formatVolume(level) { return Math.round(level) + "%"; }
@@ -1356,6 +1379,10 @@
         snapshot: null,
         online: false,
         error: null,
+        // The Stream buffer pair the preferences chips draw before the Host has
+        // answered a press, so two quick presses compose instead of the second
+        // reverting the first (ADR-0026).
+        bufferDraft: null,
         // The browse surface
         destination: "home",
         heroIndex: 0,
@@ -2287,6 +2314,7 @@
         const heldColor = s.preferences.subtitleColor || "#FFFFFF";
         const heldScale = typeof s.preferences.subtitleScale === "number"
           ? s.preferences.subtitleScale : 1;
+        const heldBuffer = currentBuffer();
         const known = SUBTITLE_LANGUAGES.some((language) => language.tag === heldLanguage);
         const catalogs = declaredCatalogs(s);
         const featured = s.featuredCatalog;
@@ -2335,6 +2363,36 @@
                 <button type="button" class="chip" data-focusable data-a="subtitle-scale"
                         data-scale="${heldScale}" data-focus-key="subtitle-scale-other"
                         aria-pressed="true">Other (${formatScale(heldScale)})</button>` : null}
+            </div>`)}
+
+          ${settingsSection("Stream buffer", html`
+            <p class="settings-copy">How much of the Stream the Player keeps read ahead, so a
+              dip in the network is ridden out instead of interrupting playback. It aims for
+              this much of the Stream, up to this much memory \u2014 whichever limit is reached
+              first.</p>
+            <p class="settings-copy">Look-ahead \u2014 five minutes is the default.</p>
+            <div class="chip-row" style="flex-wrap:wrap;overflow:visible">
+              ${STREAM_BUFFER_SECONDS.map((choice) => html`
+                <button type="button" class="chip" data-focusable data-a="buffer-seconds"
+                        data-seconds="${choice.seconds}"
+                        data-focus-key="buffer-seconds-${choice.seconds}"
+                        aria-pressed="${pressed(heldBuffer.seconds === choice.seconds)}">${choice.label}</button>`)}
+              ${!bufferSecondsPreset(heldBuffer.seconds) ? html`
+                <button type="button" class="chip" data-focusable data-a="buffer-seconds"
+                        data-seconds="${heldBuffer.seconds}" data-focus-key="buffer-seconds-other"
+                        aria-pressed="true">${formatBufferSeconds(heldBuffer.seconds)}</button>` : null}
+            </div>
+            <p class="settings-copy">Memory ceiling \u2014 512 MB is the default.</p>
+            <div class="chip-row" style="flex-wrap:wrap;overflow:visible">
+              ${STREAM_BUFFER_MEGABYTES.map((choice) => html`
+                <button type="button" class="chip" data-focusable data-a="buffer-megabytes"
+                        data-megabytes="${choice.megabytes}"
+                        data-focus-key="buffer-megabytes-${choice.megabytes}"
+                        aria-pressed="${pressed(heldBuffer.megabytes === choice.megabytes)}">${choice.label}</button>`)}
+              ${!bufferMegabytesPreset(heldBuffer.megabytes) ? html`
+                <button type="button" class="chip" data-focusable data-a="buffer-megabytes"
+                        data-megabytes="${heldBuffer.megabytes}" data-focus-key="buffer-megabytes-other"
+                        aria-pressed="true">${formatBufferMegabytes(heldBuffer.megabytes)}</button>` : null}
             </div>`)}
 
           ${settingsSection("Featured catalog", html`
@@ -3666,6 +3724,36 @@
             await take({ type: "set_subtitle_scale", scale: Number(data.scale) });
             return;
           }
+          case "buffer-seconds": {
+            const held = currentBuffer();
+            const next = { seconds: Number(data.seconds), megabytes: held.megabytes };
+            state.bufferDraft = next;
+            renderLevel();
+            if (!(await take({
+              type: "set_stream_buffer",
+              seconds: next.seconds,
+              megabytes: next.megabytes,
+            }))) {
+              state.bufferDraft = null;
+              renderLevel();
+            }
+            return;
+          }
+          case "buffer-megabytes": {
+            const held = currentBuffer();
+            const next = { seconds: held.seconds, megabytes: Number(data.megabytes) };
+            state.bufferDraft = next;
+            renderLevel();
+            if (!(await take({
+              type: "set_stream_buffer",
+              seconds: next.seconds,
+              megabytes: next.megabytes,
+            }))) {
+              state.bufferDraft = null;
+              renderLevel();
+            }
+            return;
+          }
           case "featured": { chooseFeatured(data.ref); return; }
 
           case "title-season": {
@@ -4002,6 +4090,12 @@
         if (frame.snapshot) {
           const snapshot = frame.snapshot;
           if (!state.snapshot || state.snapshot.revision <= snapshot.revision) {
+            const held = snapshot.preferences.streamBuffer;
+            if (state.bufferDraft && held
+                && held.seconds === state.bufferDraft.seconds
+                && held.megabytes === state.bufferDraft.megabytes) {
+              state.bufferDraft = null;
+            }
             state.snapshot = snapshot;
             refresh();
           }

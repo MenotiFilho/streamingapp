@@ -11,8 +11,8 @@ use std::sync::Mutex;
 
 use host_core::{
     Addon, AddonId, CatalogRef, Device, DeviceId, DeviceName, FeaturedCatalog, Manifest,
-    ManifestUrl, Preferences, Store, StoreError, SubtitleColor, SubtitleLanguage, SubtitleScale,
-    TitleCard, TitleStub, TokenDigest, VideoRef, WatchProgress,
+    ManifestUrl, Preferences, Store, StoreError, StreamBuffer, SubtitleColor, SubtitleLanguage,
+    SubtitleScale, TitleCard, TitleStub, TokenDigest, VideoRef, WatchProgress,
 };
 use rusqlite::{params, Connection, Transaction};
 
@@ -26,6 +26,9 @@ const SUBTITLE_COLOR: &str = "subtitle_color";
 
 /// The key the subtitle size preference is stored under.
 const SUBTITLE_SCALE: &str = "subtitle_scale";
+
+/// The key the Stream buffer preference is stored under.
+const STREAM_BUFFER: &str = "stream_buffer";
 
 /// The key the Featured catalog preference is stored under.
 const FEATURED_CATALOG: &str = "featured_catalog";
@@ -111,6 +114,7 @@ impl Store for SqliteStore {
         let mut subtitle_language = None;
         let mut subtitle_color = SubtitleColor::default();
         let mut subtitle_scale = SubtitleScale::default();
+        let mut stream_buffer = StreamBuffer::default();
         let mut featured_catalog = None;
         for row in rows {
             let (key, value) = row.map_err(StoreError::read)?;
@@ -153,6 +157,18 @@ impl Store for SqliteStore {
                         .map_err(|error| unusable(error.to_string()))?;
                     featured_catalog = Some(featured);
                 }
+                STREAM_BUFFER => {
+                    // The pair is read back as one document and judged as it
+                    // was written: a row that drifted is a read failure, never
+                    // a buffer no client chose (ADR-0026).
+                    let unusable = |error: String| StoreError::Read {
+                        detail: format!("the stored stream buffer is unusable: {error}"),
+                    };
+                    let stored: StreamBuffer = serde_json::from_str(&value)
+                        .map_err(|error| unusable(error.to_string()))?;
+                    stream_buffer = StreamBuffer::parse(stored.seconds(), stored.megabytes())
+                        .map_err(|error| unusable(error.to_string()))?;
+                }
                 // A preference written by a newer Host than this one: leaving it
                 // alone keeps it for the Host that understands it.
                 _ => continue,
@@ -163,6 +179,7 @@ impl Store for SqliteStore {
             subtitle_language,
             subtitle_color,
             subtitle_scale,
+            stream_buffer,
             featured_catalog,
         ))
     }
@@ -188,6 +205,12 @@ impl Store for SqliteStore {
         )?;
         let scale = preferences.subtitle_scale().value().to_string();
         put_preference(&transaction, SUBTITLE_SCALE, Some(&scale))?;
+        // The buffer's two numbers are one preference and one row, for the same
+        // reason the Featured catalog is one document: a pair written apart can
+        // disagree, and a half-read pair is a buffer nobody chose (ADR-0026).
+        let buffer =
+            serde_json::to_string(&preferences.stream_buffer()).map_err(StoreError::write)?;
+        put_preference(&transaction, STREAM_BUFFER, Some(&buffer))?;
         // The whole pair as one document: an id is only half of what an Addon's
         // Catalog is, and two rows could disagree.
         let featured = match preferences.featured_catalog() {

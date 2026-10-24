@@ -436,7 +436,10 @@ impl Player for MpvPlayer {
     }
 
     fn tell(&self, telling: Telling) -> Result<(), PlaybackError> {
-        self.run(telling::command(&telling))
+        for command in telling::commands(&telling) {
+            self.run(command)?;
+        }
+        Ok(())
     }
 
     fn stop(&self) -> Result<(), PlaybackError> {

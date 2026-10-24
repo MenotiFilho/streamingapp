@@ -10,8 +10,8 @@ use host_core::{
     Action, ActionError, AddonProvider, Aspect, Chapter, ChapterStep, Control, Crop, CropRectangle,
     FixtureClock, FixtureFetcher, FixturePlayer, Host, InMemorySecretStore, InMemoryStore,
     Observation, PlaybackError, PlaybackState, Preferences, SecretBackend, Snapshot, Statistics,
-    Store, SubtitleColor, SubtitleScale, Telling, Track, TrackId, TrackKind, VideoSize,
-    ACTION_VERSION,
+    Store, StreamBuffer, SubtitleColor, SubtitleScale, Telling, Track, TrackId, TrackKind,
+    VideoSize, ACTION_VERSION,
 };
 
 /// The URL a recorded debrid answer would carry, with a session in it.
@@ -25,10 +25,11 @@ struct Fixture {
 
 fn fixture() -> Fixture {
     let player = Arc::new(FixturePlayer::new());
-    Fixture {
-        host: host_over(player.clone()),
-        player,
-    }
+    let host = host_over(player.clone());
+    // The Host states its preferences before any Stream is opened; a control
+    // test watches what its own Action added.
+    player.forget();
+    Fixture { host, player }
 }
 
 fn host_over(player: Arc<FixturePlayer>) -> Host {
@@ -612,10 +613,48 @@ fn the_subtitle_appearance_is_told_to_the_player_and_survives_a_refusal() {
 }
 
 #[test]
+fn the_stream_buffer_is_told_to_the_player_and_survives_a_refusal() {
+    let mut fixture = fixture();
+
+    let published = published(
+        &mut fixture,
+        &serde_json::json!({ "type": "set_stream_buffer", "seconds": 600, "megabytes": 1024 }),
+    );
+    assert_eq!(published[0].preferences.stream_buffer.seconds(), 600);
+    assert_eq!(published[0].preferences.stream_buffer.megabytes(), 1024);
+    assert!(
+        matches!(
+            fixture.player.tellings().last(),
+            Some(Telling::StreamBuffer(buffer))
+                if buffer.seconds() == 600 && buffer.megabytes() == 1024
+        ),
+        "the Player is told the look-ahead and the memory ceiling"
+    );
+
+    // The buffer is Host state like the appearance: a Player that refuses the
+    // telling does not stop the Host holding it, and the next Stream still
+    // starts from it (ADR-0026).
+    let player = Arc::new(FixturePlayer::new().refusing(PlaybackError::Command {
+        detail: "mpv is gone".to_owned(),
+    }));
+    let mut host = host_over(player);
+    let response = host
+        .dispatch(action(
+            &serde_json::json!({ "type": "set_stream_buffer", "seconds": 60, "megabytes": 128 }),
+        ))
+        .expect("a refused telling is not a refused preference");
+    assert_eq!(
+        response.snapshots[0].preferences.stream_buffer.seconds(),
+        60
+    );
+}
+
+#[test]
 fn a_host_tells_its_player_the_stored_appearance_at_startup() {
     let mut stored = Preferences::new();
     stored.set_subtitle_color(SubtitleColor::parse("#ffff00").expect("a colour"));
     stored.set_subtitle_scale(SubtitleScale::parse(1.25).expect("a size"));
+    stored.set_stream_buffer(StreamBuffer::parse(600, 1024).expect("a buffer"));
 
     let player = Arc::new(FixturePlayer::new());
     let fetcher = Arc::new(FixtureFetcher::new());
@@ -637,7 +676,8 @@ fn a_host_tells_its_player_the_stored_appearance_at_startup() {
             Telling::SubtitleLanguage(None),
             Telling::SubtitleColor(SubtitleColor::parse("#FFFF00").expect("a colour")),
             Telling::SubtitleScale(SubtitleScale::parse(1.25).expect("a size")),
+            Telling::StreamBuffer(StreamBuffer::parse(600, 1024).expect("a buffer")),
         ],
-        "the language, then the appearance, before any Stream is opened"
+        "the language, the appearance, and the buffer before any Stream is opened"
     );
 }
