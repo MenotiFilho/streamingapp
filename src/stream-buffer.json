@@ -1,0 +1,22 @@
+{
+  "seconds": [
+    { "label": "1 min", "seconds": 60 },
+    { "label": "3 min", "seconds": 180 },
+    { "label": "5 min", "seconds": 300 },
+    { "label": "10 min", "seconds": 600 },
+    { "label": "30 min", "seconds": 1800 }
+  ],
+  "megabytes": [
+    { "label": "128 MB", "megabytes": 128 },
+    { "label": "256 MB", "megabytes": 256 },
+    { "label": "512 MB", "megabytes": 512 },
+    { "label": "1 GB", "megabytes": 1024 },
+    { "label": "2 GB", "megabytes": 2048 }
+  ],
+  "minSeconds": 5,
+  "maxSeconds": 3600,
+  "minMegabytes": 64,
+  "maxMegabytes": 4096,
+  "defaultSeconds": 300,
+  "defaultMegabytes": 512
+}

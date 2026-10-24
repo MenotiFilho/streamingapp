@@ -94,8 +94,9 @@ pub use playback::{
     TrackId, TrackKind, Unplayable, VideoSize,
 };
 pub use preferences::{
-    FeaturedCatalog, InvalidSubtitleColor, InvalidSubtitleLanguage, InvalidSubtitleScale,
-    Preferences, SubtitleColor, SubtitleLanguage, SubtitleScale,
+    FeaturedCatalog, InvalidStreamBuffer, InvalidSubtitleColor, InvalidSubtitleLanguage,
+    InvalidSubtitleScale, Preferences, StreamBuffer, SubtitleColor, SubtitleLanguage,
+    SubtitleScale,
 };
 pub use progress::{
     ResumeEntry, TitleCard, TitleStub, UnplayableEntry, UnplayableReason, WatchProgress,

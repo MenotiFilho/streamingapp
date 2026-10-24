@@ -26,6 +26,7 @@ import type {
 } from "./host-client";
 import { formatTime } from "./playback";
 import appearance from "./subtitle-appearance.json";
+import buffer from "./stream-buffer.json";
 
 /**
  * Whether the Host would take a control right now: a Stream that is opening,
@@ -208,6 +209,61 @@ export function scalePreset(scale: number): boolean {
 /** Whether the colour the Host published is this choice, whatever the case. */
 export function colorSelected(current: string, choice: string): boolean {
   return current.toUpperCase() === choice.toUpperCase();
+}
+
+/** One look-ahead Settings offers, as the seconds and the words for it. */
+export type BufferSecondsChoice = {
+  label: string;
+  seconds: number;
+};
+
+/** One memory ceiling Settings offers, as the megabytes and the words for it. */
+export type BufferMegabytesChoice = {
+  label: string;
+  megabytes: number;
+};
+
+/**
+ * The Stream buffer presets, from `src/stream-buffer.json` — the one list the
+ * window and the served Remote share, spliced into the page at serve time.
+ * Five minutes up to half a gigabyte is the default; a person raises it when a
+ * network dip outlasts the Player's own cache (ADR-0026).
+ */
+export const STREAM_BUFFER_SECONDS: ReadonlyArray<BufferSecondsChoice> = buffer.seconds;
+
+/** The memory ceilings Settings offers, beside the look-aheads above. */
+export const STREAM_BUFFER_MEGABYTES: ReadonlyArray<BufferMegabytesChoice> = buffer.megabytes;
+
+/** The look-ahead the Host starts from, in seconds. */
+export const STREAM_BUFFER_DEFAULT_SECONDS = buffer.defaultSeconds;
+
+/** The memory ceiling the Host starts from, in megabytes. */
+export const STREAM_BUFFER_DEFAULT_MEGABYTES = buffer.defaultMegabytes;
+
+/**
+ * A look-ahead as a person reads it: the preset's own words where it is one,
+ * and `12 min` / `90 s` for a value a Remote sent that the ladder does not hold.
+ */
+export function formatBufferSeconds(seconds: number): string {
+  if (seconds >= 60 && seconds % 60 === 0) {
+    return `${seconds / 60} min`;
+  }
+  return `${seconds} s`;
+}
+
+/** A memory ceiling as a person reads it, in the decimal megabytes the Host stores. */
+export function formatBufferMegabytes(megabytes: number): string {
+  return `${megabytes} MB`;
+}
+
+/** Whether the look-ahead the Host holds is one of Settings' presets. */
+export function bufferSecondsPreset(seconds: number): boolean {
+  return STREAM_BUFFER_SECONDS.some((choice) => choice.seconds === seconds);
+}
+
+/** Whether the memory ceiling the Host holds is one of Settings' presets. */
+export function bufferMegabytesPreset(megabytes: number): boolean {
+  return STREAM_BUFFER_MEGABYTES.some((choice) => choice.megabytes === megabytes);
 }
 
 /** Whether a rate the Host published is a choice the menu offers. */

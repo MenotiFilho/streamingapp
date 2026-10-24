@@ -220,3 +220,49 @@ verified over the JSON IPC on mpv 0.37:
   skip.
 
 
+
+## The demuxer cache, and what a Stream buffer can set (#135)
+
+Probed against the same container's mpv 0.37 (the JSON IPC and `--list-options`),
+and read from `demux/demux.c` in both 0.37 and 0.41 — the version the Windows
+build runs. The defaults are the same in both:
+
+- **`cache=auto`** (the default) enables the demuxer cache for streams mpv judges
+  to be network streams; every http(s) Stream this Host opens is one. The
+  `auto` choice is a heuristic, but the stream layer's own `reconnect=1` and
+  `reconnect_delay_max=7` defaults (`stream/stream_lavf.c`) show it is meant for
+  exactly this shape.
+- **`demuxer-max-bytes=150 MiB`** and **`demuxer-max-back-bytes=50 MiB`** are the
+  memory the demuxer may fill ahead of and behind playback.
+- **`cache-secs=3,600,000` seconds** (1000 h). The manual says the default is
+  "something very high, so the actually achieved readahead will usually be
+  limited by `demuxer-max-bytes`"; it is the look-ahead the demuxer *aims* for,
+  and it only limits when set below what the byte budget allows.
+- **`cache-pause=yes`** and **`cache-pause-wait=1`** (seconds) are the visible
+  behaviour: an underrun pauses, and playback resumes once one second is
+  buffered. That resume is the stutter a drained cache produces.
+
+All three limits are **runtime-settable**, which is what lets a preference move
+without reopening the Stream. Setting each over a live idle mpv's JSON IPC
+answered `success` and read back:
+
+```
+set_property demuxer-max-bytes 402653184      -> 402653184
+set_property demuxer-max-back-bytes 134217728 -> 134217728
+set_property cache-secs 300                   -> 300.000000
+```
+
+`cache-on-disk=yes` is **not** a larger cache. It writes the same packets to a
+temporary file instead of holding them in memory, deletes the file when playback
+closes, and the manual says the `demuxer-max-*` limits then apply to metadata
+only. It changes where the cache lives, not how far ahead the demuxer reads, so
+it is not the knob for surviving a network dip.
+
+The arithmetic that motivates the preference: at a 4K remux's bitrate (60–80
+Mbps) 150 MiB is 15–20 s of playback; at 1080p (8–10 Mbps) it is about two
+minutes. A 512 MB ceiling is 51–68 s at the higher bitrate and does not bind the
+time limit at the lower one.
+
+**Not settled by this probe:** whether any particular Stream catches up after a
+dip. That depends on the network, the source and the machine, and belongs to the
+Windows walkthrough with a real 4K Stream.

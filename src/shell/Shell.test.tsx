@@ -32,7 +32,7 @@ const NOTHING_SAID: Snapshot = {
     resolution: null,
     statistics: null,
   },
-  preferences: { subtitleLanguage: null, subtitleColor: "#FFFFFF", subtitleScale: 1 },
+  preferences: { subtitleLanguage: null, subtitleColor: "#FFFFFF", subtitleScale: 1, streamBuffer: { seconds: 300, megabytes: 512 } },
   addons: [],
   featuredCatalog: null,
   protection: { backend: "keyring", tmdbHeld: false, stremioHeld: false },
