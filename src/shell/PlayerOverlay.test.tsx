@@ -425,11 +425,13 @@ describe("the player OSD", () => {
 
   describe("the Seek preview", () => {
     /**
-     * A still is a Question answered by the Host: under a loaded test machine
-     * the promise chain can take longer than Testing Library's default second,
-     * and the tooltip is felt rather than unit-timed.
+     * A still is a Question answered by the Host, and CI runs the whole suite
+     * with every worker busy: the promise chain can take longer than Testing
+     * Library's default second. The wait stays under the per-test budget below,
+     * which is raised for the same reason.
      */
-    const WAIT = { timeout: 5_000 };
+    const WAIT = { timeout: 3_000 };
+    const BUDGET = 20_000;
 
     /** A still a test can tell from another by its own bytes. */
     const STILL = "data:image/jpeg;base64,Zmlyc3Q=";
@@ -442,139 +444,167 @@ describe("the player OSD", () => {
       });
     }
 
-    test("asks for the still of the moment pointed at and draws it with its time and chapter", async () => {
-      const host = await renderPlayer({}, undefined, [], undefined, () => ({ image: STILL }));
-      layOutPlayer();
+    test(
+      "asks for the still of the moment pointed at and draws it with its time and chapter",
+      async () => {
+        const host = await renderPlayer({}, undefined, [], undefined, () => ({ image: STILL }));
+        layOutPlayer();
 
-      pointAt(0.25);
+        pointAt(0.25);
 
-      await waitFor(
-        () => expect(screen.getByTestId("osd-preview-still")).toHaveAttribute("src", STILL),
-        WAIT,
-      );
-      expect(actions(host.invocations)).toContainEqual({ type: "preview", at: 900 });
-      expect(screen.getByTestId("osd-preview-time")).toHaveTextContent("15:00");
-      expect(
-        screen.getByTestId("osd-preview-chapter"),
-        "15:00 is inside the chapter that began at the Stream's start",
-      ).toHaveTextContent("Opening");
-      expect(screen.getByTestId("osd-preview")).toHaveAttribute("data-pending", "false");
-    });
+        await waitFor(
+          () => expect(screen.getByTestId("osd-preview-still")).toHaveAttribute("src", STILL),
+          WAIT,
+        );
+        expect(actions(host.invocations)).toContainEqual({ type: "preview", at: 900 });
+        expect(screen.getByTestId("osd-preview-time")).toHaveTextContent("15:00");
+        expect(
+          screen.getByTestId("osd-preview-chapter"),
+          "15:00 is inside the chapter that began at the Stream's start",
+        ).toHaveTextContent("Opening");
+        expect(screen.getByTestId("osd-preview")).toHaveAttribute("data-pending", "false");
+      },
+      BUDGET,
+    );
 
-    test("asks nothing twice for one bucket, and asks nothing at all where the pointer leaves", async () => {
-      const host = await renderPlayer({}, undefined, [], undefined, () => ({ image: STILL }));
-      layOutPlayer();
+    test(
+      "asks nothing twice for one bucket, and asks nothing at all where the pointer leaves",
+      async () => {
+        const host = await renderPlayer({}, undefined, [], undefined, () => ({ image: STILL }));
+        layOutPlayer();
 
-      pointAt(0.25);
-      await waitFor(
-        () => expect(screen.getByTestId("osd-preview-still")).toBeInTheDocument(),
-        WAIT,
-      );
-      // A moment four seconds later is the same five-second bucket.
-      pointAt(0.25 + 4 / 3600);
-      await waitFor(() =>
-        expect(actions(host.invocations).filter((action) => action.type === "preview")).toHaveLength(1),
-      );
+        pointAt(0.25);
+        await waitFor(
+          () => expect(screen.getByTestId("osd-preview-still")).toBeInTheDocument(),
+          WAIT,
+        );
+        // A moment four seconds later is the same five-second bucket.
+        pointAt(0.25 + 4 / 3600);
+        await waitFor(() =>
+          expect(
+            actions(host.invocations).filter((action) => action.type === "preview"),
+          ).toHaveLength(1),
+        );
 
-      fireEvent.pointerLeave(screen.getByTestId("osd-timeline"));
-      await waitFor(
-        () => expect(screen.queryByTestId("osd-preview")).not.toBeInTheDocument(),
-        WAIT,
-      );
-      expect(actions(host.invocations).filter((action) => action.type === "preview")).toHaveLength(1);
-    });
+        fireEvent.pointerLeave(screen.getByTestId("osd-timeline"));
+        await waitFor(
+          () => expect(screen.queryByTestId("osd-preview")).not.toBeInTheDocument(),
+          WAIT,
+        );
+        expect(
+          actions(host.invocations).filter((action) => action.type === "preview"),
+        ).toHaveLength(1);
+      },
+      BUDGET,
+    );
 
-    test("keeps the still already drawn, dimmed, while the next bucket is not ready", async () => {
-      let release = () => {};
-      const gate = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      await renderPlayer({}, undefined, [], undefined, (at) =>
-        at === 900 ? { image: STILL } : { image: OTHER, gate },
-      );
-      layOutPlayer();
-      pointAt(0.25);
-      await waitFor(
-        () => expect(screen.getByTestId("osd-preview-still")).toHaveAttribute("src", STILL),
-        WAIT,
-      );
+    test(
+      "keeps the still already drawn, dimmed, while the next bucket is not ready",
+      async () => {
+        let release = () => {};
+        const gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        await renderPlayer({}, undefined, [], undefined, (at) =>
+          at === 900 ? { image: STILL } : { image: OTHER, gate },
+        );
+        layOutPlayer();
+        pointAt(0.25);
+        await waitFor(
+          () => expect(screen.getByTestId("osd-preview-still")).toHaveAttribute("src", STILL),
+          WAIT,
+        );
 
-      pointAt(0.625);
+        pointAt(0.625);
 
-      await waitFor(
-        () => expect(screen.getByTestId("osd-preview")).toHaveAttribute("data-pending", "true"),
-        WAIT,
-      );
-      expect(
-        screen.getByTestId("osd-preview-still"),
-        "the still already drawn stays under the pointer while the next bucket is asked for",
-      ).toHaveAttribute("src", STILL);
-      expect(screen.getByTestId("osd-preview-time")).toHaveTextContent("37:30");
+        await waitFor(
+          () => expect(screen.getByTestId("osd-preview")).toHaveAttribute("data-pending", "true"),
+          WAIT,
+        );
+        expect(
+          screen.getByTestId("osd-preview-still"),
+          "the still already drawn stays under the pointer while the next bucket is asked for",
+        ).toHaveAttribute("src", STILL);
+        expect(screen.getByTestId("osd-preview-time")).toHaveTextContent("37:30");
 
-      await act(async () => {
-        release();
-      });
+        await act(async () => {
+          release();
+        });
 
-      await waitFor(
-        () => expect(screen.getByTestId("osd-preview-still")).toHaveAttribute("src", OTHER),
-        WAIT,
-      );
-      expect(screen.getByTestId("osd-preview")).toHaveAttribute("data-pending", "false");
-      expect(screen.getByTestId("osd-preview-chapter")).toHaveTextContent("The Choice");
-    });
+        await waitFor(
+          () => expect(screen.getByTestId("osd-preview-still")).toHaveAttribute("src", OTHER),
+          WAIT,
+        );
+        expect(screen.getByTestId("osd-preview")).toHaveAttribute("data-pending", "false");
+        expect(screen.getByTestId("osd-preview-chapter")).toHaveTextContent("The Choice");
+      },
+      BUDGET,
+    );
 
-    test("draws the time and the chapter alone when the Host has no still to give", async () => {
-      await renderPlayer({}, undefined, [], undefined, () => ({ image: null }));
-      layOutPlayer();
+    test(
+      "draws the time and the chapter alone when the Host has no still to give",
+      async () => {
+        await renderPlayer({}, undefined, [], undefined, () => ({ image: null }));
+        layOutPlayer();
 
-      pointAt(0.625);
+        pointAt(0.625);
 
-      await waitFor(
-        () => expect(screen.getByTestId("osd-preview")).toHaveAttribute("data-pending", "false"),
-        WAIT,
-      );
-      expect(screen.queryByTestId("osd-preview-still")).not.toBeInTheDocument();
-      expect(screen.getByTestId("osd-preview-time")).toHaveTextContent("37:30");
-      expect(screen.getByTestId("osd-preview-chapter")).toHaveTextContent("The Choice");
-    });
+        await waitFor(
+          () => expect(screen.getByTestId("osd-preview")).toHaveAttribute("data-pending", "false"),
+          WAIT,
+        );
+        expect(screen.queryByTestId("osd-preview-still")).not.toBeInTheDocument();
+        expect(screen.getByTestId("osd-preview-time")).toHaveTextContent("37:30");
+        expect(screen.getByTestId("osd-preview-chapter")).toHaveTextContent("The Choice");
+      },
+      BUDGET,
+    );
 
-    test("keeps one ask in flight and lets the newest bucket win", async () => {
-      let release = () => {};
-      const gate = new Promise<void>((resolve) => {
-        release = resolve;
-      });
-      const host = await renderPlayer({}, undefined, [], undefined, (at) =>
-        at === 900 ? { image: STILL, gate } : { image: OTHER },
-      );
-      layOutPlayer();
+    test(
+      "keeps one ask in flight and lets the newest bucket win",
+      async () => {
+        let release = () => {};
+        const gate = new Promise<void>((resolve) => {
+          release = resolve;
+        });
+        const host = await renderPlayer({}, undefined, [], undefined, (at) =>
+          at === 900 ? { image: STILL, gate } : { image: OTHER },
+        );
+        layOutPlayer();
 
-      pointAt(0.25);
-      await waitFor(() =>
-        expect(actions(host.invocations).filter((action) => action.type === "preview")).toHaveLength(1),
-      );
-      // The pointer moves on while the first still is still being taken: the
-      // second ask is held until the first answers, and it is the newest bucket.
-      pointAt(0.625);
-      expect(
-        actions(host.invocations).filter((action) => action.type === "preview"),
-        "one ask in flight: the younger bucket waits rather than queueing behind the elder",
-      ).toHaveLength(1);
+        pointAt(0.25);
+        await waitFor(() =>
+          expect(
+            actions(host.invocations).filter((action) => action.type === "preview"),
+          ).toHaveLength(1),
+        );
+        // The pointer moves on while the first still is still being taken: the
+        // second ask is held until the first answers, and it is the newest bucket.
+        pointAt(0.625);
+        expect(
+          actions(host.invocations).filter((action) => action.type === "preview"),
+          "one ask in flight: the younger bucket waits rather than queueing behind the elder",
+        ).toHaveLength(1);
 
-      await act(async () => {
-        release();
-      });
+        await act(async () => {
+          release();
+        });
 
-      await waitFor(() =>
-        expect(actions(host.invocations).filter((action) => action.type === "preview")).toEqual([
-          { type: "preview", at: 900 },
-          { type: "preview", at: 2250 },
-        ]),
-      );
-      await waitFor(
-        () => expect(screen.getByTestId("osd-preview-still")).toHaveAttribute("src", OTHER),
-        WAIT,
-      );
-    });
+        await waitFor(() =>
+          expect(
+            actions(host.invocations).filter((action) => action.type === "preview"),
+          ).toEqual([
+            { type: "preview", at: 900 },
+            { type: "preview", at: 2250 },
+          ]),
+        );
+        await waitFor(
+          () => expect(screen.getByTestId("osd-preview-still")).toHaveAttribute("src", OTHER),
+          WAIT,
+        );
+      },
+      BUDGET,
+    );
   });
 
   test("each icon pushes its own popover, and Back closes it before stopping", async () => {
