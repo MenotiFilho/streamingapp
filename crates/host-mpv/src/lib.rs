@@ -51,11 +51,16 @@
 //! as it came from upstream.
 
 mod observing;
+mod previewing;
 mod telling;
 
 use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
-use host_core::{Observation, Picture, PlaybackError, Player, StreamUrl, Telling};
+use host_core::{
+    bucket_of, Frame, Observation, Picture, PlaybackError, Player, PreviewCache, Previewer,
+    StreamUrl, Telling,
+};
 use libmpv2::events::Event;
 use libmpv2::mpv_end_file_reason as EndFileReason;
 use libmpv2::Mpv;
@@ -495,6 +500,420 @@ impl Player for MpvPlayer {
 
         observation
     }
+}
+
+/// The real Seek preview: a second libmpv, silent and hidden, that yields one
+/// frame at a time.
+///
+/// It is not the Player: the moment a person points at is not where the Stream is
+/// playing, so the picture on screen cannot answer without seeking away from
+/// itself (ADR-0028). This one draws nowhere (`vo=null`), plays to nobody
+/// (`ao=null`), selects no track, and leaves through
+/// [`screenshot-to-file`](previewing::screenshot) — a JPEG in a temporary
+/// directory, read and deleted.
+///
+/// ## What it costs, and how it is rationed
+///
+/// - **Arming is free.** The URL is kept, and no libmpv exists until the first
+///   still is asked for. A Stream that is never hovered costs one `String`.
+/// - **The connection is not.** A worker lets it go after
+///   [`RELEASE_AFTER`] without a still, so a burst of hovering pays one
+///   connection and a later burst another. The stills already taken stay in
+///   memory.
+/// - **The ceiling is not decided here.** The Host disarms the worker when the
+///   first report says the Stream is too dear, or will not say what it costs;
+///   what is left is one that may run.
+///
+/// ## Failure is silence
+///
+/// A Stream that will not open, a seek that never becomes ready, a provider that
+/// refuses the second connection: each is one log line and an absent still. A
+/// preview is decoration and may never interrupt a film, and a debrid provider's
+/// policy is not something a client is told through the player (ADR-0028).
+pub struct MpvPreviewer {
+    inner: std::sync::Arc<PreviewInner>,
+}
+
+/// The previewer's two halves, and the reason they are two.
+///
+/// `armed` is what the Host has asked for — set by `arm` and `disarm`, which the
+/// Host calls while it holds its change lock — and `worker` is the libmpv that
+/// takes the stills, which a Question holds for as long as a capture takes. If
+/// they shared one lock, a play that arrived during a capture would wait up to
+/// the capture's own timeout while the Host's change lock was held around it: a
+/// decoration stopping a film from starting (ADR-0028). So an arming is written
+/// down first and adopted by the worker when it is free — immediately, when no
+/// capture is in flight, and otherwise at the end of the one that is.
+struct PreviewInner {
+    armed: Mutex<Armed>,
+    worker: Mutex<PreviewWorker>,
+}
+
+/// What the Host has armed: the Stream's URL, and a count that changes with
+/// every arm and disarm so a worker that was busy capturing can tell that what
+/// it holds is stale.
+#[derive(Debug, Clone, Default)]
+struct Armed {
+    url: Option<StreamUrl>,
+    generation: u64,
+}
+
+/// What the second instance is doing: the URL it adopted, whether that Stream is
+/// loaded, the stills it has already answered, and when it was last asked for
+/// one.
+struct PreviewWorker {
+    /// The arming this worker has adopted, so it can tell when a newer one
+    /// arrived while it was capturing.
+    generation: u64,
+    mpv: Option<Mpv>,
+    url: Option<StreamUrl>,
+    /// Whether the URL has been opened into `mpv`. Every still after the first is
+    /// a seek on that one load.
+    loaded: bool,
+    /// Whether the frame turned out to be HDR, and the chain installed for it.
+    filters: &'static str,
+    /// The stills already taken, keyed by bucket.
+    cache: PreviewCache,
+    /// How many stills were actually captured, which a test reads to prove a
+    /// bucket was served from memory rather than from a seek.
+    captures: usize,
+    /// When the last still was asked for, for the idle release.
+    last_used: Option<Instant>,
+}
+
+impl PreviewWorker {
+    fn idle() -> Self {
+        Self {
+            generation: 0,
+            mpv: None,
+            url: None,
+            loaded: false,
+            filters: previewing::SDR_FILTERS,
+            cache: PreviewCache::default(),
+            captures: 0,
+            last_used: None,
+        }
+    }
+
+    /// Adopt what the Host has armed, where it is not what this worker holds
+    /// already.
+    ///
+    /// A different Stream's stills are not this one's, and the connection the
+    /// last one held is not this one's to keep: both go, and the URL is the one
+    /// the Host named last. Doing this here rather than in `arm` is what keeps an
+    /// arming from waiting on a capture the Host is not holding.
+    fn reconcile(&mut self, armed: &Armed) {
+        if armed.generation == self.generation {
+            return;
+        }
+        self.release();
+        self.cache.clear();
+        self.url = armed.url.clone();
+        self.generation = armed.generation;
+    }
+
+    /// Let the connection — and the frame, and the file — go, keeping the URL
+    /// and the stills already taken. The next ask opens the Stream again.
+    fn release(&mut self) {
+        self.mpv = None;
+        self.loaded = false;
+        // A new instance is started with the SDR chain, which is what every
+        // frame pays for and an HDR one replaces.
+        self.filters = previewing::SDR_FILTERS;
+    }
+
+    /// Whether this worker has been left alone long enough to let its connection
+    /// go, where it holds one.
+    fn owes_release(&self, now: Instant) -> bool {
+        if self.mpv.is_none() {
+            return false;
+        }
+        let idle = self
+            .last_used
+            .map(|last| now.saturating_duration_since(last))
+            .unwrap_or_default();
+        previewing::release_after_idle(idle)
+    }
+
+    /// Take one still, or nothing at all.
+    fn capture(&mut self, bucket: u64) -> Option<Frame> {
+        let at = previewing::seek_target(bucket);
+        let url = self.url.as_ref()?.as_str().to_owned();
+        let path = previewing::still_path(&preview_directory(), bucket);
+        let to_file = path.to_str()?.to_owned();
+
+        // A failed capture is still a use of the connection: the worker is let
+        // go of thirty seconds after the last *attempt*, not never because the
+        // first one timed out.
+        self.last_used = Some(Instant::now());
+
+        if self.mpv.is_none() {
+            match preview_instance() {
+                Ok(mpv) => self.mpv = Some(mpv),
+                Err(error) => {
+                    tracing::warn!(
+                        %error,
+                        "the Seek preview could not start its own player"
+                    );
+                    return None;
+                }
+            }
+        }
+        let mpv = self.mpv.as_ref()?;
+
+        // Whatever mpv said about the last ask is not about this one.
+        while mpv.wait_event(0.0).is_some() {}
+
+        if self.loaded {
+            // The worker is held paused between stills so it stops reading the
+            // Stream; a seek needs it running to produce the frame at the target.
+            command(mpv, ("set", vec!["pause".to_owned(), "no".to_owned()]));
+            let (name, arguments) = previewing::seek(at);
+            if !command(mpv, (name, arguments)) {
+                tracing::warn!(
+                    at,
+                    "the Seek preview could not move the worker to the moment asked for"
+                );
+                return None;
+            }
+        } else {
+            let (name, arguments) = previewing::load(&url, at);
+            if !command(mpv, (name, arguments)) {
+                tracing::warn!(
+                    at,
+                    "the Seek preview could not open the Stream a second time"
+                );
+                return None;
+            }
+        }
+
+        // A screenshot taken before the frames change returns the *previous*
+        // frame, with `time-pos` already at the target: the event, never the
+        // position, is what says a frame exists (ADR-0028).
+        if !ready(mpv) {
+            tracing::warn!(
+                at,
+                "the Seek preview found no frame at the moment asked for"
+            );
+            return None;
+        }
+        self.loaded = true;
+
+        let wanted = frame_filters(mpv);
+        if wanted != self.filters {
+            // The filter graph applies to the next frame, so the chain is
+            // installed and the same moment taken again. Only HDR pays for this.
+            command(mpv, ("set", vec!["vf".to_owned(), wanted.to_owned()]));
+            while mpv.wait_event(0.0).is_some() {}
+            let (name, arguments) = previewing::seek(at);
+            if !command(mpv, (name, arguments)) || !ready(mpv) {
+                tracing::warn!(
+                    at,
+                    "the Seek preview could not take an HDR frame at the moment asked for"
+                );
+                return None;
+            }
+            self.filters = wanted;
+        }
+
+        let (name, arguments) = previewing::screenshot(&to_file);
+        if !command(mpv, (name, arguments)) {
+            tracing::warn!(
+                at,
+                "the Seek preview could not write the still it asked for"
+            );
+            return None;
+        }
+
+        // Nothing more is read from the Stream until the next still is asked
+        // for. A worker that kept playing would spend a Stream's bitrate for a
+        // picture nobody is looking at.
+        command(mpv, ("set", vec!["pause".to_owned(), "yes".to_owned()]));
+
+        let bytes = std::fs::read(&path).ok();
+        let _ = std::fs::remove_file(&path);
+        let frame = Frame::jpeg(&bytes?);
+        self.cache.keep(bucket, frame.clone());
+        self.captures += 1;
+        self.last_used = Some(Instant::now());
+
+        Some(frame)
+    }
+}
+
+impl MpvPreviewer {
+    /// Start the seam.
+    ///
+    /// Nothing mpv is started here: a Host that is never pointed at a timeline
+    /// starts no second player at all. The thread this spawns only notices when
+    /// the worker has been idle too long, and it ends when the previewer is
+    /// dropped.
+    pub fn start() -> Self {
+        let inner = std::sync::Arc::new(PreviewInner {
+            armed: Mutex::new(Armed::default()),
+            worker: Mutex::new(PreviewWorker::idle()),
+        });
+        let reaper = std::sync::Arc::downgrade(&inner);
+        std::thread::spawn(move || loop {
+            std::thread::sleep(Duration::from_secs(1));
+            let Some(inner) = reaper.upgrade() else {
+                return;
+            };
+            let mut worker = inner
+                .worker
+                .lock()
+                .expect("nothing panics while holding the preview worker");
+            let armed = inner
+                .armed
+                .lock()
+                .expect("nothing panics while holding the previewer's arming")
+                .clone();
+            worker.reconcile(&armed);
+            if worker.owes_release(Instant::now()) {
+                worker.release();
+            }
+        });
+
+        Self { inner }
+    }
+
+    /// How many stills this worker has actually captured, for a test that
+    /// proves a bucket already answered cost no seek. Nothing else reads it.
+    pub fn captures(&self) -> usize {
+        self.inner
+            .worker
+            .lock()
+            .expect("nothing panics while holding the preview worker")
+            .captures
+    }
+
+    /// Write an arming down, and adopt it now if no capture holds the worker.
+    ///
+    /// The `try_lock` is the whole point: a Stream opening must never wait for a
+    /// still being taken for the Stream that is being replaced. When the worker
+    /// is busy, the arming is adopted when the capture that holds it is done —
+    /// `reconcile` runs before any capture and on every reaper tick.
+    fn rearm(&self, url: Option<StreamUrl>) {
+        let armed = {
+            let mut armed = self
+                .inner
+                .armed
+                .lock()
+                .expect("nothing panics while holding the previewer's arming");
+            armed.generation += 1;
+            armed.url = url;
+            armed.clone()
+        };
+
+        if let Ok(mut worker) = self.inner.worker.try_lock() {
+            worker.reconcile(&armed);
+        }
+    }
+}
+
+impl Previewer for MpvPreviewer {
+    fn arm(&self, url: &StreamUrl) {
+        self.rearm(Some(url.clone()));
+    }
+
+    fn disarm(&self) {
+        self.rearm(None);
+    }
+
+    fn preview(&self, at: f64) -> Option<Frame> {
+        let mut worker = self
+            .inner
+            .worker
+            .lock()
+            .expect("nothing panics while holding the preview worker");
+        let armed = self
+            .inner
+            .armed
+            .lock()
+            .expect("nothing panics while holding the previewer's arming")
+            .clone();
+        worker.reconcile(&armed);
+
+        let bucket = bucket_of(at);
+        if let Some(frame) = worker.cache.get(bucket) {
+            worker.last_used = Some(Instant::now());
+            return Some(frame);
+        }
+
+        worker.capture(bucket)
+    }
+}
+
+/// Start the second, silent libmpv the preview worker drives.
+///
+/// The options are the pure list in [`previewing::options`]; nothing here knows
+/// what a still is worth. Two libmpv instances coexist in one process, which is
+/// what makes a still of a moment other than the one playing possible at all
+/// (ADR-0028).
+fn preview_instance() -> Result<Mpv, MpvError> {
+    let options = previewing::options();
+    Ok(Mpv::with_initializer(|init| {
+        for (name, value) in options {
+            init.set_option(name, value.as_str())?;
+        }
+        Ok(())
+    })?)
+}
+
+/// Run one command on the preview worker, and answer whether mpv took it.
+///
+/// The command is already in mpv's own spelling — the pure half, in
+/// [`previewing`] — so what is left here is only the call, and the answer is a
+/// word rather than an error: every refusal on this path is silence.
+fn command(mpv: &Mpv, (name, arguments): (&'static str, Vec<String>)) -> bool {
+    let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
+    mpv.command(name, &arguments).is_ok()
+}
+
+/// Wait for the frame the last command asked for to exist.
+///
+/// `MPV_EVENT_PLAYBACK_RESTART` is the only thing that says one does: `time-pos`
+/// is at the target before any frame is. A Stream that ends, an error, and three
+/// seconds of nothing are all "there is no still" (ADR-0028).
+fn ready(mpv: &Mpv) -> bool {
+    let deadline = Instant::now() + Duration::from_secs_f64(previewing::READY_TIMEOUT_SECONDS);
+
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return false;
+        }
+        match mpv.wait_event(remaining.as_secs_f64()) {
+            Some(Ok(Event::PlaybackRestart)) => return true,
+            Some(Ok(Event::EndFile(_))) | Some(Err(_)) | None => return false,
+            Some(Ok(_)) => {}
+        }
+    }
+}
+
+/// The filter chain the frame at the worker's position is taken through.
+///
+/// The decision is the pure [`previewing::filters`]; this reads mpv's two
+/// `video-params` properties and hands them on. A frame the container says
+/// nothing about is SDR, which is left exactly as it came.
+fn frame_filters(mpv: &Mpv) -> &'static str {
+    let primaries = mpv.get_property::<String>("video-params/primaries").ok();
+    let gamma = mpv.get_property::<String>("video-params/gamma").ok();
+
+    previewing::filters(primaries.as_deref(), gamma.as_deref())
+}
+
+/// The process's own temporary directory, one per process, for the files a still
+/// is written to and deleted from.
+///
+/// `std::env::temp_dir()` rather than `/tmp`: the Windows build has no `/tmp`,
+/// and the still leaves mpv through a file because the safe crate cannot read
+/// `screenshot-raw` (ADR-0028).
+fn preview_directory() -> std::path::PathBuf {
+    let directory =
+        std::env::temp_dir().join(format!("streamingapp-preview-{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&directory);
+    directory
 }
 
 /// The options mpv is started with, as its own names and values.

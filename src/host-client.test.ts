@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { HOST_ERROR_KINDS, asActionError, explain } from "./host-client";
+import { HOST_ERROR_KINDS, answeredPreview, asActionError, explain } from "./host-client";
 
 /**
  * The window's reading of a refusal, tested where it is decided: a `kind` the
@@ -60,5 +60,32 @@ describe("the refusals the Host can send", () => {
       kind: "unreachable",
       detail: "[object Object]",
     });
+  });
+});
+
+describe("the Seek preview's answer", () => {
+  test("carries the moment asked about and the still, where there is one", () => {
+    const answer = answeredPreview({
+      snapshots: [],
+      answer: { preview: { at: 42.5, image: "data:image/jpeg;base64,AAAA" } },
+    });
+
+    expect(answer).toEqual({ at: 42.5, image: "data:image/jpeg;base64,AAAA" });
+  });
+
+  test("is null when the Action was something else, and carries no image where the Host had none", () => {
+    expect(answeredPreview(null)).toBeNull();
+    expect(answeredPreview({ snapshots: [], answer: null })).toBeNull();
+    expect(
+      answeredPreview({ snapshots: [], answer: { preview: { at: 42, image: null } } }),
+      "a still that cannot be produced is an answer with no image, not a failure",
+    ).toEqual({ at: 42, image: null });
+  });
+
+  test("a refused moment says what it was", () => {
+    const error = asActionError({ kind: "invalid_preview_at", seconds: "NaN" });
+
+    expect(error.kind).toBe("invalid_preview_at");
+    expect(explain(error)).toBe('"NaN" is not a moment of the Stream to take a still of.');
   });
 });

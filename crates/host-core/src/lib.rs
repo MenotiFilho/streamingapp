@@ -50,6 +50,7 @@ mod meta;
 mod pairing;
 mod playback;
 mod preferences;
+mod preview;
 mod progress;
 mod provider;
 mod random;
@@ -97,6 +98,11 @@ pub use preferences::{
     FeaturedCatalog, InvalidStreamBuffer, InvalidSubtitleColor, InvalidSubtitleLanguage,
     InvalidSubtitleScale, Preferences, StreamBuffer, SubtitleColor, SubtitleLanguage,
     SubtitleScale,
+};
+pub use preview::{
+    bucket_of, bucket_start, checked_preview_at, preview_ceiling, FixturePreviewer, Frame,
+    InvalidPreviewAt, NoPreviewer, PreviewCache, PreviewCeiling, Previewer,
+    PREVIEW_BITRATE_GRACE_MS, PREVIEW_BUCKET_SECONDS, PREVIEW_CACHE_FRAMES, PREVIEW_CEILING_BPS,
 };
 pub use progress::{
     ResumeEntry, TitleCard, TitleStub, UnplayableEntry, UnplayableReason, WatchProgress,

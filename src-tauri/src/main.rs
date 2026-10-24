@@ -100,6 +100,14 @@ fn main() {
             };
             tracing::info!(picture = ?player.picture(), "the Player is ready");
 
+            // And the second, silent Player: a still of a moment the owner
+            // points at, from a libmpv of its own that draws nowhere and plays
+            // to nobody (ADR-0028). It answers nothing at all when its own mpv
+            // will not start, so it is started whether or not the first one did
+            // — a preview is decoration and a Host without one still plays.
+            let previewer: Arc<dyn host_core::Previewer> =
+                Arc::new(host_mpv::MpvPreviewer::start());
+
             let stremio = Arc::new(HttpStremio::new());
             let host = Host::new(
                 Arc::new(store),
@@ -109,6 +117,7 @@ fn main() {
                 player,
                 Arc::new(host_core::SystemClock),
             )?
+            .with_previewer(previewer)
             .with_stremio(stremio);
 
             app.manage(ipc::HostHandle::new(host));

@@ -27,6 +27,7 @@ use crate::discover::DiscoverRow;
 use crate::fetcher::{FetchError, Fetcher};
 use crate::log::millis;
 use crate::meta::{self, Title, Video};
+use crate::preview::{PreviewCeiling, Previewer};
 use crate::provider::Provider;
 use crate::request::{
     CatalogRef, Extra, ResourceRequest, TitleRef, VideoRef, CATALOG, META, STREAM,
@@ -50,6 +51,14 @@ pub struct HostView {
     fetcher: Arc<dyn Fetcher>,
     provider: Arc<dyn Provider>,
     secrets: Arc<dyn SecretStore>,
+    /// The stills of the Stream playing, asked for by a client pointing at its
+    /// timeline. Shared with the Host and every view; the URL it holds never
+    /// leaves it (ADR-0028).
+    previewer: Arc<dyn Previewer>,
+    /// Whether the Stream may be previewed, as the Host last decided it. Frozen
+    /// with the rest of the view, so a still is never asked for on a Stream whose
+    /// ceiling has not been settled — or has been settled against it.
+    preview_gate: PreviewCeiling,
     /// The pages Addons have already answered, shared with the Host and every
     /// other view. Its lock is taken for `fresh`, `when_stale` and `keep` and is
     /// never held across a fetch: two questions asking for different pages do not
@@ -63,6 +72,8 @@ impl HostView {
         fetcher: Arc<dyn Fetcher>,
         provider: Arc<dyn Provider>,
         secrets: Arc<dyn SecretStore>,
+        previewer: Arc<dyn Previewer>,
+        preview_gate: PreviewCeiling,
         cache: Arc<Mutex<CatalogCache>>,
     ) -> Self {
         Self {
@@ -70,6 +81,8 @@ impl HostView {
             fetcher,
             provider,
             secrets,
+            previewer,
+            preview_gate,
             cache,
         }
     }
@@ -80,7 +93,7 @@ impl HostView {
         &self.addons
     }
 
-    /// Resolve one of the seven questions.
+    /// Resolve one of the eight questions.
     ///
     /// The door routes by [`ValidatedAction::is_question`](crate::ValidatedAction::is_question);
     /// a change reaching here is a door bug, refused rather than resolved. The
@@ -254,6 +267,20 @@ impl HostView {
                         .collect(),
                 )
             }
+            // A still for one moment of the Stream playing, from the previewer's
+            // own limb — never from the picture on screen (ADR-0028). A Stream
+            // whose ceiling is not settled yet, or is settled against it, is
+            // never asked about: the gate is what keeps the second connection
+            // from being opened for a question that is already answered.
+            ValidatedAction::Preview { at } => Answer::Preview {
+                at: *at,
+                image: self
+                    .preview_gate
+                    .affordable()
+                    .then(|| self.previewer.preview(*at))
+                    .flatten()
+                    .map(|frame| frame.image().to_owned()),
+            },
             // The door classifies before it gets here; a change is refused
             // rather than answered. Every change is named, so adding one to
             // `ValidatedAction` fails to compile until it is classified here

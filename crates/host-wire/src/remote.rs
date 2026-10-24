@@ -531,6 +531,35 @@ mod tests {
     }
 
     #[test]
+    fn the_served_timeline_draws_a_seek_preview_while_a_range_is_dragged() {
+        // #140: the Remote has no pointer over its bar, so dragging is the
+        // pointing. The tip is asked for per five-second bucket, one ask in
+        // flight and the newest winning, and a moment the Host cannot draw is
+        // the time and the chapter alone (ADR-0028).
+        let served = page();
+        for needle in [
+            r#"<div class="seek-preview" data-preview-tip hidden>"#,
+            r#"<img data-preview-still alt="" hidden />"#,
+            r#"class="seek-preview-time tabular" data-preview-time"#,
+            r#"class="seek-preview-chapter" data-preview-chapter hidden"#,
+            "function previewBucket(at)",
+            "const PREVIEW_BUCKET_SECONDS = 5",
+            "function previewStreamKey(p)",
+            "const stream = previewStreamKey(p)",
+            "function previewPoint(at)",
+            "if (target.matches(\"[data-seek]\")) {",
+            "previewPoint(Number(target.value))",
+            "dispatch({ type: \"preview\", at: asked.at })",
+            "seekPreview.wanted = { bucket, at: moment }",
+            "if (seekPreview.wanted && seekPreview.wanted.bucket !== asked.bucket)",
+            "tip.dataset.pending = seekPreview.waiting ? \"true\" : \"false\"",
+            "const chapter = previewChapter(point.at)",
+        ] {
+            assert!(served.contains(needle), "the served page carries {needle}");
+        }
+    }
+
+    #[test]
     fn the_served_page_carries_the_tmdb_attribution() {
         let served = page();
         assert!(served

@@ -91,6 +91,15 @@ impl Response {
             _ => None,
         }
     }
+
+    /// The still a client asked for, when that is what it asked: the moment it
+    /// named, and the image where the Host had one.
+    pub fn preview(&self) -> Option<(f64, Option<&str>)> {
+        match &self.answer {
+            Some(Answer::Preview { at, image }) => Some((*at, image.as_deref())),
+            _ => None,
+        }
+    }
 }
 
 /// Something only the client that asked is owed.
@@ -113,6 +122,17 @@ pub enum Answer {
     /// The Streams a Video can be played as: one group per Addon that answered
     /// the `stream` request, in the configured order.
     Streams(Vec<AddonStreams>),
+    /// The still of one moment of the Stream playing, for a timeline tooltip
+    /// (ADR-0028). `at` is the moment the client asked about, echoed so a client
+    /// that coalesces its asks knows which one this answers; `image` is a JPEG in
+    /// a `data:` URL, or nothing where the Host could not take one — a preview is
+    /// decoration, and its absence is drawn as absence rather than as a failure.
+    Preview {
+        /// The moment asked about, in seconds from the Stream's start.
+        at: f64,
+        /// The still, as a `data:image/jpeg` URL, where there is one.
+        image: Option<String>,
+    },
     /// The token a pairing was just issued, and the device it belongs to. The one
     /// answer that carries something a client holds rather than something it
     /// reads: it goes to the device that redeemed the code and to nobody else,

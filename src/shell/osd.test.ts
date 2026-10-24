@@ -3,12 +3,16 @@ import { describe, expect, test } from "vitest";
 import type { Chapter, NowPlaying, PlaybackSnapshot, Track } from "../host-client";
 import {
   bufferedSpan,
+  chapterAt,
   chapterMarks,
+  PREVIEW_BUCKET_SECONDS,
+  previewBucket,
   qualityBadge,
   remainingTime,
   selectedTrack,
   streamDetails,
   streamTitle,
+  streamKey,
   timelineFraction,
 } from "./osd";
 import { OSD_IDLE_MS } from "./useOsdVisibility";
@@ -181,6 +185,47 @@ describe("the OSD's readings", () => {
     ]);
     expect(chapterMarks(chapters, null)).toEqual([]);
     expect(chapterMarks(chapters, 0)).toEqual([]);
+  });
+
+  test("a still stands for a five-second bucket of the Stream", () => {
+    expect(PREVIEW_BUCKET_SECONDS).toBe(5);
+    expect(previewBucket(0)).toBe(0);
+    expect(previewBucket(4.9)).toBe(0);
+    expect(previewBucket(5)).toBe(1);
+    expect(previewBucket(-1)).toBe(0);
+    expect(previewBucket(Number.NaN)).toBe(0);
+  });
+
+  test("the chapter a moment is inside is the last one that began before it", () => {
+    const chapters: Chapter[] = [
+      { index: 0, title: "Opening", time: 0 },
+      { index: 1, title: "The Choice", time: 1800 },
+    ];
+
+    expect(chapterAt(chapters, 900)?.title).toBe("Opening");
+    // A chapter holds from its own start.
+    expect(chapterAt(chapters, 1800)?.title).toBe("The Choice");
+    expect(chapterAt(chapters, 3599)?.title).toBe("The Choice");
+    expect(chapterAt([], 900)).toBeNull();
+    expect(
+      chapterAt([{ index: 0, title: "Late", time: 60 }], 30),
+      "a Stream that begins before its first chapter has no chapter there",
+    ).toBeNull();
+  });
+
+  test("a still's cache is keyed by the Stream, not by the Video alone", () => {
+    const playing = nowPlaying();
+    const key = streamKey(playing);
+
+    expect(streamKey(null)).toBeNull();
+    // The same Stream is one key.
+    expect(streamKey({ ...playing })).toBe(key);
+    // Another Addon's candidate of the same Video is another Stream.
+    expect(streamKey({ ...playing, addon: "community.other" })).not.toBe(key);
+    // Another release of the same Video is another Stream.
+    expect(streamKey({ ...playing, name: "AIOStreams\n2160p" })).not.toBe(key);
+    // The binge group tells two releases of one episode apart.
+    expect(streamKey({ ...playing, bingeGroup: "aiostreams|2160p" })).not.toBe(key);
   });
 });
 

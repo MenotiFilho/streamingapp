@@ -525,6 +525,7 @@ export type Response = {
     | { search: SearchRow }
     | { title: Title }
     | { streams: AddonStreams[] }
+    | { preview: { at: number; image: string | null } }
     | { paired: { device: DeviceSummary; token: string } }
     | null;
 };
@@ -595,6 +596,11 @@ export type Action =
   // record; `kind` is the protocol's spelling of what it is (`movie`/`series`).
   | { type: "open_discovered_title"; key: TitleKey; kind: string }
   | { type: "find_streams"; video: { type: string; id: string } }
+  // A still of one moment of the Stream playing, for the timeline's tooltip
+  // (#140, ADR-0028). A Question: it publishes nothing, moves no state, and a
+  // moment the Host cannot draw comes back as an answer with no image rather
+  // than as a failure.
+  | { type: "preview"; at: number }
   | {
       type: "play_stream";
       video: { type: string; id: string };
@@ -662,6 +668,7 @@ export const HOST_ERROR_KINDS = [
   "invalid_title_ref",
   "invalid_video_ref",
   "invalid_seek_target",
+  "invalid_preview_at",
   "invalid_speed",
   "invalid_volume",
   "invalid_subtitle_delay",
@@ -811,6 +818,18 @@ export function answeredStreams(response: Response | null): AddonStreams[] {
   return answer && "streams" in answer ? answer.streams : [];
 }
 
+/**
+ * The still an answer carries, when the Action was a `preview` (#140): the
+ * moment the Host answered about — echoed so a client that coalesces its asks
+ * knows which one this is — and the image, where there is one.
+ */
+export function answeredPreview(
+  response: Response | null,
+): { at: number; image: string | null } | null {
+  const answer = response?.answer;
+  return answer && "preview" in answer ? answer.preview : null;
+}
+
 /** Whatever a failed call threw, as something the window can explain. */
 export function asActionError(caught: unknown): ActionError {
   if (typeof caught === "object" && caught !== null) {
@@ -857,6 +876,8 @@ export function explain(error: ActionError): string {
       return `${JSON.stringify(error.value)} is not a Video ${error.which}.`;
     case "invalid_seek_target":
       return `${JSON.stringify(error.seconds)} is not a number of seconds to seek by.`;
+    case "invalid_preview_at":
+      return `${JSON.stringify(error.seconds)} is not a moment of the Stream to take a still of.`;
     case "invalid_speed":
       return `${JSON.stringify(error.rate)} is not a playback speed — a speed is a number from 0.05 to 100.`;
     case "invalid_volume":

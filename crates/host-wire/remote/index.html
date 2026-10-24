@@ -482,6 +482,32 @@
         width: 0.9rem; height: 0.9rem; border: 0; border-radius: 50%; background: var(--ink-primary);
       }
       .seek-track input[type="range"]:disabled { opacity: 0.4; cursor: not-allowed; }
+      /* The Seek preview (#140, ADR-0028): the still of the moment the range is
+         dragged to, with its time under it and the chapter's name where it is
+         inside one. While the bucket under the thumb has no answer yet the
+         previous still stays, dimmed; with no still at all it is the time and
+         the chapter alone. */
+      .seek-preview {
+        position: absolute; bottom: calc(100% + 0.4rem); left: 50%; z-index: 2;
+        display: grid; justify-items: center; gap: 0.2rem; padding: 0.3rem 0.4rem 0.35rem;
+        max-width: 11rem; border: 1px solid var(--border-strong); border-radius: 8px;
+        background: var(--bg-glass-solid);
+        box-shadow: 0 8px 24px color-mix(in srgb, var(--bg-canvas) 60%, transparent);
+        transform: translateX(-50%); pointer-events: none;
+      }
+      .seek-preview[hidden] { display: none; }
+      .seek-preview img {
+        display: block; width: 10rem; aspect-ratio: 16 / 9; border-radius: 4px; object-fit: cover;
+        transition: opacity 150ms ease-out;
+      }
+      .seek-preview img[hidden] { display: none; }
+      .seek-preview[data-pending="true"] img { opacity: 0.45; }
+      .seek-preview-time { color: var(--ink-primary); font-size: var(--text-micro); font-weight: 700; }
+      .seek-preview-chapter {
+        max-width: 10rem; overflow: hidden; color: var(--ink-secondary);
+        font-size: var(--text-micro); text-overflow: ellipsis; white-space: nowrap;
+      }
+      .seek-preview-chapter[hidden] { display: none; }
       .times { display: flex; justify-content: space-between; color: var(--ink-muted); font-size: var(--text-micro); }
       .transport { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.3rem; align-items: center; }
       .transport .btn { padding: 0.55rem 0.2rem; font-size: var(--text-micro); }
@@ -543,7 +569,7 @@
       comment: a control wired to an Action this list does not name throws
       rather than sending it.
     -->
-    <script type="application/json" id="action-capabilities">["set_subtitle_language","clear_subtitle_language","set_subtitle_color","set_subtitle_scale","set_stream_buffer","set_featured_catalog","clear_featured_catalog","add_addon","reorder_addon","remove_addon","set_tmdb_key","clear_tmdb_key","sign_in_stremio","sign_out_stremio","pair_device","revoke_device","browse_catalog","search_catalogs","discover","search","open_title","open_discovered_title","find_streams","play_stream","resume","set_paused","seek","set_audio_track","set_subtitle_track","set_subtitle_delay","set_speed","set_volume","set_muted","next_chapter","previous_chapter","set_chapter","set_crop","autocrop","set_aspect","next_episode","previous_episode","stop_playback"]</script>
+    <script type="application/json" id="action-capabilities">["set_subtitle_language","clear_subtitle_language","set_subtitle_color","set_subtitle_scale","set_stream_buffer","set_featured_catalog","clear_featured_catalog","add_addon","reorder_addon","remove_addon","set_tmdb_key","clear_tmdb_key","sign_in_stremio","sign_out_stremio","pair_device","revoke_device","browse_catalog","search_catalogs","discover","search","open_title","open_discovered_title","find_streams","preview","play_stream","resume","set_paused","seek","set_audio_track","set_subtitle_track","set_subtitle_delay","set_speed","set_volume","set_muted","next_chapter","previous_chapter","set_chapter","set_crop","autocrop","set_aspect","next_episode","previous_episode","stop_playback"]</script>
 
     <!-- The wait every control shows while the Host answers (#137). -->
     <div id="pending-pill" class="pending-pill" role="status" aria-live="polite" hidden>
@@ -2762,6 +2788,11 @@
                 <input type="range" data-seek min="0" max="${p.duration === null ? 0 : p.duration}" step="1"
                        value="${p.position === null ? 0 : p.position}" aria-label="Position"
                        ${off(p.duration === null || !canTransport)} data-focusable data-focus-key="cast-seek" />
+                <div class="seek-preview" data-preview-tip hidden>
+                  <img data-preview-still alt="" hidden />
+                  <span class="seek-preview-time tabular" data-preview-time></span>
+                  <span class="seek-preview-chapter" data-preview-chapter hidden></span>
+                </div>
               </div>
               <div class="times">
                 <span class="tabular" data-clock>${formatTime(p.position)}</span>
@@ -2904,6 +2935,156 @@
         }
         const volumeLevel = cast.querySelector("[data-volume-level]");
         if (volumeLevel) { volumeLevel.textContent = formatVolume(p.volume === null ? 100 : p.volume); }
+        renderSeekPreview();
+      }
+
+      // ---------------------------------------------------------------------
+      // The Seek preview (#140, ADR-0028): a still of the moment the thumb is
+      // over, asked for while a range drag is in progress. The Remote has no
+      // pointer over the bar, so dragging *is* the pointing. One ask in flight
+      // and the newest bucket wins; the still already drawn stays under the tip,
+      // dimmed, until the next one answers; a moment the Host cannot draw is the
+      // time and the chapter alone.
+      // ---------------------------------------------------------------------
+      const seekPreview = {
+        stream: null,
+        generation: 0,
+        cache: new Map(),
+        still: null,
+        point: null,
+        waiting: false,
+        inFlight: null,
+        wanted: null,
+      };
+
+      /** How many seconds of the Stream one still stands for: the Host's own bucket. */
+      const PREVIEW_BUCKET_SECONDS = 5;
+
+      /** How many stills this page keeps: the Host's own two hundred buckets. */
+      const PREVIEW_STILLS_KEPT = 200;
+
+      /**
+       * What a still is kept under: one Stream, as far as this client can tell
+       * one from another. A Stream URL is never a client's — the Addon and its
+       * own words about the candidate are all there is (ADR-0009) — so those are
+       * the key, and a new one clears the stills of the Stream before it.
+       */
+      function previewStreamKey(p) {
+        if (!p || !p.nowPlaying) { return null; }
+        const n = p.nowPlaying;
+        return [n.addon, n.video.type, n.video.id, n.name || "", n.description || "",
+                n.filename || "", n.bingeGroup || ""].join("\u0000");
+      }
+
+      /** The five-second bucket a moment falls in: the Host's own key. */
+      function previewBucket(at) {
+        return Number.isFinite(at) && at > 0 ? Math.floor(at / PREVIEW_BUCKET_SECONDS) : 0;
+      }
+
+      /** The chapter a moment is inside: the last one that began before it. */
+      function previewChapter(at) {
+        const p = playback();
+        if (!p) { return null; }
+        let inside = null;
+        p.chapters.forEach((chapter) => { if (chapter.time <= at) { inside = chapter; } });
+        return inside;
+      }
+
+      function previewAsk() {
+        const asked = seekPreview.wanted;
+        if (!asked) { return; }
+        seekPreview.wanted = null;
+        seekPreview.inFlight = asked.bucket;
+        const sent = seekPreview.generation;
+        const answer = (image) => {
+          // A still of the Stream before this one is not a still of this one.
+          if (sent !== seekPreview.generation) { return; }
+          // Two hundred stills per Stream, as the Host keeps: a client that kept
+          // every bucket a drag crossed would hold a film's worth (ADR-0028).
+          seekPreview.cache.delete(asked.bucket);
+          seekPreview.cache.set(asked.bucket, image);
+          while (seekPreview.cache.size > PREVIEW_STILLS_KEPT) {
+            const oldest = seekPreview.cache.keys().next().value;
+            if (oldest === undefined) { break; }
+            seekPreview.cache.delete(oldest);
+          }
+          seekPreview.inFlight = null;
+          if (seekPreview.point && previewBucket(seekPreview.point.at) === asked.bucket) {
+            seekPreview.still = image === null ? null : { bucket: asked.bucket, image };
+            seekPreview.waiting = false;
+          }
+          if (seekPreview.wanted && seekPreview.wanted.bucket !== asked.bucket) {
+            previewAsk();
+          }
+          renderSeekPreview();
+        };
+        // A preview is decoration: a refusal or a dropped connection is an
+        // absent still and never the error banner (ADR-0028).
+        dispatch({ type: "preview", at: asked.at }).then(
+          (response) => {
+            const preview = response && response.answer && response.answer.preview;
+            answer(preview && preview.image ? preview.image : null);
+          },
+          () => answer(null),
+        );
+      }
+
+      function previewPoint(at) {
+        const p = playback();
+        if (!p || p.duration === null || !Number.isFinite(p.duration) || p.duration <= 0) {
+          return;
+        }
+        const stream = previewStreamKey(p);
+        if (stream !== seekPreview.stream) {
+          // A still of one Stream is not a still of another.
+          seekPreview.stream = stream;
+          seekPreview.generation += 1;
+          seekPreview.cache.clear();
+          seekPreview.still = null;
+          seekPreview.inFlight = null;
+          seekPreview.wanted = null;
+        }
+        const moment = Math.max(0, Math.min(p.duration, Number(at)));
+        seekPreview.point = { at: moment, fraction: moment / p.duration };
+        const bucket = previewBucket(moment);
+        const known = seekPreview.cache.get(bucket);
+        if (known !== undefined) {
+          seekPreview.still = known === null ? null : { bucket, image: known };
+          seekPreview.waiting = false;
+          renderSeekPreview();
+          return;
+        }
+        seekPreview.waiting = true;
+        seekPreview.wanted = { bucket, at: moment };
+        if (seekPreview.inFlight === null) { previewAsk(); }
+        renderSeekPreview();
+      }
+
+      function previewLeave() {
+        seekPreview.point = null;
+        seekPreview.waiting = false;
+        renderSeekPreview();
+      }
+
+      function renderSeekPreview() {
+        const cast = $("surface-remote");
+        if (!cast) { return; }
+        const tip = cast.querySelector("[data-preview-tip]");
+        if (!tip) { return; }
+        const point = seekPreview.point;
+        if (!point) { tip.hidden = true; return; }
+        tip.hidden = false;
+        tip.dataset.pending = seekPreview.waiting ? "true" : "false";
+        tip.style.left = Math.min(94, Math.max(6, point.fraction * 100)) + "%";
+        const still = tip.querySelector("[data-preview-still]");
+        const image = seekPreview.still ? seekPreview.still.image : null;
+        still.hidden = image === null;
+        if (image === null) { still.removeAttribute("src"); } else { still.src = image; }
+        tip.querySelector("[data-preview-time]").textContent = formatTime(point.at);
+        const chapter = previewChapter(point.at);
+        const name = tip.querySelector("[data-preview-chapter]");
+        name.hidden = !chapter;
+        name.textContent = chapter ? chapterLabel(chapter) : "";
       }
 
       // --- surface 3: Audio & Subtitles -------------------------------------
@@ -4102,6 +4283,7 @@
       document.addEventListener("change", (event) => {
         const target = event.target;
         if (target.matches("[data-seek]")) {
+          previewLeave();
           void take({ type: "seek", target: { kind: "to", seconds: Number(target.value) } });
         } else if (target.matches("[data-volume]")) {
           const levelNode = document.querySelector("[data-volume-level]");
@@ -4112,7 +4294,11 @@
 
       document.addEventListener("input", (event) => {
         const target = event.target;
-        if (target.id === "search-input") {
+        if (target.matches("[data-seek]")) {
+          // A range drag is the Remote's pointing: the still of the moment the
+          // thumb came to, asked for as it moves (#140, ADR-0028).
+          previewPoint(Number(target.value));
+        } else if (target.id === "search-input") {
           state.search.draft = target.value;
           const submit = document.querySelector('[data-focus-key="search-submit"]');
           if (submit) { submit.disabled = target.value.trim().length === 0; }

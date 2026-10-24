@@ -154,3 +154,56 @@ export function chapterMarks(chapters: Chapter[], duration: number | null): Chap
     fraction: Math.min(1, Math.max(0, chapter.time / duration)),
   }));
 }
+
+/**
+ * How many seconds of the Stream one still stands for: the Host's own bucket
+ * (ADR-0028). A client asks about a moment; the answer is the still of the
+ * bucket that moment falls in, so two pointers a second apart are one ask.
+ */
+export const PREVIEW_BUCKET_SECONDS = 5;
+
+/** The bucket a moment falls in — the key the tooltip's cache is kept by. */
+export function previewBucket(at: number): number {
+  if (!Number.isFinite(at) || at <= 0) {
+    return 0;
+  }
+  return Math.floor(at / PREVIEW_BUCKET_SECONDS);
+}
+
+/**
+ * The chapter a moment is inside, where the Stream has chapters: the last one
+ * that began at or before it. `null` before the first chapter's own start — a
+ * Stream can begin with an untitled lead-in — and where there are none at all.
+ */
+export function chapterAt(chapters: Chapter[], at: number): Chapter | null {
+  let inside: Chapter | null = null;
+  for (const chapter of chapters) {
+    if (chapter.time <= at) {
+      inside = chapter;
+    }
+  }
+  return inside;
+}
+
+/**
+ * What a still is kept under: one Stream, as far as a client can tell one from
+ * another. A Stream URL is never a client's (ADR-0009) — the Addon and its own
+ * words about the candidate are all there is — so those are the key. Two
+ * candidates of the same Video differ in at least one of them, and two that do
+ * not are indistinguishable to this client and would answer the same still
+ * anyway. A new key is what clears the stills of the Stream before it.
+ */
+export function streamKey(nowPlaying: NowPlaying | null): string | null {
+  if (!nowPlaying) {
+    return null;
+  }
+  return [
+    nowPlaying.addon,
+    nowPlaying.video.type,
+    nowPlaying.video.id,
+    nowPlaying.name ?? "",
+    nowPlaying.description ?? "",
+    nowPlaying.filename ?? "",
+    nowPlaying.bingeGroup ?? "",
+  ].join("\u0000");
+}
