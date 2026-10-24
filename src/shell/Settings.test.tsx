@@ -78,7 +78,7 @@ const NOTHING_SAID: Snapshot = {
     resolution: null,
     statistics: null,
   },
-  preferences: { subtitleLanguage: null, subtitleColor: "#FFFFFF", subtitleScale: 1 },
+  preferences: { subtitleLanguage: null, subtitleColor: "#FFFFFF", subtitleScale: 1, streamBuffer: { seconds: 300, megabytes: 512 } },
   addons: [],
   featuredCatalog: null,
   protection: { backend: "keyring", tmdbHeld: false, stremioHeld: false },
@@ -95,7 +95,7 @@ function snap(overrides: Partial<Snapshot> = {}): Snapshot {
 function settingsSnapshot(overrides: Partial<Snapshot> = {}): Snapshot {
   return snap({
     addons: [CINEMETA, STREMBOX],
-    preferences: { subtitleLanguage: "en", subtitleColor: "#FFFFFF", subtitleScale: 1 },
+    preferences: { subtitleLanguage: "en", subtitleColor: "#FFFFFF", subtitleScale: 1, streamBuffer: { seconds: 300, megabytes: 512 } },
     protection: { backend: "file", tmdbHeld: true, stremioHeld: false },
     devices: [LIVING_ROOM, OFFICE],
     ...overrides,
@@ -321,7 +321,7 @@ describe("the Settings screen", () => {
       host.publish(
         settingsSnapshot({
           revision: 2,
-          preferences: { subtitleLanguage: "pt-BR", subtitleColor: "#FFFFFF", subtitleScale: 1 },
+          preferences: { subtitleLanguage: "pt-BR", subtitleColor: "#FFFFFF", subtitleScale: 1, streamBuffer: { seconds: 300, megabytes: 512 } },
         }),
       ),
     );
@@ -368,7 +368,7 @@ describe("the Settings screen", () => {
           preferences: {
             subtitleLanguage: "en",
             subtitleColor: "#FFFF00",
-            subtitleScale: 1.25,
+            subtitleScale: 1.25, streamBuffer: { seconds: 300, megabytes: 512 },
           },
         }),
       ),
@@ -394,7 +394,7 @@ describe("the Settings screen", () => {
   test("a size between the four presets is pressed as Other, whatever the Remote set", async () => {
     const host = fakeHost(
       settingsSnapshot({
-        preferences: { subtitleLanguage: "en", subtitleColor: "#FFFFFF", subtitleScale: 1.05 },
+        preferences: { subtitleLanguage: "en", subtitleColor: "#FFFFFF", subtitleScale: 1.05, streamBuffer: { seconds: 300, megabytes: 512 } },
       }),
     );
     await openSettings(host);
@@ -415,7 +415,7 @@ describe("the Settings screen", () => {
         host.publish(
           settingsSnapshot({
             revision: 2,
-            preferences: { subtitleLanguage: "en", subtitleColor: "#FFFFFF", subtitleScale: scale },
+            preferences: { subtitleLanguage: "en", subtitleColor: "#FFFFFF", subtitleScale: scale, streamBuffer: { seconds: 300, megabytes: 512 } },
           }),
         ),
       );
@@ -434,7 +434,7 @@ describe("the Settings screen", () => {
       host.publish(
         settingsSnapshot({
           revision: 3,
-          preferences: { subtitleLanguage: "en", subtitleColor: "#FFFFFF", subtitleScale: 1.25 },
+          preferences: { subtitleLanguage: "en", subtitleColor: "#FFFFFF", subtitleScale: 1.25, streamBuffer: { seconds: 300, megabytes: 512 } },
         }),
       ),
     );
@@ -456,6 +456,81 @@ describe("the Settings screen", () => {
 
     expect(await screen.findByTestId("subtitle-appearance-error")).toHaveTextContent(
       '"#00FFFF" is not a subtitle colour',
+    );
+  });
+
+  test("Preferences picks a Stream buffer: a look-ahead and a memory ceiling", async () => {
+    const host = fakeHost(settingsSnapshot());
+    await openSettings(host);
+    await openCategory("Preferences");
+
+    expect(screen.getByTestId("stream-buffer")).toHaveTextContent("read ahead");
+    expect(screen.getByTestId("buffer-seconds-300")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("buffer-megabytes-512")).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByTestId("buffer-seconds-600"));
+    await waitFor(() =>
+      expect(actions(host.invocations)).toContainEqual({
+        type: "set_stream_buffer",
+        seconds: 600,
+        megabytes: 512,
+      }),
+    );
+
+    fireEvent.click(screen.getByTestId("buffer-megabytes-1024"));
+    await waitFor(() =>
+      expect(actions(host.invocations)).toContainEqual({
+        type: "set_stream_buffer",
+        // The second press composes from the first, before the Host has
+        // answered: a pair built from the stale Snapshot would revert 600 s.
+        seconds: 600,
+        megabytes: 1024,
+      }),
+    );
+
+    act(() =>
+      host.publish(
+        settingsSnapshot({
+          revision: 2,
+          preferences: {
+            subtitleLanguage: "en",
+            subtitleColor: "#FFFFFF",
+            subtitleScale: 1,
+            streamBuffer: { seconds: 600, megabytes: 2048 },
+          },
+        }),
+      ),
+    );
+    expect(screen.getByTestId("buffer-seconds-600")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("buffer-megabytes-2048")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("a buffer between the presets is pressed as Other, whatever the Remote set", async () => {
+    const host = fakeHost(
+      settingsSnapshot({
+        preferences: {
+          subtitleLanguage: "en",
+          subtitleColor: "#FFFFFF",
+          subtitleScale: 1,
+          streamBuffer: { seconds: 900, megabytes: 1536 },
+        },
+      }),
+    );
+    await openSettings(host);
+    await openCategory("Preferences");
+
+    expect(screen.getByTestId("buffer-seconds-other")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("buffer-seconds-other")).toHaveTextContent("15 min");
+    expect(screen.getByTestId("buffer-megabytes-other")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("buffer-megabytes-other")).toHaveTextContent("1536 MB");
+
+    fireEvent.click(screen.getByTestId("buffer-seconds-other"));
+    await waitFor(() =>
+      expect(actions(host.invocations)).toContainEqual({
+        type: "set_stream_buffer",
+        seconds: 900,
+        megabytes: 1536,
+      }),
     );
   });
 

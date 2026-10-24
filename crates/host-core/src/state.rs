@@ -5,7 +5,7 @@ use crate::playback::{
     Aspect, ChapterStep, ChosenStream, Crop, PlaybackSession, SeekTarget, TrackId, TrackKind,
 };
 use crate::preferences::{
-    FeaturedCatalog, Preferences, SubtitleColor, SubtitleLanguage, SubtitleScale,
+    FeaturedCatalog, Preferences, StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale,
 };
 use crate::progress::{TitleStub, WatchProgress};
 use crate::request::VideoRef;
@@ -183,6 +183,10 @@ impl State {
             }
             Change::SetSubtitleScale(scale) => {
                 self.preferences.set_subtitle_scale(scale);
+                Persist::Preferences
+            }
+            Change::SetStreamBuffer(buffer) => {
+                self.preferences.set_stream_buffer(buffer);
                 Persist::Preferences
             }
             // The Featured catalog is a preference of the Host's, and it is
@@ -472,6 +476,9 @@ pub(crate) enum Change {
     ClearSubtitleLanguage,
     SetSubtitleColor(SubtitleColor),
     SetSubtitleScale(SubtitleScale),
+    /// The look-ahead and memory ceiling the Player is told, judged together
+    /// before either reaches it (ADR-0026).
+    SetStreamBuffer(StreamBuffer),
     /// The one Catalog marked as the Host's featured feed, resolved against the
     /// Addon that offers it (#74).
     SetFeaturedCatalog(FeaturedCatalog),

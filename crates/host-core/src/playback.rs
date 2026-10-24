@@ -36,7 +36,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::addon::{AddonId, MAX_URL_LEN};
-use crate::preferences::{SubtitleColor, SubtitleLanguage, SubtitleScale};
+use crate::preferences::{StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale};
 use crate::request::VideoRef;
 use crate::stream::{holdable, Playback, Stream};
 
@@ -551,6 +551,11 @@ pub enum Telling {
     /// How large the Player draws subtitles, relative to its own size. Applies
     /// to styled and unstyled subtitles alike (ADR-0024).
     SubtitleScale(SubtitleScale),
+    /// How much of the Stream the Player keeps read ahead, and the memory that
+    /// read-ahead may take. Told at startup and with every change of the
+    /// preference; the Player decides how its own read-ahead spells the pair
+    /// (ADR-0026).
+    StreamBuffer(StreamBuffer),
     /// Load an external subtitle (the Addon `subtitles` fallback, S4).
     AddSubtitle {
         url: StreamUrl,
@@ -1337,6 +1342,26 @@ impl FixturePlayer {
             .lock()
             .expect("the fixture player is not poisoned")
             .clone()
+    }
+
+    /// Forget everything recorded so far.
+    ///
+    /// A Host states its preferences to its Player before anything is opened
+    /// (ADR-0024, ADR-0026), so a test that watches one control wants what *its*
+    /// Action told the Player, not that preamble.
+    pub fn forget(&self) {
+        self.opened
+            .lock()
+            .expect("the fixture player is not poisoned")
+            .clear();
+        self.tellings
+            .lock()
+            .expect("the fixture player is not poisoned")
+            .clear();
+        *self
+            .stopped
+            .lock()
+            .expect("the fixture player is not poisoned") = 0;
     }
 
     /// How many times the Host asked the Player to stop.

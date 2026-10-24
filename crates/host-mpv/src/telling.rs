@@ -7,7 +7,7 @@
 //! (ADR-0013), and faithful to the vocabulary mpv 0.37 answers
 //! (`docs/research/mpv-control-facts.md`).
 
-use host_core::{Aspect, ChapterStep, Crop, SeekTarget, StreamUrl, Telling};
+use host_core::{Aspect, ChapterStep, Crop, SeekTarget, StreamBuffer, StreamUrl, Telling};
 
 use crate::AUTOCROP_SCRIPT_STEM;
 
@@ -47,8 +47,13 @@ pub(crate) fn stop() -> (&'static str, Vec<String>) {
     ("stop", Vec::new())
 }
 
-/// The mpv command a telling is: a name and its arguments, mpv's own spelling
+/// The mpv commands a telling is: a name and its arguments, mpv's own spelling
 /// of what the Host asked for.
+///
+/// Most tellings are one call; a Stream buffer is three, because mpv bounds its
+/// demuxer cache by a time and by two memory budgets and the Host states the
+/// pair as one preference (ADR-0026). The order is the order mpv is given them
+/// in, and a caller stops at the first refusal.
 ///
 /// Pausing goes through mpv's `set` command rather than the `pause` command of
 /// the same name: mpv 0.37's `pause` command *toggles* the property and ignores
@@ -63,78 +68,88 @@ pub(crate) fn stop() -> (&'static str, Vec<String>) {
 /// the script's own binding, named after the file it was written as. Source
 /// aspect is `no`, because `video-aspect-override` is a number and `no` is mpv's
 /// own word for "none".
-pub(crate) fn command(telling: &Telling) -> (&'static str, Vec<String>) {
+pub(crate) fn commands(telling: &Telling) -> Vec<(&'static str, Vec<String>)> {
     match telling {
-        Telling::Pause(paused) => ("set", vec!["pause".to_owned(), yes_no(*paused)]),
+        Telling::Pause(paused) => vec![("set", vec!["pause".to_owned(), yes_no(*paused)])],
         Telling::Seek(SeekTarget::To { seconds }) => {
-            ("seek", vec![seconds.to_string(), "absolute".to_owned()])
+            vec![("seek", vec![seconds.to_string(), "absolute".to_owned()])]
         }
         Telling::Seek(SeekTarget::By { seconds }) => {
-            ("seek", vec![seconds.to_string(), "relative".to_owned()])
+            vec![("seek", vec![seconds.to_string(), "relative".to_owned()])]
         }
-        Telling::AudioTrack(id) => ("set", vec!["aid".to_owned(), id.to_string()]),
-        Telling::SubtitleTrack(Some(id)) => ("set", vec!["sid".to_owned(), id.to_string()]),
+        Telling::AudioTrack(id) => vec![("set", vec!["aid".to_owned(), id.to_string()])],
+        Telling::SubtitleTrack(Some(id)) => vec![("set", vec!["sid".to_owned(), id.to_string()])],
         // Subtitles off, which mpv reads back as `false`.
-        Telling::SubtitleTrack(None) => ("set", vec!["sid".to_owned(), "no".to_owned()]),
+        Telling::SubtitleTrack(None) => vec![("set", vec!["sid".to_owned(), "no".to_owned()])],
         Telling::SubtitleDelay { seconds } => {
-            ("set", vec!["sub-delay".to_owned(), seconds.to_string()])
+            vec![("set", vec!["sub-delay".to_owned(), seconds.to_string()])]
         }
-        Telling::Speed { rate } => ("set", vec!["speed".to_owned(), rate.to_string()]),
-        Telling::Volume { level } => ("set", vec!["volume".to_owned(), level.to_string()]),
-        Telling::Muted(muted) => ("set", vec!["mute".to_owned(), yes_no(*muted)]),
+        Telling::Speed { rate } => vec![("set", vec!["speed".to_owned(), rate.to_string()])],
+        Telling::Volume { level } => vec![("set", vec!["volume".to_owned(), level.to_string()])],
+        Telling::Muted(muted) => vec![("set", vec!["mute".to_owned(), yes_no(*muted)])],
         Telling::Chapter(ChapterStep::At { index }) => {
-            ("set", vec!["chapter".to_owned(), index.to_string()])
+            vec![("set", vec!["chapter".to_owned(), index.to_string()])]
         }
-        Telling::Chapter(ChapterStep::Next) => ("add", vec!["chapter".to_owned(), "1".to_owned()]),
+        Telling::Chapter(ChapterStep::Next) => {
+            vec![("add", vec!["chapter".to_owned(), "1".to_owned()])]
+        }
         Telling::Chapter(ChapterStep::Previous) => {
-            ("add", vec!["chapter".to_owned(), "-1".to_owned()])
+            vec![("add", vec!["chapter".to_owned(), "-1".to_owned()])]
         }
         // The empty string is mpv's "no rectangle": the script's own clear, and
         // what the reading half treats as the whole picture.
-        Telling::Crop(Crop::Off) => ("set", vec!["video-crop".to_owned(), String::new()]),
+        Telling::Crop(Crop::Off) => {
+            vec![("set", vec!["video-crop".to_owned(), String::new()])]
+        }
         Telling::Crop(Crop::Rectangle {
             width,
             height,
             x,
             y,
-        }) => (
+        }) => vec![(
             "set",
             vec!["video-crop".to_owned(), format!("{width}x{height}+{x}+{y}")],
-        ),
+        )],
         // The stock script's own toggle: the first press detects the bars and
         // crops to them, the second restores the full frame. Nothing is cleared
         // first — the script reads `video-crop` to decide, and an empty one is
         // exactly what makes it detect (#119).
-        Telling::Autocrop => (
+        Telling::Autocrop => vec![(
             "script-binding",
             vec![format!("{AUTOCROP_SCRIPT_STEM}/toggle_crop")],
-        ),
-        Telling::Aspect(Aspect::Source) => (
+        )],
+        Telling::Aspect(Aspect::Source) => vec![(
             "set",
             vec!["video-aspect-override".to_owned(), "no".to_owned()],
-        ),
-        Telling::Aspect(Aspect::Ratio { value }) => (
+        )],
+        Telling::Aspect(Aspect::Ratio { value }) => vec![(
             "set",
             vec!["video-aspect-override".to_owned(), value.to_string()],
-        ),
+        )],
         // An empty `slang` is how mpv is told to prefer nothing; the Host tells
         // it once at startup and with every change of the preference.
         Telling::SubtitleLanguage(Some(language)) => {
-            ("set", vec!["slang".to_owned(), language.to_string()])
+            vec![("set", vec!["slang".to_owned(), language.to_string()])]
         }
-        Telling::SubtitleLanguage(None) => ("set", vec!["slang".to_owned(), String::new()]),
+        Telling::SubtitleLanguage(None) => {
+            vec![("set", vec!["slang".to_owned(), String::new()])]
+        }
         // The colour applies to subtitles that do not style themselves, and the
         // size to every subtitle: deliberately no `sub-ass-override`, so an ASS
         // track keeps the colour, font and typesetting it was authored with
         // (ADR-0024). `#RRGGBB` is the form mpv's own colour parser takes.
-        Telling::SubtitleColor(color) => (
+        Telling::SubtitleColor(color) => vec![(
             "set",
             vec!["sub-color".to_owned(), color.as_str().to_owned()],
-        ),
-        Telling::SubtitleScale(scale) => (
+        )],
+        Telling::SubtitleScale(scale) => vec![(
             "set",
             vec!["sub-scale".to_owned(), scale.value().to_string()],
-        ),
+        )],
+        // The buffer is the one telling that is more than one call: mpv bounds
+        // its demuxer cache by three properties, and the Host's pair becomes
+        // all three (ADR-0026).
+        Telling::StreamBuffer(buffer) => stream_buffer_commands(*buffer),
         Telling::AddSubtitle {
             url,
             title,
@@ -149,9 +164,38 @@ pub(crate) fn command(telling: &Telling) -> (&'static str, Vec<String>) {
             if let Some(language) = language {
                 arguments.push(language.clone());
             }
-            ("sub-add", arguments)
+            vec![("sub-add", arguments)]
         }
     }
+}
+
+/// The three mpv properties a Stream buffer is.
+///
+/// `cache-secs` is the look-ahead the demuxer aims for; the two `demuxer-max-*`
+/// properties are the memory it may take, ahead and behind. mpv's own defaults
+/// split that memory 3:1 (150 MiB ahead, 50 MiB behind), and the same split is
+/// kept here so the Host's one number is the whole of the memory the cache can
+/// take — neither half can grow past it. The unit the Host states is the decimal
+/// megabyte, which is what the interface says.
+fn stream_buffer_commands(buffer: StreamBuffer) -> Vec<(&'static str, Vec<String>)> {
+    let total = buffer.megabytes() * 1_000_000;
+    let behind = total / 4;
+    let ahead = total - behind;
+
+    vec![
+        (
+            "set",
+            vec!["cache-secs".to_owned(), buffer.seconds().to_string()],
+        ),
+        (
+            "set",
+            vec!["demuxer-max-bytes".to_owned(), ahead.to_string()],
+        ),
+        (
+            "set",
+            vec!["demuxer-max-back-bytes".to_owned(), behind.to_string()],
+        ),
+    ]
 }
 
 /// mpv's own words for a boolean property.
@@ -316,8 +360,8 @@ mod tests {
 
         for (telling, expected) in cases {
             assert_eq!(
-                command(&telling),
-                expected,
+                commands(&telling),
+                vec![expected],
                 "{telling:?} is not what mpv is told"
             );
         }
@@ -329,16 +373,16 @@ mod tests {
         // deliberately never sets `sub-ass-override`: `force` would recolour an
         // ASS track and replace its authored fonts and typesetting (ADR-0024).
         assert_eq!(
-            command(&Telling::SubtitleColor(
+            commands(&Telling::SubtitleColor(
                 host_core::SubtitleColor::parse("#FFCC00").expect("a subtitle colour"),
             )),
-            ("set", vec!["sub-color".to_owned(), "#FFCC00".to_owned()])
+            vec![("set", vec!["sub-color".to_owned(), "#FFCC00".to_owned()])]
         );
         assert_eq!(
-            command(&Telling::SubtitleScale(
+            commands(&Telling::SubtitleScale(
                 host_core::SubtitleScale::parse(1.25).expect("a subtitle size")
             )),
-            ("set", vec!["sub-scale".to_owned(), "1.25".to_owned()])
+            vec![("set", vec!["sub-scale".to_owned(), "1.25".to_owned()])]
         );
 
         for telling in [
@@ -347,9 +391,10 @@ mod tests {
             ),
             Telling::SubtitleScale(host_core::SubtitleScale::parse(1.25).expect("a subtitle size")),
         ] {
-            let (name, arguments) = command(&telling);
+            let commands = commands(&telling);
+            let (name, arguments) = &commands[0];
             assert!(
-                !(name == "set"
+                !(*name == "set"
                     && arguments.first().map(String::as_str) == Some("sub-ass-override")),
                 "{telling:?} must not force the file's own styling"
             );
@@ -358,25 +403,27 @@ mod tests {
 
     #[test]
     fn a_pause_is_a_setting_rather_than_a_toggle() {
-        let (name, arguments) = command(&Telling::Pause(true));
-
-        assert_eq!(name, "set");
-        assert_eq!(arguments, vec!["pause".to_owned(), "yes".to_owned()]);
+        assert_eq!(
+            commands(&Telling::Pause(true)),
+            vec![("set", vec!["pause".to_owned(), "yes".to_owned()])]
+        );
     }
 
     #[test]
     fn an_external_subtitle_is_added_auto_and_keeps_its_positional_tail() {
         // A language with no title still has to fill the title's place, because
         // mpv reads the tail by position.
-        let (name, arguments) = command(&Telling::AddSubtitle {
+        let told = commands(&Telling::AddSubtitle {
             url: url(),
             title: None,
             language: Some("por".to_owned()),
         });
-        assert_eq!(name, "sub-add");
+        assert_eq!(told.len(), 1);
+        let (name, arguments) = &told[0];
+        assert_eq!(*name, "sub-add");
         assert_eq!(
             arguments,
-            vec![
+            &vec![
                 "https://stream.example.org/v/tt0133093.mkv".to_owned(),
                 "auto".to_owned(),
                 String::new(),
@@ -384,17 +431,40 @@ mod tests {
             ]
         );
 
-        let (_, arguments) = command(&Telling::AddSubtitle {
+        let told = commands(&Telling::AddSubtitle {
             url: url(),
             title: None,
             language: None,
         });
         assert_eq!(
-            arguments,
-            vec![
+            &told[0].1,
+            &vec![
                 "https://stream.example.org/v/tt0133093.mkv".to_owned(),
                 "auto".to_owned(),
             ]
+        );
+    }
+
+    #[test]
+    fn a_stream_buffer_is_the_time_and_the_two_memory_budgets() {
+        let commands = commands(&Telling::StreamBuffer(
+            StreamBuffer::parse(300, 512).expect("a buffer"),
+        ));
+
+        assert_eq!(
+            commands,
+            vec![
+                ("set", vec!["cache-secs".to_owned(), "300".to_owned()]),
+                (
+                    "set",
+                    vec!["demuxer-max-bytes".to_owned(), "384000000".to_owned()]
+                ),
+                (
+                    "set",
+                    vec!["demuxer-max-back-bytes".to_owned(), "128000000".to_owned()]
+                ),
+            ],
+            "the look-ahead, then the 512 MB ceiling split 3:1 as mpv's own defaults split it"
         );
     }
 }

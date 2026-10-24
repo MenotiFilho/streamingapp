@@ -244,6 +244,14 @@ colour reaches subtitles that leave the colour open, so an ASS track keeps the
 colour it was authored with; the size reaches both kinds of subtitle (ADR-0024).
 _Avoid_: subtitle style, caption settings, theme, styling
 
+**Stream buffer**:
+How much of a Stream the Player keeps read ahead of where it is playing — how
+many seconds it aims for and how much memory that read-ahead may take — so a dip
+in the network is ridden out instead of interrupting playback. A preference of
+the Host's, not a client's, and the same on every Stream: it ends where either
+limit is reached first (ADR-0026).
+_Avoid_: cache (the Host already caches Addon pages), preload, buffer size
+
 ### Remote clients
 
 **Remote client**:

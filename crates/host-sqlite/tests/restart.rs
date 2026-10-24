@@ -63,6 +63,14 @@ fn appearance(snapshot: &Snapshot) -> (&str, f64) {
     )
 }
 
+/// The Stream buffer a Snapshot carries, as a client reads it.
+fn buffer(snapshot: &Snapshot) -> (u64, u64) {
+    (
+        snapshot.preferences.stream_buffer.seconds(),
+        snapshot.preferences.stream_buffer.megabytes(),
+    )
+}
+
 fn action(body: &str) -> Action {
     Action::parse(&format!(r#"{{"version":1,"action":{body}}}"#))
         .unwrap_or_else(|error| panic!("{body} should parse: {error}"))
@@ -147,6 +155,32 @@ fn the_host_remembers_the_subtitle_appearance_across_a_restart() {
         appearance(&restarted.snapshot()),
         ("#00FF00", 1.5),
         "the appearance a Stream is drawn with outlives the process"
+    );
+}
+
+#[test]
+fn the_host_remembers_the_stream_buffer_across_a_restart() {
+    let directory = tempfile::tempdir().expect("a temporary directory is available");
+    let database = directory.path().join("host.sqlite3");
+
+    let mut host = start(&database);
+    assert_eq!(
+        buffer(&host.snapshot()),
+        (300, 512),
+        "a Host that has never been told buffers five minutes up to half a gigabyte"
+    );
+    take(
+        &mut host,
+        r#"{"type":"set_stream_buffer","seconds":600,"megabytes":1024}"#,
+    );
+    drop(host);
+
+    let restarted = start(&database);
+
+    assert_eq!(
+        buffer(&restarted.snapshot()),
+        (600, 1024),
+        "the buffer a Stream is read with outlives the process"
     );
 }
 

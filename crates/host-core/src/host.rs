@@ -130,6 +130,11 @@ impl Host {
             state.preferences().subtitle_color().clone(),
         ));
         let _ = player.tell(Telling::SubtitleScale(state.preferences().subtitle_scale()));
+        // The buffer is told before anything is opened for the same reason: a
+        // Stream that starts before its buffer limits are known would begin with
+        // the Player's own defaults and only reach the owner's on the next one
+        // (ADR-0026).
+        let _ = player.tell(Telling::StreamBuffer(state.preferences().stream_buffer()));
         Ok(Self {
             store,
             fetcher,
@@ -618,6 +623,13 @@ impl Host {
             ValidatedAction::SetSubtitleScale(scale) => {
                 let _ = self.player.tell(Telling::SubtitleScale(scale));
                 Resolved::Change(Change::SetSubtitleScale(scale))
+            }
+            ValidatedAction::SetStreamBuffer(buffer) => {
+                // A buffer is a preference the Host keeps whether or not the
+                // Player takes it, like the appearance beside it; the Player's
+                // buffer limits move without reopening the Stream (ADR-0026).
+                let _ = self.player.tell(Telling::StreamBuffer(buffer));
+                Resolved::Change(Change::SetStreamBuffer(buffer))
             }
             ValidatedAction::AddAddon(url) => {
                 let body =

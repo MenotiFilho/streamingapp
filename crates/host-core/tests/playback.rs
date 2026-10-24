@@ -114,6 +114,7 @@ fn controls(player: &FixturePlayer) -> Vec<Telling> {
                 Telling::SubtitleLanguage(_)
                     | Telling::SubtitleColor(_)
                     | Telling::SubtitleScale(_)
+                    | Telling::StreamBuffer(_)
             )
         })
         .collect()

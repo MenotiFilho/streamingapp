@@ -34,8 +34,8 @@ use std::time::{Duration, Instant};
 
 use host_core::{
     Aspect, ChapterStep, Crop, CropRectangle, Observation, PlaybackState, Player, SeekTarget,
-    Statistics, StreamUrl, SubtitleColor, SubtitleLanguage, SubtitleScale, Telling, Track,
-    TrackKind, VideoSize,
+    Statistics, StreamBuffer, StreamUrl, SubtitleColor, SubtitleLanguage, SubtitleScale, Telling,
+    Track, TrackKind, VideoSize,
 };
 use host_mpv::{MpvError, MpvPlayer, Placement};
 
@@ -847,6 +847,22 @@ fn subtitles_can_be_recoloured_and_scaled_without_overriding_their_own_styling()
             SubtitleScale::parse(1.25).expect("a subtitle size"),
         ))
         .expect("mpv takes a subtitle size");
+}
+
+#[test]
+fn the_demuxer_cache_limits_are_ones_mpv_takes() {
+    // The Host's one buffer preference becomes three mpv properties, and `tell`
+    // is what proves each name and value is one this mpv accepts. Whether the
+    // cache then rides out a network dip is a fact about the network and the
+    // bitrate, not something a headless test can see (ADR-0026).
+    let streams = serve(2.0);
+    let player = controlling(&streams);
+
+    player
+        .tell(Telling::StreamBuffer(
+            StreamBuffer::parse(300, 512).expect("a buffer"),
+        ))
+        .expect("mpv takes the look-ahead and the memory ceiling");
 }
 
 #[test]

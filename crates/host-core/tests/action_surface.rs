@@ -7,7 +7,7 @@ use std::sync::Arc;
 use host_core::{
     Action, ActionError, AddonProvider, FixtureClock, FixtureFetcher, FixturePlayer, Host,
     InMemorySecretStore, InMemoryStore, Preferences, SecretBackend, Snapshot, Store, StoreError,
-    SubtitleColor, SubtitleLanguage, SubtitleScale, ACTION_VERSION,
+    StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale, ACTION_VERSION,
 };
 
 /// A Player a test drives by hand: nothing plays unless a test says so, and
@@ -213,6 +213,67 @@ fn an_appearance_the_host_refuses_leaves_the_state_and_the_store_alone() {
 }
 
 #[test]
+fn a_fresh_host_buffers_five_minutes_up_to_half_a_gigabyte() {
+    let snapshot = host().snapshot();
+
+    assert_eq!(snapshot.preferences.stream_buffer.seconds(), 300);
+    assert_eq!(snapshot.preferences.stream_buffer.megabytes(), 512);
+}
+
+#[test]
+fn a_host_starts_from_the_buffer_its_store_holds() {
+    let mut stored = Preferences::new();
+    stored.set_stream_buffer(StreamBuffer::parse(600, 1024).expect("a buffer"));
+    let host = host_over(Arc::new(InMemoryStore::holding(stored)));
+
+    let buffer = host.snapshot().preferences.stream_buffer;
+    assert_eq!((buffer.seconds(), buffer.megabytes()), (600, 1024));
+}
+
+#[test]
+fn choosing_a_stream_buffer_publishes_a_snapshot_that_carries_it() {
+    let mut host = host();
+
+    let published = host
+        .dispatch(action(
+            r#"{"type":"set_stream_buffer","seconds":180,"megabytes":256}"#,
+        ))
+        .expect("a buffer should be taken")
+        .snapshots;
+
+    assert_eq!(published.len(), 1, "one change publishes one Snapshot");
+    assert_eq!(published[0].preferences.stream_buffer.seconds(), 180);
+    assert_eq!(published[0].preferences.stream_buffer.megabytes(), 256);
+    assert_eq!(host.snapshot().preferences.stream_buffer.seconds(), 180);
+}
+
+#[test]
+fn a_buffer_the_host_refuses_leaves_the_state_and_the_store_alone() {
+    let store = Arc::new(CountingStore::default());
+    let mut host = host_over(store.clone());
+    let before = host.snapshot();
+
+    for body in [
+        r#"{"type":"set_stream_buffer","seconds":4,"megabytes":512}"#,
+        r#"{"type":"set_stream_buffer","seconds":3601,"megabytes":512}"#,
+        r#"{"type":"set_stream_buffer","seconds":300,"megabytes":63}"#,
+        r#"{"type":"set_stream_buffer","seconds":300,"megabytes":4097}"#,
+    ] {
+        let refused = host.dispatch(action(body));
+        assert!(refused.is_err(), "{body} is not a buffer the Host takes");
+    }
+    let refused = host
+        .dispatch(action(
+            r#"{"type":"set_stream_buffer","seconds":300,"megabytes":0}"#,
+        ))
+        .expect_err("a buffer with no memory is not one");
+    assert_eq!(refused.kind(), "invalid_stream_buffer");
+
+    assert_eq!(host.snapshot(), before, "nothing was written");
+    assert_eq!(store.writes(), 0, "nothing reached the store");
+}
+
+#[test]
 fn an_unknown_action_is_rejected_and_leaves_the_state_exactly_as_it_was() {
     let mut host = host();
     set_subtitle_language(&mut host, "pt-BR");
@@ -404,6 +465,7 @@ fn the_snapshot_declares_only_fields_it_can_safely_carry() {
                 "subtitleLanguage": "pt-BR",
                 "subtitleColor": "#FFFFFF",
                 "subtitleScale": 1.0,
+                "streamBuffer": { "seconds": 300, "megabytes": 512 },
             },
             "addons": [],
             "featuredCatalog": serde_json::Value::Null,

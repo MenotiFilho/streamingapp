@@ -4,7 +4,9 @@ use crate::addon::Manifest;
 use crate::device::DeviceSummary;
 use crate::pairing::PairingCode;
 use crate::playback::{Picture, PlaybackSnapshot};
-use crate::preferences::{FeaturedCatalog, SubtitleColor, SubtitleLanguage, SubtitleScale};
+use crate::preferences::{
+    FeaturedCatalog, StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale,
+};
 use crate::progress::ResumeEntry;
 use crate::secret::SecretBackend;
 use crate::state::State;
@@ -84,6 +86,10 @@ pub struct PreferencesSnapshot {
     /// How large the Player draws subtitles, relative to its own size. Always a
     /// value, for the same reason.
     pub subtitle_scale: SubtitleScale,
+    /// How much of a Stream the Player keeps read ahead: the time it aims for
+    /// and the memory that look-ahead may take. Always values — a Host that has
+    /// never been told keeps the default pair (ADR-0026).
+    pub stream_buffer: StreamBuffer,
 }
 
 /// Where the Host's credentials are held, as the secret store reports itself.
@@ -120,6 +126,7 @@ impl Snapshot {
                 subtitle_language: state.preferences().subtitle_language().cloned(),
                 subtitle_color: state.preferences().subtitle_color().clone(),
                 subtitle_scale: state.preferences().subtitle_scale(),
+                stream_buffer: state.preferences().stream_buffer(),
             },
             addons: state
                 .addons()
