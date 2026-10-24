@@ -411,6 +411,35 @@ pub struct Chapter {
     pub time: f64,
 }
 
+/// How much of the Stream the Player has read, in the Stream's own timeline.
+///
+/// The span a timeline draws behind its progress bar: where the read begins and
+/// how far it has reached. It is not the position — a paused Stream keeps
+/// reading ahead, so the span grows while the position holds — and a seek into
+/// a part that was never read leaves a gap between what has been played and
+/// this span, which is the point of publishing it rather than a count of bytes
+/// read from the start.
+///
+/// Absent where the Player has no answer: nothing open, or a span it cannot
+/// make from a read of nothing. `None` is not "nothing is buffered".
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Buffered {
+    /// Where the read begins, in seconds from the Stream's start.
+    pub start: f64,
+    /// Where it has reached, in seconds from the Stream's start.
+    pub end: f64,
+}
+
+impl Buffered {
+    /// Whether two readings describe the same span: no end moved by a second.
+    /// A paused Stream reads a little further with every tick, and a reading
+    /// that moved less than that is not news a client could see.
+    fn same_reading(self, other: Self) -> bool {
+        (self.start - other.start).abs() < 1.0 && (self.end - other.end).abs() < 1.0
+    }
+}
+
 /// How large the picture is, in pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -765,6 +794,9 @@ pub struct Observation {
     /// How long the Stream is, in seconds, where the Stream says — a live
     /// Stream does not.
     pub duration: Option<f64>,
+    /// The span of the Stream the Player has read, where it can say. `None` is
+    /// a Player with no answer, not a Stream with nothing read.
+    pub buffered: Option<Buffered>,
     /// Why an open failed, in the Player's own words, set once and until the
     /// next open. The Host shows it to the client that pressed play.
     pub failure: Option<String>,
@@ -805,6 +837,7 @@ impl Observation {
             state: PlaybackState::Idle,
             position: None,
             duration: None,
+            buffered: None,
             failure: None,
             tracks: None,
             chapters: Vec::new(),
@@ -861,6 +894,10 @@ pub(crate) struct PlaybackSession {
     state: PlaybackState,
     position: Option<f64>,
     duration: Option<f64>,
+    /// The span of the Stream the Player has read, as the Host's record holds
+    /// it. The Player's report corrects it, with a span that moved by less than
+    /// a second at either end counted as the same reading.
+    buffered: Option<Buffered>,
     /// Why the last open failed, kept until the next play or stop.
     failure: Option<String>,
     /// The Stream's tracks, as the Player last reported them: the Host's own
@@ -895,6 +932,7 @@ impl PlaybackSession {
             state: PlaybackState::Idle,
             position: None,
             duration: None,
+            buffered: None,
             failure: None,
             tracks: Vec::new(),
             chapters: Vec::new(),
@@ -946,6 +984,7 @@ impl PlaybackSession {
                 .map(|(_, season, episode)| Episode { season, episode }),
             position: self.position,
             duration: self.duration,
+            buffered: self.buffered,
             tracks: self.tracks.clone(),
             chapters: self.chapters.clone(),
             chapter: self.chapter,
@@ -1144,6 +1183,15 @@ impl PlaybackSession {
             state: observation.state,
             position: observation.position,
             duration: observation.duration,
+            // A paused Stream's cache keeps filling, so a span that grew by
+            // less than a second at both ends says exactly what the Host
+            // already holds: keeping the old reading means the revision does
+            // not move four times a second to say nothing (ADR-0013). A Player
+            // that starts or stops answering is always news.
+            buffered: match (self.buffered, observation.buffered) {
+                (Some(held), Some(reported)) if held.same_reading(reported) => Some(held),
+                (_, reported) => reported,
+            },
             failure: observation.failure.clone(),
             // A Player that could not say what the Stream carries says *nothing*
             // rather than "nothing": the tracks the Host already held stand, and
@@ -1215,6 +1263,10 @@ pub struct PlaybackSnapshot {
     pub position: Option<f64>,
     /// How long the Stream is, in seconds, where the Stream says.
     pub duration: Option<f64>,
+    /// The span of the Stream the Player has read, in the Stream's own
+    /// timeline — what a client draws behind its progress bar. Null where the
+    /// Player has no answer.
+    pub buffered: Option<Buffered>,
     /// The Stream's tracks — audio and subtitles — in mpv's own order.
     pub tracks: Vec<Track>,
     /// The Stream's chapters, in the order the container gives them.
@@ -1304,6 +1356,18 @@ impl FixturePlayer {
             .observing
             .lock()
             .expect("the fixture player is not poisoned") = observation;
+    }
+
+    /// Report a different reading of how much of the Stream has been read,
+    /// leaving everything else the Player says as it was.
+    ///
+    /// What a test says between two ticks to watch a paused Stream's cache
+    /// fill: the position holds, and only the span moves.
+    pub fn now_buffered(&self, buffered: Option<Buffered>) {
+        self.observing
+            .lock()
+            .expect("the fixture player is not poisoned")
+            .buffered = buffered;
     }
 
     /// Refuse every telling with this, for the paths where the Player is gone.
@@ -1630,6 +1694,83 @@ mod tests {
     }
 
     #[test]
+    fn a_buffered_span_is_the_same_reading_until_an_end_moves_by_a_second() {
+        let session = PlaybackSession::opening(
+            ChosenStream::parse(
+                video(),
+                addon(),
+                &candidate(Playback::Direct {
+                    url: "https://stream.example.org/v/x.mkv".to_owned(),
+                }),
+            )
+            .expect("a direct URL is a candidate this Host plays"),
+        );
+
+        let held = Buffered {
+            start: 0.0,
+            end: 60.0,
+        };
+        let first = session
+            .advanced(&Observation {
+                buffered: Some(held),
+                ..Observation::playing(12.5, 600.0)
+            })
+            .expect("a span arriving is a change");
+
+        assert_eq!(
+            first.advanced(&Observation {
+                buffered: Some(Buffered {
+                    start: 0.4,
+                    end: 60.4,
+                }),
+                ..Observation::playing(12.5, 600.0)
+            }),
+            None,
+            "four tenths of a second at both ends is the same reading"
+        );
+        assert!(
+            first
+                .advanced(&Observation {
+                    buffered: Some(Buffered {
+                        start: 1.0,
+                        end: 61.0,
+                    }),
+                    ..Observation::playing(12.5, 600.0)
+                })
+                .is_some(),
+            "a second at both ends is a reading a client is told about"
+        );
+        assert!(
+            first
+                .advanced(&Observation {
+                    buffered: Some(Buffered {
+                        start: 0.0,
+                        end: 61.0,
+                    }),
+                    ..Observation::playing(12.5, 600.0)
+                })
+                .is_some(),
+            "and so is one end alone moving that far"
+        );
+
+        let moved = first
+            .advanced(&Observation {
+                state: PlaybackState::Paused,
+                buffered: Some(Buffered {
+                    start: 0.4,
+                    end: 60.4,
+                }),
+                ..Observation::playing(12.5, 600.0)
+            })
+            .expect("a paused Stream is a change");
+        assert_eq!(
+            moved.buffered,
+            Some(held),
+            "a reading that is not news does not move the span the Host holds"
+        );
+    }
+
+    #[test]
     fn a_failure_leaves_the_stream_the_host_was_on_named_and_says_why() {
         let session = PlaybackSession::opening(
             ChosenStream::parse(
@@ -1674,6 +1815,7 @@ mod tests {
                 episode: None,
                 position: None,
                 duration: None,
+                buffered: None,
                 tracks: Vec::new(),
                 chapters: Vec::new(),
                 chapter: None,
@@ -1832,6 +1974,7 @@ mod tests {
                 "episode": null,
                 "position": null,
                 "duration": null,
+                "buffered": null,
                 "tracks": [],
                 "chapters": [],
                 "chapter": null,
@@ -2130,6 +2273,10 @@ mod tests {
             state: PlaybackState::Playing,
             position: Some(12.5),
             duration: Some(600.0),
+            buffered: Some(Buffered {
+                start: 12.0,
+                end: 40.0,
+            }),
             tracks: Some(vec![
                 Track {
                     id: TrackId(1),
@@ -2203,6 +2350,7 @@ mod tests {
                 "episode": { "season": 1, "episode": 1 },
                 "position": 12.5,
                 "duration": 600.0,
+                "buffered": { "start": 12.0, "end": 40.0 },
                 "tracks": [
                     { "id": 1, "kind": "audio", "language": "eng", "title": "English stereo", "codec": "aac",
                       "embedded": true, "selected": true, "default": true, "forced": false },

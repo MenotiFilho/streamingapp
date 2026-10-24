@@ -151,7 +151,9 @@ _Avoid_: backup, cloud storage
 The Host's seam for playing a Stream: open it, hold it, move in it, let it go —
 and what it says about where playback is. mpv is the implementation, linked
 in-process, and it keeps the picture; the Host's interface is drawn above or
-beside the video and never sees a frame.
+beside the video and never receives the picture itself. The only frames that
+cross this seam are a Seek preview, asked for at one moment and never at the
+frame rate (ADR-0028).
 _Avoid_: mpv (for the seam), backend, engine, renderer
 
 **Picture**:
@@ -194,6 +196,24 @@ How far into the Stream playing now the Host is, in seconds: the Host's own
 record, moved at the moment of a control and corrected by the Player's next
 report.
 _Avoid_: progress, timestamp
+
+**Buffered**:
+How much of the Stream the Player has actually read, as a span of Playback
+positions: where the read begins — the Stream's own start while the whole head
+is held, otherwise the start of the range it can still be seeked within — and
+how far it has reached. A reading and not a preference: what the Player *may*
+read ahead is the Stream buffer, which bounds this. A client draws it behind its
+progress bar, so a seek into the span's gap is a seek into bytes that are not
+there yet.
+_Avoid_: cache, loaded, downloaded
+
+**Seek preview**:
+The still of one moment of the Stream, asked for by a client pointing at its
+timeline and drawn above the bar: a frame the Player yields *about* the Stream,
+not a piece of the picture it is drawing. The one kind of frame that crosses the
+Player seam (ADR-0028). Absent where the Player cannot say, and drawn as absent:
+a client then shows the time and the Chapter instead.
+_Avoid_: thumbnail, sprite, storyboard, scrub image
 
 **Track**:
 One of the Stream's own soundtracks or subtitle streams, as the Player numbers

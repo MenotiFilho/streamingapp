@@ -43,6 +43,7 @@ const NOTHING_SAID: Snapshot = {
     episode: null,
     position: null,
     duration: null,
+    buffered: null,
     tracks: [],
     chapters: [],
     chapter: null,

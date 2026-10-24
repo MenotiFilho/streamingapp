@@ -39,6 +39,7 @@ const NOTHING_SAID: Snapshot = {
     episode: null,
     position: null,
     duration: null,
+    buffered: null,
     tracks: [],
     chapters: [],
     chapter: null,
@@ -77,6 +78,7 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
     episode: null,
     position: 900,
     duration: 3600,
+    buffered: { start: 900, end: 1800 },
     tracks: [
       {
         id: 1,
@@ -365,6 +367,36 @@ describe("the player OSD", () => {
       document.documentElement,
       "the browsing page underneath offers no scrollbar while the player owns the window",
     ).toHaveClass("picture-behind");
+  });
+
+  test("draws the buffered reading behind the played fill", async () => {
+    await renderPlayer();
+
+    const buffered = screen.getByTestId("osd-buffered");
+    expect(buffered).toHaveStyle({ left: "25%", width: "25%" });
+    expect(
+      screen.getByTestId("osd-timeline").querySelector(".shell-osd-track")?.firstElementChild,
+      "the muted reading is painted under the accent fill and the playhead",
+    ).toBe(buffered);
+  });
+
+  test("draws no buffered layer when the Player says nothing is read ahead", async () => {
+    await renderPlayer({ buffered: null });
+
+    expect(screen.queryByTestId("osd-buffered")).not.toBeInTheDocument();
+  });
+
+  test("leaves the gap a forward seek opened unread", async () => {
+    await renderPlayer({ position: 1200, buffered: { start: 300, end: 900 } });
+
+    const buffered = screen.getByTestId("osd-buffered");
+    expect(parseFloat(buffered.style.left)).toBeCloseTo(8.3333, 3);
+    expect(parseFloat(buffered.style.width)).toBeCloseTo(16.6667, 3);
+
+    const playhead = screen
+      .getByTestId("osd-timeline")
+      .querySelector(".shell-osd-playhead") as HTMLElement;
+    expect(parseFloat(playhead.style.left)).toBeCloseTo(33.3333, 3);
   });
 
   test("each icon pushes its own popover, and Back closes it before stopping", async () => {

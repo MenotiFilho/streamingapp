@@ -6,9 +6,9 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, AddonProvider, FixtureClock, FixtureFetcher, FixturePlayer, Host,
-    InMemorySecretStore, InMemoryStore, Observation, PlaybackError, PlaybackState, SecretBackend,
-    SeekTarget, Snapshot, Store, Telling, ACTION_VERSION,
+    Action, ActionError, AddonProvider, Buffered, FixtureClock, FixtureFetcher, FixturePlayer,
+    Host, InMemorySecretStore, InMemoryStore, Observation, PlaybackError, PlaybackState,
+    SecretBackend, SeekTarget, Snapshot, Store, Telling, ACTION_VERSION,
 };
 
 /// The URL a recorded debrid answer would carry, with a session in it — the
@@ -194,6 +194,95 @@ fn what_the_player_reports_moves_the_snapshot_until_it_says_the_same_thing_twice
         None,
         "a tick that reports what the Host already holds publishes nothing"
     );
+}
+
+#[test]
+fn a_paused_stream_reading_ahead_publishes_nothing_until_it_moves_by_a_second() {
+    // A paused Stream's cache keeps filling while the position holds, and the
+    // Host publishes nothing for a span that moved by less than a second at
+    // both ends: four Snapshots a second would say nothing (ADR-0013).
+    let mut fixture = fixture();
+    playing(&mut fixture);
+
+    fixture.player.now_reporting(Observation {
+        state: PlaybackState::Paused,
+        position: Some(12.5),
+        duration: Some(8100.0),
+        buffered: Some(Buffered {
+            start: 0.0,
+            end: 60.0,
+        }),
+        ..Observation::idle()
+    });
+    let published = fixture
+        .host
+        .sample()
+        .expect("a span the Player had not reported before is a change");
+    assert_eq!(
+        playback_of(std::slice::from_ref(&published)).buffered,
+        Some(Buffered {
+            start: 0.0,
+            end: 60.0,
+        })
+    );
+
+    fixture.player.now_buffered(Some(Buffered {
+        start: 0.4,
+        end: 60.4,
+    }));
+    assert_eq!(
+        fixture.host.sample(),
+        None,
+        "a cache that filled by 0.4 s is not news a client could see"
+    );
+
+    fixture.player.now_buffered(Some(Buffered {
+        start: 1.5,
+        end: 61.5,
+    }));
+    let published = fixture
+        .host
+        .sample()
+        .expect("a span that moved by a second and a half is news");
+    assert_eq!(
+        playback_of(std::slice::from_ref(&published)).buffered,
+        Some(Buffered {
+            start: 1.5,
+            end: 61.5,
+        }),
+        "the published span is the reading, not the one the Host held"
+    );
+}
+
+#[test]
+fn a_span_the_player_stops_answering_with_is_published_once() {
+    let mut fixture = fixture();
+    playing(&mut fixture);
+
+    fixture.player.now_buffered(Some(Buffered {
+        start: 0.0,
+        end: 30.0,
+    }));
+    let published = fixture.host.sample().expect("a span arriving is a change");
+    assert_eq!(
+        playback_of(std::slice::from_ref(&published)).buffered,
+        Some(Buffered {
+            start: 0.0,
+            end: 30.0,
+        })
+    );
+
+    fixture.player.now_buffered(None);
+    let published = fixture
+        .host
+        .sample()
+        .expect("a Player that stops answering is a change");
+    assert_eq!(
+        playback_of(std::slice::from_ref(&published)).buffered,
+        None,
+        "no answer is not a span with nothing in it"
+    );
+    assert_eq!(fixture.host.sample(), None, "and saying so once is enough");
 }
 
 #[test]

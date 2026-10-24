@@ -32,6 +32,7 @@ import { FOCUSABLE } from "./layout";
 import { Refusal } from "./Refusal";
 import { usePending } from "./usePending";
 import {
+  bufferedSpan,
   chapterMarks,
   qualityBadge,
   remainingTime,
@@ -790,6 +791,7 @@ function Timeline({
   const [scrub, setScrub] = useState<number | null>(null);
   const at = scrub ?? shown;
   const fraction = timelineFraction(at, duration);
+  const buffered = bufferedSpan(playback.buffered, duration);
   const marks = chapterMarks(chapters, duration);
   const left = formatTime(scrub ?? position);
   const right = remainingTime(at, duration);
@@ -802,6 +804,13 @@ function Timeline({
   return (
     <div className="shell-osd-timeline" data-testid="osd-timeline">
       <div className="shell-osd-track" aria-hidden="true">
+        {buffered && (
+          <span
+            className="shell-osd-buffered"
+            data-testid="osd-buffered"
+            style={{ left: `${buffered.left * 100}%`, width: `${buffered.width * 100}%` }}
+          />
+        )}
         <span className="shell-osd-progress" style={{ width: `${fraction * 100}%` }} />
         <span className="shell-osd-playhead" style={{ left: `${fraction * 100}%` }} />
         {marks.map(({ chapter, fraction: atFraction }) => (

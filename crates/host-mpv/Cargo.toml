@@ -13,6 +13,10 @@ workspace = true
 [dependencies]
 host-core = { workspace = true }
 
+# `demuxer-cache-state` answers as one JSON object in a string, and reading a
+# span out of it is a decision the pure half makes.
+serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 # mpv as a library. The crate is a safe wrapper over the client API, which is

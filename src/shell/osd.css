@@ -411,6 +411,17 @@
   pointer-events: none;
 }
 
+/* The Player's read-ahead, under the accent fill: how much of the Stream is in
+   hand, not how much has been watched. Muted, because a forward seek leaves it
+   behind the playhead and that gap should read as an absence rather than a
+   second progress bar. Every colour here is a Velvet Curtains token. */
+.shell-osd-buffered {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: color-mix(in srgb, var(--ink-secondary) 22%, transparent);
+}
+
 .shell-osd-progress {
   position: absolute;
   top: 0;

@@ -511,6 +511,26 @@ mod tests {
     }
 
     #[test]
+    fn the_served_seek_bar_draws_the_read_ahead_under_the_played_fill() {
+        // #139: a second, muted layer behind the accent fill, driven from the
+        // Snapshot's `buffered` span; the range stays the control on top.
+        let served = page();
+        for needle in [
+            r#"<div class="seek-track">"#,
+            r#"class="seek-buffered" data-buffered"#,
+            r#"class="seek-played" data-played"#,
+            "function bufferedSpan(buffered, duration)",
+            "bufferedLayer.hidden = span === null",
+            "timelineFraction(p.position, p.duration)",
+            "appearance: none; -webkit-appearance: none",
+            r#"aria-label="Position""#,
+            r#"data-focusable data-focus-key="cast-seek""#,
+        ] {
+            assert!(served.contains(needle), "the served page carries {needle}");
+        }
+    }
+
+    #[test]
     fn the_served_page_carries_the_tmdb_attribution() {
         let served = page();
         assert!(served
