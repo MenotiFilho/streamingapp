@@ -286,6 +286,10 @@ impl MpvPlayer {
             video_bitrate: self.mpv.get_property::<i64>("video-bitrate").ok(),
             dropped_frames: self.mpv.get_property::<i64>("frame-drop-count").ok(),
             hardware_decode: self.text("hwdec-current"),
+            // A string property carrying one JSON object: where the demuxer's
+            // read has reached. `demuxer-cache-time` is not this — it is the
+            // read's own end, not a span to draw (ADR-0026).
+            cache_state: self.mpv.get_property::<String>("demuxer-cache-state").ok(),
         }
     }
 

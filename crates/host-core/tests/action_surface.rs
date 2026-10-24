@@ -449,6 +449,7 @@ fn the_snapshot_declares_only_fields_it_can_safely_carry() {
                 "episode": serde_json::Value::Null,
                 "position": serde_json::Value::Null,
                 "duration": serde_json::Value::Null,
+                "buffered": serde_json::Value::Null,
                 "tracks": [],
                 "chapters": [],
                 "chapter": serde_json::Value::Null,

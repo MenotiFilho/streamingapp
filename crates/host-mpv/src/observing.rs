@@ -16,9 +16,10 @@
 //! testable without an mpv.
 
 use host_core::{
-    Aspect, Chapter, CropRectangle, Observation, PlaybackState, Statistics, Track, TrackId,
-    TrackKind, VideoSize,
+    Aspect, Buffered, Chapter, CropRectangle, Observation, PlaybackState, Statistics, Track,
+    TrackId, TrackKind, VideoSize,
 };
+use serde::Deserialize;
 
 /// What mpv's own events have said about the open the Player was given.
 ///
@@ -209,6 +210,9 @@ pub(crate) struct Properties {
     pub(crate) dropped_frames: Option<i64>,
     /// mpv's `hwdec-current`, verbatim (`no`, `d3d11va`, …).
     pub(crate) hardware_decode: Option<String>,
+    /// mpv's `demuxer-cache-state` JSON verbatim: where the demuxer's read has
+    /// reached, and the ranges it says it can seek within.
+    pub(crate) cache_state: Option<String>,
 }
 
 /// What the Player is doing, from the memory of mpv's events and the properties
@@ -222,9 +226,11 @@ pub(crate) struct Properties {
 /// lie about the Stream.
 ///
 /// The controls are read whether or not a file has been loaded, because mpv
-/// answers them whether or not one has; the three facts that only mean something
+/// answers them whether or not one has; the facts that only mean something
 /// about a picture — the aspect, the resolution and the statistics — are absent
-/// until a file is loaded, because mpv has no picture to answer them about.
+/// until a file is loaded, because mpv has no picture to answer them about, and
+/// the span the read has reached is absent until there is a file whose cache it
+/// describes.
 pub(crate) fn observe(memory: &Memory, properties: &Properties) -> Observation {
     if let Some(Ending::Failed(words)) = &memory.ending {
         return Observation {
@@ -279,6 +285,7 @@ pub(crate) fn observe(memory: &Memory, properties: &Properties) -> Observation {
         aspect: aspect(properties.aspect, properties.loaded),
         resolution: resolution(properties.width, properties.height, properties.loaded),
         statistics: statistics(properties),
+        buffered: buffered_span(properties),
     }
 }
 
@@ -410,6 +417,86 @@ fn count(value: Option<i64>) -> Option<u64> {
     value.and_then(|value| u64::try_from(value).ok())
 }
 
+/// The span the read has reached, where a file is loaded and its cache state
+/// says anything.
+///
+/// A cache is about a file: there is no read-ahead to report before mpv has
+/// one, and a property left over from the last Stream is not about this one.
+fn buffered_span(properties: &Properties) -> Option<Buffered> {
+    if !properties.loaded {
+        return None;
+    }
+
+    buffered(properties.cache_state.as_deref()?)
+}
+
+/// mpv's `demuxer-cache-state`, as the JSON it answers with.
+///
+/// Only the fields the span is read from, in mpv's own names; the rest of the
+/// object — byte counts, rates, debug numbers — is not about where the read is,
+/// and serde ignores it.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+struct CacheState {
+    /// Where the demuxer's read has reached, in seconds.
+    cache_end: f64,
+    /// Where the demuxer's reader is, in seconds.
+    reader_pts: f64,
+    /// Whether the Stream's beginning is cached: the read runs from zero
+    /// however far the reader has moved.
+    #[serde(default)]
+    bof_cached: bool,
+    /// The ranges mpv says the Stream can be seeked within.
+    #[serde(default)]
+    seekable_ranges: Vec<SeekableRange>,
+}
+
+/// One range mpv says the Stream can be seeked within, in seconds.
+#[derive(Debug, Deserialize)]
+struct SeekableRange {
+    start: f64,
+    end: f64,
+}
+
+/// How much of the Stream mpv has read, from its `demuxer-cache-state`.
+///
+/// The read ends at `cache-end`. It begins at the Stream's own beginning where
+/// mpv says the whole head is cached (`bof-cached`), at the start of the
+/// seekable range the reader is inside where mpv names one, and otherwise at
+/// the reader — which is the local-file case, where mpv reports a one-second
+/// cache and no seekable ranges at all.
+///
+/// `None` is mpv having nothing to say about a span: nothing loaded, an empty
+/// cache, or a property that is not the JSON this expects. Never a panic — the
+/// property is a program's output, and a Player that cannot read it simply has
+/// no answer.
+pub(crate) fn buffered(cache_state: &str) -> Option<Buffered> {
+    let state: CacheState = serde_json::from_str(cache_state).ok()?;
+
+    if !state.cache_end.is_finite() || !state.reader_pts.is_finite() {
+        return None;
+    }
+
+    let start = if state.bof_cached {
+        0.0
+    } else {
+        state
+            .seekable_ranges
+            .iter()
+            .find(|range| range.start <= state.reader_pts && state.reader_pts <= range.end)
+            .map_or(state.reader_pts, |range| range.start)
+    };
+
+    if !start.is_finite() || start < 0.0 || state.cache_end <= start {
+        return None;
+    }
+
+    Some(Buffered {
+        start,
+        end: state.cache_end,
+    })
+}
+
 /// The words the Host publishes when a Stream could not be opened.
 ///
 /// mpv says which error it was by number; this is that number in a sentence a
@@ -453,6 +540,7 @@ mod tests {
             video_bitrate: None,
             dropped_frames: None,
             hardware_decode: None,
+            cache_state: None,
         }
     }
 
@@ -918,6 +1006,114 @@ mod tests {
         assert_eq!(count(Some(-1)), None);
         assert_eq!(count(Some(0)), Some(0));
         assert_eq!(count(None), None);
+    }
+
+    /// A cache state mpv 0.37 answered for a local file in the dev container,
+    /// verbatim: a one-second cache and no seekable ranges at all.
+    const LOCAL_CACHE: &str = r#"{"cache-end":1.633000,"reader-pts":0.633000,"cache-duration":1.000000,"eof":false,"underrun":false,"idle":true,"total-bytes":160320,"fw-bytes":160320,"raw-input-rate":7585762,"debug-low-level-seeks":0,"debug-byte-level-seeks":0,"debug-ts-last":1.633000,"bof-cached":false,"eof-cached":false,"seekable-ranges":[]}"#;
+
+    /// The same, for an HTTP Stream mpv 0.37 read from its beginning, verbatim.
+    const HTTP_CACHE: &str = r#"{"cache-end":167.767000,"reader-pts":0.633000,"cache-duration":167.134000,"eof":false,"underrun":false,"idle":false,"total-bytes":28328432,"fw-bytes":28215536,"raw-input-rate":5262,"debug-low-level-seeks":0,"debug-byte-level-seeks":0,"debug-ts-last":167.767000,"bof-cached":true,"eof-cached":false,"seekable-ranges":[{"start":0.000000,"end":165.967000}]}"#;
+
+    #[test]
+    fn a_local_files_cache_is_the_second_the_demuxer_holds() {
+        assert_eq!(
+            buffered(LOCAL_CACHE),
+            Some(Buffered {
+                start: 0.633,
+                end: 1.633,
+            }),
+            "mpv reports no seekable ranges for a local file, so the span begins at the reader"
+        );
+    }
+
+    #[test]
+    fn a_stream_read_from_its_beginning_starts_the_span_at_zero() {
+        assert_eq!(
+            buffered(HTTP_CACHE),
+            Some(Buffered {
+                start: 0.0,
+                end: 167.767,
+            }),
+            "bof-cached says the whole head is read, whatever range the reader sits in"
+        );
+    }
+
+    #[test]
+    fn a_seekable_range_the_reader_is_inside_is_where_the_span_begins() {
+        let state = r#"{"cache-end":300.000000,"reader-pts":120.000000,"bof-cached":false,"seekable-ranges":[{"start":0.000000,"end":60.000000},{"start":100.000000,"end":200.000000}]}"#;
+
+        assert_eq!(
+            buffered(state),
+            Some(Buffered {
+                start: 100.0,
+                end: 300.0,
+            }),
+            "a seek leaves the bytes before the range dark, and the span says where it begins"
+        );
+    }
+
+    #[test]
+    fn a_cache_state_without_ranges_says_the_span_begins_at_the_reader() {
+        let state = r#"{"cache-end":10.000000,"reader-pts":1.000000,"bof-cached":false}"#;
+
+        assert_eq!(
+            buffered(state),
+            Some(Buffered {
+                start: 1.0,
+                end: 10.0,
+            }),
+            "a missing seekable-ranges is not a missing span"
+        );
+    }
+
+    #[test]
+    fn no_span_is_answered_where_mpv_has_nothing_to_say_about_one() {
+        for state in [
+            "",
+            "not json at all",
+            "{}",
+            r#"{"cache-end":10.000000}"#,
+            r#"{"reader-pts":1.000000}"#,
+            // An empty cache: the end has not moved past the start.
+            r#"{"cache-end":0.633000,"reader-pts":0.633000,"bof-cached":false,"seekable-ranges":[]}"#,
+            // Numbers a span cannot be made of.
+            r#"{"cache-end":10.000000,"reader-pts":-1.000000,"bof-cached":false,"seekable-ranges":[]}"#,
+            r#"{"cache-end":-1.000000,"reader-pts":0.000000,"bof-cached":true}"#,
+        ] {
+            assert_eq!(buffered(state), None, "{state}");
+        }
+    }
+
+    #[test]
+    fn the_span_is_read_only_where_a_file_is_loaded() {
+        let read = Properties {
+            cache_state: Some(LOCAL_CACHE.to_owned()),
+            ..loaded()
+        };
+        assert_eq!(
+            observe(&Memory::asking(), &read).buffered,
+            Some(Buffered {
+                start: 0.633,
+                end: 1.633,
+            })
+        );
+
+        let nothing_loaded = Properties {
+            cache_state: Some(LOCAL_CACHE.to_owned()),
+            ..loading()
+        };
+        assert_eq!(
+            observe(&Memory::asking(), &nothing_loaded).buffered,
+            None,
+            "a cache state left over from the last Stream is not about this one"
+        );
+
+        assert_eq!(
+            observe(&Memory::asking(), &loaded()).buffered,
+            None,
+            "a Player mpv did not answer is a Player with no span, not a span of nothing"
+        );
     }
 
     #[test]

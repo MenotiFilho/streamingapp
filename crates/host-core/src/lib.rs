@@ -87,7 +87,7 @@ pub use host::Host;
 pub use meta::{MetaError, Title, TitleKey, Video, MAX_META_BYTES};
 pub use pairing::{InvalidPairingCode, PairingCode, PAIRING_CODE_LEN};
 pub use playback::{
-    Aspect, Chapter, ChapterStep, ChosenStream, Control, Crop, CropRectangle, Episode,
+    Aspect, Buffered, Chapter, ChapterStep, ChosenStream, Control, Crop, CropRectangle, Episode,
     FixturePlayer, InvalidAspect, InvalidCrop, InvalidSeekTarget, InvalidSpeed, InvalidStreamUrl,
     InvalidSubtitleDelay, InvalidVolume, NowPlaying, Observation, Picture, PlaybackError,
     PlaybackSnapshot, PlaybackState, Player, SeekTarget, Statistics, StreamUrl, Telling, Track,
