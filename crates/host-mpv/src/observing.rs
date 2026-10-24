@@ -487,7 +487,12 @@ pub(crate) fn buffered(cache_state: &str) -> Option<Buffered> {
             .map_or(state.reader_pts, |range| range.start)
     };
 
-    if !start.is_finite() || start < 0.0 || state.cache_end <= start {
+    // mpv answers the reader's place in the Stream's own timeline, which can sit
+    // before zero where a container does; the span a client draws still begins
+    // at the Stream's start.
+    let start = start.max(0.0);
+
+    if !start.is_finite() || state.cache_end <= start {
         return None;
     }
 
@@ -1016,7 +1021,7 @@ mod tests {
     const HTTP_CACHE: &str = r#"{"cache-end":167.767000,"reader-pts":0.633000,"cache-duration":167.134000,"eof":false,"underrun":false,"idle":false,"total-bytes":28328432,"fw-bytes":28215536,"raw-input-rate":5262,"debug-low-level-seeks":0,"debug-byte-level-seeks":0,"debug-ts-last":167.767000,"bof-cached":true,"eof-cached":false,"seekable-ranges":[{"start":0.000000,"end":165.967000}]}"#;
 
     #[test]
-    fn a_local_files_cache_is_the_second_the_demuxer_holds() {
+    fn a_local_file_reads_one_second_ahead() {
         assert_eq!(
             buffered(LOCAL_CACHE),
             Some(Buffered {
@@ -1054,7 +1059,7 @@ mod tests {
     }
 
     #[test]
-    fn a_cache_state_without_ranges_says_the_span_begins_at_the_reader() {
+    fn a_state_without_ranges_says_the_span_begins_at_the_reader() {
         let state = r#"{"cache-end":10.000000,"reader-pts":1.000000,"bof-cached":false}"#;
 
         assert_eq!(
@@ -1077,12 +1082,24 @@ mod tests {
             r#"{"reader-pts":1.000000}"#,
             // An empty cache: the end has not moved past the start.
             r#"{"cache-end":0.633000,"reader-pts":0.633000,"bof-cached":false,"seekable-ranges":[]}"#,
-            // Numbers a span cannot be made of.
-            r#"{"cache-end":10.000000,"reader-pts":-1.000000,"bof-cached":false,"seekable-ranges":[]}"#,
+            // A span that ends before the Stream's own start cannot be drawn.
             r#"{"cache-end":-1.000000,"reader-pts":0.000000,"bof-cached":true}"#,
         ] {
             assert_eq!(buffered(state), None, "{state}");
         }
+    }
+
+    #[test]
+    fn a_reader_before_the_streams_start_still_begins_the_span_at_zero() {
+        let state = r#"{"cache-end":10.000000,"reader-pts":-1.000000,"bof-cached":false,"seekable-ranges":[]}"#;
+
+        assert_eq!(
+            buffered(state),
+            Some(Buffered {
+                start: 0.0,
+                end: 10.0
+            })
+        );
     }
 
     #[test]

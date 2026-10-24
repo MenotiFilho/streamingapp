@@ -386,6 +386,19 @@ describe("the player OSD", () => {
     expect(screen.queryByTestId("osd-buffered")).not.toBeInTheDocument();
   });
 
+  test("leaves the gap a forward seek opened unread", async () => {
+    await renderPlayer({ position: 1200, buffered: { start: 300, end: 900 } });
+
+    const buffered = screen.getByTestId("osd-buffered");
+    expect(parseFloat(buffered.style.left)).toBeCloseTo(8.3333, 3);
+    expect(parseFloat(buffered.style.width)).toBeCloseTo(16.6667, 3);
+
+    const playhead = screen
+      .getByTestId("osd-timeline")
+      .querySelector(".shell-osd-playhead") as HTMLElement;
+    expect(parseFloat(playhead.style.left)).toBeCloseTo(33.3333, 3);
+  });
+
   test("each icon pushes its own popover, and Back closes it before stopping", async () => {
     const host = await renderPlayer();
 

@@ -8,7 +8,14 @@
  */
 
 import { formatBitrate } from "../controls";
-import type { Chapter, NowPlaying, PlaybackSnapshot, Track, TrackKind } from "../host-client";
+import type {
+  Buffered,
+  Chapter,
+  NowPlaying,
+  PlaybackSnapshot,
+  Track,
+  TrackKind,
+} from "../host-client";
 import { formatTime } from "../playback";
 import { badgeLines } from "../stream";
 
@@ -109,7 +116,7 @@ export function timelineFraction(position: number | null, duration: number | nul
  * span that runs backwards draws nothing.
  */
 export function bufferedSpan(
-  buffered: { start: number; end: number } | null,
+  buffered: Buffered | null,
   duration: number | null,
 ): { left: number; width: number } | null {
   if (

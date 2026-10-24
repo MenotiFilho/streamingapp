@@ -2880,11 +2880,18 @@
         const remaining = cast.querySelector("[data-remaining]");
         if (remaining) { remaining.textContent = remainingTime(p.position, p.duration); }
         const seek = cast.querySelector("[data-seek]");
-        if (seek && document.activeElement !== seek) {
-          seek.max = p.duration === null ? 0 : p.duration;
-          seek.value = p.position === null ? 0 : p.position;
+        if (seek) {
+          // The range is not moved under a finger that is dragging it, but the
+          // fills still follow: the played one follows the thumb, and the
+          // read-ahead is the Host's own reading (#139).
+          const dragging = document.activeElement === seek;
+          if (!dragging) {
+            seek.max = p.duration === null ? 0 : p.duration;
+            seek.value = p.position === null ? 0 : p.position;
+          }
+          const shown = dragging ? Number(seek.value) : p.position;
           const played = cast.querySelector("[data-played]");
-          if (played) { played.style.width = (timelineFraction(p.position, p.duration) * 100) + "%"; }
+          if (played) { played.style.width = (timelineFraction(shown, p.duration) * 100) + "%"; }
           const bufferedLayer = cast.querySelector("[data-buffered]");
           if (bufferedLayer) {
             const span = bufferedSpan(p.buffered, p.duration);

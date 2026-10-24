@@ -288,7 +288,7 @@ impl MpvPlayer {
             hardware_decode: self.text("hwdec-current"),
             // A string property carrying one JSON object: where the demuxer's
             // read has reached. `demuxer-cache-time` is not this — it is the
-            // read's own end, not a span to draw (ADR-0026).
+            // read's own end, not a span to draw.
             cache_state: self.mpv.get_property::<String>("demuxer-cache-state").ok(),
         }
     }

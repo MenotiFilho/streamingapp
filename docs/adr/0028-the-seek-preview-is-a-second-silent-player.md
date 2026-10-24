@@ -126,7 +126,8 @@ equal (ADR-0018). The Remote has no hover: it asks while a range drag is in
 progress. That is the tactile equivalent of pointing, and it reuses the control
 that is already there.
 
-The vocabulary of "the seven questions" becomes eight wherever it is written.
+The vocabulary of "the seven questions" becomes eight when #140 lands, wherever
+it is written — `is_question`, the door's own comment and ADR-0022 included.
 
 ## 8. A failure is silence
 

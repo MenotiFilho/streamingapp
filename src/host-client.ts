@@ -100,6 +100,17 @@ export type FeaturedCatalog = {
 export type PlaybackState = "idle" | "opening" | "playing" | "paused" | "ended";
 
 /**
+ * A span of the Stream in its own seconds. Mirrors `Buffered` in `host-core`:
+ * where the Player's read begins and how far it has reached — not where playback
+ * is, since a paused Stream reads further with every Snapshot, and a forward seek
+ * can leave the end behind the position.
+ */
+export type Buffered = {
+  start: number;
+  end: number;
+};
+
+/**
  * Which season and episode the Stream playing is, as the Host read it off the
  * playing Video's id. Mirrors `Episode` in `host-core`: a position, not a
  * verdict — whether a neighbouring episode exists is what the Host refuses an
@@ -226,7 +237,7 @@ export type PlaybackSnapshot = {
    * seconds: `end` can sit behind `position` right after a forward seek, and
    * that gap is what the reading is for. Null where the Player has no answer.
    */
-  buffered: { start: number; end: number } | null;
+  buffered: Buffered | null;
   /** The Stream's tracks — audio and subtitles — in the Player's own order. */
   tracks: Track[];
   /** The Stream's chapters, in the container's order. */

@@ -414,14 +414,14 @@ pub struct Chapter {
 /// How much of the Stream the Player has read, in the Stream's own timeline.
 ///
 /// The span a timeline draws behind its progress bar: where the read begins and
-/// how far it has reached. It is not the position — a paused Stream's cache
-/// keeps filling, so the span grows while the position holds — and a seek into
+/// how far it has reached. It is not the position — a paused Stream keeps
+/// reading ahead, so the span grows while the position holds — and a seek into
 /// a part that was never read leaves a gap between what has been played and
 /// this span, which is the point of publishing it rather than a count of bytes
 /// read from the start.
 ///
-/// Absent where the Player has no answer: nothing open, a Stream that cannot be
-/// seeked, or a cache with nothing in it. `None` is not "nothing is buffered".
+/// Absent where the Player has no answer: nothing open, or a span it cannot
+/// make from a read of nothing. `None` is not "nothing is buffered".
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Buffered {
@@ -432,10 +432,10 @@ pub struct Buffered {
 }
 
 impl Buffered {
-    /// Whether two readings describe the same span: each end moved by less than
-    /// a second. A paused Stream's cache fills a little with every tick, and a
-    /// reading that moved less than that is not news a client could see.
-    fn same_span(self, other: Self) -> bool {
+    /// Whether two readings describe the same span: no end moved by a second.
+    /// A paused Stream reads a little further with every tick, and a reading
+    /// that moved less than that is not news a client could see.
+    fn same_reading(self, other: Self) -> bool {
         (self.start - other.start).abs() < 1.0 && (self.end - other.end).abs() < 1.0
     }
 }
@@ -1189,7 +1189,7 @@ impl PlaybackSession {
             // not move four times a second to say nothing (ADR-0013). A Player
             // that starts or stops answering is always news.
             buffered: match (self.buffered, observation.buffered) {
-                (Some(held), Some(reported)) if held.same_span(reported) => Some(held),
+                (Some(held), Some(reported)) if held.same_reading(reported) => Some(held),
                 (_, reported) => reported,
             },
             failure: observation.failure.clone(),
@@ -1694,7 +1694,7 @@ mod tests {
     }
 
     #[test]
-    fn a_buffered_span_is_unchanged_until_both_of_its_ends_move_by_a_second() {
+    fn a_buffered_span_is_the_same_reading_until_an_end_moves_by_a_second() {
         let session = PlaybackSession::opening(
             ChosenStream::parse(
                 video(),

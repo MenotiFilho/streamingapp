@@ -197,7 +197,7 @@ fn what_the_player_reports_moves_the_snapshot_until_it_says_the_same_thing_twice
 }
 
 #[test]
-fn a_paused_streams_cache_filling_publishes_nothing_until_it_moves_by_a_second() {
+fn a_paused_stream_reading_ahead_publishes_nothing_until_it_moves_by_a_second() {
     // A paused Stream's cache keeps filling while the position holds, and the
     // Host publishes nothing for a span that moved by less than a second at
     // both ends: four Snapshots a second would say nothing (ADR-0013).
