@@ -27,9 +27,10 @@ import { formatTime, playingName, transportable } from "../playback";
 import { labelOf } from "../title";
 import { useShell } from "./context";
 import { FullscreenButton } from "./FullscreenButton";
-import { Button } from "./kit";
+import { Button, PendingSpinner } from "./kit";
 import { FOCUSABLE } from "./layout";
 import { Refusal } from "./Refusal";
+import { usePending } from "./usePending";
 import {
   chapterMarks,
   qualityBadge,
@@ -110,6 +111,11 @@ export function PlayerOverlay() {
   const { snapshot, take, ask, popover, pop, push, setIntentHandler } = useShell();
   const playback = snapshot?.playback ?? null;
   const [refusal, setRefusal] = useState<ActionError | null>(null);
+  // The episode step is the wait a person sees: the Host asks the Addons for the
+  // list and the neighbour's Stream under its change lock, so no Snapshot
+  // arrives until the step has resolved (#137, ADR-0022).
+  const { pending: stepping, run: stepOnce } = usePending();
+  const [stepSide, setStepSide] = useState<"previous" | "next" | null>(null);
   const [wheelVolume, setWheelVolume] = useState<number | null>(null);
   const [previewSettled, setPreviewSettled] = useState(() => playback?.state !== "opening");
   const chrome = useRef<HTMLDivElement | null>(null);
@@ -273,12 +279,22 @@ export function PlayerOverlay() {
   const step = useCallback(
     async (type: "previous_episode" | "next_episode") => {
       setRefusal(null);
-      const { error } = await ask({ type });
-      if (error) {
-        setRefusal(error);
-      }
+      const side = type === "next_episode" ? "next" : "previous";
+      await stepOnce(async () => {
+        // The side is set inside the guarded work: a press that the guard drops
+        // must not relabel a step that is already in flight.
+        setStepSide(side);
+        try {
+          const { error } = await ask({ type });
+          if (error) {
+            setRefusal(error);
+          }
+        } finally {
+          setStepSide(null);
+        }
+      });
     },
-    [ask],
+    [ask, stepOnce],
   );
 
   /** The Host's volume, moved a step and sent once the steps settle. */
@@ -524,7 +540,7 @@ export function PlayerOverlay() {
           <div className="shell-osd-middle">
             <div className="shell-osd-spacer" />
             {controls ? (
-              <VolumePillar playback={playback} pending={wheelVolume} onTake={takeAction} />
+              <VolumePillar playback={playback} sending={wheelVolume} onTake={takeAction} />
             ) : null}
           </div>
 
@@ -573,7 +589,8 @@ export function PlayerOverlay() {
                     testId="previous-episode"
                     label="Previous episode"
                     title="Previous episode"
-                    disabled={previousEpisodeDisabled(episode)}
+                    disabled={previousEpisodeDisabled(episode) || stepping}
+                    pending={stepping && stepSide === "previous"}
                     onClick={() => void step("previous_episode")}
                   >
                     <SkipBackIcon />
@@ -615,7 +632,8 @@ export function PlayerOverlay() {
                     testId="next-episode"
                     label="Next episode"
                     title="Next episode"
-                    disabled={nextEpisodeDisabled(episode)}
+                    disabled={nextEpisodeDisabled(episode) || stepping}
+                    pending={stepping && stepSide === "next"}
                     onClick={() => void step("next_episode")}
                   >
                     <SkipForwardIcon />
@@ -650,10 +668,20 @@ export function PlayerOverlay() {
                 <Button
                   variant="primary"
                   data-testid="next-episode-after-end"
+                  disabled={stepping}
+                  pending={stepping && stepSide === "next"}
                   onClick={() => void step("next_episode")}
                 >
                   Next episode
                 </Button>
+              </div>
+            ) : null}
+
+            {stepping ? (
+              <div className="shell-osd-waiting" role="status" data-testid="episode-loading">
+                {stepSide === "previous"
+                  ? "Loading the previous episode…"
+                  : "Loading the next episode…"}
               </div>
             ) : null}
 
@@ -684,15 +712,16 @@ export function PlayerOverlay() {
  */
 function VolumePillar({
   playback,
-  pending,
+  sending,
   onTake,
 }: {
   playback: PlaybackSnapshot;
-  pending: number | null;
+  /** The level the wheel is about to send, drawn until the Host agrees. */
+  sending: number | null;
   onTake: (action: Action) => void;
 }) {
   const [scrub, setScrub] = useState<number | null>(null);
-  const shown = scrub ?? pending ?? Math.round(playback.volume ?? 100);
+  const shown = scrub ?? sending ?? Math.round(playback.volume ?? 100);
   const muted = playback.muted ?? false;
 
   const send = (level: number) => {
@@ -832,6 +861,7 @@ function IconButton({
   expanded,
   pressed,
   disabled,
+  pending = false,
   className,
   onClick,
   ref,
@@ -843,6 +873,8 @@ function IconButton({
   expanded?: boolean;
   pressed?: boolean;
   disabled?: boolean;
+  /** Whether the Action this control asked for is still in flight (#137). */
+  pending?: boolean;
   className?: string;
   onClick: (event: MouseEvent<HTMLButtonElement>) => void;
   ref?: Ref<HTMLButtonElement>;
@@ -858,11 +890,13 @@ function IconButton({
       aria-label={label}
       aria-expanded={expanded}
       aria-pressed={pressed}
+      aria-busy={pending || undefined}
+      data-pending={pending ? "true" : undefined}
       title={title ?? label}
-      disabled={disabled}
+      disabled={disabled || pending}
       onClick={onClick}
     >
-      {children}
+      {pending ? <PendingSpinner /> : children}
     </button>
   );
 }

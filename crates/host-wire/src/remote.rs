@@ -489,6 +489,28 @@ mod tests {
     }
 
     #[test]
+    fn the_served_page_answers_a_press_at_once() {
+        // A control whose Action waits is marked before anything awaits, an
+        // identical Action already in flight is joined, a relative one is not,
+        // and the page shows one wait for all of them (#137).
+        let served = page();
+        for needle in [
+            "async function runAction",
+            "async function runWaiting",
+            r#"node.dataset.pending = "true""#,
+            "actionKey",
+            "REPEATING_ACTIONS",
+            "WAITING_CONTROLS",
+            "pending-pill",
+            "Waiting for the Host",
+            "Opening…",
+            r#"void runAction(node, node.dataset.a, node.dataset)"#,
+        ] {
+            assert!(served.contains(needle), "the served page carries {needle}");
+        }
+    }
+
+    #[test]
     fn the_served_page_carries_the_tmdb_attribution() {
         let served = page();
         assert!(served

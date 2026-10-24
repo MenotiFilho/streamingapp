@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useRef, useState } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
@@ -185,12 +185,17 @@ function Harness({
   discovered = false,
   streams = streamGroups(),
   actions,
+  hold,
+  holdType,
 }: {
   title: Title;
   preview: MetaPreview;
   discovered?: boolean;
   streams?: AddonStreams[];
   actions: Action[];
+  /** A dispatch this test holds open, so a wait can be observed. */
+  hold?: Promise<void>;
+  holdType?: Action["type"];
 }) {
   const [levels, setLevels] = useState<ShellLevel[]>([]);
   const levelsRef = useRef(levels);
@@ -216,6 +221,9 @@ function Harness({
 
   const take = async (action: Action): Promise<Response | null> => {
     actions.push(action);
+    if (hold && holdType === action.type) {
+      await hold;
+    }
     switch (action.type) {
       case "open_title":
       case "open_discovered_title":
@@ -293,6 +301,8 @@ async function openTitleOrDiscovered(options: {
   preview?: MetaPreview;
   discovered?: boolean;
   streams?: AddonStreams[];
+  hold?: Promise<void>;
+  holdType?: Action["type"];
 } = {}) {
   const title = options.title ?? matrixTitle();
   const preview = options.preview ?? matrixPreview();
@@ -304,6 +314,8 @@ async function openTitleOrDiscovered(options: {
       discovered={options.discovered}
       streams={options.streams}
       actions={actions}
+      hold={options.hold}
+      holdType={options.holdType}
     />,
   );
 
@@ -698,6 +710,35 @@ describe("the Streams overlay", () => {
           bingeGroup: null,
         },
       }),
+    );
+  });
+
+  test("a candidate pressed twice opens once and says it is opening", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const { actions } = await openTitleOrDiscovered({
+      hold: gate,
+      holdType: "play_stream",
+    });
+    fireEvent.click(screen.getByTestId("play-film"));
+    await screen.findByTestId("streams-heading");
+
+    const candidate = screen.getByTestId(`candidate-${AIOSTREAMS}-0`);
+    fireEvent.click(candidate);
+    fireEvent.click(candidate);
+
+    expect(await screen.findByText("Opening…")).toBeInTheDocument();
+    expect(screen.getByTestId(`candidate-${AIOSTREAMS}-0`)).toBeDisabled();
+    expect(actions.filter((action) => action.type === "play_stream")).toHaveLength(1);
+
+    await act(async () => {
+      release();
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(screen.queryByText("Opening…")).not.toBeInTheDocument(),
     );
   });
 

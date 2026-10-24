@@ -150,7 +150,7 @@ export function AddonsScreen() {
             data-focusable
           />
         </div>
-        <Button type="submit" variant="primary" disabled={adding} data-testid="add-addon-submit">
+        <Button type="submit" variant="primary" pending={adding} data-testid="add-addon-submit">
           Add
         </Button>
         <Refusal error={addError} testId="add-addon-error" />

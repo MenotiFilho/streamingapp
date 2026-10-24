@@ -161,6 +161,17 @@
         background: var(--status-ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--status-ok) 20%, transparent);
       }
       .connection[data-live="false"]::before { background: var(--status-warn); box-shadow: none; }
+      .pending-pill {
+        position: fixed; left: 50%; bottom: 1.25rem; transform: translateX(-50%);
+        z-index: 80; padding: 0.45rem 0.9rem; border-radius: 999px;
+        background: var(--bg-glass-solid); border: 1px solid var(--border-strong);
+        color: var(--ink-primary); font-size: var(--text-caption);
+        pointer-events: none;
+      }
+      [data-pending="true"] { opacity: 0.55; cursor: progress; }
+      [data-pending="true"][data-a="choose-stream"]::after {
+        content: "Opening…"; margin-left: 0.5rem; color: var(--ink-secondary);
+      }
       .screen {
         position: absolute; top: 3.5rem; bottom: 4.5rem; left: 0; right: 0;
         overflow-y: auto; overscroll-behavior: contain;
@@ -500,6 +511,11 @@
       rather than sending it.
     -->
     <script type="application/json" id="action-capabilities">["set_subtitle_language","clear_subtitle_language","set_subtitle_color","set_subtitle_scale","set_stream_buffer","set_featured_catalog","clear_featured_catalog","add_addon","reorder_addon","remove_addon","set_tmdb_key","clear_tmdb_key","sign_in_stremio","sign_out_stremio","pair_device","revoke_device","browse_catalog","search_catalogs","discover","search","open_title","open_discovered_title","find_streams","play_stream","resume","set_paused","seek","set_audio_track","set_subtitle_track","set_subtitle_delay","set_speed","set_volume","set_muted","next_chapter","previous_chapter","set_chapter","set_crop","autocrop","set_aspect","next_episode","previous_episode","stop_playback"]</script>
+
+    <!-- The wait every control shows while the Host answers (#137). -->
+    <div id="pending-pill" class="pending-pill" role="status" aria-live="polite" hidden>
+      Waiting for the Host…
+    </div>
 
     <!-- What a device that has not paired sees. -->
     <section id="pairing" class="pairing hidden">
@@ -1357,7 +1373,18 @@
         },
       };
 
-      function dispatch(action) {
+      /** A value with object keys in one order, so two builds of one Action agree. */
+      function ordered(value) {
+        if (Array.isArray(value)) { return value.map(ordered); }
+        if (value !== null && typeof value === "object") {
+          const sorted = {};
+          Object.keys(value).sort().forEach((key) => { sorted[key] = ordered(value[key]); });
+          return sorted;
+        }
+        return value;
+      }
+      function actionKey(action) { return JSON.stringify(ordered(action)); }
+      function sendCommand(action) {
         return new Promise((resolve, reject) => {
           if (CAPABILITIES.indexOf(action.type) === -1) {
             reject({ kind: "malformed", detail: "this remote has no control for " + action.type });
@@ -1365,6 +1392,22 @@
           }
           net.command(action, resolve, reject);
         });
+      }
+      function dispatch(action) {
+        // A relative Action in flight does not absorb the next one: two rewinds
+        // are two steps (#137). Everything else joins an identical Action
+        // already in flight, so a double press sends one.
+        if (REPEATING_ACTIONS.has(action.type)) { return sendCommand(action); }
+        const key = actionKey(action);
+        const held = commandsInFlight.get(key);
+        if (held) { return held; }
+        const started = sendCommand(action);
+        commandsInFlight.set(key, started);
+        const release = () => {
+          if (commandsInFlight.get(key) === started) { commandsInFlight.delete(key); }
+        };
+        started.then(release, release);
+        return started;
       }
 
       // ---------------------------------------------------------------------
@@ -1429,6 +1472,15 @@
       const entryIndex = new Map();
       const cropIndex = new Map();
       const aspectIndex = new Map();
+      /** The Actions in flight, so an identical press joins the first (#137). */
+      const commandsInFlight = new Map();
+      /** Actions that are one more step: two presses are two steps, never one. */
+      const REPEATING_ACTIONS = new Set(["seek", "next_chapter", "previous_chapter", "autocrop"]);
+      /** Controls whose Action waits on the Host: these say so and lock (#137). */
+      const WAITING_CONTROLS = new Set([
+        "open-card", "open-featured", "resume", "play-film", "title-play-film",
+        "title-episode", "choose-stream", "next-episode", "previous-episode",
+      ]);
 
       // ---------------------------------------------------------------------
       // Drawing
@@ -3577,6 +3629,61 @@
       // ---------------------------------------------------------------------
       // Taking Actions from controls.
       // ---------------------------------------------------------------------
+      let pendingCount = 0;
+      let pendingTimer = null;
+      /**
+       * Show or hide the one wait every waiting control shares (#137).
+       *
+       * The pill waits a moment before appearing: a control that answers at
+       * once must not flash a wait it never had. The pressed control is marked
+       * immediately either way.
+       */
+      function setPending(waiting) {
+        pendingCount = Math.max(0, pendingCount + (waiting ? 1 : -1));
+        const pill = document.getElementById("pending-pill");
+        if (!pill) { return; }
+        if (pendingCount > 0) {
+          if (pendingTimer === null) {
+            pendingTimer = setTimeout(() => {
+              pendingTimer = null;
+              if (pendingCount > 0) { pill.hidden = false; }
+            }, 150);
+          }
+        } else {
+          if (pendingTimer !== null) { clearTimeout(pendingTimer); pendingTimer = null; }
+          pill.hidden = true;
+        }
+      }
+
+      /**
+       * Run one waiting control's work with the press answered at once: the
+       * control is marked busy before anything awaits, and a press on a control
+       * already pending is dropped (#137).
+       *
+       * `aria-disabled` rather than `disabled`: the page may own the disabled
+       * state of the same node, and clearing ours must not re-enable what it
+       * set. The guard and the pointer are what stop the second press.
+       */
+      async function runWaiting(node, work) {
+        if (!node || node.disabled || node.dataset.pending === "true") { return undefined; }
+        node.dataset.pending = "true";
+        node.setAttribute("aria-busy", "true");
+        node.setAttribute("aria-disabled", "true");
+        setPending(true);
+        try {
+          return await work();
+        } finally {
+          delete node.dataset.pending;
+          node.removeAttribute("aria-busy");
+          node.removeAttribute("aria-disabled");
+          setPending(false);
+        }
+      }
+      async function runAction(node, name, data) {
+        if (!WAITING_CONTROLS.has(name)) { return act(name, data); }
+        return runWaiting(node, () => act(name, data));
+      }
+
       async function act(name, data) {
         switch (name) {
           case "destination": {
@@ -3909,7 +4016,7 @@
         const node = event.target.closest("[data-a]");
         if (!node) { return; }
         event.preventDefault();
-        void act(node.dataset.a, node.dataset);
+        void runAction(node, node.dataset.a, node.dataset);
       });
 
       document.addEventListener("change", (event) => {
@@ -3936,24 +4043,26 @@
         event.preventDefault();
         const form = event.target;
         if (form.id === "pair-form") {
-          void pair();
+          void runWaiting(form.querySelector('button[type="submit"]'), () => pair());
         } else if (form.id === "search-form") {
           submitSearch();
         } else if (form.id === "addon-form") {
           const url = ($("manifest-url").value || "").trim();
           if (!url) { return; }
           const before = state.snapshot.addons.slice();
-          void take({ type: "add_addon", url }).then((taken) => {
-            if (taken) {
-              const after = taken.snapshots.length > 0
-                ? taken.snapshots[taken.snapshots.length - 1].addons : null;
-              state.addons.status = addOutcome(before, after);
-              const field = $("manifest-url");
-              if (field) { field.value = ""; }
-              state.screenSignature = null;
-              renderScreen();
-            }
-          });
+          void runWaiting(form.querySelector('button[type="submit"]'), () =>
+            take({ type: "add_addon", url }).then((taken) => {
+              if (taken) {
+                const after = taken.snapshots.length > 0
+                  ? taken.snapshots[taken.snapshots.length - 1].addons : null;
+                state.addons.status = addOutcome(before, after);
+                const field = $("manifest-url");
+                if (field) { field.value = ""; }
+                state.screenSignature = null;
+                renderScreen();
+              }
+            })
+          );
         } else if (form.id === "tmdb-form") {
           const key = ($("tmdb-key").value || "").trim();
           if (!key) { return; }
@@ -3967,14 +4076,16 @@
           const prefix = form.id === "credentials-stremio-form" ? "credentials" : "library";
           const email = ($(prefix + "-stremio-email").value || "").trim();
           const password = $(prefix + "-stremio-password").value || "";
-          void take({ type: "sign_in_stremio", email, password }).then((taken) => {
-            if (taken) {
-              const emailField = $(prefix + "-stremio-email");
-              const passwordField = $(prefix + "-stremio-password");
-              if (emailField) { emailField.value = ""; }
-              if (passwordField) { passwordField.value = ""; }
-            }
-          });
+          void runWaiting(form.querySelector('button[type="submit"]'), () =>
+            take({ type: "sign_in_stremio", email, password }).then((taken) => {
+              if (taken) {
+                const emailField = $(prefix + "-stremio-email");
+                const passwordField = $(prefix + "-stremio-password");
+                if (emailField) { emailField.value = ""; }
+                if (passwordField) { passwordField.value = ""; }
+              }
+            })
+          );
         }
       });
 

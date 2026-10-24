@@ -274,7 +274,7 @@ function CredentialsScreen() {
             />
           </div>
           <div className="shell-actions">
-            <Button type="submit" variant="primary" disabled={saving}>
+            <Button type="submit" variant="primary" pending={saving}>
               Save key
             </Button>
             <Button

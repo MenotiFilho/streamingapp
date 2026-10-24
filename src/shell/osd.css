@@ -384,6 +384,14 @@
   pointer-events: auto;
 }
 
+/* The wait an episode step shows while the Host asks the Addons (#137). */
+.shell-osd-waiting {
+  padding: 0 clamp(1rem, 3vw, 2.5rem) var(--space-2);
+  color: var(--ink-secondary);
+  font-size: var(--text-sm);
+  pointer-events: none;
+}
+
 /* --------------------------------------------------------------------------
  * The flush bottom timeline
  * -------------------------------------------------------------------------- */
