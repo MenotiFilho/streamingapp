@@ -23,7 +23,8 @@ import {
   type OpenablePreview,
 } from "../title";
 import { useShell } from "./context";
-import { Button, Chip } from "./kit";
+import { Button, Chip, PendingSpinner } from "./kit";
+import { usePending } from "./usePending";
 import "./streams.css";
 
 /**
@@ -153,6 +154,10 @@ export function StreamsScreen({
 }) {
   const { pop, take } = useShell();
   const [chosen, setChosen] = useState<Stream | null>(null);
+  // Choosing a Stream is the second wait a person sees: the row says it is
+  // opening, and a second press while the Host answers is dropped (#137).
+  const { pending: opening, run: openOnce } = usePending();
+  const [openingStream, setOpeningStream] = useState<Stream | null>(null);
   // A film's Streams are the Title's, however its Video is spelled; a series'
   // are the episode's, by the number and name the source listed.
   const subject = isSeries(title) ? subjectOf(video) : nameOf(title, preview);
@@ -165,15 +170,22 @@ export function StreamsScreen({
       }
 
       setChosen(null);
-      await take({
-        type: "play_stream",
-        video: { type: title.type, id: video.id },
-        addon,
-        stream,
-        title: titleStubOf(title, preview),
+      await openOnce(async () => {
+        setOpeningStream(stream);
+        try {
+          await take({
+            type: "play_stream",
+            video: { type: title.type, id: video.id },
+            addon,
+            stream,
+            title: titleStubOf(title, preview),
+          });
+        } finally {
+          setOpeningStream(null);
+        }
       });
     },
-    [preview, take, title, video.id],
+    [openOnce, preview, take, title, video.id],
   );
 
   return (
@@ -230,6 +242,8 @@ export function StreamsScreen({
                   index={index}
                   stream={stream}
                   chosen={chosen === stream}
+                  opening={openingStream === stream}
+                  disabled={opening}
                   onChoose={(stream) => void choose(group.addon, stream)}
                 />
               </li>
@@ -262,12 +276,16 @@ function Candidate({
   index,
   stream,
   chosen,
+  opening,
+  disabled,
   onChoose,
 }: {
   addon: string;
   index: number;
   stream: Stream;
   chosen: boolean;
+  opening: boolean;
+  disabled: boolean;
   onChoose: (stream: Stream) => void;
 }) {
   const badges = badgeLines(stream);
@@ -280,6 +298,8 @@ function Candidate({
       data-focusable
       data-testid={`candidate-${addon}-${index}`}
       aria-pressed={chosen}
+      aria-busy={opening || undefined}
+      disabled={disabled}
       onClick={() => onChoose(stream)}
     >
       {badges.length > 0 ? (
@@ -310,6 +330,12 @@ function Candidate({
             </Chip>
           ))}
           {note ? <Chip tone="danger">{note}</Chip> : null}
+        </span>
+      ) : null}
+
+      {opening ? (
+        <span className="shell-candidate-opening" role="status">
+          <PendingSpinner /> Opening…
         </span>
       ) : null}
     </button>

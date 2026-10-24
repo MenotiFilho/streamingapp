@@ -103,7 +103,7 @@ export function StremioAccount({ allowSignOut = true }: { allowSignOut?: boolean
           data-focusable
         />
       </div>
-      <Button type="submit" disabled={working}>
+      <Button type="submit" pending={working}>
         Sign in
       </Button>
       <Refusal error={error} testId="stremio-sign-in-error" />

@@ -77,6 +77,7 @@ export function ConfirmAction({
       title={title}
       confirmLabel={confirmLabel}
       danger
+      pending={working}
       onConfirm={() => void confirm()}
       onCancel={pop}
       testId={testId}

@@ -13,6 +13,8 @@ export type ConfirmDialogProps = {
   cancelLabel?: string;
   /** Draw the confirming control in the destructive treatment. */
   danger?: boolean;
+  /** Whether the Action the question confirms is still in flight (#137). */
+  pending?: boolean;
   onConfirm: () => void;
   onCancel?: () => void;
   testId?: string;
@@ -46,6 +48,7 @@ export function ConfirmDialog({
   confirmLabel = "Confirm",
   cancelLabel = "Cancel",
   danger = false,
+  pending = false,
   onConfirm,
   onCancel,
   testId,
@@ -80,7 +83,13 @@ export function ConfirmDialog({
               {cancelLabel}
             </Button>
           ) : null}
-          <Button variant="primary" danger={danger} autoFocus={!onCancel} onClick={onConfirm}>
+          <Button
+            variant="primary"
+            danger={danger}
+            pending={pending}
+            autoFocus={!onCancel}
+            onClick={onConfirm}
+          >
             {confirmLabel}
           </Button>
         </div>

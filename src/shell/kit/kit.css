@@ -444,6 +444,27 @@
   cursor: not-allowed;
 }
 
+/*
+ * The wait a pressed control shows while the Host answers (#137). A small ring,
+ * in the control's own ink, beside the label; it is not a second colour and it
+ * does not change the control's box.
+ */
+.kit-spinner {
+  flex: none;
+  width: 0.9em;
+  height: 0.9em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: kit-spin 700ms linear infinite;
+}
+
+@keyframes kit-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .kit-chip {
   display: inline-flex;
   align-items: center;
@@ -609,6 +630,10 @@
 @media (prefers-reduced-motion: reduce) {
   [data-focusable] {
     transition: none;
+  }
+
+  .kit-spinner {
+    animation-duration: 2.4s;
   }
 
   .kit-row-track {

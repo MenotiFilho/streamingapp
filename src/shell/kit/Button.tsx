@@ -1,6 +1,7 @@
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 
 import { cx } from "./cx";
+import { PendingSpinner } from "./PendingSpinner";
 
 /** How a button reads: the accent primary, the raised secondary, the quiet ghost. */
 export type ButtonVariant = "primary" | "secondary" | "ghost";
@@ -11,6 +12,13 @@ export type ButtonProps = Omit<ComponentPropsWithoutRef<"button">, "children"> &
   pressed?: boolean;
   /** The destructive treatment a confirmation's confirming control takes. */
   danger?: boolean;
+  /**
+   * Whether the Action this control asked for is still in flight. A pending
+   * control is disabled, announces `aria-busy`, and draws a spinner beside its
+   * label — the wait a person sees instead of a press that seemed to do nothing
+   * (#137).
+   */
+  pending?: boolean;
   children: ReactNode;
 };
 
@@ -23,9 +31,11 @@ export function Button({
   variant = "secondary",
   pressed,
   danger = false,
+  pending = false,
   className,
   children,
   type = "button",
+  disabled,
   ...button
 }: ButtonProps) {
   return (
@@ -36,8 +46,12 @@ export function Button({
       data-focusable
       data-variant={variant}
       data-tone={danger ? "danger" : undefined}
+      data-pending={pending ? "true" : undefined}
       aria-pressed={pressed}
+      aria-busy={pending || undefined}
+      disabled={disabled || pending}
     >
+      {pending ? <PendingSpinner /> : null}
       {children}
     </button>
   );

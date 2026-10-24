@@ -146,7 +146,10 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
 
 type Rejection = { type: Action["type"]; error: { kind: string; detail?: string } };
 
-function fakeHost(initial: Snapshot, reject?: Rejection) {
+/** A dispatch a test holds open, so the wait a control draws can be observed. */
+type Hold = { type: Action["type"]; gate: Promise<void> };
+
+function fakeHost(initial: Snapshot, reject?: Rejection, hold?: Hold) {
   const invocations: Array<{ command: string; args?: Record<string, unknown> }> = [];
   let listener: ((event: { payload: Snapshot }) => void) | undefined;
   let current = initial;
@@ -160,6 +163,9 @@ function fakeHost(initial: Snapshot, reject?: Rejection) {
       const action = (args?.envelope as { action: Action } | undefined)?.action;
       if (reject && action?.type === reject.type) {
         throw reject.error;
+      }
+      if (hold && action?.type === hold.type) {
+        await hold.gate;
       }
       return { snapshots: [], answer: null } as T;
     },
@@ -193,10 +199,12 @@ async function renderPlayer(
   overrides: Partial<PlaybackSnapshot> = {},
   reject?: Rejection,
   watchProgress: ResumeEntry[] = [],
+  hold?: Hold,
 ) {
   const host = fakeHost(
     { ...NOTHING_SAID, revision: 9, playback: playback(overrides), watchProgress },
     reject,
+    hold,
   );
   render(<Shell client={host.client} />);
   await screen.findByTestId("shell-player");
@@ -446,6 +454,39 @@ describe("the player OSD", () => {
         type: "seek",
         target: { kind: "by", seconds: 10 },
       }),
+    );
+  });
+
+  test("a next-episode step says it is loading and a second press sends nothing", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const host = await renderPlayer(
+      { episode: { season: 1, episode: 2 } },
+      undefined,
+      [],
+      { type: "next_episode", gate },
+    );
+
+    fireEvent.click(screen.getByTestId("next-episode"));
+    fireEvent.click(screen.getByTestId("next-episode"));
+
+    expect(await screen.findByTestId("episode-loading")).toHaveTextContent(
+      "Loading the next episode…",
+    );
+    expect(screen.getByTestId("next-episode")).toBeDisabled();
+    expect(screen.getByTestId("previous-episode")).toBeDisabled();
+    expect(
+      actions(host.invocations).filter((action) => action.type === "next_episode"),
+    ).toHaveLength(1);
+
+    await act(async () => {
+      release();
+      await Promise.resolve();
+    });
+    await waitFor(() =>
+      expect(screen.queryByTestId("episode-loading")).not.toBeInTheDocument(),
     );
   });
 

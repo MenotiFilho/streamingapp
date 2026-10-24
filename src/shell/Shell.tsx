@@ -11,7 +11,9 @@ import {
 } from "../host-client";
 import type { Intent } from "../input";
 import { watching } from "../playback";
+import { actionKey, repeats } from "./actionKey";
 import { DestinationScreen } from "./DestinationScreens";
+import { InFlight } from "./inFlight";
 import { PlayerOverlay } from "./PlayerOverlay";
 import { ShellFrame } from "./ShellFrame";
 import { ShellContext, type ActionOutcome, type NewShellLevel } from "./context";
@@ -83,13 +85,24 @@ export function Shell({ client }: { client?: HostClient }) {
   }, [host, publish]);
 
   /** The same, with the refusal returned rather than raised as the window's alert. */
+  const inFlight = useRef(new InFlight<ActionOutcome>());
   const ask = useCallback(
     async (action: Action): Promise<ActionOutcome> => {
-      try {
-        return { response: await host.dispatch(action), error: null };
-      } catch (caught) {
-        return { response: null, error: asActionError(caught) };
+      const send = async (): Promise<ActionOutcome> => {
+        try {
+          return { response: await host.dispatch(action), error: null };
+        } catch (caught) {
+          return { response: null, error: asActionError(caught) };
+        }
+      };
+      // A relative Action in flight does not absorb the next one: two rewinds
+      // are two steps (#137). Everything else — the episode steps included —
+      // joins an identical Action already in flight, so a double press sends
+      // one.
+      if (repeats(action)) {
+        return send();
       }
+      return inFlight.current.run(actionKey(action), send);
     },
     [host],
   );

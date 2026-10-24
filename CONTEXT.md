@@ -237,6 +237,14 @@ Telling before it is anything a client sees, so that no client can have one the
 seam does not (ADR-0002).
 _Avoid_: command, instruction, mpv call
 
+**Pending**:
+A client's own state between pressing a control and the Host's answer: the
+Action is in flight, the control draws the wait, and a second identical press is
+dropped. Never in a Snapshot — it is a fact about this client's request, not
+about the Host — and two relative steps (two rewinds, two chapter steps) are two
+steps, never collapsed into one (ADR-0027).
+_Avoid_: busy, loading, spinner (for the state)
+
 **Subtitle appearance**:
 The colour and size the Player draws subtitles in, a preference of the Host's
 beside the subtitle language: the same on every Stream and every client. The
