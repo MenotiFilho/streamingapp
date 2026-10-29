@@ -10,9 +10,12 @@ holds no behaviour: every Action, Snapshot, focus rule, level-stack rule and
 Remote flow belongs to the Host and to `CONTEXT.md`, and this record does not
 move them.
 
-The values live in `src/shell/repertory/tokens.css`, the one declaration the
-window imports and `crates/host-wire` splices into the served Remote page. Where
-this record and that sheet disagree, the sheet is the bug.
+The values live in `src/shell/repertory/tokens.css`, the one declaration for the
+repertory surface. The window imports it and `crates/host-wire` splices it into
+the served Remote page; the Velvet sheet sits beside it until the cutover
+(#160). #153 rebuilds the sheet to this record; where the prototype still
+differs today, the difference is listed in §14 rather than left as a second
+rule.
 
 ## 1. The direction
 
@@ -23,9 +26,9 @@ mono for every piece of bookkeeping, and posters shown unframed as if pasted on
 the wall.
 
 What the direction refuses, everywhere: glass, blur, rounded cards and pills,
-drop shadows as depth, focus lifts and scaling, light mode, and decoration that
-competes with the artwork. The picture and the poster are the only loud things;
-the room around them is quiet.
+drop shadows as depth, focus lifts and scaling, fill inversion on focus, light
+mode, and decoration that competes with the artwork. The picture and the poster
+are the only loud things; the room around them is quiet.
 
 ## 2. Palette
 
@@ -45,8 +48,15 @@ the room around them is quiet.
 Measured on ink (`#0b0a09`), WCAG 2.2: ivory 16.41, dim 10.65, muted 5.29,
 hairline 3.49 (a non-text rule, 3:1), brass 8.43, brass-deep 6.19, red 6.05. On
 `ink-raised` every text pair still clears 4.5:1 and the hairline still clears
-3:1. `tokens.test.ts` measures these pairs out of the sheet, so a colour change
-fails until the pair is proven again.
+3:1. `tokens.test.ts` measures pairs out of the sheet; today it guards ivory,
+dim, muted, hairline and brass, and #153 extends it to brass-deep and the status
+red, so a colour change fails until its pair is proven again.
+
+Every brass wash or glow derives from `--rep-house` (`color-mix` or a channel
+expression), never a repeated `rgba()` literal: the one allowed brass
+correction has to move the washes with it. #153 makes the existing wash derive
+from the token and adds the test that fails on a brass literal anywhere but
+`--rep-house` and `--rep-house-deep`.
 
 Rules:
 
@@ -79,9 +89,10 @@ never used below the section size, and never for a poster caption. Interface is
 tick. Caps labels take `0.08em` tracking.
 
 The two-family comparison from research #144 is closed: **Bodoni Moda / Inter /
-IBM Plex Mono**. The prototype's `data-pairing="playfair"` alternate (Playfair
-Display + IBM Plex Sans) is comparison scaffolding and leaves with the flag; it
-is not a setting and not a second pairing.
+IBM Plex Mono**. The prototype's Playfair alternate (Playfair Display + IBM Plex
+Sans) is **cut**, not deferred: it is not a setting and not a second pairing,
+and the prototype's `data-pairing` token block, its `?type=playfair` rehearsal
+option and the Playfair imports leave in #153.
 
 ### The scale
 
@@ -136,7 +147,7 @@ floor:
 | row gap | 24px | `max(16px, 1.25 × stage)` |
 | compact spine | 92px | `max(92px, 4.8 × stage)` |
 | open spine | 280px | `max(280px, 14.6 × stage)` |
-| feature rail | 168px | `max(168px, 8.75 × stage)` |
+| program strip (strip frame) | 168px | `max(168px, 8.75 × stage)` |
 
 **Radius is zero.** There is no card radius, no pill and no rounded control; the
 one circle in the system is the pending spinner. Depth is a hairline and one ink
@@ -145,18 +156,20 @@ so the focus model can tell them apart; a brass rule is 2px (the featured or
 active item, a drawer's top rule, a popover's top rule); a progress line is 2px.
 
 **Measure is typographic**, not a pixel column: prose is 58–62ch, a utility
-panel and a form 46ch, a description on a card 2 lines. The spine, the gutter
-and the stage carry the scale; the reading column does not grow with the window.
+panel and a form 46ch, a poster caption 2 lines, the feature's description 3
+lines and a Title page's description 6. The spine, the gutter and the stage
+carry the scale; the reading column does not grow with the window. The
+prototype still fixes the utility panels at 760px; #153 moves them to the
+measure.
 
 ## 5. Focus
 
 One mark, on every focusable thing — poster card, rail item, button, OSD icon,
 form field, row:
 
-- a **2px ivory keyline**, offset 3px outside a control; on a poster card or a
-  continue card, where the art fills the row, the keyline is drawn **on the
-  artwork's edge** (2px inside) so a scrollport never crops it; the offset never
-  drops below 2px;
+- a **2px ivory keyline with a 3px offset**, outside a control; where the art
+  fills the row (a poster or continue card), the same 3px offset is drawn
+  **inside the artwork's edge** so a scrollport never crops it;
 - a brass **spotlight wash** on the feature and on a focused poster's artwork —
   a radial soft edge, not a border. The system **narrows** the prototype here:
   the prototype washed every card and every rail item, and the locked mark is
@@ -171,6 +184,11 @@ The keyline has to fit: a scrollport gets 3px of extra padding so a focused edge
 is never clipped, and a rail's first and last card are inset by the same 3px.
 The spine grows on focus (compact → open) and the page makes room; a Settings
 leaf keeps the spine live, with the focus root covering both.
+
+The prototype still carries three leftovers here: the feature at a 6px offset,
+the poster cards keylined 3px outside rather than on the art, and the kit's
+`kit-focus-invert` filling focused controls. The kit is #153's; the feature and
+the cards are #154's; the record's mark is the one above.
 
 ## 6. Motion
 
@@ -202,10 +220,12 @@ circle, no square, no container, except a cell of the hairline table.
 The set: the six destination marks, More, back, close, previous episode, next
 episode, −10s, +10s, play, pause, stop, fullscreen, volume, volume muted,
 picture, subtitles, audio, speed, chapters, and the chevron the popovers use.
-The window's inline SVGs are the source; the served page receives the same
+The window's inline SVGs are the source for the destination, transport, close
+and fullscreen marks; the ±10s and subtitles marks still draw as text in the
+prototype and join the set in #153/#158. The served page receives the same
 symbols as a sprite spliced at serve time, like the token sheet. **No Unicode
 glyph stands in for a mark on the Remote** — the phone's emoji font is not the
-design system.
+design system; the prototype still uses Unicode there and #159 replaces it.
 
 ## 8. Component anatomy
 
@@ -236,7 +256,7 @@ design system.
 
 - **Poster card**: unframed 2:3 artwork; the only running text is the Title in
   sans at control size (2 lines, dim; ivory when focused); the year is a small
-  mono stamp before the name; the IMDb stamp sits over the art at the bottom
+  mono stamp after the name; the IMDb stamp sits over the art at the bottom
   right, only when the Host has a rating; an Unplayable Title keeps its stamp
   and still opens.
 - **Continue watching card**: 16:9 still, a 2px brass progress line under the
@@ -255,9 +275,12 @@ design system.
 
 - **Chip**: a hairline box, mono/sans label, single-select; chosen is the brass
   inset rule and ivory ink, never a fill. A value outside the presets is named
-  by an **Other** chip rather than leaving every chip unpressed.
-- **Button**: a line of type with a rule under it; the primary action is brass
-  ink (not a brass fill); destructive is red ink and always asks first.
+  by an **Other** chip rather than leaving every chip unpressed. Discover's
+  genre row is **All genres** first, then TMDB's own genre order — one list,
+  never a curated second one.
+- **Button**: a line of type with a rule under it; the one primary action is a
+  **brass fill carrying ink** (never ivory, 8.43:1), a quiet action is brass ink
+  with a rule, and destructive is red ink and always asks first.
 - **Form**: a mono caps label over a transparent field whose only edge is a
   bottom hairline; the focused field takes the ivory keyline. A refusal is a red
   line under the field and the pasted value stays.
@@ -267,25 +290,34 @@ design system.
   numbers on utility screens.
 - **Popover / drawer**: an `ink-raised` plate with a 2px brass top rule, a
   display-serif heading, mono group labels and hairline rows; the pressed row
-  carries the brass inset rule. A scrim closes it; Back closes it before it
-  closes the level beneath.
+  carries the brass inset rule. The OSD's popovers are `min(20.8 × stage,
+  100vw - 2rem)` wide (400px at 1920) with `min(62vh, 26.7 × stage)` of height,
+  anchored above the control strip, and clear the window's top by one spacing
+  step at a short height. A scrim closes it; Back closes it before it closes the
+  level beneath.
 - **Dialog**: one question, the consequence in the Host's words, Cancel focused
   first; the confirming side is the only red fill.
 - **OSD**: a programme note printed over the film, in translucent ink plates and
   hairlines. Top left: the brass `Now playing` kicker, the episode or `Feature`,
   the Title in display serif, a brass quality stamp, and the Addon/codec/bitrate
   facts in one mono line. Top right: fullscreen and Stop, each a square hairline
-  control (Stop is the X). Right edge: the bare volume rail. Bottom: the
-  transport around the five icon menus, then the timeline — a hairline track, a
-  buffered read, the brass progress, an ivory playhead, brass chapter ticks, mono
-  clocks at each end. The current chapter is named **only in the hover/drag
-  callout**, which names the chapter of the position pointed at; it is not a
-  permanent line at the centre. Ticks keep a minimum spacing (~24px); a container
-  with many chapters collapses to a tick rail without names.
+  control (Stop is the X). Right edge: the bare volume rail — a **drawn rail with
+  a brass fill**, not the browser's native range. Bottom: the centred transport
+  with the five icon menus around it (Picture, Subtitles, Audio left; Speed,
+  Chapters right), then the timeline — a hairline track, a buffered read, the
+  brass progress, an ivory playhead, brass chapter ticks, mono clocks at each
+  end. The current chapter is named **only in the hover/drag callout**, which
+  names the chapter of the position pointed at; the prototype prints it
+  permanently at the centre, and #158 removes that line. Ticks keep a minimum
+  spacing (~24px); a container with many chapters collapses to a tick rail
+  without names.
 - **Pairing call board**: **Address** in mono, **Pairing code** in large brass
   mono with the label `Pairing code · single use`, then the paired-device ledger
   (name in display serif, paired stamp in mono, **Revoke** in red). Revoke asks
-  first and leaves every other device working.
+  first and leaves every other device working. The code's tracking is the caps
+  tracking; there is **no copy control** — the panel is a call board read from
+  the screen, and a copy affordance would be a client-only convenience the map
+  does not open.
 
 ## 9. Artwork and marks
 
@@ -295,10 +327,10 @@ The fallback chain, in order, and never a grey box:
 |---|---|
 | Feature | backdrop → landscape poster → typographic plate (name in display serif over ink) |
 | Poster card, feed, Library | poster → typographic plate |
-| Title page | backdrop → poster, with a two-gradient scrim; the wordmark/logo over it, else the name in display serif |
+| Title page | backdrop → landscape poster → poster, with a two-gradient scrim; the wordmark/logo over it, else the name in display serif |
 | Continue watching | 16:9 backdrop → landscape poster → 16:9 plate |
 | Episode row | 16:9 still → plate with `S#E#` and the name |
-| Remote plate | the Continue watching entry's backdrop → 2:3 poster beside the title → plate |
+| Remote plate | the Continue watching entry's backdrop → landscape poster → 2:3 poster beside the title → plate |
 
 Art is never framed, never rounded, never cropped from 2:3 to 16:9 (a poster
 fills a 2:3 slot or becomes the plate), and never replaced by a flat panel when a
@@ -335,10 +367,12 @@ whimsy, no adjective stacking, and no second sentence that repeats the first.
 A section head is a name, not a sentence.
 
 Errors are the exception to the voice: they quote the Host's own vocabulary and
-the Action's refusal verbatim (`unreachable`, `no_previous_episode`,
-`invalid_position`) and add at most one line saying what the person can do. An
-error is never dressed in cinema language and never softened into an empty
-state. Destructive dialogs state the consequence in the Host's own words.
+the Action's refusal verbatim (`no_previous_episode`, `invalid_position`,
+`unknown_addon`) and add at most one line saying what the person can do. A
+client-side transport failure is named in the client's own words (`unreachable`)
+and is never dressed as a Host refusal. An error is never dressed in cinema
+language and never softened into an empty state. Destructive dialogs state the
+consequence in the Host's own words.
 
 ## 11. The Remote
 
@@ -393,19 +427,39 @@ measurement written back here:
 
 The prototype's scaffolding is not provisional design: the rehearsal bar, the
 sample tracks and statistics, the ticking clock, the sample pairing devices, the
-practice Library account and the `?ui=repertory` selector are all #149/#152
-machinery and leave with the flag.
+practice Library account and the `?ui=repertory` selector were introduced across
+#145–#149 and are #152/#160 machinery; they leave with the flag.
 
 ## 13. What this record does not decide
 
 - **Behaviour**: Actions, Snapshots, the focus model, the level stack, the Back
   order, auto-hide and the Remote flow. Frozen by the map and owned by
   `CONTEXT.md` and the ADRs.
-- **The staging**: `VITE_UI=repertory` in the window and the served page's
-  route/setting are #152; the cutover that deletes the Velvet surface and the
-  flag is #160.
+- **The staging**: the served page's route or setting is #152; the window's
+  `VITE_UI=repertory` flag and both cutovers are #160.
 - **The tests**: which presentation suites survive is #151.
 - **The Windows walkthrough**: `verify.ps1` is not redesigned; the owner verifies
   the window by hand.
 - **Anything the Host says**: this record draws the Host's vocabulary; it never
   invents a word for a Host concept.
+
+## 14. Where the prototype still differs
+
+The prototype is the working set, not the finished sheet. These are the
+differences known at this writing, each with the ticket that closes it; a build
+ticket that finds another one records it here rather than inventing a second
+rule.
+
+| The prototype today | The record | Closed by |
+|---|---|---|
+| `clamp(rem, n vw, n vw)` per token; layout in `2.9vw` | the `--rep-stage` unit and the floor/step table in §3–§4 | #153 |
+| utility panels and forms at 760px; the log note at 66ch | the `ch` measure (46ch utility, 58–62ch prose) | #153 |
+| the brass wash on every card and rail item, fading at 240ms; the feature at a 6px offset; cards keylined 3px outside | the wash on the feature and a focused poster's art at 140ms; one 3px offset, the keyline on the art's edge | #153, #154 |
+| the Playfair alternate: the `data-pairing` token block, its imports and the `?type=playfair` rehearsal option | cut; one pairing | #153 |
+| `kit-focus-invert` fills focused controls; the Velvet kit's button/choice/poster re-dressed by repertory classes | the repertory kit: keyline, brass inset rule, no fill | #153 |
+| the OSD names the current chapter permanently at the centre | the chapter is named only in the hover/drag callout | #158 |
+| the OSD's ±10s and subtitles marks are text; the Remote is Unicode | one drawn set on both clients | #158, #159 |
+| the volume is the native range with `accent-color` | a drawn rail with a brass fill | #158 |
+| brass repeated as `rgba()` literals in the wash and feature glow | every brass derives from `--rep-house` | #153 |
+| shadows on the spine, the feature focus, the popover and the OSD | depth is a hairline and one ink step | #153, #158 |
+| the Velvet sheet and its splice live beside the repertory sheet; the served page keeps `/` and the `?ui` gate | one sheet, one splice, one page | #152, #160 |

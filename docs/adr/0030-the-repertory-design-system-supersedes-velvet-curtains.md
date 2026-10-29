@@ -13,12 +13,15 @@ single ivory keyline and a spotlight wash. It replaces **Velvet Curtains** — t
 obsidian/smoked-glass palette, Syne/Plus Jakarta Sans, crimson accent and dual
 focus halos shipped by #71/#77.
 
-Velvet Curtains is not a base to inherit from. Its tokens, its fonts, its focus
-treatment, its radii, its glass and its copy are **not preserved** anywhere in
-the new surface, and the cutover (#160) deletes its sheet rather than mapping it
-onto the new names. The two systems coexist only while the window's
-`VITE_UI=repertory` flag stages the new shell, and that coexistence is a
-rollback, not a supported pair of themes.
+Velvet Curtains is not a base to inherit from. No Velvet token is carried over as
+an alias, no Velvet font ships, and no Velvet component ships unchanged: the
+kit's controls are re-dressed in repertory clothes until #153 replaces the kit,
+and the cutover (#160) deletes the Velvet sheet rather than mapping its names
+onto the new ones. (The status red keeps its hex `#ff4d4d` because the new
+palette chose that red on its own measured pair; that is a value coincidence,
+not an inheritance.) The two systems coexist while the window's
+`VITE_UI=repertory` flag and the Remote's `?ui=repertory` bridge stage them, and
+that coexistence is a rollback, not a supported pair of themes.
 
 Rejected, with reasons: **keeping both systems behind a setting** (two visual
 languages for one room, and a permanent second palette to keep measured);
@@ -53,10 +56,11 @@ issue** (the spec that produced Velvet is exactly the artifact that aged worst).
 families, the ten-foot scale, the hand scale, spacing, motion and focus. The
 window imports it; `crates/host-wire` splices the same file into the served
 Remote page, and the served page also receives the same font files and the same
-icon sprite. One source per fact, for both clients.
+icon sprite. One source per fact, for both clients — the Velvet sheet lives
+beside it only until the cutover deletes it.
 
 The ten-foot scale is proportional to the **shorter** side of the window
-(`min(1vw, 1.778vh)`) with a rem floor and no rem ceiling, so a 4K window at
+(`min(1vw, 1.7778vh)`) with a rem floor and no rem ceiling, so a 4K window at
 100% scaling does not halve the physical type and a wide, shallow window does
 not inflate it. The hand scale is a second named set of the same roles for a
 phone held at arm's length; it is not a second palette and not a second sheet.
@@ -67,21 +71,34 @@ research #144); **two sheets** (a palette can then drift between clients);
 viewing-distance preference** (new Host state and a new Action, which the map
 freezes, to solve what the stage unit already solves).
 
-## 4. What the replacement obliges
+## 4. Rollout: staged behind a flag, cut over once
 
-The repertory tokens and kit are rebuilt behind the flag (#153); the browse
-screens, the OSD and the Remote are drawn against this record (#154–#159); the
-cutover (#160) deletes the Velvet sheet, its kit, the `VITE_UI` flag and the
-Velvet-only presentation tests, and the design record's "provisional" section is
-the only place a value may still move — each with its measurement written back.
+The repertory surface is staged, not switched: the window keeps the Velvet shell
+usable behind `VITE_UI=repertory`, the served page keeps `/` and adds its own
+selector, and the cutover is one change that deletes the old surface and the
+flags once the six destinations, Title/Streams, the OSD and the Remote are
+drawn.
+
+Rejected, with reasons: **a big-bang change to `main`** (the window keeps a
+working surface while the prototypes and the build tickets land, and the flag is
+the rollback); **preserving the Velvet tests as presentation coverage** (they
+assert the surface being deleted, and the new drawing gets its own suite — the
+behaviour suites survive, the migration is #151); **shipping the Remote's
+restyle after the window's** (the two clients would speak two languages for the
+length of a release, and the token splice already carries both).
 
 ## Consequences
 
+- The repertory tokens and kit are rebuilt behind the flag (#153); the browse
+  screens, the OSD and the Remote are drawn against the record
+  (#154–#159); the cutover (#160) deletes the Velvet sheet, its kit, the
+  `VITE_UI` flag and the Velvet-only presentation tests.
 - `docs/design-system.md` is the reference for every client screen and for the
   served Remote; this ADR records why Velvet Curtains is gone.
-- `src/shell/repertory/tokens.css` is the single token source; the Velvet
-  `src/tokens.css` and its `tokens.test.ts` are deleted at cutover, and
-  `src/shell/repertory/tokens.test.ts` guards the new palette's measured pairs.
+- `src/shell/repertory/tokens.css` is the single token source for the repertory
+  surface; the Velvet `src/tokens.css` and its `src/shell/kit/tokens.test.ts` are
+  deleted at cutover, and `src/shell/repertory/tokens.test.ts` guards the new
+  palette's measured pairs.
 - The served Remote receives the token sheet, the icon sprite and the font
   files from `host-wire`; a phone that lacks the faces falls back rather than
   seeing a different design.
