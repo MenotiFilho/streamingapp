@@ -141,6 +141,13 @@ export function readLevel(
     }
 
     for (const element of Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE))) {
+      // A level below the top is inert, and so is the base while a level is
+      // open. The window's spine can stay live beside a Settings leaf, so the
+      // root may contain both the spine and the level; inert subtrees are not
+      // targets.
+      if (element.closest("[inert]")) {
+        continue;
+      }
       const regionId = regionIdOf(element, root);
       const region = regionId ? layout.regions[regionId] : undefined;
       if (!regionId || !region) {
@@ -174,7 +181,12 @@ export function focusOf(
   return null;
 }
 
-/** The first control a level offers, in DOM order. */
+/** The first control a level offers, in DOM order, skipping inert subtrees. */
 export function firstFocusable(root: HTMLElement): HTMLElement | null {
-  return root.querySelector<HTMLElement>(FOCUSABLE);
+  for (const element of root.querySelectorAll<HTMLElement>(FOCUSABLE)) {
+    if (!element.closest("[inert]")) {
+      return element;
+    }
+  }
+  return null;
 }
