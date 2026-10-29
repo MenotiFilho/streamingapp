@@ -89,9 +89,11 @@ seams compose into a client rather than six mounted screens).
 ## 4. Two presentation locks, and no others
 
 CSS is read as text in exactly two places. The first is the repertory token
-sheet: the locked palette and the measured contrast pairs, because ADR-0030
-locked pairs that were measured rather than chosen (ivory on brass fails at
-1.95:1; brass is on ink only). The second is the frameless chrome's band and its
+sheet's measured **contrast pairs** — not its hexes: ADR-0030 leaves the brass
+provisional for one tuning pass after the Windows panel, so the lock is on what
+a pair must clear (ivory, dim and muted at 4.5:1 on ink and raised; the hairline
+at 3:1 as a non-text rule; brass legible on ink; and ivory off brass, where it
+fails at 1.95:1). The second is the frameless chrome's band and its
 `pointer-events`, because a band that drifts between the geometry and the sheet
 stops the window moving or stops its button taking a click, and no smoke test
 can see either.

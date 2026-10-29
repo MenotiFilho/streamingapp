@@ -34,7 +34,7 @@ Rust is tested the usual way (`cargo test`, seams with in-memory fakes — see
 | The Velvet kit (`kit/*`) | Rewritten by #153: each primitive re-earns its props contract — focusable, disabled, paging, selection. |
 | A Velvet screen (`Home`, `Title`, `Settings`, `Addons`, `Search`, `Discover`, `Shell`, `ShellFrame`, `Library`) | **Mine then freeze.** Read it for the rules it encodes, extract each into a module and test the module. Do not edit the file; it stays green until #160 deletes it. |
 | `PlayerOverlay` | **Adapt deep** at #159: the OSD keeps its focus ladder, pad, idle window, pending states, refusals and popover dismissal, re-pointed at the repertory OSD. |
-| `kit/tokens` (Velvet palette) | Dies with Velvet at #160; `repertory/tokens` is the palette lock. |
+| `kit/tokens` (Velvet palette) | Dies with Velvet at #160; `repertory/tokens` carries the contrast lock. |
 
 Frozen means frozen: the Velvet suites are edited only when a shared seam
 (`navigation`, `reveal`, `homeStore`) changes underneath them. `VITE_UI=repertory`
@@ -58,8 +58,11 @@ A screen's Velvet counterpart may only be deleted once all of this is true:
 
 ## The two presentation locks
 
-- `src/shell/repertory/tokens.test.ts` — the locked palette and the measured
-  contrast pairs. Brass fills on ink only; ivory on brass fails at 1.95:1.
+- `src/shell/repertory/tokens.test.ts` — the palette's measured **contrast
+  pairs**, not its hexes: ivory, dim and muted at 4.5:1 on ink and raised; the
+  hairline at 3:1 as a non-text rule; brass legible on ink; and ivory off brass,
+  where it fails at 1.95:1. The brass may be tuned once after the owner's
+  Windows panel (ADR-0030), and a hex change that keeps the pairs passes.
 - The frameless chrome's band and `pointer-events`, asserted against the
   repertory sheet: the strip's band is the band the D-pad geometry measures, and
   the strip leaves the pointer to its button. A drift here is a window that will
@@ -84,12 +87,16 @@ the smallest thing that decides it:
 
 ```ts
 // Good: the seam decides, the test asks it.
-expect(decideMove(layout, "left")).toEqual("rail");
+expect(decideMove(layout, focus, "left")).toMatchObject({
+  kind: "crossed",
+  regionId: "rail",
+});
 
 // Good: the DOM is the harness; the assertion is the contract.
+// (`actions()` in Shell.test.tsx reads the Actions a fake Host was sent.)
 render(<Shell client={client} />);
-await press("ArrowRight");
-expect(client.actions).toContainEqual({ type: "browse_catalog", /* … */ });
+await press("Escape");
+expect(actions(host.invocations)).toContainEqual({ type: "stop_playback" });
 
 // Not: an assertion about the drawing.
 expect(screen.getByRole("listitem")).toHaveClass("poster-card--focused");
