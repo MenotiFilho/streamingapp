@@ -7,7 +7,42 @@
  * a URL into Metahub — the repository commits no poster or backdrop.
  */
 
-import type { MetaPreview, ResumeEntry } from "../../host-client";
+import type {
+  MetaPreview,
+  ResumeEntry,
+  Stream,
+  StreamWarning,
+} from "../../host-client";
+
+/** Cinemeta's own genre lists, as its manifest declares them. */
+export const CINEMETA_MOVIE_GENRES = [
+  "Action",
+  "Adventure",
+  "Animation",
+  "Biography",
+  "Comedy",
+  "Crime",
+  "Documentary",
+  "Drama",
+  "Family",
+  "Fantasy",
+  "History",
+  "Horror",
+  "Mystery",
+  "Romance",
+  "Sci-Fi",
+  "Sport",
+  "Thriller",
+  "War",
+  "Western",
+] as const;
+
+export const CINEMETA_SERIES_GENRES = [
+  ...CINEMETA_MOVIE_GENRES,
+  "Reality-TV",
+  "Talk-Show",
+  "Game-Show",
+] as const;
 
 /** The fields of a Cinemeta catalog item this prototype reads. */
 export type CinemetaMeta = {
@@ -68,6 +103,75 @@ export function cinemetaPreviews(metas: readonly CinemetaMeta[], fallbackType: s
   return metas
     .map((meta) => cinemetaPreview(meta, fallbackType))
     .filter((meta): meta is MetaPreview => meta !== null);
+}
+
+/** The fields of a stream response this preview reads, as Addons in the wild send them. */
+export type PreviewStream = {
+  name?: string;
+  title?: string;
+  description?: string;
+  url?: string;
+  infoHash?: string;
+  behaviorHints?: {
+    notWebReady?: boolean;
+    p2p?: boolean;
+    proxyHeaders?: unknown;
+    filename?: string;
+    bingeGroup?: string;
+  };
+};
+
+/** A hint's warnings, in the Host's own order and vocabulary (ADR-0009). */
+function warningsOf(hints: PreviewStream["behaviorHints"]): StreamWarning[] {
+  if (!hints) {
+    return [];
+  }
+  const warnings: StreamWarning[] = [];
+  if (hints.notWebReady === true) {
+    warnings.push("not_web_ready");
+  }
+  if (hints.p2p === true) {
+    warnings.push("p2p");
+  }
+  if (hints.proxyHeaders && typeof hints.proxyHeaders === "object") {
+    warnings.push("proxy_headers");
+  }
+  return warnings;
+}
+
+/**
+ * One Addon candidate as the Host would carry it: the Addon's words verbatim,
+ * where its bytes are, the hints it declares, and the filename and binge group.
+ * An object with no playable location is dropped, the way the Host drops one.
+ */
+export function previewStream(raw: PreviewStream): Stream | null {
+  const name = raw.name?.trim() || null;
+  const description = (raw.description ?? raw.title)?.trim() || null;
+  const filename = raw.behaviorHints?.filename?.trim() || null;
+  const bingeGroup = raw.behaviorHints?.bingeGroup?.trim() || null;
+  const warnings = warningsOf(raw.behaviorHints);
+
+  if (raw.url?.trim()) {
+    return {
+      name,
+      description,
+      playback: { kind: "direct", url: raw.url.trim() },
+      warnings,
+      filename,
+      bingeGroup,
+    };
+  }
+  if (raw.infoHash?.trim()) {
+    return {
+      name,
+      description,
+      playback: { kind: "info_hash", infoHash: raw.infoHash.trim() },
+      warnings,
+      filename,
+      bingeGroup,
+    };
+  }
+  return null;
 }
 
 const SAMPLE_POSITIONS = [0.36, 0.61, 0.18, 0.74] as const;

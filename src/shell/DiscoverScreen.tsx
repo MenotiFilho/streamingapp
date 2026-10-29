@@ -36,7 +36,7 @@ import "./discover.css";
  * the Title found every Addon's Streams answer empty (ADR-0020).
  */
 export function DiscoverScreen() {
-  const { snapshot, ask, push, unplayable } = useShell();
+  const { snapshot, ask, push, unplayable, presentation } = useShell();
   const { openDiscoveredTitle } = useTitleOpener();
   const [kind, setKind] = useState<DiscoverKind>(MOVIE);
   const [genre, setGenre] = useState<number | null>(null);
@@ -124,7 +124,7 @@ export function DiscoverScreen() {
       data-kind="branch"
       data-label="Discover"
     >
-      <h1 className="shell-screen-title">Discover</h1>
+      {presentation === "repertory" ? null : <h1 className="shell-screen-title">Discover</h1>}
 
       {snapshot === null ? <p className="shell-note">Waiting for the Host…</p> : null}
 
@@ -144,10 +144,12 @@ export function DiscoverScreen() {
 
       {snapshot !== null && keyed ? (
         <>
-          <p className="shell-lede">
-            TMDB's weekly Trending feed. Choose a kind, narrow it by a genre, or
-            page on through what is popular now.
-          </p>
+          {presentation === "repertory" ? null : (
+            <p className="shell-lede">
+              TMDB's weekly Trending feed. Choose a kind, narrow it by a genre, or
+              page on through what is popular now.
+            </p>
+          )}
 
           <div className="discover-controls">
             <div
@@ -210,6 +212,8 @@ export function DiscoverScreen() {
                 key={meta.id}
                 name={meta.name}
                 poster={meta.poster}
+                variant={presentation === "repertory" ? "repertory" : "velvet"}
+                rating={meta.imdbRating}
                 subtitle={meta.releaseInfo}
                 description={meta.description}
                 unplayable={!couldPlay || unplayable.has(meta.id)}

@@ -1,13 +1,10 @@
 import { DESTINATIONS, type Destination } from "../navigation";
 import { programIndex } from "./program";
+import { RepertoryDiscoverScreen, RepertorySearchScreen } from "./RepertoryFeed";
 import { RepertoryHome } from "./RepertoryHome";
 import "./repertory.css";
 
 const NOTES: Partial<Record<Destination, string>> = {
-  discover:
-    "Discover is TMDB's page of Discovered Titles. It keeps its Host behaviour and is not re-tuned in this prototype.",
-  search:
-    "Search keeps its Host behaviour: TMDB's answer where a credential is held, the Addons' own catalogs otherwise.",
   library:
     "Library membership is not built. The destination stays visible, as it does in the product, and this page is not part of the prototype.",
   addons:
@@ -35,7 +32,16 @@ function Placeholder({ destination }: { destination: Exclude<Destination, "home"
   );
 }
 
-/** The base screen under the repertory frame: Home, or a destination note. */
+/** The base screen under the repertory frame: the four browse screens, or a note. */
 export function RepertoryDestinationScreen({ destination }: { destination: Destination }) {
-  return destination === "home" ? <RepertoryHome /> : <Placeholder destination={destination} />;
+  if (destination === "home") {
+    return <RepertoryHome />;
+  }
+  if (destination === "discover") {
+    return <RepertoryDiscoverScreen />;
+  }
+  if (destination === "search") {
+    return <RepertorySearchScreen />;
+  }
+  return <Placeholder destination={destination} />;
 }

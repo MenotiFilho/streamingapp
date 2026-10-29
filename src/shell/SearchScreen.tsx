@@ -9,7 +9,13 @@ import {
 } from "react";
 
 import { keyOf } from "../browse";
-import { blankFeed, discoverPlayable, feedWith, type DiscoverFeed } from "../discover";
+import {
+  blankFeed,
+  discoverPlayable,
+  feedWith,
+  MOVIE,
+  type DiscoverFeed,
+} from "../discover";
 import {
   answeredCatalogs,
   answeredSearch,
@@ -18,9 +24,10 @@ import {
   type CatalogRow,
   type MetaPreview,
 } from "../host-client";
+import { SERIES } from "../title";
 import { useShell } from "./context";
 import { addonName } from "./home";
-import { Button, PosterCard } from "./kit";
+import { Button, ChoiceChip, PosterCard } from "./kit";
 import { FOCUSABLE } from "./layout";
 import { focusAndReveal } from "./reveal";
 import { SEARCH_KINDS, searchAsk, type SearchKind } from "./search";
@@ -69,10 +76,16 @@ const NO_CATALOG_ANSWER: CatalogAnswer = {
  * fan-out per character would spend a rate limit nothing promises capacity for.
  */
 export function SearchScreen() {
-  const { snapshot, ask, unplayable } = useShell();
+  const { snapshot, ask, unplayable, presentation } = useShell();
   const { openTitle, openDiscoveredTitle } = useTitleOpener();
 
   const [draft, setDraft] = useState("");
+  /**
+   * Which kind the repertory feed is showing. The query still asks both kinds,
+   * so switching is instant; the chips are one selection, and Movie is where a
+   * person lands. The Velvet surface keeps its two rows side by side.
+   */
+  const [shownKind, setShownKind] = useState<SearchKind>(MOVIE);
   /** The query whose answers are on screen, or null before the first submit. */
   const [committed, setCommitted] = useState<string | null>(null);
   const [rows, setRows] = useState<KeyedRows>(blankKeyedRows);
@@ -99,9 +112,11 @@ export function SearchScreen() {
   }, []);
 
   // A credential added or cleared changes which arm a query takes. The rows of
-  // the old arm are not answers to the new one, so they go.
+  // the old arm are not answers to the new one, so they go, and the feed starts
+  // on Movie again.
   useEffect(() => {
     reset();
+    setShownKind(MOVIE);
   }, [keyed, reset]);
 
   /** Ask TMDB for one row's page and fold its answer into that row alone. */
@@ -194,6 +209,12 @@ export function SearchScreen() {
   };
 
   const canSubmit = draft.trim().length > 0;
+  // The keyless arm answers one row per Catalog; the repertory feed shows the
+  // kind a person chose, while the Velvet surface keeps every answering row.
+  const catalogRows =
+    catalogAnswer.rows?.filter(
+      (row) => presentation !== "repertory" || row.type === shownKind,
+    ) ?? null;
 
   return (
     <section
@@ -203,17 +224,19 @@ export function SearchScreen() {
       data-kind="branch"
       data-label="Search"
     >
-      <h1 className="shell-screen-title">Search</h1>
+      {presentation === "repertory" ? null : <h1 className="shell-screen-title">Search</h1>}
 
       {snapshot === null ? <p className="shell-note">Waiting for the Host…</p> : null}
 
       {snapshot !== null ? (
         <>
-          <p className="shell-lede" data-testid="search-lede">
-            {keyed
-              ? "TMDB searches its Movies and Series together: both rows are asked, and each page is read fresh."
-              : "Every Addon's Catalog that offers a search answers, in the order the Addons are configured."}
-          </p>
+          {presentation === "repertory" ? null : (
+            <p className="shell-lede" data-testid="search-lede">
+              {keyed
+                ? "TMDB searches its Movies and Series together: both rows are asked, and each page is read fresh."
+                : "Every Addon's Catalog that offers a search answers, in the order the Addons are configured."}
+            </p>
+          )}
 
           <form
             className="search-bar"
@@ -252,22 +275,50 @@ export function SearchScreen() {
             </Button>
           </form>
 
+          {presentation === "repertory" ? (
+            <div
+              className="rep-kind-filter"
+              data-region="search-kinds"
+              data-kind="row"
+              data-label="Kind"
+            >
+              <ChoiceChip
+                pressed={shownKind === MOVIE}
+                data-testid="search-kind-movie"
+                onClick={() => setShownKind(MOVIE)}
+              >
+                Movie
+              </ChoiceChip>
+              <ChoiceChip
+                pressed={shownKind === SERIES}
+                data-testid="search-kind-series"
+                onClick={() => setShownKind(SERIES)}
+              >
+                Series
+              </ChoiceChip>
+            </div>
+          ) : null}
+
           {keyed && committed !== null ? (
             <div className="search-results" data-testid="search-results" ref={results}>
-              {SEARCH_KINDS.map(({ kind, label }) => (
-                <TmdbRow
-                  key={kind}
-                  kind={kind}
-                  label={label}
-                  query={committed}
-                  feed={rows[kind]}
-                  loading={paging.includes(kind)}
-                  couldPlay={discoverPlayable(snapshot.addons, kind)}
-                  unplayable={unplayable}
-                  onMore={() => more(kind)}
-                  onOpen={(meta) => void openDiscoveredTitle(meta)}
-                />
-              ))}
+              {SEARCH_KINDS.filter(
+                ({ kind: held }) => presentation !== "repertory" || held === shownKind,
+              ).map(
+                ({ kind, label }) => (
+                  <TmdbRow
+                    key={kind}
+                    kind={kind}
+                    label={label}
+                    query={committed}
+                    feed={rows[kind]}
+                    loading={paging.includes(kind)}
+                    couldPlay={discoverPlayable(snapshot.addons, kind)}
+                    unplayable={unplayable}
+                    onMore={() => more(kind)}
+                    onOpen={(meta) => void openDiscoveredTitle(meta)}
+                  />
+                ),
+              )}
             </div>
           ) : null}
 
@@ -293,7 +344,7 @@ export function SearchScreen() {
                 </p>
               ) : null}
 
-              {catalogAnswer.rows?.map((row) => (
+              {catalogRows?.map((row) => (
                 <AddonRow
                   key={keyOf(row)}
                   row={row}
@@ -307,6 +358,16 @@ export function SearchScreen() {
               catalogAnswer.rows?.length === 0 ? (
                 <p className="search-row-note" data-testid="search-no-answer">
                   No Addon offers a Catalog that can be searched.
+                </p>
+              ) : null}
+
+              {presentation === "repertory" &&
+              !catalogAnswer.loading &&
+              !catalogAnswer.failure &&
+              catalogRows?.length === 0 &&
+              (catalogAnswer.rows?.length ?? 0) > 0 ? (
+                <p className="search-row-note" data-testid="search-kind-empty">
+                  {`No ${shownKind === MOVIE ? "Movie" : "Series"} Catalog answered “${committed}”.`}
                 </p>
               ) : null}
             </div>
@@ -399,6 +460,7 @@ function TmdbRow({
   onMore,
   onOpen,
 }: TmdbRowProps) {
+  const { presentation } = useShell();
   const moreAvailable =
     !loading && !feed.done && (feed.page > 0 || feed.failure !== null);
 
@@ -428,6 +490,8 @@ function TmdbRow({
           key={meta.id}
           name={meta.name}
           poster={meta.poster}
+          variant={presentation === "repertory" ? "repertory" : "velvet"}
+          rating={meta.imdbRating}
           subtitle={meta.releaseInfo}
           description={meta.description}
           unplayable={!couldPlay || unplayable.has(meta.id)}
@@ -459,6 +523,7 @@ type AddonRowProps = {
  * one row's, never the search's (ADR-0010).
  */
 function AddonRow({ row, addon, onOpen }: AddonRowProps) {
+  const { presentation } = useShell();
   const key = keyOf(row);
 
   return (
@@ -488,6 +553,8 @@ function AddonRow({ row, addon, onOpen }: AddonRowProps) {
           key={meta.id}
           name={meta.name}
           poster={meta.poster}
+          variant={presentation === "repertory" ? "repertory" : "velvet"}
+          rating={meta.imdbRating}
           subtitle={meta.releaseInfo}
           description={meta.description}
           testId={`search-card-${row.addon}-${meta.id}`}

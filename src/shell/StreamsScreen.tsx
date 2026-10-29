@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import {
   answeredStreams,
@@ -9,22 +9,12 @@ import {
   type Title,
   type Video,
 } from "../host-client";
-import {
-  badgeLines,
-  playabilityNote,
-  unplayableNote,
-  warningNote,
-} from "../stream";
-import {
-  isSeries,
-  labelOf,
-  nameOf,
-  titleStubOf,
-  type OpenablePreview,
-} from "../title";
+import { badgeLines, playabilityNote, unplayableNote, warningNote } from "../stream";
+import { isSeries, labelOf, nameOf, type OpenablePreview } from "../title";
 import { useShell } from "./context";
 import { Button, Chip, PendingSpinner } from "./kit";
-import { usePending } from "./usePending";
+import { RepertoryStreamsScreen, RepertoryStreamsWaiting } from "./repertory/RepertoryStreams";
+import { useStreamChoice } from "./streamChoice";
 import "./streams.css";
 
 /**
@@ -42,7 +32,7 @@ export function StreamsLoader({
   preview?: OpenablePreview | null;
   video: Video;
 }) {
-  const { ask, pop, markUnplayable } = useShell();
+  const { ask, pop, markUnplayable, presentation } = useShell();
   const subject = isSeries(title) ? subjectOf(video) : nameOf(title, preview);
   const [state, setState] = useState<{ groups: AddonStreams[] } | { failure: ActionError } | null>(
     null,
@@ -80,7 +70,13 @@ export function StreamsLoader({
   }, [ask, markUnplayable, title.id, title.type, video.id]);
 
   if (!state) {
-    return (
+    return presentation === "repertory" ? (
+      <RepertoryStreamsWaiting subject={subject} onBack={pop}>
+        <p className="rep-streams-note" data-testid="streams-loading">
+          Looking for Streams…
+        </p>
+      </RepertoryStreamsWaiting>
+    ) : (
       <StreamsWaiting subject={subject} onBack={pop}>
         <p className="shell-streams-note" data-testid="streams-loading">
           Looking for Streams…
@@ -90,7 +86,13 @@ export function StreamsLoader({
   }
 
   if ("failure" in state) {
-    return (
+    return presentation === "repertory" ? (
+      <RepertoryStreamsWaiting subject={subject} onBack={pop}>
+        <p role="alert" className="rep-stream-failure" data-testid="streams-failure">
+          {explain(state.failure)}
+        </p>
+      </RepertoryStreamsWaiting>
+    ) : (
       <StreamsWaiting subject={subject} onBack={pop}>
         <p role="alert" className="shell-stream-failure" data-testid="streams-failure">
           {explain(state.failure)}
@@ -99,7 +101,16 @@ export function StreamsLoader({
     );
   }
 
-  return <StreamsScreen title={title} preview={preview} video={video} groups={state.groups} />;
+  return presentation === "repertory" ? (
+    <RepertoryStreamsScreen
+      title={title}
+      preview={preview}
+      video={video}
+      groups={state.groups}
+    />
+  ) : (
+    <StreamsScreen title={title} preview={preview} video={video} groups={state.groups} />
+  );
 }
 
 /** The Streams level's furniture before there is a list: Back, and the subject. */
@@ -152,41 +163,15 @@ export function StreamsScreen({
   video: Video;
   groups: AddonStreams[];
 }) {
-  const { pop, take } = useShell();
-  const [chosen, setChosen] = useState<Stream | null>(null);
-  // Choosing a Stream is the second wait a person sees: the row says it is
-  // opening, and a second press while the Host answers is dropped (#137).
-  const { pending: opening, run: openOnce } = usePending();
-  const [openingStream, setOpeningStream] = useState<Stream | null>(null);
+  const { pop } = useShell();
+  const { chosen, opening, openingStream, choose } = useStreamChoice(
+    title,
+    preview,
+    video,
+  );
   // A film's Streams are the Title's, however its Video is spelled; a series'
   // are the episode's, by the number and name the source listed.
   const subject = isSeries(title) ? subjectOf(video) : nameOf(title, preview);
-
-  const choose = useCallback(
-    async (addon: string, stream: Stream) => {
-      if (playabilityNote(stream.playback) !== null) {
-        setChosen(stream);
-        return;
-      }
-
-      setChosen(null);
-      await openOnce(async () => {
-        setOpeningStream(stream);
-        try {
-          await take({
-            type: "play_stream",
-            video: { type: title.type, id: video.id },
-            addon,
-            stream,
-            title: titleStubOf(title, preview),
-          });
-        } finally {
-          setOpeningStream(null);
-        }
-      });
-    },
-    [openOnce, preview, take, title, video.id],
-  );
 
   return (
     <section
