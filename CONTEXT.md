@@ -185,10 +185,12 @@ marked unplayable.
 _Avoid_: library, history, watchlist, resume
 
 **Library**:
-The collection of Titles held in the owner's Stremio account. Its *membership* —
-what is saved to the account and removed from it, and the sync that would carry
-it — is not built: nothing stores it today, and a client's Library screen is a
-stub until something does. Account sync reconciles Watch progress, not membership.
+The collection of Titles held in the owner's Stremio account. The room reads the
+account's collection and is read-only: its *membership* — what is saved to the
+account and removed from it, and the sync that would carry those writes — is not
+built. One item is one Title, not one Video: a series carries its current episode
+and its watched episodes in that item. Account sync reconciles Watch progress,
+not membership.
 _Avoid_: history, watchlist, collection, continue watching
 
 **Playback position**:

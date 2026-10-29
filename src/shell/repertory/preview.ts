@@ -8,6 +8,7 @@
  */
 
 import type {
+  LibraryEntry,
   MetaPreview,
   ResumeEntry,
   Stream,
@@ -213,6 +214,50 @@ export function sampleResumeEntries(
       duration,
       watched: false,
       unplayable: null,
+    });
+  }
+  return entries;
+}
+
+/** The sample account Library's latest mtime: a fixed moment, not a clock. */
+const SAMPLE_LIBRARY_AT = Date.UTC(2026, 9, 29, 12, 0, 0);
+
+/**
+ * Live Cinemeta films as a sample account Library.
+ *
+ * The room the Tauri window reads from the account needs live posters and names
+ * to be judged in the plain Vite window. The artwork and names are real; the
+ * mtimes and the two positions are sample data, and the room says so. The first
+ * two rows carry the Continue mark; the rest are saved but unplayed.
+ */
+export function sampleLibrary(
+  metas: readonly CinemetaMeta[],
+  count = 8,
+): LibraryEntry[] {
+  const entries: LibraryEntry[] = [];
+  for (const meta of metas) {
+    if (entries.length >= count) {
+      break;
+    }
+    const preview = cinemetaPreview(meta, "movie");
+    if (!preview) {
+      continue;
+    }
+    const index = entries.length;
+    const started = index < 2;
+    const duration = preview.type === "series" ? 2820 : parseRuntimeSeconds(meta.runtime);
+    const position = started ? 600 + index * 120 : null;
+    entries.push({
+      id: preview.id,
+      name: preview.name,
+      type: preview.type,
+      poster: preview.poster,
+      posterShape: preview.posterShape,
+      mtime: SAMPLE_LIBRARY_AT - index * 3_600_000,
+      videoId: preview.type === "series" ? `${preview.id}:1:1` : null,
+      position,
+      duration,
+      continueWatching: position !== null,
     });
   }
   return entries;

@@ -1,6 +1,12 @@
 import { describe, expect, test } from "vitest";
 
-import { HOST_ERROR_KINDS, answeredPreview, asActionError, explain } from "./host-client";
+import {
+  HOST_ERROR_KINDS,
+  answeredLibrary,
+  answeredPreview,
+  asActionError,
+  explain,
+} from "./host-client";
 
 /**
  * The window's reading of a refusal, tested where it is decided: a `kind` the
@@ -14,6 +20,7 @@ describe("the refusals the Host can send", () => {
     // `unreachable`, and a person read "the window could not reach the Host".
     expect(HOST_ERROR_KINDS).toContain("subtitles");
     expect(HOST_ERROR_KINDS).toContain("invalid_position");
+    expect(HOST_ERROR_KINDS).toContain("library");
   });
 
   test("a subtitles failure is read as an Addon failure", () => {
@@ -55,6 +62,18 @@ describe("the refusals the Host can send", () => {
     );
   });
 
+  test("a refused Library read is read as the account's failure", () => {
+    const error = asActionError({
+      kind: "library",
+      detail: "Stremio refused the request: Session does not exist",
+    });
+
+    expect(error.kind).toBe("library");
+    expect(explain(error)).toBe(
+      "The Host could not read the Stremio Library: Stremio refused the request: Session does not exist.",
+    );
+  });
+
   test("a kind that is not one of the Host's stays unreachable", () => {
     expect(asActionError({ kind: "something_new" })).toEqual({
       kind: "unreachable",
@@ -87,5 +106,26 @@ describe("the Seek preview's answer", () => {
 
     expect(error.kind).toBe("invalid_preview_at");
     expect(explain(error)).toBe('"NaN" is not a moment of the Stream to take a still of.');
+  });
+});
+
+describe("the account Library's answer", () => {
+  test("carries the rows and the failure, and is null for another Action", () => {
+    const library = answeredLibrary({
+      snapshots: [],
+      answer: {
+        library: {
+          entries: [],
+          failure: { kind: "library", detail: "Session does not exist" },
+        },
+      },
+    });
+    expect(library?.entries).toEqual([]);
+    expect(library?.failure?.kind).toBe("library");
+
+    expect(
+      answeredLibrary({ snapshots: [], answer: { preview: { at: 1, image: null } } }),
+    ).toBeNull();
+    expect(answeredLibrary(null)).toBeNull();
   });
 });

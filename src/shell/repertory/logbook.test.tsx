@@ -8,6 +8,7 @@ import {
   type ActionError,
   type AddonManifest,
   type DeviceSummary,
+  type LibraryEntry,
   type Response,
   type Snapshot,
   type Transport,
@@ -564,13 +565,47 @@ describe("the repertory frame's utility destinations", () => {
   });
 });
 
+function libraryEntry(overrides: Partial<LibraryEntry> = {}): LibraryEntry {
+  return {
+    id: "tt0133093",
+    name: "The Matrix",
+    type: "movie",
+    poster: "https://images.test/matrix.jpg",
+    posterShape: "poster",
+    mtime: 1_700_000_000_000,
+    videoId: null,
+    position: null,
+    duration: null,
+    continueWatching: false,
+    ...overrides,
+  };
+}
+
+function libraryAnswer(
+  entries: LibraryEntry[],
+  failure: ActionError | null = null,
+): Response {
+  return { snapshots: [], answer: { library: { entries, failure } } };
+}
+
+function heldLibraryHarness(entries: LibraryEntry[], failure: ActionError | null = null) {
+  const { value, ask, ...rest } = harness(
+    {},
+    { ...SNAPSHOT, protection: { ...SNAPSHOT.protection, stremioHeld: true } },
+  );
+  ask.mockImplementation(async (action) =>
+    action.type === "library" ? ok(libraryAnswer(entries, failure)) : ok(),
+  );
+  return { value, ask, ...rest };
+}
+
 describe("the repertory Library", () => {
   test("with no account, draws the gate and dispatches the Stremio sign-in", async () => {
     const { value, ask } = harness();
     show(value, <RepertoryLibraryScreen />);
 
     expect(screen.getByTestId("library-gate")).toHaveTextContent(
-      "Your Library will hold the Titles saved in your Stremio account",
+      "Your Library holds the Titles saved in your Stremio account",
     );
     expect(screen.queryByRole("button", { name: "Sign out" })).not.toBeInTheDocument();
 
@@ -591,20 +626,79 @@ describe("the repertory Library", () => {
     );
   });
 
-  test("with an account held, the stub is all the screen says and it has no controls", () => {
-    const { value } = harness(
-      {},
-      { ...SNAPSHOT, protection: { ...SNAPSHOT.protection, stremioHeld: true } },
-    );
+  test("reads the account Library, keeps its order, and marks a position past the start", async () => {
+    const entries = [
+      libraryEntry({
+        id: "tt0903747",
+        name: "Breaking Bad",
+        type: "series",
+        mtime: 1_700_300_000_000,
+        videoId: "tt0903747:5:14",
+        position: 612,
+        duration: 2820,
+        continueWatching: true,
+      }),
+      libraryEntry({
+        id: "tt0133093",
+        name: "The Matrix",
+        mtime: 1_700_100_000_000,
+      }),
+    ];
+    const { value, ask } = heldLibraryHarness(entries);
     show(value, <RepertoryLibraryScreen />);
 
-    expect(screen.getByTestId("library-placeholder")).toHaveTextContent(
-      "Signed in to Stremio. The Titles saved in your account will appear here once the Library is built.",
-    );
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("Stremio email")).not.toBeInTheDocument();
+    expect(await screen.findByTestId("library-grid")).toBeInTheDocument();
+    const cards = within(screen.getByTestId("library-grid")).getAllByRole("button");
+    expect(cards.map((card) => card.getAttribute("data-testid"))).toEqual([
+      "library-card-tt0903747",
+      "library-card-tt0133093",
+    ]);
+    expect(screen.getByTestId("library-card-tt0903747")).toHaveTextContent("Continue");
+    expect(screen.getByTestId("library-card-tt0133093")).not.toHaveTextContent("Continue");
+    expect(actions(ask)).toContainEqual({ type: "library" });
     expect(screen.queryByTestId("library-gate")).not.toBeInTheDocument();
-    expect(screen.getByTestId("screen-library")).not.toHaveTextContent(/continue watching/i);
-    expect(screen.getByTestId("screen-library")).not.toHaveTextContent(/\b(synced|up to date)\b/i);
+  });
+
+  test("opens a Library Title through the Addon that answers its meta", async () => {
+    const entries = [libraryEntry()];
+    const { value } = heldLibraryHarness(entries);
+    show(value, <RepertoryLibraryScreen />);
+
+    const card = await screen.findByTestId("library-card-tt0133093");
+    fireEvent.click(card);
+
+    await waitFor(() =>
+      expect(value.take).toHaveBeenCalledWith({
+        type: "open_title",
+        addon: CINEMETA.id,
+        title: { type: "movie", id: "tt0133093" },
+      }),
+    );
+  });
+
+  test("an expired session is a failure that asks for sign-in again, not an empty room", async () => {
+    const failure: ActionError = {
+      kind: "library",
+      detail: "Stremio refused the request: Session does not exist",
+    };
+    const { value } = heldLibraryHarness([], failure);
+    show(value, <RepertoryLibraryScreen />);
+
+    expect(await screen.findByTestId("library-failure")).toHaveTextContent(
+      "Session does not exist",
+    );
+    expect(screen.getByLabelText("Stremio email")).toBeInTheDocument();
+    expect(screen.getByLabelText("Stremio password")).toBeInTheDocument();
+    expect(screen.queryByTestId("library-empty")).not.toBeInTheDocument();
+  });
+
+  test("an empty account is an empty room, not a failure", async () => {
+    const { value } = heldLibraryHarness([]);
+    show(value, <RepertoryLibraryScreen />);
+
+    expect(await screen.findByTestId("library-empty")).toHaveTextContent(
+      "The Library is empty.",
+    );
+    expect(screen.queryByTestId("library-failure")).not.toBeInTheDocument();
   });
 });

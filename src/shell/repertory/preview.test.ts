@@ -6,6 +6,7 @@ import {
   cinemetaPreviews,
   parseRuntimeSeconds,
   previewStream,
+  sampleLibrary,
   sampleResumeEntries,
   type CinemetaMeta,
 } from "./preview";
@@ -101,5 +102,22 @@ describe("the Cinemeta translation", () => {
     expect(entries[0]?.position).toBeGreaterThan(0);
     expect(entries[0]?.unplayable).toBeNull();
     expect(entries[1]?.duration).toBe(5400);
+  });
+});
+
+describe("the preview's sample account Library", () => {
+  it("uses live names and posters, newest first, with the Continue mark on played rows", () => {
+    const other = { ...film, imdb_id: "tt0000002", name: "Another" };
+    const third = { ...film, imdb_id: "tt0000003", name: "A Third" };
+    const entries = sampleLibrary([film, other, third], 3);
+
+    expect(entries).toHaveLength(3);
+    expect(entries[0]?.name).toBe("The Invite");
+    expect(entries[0]?.poster).toContain("tt14173636");
+    expect(entries[0]?.continueWatching).toBe(true);
+    expect(entries[1]?.continueWatching).toBe(true);
+    expect(entries[2]?.continueWatching).toBe(false);
+    expect(entries[0]?.mtime).toBeGreaterThan(entries[1]!.mtime);
+    expect(entries[1]?.mtime).toBeGreaterThan(entries[2]!.mtime);
   });
 });

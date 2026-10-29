@@ -25,6 +25,7 @@ use crate::cache::CatalogCache;
 use crate::catalog::{CatalogRow, Page};
 use crate::discover::DiscoverRow;
 use crate::fetcher::{FetchError, Fetcher};
+use crate::library::{Library, LibraryCache};
 use crate::log::millis;
 use crate::meta::{self, Title, Video};
 use crate::preview::{PreviewCeiling, Previewer};
@@ -35,6 +36,7 @@ use crate::request::{
 use crate::response::Answer;
 use crate::secret::{CredentialKind, SecretStore};
 use crate::stream::AddonStreams;
+use crate::stremio::StremioApi;
 use crate::tmdb;
 
 /// The Host as a question sees it: the Addon list frozen at dispatch, the seams
@@ -43,6 +45,17 @@ use crate::tmdb;
 /// Built by [`crate::Host::view`] under the change lock. Every field is either
 /// owned or an `Arc`, so the view is `Send + Sync` and a question resolves on any
 /// thread without the Host's state lock.
+/// The seams and memos a view shares with the Host and every other view.
+///
+/// Grouped so [`HostView::new`] names one shared thing rather than growing an
+/// argument list every time a question gains a seam; the fields are still one
+/// `Arc` each, never a copied Host state.
+pub(crate) struct HostViewShared {
+    pub(crate) cache: Arc<Mutex<CatalogCache>>,
+    pub(crate) library_cache: Arc<Mutex<LibraryCache>>,
+    pub(crate) stremio: Option<Arc<dyn StremioApi>>,
+}
+
 pub struct HostView {
     /// The configured Addons, in the Host's order, as they stood when the view
     /// was taken. A change that removes one afterwards does not invalidate a
@@ -64,6 +77,14 @@ pub struct HostView {
     /// never held across a fetch: two questions asking for different pages do not
     /// queue behind each other.
     cache: Arc<Mutex<CatalogCache>>,
+    /// The account's Library documents, shared with the Host and every view.
+    /// Like the catalog cache this is a memo: a question takes the lock for the
+    /// plan, the keep and the read, never across the account's network call.
+    library_cache: Arc<Mutex<LibraryCache>>,
+    /// The account API, where the Host was built with one. No account or no
+    /// `authKey` is a Host that does not read the room; the key itself is read
+    /// from the secret store at the moment of the ask (ADR-0029).
+    stremio: Option<Arc<dyn StremioApi>>,
 }
 
 impl HostView {
@@ -74,7 +95,7 @@ impl HostView {
         secrets: Arc<dyn SecretStore>,
         previewer: Arc<dyn Previewer>,
         preview_gate: PreviewCeiling,
-        cache: Arc<Mutex<CatalogCache>>,
+        shared: HostViewShared,
     ) -> Self {
         Self {
             addons,
@@ -83,7 +104,9 @@ impl HostView {
             secrets,
             previewer,
             preview_gate,
-            cache,
+            cache: shared.cache,
+            library_cache: shared.library_cache,
+            stremio: shared.stremio,
         }
     }
 
@@ -93,7 +116,7 @@ impl HostView {
         &self.addons
     }
 
-    /// Resolve one of the eight questions.
+    /// Resolve one of the nine questions.
     ///
     /// The door routes by [`ValidatedAction::is_question`](crate::ValidatedAction::is_question);
     /// a change reaching here is a door bug, refused rather than resolved. The
@@ -281,6 +304,7 @@ impl HostView {
                     .flatten()
                     .map(|frame| frame.image().to_owned()),
             },
+            ValidatedAction::Library => Answer::Library(self.library()?),
             // The door classifies before it gets here; a change is refused
             // rather than answered. Every change is named, so adding one to
             // `ValidatedAction` fails to compile until it is classified here
@@ -664,6 +688,84 @@ impl HostView {
     pub(crate) fn tmdb_credential(&self) -> Option<tmdb::Credential> {
         let key = self.secrets.read(CredentialKind::TmdbKey).ok().flatten()?;
         Some(tmdb::Credential::parse(&key))
+    }
+
+    /// Read the account Library, diffed against the index the cache was last
+    /// read against (#165, ADR-0029).
+    ///
+    /// A cold cache asks `datastoreGet {all:true}`; a warm one asks only the ids
+    /// whose `datastoreMeta` mtime moved. The cache lock is taken for the plan,
+    /// the keep and the read, and never across the account's network call. A
+    /// failed index or document read is returned *with* the rows the cache still
+    /// has, so the room can say "could not refresh" without saying "empty".
+    fn library(&self) -> Result<Library, ActionError> {
+        let stremio = self.stremio.as_ref().ok_or(ActionError::SyncUnavailable)?;
+        let key = self
+            .secrets
+            .read(CredentialKind::StremioAuthKey)
+            .ok()
+            .flatten()
+            .ok_or(ActionError::SyncUnavailable)?;
+
+        let meta = match stremio.library_meta(&key) {
+            Ok(meta) => meta,
+            Err(error) => {
+                let entries = self
+                    .library_cache
+                    .lock()
+                    .expect("the Library cache is not poisoned")
+                    .entries();
+                return Ok(Library {
+                    entries,
+                    failure: Some(ActionError::Library {
+                        detail: error.to_string(),
+                    }),
+                });
+            }
+        };
+
+        let plan = self
+            .library_cache
+            .lock()
+            .expect("the Library cache is not poisoned")
+            .plan(&meta);
+        let fetched = if plan.all {
+            stremio.library(&key, None)
+        } else if plan.ids.is_empty() {
+            Ok(Vec::new())
+        } else {
+            stremio.library(&key, Some(&plan.ids))
+        };
+
+        match fetched {
+            Ok(items) => {
+                let mut cache = self
+                    .library_cache
+                    .lock()
+                    .expect("the Library cache is not poisoned");
+                if plan.all || !plan.ids.is_empty() {
+                    cache.keep(items, &meta);
+                }
+                cache.set_meta(&meta);
+                Ok(Library {
+                    entries: cache.entries(),
+                    failure: None,
+                })
+            }
+            Err(error) => {
+                let entries = self
+                    .library_cache
+                    .lock()
+                    .expect("the Library cache is not poisoned")
+                    .entries();
+                Ok(Library {
+                    entries,
+                    failure: Some(ActionError::Library {
+                        detail: error.to_string(),
+                    }),
+                })
+            }
+        }
     }
 
     /// The Addons a Video's Streams — or subtitles — are asked of, each with

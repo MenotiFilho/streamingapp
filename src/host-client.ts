@@ -82,6 +82,38 @@ export type DeviceSummary = {
 };
 
 /**
+ * One Title in the owner's Stremio account Library, as the room draws it.
+ * Mirrors `LibraryEntry` in `host-core` (#165, ADR-0029): the account's item
+ * carries the name and poster, so a card needs no Addon round-trip.
+ */
+export type LibraryEntry = {
+  id: string;
+  name: string;
+  type: string;
+  poster: string | null;
+  posterShape: string | null;
+  /** When the item was last modified, in milliseconds since the Unix epoch. */
+  mtime: number;
+  /** The Video the account last played in this Title, where it has one. */
+  videoId: string | null;
+  /** How far into that Video, in seconds, past the start. */
+  position: number | null;
+  /** How long that Video is, in seconds, where the account knows. */
+  duration: number | null;
+  /** Whether the room draws the Continue mark: `timeOffset > 0`. */
+  continueWatching: boolean;
+};
+
+/**
+ * The answer to `Action::Library`: the account's rows in `_mtime` order, and
+ * the failure that tells an empty account from one that could not be read.
+ */
+export type Library = {
+  entries: LibraryEntry[];
+  failure: ActionError | null;
+};
+
+/**
  * The Featured catalog: the one Catalog the owner has marked as the Host's
  * featured feed, by the Addon that offers it and the Catalog's own type and id.
  * Mirrors `FeaturedCatalog` in `host-core`; the Addon goes beside the Catalog
@@ -527,6 +559,7 @@ export type Response = {
     | { streams: AddonStreams[] }
     | { preview: { at: number; image: string | null } }
     | { paired: { device: DeviceSummary; token: string } }
+    | { library: Library }
     | null;
 };
 
@@ -601,6 +634,9 @@ export type Action =
   // moment the Host cannot draw comes back as an answer with no image rather
   // than as a failure.
   | { type: "preview"; at: number }
+  // The owner's Stremio account Library, read for the room (#165, ADR-0029).
+  // A question: it publishes no Snapshot and puts no library item in one.
+  | { type: "library" }
   | {
       type: "play_stream";
       video: { type: string; id: string };
@@ -701,6 +737,7 @@ export const HOST_ERROR_KINDS = [
   "invalid_stremio_login",
   "sync_unavailable",
   "sync",
+  "library",
   "invalid_pairing_code",
   "invalid_device_id",
   "invalid_device_name",
@@ -830,6 +867,12 @@ export function answeredPreview(
   return answer && "preview" in answer ? answer.preview : null;
 }
 
+/** The account Library an answer carries, when the Action was `library`. */
+export function answeredLibrary(response: Response | null): Library | null {
+  const answer = response?.answer;
+  return answer && "library" in answer ? answer.library : null;
+}
+
 /** Whatever a failed call threw, as something the window can explain. */
 export function asActionError(caught: unknown): ActionError {
   if (typeof caught === "object" && caught !== null) {
@@ -952,6 +995,8 @@ export function explain(error: ActionError): string {
       return "This Host was built without Stremio account sync, so it cannot sign in.";
     case "sync":
       return `The Host could not sign in to Stremio${error.detail ? `: ${error.detail}` : ""}.`;
+    case "library":
+      return `The Host could not read the Stremio Library${error.detail ? `: ${error.detail}` : ""}.`;
     case "invalid_pairing_code":
       return `${JSON.stringify(error.code)} is not a pairing code — a code is six letters and digits, like "4K7Q2M".`;
     case "invalid_device_id":

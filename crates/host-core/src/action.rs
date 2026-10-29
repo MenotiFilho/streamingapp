@@ -234,6 +234,13 @@ pub enum Action {
         /// The moment, in seconds from the Stream's start.
         at: f64,
     },
+    /// Read the owner's Stremio account Library for the room (#165).
+    ///
+    /// A question, not a change: the account's collection is not Host state,
+    /// publishes no Snapshot and never puts a library item in one. The answer
+    /// carries the rows and, when the account could not be read, the reason —
+    /// an expired session is a failure, never an empty Library (ADR-0029).
+    Library,
     /// Play a Stream a client chose.
     ///
     /// The candidate a client sends back is one the Host answered it with, and
@@ -379,6 +386,7 @@ action_spellings! {
     Action::OpenDiscoveredTitle { .. } => "open_discovered_title",
     Action::FindStreams { .. } => "find_streams",
     Action::Preview { .. } => "preview",
+    Action::Library => "library",
     Action::PlayStream { .. } => "play_stream",
     Action::Resume { .. } => "resume",
     Action::SetPaused { .. } => "set_paused",
@@ -566,6 +574,7 @@ impl Action {
             }
             // A moment of a Stream is a finite number of seconds from its start,
             // judged here so a worker is never asked about a `NaN` (ADR-0028).
+            Action::Library => Ok(ValidatedAction::Library),
             Action::Preview { at } => Ok(ValidatedAction::Preview {
                 at: checked_preview_at(at)?,
             }),
@@ -761,6 +770,10 @@ pub enum ValidatedAction {
     Preview {
         at: f64,
     },
+    /// The owner's Stremio account Library, read from the account (#165,
+    /// ADR-0029). It has no payload to judge; whether the account can answer is
+    /// the view's question.
+    Library,
     /// A candidate judged: the URL a Player will be given, the words that will
     /// be published about it, and the Title the Video is of — which is what
     /// Continue watching records the play against. Boxed because a Stream
@@ -825,7 +838,7 @@ pub enum ValidatedAction {
 impl ValidatedAction {
     /// Whether this Action asks the Host something rather than changing it.
     ///
-    /// The eight questions are the Actions that resolve from a [`crate::HostView`]
+    /// The nine questions are the Actions that resolve from a [`crate::HostView`]
     /// outside the change lock (ADR-0022). Classification lives here, in the
     /// Host's vocabulary, so that the door, the window and the wire cannot each
     /// have their own list: a capability added to the surface is classified once.
@@ -840,6 +853,7 @@ impl ValidatedAction {
                 | Self::OpenDiscoveredTitle { .. }
                 | Self::FindStreams { .. }
                 | Self::Preview { .. }
+                | Self::Library
         )
     }
 
@@ -861,6 +875,7 @@ impl ValidatedAction {
             | Self::OpenDiscoveredTitle { .. }
             | Self::FindStreams { .. }
             | Self::Preview { .. }
+            | Self::Library
             | Self::SetSubtitleLanguage(_)
             | Self::ClearSubtitleLanguage
             | Self::SetSubtitleColor(_)
@@ -1067,6 +1082,11 @@ pub enum ActionError {
     /// Stremio's words and never with what was sent.
     #[error("{detail}")]
     Sync { detail: String },
+    /// The owner's Stremio account Library could not be read: the account could
+    /// not be reached, answered something malformed, or refused the session.
+    /// A refusal is not an empty Library (ADR-0029).
+    #[error("the Stremio Library could not be read: {detail}")]
+    Library { detail: String },
     #[error("{0}")]
     InvalidPairingCode(#[from] InvalidPairingCode),
     #[error("{0}")]
@@ -1151,6 +1171,7 @@ impl ActionError {
             Self::InvalidStremioLogin(_) => "invalid_stremio_login",
             Self::SyncUnavailable => "sync_unavailable",
             Self::Sync { .. } => "sync",
+            Self::Library { .. } => "library",
             Self::InvalidPairingCode(_) => "invalid_pairing_code",
             Self::InvalidDeviceId(_) => "invalid_device_id",
             Self::InvalidDeviceName(_) => "invalid_device_name",
@@ -2075,6 +2096,7 @@ mod tests {
         r#"{"type":"open_discovered_title","key":{"kind":"tmdb","id":603},"kind":"movie"}"#,
         r#"{"type":"find_streams","video":{"type":"movie","id":"tt0133093"}}"#,
         r#"{"type":"preview","at":42.5}"#,
+        r#"{"type":"library"}"#,
         r#"{"type":"play_stream","video":{"type":"movie","id":"tt0133093"},"addon":"community.example","title":{"addon":"community.example","id":"tt0133093","type":"movie","name":"The Matrix","poster":null},"stream":{"name":null,"description":null,"playback":{"kind":"direct","url":"https://stream.example.org/x.mkv"},"warnings":[],"filename":null,"bingeGroup":null}}"#,
         r#"{"type":"resume","video":{"type":"movie","id":"tt0133093"}}"#,
         r#"{"type":"set_paused","paused":true}"#,
@@ -2124,7 +2146,7 @@ mod tests {
     }
 
     #[test]
-    fn the_eight_questions_are_named_once_and_only_they_escape() {
+    fn the_nine_questions_are_named_once_and_only_they_escape() {
         let questions: Vec<&str> = EVERY_ACTION
             .iter()
             .filter(|body| {
@@ -2149,8 +2171,9 @@ mod tests {
                 "open_discovered_title",
                 "find_streams",
                 "preview",
+                "library",
             ],
-            "the questions are the eight the door resolves outside the change lock"
+            "the questions are the nine the door resolves outside the change lock"
         );
 
         let browse = Action::parse(&format!(
@@ -2323,6 +2346,9 @@ mod tests {
             ActionError::SyncUnavailable,
             ActionError::Sync {
                 detail: "Stremio refused".to_owned(),
+            },
+            ActionError::Library {
+                detail: "the session was refused".to_owned(),
             },
             ActionError::InvalidPairingCode(InvalidPairingCode {
                 code: "not a code".to_owned(),

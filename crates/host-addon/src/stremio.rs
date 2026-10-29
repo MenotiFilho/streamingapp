@@ -4,7 +4,7 @@
 //! This implements [`host_core::StremioApi`] using `ureq`, with the same
 //! native TLS and platform certificates as [`crate::HttpFetcher`].
 
-use host_core::{StremioApi, SyncError};
+use host_core::{LibraryMeta, StremioApi, SyncError};
 use serde_json::Value;
 
 use crate::{default_agent, MAX_BODY_BYTES};
@@ -85,6 +85,42 @@ impl Default for HttpStremio {
     }
 }
 
+/// Read `datastoreMeta`'s `[[id, mtime], …]` answer.
+fn library_meta_from(value: &Value) -> Result<Vec<LibraryMeta>, SyncError> {
+    let result = value.get("result").ok_or_else(|| SyncError::Malformed {
+        detail: "datastoreMeta response carries no result".to_owned(),
+    })?;
+    let pairs = result.as_array().ok_or_else(|| SyncError::Malformed {
+        detail: "datastoreMeta result is not an array".to_owned(),
+    })?;
+
+    pairs
+        .iter()
+        .map(|pair| {
+            let pair = pair.as_array().ok_or_else(|| SyncError::Malformed {
+                detail: "a datastoreMeta entry is not an [id, mtime] pair".to_owned(),
+            })?;
+            let id = pair
+                .first()
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .ok_or_else(|| SyncError::Malformed {
+                    detail: "a datastoreMeta entry has no id".to_owned(),
+                })?;
+            let mtime =
+                pair.get(1)
+                    .and_then(Value::as_i64)
+                    .ok_or_else(|| SyncError::Malformed {
+                        detail: "a datastoreMeta entry has no numeric mtime".to_owned(),
+                    })?;
+            Ok(LibraryMeta {
+                id: id.to_owned(),
+                mtime,
+            })
+        })
+        .collect()
+}
+
 impl StremioApi for HttpStremio {
     fn login(&self, email: &str, password: &str) -> Result<String, SyncError> {
         let body = serde_json::json!({
@@ -134,6 +170,16 @@ impl StremioApi for HttpStremio {
         Ok(items.clone())
     }
 
+    fn library_meta(&self, auth_key: &str) -> Result<Vec<LibraryMeta>, SyncError> {
+        let body = serde_json::json!({
+            "authKey": auth_key,
+            "collection": "libraryItem",
+        });
+
+        let value = self.post("datastoreMeta", &body)?;
+        library_meta_from(&value)
+    }
+
     fn put_library(&self, auth_key: &str, items: &[Value]) -> Result<(), SyncError> {
         let body = serde_json::json!({
             "authKey": auth_key,
@@ -154,5 +200,37 @@ mod tests {
     fn http_stremio_defaults_to_stremio_api_url() {
         let client = HttpStremio::new();
         assert_eq!(client.endpoint, DEFAULT_ENDPOINT);
+    }
+
+    #[test]
+    fn datastore_meta_reads_id_mtime_pairs() {
+        assert_eq!(
+            library_meta_from(&serde_json::json!({
+                "result": [["tt0903747", 1_793_227_810_000_i64], ["tt0133093", 1_793_227_800_000_i64]]
+            }))
+            .expect("a well-formed index"),
+            vec![
+                LibraryMeta {
+                    id: "tt0903747".to_owned(),
+                    mtime: 1_793_227_810_000,
+                },
+                LibraryMeta {
+                    id: "tt0133093".to_owned(),
+                    mtime: 1_793_227_800_000,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn a_malformed_index_is_a_malformed_answer() {
+        assert!(matches!(
+            library_meta_from(&serde_json::json!({"result": [["only-an-id"]]})),
+            Err(SyncError::Malformed { .. })
+        ));
+        assert!(matches!(
+            library_meta_from(&serde_json::json!({})),
+            Err(SyncError::Malformed { .. })
+        ));
     }
 }

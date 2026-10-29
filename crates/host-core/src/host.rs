@@ -6,6 +6,7 @@ use crate::cache::CatalogCache;
 use crate::clock::Clock;
 use crate::device::{Device, DeviceSummary, DeviceToken};
 use crate::fetcher::Fetcher;
+use crate::library::LibraryCache;
 use crate::meta::{self, Video};
 use crate::pairing::PairingCode;
 use crate::playback::{
@@ -29,7 +30,7 @@ use crate::stremio::StremioApi;
 use crate::subtitles::MAX_FALLBACK_SUBTITLES;
 use crate::sync::{merge, Merged, RemoteItem};
 use crate::tmdb;
-use crate::view::HostView;
+use crate::view::{HostView, HostViewShared};
 
 /// The Host: its state, and the surface over it.
 ///
@@ -91,6 +92,9 @@ pub struct Host {
     /// `None` is a Host that cannot sync, and a Host that holds no `authKey` is
     /// one that does not: in both, nothing here is ever called.
     stremio: Option<Arc<dyn StremioApi>>,
+    /// The raw account Library documents, shared with every view as a memo.
+    /// Never state, never a Snapshot; cleared when the account changes.
+    library_cache: Arc<Mutex<LibraryCache>>,
 }
 
 impl Host {
@@ -168,6 +172,7 @@ impl Host {
             revision: 0,
             cache: Arc::new(Mutex::new(CatalogCache::default())),
             stremio: None,
+            library_cache: Arc::new(Mutex::new(LibraryCache::default())),
         })
     }
 
@@ -247,7 +252,11 @@ impl Host {
             self.secrets.clone(),
             self.previewer.clone(),
             self.preview_gate,
-            self.cache.clone(),
+            HostViewShared {
+                cache: self.cache.clone(),
+                library_cache: self.library_cache.clone(),
+                stremio: self.stremio.clone(),
+            },
         )
     }
 
@@ -299,6 +308,10 @@ impl Host {
             _ => None,
         };
         let signing_in = matches!(change, Change::SignInStremio { .. });
+        let account_changed = matches!(
+            change,
+            Change::SignInStremio { .. } | Change::SignOutStremio
+        );
 
         let mut next = self.state.clone();
         let persist = next.apply(change, self.clock.now_millis());
@@ -332,6 +345,12 @@ impl Host {
 
         self.state = next;
         self.revision += 1;
+        if account_changed {
+            self.library_cache
+                .lock()
+                .expect("the Library cache is not poisoned")
+                .clear();
+        }
 
         // The account, last, and only when there is one: a sync that fails is
         // not an Action that fails — the change above is made and kept either
@@ -848,7 +867,8 @@ impl Host {
             | ValidatedAction::OpenTitle { .. }
             | ValidatedAction::OpenDiscoveredTitle { .. }
             | ValidatedAction::FindStreams { .. }
-            | ValidatedAction::Preview { .. } => {
+            | ValidatedAction::Preview { .. }
+            | ValidatedAction::Library => {
                 return Err(ActionError::Malformed {
                     detail: "a question is not a change".to_owned(),
                 })

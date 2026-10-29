@@ -130,6 +130,13 @@ short facts, and a pairing panel that stacks the address over the code.
 
 ## Library: the gate and the honest stub
 
+> **#165 supersedes the stub.** The room now reads the Stremio account's
+> `libraryItem` collection through a read-only Host answer (ADR-0029): posters
+> and names in `_mtime` order, with the Continue mark where `timeOffset > 0`.
+> The gate stays; membership remains unbuilt; the Host's Continue watching is
+> still its own row and is not merged with the account's. The notes below are
+> the #147 record, kept as the prototype's history.
+
 The Library is a room that says it is not furnished.
 
 - With no account, a gate block says the Library will hold the Titles saved in
@@ -208,8 +215,8 @@ moving a row to a 0-based position, removing one — are in
   destination; the map leaves the Remote's surfaces open.
 - The shared Stremio form is re-dressed from the shell's shared form classes.
   A cutover may give it a dedicated repertory primitive.
-- The Library stub's final copy, and whether the signed-in state should point
-  at Settings → Credentials.
+- The Library room's card interaction and the preview sample's copy; the account
+  read itself is recorded in ADR-0029.
 - The OSD and the served Remote are untouched by this ticket.
 
 ## Verification

@@ -35,6 +35,7 @@ import {
   CINEMETA_MOVIE_GENRES,
   CINEMETA_SERIES_GENRES,
   previewStream,
+  sampleLibrary,
   sampleResumeEntries,
   type CinemetaMeta,
   type PreviewStream,
@@ -273,6 +274,33 @@ async function answerStreams(
             failure: failure(caught instanceof Error ? caught.message : "the Addon did not answer"),
           },
         ],
+      },
+    };
+  }
+}
+
+/**
+ * The preview's account Library: live Cinemeta films as a sample collection.
+ * The Vite window has no Stremio account, so the rows say they are a rehearsal;
+ * the Tauri window asks the Host (#165, ADR-0029).
+ */
+async function answerLibrary(): Promise<Response> {
+  try {
+    const page = await fetchPage("movie", "top", 0);
+    return {
+      snapshots: [],
+      answer: {
+        library: { entries: sampleLibrary(page.metas), failure: null },
+      },
+    };
+  } catch (caught: unknown) {
+    return {
+      snapshots: [],
+      answer: {
+        library: {
+          entries: [],
+          failure: failure(caught instanceof Error ? caught.message : "the catalogue did not answer"),
+        },
       },
     };
   }
@@ -617,6 +645,8 @@ async function dispatch(action: Action): Promise<Response> {
         devices: state.devices.filter((device) => device.id !== action.id),
       }));
     }
+    case "library":
+      return answerLibrary();
     case "browse_catalog":
       return answerCatalog(action);
     case "open_title":
@@ -650,12 +680,20 @@ async function invoke<T>(command: string, args?: Record<string, unknown>): Promi
 export const previewTransport: Transport = {
   invoke,
   listen: async <T>(event: string, handler: (event: { payload: T }) => void) => {
-    if (event === SNAPSHOT_EVENT) {
-      subscriber = handler as (event: { payload: Snapshot }) => void;
-      void ensureSnapshot().then((state) => subscriber?.({ payload: state }));
+    if (event !== SNAPSHOT_EVENT) {
+      return () => undefined;
+    }
+    // A StrictMode mount/unmount/remount can deliver the first listener's
+    // cleanup after the second listener is installed. Only clear the subscriber
+    // that this call installed; a stale cleanup must not silence the new one.
+    const listener = handler as (event: { payload: Snapshot }) => void;
+    subscriber = listener;
+    const state = await ensureSnapshot();
+    if (subscriber === listener) {
+      listener({ payload: state });
     }
     return () => {
-      if (event === SNAPSHOT_EVENT) {
+      if (subscriber === listener) {
         subscriber = null;
       }
     };
