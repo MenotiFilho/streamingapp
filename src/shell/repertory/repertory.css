@@ -57,9 +57,11 @@ html[data-ui="repertory"] {
   --rep-space-7: 3rem;
   --rep-space-8: 4rem;
 
+  --rep-spine-compact: clamp(92px, 4.8vw, 6vw);
   --rep-spine-width: clamp(280px, 14.6vw, 18vw);
   --rep-strip-height: clamp(168px, 8.75vw, 10vw);
   --rep-row-gap: clamp(16px, 1.25vw, 1.8vw);
+  --rep-text-badge: clamp(1.125rem, 1.1vw, 1.45vw);
   --rep-ease: cubic-bezier(0.22, 1, 0.36, 1);
   --rep-dur-fast: 140ms;
   --rep-dur-med: 240ms;
@@ -150,8 +152,14 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 }
 
 .rep-frame[data-frame="spine"] .shell-stage {
-  margin-left: var(--rep-spine-width);
+  margin-left: var(--rep-spine-compact);
   padding: clamp(32px, 2.5vw, 3.2vw) clamp(32px, 2.9vw, 4vw) clamp(64px, 5vw, 7vw);
+}
+
+/* The programme makes room when the spine opens: a book's margin, not a drawer
+ * over the page, so no title is cut in half while navigating. */
+.rep-frame[data-frame="spine"]:has(.rep-nav--spine:focus-within) .shell-stage {
+  margin-left: var(--rep-spine-width);
 }
 
 .rep-frame[data-frame="strip"] .shell-stage {
@@ -198,18 +206,36 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   z-index: 20;
   display: flex;
   flex-direction: column;
-  gap: clamp(28px, 2.1vw, 3vw);
-  width: var(--rep-spine-width);
-  padding: clamp(32px, 2.3vw, 3vw) clamp(20px, 1.5vw, 2vw) clamp(24px, 1.7vw, 2.2vw)
-    clamp(28px, 1.9vw, 2.4vw);
+  justify-content: center;
+  gap: clamp(20px, 1.6vw, 2.2vw);
+  width: var(--rep-spine-compact);
+  padding: clamp(24px, 1.8vw, 2.4vw) clamp(12px, 0.9vw, 1.2vw);
   border-right: 1px solid var(--rep-hairline);
   background: var(--rep-ink);
   box-sizing: border-box;
+  overflow: hidden;
+}
+
+/*
+ * Navigating the spine is the one moment it opens. It grows over the stage
+ * instead of moving it, so the pictures never reflow under the cursor; the
+ * compact column stays the page's margin.
+ */
+.rep-nav--spine:focus-within {
+  justify-content: flex-start;
+  width: var(--rep-spine-width);
+  padding: clamp(32px, 2.3vw, 3vw) clamp(20px, 1.5vw, 2vw) clamp(24px, 1.7vw, 2.2vw)
+    clamp(28px, 1.9vw, 2.4vw);
+  box-shadow: 24px 0 80px -40px rgba(0, 0, 0, 0.95);
 }
 
 .rep-spine-head {
-  display: grid;
+  display: none;
   gap: 6px;
+}
+
+.rep-nav--spine:focus-within .rep-spine-head {
+  display: grid;
 }
 
 .rep-spine-label {
@@ -233,6 +259,7 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  width: 100%;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -240,11 +267,12 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 
 .rep-index-item {
   display: grid;
-  grid-template-columns: 42px 1fr;
-  align-items: baseline;
-  gap: 10px;
+  grid-template-columns: 1fr;
+  justify-items: center;
+  align-items: center;
+  gap: 0;
   width: 100%;
-  padding: 14px 12px 14px 10px;
+  padding: clamp(9px, 0.7vw, 0.95vw) 0;
   border: 0;
   background: transparent;
   color: var(--rep-dim);
@@ -257,14 +285,59 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   box-sizing: border-box;
 }
 
+.rep-nav--spine:focus-within .rep-index-item {
+  grid-template-columns: clamp(24px, 1.5vw, 1.8vw) clamp(34px, 2.2vw, 2.8vw) 1fr;
+  justify-items: start;
+  gap: 10px;
+  padding: 12px 10px;
+}
+
+.rep-index-icon {
+  display: grid;
+  place-items: center;
+  width: clamp(26px, 1.7vw, 2vw);
+  height: clamp(26px, 1.7vw, 2vw);
+  color: var(--rep-muted);
+}
+
+.rep-index-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
 .rep-index-item[aria-current="page"] {
   color: var(--rep-ivory);
   box-shadow: inset 2px 0 0 var(--rep-house);
 }
 
+.rep-index-item[aria-current="page"] .rep-index-icon {
+  color: var(--rep-ivory);
+}
+
+.rep-index-number,
+.rep-index-label {
+  display: none;
+}
+
+.rep-nav--spine:focus-within .rep-index-number,
+.rep-nav--spine:focus-within .rep-index-label {
+  display: inline;
+}
+
 .rep-index-number {
   font-family: var(--rep-mono);
   font-size: var(--rep-text-mono);
+  color: var(--rep-muted);
+}
+
+.rep-index-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rep-index-more {
   color: var(--rep-muted);
 }
 
@@ -279,7 +352,7 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 }
 
 .rep-spine-foot {
-  display: grid;
+  display: none;
   gap: 8px;
   margin-top: auto;
   padding-top: 20px;
@@ -288,6 +361,10 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   font-size: var(--rep-text-mono);
   line-height: 1.25;
   color: var(--rep-dim);
+}
+
+.rep-nav--spine:focus-within .rep-spine-foot {
+  display: grid;
 }
 
 .rep-spine-clock {
@@ -326,15 +403,6 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   font-weight: 500;
   letter-spacing: -0.006em;
   color: var(--rep-ivory);
-}
-
-.rep-strip-date {
-  display: flex;
-  gap: 16px;
-  margin: 0;
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-mono);
-  color: var(--rep-muted);
 }
 
 .rep-strip-index {
@@ -393,34 +461,6 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   gap: clamp(32px, 2.1vw, 3vw);
   min-width: 0;
   padding-bottom: 72px;
-}
-
-.rep-home-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 32px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--rep-hairline);
-}
-
-.rep-home-title {
-  margin: 0;
-  font-family: var(--rep-display);
-  font-size: clamp(2.6rem, 2.5vw, 3.6vw);
-  font-weight: 500;
-  line-height: 1.08;
-  letter-spacing: var(--rep-tracking-display);
-  color: var(--rep-ivory);
-}
-
-.rep-home-date {
-  flex: none;
-  margin: 0;
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-mono);
-  color: var(--rep-muted);
-  white-space: nowrap;
 }
 
 .rep-home-waiting,
@@ -826,12 +866,21 @@ html[data-ui="repertory"] .rep-feature-card:focus-visible {
   z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 0;
+  min-width: 0;
+}
+
+.rep-caption-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
   min-width: 0;
 }
 
 .rep-card-title {
   display: -webkit-box;
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   color: var(--rep-dim);
   font-family: var(--rep-sans);
@@ -850,27 +899,65 @@ html[data-ui="repertory"] .rep-feature-card:focus-visible {
   color: var(--rep-ivory);
 }
 
-.rep-card-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
+/*
+ * The year is a stamp before the title; the rating is a stamp on the poster.
+ * Both are short, non-critical numbers, so they sit above the caption floor
+ * but below the title's size, and both keep 4.5:1 on the ink plate.
+ */
+.rep-year-badge {
+  flex: none;
+  margin-top: 1px;
+  padding: 0 5px;
+  border: 1px solid var(--rep-hairline);
   color: var(--rep-muted);
   font-family: var(--rep-mono);
-  font-size: var(--rep-text-caption);
-  line-height: var(--rep-leading-caption);
+  font-size: calc(var(--rep-text-badge) * 0.78);
+  line-height: 1.3;
+  white-space: nowrap;
 }
 
-.rep-card-meta > span + span {
-  margin-left: 10px;
-  padding-left: 10px;
-  border-left: 1px solid var(--rep-hairline);
-}
-
-.rep-card:focus .rep-card-meta,
-.rep-card:focus-visible .rep-card-meta,
-.rep-continue:focus .rep-card-meta,
-.rep-continue:focus-visible .rep-card-meta {
+.rep-card:focus .rep-year-badge,
+.rep-card:focus-visible .rep-year-badge {
+  border-color: var(--rep-dim);
   color: var(--rep-dim);
+}
+
+.rep-rating-badge {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 2;
+  padding: 3px 8px;
+  border: 1px solid var(--rep-hairline);
+  background: var(--rep-ink-raised);
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-badge);
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.rep-continue-badge {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  z-index: 2;
+  max-width: calc(100% - 20px);
+  overflow: hidden;
+  padding: 3px 8px;
+  border: 1px solid var(--rep-hairline);
+  background: var(--rep-ink-raised);
+  color: var(--rep-dim);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-badge);
+  line-height: 1.35;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rep-continue-badge[data-unplayable="true"] {
+  border-color: var(--rep-status-red);
+  color: var(--rep-status-red);
 }
 
 .rep-continue-track {
@@ -988,6 +1075,120 @@ html[data-ui="repertory"] .rep-feature-card:focus-visible {
   font-family: var(--rep-sans);
   font-size: var(--rep-text-body);
   line-height: var(--rep-leading-body);
+}
+
+/* --------------------------------------------------------------------------
+ * All destinations: the whole programme index, opened from the spine
+ * -------------------------------------------------------------------------- */
+
+.rep-destinations {
+  position: relative;
+  min-height: calc(100vh - var(--window-chrome-clearance));
+  padding: 48px 56px 56px;
+  background: var(--rep-ink);
+  box-sizing: border-box;
+}
+
+.rep-destinations-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid var(--rep-hairline);
+}
+
+.rep-destinations-kicker {
+  margin: 0;
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+}
+
+.rep-destinations-title {
+  margin: 0;
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-title);
+  font-weight: 500;
+  line-height: 1.08;
+  letter-spacing: var(--rep-tracking-display);
+}
+
+.rep-destinations-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: 32px;
+  border: 1px solid var(--rep-hairline);
+  background: var(--rep-hairline);
+}
+
+.rep-destination {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  min-height: 240px;
+  padding: 26px 30px 30px;
+  border: 0;
+  background: var(--rep-ink);
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+.rep-destination[aria-current="page"] {
+  box-shadow: inset 0 2px 0 var(--rep-house);
+}
+
+.rep-destination-icon {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  color: var(--rep-house);
+}
+
+.rep-destination-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.rep-destination-number {
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+}
+
+.rep-destination-label {
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-section);
+  font-weight: 500;
+  line-height: 1.1;
+  letter-spacing: -0.006em;
+}
+
+.rep-destination-note {
+  max-width: 34ch;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-caption);
+  line-height: var(--rep-leading-body);
+}
+
+.rep-destination:focus,
+.rep-destination:focus-visible {
+  outline-offset: -2px;
+  background-image: var(--rep-focus-wash);
+}
+
+.rep-destinations-close {
+  position: absolute;
+  top: 24px;
+  right: 56px;
+  margin: 0;
 }
 
 /* --------------------------------------------------------------------------
@@ -1214,5 +1415,25 @@ html[data-ui="repertory"] .rep-feature-card:focus-visible {
 
   .rep-continue {
     flex-basis: calc((100% - 2 * var(--rep-row-gap)) / 3);
+  }
+}
+
+@media (max-width: 1300px) {
+  .rep-destinations {
+    padding: 40px;
+  }
+
+  .rep-destinations-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .rep-destinations-close {
+    right: 40px;
+  }
+}
+
+@media (max-width: 900px) {
+  .rep-destinations-grid {
+    grid-template-columns: 1fr;
   }
 }

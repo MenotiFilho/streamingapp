@@ -30,8 +30,9 @@ import {
   countLabel,
   featureSlides,
   featureTitleDensity,
-  programDate,
   programIndex,
+  ratingOf,
+  yearOf,
 } from "./program";
 import type { RepertorySettings } from "./settings";
 import "./repertory.css";
@@ -122,14 +123,15 @@ function RowHead({ index, title, tag }: { index: string; title: string; tag: str
 }
 
 function ProgramPoster({ meta, onOpen }: { meta: MetaPreview; onOpen: () => void }) {
-  const parts = captionParts(meta);
+  const year = yearOf(meta);
+  const rating = ratingOf(meta);
   return (
     <button
       type="button"
       className="rep-card"
       data-focusable
       onClick={onOpen}
-      aria-label={`${meta.name}. Open the Title.`}
+      aria-label={`${meta.name}${year ? `, ${year}` : ""}${rating ? `, ${rating}` : ""}. Open the Title.`}
     >
       <span className="rep-poster">
         {meta.poster ? (
@@ -137,15 +139,13 @@ function ProgramPoster({ meta, onOpen }: { meta: MetaPreview; onOpen: () => void
         ) : (
           <span className="rep-art-missing">{meta.name}</span>
         )}
+        {rating ? <span className="rep-rating-badge">{rating}</span> : null}
       </span>
       <span className="rep-caption">
-        <span className="rep-card-title">{meta.name}</span>
-        {/*
-         * At six columns the caption is ~230 px wide. Year and rating fit on
-         * one mono line; genres do not, and a wrapped `| Comedy / Drama` reads
-         * as debris. Genres stay on the feature and the program note.
-         */}
-        <MetaLine parts={{ ...parts, genres: null }} className="rep-card-meta" />
+        <span className="rep-caption-line">
+          <span className="rep-card-title">{meta.name}</span>
+          {year ? <span className="rep-year-badge">{year}</span> : null}
+        </span>
       </span>
     </button>
   );
@@ -171,6 +171,12 @@ function ContinueCard({ entry, onOpen }: { entry: ResumeEntry; onOpen: () => voi
         ) : (
           <span className="rep-art-missing">{cardName(entry)}</span>
         )}
+        <span
+          className="rep-continue-badge"
+          data-unplayable={playable ? undefined : "true"}
+        >
+          {cardNote(entry)}
+        </span>
       </span>
       {fraction !== null ? (
         <span className="rep-continue-track" aria-hidden="true">
@@ -179,9 +185,6 @@ function ContinueCard({ entry, onOpen }: { entry: ResumeEntry; onOpen: () => voi
       ) : null}
       <span className="rep-caption">
         <span className="rep-card-title">{cardName(entry)}</span>
-        <span className="rep-card-meta">
-          <span>{cardNote(entry)}</span>
-        </span>
       </span>
     </button>
   );
@@ -253,6 +256,7 @@ function Feature({
         type="button"
         className="rep-feature-card"
         data-focusable
+        data-reveal="top"
         data-testid="repertory-feature"
         aria-label={`Featured: ${name}. Open the Title.`}
         onFocus={() => setHeld(true)}
@@ -429,10 +433,7 @@ export function RepertoryHome() {
 
   return (
     <section className="rep-home" data-testid="home-screen" ref={root}>
-      <header className="rep-home-head">
-        <h1 className="rep-home-title">Tonight&rsquo;s program</h1>
-        <p className="rep-home-date">{programDate(new Date())}</p>
-      </header>
+      <h1 className="shell-visually-hidden">Home</h1>
 
       <Feature
         items={featureItems}

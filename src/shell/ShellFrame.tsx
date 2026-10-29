@@ -21,6 +21,8 @@ export type ShellFrameProps = {
   onBack: () => void;
   /** Which surface draws the frame; the prototype flag chooses repertory (#145). */
   presentation?: "velvet" | "repertory";
+  /** Open the whole destination index, where the frame offers a way to it. */
+  onOpenDestinations?: () => void;
 };
 
 /**
@@ -40,6 +42,7 @@ export function ShellFrame({
   levels,
   onBack,
   presentation = "velvet",
+  onOpenDestinations,
 }: ShellFrameProps) {
   const { settings } = useRepertorySettings();
   const repertory = presentation === "repertory";
@@ -124,6 +127,7 @@ export function ShellFrame({
       data-testid="shell-frame"
       data-ui={repertory ? "repertory" : undefined}
       data-frame={repertory ? settings.frame : undefined}
+      data-reveal={repertory ? "center" : undefined}
     >
       <div
         ref={base}
@@ -140,6 +144,7 @@ export function ShellFrame({
             variant={settings.frame}
             active={destination}
             onChoose={onChooseDestination}
+            onOpenDestinations={onOpenDestinations ?? (() => undefined)}
           />
         ) : (
           <Rail active={destination} onChoose={onChooseDestination} />
