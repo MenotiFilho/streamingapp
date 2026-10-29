@@ -15,6 +15,8 @@ import { actionKey, repeats } from "./actionKey";
 import { DestinationScreen } from "./DestinationScreens";
 import { InFlight } from "./inFlight";
 import { PlayerOverlay } from "./PlayerOverlay";
+import { RepertoryDestinationScreen } from "./repertory/RepertoryScreens";
+import { DestinationGrid } from "./repertory/DestinationGrid";
 import { ShellFrame } from "./ShellFrame";
 import { ShellContext, type ActionOutcome, type NewShellLevel } from "./context";
 import { HomeStore } from "./homeStore";
@@ -37,7 +39,13 @@ const PLAYER_LEVEL = "player";
  * disturbing the focus underneath. The player is a level like any other; when
  * it stops, the browsing stack that was underneath is exactly where it was.
  */
-export function Shell({ client }: { client?: HostClient }) {
+export function Shell({
+  client,
+  presentation = "velvet",
+}: {
+  client?: HostClient;
+  presentation?: "velvet" | "repertory";
+}) {
   const host = useMemo(() => client ?? new HostClient(), [client]);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [error, setError] = useState<ActionError | null>(null);
@@ -160,6 +168,19 @@ export function Shell({ client }: { client?: HostClient }) {
   );
   const pop = useCallback(() => dispatch({ type: "pop" }), []);
 
+  // The repertory spine's All destinations screen is a level like any other:
+  // it paints above the base, Back returns to the More control that opened it,
+  // and choosing a room goes through the same `choose` the spine uses.
+  const openDestinations = useCallback(() => {
+    push({
+      name: "All destinations",
+      kind: "overlay",
+      render: () => (
+        <DestinationGrid active={nav.destination} onChoose={choose} onClose={pop} />
+      ),
+    });
+  }, [choose, nav.destination, pop, push]);
+
   const playback = snapshot?.playback ?? null;
   const playerActive =
     playback !== null && watching(playback.state) && playback.picture === "in_window";
@@ -262,7 +283,15 @@ export function Shell({ client }: { client?: HostClient }) {
         onChooseDestination={choose}
         levels={nav.levels}
         onBack={back}
-        screen={<DestinationScreen destination={nav.destination} />}
+        presentation={presentation}
+        onOpenDestinations={openDestinations}
+        screen={
+          presentation === "repertory" ? (
+            <RepertoryDestinationScreen destination={nav.destination} />
+          ) : (
+            <DestinationScreen destination={nav.destination} />
+          )
+        }
       />
 
       <div className="shell-alert-stack">

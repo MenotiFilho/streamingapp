@@ -32,6 +32,40 @@ export const CHROME_CLEARANCE = 64;
 /** What one scrollport must change to keep the target inside it. */
 export type RevealOffsets = { left: number; top: number };
 
+/** How a focused control is placed in its scrollports. */
+export type RevealMode = "nearest" | "center";
+
+/**
+ * The scroll that centres `target` in the usable part of `viewport`, on both
+ * axes. A target larger than the usable box is aligned to its start, for the
+ * same reason the nearest policy does: the head is what a person needs.
+ *
+ * This is the repertory spine's navigation rule — the picture being read stays
+ * in the middle of the room — while the Velvet screens keep the minimal reveal.
+ */
+export function centeredOffsets(
+  viewport: Rect,
+  target: Rect,
+  margin: number = REVEAL_MARGIN,
+  insetTop: number = 0,
+): RevealOffsets {
+  const fromX = viewport.x + margin;
+  const toX = viewport.x + viewport.w - margin;
+  const fromY = viewport.y + margin + insetTop;
+  const toY = viewport.y + viewport.h - margin;
+
+  return {
+    left:
+      target.w > toX - fromX
+        ? target.x - fromX
+        : target.x + target.w / 2 - (fromX + (toX - fromX) / 2),
+    top:
+      target.h > toY - fromY
+        ? target.y - fromY
+        : target.y + target.h / 2 - (fromY + (toY - fromY) / 2),
+  };
+}
+
 /**
  * The minimal scroll on one axis for `target` to clear `margin` inside the
  * usable part of `viewport`, once the chrome inset has taken its bite at the
@@ -94,6 +128,8 @@ export type RevealScrollport = {
    * by the page or the level behind it, so those ports stay where they are.
    */
   moves: boolean;
+  /** Whether this port may move horizontally; the page never does. */
+  horizontal?: boolean;
   /** Apply the deltas; the browser clamps them at the port's own ends. */
   scrollBy: (left: number, top: number) => void;
 };
@@ -103,7 +139,11 @@ export type RevealScrollport = {
  * after every scroll: a row's horizontal move changes the card's client rect
  * before the page decides whether it also has to move vertically.
  */
-export function revealIn(target: Measurable, ports: readonly RevealScrollport[]): void {
+export function revealIn(
+  target: Measurable,
+  ports: readonly RevealScrollport[],
+  mode: RevealMode = "nearest",
+): void {
   for (const port of ports) {
     if (!port.moves) {
       continue;
@@ -112,14 +152,15 @@ export function revealIn(target: Measurable, ports: readonly RevealScrollport[])
     if (viewport.w <= 0 || viewport.h <= 0) {
       continue;
     }
-    const { left, top } = revealOffsets(
-      viewport,
-      measureRect(target),
-      REVEAL_MARGIN,
-      port.insetTop,
-    );
-    if (left !== 0 || top !== 0) {
-      port.scrollBy(left, top);
+    const offsets =
+      mode === "center"
+        ? centeredOffsets(viewport, measureRect(target), REVEAL_MARGIN, port.insetTop)
+        : revealOffsets(viewport, measureRect(target), REVEAL_MARGIN, port.insetTop);
+    if (port.horizontal === false) {
+      offsets.left = 0;
+    }
+    if (offsets.left !== 0 || offsets.top !== 0) {
+      port.scrollBy(offsets.left, offsets.top);
     }
   }
 }
@@ -148,9 +189,19 @@ function visibleBox(element: Element): Rect {
 /** Whether an element can scroll at all, on either axis. */
 function scrolls(element: Element): boolean {
   const style = getComputedStyle(element);
-  const scrollable = (value: string) =>
-    value === "auto" || value === "scroll" || value === "overlay";
-  return scrollable(style.overflowX) || scrollable(style.overflowY);
+  return scrollableStyle(style.overflowX) || scrollableStyle(style.overflowY);
+}
+
+function scrollableStyle(value: string): boolean {
+  return value === "auto" || value === "scroll" || value === "overlay";
+}
+
+/** Whether an element can move horizontally. The page is the one that cannot. */
+function scrollsHorizontally(element: Element): boolean {
+  if (element === document.scrollingElement || element === document.documentElement) {
+    return false;
+  }
+  return scrollableStyle(getComputedStyle(element).overflowX);
 }
 
 /**
@@ -179,6 +230,7 @@ function portOf(element: Element, control: Element): RevealScrollport {
     visible: () => visibleBox(element),
     insetTop: chromeInset(element),
     moves: !fixedBetween(control, element),
+    horizontal: scrollsHorizontally(element),
     scrollBy: (left, top) => {
       if (left !== 0) {
         element.scrollLeft += left;
@@ -220,7 +272,21 @@ export function scrollportsOf(control: Element): RevealScrollport[] {
 
 /** Reveal a control in every scrollport it lives in, instantly. */
 export function reveal(control: Element): void {
-  revealIn(control, scrollportsOf(control));
+  const marker = control.closest("[data-reveal]");
+  const mode = marker?.getAttribute("data-reveal");
+
+  // The hero is the top of the programme: focusing it puts the page back at
+  // its first frame so the whole top of the screen is in view, not a centred
+  // crop of it. Only the repertory surface marks this.
+  if (mode === "top") {
+    const page = document.scrollingElement ?? document.documentElement;
+    if (page) {
+      page.scrollTop = 0;
+    }
+    return;
+  }
+
+  revealIn(control, scrollportsOf(control), mode === "center" ? "center" : "nearest");
 }
 
 /**

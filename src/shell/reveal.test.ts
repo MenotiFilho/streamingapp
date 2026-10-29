@@ -4,6 +4,7 @@ import type { Rect } from "../focus";
 import {
   CHROME_CLEARANCE,
   REVEAL_MARGIN,
+  centeredOffsets,
   focusAndReveal,
   onRevealed,
   reveal,
@@ -107,6 +108,41 @@ describe("the reveal's geometry", () => {
 
   test("the chrome clearance is the shell's 64px content top", () => {
     expect(CHROME_CLEARANCE).toBe(64);
+  });
+});
+
+describe("the repertory centre", () => {
+  test("centres a focused card on both axes", () => {
+    // The usable box is x 24..976 (centre 500) and y 24..576 (centre 300).
+    // A card centred at (500, 620) needs 320px of downward page scroll.
+    expect(centeredOffsets(viewport, { x: 420, y: 500, w: 160, h: 240 })).toEqual({
+      left: 0,
+      top: 320,
+    });
+  });
+
+  test("centres a card the row left behind", () => {
+    // A card centred at 180 in a 500-wide usable middle moves left 320.
+    expect(centeredOffsets(viewport, { x: 100, y: 180, w: 160, h: 240 })).toEqual({
+      left: -320,
+      top: 0,
+    });
+  });
+
+  test("aligns the start of a card taller than the scrollport", () => {
+    expect(centeredOffsets(viewport, { x: 420, y: -40, w: 160, h: 700 })).toEqual({
+      left: 0,
+      top: -64,
+    });
+  });
+
+  test("moves a scroller by the centre, not by the edge", () => {
+    const fake = nested();
+    revealIn(fake.target, [fake.row, fake.page], "center");
+
+    // The row's visible middle is 400; the card's middle at 840 moves it 440.
+    // The page's visible middle is 200; the card's middle at 620 moves it 420.
+    expect(fake.scrolled).toEqual({ row: 440, page: 420 });
   });
 });
 

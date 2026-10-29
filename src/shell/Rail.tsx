@@ -47,6 +47,24 @@ const ICONS: Record<Destination, ReactNode> = {
   ),
 };
 
+/** One destination's mark, shared by the Velvet rail and the repertory spine. */
+export function DestinationIcon({ destination }: { destination: Destination }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.7"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      {ICONS[destination]}
+    </svg>
+  );
+}
+
 export type RailProps = {
   active: Destination;
   onChoose: (destination: Destination) => void;
@@ -78,16 +96,7 @@ export function Rail({ active, onChoose }: RailProps) {
           onClick={() => onChoose(destination.id)}
         >
           <span className="shell-rail-icon" aria-hidden="true">
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              {ICONS[destination.id]}
-            </svg>
+            <DestinationIcon destination={destination.id} />
           </span>
           <span className="shell-rail-label">{destination.label}</span>
         </button>
