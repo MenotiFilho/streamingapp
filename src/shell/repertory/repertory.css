@@ -1,4 +1,5 @@
 @import "./fonts.css";
+@import "./osd.css";
 
 /*
  * Repertory: the first live slice of the window's new frame (#145).
@@ -175,9 +176,11 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 .rep-frame .shell-window-chrome-button {
   border: 1px solid var(--rep-hairline);
   border-radius: 0;
-  background: var(--rep-ink-raised);
+  background: color-mix(in srgb, var(--rep-ink) 68%, transparent);
   color: var(--rep-dim);
   box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 .rep-frame .shell-window-chrome-button:hover,

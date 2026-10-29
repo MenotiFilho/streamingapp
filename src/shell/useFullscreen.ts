@@ -18,10 +18,11 @@ import { useSyncExternalStore } from "react";
  * public `isTauri()` check, which reads the global Tauri sets before the page
  * runs. That is what makes `supported` true on the first render and on a
  * remount, so a control is drawn at once and F11 is bound at once rather than
- * waiting for the first read. A plain browser — Vite's dev window, a test —
- * has no such global: it is never supported, is never believed fullscreen, and
- * keeps the F11 its browser gives it. The served Remote page is a different
- * client in a different browser tab; this module never runs there.
+ * waiting for the first read. A plain browser — Vite's dev window — has no such
+ * global, so the control asks the document itself for fullscreen through the
+ * browser's Fullscreen API; a page without that API (a test, an embedded webview
+ * that refuses it) draws no control at all. The served Remote page is a
+ * different client in a different browser tab; this module never runs there.
  */
 
 type FullscreenState = {
@@ -32,8 +33,27 @@ type FullscreenState = {
 };
 
 /** What subscribers read. Replaced, never mutated, so React can compare. */
-let state: FullscreenState = { fullscreen: false, supported: isTauri() };
+let state: FullscreenState = { fullscreen: false, supported: fullscreenSupported() };
 const listeners = new Set<() => void>();
+
+/** Whether the document itself can be put fullscreen: the Vite dev window. */
+function browserFullscreenSupported(): boolean {
+  return (
+    typeof document !== "undefined" &&
+    typeof document.documentElement.requestFullscreen === "function" &&
+    document.fullscreenEnabled !== false
+  );
+}
+
+/** Whether the document is fullscreen right now. */
+function browserFullscreen(): boolean {
+  return typeof document !== "undefined" && Boolean(document.fullscreenElement);
+}
+
+/** Whether this page has a window it can put fullscreen, Tauri's or the browser's. */
+function fullscreenSupported(): boolean {
+  return isTauri() || browserFullscreenSupported();
+}
 
 /**
  * The watch and the stamp that makes an old one stale. A subscription can
@@ -97,6 +117,28 @@ async function refresh(watchGeneration: number): Promise<void> {
 
 async function watch(): Promise<void> {
   const watchGeneration = generation;
+
+  // A plain browser has no Tauri window, but the Vite dev window can still go
+  // full: the document's own Fullscreen API is the fact to follow there.
+  if (!isTauri()) {
+    if (!browserFullscreenSupported()) {
+      return;
+    }
+    const onChange = () => {
+      if (watchGeneration === generation) {
+        publish({ fullscreen: browserFullscreen() });
+      }
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    if (watchGeneration !== generation) {
+      document.removeEventListener("fullscreenchange", onChange);
+      return;
+    }
+    unlisten = () => document.removeEventListener("fullscreenchange", onChange);
+    publish({ fullscreen: browserFullscreen() });
+    return;
+  }
+
   const host = hostWindow();
   if (!host || watchGeneration !== generation) {
     return;
@@ -139,7 +181,7 @@ function subscribe(listener: () => void): () => void {
     // `isTauri()` check is the first render's answer, and a remount must not
     // trust a fact — or a support claim — from before an unmount.
     generation += 1;
-    publish({ fullscreen: false, supported: isTauri() });
+    publish({ fullscreen: false, supported: fullscreenSupported() });
     void watch();
   }
   listeners.add(listener);
@@ -153,7 +195,7 @@ function subscribe(listener: () => void): () => void {
     generation += 1;
     unlisten?.();
     unlisten = null;
-    publish({ fullscreen: false, supported: isTauri() });
+    publish({ fullscreen: false, supported: fullscreenSupported() });
   };
 }
 
@@ -164,6 +206,19 @@ function subscribe(listener: () => void): () => void {
  */
 export async function toggleFullscreen(): Promise<void> {
   if (!isTauri()) {
+    if (!browserFullscreenSupported()) {
+      return;
+    }
+    try {
+      if (browserFullscreen()) {
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen();
+      }
+      publish({ fullscreen: browserFullscreen() });
+    } catch {
+      // The document refused: there is nothing new to show.
+    }
     return;
   }
   const host = hostWindow();
@@ -180,9 +235,10 @@ export async function toggleFullscreen(): Promise<void> {
 }
 
 /**
- * The shared fullscreen fact, as a hook. `supported` says whether there is a
- * Tauri window at all, which is what lets the shell leave a browser's F11
- * alone; `toggle` reads the window rather than a remembered boolean.
+ * The shared fullscreen fact, as a hook. `supported` says whether this page has
+ * a window it can put fullscreen — Tauri's window, or the browser's own document
+ * on the Vite dev page; `toggle` reads the window rather than a remembered
+ * boolean.
  */
 export function useFullscreen(): {
   fullscreen: boolean;

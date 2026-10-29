@@ -67,11 +67,11 @@ export function ShellFrame({
   // F11 belongs to the window, not to the shell's intent table: it works from
   // Home, Settings, a Title, a dialog, and inside the player with the OSD away,
   // and it is no key a screen can consume. One handler for the whole window;
-  // a held key is one press. `supported` is the synchronous Tauri check, so the
-  // handler binds on the first render — and stays bound when the first read is
-  // refused. A plain browser (Vite's dev window, a test) has no window to
-  // change and keeps its own F11; the served Remote page is a separate client
-  // and never runs this code.
+  // a held key is one press. `supported` is the synchronous fullscreen check, so
+  // the handler binds on the first render — and stays bound when the first read
+  // is refused. On the Vite dev page the same key asks the browser document for
+  // fullscreen; the served Remote page is a separate client and never runs this
+  // code.
   useEffect(() => {
     if (!supported) {
       return;

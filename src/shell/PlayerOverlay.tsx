@@ -49,6 +49,7 @@ import {
   osdPopoverLevel,
   type OsdPopoverName,
 } from "./PlayerPopovers";
+import { usePreviewData } from "./repertory/context";
 import { focusAndReveal } from "./reveal";
 import { useOsdVisibility } from "./useOsdVisibility";
 import "./osd.css";
@@ -113,7 +114,12 @@ function usable(element: HTMLElement | null, cluster: HTMLElement | null): eleme
  * strip's controls, and between Full screen and Stop.
  */
 export function PlayerOverlay() {
-  const { snapshot, take, ask, popover, pop, push, setIntentHandler } = useShell();
+  const { snapshot, take, ask, popover, pop, push, setIntentHandler, presentation } = useShell();
+  const repertory = presentation === "repertory";
+  // The plain Vite window has no mpv, so the repertory rehearsal paints the
+  // film's own backdrop behind the OSD instead of a black hole. The Tauri
+  // window never takes this branch: there the picture is mpv's (ADR-0003).
+  const previewMode = usePreviewData();
   const playback = snapshot?.playback ?? null;
   const [refusal, setRefusal] = useState<ActionError | null>(null);
   // The episode step is the wait a person sees: the Host asks the Addons for the
@@ -433,12 +439,13 @@ export function PlayerOverlay() {
 
   return (
     <section
-      className="shell-player"
+      className={repertory ? "shell-player rep-player" : "shell-player"}
       aria-label="Playing"
       role="region"
       data-testid="shell-player"
       data-state={state}
       data-picture={picture}
+      data-presentation={repertory ? "repertory" : undefined}
       data-region="player"
       data-kind="branch"
       data-label="Player"
@@ -450,6 +457,12 @@ export function PlayerOverlay() {
           squeezes or releases the Stream rather than merely summoning the
           OSD (ADR-0003). */}
       <div className="shell-player-picture" data-testid="picture" data-picture={picture} data-state={state}>
+        {repertory && previewMode && picture === "in_window" && !showPreview && preview?.art ? (
+          <div className="rep-player-still" data-testid="rehearsal-picture" aria-hidden="true">
+            <img className="rep-player-still-art" src={preview.art} alt="" />
+            <span className="rep-player-still-scrim" />
+          </div>
+        ) : null}
         {canTransport ? (
           <button
             ref={pictureButton}
@@ -505,6 +518,13 @@ export function PlayerOverlay() {
 
           <header className="shell-osd-top">
             <div className="shell-osd-meta">
+              {repertory ? (
+                <p className="rep-osd-kicker" data-testid="osd-kicker">
+                  <span>Now playing</span>
+                  <span className="rep-osd-kicker-rule" aria-hidden="true" />
+                  <span>{episode ? `S${episode.season}E${episode.episode}` : "Feature"}</span>
+                </p>
+              ) : null}
               <div className="shell-osd-line">
                 {quality ? (
                   <span className="shell-osd-quality tabular" data-testid="osd-quality">
@@ -545,7 +565,12 @@ export function PlayerOverlay() {
           <div className="shell-osd-middle">
             <div className="shell-osd-spacer" />
             {controls ? (
-              <VolumePillar playback={playback} sending={wheelVolume} onTake={takeAction} />
+              <VolumePillar
+                playback={playback}
+                sending={wheelVolume}
+                onTake={takeAction}
+                repertory={repertory}
+              />
             ) : null}
           </div>
 
@@ -700,6 +725,7 @@ export function PlayerOverlay() {
               playback={playback}
               interactive={canTransport}
               shown={shownPosition}
+              repertory={repertory}
               onSeek={(seconds) => takeAction({ type: "seek", target: { kind: "to", seconds } })}
             />
           </div>
@@ -719,11 +745,14 @@ function VolumePillar({
   playback,
   sending,
   onTake,
+  repertory = false,
 }: {
   playback: PlaybackSnapshot;
   /** The level the wheel is about to send, drawn until the Host agrees. */
   sending: number | null;
   onTake: (action: Action) => void;
+  /** Whether the repertory surface draws the fader's label. */
+  repertory?: boolean;
 }) {
   const [scrub, setScrub] = useState<number | null>(null);
   const shown = scrub ?? sending ?? Math.round(playback.volume ?? 100);
@@ -741,6 +770,11 @@ function VolumePillar({
       data-kind="row"
       data-label="Volume"
     >
+      {repertory ? (
+        <span className="rep-osd-volume-label" aria-hidden="true">
+          Vol
+        </span>
+      ) : null}
       <span className="shell-osd-volume-level tabular" data-testid="volume-level">
         {formatVolume(shown)}
       </span>
@@ -791,11 +825,14 @@ function Timeline({
   interactive,
   shown,
   onSeek,
+  repertory = false,
 }: {
   playback: PlaybackSnapshot;
   interactive: boolean;
   shown: number;
   onSeek: (seconds: number) => void;
+  /** Whether the repertory surface draws its chapter ticks and current chapter. */
+  repertory?: boolean;
 }) {
   const { position, duration, chapters } = playback;
   const [scrub, setScrub] = useState<number | null>(null);
@@ -808,6 +845,7 @@ function Timeline({
   const left = formatTime(scrub ?? position);
   const right = remainingTime(at, duration);
   const chapter = point ? chapterAt(chapters, point.at) : null;
+  const chapterNow = chapterAt(chapters, at);
 
   const take = (seconds: number) => {
     setScrub(null);
@@ -858,7 +896,11 @@ function Timeline({
             data-testid={`chapter-marker-${chapter.index}`}
             style={{ left: `${atFraction * 100}%` }}
           >
-            <span className="shell-osd-diamond">◆</span>
+            {repertory ? (
+              <span className="rep-osd-chapter-tick" aria-hidden="true" />
+            ) : (
+              <span className="shell-osd-diamond">◆</span>
+            )}
             <span className="shell-osd-callout">
               <span className="shell-osd-callout-name">{chapterName(chapter)}</span>
               <span className="shell-osd-callout-time tabular">{formatTime(chapter.time)}</span>
@@ -917,6 +959,11 @@ function Timeline({
       <span className="shell-osd-remaining tabular" data-testid="remaining">
         {right}
       </span>
+      {repertory && chapterNow ? (
+        <span className="rep-osd-now-chapter" data-testid="osd-current-chapter">
+          {chapterName(chapterNow)}
+        </span>
+      ) : null}
     </div>
   );
 }

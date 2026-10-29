@@ -1,4 +1,5 @@
-import { useRepertorySettings } from "./context";
+import { usePreviewData, useRepertorySettings } from "./context";
+import { rehearsePlayer } from "./previewHost";
 import {
   FEATURE_OPTIONS,
   FRAME_OPTIONS,
@@ -43,6 +44,7 @@ function Group<T extends string>({
  */
 export function RehearsalBar() {
   const { settings, update } = useRepertorySettings();
+  const preview = usePreviewData();
   const choose = <K extends keyof RepertorySettings>(key: K, value: RepertorySettings[K]) =>
     update({ [key]: value } as Partial<RepertorySettings>);
 
@@ -72,6 +74,14 @@ export function RehearsalBar() {
         value={settings.feature}
         onChoose={(feature) => choose("feature", feature)}
       />
+      {preview ? (
+        <div className="rep-rehearsal-group">
+          <span>Player</span>
+          <button type="button" data-testid="rehearse-player" onClick={() => void rehearsePlayer()}>
+            OSD
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

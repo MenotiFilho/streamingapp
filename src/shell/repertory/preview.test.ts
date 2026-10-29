@@ -6,10 +6,13 @@ import {
   cinemetaPreviews,
   parseRuntimeSeconds,
   previewStream,
+  rehearsalChapterAt,
+  rehearsalPlayback,
   sampleLibrary,
   sampleResumeEntries,
   type CinemetaMeta,
 } from "./preview";
+import type { NowPlaying, ResumeEntry } from "../../host-client";
 
 const film: CinemetaMeta = {
   imdb_id: "tt14173636",
@@ -119,5 +122,90 @@ describe("the preview's sample account Library", () => {
     expect(entries[2]?.continueWatching).toBe(false);
     expect(entries[0]?.mtime).toBeGreaterThan(entries[1]!.mtime);
     expect(entries[1]?.mtime).toBeGreaterThan(entries[2]!.mtime);
+  });
+});
+
+describe("the Player OSD rehearsal", () => {
+  const entry: ResumeEntry = {
+    video: {
+      id: "tt14173636",
+      name: null,
+      season: null,
+      episode: null,
+      thumbnail: "https://images.metahub.space/background/medium/tt14173636/img",
+    },
+    title: {
+      addon: "cinemeta",
+      id: "tt14173636",
+      type: "movie",
+      name: "The Invite",
+      poster: "https://images.metahub.space/poster/small/tt14173636/img",
+      background: "https://images.metahub.space/background/medium/tt14173636/img",
+    },
+    position: 900,
+    duration: 6420,
+    watched: false,
+    unplayable: null,
+  };
+
+  const nowPlaying: NowPlaying = {
+    video: { type: "movie", id: "tt14173636" },
+    addon: "cinemeta",
+    name: "Cinemeta\n1080p",
+    description: "A rehearsal Stream for the Player OSD.",
+    filename: "The.Invite.rehearsal.1080p.mkv",
+    bingeGroup: null,
+  };
+
+  it("builds a playing Snapshot over the film's own length, tracks and chapters", () => {
+    const playback = rehearsalPlayback(entry, nowPlaying);
+
+    expect(playback).toMatchObject({
+      state: "playing",
+      picture: "in_window",
+      failure: null,
+      nowPlaying,
+      position: 900,
+      duration: 6420,
+      speed: 1,
+      volume: 60,
+      muted: false,
+      chapter: 1,
+    });
+    expect(playback.chapters).toHaveLength(6);
+    expect(playback.chapters[0]).toMatchObject({ index: 0, title: "Opening", time: 0 });
+    expect(playback.chapters[5]?.time).toBe(Math.round(6420 * 0.84));
+    expect(playback.buffered).toEqual({ start: 0, end: 2100 });
+    expect(playback.tracks.filter((track) => track.kind === "audio")).toHaveLength(2);
+    expect(playback.tracks.filter((track) => track.kind === "subtitle")).toHaveLength(3);
+    expect(playback.tracks.find((track) => track.kind === "audio" && track.selected)?.id).toBe(1);
+    expect(
+      playback.tracks.find((track) => track.kind === "subtitle" && track.selected)?.id,
+    ).toBe(3);
+    expect(playback.statistics?.bitrate).toBe(12_500_000);
+  });
+
+  it("falls back to a film length and keeps a position inside the Stream", () => {
+    const noLength = rehearsalPlayback(
+      { ...entry, duration: null, position: null },
+      nowPlaying,
+    );
+    expect(noLength.duration).toBe(6420);
+    expect(noLength.position).toBe(Math.round(6420 * 0.34));
+
+    const pastTheEnd = rehearsalPlayback(
+      { ...entry, position: 99_999 },
+      nowPlaying,
+    );
+    expect(pastTheEnd.position).toBe(6419);
+  });
+
+  it("names the chapter a position is inside, and none before the first", () => {
+    const chapters = rehearsalPlayback(entry, nowPlaying).chapters;
+    expect(rehearsalChapterAt(chapters, 0)).toBe(0);
+    expect(rehearsalChapterAt(chapters, chapters[1]!.time - 1)).toBe(0);
+    expect(rehearsalChapterAt(chapters, chapters[1]!.time)).toBe(1);
+    expect(rehearsalChapterAt(chapters, 6419)).toBe(5);
+    expect(rehearsalChapterAt([], 900)).toBeNull();
   });
 });
