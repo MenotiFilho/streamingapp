@@ -199,12 +199,12 @@ that are self-contained: a wash, a fill, a colour change, as a `transition` on
 the token duration. Both read the same presets, so a rail and a drawer settle
 with the same feel.
 
-The presets will live in `src/shell/repertory/motion.ts` (#153). From #153 the
-sheet carries the same durations as `--rep-motion-panel` and
-`--rep-motion-quick` (today `--rep-dur-fast` / `--rep-dur-med`); the window reads
-the presets from the module, the Remote's script reads the two durations from the
-page's computed style, and #153's test asserts that the module and the sheet
-agree. One set of numbers, two readers.
+The durations will be declared in `tokens.css` from #153 as
+`--rep-motion-panel` and `--rep-motion-quick` (today `--rep-dur-fast` /
+`--rep-dur-med`). `motion.ts` reads those two custom properties from the document
+and pairs them with `bounce: 0`; the Remote's script reads the same two
+properties. One number, two readers — and no third CSS-as-text test, since
+ADR-0032 allows exactly two presentation locks.
 
 | Preset | Value | Used for |
 |---|---|---|
