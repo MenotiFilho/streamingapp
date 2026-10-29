@@ -26,6 +26,7 @@ export default defineConfig({
         /src\/shell\/kit\/kit\.css/,
         /src\/shell\/shell\.css/,
         /src\/shell\/osd\.css/,
+        /src\/shell\/repertory\/repertory\.css/,
       ],
     },
   },

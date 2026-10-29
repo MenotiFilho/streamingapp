@@ -1622,6 +1622,10 @@ html[data-ui="repertory"] .kit-chip[data-tone="danger"] {
   display: grid;
   flex: 1;
   grid-template-columns: minmax(0, 0.92fr) minmax(min(42vw, 50rem), 1.08fr);
+  /* The one row is exactly the height left by the top bar: without this, the
+     episode list grows to its content and is clipped by the rail instead of
+     scrolling, which leaves the last episodes unreachable by the D-pad. */
+  grid-template-rows: minmax(0, 1fr);
   gap: clamp(24px, 2.4vw, 3.2vw);
   align-items: stretch;
   min-height: 0;
@@ -1961,6 +1965,10 @@ html[data-ui="repertory"] .rep-season.kit-choice[aria-pressed="true"] > span:fir
     overflow: visible;
   }
 
+  .rep-title-grid {
+    grid-template-rows: auto;
+  }
+
   .rep-title-episodes {
     overflow: visible;
   }
@@ -1980,6 +1988,7 @@ html[data-ui="repertory"] .rep-season.kit-choice[aria-pressed="true"] > span:fir
 
   .rep-title-grid {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
   }
 
   .rep-title-side {
