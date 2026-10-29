@@ -17,6 +17,7 @@ use serde::Serialize;
 use crate::catalog::CatalogRow;
 use crate::device::{DeviceSummary, DeviceToken};
 use crate::discover::DiscoverRow;
+use crate::library::Library;
 use crate::meta::Title;
 use crate::search::SearchRow;
 use crate::snapshot::Snapshot;
@@ -100,6 +101,16 @@ impl Response {
             _ => None,
         }
     }
+
+    /// The account Library a client asked to read, when that is what it asked
+    /// (#165, ADR-0029). The failure, where there is one, travels inside it: an
+    /// expired session is not an empty Library.
+    pub fn library(&self) -> Option<&Library> {
+        match &self.answer {
+            Some(Answer::Library(library)) => Some(library),
+            _ => None,
+        }
+    }
 }
 
 /// Something only the client that asked is owed.
@@ -133,6 +144,10 @@ pub enum Answer {
         /// The still, as a `data:image/jpeg` URL, where there is one.
         image: Option<String>,
     },
+    /// The owner's Stremio account Library, read for the room (#165,
+    /// ADR-0029): its rows in `_mtime` order, and the failure that says an empty
+    /// answer is not an empty Library.
+    Library(Library),
     /// The token a pairing was just issued, and the device it belongs to. The one
     /// answer that carries something a client holds rather than something it
     /// reads: it goes to the device that redeemed the code and to nobody else,

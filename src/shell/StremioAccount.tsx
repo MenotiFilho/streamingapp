@@ -16,7 +16,17 @@ import { Refusal } from "./Refusal";
  * pre-judged. Library reuses the same form with `allowSignOut={false}`: its
  * stub has no sign-out of its own (#84).
  */
-export function StremioAccount({ allowSignOut = true }: { allowSignOut?: boolean }) {
+export function StremioAccount({
+  allowSignOut = true,
+  forceSignIn = false,
+  onSignedIn,
+}: {
+  allowSignOut?: boolean;
+  /** Show the form even with an account held: an expired session's way back. */
+  forceSignIn?: boolean;
+  /** Called after the Host takes a sign-in, so the caller can ask again. */
+  onSignedIn?: () => void;
+}) {
   const { snapshot, ask, push } = useShell();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -27,7 +37,7 @@ export function StremioAccount({ allowSignOut = true }: { allowSignOut?: boolean
     return <p className="shell-note">Waiting for the Host…</p>;
   }
 
-  if (snapshot.protection.stremioHeld) {
+  if (snapshot.protection.stremioHeld && !forceSignIn) {
     if (!allowSignOut) {
       return null;
     }
@@ -75,6 +85,7 @@ export function StremioAccount({ allowSignOut = true }: { allowSignOut?: boolean
     }
     setEmail("");
     setPassword("");
+    onSignedIn?.();
   };
 
   return (

@@ -15,6 +15,17 @@ use std::sync::Mutex;
 
 use serde_json::Value;
 
+/// One entry in the account's `datastoreMeta` index: the library item's `_id`
+/// and the server's mtime in milliseconds since the Unix epoch.
+///
+/// The index is the diff: a cached document whose mtime still matches needs no
+/// `datastoreGet` at all.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LibraryMeta {
+    pub id: String,
+    pub mtime: i64,
+}
+
 /// Where the Host talks to Stremio's account service.
 pub trait StremioApi: Send + Sync + 'static {
     /// Sign in, and get the `authKey` the account's later requests carry.
@@ -23,6 +34,10 @@ pub trait StremioApi: Send + Sync + 'static {
     /// Library items — every one when `ids` is `None`, else those with these
     /// `_id`s (a Title's id is its library item's).
     fn library(&self, auth_key: &str, ids: Option<&[String]>) -> Result<Vec<Value>, SyncError>;
+
+    /// The account's `libraryItem` index: one `_id` and mtime per document,
+    /// including tombstones. This is what makes a later read a diff.
+    fn library_meta(&self, auth_key: &str) -> Result<Vec<LibraryMeta>, SyncError>;
 
     /// Write library items, each replacing the item with its `_id`.
     fn put_library(&self, auth_key: &str, items: &[Value]) -> Result<(), SyncError>;
@@ -52,8 +67,10 @@ pub struct FixtureStremio {
     account: Option<(String, String, String)>,
     library: Mutex<Vec<Value>>,
     failing: Mutex<bool>,
+    expired: Mutex<bool>,
     calls: Mutex<Vec<String>>,
     keys_seen: Mutex<Vec<String>>,
+    library_ids: Mutex<Vec<Option<Vec<String>>>>,
 }
 
 impl FixtureStremio {
@@ -80,6 +97,18 @@ impl FixtureStremio {
         self
     }
 
+    /// Make every library call answer the API's expired-session refusal.
+    pub fn expiring_session(&self) -> &Self {
+        *self.expired.lock().expect("the fixture is not poisoned") = true;
+        self
+    }
+
+    /// Replace the account's items, as another Stremio client would between two
+    /// reads. The mtimes in the documents are the index's mtimes.
+    pub fn replace_library(&self, items: Vec<Value>) {
+        *self.library.lock().expect("the fixture is not poisoned") = items;
+    }
+
     /// Every call made, by name, in order.
     pub fn calls(&self) -> Vec<String> {
         self.calls
@@ -104,6 +133,14 @@ impl FixtureStremio {
             .clone()
     }
 
+    /// The ids each `library` call asked for, in order; `None` is the full read.
+    pub fn library_ids(&self) -> Vec<Option<Vec<String>>> {
+        self.library_ids
+            .lock()
+            .expect("the fixture is not poisoned")
+            .clone()
+    }
+
     fn record(&self, call: &str) {
         self.calls
             .lock()
@@ -119,6 +156,11 @@ impl FixtureStremio {
         if *self.failing.lock().expect("the fixture is not poisoned") {
             return Err(SyncError::Unreachable {
                 detail: "the fixture is failing every library call".to_owned(),
+            });
+        }
+        if *self.expired.lock().expect("the fixture is not poisoned") {
+            return Err(SyncError::Refused {
+                detail: "Session does not exist".to_owned(),
             });
         }
         match &self.account {
@@ -143,6 +185,10 @@ impl StremioApi for FixtureStremio {
 
     fn library(&self, auth_key: &str, ids: Option<&[String]>) -> Result<Vec<Value>, SyncError> {
         self.record("library");
+        self.library_ids
+            .lock()
+            .expect("the fixture is not poisoned")
+            .push(ids.map(|ids| ids.to_vec()));
         self.check(auth_key)?;
         let held = self.library.lock().expect("the fixture is not poisoned");
         Ok(held
@@ -155,6 +201,27 @@ impl StremioApi for FixtureStremio {
                 })
             })
             .cloned()
+            .collect())
+    }
+
+    fn library_meta(&self, auth_key: &str) -> Result<Vec<LibraryMeta>, SyncError> {
+        self.record("library_meta");
+        self.check(auth_key)?;
+        let held = self.library.lock().expect("the fixture is not poisoned");
+        Ok(held
+            .iter()
+            .filter_map(|item| {
+                let id = item.get("_id").and_then(Value::as_str)?;
+                let mtime = item
+                    .get("_mtime")
+                    .and_then(Value::as_str)
+                    .and_then(crate::sync::millis_from_iso)
+                    .unwrap_or(0);
+                Some(LibraryMeta {
+                    id: id.to_owned(),
+                    mtime,
+                })
+            })
             .collect())
     }
 

@@ -251,6 +251,35 @@ impl RemoteItem {
             .unwrap_or_default()
     }
 
+    /// Whether the account has removed the Title from its Library. The document
+    /// stays; this is the flag that hides it from the room.
+    pub fn removed(&self) -> bool {
+        self.raw
+            .get("removed")
+            .and_then(Value::as_bool)
+            .unwrap_or(false)
+    }
+
+    /// The name the account saved with the item, where it has one.
+    pub fn name(&self) -> Option<&str> {
+        self.text("name")
+    }
+
+    /// The item's content type: `movie`, `series`, …
+    pub fn r#type(&self) -> Option<&str> {
+        self.text("type")
+    }
+
+    /// The poster the account saved with the item, where it has one.
+    pub fn poster(&self) -> Option<&str> {
+        self.text("poster")
+    }
+
+    /// The shape the account recorded for the poster.
+    pub fn poster_shape(&self) -> Option<&str> {
+        self.text("posterShape")
+    }
+
     /// When the item was last modified, in milliseconds since the Unix epoch.
     pub fn mtime(&self) -> Option<i64> {
         self.raw
@@ -301,6 +330,13 @@ impl RemoteItem {
 
     fn number(&self, field: &str) -> Option<f64> {
         self.raw.get("state")?.get(field)?.as_f64()
+    }
+
+    fn text(&self, field: &str) -> Option<&str> {
+        self.raw
+            .get(field)
+            .and_then(Value::as_str)
+            .filter(|text| !text.is_empty())
     }
 
     fn state(&mut self) -> &mut Map<String, Value> {

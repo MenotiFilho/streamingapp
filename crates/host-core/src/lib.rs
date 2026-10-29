@@ -45,6 +45,7 @@ mod discover;
 mod door;
 mod fetcher;
 mod host;
+mod library;
 mod log;
 mod meta;
 mod pairing;
@@ -85,6 +86,7 @@ pub use discover::DiscoverRow;
 pub use door::HostDoor;
 pub use fetcher::{FetchError, Fetcher, FixtureFetcher};
 pub use host::Host;
+pub use library::{Library, LibraryEntry};
 pub use meta::{MetaError, Title, TitleKey, Video, MAX_META_BYTES};
 pub use pairing::{InvalidPairingCode, PairingCode, PAIRING_CODE_LEN};
 pub use playback::{
@@ -123,7 +125,7 @@ pub use secret::{
 pub use snapshot::{PreferencesSnapshot, ProtectionSnapshot, Snapshot};
 pub use store::{InMemoryStore, Store, StoreError};
 pub use stream::{AddonStreams, Playback, Stream, StreamError, Warning, MAX_STREAM_BYTES};
-pub use stremio::{FixtureStremio, StremioApi, SyncError};
+pub use stremio::{FixtureStremio, LibraryMeta, StremioApi, SyncError};
 pub use subtitles::{Subtitle, SubtitleError, MAX_FALLBACK_SUBTITLES, MAX_SUBTITLES_BYTES};
 pub use sync::{merge, BitField, Merged, RemoteItem, WatchedField};
 pub use tmdb::{
