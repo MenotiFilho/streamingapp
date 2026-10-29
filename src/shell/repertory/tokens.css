@@ -1,0 +1,126 @@
+/*
+ * The repertory token sheet: one declaration of the palette, the family
+ * stacks, the ten-foot scale, the spacing steps and the motion curves.
+ *
+ * The window reaches it through `repertory.css`; the Host's served Remote
+ * splices the same file into its page at serve time (`crates/host-wire/src/remote.rs`,
+ * the `__SPLICE_REPERTORY_TOKENS__` marker), so the phone cannot drift from the
+ * window's palette and families. The values stay scoped to
+ * `html[data-ui="repertory"]`, which is the attribute both clients set.
+ *
+ * This is the bridge, not the final packaging: #150/#153 decide how the
+ * design system ships the sheet (and whether the Remote gets its own scale).
+ */
+
+html[data-ui="repertory"] {
+  color-scheme: dark;
+
+  /*
+   * Canvas & ink. These are the measured pairs from `tokens.test.ts`; a change
+   * here fails that test until the new pair is measured.
+   */
+  --rep-ink: #0b0a09;
+  --rep-ink-raised: #141210;
+  --rep-ink-elevated: #1b1815;
+  --rep-ivory: #f2e9d8;
+  --rep-dim: #c8bda9;
+  --rep-muted: #8c8375;
+  --rep-hairline: #6e6659;
+  --rep-house: #c9a45c;
+  --rep-house-deep: #b08a45;
+  --rep-status-red: #ff4d4d;
+
+  /* The two pairings. Both use IBM Plex Mono for timecode. */
+  --rep-display: "Bodoni Moda Variable", "Bodoni Moda", Didot, "Bodoni MT", Georgia, serif;
+  --rep-sans: "Inter Variable", Inter, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --rep-mono: "IBM Plex Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
+
+  /*
+   * The ten-foot scale, with the 4K policy the prototype is testing: a vw
+   * middle and a vw ceiling, floored at the 1080p value. At 1920 these land on
+   * the research's numbers; at 3840/100% they double with the window instead of
+   * halving physically. The rem floor keeps a desk window legible.
+   *
+   * This is the window's scale. The served Remote is held in a hand, not read
+   * from a sofa, and carries its own phone scale in `remote/index.html`; the
+   * phone scale is a #150/#153 question, recorded in
+   * `docs/research/repertory-remote.md`.
+   */
+  --rep-text-hero: clamp(4.5rem, 4.6vw, 6vw);
+  --rep-text-title: clamp(3rem, 3vw, 4vw);
+  --rep-text-section: clamp(2.25rem, 2.1vw, 3.2vw);
+  --rep-text-body: clamp(1.75rem, 1.667vw, 2.2vw);
+  --rep-text-caption: clamp(1.5rem, 1.25vw, 1.7vw);
+  --rep-text-control: clamp(1.625rem, 1.35vw, 1.8vw);
+  --rep-text-mono: clamp(1.5rem, 1.25vw, 1.7vw);
+  --rep-text-badge: clamp(1.125rem, 1.1vw, 1.45vw);
+
+  --rep-leading-display: 1.08;
+  --rep-leading-body: 1.4;
+  --rep-leading-caption: 1.3;
+  --rep-tracking-display: -0.012em;
+  --rep-tracking-body: 0.008em;
+  --rep-tracking-caps: 0.08em;
+
+  /*
+   * The Remote's phone scale (#149). The ten-foot scale above is read across a
+   * room; a phone held at arm's length needs a different set of sizes from the
+   * same families, tracking and leading. It lives in this sheet so the served
+   * page does not grow a silent second scale; whether #150 promotes it to a
+   * first-class part of the design system is decided there.
+   */
+  --rep-remote-text-hero: 2.25rem;
+  --rep-remote-text-title: 1.75rem;
+  --rep-remote-text-section: 1.25rem;
+  --rep-remote-text-body: 0.95rem;
+  --rep-remote-text-caption: 0.8125rem;
+  --rep-remote-text-control: 0.9375rem;
+  --rep-remote-text-mono: 0.75rem;
+  --rep-remote-text-badge: 0.6875rem;
+  --rep-remote-touch: 2.75rem;
+  --rep-remote-nav: 4.25rem;
+  --rep-remote-strip: 4.5rem;
+  --rep-remote-gutter: 1.125rem;
+
+  --rep-space-1: 0.25rem;
+  --rep-space-2: 0.5rem;
+  --rep-space-3: 0.75rem;
+  --rep-space-4: 1rem;
+  --rep-space-5: 1.5rem;
+  --rep-space-6: 2.25rem;
+  --rep-space-7: 3rem;
+  --rep-space-8: 4rem;
+
+  --rep-spine-compact: clamp(92px, 4.8vw, 6vw);
+  --rep-spine-width: clamp(280px, 14.6vw, 18vw);
+  --rep-strip-height: clamp(168px, 8.75vw, 10vw);
+  --rep-row-gap: clamp(16px, 1.25vw, 1.8vw);
+  --rep-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --rep-dur-fast: 140ms;
+  --rep-dur-med: 240ms;
+
+  --focus-ring: 0 0 0 2px var(--rep-ivory);
+  --focus-transform: none;
+
+  --rep-focus-wash: radial-gradient(
+    80% 90% at 50% 32%,
+    rgba(201, 164, 92, 0.16),
+    rgba(201, 164, 92, 0.05) 48%,
+    transparent 72%
+  );
+}
+
+/* Playfair's larger x-height makes the same sizes read a little larger. */
+html[data-ui="repertory"][data-pairing="playfair"] {
+  --rep-display: "Playfair Display Variable", "Playfair Display", Georgia, "Times New Roman",
+    serif;
+  --rep-sans: "IBM Plex Sans Variable", "IBM Plex Sans", "Segoe UI Variable Text", "Segoe UI",
+    system-ui, sans-serif;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-ui="repertory"] {
+    --rep-dur-fast: 0ms;
+    --rep-dur-med: 0ms;
+  }
+}

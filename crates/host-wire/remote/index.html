@@ -8,9 +8,19 @@
     <style>
       /*
        * The window's palette, spliced in at serve time (#88). `src/tokens.css`
-       * is the only palette in the tree; this page keeps no copy of it.
+       * is the only Velvet palette in the tree; this page keeps no copy of it.
+       * The surface at `/` reads these. The repertory sheet below is scoped to
+       * `html[data-ui="repertory"]` and is inert for that surface.
        */
       /*__SPLICE_TOKENS__*/
+
+      /*
+       * The repertory token sheet (#149), spliced from the file the window
+       * imports (`src/shell/repertory/tokens.css`). One palette, one family
+       * stack and one phone scale for both clients; the sheet applies only when
+       * the page is asked for with `?ui=repertory`.
+       */
+      /*__SPLICE_REPERTORY_TOKENS__*/
 
       /* ------------------------------------------------------------------
        * The Cast Remote: phone-first structure, three surfaces, one page.
@@ -555,7 +565,1447 @@
         .poster { width: 10rem; }
         .cast-inner { max-width: 38rem; }
       }
+
+      /*
+       * The staged repertory surface adds a few elements the default page does
+       * not draw: the docked strip's still and progress line, and the expanded
+       * Remote's programme plate and live mark. They are hidden here so the
+       * page at `/` keeps its own drawing; the repertory block below shows them.
+       */
+      .mini-art, .mini-progress, .cast-plate, .cast-live, .menu-mark { display: none; }
+
+      /* ==================================================================
+       * Repertory Remote (#149)
+       *
+       * The phone drawing of the Cast Remote: ink/ivory/brass, Bodoni Moda /
+       * Inter / IBM Plex Mono, hairlines, no glass and no rounding. Every
+       * control and every Action is the one the default page already draws; this
+       * block moves the surfaces and re-dresses them, it does not change the
+       * flow. The token sheet is spliced above from
+       * `src/shell/repertory/tokens.css`; the phone scale lives there too.
+       *
+       * Staged behind `?ui=repertory` (#152 decides the final cutover).
+       * ================================================================== */
+
+      html[data-ui="repertory"] body {
+        background: var(--rep-ink);
+        color: var(--rep-ivory);
+        font-family: var(--rep-sans);
+        font-size: var(--rep-remote-text-body);
+        line-height: 1.45;
+        -webkit-font-smoothing: antialiased;
+      }
+      html[data-ui="repertory"] *,
+      html[data-ui="repertory"] *::before,
+      html[data-ui="repertory"] *::after {
+        border-radius: 0;
+        backdrop-filter: none;
+        -webkit-backdrop-filter: none;
+      }
+      html[data-ui="repertory"] a { color: var(--rep-house); }
+      html[data-ui="repertory"] button { touch-action: manipulation; }
+      html[data-ui="repertory"] .dim { color: var(--rep-dim); }
+      html[data-ui="repertory"] .muted { color: var(--rep-muted); }
+      html[data-ui="repertory"] ::selection { background: var(--rep-house); color: var(--rep-ink); }
+
+      html[data-ui="repertory"] [data-focusable] {
+        transition:
+          background-color var(--rep-dur-fast) var(--rep-ease),
+          border-color var(--rep-dur-fast) var(--rep-ease),
+          color var(--rep-dur-fast) var(--rep-ease);
+      }
+      html[data-ui="repertory"] [data-focusable]:focus,
+      html[data-ui="repertory"] [data-focusable]:focus-visible {
+        outline: 2px solid var(--rep-ivory);
+        outline-offset: 3px;
+        box-shadow: none;
+      }
+      html[data-ui="repertory"] .lift[data-focusable]:focus,
+      html[data-ui="repertory"] .lift[data-focusable]:focus-visible {
+        transform: none;
+      }
+
+      /* --- controls, chips and fields ---------------------------------- */
+      html[data-ui="repertory"] .btn {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.35rem;
+        min-height: var(--rep-remote-touch);
+        padding: 0 0.8rem;
+        border: 1px solid var(--rep-hairline);
+        background: transparent;
+        color: var(--rep-ivory);
+        font-family: var(--rep-mono);
+        font-size: var(--rep-remote-text-mono);
+        font-weight: 400;
+        letter-spacing: 0.04em;
+        line-height: 1.1;
+        text-transform: uppercase;
+        cursor: pointer;
+      }
+      html[data-ui="repertory"] .btn:active { background: var(--rep-ink-raised); }
+      html[data-ui="repertory"] .btn-primary {
+        border-color: var(--rep-house);
+        background: var(--rep-house);
+        color: var(--rep-ink);
+      }
+      html[data-ui="repertory"] .btn-primary:active { background: var(--rep-house-deep); }
+      html[data-ui="repertory"] .btn-ghost {
+        min-height: auto;
+        padding: 0 0 4px;
+        border: 0;
+        border-bottom: 1px solid var(--rep-hairline);
+        background: transparent;
+        color: var(--rep-dim);
+      }
+      html[data-ui="repertory"] .btn-ghost:active { background: transparent; color: var(--rep-ivory); }
+      html[data-ui="repertory"] .btn-danger {
+        border-color: var(--rep-status-red);
+        background: transparent;
+        color: var(--rep-status-red);
+      }
+      html[data-ui="repertory"] .btn-icon {
+        width: var(--rep-remote-touch);
+        min-width: var(--rep-remote-touch);
+        height: var(--rep-remote-touch);
+        padding: 0;
+      }
+      html[data-ui="repertory"] .btn:disabled { opacity: 0.4; cursor: default; }
+
+      html[data-ui="repertory"] .chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        min-height: 2.5rem;
+        padding: 0.35rem 0.65rem;
+        border: 1px solid var(--rep-hairline);
+        background: transparent;
+        color: var(--rep-dim);
+        font-family: var(--rep-mono);
+        font-size: var(--rep-remote-text-mono);
+        font-weight: 400;
+        letter-spacing: 0.02em;
+        white-space: nowrap;
+        cursor: pointer;
+      }
+      html[data-ui="repertory"] .chip[aria-pressed="true"] {
+        border-color: var(--rep-house);
+        background: transparent;
+        color: var(--rep-ivory);
+        box-shadow: inset 2px 0 0 var(--rep-house);
+      }
+      html[data-ui="repertory"] .chip:disabled { opacity: 0.45; cursor: default; }
+      html[data-ui="repertory"] .chip-row {
+        display: flex;
+        gap: 0.4rem;
+        padding: 0.2rem 0 0.4rem;
+        overflow-x: auto;
+        scrollbar-width: none;
+      }
+      html[data-ui="repertory"] .chip-row::-webkit-scrollbar { display: none; }
+
+      html[data-ui="repertory"] .form-field { display: grid; gap: 0.4rem; margin: 0 0 1.15rem; }
+      html[data-ui="repertory"] .form-field label {
+        color: var(--rep-muted);
+        font-family: var(--rep-mono);
+        font-size: var(--rep-remote-text-badge);
+        font-weight: 400;
+        letter-spacing: var(--rep-tracking-caps);
+        text-transform: uppercase;
+      }
+      html[data-ui="repertory"] input:not([type="range"]) {
+        width: 100%;
+        min-height: var(--rep-remote-touch);
+        padding: 0.5rem 0;
+        border: 0;
+        border-bottom: 1px solid var(--rep-hairline);
+        background: transparent;
+        color: var(--rep-ivory);
+        font-family: var(--rep-mono);
+        font-size: 16px;
+        box-sizing: border-box;
+      }
+      html[data-ui="repertory"] input:not([type="range"])::placeholder { color: var(--rep-muted); }
+      html[data-ui="repertory"] input:not([type="range"]):focus,
+      html[data-ui="repertory"] input:not([type="range"]):focus-visible {
+        border-bottom-color: transparent;
+      }
+      html[data-ui="repertory"] input[type="range"] { accent-color: var(--rep-house); }
+
+      html[data-ui="repertory"] .actions { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; }
+      html[data-ui="repertory"] .note {
+        margin: 0.6rem 0;
+        color: var(--rep-muted);
+        font-family: var(--rep-mono);
+        font-size: var(--rep-remote-text-badge);
+        line-height: 1.5;
+      }
+      html[data-ui="repertory"] .error {
+        color: var(--rep-status-red);
+        font-family: var(--rep-mono);
+        font-size: var(--rep-remote-text-caption);
+        line-height: 1.5;
+        white-space: pre-wrap;
+      }
+      html[data-ui="repertory"] .status {
+        color: var(--rep-house);
+        font-family: var(--rep-mono);
+        font-size: var(--rep-remote-text-badge);
+      }
+
+      /* --- pairing: a call board, not a card ---------------------------- */
+      html[data-ui="repertory"] .pairing {
+        display: grid;
+        place-items: center;
+        min-height: 100dvh;
+        padding:
+          calc(1.5rem + env(safe-area-inset-top))
+          max(1.25rem, env(safe-area-inset-right))
+          calc(1.5rem + env(safe-area-inset-bottom))
+          max(1.25rem, env(safe-area-inset-left));
+        background: var(--rep-ink);
+      }
+      html[data-ui="repertory"] .pairing-card {
+        width: 100%;
+        max-width: 26rem;
+        padding: 1.5rem 0;
+        border: 0;
+        border-top: 1px solid var(--rep-hairline);
+        border-bottom: 1px solid var(--rep-hairline);
+        background: transparent;
+        box-shadow: none;
+        backdrop-filter: none;
+      }
+      html[data-ui="repertory"] .pairing-card h1 {
+        margin: 0 0 0.65rem;
+        color: var(--rep-ivory);
+        font-family: var(--rep-display);
+        font-size: var(--rep-remote-text-hero);
+        font-weight: 500;
+        letter-spacing: var(--rep-tracking-display);
+        line-height: 1.02;
+      }
+      html[data-ui="repertory"] .pairing-card .lede { margin: 0 0 1.4rem; }
+      html[data-ui="repertory"] #code {
+        font-size: 1.25rem;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      /* --- surface 1: the programme with the docked strip ---------------- */
+      html[data-ui="repertory"] .surface-browse {
+        width: 100%;
+        max-width: 48rem;
+        margin: 0 auto;
+      }
+      html[data-ui="repertory"] .topbar {
+        height: calc(3.25rem + env(safe-area-inset-top));
+        padding:
+          env(safe-area-inset-top)
+          calc(var(--rep-remote-gutter) + env(safe-area-inset-right))
+          0
+          calc(var(--rep-remote-gutter) + env(safe-area-inset-left));
+        background: var(--rep-ink);
+        border-bottom: 1px solid var(--rep-hairline);
+        backdrop-filter: none;
+      }
+      html[data-ui="repertory"] .brand {
+        font-family: var(--rep-display);
+        font-size: 1.35rem;
+        font-weight: 500;
+        letter-spacing: var(--rep-tracking-display);
+        line-height: 1;
+      }
+      html[data-ui="repertory"] .connection {
+        color: var(--rep-muted);
+        font-family: var(--rep-mono);
+        font-size: 10px;
+        font-weight: 400;
+        letter-spacing: 0.12em;
+      }
+      html[data-ui="repertory"] .connection::before {
+        width: 0.35rem;
+        height: 0.35rem;
+        background: var(--rep-house);
+        box-shadow: none;
+      }
+      html[data-ui="repertory"] .connection[data-live="false"]::before { background: var(--rep-status-red); }
+
+      html[data-ui="repertory"] .screen {
+        top: calc(3.25rem + env(safe-area-inset-top));
+        bottom: calc(var(--rep-remote-nav) + env(safe-area-inset-bottom));
+        padding:
+          1.1rem
+          calc(var(--rep-remote-gutter) + env(safe-area-inset-right))
+          1.5rem
+          calc(var(--rep-remote-gutter) + env(safe-area-inset-left));
+        background: var(--rep-ink);
+        overscroll-behavior: contain;
+      }
+      /* The docked strip is the remote's collapsed state: the page makes room
+         for it instead of being covered by it. */
+      html[data-ui="repertory"] .surface-browse:has(.mini-strip:not(.hidden)) .screen {
+        bottom: calc(
+          var(--rep-remote-nav) + var(--rep-remote-strip) + env(safe-area-inset-bottom)
+        );
+      }
+      html[data-ui="repertory"] .screen-title {
+        margin: 0 0 1rem;
+        padding-bottom: 0.55rem;
+        border-bottom: 1px solid var(--rep-hairline);
+        color: var(--rep-house);
+        font-family: var(--rep-mono);
+        font-size: var(--rep-remote-text-mono);
+        font-weight: 400;
+        letter-spacing: var(--rep-tracking-caps);
+        line-height: 1.2;
+        text-transform: uppercase;
+      }
+      html[data-ui="repertory"] .lede {
+        max-width: 60ch;
+        margin: 0 0 1.1rem;
+        color: var(--rep-dim);
+        font-family: var(--rep-sans);
+        font-size: var(--rep-remote-text-caption);
+        line-height: 1.5;
+      }
+      html[data-ui="repertory"] .section-head {
+        display: flex;
+        align-items: baseline;
+        gap: 0.6rem;
+        margin: 1.6rem 0 0.65rem;
+        padding-bottom: 0.45rem;
+        border-bottom: 1px solid var(--rep-hairline);
+      }
+      html[data-ui="repertory"] .section-head h2 {
+        margin: 0;
+        color: var(--rep-ivory);
+        font-family: var(--rep-display);
+        font-size: var(--rep-remote-text-section);
+        font-weight: 500;
+        letter-spacing: var(--rep-tracking-display);
+        line-height: 1.05;
+      }
+      html[data-ui="repertory"] .section-tag {
+        margin-left: auto;
+        color: var(--rep-muted);
+        font-family: var(--rep-mono);
+        font-size: var(--rep-remote-text-badge);
+        letter-spacing: 0.04em;
+        white-space: nowrap;
+      }
+      html[data-ui="repertory"] .empty {
+        display: grid;
+        gap: 0.8rem;
+        margin: 1.4rem 0;
+        padding: 1.25rem 0;
+        border: 0;
+        border-top: 1px solid var(--rep-hairline);
+        border-bottom: 1px solid var(--rep-hairline);
+        background: transparent;
+      }
+      html[data-ui="repertory"] .empty h2 {
+        margin: 0;
+        color: var(--rep-ivory);
+        font-family: var(--rep-display);
+        font-size: var(--rep-remote-text-section);
+        font-weight: 500;
+      }
+      html[data-ui="repertory"] .empty p {
+        margin: 0;
+        color: var(--rep-dim);
+        font-family: var(--rep-sans);
+        font-size: var(--rep-remote-text-caption);
+        line-height: 1.5;
+      }
+      html[data-ui="repertory"] .row-note {
+        margin: 0.3rem 0 0.7rem;
+        color: var(--rep-muted);
+        font-family: var(--rep-sans);
+        font-size: var(--rep-remote-text-caption);
+      }
+
+      /* --- the feature --------------------------------------------------- */
+      html[data-ui="repertory"] .hero {
+        margin: 0 calc(-1 * var(--rep-remote-gutter)) 0.5rem;
+      }
+      html[data-ui="repertory"] .hero-button {
+        border: 0;
+        border-top: 1px solid var(--rep-hairline);
+        border-bottom: 1px solid var(--rep-hairline);
+        background: var(--rep-ink-raised);
+      }
+      html[data-ui="repertory"] .hero-art { filter: saturate(0.9) brightness(0.78); }
+      html[data-ui="repertory"] .hero-scrim {
+        background:
+          linear-gradient(0deg, var(--rep-ink) 0%, color-mix(in srgb, var(--rep-ink) 58%, transparent) 42%, transparent 76%),
+          linear-gradient(90deg, color-mix(in srgb, var(--rep-ink) 52%, transparent), transparent 64%);
+      }
+      html[data-ui="repertory"] .hero-copy {
+        gap: 0.3rem;
+        padding: 1rem calc(var(--rep-remote-gutter) + env(safe-area-inset-left)) 1.05rem;
+      }
+      html[data-ui="repertory"] .hero-kicker {
+        color: var(--rep-house);
+        font-family: var(--rep-mono);
+        font-size: var(--rep-remote-text-badge);
+        font-weight: 400;
+        letter-spacing: 0.12em;
+      }
+      html[data-ui="repertory"] .hero-name {
+        color: var(--rep-ivory);
+        font-family: var(--rep-display);
+        font-size: clamp(1.6rem, 7vw, 2.25rem);
+        font-weight: 500;
+        letter-spacing: var(--rep-tracking-display);
+        line-height: 1.02;
+      }
+      html[data-ui="repertory"] .hero-desc {
+        color: var(--rep-dim);
+        font-family: var(--rep-sans);
+        font-size: var(--rep-remote-text-caption);
+        line-height: 1.4;
+      }
+      html[data-ui="repertory"] .hero-dots { gap: 0.3rem; padding: 0.55rem 0 0; }
+      html[data-ui="repertory"] .hero-dot {
+        width: 1.5rem;
+        height: 2px;
+        padding: 0;
+        border: 0;
+        background: var(--rep-hairline);
+      }
+      html[data-ui="repertory"] .hero-dot[aria-current="true"] {
+        background: var(--rep-house);
+        box-shadow: none;
+      }
+
+      /* --- cards: unframed pictures with printed captions ---------------- */
+      html[data-ui="repertory"] .strip {
+        gap: 0.9rem;
+        padding: 0.2rem 0 0.55rem;
+        scrollbar-width: none;
+      }
+      html[data-ui="repertory"] .strip::-webkit-scrollbar { display: none; }
+      html[data-ui="repertory"] .poster {
+        position: relative;
+        width: 7.5rem;
+        border: 0;
+        background: transparent;
+        overflow: visible;
+      }
+      html[data-ui="repertory"] .poster-frame { background: var(--rep-ink-raised); }
+      html[data-ui="repertory"] .poster-art { filter: saturate(0.9) brightness(0.88); }
+      html[data-ui="repertory"] .poster-info {
+        display: flex;
+        flex-direction: row;
+        align-items: baseline;
+        gap: 0.35rem;
+        padding: 0.5rem 0 0;
+      }
+      html[data-ui="repertory"] .poster-name {
+        flex: 0 1 auto;
+        min-width: 0;
+        color: var(--rep-dim);
+        font-family: var(--rep-sans);
+        font-size: 0.8rem;
+        font-weight: 500;
+        line-height: 1.22;
+      }
+      html[data-ui="repertory"] .poster:focus .poster-name,
+      html[data-ui="repertory"] .poster:focus-visible .poster-name { color: var(--rep-ivory); }
+      html[data-ui="repertory"] .poster-sub {
+        flex: none;
+        padding: 0 0.3rem;
+        border: 1px solid var(--rep-hairline);
+        color: var(--rep-muted);
+        font-family: var(--rep-mono);
+        font-size: 9px;
+        line-height: 1.35;
+        white-space: nowrap;
+      }
+      html[data-ui="repertory"] .poster-note { display: none; }
+      html[data-ui="repertory"] .badge {
+        top: 0.45rem;
+        left: 0.45rem;
+        padding: 0.1rem 0.4rem;
+        border: 1px solid var(--rep-hairline);
+        background: var(--rep-ink);
+        color: var(--rep-dim);
+        font-family: var(--rep-mono);
+        font-size: 9px;
+        font-weight: 400;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      html[data-ui="repertory"] .badge-danger {
+        border-color: var(--rep-status-red);
+        color: var(--rep-status-red);
+      }
+      html[data-ui="repertory"] .badge-warn {
+        border-color: var(--rep-house);
+        color: var(--rep-house);
+      }
+
+      html[data-ui="repertory"] .continue {
+        width: 12.5rem;
+        border: 0;
+        background: transparent;
+        overflow: visible;
+      }
+      html[data-ui="repertory"] .continue-frame { background: var(--rep-ink-raised); }
+      html[data-ui="repertory"] .continue-art { filter: saturate(0.9) brightness(0.86); }
+      html[data-ui="repertory"] .continue-bar {
+        height: 2px;
+        background: var(--rep-hairline);
+      }
+      html[data-ui="repertory"] .continue-bar span { background: var(--rep-house); }
+      html[data-ui="repertory"] .continue-info { gap: 0.25rem; padding: 0.5rem 0 0; }
+      html[data-ui="repertory"] .continue-name {
+        color: var(--rep-dim);
+        font-family: var(--rep-sans);
+        font-size: 0.8rem;
+        font-weight: 500;
+        line-height: 1.22;
+      }
+      html[data-ui="repertory"] .continue-note {
+        color: var(--rep-muted);
+        font-family: var(--rep-mono);
+        font-size: 10px;
+      }
+      html[data-ui="repertory"] .continue-note[data-warn="true"] { color: var(--rep-house); }
+      html[data-ui="repertory"] .continue[data-unplayable="true"] {
+        opacity: 0.55;
+        border: 0;
+      }
+      html[data-ui="repertory"] .more-card {
+        min-width: 5rem;
+        border: 1px solid var(--rep-hairline);
+        background: transparent;
+        color: var(--rep-dim);
+        font-family: var(--rep-mono);
+        font-size: var(--rep-remote-text-mono);
+        letter-spacing: 0.04em;
+      }
+
+      html[data-ui="repertory"] .grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.9rem;
+      }
+      html[data-ui="repertory"] .grid .poster { width: 100%; }
+      html[data-ui="repertory"] .grid-foot { padding: 1.1rem 0 0.3rem; }
+      html[data-ui="repertory"] .credit {
+        gap: 0.4rem;
+        margin: 2rem 0 0;
+        padding: 1rem 0;
+        border-top: 1px solid var(--rep-hairline);
+      }
+      html[data-ui="repertory"] .tmdb-logo { width: 6rem; }
+      html[data-ui="repertory"] .credit-notice {
+        color: var(--rep-muted);
+        font-family: var(--rep-mono);
+        font-size: 9px;
+        line-height: 1.45;
+      }
+
+      /* --- search -------------------------------------------------------- */
+      html[data-ui="repertory"] .search-bar {
+        gap: 0.5rem;
+        margin: 0 0 1.2rem;
+        padding-bottom: 0.15rem;
+        border-bottom: 1px solid var(--rep-hairline);
+      }
+      html[data-ui="repertory"] .search-bar input {
+        border-bottom: 0;
+        font-family: var(--rep-display);
+        font-size: 1.35rem;
+      }
+      html[data-ui="repertory"] .search-bar .btn { min-height: 2.5rem; }
+      html[data-ui="repertory"] .answer-row { margin-top: 1.4rem; }
+      html[data-ui="repertory"] .answer-head {
+        align-items: baseline;
+        gap: 0.5rem;
+        margin-bottom: 0.55rem;
+        padding-bottom: 0.4rem;
+        border-bottom: 1px solid var(--rep-hairline);
+      }
+      html[data-ui="repertory"] .answer-head h2 {
+        color: var(--rep-ivory);
+        font-family: var(--rep-display);
+        font-size: var(--rep-remote-text-section);
+        font-weight: 500;
+      }
+      html[data-ui="repertory"] .answer-tag {
+        color: var(--rep-muted);
+        font-family: var(--rep-mono);
+        font-size: var(--rep-remote-text-badge);
+      }
+
+      /* --- library, Addons and Settings ---------------------------------- */
+      html[data-ui="repertory"] .card-panel {
+        padding: 1rem 0;
+        border: 0;
+        border-top: 1px solid var(--rep-hairline);
+        border-bottom: 1px solid var(--rep-hairline);
+        background: transparent;
+      }
+      html[data-ui="repertory"] .addon-list,
+      html[data-ui="repertory"] .settings-list {
+        gap: 0;
+        border-top: 1px solid var(--rep-hairline);
+      }
+      html[data-ui="repertory"] .addon-row {
+        border: 0;
+        border-bottom: 1px solid var(--rep-hairline);
+        background: transparent;
+      }
+      html[data-ui="repertory"] .addon-summary {
+        align-items: baseline;
+        padding: 0.9rem 0;
+      }
+      html[data-ui="repertory"] .addon-name {
+        color: var(--rep-ivory);
+        font-family: var(--rep-display);
+        font-size: 1.1rem;
+        font-weight: 500;
+        letter-spacing: -0.008em;
+      }
+      html[data-ui="repertory"] .addon-version,
+      html[data-ui="repertory"] .addon-id {
+        color: var(--rep-muted);
+        font-family: var(--rep-mono);
+        font-size: var(--rep-remote-text-badge);
+      }
+      html[data-ui="repertory"] .addon-details {
+        padding: 0 0 0.9rem 0.5rem;
+        border-top: 1px solid var(--rep-hairline);
+      }
+      html[data-ui="repertory"] .facts {
+        gap: 0.3rem 0.8rem;
+        margin: 0.75rem 0;
+        font-size: var(--rep-remote-text-badge);
+      }
+      html[data-ui="repertory"] .facts dt {
+        color: var(--rep-muted);
+        font-family: var(--rep-mono);
+        letter-spacing: var(--rep-tracking-caps);
+        text-transform: uppercase;
+      }
+      html[data-ui="repertory"] .facts dd {
+        color: var(--rep-dim);
+        font-family: var(--rep-mono);
+      }
+      html[data-ui="repertory"] .addon-controls { gap: 0.5rem; }
+      html[data-ui="repertory"] .settings-category {
+        padding: 1rem 0;
+        border: 0;
+        border-bottom: 1px solid var(--rep-hairline);
+        background: transparent;
+      }
+      html[data-ui="repertory"] .settings-category-title {
+        color: var(--rep-ivory);
+        font-family: var(--rep-display);
+        font-size: 1.1rem;
+        font-weight: 500;
+      }
+      html[data-ui="repertory"] .settings-category-note {
+        color: var(--rep-muted);
+        font-family: var(--rep-sans);
+        font-size: var(--rep-remote-text-caption);
+        line-height: 1.4;
+      }
+      html[data-ui="repertory"] .settings-category-mark { color: var(--rep-house); font-size: 1.1rem; }
+      html[data-ui="repertory"] .settings-section { margin-top: 1.6rem; }
+      html[data-ui="repertory"] .settings-section h2 {
+        margin: 0 0 0.65rem;
+        padding-bottom: 0.4rem;
+        border-bottom: 1px solid var(--rep-hairline);
+        color: var(--rep-ivory);
+        font-family: var(--rep-display);
+        font-size: var(--rep-remote-text-section);
+        font-weight: 500;
+      }
+      html[data-ui="repertory"] .settings-copy {
+        margin: 0 0 0.8rem;
+        color: var(--rep-dim);
+        font-family: var(--rep-sans);
+        font-size: var(--rep-remote-text-caption);
+        line-height: 1.5;
+      }
+      html[data-ui="repertory"] .readout {
+        gap: 0.3rem 0.8rem;
+        margin: 0 0 0.8rem;
+        font-size: var(--rep-remote-text-badge);
+      }
+      html[data-ui="repertory"] .readout dt {
+        color: var(--rep-muted);
+        font-family: var(--rep-mono);
+        letter-spacing: var(--rep-tracking-caps);
+        text-transform: uppercase;
+      }
+      html[data-ui="repertory"] .readout dd {
+        color: var(--rep-dim);
+        font-family: var(--rep-mono);
+      }
+      html[data-ui="repertory"] .device-row {
+        gap: 0.75rem;
+        padding: 0.7rem 0;
+        border-bottom: 1px solid var(--rep-hairline);
+      }
+      html[data-ui="repertory"] .device-name {
+        color: var(--rep-ivory);
+        font-family: var(--rep-display);
+        font-size: 1.05rem;
+        font-weight: 500;
+      }
+      html[data-ui="repertory"] .device-date {
+        color: var(--rep-muted);
+        font-family: var(--rep-mono);
+        font-size: var(--rep-remote-text-badge);
+      }
+
+      /* --- the pushed levels: the same programme, one level deeper ------- */
+      html[data-ui="repertory"] .level-host {
+        background: var(--rep-ink);
+      }
+      html[data-ui="repertory"] .level-head {
+        gap: 0.75rem;
+        padding:
+          calc(0.55rem + env(safe-area-inset-top))
+          calc(var(--rep-remote-gutter) + env(safe-area-inset-right))
+          0.55rem
+          calc(var(--rep-remote-gutter) + env(safe-area-inset-left));
+        background: var(--rep-ink);
+        border-bottom: 1px solid var(--rep-hairline);
+        backdrop-filter: none;
+      }
+      html[data-ui="repertory"] .level-title {
+        color: var(--rep-ivory);
+        font-family: var(--rep-display);
+        font-size: var(--rep-remote-text-section);
+        font-weight: 500;
+        letter-spacing: var(--rep-tracking-display);
+        line-height: 1.05;
+      }
+      html[data-ui="repertory"] .level-body {
+        padding:
+          1rem
+          calc(var(--rep-remote-gutter) + env(safe-area-inset-right))
+          calc(2rem + env(safe-area-inset-bottom))
+          calc(var(--rep-remote-gutter) + env(safe-area-inset-left));
+      }
+      html[data-ui="repertory"] .title-hero {
+        min-height: 18rem;
+        padding: 0.75rem calc(var(--rep-remote-gutter) + env(safe-area-inset-left)) 1.1rem;
+        border-bottom: 1px solid var(--rep-hairline);
+      }
+      html[data-ui="repertory"] .title-art { filter: saturate(0.9) brightness(0.76); }
+      html[data-ui="repertory"] .title-scrim {
+        background:
+          linear-gradient(0deg, var(--rep-ink) 2%, color-mix(in srgb, var(--rep-ink) 58%, transparent) 46%, transparent 100%),
+          linear-gradient(90deg, color-mix(in srgb, var(--rep-ink) 62%, transparent), transparent 72%);
+      }
+      html[data-ui="repertory"] .title-copy { gap: 0.6rem; margin-top: 6rem; }
+      html[data-ui="repertory"] .title-name {
+        color: var(--rep-ivory);
+        font-family: var(--rep-display);
+        font-size: var(--rep-remote-text-title);
+        font-weight: 500;
+        letter-spacing: var(--rep-tracking-display);
+        line-height: 1.03;
+      }
+      html[data-ui="repertory"] .title-desc {
+        max-width: 65ch;
+        color: var(--rep-dim);
+        font-family: var(--rep-sans);
+        font-size: var(--rep-remote-text-caption);
+        line-height: 1.5;
+      }
+      html[data-ui="repertory"] .episode {
+        gap: 0.75rem;
+        margin: 0;
+        padding: 0.6rem 0;
+        border: 0;
+        border-bottom: 1px solid var(--rep-hairline);
+        background: transparent;
+      }
+      html[data-ui="repertory"] .episode-still { flex-basis: 5.5rem; background: var(--rep-ink-raised); }
+      html[data-ui="repertory"] .episode-label {
+        color: var(--rep-house);
+        font-family: var(--rep-mono);
+        font-size: var(--rep-remote-text-badge);
+        font-weight: 400;
+        letter-spacing: 0.04em;
+      }
+      html[data-ui="repertory"] .episode-name {
+        color: var(--rep-dim);
+        font-family: var(--rep-sans);
+        font-size: var(--rep-remote-text-caption);
+        font-weight: 500;
+      }
+      html[data-ui="repertory"] .stream-group { margin-top: 1.2rem; }
+      html[data-ui="repertory"] .stream-group h2 {
+        margin: 0 0 0.45rem;
+        padding-bottom: 0.35rem;
+        border-bottom: 1px solid var(--rep-hairline);
+        color: var(--rep-house);
+        font-family: var(--rep-mono);
+        font-size: var(--rep-remote-text-badge);
+        font-weight: 400;
+        letter-spacing: var(--rep-tracking-caps);
+      }
+      html[data-ui="repertory"] .stream {
+        gap: 0.35rem;
+        margin: 0;
+        padding: 0.75rem 0;
+        border: 0;
+        border-bottom: 1px solid var(--rep-hairline);
+        background: transparent;
+      }
+      html[data-ui="repertory"] .stream[aria-pressed="true"] { box-shadow: inset 2px 0 0 var(--rep-house); }
+      html[data-ui="repertory"] .stream-badge {
+        padding: 0 0.35rem;
+        border: 1px solid var(--rep-hairline);
+        color: var(--rep-dim);
+        font-family: var(--rep-mono);
+        font-size: 9px;
+        font-weight: 400;
+        line-height: 1.45;
+      }
+      html[data-ui="repertory"] .stream-file {
+        color: var(--rep-muted);
+        font-family: var(--rep-mono);
+        font-size: 10px;
+        line-height: 1.4;
+      }
+      html[data-ui="repertory"] .stream-desc {
+        color: var(--rep-dim);
+        font-family: var(--rep-sans);
+        font-size: var(--rep-remote-text-badge);
+        line-height: 1.4;
+      }
+      html[data-ui="repertory"] .stream-warn {
+        color: var(--rep-house);
+        font-family: var(--rep-mono);
+        font-size: 10px;
+      }
+      html[data-ui="repertory"] .stream-danger {
+        color: var(--rep-status-red);
+        font-family: var(--rep-mono);
+        font-size: 10px;
+      }
+      html[data-ui="repertory"] .confirm-layer {
+        padding: 1.25rem;
+        background: color-mix(in srgb, var(--rep-ink) 82%, transparent);
+      }
+      html[data-ui="repertory"] .confirm-card {
+        width: min(24rem, 100%);
+        padding: 1.25rem;
+        border: 1px solid var(--rep-hairline);
+        background: var(--rep-ink-elevated);
+        box-shadow: none;
+      }
+      html[data-ui="repertory"] .confirm-card h2 {
+        margin: 0 0 0.6rem;
+        color: var(--rep-ivory);
+        font-family: var(--rep-display);
+        font-size: var(--rep-remote-text-section);
+        font-weight: 500;
+      }
+      html[data-ui="repertory"] .confirm-card p {
+        margin: 0 0 1.1rem;
+        color: var(--rep-dim);
+        font-family: var(--rep-sans);
+        font-size: var(--rep-remote-text-caption);
+        line-height: 1.5;
+      }
+
+      /* --- the docked cast strip ---------------------------------------- */
+      html[data-ui="repertory"] .mini-strip {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: calc(var(--rep-remote-nav) + env(safe-area-inset-bottom));
+        z-index: 13;
+        display: grid;
+        grid-template-columns: 2.35rem var(--rep-remote-touch) minmax(0, 1fr) var(--rep-remote-touch);
+        align-items: center;
+        gap: 0.45rem;
+        width: 100%;
+        max-width: 48rem;
+        height: var(--rep-remote-strip);
+        margin: 0 auto;
+        padding:
+          0.35rem
+          calc(var(--rep-remote-gutter) + env(safe-area-inset-right))
+          0.35rem
+          calc(var(--rep-remote-gutter) + env(safe-area-inset-left));
+        border: 0;
+        border-top: 1px solid var(--rep-hairline);
+        border-bottom: 1px solid var(--rep-hairline);
+        background: var(--rep-ink);
+        box-shadow: none;
+        overflow: hidden;
+      }
+      html[data-ui="repertory"] .mini-strip::before {
+        content: "";
+        position: absolute;
+        inset: 0 0 auto 0;
+        height: 1px;
+        background: var(--rep-house);
+        opacity: 0.55;
+      }
+      html[data-ui="repertory"] .mini-live { display: none; }
+      html[data-ui="repertory"] .mini-art {
+        display: block;
+        width: 2.35rem;
+        height: calc(var(--rep-remote-strip) - 0.7rem);
+        overflow: hidden;
+        background: var(--rep-ink-raised);
+      }
+      html[data-ui="repertory"] .mini-art img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        filter: saturate(0.9) brightness(0.86);
+      }
+      html[data-ui="repertory"] .mini-progress {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        display: block;
+        height: 2px;
+        background: var(--rep-hairline);
+        pointer-events: none;
+      }
+      html[data-ui="repertory"] .mini-progress span {
+        display: block;
+        height: 100%;
+        background: var(--rep-house);
+      }
+      html[data-ui="repertory"] .mini-center {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        grid-template-rows: auto auto;
+        column-gap: 0.45rem;
+        align-items: center;
+        min-width: 0;
+        height: calc(var(--rep-remote-strip) - 0.7rem);
+        padding: 0;
+        border: 0;
+        background: transparent;
+        text-align: left;
+      }
+      html[data-ui="repertory"] .mini-chevron {
+        grid-row: 1 / span 2;
+        color: var(--rep-house);
+        font-size: 0.95rem;
+        line-height: 1;
+      }
+      html[data-ui="repertory"] .mini-name {
+        overflow: hidden;
+        color: var(--rep-ivory);
+        font-family: var(--rep-display);
+        font-size: 1rem;
+        font-weight: 500;
+        line-height: 1.08;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      html[data-ui="repertory"] .mini-episode {
+        color: var(--rep-muted);
+        font-family: var(--rep-mono);
+        font-size: 10px;
+        line-height: 1.2;
+      }
+      html[data-ui="repertory"] .mini-strip .btn-icon {
+        width: var(--rep-remote-touch);
+        height: var(--rep-remote-touch);
+        border-color: transparent;
+        color: var(--rep-dim);
+        font-size: 0.8rem;
+      }
+      html[data-ui="repertory"] .mini-strip .btn-primary {
+        border-color: var(--rep-house);
+        background: var(--rep-house);
+        color: var(--rep-ink);
+      }
+
+      /* --- the bottom index --------------------------------------------- */
+      html[data-ui="repertory"] .bottom-nav {
+        height: calc(var(--rep-remote-nav) + env(safe-area-inset-bottom));
+        padding:
+          0
+          env(safe-area-inset-right)
+          env(safe-area-inset-bottom)
+          env(safe-area-inset-left);
+        background: var(--rep-ink);
+        border-top: 1px solid var(--rep-hairline);
+        backdrop-filter: none;
+      }
+      html[data-ui="repertory"] .nav-item {
+        gap: 0.18rem;
+        min-height: 0;
+        padding: 0.35rem 0.1rem;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        color: var(--rep-muted);
+        font-family: var(--rep-mono);
+        font-size: 9px;
+        font-weight: 400;
+        letter-spacing: 0.02em;
+      }
+      html[data-ui="repertory"] .nav-item svg { width: 1.15rem; height: 1.15rem; }
+      html[data-ui="repertory"] .nav-item[aria-current="page"] {
+        background: transparent;
+        color: var(--rep-house);
+        box-shadow: inset 0 2px 0 var(--rep-house);
+      }
+
+      html[data-ui="repertory"] .alert {
+        left: var(--rep-remote-gutter);
+        right: var(--rep-remote-gutter);
+        bottom: calc(var(--rep-remote-nav) + var(--rep-remote-strip) + 0.75rem + env(safe-area-inset-bottom));
+        padding: 0.7rem 0.8rem;
+        border: 1px solid var(--rep-status-red);
+        background: var(--rep-ink-raised);
+        color: var(--rep-ivory);
+        font-family: var(--rep-sans);
+        font-size: var(--rep-remote-text-caption);
+      }
+
+      html[data-ui="repertory"] .pending-pill {
+        bottom: calc(var(--rep-remote-nav) + var(--rep-remote-strip) + 1rem + env(safe-area-inset-bottom));
+        padding: 0.45rem 0.8rem;
+        border: 1px solid var(--rep-hairline);
+        background: var(--rep-ink);
+        color: var(--rep-dim);
+        font-family: var(--rep-mono);
+        font-size: var(--rep-remote-text-badge);
+      }
+      html[data-ui="repertory"] [data-pending="true"] { opacity: 0.5; cursor: progress; }
+
+      /* --- surface 2: the expanded programme card ----------------------- */
+      html[data-ui="repertory"] .cast {
+        background: var(--rep-ink);
+        padding: 0 0 1.5rem;
+      }
+      html[data-ui="repertory"] .cast-inner {
+        width: 100%;
+        max-width: 34rem;
+        min-height: 100%;
+        gap: 0;
+        padding: 0 var(--rep-remote-gutter);
+      }
+      html[data-ui="repertory"] .cast-head {
+        order: 0;
+        position: sticky;
+        top: 0;
+        z-index: 6;
+        grid-template-columns: var(--rep-remote-touch) minmax(0, 1fr);
+        gap: 0.75rem;
+        margin: 0 calc(-1 * var(--rep-remote-gutter));
+        padding:
+          calc(0.55rem + env(safe-area-inset-top))
+          var(--rep-remote-gutter)
+          0.55rem;
+        background: var(--rep-ink);
+        border-bottom: 1px solid var(--rep-hairline);
+      }
+      html[data-ui="repertory"] .cast-heading { display: none; }
+      html[data-ui="repertory"] .cast-live {
+        display: inline-flex;
+        align-items: center;
+        justify-self: end;
+        gap: 0.35rem;
+        color: var(--rep-muted);
+        font-family: var(--rep-mono);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      html[data-ui="repertory"] .cast-live::before {
+        content: "";
+        width: 0.35rem;
+        height: 0.35rem;
+        background: var(--rep-house);
+      }
+      html[data-ui="repertory"] .cast-live[data-live="false"]::before { background: var(--rep-status-red); }
+
+      html[data-ui="repertory"] .cast-plate {
+        order: 1;
+        position: relative;
+        display: block;
+        margin: 0 calc(-1 * var(--rep-remote-gutter));
+        aspect-ratio: 16 / 9;
+        overflow: hidden;
+        border-top: 1px solid var(--rep-hairline);
+        border-bottom: 1px solid var(--rep-hairline);
+        background: var(--rep-ink-raised);
+      }
+      html[data-ui="repertory"] .cast-plate-art {
+        position: absolute;
+        inset: 0;
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        filter: saturate(0.9) brightness(0.74);
+      }
+      html[data-ui="repertory"] .cast-plate-scrim {
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(0deg, var(--rep-ink) 0%, color-mix(in srgb, var(--rep-ink) 55%, transparent) 45%, transparent 78%),
+          linear-gradient(90deg, color-mix(in srgb, var(--rep-ink) 45%, transparent), transparent 62%);
+        pointer-events: none;
+      }
+      html[data-ui="repertory"] .cast-plate-copy {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        display: grid;
+        gap: 0.25rem;
+        padding: 1rem calc(var(--rep-remote-gutter) + env(safe-area-inset-left)) 0.85rem;
+      }
+      html[data-ui="repertory"] .cast-plate-kicker {
+        color: var(--rep-house);
+        font-family: var(--rep-mono);
+        font-size: 10px;
+        letter-spacing: var(--rep-tracking-caps);
+        text-transform: uppercase;
+      }
+      html[data-ui="repertory"] .cast-plate-name {
+        display: -webkit-box;
+        margin: 0;
+        overflow: hidden;
+        color: var(--rep-ivory);
+        font-family: var(--rep-display);
+        font-size: clamp(1.6rem, 7vw, 2.25rem);
+        font-weight: 500;
+        letter-spacing: var(--rep-tracking-display);
+        line-height: 1.02;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 2;
+      }
+      html[data-ui="repertory"] .cast-plate-episode {
+        color: var(--rep-dim);
+        font-family: var(--rep-mono);
+        font-size: var(--rep-remote-text-badge);
+        line-height: 1.3;
+      }
+      html[data-ui="repertory"] .cast-poster { display: none; }
+
+      html[data-ui="repertory"] .cast-menus {
+        order: 5;
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 0;
+        border-top: 1px solid var(--rep-hairline);
+        border-bottom: 1px solid var(--rep-hairline);
+      }
+      html[data-ui="repertory"] .cast-menus .utility { padding: 0.6rem 0.15rem; }
+      html[data-ui="repertory"] .utility {
+        gap: 0.3rem;
+        min-height: 3.6rem;
+        padding: 0.6rem 0.35rem;
+        border: 0;
+        border-right: 1px solid var(--rep-hairline);
+        background: transparent;
+        color: var(--rep-dim);
+        font-family: var(--rep-mono);
+        font-size: var(--rep-remote-text-badge);
+        font-weight: 400;
+        letter-spacing: 0.02em;
+        line-height: 1.25;
+      }
+      html[data-ui="repertory"] .utility:last-child { border-right: 0; }
+      html[data-ui="repertory"] .utility span {
+        color: var(--rep-house);
+        font-size: 1rem;
+        line-height: 1;
+      }
+      html[data-ui="repertory"] .utility[aria-expanded="true"] {
+        background: var(--rep-ink-raised);
+        color: var(--rep-ivory);
+        box-shadow: inset 0 -2px 0 var(--rep-house);
+      }
+      html[data-ui="repertory"] .utility:disabled { opacity: 0.4; }
+
+      /*
+       * Volume is not a menu on the repertory card: it is the one always-visible
+       * box, between the transport and the five-menu row. It is a bounded
+       * hairline box, not a popover; the mute control is an icon.
+       */
+      html[data-ui="repertory"] .volume-panel {
+        order: 4;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 0.6rem;
+        margin: 0.65rem 0 0.9rem;
+        padding: 0.65rem 0.75rem;
+        border: 1px solid var(--rep-hairline);
+        background: var(--rep-ink-raised);
+      }
+      html[data-ui="repertory"] .volume-panel > div { display: none; }
+      html[data-ui="repertory"] .volume-level {
+        color: var(--rep-dim);
+        font-family: var(--rep-mono);
+        font-size: var(--rep-remote-text-badge);
+        white-space: nowrap;
+      }
+      html[data-ui="repertory"] .volume-level::before {
+        content: "Vol ";
+        color: var(--rep-muted);
+      }
+      html[data-ui="repertory"] .volume-panel input[type="range"] { width: 100%; }
+      html[data-ui="repertory"] .volume-panel .btn-icon {
+        width: auto;
+        min-width: var(--rep-remote-touch);
+        height: var(--rep-remote-touch);
+        padding: 0 0.6rem;
+      }
+      html[data-ui="repertory"] .volume-panel .btn-icon svg {
+        display: block;
+        width: 1.15rem;
+        height: 1.15rem;
+      }
+
+      html[data-ui="repertory"] .timeline {
+        order: 2;
+        gap: 0.35rem;
+        margin-top: 0.55rem;
+        padding: 0.35rem 0 0.1rem;
+      }
+      html[data-ui="repertory"] .seek-track { height: 2.2rem; }
+      html[data-ui="repertory"] .seek-track::before {
+        height: 2px;
+        background: var(--rep-hairline);
+      }
+      html[data-ui="repertory"] .seek-buffered { height: 2px; background: var(--rep-dim); opacity: 0.45; }
+      html[data-ui="repertory"] .seek-played { height: 2px; background: var(--rep-house); }
+      html[data-ui="repertory"] .seek-track input[type="range"] { height: 2.2rem; }
+      html[data-ui="repertory"] .seek-track input[type="range"]::-webkit-slider-runnable-track {
+        height: 2px;
+        background: transparent;
+      }
+      html[data-ui="repertory"] .seek-track input[type="range"]::-moz-range-track {
+        height: 2px;
+        background: transparent;
+      }
+      html[data-ui="repertory"] .seek-track input[type="range"]::-webkit-slider-thumb {
+        width: 0.7rem;
+        height: 0.7rem;
+        margin-top: -0.3rem;
+        border: 0;
+        background: var(--rep-ivory);
+      }
+      html[data-ui="repertory"] .seek-track input[type="range"]::-moz-range-thumb {
+        width: 0.7rem;
+        height: 0.7rem;
+        border: 0;
+        background: var(--rep-ivory);
+      }
+      html[data-ui="repertory"] .times {
+        color: var(--rep-muted);
+        font-family: var(--rep-mono);
+        font-size: 10px;
+        letter-spacing: 0.04em;
+      }
+      html[data-ui="repertory"] .seek-preview {
+        max-width: 10.5rem;
+        padding: 0.35rem;
+        border: 1px solid var(--rep-hairline);
+        background: var(--rep-ink);
+        box-shadow: none;
+      }
+      html[data-ui="repertory"] .seek-preview img {
+        width: 9.5rem;
+        border-radius: 0;
+        filter: saturate(0.9) brightness(0.86);
+      }
+      html[data-ui="repertory"] .seek-preview-time {
+        color: var(--rep-ivory);
+        font-family: var(--rep-mono);
+        font-size: 10px;
+        font-weight: 400;
+      }
+      html[data-ui="repertory"] .seek-preview-chapter {
+        max-width: 9.5rem;
+        color: var(--rep-dim);
+        font-family: var(--rep-mono);
+        font-size: 9px;
+      }
+
+      html[data-ui="repertory"] .transport {
+        order: 3;
+        grid-template-columns: repeat(6, minmax(0, 1fr));
+        gap: 0;
+        border-top: 1px solid var(--rep-hairline);
+        border-bottom: 1px solid var(--rep-hairline);
+      }
+      html[data-ui="repertory"] .transport .btn {
+        min-height: 3.4rem;
+        padding: 0 0.2rem;
+        border: 0;
+        border-right: 1px solid var(--rep-hairline);
+        background: transparent;
+        color: var(--rep-dim);
+        font-family: var(--rep-mono);
+        font-size: 10px;
+        letter-spacing: 0;
+      }
+      html[data-ui="repertory"] .transport .btn:last-child { border-right: 0; }
+      html[data-ui="repertory"] .transport .primary-round {
+        border-right: 1px solid var(--rep-house);
+        background: var(--rep-house);
+        color: var(--rep-ink);
+        font-size: 1.1rem;
+      }
+
+      html[data-ui="repertory"] .cast-footer {
+        order: 7;
+        margin-top: 0.75rem;
+        padding: 0.75rem 0 calc(0.5rem + env(safe-area-inset-bottom));
+        border-top: 1px solid var(--rep-hairline);
+        color: var(--rep-muted);
+        font-family: var(--rep-mono);
+        font-size: 9px;
+        letter-spacing: 0.04em;
+        text-align: left;
+      }
+      html[data-ui="repertory"] .cast-note {
+        order: 6;
+        margin: 0.6rem 0 0;
+        color: var(--rep-dim);
+        font-family: var(--rep-sans);
+        font-size: var(--rep-remote-text-caption);
+        line-height: 1.45;
+        text-align: left;
+      }
+      html[data-ui="repertory"] .cast-note[data-danger="true"] { color: var(--rep-status-red); }
+
+      /* --- surface 3: the Audio & Subtitles drawer ---------------------- */
+      html[data-ui="repertory"] .sheet-layer {
+        align-items: flex-end;
+        background: color-mix(in srgb, var(--rep-ink) 78%, transparent);
+        backdrop-filter: none;
+      }
+      html[data-ui="repertory"] .sheet-panel {
+        width: 100%;
+        max-width: 38rem;
+        max-height: 88dvh;
+        padding:
+          0
+          var(--rep-remote-gutter)
+          calc(1.1rem + env(safe-area-inset-bottom));
+        border: 0;
+        border-top: 1px solid var(--rep-house);
+        background: var(--rep-ink);
+        box-shadow: none;
+      }
+      html[data-ui="repertory"] .sheet-head {
+        position: sticky;
+        top: 0;
+        gap: 0.75rem;
+        margin: 0 calc(-1 * var(--rep-remote-gutter)) 0.5rem;
+        padding: 0.75rem var(--rep-remote-gutter);
+        border-bottom: 1px solid var(--rep-hairline);
+        background: var(--rep-ink);
+        backdrop-filter: none;
+      }
+      html[data-ui="repertory"] .sheet-head h2 {
+        color: var(--rep-ivory);
+        font-family: var(--rep-display);
+        font-size: var(--rep-remote-text-section);
+        font-weight: 500;
+        letter-spacing: var(--rep-tracking-display);
+      }
+      html[data-ui="repertory"] .sheet-head .btn-primary {
+        min-height: auto;
+        padding: 4px 0;
+        border: 0;
+        border-bottom: 1px solid var(--rep-house);
+        background: transparent;
+        color: var(--rep-house);
+      }
+      html[data-ui="repertory"] .sheet-group { margin-top: 1.25rem; }
+      html[data-ui="repertory"] .sheet-group h3 {
+        margin: 0 0 0.5rem;
+        color: var(--rep-muted);
+        font-family: var(--rep-mono);
+        font-size: var(--rep-remote-text-badge);
+        font-weight: 400;
+        letter-spacing: var(--rep-tracking-caps);
+      }
+      html[data-ui="repertory"] .track {
+        gap: 0.6rem;
+        margin: 0;
+        padding: 0.75rem 0;
+        border: 0;
+        border-bottom: 1px solid var(--rep-hairline);
+        background: transparent;
+        color: var(--rep-dim);
+        font-family: var(--rep-sans);
+        font-size: var(--rep-remote-text-caption);
+      }
+      html[data-ui="repertory"] .track[aria-pressed="true"] {
+        background: transparent;
+        color: var(--rep-ivory);
+        box-shadow: inset 2px 0 0 var(--rep-house);
+        padding-left: 0.55rem;
+      }
+      html[data-ui="repertory"] .track-marks {
+        color: var(--rep-muted);
+        font-family: var(--rep-mono);
+        font-size: 9px;
+      }
+      html[data-ui="repertory"] .delay-row,
+      html[data-ui="repertory"] .size-row {
+        gap: 0.5rem;
+        padding: 0.25rem 0 0.5rem;
+      }
+      html[data-ui="repertory"] .delay-readout,
+      html[data-ui="repertory"] .size-readout {
+        min-width: 5rem;
+        color: var(--rep-dim);
+        font-family: var(--rep-mono);
+        font-size: var(--rep-remote-text-badge);
+      }
+
+      /* --- a phone wide enough for two columns --------------------------- */
+      @media (min-width: 720px) {
+        html[data-ui="repertory"] .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        html[data-ui="repertory"] .poster { width: 9rem; }
+        html[data-ui="repertory"] .cast-inner { max-width: 38rem; }
+        html[data-ui="repertory"] .mini-strip { max-width: 48rem; }
+      }
     </style>
+
+    <!--
+      The repertory surface is staged behind `?ui=repertory` (#149). This is a
+      prototype selector, not the final staging: #152 decides whether the Host
+      setting, a route or the window's cutover carries it. The old surface at
+      `/` sets no attribute and keeps its own palette; a paired phone holding
+      that page open is not disturbed. The selector runs before the body paints,
+      so the first frame is already in the chosen surface.
+    -->
+    <script>
+      (function () {
+        try {
+          if (new URLSearchParams(window.location.search).get("ui") === "repertory") {
+            document.documentElement.dataset.ui = "repertory";
+          }
+        } catch (error) {
+          /* A page without URLSearchParams stays on the old surface. */
+        }
+      })();
+    </script>
   </head>
   <body>
     <!--
@@ -1526,9 +2976,12 @@
         addons: { expanded: null, status: null },
         // The level stack above the destination, outermost first.
         levels: [],
-        // The three surfaces
+        // The three surfaces. `sheet` is the open drawer's kind: null, "av",
+        // "episodes", "speed", "chapters" or "picture". Volume is the one menu
+        // that opens a popover over the card instead of the shared drawer.
         cast: false,
-        sheet: false,
+        sheet: null,
+        episodes: null,
         volumeOpen: false,
         morePanel: null,
         showStatistics: false,
@@ -1569,6 +3022,31 @@
       // Drawing
       // ---------------------------------------------------------------------
       function playback() { return state.snapshot ? state.snapshot.playback : null; }
+
+      /** Whether the staged repertory surface is the one being drawn. */
+      function isRepertory() {
+        return document.documentElement.dataset.ui === "repertory";
+      }
+
+      /**
+       * Open one of the shared playback drawers. Audio & Subtitles, Episodes,
+       * Speed, Chapters and Picture all use this one surface and its Done/Back
+       * rule; Volume is the exception and opens its own popover.
+       */
+      function openMenu(menu, returnKey) {
+        state.sheetReturn = returnKey || focusKey(document.activeElement);
+        state.sheet = menu;
+        if (menu !== "episodes") { state.episodes = null; }
+        state.focusTarget = "sheet";
+        paint();
+      }
+
+      function closeSheet() {
+        state.sheet = null;
+        state.episodes = null;
+        state.focusTarget = state.sheetReturn ? { key: state.sheetReturn } : "cast";
+        paint();
+      }
 
       function showPairing(message) {
         $("pairing").classList.remove("hidden");
@@ -1697,6 +3175,7 @@
         if (!p || !watching(p.state)) { return "none"; }
         return JSON.stringify({
           open: state.cast,
+          sheet: state.sheet,
           volumeOpen: state.volumeOpen,
           morePanel: state.morePanel,
           showStatistics: state.showStatistics,
@@ -1729,9 +3208,27 @@
         const p = playback();
         if (!state.sheet || !p || !watching(p.state)) { return "none"; }
         return JSON.stringify({
+          menu: state.sheet,
           tracks: p.tracks,
           delay: p.subtitleDelay,
-          scale: state.snapshot ? state.snapshot.preferences.subtitleScale : null,
+          subtitleScale: state.snapshot ? state.snapshot.preferences.subtitleScale : null,
+          speed: p.speed,
+          chapters: p.chapters,
+          chapter: p.chapter,
+          crop: p.crop,
+          aspect: p.aspect,
+          resolution: p.resolution,
+          statistics: p.statistics,
+          showStatistics: state.showStatistics,
+          episodes: state.episodes
+            ? {
+                loading: state.episodes.loading,
+                title: state.episodes.title ? state.episodes.title.id : null,
+                shownSeason: state.episodes.shownSeason,
+                failure: state.episodes.failure ? state.episodes.failure.kind : null,
+                loadingStreams: state.episodes.loadingStreams,
+              }
+            : null,
         });
       }
 
@@ -2691,7 +4188,15 @@
         const playing = p.state === "playing";
         const canTransport = transportable(p.state);
         const current = nowTitle();
+        // The repertory docked strip carries the still and the progress line;
+        // the default surface hides both (see the base rules above).
+        const art = current.entry
+          ? current.entry.title.background || current.entry.title.poster
+          : null;
+        const fraction = current.entry ? progressOf(current.entry) : null;
         strip.innerHTML = html`
+          <span class="mini-art" aria-hidden="true">${art ? html`<img src="${art}" alt="" />` : null}</span>
+          <span class="mini-progress" aria-hidden="true"><span style="width:${fraction === null ? 0 : Math.round(fraction * 100)}%"></span></span>
           <span class="mini-live" data-live="${pressed(state.online)}">${state.online ? "live" : "reconnecting\u2026"}</span>
           <button type="button" class="btn btn-icon" data-focusable data-a="seek-by" data-seconds="-10"
                   data-focus-key="mini-rewind" aria-label="Back ten seconds" ${off(!canTransport)}>\u221210s</button>
@@ -2703,7 +4208,7 @@
           </button>
           <button type="button" class="btn btn-icon ${playing ? "" : "btn-primary"}" data-focusable
                   data-a="pause-toggle" data-focus-key="mini-pause" aria-label="${playing ? "Pause" : "Play"}"
-                  ${off(!canTransport)}>${playing ? "\u2016" : "\u25B6"}</button>
+                  ${off(!canTransport)}>${playing ? "\u2016" : "\u25B6\uFE0E"}</button>
         `.markup;
       }
 
@@ -2712,6 +4217,56 @@
         const view = captureView();
         renderCastBody();
         if (!state.focusTarget) { restoreView(view); }
+      }
+
+      /**
+       * The repertory card's five menus: one row, one drawer each. Volume is
+       * not here; it is the always-visible box between the transport and this
+       * row. The old surface keeps its three utilities (with Volume) and its
+       * three inline extras.
+       */
+      function renderCastMenus(p, episode) {
+        return html`
+          <div class="cast-menus" aria-label="Playback menus">
+            <button type="button" class="utility" data-focusable data-a="open-sheet"
+                    data-focus-key="cast-audio" aria-expanded="${pressed(state.sheet === "av")}"
+                    aria-label="Audio &amp; Subtitles">
+              <span aria-hidden="true">CC</span>Audio
+            </button>
+            <button type="button" class="utility" data-focusable data-a="episodes-open"
+                    data-focus-key="cast-episodes" aria-expanded="${pressed(state.sheet === "episodes")}"
+                    ${off(episode === null)}>
+              <span aria-hidden="true">\u2630</span>Episodes
+            </button>
+            <button type="button" class="utility" data-focusable data-a="more-panel" data-panel="speed"
+                    data-focus-key="cast-speed" aria-expanded="${pressed(state.sheet === "speed")}">
+              <span aria-hidden="true">\u00BB</span>Speed
+            </button>
+            <button type="button" class="utility" data-focusable data-a="more-panel" data-panel="chapters"
+                    data-focus-key="cast-chapters" aria-expanded="${pressed(state.sheet === "chapters")}">
+              <span aria-hidden="true">\u2261</span>Chapters
+            </button>
+            <button type="button" class="utility" data-focusable data-a="more-panel" data-panel="picture"
+                    data-focus-key="cast-picture" aria-expanded="${pressed(state.sheet === "picture")}">
+              <span aria-hidden="true">\u25AD</span>Picture
+            </button>
+          </div>`;
+      }
+
+      /** The mute control is an icon on the repertory card; the old surface keeps its word. */
+      function muteIcon(muted) {
+        return muted
+          ? html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 9h4l5-4v14l-5-4H4z" />
+              <path d="m16 9 5 6M21 9l-5 6" />
+            </svg>`
+          : html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 9h4l5-4v14l-5-4H4z" />
+              <path d="M16 8.5a5 5 0 0 1 0 7" />
+              <path d="M18.5 6a8 8 0 0 1 0 12" />
+            </svg>`;
       }
 
       function renderCastBody() {
@@ -2730,6 +4285,11 @@
         const poster = current.entry
           ? current.entry.title.poster || current.entry.title.background
           : null;
+        // The repertory plate is the wide backdrop; the default surface keeps
+        // its poster. Both come from the same Watch progress entry.
+        const backdrop = current.entry
+          ? current.entry.title.background || current.entry.title.poster
+          : null;
         const episode = p.episode;
         const canTransport = transportable(p.state);
         const playing = p.state === "playing";
@@ -2745,29 +4305,43 @@
                 <span class="cast-name">${current.name}</span>
                 <span class="cast-episode">${current.label || ""}</span>
               </div>
-              <span></span>
+              <span class="cast-live" data-live="${pressed(state.online)}">${state.online ? "live" : "reconnecting\u2026"}</span>
             </header>
+
+            <div class="cast-plate" data-empty="${backdrop === null}">
+              ${backdrop ? html`<img class="cast-plate-art" src="${backdrop}" alt="" />` : null}
+              <span class="cast-plate-scrim" aria-hidden="true"></span>
+              <div class="cast-plate-copy">
+                <span class="cast-plate-kicker">Now playing</span>
+                <h2 class="cast-plate-name">${current.name}</h2>
+                <span class="cast-plate-episode">${current.label || ""}</span>
+              </div>
+            </div>
 
             <div class="cast-poster">
               ${poster ? html`<img src="${poster}" alt="" />` : null}
             </div>
 
-            <div class="cast-utilities">
-              <button type="button" class="utility" data-focusable data-a="open-sheet"
-                      data-focus-key="cast-audio" aria-expanded="${state.sheet}">
-                <span aria-hidden="true">CC</span>Audio &amp; Subtitles
-              </button>
-              <button type="button" class="utility" data-focusable data-a="volume-toggle"
-                      data-focus-key="cast-volume" aria-expanded="${state.volumeOpen}">
-                <span aria-hidden="true">${p.muted ? "\u2715" : "\u266A"}</span>Volume
-              </button>
-              <button type="button" class="utility" data-focusable data-a="episodes-open"
-                      data-focus-key="cast-episodes" ${off(episode === null)}>
-                <span aria-hidden="true">\u2630</span>Episodes
-              </button>
-            </div>
+            ${isRepertory()
+              ? renderCastMenus(p, episode)
+              : html`
+                  <div class="cast-utilities" aria-label="Playback menus">
+                    <button type="button" class="utility" data-focusable data-a="open-sheet"
+                            data-focus-key="cast-audio" aria-expanded="${pressed(state.sheet === "av")}">
+                      <span aria-hidden="true">CC</span>Audio &amp; Subtitles
+                    </button>
+                    <button type="button" class="utility" data-focusable data-a="volume-toggle"
+                            data-focus-key="cast-volume" aria-expanded="${pressed(state.volumeOpen)}">
+                      <span aria-hidden="true">${p.muted ? "\u2715" : "\u266A\uFE0E"}</span>Volume
+                    </button>
+                    <button type="button" class="utility" data-focusable data-a="episodes-open"
+                            data-focus-key="cast-episodes" aria-expanded="${pressed(state.sheet === "episodes")}"
+                            ${off(episode === null)}>
+                      <span aria-hidden="true">\u2630</span>Episodes
+                    </button>
+                  </div>`}
 
-            ${state.volumeOpen
+            ${isRepertory() || state.volumeOpen
               ? html`
                   <div class="volume-panel">
                     <span class="volume-level" data-volume-level>${formatVolume(volume)}</span>
@@ -2776,7 +4350,9 @@
                            aria-label="Volume" data-focusable data-focus-key="cast-volume-slider" />
                     <button type="button" class="btn btn-icon" data-focusable data-a="mute-toggle"
                             data-focus-key="cast-mute" aria-pressed="${p.muted === true}"
-                            aria-label="${p.muted ? "Unmute" : "Mute"}">${p.muted ? "Unmute" : "Mute"}</button>
+                            aria-label="${p.muted ? "Unmute" : "Mute"}">${isRepertory()
+                              ? muteIcon(p.muted)
+                              : (p.muted ? "Unmute" : "Mute")}</button>
                   </div>`
               : null}
 
@@ -2803,87 +4379,49 @@
             <div class="transport" aria-label="Transport">
               <button type="button" class="btn" data-focusable data-a="previous-episode"
                       data-focus-key="cast-previous" aria-label="Previous episode"
-                      ${off(previousEpisodeDisabled(episode))}>\u23EE</button>
+                      ${off(previousEpisodeDisabled(episode))}>\u23EE\uFE0E</button>
               <button type="button" class="btn" data-focusable data-a="seek-by" data-seconds="-10"
                       data-focus-key="cast-rewind" aria-label="Back ten seconds"
                       ${off(!canTransport)}>\u21BA10</button>
               <button type="button" class="btn btn-round primary-round" data-focusable data-a="pause-toggle"
                       data-focus-key="cast-pause" aria-label="${playing ? "Pause" : "Play"}"
-                      ${off(!canTransport)}>${playing ? "\u2016" : "\u25B6"}</button>
+                      ${off(!canTransport)}>${playing ? "\u2016" : "\u25B6\uFE0E"}</button>
               <button type="button" class="btn" data-focusable data-a="seek-by" data-seconds="10"
                       data-focus-key="cast-forward" aria-label="Forward ten seconds"
                       ${off(!canTransport)}>10\u21BB</button>
               <button type="button" class="btn" data-focusable data-a="next-episode"
                       data-focus-key="cast-next" aria-label="Next episode"
-                      ${off(nextEpisodeDisabled(episode))}>\u23ED</button>
+                      ${off(nextEpisodeDisabled(episode))}>\u23ED\uFE0E</button>
               <button type="button" class="btn" data-focusable data-a="stop"
-                      data-focus-key="cast-stop" aria-label="Stop">\u25A0 Stop</button>
+                      data-focus-key="cast-stop" aria-label="Stop">\u25A0\uFE0E Stop</button>
             </div>
 
-            <div class="extras" aria-label="Playback controls">
-              <button type="button" class="btn" data-focusable data-a="more-panel" data-panel="speed"
-                      data-focus-key="cast-speed" aria-expanded="${state.morePanel === "speed"}">Speed</button>
-              <button type="button" class="btn" data-focusable data-a="more-panel" data-panel="chapters"
-                      data-focus-key="cast-chapters" aria-expanded="${state.morePanel === "chapters"}">Chapters</button>
-              <button type="button" class="btn" data-focusable data-a="more-panel" data-panel="picture"
-                      data-focus-key="cast-picture" aria-expanded="${state.morePanel === "picture"}">Picture</button>
-            </div>
+            ${isRepertory()
+              ? null
+              : html`
+                  <div class="extras" aria-label="Playback menus">
+                    <button type="button" class="btn" data-focusable data-a="more-panel" data-panel="speed"
+                            data-focus-key="cast-speed" aria-expanded="${pressed(state.morePanel === "speed")}">
+                      <span class="menu-mark" aria-hidden="true">\u00BB</span>Speed
+                    </button>
+                    <button type="button" class="btn" data-focusable data-a="more-panel" data-panel="chapters"
+                            data-focus-key="cast-chapters" aria-expanded="${pressed(state.morePanel === "chapters")}">
+                      <span class="menu-mark" aria-hidden="true">\u2261</span>Chapters
+                    </button>
+                    <button type="button" class="btn" data-focusable data-a="more-panel" data-panel="picture"
+                            data-focus-key="cast-picture" aria-expanded="${pressed(state.morePanel === "picture")}">
+                      <span class="menu-mark" aria-hidden="true">\u25AD</span>Picture
+                    </button>
+                  </div>`}
 
             ${state.morePanel === "speed"
-              ? html`<div class="extra-panel"><h3>Playback speed</h3><div class="chip-row">
-                  ${SPEEDS.map((rate) => html`
-                    <button type="button" class="chip" data-focusable data-a="speed" data-rate="${rate}"
-                            data-focus-key="cast-speed-${rate}"
-                            aria-pressed="${pressed(speedSelected(p.speed, rate))}">${formatSpeed(rate)}</button>`)}
-                </div></div>` : null}
+              ? html`<div class="extra-panel"><h3>Playback speed</h3>${renderSpeedBody(p, "cast-")}</div>` : null}
 
             ${state.morePanel === "chapters"
-              ? html`<div class="extra-panel"><h3>Chapters</h3>
-                  <div class="actions" style="margin-bottom:0.5rem">
-                    <button type="button" class="btn" data-focusable data-a="chapter-prev"
-                            data-focus-key="cast-chapter-prev">Previous</button>
-                    <button type="button" class="btn" data-focusable data-a="chapter-next"
-                            data-focus-key="cast-chapter-next">Next</button>
-                  </div>
-                  ${p.chapters.length === 0
-                    ? html`<p class="note">This Stream lists no chapters.</p>`
-                    : p.chapters.map((chapter) => html`
-                        <button type="button" class="chip" data-focusable data-a="chapter"
-                                data-index="${chapter.index}" data-focus-key="cast-chapter-${chapter.index}"
-                                aria-pressed="${pressed(p.chapter === chapter.index)}">${chapterLabel(chapter)}</button>`)}
-                </div>` : null}
+              ? html`<div class="extra-panel"><h3>Chapters</h3>${renderChaptersBody(p, "cast-")}</div>` : null}
 
             ${state.morePanel === "picture"
-              ? html`<div class="extra-panel"><h3>Aspect</h3><div class="chip-row">
-                  ${ASPECTS.map((choice) => {
-                    aspectIndex.set(choice.label, choice.aspect);
-                    return html`<button type="button" class="chip" data-focusable data-a="aspect"
-                            data-ref="${choice.label}" data-focus-key="cast-aspect-${choice.label}"
-                            aria-pressed="${pressed(aspectSelected(p.aspect, choice.aspect))}">${choice.label}</button>`;
-                  })}
-                </div>
-                <h3 style="margin-top:0.75rem">Crop</h3><div class="chip-row">
-                  ${cropChoices(p.resolution).map((choice) => {
-                    cropIndex.set(choice.label, choice.crop);
-                    return html`<button type="button" class="chip" data-focusable data-a="crop"
-                            data-ref="${choice.label}" data-focus-key="cast-crop-${choice.label}"
-                            aria-pressed="${pressed(cropSelected(p.crop, choice.crop))}">${choice.label}</button>`;
-                  })}
-                </div>
-                <button type="button" class="btn" data-focusable data-a="autocrop"
-                        data-focus-key="cast-autocrop">${p.crop ? "Restore full frame" : "Autocrop"}</button>
-                <p class="note">${p.crop
-                  ? "Autocrop keeps " + p.crop.width + "\u00d7" + p.crop.height + "+" + p.crop.x + "+" + p.crop.y + "."
-                  : "Autocrop keeps the whole frame."}</p>
-                <h3 style="margin-top:0.75rem">Statistics</h3>
-                <button type="button" class="btn" data-focusable data-a="stats-toggle"
-                        data-focus-key="cast-statistics" aria-pressed="${state.showStatistics}">
-                  ${state.showStatistics ? "Hide statistics" : "Show statistics"}</button>
-                ${state.showStatistics
-                  ? html`<dl class="readout" style="margin-top:0.5rem">${statisticsLines(p.statistics).map((line) => html`
-                      <dt>${line.label}</dt><dd class="tabular">${line.value}</dd>`)}</dl>`
-                  : null}
-                </div>` : null}
+              ? html`<div class="extra-panel">${renderPictureBody(p, "cast-")}</div>` : null}
 
             ${p.state === "opening"
               ? html`<p class="cast-note">Opening ${playingName(p.nowPlaying)}\u2026</p>` : null}
@@ -3087,11 +4625,25 @@
         name.textContent = chapter ? chapterLabel(chapter) : "";
       }
 
-      // --- surface 3: Audio & Subtitles -------------------------------------
+      // --- surface 3: the shared playback drawer -----------------------------
+      //
+      // Audio & Subtitles, Episodes, Speed, Chapters and Picture all use the
+      // same drawer, head and Done/Back rule. Volume is the one menu that does
+      // not: it is a popover over the card, above its own button.
       function renderSheet() {
         const view = captureView();
         renderSheetBody();
         if (!state.focusTarget) { restoreView(view); }
+      }
+
+      function sheetTitle(menu) {
+        switch (menu) {
+          case "episodes": return "Episodes";
+          case "speed": return "Playback speed";
+          case "chapters": return "Chapters";
+          case "picture": return "Picture";
+          default: return "Audio & Subtitles";
+        }
       }
 
       function renderSheetBody() {
@@ -3107,65 +4659,205 @@
         if (signature === state.sheetSignature) { return; }
         state.sheetSignature = signature;
         sheet.classList.remove("hidden");
+        const title = sheetTitle(state.sheet);
+        sheet.setAttribute("aria-label", title);
+
+        sheet.innerHTML = html`
+          <div class="sheet-panel">
+            <div class="sheet-head">
+              <h2>${title}</h2>
+              <button type="button" class="btn btn-primary" data-focusable data-a="close-sheet"
+                      data-focus-key="sheet-done" data-autofocus>Done</button>
+            </div>
+            ${renderSheetMenu(state.sheet, p)}
+          </div>`.markup;
+      }
+
+      function renderSheetMenu(menu, p) {
+        switch (menu) {
+          case "episodes": return renderEpisodesSheet();
+          case "speed": return html`
+            <div class="sheet-group">
+              <h3>Speed</h3>
+              ${renderSpeedBody(p, "sheet-")}
+            </div>`;
+          case "chapters": return html`
+            <div class="sheet-group">
+              <h3>Chapters</h3>
+              ${renderChaptersBody(p, "sheet-")}
+            </div>`;
+          case "picture": return html`
+            <div class="sheet-group">
+              ${renderPictureBody(p, "sheet-")}
+            </div>`;
+          default: return renderAudioSubtitlesSheet(p);
+        }
+      }
+
+      function renderAudioSubtitlesSheet(p) {
         const audio = orderedTracks(p.tracks, "audio");
         const subtitles = orderedTracks(p.tracks, "subtitle");
         const delay = p.subtitleDelay === null ? 0 : p.subtitleDelay;
         const scale = state.snapshot && typeof state.snapshot.preferences.subtitleScale === "number"
           ? state.snapshot.preferences.subtitleScale : 1;
 
-        sheet.innerHTML = html`
-          <div class="sheet-panel">
-            <div class="sheet-head">
-              <h2>Audio &amp; Subtitles</h2>
-              <button type="button" class="btn btn-primary" data-focusable data-a="close-sheet"
-                      data-focus-key="sheet-done" data-autofocus>Done</button>
-            </div>
+        return html`
+          <div class="sheet-group">
+            <h3>Audio</h3>
+            ${audio.length === 0
+              ? html`<p class="note">This Stream carries no audio track to pick.</p>` : null}
+            ${audio.map((track) => renderTrack(track))}
+          </div>
 
-            <div class="sheet-group">
-              <h3>Audio</h3>
-              ${audio.length === 0
-                ? html`<p class="note">This Stream carries no audio track to pick.</p>` : null}
-              ${audio.map((track) => renderTrack(track))}
-            </div>
+          <div class="sheet-group">
+            <h3>Subtitles</h3>
+            ${subtitles.length === 0
+              ? html`<p class="note">This Stream carries no subtitle track to pick.</p>` : null}
+            ${subtitles.map((track) => renderTrack(track))}
+            <button type="button" class="track" data-focusable data-a="track" data-kind="off"
+                    data-focus-key="track-off" aria-pressed="${pressed(!subtitlesOn(p.tracks))}">
+              <span>Subtitles off</span>
+            </button>
+          </div>
 
-            <div class="sheet-group">
-              <h3>Subtitles</h3>
-              ${subtitles.length === 0
-                ? html`<p class="note">This Stream carries no subtitle track to pick.</p>` : null}
-              ${subtitles.map((track) => renderTrack(track))}
-              <button type="button" class="track" data-focusable data-a="track" data-kind="off"
-                      data-focus-key="track-off" aria-pressed="${pressed(!subtitlesOn(p.tracks))}">
-                <span>Subtitles off</span>
-              </button>
+          <div class="sheet-group">
+            <h3>Subtitle delay</h3>
+            <div class="delay-row">
+              <span class="delay-readout tabular" data-delay>${formatDelay(delay)}</span>
+              <button type="button" class="btn" data-focusable data-a="delay"
+                      data-seconds="${stepDelay(delay, -DELAY_STEP)}" data-focus-key="delay-back">\u22120.1 s</button>
+              <button type="button" class="btn" data-focusable data-a="delay"
+                      data-seconds="${stepDelay(delay, DELAY_STEP)}" data-focus-key="delay-forward">+0.1 s</button>
+              <button type="button" class="btn" data-focusable data-a="delay"
+                      data-seconds="0" data-focus-key="delay-reset"
+                      aria-pressed="${pressed(delay === 0)}">Reset</button>
             </div>
+          </div>
 
-            <div class="sheet-group">
-              <h3>Subtitle delay</h3>
-              <div class="delay-row">
-                <span class="delay-readout tabular" data-delay>${formatDelay(delay)}</span>
-                <button type="button" class="btn" data-focusable data-a="delay"
-                        data-seconds="${stepDelay(delay, -DELAY_STEP)}" data-focus-key="delay-back">\u22120.1 s</button>
-                <button type="button" class="btn" data-focusable data-a="delay"
-                        data-seconds="${stepDelay(delay, DELAY_STEP)}" data-focus-key="delay-forward">+0.1 s</button>
-                <button type="button" class="btn" data-focusable data-a="delay"
-                        data-seconds="0" data-focus-key="delay-reset"
-                        aria-pressed="${pressed(delay === 0)}">Reset</button>
-              </div>
+          <div class="sheet-group">
+            <h3>Subtitle size</h3>
+            <div class="size-row">
+              <span class="size-readout tabular" data-subtitle-scale>Subtitle size ${formatScale(scale)}</span>
+              <button type="button" class="btn" data-focusable data-a="subtitle-scale"
+                      data-scale="${stepScale(scale, -1)}" data-focus-key="subtitle-scale-down"
+                      aria-label="Smaller subtitles">\u2212</button>
+              <button type="button" class="btn" data-focusable data-a="subtitle-scale"
+                      data-scale="${stepScale(scale, 1)}" data-focus-key="subtitle-scale-up"
+                      aria-label="Larger subtitles">+</button>
             </div>
+          </div>`;
+      }
 
-            <div class="sheet-group">
-              <h3>Subtitle size</h3>
-              <div class="size-row">
-                <span class="size-readout tabular" data-subtitle-scale>Subtitle size ${formatScale(scale)}</span>
-                <button type="button" class="btn" data-focusable data-a="subtitle-scale"
-                        data-scale="${stepScale(scale, -1)}" data-focus-key="subtitle-scale-down"
-                        aria-label="Smaller subtitles">\u2212</button>
-                <button type="button" class="btn" data-focusable data-a="subtitle-scale"
-                        data-scale="${stepScale(scale, 1)}" data-focus-key="subtitle-scale-up"
-                        aria-label="Larger subtitles">+</button>
-              </div>
+      function renderSpeedBody(p, prefix) {
+        return html`
+          <div class="chip-row" style="flex-wrap:wrap;overflow:visible">
+            ${SPEEDS.map((rate) => html`
+              <button type="button" class="chip" data-focusable data-a="speed" data-rate="${rate}"
+                      data-focus-key="${prefix}speed-${rate}"
+                      aria-pressed="${pressed(speedSelected(p.speed, rate))}">${formatSpeed(rate)}</button>`)}
+          </div>`;
+      }
+
+      function renderChaptersBody(p, prefix) {
+        return html`
+          <div class="actions" style="margin-bottom:0.5rem">
+            <button type="button" class="btn" data-focusable data-a="chapter-prev"
+                    data-focus-key="${prefix}chapter-prev">Previous</button>
+            <button type="button" class="btn" data-focusable data-a="chapter-next"
+                    data-focus-key="${prefix}chapter-next">Next</button>
+          </div>
+          ${p.chapters.length === 0
+            ? html`<p class="note">This Stream lists no chapters.</p>`
+            : html`
+                <div class="chip-row" style="flex-wrap:wrap;overflow:visible">
+                  ${p.chapters.map((chapter) => html`
+                    <button type="button" class="chip" data-focusable data-a="chapter"
+                            data-index="${chapter.index}" data-focus-key="${prefix}chapter-${chapter.index}"
+                            aria-pressed="${pressed(p.chapter === chapter.index)}">${chapterLabel(chapter)}</button>`)}
+                </div>`}`;
+      }
+
+      function renderPictureBody(p, prefix) {
+        return html`
+          <h3>Aspect</h3>
+          <div class="chip-row" style="flex-wrap:wrap;overflow:visible">
+            ${ASPECTS.map((choice) => {
+              aspectIndex.set(choice.label, choice.aspect);
+              return html`<button type="button" class="chip" data-focusable data-a="aspect"
+                      data-ref="${choice.label}" data-focus-key="${prefix}aspect-${choice.label}"
+                      aria-pressed="${pressed(aspectSelected(p.aspect, choice.aspect))}">${choice.label}</button>`;
+            })}
+          </div>
+          <h3 style="margin-top:0.75rem">Crop</h3>
+          <div class="chip-row" style="flex-wrap:wrap;overflow:visible">
+            ${cropChoices(p.resolution).map((choice) => {
+              cropIndex.set(choice.label, choice.crop);
+              return html`<button type="button" class="chip" data-focusable data-a="crop"
+                      data-ref="${choice.label}" data-focus-key="${prefix}crop-${choice.label}"
+                      aria-pressed="${pressed(cropSelected(p.crop, choice.crop))}">${choice.label}</button>`;
+            })}
+          </div>
+          <button type="button" class="btn" data-focusable data-a="autocrop"
+                  data-focus-key="${prefix}autocrop">${p.crop ? "Restore full frame" : "Autocrop"}</button>
+          <p class="note">${p.crop
+            ? "Autocrop keeps " + p.crop.width + "\u00d7" + p.crop.height + "+" + p.crop.x + "+" + p.crop.y + "."
+            : "Autocrop keeps the whole frame."}</p>
+          <h3 style="margin-top:0.75rem">Statistics</h3>
+          <button type="button" class="btn" data-focusable data-a="stats-toggle"
+                  data-focus-key="${prefix}statistics" aria-pressed="${state.showStatistics}">
+            ${state.showStatistics ? "Hide statistics" : "Show statistics"}</button>
+          ${state.showStatistics
+            ? html`<dl class="readout" style="margin-top:0.5rem">${statisticsLines(p.statistics).map((line) => html`
+                <dt>${line.label}</dt><dd class="tabular">${line.value}</dd>`)}</dl>`
+            : null}`;
+      }
+
+      function renderEpisodesSheet() {
+        const episodes = state.episodes;
+        if (!episodes) {
+          return html`<p class="note" role="status">Opening this series\u2026</p>`;
+        }
+        if (episodes.loading) {
+          return html`<p class="note" role="status">Looking for this series' episodes\u2026</p>`;
+        }
+        if (episodes.failure) {
+          return html`<p class="error" role="alert">${explain(episodes.failure)}</p>`;
+        }
+        const title = episodes.title;
+        if (!title) {
+          return html`<p class="note">No episodes are available for the playing series.</p>`;
+        }
+        const seasons = seasonsOf(title);
+        const shown = seasons.find((season) => season.season === episodes.shownSeason) || seasons[0];
+        return html`
+          ${episodes.loadingStreams
+            ? html`<p class="note" role="status">Looking for Streams\u2026</p>` : null}
+          <div class="sheet-group">
+            <h3>${nameOf(title, null)}</h3>
+            <div class="chip-row" aria-label="Seasons">
+              ${seasons.map(({ season }) => html`
+                <button type="button" class="chip" data-focusable data-a="episode-season"
+                        data-season="${season === null ? "none" : season}"
+                        data-focus-key="sheet-season-${season === null ? "none" : season}"
+                        aria-pressed="${pressed(shown && shown.season === season)}">${seasonName(season)}</button>`)}
             </div>
-          </div>`.markup;
+            ${shown ? shown.videos.map((video) => {
+              videoIndex.set(video.id, video);
+              const label = labelOf(video);
+              return html`
+                <button type="button" class="episode lift" data-focusable data-a="episode-play"
+                        data-id="${video.id}" data-focus-key="sheet-episode-${video.id}"
+                        ${off(episodes.loadingStreams)}>
+                  ${video.thumbnail
+                    ? html`<span class="episode-still"><img src="${video.thumbnail}" alt="" loading="lazy" /></span>`
+                    : null}
+                  <span>
+                    ${label ? html`<span class="episode-label">${label}</span><br />` : null}
+                    <span class="episode-name">${video.name || video.id}</span>
+                  </span>
+                </button>`;
+            }) : null}
+          </div>`;
       }
 
       function renderTrack(track) {
@@ -3736,7 +5428,31 @@
         }
       }
 
-      async function loadEpisodes(level, series) {
+      function openEpisodesSheet(returnKey) {
+        const p = playback();
+        if (!p || !p.nowPlaying || p.episode === null) { return; }
+        const series = seriesRefOf(p.nowPlaying);
+        const cached = state.seriesCache.get(series.cache) || null;
+        const episodes = {
+          loading: !cached, title: cached,
+          shownSeason: p.episode ? p.episode.season : null,
+          failure: null, loadingStreams: false, series,
+        };
+        if (cached) {
+          const seasons = seasonsOf(cached);
+          episodes.shownSeason = seasons.some((season) => season.season === episodes.shownSeason)
+            ? episodes.shownSeason
+            : seasons[0] ? seasons[0].season : null;
+        }
+        state.sheetReturn = returnKey || focusKey(document.activeElement);
+        state.episodes = episodes;
+        state.sheet = "episodes";
+        state.focusTarget = "sheet";
+        paint();
+        if (!cached) { void loadSheetEpisodes(episodes, series); }
+      }
+
+      async function askSeries(series) {
         let response = null;
         let error = null;
         if (series.kind === "discovered") {
@@ -3757,20 +5473,27 @@
             type: "open_title", addon: series.addon, title: series.title,
           }));
         }
+        if (error) { return { title: null, error }; }
+        const title = answeredTitle(response);
+        if (!title) {
+          return {
+            title: null,
+            error: {
+              kind: "unknown_title",
+              addon: series.addon || series.fallbackAddon || "TMDB",
+              detail: "no episodes were listed",
+            },
+          };
+        }
+        return { title, error: null };
+      }
+
+      async function loadEpisodes(level, series) {
+        const { title, error } = await askSeries(series);
         if (!state.levels.includes(level)) { return; }
         level.loading = false;
         if (error) {
           level.failure = error;
-          renderLevel();
-          return;
-        }
-        const title = answeredTitle(response);
-        if (!title) {
-          level.failure = {
-            kind: "unknown_title",
-            addon: series.addon || series.fallbackAddon || "TMDB",
-            detail: "no episodes were listed",
-          };
           renderLevel();
           return;
         }
@@ -3783,44 +5506,63 @@
         renderLevel();
       }
 
+      async function loadSheetEpisodes(episodes, series) {
+        const { title, error } = await askSeries(series);
+        if (state.episodes !== episodes || state.sheet !== "episodes") { return; }
+        episodes.loading = false;
+        if (error) {
+          episodes.failure = error;
+          renderSheet();
+          return;
+        }
+        state.seriesCache.set(series.cache, title);
+        episodes.title = title;
+        const seasons = seasonsOf(title);
+        episodes.shownSeason = seasons.some((season) => season.season === episodes.shownSeason)
+          ? episodes.shownSeason
+          : seasons[0] ? seasons[0].season : null;
+        renderSheet();
+      }
+
+      async function pickEpisodeStream(title, video) {
+        const { response, error } = await ask({
+          type: "find_streams", video: { type: title.type, id: video.id },
+        });
+        if (error) { return { error }; }
+        const groups = answeredStreams(response);
+        for (const group of groups) {
+          const stream = group.streams.find((candidate) => playabilityNote(candidate.playback) === null);
+          if (stream) { return { addon: group.addon, stream }; }
+        }
+        return {
+          error: {
+            kind: "unplayable",
+            detail: "no Addon offered a Stream this Host can play",
+          },
+        };
+      }
+
       async function playEpisode(video, level) {
         if (!level.title) { return; }
         level.loadingStreams = true;
         level.failure = null;
         renderLevel();
-        const { response, error } = await ask({
-          type: "find_streams", video: { type: level.title.type, id: video.id },
-        });
+        const picked = await pickEpisodeStream(level.title, video);
         if (!state.levels.includes(level)) { return; }
-        if (error) {
+        if (picked.error) {
           level.loadingStreams = false;
-          level.failure = error;
+          level.failure = picked.error;
           renderLevel();
           return;
         }
-        const groups = answeredStreams(response);
-        let picked = null;
-        for (const group of groups) {
-          const stream = group.streams.find((candidate) => playabilityNote(candidate.playback) === null);
-          if (stream) { picked = { addon: group.addon, stream }; break; }
-        }
-        if (!picked) {
-          level.loadingStreams = false;
-          level.failure = {
-            kind: "unplayable",
-            detail: "no Addon offered a Stream this Host can play",
-          };
-          renderLevel();
-          return;
-        }
-        const response2 = await take({
+        const response = await take({
           type: "play_stream",
           video: { type: level.title.type, id: video.id },
           addon: picked.addon,
           stream: picked.stream,
           title: titleStubOf(level.title, level.preview),
         });
-        if (response2) {
+        if (response) {
           state.levels = [];
           state.cast = true;
           state.morePanel = null;
@@ -3830,6 +5572,41 @@
           level.loadingStreams = false;
           level.failure = state.error;
           renderLevel();
+        }
+      }
+
+      async function playSheetEpisode(video, episodes) {
+        if (!episodes.title) { return; }
+        episodes.loadingStreams = true;
+        episodes.failure = null;
+        renderSheet();
+        const picked = await pickEpisodeStream(episodes.title, video);
+        if (state.episodes !== episodes || state.sheet !== "episodes") { return; }
+        if (picked.error) {
+          episodes.loadingStreams = false;
+          episodes.failure = picked.error;
+          renderSheet();
+          return;
+        }
+        const response = await take({
+          type: "play_stream",
+          video: { type: episodes.title.type, id: video.id },
+          addon: picked.addon,
+          stream: picked.stream,
+          title: titleStubOf(episodes.title, null),
+        });
+        if (state.episodes !== episodes || state.sheet !== "episodes") { return; }
+        if (response) {
+          state.sheet = null;
+          state.episodes = null;
+          state.volumeOpen = false;
+          state.cast = true;
+          state.focusTarget = "cast";
+          paint();
+        } else {
+          episodes.loadingStreams = false;
+          episodes.failure = state.error;
+          renderSheet();
         }
       }
 
@@ -4154,6 +5931,11 @@
           }
 
           case "episode-season": {
+            if (state.sheet === "episodes" && state.episodes) {
+              state.episodes.shownSeason = data.season === "none" ? null : Number(data.season);
+              renderSheet();
+              return;
+            }
             const level = state.levels[state.levels.length - 1];
             if (level && level.kind === "episodes") {
               level.shownSeason = data.season === "none" ? null : Number(data.season);
@@ -4162,8 +5944,12 @@
             return;
           }
           case "episode-play": {
-            const level = state.levels[state.levels.length - 1];
             const video = videoIndex.get(data.id);
+            if (state.sheet === "episodes" && state.episodes) {
+              if (video) { await playSheetEpisode(video, state.episodes); }
+              return;
+            }
+            const level = state.levels[state.levels.length - 1];
             if (level && level.kind === "episodes" && video) { await playEpisode(video, level); }
             return;
           }
@@ -4171,6 +5957,8 @@
           case "expand-cast": {
             state.castReturn = focusKey(document.activeElement);
             state.cast = true;
+            state.sheet = null;
+            state.episodes = null;
             state.morePanel = null;
             state.volumeOpen = false;
             state.focusTarget = "cast";
@@ -4179,32 +5967,30 @@
           }
           case "collapse-cast": {
             state.cast = false;
+            state.sheet = null;
+            state.episodes = null;
             state.morePanel = null;
             state.volumeOpen = false;
             state.focusTarget = state.castReturn ? { key: state.castReturn } : { key: "mini-center" };
             paint();
             return;
           }
-          case "open-sheet": {
-            state.sheetReturn = focusKey(document.activeElement);
-            state.sheet = true;
-            state.focusTarget = "sheet";
-            paint();
-            return;
-          }
-          case "close-sheet": {
-            state.sheet = false;
-            state.focusTarget = state.sheetReturn ? { key: state.sheetReturn } : "cast";
-            paint();
-            return;
-          }
+          case "open-sheet": { openMenu("av", data.focusKey); return; }
+          case "close-sheet": { closeSheet(); return; }
           case "volume-toggle": {
             state.volumeOpen = !state.volumeOpen;
             renderCast();
             return;
           }
-          case "episodes-open": { openEpisodes(); return; }
+          case "episodes-open": {
+            if (isRepertory()) { openEpisodesSheet(data.focusKey); } else { openEpisodes(); }
+            return;
+          }
           case "more-panel": {
+            if (isRepertory()) {
+              openMenu(data.panel, data.focusKey);
+              return;
+            }
             state.morePanel = state.morePanel === data.panel ? null : data.panel;
             renderCast();
             return;
@@ -4263,7 +6049,7 @@
           case "autocrop": { await take({ type: "autocrop" }); return; }
           case "stats-toggle": {
             state.showStatistics = !state.showStatistics;
-            renderCast();
+            if (state.sheet === "picture") { renderSheet(); } else { renderCast(); }
             return;
           }
           default: return;
@@ -4385,9 +6171,7 @@
 
       function goBack() {
         if (state.sheet) {
-          state.sheet = false;
-          state.focusTarget = state.sheetReturn ? { key: state.sheetReturn } : "cast";
-          paint();
+          closeSheet();
           return;
         }
         if (state.levels.length > 0) {
@@ -4396,6 +6180,8 @@
         }
         if (state.cast) {
           state.cast = false;
+          state.sheet = null;
+          state.episodes = null;
           state.morePanel = null;
           state.volumeOpen = false;
           state.focusTarget = state.castReturn ? { key: state.castReturn } : { key: "mini-center" };

@@ -27,6 +27,7 @@ export default defineConfig({
         /src\/shell\/shell\.css/,
         /src\/shell\/osd\.css/,
         /src\/shell\/repertory\/repertory\.css/,
+        /src\/shell\/repertory\/tokens\.css/,
       ],
     },
   },

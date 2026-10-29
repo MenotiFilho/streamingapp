@@ -3,7 +3,6 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "reac
 import { HostClient } from "../../host-client";
 import { Shell } from "../Shell";
 import { PreviewDataProvider, RepertorySettingsProvider } from "./context";
-import { applyPalette, clearPalette } from "./palette";
 import { RehearsalBar } from "./RehearsalBar";
 import { previewTransport } from "./previewHost";
 import { parseSettings, settingsQuery, type RepertorySettings } from "./settings";
@@ -32,12 +31,13 @@ export function RepertoryEntry() {
   }, []);
 
   useLayoutEffect(() => {
+    // The tokens live in `repertory/tokens.css`; the attribute is what applies
+    // them. The Host's served Remote sets the same attribute when its page is
+    // asked for with `?ui=repertory`, so one token sheet dresses both clients.
     const root = document.documentElement;
-    applyPalette(root);
     root.dataset.ui = "repertory";
     root.dataset.pairing = settings.pairing;
     return () => {
-      clearPalette(root);
       delete root.dataset.ui;
       delete root.dataset.pairing;
     };

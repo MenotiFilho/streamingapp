@@ -1,17 +1,15 @@
 import { describe, expect, it } from "vitest";
 
-import { contrastRatio } from "./contrast";
-import { REPERTORY_PALETTE } from "./palette";
+import { contrastRatio, readToken } from "./contrast";
+import tokensCss from "./tokens.css?raw";
 
-const {
-  ink,
-  inkRaised,
-  ivory,
-  dim,
-  muted,
-  hairline,
-  house,
-} = REPERTORY_PALETTE;
+const ink = readToken(tokensCss, "--rep-ink");
+const inkRaised = readToken(tokensCss, "--rep-ink-raised");
+const ivory = readToken(tokensCss, "--rep-ivory");
+const dim = readToken(tokensCss, "--rep-dim");
+const muted = readToken(tokensCss, "--rep-muted");
+const hairline = readToken(tokensCss, "--rep-hairline");
+const house = readToken(tokensCss, "--rep-house");
 
 describe("the repertory palette", () => {
   it("clears 4.5:1 for every text pair on ink and raised", () => {
