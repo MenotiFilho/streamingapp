@@ -7,7 +7,9 @@
 - `docker compose up -d` — start the long-lived dev container.
 - `docker compose exec dev cargo test` — unit tests. TDD is the norm here: pure
   decision seams (parsers, id mapping, snapshot building, command validation) are
-  tested from the start, with I/O behind seams and in-memory fakes.
+  tested from the start, with I/O behind seams and in-memory fakes. The window
+  follows the same rule: its tests assert decisions, never markup (ADR-0032,
+  `docs/agents/testing.md`).
 - `docker compose exec dev cargo clippy --all-targets -- -D warnings`
 - `docker compose exec dev cargo fmt --check`
 - `docker compose exec dev pnpm typecheck` and `pnpm test` for the window.
@@ -70,6 +72,12 @@ Five canonical triage roles, using the default label strings. See `docs/agents/t
 ### Domain docs
 
 Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### Testing
+
+What a window test may assert, what happens to a suite while the repertory redo
+lands, and the gate a screen must clear before its old surface is deleted. See
+`docs/agents/testing.md`.
 
 ## Project snapshot
 
