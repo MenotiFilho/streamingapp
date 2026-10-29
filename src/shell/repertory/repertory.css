@@ -1854,7 +1854,13 @@ html[data-ui="repertory"] .rep-season.kit-choice[aria-pressed="true"] > span:fir
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 0;
+  /*
+   * The focus model only counts a rect as "ahead" when it clears the origin by
+   * more than MIN_STEP (1px). Rows that merely touch are read as behind, so a
+   * zero gap would skip every second episode. The 2px step is the contract
+   * between this rail and the D-pad; the border is the visible hairline.
+   */
+  gap: 2px;
   min-height: 0;
   overflow-y: auto;
   border-top: 1px solid var(--rep-hairline);
@@ -2066,7 +2072,9 @@ html[data-ui="repertory"] .rep-season.kit-choice[aria-pressed="true"] > span:fir
 
 .rep-stream-list {
   display: grid;
-  gap: 0;
+  /* Same 2px step as the episode rail: touching candidates are not "ahead" to
+     the focus model, so a zero gap would skip every second one. */
+  gap: 2px;
   margin: 0;
   padding: 0;
   border-top: 1px solid var(--rep-hairline);

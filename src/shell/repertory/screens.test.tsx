@@ -227,10 +227,15 @@ describe("the repertory Title page", () => {
   it("pins the episode rail to the one-screen grid so the last episode can be revealed", () => {
     const grid = repertoryCss.match(/\.rep-title-grid\s*\{([^}]*)\}/)?.[1] ?? "";
     const episodes = repertoryCss.match(/\.rep-title-episodes\s*\{([^}]*)\}/)?.[1] ?? "";
+    const streams = repertoryCss.match(/\.rep-stream-list\s*\{([^}]*)\}/)?.[1] ?? "";
 
     expect(grid).toContain("grid-template-rows: minmax(0, 1fr)");
     expect(episodes).toContain("overflow-y: auto");
     expect(episodes).toContain("min-height: 0");
+    // Touching rects are not "ahead" to the focus model; both vertical lists
+    // need a real step or the D-pad skips every second item.
+    expect(episodes).toContain("gap: 2px");
+    expect(streams).toContain("gap: 2px");
   });
 
   it("gives a film one Find Streams control and leaves a mapped Title unmarked", () => {
