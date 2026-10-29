@@ -24,6 +24,8 @@ import {
   type ActionError,
   type AddonManifest,
   type CatalogRow,
+  type NowPlaying,
+  type PlaybackSnapshot,
   type Response,
   type Snapshot,
   type Title,
@@ -35,6 +37,8 @@ import {
   CINEMETA_MOVIE_GENRES,
   CINEMETA_SERIES_GENRES,
   previewStream,
+  rehearsalChapterAt,
+  rehearsalPlayback,
   sampleLibrary,
   sampleResumeEntries,
   type CinemetaMeta,
@@ -368,6 +372,31 @@ async function answerOpenTitle(
   return { snapshots: [], answer: { title } };
 }
 
+/** The player when nothing is playing: the same idle shape every Snapshot carries. */
+function idlePlayback(): PlaybackSnapshot {
+  return {
+    state: "idle",
+    picture: "in_window",
+    failure: null,
+    nowPlaying: null,
+    episode: null,
+    position: null,
+    duration: null,
+    buffered: null,
+    tracks: [],
+    chapters: [],
+    chapter: null,
+    speed: null,
+    volume: null,
+    muted: null,
+    subtitleDelay: null,
+    crop: null,
+    aspect: null,
+    resolution: null,
+    statistics: null,
+  };
+}
+
 async function buildSnapshot(): Promise<Snapshot> {
   let watchProgress: Snapshot["watchProgress"] = [];
   try {
@@ -380,27 +409,7 @@ async function buildSnapshot(): Promise<Snapshot> {
 
   return {
     revision: 1,
-    playback: {
-      state: "idle",
-      picture: "in_window",
-      failure: null,
-      nowPlaying: null,
-      episode: null,
-      position: null,
-      duration: null,
-      buffered: null,
-      tracks: [],
-      chapters: [],
-      chapter: null,
-      speed: null,
-      volume: null,
-      muted: null,
-      subtitleDelay: null,
-      crop: null,
-      aspect: null,
-      resolution: null,
-      statistics: null,
-    },
+    playback: idlePlayback(),
     preferences: {
       subtitleLanguage: null,
       subtitleColor: "#FFFFFF",
@@ -470,6 +479,245 @@ function change(patch: (state: Snapshot) => Partial<Snapshot>): Response {
 
 function refuse(error: ActionError): never {
   throw error;
+}
+
+/* --------------------------------------------------------------------------
+ * The Player OSD rehearsal
+ *
+ * The plain Vite window has no Host and no mpv, so the rehearsal publishes a
+ * Snapshot of a sample Stream and answers the playback Actions the Host already
+ * has. Nothing here is a new Action: the OSD sends exactly what it sends in
+ * Tauri, and the preview answers it locally. The clock ticks once a second while
+ * the sample is playing, so the timecode and the playhead move.
+ * -------------------------------------------------------------------------- */
+
+let ticker: ReturnType<typeof setInterval> | null = null;
+
+function stopTicker(): void {
+  if (ticker !== null) {
+    clearInterval(ticker);
+    ticker = null;
+  }
+}
+
+function startTicker(): void {
+  stopTicker();
+  ticker = setInterval(() => {
+    const state = current;
+    if (!state || state.playback.state !== "playing") {
+      stopTicker();
+      return;
+    }
+    const playback = state.playback;
+    const duration = playback.duration;
+    const position = (playback.position ?? 0) + 1;
+    if (duration !== null && position >= duration) {
+      change((held) => ({
+        playback: {
+          ...held.playback,
+          state: "ended",
+          position: duration,
+          buffered: held.playback.buffered
+            ? { start: held.playback.buffered.start, end: duration }
+            : null,
+          chapter: rehearsalChapterAt(held.playback.chapters, duration),
+        },
+      }));
+      stopTicker();
+      return;
+    }
+    change((held) => ({
+      playback: {
+        ...held.playback,
+        position,
+        buffered: held.playback.buffered
+          ? { start: Math.max(0, position - 900), end: Math.min(duration ?? position, position + 1200) }
+          : null,
+        chapter: rehearsalChapterAt(held.playback.chapters, position),
+      },
+    }));
+  }, 1000);
+}
+
+/**
+ * Start the Player OSD rehearsal from the first real film the preview knows
+ * about: its own name, backdrop and runtime, with sample tracks and chapters.
+ * The RehearsalBar button is the only caller; the Tauri window never takes it.
+ */
+export async function rehearsePlayer(): Promise<void> {
+  const state = await ensureSnapshot();
+  const entry = state.watchProgress[0] ?? null;
+  const fallback = {
+    video: { id: "rehearsal", name: null, season: null, episode: null, thumbnail: null },
+    title: {
+      addon: ADDON,
+      id: "rehearsal",
+      type: "movie",
+      name: "A rehearsal film",
+      poster: null,
+      background: null,
+    },
+    position: 900,
+    duration: 6420,
+    watched: false,
+    unplayable: null,
+  } satisfies Snapshot["watchProgress"][number];
+  const chosen = entry ?? fallback;
+  const nowPlaying: NowPlaying = {
+    video: { type: chosen.title.type, id: chosen.video.id },
+    addon: ADDON,
+    name: "Cinemeta\n1080p",
+    description: "A rehearsal Stream for the Player OSD.",
+    filename: `${chosen.title.name}.rehearsal.1080p.mkv`,
+    bingeGroup: null,
+  };
+  publish({
+    ...state,
+    revision: state.revision + 1,
+    playback: rehearsalPlayback(chosen, nowPlaying),
+  });
+  startTicker();
+}
+
+/**
+ * The playback Actions the preview answers while the rehearsal Stream is open.
+ * Everything else falls through to the browse/utility handler or the default.
+ */
+function answerPlayback(action: Action): Response | null {
+  if (!current || current.playback.nowPlaying === null) {
+    return null;
+  }
+  const playback = current.playback;
+
+  switch (action.type) {
+    case "set_paused": {
+      if (playback.state !== "playing" && playback.state !== "paused") {
+        return null;
+      }
+      if (action.paused) {
+        stopTicker();
+      } else {
+        startTicker();
+      }
+      return change((state) => ({
+        playback: { ...state.playback, state: action.paused ? "paused" : "playing" },
+      }));
+    }
+
+    case "seek": {
+      const duration = playback.duration ?? 0;
+      const target =
+        action.target.kind === "to"
+          ? action.target.seconds
+          : (playback.position ?? 0) + action.target.seconds;
+      const position = Math.min(duration, Math.max(0, target));
+      return change((state) => ({
+        playback: {
+          ...state.playback,
+          position,
+          buffered: state.playback.buffered
+            ? { start: Math.max(0, position - 900), end: Math.min(duration, position + 1200) }
+            : null,
+          chapter: rehearsalChapterAt(state.playback.chapters, position),
+        },
+      }));
+    }
+
+    case "stop_playback":
+      stopTicker();
+      return change(() => ({ playback: idlePlayback() }));
+
+    case "set_audio_track":
+      return change((state) => ({
+        playback: {
+          ...state.playback,
+          tracks: state.playback.tracks.map((track) =>
+            track.kind === "audio"
+              ? { ...track, selected: track.id === action.track }
+              : track,
+          ),
+        },
+      }));
+
+    case "set_subtitle_track":
+      return change((state) => ({
+        playback: {
+          ...state.playback,
+          tracks: state.playback.tracks.map((track) =>
+            track.kind === "subtitle"
+              ? { ...track, selected: action.track !== null && track.id === action.track }
+              : track,
+          ),
+        },
+      }));
+
+    case "set_subtitle_delay":
+      return change((state) => ({
+        playback: { ...state.playback, subtitleDelay: action.seconds },
+      }));
+
+    case "set_speed":
+      return change((state) => ({
+        playback: { ...state.playback, speed: action.rate },
+      }));
+
+    case "set_volume":
+      return change((state) => ({
+        playback: {
+          ...state.playback,
+          volume: Math.min(130, Math.max(0, action.level)),
+        },
+      }));
+
+    case "set_muted":
+      return change((state) => ({
+        playback: { ...state.playback, muted: action.muted },
+      }));
+
+    case "set_chapter": {
+      const chapter = playback.chapters.find((held) => held.index === action.index);
+      if (!chapter) {
+        return null;
+      }
+      return change((state) => ({
+        playback: {
+          ...state.playback,
+          position: chapter.time,
+          chapter: chapter.index,
+        },
+      }));
+    }
+
+    case "set_crop":
+      return change((state) => ({
+        playback: {
+          ...state.playback,
+          crop: action.crop.kind === "off" ? null : { ...action.crop },
+        },
+      }));
+
+    case "autocrop":
+      return change((state) => ({
+        playback: {
+          ...state.playback,
+          crop: state.playback.crop
+            ? null
+            : { width: 1920, height: 800, x: 0, y: 2 },
+        },
+      }));
+
+    case "set_aspect":
+      return change((state) => ({
+        playback: { ...state.playback, aspect: action.aspect },
+      }));
+
+    case "preview":
+      // A Question: no still comes from a preview with no picture behind it.
+      return { snapshots: [], answer: { preview: { at: action.at, image: null } } };
+
+    default:
+      return null;
+  }
 }
 
 /** `add_addon`: fetch the real manifest and put it in the preview's register. */
@@ -550,6 +798,10 @@ function setFeatured(
 /** The existing utility Actions, answered locally and published as a Snapshot. */
 async function dispatch(action: Action): Promise<Response> {
   await ensureSnapshot();
+  const playback = answerPlayback(action);
+  if (playback !== null) {
+    return playback;
+  }
   switch (action.type) {
     case "add_addon":
       return addAddon(action);

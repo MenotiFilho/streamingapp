@@ -135,7 +135,7 @@ describe("the window's fullscreen fact", () => {
     expect(screen.getByRole("button")).toHaveAttribute("aria-pressed", "false");
   });
 
-  test("a plain browser is unsupported, draws as such at once, and a click is a no-op", async () => {
+  test("a page with no Fullscreen API is unsupported, draws as such at once, and a click is a no-op", async () => {
     removeTauriRuntime();
     render(<Probe />);
 
@@ -147,6 +147,51 @@ describe("the window's fullscreen fact", () => {
 
     expect(fakeWindowState().calls).toEqual([]);
     expect(screen.getByRole("button")).toHaveAccessibleName("Full screen");
+  });
+
+  test("a browser document goes full through its own Fullscreen API", async () => {
+    removeTauriRuntime();
+    let fullscreen: Element | null = null;
+    const request = vi.fn(async () => {
+      fullscreen = document.documentElement;
+      document.dispatchEvent(new Event("fullscreenchange"));
+    });
+    const exit = vi.fn(async () => {
+      fullscreen = null;
+      document.dispatchEvent(new Event("fullscreenchange"));
+    });
+
+    Object.defineProperty(document, "fullscreenElement", {
+      configurable: true,
+      get: () => fullscreen,
+    });
+    Object.defineProperty(document, "fullscreenEnabled", { configurable: true, value: true });
+    Object.defineProperty(document, "exitFullscreen", { configurable: true, value: exit });
+    Object.defineProperty(document.documentElement, "requestFullscreen", {
+      configurable: true,
+      value: request,
+    });
+
+    try {
+      render(<Probe />);
+      const button = screen.getByRole("button");
+      expect(button).toHaveAttribute("data-supported", "yes");
+      expect(button).toHaveAccessibleName("Full screen");
+
+      fireEvent.click(button);
+      await waitFor(() => expect(request).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(button).toHaveAccessibleName("Exit full screen"));
+
+      fireEvent.click(button);
+      await waitFor(() => expect(exit).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(button).toHaveAccessibleName("Full screen"));
+    } finally {
+      delete (document as unknown as { fullscreenElement?: unknown }).fullscreenElement;
+      delete (document as unknown as { fullscreenEnabled?: unknown }).fullscreenEnabled;
+      delete (document as unknown as { exitFullscreen?: unknown }).exitFullscreen;
+      delete (document.documentElement as unknown as { requestFullscreen?: unknown })
+        .requestFullscreen;
+    }
   });
 
   test("a Tauri window whose first read refuses stays supported", async () => {

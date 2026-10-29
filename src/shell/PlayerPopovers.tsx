@@ -112,7 +112,8 @@ function anchorStyle(side: "start" | "end", anchor: OsdPopoverAnchor) {
 }
 
 function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopoverAnchor }) {
-  const { snapshot, take, pop } = useShell();
+  const { snapshot, take, pop, presentation } = useShell();
+  const repertory = presentation === "repertory";
   const panel = useRef<HTMLDivElement | null>(null);
   const playback = snapshot?.playback ?? null;
   const subtitleScale = snapshot?.preferences.subtitleScale ?? 1;
@@ -154,7 +155,8 @@ function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopover
       />
       <div
         ref={panel}
-        className="shell-osd-popover"
+        className={repertory ? "shell-osd-popover rep-osd-popover" : "shell-osd-popover"}
+        data-presentation={repertory ? "repertory" : undefined}
         data-side={side}
         style={anchorStyle(side, anchor)}
       >

@@ -8,9 +8,10 @@ import { useFullscreen } from "./useFullscreen";
  * player's OSD cannot drift apart (#125).
  *
  * The surface that draws it decides only how it looks — the chrome's circle or
- * the OSD's icon-sized button. A browser or a test has no Tauri window, so
- * `supported` is false there and the control draws nothing at all: a button
- * that cannot work is worse than no button.
+ * the OSD's icon-sized button. Whether there is a window at all is the hook's
+ * synchronous answer: Tauri's window, or the browser document on the Vite dev
+ * page. A page with no Fullscreen API at all (a test, an embedded webview that
+ * refuses it) draws nothing: a button that cannot work is worse than no button.
  */
 export function FullscreenButton({
   className,

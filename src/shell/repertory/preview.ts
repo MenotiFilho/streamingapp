@@ -8,11 +8,15 @@
  */
 
 import type {
+  Chapter,
   LibraryEntry,
   MetaPreview,
+  NowPlaying,
+  PlaybackSnapshot,
   ResumeEntry,
   Stream,
   StreamWarning,
+  Track,
 } from "../../host-client";
 
 /** Cinemeta's own genre lists, as its manifest declares them. */
@@ -261,4 +265,139 @@ export function sampleLibrary(
     });
   }
   return entries;
+}
+
+/**
+ * The rehearsal's chapters: six places in the film, as fractions of its own
+ * length. The names are sample programme words, not a claim about the film; the
+ * Vite window says the playback is a rehearsal.
+ */
+const REHEARSAL_CHAPTERS = [
+  "Opening",
+  "The first movement",
+  "Interlude",
+  "The second movement",
+  "The turn",
+  "Credits",
+] as const;
+
+const REHEARSAL_CHAPTER_STARTS = [0, 0.08, 0.24, 0.42, 0.63, 0.84] as const;
+
+/** The chapter a rehearsal position is inside: the last one that began before it. */
+export function rehearsalChapterAt(chapters: Chapter[], position: number): number | null {
+  let inside: number | null = null;
+  for (const chapter of chapters) {
+    if (chapter.time <= position) {
+      inside = chapter.index;
+    }
+  }
+  return inside;
+}
+
+/**
+ * What the plain Vite window draws when the Player OSD is rehearsed: a Snapshot
+ * of a Stream that is playing, built from a real film's own resume entry.
+ *
+ * It is sample data — the position, the tracks, the chapters and the statistics
+ * are the prototype's, not a Host's report — and exists so the OSD can be judged
+ * live without a Host. The Tauri window never takes this path. Everything the
+ * OSD then does is a real Action, answered by the preview transport locally.
+ */
+export function rehearsalPlayback(entry: ResumeEntry, nowPlaying: NowPlaying): PlaybackSnapshot {
+  const duration = entry.duration && entry.duration > 0 ? entry.duration : 6420;
+  const position = Math.min(
+    Math.max(0, entry.position ?? Math.round(duration * 0.34)),
+    Math.max(0, duration - 1),
+  );
+  const chapters: Chapter[] = REHEARSAL_CHAPTERS.map((title, index) => ({
+    index,
+    title,
+    time: Math.round(duration * REHEARSAL_CHAPTER_STARTS[index]!),
+  }));
+  const tracks: Track[] = [
+    {
+      id: 1,
+      kind: "audio",
+      language: "eng",
+      title: "English 5.1",
+      codec: "eac3",
+      embedded: true,
+      selected: true,
+      default: true,
+      forced: false,
+    },
+    {
+      id: 2,
+      kind: "audio",
+      language: "por",
+      title: "Português 5.1",
+      codec: "ac3",
+      embedded: true,
+      selected: false,
+      default: false,
+      forced: false,
+    },
+    {
+      id: 3,
+      kind: "subtitle",
+      language: "eng",
+      title: "English",
+      codec: "subrip",
+      embedded: true,
+      selected: true,
+      default: true,
+      forced: false,
+    },
+    {
+      id: 4,
+      kind: "subtitle",
+      language: "por-BR",
+      title: "Português (BR)",
+      codec: "subrip",
+      embedded: true,
+      selected: false,
+      default: false,
+      forced: false,
+    },
+    {
+      id: 5,
+      kind: "subtitle",
+      language: "eng",
+      title: "English (SDH)",
+      codec: "ass",
+      embedded: false,
+      selected: false,
+      default: false,
+      forced: false,
+    },
+  ];
+
+  return {
+    state: "playing",
+    picture: "in_window",
+    failure: null,
+    nowPlaying,
+    episode: null,
+    position,
+    duration,
+    buffered: {
+      start: Math.max(0, position - 900),
+      end: Math.min(duration, position + 1200),
+    },
+    tracks,
+    chapters,
+    chapter: rehearsalChapterAt(chapters, position),
+    speed: 1,
+    volume: 60,
+    muted: false,
+    subtitleDelay: 0,
+    crop: null,
+    aspect: null,
+    resolution: { width: 1920, height: 804 },
+    statistics: {
+      bitrate: 12_500_000,
+      droppedFrames: 0,
+      hardwareDecode: "d3d11va",
+    },
+  };
 }

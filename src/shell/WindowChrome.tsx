@@ -19,9 +19,10 @@ import { useFullscreen } from "./useFullscreen";
  * full width is allowed to carry the cross-axis guard, so Down from its button
  * at the right still reaches a dialog centred below. No other kind gets that.
  *
- * A page with no Tauri window — a plain browser, a test — draws no strip at
- * all: there is no window state to change, and the control would be a button
- * that cannot work.
+ * A page with no window it can put fullscreen — a test, an embedded webview
+ * with no Fullscreen API — draws no strip at all: the control would be a button
+ * that cannot work. The Vite dev page has the browser's own document, so it
+ * gets the same strip on every screen.
  */
 export function WindowChrome() {
   const { supported } = useFullscreen();
