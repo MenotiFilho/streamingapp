@@ -572,7 +572,7 @@
        * Remote's programme plate and live mark. They are hidden here so the
        * page at `/` keeps its own drawing; the repertory block below shows them.
        */
-      .mini-art, .mini-progress, .cast-plate, .cast-live { display: none; }
+      .mini-art, .mini-progress, .cast-plate, .cast-live, .menu-mark { display: none; }
 
       /* ==================================================================
        * Repertory Remote (#149)
@@ -1597,10 +1597,11 @@
         width: 100%;
         max-width: 34rem;
         min-height: 100%;
-        gap: 0.75rem;
+        gap: 0;
         padding: 0 var(--rep-remote-gutter);
       }
       html[data-ui="repertory"] .cast-head {
+        order: 0;
         position: sticky;
         top: 0;
         z-index: 6;
@@ -1635,6 +1636,7 @@
       html[data-ui="repertory"] .cast-live[data-live="false"]::before { background: var(--rep-status-red); }
 
       html[data-ui="repertory"] .cast-plate {
+        order: 1;
         position: relative;
         display: block;
         margin: 0 calc(-1 * var(--rep-remote-gutter));
@@ -1698,11 +1700,15 @@
       }
       html[data-ui="repertory"] .cast-poster { display: none; }
 
-      html[data-ui="repertory"] .cast-utilities {
+      html[data-ui="repertory"] .cast-menus {
+        order: 5;
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
         gap: 0;
         border-top: 1px solid var(--rep-hairline);
         border-bottom: 1px solid var(--rep-hairline);
       }
+      html[data-ui="repertory"] .cast-menus .utility { padding: 0.6rem 0.15rem; }
       html[data-ui="repertory"] .utility {
         gap: 0.3rem;
         min-height: 3.6rem;
@@ -1730,17 +1736,32 @@
       }
       html[data-ui="repertory"] .utility:disabled { opacity: 0.4; }
 
+      /*
+       * Volume is not a menu on the repertory card: it is the one always-visible
+       * box, between the transport and the five-menu row. It is a bounded
+       * hairline box, not a popover; the mute control is an icon.
+       */
       html[data-ui="repertory"] .volume-panel {
+        order: 4;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr) auto;
+        align-items: center;
         gap: 0.6rem;
-        padding: 0.75rem 0;
-        border: 0;
-        border-bottom: 1px solid var(--rep-hairline);
-        background: transparent;
+        margin: 0.65rem 0 0.9rem;
+        padding: 0.65rem 0.75rem;
+        border: 1px solid var(--rep-hairline);
+        background: var(--rep-ink-raised);
       }
+      html[data-ui="repertory"] .volume-panel > div { display: none; }
       html[data-ui="repertory"] .volume-level {
         color: var(--rep-dim);
         font-family: var(--rep-mono);
         font-size: var(--rep-remote-text-badge);
+        white-space: nowrap;
+      }
+      html[data-ui="repertory"] .volume-level::before {
+        content: "Vol ";
+        color: var(--rep-muted);
       }
       html[data-ui="repertory"] .volume-panel input[type="range"] { width: 100%; }
       html[data-ui="repertory"] .volume-panel .btn-icon {
@@ -1749,8 +1770,18 @@
         height: var(--rep-remote-touch);
         padding: 0 0.6rem;
       }
+      html[data-ui="repertory"] .volume-panel .btn-icon svg {
+        display: block;
+        width: 1.15rem;
+        height: 1.15rem;
+      }
 
-      html[data-ui="repertory"] .timeline { gap: 0.35rem; padding: 0.35rem 0 0.1rem; }
+      html[data-ui="repertory"] .timeline {
+        order: 2;
+        gap: 0.35rem;
+        margin-top: 0.55rem;
+        padding: 0.35rem 0 0.1rem;
+      }
       html[data-ui="repertory"] .seek-track { height: 2.2rem; }
       html[data-ui="repertory"] .seek-track::before {
         height: 2px;
@@ -1812,6 +1843,7 @@
       }
 
       html[data-ui="repertory"] .transport {
+        order: 3;
         grid-template-columns: repeat(6, minmax(0, 1fr));
         gap: 0;
         border-top: 1px solid var(--rep-hairline);
@@ -1836,48 +1868,9 @@
         font-size: 1.1rem;
       }
 
-      html[data-ui="repertory"] .extras {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 0;
-        border-bottom: 1px solid var(--rep-hairline);
-      }
-      html[data-ui="repertory"] .extras .btn {
-        min-height: 2.9rem;
-        border: 0;
-        border-right: 1px solid var(--rep-hairline);
-        background: transparent;
-        color: var(--rep-muted);
-        font-family: var(--rep-mono);
-        font-size: var(--rep-remote-text-badge);
-        letter-spacing: 0.06em;
-      }
-      html[data-ui="repertory"] .extras .btn:last-child { border-right: 0; }
-      html[data-ui="repertory"] .extras .btn[aria-expanded="true"] {
-        background: var(--rep-ink-raised);
-        color: var(--rep-ivory);
-        box-shadow: inset 0 -2px 0 var(--rep-house);
-      }
-      html[data-ui="repertory"] .extra-panel {
-        padding: 0.9rem 0;
-        border: 0;
-        border-top: 2px solid var(--rep-house);
-        border-bottom: 1px solid var(--rep-hairline);
-        background: var(--rep-ink-raised);
-      }
-      html[data-ui="repertory"] .extra-panel h3 {
-        margin: 0 0 0.6rem;
-        color: var(--rep-ivory);
-        font-family: var(--rep-display);
-        font-size: 1.05rem;
-        font-weight: 500;
-        letter-spacing: -0.008em;
-        text-transform: none;
-      }
-      html[data-ui="repertory"] .extra-panel .btn { margin-top: 0.6rem; }
-      html[data-ui="repertory"] .extra-panel .note { font-size: 10px; }
-      html[data-ui="repertory"] .extra-panel .readout { margin-top: 0.55rem; }
       html[data-ui="repertory"] .cast-footer {
-        margin-top: 0.6rem;
+        order: 7;
+        margin-top: 0.75rem;
         padding: 0.75rem 0 calc(0.5rem + env(safe-area-inset-bottom));
         border-top: 1px solid var(--rep-hairline);
         color: var(--rep-muted);
@@ -1887,6 +1880,8 @@
         text-align: left;
       }
       html[data-ui="repertory"] .cast-note {
+        order: 6;
+        margin: 0.6rem 0 0;
         color: var(--rep-dim);
         font-family: var(--rep-sans);
         font-size: var(--rep-remote-text-caption);
@@ -2981,9 +2976,12 @@
         addons: { expanded: null, status: null },
         // The level stack above the destination, outermost first.
         levels: [],
-        // The three surfaces
+        // The three surfaces. `sheet` is the open drawer's kind: null, "av",
+        // "episodes", "speed", "chapters" or "picture". Volume is the one menu
+        // that opens a popover over the card instead of the shared drawer.
         cast: false,
-        sheet: false,
+        sheet: null,
+        episodes: null,
         volumeOpen: false,
         morePanel: null,
         showStatistics: false,
@@ -3024,6 +3022,31 @@
       // Drawing
       // ---------------------------------------------------------------------
       function playback() { return state.snapshot ? state.snapshot.playback : null; }
+
+      /** Whether the staged repertory surface is the one being drawn. */
+      function isRepertory() {
+        return document.documentElement.dataset.ui === "repertory";
+      }
+
+      /**
+       * Open one of the shared playback drawers. Audio & Subtitles, Episodes,
+       * Speed, Chapters and Picture all use this one surface and its Done/Back
+       * rule; Volume is the exception and opens its own popover.
+       */
+      function openMenu(menu, returnKey) {
+        state.sheetReturn = returnKey || focusKey(document.activeElement);
+        state.sheet = menu;
+        if (menu !== "episodes") { state.episodes = null; }
+        state.focusTarget = "sheet";
+        paint();
+      }
+
+      function closeSheet() {
+        state.sheet = null;
+        state.episodes = null;
+        state.focusTarget = state.sheetReturn ? { key: state.sheetReturn } : "cast";
+        paint();
+      }
 
       function showPairing(message) {
         $("pairing").classList.remove("hidden");
@@ -3152,6 +3175,7 @@
         if (!p || !watching(p.state)) { return "none"; }
         return JSON.stringify({
           open: state.cast,
+          sheet: state.sheet,
           volumeOpen: state.volumeOpen,
           morePanel: state.morePanel,
           showStatistics: state.showStatistics,
@@ -3184,9 +3208,27 @@
         const p = playback();
         if (!state.sheet || !p || !watching(p.state)) { return "none"; }
         return JSON.stringify({
+          menu: state.sheet,
           tracks: p.tracks,
           delay: p.subtitleDelay,
-          scale: state.snapshot ? state.snapshot.preferences.subtitleScale : null,
+          subtitleScale: state.snapshot ? state.snapshot.preferences.subtitleScale : null,
+          speed: p.speed,
+          chapters: p.chapters,
+          chapter: p.chapter,
+          crop: p.crop,
+          aspect: p.aspect,
+          resolution: p.resolution,
+          statistics: p.statistics,
+          showStatistics: state.showStatistics,
+          episodes: state.episodes
+            ? {
+                loading: state.episodes.loading,
+                title: state.episodes.title ? state.episodes.title.id : null,
+                shownSeason: state.episodes.shownSeason,
+                failure: state.episodes.failure ? state.episodes.failure.kind : null,
+                loadingStreams: state.episodes.loadingStreams,
+              }
+            : null,
         });
       }
 
@@ -4177,6 +4219,56 @@
         if (!state.focusTarget) { restoreView(view); }
       }
 
+      /**
+       * The repertory card's five menus: one row, one drawer each. Volume is
+       * not here; it is the always-visible box between the transport and this
+       * row. The old surface keeps its three utilities (with Volume) and its
+       * three inline extras.
+       */
+      function renderCastMenus(p, episode) {
+        return html`
+          <div class="cast-menus" aria-label="Playback menus">
+            <button type="button" class="utility" data-focusable data-a="open-sheet"
+                    data-focus-key="cast-audio" aria-expanded="${pressed(state.sheet === "av")}"
+                    aria-label="Audio &amp; Subtitles">
+              <span aria-hidden="true">CC</span>Audio
+            </button>
+            <button type="button" class="utility" data-focusable data-a="episodes-open"
+                    data-focus-key="cast-episodes" aria-expanded="${pressed(state.sheet === "episodes")}"
+                    ${off(episode === null)}>
+              <span aria-hidden="true">\u2630</span>Episodes
+            </button>
+            <button type="button" class="utility" data-focusable data-a="more-panel" data-panel="speed"
+                    data-focus-key="cast-speed" aria-expanded="${pressed(state.sheet === "speed")}">
+              <span aria-hidden="true">\u00BB</span>Speed
+            </button>
+            <button type="button" class="utility" data-focusable data-a="more-panel" data-panel="chapters"
+                    data-focus-key="cast-chapters" aria-expanded="${pressed(state.sheet === "chapters")}">
+              <span aria-hidden="true">\u2261</span>Chapters
+            </button>
+            <button type="button" class="utility" data-focusable data-a="more-panel" data-panel="picture"
+                    data-focus-key="cast-picture" aria-expanded="${pressed(state.sheet === "picture")}">
+              <span aria-hidden="true">\u25AD</span>Picture
+            </button>
+          </div>`;
+      }
+
+      /** The mute control is an icon on the repertory card; the old surface keeps its word. */
+      function muteIcon(muted) {
+        return muted
+          ? html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 9h4l5-4v14l-5-4H4z" />
+              <path d="m16 9 5 6M21 9l-5 6" />
+            </svg>`
+          : html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M4 9h4l5-4v14l-5-4H4z" />
+              <path d="M16 8.5a5 5 0 0 1 0 7" />
+              <path d="M18.5 6a8 8 0 0 1 0 12" />
+            </svg>`;
+      }
+
       function renderCastBody() {
         const cast = $("surface-remote");
         const p = playback();
@@ -4230,22 +4322,26 @@
               ${poster ? html`<img src="${poster}" alt="" />` : null}
             </div>
 
-            <div class="cast-utilities">
-              <button type="button" class="utility" data-focusable data-a="open-sheet"
-                      data-focus-key="cast-audio" aria-expanded="${state.sheet}">
-                <span aria-hidden="true">CC</span>Audio &amp; Subtitles
-              </button>
-              <button type="button" class="utility" data-focusable data-a="volume-toggle"
-                      data-focus-key="cast-volume" aria-expanded="${state.volumeOpen}">
-                <span aria-hidden="true">${p.muted ? "\u2715" : "\u266A\uFE0E"}</span>Volume
-              </button>
-              <button type="button" class="utility" data-focusable data-a="episodes-open"
-                      data-focus-key="cast-episodes" ${off(episode === null)}>
-                <span aria-hidden="true">\u2630</span>Episodes
-              </button>
-            </div>
+            ${isRepertory()
+              ? renderCastMenus(p, episode)
+              : html`
+                  <div class="cast-utilities" aria-label="Playback menus">
+                    <button type="button" class="utility" data-focusable data-a="open-sheet"
+                            data-focus-key="cast-audio" aria-expanded="${pressed(state.sheet === "av")}">
+                      <span aria-hidden="true">CC</span>Audio &amp; Subtitles
+                    </button>
+                    <button type="button" class="utility" data-focusable data-a="volume-toggle"
+                            data-focus-key="cast-volume" aria-expanded="${pressed(state.volumeOpen)}">
+                      <span aria-hidden="true">${p.muted ? "\u2715" : "\u266A\uFE0E"}</span>Volume
+                    </button>
+                    <button type="button" class="utility" data-focusable data-a="episodes-open"
+                            data-focus-key="cast-episodes" aria-expanded="${pressed(state.sheet === "episodes")}"
+                            ${off(episode === null)}>
+                      <span aria-hidden="true">\u2630</span>Episodes
+                    </button>
+                  </div>`}
 
-            ${state.volumeOpen
+            ${isRepertory() || state.volumeOpen
               ? html`
                   <div class="volume-panel">
                     <span class="volume-level" data-volume-level>${formatVolume(volume)}</span>
@@ -4254,7 +4350,9 @@
                            aria-label="Volume" data-focusable data-focus-key="cast-volume-slider" />
                     <button type="button" class="btn btn-icon" data-focusable data-a="mute-toggle"
                             data-focus-key="cast-mute" aria-pressed="${p.muted === true}"
-                            aria-label="${p.muted ? "Unmute" : "Mute"}">${p.muted ? "Unmute" : "Mute"}</button>
+                            aria-label="${p.muted ? "Unmute" : "Mute"}">${isRepertory()
+                              ? muteIcon(p.muted)
+                              : (p.muted ? "Unmute" : "Mute")}</button>
                   </div>`
               : null}
 
@@ -4298,70 +4396,32 @@
                       data-focus-key="cast-stop" aria-label="Stop">\u25A0\uFE0E Stop</button>
             </div>
 
-            <div class="extras" aria-label="Playback controls">
-              <button type="button" class="btn" data-focusable data-a="more-panel" data-panel="speed"
-                      data-focus-key="cast-speed" aria-expanded="${state.morePanel === "speed"}">Speed</button>
-              <button type="button" class="btn" data-focusable data-a="more-panel" data-panel="chapters"
-                      data-focus-key="cast-chapters" aria-expanded="${state.morePanel === "chapters"}">Chapters</button>
-              <button type="button" class="btn" data-focusable data-a="more-panel" data-panel="picture"
-                      data-focus-key="cast-picture" aria-expanded="${state.morePanel === "picture"}">Picture</button>
-            </div>
+            ${isRepertory()
+              ? null
+              : html`
+                  <div class="extras" aria-label="Playback menus">
+                    <button type="button" class="btn" data-focusable data-a="more-panel" data-panel="speed"
+                            data-focus-key="cast-speed" aria-expanded="${pressed(state.morePanel === "speed")}">
+                      <span class="menu-mark" aria-hidden="true">\u00BB</span>Speed
+                    </button>
+                    <button type="button" class="btn" data-focusable data-a="more-panel" data-panel="chapters"
+                            data-focus-key="cast-chapters" aria-expanded="${pressed(state.morePanel === "chapters")}">
+                      <span class="menu-mark" aria-hidden="true">\u2261</span>Chapters
+                    </button>
+                    <button type="button" class="btn" data-focusable data-a="more-panel" data-panel="picture"
+                            data-focus-key="cast-picture" aria-expanded="${pressed(state.morePanel === "picture")}">
+                      <span class="menu-mark" aria-hidden="true">\u25AD</span>Picture
+                    </button>
+                  </div>`}
 
             ${state.morePanel === "speed"
-              ? html`<div class="extra-panel"><h3>Playback speed</h3><div class="chip-row">
-                  ${SPEEDS.map((rate) => html`
-                    <button type="button" class="chip" data-focusable data-a="speed" data-rate="${rate}"
-                            data-focus-key="cast-speed-${rate}"
-                            aria-pressed="${pressed(speedSelected(p.speed, rate))}">${formatSpeed(rate)}</button>`)}
-                </div></div>` : null}
+              ? html`<div class="extra-panel"><h3>Playback speed</h3>${renderSpeedBody(p, "cast-")}</div>` : null}
 
             ${state.morePanel === "chapters"
-              ? html`<div class="extra-panel"><h3>Chapters</h3>
-                  <div class="actions" style="margin-bottom:0.5rem">
-                    <button type="button" class="btn" data-focusable data-a="chapter-prev"
-                            data-focus-key="cast-chapter-prev">Previous</button>
-                    <button type="button" class="btn" data-focusable data-a="chapter-next"
-                            data-focus-key="cast-chapter-next">Next</button>
-                  </div>
-                  ${p.chapters.length === 0
-                    ? html`<p class="note">This Stream lists no chapters.</p>`
-                    : p.chapters.map((chapter) => html`
-                        <button type="button" class="chip" data-focusable data-a="chapter"
-                                data-index="${chapter.index}" data-focus-key="cast-chapter-${chapter.index}"
-                                aria-pressed="${pressed(p.chapter === chapter.index)}">${chapterLabel(chapter)}</button>`)}
-                </div>` : null}
+              ? html`<div class="extra-panel"><h3>Chapters</h3>${renderChaptersBody(p, "cast-")}</div>` : null}
 
             ${state.morePanel === "picture"
-              ? html`<div class="extra-panel"><h3>Aspect</h3><div class="chip-row">
-                  ${ASPECTS.map((choice) => {
-                    aspectIndex.set(choice.label, choice.aspect);
-                    return html`<button type="button" class="chip" data-focusable data-a="aspect"
-                            data-ref="${choice.label}" data-focus-key="cast-aspect-${choice.label}"
-                            aria-pressed="${pressed(aspectSelected(p.aspect, choice.aspect))}">${choice.label}</button>`;
-                  })}
-                </div>
-                <h3 style="margin-top:0.75rem">Crop</h3><div class="chip-row">
-                  ${cropChoices(p.resolution).map((choice) => {
-                    cropIndex.set(choice.label, choice.crop);
-                    return html`<button type="button" class="chip" data-focusable data-a="crop"
-                            data-ref="${choice.label}" data-focus-key="cast-crop-${choice.label}"
-                            aria-pressed="${pressed(cropSelected(p.crop, choice.crop))}">${choice.label}</button>`;
-                  })}
-                </div>
-                <button type="button" class="btn" data-focusable data-a="autocrop"
-                        data-focus-key="cast-autocrop">${p.crop ? "Restore full frame" : "Autocrop"}</button>
-                <p class="note">${p.crop
-                  ? "Autocrop keeps " + p.crop.width + "\u00d7" + p.crop.height + "+" + p.crop.x + "+" + p.crop.y + "."
-                  : "Autocrop keeps the whole frame."}</p>
-                <h3 style="margin-top:0.75rem">Statistics</h3>
-                <button type="button" class="btn" data-focusable data-a="stats-toggle"
-                        data-focus-key="cast-statistics" aria-pressed="${state.showStatistics}">
-                  ${state.showStatistics ? "Hide statistics" : "Show statistics"}</button>
-                ${state.showStatistics
-                  ? html`<dl class="readout" style="margin-top:0.5rem">${statisticsLines(p.statistics).map((line) => html`
-                      <dt>${line.label}</dt><dd class="tabular">${line.value}</dd>`)}</dl>`
-                  : null}
-                </div>` : null}
+              ? html`<div class="extra-panel">${renderPictureBody(p, "cast-")}</div>` : null}
 
             ${p.state === "opening"
               ? html`<p class="cast-note">Opening ${playingName(p.nowPlaying)}\u2026</p>` : null}
@@ -4565,11 +4625,25 @@
         name.textContent = chapter ? chapterLabel(chapter) : "";
       }
 
-      // --- surface 3: Audio & Subtitles -------------------------------------
+      // --- surface 3: the shared playback drawer -----------------------------
+      //
+      // Audio & Subtitles, Episodes, Speed, Chapters and Picture all use the
+      // same drawer, head and Done/Back rule. Volume is the one menu that does
+      // not: it is a popover over the card, above its own button.
       function renderSheet() {
         const view = captureView();
         renderSheetBody();
         if (!state.focusTarget) { restoreView(view); }
+      }
+
+      function sheetTitle(menu) {
+        switch (menu) {
+          case "episodes": return "Episodes";
+          case "speed": return "Playback speed";
+          case "chapters": return "Chapters";
+          case "picture": return "Picture";
+          default: return "Audio & Subtitles";
+        }
       }
 
       function renderSheetBody() {
@@ -4585,65 +4659,205 @@
         if (signature === state.sheetSignature) { return; }
         state.sheetSignature = signature;
         sheet.classList.remove("hidden");
+        const title = sheetTitle(state.sheet);
+        sheet.setAttribute("aria-label", title);
+
+        sheet.innerHTML = html`
+          <div class="sheet-panel">
+            <div class="sheet-head">
+              <h2>${title}</h2>
+              <button type="button" class="btn btn-primary" data-focusable data-a="close-sheet"
+                      data-focus-key="sheet-done" data-autofocus>Done</button>
+            </div>
+            ${renderSheetMenu(state.sheet, p)}
+          </div>`.markup;
+      }
+
+      function renderSheetMenu(menu, p) {
+        switch (menu) {
+          case "episodes": return renderEpisodesSheet();
+          case "speed": return html`
+            <div class="sheet-group">
+              <h3>Speed</h3>
+              ${renderSpeedBody(p, "sheet-")}
+            </div>`;
+          case "chapters": return html`
+            <div class="sheet-group">
+              <h3>Chapters</h3>
+              ${renderChaptersBody(p, "sheet-")}
+            </div>`;
+          case "picture": return html`
+            <div class="sheet-group">
+              ${renderPictureBody(p, "sheet-")}
+            </div>`;
+          default: return renderAudioSubtitlesSheet(p);
+        }
+      }
+
+      function renderAudioSubtitlesSheet(p) {
         const audio = orderedTracks(p.tracks, "audio");
         const subtitles = orderedTracks(p.tracks, "subtitle");
         const delay = p.subtitleDelay === null ? 0 : p.subtitleDelay;
         const scale = state.snapshot && typeof state.snapshot.preferences.subtitleScale === "number"
           ? state.snapshot.preferences.subtitleScale : 1;
 
-        sheet.innerHTML = html`
-          <div class="sheet-panel">
-            <div class="sheet-head">
-              <h2>Audio &amp; Subtitles</h2>
-              <button type="button" class="btn btn-primary" data-focusable data-a="close-sheet"
-                      data-focus-key="sheet-done" data-autofocus>Done</button>
-            </div>
+        return html`
+          <div class="sheet-group">
+            <h3>Audio</h3>
+            ${audio.length === 0
+              ? html`<p class="note">This Stream carries no audio track to pick.</p>` : null}
+            ${audio.map((track) => renderTrack(track))}
+          </div>
 
-            <div class="sheet-group">
-              <h3>Audio</h3>
-              ${audio.length === 0
-                ? html`<p class="note">This Stream carries no audio track to pick.</p>` : null}
-              ${audio.map((track) => renderTrack(track))}
-            </div>
+          <div class="sheet-group">
+            <h3>Subtitles</h3>
+            ${subtitles.length === 0
+              ? html`<p class="note">This Stream carries no subtitle track to pick.</p>` : null}
+            ${subtitles.map((track) => renderTrack(track))}
+            <button type="button" class="track" data-focusable data-a="track" data-kind="off"
+                    data-focus-key="track-off" aria-pressed="${pressed(!subtitlesOn(p.tracks))}">
+              <span>Subtitles off</span>
+            </button>
+          </div>
 
-            <div class="sheet-group">
-              <h3>Subtitles</h3>
-              ${subtitles.length === 0
-                ? html`<p class="note">This Stream carries no subtitle track to pick.</p>` : null}
-              ${subtitles.map((track) => renderTrack(track))}
-              <button type="button" class="track" data-focusable data-a="track" data-kind="off"
-                      data-focus-key="track-off" aria-pressed="${pressed(!subtitlesOn(p.tracks))}">
-                <span>Subtitles off</span>
-              </button>
+          <div class="sheet-group">
+            <h3>Subtitle delay</h3>
+            <div class="delay-row">
+              <span class="delay-readout tabular" data-delay>${formatDelay(delay)}</span>
+              <button type="button" class="btn" data-focusable data-a="delay"
+                      data-seconds="${stepDelay(delay, -DELAY_STEP)}" data-focus-key="delay-back">\u22120.1 s</button>
+              <button type="button" class="btn" data-focusable data-a="delay"
+                      data-seconds="${stepDelay(delay, DELAY_STEP)}" data-focus-key="delay-forward">+0.1 s</button>
+              <button type="button" class="btn" data-focusable data-a="delay"
+                      data-seconds="0" data-focus-key="delay-reset"
+                      aria-pressed="${pressed(delay === 0)}">Reset</button>
             </div>
+          </div>
 
-            <div class="sheet-group">
-              <h3>Subtitle delay</h3>
-              <div class="delay-row">
-                <span class="delay-readout tabular" data-delay>${formatDelay(delay)}</span>
-                <button type="button" class="btn" data-focusable data-a="delay"
-                        data-seconds="${stepDelay(delay, -DELAY_STEP)}" data-focus-key="delay-back">\u22120.1 s</button>
-                <button type="button" class="btn" data-focusable data-a="delay"
-                        data-seconds="${stepDelay(delay, DELAY_STEP)}" data-focus-key="delay-forward">+0.1 s</button>
-                <button type="button" class="btn" data-focusable data-a="delay"
-                        data-seconds="0" data-focus-key="delay-reset"
-                        aria-pressed="${pressed(delay === 0)}">Reset</button>
-              </div>
+          <div class="sheet-group">
+            <h3>Subtitle size</h3>
+            <div class="size-row">
+              <span class="size-readout tabular" data-subtitle-scale>Subtitle size ${formatScale(scale)}</span>
+              <button type="button" class="btn" data-focusable data-a="subtitle-scale"
+                      data-scale="${stepScale(scale, -1)}" data-focus-key="subtitle-scale-down"
+                      aria-label="Smaller subtitles">\u2212</button>
+              <button type="button" class="btn" data-focusable data-a="subtitle-scale"
+                      data-scale="${stepScale(scale, 1)}" data-focus-key="subtitle-scale-up"
+                      aria-label="Larger subtitles">+</button>
             </div>
+          </div>`;
+      }
 
-            <div class="sheet-group">
-              <h3>Subtitle size</h3>
-              <div class="size-row">
-                <span class="size-readout tabular" data-subtitle-scale>Subtitle size ${formatScale(scale)}</span>
-                <button type="button" class="btn" data-focusable data-a="subtitle-scale"
-                        data-scale="${stepScale(scale, -1)}" data-focus-key="subtitle-scale-down"
-                        aria-label="Smaller subtitles">\u2212</button>
-                <button type="button" class="btn" data-focusable data-a="subtitle-scale"
-                        data-scale="${stepScale(scale, 1)}" data-focus-key="subtitle-scale-up"
-                        aria-label="Larger subtitles">+</button>
-              </div>
+      function renderSpeedBody(p, prefix) {
+        return html`
+          <div class="chip-row" style="flex-wrap:wrap;overflow:visible">
+            ${SPEEDS.map((rate) => html`
+              <button type="button" class="chip" data-focusable data-a="speed" data-rate="${rate}"
+                      data-focus-key="${prefix}speed-${rate}"
+                      aria-pressed="${pressed(speedSelected(p.speed, rate))}">${formatSpeed(rate)}</button>`)}
+          </div>`;
+      }
+
+      function renderChaptersBody(p, prefix) {
+        return html`
+          <div class="actions" style="margin-bottom:0.5rem">
+            <button type="button" class="btn" data-focusable data-a="chapter-prev"
+                    data-focus-key="${prefix}chapter-prev">Previous</button>
+            <button type="button" class="btn" data-focusable data-a="chapter-next"
+                    data-focus-key="${prefix}chapter-next">Next</button>
+          </div>
+          ${p.chapters.length === 0
+            ? html`<p class="note">This Stream lists no chapters.</p>`
+            : html`
+                <div class="chip-row" style="flex-wrap:wrap;overflow:visible">
+                  ${p.chapters.map((chapter) => html`
+                    <button type="button" class="chip" data-focusable data-a="chapter"
+                            data-index="${chapter.index}" data-focus-key="${prefix}chapter-${chapter.index}"
+                            aria-pressed="${pressed(p.chapter === chapter.index)}">${chapterLabel(chapter)}</button>`)}
+                </div>`}`;
+      }
+
+      function renderPictureBody(p, prefix) {
+        return html`
+          <h3>Aspect</h3>
+          <div class="chip-row" style="flex-wrap:wrap;overflow:visible">
+            ${ASPECTS.map((choice) => {
+              aspectIndex.set(choice.label, choice.aspect);
+              return html`<button type="button" class="chip" data-focusable data-a="aspect"
+                      data-ref="${choice.label}" data-focus-key="${prefix}aspect-${choice.label}"
+                      aria-pressed="${pressed(aspectSelected(p.aspect, choice.aspect))}">${choice.label}</button>`;
+            })}
+          </div>
+          <h3 style="margin-top:0.75rem">Crop</h3>
+          <div class="chip-row" style="flex-wrap:wrap;overflow:visible">
+            ${cropChoices(p.resolution).map((choice) => {
+              cropIndex.set(choice.label, choice.crop);
+              return html`<button type="button" class="chip" data-focusable data-a="crop"
+                      data-ref="${choice.label}" data-focus-key="${prefix}crop-${choice.label}"
+                      aria-pressed="${pressed(cropSelected(p.crop, choice.crop))}">${choice.label}</button>`;
+            })}
+          </div>
+          <button type="button" class="btn" data-focusable data-a="autocrop"
+                  data-focus-key="${prefix}autocrop">${p.crop ? "Restore full frame" : "Autocrop"}</button>
+          <p class="note">${p.crop
+            ? "Autocrop keeps " + p.crop.width + "\u00d7" + p.crop.height + "+" + p.crop.x + "+" + p.crop.y + "."
+            : "Autocrop keeps the whole frame."}</p>
+          <h3 style="margin-top:0.75rem">Statistics</h3>
+          <button type="button" class="btn" data-focusable data-a="stats-toggle"
+                  data-focus-key="${prefix}statistics" aria-pressed="${state.showStatistics}">
+            ${state.showStatistics ? "Hide statistics" : "Show statistics"}</button>
+          ${state.showStatistics
+            ? html`<dl class="readout" style="margin-top:0.5rem">${statisticsLines(p.statistics).map((line) => html`
+                <dt>${line.label}</dt><dd class="tabular">${line.value}</dd>`)}</dl>`
+            : null}`;
+      }
+
+      function renderEpisodesSheet() {
+        const episodes = state.episodes;
+        if (!episodes) {
+          return html`<p class="note" role="status">Opening this series\u2026</p>`;
+        }
+        if (episodes.loading) {
+          return html`<p class="note" role="status">Looking for this series' episodes\u2026</p>`;
+        }
+        if (episodes.failure) {
+          return html`<p class="error" role="alert">${explain(episodes.failure)}</p>`;
+        }
+        const title = episodes.title;
+        if (!title) {
+          return html`<p class="note">No episodes are available for the playing series.</p>`;
+        }
+        const seasons = seasonsOf(title);
+        const shown = seasons.find((season) => season.season === episodes.shownSeason) || seasons[0];
+        return html`
+          ${episodes.loadingStreams
+            ? html`<p class="note" role="status">Looking for Streams\u2026</p>` : null}
+          <div class="sheet-group">
+            <h3>${nameOf(title, null)}</h3>
+            <div class="chip-row" aria-label="Seasons">
+              ${seasons.map(({ season }) => html`
+                <button type="button" class="chip" data-focusable data-a="episode-season"
+                        data-season="${season === null ? "none" : season}"
+                        data-focus-key="sheet-season-${season === null ? "none" : season}"
+                        aria-pressed="${pressed(shown && shown.season === season)}">${seasonName(season)}</button>`)}
             </div>
-          </div>`.markup;
+            ${shown ? shown.videos.map((video) => {
+              videoIndex.set(video.id, video);
+              const label = labelOf(video);
+              return html`
+                <button type="button" class="episode lift" data-focusable data-a="episode-play"
+                        data-id="${video.id}" data-focus-key="sheet-episode-${video.id}"
+                        ${off(episodes.loadingStreams)}>
+                  ${video.thumbnail
+                    ? html`<span class="episode-still"><img src="${video.thumbnail}" alt="" loading="lazy" /></span>`
+                    : null}
+                  <span>
+                    ${label ? html`<span class="episode-label">${label}</span><br />` : null}
+                    <span class="episode-name">${video.name || video.id}</span>
+                  </span>
+                </button>`;
+            }) : null}
+          </div>`;
       }
 
       function renderTrack(track) {
@@ -5214,7 +5428,31 @@
         }
       }
 
-      async function loadEpisodes(level, series) {
+      function openEpisodesSheet(returnKey) {
+        const p = playback();
+        if (!p || !p.nowPlaying || p.episode === null) { return; }
+        const series = seriesRefOf(p.nowPlaying);
+        const cached = state.seriesCache.get(series.cache) || null;
+        const episodes = {
+          loading: !cached, title: cached,
+          shownSeason: p.episode ? p.episode.season : null,
+          failure: null, loadingStreams: false, series,
+        };
+        if (cached) {
+          const seasons = seasonsOf(cached);
+          episodes.shownSeason = seasons.some((season) => season.season === episodes.shownSeason)
+            ? episodes.shownSeason
+            : seasons[0] ? seasons[0].season : null;
+        }
+        state.sheetReturn = returnKey || focusKey(document.activeElement);
+        state.episodes = episodes;
+        state.sheet = "episodes";
+        state.focusTarget = "sheet";
+        paint();
+        if (!cached) { void loadSheetEpisodes(episodes, series); }
+      }
+
+      async function askSeries(series) {
         let response = null;
         let error = null;
         if (series.kind === "discovered") {
@@ -5235,20 +5473,27 @@
             type: "open_title", addon: series.addon, title: series.title,
           }));
         }
+        if (error) { return { title: null, error }; }
+        const title = answeredTitle(response);
+        if (!title) {
+          return {
+            title: null,
+            error: {
+              kind: "unknown_title",
+              addon: series.addon || series.fallbackAddon || "TMDB",
+              detail: "no episodes were listed",
+            },
+          };
+        }
+        return { title, error: null };
+      }
+
+      async function loadEpisodes(level, series) {
+        const { title, error } = await askSeries(series);
         if (!state.levels.includes(level)) { return; }
         level.loading = false;
         if (error) {
           level.failure = error;
-          renderLevel();
-          return;
-        }
-        const title = answeredTitle(response);
-        if (!title) {
-          level.failure = {
-            kind: "unknown_title",
-            addon: series.addon || series.fallbackAddon || "TMDB",
-            detail: "no episodes were listed",
-          };
           renderLevel();
           return;
         }
@@ -5261,44 +5506,63 @@
         renderLevel();
       }
 
+      async function loadSheetEpisodes(episodes, series) {
+        const { title, error } = await askSeries(series);
+        if (state.episodes !== episodes || state.sheet !== "episodes") { return; }
+        episodes.loading = false;
+        if (error) {
+          episodes.failure = error;
+          renderSheet();
+          return;
+        }
+        state.seriesCache.set(series.cache, title);
+        episodes.title = title;
+        const seasons = seasonsOf(title);
+        episodes.shownSeason = seasons.some((season) => season.season === episodes.shownSeason)
+          ? episodes.shownSeason
+          : seasons[0] ? seasons[0].season : null;
+        renderSheet();
+      }
+
+      async function pickEpisodeStream(title, video) {
+        const { response, error } = await ask({
+          type: "find_streams", video: { type: title.type, id: video.id },
+        });
+        if (error) { return { error }; }
+        const groups = answeredStreams(response);
+        for (const group of groups) {
+          const stream = group.streams.find((candidate) => playabilityNote(candidate.playback) === null);
+          if (stream) { return { addon: group.addon, stream }; }
+        }
+        return {
+          error: {
+            kind: "unplayable",
+            detail: "no Addon offered a Stream this Host can play",
+          },
+        };
+      }
+
       async function playEpisode(video, level) {
         if (!level.title) { return; }
         level.loadingStreams = true;
         level.failure = null;
         renderLevel();
-        const { response, error } = await ask({
-          type: "find_streams", video: { type: level.title.type, id: video.id },
-        });
+        const picked = await pickEpisodeStream(level.title, video);
         if (!state.levels.includes(level)) { return; }
-        if (error) {
+        if (picked.error) {
           level.loadingStreams = false;
-          level.failure = error;
+          level.failure = picked.error;
           renderLevel();
           return;
         }
-        const groups = answeredStreams(response);
-        let picked = null;
-        for (const group of groups) {
-          const stream = group.streams.find((candidate) => playabilityNote(candidate.playback) === null);
-          if (stream) { picked = { addon: group.addon, stream }; break; }
-        }
-        if (!picked) {
-          level.loadingStreams = false;
-          level.failure = {
-            kind: "unplayable",
-            detail: "no Addon offered a Stream this Host can play",
-          };
-          renderLevel();
-          return;
-        }
-        const response2 = await take({
+        const response = await take({
           type: "play_stream",
           video: { type: level.title.type, id: video.id },
           addon: picked.addon,
           stream: picked.stream,
           title: titleStubOf(level.title, level.preview),
         });
-        if (response2) {
+        if (response) {
           state.levels = [];
           state.cast = true;
           state.morePanel = null;
@@ -5308,6 +5572,41 @@
           level.loadingStreams = false;
           level.failure = state.error;
           renderLevel();
+        }
+      }
+
+      async function playSheetEpisode(video, episodes) {
+        if (!episodes.title) { return; }
+        episodes.loadingStreams = true;
+        episodes.failure = null;
+        renderSheet();
+        const picked = await pickEpisodeStream(episodes.title, video);
+        if (state.episodes !== episodes || state.sheet !== "episodes") { return; }
+        if (picked.error) {
+          episodes.loadingStreams = false;
+          episodes.failure = picked.error;
+          renderSheet();
+          return;
+        }
+        const response = await take({
+          type: "play_stream",
+          video: { type: episodes.title.type, id: video.id },
+          addon: picked.addon,
+          stream: picked.stream,
+          title: titleStubOf(episodes.title, null),
+        });
+        if (state.episodes !== episodes || state.sheet !== "episodes") { return; }
+        if (response) {
+          state.sheet = null;
+          state.episodes = null;
+          state.volumeOpen = false;
+          state.cast = true;
+          state.focusTarget = "cast";
+          paint();
+        } else {
+          episodes.loadingStreams = false;
+          episodes.failure = state.error;
+          renderSheet();
         }
       }
 
@@ -5632,6 +5931,11 @@
           }
 
           case "episode-season": {
+            if (state.sheet === "episodes" && state.episodes) {
+              state.episodes.shownSeason = data.season === "none" ? null : Number(data.season);
+              renderSheet();
+              return;
+            }
             const level = state.levels[state.levels.length - 1];
             if (level && level.kind === "episodes") {
               level.shownSeason = data.season === "none" ? null : Number(data.season);
@@ -5640,8 +5944,12 @@
             return;
           }
           case "episode-play": {
-            const level = state.levels[state.levels.length - 1];
             const video = videoIndex.get(data.id);
+            if (state.sheet === "episodes" && state.episodes) {
+              if (video) { await playSheetEpisode(video, state.episodes); }
+              return;
+            }
+            const level = state.levels[state.levels.length - 1];
             if (level && level.kind === "episodes" && video) { await playEpisode(video, level); }
             return;
           }
@@ -5649,6 +5957,8 @@
           case "expand-cast": {
             state.castReturn = focusKey(document.activeElement);
             state.cast = true;
+            state.sheet = null;
+            state.episodes = null;
             state.morePanel = null;
             state.volumeOpen = false;
             state.focusTarget = "cast";
@@ -5657,32 +5967,30 @@
           }
           case "collapse-cast": {
             state.cast = false;
+            state.sheet = null;
+            state.episodes = null;
             state.morePanel = null;
             state.volumeOpen = false;
             state.focusTarget = state.castReturn ? { key: state.castReturn } : { key: "mini-center" };
             paint();
             return;
           }
-          case "open-sheet": {
-            state.sheetReturn = focusKey(document.activeElement);
-            state.sheet = true;
-            state.focusTarget = "sheet";
-            paint();
-            return;
-          }
-          case "close-sheet": {
-            state.sheet = false;
-            state.focusTarget = state.sheetReturn ? { key: state.sheetReturn } : "cast";
-            paint();
-            return;
-          }
+          case "open-sheet": { openMenu("av", data.focusKey); return; }
+          case "close-sheet": { closeSheet(); return; }
           case "volume-toggle": {
             state.volumeOpen = !state.volumeOpen;
             renderCast();
             return;
           }
-          case "episodes-open": { openEpisodes(); return; }
+          case "episodes-open": {
+            if (isRepertory()) { openEpisodesSheet(data.focusKey); } else { openEpisodes(); }
+            return;
+          }
           case "more-panel": {
+            if (isRepertory()) {
+              openMenu(data.panel, data.focusKey);
+              return;
+            }
             state.morePanel = state.morePanel === data.panel ? null : data.panel;
             renderCast();
             return;
@@ -5741,7 +6049,7 @@
           case "autocrop": { await take({ type: "autocrop" }); return; }
           case "stats-toggle": {
             state.showStatistics = !state.showStatistics;
-            renderCast();
+            if (state.sheet === "picture") { renderSheet(); } else { renderCast(); }
             return;
           }
           default: return;
@@ -5863,9 +6171,7 @@
 
       function goBack() {
         if (state.sheet) {
-          state.sheet = false;
-          state.focusTarget = state.sheetReturn ? { key: state.sheetReturn } : "cast";
-          paint();
+          closeSheet();
           return;
         }
         if (state.levels.length > 0) {
@@ -5874,6 +6180,8 @@
         }
         if (state.cast) {
           state.cast = false;
+          state.sheet = null;
+          state.episodes = null;
           state.morePanel = null;
           state.volumeOpen = false;
           state.focusTarget = state.castReturn ? { key: state.castReturn } : { key: "mini-center" };

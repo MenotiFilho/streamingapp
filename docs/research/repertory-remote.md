@@ -23,11 +23,13 @@ correctly: it is two surfaces and a drawer, not three screens.**
   hairlines, and carrying the two immediate actions (back ten seconds and
   play/pause). Tapping its centre opens the Remote.
 - The **expanded Remote** is the programme card: a full-bleed still, the
-  Title/episode, the timeline, the transport, and the immediate actions for
-  Audio & Subtitles, Volume and Episodes. It is a deliberate expansion, not a
-  takeover that loses the browse surface underneath.
-- The **Audio & Subtitles sheet** is a drawer over that card, not a fourth page:
-  a bottom sheet with the tracks, delay and size, closed with Done or Back.
+  Title/episode, the timeline and transport directly below the title, the
+  always-visible volume box, and one row of five menus. It is a deliberate
+  expansion, not a takeover that loses the browse surface underneath.
+- **One shared drawer** over that card serves Audio & Subtitles, Episodes,
+  Speed, Chapters and Picture, with the same head and Done/Back rule. It is not
+  a fourth page. Volume is not a menu: it is the always-visible box between the
+  transport and the menu row, and its mute control is an icon.
 
 The simpler frame — one long remote page with Audio & Subtitles folded inline —
 was rejected for two reasons. First, the transport must stay within a thumb's
@@ -78,46 +80,63 @@ and sheet depths are the parts that should not move.
   scrim and the Title/episode over it. The default surface's poster card is
   hidden on this surface; the plate uses the Continue watching entry's
   backdrop, which is already in the Snapshot.
-- **Three immediate actions** are a hairline table: Audio & Subtitles, Volume,
-  Episodes. Each is a cell with a brass mark, not a rounded tile. Volume opens
-  its slider inline; the mute control is next to it.
-- **The timeline** is a two-pixel hairline, a brass played fill, a muted
-  read-ahead, an ivory square thumb, mono clocks, and the existing seek-preview
-  plate (still, time, chapter) while a range is dragged. The preview is the
-  same #140/ADR-0028 flow; nothing about the ask changed.
-- **The transport is six hairline cells**: previous episode, back ten seconds,
-  play/pause (the one brass cell), forward ten seconds, next episode, Stop. The
-  glyphs carry text-presentation marks so a phone does not turn them into emoji.
-- **The extras are a second hairline row** — Speed, Chapters, Picture — and each
-  opens a printed inset with a brass top rule, display-serif headings and square
-  chips. Statistics stay inside the Picture inset, as on the default page.
+- **The timeline sits directly below the title.** It is a two-pixel hairline,
+  a brass played fill, a muted read-ahead, an ivory square thumb, mono clocks,
+  and the existing seek-preview plate (still, time, chapter) while a range is
+  dragged. The preview is the same #140/ADR-0028 flow; nothing about the ask
+  changed.
+- **The transport sits directly below the timeline**: six hairline cells —
+  previous episode, back ten seconds, play/pause (the one brass cell), forward
+  ten seconds, next episode, Stop. The glyphs carry text-presentation marks so a
+  phone does not turn them into emoji.
+- **The five menus are one five-cell hairline row**: Audio, Episodes, Speed,
+  Chapters, Picture. The row is joined, not split by the timeline: its top and
+  bottom rules are one table, and each cell carries a brass mark and a short
+  mono label. Audio's accessible name is still “Audio & Subtitles”.
+- **The five menus open the same drawer** — Audio & Subtitles, Episodes, Speed,
+  Chapters, Picture — with the same ink panel, brass top rule, sticky head
+  (the menu's name, Done) and Done/Back rule. The old inline Speed/Chapters/
+  Picture insets and the pushed Episodes level are not drawn on this surface;
+  their controls live in the shared drawer. The default page keeps its own
+  inline insets and Episodes level until the cutover.
+- **Volume is not a menu.** It is the one always-visible box, between the
+  transport and the five-cell row: a hairline box with the label/readout, the
+  fader and the mute control. There is no Volume button and no popover; the mute
+  control is a speaker icon (the sound-wave icon when on, the crossed speaker
+  when muted), not the words Mute/Unmute.
 - **The wait is still the page's one pill** (`Waiting for the Host…` after
   150ms); the pressed node is `aria-disabled` and `aria-busy` (ADR-0027). The
   opening/ended/refusal lines are printed notes at the foot.
 
-### Surface 3: the Audio & Subtitles drawer
+### Surface 3: the shared playback drawer
 
-A bottom drawer over the programme card: an ink panel with a brass top rule, a
-sticky head (“Audio & Subtitles”, Done), hairline track rows with the pressed
-row carrying a brass inset rule, and the delay and size steppers. Done and Back
-close it; the sheet returns focus to the utility that opened it, exactly as
-before. It is a drawer, not a route and not a second page.
+One bottom drawer over the programme card serves Audio & Subtitles, Episodes,
+Speed, Chapters and Picture. It is an ink panel with a brass top rule, a sticky
+head whose title names the menu, Done, and the menu's own rows: hairline track
+rows with the pressed row carrying a brass inset rule and the delay/size
+steppers; the episode season chips and stills; the speed chips; the chapter
+steps and ticks; the aspect/crop chips and statistics. Done and Back close it;
+the drawer returns focus to the menu button that opened it. It is a drawer, not
+a route and not a second page. Volume is not a menu; it is the always-visible
+box outside it.
 
 ### The pushed levels
 
-Title, Streams, Settings, Episodes and the confirmation dialogs are re-dressed
-with the same grammar, because they are part of the same client: hairline heads
-with a mono Back, display-serif names, facts in mono, episode and Stream rows as
+Title, Streams, Settings and the confirmation dialogs are re-dressed with the
+same grammar, because they are part of the same client: hairline heads with a
+mono Back, display-serif names, facts in mono, episode and Stream rows as
 hairline lists, forms with bottom rules, the pairing call board, and red only on
 status and the confirming side. The level stack, the Actions and the Back order
-are untouched.
+are untouched. On the default page, Episodes is still a pushed level; on the
+repertory surface it is one of the shared drawer's menus.
 
 ## What survives, what is redrawn, what is cut
 
 **Survives, deliberately:**
 
 - Every control and every Action, the six destinations, the level stack, the
-  three surfaces, and the Back order (sheet → level → cast → destination).
+  browse/card/drawer shape, and the Back order (drawer → level → cast →
+  destination).
 - Pairing: the single-use code, the device token, the paired-device ledger and
   revoke-with-confirmation. The pairing page is re-dressed, not re-flowed.
 - The Snapshot, the one `runAction`/`runWaiting` path, the waiting pill, the
@@ -141,7 +160,10 @@ are untouched.
   is the backdrop, not a centred poster.
 - The waiting pill and the error banner are printed lines above the strip, not
   floating pills.
-- The transport and utilities are hairline tables instead of rounded buttons.
+- The transport and the five menus are hairline tables instead of rounded
+  buttons; the five menus form one row below the transport.
+- The drawer is the one pattern for the five menus; Volume is an always-visible
+  hairline box, not a button, a popover or an inline row.
 - The OSD's language is carried over: mono bookkeeping, display-serif names,
   brass marks, hairlines, no glass.
 
@@ -152,6 +174,11 @@ are untouched.
   cell, and the round hero dots.
 - The full-screen cast's poster thumbnail on the repertory surface; the plate is
   the wide still. The default surface still draws the poster.
+- The repertory surface's inline Speed/Chapters/Picture insets and its pushed
+  Episodes level: those controls now live in the shared drawer. The default
+  page at `/` keeps its inline insets and its Episodes level until the cutover.
+- The split utilities/extras rows and the Volume toggle on the repertory
+  surface; five menu buttons are one row and Volume is always visible.
 - The emoji presentation of transport glyphs (text-presentation marks only).
 - No visible control is hidden behind a menu that was not already behind one.
 
@@ -214,11 +241,15 @@ surface; the repertory token splice stays.
   touch, index, strip, gutter. It is currently a prototype reading beside the
   ten-foot scale.
 - Touch targets: 44px for controls, 40px for chips, the one-line/one-cell
-  rhythm of the transport and utility tables.
+  rhythm of the transport and the five-menu row.
 - The docked strip as a component: still, title/episode, progress hairline,
   two immediate actions, expand affordance, and how it reserves height.
-- The sheet as a depth of the remote: brass top rule, sticky head, track row,
-  stepper, and the focus return.
+- The shared drawer as a depth of the remote: brass top rule, sticky head,
+  menu title, Done, track/episode/speed/chapter/picture rows, and the focus
+  return. One drawer, five menus.
+- The five-menu row: the labels, the glyph set, the five-cell rhythm, and the
+  always-visible Volume box (label/readout, fader, mute icon) between the
+  transport and the row.
 - The focus treatment on touch: 2px ivory keyline, 3px offset, no lift; how it
   reads on ink, on artwork and on the pressed cell.
 - The icon system: the transport and utility marks are still Unicode with text
@@ -267,10 +298,14 @@ surface; the repertory token splice stays.
   size at 320px.
 - The docked strip's height and whether the still or the title should lead when
   the artwork is missing.
-- The utility row's three labels at narrow widths; “Audio & Subtitles” is the
-  one that may need a shorter form.
-- The sheet's max height (88dvh), the sticky head, and the size of the delay/
-  size steppers.
+- The five-menu row's labels at 320px; “Audio” is the short visible label for
+  “Audio & Subtitles”, and the row may need to wrap to two rows if the phone is
+  narrower than the dev target.
+- The shared drawer's max height (88dvh), its sticky head, and whether each
+  menu wants a different height; the Episodes season rail and its scroll.
+- The always-visible volume box: its height, its readout, the fader, and the
+  speaker/crossed-speaker icon set; whether it should collapse to a single
+  line on a very short phone.
 - The transport's glyph set (text presentation now; a drawn set is #150).
 - The typefaces on the served page (fallbacks today; packaging is #150/#153).
 - The pairing page's call-board treatment and the pushed levels' exact
@@ -282,9 +317,9 @@ surface; the repertory token splice stays.
 
 Inside the dev container:
 
-- `cargo test -p host-wire` — 25 unit tests and 11 socket tests, including the
-  capability list, the shared lists, the repertory token splice and the
-  `?ui=repertory` guard.
+- `cargo test -p host-wire` — 26 unit tests and 11 socket tests, including the
+  capability list, the shared lists, the repertory token splice, the
+  `?ui=repertory` guard and the shared-drawer/five-menu guard.
 - `cargo test --workspace --no-fail-fast`
 - `cargo clippy --all-targets -- -D warnings`
 - `cargo fmt --check`

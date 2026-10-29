@@ -1,16 +1,7 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
-
 import { describe, expect, it } from "vitest";
 
 import { contrastRatio, readToken } from "./contrast";
-
-// Read the source sheet rather than a CSS-pipeline import: the served Remote
-// splices this exact file, and the test is measuring the values it will carry.
-const tokensCss = readFileSync(
-  join(process.cwd(), "src/shell/repertory/tokens.css"),
-  "utf8",
-);
+import tokensCss from "./tokens.css?raw";
 
 const ink = readToken(tokensCss, "--rep-ink");
 const inkRaised = readToken(tokensCss, "--rep-ink-raised");

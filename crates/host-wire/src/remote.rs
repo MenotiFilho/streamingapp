@@ -515,6 +515,77 @@ mod tests {
     }
 
     #[test]
+    fn the_served_page_draws_every_playback_menu_in_one_drawer() {
+        // #149's second look: Audio & Subtitles, Episodes, Speed, Chapters and
+        // Picture share one drawer and one Done/Back rule. Volume is not a menu:
+        // it is the always-visible box between the transport and the five-menu
+        // row, and its mute control is an icon. The old surface keeps its three
+        // utilities (Volume included) and its three inline extras.
+        let served = page();
+        for needle in [
+            "function sheetTitle",
+            "function renderSheetMenu",
+            "function openMenu",
+            "function renderCastMenus",
+            "function muteIcon",
+            r#"case "episodes": return renderEpisodesSheet();"#,
+            r#"case "speed": return html`"#,
+            "renderChaptersBody(p, \"sheet-\")",
+            "renderPictureBody(p, \"sheet-\")",
+            "renderSpeedBody(p, \"cast-\")",
+            "renderChaptersBody(p, \"cast-\")",
+            "renderPictureBody(p, \"cast-\")",
+            "sheet-season-",
+            "sheet-episode-",
+            "class=\"volume-panel\"",
+            "cast-menus",
+            "cast-utilities",
+            "data-a=\"volume-toggle\"",
+            "menu-mark",
+        ] {
+            assert!(served.contains(needle), "the served page carries {needle}");
+        }
+
+        // The five menu buttons are one row, and Volume is not one of them. The
+        // old surface's utilities keep the volume toggle until the cutover.
+        let start = served
+            .find("function renderCastMenus")
+            .expect("the repertory card draws its menu row");
+        let end = served[start..]
+            .find("function muteIcon")
+            .map(|offset| start + offset)
+            .expect("the menu row is followed by the mute icon");
+        let menus = &served[start..end];
+        assert_eq!(
+            menus.matches("class=\"utility\"").count(),
+            5,
+            "the repertory card draws five menu buttons"
+        );
+        assert!(
+            !menus.contains("volume-toggle"),
+            "Volume is not one of the repertory menu buttons"
+        );
+
+        // The drawing order on the expanded card: title, timeline, transport,
+        // Volume's box, then the five-menu row.
+        for (selector, order) in [
+            (".timeline", "order: 2;"),
+            (".transport", "order: 3;"),
+            (".volume-panel", "order: 4;"),
+            (".cast-menus", "order: 5;"),
+        ] {
+            let rule = format!(r#"html[data-ui="repertory"] {selector} {{"#);
+            let start = served
+                .find(&rule)
+                .unwrap_or_else(|| panic!("the served page draws {selector}"));
+            assert!(
+                served[start..].contains(order),
+                "{selector} carries {order} in its repertory rule"
+            );
+        }
+    }
+
+    #[test]
     fn the_served_page_carries_the_shared_subtitle_language_list() {
         let languages: Vec<serde_json::Value> =
             serde_json::from_str(SUBTITLE_LANGUAGES).expect("the subtitle-language list is JSON");
