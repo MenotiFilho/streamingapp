@@ -25,15 +25,15 @@ import { useTitleOpener } from "../TitleScreen";
 import { useReducedMotion } from "../useReducedMotion";
 import { usePreviewData, useRepertorySettings } from "./context";
 import { ProgramNote } from "./ProgramNote";
+import { ProgramPoster } from "./ProgramPoster";
 import {
   captionParts,
   countLabel,
   featureSlides,
   featureTitleDensity,
   programIndex,
-  ratingOf,
-  yearOf,
 } from "./program";
+import { RowHead } from "./RowHead";
 import type { RepertorySettings } from "./settings";
 import "./repertory.css";
 
@@ -55,19 +55,6 @@ type FeatureItem = {
   meta: MetaPreview | null;
 };
 
-function noteFromMeta(meta: MetaPreview): NoteCard {
-  const parts = captionParts(meta);
-  return {
-    name: meta.name,
-    art: meta.background ?? null,
-    poster: meta.poster,
-    year: parts.year,
-    rating: parts.rating,
-    genres: parts.genres,
-    description: meta.description,
-  };
-}
-
 function noteFromSlide(slide: HeroSlide): NoteCard {
   return {
     name: slide.name,
@@ -77,18 +64,6 @@ function noteFromSlide(slide: HeroSlide): NoteCard {
     rating: null,
     genres: null,
     description: slide.description,
-  };
-}
-
-function noteFromEntry(entry: ResumeEntry): NoteCard {
-  return {
-    name: cardName(entry),
-    art: entry.title.background ?? null,
-    poster: entry.title.poster,
-    year: null,
-    rating: null,
-    genres: null,
-    description: `Continue watching is sample progress in this prototype. In the real Host this card resumes the Video from ${cardNote(entry).toLowerCase()}.`,
   };
 }
 
@@ -108,46 +83,6 @@ function MetaLine({
       {parts.rating ? <span>{parts.rating}</span> : null}
       {parts.genres ? <span>{parts.genres}</span> : null}
     </span>
-  );
-}
-
-function RowHead({ index, title, tag }: { index: string; title: string; tag: string }) {
-  return (
-    <header className="rep-row-head">
-      <span className="rep-row-index">{index}</span>
-      <h2 className="rep-row-title">{title}</h2>
-      <span className="rep-rule" aria-hidden="true" />
-      <span className="rep-row-tag">{tag}</span>
-    </header>
-  );
-}
-
-function ProgramPoster({ meta, onOpen }: { meta: MetaPreview; onOpen: () => void }) {
-  const year = yearOf(meta);
-  const rating = ratingOf(meta);
-  return (
-    <button
-      type="button"
-      className="rep-card"
-      data-focusable
-      onClick={onOpen}
-      aria-label={`${meta.name}${year ? `, ${year}` : ""}${rating ? `, ${rating}` : ""}. Open the Title.`}
-    >
-      <span className="rep-poster">
-        {meta.poster ? (
-          <img src={meta.poster} alt="" loading="lazy" />
-        ) : (
-          <span className="rep-art-missing">{meta.name}</span>
-        )}
-        {rating ? <span className="rep-rating-badge">{rating}</span> : null}
-      </span>
-      <span className="rep-caption">
-        <span className="rep-caption-line">
-          <span className="rep-card-title">{meta.name}</span>
-          {year ? <span className="rep-year-badge">{year}</span> : null}
-        </span>
-      </span>
-    </button>
   );
 }
 
@@ -373,26 +308,36 @@ export function RepertoryHome() {
     [pop, push],
   );
 
+  /**
+   * A card opens the Title on both surfaces now (#146): the preview transport
+   * answers `open_title` from Cinemeta, so the repertory Title page is what a
+   * plain Vite window draws, not a stand-in note. The Program note stays only
+   * for a feature slide whose row item could not be found.
+   */
   const openMeta = useCallback(
     (addon: string, meta: MetaPreview) => {
-      if (preview) {
-        openNote(noteFromMeta(meta));
-        return;
-      }
       openTitleLevel(addon, meta);
     },
-    [openNote, openTitleLevel, preview],
+    [openTitleLevel],
   );
 
   const openEntry = useCallback(
     (entry: ResumeEntry) => {
       if (preview) {
-        openNote(noteFromEntry(entry));
+        if (entry.title.addon) {
+          openTitleLevel(entry.title.addon, {
+            id: entry.title.id,
+            type: entry.title.type,
+            name: cardName(entry),
+            poster: entry.title.poster,
+            background: entry.title.background ?? null,
+          });
+        }
         return;
       }
       void take({ type: "resume", video: { type: entry.title.type, id: entry.video.id } });
     },
-    [openNote, preview, take],
+    [openTitleLevel, preview, take],
   );
 
   const featured = featuredRow(snapshot, visibleRows);

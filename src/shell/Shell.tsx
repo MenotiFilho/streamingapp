@@ -237,6 +237,7 @@ export function Shell({
 
   const value = useMemo(
     () => ({
+      presentation,
       snapshot,
       error,
       destination: nav.destination,
@@ -256,6 +257,7 @@ export function Shell({
       setIntentHandler,
     }),
     [
+      presentation,
       snapshot,
       error,
       nav.destination,

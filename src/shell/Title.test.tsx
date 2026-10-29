@@ -242,6 +242,7 @@ function Harness({
   });
 
   const value: ShellContextValue = {
+    presentation: "velvet",
     snapshot: NOTHING_SAID,
     error: null,
     destination: "home",

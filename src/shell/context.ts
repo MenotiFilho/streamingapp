@@ -16,6 +16,12 @@ export type ActionOutcome = {
 
 /** What every screen under the shell can ask of it. */
 export type ShellContextValue = {
+  /**
+   * Which surface draws this client: the Velvet Curtains shell on `main`, or
+   * the repertory frame behind `VITE_UI=repertory` (#145). Levels read it to
+   * draw the same Action answer in the surface that opened them.
+   */
+  presentation: "velvet" | "repertory";
   /** What the Host last published, or null before the first answer. */
   snapshot: Snapshot | null;
   /** Why the last Action this window took was refused, where one was. */

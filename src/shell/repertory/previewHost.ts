@@ -2,10 +2,13 @@
  * The preview transport: the repertory prototype's live window without a Host.
  *
  * A browser has no Tauri IPC, so behind `VITE_UI=repertory` in a plain Vite
- * window this transport answers the two Actions Home needs — `browse_catalog`
- * and `open_title` — from the public Cinemeta addon. It reads the live
- * catalogue, keeps artwork on Metahub's CDN, and invents no posters. Continue
- * watching is sample progress built from the same live films, and Home says so.
+ * window this transport answers the Actions the browse screens ask —
+ * `browse_catalog`, `open_title`, `search_catalogs` and `find_streams` — from
+ * two public Addons: Cinemeta for metadata and Torrentio for candidates. It
+ * reads the live catalogues, keeps artwork on Metahub's CDN, and invents no
+ * posters; the torrent candidates are real and marked unplayable by this Host.
+ * Continue watching is sample progress built from the same live films, and Home
+ * says so.
  *
  * This is not a second Host and never runs in the Tauri window: there the real
  * HostClient is used, with the same repertory frame on top.
@@ -14,25 +17,74 @@
 import type {
   Action,
   ActionError,
+  AddonManifest,
+  CatalogRow,
   Response,
   Snapshot,
   Title,
   Transport,
   Video,
 } from "../../host-client";
-import { cinemetaPreviews, sampleResumeEntries, type CinemetaMeta } from "./preview";
+import {
+  cinemetaPreviews,
+  CINEMETA_MOVIE_GENRES,
+  CINEMETA_SERIES_GENRES,
+  previewStream,
+  sampleResumeEntries,
+  type CinemetaMeta,
+  type PreviewStream,
+} from "./preview";
 
 const CINEMETA = "https://v3-cinemeta.strem.io";
 const ADDON = "cinemeta";
 
+const TORRENTIO = "https://torrentio.strem.fun";
+const TORRENTIO_ID = "torrentio";
+
 const SKIP = { name: "skip", isRequired: false, options: [], optionsLimit: 0 };
+const SEARCH = { name: "search", isRequired: false, options: [], optionsLimit: 0 };
+
+function genreExtra(options: readonly string[]) {
+  return { name: "genre", isRequired: false, options: [...options], optionsLimit: 0 };
+}
 
 const CATALOGS = [
-  { type: "movie", id: "top", name: "Popular", extra: [SKIP] },
-  { type: "movie", id: "imdbRating", name: "Top Rated", extra: [SKIP] },
-  { type: "series", id: "top", name: "Popular Series", extra: [SKIP] },
-  { type: "series", id: "imdbRating", name: "Top Rated Series", extra: [SKIP] },
+  {
+    type: "movie",
+    id: "top",
+    name: "Popular",
+    extra: [genreExtra(CINEMETA_MOVIE_GENRES), SEARCH, SKIP],
+  },
+  {
+    type: "movie",
+    id: "imdbRating",
+    name: "Top Rated",
+    extra: [genreExtra(CINEMETA_MOVIE_GENRES), SKIP],
+  },
+  {
+    type: "series",
+    id: "top",
+    name: "Popular Series",
+    extra: [genreExtra(CINEMETA_SERIES_GENRES), SEARCH, SKIP],
+  },
+  {
+    type: "series",
+    id: "imdbRating",
+    name: "Top Rated Series",
+    extra: [genreExtra(CINEMETA_SERIES_GENRES), SKIP],
+  },
 ] as const;
+
+const TORRENTIO_MANIFEST: AddonManifest = {
+  id: TORRENTIO_ID,
+  name: "Torrentio",
+  version: "0.0.14",
+  resources: [{ name: "stream", types: ["movie", "series"], idPrefixes: ["tt"] }],
+  types: ["movie", "series"],
+  catalogs: [],
+  idPrefixes: ["tt"],
+  behaviorHints: { configurable: false, configurationRequired: false },
+};
 
 type CinemetaPage = {
   metas: CinemetaMeta[];
@@ -41,8 +93,8 @@ type CinemetaPage = {
 
 const pages = new Map<string, Promise<CinemetaPage>>();
 
-function pageKey(type: string, id: string, skip: number): string {
-  return `${type}/${id}/${skip}`;
+function pageKey(type: string, id: string, skip: number, genre: string | null): string {
+  return `${type}/${id}/${skip}/${genre ?? ""}`;
 }
 
 async function readJson<T>(url: string): Promise<T> {
@@ -53,14 +105,25 @@ async function readJson<T>(url: string): Promise<T> {
   return (await response.json()) as T;
 }
 
-function fetchPage(type: string, id: string, skip: number): Promise<CinemetaPage> {
-  const key = pageKey(type, id, skip);
+function fetchPage(
+  type: string,
+  id: string,
+  skip: number,
+  genre: string | null = null,
+): Promise<CinemetaPage> {
+  const key = pageKey(type, id, skip, genre);
   const held = pages.get(key);
   if (held) {
     return held;
   }
+  const extra = [
+    genre ? `genre=${encodeURIComponent(genre)}` : null,
+    skip > 0 ? `skip=${skip}` : null,
+  ]
+    .filter((part): part is string => part !== null)
+    .join("&");
   const request = readJson<{ metas?: CinemetaMeta[]; hasMore?: boolean }>(
-    `${CINEMETA}/catalog/${type}/${id}${skip > 0 ? `/skip=${skip}` : ""}.json`,
+    `${CINEMETA}/catalog/${type}/${id}${extra ? `/${extra}` : ""}.json`,
   ).then((body) => ({
     metas: Array.isArray(body.metas) ? body.metas : [],
     hasMore: body.hasMore === true,
@@ -79,9 +142,10 @@ function answerCatalog(
   action: Extract<Action, { type: "browse_catalog" }>,
 ): Promise<Response> {
   const skip = Number(action.extra.find((extra) => extra.name === "skip")?.value ?? 0);
+  const genre = action.extra.find((extra) => extra.name === "genre")?.value.trim() || null;
   const { type, id } = action.catalog;
   const name = CATALOGS.find((catalog) => catalog.type === type && catalog.id === id)?.name ?? id;
-  return fetchPage(type, id, Number.isFinite(skip) ? Math.max(0, skip) : 0)
+  return fetchPage(type, id, Number.isFinite(skip) ? Math.max(0, skip) : 0, genre)
     .then((page) => {
       const metas = cinemetaPreviews(page.metas, type);
       return {
@@ -119,6 +183,86 @@ function answerCatalog(
         ],
       },
     }));
+}
+
+/**
+ * A keyless search, as the Host's `search_catalogs` would answer it: one row
+ * per searchable Cinemeta catalogue, in the order the catalogues are declared.
+ * The window never sees a Cinemeta URL or field name.
+ */
+async function answerSearchCatalogs(
+  action: Extract<Action, { type: "search_catalogs" }>,
+): Promise<Response> {
+  const query = action.query.trim();
+  const searchable = CATALOGS.filter((catalog) =>
+    catalog.extra.some((extra) => extra.name === "search"),
+  );
+  const rows = await Promise.all(
+    searchable.map(async (catalog): Promise<CatalogRow> => {
+      try {
+        const body = await readJson<{ metas?: CinemetaMeta[] }>(
+          `${CINEMETA}/catalog/${catalog.type}/${catalog.id}/search=${encodeURIComponent(query)}.json`,
+        );
+        const metas = Array.isArray(body.metas) ? body.metas : [];
+        return {
+          addon: ADDON,
+          type: catalog.type,
+          id: catalog.id,
+          name: catalog.name,
+          sent: metas.length,
+          metas: cinemetaPreviews(metas, catalog.type),
+          failure: null,
+        };
+      } catch (caught: unknown) {
+        return {
+          addon: ADDON,
+          type: catalog.type,
+          id: catalog.id,
+          name: catalog.name,
+          sent: 0,
+          metas: [],
+          failure: failure(caught instanceof Error ? caught.message : "the Addon did not answer"),
+        };
+      }
+    }),
+  );
+  return { snapshots: [], answer: { catalogs: rows } };
+}
+
+/**
+ * The Streams a Video has in the preview: Torrentio's real candidates, carried
+ * the way the Host carries them. They are torrents, so this Host marks every
+ * one unplayable — that mark is part of what the list has to show.
+ */
+async function answerStreams(
+  action: Extract<Action, { type: "find_streams" }>,
+): Promise<Response> {
+  const { type, id } = action.video;
+  try {
+    const body = await readJson<{ streams?: PreviewStream[] }>(
+      `${TORRENTIO}/stream/${type}/${id}.json`,
+    );
+    const streams = (Array.isArray(body.streams) ? body.streams : [])
+      .map(previewStream)
+      .filter((stream) => stream !== null);
+    return {
+      snapshots: [],
+      answer: { streams: [{ addon: TORRENTIO_ID, streams, failure: null }] },
+    };
+  } catch (caught: unknown) {
+    return {
+      snapshots: [],
+      answer: {
+        streams: [
+          {
+            addon: TORRENTIO_ID,
+            streams: [],
+            failure: failure(caught instanceof Error ? caught.message : "the Addon did not answer"),
+          },
+        ],
+      },
+    };
+  }
 }
 
 function videosOf(raw: { videos?: unknown }): Video[] {
@@ -236,6 +380,7 @@ async function snapshot(): Promise<Snapshot> {
         idPrefixes: ["tt"],
         behaviorHints: { configurable: false, configurationRequired: false },
       },
+      TORRENTIO_MANIFEST,
     ],
     featuredCatalog: { addon: ADDON, catalog: { type: "movie", id: "top" } },
     protection: { backend: "file", tmdbHeld: false, stremioHeld: false },
@@ -262,6 +407,12 @@ async function invoke<T>(command: string, args?: Record<string, unknown>): Promi
     }
     if (action.type === "open_title") {
       return (await answerOpenTitle(action)) as T;
+    }
+    if (action.type === "search_catalogs") {
+      return (await answerSearchCatalogs(action)) as T;
+    }
+    if (action.type === "find_streams") {
+      return (await answerStreams(action)) as T;
     }
   }
   const none: Response = { snapshots: [], answer: null };

@@ -7,6 +7,14 @@ export type PosterCardProps = Omit<ComponentPropsWithoutRef<"button">, "children
   name: string;
   /** The poster art. Absent art leaves the stage-coloured frame, never a broken image. */
   poster?: string | null;
+  /**
+   * The surface the card is drawn on. `repertory` is the picture-first card:
+   * the title is the only running text, the year is a stamp beside it, the
+   * rating is a stamp over the poster, and the description is not drawn.
+   */
+  variant?: "velvet" | "repertory";
+  /** The Addon's rating, drawn over the poster on the repertory surface. */
+  rating?: string | null;
   /** The year, rating or episode code under the name, read in tabular figures. */
   subtitle?: string | null;
   /**
@@ -37,6 +45,8 @@ export type PosterCardProps = Omit<ComponentPropsWithoutRef<"button">, "children
 export function PosterCard({
   name,
   poster,
+  variant = "velvet",
+  rating,
   subtitle,
   description,
   unmapped = false,
@@ -45,12 +55,14 @@ export function PosterCard({
   className,
   ...button
 }: PosterCardProps) {
+  const repertory = variant === "repertory";
   return (
     <button
       {...button}
       type="button"
       className={cx("kit-poster", "kit-focus-lift", className)}
       data-focusable
+      data-variant={variant}
       data-testid={testId}
       data-unmapped={unmapped ? "true" : undefined}
       data-unplayable={unplayable ? "true" : undefined}
@@ -61,13 +73,20 @@ export function PosterCard({
         ) : (
           <span className="kit-poster-art kit-poster-art-empty" aria-hidden="true" />
         )}
+        {repertory && rating ? (
+          <span className="rep-rating-badge">{`IMDb ${rating}`}</span>
+        ) : null}
         {unmapped ? <span className="kit-badge-unmapped">Unmapped</span> : null}
-        {unplayable ? <span className="kit-badge-unplayable">Unplayable</span> : null}
+        {unplayable ? (
+          <span className="kit-badge-unplayable" data-repertory={repertory ? "true" : undefined}>
+            Unplayable
+          </span>
+        ) : null}
       </span>
       <span className="kit-poster-info">
         <span className="kit-poster-name">{name}</span>
         {subtitle ? <span className="kit-poster-sub kit-tabular">{subtitle}</span> : null}
-        {description ? (
+        {description && !repertory ? (
           <span className="kit-poster-note" title={description}>
             {description}
           </span>

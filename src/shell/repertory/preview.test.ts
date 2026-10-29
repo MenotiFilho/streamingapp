@@ -5,6 +5,7 @@ import {
   cinemetaPreview,
   cinemetaPreviews,
   parseRuntimeSeconds,
+  previewStream,
   sampleResumeEntries,
   type CinemetaMeta,
 } from "./preview";
@@ -49,6 +50,45 @@ describe("the Cinemeta translation", () => {
     expect(parseRuntimeSeconds("1h 47min")).toBe(6420);
     expect(parseRuntimeSeconds("")).toBeNull();
     expect(parseRuntimeSeconds(null)).toBeNull();
+  });
+
+  it("carries an infoHash candidate the way the Host does, with its filename and hints", () => {
+    expect(
+      previewStream({
+        name: "Torrentio\n4k HDR",
+        title: "The Shawshank Redemption 1994 2160p BluRay\n👤 190 💾 6.91 GB",
+        infoHash: "c3da9a3dc2ce14d0d4fc0e87d1b2023502f8dcd6",
+        behaviorHints: {
+          filename: "The.Shawshank.Redemption.1994.2160p.mkv",
+          bingeGroup: "torrentio|4k|BluRay|x265",
+        },
+      }),
+    ).toEqual({
+      name: "Torrentio\n4k HDR",
+      description: "The Shawshank Redemption 1994 2160p BluRay\n👤 190 💾 6.91 GB",
+      playback: { kind: "info_hash", infoHash: "c3da9a3dc2ce14d0d4fc0e87d1b2023502f8dcd6" },
+      warnings: [],
+      filename: "The.Shawshank.Redemption.1994.2160p.mkv",
+      bingeGroup: "torrentio|4k|BluRay|x265",
+    });
+  });
+
+  it("keeps a direct candidate's warnings in the Host's order and drops a locationless one", () => {
+    expect(
+      previewStream({
+        url: "https://stream.example.org/x.mkv",
+        description: "The Matrix 1999 1080p",
+        behaviorHints: {
+          notWebReady: true,
+          p2p: true,
+          proxyHeaders: { request: { "User-Agent": "Stremio" } },
+        },
+      }),
+    ).toMatchObject({
+      playback: { kind: "direct", url: "https://stream.example.org/x.mkv" },
+      warnings: ["not_web_ready", "p2p", "proxy_headers"],
+    });
+    expect(previewStream({ name: "no bytes here" })).toBeNull();
   });
 
   it("builds sample progress only for films that say how long they are", () => {

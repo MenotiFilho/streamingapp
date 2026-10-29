@@ -15,6 +15,7 @@ import {
 import { theFilm } from "../stream";
 import { useShell, type NewShellLevel } from "./context";
 import { Button, Chip, ChoiceChip } from "./kit";
+import { RepertoryTitleLoading, RepertoryTitleScreen } from "./repertory/RepertoryTitle";
 import { StreamsLoader } from "./StreamsScreen";
 import "./title.css";
 
@@ -129,6 +130,21 @@ export function titleLevelOf(
  * its focus — exactly where it was.
  */
 export function TitleScreen({
+  title,
+  preview,
+}: {
+  title: Title;
+  preview?: OpenablePreview | null;
+}) {
+  const { presentation } = useShell();
+  return presentation === "repertory" ? (
+    <RepertoryTitleScreen title={title} preview={preview} />
+  ) : (
+    <VelvetTitleScreen title={title} preview={preview} />
+  );
+}
+
+function VelvetTitleScreen({
   title,
   preview,
 }: {
@@ -326,6 +342,15 @@ export function TitleScreen({
  * immediate result. Back works here like it does on the Title itself.
  */
 function TitleLoading({ preview }: { preview: OpenablePreview }) {
+  const { presentation } = useShell();
+  return presentation === "repertory" ? (
+    <RepertoryTitleLoading preview={preview} />
+  ) : (
+    <VelvetTitleLoading preview={preview} />
+  );
+}
+
+function VelvetTitleLoading({ preview }: { preview: OpenablePreview }) {
   const { pop } = useShell();
   const art = preview.background ?? preview.poster ?? null;
 
