@@ -2610,3 +2610,913 @@ html[data-ui="repertory"] .kit-poster[data-variant="repertory"]:focus-visible::b
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* --------------------------------------------------------------------------
+ * The logbook: Addons, Settings, Library, and pairing (#147)
+ * -------------------------------------------------------------------------- */
+
+/*
+ * These are the utility screens, so they read as the booth's register rather
+ * than an admin panel: one brass destination line, numbered sections in the
+ * display serif, hairline rows, and the bookkeeping in mono. Nothing is boxed
+ * that does not have to be; a control is a line of type with a rule under it.
+ */
+
+.rep-log {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(30px, 2.4vw, 3.2vw);
+  min-width: 0;
+  padding-bottom: 72px;
+}
+
+/* The base screen's head: one line, the destination in brass, then the rule. */
+.rep-log-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: clamp(12px, 1vw, 1.6vw);
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--rep-hairline);
+}
+
+.rep-log-head-title {
+  flex: none;
+  margin: 0;
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+.rep-log-head-tag {
+  flex: none;
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* A pushed sub-screen: Back, the title in display serif, the rule, the tag. */
+.rep-log-level-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: clamp(12px, 1vw, 1.6vw);
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--rep-hairline);
+}
+
+.rep-log-back {
+  flex: none;
+  padding: 0 0 5px;
+  border-bottom-color: var(--rep-hairline);
+  color: var(--rep-dim);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  letter-spacing: 0.04em;
+}
+
+.rep-log-back:focus,
+.rep-log-back:focus-visible {
+  border-bottom-color: var(--rep-ivory);
+  color: var(--rep-ivory);
+}
+
+.rep-log-title {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin: 0;
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-title);
+  font-weight: 500;
+  letter-spacing: var(--rep-tracking-display);
+  line-height: 1.02;
+  overflow-wrap: anywhere;
+}
+
+.rep-log-level-head .rep-rule {
+  flex: 1 1 40px;
+}
+
+.rep-log-level-tag {
+  flex: none;
+  margin-left: auto;
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.rep-log-section {
+  display: grid;
+  gap: clamp(16px, 1.3vw, 1.8vw);
+  min-width: 0;
+}
+
+.rep-log-section-body {
+  display: grid;
+  gap: clamp(14px, 1.15vw, 1.6vw);
+  min-width: 0;
+}
+
+.rep-log-note {
+  max-width: 66ch;
+  margin: 0;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-body);
+  line-height: var(--rep-leading-body);
+}
+
+/* Forms: a label in mono, a value on a hairline, one strong action. */
+.rep-settings-form {
+  display: grid;
+  gap: 14px;
+  max-width: 760px;
+  min-width: 0;
+}
+
+.rep-log-field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.rep-log-field label {
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  letter-spacing: var(--rep-tracking-caps);
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.rep-log-input {
+  width: 100%;
+  min-height: clamp(44px, 3.2vw, 58px);
+  padding: 4px 2px;
+  border: 0;
+  border-bottom: 1px solid var(--rep-hairline);
+  border-radius: 0;
+  background: transparent;
+  color: var(--rep-ivory);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-control);
+  box-sizing: border-box;
+}
+
+.rep-log-input::placeholder {
+  color: var(--rep-muted);
+}
+
+.rep-log-input:focus,
+.rep-log-input:focus-visible {
+  border-bottom-color: transparent;
+}
+
+.rep-log-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: clamp(12px, 1vw, 20px);
+}
+
+/* The kit's control set, drawn as a printed line rather than a box. */
+html[data-ui="repertory"] .kit-button.rep-log-action {
+  min-height: auto;
+  padding: 6px 0;
+  border: 0;
+  border-bottom: 1px solid var(--rep-hairline);
+  border-radius: 0;
+  background: transparent;
+  color: var(--rep-dim);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  font-weight: 400;
+  letter-spacing: 0.04em;
+}
+
+html[data-ui="repertory"] .kit-button.rep-log-action:hover,
+html[data-ui="repertory"] .kit-button.rep-log-action:focus,
+html[data-ui="repertory"] .kit-button.rep-log-action:focus-visible {
+  border-bottom-color: var(--rep-house);
+  background: transparent;
+  color: var(--rep-ivory);
+}
+
+html[data-ui="repertory"] .kit-button.rep-log-action:disabled {
+  border-bottom-color: transparent;
+  color: var(--rep-muted);
+}
+
+html[data-ui="repertory"] .kit-button.rep-log-action.rep-log-action--danger,
+html[data-ui="repertory"] .kit-button.rep-log-action.rep-log-action--danger:hover,
+html[data-ui="repertory"] .kit-button.rep-log-action.rep-log-action--danger:focus,
+html[data-ui="repertory"] .kit-button.rep-log-action.rep-log-action--danger:focus-visible {
+  border: 0;
+  border-bottom: 1px solid var(--rep-status-red);
+  border-radius: 0;
+  background: transparent;
+  color: var(--rep-status-red);
+}
+
+html[data-ui="repertory"] .kit-button.rep-log-action.rep-log-action--danger:disabled {
+  border-bottom-color: transparent;
+  color: var(--rep-muted);
+}
+
+/* A logged answer: a line under the form, not a second form. */
+.rep-log-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 12px;
+  max-width: 1060px;
+  margin: 0;
+  padding: 12px 0;
+  border-top: 1px solid var(--rep-hairline);
+  border-bottom: 1px solid var(--rep-hairline);
+  color: var(--rep-dim);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  line-height: 1.4;
+}
+
+.rep-log-status-mark {
+  color: var(--rep-house);
+  letter-spacing: var(--rep-tracking-caps);
+  text-transform: uppercase;
+}
+
+/* Two-column facts: the term and its value share one hairline. */
+.rep-log-facts {
+  display: grid;
+  max-width: 760px;
+  margin: 0;
+  border-top: 1px solid var(--rep-hairline);
+}
+
+.rep-log-facts > div {
+  display: grid;
+  grid-template-columns: minmax(14rem, 34%) minmax(0, 1fr);
+  gap: clamp(16px, 1.4vw, 24px);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--rep-hairline);
+}
+
+.rep-log-facts dt {
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  letter-spacing: var(--rep-tracking-caps);
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.rep-log-facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--rep-dim);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  line-height: 1.45;
+}
+
+/* Lists: a 2px step so adjacent rows are "ahead" to the focus model. */
+.rep-log-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--rep-hairline);
+  list-style: none;
+}
+
+.rep-log-row {
+  border-bottom: 1px solid var(--rep-hairline);
+}
+
+.rep-log-addon-summary,
+.rep-log-category {
+  display: grid;
+  width: 100%;
+  padding: clamp(14px, 1.1vw, 18px) 10px;
+  border: 0;
+  background: transparent;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.rep-log-addon-summary {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: baseline;
+  gap: clamp(14px, 1.2vw, 22px);
+}
+
+.rep-log-category {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: clamp(14px, 1.2vw, 22px);
+}
+
+.rep-log-addon-summary:focus,
+.rep-log-addon-summary:focus-visible,
+.rep-log-category:focus,
+.rep-log-category:focus-visible {
+  background: var(--rep-ink-raised);
+}
+
+.rep-log-addon-name,
+.rep-log-category-title {
+  min-width: 0;
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: calc(var(--rep-text-control) * 1.18);
+  font-weight: 500;
+  letter-spacing: -0.008em;
+  line-height: 1.12;
+  overflow-wrap: anywhere;
+}
+
+.rep-log-addon-summary:focus .rep-log-addon-name,
+.rep-log-addon-summary:focus-visible .rep-log-addon-name,
+.rep-log-category:focus .rep-log-category-title,
+.rep-log-category:focus-visible .rep-log-category-title {
+  color: var(--rep-ivory);
+}
+
+.rep-log-addon-version,
+.rep-log-row-mark {
+  flex: none;
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.rep-log-row-mark {
+  color: var(--rep-house);
+}
+
+/* An expanded Addon: the facts and its three controls, indented under the name. */
+.rep-log-addon-details {
+  display: grid;
+  gap: clamp(14px, 1.2vw, 18px);
+  padding: 4px 10px 22px;
+  background: var(--rep-ink-raised);
+}
+
+.rep-log-addon-details .rep-log-facts {
+  max-width: none;
+}
+
+/* A page with nothing on it yet. */
+.rep-log-empty {
+  display: grid;
+  gap: 14px;
+  max-width: 64ch;
+  padding: clamp(26px, 2.2vw, 36px) 0;
+  border-top: 1px solid var(--rep-hairline);
+  border-bottom: 1px solid var(--rep-hairline);
+}
+
+.rep-log-empty-title {
+  margin: 0;
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-section);
+  font-weight: 500;
+  letter-spacing: -0.008em;
+  line-height: 1.1;
+}
+
+.rep-log-empty-body {
+  margin: 0;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-body);
+  line-height: var(--rep-leading-body);
+}
+
+.rep-log-refusal {
+  max-width: 1060px;
+  margin: 0;
+  padding: 12px 16px;
+  border: 1px solid var(--rep-status-red);
+  background: var(--rep-ink-raised);
+  color: var(--rep-status-red);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-caption);
+  line-height: 1.45;
+  box-sizing: border-box;
+}
+
+/* Choices in a logbook section: a small mono label, then the chips. */
+.rep-log-choice-group {
+  display: grid;
+  gap: 10px;
+}
+
+.rep-log-choice-label {
+  margin: 0;
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  letter-spacing: var(--rep-tracking-caps);
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.rep-log-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/* The shared Stremio form, re-dressed without touching its behaviour. */
+html[data-ui="repertory"] .shell-form {
+  max-width: 760px;
+  gap: 14px;
+}
+
+html[data-ui="repertory"] .shell-field label {
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  font-weight: 400;
+  letter-spacing: var(--rep-tracking-caps);
+  text-transform: uppercase;
+}
+
+html[data-ui="repertory"] .shell-field input {
+  min-height: clamp(44px, 3.2vw, 58px);
+  padding: 4px 2px;
+  border: 0;
+  border-bottom: 1px solid var(--rep-hairline);
+  border-radius: 0;
+  background: transparent;
+  color: var(--rep-ivory);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-control);
+  box-sizing: border-box;
+}
+
+html[data-ui="repertory"] .shell-field input:focus,
+html[data-ui="repertory"] .shell-field input:focus-visible {
+  border-bottom-color: transparent;
+}
+
+html[data-ui="repertory"] .shell-field input::placeholder {
+  color: var(--rep-muted);
+}
+
+html[data-ui="repertory"] .shell-note {
+  color: var(--rep-muted);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-body);
+  line-height: var(--rep-leading-body);
+}
+
+html[data-ui="repertory"] .shell-inline-refusal {
+  border-radius: 0;
+  border-color: var(--rep-status-red);
+  background: var(--rep-ink-raised);
+  color: var(--rep-status-red);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-caption);
+}
+
+.rep-log-signin {
+  max-width: 760px;
+}
+
+html[data-ui="repertory"] .rep-log-signin .kit-button {
+  min-height: auto;
+  padding: 6px 0;
+  border: 0;
+  border-bottom: 1px solid var(--rep-house);
+  border-radius: 0;
+  background: transparent;
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  font-weight: 400;
+  letter-spacing: 0.04em;
+}
+
+html[data-ui="repertory"] .rep-log-signin .kit-button:hover,
+html[data-ui="repertory"] .rep-log-signin .kit-button:focus,
+html[data-ui="repertory"] .rep-log-signin .kit-button:focus-visible {
+  border-bottom-color: var(--rep-ivory);
+  background: transparent;
+  color: var(--rep-ivory);
+}
+
+/* The one strong action in the sign-in form, like Add and Save key. */
+html[data-ui="repertory"] .rep-log-signin .kit-button[type="submit"] {
+  min-height: 2.75rem;
+  padding: var(--rep-space-2) var(--rep-space-4);
+  border: 0;
+  background: var(--rep-house);
+  color: var(--rep-ink);
+}
+
+html[data-ui="repertory"] .rep-log-signin .kit-button[type="submit"]:focus,
+html[data-ui="repertory"] .rep-log-signin .kit-button[type="submit"]:focus-visible {
+  background: var(--rep-house);
+  color: var(--rep-ink);
+}
+
+/* Pairing: the address and the code as the booth's call board. */
+.rep-pairing {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 760px;
+  border: 1px solid var(--rep-hairline);
+}
+
+.rep-pairing-block {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: clamp(20px, 1.8vw, 30px);
+  min-width: 0;
+}
+
+.rep-pairing-block--code {
+  border-top: 1px solid var(--rep-hairline);
+}
+
+.rep-pairing-label {
+  margin: 0;
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  letter-spacing: var(--rep-tracking-caps);
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.rep-pairing-value {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--rep-ivory);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-section);
+  line-height: 1.2;
+}
+
+.rep-pairing-code {
+  margin: 0;
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: clamp(3rem, 4.2vw, 5.2rem);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.18em;
+  line-height: 1;
+  overflow-wrap: anywhere;
+}
+
+.rep-pairing-code::selection {
+  background: var(--rep-house);
+  color: var(--rep-ink);
+}
+
+/* A paired device: a ledger row with the revoke control at the trailing end. */
+.rep-log-device {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: clamp(14px, 1.2vw, 22px);
+  padding: clamp(14px, 1.1vw, 18px) 10px;
+}
+
+.rep-log-device-body {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.rep-log-device-name {
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: calc(var(--rep-text-control) * 1.12);
+  font-weight: 500;
+  letter-spacing: -0.008em;
+  line-height: 1.12;
+  overflow-wrap: anywhere;
+}
+
+.rep-log-device-date {
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  line-height: 1.35;
+}
+
+/* Library: a room that says it is not furnished. */
+.rep-library-gate,
+.rep-library-stub {
+  display: grid;
+  gap: 16px;
+  max-width: 66ch;
+  padding: clamp(28px, 2.4vw, 40px) 0;
+  border-top: 1px solid var(--rep-hairline);
+  border-bottom: 1px solid var(--rep-hairline);
+}
+
+.rep-library-kicker {
+  margin: 0;
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  letter-spacing: var(--rep-tracking-caps);
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.rep-library-title {
+  margin: 0;
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-title);
+  font-weight: 500;
+  letter-spacing: var(--rep-tracking-display);
+  line-height: 1.04;
+}
+
+.rep-library-body {
+  margin: 0;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-body);
+  line-height: var(--rep-leading-body);
+}
+
+/* The credit block keeps the mark and the sentence on one ledger line. */
+.rep-credit {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: clamp(14px, 1.2vw, 20px);
+  max-width: 760px;
+  padding: 16px 0;
+  border-top: 1px solid var(--rep-hairline);
+  border-bottom: 1px solid var(--rep-hairline);
+}
+
+.rep-credit-logo {
+  flex: none;
+  width: clamp(96px, 8vw, 128px);
+  height: auto;
+}
+
+.rep-credit-notice {
+  max-width: 58ch;
+  margin: 0;
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  line-height: 1.4;
+}
+
+/* Confirmation surfaces are the same question in the logbook's clothes. */
+html[data-ui="repertory"] .kit-dialog-scrim {
+  background: color-mix(in srgb, var(--rep-ink) 82%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+html[data-ui="repertory"] .kit-dialog {
+  border: 1px solid var(--rep-hairline);
+  border-radius: 0;
+  background: var(--rep-ink-elevated);
+  box-shadow: none;
+}
+
+html[data-ui="repertory"] .kit-dialog-title {
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-title);
+  font-weight: 500;
+  letter-spacing: var(--rep-tracking-display);
+  line-height: 1.04;
+}
+
+html[data-ui="repertory"] .kit-dialog-body {
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-body);
+  line-height: var(--rep-leading-body);
+}
+
+html[data-ui="repertory"] .kit-button[data-tone="danger"] {
+  border: 1px solid var(--rep-status-red);
+  border-radius: 0;
+  background: transparent;
+  color: var(--rep-status-red);
+}
+
+html[data-ui="repertory"] .kit-button[data-tone="danger"]:focus,
+html[data-ui="repertory"] .kit-button[data-tone="danger"]:focus-visible {
+  border-color: var(--rep-status-red);
+  background: var(--rep-status-red);
+  color: var(--rep-ink);
+}
+
+@media (max-width: 900px) {
+  .rep-log-facts > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+
+  .rep-log-addon-details {
+    padding-left: 10px;
+  }
+}
+
+/* The Addons register fits one page: form left, the Host's list right. */
+.rep-log--addons {
+  height: calc(100vh - clamp(120px, 10.5vw, 26vw));
+  min-height: 520px;
+  padding-bottom: 0;
+}
+
+.rep-addons-columns {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.7fr) minmax(0, 1.3fr);
+  gap: clamp(28px, 3vw, 64px);
+  flex: 1;
+  min-height: 0;
+}
+
+.rep-addons-column {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(14px, 1.2vw, 20px);
+  min-height: 0;
+}
+
+.rep-addons-column--add {
+  overflow-y: auto;
+}
+
+
+
+.rep-log-section-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--rep-hairline);
+  color: var(--rep-dim);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  line-height: 1.2;
+}
+
+.rep-log-section-title {
+  flex: none;
+  margin: 0;
+  color: inherit;
+  font: inherit;
+  white-space: nowrap;
+}
+
+.rep-addons-form {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.rep-addons-form > .kit-button {
+  justify-self: start;
+}
+
+.rep-addons-scroll {
+  flex: 1;
+  min-height: 0;
+  padding: 4px 4px 8px;
+  overflow-y: auto;
+}
+
+/* A compact 2x2 of the Addon's manifest facts, only while the row is open. */
+.rep-addon-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px clamp(18px, 1.6vw, 28px);
+  margin: 0;
+}
+
+.rep-addon-facts > div {
+  display: grid;
+  align-content: start;
+  gap: 3px;
+  min-width: 0;
+}
+
+.rep-addon-facts dt {
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  letter-spacing: var(--rep-tracking-caps);
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+.rep-addon-facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--rep-dim);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  line-height: 1.4;
+}
+
+@media (max-width: 1000px) {
+  .rep-log--addons {
+    height: auto;
+    min-height: 0;
+  }
+
+  .rep-addons-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .rep-addons-scroll {
+    max-height: 60vh;
+  }
+
+  .rep-addons-column--add {
+    overflow: visible;
+  }
+}
+
+@media (max-width: 700px) {
+  .rep-addon-facts {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* A list under a label already has its rule: do not draw a second one. */
+.rep-log--settings > .rep-log-list,
+.rep-addons-scroll .rep-log-list,
+.rep-log-section-body > .rep-log-list {
+  border-top: 0;
+}
+
+.rep-addons-scroll .rep-log-empty {
+  border-top: 0;
+}
+
+.rep-log-section-body > .rep-log-facts,
+.rep-log-section-body > .rep-credit {
+  border-top: 0;
+}
+
+/* A menu of four reads wider; a ledger inside a leaf keeps the page's column. */
+.rep-log--settings > .rep-log-list {
+  max-width: 980px;
+}
+
+.rep-log-section-body > .rep-log-list {
+  max-width: 760px;
+}
+
+/*
+ * A Settings leaf is a page in the programme, not a takeover: the spine stays
+ * visible and the level begins where the stage does. The Title and Streams
+ * levels keep the whole window; only the Settings sub-screens leave the spine.
+ */
+html[data-ui="repertory"] .rep-frame[data-frame="spine"] .shell-level:has(.rep-settings-level) {
+  left: var(--rep-spine-compact);
+  box-sizing: border-box;
+  padding-right: clamp(32px, 2.9vw, 4vw);
+  padding-left: clamp(32px, 2.9vw, 4vw);
+  background: var(--rep-ink);
+}
+
+/* Focusing the spine opens it; the leaf makes room instead of being covered. */
+html[data-ui="repertory"]
+  .rep-frame[data-frame="spine"]:has(.rep-nav--spine:focus-within)
+  .shell-level:has(.rep-settings-level) {
+  left: var(--rep-spine-width);
+}
+
+@media (max-width: 1300px) {
+  html[data-ui="repertory"] .rep-frame[data-frame="spine"] .shell-level:has(.rep-settings-level) {
+    padding-right: 40px;
+    padding-left: 40px;
+  }
+}

@@ -15,6 +15,7 @@ import { SERIES } from "../title";
 import tmdbLogo from "../assets/tmdb-logo.svg";
 import { useShell } from "./context";
 import { Button, ChoiceChip, PosterCard } from "./kit";
+import { repertoryCredentialsLevel } from "./repertory/RepertorySettings";
 import { credentialsLevel } from "./SettingsScreen";
 import { useTitleOpener } from "./TitleScreen";
 import "./discover.css";
@@ -136,7 +137,12 @@ export function DiscoverScreen() {
             filtered by. Add a TMDB API key in <strong>Settings → Credentials</strong>{" "}
             to browse it.
           </p>
-          <Button variant="primary" onClick={() => push(credentialsLevel())}>
+          <Button
+            variant="primary"
+            onClick={() =>
+              push(presentation === "repertory" ? repertoryCredentialsLevel() : credentialsLevel())
+            }
+          >
             Open Settings → Credentials
           </Button>
         </div>

@@ -10,20 +10,25 @@
  * Continue watching is sample progress built from the same live films, and Home
  * says so.
  *
- * This is not a second Host and never runs in the Tauri window: there the real
- * HostClient is used, with the same repertory frame on top.
+ * The utility screens (#147) also take the Actions the Host already has:
+ * `add_addon` fetches a real manifest, and the register, preferences,
+ * credentials and paired devices are kept in this window and published as
+ * Snapshots. The address, pairing code and devices are samples named as such;
+ * no new Action is invented, and the preview never runs in Tauri, where the
+ * real HostClient answers with the Host's own state.
  */
 
-import type {
-  Action,
-  ActionError,
-  AddonManifest,
-  CatalogRow,
-  Response,
-  Snapshot,
-  Title,
-  Transport,
-  Video,
+import {
+  SNAPSHOT_EVENT,
+  type Action,
+  type ActionError,
+  type AddonManifest,
+  type CatalogRow,
+  type Response,
+  type Snapshot,
+  type Title,
+  type Transport,
+  type Video,
 } from "../../host-client";
 import {
   cinemetaPreviews,
@@ -34,6 +39,14 @@ import {
   type CinemetaMeta,
   type PreviewStream,
 } from "./preview";
+import {
+  manifestFrom,
+  PREVIEW_ADDRESS,
+  PREVIEW_DEVICES,
+  PREVIEW_PAIRING_CODE,
+  removedAddon,
+  reorderedAddons,
+} from "./previewState";
 
 const CINEMETA = "https://v3-cinemeta.strem.io";
 const ADDON = "cinemeta";
@@ -327,7 +340,7 @@ async function answerOpenTitle(
   return { snapshots: [], answer: { title } };
 }
 
-async function snapshot(): Promise<Snapshot> {
+async function buildSnapshot(): Promise<Snapshot> {
   let watchProgress: Snapshot["watchProgress"] = [];
   try {
     const page = await fetchPage("movie", "top", 0);
@@ -385,35 +398,249 @@ async function snapshot(): Promise<Snapshot> {
     featuredCatalog: { addon: ADDON, catalog: { type: "movie", id: "top" } },
     protection: { backend: "file", tmdbHeld: false, stremioHeld: false },
     watchProgress,
-    devices: [],
-    pairingCode: "----",
-    address: null,
+    devices: PREVIEW_DEVICES.map((device) => ({ ...device })),
+    pairingCode: PREVIEW_PAIRING_CODE,
+    address: PREVIEW_ADDRESS,
   };
+}
+
+/**
+ * The one Snapshot the preview keeps. A real Host publishes a new revision on
+ * every Change; the preview does the same locally so the window's screens read
+ * their answers from Snapshots exactly as they do in Tauri.
+ */
+let current: Snapshot | null = null;
+let booting: Promise<Snapshot> | null = null;
+let subscriber: ((event: { payload: Snapshot }) => void) | null = null;
+
+async function ensureSnapshot(): Promise<Snapshot> {
+  if (current) {
+    return current;
+  }
+  booting ??= buildSnapshot().then((state) => {
+    current = state;
+    return state;
+  });
+  return booting;
+}
+
+function publish(next: Snapshot): Response {
+  current = next;
+  subscriber?.({ payload: next });
+  return { snapshots: [next], answer: null };
+}
+
+function change(patch: (state: Snapshot) => Partial<Snapshot>): Response {
+  if (!current) {
+    throw {
+      kind: "unreachable",
+      detail: "the preview has not read its first Snapshot",
+    } satisfies ActionError;
+  }
+  return publish({ ...current, ...patch(current), revision: current.revision + 1 });
+}
+
+function refuse(error: ActionError): never {
+  throw error;
+}
+
+/** `add_addon`: fetch the real manifest and put it in the preview's register. */
+async function addAddon(
+  action: Extract<Action, { type: "add_addon" }>,
+): Promise<Response> {
+  const url = action.url.trim();
+  let raw: unknown;
+  try {
+    raw = await readJson<unknown>(url);
+  } catch (caught) {
+    return refuse({
+      kind: "fetch",
+      url,
+      detail: caught instanceof Error ? caught.message : "the Addon did not answer",
+    });
+  }
+  const manifest = manifestFrom(url, raw);
+  const state = await ensureSnapshot();
+  const known = state.addons.some((addon) => addon.id === manifest.id);
+  return publish({
+    ...state,
+    revision: state.revision + 1,
+    addons: known
+      ? state.addons.map((addon) => (addon.id === manifest.id ? manifest : addon))
+      : [...state.addons, manifest],
+  });
+}
+
+function reorderAddon(
+  action: Extract<Action, { type: "reorder_addon" }>,
+): Response {
+  const addons = reorderedAddons(current?.addons ?? [], action.id, action.position);
+  if (!current || !addons) {
+    return refuse({
+      kind: "invalid_position",
+      id: action.id,
+      position: action.position,
+      count: current?.addons.length ?? 0,
+    });
+  }
+  return change(() => ({ addons }));
+}
+
+function removeAddon(
+  action: Extract<Action, { type: "remove_addon" }>,
+): Response {
+  const addons = removedAddon(current?.addons ?? [], action.id);
+  if (!addons) {
+    return refuse({ kind: "unknown_addon", id: action.id });
+  }
+  return change((state) => ({
+    addons,
+    featuredCatalog:
+      state.featuredCatalog?.addon === action.id ? null : state.featuredCatalog,
+  }));
+}
+
+function setFeatured(
+  action: Extract<Action, { type: "set_featured_catalog" }>,
+): Response {
+  const addon = current?.addons.find((held) => held.id === action.addon);
+  const catalog = addon?.catalogs.find(
+    (held) => held.type === action.catalog.type && held.id === action.catalog.id,
+  );
+  if (!addon || !catalog) {
+    return refuse({
+      kind: "unknown_catalog",
+      addon: action.addon,
+      catalog: { ...action.catalog },
+    });
+  }
+  return change(() => ({
+    featuredCatalog: { addon: action.addon, catalog: { ...action.catalog } },
+  }));
+}
+
+/** The existing utility Actions, answered locally and published as a Snapshot. */
+async function dispatch(action: Action): Promise<Response> {
+  await ensureSnapshot();
+  switch (action.type) {
+    case "add_addon":
+      return addAddon(action);
+    case "reorder_addon":
+      return reorderAddon(action);
+    case "remove_addon":
+      return removeAddon(action);
+    case "set_tmdb_key": {
+      if (!action.key.trim()) {
+        return refuse({ kind: "invalid_tmdb_key", detail: "the key is empty" });
+      }
+      return change((state) => ({
+        protection: { ...state.protection, tmdbHeld: true },
+      }));
+    }
+    case "clear_tmdb_key":
+      return change((state) => ({
+        protection: { ...state.protection, tmdbHeld: false },
+      }));
+    case "sign_in_stremio": {
+      if (!action.email.trim() || !action.password) {
+        return refuse({
+          kind: "invalid_stremio_login",
+          detail: "an email and a password are needed",
+        });
+      }
+      return change((state) => ({
+        protection: { ...state.protection, stremioHeld: true },
+      }));
+    }
+    case "sign_out_stremio":
+      return change((state) => ({
+        protection: { ...state.protection, stremioHeld: false },
+      }));
+    case "set_subtitle_language": {
+      const language = action.language.trim();
+      if (!language) {
+        return refuse({ kind: "invalid_subtitle_language", language });
+      }
+      return change((state) => ({
+        preferences: { ...state.preferences, subtitleLanguage: language },
+      }));
+    }
+    case "clear_subtitle_language":
+      return change((state) => ({
+        preferences: { ...state.preferences, subtitleLanguage: null },
+      }));
+    case "set_subtitle_color": {
+      if (!/^#[0-9a-fA-F]{6}$/.test(action.color)) {
+        return refuse({ kind: "invalid_subtitle_color", color: action.color });
+      }
+      return change((state) => ({
+        preferences: { ...state.preferences, subtitleColor: action.color.toUpperCase() },
+      }));
+    }
+    case "set_subtitle_scale": {
+      if (!Number.isFinite(action.scale) || action.scale < 0.5 || action.scale > 2) {
+        return refuse({ kind: "invalid_subtitle_scale", scale: String(action.scale) });
+      }
+      return change((state) => ({
+        preferences: { ...state.preferences, subtitleScale: action.scale },
+      }));
+    }
+    case "set_stream_buffer": {
+      if (
+        !Number.isFinite(action.seconds) ||
+        !Number.isFinite(action.megabytes) ||
+        action.seconds <= 0 ||
+        action.megabytes <= 0
+      ) {
+        return refuse({
+          kind: "invalid_stream_buffer",
+          seconds: String(action.seconds),
+          value: String(action.megabytes),
+        });
+      }
+      return change((state) => ({
+        preferences: {
+          ...state.preferences,
+          streamBuffer: { seconds: action.seconds, megabytes: action.megabytes },
+        },
+      }));
+    }
+    case "set_featured_catalog":
+      return setFeatured(action);
+    case "clear_featured_catalog":
+      return change(() => ({ featuredCatalog: null }));
+    case "revoke_device": {
+      if (!current?.devices.some((device) => device.id === action.id)) {
+        return refuse({ kind: "unknown_device", id: action.id });
+      }
+      return change((state) => ({
+        devices: state.devices.filter((device) => device.id !== action.id),
+      }));
+    }
+    case "browse_catalog":
+      return answerCatalog(action);
+    case "open_title":
+      return answerOpenTitle(action);
+    case "search_catalogs":
+      return answerSearchCatalogs(action);
+    case "find_streams":
+      return answerStreams(action);
+    default:
+      return { snapshots: [], answer: null };
+  }
 }
 
 async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   if (command === "snapshot") {
-    return (await snapshot()) as T;
+    return (await ensureSnapshot()) as T;
   }
   if (command === "dispatch") {
     const envelope = args?.envelope as { action?: Action } | undefined;
-    const action = envelope?.action;
-    if (!action) {
+    if (!envelope?.action) {
       const none: Response = { snapshots: [], answer: null };
       return none as T;
     }
-    if (action.type === "browse_catalog") {
-      return (await answerCatalog(action)) as T;
-    }
-    if (action.type === "open_title") {
-      return (await answerOpenTitle(action)) as T;
-    }
-    if (action.type === "search_catalogs") {
-      return (await answerSearchCatalogs(action)) as T;
-    }
-    if (action.type === "find_streams") {
-      return (await answerStreams(action)) as T;
-    }
+    return (await dispatch(envelope.action)) as T;
   }
   const none: Response = { snapshots: [], answer: null };
   return none as T;
@@ -422,8 +649,15 @@ async function invoke<T>(command: string, args?: Record<string, unknown>): Promi
 /** The transport a plain Vite window uses behind the flag. */
 export const previewTransport: Transport = {
   invoke,
-  listen: async <T>(_event: string, _handler: (event: { payload: T }) => void) => {
-    // A preview has one static Snapshot; there is no Host to publish another.
-    return () => undefined;
+  listen: async <T>(event: string, handler: (event: { payload: T }) => void) => {
+    if (event === SNAPSHOT_EVENT) {
+      subscriber = handler as (event: { payload: Snapshot }) => void;
+      void ensureSnapshot().then((state) => subscriber?.({ payload: state }));
+    }
+    return () => {
+      if (event === SNAPSHOT_EVENT) {
+        subscriber = null;
+      }
+    };
   },
 };

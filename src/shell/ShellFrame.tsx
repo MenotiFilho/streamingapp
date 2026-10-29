@@ -46,6 +46,7 @@ export function ShellFrame({
 }: ShellFrameProps) {
   const { settings } = useRepertorySettings();
   const repertory = presentation === "repertory";
+  const frame = useRef<HTMLDivElement | null>(null);
   const base = useRef<HTMLDivElement | null>(null);
   const levelNodes = useRef(new Map<string, HTMLDivElement>());
   const firstDestination = useRef(true);
@@ -53,6 +54,14 @@ export function ShellFrame({
   const playerIndex = levels.findIndex((level) => level.kind === "player");
   const takeover = playerIndex >= 0;
   const topIndex = levels.length - 1;
+  /**
+   * A Settings leaf is a page beside the programme, not a takeover: the spine
+   * stays live and the focus root covers both. Every other level keeps the
+   * spine out of the tab order, as the Title and Streams always have.
+   */
+  const settingsLeaf =
+    repertory && settings.frame === "spine" && top?.id.startsWith("settings-") === true;
+  const navInteractive = repertory && (levels.length === 0 || settingsLeaf);
   const { supported } = useFullscreen();
 
   // F11 belongs to the window, not to the shell's intent table: it works from
@@ -89,6 +98,12 @@ export function ShellFrame({
   }, []);
 
   const activeRoot = () => {
+    // The repertory base and its Settings leaves share one root with the
+    // spine, so Left reaches the programme index and Right comes back into the
+    // page. A Title, Streams list, dialog or player is still the only root.
+    if (repertory && (levels.length === 0 || settingsLeaf)) {
+      return frame.current;
+    }
     const level = levels[levels.length - 1];
     if (level) {
       return levelNodes.current.get(level.id) ?? null;
@@ -115,20 +130,40 @@ export function ShellFrame({
     focusAndReveal(
       // The rail item is the control a destination change means; a screen's own
       // `data-destination` marker is a section, not something focus can land on.
-      base.current?.querySelector<HTMLElement>(
+      // The repertory spine lives beside the base, so it is looked up in the
+      // frame; the Velvet rail is still inside the base.
+      (repertory ? frame.current : base.current)?.querySelector<HTMLElement>(
         `[data-destination="${destination}"][data-focusable]`,
       ),
     );
-  }, [destination]);
+  }, [destination, repertory]);
 
   return (
     <div
+      ref={frame}
       className={repertory ? "shell-frame rep-frame" : "shell-frame"}
       data-testid="shell-frame"
       data-ui={repertory ? "repertory" : undefined}
       data-frame={repertory ? settings.frame : undefined}
       data-reveal={repertory ? "center" : undefined}
+      data-region={repertory ? "frame" : undefined}
+      data-kind={repertory ? "branch" : undefined}
+      data-label={repertory ? "the window" : undefined}
     >
+      {repertory ? (
+        <div
+          className="shell-nav-slot"
+          inert={navInteractive ? undefined : true}
+          aria-hidden={navInteractive ? undefined : true}
+        >
+          <RepertoryNav
+            variant={settings.frame}
+            active={destination}
+            onChoose={onChooseDestination}
+            onOpenDestinations={onOpenDestinations ?? (() => undefined)}
+          />
+        </div>
+      ) : null}
       <div
         ref={base}
         className="shell-base"
@@ -139,14 +174,7 @@ export function ShellFrame({
         aria-hidden={levels.length > 0 ? true : undefined}
         inert={levels.length > 0 ? true : undefined}
       >
-        {repertory ? (
-          <RepertoryNav
-            variant={settings.frame}
-            active={destination}
-            onChoose={onChooseDestination}
-            onOpenDestinations={onOpenDestinations ?? (() => undefined)}
-          />
-        ) : (
+        {repertory ? null : (
           <Rail active={destination} onChoose={onChooseDestination} />
         )}
         <main className="shell-stage">
