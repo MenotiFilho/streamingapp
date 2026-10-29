@@ -17,7 +17,7 @@
 | Target | Status | Evidence |
 |---|---|---|
 | `github.com/Stremio/stremio-api-client` | **Exists. MIT. 38 stars, 7 forks.** Created 2018-07-10, last push 2025-04-25. | `gh api repos/Stremio/stremio-api-client` |
-| What it is | **A wrapper, 290 lines, two modules.** It does not define the API; it posts to it. | `apiClient.js:11-40`, `apiStore.js:37-186` |
+| What it is | **A wrapper: 270 lines in its two modules** (290 across the package). It does not define the API; it posts to it. | `apiClient.js:11-40`, `apiStore.js:37-186` |
 | `github.com/Stremio/stremio-core` | **Exists. MIT. 2,521 stars**, pushed 2026-10-28. This is the client that talks to the service in the shipped apps. | `gh api repos/Stremio/stremio-core` |
 | What the web app uses today | **`stremio-core`, not `stremio-api-client`**: `@stremio/stremio-core-web` 0.66.0. | `stremio-web/package.json:25` |
 | Public API documentation | **None.** There is no published contract, versioning note or ToS page for `api.strem.io`. The method surface below was reconstructed from client code. | no such page found; §7 |
@@ -39,17 +39,17 @@ this.request = function(method, params) {
     return fetch(endpoint + '/api/' + method, fetchOptions) ...
 ```
 
-Three facts fall out of it, and they hold for every method in §2:
+Three facts fall out of it, and they hold for every `api.strem.io` method in §2:
 
 1. **Everything is `POST https://api.strem.io/api/<method>`**, one JSON object, `authKey` merged in at the top level.
-2. **Errors arrive with HTTP 200.** The body is `{"error": {...}}`; the client checks the body, not the status (`apiClient.js:29-31`). Anything that trusts the status code will read a refusal as success.
+2. **Refusals arrive with HTTP 200.** The body is `{"error": {...}}` and the status is 200 (observed, §6), so a client that trusts the status code reads a refusal as success. This client checks the status first (`apiClient.js:22-24`) and the body after (`:29-31`).
 3. **Auth is one opaque `authKey` string**, returned by `login`, sent on every later call. There is no refresh token and no expiry field.
 
-What the store on top adds (`apiStore.js`): `login` (`:60`), `register` (`:84`), `pullAddonCollection` (`:111`), `pullUser` (`:156`), `pushUser` (`:176`). **It names no library call and no progress call** — `request()` is the only escape hatch, and every caller of `datastore*` lives in `stremio-core`. That is where the rest of this note reads the surface from.
+What the store on top adds is session and Addons only (`apiStore.js:60-186`): the four sign-in paths, `logout`, pull and push of the Add-on collection, and pull and push of the user document. **It names no library call and no progress call** — `request()` is the only escape hatch, and every caller of `datastore*` lives in `stremio-core`. That is where the rest of this note reads the surface from.
 
 ## 2. The surface that exists
 
-Reconstructed from `stremio-core/src/types/api/request.rs` (path → method at `:158-178`, auth variants at `:191-213`):
+Reconstructed from `stremio-core/src/types/api/request.rs` (path → method at `:158-178`, auth variants at `:191-216`):
 
 | Area | Methods | Body beyond `authKey` |
 |---|---|---|
@@ -72,11 +72,11 @@ Reconstructed from `stremio-core/src/types/api/request.rs` (path → method at `
 { "authKey": "…", "collection": "libraryItem", "ids": [], "all": true }
 // → { "result": [ { …LibraryItem… }, … ] }
 
-// datastorePut — upsert, replacing each document by `_id`
+// datastorePut — upsert by `_id`
 { "authKey": "…", "collection": "libraryItem", "changes": [ { …LibraryItem… } ] }
 ```
 
-The collection that matters is `libraryItem` (`constants.rs:20`). `stremio-core` uses exactly these three calls for the owner's Library, at sign-in and on every sync: the full pull at `ctx.rs:343-357`, the index at `update_library.rs:505`, the delta pull at `:472-476`, the push at `:447-453`.
+The collection that matters is `libraryItem` (`constants.rs:20`). `stremio-core` uses exactly these three calls for the owner's Library, at sign-in and on every sync: the full pull at `ctx.rs:347-367`, the index at `update_library.rs:505`, the delta pull at `:472-476`, the push at `:447-453`.
 
 ## 3. Library and Continue watching are one collection
 
@@ -127,12 +127,12 @@ Two consequences worth stating plainly:
 
 ## 4. Six ways it bites
 
-1. **`state.lastWatched` is not "when I watched it".** Marking a video watched sets the field to the *video's release date* whenever that is later (`library_item.rs:132-141`); the same rule applies to whole-Title marks (`:215-221`). A series' item can therefore claim `lastWatched` in 2013 while it was watched last night. For "most recently watched", order by `_mtime`.
-2. **Two time formats.** `datastoreMeta` gives milliseconds since epoch, because the index type deserializes with `ts_milliseconds` (`response.rs:79-82`); `datastoreGet` gives ISO-8601 strings (`_ctime`, `_mtime`, `lastWatched`). The asymmetry is the server's, not a client bug.
+1. **`state.lastWatched` mixes two clocks.** Marking a *video* (or a season) watched writes the video's **release date** when that is later than what was stored (`library_item.rs:132-140`, `:214-221`), so a 2013 episode marked today records 2013. Playback and whole-Title marks instead write *now* (`player.rs:527`, `:627`, `library_item.rs:110`). No single field answers "when was this watched"; for "most recently touched", order by `_mtime`.
+2. **Two time formats.** `datastoreMeta` gives milliseconds since epoch, because the index type deserializes with `ts_milliseconds` (`response.rs:78-82`); `datastoreGet` gives ISO-8601 strings (`_ctime`, `_mtime`, `lastWatched`). The asymmetry is the server's — `[inference, from the chrono shapes at library_item.rs:33-38 rather than a live reply]`.
 3. **One item per Title, not per episode.** A series is a single `libraryItem`; the current episode is `state.video_id`, and the watched episodes are the bitfield `state.watched`. Nothing in the collection is keyed by episode.
-4. **The watched bitfield is an anchored, packed byte string.** `{anchor video id}:{anchor length}:{base64 of the packed bits}` (`stremio-watched-bitfield/README.md`, `lib/watchedBitfield.js:84-92`). The anchor is what lets it survive an Addon appending episodes; it must be re-anchored, never recomputed from scratch, or episodes shift.
-5. **`datastorePut` replaces the document.** The server upserts what it is given by `_id`; a partial object therefore erases the fields it omits (`behaviorHints`, `noNotif`, `posterShape`). This Host already keeps Stremio's documents as raw values for that reason (`crates/host-core/src/sync.rs:191-194`).
-6. **Removals are tombstones, not deletes.** Removing from the Library flips `removed` to `true` and keeps the document (`update_library.rs:77-113`). `stremio-core` keeps syncing such a tombstone for 365 days (`library_item.rs:49-53`), which is why a naive `all: true` reader will see Titles that are no longer in the Library. Filter on `removed`.
+4. **The watched bitfield is an anchored, packed byte string.** `{anchor video id}:{anchor length}:{base64 of the packed bits}` (`stremio-watched-bitfield/README.md`, `lib/watchedBitfield.js:84-92`). The anchor is what lets it survive an Addon appending episodes: `constructAndResize` shifts the bits by the anchor's position instead of assuming index 0 (`lib/watchedBitfield.js:20-57`). Recompute it without the anchor and the bits land on the wrong episodes.
+5. **`datastorePut` is a per-document write.** The client sends whole `LibraryItem`s and the server keys them by `_id` (`update_library.rs:447-453`). Whether an omitted field is merged or erased is not documented — `[inference: erased]`, which is why this Host keeps Stremio's documents raw (`crates/host-core/src/sync.rs:188-196`).
+6. **Removals are tombstones, not deletes.** Removing from the Library flips `removed` to `true`, clears `temp`, and re-pushes the document (`update_library.rs:77-113`); `stremio-core` keeps syncing such a tombstone for 365 days (`library_item.rs:49-53`). A reader that does not filter on `removed` shows Titles that are no longer in the Library.
 
 ## 5. What is not there
 
@@ -171,6 +171,7 @@ Three things this settles that the README does not:
 ## 7. Could not verify
 
 - **Whether `datastoreGet all: true` returns removed tombstones.** `[inference: yes]` — `stremio-core` diffs its own removed items against the index and pushes them, which is only meaningful if the server also returns them. Not observed, because it needs an account.
+- **Whether `datastorePut` merges or replaces a document.** The shape of the call is known; the server's write semantics are not, and both clients always send whole documents, so nothing distinguishes the two cases. `[inference: replaces]`, per §4.5.
 - **The contents of `export.json`**, and whether it carries anything beyond the Library (watch log, profile, addons).
 - **Whether `authKey` expires, and after how long.** No TTL is documented or returned; the only observed signal is the refusal message.
 - **Rate limits, quotas, and whether burst reads are throttled.** Not probed; it would need a real account and many reads.
@@ -179,7 +180,7 @@ Three things this settles that the README does not:
 
 ## 8. What this means for this Host
 
-**The code is already most of the way there.** `HttpStremio` signs in, reads `datastoreGet {all: true}` and writes `datastorePut` (`crates/host-addon/src/stremio.rs:88-146`), and the seam above it is three calls (`crates/host-core/src/stremio.rs:21-32`). What a Library screen would add is small:
+**The code is already most of the way there.** `HttpStremio` signs in, reads `datastoreGet {all: true}` and writes `datastorePut` (`crates/host-addon/src/stremio.rs:88-146`), and the seam above it is three calls (`crates/host-core/src/stremio.rs:19-29`). What a Library screen would add is small:
 
 1. a **read-only pull** that keeps `removed` items out of the room and keeps them in the store as tombstones;
 2. the **index** (`datastoreMeta`) so a refresh is a diff, not a re-download;
