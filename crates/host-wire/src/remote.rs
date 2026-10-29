@@ -16,15 +16,23 @@
 //! strip — not the disappearance of the browse surface — is where the one shared
 //! thing, playback, is controlled.
 //!
-//! The template on disk is not quite the page that is served. The palette
-//! (`src/tokens.css`), the curated subtitle languages (`src/subtitle-languages.json`),
-//! the subtitle appearance presets (`src/subtitle-appearance.json`), the Stream
-//! buffer presets (`src/stream-buffer.json`), and the approved TMDB mark are
-//! spliced in here, at serve time, through one marker convention
-//! (`/*__SPLICE_NAME__*/`). That keeps `src/tokens.css` the single palette in the
-//! tree and each list one list for two clients, while the bytes a browser
-//! receives are still one self-contained document with no build step (#88,
-//! #126, #135; amending ADR-0017 §2 and ADR-0018 §1).
+//! The template on disk is not quite the page that is served. The Velvet
+//! palette (`src/tokens.css`) that the old surface still reads, the repertory
+//! token sheet (`src/shell/repertory/tokens.css`) that the staged surface reads,
+//! the curated subtitle languages (`src/subtitle-languages.json`), the subtitle
+//! appearance presets (`src/subtitle-appearance.json`), the Stream buffer presets
+//! (`src/stream-buffer.json`), and the approved TMDB mark are spliced in here, at
+//! serve time, through one marker convention (`/*__SPLICE_NAME__*/`). That keeps
+//! each palette and each list one source in the tree and one list for two
+//! clients, while the bytes a browser receives are still one self-contained
+//! document with no build step (#88, #126, #135, #149; amending ADR-0017 §2 and
+//! ADR-0018 §1).
+//!
+//! The repertory surface is staged behind `?ui=repertory` while the window's
+//! counterpart is still behind `VITE_UI=repertory`. That selector is deliberately
+//! provisional: #152 decides the final staging and cutover. The default page at
+//! `/` keeps the old surface and its palette; a paired phone holding that page
+//! open is not disturbed by the staged one.
 
 use std::io;
 use std::net::TcpStream;
@@ -36,9 +44,14 @@ use crate::http::{self, Request};
 /// shared assets named by their splice markers.
 const TEMPLATE: &str = include_str!("../remote/index.html");
 
-/// The window's one palette (#77). The remote splices it rather than keeping a
-/// second `:root` block on disk.
+/// The Velvet palette (#77) the surface at `/` still reads. The remote splices
+/// it rather than keeping a second `:root` block on disk.
 const TOKENS: &str = include_str!("../../../src/tokens.css");
+
+/// The repertory token sheet (#145–#149), the same file the window imports. The
+/// staged surface at `?ui=repertory` reads `--rep-*` from here; the old surface
+/// never sets `data-ui="repertory"`, so the sheet is inert for it.
+const REPERTORY_TOKENS: &str = include_str!("../../../src/shell/repertory/tokens.css");
 
 /// The curated subtitle languages (#82), spliced as the JSON the picker reads.
 const SUBTITLE_LANGUAGES: &str = include_str!("../../../src/subtitle-languages.json");
@@ -63,14 +76,16 @@ const KEY_INTENTS_SOURCE: &str = include_str!("../../../src/input.ts");
 /// The one marker convention. A marker is a CSS comment so the template is a
 /// valid document before it is spliced, and it is consumed in [`splice`].
 const TOKENS_MARKER: &str = "/*__SPLICE_TOKENS__*/";
+const REPERTORY_TOKENS_MARKER: &str = "/*__SPLICE_REPERTORY_TOKENS__*/";
 const SUBTITLE_LANGUAGES_MARKER: &str = "/*__SPLICE_SUBTITLE_LANGUAGES__*/";
 const SUBTITLE_APPEARANCE_MARKER: &str = "/*__SPLICE_SUBTITLE_APPEARANCE__*/";
 const STREAM_BUFFER_MARKER: &str = "/*__SPLICE_STREAM_BUFFER__*/";
 const TMDB_LOGO_MARKER: &str = "/*__SPLICE_TMDB_LOGO__*/";
 
 /// Every marker the template must carry, in the order it is spliced.
-const MARKERS: [&str; 5] = [
+const MARKERS: [&str; 6] = [
     TOKENS_MARKER,
+    REPERTORY_TOKENS_MARKER,
     SUBTITLE_LANGUAGES_MARKER,
     SUBTITLE_APPEARANCE_MARKER,
     STREAM_BUFFER_MARKER,
@@ -98,6 +113,7 @@ fn splice(template: &str) -> String {
 
     template
         .replace(TOKENS_MARKER, TOKENS)
+        .replace(REPERTORY_TOKENS_MARKER, REPERTORY_TOKENS)
         .replace(SUBTITLE_LANGUAGES_MARKER, SUBTITLE_LANGUAGES)
         .replace(SUBTITLE_APPEARANCE_MARKER, SUBTITLE_APPEARANCE)
         .replace(STREAM_BUFFER_MARKER, STREAM_BUFFER)
@@ -134,8 +150,8 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use super::{
-        page, KEY_INTENTS_SOURCE, MARKERS, STREAM_BUFFER, SUBTITLE_APPEARANCE, SUBTITLE_LANGUAGES,
-        TEMPLATE, TMDB_LOGO, TOKENS,
+        page, KEY_INTENTS_SOURCE, MARKERS, REPERTORY_TOKENS, STREAM_BUFFER, SUBTITLE_APPEARANCE,
+        SUBTITLE_LANGUAGES, TEMPLATE, TMDB_LOGO, TOKENS,
     };
 
     /// The page's capability list: the Actions it says it can send, read out of
@@ -443,6 +459,59 @@ mod tests {
                 "the served page carries {token} from src/tokens.css"
             );
         }
+    }
+
+    #[test]
+    fn the_served_page_carries_every_repertory_token() {
+        // #149's bridge: the phone reads the same token sheet the window
+        // imports, not a hand-copied palette in the template. A token added to
+        // the sheet must reach the served page.
+        let tokens = token_properties(REPERTORY_TOKENS);
+        assert!(
+            tokens.contains("--rep-ink"),
+            "the repertory sheet declares the palette"
+        );
+        assert!(
+            tokens.contains("--rep-remote-text-body"),
+            "the repertory sheet declares the Remote's phone scale"
+        );
+
+        let served = page();
+        for token in &tokens {
+            assert!(
+                served.contains(&format!("{token}:")),
+                "the served page carries {token} from the repertory token sheet"
+            );
+        }
+    }
+
+    #[test]
+    fn the_repertory_surface_is_staged_behind_a_query() {
+        // #149's staging assumption, explicitly provisional: the old page at
+        // `/` keeps its surface and its palette, and `?ui=repertory` sets the
+        // one attribute the repertory sheet is scoped to. #152 decides the
+        // final staging; this test is the guard that the selector stays
+        // additive while it is the bridge.
+        let served = page();
+        for needle in [
+            "URLSearchParams",
+            "get(\"ui\")",
+            "data-ui",
+            "\"repertory\"",
+            "html[data-ui=\"repertory\"]",
+        ] {
+            assert!(served.contains(needle), "the served page carries {needle}");
+        }
+        assert!(
+            !TEMPLATE.contains("dataset.ui = \"repertory\";\n      document"),
+            "the template does not set the repertory attribute unconditionally"
+        );
+        // The old surface's own selectors are not scoped to the new attribute:
+        // the page at `/` is still the Velvet one.
+        assert!(
+            TEMPLATE.contains(".pairing-card"),
+            "the template still carries the old surface"
+        );
     }
 
     #[test]
