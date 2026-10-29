@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, type ReactNode } from "react";
 
 import { Rail } from "./Rail";
 import type { Destination, ShellLevel } from "./navigation";
+import { RepertoryNav } from "./repertory/RepertoryNav";
+import { useRepertorySettings } from "./repertory/context";
 import { focusAndReveal } from "./reveal";
 import { toggleFullscreen, useFullscreen } from "./useFullscreen";
 import { useSpatialFocus } from "./useSpatialFocus";
@@ -17,6 +19,8 @@ export type ShellFrameProps = {
   levels: readonly ShellLevel[];
   /** What Back means once the top level has had its own chance to answer. */
   onBack: () => void;
+  /** Which surface draws the frame; the prototype flag chooses repertory (#145). */
+  presentation?: "velvet" | "repertory";
 };
 
 /**
@@ -35,7 +39,10 @@ export function ShellFrame({
   screen,
   levels,
   onBack,
+  presentation = "velvet",
 }: ShellFrameProps) {
+  const { settings } = useRepertorySettings();
+  const repertory = presentation === "repertory";
   const base = useRef<HTMLDivElement | null>(null);
   const levelNodes = useRef(new Map<string, HTMLDivElement>());
   const firstDestination = useRef(true);
@@ -112,7 +119,12 @@ export function ShellFrame({
   }, [destination]);
 
   return (
-    <div className="shell-frame" data-testid="shell-frame">
+    <div
+      className={repertory ? "shell-frame rep-frame" : "shell-frame"}
+      data-testid="shell-frame"
+      data-ui={repertory ? "repertory" : undefined}
+      data-frame={repertory ? settings.frame : undefined}
+    >
       <div
         ref={base}
         className="shell-base"
@@ -123,7 +135,15 @@ export function ShellFrame({
         aria-hidden={levels.length > 0 ? true : undefined}
         inert={levels.length > 0 ? true : undefined}
       >
-        <Rail active={destination} onChoose={onChooseDestination} />
+        {repertory ? (
+          <RepertoryNav
+            variant={settings.frame}
+            active={destination}
+            onChoose={onChooseDestination}
+          />
+        ) : (
+          <Rail active={destination} onChoose={onChooseDestination} />
+        )}
         <main className="shell-stage">
           <div
             className="shell-screen"

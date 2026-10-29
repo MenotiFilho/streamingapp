@@ -15,6 +15,7 @@ import { actionKey, repeats } from "./actionKey";
 import { DestinationScreen } from "./DestinationScreens";
 import { InFlight } from "./inFlight";
 import { PlayerOverlay } from "./PlayerOverlay";
+import { RepertoryDestinationScreen } from "./repertory/RepertoryScreens";
 import { ShellFrame } from "./ShellFrame";
 import { ShellContext, type ActionOutcome, type NewShellLevel } from "./context";
 import { HomeStore } from "./homeStore";
@@ -37,7 +38,13 @@ const PLAYER_LEVEL = "player";
  * disturbing the focus underneath. The player is a level like any other; when
  * it stops, the browsing stack that was underneath is exactly where it was.
  */
-export function Shell({ client }: { client?: HostClient }) {
+export function Shell({
+  client,
+  presentation = "velvet",
+}: {
+  client?: HostClient;
+  presentation?: "velvet" | "repertory";
+}) {
   const host = useMemo(() => client ?? new HostClient(), [client]);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [error, setError] = useState<ActionError | null>(null);
@@ -262,7 +269,14 @@ export function Shell({ client }: { client?: HostClient }) {
         onChooseDestination={choose}
         levels={nav.levels}
         onBack={back}
-        screen={<DestinationScreen destination={nav.destination} />}
+        presentation={presentation}
+        screen={
+          presentation === "repertory" ? (
+            <RepertoryDestinationScreen destination={nav.destination} />
+          ) : (
+            <DestinationScreen destination={nav.destination} />
+          )
+        }
       />
 
       <div className="shell-alert-stack">

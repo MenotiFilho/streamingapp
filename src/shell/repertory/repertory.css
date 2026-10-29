@@ -1,0 +1,1218 @@
+@import "./fonts.css";
+
+/*
+ * Repertory: the first live slice of the window's new frame (#145).
+ *
+ * Ink-black canvas, warm ivory ink, one brass house colour; a high-contrast
+ * display serif for Titles and section names, a quiet grotesk for the interface,
+ * and a mono for timecode and the programme's bookkeeping. Nothing is rounded
+ * and no poster is framed: a row should read as a printed programme, not a shelf
+ * of cards.
+ *
+ * Every value here is scoped to `html[data-ui="repertory"]`, so the Velvet
+ * Curtains surface on `main` keeps its own tokens until the cutover. The
+ * palette and the pairs are measured in `repertory/tokens.test.ts`.
+ */
+
+html[data-ui="repertory"] {
+  color-scheme: dark;
+
+  /*
+   * Canvas & ink: the hex values live in `palette.ts` and are applied to this
+   * element before the first paint, so the measured palette has one source.
+   */
+
+  /* The two pairings. Both use IBM Plex Mono for timecode. */
+  --rep-display: "Bodoni Moda Variable", "Bodoni Moda", Didot, "Bodoni MT", Georgia, serif;
+  --rep-sans: "Inter Variable", Inter, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --rep-mono: "IBM Plex Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
+
+  /*
+   * The ten-foot scale, with the 4K policy the prototype is testing: a vw
+   * middle and a vw ceiling, floored at the 1080p value. At 1920 these land on
+   * the research's numbers; at 3840/100% they double with the window instead of
+   * halving physically. The rem floor keeps a desk window legible.
+   */
+  --rep-text-hero: clamp(4.5rem, 4.6vw, 6vw);
+  --rep-text-title: clamp(3rem, 3vw, 4vw);
+  --rep-text-section: clamp(2.25rem, 2.1vw, 3.2vw);
+  --rep-text-body: clamp(1.75rem, 1.667vw, 2.2vw);
+  --rep-text-caption: clamp(1.5rem, 1.25vw, 1.7vw);
+  --rep-text-control: clamp(1.625rem, 1.35vw, 1.8vw);
+  --rep-text-mono: clamp(1.5rem, 1.25vw, 1.7vw);
+
+  --rep-leading-display: 1.08;
+  --rep-leading-body: 1.4;
+  --rep-leading-caption: 1.3;
+  --rep-tracking-display: -0.012em;
+  --rep-tracking-body: 0.008em;
+  --rep-tracking-caps: 0.08em;
+
+  --rep-space-1: 0.25rem;
+  --rep-space-2: 0.5rem;
+  --rep-space-3: 0.75rem;
+  --rep-space-4: 1rem;
+  --rep-space-5: 1.5rem;
+  --rep-space-6: 2.25rem;
+  --rep-space-7: 3rem;
+  --rep-space-8: 4rem;
+
+  --rep-spine-width: clamp(280px, 14.6vw, 18vw);
+  --rep-strip-height: clamp(168px, 8.75vw, 10vw);
+  --rep-row-gap: clamp(16px, 1.25vw, 1.8vw);
+  --rep-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --rep-dur-fast: 140ms;
+  --rep-dur-med: 240ms;
+
+  --focus-ring: 0 0 0 2px var(--rep-ivory);
+  --focus-transform: none;
+
+  --rep-focus-wash: radial-gradient(
+    80% 90% at 50% 32%,
+    rgba(201, 164, 92, 0.16),
+    rgba(201, 164, 92, 0.05) 48%,
+    transparent 72%
+  );
+}
+
+/* Playfair's larger x-height makes the same sizes read a little larger. */
+html[data-ui="repertory"][data-pairing="playfair"] {
+  --rep-display: "Playfair Display Variable", "Playfair Display", Georgia, "Times New Roman",
+    serif;
+  --rep-sans: "IBM Plex Sans Variable", "IBM Plex Sans", "Segoe UI Variable Text", "Segoe UI",
+    system-ui, sans-serif;
+}
+
+html[data-ui="repertory"] body {
+  background: var(--rep-ink);
+  color: var(--rep-ivory);
+  font-family: var(--rep-sans);
+  font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+}
+
+html[data-ui="repertory"] ::selection {
+  background: var(--rep-house);
+  color: var(--rep-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-ui="repertory"] {
+    --rep-dur-fast: 0ms;
+    --rep-dur-med: 0ms;
+  }
+}
+
+/* --------------------------------------------------------------------------
+ * Focus: one ivory keyline, one spotlight wash
+ * -------------------------------------------------------------------------- */
+
+html[data-ui="repertory"] [data-focusable] {
+  transition:
+    background-color var(--rep-dur-fast) var(--rep-ease),
+    color var(--rep-dur-fast) var(--rep-ease),
+    outline-color var(--rep-dur-fast) var(--rep-ease);
+}
+
+html[data-ui="repertory"] [data-focusable]:focus,
+html[data-ui="repertory"] [data-focusable]:focus-visible {
+  outline: 2px solid var(--rep-ivory);
+  outline-offset: 3px;
+  box-shadow: none;
+}
+
+@keyframes rep-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* --------------------------------------------------------------------------
+ * The frame
+ * -------------------------------------------------------------------------- */
+
+.rep-frame {
+  background: var(--rep-ink);
+  color: var(--rep-ivory);
+  font-family: var(--rep-sans);
+}
+
+.repertory-ui {
+  min-height: 100%;
+  background: var(--rep-ink);
+}
+
+.rep-frame .shell-base {
+  background: var(--rep-ink);
+}
+
+.rep-frame[data-frame="spine"] .shell-stage {
+  margin-left: var(--rep-spine-width);
+  padding: clamp(32px, 2.5vw, 3.2vw) clamp(32px, 2.9vw, 4vw) clamp(64px, 5vw, 7vw);
+}
+
+.rep-frame[data-frame="strip"] .shell-stage {
+  margin-left: 0;
+  padding: calc(var(--rep-strip-height) + clamp(28px, 2.1vw, 3vw)) clamp(32px, 2.9vw, 4vw)
+    clamp(64px, 5vw, 7vw);
+}
+
+.rep-frame .shell-screen {
+  max-width: none;
+}
+
+.rep-frame .shell-window-chrome-button {
+  border: 1px solid var(--rep-hairline);
+  border-radius: 0;
+  background: var(--rep-ink-raised);
+  color: var(--rep-dim);
+  box-shadow: none;
+}
+
+.rep-frame .shell-window-chrome-button:hover,
+.rep-frame .shell-window-chrome-button:focus {
+  border-color: var(--rep-ivory);
+  color: var(--rep-ivory);
+}
+
+.rep-frame .shell-alert {
+  border: 1px solid var(--rep-status-red);
+  border-radius: 0;
+  background: var(--rep-ink-raised);
+  color: var(--rep-ivory);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-caption);
+  box-shadow: none;
+}
+
+/* --------------------------------------------------------------------------
+ * The spine: destinations as a programme index
+ * -------------------------------------------------------------------------- */
+
+.rep-nav--spine {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: clamp(28px, 2.1vw, 3vw);
+  width: var(--rep-spine-width);
+  padding: clamp(32px, 2.3vw, 3vw) clamp(20px, 1.5vw, 2vw) clamp(24px, 1.7vw, 2.2vw)
+    clamp(28px, 1.9vw, 2.4vw);
+  border-right: 1px solid var(--rep-hairline);
+  background: var(--rep-ink);
+  box-sizing: border-box;
+}
+
+.rep-spine-head {
+  display: grid;
+  gap: 6px;
+}
+
+.rep-spine-label {
+  margin: 0;
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-control);
+  font-weight: 500;
+  letter-spacing: -0.006em;
+  color: var(--rep-ivory);
+}
+
+.rep-spine-note {
+  margin: 0;
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  line-height: 1.2;
+  color: var(--rep-muted);
+}
+
+.rep-spine-index {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rep-index-item {
+  display: grid;
+  grid-template-columns: 42px 1fr;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 12px 14px 10px;
+  border: 0;
+  background: transparent;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-control);
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.rep-index-item[aria-current="page"] {
+  color: var(--rep-ivory);
+  box-shadow: inset 2px 0 0 var(--rep-house);
+}
+
+.rep-index-number {
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  color: var(--rep-muted);
+}
+
+.rep-index-item[aria-current="page"] .rep-index-number {
+  color: var(--rep-house);
+}
+
+.rep-index-item:focus,
+.rep-index-item:focus-visible {
+  outline-offset: -2px;
+  background-image: var(--rep-focus-wash);
+}
+
+.rep-spine-foot {
+  display: grid;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 20px;
+  border-top: 1px solid var(--rep-hairline);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  line-height: 1.25;
+  color: var(--rep-dim);
+}
+
+.rep-spine-clock {
+  color: var(--rep-ivory);
+}
+
+/* --------------------------------------------------------------------------
+ * The program strip: the same index across the top
+ * -------------------------------------------------------------------------- */
+
+.rep-nav--strip {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 20;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: clamp(24px, 2.1vw, 3vw);
+  height: var(--rep-strip-height);
+  padding: clamp(12px, 1vw, 1.5vw) clamp(32px, 2.9vw, 4vw) 0;
+  border-bottom: 1px solid var(--rep-hairline);
+  background: var(--rep-ink);
+  box-sizing: border-box;
+}
+
+.rep-strip-head {
+  display: grid;
+  gap: 6px;
+  padding-bottom: 24px;
+}
+
+.rep-strip-label {
+  margin: 0;
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-control);
+  font-weight: 500;
+  letter-spacing: -0.006em;
+  color: var(--rep-ivory);
+}
+
+.rep-strip-date {
+  display: flex;
+  gap: 16px;
+  margin: 0;
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  color: var(--rep-muted);
+}
+
+.rep-strip-index {
+  display: flex;
+  align-items: flex-end;
+  gap: 0;
+  margin: 0;
+  padding: 0 72px 0 0;
+  list-style: none;
+}
+
+.rep-strip-item {
+  display: grid;
+  gap: 4px;
+  padding: 12px 16px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-control);
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: left;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.rep-strip-item[aria-current="page"] {
+  color: var(--rep-ivory);
+  box-shadow: inset 0 -2px 0 var(--rep-house);
+}
+
+.rep-strip-number {
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  color: var(--rep-muted);
+}
+
+.rep-strip-item[aria-current="page"] .rep-strip-number {
+  color: var(--rep-house);
+}
+
+.rep-strip-item:focus,
+.rep-strip-item:focus-visible {
+  outline-offset: -2px;
+  background-image: var(--rep-focus-wash);
+}
+
+/* --------------------------------------------------------------------------
+ * Home: tonight's programme
+ * -------------------------------------------------------------------------- */
+
+.rep-home {
+  display: flex;
+  flex-direction: column;
+  gap: clamp(32px, 2.1vw, 3vw);
+  min-width: 0;
+  padding-bottom: 72px;
+}
+
+.rep-home-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 32px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--rep-hairline);
+}
+
+.rep-home-title {
+  margin: 0;
+  font-family: var(--rep-display);
+  font-size: clamp(2.6rem, 2.5vw, 3.6vw);
+  font-weight: 500;
+  line-height: 1.08;
+  letter-spacing: var(--rep-tracking-display);
+  color: var(--rep-ivory);
+}
+
+.rep-home-date {
+  flex: none;
+  margin: 0;
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  color: var(--rep-muted);
+  white-space: nowrap;
+}
+
+.rep-home-waiting,
+.rep-home-note {
+  max-width: 58ch;
+  margin: 0;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-body);
+  line-height: var(--rep-leading-body);
+}
+
+.rep-preview-note {
+  margin: 0;
+  padding-top: 24px;
+  border-top: 1px solid var(--rep-hairline);
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  line-height: 1.4;
+}
+
+/* --------------------------------------------------------------------------
+ * The feature presentation
+ * -------------------------------------------------------------------------- */
+
+.rep-feature {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.rep-feature-kicker {
+  display: flex;
+  align-items: center;
+  gap: clamp(12px, 0.94vw, 1.4vw);
+  color: var(--rep-dim);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  line-height: 1.2;
+}
+
+.rep-feature-kicker > span:first-child {
+  color: var(--rep-house);
+}
+
+.rep-feature-kicker > span:last-child {
+  white-space: nowrap;
+}
+
+.rep-rule {
+  flex: 1;
+  height: 1px;
+  background: var(--rep-hairline);
+}
+
+.rep-feature-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  width: 100%;
+  height: clamp(340px, 22vw, 27vw);
+  padding: 0;
+  border: 0;
+  background: var(--rep-ink-raised);
+  color: var(--rep-ivory);
+  font-family: var(--rep-sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+.rep-feature-card:focus,
+.rep-feature-card:focus-visible {
+  outline-offset: 6px;
+}
+
+html[data-ui="repertory"] .rep-feature-card:focus,
+html[data-ui="repertory"] .rep-feature-card:focus-visible {
+  box-shadow: 0 0 72px 10px rgba(201, 164, 92, 0.16);
+}
+
+.rep-feature-art {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--rep-ink-raised);
+}
+
+.rep-feature-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(rgba(11, 10, 9, 0.34), rgba(11, 10, 9, 0.34)),
+    linear-gradient(90deg, rgba(11, 10, 9, 0.5) 0%, rgba(11, 10, 9, 0.08) 46%, transparent 76%),
+    linear-gradient(0deg, rgba(11, 10, 9, 0.28), transparent 44%);
+  pointer-events: none;
+}
+
+.rep-feature-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: saturate(0.92) brightness(0.9);
+  animation: rep-fade 600ms var(--rep-ease);
+}
+
+.rep-feature-art-empty {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 32px;
+  background:
+    radial-gradient(80% 120% at 20% 20%, rgba(201, 164, 92, 0.08), transparent 60%),
+    var(--rep-ink-raised);
+  color: var(--rep-muted);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-section);
+  line-height: 1.1;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.rep-feature-plate {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: clamp(8px, 0.52vw, 0.8vw);
+  min-width: 0;
+  padding: clamp(20px, 1.35vw, 2vw) clamp(24px, 1.67vw, 2.4vw) clamp(20px, 1.46vw, 2.2vw);
+  border-left: 2px solid var(--rep-house);
+  background: var(--rep-ink-raised);
+  box-sizing: border-box;
+  overflow: hidden;
+  transition: background-color var(--rep-dur-fast) var(--rep-ease);
+}
+
+.rep-feature-card:focus .rep-feature-plate,
+.rep-feature-card:focus-visible .rep-feature-plate {
+  background: var(--rep-ink-elevated);
+}
+
+.rep-feature-eyebrow {
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.rep-feature-title {
+  max-width: 16ch;
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-hero);
+  font-weight: 500;
+  line-height: var(--rep-leading-display);
+  letter-spacing: var(--rep-tracking-display);
+  color: var(--rep-ivory);
+}
+
+.rep-feature-title[data-density="long"] {
+  font-size: clamp(2.75rem, 2.8vw, 4vw);
+}
+
+.rep-feature-title[data-density="very-long"] {
+  font-size: clamp(2.1rem, 2.2vw, 3vw);
+}
+
+.rep-feature-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-caption);
+  line-height: var(--rep-leading-caption);
+}
+
+.rep-feature-meta > span + span {
+  margin-left: 12px;
+  padding-left: 12px;
+  border-left: 1px solid var(--rep-hairline);
+}
+
+.rep-feature-description {
+  display: -webkit-box;
+  max-width: 46ch;
+  overflow: hidden;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-body);
+  font-weight: 400;
+  line-height: var(--rep-leading-body);
+  letter-spacing: var(--rep-tracking-body);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.rep-feature-cta {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--rep-house);
+  color: var(--rep-ivory);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-control);
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+/* --------------------------------------------------------------------------
+ * Programme sections and rows
+ * -------------------------------------------------------------------------- */
+
+.rep-section {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+}
+
+.rep-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: 18px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--rep-hairline);
+}
+
+.rep-row-index {
+  flex: none;
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+}
+
+.rep-row-title {
+  flex: none;
+  margin: 0;
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-section);
+  font-weight: 500;
+  line-height: 1.1;
+  letter-spacing: -0.008em;
+}
+
+.rep-row-rule {
+  flex: 1;
+  height: 1px;
+  margin-bottom: 6px;
+  background: transparent;
+}
+
+.rep-row-tag {
+  flex: none;
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  white-space: nowrap;
+}
+
+.rep-row-track {
+  display: flex;
+  gap: var(--rep-row-gap);
+  min-width: 0;
+  padding: 6px 2px 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.rep-row-track::-webkit-scrollbar {
+  display: none;
+}
+
+.rep-row-note {
+  max-width: 58ch;
+  margin: 0;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-body);
+  line-height: var(--rep-leading-body);
+}
+
+.rep-row-note[role="alert"] {
+  color: var(--rep-status-red);
+}
+
+.rep-row-more {
+  flex: 0 0 160px;
+  align-self: stretch;
+  border: 0;
+  border-left: 1px solid var(--rep-hairline);
+  background: transparent;
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  cursor: pointer;
+}
+
+/* --------------------------------------------------------------------------
+ * Posters and Continue watching
+ * -------------------------------------------------------------------------- */
+
+.rep-card,
+.rep-continue {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.rep-card {
+  flex: 0 0 calc((100% - 5 * var(--rep-row-gap)) / 6);
+}
+
+.rep-continue {
+  flex: 0 0 calc((100% - 3 * var(--rep-row-gap)) / 4);
+  gap: 10px;
+}
+
+.rep-card::before,
+.rep-continue::before,
+.rep-feature-card::before {
+  content: "";
+  position: absolute;
+  inset: -18px -14px;
+  background: var(--rep-focus-wash);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--rep-dur-med) var(--rep-ease);
+}
+
+.rep-card:focus::before,
+.rep-card:focus-visible::before,
+.rep-continue:focus::before,
+.rep-continue:focus-visible::before,
+.rep-feature-card:focus::before,
+.rep-feature-card:focus-visible::before {
+  opacity: 1;
+}
+
+.rep-poster,
+.rep-continue-art {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  background: var(--rep-ink-raised);
+}
+
+.rep-poster {
+  aspect-ratio: 2 / 3;
+}
+
+.rep-continue-art {
+  aspect-ratio: 16 / 9;
+}
+
+.rep-poster img,
+.rep-continue-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.rep-art-missing {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  padding: 18px;
+  border: 1px solid var(--rep-hairline);
+  background: var(--rep-ink-elevated);
+  color: var(--rep-muted);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-caption);
+  line-height: 1.2;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.rep-caption {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.rep-card-title {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-control);
+  font-weight: 500;
+  line-height: 1.22;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.rep-card:focus .rep-card-title,
+.rep-card:focus-visible .rep-card-title,
+.rep-continue:focus .rep-card-title,
+.rep-continue:focus-visible .rep-card-title,
+.rep-card[data-unplayable="true"] .rep-card-title {
+  color: var(--rep-ivory);
+}
+
+.rep-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-caption);
+  line-height: var(--rep-leading-caption);
+}
+
+.rep-card-meta > span + span {
+  margin-left: 10px;
+  padding-left: 10px;
+  border-left: 1px solid var(--rep-hairline);
+}
+
+.rep-card:focus .rep-card-meta,
+.rep-card:focus-visible .rep-card-meta,
+.rep-continue:focus .rep-card-meta,
+.rep-continue:focus-visible .rep-card-meta {
+  color: var(--rep-dim);
+}
+
+.rep-continue-track {
+  display: block;
+  width: 100%;
+  height: 2px;
+  background: var(--rep-hairline);
+}
+
+.rep-continue-track > span {
+  display: block;
+  height: 100%;
+  background: var(--rep-house);
+}
+
+.rep-card[data-unplayable="true"],
+.rep-continue[data-unplayable="true"] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.rep-card[data-unplayable="true"] .rep-poster,
+.rep-continue[data-unplayable="true"] .rep-continue-art {
+  border: 1px dashed var(--rep-hairline);
+}
+
+/* --------------------------------------------------------------------------
+ * A programme button, quiet enough not to invent a kit
+ * -------------------------------------------------------------------------- */
+
+.rep-button {
+  align-self: flex-start;
+  padding: 10px 0;
+  border: 0;
+  border-bottom: 1px solid var(--rep-house);
+  background: transparent;
+  color: var(--rep-ivory);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-control);
+  font-weight: 500;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.rep-button:disabled {
+  border-bottom-color: var(--rep-hairline);
+  color: var(--rep-muted);
+  cursor: default;
+}
+
+/* --------------------------------------------------------------------------
+ * Empty states and destinations the prototype has not printed
+ * -------------------------------------------------------------------------- */
+
+.rep-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 62ch;
+  padding: 48px 0;
+  border-top: 1px solid var(--rep-hairline);
+  border-bottom: 1px solid var(--rep-hairline);
+}
+
+.rep-empty-title {
+  margin: 0;
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-title);
+  font-weight: 500;
+  line-height: 1.08;
+  letter-spacing: var(--rep-tracking-display);
+}
+
+.rep-empty-body {
+  margin: 0;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-body);
+  line-height: var(--rep-leading-body);
+}
+
+.rep-placeholder {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 18px;
+  min-height: 64vh;
+  padding: 40px 0;
+  border-top: 1px solid var(--rep-hairline);
+  border-bottom: 1px solid var(--rep-hairline);
+}
+
+.rep-placeholder-index {
+  margin: 0;
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+}
+
+.rep-placeholder-title {
+  margin: 0;
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-title);
+  font-weight: 500;
+  line-height: 1.08;
+  letter-spacing: var(--rep-tracking-display);
+}
+
+.rep-placeholder-body {
+  max-width: 58ch;
+  margin: 0;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-body);
+  line-height: var(--rep-leading-body);
+}
+
+/* --------------------------------------------------------------------------
+ * A pushed level: the program note Home opens
+ * -------------------------------------------------------------------------- */
+
+.rep-frame .shell-level[data-level-kind="overlay"],
+.rep-frame .shell-level[data-level-kind="popover"] {
+  background: var(--rep-ink);
+  color: var(--rep-ivory);
+  font-family: var(--rep-sans);
+}
+
+.rep-note {
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  min-height: calc(100vh - var(--window-chrome-clearance));
+  background: var(--rep-ink);
+}
+
+.rep-note-art {
+  position: relative;
+  min-height: 68vh;
+  overflow: hidden;
+  background: var(--rep-ink-raised);
+}
+
+.rep-note-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.rep-note-body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 16px;
+  padding: 64px 56px;
+}
+
+.rep-note-close {
+  position: fixed;
+  top: 72px;
+  right: 56px;
+  z-index: 46;
+  padding: 8px 0;
+  border: 0;
+  border-bottom: 1px solid var(--rep-house);
+  background: transparent;
+  color: var(--rep-ivory);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-control);
+  cursor: pointer;
+}
+
+.rep-note-kicker {
+  margin: 0;
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  letter-spacing: var(--rep-tracking-caps);
+  text-transform: uppercase;
+}
+
+.rep-note-title {
+  margin: 0;
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-title);
+  font-weight: 500;
+  line-height: 1.08;
+  letter-spacing: var(--rep-tracking-display);
+}
+
+.rep-note-meta {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-caption);
+}
+
+.rep-note-meta > span + span {
+  margin-left: 12px;
+  padding-left: 12px;
+  border-left: 1px solid var(--rep-hairline);
+}
+
+.rep-note-description {
+  max-width: 52ch;
+  margin: 0;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-body);
+  line-height: var(--rep-leading-body);
+}
+
+.rep-note-boundary {
+  max-width: 52ch;
+  margin: 16px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--rep-hairline);
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-caption);
+  line-height: 1.4;
+}
+
+/* --------------------------------------------------------------------------
+ * The rehearsal bar: prototype scaffolding, not the programme
+ * -------------------------------------------------------------------------- */
+
+.rep-rehearsal {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 90;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 12px;
+  border: 1px solid var(--rep-hairline);
+  background: var(--rep-ink-elevated);
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: 14px;
+  line-height: 1.2;
+  box-shadow: 0 18px 40px -20px rgba(0, 0, 0, 0.9);
+}
+
+.rep-rehearsal-label {
+  color: var(--rep-house);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.rep-rehearsal-group {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.rep-rehearsal-group > span {
+  margin-right: 4px;
+  color: var(--rep-muted);
+}
+
+.rep-rehearsal button {
+  padding: 4px 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--rep-dim);
+  font: inherit;
+  cursor: pointer;
+}
+
+.rep-rehearsal button[data-selected="true"] {
+  border-color: var(--rep-house);
+  color: var(--rep-ivory);
+}
+
+.rep-rehearsal button:focus,
+.rep-rehearsal button:focus-visible {
+  outline: 1px solid var(--rep-ivory);
+  outline-offset: 1px;
+}
+
+@media (max-width: 1300px) {
+  .rep-frame[data-frame="spine"] .shell-stage {
+    padding-left: 40px;
+    padding-right: 40px;
+  }
+
+  .rep-nav--strip {
+    padding-left: 40px;
+    padding-right: 40px;
+  }
+
+  .rep-strip-index {
+    padding-right: 64px;
+  }
+
+  .rep-card {
+    flex-basis: calc((100% - 4 * var(--rep-row-gap)) / 5);
+  }
+}
+
+@media (max-width: 1200px) {
+  .rep-feature-card {
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .rep-feature-art {
+    height: clamp(240px, 30vw, 340px);
+  }
+
+  .rep-feature-plate {
+    border-top: 2px solid var(--rep-house);
+    border-left: 0;
+  }
+}
+
+@media (max-width: 1000px) {
+  .rep-note {
+    grid-template-columns: 1fr;
+  }
+
+  .rep-note-art {
+    min-height: 36vh;
+  }
+
+  .rep-note-body {
+    padding: 40px 32px;
+  }
+
+  .rep-card {
+    flex-basis: calc((100% - 3 * var(--rep-row-gap)) / 4);
+  }
+
+  .rep-continue {
+    flex-basis: calc((100% - 2 * var(--rep-row-gap)) / 3);
+  }
+}
