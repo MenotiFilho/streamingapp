@@ -80,8 +80,10 @@ in-process and embedded with `wid`, so **mpv owns the video swapchain** — that
 what keeps HDR passthrough possible, and it is why the app is GPL-3.0.
 
 Read before writing code: `CONTEXT.md` (the glossary — use its vocabulary
-exactly), `docs/adr/` (decisions and their reasons), and `docs/research/` (the
-evidence behind them). Where an ADR contradicts what you are about to do, say so
+exactly), `docs/adr/` (decisions and their reasons), `docs/research/` (the
+evidence behind them), and `docs/design-system.md` (the client's visual
+reference: palette, type, focus, motion, component anatomy; ADR-0030 and
+ADR-0031). Where an ADR contradicts what you are about to do, say so
 explicitly instead of silently overriding it.
 
 ## Where the work lives

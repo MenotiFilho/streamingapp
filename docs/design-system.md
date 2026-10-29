@@ -1,7 +1,8 @@
 # The repertory design system
 
 **Ticket:** #150 (wayfinder map #143). **Supersedes:** the Velvet Curtains
-design record — spec #71 and its token ticket #77. **Decision:** ADR-0030.
+design record — spec #71 and its token ticket #77. **Decision:** ADR-0030;
+**Motion:** ADR-0031.
 
 This is the client's living visual record: the palette, the type, the scales,
 the focus mark, the motion, the icons, the component anatomy, the artwork rules
@@ -10,12 +11,12 @@ holds no behaviour: every Action, Snapshot, focus rule, level-stack rule and
 Remote flow belongs to the Host and to `CONTEXT.md`, and this record does not
 move them.
 
-The values live in `src/shell/repertory/tokens.css`, the one declaration for the
-repertory surface. The window imports it and `crates/host-wire` splices it into
-the served Remote page; the Velvet sheet sits beside it until the cutover
-(#160). #153 rebuilds the sheet to this record; where the prototype still
-differs today, the difference is listed in §14 rather than left as a second
-rule.
+The values live in `src/shell/repertory/tokens.css`; #153 adds the motion
+presets in `src/shell/repertory/motion.ts`. The window imports them and
+`crates/host-wire` splices the token sheet into the served Remote page; the
+Velvet sheet sits beside it until the cutover (#160). #153 rebuilds the sheet to
+this record; where the prototype still differs today, the difference is listed
+in §14 rather than left as a second rule.
 
 ## 1. The direction
 
@@ -192,22 +193,67 @@ the cards are #154's; the record's mark is the one above.
 
 ## 6. Motion
 
-One curve, `cubic-bezier(0.22, 1, 0.36, 1)`, at 140ms (`--rep-dur-fast`) and
-240ms (`--rep-dur-med`). What moves:
+**Two engines, one vocabulary.** Movement runs on **Motion** — `motion/react` in
+the window, the vanilla `animate` served to the Remote. CSS keeps the effects
+that are self-contained: a wash, a fill, a colour change, as a `transition` on
+the token duration. Both read the same presets, so a rail and a drawer settle
+with the same feel.
 
-- the spine's width and its label reveal (240ms);
-- the focus wash's opacity (140ms);
-- a drawer or popover's translate and its scrim (240ms);
-- the timeline's fill and the volume rail's fill (140ms);
-- the OSD's appearance and its 3-second auto-hide (behaviour, not decoration).
+The presets will live in `src/shell/repertory/motion.ts` (#153). From #153 the
+sheet carries the same durations as `--rep-motion-panel` and
+`--rep-motion-quick` (today `--rep-dur-fast` / `--rep-dur-med`); the window reads
+the presets from the module, the Remote's script reads the two durations from the
+page's computed style, and #153's test asserts that the module and the sheet
+agree. One set of numbers, two readers.
 
-Nothing else moves: the feature swaps on the beat without a cross-fade, posters
-do not zoom on focus, rows do not slide, and no control scales.
+| Preset | Value | Used for |
+|---|---|---|
+| panel | spring, `visualDuration: 0.24`, `bounce: 0` | a pushed level, a drawer, a popover, the spine, a rail's scroll |
+| quick | spring, `visualDuration: 0.14`, `bounce: 0` | a focus reveal inside a rail, small state changes |
+| fade | tween, `0.14s`, `cubic-bezier(0.22, 1, 0.36, 1)` | opacity and colour, in CSS and in Motion |
 
-`prefers-reduced-motion: reduce` sets both durations to `0ms`, removes every
-transform, and stops the feature's rotation entirely (one showing, stepped only
-by Left/Right). It does not change the OSD's auto-hide clock, the focus rules or
-any Action.
+No bounce anywhere: the springs are critically damped, so one that is
+interrupted keeps its velocity and settles without overshoot. No entrance
+stagger on a screen's content — a level arrives as one thing.
+
+**What moves:**
+
+- A destination switch **cross-fades the base** (240ms); it does not slide.
+- A **pushed level** — a Title, Streams, a Settings leaf, a confirmation —
+  enters 24px from the trailing edge with a fade, and leaves the same way; Back
+  reverses it. The level stack, the focus restoration and the Actions are
+  unchanged; focus is restored on the new level at the start of the transition,
+  and the animation never gates input.
+- A **popover or drawer** rises 12–16px with a fade (on the Remote, from the
+  bottom edge); the scrim fades with it.
+- A **rail** scrolls with `animate()` on its scroll offset, so a second press
+  redirects it mid-flight; the focus reveal uses the same path. No snapping and
+  no inertia.
+- The **feature** cross-fades between slides on its 24s beat, replacing the
+  earlier no-cross-fade rule; focus still holds it.
+- The **spine's** width and its label reveal use the panel spring.
+- The OSD appears and hides on its own clock (behaviour); its panels use the
+  panel spring; the timeline and volume fills stay CSS.
+
+**What does not move:** posters do not zoom, rows do not slide or stagger, cards
+do not lift, the focus keyline does not animate its geometry (the wash may
+fade), and no control scales under the pointer.
+
+**Reduced motion.** The window puts one `<MotionConfig reducedMotion="user">` at
+the root: transform and layout animations off, opacity and colour fades kept.
+That config only reaches `motion` components, so the window's direct `animate()`
+calls — the rail scroll and the focus reveal — check `useReducedMotion()` and
+jump instead of animating. The Remote cannot use the React APIs, so its module
+script reads `matchMedia("(prefers-reduced-motion: reduce)")` (and listens for
+changes) and runs only the opacity/colour animations. Under the same media query
+the CSS transform transitions are disabled and the width fills snap; only opacity
+and colour still fade. The feature stops rotating. This **replaces** the earlier
+0ms rule: with reduced motion the room keeps its fades and loses its movement.
+The OSD's auto-hide clock, the focus rules and every Action are untouched.
+
+**Tests** assert the final state, never a frame: transform and layout assertions
+mount with `reducedMotion="always"`, opacity and colour assertions with a zero
+transition. No test asserts a spring's intermediate values.
 
 ## 7. Icons
 
@@ -411,13 +457,16 @@ allowed in the Remote's build ticket (#159), and it changes values, not roles.
 
 ## 12. What is provisional, and where it is judged
 
-The system is locked. Four things are allowed to move, each once, each with the
+The system is locked. Five things are allowed to move, each once, each with the
 measurement written back here:
 
 - **The brass** — `#c9a45c` is locked, but if the Windows panel reads it as
   orange rather than gold, one correction is allowed and `tokens.test.ts` is
   re-measured. Judged in the owner's Windows walkthrough.
 - **The hand scale** — the values above, tuned once on a real handset in #159.
+- **The spring durations** — `visualDuration` 0.24/0.14 may be tuned once in
+  #153 against the real panel; the vocabulary, the bounce and the shapes do not
+  change.
 - **The opacities over a picture** — the OSD scrims, the badge fill, the popover
   plate and the preview plate are judged over a bright film on the panel, and
   only their alpha values may move.
@@ -438,6 +487,8 @@ practice Library account and the `?ui=repertory` selector were introduced across
 - **The staging**: the served page's route or setting is #152; the window's
   `VITE_UI=repertory` flag and both cutovers are #160.
 - **The tests**: which presentation suites survive is #151.
+- **The motion layer's code**: the `motion` dependency and its presets land in
+  #153, and the Remote's vendored bundle in #159 (ADR-0031).
 - **The Windows walkthrough**: `verify.ps1` is not redesigned; the owner verifies
   the window by hand.
 - **Anything the Host says**: this record draws the Host's vocabulary; it never
@@ -462,4 +513,7 @@ rule.
 | the volume is the native range with `accent-color` | a drawn rail with a brass fill | #158 |
 | brass repeated as `rgba()` literals in the wash and feature glow | every brass derives from `--rep-house` | #153 |
 | shadows on the spine, the feature focus, the popover and the OSD | depth is a hairline and one ink step | #153, #158 |
+| reduced motion zeroes `--rep-dur-*` | transforms and layout off, opacity fades kept, fills snap (§6) | #153 |
+| CSS transitions only; no animation library, no crossing between screens | Motion in both clients, with the spring presets and the transition shapes in §6 | #153, #159 |
+| the Remote's strip still scroll-snaps | no snapping: the rail scroll is redirected mid-flight (§6) | #159 |
 | the Velvet sheet and its splice live beside the repertory sheet; the served page keeps `/` and the `?ui` gate | one sheet, one splice, one page | #152, #160 |
