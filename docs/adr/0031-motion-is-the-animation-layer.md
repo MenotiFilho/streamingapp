@@ -66,12 +66,12 @@ mind).
 | quick | spring, `visualDuration: 0.14`, `bounce: 0` | a focus reveal inside a rail, small state changes |
 | fade | tween, `0.14s`, `cubic-bezier(0.22, 1, 0.36, 1)` | opacity and colour |
 
-`src/shell/repertory/motion.ts` is the one declaration of the presets (added in
-#153). From #153 the sheet carries the same durations as `--rep-motion-panel`
-and `--rep-motion-quick` (today `--rep-dur-fast` / `--rep-dur-med`); the Remote's
-script reads those two custom properties from the page and uses `bounce: 0`, so
-the page does not carry a third copy. #153's test reads the module and the sheet
-and fails if their numbers disagree.
+The durations are declared in `tokens.css` from #153 as `--rep-motion-panel` and
+`--rep-motion-quick` (today `--rep-dur-fast` / `--rep-dur-med`). `motion.ts`
+reads those two custom properties from the document and pairs them with
+`bounce: 0`; the Remote's script reads the same two properties, so the page does
+not carry a third copy. No test compares the module with the sheet: ADR-0032
+allows exactly two CSS-as-text locks.
 
 `bounce: 0` is deliberate: a critically damped spring keeps an interruption's
 velocity and settles without overshoot, which is the fluidity the request is
@@ -147,9 +147,9 @@ screen would be built twice, once with CSS and once with Motion).
 ## Consequences
 
 - `package.json` gains `motion`; the window imports `motion/react`.
-- `src/shell/repertory/motion.ts` declares the presets; `tokens.css` carries the
-  same durations; a test guards their agreement, and the Remote reads them from
-  the sheet.
+- `tokens.css` declares the two durations; `motion.ts` reads them and pairs them
+  with `bounce: 0`; the Remote reads the same properties. One number, two
+  readers, no third CSS-as-text lock (ADR-0032).
 - The Remote gains one module script and a vendored bundle served by
   `host-wire`; ADR-0017 §2 and ADR-0018 §1 are amended: the page is now the
   document plus one same-origin, pinned asset. It still builds nothing at serve
