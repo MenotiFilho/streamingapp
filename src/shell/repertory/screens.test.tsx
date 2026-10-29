@@ -228,10 +228,17 @@ describe("the repertory Title page", () => {
     const grid = repertoryCss.match(/\.rep-title-grid\s*\{([^}]*)\}/)?.[1] ?? "";
     const episodes = repertoryCss.match(/\.rep-title-episodes\s*\{([^}]*)\}/)?.[1] ?? "";
     const streams = repertoryCss.match(/\.rep-stream-list\s*\{([^}]*)\}/)?.[1] ?? "";
+    const fullBleed =
+      repertoryCss.match(
+        /html\[data-ui="repertory"\] \.shell-level:has\(\.rep-title-level\)\s*\{([^}]*)\}/,
+      )?.[1] ?? "";
 
     expect(grid).toContain("grid-template-rows: minmax(0, 1fr)");
     expect(episodes).toContain("overflow-y: auto");
     expect(episodes).toContain("min-height: 0");
+    // The Title owns the whole screen: its backdrop runs behind the chrome
+    // band rather than starting under it.
+    expect(fullBleed).toContain("padding-top: 0");
     // Touching rects are not "ahead" to the focus model; both vertical lists
     // need a real step or the D-pad skips every second item.
     expect(episodes).toContain("gap: 2px");

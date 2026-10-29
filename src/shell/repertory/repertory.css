@@ -1560,6 +1560,16 @@ html[data-ui="repertory"] .kit-chip[data-tone="danger"] {
  * The Title as a one-screen programme page
  * -------------------------------------------------------------------------- */
 
+/*
+ * The Title is the one level that owns the whole screen: the backdrop runs
+ * behind the window's chrome band instead of starting under it. Back stays at
+ * the top left and the window control at the top right, over the picture.
+ */
+html[data-ui="repertory"] .shell-level:has(.rep-title-level) {
+  padding-top: 0;
+  background: var(--rep-ink);
+}
+
 .rep-title-level {
   height: 100%;
   min-height: 100%;
@@ -1572,7 +1582,7 @@ html[data-ui="repertory"] .kit-chip[data-tone="danger"] {
   display: flex;
   flex-direction: column;
   height: 100%;
-  min-height: calc(100vh - var(--window-chrome-clearance));
+  min-height: 100%;
   overflow: hidden;
   box-sizing: border-box;
 }
@@ -1597,14 +1607,15 @@ html[data-ui="repertory"] .kit-chip[data-tone="danger"] {
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(to top, var(--rep-ink) 0%, rgba(11, 10, 9, 0.62) 34%, transparent 72%),
-    linear-gradient(to right, rgba(11, 10, 9, 0.9) 0%, rgba(11, 10, 9, 0.52) 46%, rgba(11, 10, 9, 0.78) 100%);
+    linear-gradient(to top, var(--rep-ink) 0%, rgba(11, 10, 9, 0.58) 32%, transparent 70%),
+    linear-gradient(to right, rgba(11, 10, 9, 0.88) 0%, rgba(11, 10, 9, 0.42) 46%, rgba(11, 10, 9, 0.2) 100%);
   pointer-events: none;
 }
 
 .rep-title-top {
-  position: relative;
-  z-index: 2;
+  position: absolute;
+  inset: 0 0 auto 0;
+  z-index: 3;
   display: flex;
   align-items: flex-start;
   justify-content: flex-start;
@@ -1629,7 +1640,9 @@ html[data-ui="repertory"] .kit-chip[data-tone="danger"] {
   gap: clamp(24px, 2.4vw, 3.2vw);
   align-items: stretch;
   min-height: 0;
-  padding: clamp(14px, 1.6vw, 2vw) clamp(28px, 2.8vw, 3.8vw) clamp(20px, 1.8vw, 2.4vw);
+  /* The right rail reaches the screen's edges; the left copy keeps the page
+     margin. The top bar floats over both. */
+  padding: 0 0 0 clamp(28px, 2.8vw, 3.8vw);
   box-sizing: border-box;
 }
 
@@ -1731,9 +1744,18 @@ html[data-ui="repertory"] .kit-chip[data-tone="danger"] {
   justify-content: center;
   gap: clamp(10px, 0.8vw, 1.2vw);
   min-height: 0;
-  padding: clamp(14px, 1.2vw, 1.6vw);
+  /* Full height, with the top bar floating above its own padding. */
+  padding: clamp(64px, 5vw, 88px) clamp(18px, 1.6vw, 2.2vw) clamp(20px, 1.8vw, 2.4vw);
   border-left: 1px solid var(--rep-hairline);
-  background: color-mix(in srgb, var(--rep-ink) 84%, transparent);
+  /*
+   * A translucent programme plate, not a second canvas: the backdrop stays
+   * visible through it, denser at the copy side and open at the outer edge.
+   */
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--rep-ink) 62%, transparent) 0%,
+    color-mix(in srgb, var(--rep-ink) 26%, transparent) 100%
+  );
   overflow: hidden;
   box-sizing: border-box;
 }
@@ -1819,7 +1841,7 @@ html[data-ui="repertory"] .rep-season.kit-choice {
   padding: 0.4rem 0.8rem;
   border-radius: 0;
   border-color: var(--rep-hairline);
-  background: transparent;
+  background: color-mix(in srgb, var(--rep-ink) 58%, transparent);
   color: var(--rep-dim);
   font-family: var(--rep-sans);
   font-size: var(--rep-text-caption);
@@ -1877,7 +1899,7 @@ html[data-ui="repertory"] .rep-season.kit-choice[aria-pressed="true"] > span:fir
   padding: 10px 8px;
   border: 0;
   border-bottom: 1px solid var(--rep-hairline);
-  background: transparent;
+  background: color-mix(in srgb, var(--rep-ink) 24%, transparent);
   color: var(--rep-dim);
   font-family: var(--rep-sans);
   text-align: left;
@@ -1971,8 +1993,16 @@ html[data-ui="repertory"] .rep-season.kit-choice[aria-pressed="true"] > span:fir
     overflow: visible;
   }
 
+  .rep-title-top {
+    position: relative;
+  }
+
   .rep-title-grid {
     grid-template-rows: auto;
+  }
+
+  .rep-title-side {
+    padding-top: clamp(24px, 2vw, 3vw);
   }
 
   .rep-title-episodes {
@@ -1992,12 +2022,18 @@ html[data-ui="repertory"] .rep-season.kit-choice[aria-pressed="true"] > span:fir
     overflow: visible;
   }
 
+  .rep-title-top {
+    position: relative;
+  }
+
   .rep-title-grid {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto;
+    padding: 0 clamp(28px, 2.8vw, 3.8vw) clamp(20px, 1.8vw, 2.4vw);
   }
 
   .rep-title-side {
+    padding-top: clamp(24px, 2vw, 3vw);
     border-top: 1px solid var(--rep-hairline);
     border-left: 0;
   }
