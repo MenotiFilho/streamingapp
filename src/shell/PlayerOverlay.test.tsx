@@ -233,6 +233,10 @@ async function renderPlayer(
   );
   render(<Shell client={host.client} />);
   await screen.findByTestId("shell-player");
+  // The player's effects run after the first commit: the preview hook's stream
+  // reset must land before a test points at the bar, or the answer for that
+  // point is dropped as a still of the previous Stream.
+  await act(async () => {});
   return host;
 }
 
