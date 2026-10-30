@@ -18,7 +18,8 @@
        * The repertory token sheet (#149), spliced from the file the window
        * imports (`src/shell/repertory/tokens.css`). One palette, one family
        * stack and one phone scale for both clients; the sheet applies only when
-       * the page is asked for with `?ui=repertory`.
+       * the Host serves the staged document at `/next`, which sets
+       * `data-ui="repertory"` on `<html>` before the first paint (#152).
        */
       /*__SPLICE_REPERTORY_TOKENS__*/
 
@@ -44,6 +45,9 @@
       button { color: inherit; }
       a { color: var(--accent); }
       .hidden { display: none !important; }
+      /* Copy that belongs to the staged surface only; the old page keeps its
+       * own words until the cutover (#160). */
+      .rep-only { display: none; }
       .dim { color: var(--ink-secondary); }
       .muted { color: var(--ink-muted); }
       .tabular { font-variant-numeric: var(--numeric-figures); }
@@ -584,7 +588,7 @@
        * flow. The token sheet is spliced above from
        * `src/shell/repertory/tokens.css`; the phone scale lives there too.
        *
-       * Staged behind `?ui=repertory` (#152 decides the final cutover).
+       * Staged at `/next`; `/` keeps the old surface until the cutover (#152).
        * ================================================================== */
 
       html[data-ui="repertory"] body {
@@ -610,9 +614,9 @@
 
       html[data-ui="repertory"] [data-focusable] {
         transition:
-          background-color var(--rep-dur-fast) var(--rep-ease),
-          border-color var(--rep-dur-fast) var(--rep-ease),
-          color var(--rep-dur-fast) var(--rep-ease);
+          background-color var(--rep-motion-fade) var(--rep-ease),
+          border-color var(--rep-motion-fade) var(--rep-ease),
+          color var(--rep-motion-fade) var(--rep-ease);
       }
       html[data-ui="repertory"] [data-focusable]:focus,
       html[data-ui="repertory"] [data-focusable]:focus-visible {
@@ -787,8 +791,11 @@
         line-height: 1.02;
       }
       html[data-ui="repertory"] .pairing-card .lede { margin: 0 0 1.4rem; }
+      html[data-ui="repertory"] .rep-only { display: inline; }
       html[data-ui="repertory"] #code {
-        font-size: 1.25rem;
+        color: var(--rep-house);
+        font-family: var(--rep-mono);
+        font-size: var(--rep-remote-text-title);
         letter-spacing: 0.18em;
         text-transform: uppercase;
       }
@@ -812,7 +819,7 @@
       }
       html[data-ui="repertory"] .brand {
         font-family: var(--rep-display);
-        font-size: 1.35rem;
+        font-size: var(--rep-remote-text-title);
         font-weight: 500;
         letter-spacing: var(--rep-tracking-display);
         line-height: 1;
@@ -820,7 +827,7 @@
       html[data-ui="repertory"] .connection {
         color: var(--rep-muted);
         font-family: var(--rep-mono);
-        font-size: 10px;
+        font-size: var(--rep-remote-text-badge);
         font-weight: 400;
         letter-spacing: 0.12em;
       }
@@ -956,7 +963,7 @@
       html[data-ui="repertory"] .hero-name {
         color: var(--rep-ivory);
         font-family: var(--rep-display);
-        font-size: clamp(1.6rem, 7vw, 2.25rem);
+        font-size: var(--rep-remote-text-hero);
         font-weight: 500;
         letter-spacing: var(--rep-tracking-display);
         line-height: 1.02;
@@ -985,8 +992,18 @@
         gap: 0.9rem;
         padding: 0.2rem 0 0.55rem;
         scrollbar-width: none;
+        /* No snapping: the rail is redirected by Motion when a press moves it
+         * mid-flight (ADR-0031 §2). */
+        scroll-snap-type: none;
       }
+      html[data-ui="repertory"] .strip > * { scroll-snap-align: none; }
       html[data-ui="repertory"] .strip::-webkit-scrollbar { display: none; }
+      html[data-ui="repertory"] .rep-icon {
+        display: block;
+        width: 1.15rem;
+        height: 1.15rem;
+        flex: none;
+      }
       html[data-ui="repertory"] .poster {
         position: relative;
         width: 7.5rem;
@@ -1008,7 +1025,7 @@
         min-width: 0;
         color: var(--rep-dim);
         font-family: var(--rep-sans);
-        font-size: 0.8rem;
+        font-size: var(--rep-remote-text-caption);
         font-weight: 500;
         line-height: 1.22;
       }
@@ -1020,7 +1037,7 @@
         border: 1px solid var(--rep-hairline);
         color: var(--rep-muted);
         font-family: var(--rep-mono);
-        font-size: 9px;
+        font-size: var(--rep-remote-text-badge);
         line-height: 1.35;
         white-space: nowrap;
       }
@@ -1033,7 +1050,7 @@
         background: var(--rep-ink);
         color: var(--rep-dim);
         font-family: var(--rep-mono);
-        font-size: 9px;
+        font-size: var(--rep-remote-text-badge);
         font-weight: 400;
         letter-spacing: 0.04em;
         text-transform: uppercase;
@@ -1064,14 +1081,14 @@
       html[data-ui="repertory"] .continue-name {
         color: var(--rep-dim);
         font-family: var(--rep-sans);
-        font-size: 0.8rem;
+        font-size: var(--rep-remote-text-caption);
         font-weight: 500;
         line-height: 1.22;
       }
       html[data-ui="repertory"] .continue-note {
         color: var(--rep-muted);
         font-family: var(--rep-mono);
-        font-size: 10px;
+        font-size: var(--rep-remote-text-badge);
       }
       html[data-ui="repertory"] .continue-note[data-warn="true"] { color: var(--rep-house); }
       html[data-ui="repertory"] .continue[data-unplayable="true"] {
@@ -1104,7 +1121,7 @@
       html[data-ui="repertory"] .credit-notice {
         color: var(--rep-muted);
         font-family: var(--rep-mono);
-        font-size: 9px;
+        font-size: var(--rep-remote-text-badge);
         line-height: 1.45;
       }
 
@@ -1118,7 +1135,7 @@
       html[data-ui="repertory"] .search-bar input {
         border-bottom: 0;
         font-family: var(--rep-display);
-        font-size: 1.35rem;
+        font-size: var(--rep-remote-text-title);
       }
       html[data-ui="repertory"] .search-bar .btn { min-height: 2.5rem; }
       html[data-ui="repertory"] .answer-row { margin-top: 1.4rem; }
@@ -1166,7 +1183,7 @@
       html[data-ui="repertory"] .addon-name {
         color: var(--rep-ivory);
         font-family: var(--rep-display);
-        font-size: 1.1rem;
+        font-size: var(--rep-remote-text-section);
         font-weight: 500;
         letter-spacing: -0.008em;
       }
@@ -1205,7 +1222,7 @@
       html[data-ui="repertory"] .settings-category-title {
         color: var(--rep-ivory);
         font-family: var(--rep-display);
-        font-size: 1.1rem;
+        font-size: var(--rep-remote-text-section);
         font-weight: 500;
       }
       html[data-ui="repertory"] .settings-category-note {
@@ -1214,7 +1231,7 @@
         font-size: var(--rep-remote-text-caption);
         line-height: 1.4;
       }
-      html[data-ui="repertory"] .settings-category-mark { color: var(--rep-house); font-size: 1.1rem; }
+      html[data-ui="repertory"] .settings-category-mark { color: var(--rep-house); }
       html[data-ui="repertory"] .settings-section { margin-top: 1.6rem; }
       html[data-ui="repertory"] .settings-section h2 {
         margin: 0 0 0.65rem;
@@ -1255,7 +1272,7 @@
       html[data-ui="repertory"] .device-name {
         color: var(--rep-ivory);
         font-family: var(--rep-display);
-        font-size: 1.05rem;
+        font-size: var(--rep-remote-text-body);
         font-weight: 500;
       }
       html[data-ui="repertory"] .device-date {
@@ -1368,14 +1385,14 @@
         border: 1px solid var(--rep-hairline);
         color: var(--rep-dim);
         font-family: var(--rep-mono);
-        font-size: 9px;
+        font-size: var(--rep-remote-text-badge);
         font-weight: 400;
         line-height: 1.45;
       }
       html[data-ui="repertory"] .stream-file {
         color: var(--rep-muted);
         font-family: var(--rep-mono);
-        font-size: 10px;
+        font-size: var(--rep-remote-text-badge);
         line-height: 1.4;
       }
       html[data-ui="repertory"] .stream-desc {
@@ -1387,12 +1404,12 @@
       html[data-ui="repertory"] .stream-warn {
         color: var(--rep-house);
         font-family: var(--rep-mono);
-        font-size: 10px;
+        font-size: var(--rep-remote-text-badge);
       }
       html[data-ui="repertory"] .stream-danger {
         color: var(--rep-status-red);
         font-family: var(--rep-mono);
-        font-size: 10px;
+        font-size: var(--rep-remote-text-badge);
       }
       html[data-ui="repertory"] .confirm-layer {
         padding: 1.25rem;
@@ -1501,14 +1518,13 @@
       html[data-ui="repertory"] .mini-chevron {
         grid-row: 1 / span 2;
         color: var(--rep-house);
-        font-size: 0.95rem;
         line-height: 1;
       }
       html[data-ui="repertory"] .mini-name {
         overflow: hidden;
         color: var(--rep-ivory);
         font-family: var(--rep-display);
-        font-size: 1rem;
+        font-size: var(--rep-remote-text-body);
         font-weight: 500;
         line-height: 1.08;
         text-overflow: ellipsis;
@@ -1517,7 +1533,7 @@
       html[data-ui="repertory"] .mini-episode {
         color: var(--rep-muted);
         font-family: var(--rep-mono);
-        font-size: 10px;
+        font-size: var(--rep-remote-text-badge);
         line-height: 1.2;
       }
       html[data-ui="repertory"] .mini-strip .btn-icon {
@@ -1525,7 +1541,6 @@
         height: var(--rep-remote-touch);
         border-color: transparent;
         color: var(--rep-dim);
-        font-size: 0.8rem;
       }
       html[data-ui="repertory"] .mini-strip .btn-primary {
         border-color: var(--rep-house);
@@ -1554,7 +1569,7 @@
         background: transparent;
         color: var(--rep-muted);
         font-family: var(--rep-mono);
-        font-size: 9px;
+        font-size: var(--rep-remote-text-badge);
         font-weight: 400;
         letter-spacing: 0.02em;
       }
@@ -1623,7 +1638,7 @@
         gap: 0.35rem;
         color: var(--rep-muted);
         font-family: var(--rep-mono);
-        font-size: 10px;
+        font-size: var(--rep-remote-text-badge);
         letter-spacing: 0.08em;
         text-transform: uppercase;
       }
@@ -1675,7 +1690,7 @@
       html[data-ui="repertory"] .cast-plate-kicker {
         color: var(--rep-house);
         font-family: var(--rep-mono);
-        font-size: 10px;
+        font-size: var(--rep-remote-text-badge);
         letter-spacing: var(--rep-tracking-caps);
         text-transform: uppercase;
       }
@@ -1685,7 +1700,7 @@
         overflow: hidden;
         color: var(--rep-ivory);
         font-family: var(--rep-display);
-        font-size: clamp(1.6rem, 7vw, 2.25rem);
+        font-size: var(--rep-remote-text-hero);
         font-weight: 500;
         letter-spacing: var(--rep-tracking-display);
         line-height: 1.02;
@@ -1724,10 +1739,10 @@
         line-height: 1.25;
       }
       html[data-ui="repertory"] .utility:last-child { border-right: 0; }
-      html[data-ui="repertory"] .utility span {
+      html[data-ui="repertory"] .utility .rep-icon {
         color: var(--rep-house);
-        font-size: 1rem;
-        line-height: 1;
+        width: 1.2rem;
+        height: 1.2rem;
       }
       html[data-ui="repertory"] .utility[aria-expanded="true"] {
         background: var(--rep-ink-raised);
@@ -1814,7 +1829,7 @@
       html[data-ui="repertory"] .times {
         color: var(--rep-muted);
         font-family: var(--rep-mono);
-        font-size: 10px;
+        font-size: var(--rep-remote-text-badge);
         letter-spacing: 0.04em;
       }
       html[data-ui="repertory"] .seek-preview {
@@ -1832,14 +1847,14 @@
       html[data-ui="repertory"] .seek-preview-time {
         color: var(--rep-ivory);
         font-family: var(--rep-mono);
-        font-size: 10px;
+        font-size: var(--rep-remote-text-badge);
         font-weight: 400;
       }
       html[data-ui="repertory"] .seek-preview-chapter {
         max-width: 9.5rem;
         color: var(--rep-dim);
         font-family: var(--rep-mono);
-        font-size: 9px;
+        font-size: var(--rep-remote-text-badge);
       }
 
       html[data-ui="repertory"] .transport {
@@ -1857,15 +1872,17 @@
         background: transparent;
         color: var(--rep-dim);
         font-family: var(--rep-mono);
-        font-size: 10px;
+        font-size: var(--rep-remote-text-badge);
         letter-spacing: 0;
       }
       html[data-ui="repertory"] .transport .btn:last-child { border-right: 0; }
+      html[data-ui="repertory"] .transport .rep-icon { width: 1.25rem; height: 1.25rem; margin: 0 auto; }
+      html[data-ui="repertory"] .transport .primary-round .rep-icon { color: var(--rep-ink); }
       html[data-ui="repertory"] .transport .primary-round {
         border-right: 1px solid var(--rep-house);
         background: var(--rep-house);
         color: var(--rep-ink);
-        font-size: 1.1rem;
+        font-size: var(--rep-remote-text-badge);
       }
 
       html[data-ui="repertory"] .cast-footer {
@@ -1875,7 +1892,7 @@
         border-top: 1px solid var(--rep-hairline);
         color: var(--rep-muted);
         font-family: var(--rep-mono);
-        font-size: 9px;
+        font-size: var(--rep-remote-text-badge);
         letter-spacing: 0.04em;
         text-align: left;
       }
@@ -1895,6 +1912,12 @@
         align-items: flex-end;
         background: color-mix(in srgb, var(--rep-ink) 78%, transparent);
         backdrop-filter: none;
+      }
+      html[data-ui="repertory"] .sheet-ghost {
+        position: fixed;
+        z-index: 54;
+        overflow: hidden;
+        pointer-events: none;
       }
       html[data-ui="repertory"] .sheet-panel {
         width: 100%;
@@ -1963,7 +1986,7 @@
       html[data-ui="repertory"] .track-marks {
         color: var(--rep-muted);
         font-family: var(--rep-mono);
-        font-size: 9px;
+        font-size: var(--rep-remote-text-badge);
       }
       html[data-ui="repertory"] .delay-row,
       html[data-ui="repertory"] .size-row {
@@ -1987,27 +2010,16 @@
       }
     </style>
 
-    <!--
-      The repertory surface is staged behind `?ui=repertory` (#149). This is a
-      prototype selector, not the final staging: #152 decides whether the Host
-      setting, a route or the window's cutover carries it. The old surface at
-      `/` sets no attribute and keeps its own palette; a paired phone holding
-      that page open is not disturbed. The selector runs before the body paints,
-      so the first frame is already in the chosen surface.
-    -->
-    <script>
-      (function () {
-        try {
-          if (new URLSearchParams(window.location.search).get("ui") === "repertory") {
-            document.documentElement.dataset.ui = "repertory";
-          }
-        } catch (error) {
-          /* A page without URLSearchParams stays on the old surface. */
-        }
-      })();
-    </script>
   </head>
   <body>
+    <!--
+      The repertory icon set, spliced from `crates/host-wire/remote/icons.svg` at
+      serve time (#159). One drawn set for the window and the served page; the
+      page never draws a Unicode glyph for a mark.
+    -->
+    <svg id="rep-icon-sprite" aria-hidden="true" focusable="false" style="display:none">
+      <!--__SPLICE_REPERTORY_ICONS__-->
+    </svg>
     <!--
       The remote's capability list: every Action this page can send, and no
       other. It is the whole Action surface (ADR-0002): the remote is the Host's
@@ -2035,7 +2047,7 @@
           is not needed again.
         </p>
         <div class="form-field">
-          <label for="code">Pairing code</label>
+          <label for="code">Pairing code<span class="rep-only"> · single use</span></label>
           <input id="code" name="code" autocomplete="off" autocapitalize="characters"
                  spellcheck="false" inputmode="latin" maxlength="12" placeholder="ABCDEF" />
         </div>
@@ -2139,6 +2151,21 @@
       /** A boolean attribute, written only when it is true. */
       function off(condition) { return condition ? raw("disabled") : null; }
       function pressed(condition) { return condition ? "true" : "false"; }
+
+      /**
+       * One mark from the sprite the Host splices into the page (#159).
+       *
+       * The window's `icons.tsx` is the source; the sprite carries the same
+       * drawings. `stroke-width` is the caller's: chrome is 1.7, a mark that
+       * stands alone over the picture is 2–2.2.
+       */
+      function mark(name, strokeWidth) {
+        return html`<svg class="rep-icon" viewBox="0 0 24 24" fill="none"
+                         stroke="currentColor" stroke-width="${strokeWidth === undefined ? 1.7 : strokeWidth}"
+                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <use href="#rep-icon-${name}"></use>
+        </svg>`;
+      }
 
       // ---------------------------------------------------------------------
       // The model: the pure decisions the surface is drawn from, the same ones
@@ -2837,19 +2864,55 @@
         if (!$("surface-remote").classList.contains("hidden")) { return $("surface-remote"); }
         return $("surface-browse");
       }
+      /**
+       * Bring a focused control into its nearest horizontal rail. The rail is
+       * animated with the quick spring so a second press redirects it mid-flight
+       * (ADR-0031 §2/§4); a browser without the asset, or a reduced-motion
+       * setting, jumps instead.
+       */
+      function revealScroll(node) {
+        let parent = node.parentElement;
+        while (parent && parent !== document.body) {
+          const style = getComputedStyle(parent);
+          if (/(auto|scroll)/.test(style.overflowX) && parent.scrollWidth > parent.clientWidth + 1) {
+            const nodeRect = node.getBoundingClientRect();
+            const parentRect = parent.getBoundingClientRect();
+            const centred = parent.scrollLeft + (nodeRect.left - parentRect.left) -
+              (parent.clientWidth - nodeRect.width) / 2;
+            const target = Math.max(
+              0,
+              Math.min(parent.scrollWidth - parent.clientWidth, centred),
+            );
+            if (motion.animate && !motion.reduced) {
+              motion.animate(parent.scrollLeft, target, {
+                ...quickTransition(),
+                onUpdate: (value) => { parent.scrollLeft = value; },
+              });
+            } else {
+              parent.scrollLeft = target;
+            }
+            return;
+          }
+          parent = parent.parentElement;
+        }
+      }
+      function focusNode(node) {
+        node.focus({ preventScroll: true });
+        revealScroll(node);
+      }
       function moveFocus(scope, direction) {
         const items = focusables(scope);
         if (items.length === 0) { return false; }
         const current = items.includes(document.activeElement) ? document.activeElement : null;
         if (!current) {
-          items[0].focus({ preventScroll: true });
+          focusNode(items[0]);
           return true;
         }
         const others = items.filter((element) => element !== current);
         if (others.length === 0) { return false; }
         const pick = nearest(rectOf(current), others.map(rectOf), direction);
         if (pick < 0) { return false; }
-        others[pick].focus({ preventScroll: true });
+        focusNode(others[pick]);
         return true;
       }
       function focusKey(element) {
@@ -2862,12 +2925,12 @@
         const target = Array.from(document.querySelectorAll("[data-focus-key]"))
           .find((element) => element.dataset.focusKey === key) ||
           document.getElementById(key.replace(/^id:/, ""));
-        if (target) { target.focus({ preventScroll: true }); return true; }
+        if (target) { focusNode(target); return true; }
         return false;
       }
       function focusFirst(selector) {
         const target = document.querySelector(selector + " [data-focusable], " + selector + "[data-focusable]");
-        if (target) { target.focus({ preventScroll: true }); return true; }
+        if (target) { focusNode(target); return true; }
         return false;
       }
 
@@ -2981,6 +3044,7 @@
         // that opens a popover over the card instead of the shared drawer.
         cast: false,
         sheet: null,
+        sheetOpened: false,
         episodes: null,
         volumeOpen: false,
         morePanel: null,
@@ -3028,6 +3092,105 @@
         return document.documentElement.dataset.ui === "repertory";
       }
 
+      // ---------------------------------------------------------------------
+      // Motion (ADR-0031): the staged page imports the pinned `animate` bundle
+      // from the Host, reads the same spring durations as the window, and drops
+      // movement under the system's reduced-motion setting while keeping the
+      // fades. Before the asset arrives, or where it cannot, every panel is
+      // simply drawn at its final position.
+      // ---------------------------------------------------------------------
+      const motion = { animate: null, reduced: false };
+
+      function motionSeconds(property, fallback) {
+        const value = getComputedStyle(document.documentElement).getPropertyValue(property).trim();
+        const match = /^([\d.]+)\s*(ms|s)$/.exec(value);
+        if (!match) { return fallback; }
+        const amount = Number(match[1]);
+        return match[2] === "ms" ? amount / 1000 : amount;
+      }
+
+      function panelTransition() {
+        return {
+          type: "spring",
+          visualDuration: motionSeconds("--rep-motion-panel", 0.24),
+          bounce: 0,
+        };
+      }
+
+      /** A focus reveal inside a rail, and other small state changes. */
+      function quickTransition() {
+        return {
+          type: "spring",
+          visualDuration: motionSeconds("--rep-motion-quick", 0.14),
+          bounce: 0,
+        };
+      }
+
+      function fadeTransition() {
+        return {
+          duration: motionSeconds("--rep-motion-fade", 0.14),
+          ease: [0.22, 1, 0.36, 1],
+        };
+      }
+
+      /**
+       * A panel rises 12–16px with a fade on the panel spring. Under reduced
+       * motion the movement is gone and the fade stays (design record §6).
+       */
+      function animateRise(node, fromY) {
+        if (!node || !motion.animate) { return; }
+        const keyframes = motion.reduced
+          ? [{ opacity: 0 }, { opacity: 1 }]
+          : [{ opacity: 0, y: fromY === undefined ? 14 : fromY }, { opacity: 1, y: 0 }];
+        motion.animate(node, keyframes, motion.reduced ? fadeTransition() : panelTransition());
+      }
+
+      /** The same shape in reverse, then the caller's work. */
+      function animateSink(node, done) {
+        if (!node || !motion.animate) { done(); return; }
+        const keyframes = motion.reduced
+          ? [{ opacity: 1 }, { opacity: 0 }]
+          : [{ opacity: 1, y: 0 }, { opacity: 0, y: 16 }];
+        const controls = motion.animate(
+          node,
+          keyframes,
+          motion.reduced ? fadeTransition() : panelTransition(),
+        );
+        controls.finished.then(done, done);
+      }
+
+      /** The scrim under a drawer fades in with it, never slides. */
+      function animateFade(node, to) {
+        if (!node) { return; }
+        if (!motion.animate) {
+          node.style.opacity = String(to);
+          return;
+        }
+        motion.animate(node, { opacity: to }, fadeTransition());
+      }
+
+      /**
+       * The module script hands the imported `animate` here only when
+       * `data-ui="repertory"`; `/` never runs it. The media query is read at
+       * call time and again on every change, so a person who turns reduced
+       * motion on keeps the fades without the movement.
+       */
+      function startRepertoryMotion(animate) {
+        motion.animate = animate;
+        if (typeof window.matchMedia !== "function") {
+          return;
+        }
+        const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+        motion.reduced = media.matches;
+        const update = () => { motion.reduced = media.matches; };
+        if (typeof media.addEventListener === "function") {
+          media.addEventListener("change", update);
+        } else if (typeof media.addListener === "function") {
+          media.addListener(update);
+        }
+      }
+      window.startRepertoryMotion = startRepertoryMotion;
+
       /**
        * Open one of the shared playback drawers. Audio & Subtitles, Episodes,
        * Speed, Chapters and Picture all use this one surface and its Done/Back
@@ -3035,13 +3198,38 @@
        */
       function openMenu(menu, returnKey) {
         state.sheetReturn = returnKey || focusKey(document.activeElement);
+        state.sheetOpened = true;
+        state.sheetSignature = null;
         state.sheet = menu;
         if (menu !== "episodes") { state.episodes = null; }
         state.focusTarget = "sheet";
         paint();
       }
 
+      /**
+       * Close the shared drawer at once. Its last frame is cloned into a
+       * pointer-inert ghost and sinks with the panel spring, so the state, the
+       * focus and a second Back are never held by the animation (ADR-0031 §4).
+       */
       function closeSheet() {
+        const sheet = $("sheet");
+        const panel = sheet.querySelector(".sheet-panel");
+        if (isRepertory() && motion.animate && panel && !sheet.classList.contains("hidden")) {
+          const ghost = panel.cloneNode(true);
+          const rect = panel.getBoundingClientRect();
+          ghost.classList.add("sheet-ghost");
+          ghost.setAttribute("aria-hidden", "true");
+          ghost.querySelectorAll("[data-focusable]").forEach((node) => {
+            node.removeAttribute("data-focusable");
+            node.tabIndex = -1;
+          });
+          ghost.style.left = rect.left + "px";
+          ghost.style.top = rect.top + "px";
+          ghost.style.width = rect.width + "px";
+          ghost.style.height = rect.height + "px";
+          document.body.appendChild(ghost);
+          animateSink(ghost, () => ghost.remove());
+        }
         state.sheet = null;
         state.episodes = null;
         state.focusTarget = state.sheetReturn ? { key: state.sheetReturn } : "cast";
@@ -3081,8 +3269,10 @@
           <button type="button" class="nav-item" data-focusable data-a="destination"
                   data-destination="${entry.id}" data-focus-key="nav-${entry.id}"
                   aria-current="${state.destination === entry.id ? "page" : "false"}">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
-                 stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${raw(entry.icon)}</svg>
+            ${isRepertory()
+              ? mark(entry.id, 1.7)
+              : html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                         stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${raw(entry.icon)}</svg>`}
             <span>${entry.label}</span>
           </button>
         `)}`.markup;
@@ -3675,7 +3865,9 @@
                         data-focus-key="settings-${category.id}">
                   <span class="settings-category-title">${category.title}</span>
                   <span class="settings-category-note">${category.note}</span>
-                  <span class="settings-category-mark" aria-hidden="true">\u203a</span>
+                  <span class="settings-category-mark" aria-hidden="true">${isRepertory()
+                    ? mark("chevron", 1.7)
+                    : "\u203a"}</span>
                 </button>
               </li>`)}
           </ul>
@@ -4199,16 +4391,22 @@
           <span class="mini-progress" aria-hidden="true"><span style="width:${fraction === null ? 0 : Math.round(fraction * 100)}%"></span></span>
           <span class="mini-live" data-live="${pressed(state.online)}">${state.online ? "live" : "reconnecting\u2026"}</span>
           <button type="button" class="btn btn-icon" data-focusable data-a="seek-by" data-seconds="-10"
-                  data-focus-key="mini-rewind" aria-label="Back ten seconds" ${off(!canTransport)}>\u221210s</button>
+                  data-focus-key="mini-rewind" aria-label="Back ten seconds" ${off(!canTransport)}>${isRepertory()
+                    ? mark("rewind-10", 1.7)
+                    : "\u221210s"}</button>
           <button type="button" class="mini-center" data-focusable data-a="expand-cast" data-focus-key="mini-center"
                   aria-label="Expand the Cast Remote">
-            <span class="mini-chevron" aria-hidden="true">\uFE3F</span>
+            <span class="mini-chevron" aria-hidden="true">${isRepertory()
+              ? mark("chevron", 1.7)
+              : "\uFE3F"}</span>
             <span class="mini-name">${current.name}</span>
             <span class="mini-episode">${current.label || ""}</span>
           </button>
           <button type="button" class="btn btn-icon ${playing ? "" : "btn-primary"}" data-focusable
                   data-a="pause-toggle" data-focus-key="mini-pause" aria-label="${playing ? "Pause" : "Play"}"
-                  ${off(!canTransport)}>${playing ? "\u2016" : "\u25B6\uFE0E"}</button>
+                  ${off(!canTransport)}>${isRepertory()
+                    ? mark(playing ? "pause" : "play", 1.7)
+                    : (playing ? "\u2016" : "\u25B6\uFE0E")}</button>
         `.markup;
       }
 
@@ -4231,42 +4429,26 @@
             <button type="button" class="utility" data-focusable data-a="open-sheet"
                     data-focus-key="cast-audio" aria-expanded="${pressed(state.sheet === "av")}"
                     aria-label="Audio &amp; Subtitles">
-              <span aria-hidden="true">CC</span>Audio
+              ${mark("audio", 1.7)}Audio
             </button>
             <button type="button" class="utility" data-focusable data-a="episodes-open"
                     data-focus-key="cast-episodes" aria-expanded="${pressed(state.sheet === "episodes")}"
                     ${off(episode === null)}>
-              <span aria-hidden="true">\u2630</span>Episodes
+              ${mark("more", 1.7)}Episodes
             </button>
             <button type="button" class="utility" data-focusable data-a="more-panel" data-panel="speed"
                     data-focus-key="cast-speed" aria-expanded="${pressed(state.sheet === "speed")}">
-              <span aria-hidden="true">\u00BB</span>Speed
+              ${mark("speed", 1.7)}Speed
             </button>
             <button type="button" class="utility" data-focusable data-a="more-panel" data-panel="chapters"
                     data-focus-key="cast-chapters" aria-expanded="${pressed(state.sheet === "chapters")}">
-              <span aria-hidden="true">\u2261</span>Chapters
+              ${mark("chapters", 1.7)}Chapters
             </button>
             <button type="button" class="utility" data-focusable data-a="more-panel" data-panel="picture"
                     data-focus-key="cast-picture" aria-expanded="${pressed(state.sheet === "picture")}">
-              <span aria-hidden="true">\u25AD</span>Picture
+              ${mark("picture", 1.7)}Picture
             </button>
           </div>`;
-      }
-
-      /** The mute control is an icon on the repertory card; the old surface keeps its word. */
-      function muteIcon(muted) {
-        return muted
-          ? html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
-                       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M4 9h4l5-4v14l-5-4H4z" />
-              <path d="m16 9 5 6M21 9l-5 6" />
-            </svg>`
-          : html`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
-                       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M4 9h4l5-4v14l-5-4H4z" />
-              <path d="M16 8.5a5 5 0 0 1 0 7" />
-              <path d="M18.5 6a8 8 0 0 1 0 12" />
-            </svg>`;
       }
 
       function renderCastBody() {
@@ -4300,7 +4482,9 @@
           <div class="cast-inner">
             <header class="cast-head">
               <button type="button" class="btn btn-icon" data-focusable data-a="collapse-cast"
-                      data-focus-key="cast-collapse" aria-label="Collapse the Cast Remote" data-autofocus>\uFE40</button>
+                      data-focus-key="cast-collapse" aria-label="Collapse the Cast Remote" data-autofocus>${isRepertory()
+                        ? mark("back", 1.7)
+                        : "\uFE40"}</button>
               <div class="cast-heading">
                 <span class="cast-name">${current.name}</span>
                 <span class="cast-episode">${current.label || ""}</span>
@@ -4351,7 +4535,7 @@
                     <button type="button" class="btn btn-icon" data-focusable data-a="mute-toggle"
                             data-focus-key="cast-mute" aria-pressed="${p.muted === true}"
                             aria-label="${p.muted ? "Unmute" : "Mute"}">${isRepertory()
-                              ? muteIcon(p.muted)
+                              ? mark(p.muted ? "volume-muted" : "volume", 1.7)
                               : (p.muted ? "Unmute" : "Mute")}</button>
                   </div>`
               : null}
@@ -4379,21 +4563,33 @@
             <div class="transport" aria-label="Transport">
               <button type="button" class="btn" data-focusable data-a="previous-episode"
                       data-focus-key="cast-previous" aria-label="Previous episode"
-                      ${off(previousEpisodeDisabled(episode))}>\u23EE\uFE0E</button>
+                      ${off(previousEpisodeDisabled(episode))}>${isRepertory()
+                        ? mark("previous-episode", 1.7)
+                        : "\u23EE\uFE0E"}</button>
               <button type="button" class="btn" data-focusable data-a="seek-by" data-seconds="-10"
                       data-focus-key="cast-rewind" aria-label="Back ten seconds"
-                      ${off(!canTransport)}>\u21BA10</button>
+                      ${off(!canTransport)}>${isRepertory()
+                        ? mark("rewind-10", 1.7)
+                        : "\u21BA10"}</button>
               <button type="button" class="btn btn-round primary-round" data-focusable data-a="pause-toggle"
                       data-focus-key="cast-pause" aria-label="${playing ? "Pause" : "Play"}"
-                      ${off(!canTransport)}>${playing ? "\u2016" : "\u25B6\uFE0E"}</button>
+                      ${off(!canTransport)}>${isRepertory()
+                        ? mark(playing ? "pause" : "play", 1.7)
+                        : (playing ? "\u2016" : "\u25B6\uFE0E")}</button>
               <button type="button" class="btn" data-focusable data-a="seek-by" data-seconds="10"
                       data-focus-key="cast-forward" aria-label="Forward ten seconds"
-                      ${off(!canTransport)}>10\u21BB</button>
+                      ${off(!canTransport)}>${isRepertory()
+                        ? mark("forward-10", 1.7)
+                        : "10\u21BB"}</button>
               <button type="button" class="btn" data-focusable data-a="next-episode"
                       data-focus-key="cast-next" aria-label="Next episode"
-                      ${off(nextEpisodeDisabled(episode))}>\u23ED\uFE0E</button>
+                      ${off(nextEpisodeDisabled(episode))}>${isRepertory()
+                        ? mark("next-episode", 1.7)
+                        : "\u23ED\uFE0E"}</button>
               <button type="button" class="btn" data-focusable data-a="stop"
-                      data-focus-key="cast-stop" aria-label="Stop">\u25A0\uFE0E Stop</button>
+                      data-focus-key="cast-stop" aria-label="Stop">${isRepertory()
+                        ? html`${mark("stop", 1.7)} Stop`
+                        : "\u25A0\uFE0E Stop"}</button>
             </div>
 
             ${isRepertory()
@@ -4671,6 +4867,11 @@
             </div>
             ${renderSheetMenu(state.sheet, p)}
           </div>`.markup;
+        if (state.sheetOpened) {
+          state.sheetOpened = false;
+          animateRise(sheet.querySelector(".sheet-panel"), 16);
+          animateFade(sheet, 1);
+        }
       }
 
       function renderSheetMenu(menu, p) {
@@ -5445,6 +5646,8 @@
             : seasons[0] ? seasons[0].season : null;
         }
         state.sheetReturn = returnKey || focusKey(document.activeElement);
+        state.sheetOpened = true;
+        state.sheetSignature = null;
         state.episodes = episodes;
         state.sheet = "episodes";
         state.focusTarget = "sheet";
@@ -6292,6 +6495,27 @@
       // what decides whether the token still names a device.
       if (!state.token) { showPairing(); }
       connect();
+    </script>
+
+    <!--
+      The one module script and the one asset (ADR-0031 §1). On `/` the
+      attribute is absent and the import never runs; on `/next` it boots the
+      vendored Motion bundle and hands its `animate` to the page. A failed
+      import leaves a still page that still works: every control and Action is
+      the classic script's.
+    -->
+    <script type="module">
+      if (document.documentElement.dataset.ui === "repertory") {
+        import("/motion-14.7.1.js")
+          .then((motion) => {
+            if (typeof window.startRepertoryMotion === "function") {
+              window.startRepertoryMotion(motion.animate);
+            }
+          })
+          .catch(() => {
+            /* The room is still; the room is not broken. */
+          });
+      }
     </script>
   </body>
 </html>
