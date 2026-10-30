@@ -24,6 +24,7 @@ import {
 import type { Action, PlaybackSnapshot, Track } from "../host-client";
 import { useShell, type NewShellLevel } from "./context";
 import { Popover } from "./kit";
+import { Popover as RepertoryPopover } from "./repertory/kit";
 
 /** The five menus the OSD's icon buttons open, one level each. */
 export type OsdPopoverName = "picture" | "subtitles" | "audio" | "speed" | "chapters";
@@ -153,6 +154,7 @@ function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopover
   }
 
   const side = SIDES[name];
+  const Surface = repertory ? RepertoryPopover : Popover;
 
   return (
     <div className="shell-osd-popover-layer">
@@ -169,7 +171,7 @@ function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopover
         data-side={side}
         style={anchorStyle(side, anchor)}
       >
-        <Popover
+        <Surface
           label={LABELS[name]}
           heading={HEADINGS[name]}
           align={side}
@@ -180,7 +182,7 @@ function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopover
           ) : (
             MENUS[name]({ playback, take })
           )}
-        </Popover>
+        </Surface>
       </div>
     </div>
   );
@@ -439,7 +441,9 @@ function TrackItem({
 function Group({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="shell-osd-group">
-      <h3 className="shell-osd-group-title">{title}</h3>
+      <h3 className="shell-osd-group-title" data-group>
+        {title}
+      </h3>
       {children}
     </div>
   );

@@ -271,9 +271,17 @@ export function speedSelected(rate: number | null, choice: number): boolean {
   return rate !== null && Math.abs(rate - choice) < 1e-6;
 }
 
+/** The Player's loudest level: above 100 is a boost, not a second scale. */
+export const VOLUME_MAX = 130;
+
 /** A volume as a person reads it, on the Player's scale where 100 is full. */
 export function formatVolume(level: number): string {
   return `${Math.round(level)}%`;
+}
+
+/** Where a level sits on the fader, clamped to the Player's scale. */
+export function volumeFraction(level: number): number {
+  return Math.min(1, Math.max(0, level / VOLUME_MAX));
 }
 
 /** How a chapter is named: where it starts, and its title where it has one. */

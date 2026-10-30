@@ -59,6 +59,14 @@ export function levelPushed(kind: ShellLevel["kind"]): boolean {
   return kind === "overlay";
 }
 
+/** How far an OSD popover rises from its anchor, in px (design record §6). */
+export const POPOVER_RISE_PX = 14;
+
+/** Which levels rise from their own anchor rather than entering from the edge. */
+export function levelRises(kind: ShellLevel["kind"]): boolean {
+  return kind === "popover";
+}
+
 /**
  * A Settings leaf is a page beside the programme, not a takeover: the spine
  * stays live and the focus root covers both. Its level id is the one
