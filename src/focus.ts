@@ -106,6 +106,13 @@ export type Focus = { regionId: string; index: number };
 export type Rules = {
   rowEnd: "stop" | "wrap";
   railEnd: "stop" | "wrap";
+  /**
+   * What Right does from the rail. `nearest` is the geometric rule the rest of
+   * the level uses; `first` enters the first control in the content, in DOM
+   * order, which is the programme's first card rather than whichever row
+   * action happens to sit nearest the spine's item.
+   */
+  railExit: "nearest" | "first";
   upFromContent: "nothing" | "rail";
   entry: "align" | "remember";
   gone: "previous" | "place" | "head";
@@ -122,6 +129,7 @@ export type Rules = {
 export const DEFAULT_RULES: Rules = {
   rowEnd: "stop",
   railEnd: "stop",
+  railExit: "nearest",
   upFromContent: "nothing",
   entry: "align",
   gone: "previous",
@@ -683,6 +691,36 @@ function findRail(layout: Layout): Region | null {
  * `layout` is what the page measured, `focus` is where its people are, and
  * `rules` are the locked answers. The decision never mutates either.
  */
+/**
+ * The first control in the content to the right, in region and DOM order.
+ *
+ * The rail is the programme's edge: its Right goes into the first line of the
+ * content, not to whichever row action is geometrically closest to the item.
+ * Window and dialog regions are not content; the rail itself is skipped.
+ */
+function firstControlRight(
+  layout: Layout,
+  region: Region,
+  from: Rect,
+): LevelTarget | null {
+  for (const candidate of Object.values(layout.regions)) {
+    if (
+      candidate.id === region.id ||
+      candidate.kind === "window" ||
+      candidate.kind === "dialog"
+    ) {
+      continue;
+    }
+    for (let index = 0; index < candidate.itemRects.length; index += 1) {
+      const to = candidate.itemRects[index];
+      if (to && step(from, to, "right") > MIN_STEP) {
+        return { region: candidate, index };
+      }
+    }
+  }
+  return null;
+}
+
 export function decideMove(
   layout: Layout,
   focus: Focus,
@@ -781,6 +819,32 @@ export function decideMove(
   const wall = railWall();
   if (wall) {
     return wall;
+  }
+
+  // The rail is the left edge of the room: Left leaves the programme index
+  // into nothing, never back into the content beside it. Right is the one way
+  // out, and the level-wide search below lands on the closest control there.
+  if (region.kind === "rail" && direction === "left") {
+    return {
+      kind: "blocked",
+      direction,
+      why: "the rail is the left edge, and the rail rule says stop",
+    };
+  }
+
+  // The programme's Right enters the first card of the content, in DOM order,
+  // rather than the nearest control (which may be a row's More in the head).
+  if (region.kind === "rail" && direction === "right" && rules.railExit === "first") {
+    const first = firstControlRight(layout, region, from);
+    if (first) {
+      return {
+        kind: "crossed",
+        direction,
+        regionId: first.region.id,
+        index: first.index,
+        why: `the rail's Right enters the first control in ${first.region.label}`,
+      };
+    }
   }
 
   if (rules.edge === "nearest") {

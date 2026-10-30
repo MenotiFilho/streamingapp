@@ -2,7 +2,6 @@ import { describe, expect, test } from "vitest";
 
 import { FADE_SECONDS, PANEL_FALLBACK } from "./motion";
 import {
-  ALL_DESTINATIONS,
   DESTINATION_FADE_SECONDS,
   SPINE_LIMIT,
   destinationTransition,
@@ -12,11 +11,10 @@ import {
 } from "./frame";
 
 describe("the frame's decisions", () => {
-  test("the spine lists at most fifteen destinations, then All destinations", () => {
+  test("the spine lists at most fifteen destinations, then the More card", () => {
     const many = Array.from({ length: 20 }, (_, index) => `destination-${index}`);
     expect(spineDestinations(many)).toHaveLength(SPINE_LIMIT);
     expect(spineDestinations(many)).toEqual(many.slice(0, SPINE_LIMIT));
-    expect(ALL_DESTINATIONS).toBe("All destinations");
   });
 
   test("the spine's width uses the panel spring and snaps under reduced motion", () => {

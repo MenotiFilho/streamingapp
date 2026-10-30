@@ -170,7 +170,7 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   z-index: 20;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   gap: var(--rep-space-5);
   width: var(--rep-spine-compact);
   padding: var(--rep-space-5) var(--rep-space-3);
@@ -183,38 +183,12 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 /*
  * Navigating the spine is the one moment it opens. It grows over the stage
  * instead of moving it, so the pictures never reflow under the cursor; the
- * compact column stays the page's margin. Depth is the hairline, not a shadow.
+ * compact column stays the page's margin. The list stays centred in both
+ * states, and depth is the hairline, not a shadow.
  */
 .rep-nav--spine[data-open="true"] {
-  justify-content: flex-start;
   width: var(--rep-spine-width);
-  padding: var(--rep-space-7) var(--rep-space-5) var(--rep-space-5) var(--rep-space-6);
-}
-
-.rep-spine-head {
-  display: none;
-  gap: var(--rep-space-2);
-}
-
-.rep-nav--spine[data-open="true"] .rep-spine-head {
-  display: grid;
-}
-
-.rep-spine-label {
-  margin: 0;
-  font-family: var(--rep-sans);
-  font-size: var(--rep-text-control);
-  font-weight: 500;
-  letter-spacing: -0.006em;
-  color: var(--rep-ivory);
-}
-
-.rep-spine-note {
-  margin: 0;
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-mono);
-  line-height: 1.2;
-  color: var(--rep-muted);
+  padding: var(--rep-space-5) var(--rep-space-4);
 }
 
 .rep-spine-index {
@@ -222,19 +196,18 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   flex-direction: column;
   gap: 2px;
   width: 100%;
-  margin: 0;
+  margin: auto 0;
   padding: 0;
   list-style: none;
 }
 
 .rep-index-item {
-  display: grid;
-  grid-template-columns: 1fr;
-  justify-items: center;
+  display: flex;
   align-items: center;
-  gap: 0;
+  justify-content: center;
+  gap: var(--rep-space-3);
   width: 100%;
-  padding: var(--rep-space-2) 0;
+  padding: var(--rep-space-3) var(--rep-space-2);
   border: 0;
   background: transparent;
   color: var(--rep-dim);
@@ -242,20 +215,14 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   font-size: var(--rep-text-control);
   font-weight: 500;
   line-height: 1.2;
-  text-align: left;
+  text-align: center;
   cursor: pointer;
   box-sizing: border-box;
 }
 
-.rep-nav--spine[data-open="true"] .rep-index-item {
-  grid-template-columns: auto auto minmax(0, 1fr);
-  justify-items: start;
-  gap: var(--rep-space-3);
-  padding: var(--rep-space-3) var(--rep-space-2);
-}
-
 .rep-index-icon {
   display: grid;
+  flex: none;
   place-items: center;
   width: max(26px, calc(var(--rep-stage) * 1.4));
   height: max(26px, calc(var(--rep-stage) * 1.4));
@@ -283,47 +250,20 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   color: var(--rep-house);
 }
 
-.rep-index-number,
 .rep-index-label {
   display: none;
-}
-
-.rep-nav--spine[data-open="true"] .rep-index-number,
-.rep-nav--spine[data-open="true"] .rep-index-label {
-  display: inline;
-}
-
-.rep-index-number {
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-mono);
-  color: var(--rep-muted);
-}
-
-.rep-index-label {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
+.rep-nav--spine[data-open="true"] .rep-index-label {
+  display: inline;
+}
+
 .rep-index-more {
   color: var(--rep-muted);
-}
-
-/* The whole-index control is not a numbered destination: in the open spine it
- * gives its two bookkeeping columns to the name, so "All destinations" reads
- * in full rather than ellipsizing. Compact, it is the grid mark. */
-.rep-nav--spine[data-open="true"] .rep-index-more {
-  grid-template-columns: 1fr;
-}
-
-.rep-nav--spine[data-open="true"] .rep-index-more .rep-index-icon,
-.rep-nav--spine[data-open="true"] .rep-index-more .rep-index-number {
-  display: none;
-}
-
-.rep-index-item[aria-current="page"] .rep-index-number {
-  color: var(--rep-house);
 }
 
 .rep-index-item:focus,
@@ -334,17 +274,18 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 .rep-spine-foot {
   display: none;
   gap: var(--rep-space-2);
-  margin-top: auto;
   padding-top: var(--rep-space-5);
   border-top: 1px solid var(--rep-hairline);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-mono);
   line-height: 1.25;
   color: var(--rep-dim);
+  text-align: center;
 }
 
 .rep-nav--spine[data-open="true"] .rep-spine-foot {
   display: grid;
+  justify-items: center;
 }
 
 .rep-spine-clock {
@@ -618,6 +559,26 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   bottom: var(--rep-space-6);
   left: var(--rep-space-6);
   z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--rep-space-2) var(--rep-space-4);
+  border: 1px solid var(--rep-house);
+  background: var(--rep-house);
+  color: var(--rep-ink);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-control);
+  font-weight: 500;
+  line-height: 1.2;
+  pointer-events: none;
+}
+
+/* The feature is one card and one action: focus is the keyline plus the wash,
+ * and the brass label inside is the visible "Open the Title". */
+.rep-feature-frame[data-focusable]:focus,
+.rep-feature-frame[data-focusable]:focus-visible {
+  outline: var(--rep-focus-ring);
+  outline-offset: var(--rep-focus-offset);
 }
 
 /* --------------------------------------------------------------------------
@@ -1167,65 +1128,6 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   font-family: var(--rep-mono);
   font-size: var(--rep-text-caption);
   line-height: 1.4;
-}
-
-/* --------------------------------------------------------------------------
- * The rehearsal bar: prototype scaffolding, not the programme
- * -------------------------------------------------------------------------- */
-
-.rep-rehearsal {
-  position: fixed;
-  right: 16px;
-  bottom: 16px;
-  z-index: 90;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 14px;
-  padding: 8px 12px;
-  border: 1px solid var(--rep-hairline);
-  background: var(--rep-ink-elevated);
-  color: var(--rep-muted);
-  font-family: var(--rep-mono);
-  font-size: 14px;
-  line-height: 1.2;
-}
-
-.rep-rehearsal-label {
-  color: var(--rep-house);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.rep-rehearsal-group {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.rep-rehearsal-group > span {
-  margin-right: 4px;
-  color: var(--rep-muted);
-}
-
-.rep-rehearsal button {
-  padding: 4px 8px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--rep-dim);
-  font: inherit;
-  cursor: pointer;
-}
-
-.rep-rehearsal button[data-selected="true"] {
-  border-color: var(--rep-house);
-  color: var(--rep-ivory);
-}
-
-.rep-rehearsal button:focus,
-.rep-rehearsal button:focus-visible {
-  outline: 1px solid var(--rep-ivory);
-  outline-offset: 1px;
 }
 
 @media (max-width: 1300px) {

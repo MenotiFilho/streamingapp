@@ -10,6 +10,7 @@ import {
 import { Rail } from "./Rail";
 import type { Destination, ShellLevel } from "./navigation";
 import { destinationTransition } from "./repertory/frame";
+import { REPERTORY_RULES } from "./repertory/frame";
 import { RepertoryNav } from "./repertory/RepertoryNav";
 import { focusAndReveal } from "./reveal";
 import { toggleFullscreen, useFullscreen } from "./useFullscreen";
@@ -174,6 +175,7 @@ export function ShellFrame({
     levelKey: top ? `level:${top.id}` : `base:${destination}`,
     onBack,
     onIntent: top?.onIntent,
+    rules: repertory ? REPERTORY_RULES : undefined,
   });
 
   // A destination change is a deliberate choice: focus lands on the rail item

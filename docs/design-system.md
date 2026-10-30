@@ -269,10 +269,11 @@ system; #159 replaces the prototype's Unicode.
 
 ### The frame
 
-- **Spine**: the programme index, numbers in mono, names in sans, the active
-  destination in brass with a 2px rule, the date and clock at the foot. Compact
-  at rest, open on focus. Under 15 destinations it lists them and ends with
-  **All destinations**; the grid always holds the whole programme.
+- **Spine**: the programme index, each destination's drawn mark and its name,
+  the active destination in brass with a 2px rule, the date and clock at the
+  foot. Compact at rest, open on focus; the list stays centred in both states.
+  A **More** card ends the index and opens the All destinations grid; the grid
+  always holds the whole programme.
 - **Programme line**: every screen's head is one line — the destination's name
   in brass mono on the left, then a hairline to the right edge. No second
   heading, no explanatory paragraph above content.

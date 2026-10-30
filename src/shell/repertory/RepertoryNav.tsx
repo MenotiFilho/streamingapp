@@ -3,15 +3,9 @@ import { useEffect, useState } from "react";
 
 import { DESTINATIONS, type Destination } from "../navigation";
 import { useReducedMotion } from "../useReducedMotion";
-import {
-  ALL_DESTINATIONS,
-  spineDestinations,
-  spineLabelTransition,
-  spineWidthTransition,
-} from "./frame";
+import { spineDestinations, spineLabelTransition, spineWidthTransition } from "./frame";
 import { Icon } from "./icons";
 import {
-  programIndex,
   programShortDate as programShortDateText,
   programTime as programTimeText,
 } from "./program";
@@ -28,14 +22,12 @@ function useNow(): Date {
 
 function SpineItem({
   destination,
-  index,
   active,
   open,
   reducedMotion,
   onChoose,
 }: {
   destination: (typeof DESTINATIONS)[number];
-  index: number;
   active: Destination;
   open: boolean;
   reducedMotion: boolean;
@@ -56,15 +48,6 @@ function SpineItem({
           <Icon name={destination.id} />
         </span>
         <motion.span
-          className="rep-index-number"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: open ? 1 : 0 }}
-          transition={spineLabelTransition(reducedMotion)}
-          aria-hidden="true"
-        >
-          {programIndex(index + 1)}
-        </motion.span>
-        <motion.span
           className="rep-index-label"
           initial={{ opacity: 0 }}
           animate={{ opacity: open ? 1 : 0 }}
@@ -81,12 +64,12 @@ function SpineItem({
 /**
  * The spine: the programme index, compact at rest and open on focus.
  *
- * It is the one permanent frame. The six destinations are numbered in mono and
- * named in sans, the active one is brass with a 2px rule, and the date and clock
- * sit at the foot. Under fifteen destinations the spine lists them and ends
- * with **All destinations**, whose grid holds the whole programme. The width
- * change is Motion's panel spring, so the spine can be interrupted without
- * overshoot; the page makes room through CSS.
+ * It is the one permanent frame. The six destinations carry their drawn mark
+ * and their name, the active one is brass with a 2px rule, and the date and
+ * clock sit at the foot. The whole index is one more card — the grid mark —
+ * rather than a text link: it opens the All destinations grid. The width
+ * change is Motion's panel spring; the labels keep only a fade under reduced
+ * motion, and the list stays centred in both states.
  */
 export function RepertoryNav({
   active,
@@ -120,16 +103,11 @@ export function RepertoryNav({
         }
       }}
     >
-      <div className="rep-spine-head">
-        <p className="rep-spine-label">The programme</p>
-        <p className="rep-spine-note">Tonight</p>
-      </div>
       <ul className="rep-spine-index">
-        {destinations.map((destination, index) => (
+        {destinations.map((destination) => (
           <SpineItem
             key={destination.id}
             destination={destination}
-            index={index}
             active={active}
             open={open}
             reducedMotion={reducedMotion}
@@ -141,21 +119,12 @@ export function RepertoryNav({
             type="button"
             className="rep-index-item rep-index-more"
             data-focusable
-            aria-label={ALL_DESTINATIONS}
+            aria-label="More destinations"
             onClick={onOpenDestinations}
           >
             <span className="rep-index-icon" aria-hidden="true">
               <Icon name="more" />
             </span>
-            <motion.span
-              className="rep-index-number"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: open ? 1 : 0 }}
-              transition={spineLabelTransition(reducedMotion)}
-              aria-hidden="true"
-            >
-              {programIndex(destinations.length + 1)}
-            </motion.span>
             <motion.span
               className="rep-index-label"
               initial={{ opacity: 0 }}
@@ -163,7 +132,7 @@ export function RepertoryNav({
               transition={spineLabelTransition(reducedMotion)}
               aria-hidden="true"
             >
-              {ALL_DESTINATIONS}
+              More
             </motion.span>
           </button>
         </li>

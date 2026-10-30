@@ -670,6 +670,25 @@ describe("the walls", () => {
     ).toMatchObject({ kind: "blocked" });
   });
 
+  test("the repertory rail's Right enters the first content control, not the nearest", () => {
+    const rail = region("rail", { kind: "rail", items: [rect(0, 200, 45, 40)] });
+    const first = region("row:first", { items: [rect(100, 0, 100, 100)] });
+    const nearest = region("row:nearest", { items: [rect(100, 200, 100, 100)] });
+    const decision = decideMove(
+      layout([rail, first, nearest]),
+      { regionId: "rail", index: 0 },
+      "right",
+      { ...DEFAULT_RULES, railExit: "first" },
+    );
+    expect(decision).toMatchObject({ kind: "crossed", regionId: "row:first" });
+  });
+
+  test("the rail's left edge is a wall, not a crossing back into content", () => {
+    const rows = [{ id: "row:one", y: 0, items: cards(0, 3) }];
+    const decision = decideMove(shell(rows), { regionId: "rail", index: 0 }, "left", DEFAULT_RULES);
+    expect(decision).toMatchObject({ kind: "blocked", direction: "left" });
+  });
+
   test("the rail's end stops rather than wrapping", () => {
     const rows = [{ id: "row:one", y: 0, items: cards(0, 3) }];
     expect(

@@ -6,6 +6,7 @@ import {
   rehome,
   type Direction,
   type Focus,
+  type Rules,
 } from "../focus";
 import { isTypingTarget, keyIntent, type Intent } from "../input";
 import { firstFocusable, focusOf, readLevel } from "./layout";
@@ -27,6 +28,8 @@ export type SpatialFocusOptions = {
    * focus engine leaves the intent alone.
    */
   onIntent?: (intent: Intent) => boolean;
+  /** The edge rules this level uses; the settled defaults when omitted. */
+  rules?: Rules;
 };
 
 /**
@@ -41,8 +44,16 @@ export type SpatialFocusOptions = {
  * companion has no pad column: it is served over plain HTTP, an insecure
  * origin where `getGamepads()` returns nothing (research #49).
  */
-export function useSpatialFocus({ root, levelKey, onBack, onIntent }: SpatialFocusOptions) {
+export function useSpatialFocus({
+  root,
+  levelKey,
+  onBack,
+  onIntent,
+  rules = DEFAULT_RULES,
+}: SpatialFocusOptions) {
   const rootRef = useRef(root);
+  const rulesRef = useRef(rules);
+  rulesRef.current = rules;
   rootRef.current = root;
   const keyRef = useRef(levelKey);
   keyRef.current = levelKey;
@@ -172,7 +183,7 @@ export function useSpatialFocus({ root, levelKey, onBack, onIntent }: SpatialFoc
         return;
       }
 
-      const landing = rehome(layout, held, DEFAULT_RULES);
+      const landing = rehome(layout, held, rulesRef.current);
       if (landing) {
         const target = elements[landing.regionId]?.[landing.index];
         if (target) {
@@ -209,7 +220,7 @@ export function useSpatialFocus({ root, levelKey, onBack, onIntent }: SpatialFoc
       return;
     }
 
-    const decision = decideMove(layout, current, direction, DEFAULT_RULES);
+    const decision = decideMove(layout, current, direction, rulesRef.current);
     if (decision.kind === "blocked") {
       return;
     }

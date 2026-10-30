@@ -229,7 +229,7 @@ describe("Home's feature presentation", () => {
     act(() => vi.advanceTimersByTime(FEATURE_ROTATION_MS));
     expect(activeSlide()).toBe("tt2");
 
-    const action = screen.getByRole("button", { name: "Open the Title" });
+    const action = screen.getByRole("button", { name: /Open the Title/ });
     act(() => action.focus());
 
     act(() => vi.advanceTimersByTime(FEATURE_ROTATION_MS));
@@ -245,7 +245,7 @@ describe("Home's feature presentation", () => {
     renderHome();
     await flush();
 
-    const action = screen.getByRole("button", { name: "Open the Title" });
+    const action = screen.getByRole("button", { name: /Open the Title/ });
     act(() => action.focus());
 
     fireEvent.keyDown(action, { key: "ArrowRight" });
@@ -272,7 +272,7 @@ describe("Home's feature presentation", () => {
     const { pushed } = renderHome();
     await flush();
 
-    fireEvent.click(screen.getByRole("button", { name: "Open the Title" }));
+    fireEvent.click(screen.getByRole("button", { name: /Open the Title/ }));
 
     expect(pushed).toHaveLength(1);
     expect(pushed[0]?.name).toBe("Program note");

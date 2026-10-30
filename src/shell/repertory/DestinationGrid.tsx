@@ -4,7 +4,7 @@ import { Icon } from "./icons";
 import { programIndex } from "./program";
 
 /**
- * The whole program index, opened from **All destinations** at the foot of the
+ * The whole program index, opened from the More card at the foot of the
  * spine. It is a pushed level like any other: Back returns to the control that
  * opened it, and choosing a room replaces the base screen and closes the grid.
  */

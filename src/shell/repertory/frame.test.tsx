@@ -6,7 +6,6 @@ import { CHROME_CLEARANCE } from "../reveal";
 import type { Destination, ShellLevel } from "../navigation";
 import { DestinationGrid } from "./DestinationGrid";
 import { ShellFrame } from "../ShellFrame";
-import { programIndex } from "./program";
 import repertoryCss from "./repertory.css?raw";
 
 /** One CSS rule's declarations, by its exact selector. */
@@ -85,7 +84,7 @@ function spine() {
 }
 
 describe("the repertory frame", () => {
-  test("draws the six destinations, numbered in the spine, then All destinations", () => {
+  test("draws the six destinations, then the More card that opens the grid", () => {
     render(<FrameHarness />);
     const nav = spine();
     const buttons = within(nav).getAllByRole("button");
@@ -98,10 +97,7 @@ describe("the repertory frame", () => {
       "addons",
       "settings",
     ]);
-    buttons.slice(0, 6).forEach((button, index) => {
-      expect(button).toHaveTextContent(programIndex(index + 1));
-    });
-    expect(buttons[6]).toHaveAccessibleName("All destinations");
+    expect(buttons[6]).toHaveAccessibleName("More destinations");
     expect(within(nav).getByRole("button", { name: "Home" })).toHaveAttribute(
       "aria-current",
       "page",
@@ -142,9 +138,9 @@ describe("the repertory frame", () => {
     await waitFor(() => expect(document.activeElement).toBe(home));
   });
 
-  test("All destinations opens the whole programme grid and Back returns to its control", async () => {
+  test("the More card opens the whole programme grid and Back returns to it", async () => {
     render(<FrameHarness />);
-    const all = within(spine()).getByRole("button", { name: "All destinations" });
+    const all = within(spine()).getByRole("button", { name: "More destinations" });
     fireEvent.click(all);
 
     const grid = await screen.findByRole("region", { name: "All destinations" });
@@ -169,7 +165,7 @@ describe("the repertory frame", () => {
 
   test("choosing a room in the grid closes it and lands on that spine item", async () => {
     render(<FrameHarness />);
-    fireEvent.click(within(spine()).getByRole("button", { name: "All destinations" }));
+    fireEvent.click(within(spine()).getByRole("button", { name: "More destinations" }));
     const grid = await screen.findByRole("region", { name: "All destinations" });
 
     fireEvent.click(within(grid).getByRole("button", { name: /Library/ }));

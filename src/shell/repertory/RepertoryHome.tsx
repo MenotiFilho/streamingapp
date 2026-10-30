@@ -23,7 +23,7 @@ import { addonName, continueArt, featuredRow, heroSlides, type HeroSlide } from 
 import { FOCUSABLE } from "../layout";
 import { focusAndReveal } from "../reveal";
 import { useReducedMotion } from "../useReducedMotion";
-import { usePreviewData, useRepertorySettings } from "./context";
+import { usePreviewData } from "./context";
 import {
   FEATURE_ROTATION_MS,
   HOME_CONTINUE_COLUMNS,
@@ -40,7 +40,6 @@ import { ProgramNote } from "./ProgramNote";
 import {
   captionParts,
   countLabel,
-  featureSlides,
   featureTitleDensity,
   programIndex,
   yearOf,
@@ -176,7 +175,31 @@ function Feature({
       data-testid="repertory-feature"
       data-active-slide={item.slide.id}
     >
-      <div className="rep-feature-frame" data-held={held ? "true" : undefined}>
+      <div
+        className="rep-feature-frame"
+        role="button"
+        tabIndex={0}
+        data-focusable
+        data-held={held ? "true" : undefined}
+        aria-label={`Open the Title: ${name}`}
+        onFocus={() => setHeld(true)}
+        onBlur={() => setHeld(false)}
+        onKeyDown={(event) => {
+          const direction =
+            event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : null;
+          if (direction !== null) {
+            event.preventDefault();
+            event.stopPropagation();
+            step(direction);
+            return;
+          }
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onOpen(item);
+          }
+        }}
+        onClick={() => onOpen(item)}
+      >
         <span className="rep-feature-wash" aria-hidden="true" />
         <AnimatePresence initial={false}>
           <motion.div
@@ -215,24 +238,9 @@ function Feature({
           </motion.div>
         </AnimatePresence>
 
-        <Button
-          variant="primary"
-          className="rep-feature-action"
-          onFocus={() => setHeld(true)}
-          onBlur={() => setHeld(false)}
-          onKeyDown={(event) => {
-            const direction =
-              event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : null;
-            if (direction === null || !step(direction)) {
-              return;
-            }
-            event.preventDefault();
-            event.stopPropagation();
-          }}
-          onClick={() => onOpen(item)}
-        >
+        <span className="rep-feature-action" aria-hidden="true">
           Open the Title
-        </Button>
+        </span>
       </div>
     </section>
   );
@@ -251,7 +259,6 @@ function Feature({
 export function RepertoryHome() {
   const { snapshot, chosenDestination, choose, take, home, push, pop } = useShell();
   const preview = usePreviewData();
-  const { settings } = useRepertorySettings();
   const { rows, answered, paging } = useSyncExternalStore(home.subscribe, home.getSnapshot);
   const root = useRef<HTMLElement | null>(null);
   const focusedAtLaunch = useRef(false);
@@ -337,7 +344,7 @@ export function RepertoryHome() {
 
   const featured = featuredRow(snapshot, visibleRows);
   const allSlides = heroSlides(featured?.metas ?? []);
-  const slides = featureSlides(allSlides, settings.feature);
+  const slides = allSlides;
   const featureItems: FeatureItem[] = slides.map((slide) => ({
     slide,
     meta: featured?.metas.find((meta) => meta.id === slide.id) ?? null,
@@ -366,7 +373,7 @@ export function RepertoryHome() {
     // feature's action first, then a Continue card or a poster.
     const first =
       root.current?.querySelector<HTMLElement>(
-        ".rep-feature-action, .rep-kit-continue:not([disabled]), .rep-kit-poster, .rep-empty [data-focusable]",
+        ".rep-feature-frame[data-focusable], .rep-kit-continue:not([disabled]), .rep-kit-poster, .rep-empty [data-focusable]",
       ) ?? root.current?.querySelector<HTMLElement>(FOCUSABLE);
     if (!first) {
       return;

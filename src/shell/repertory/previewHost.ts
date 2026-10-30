@@ -24,7 +24,6 @@ import {
   type ActionError,
   type AddonManifest,
   type CatalogRow,
-  type NowPlaying,
   type PlaybackSnapshot,
   type Response,
   type Snapshot,
@@ -38,7 +37,6 @@ import {
   CINEMETA_SERIES_GENRES,
   previewStream,
   rehearsalChapterAt,
-  rehearsalPlayback,
   sampleLibrary,
   sampleResumeEntries,
   type CinemetaMeta,
@@ -537,46 +535,6 @@ function startTicker(): void {
       },
     }));
   }, 1000);
-}
-
-/**
- * Start the Player OSD rehearsal from the first real film the preview knows
- * about: its own name, backdrop and runtime, with sample tracks and chapters.
- * The RehearsalBar button is the only caller; the Tauri window never takes it.
- */
-export async function rehearsePlayer(): Promise<void> {
-  const state = await ensureSnapshot();
-  const entry = state.watchProgress[0] ?? null;
-  const fallback = {
-    video: { id: "rehearsal", name: null, season: null, episode: null, thumbnail: null },
-    title: {
-      addon: ADDON,
-      id: "rehearsal",
-      type: "movie",
-      name: "A rehearsal film",
-      poster: null,
-      background: null,
-    },
-    position: 900,
-    duration: 6420,
-    watched: false,
-    unplayable: null,
-  } satisfies Snapshot["watchProgress"][number];
-  const chosen = entry ?? fallback;
-  const nowPlaying: NowPlaying = {
-    video: { type: chosen.title.type, id: chosen.video.id },
-    addon: ADDON,
-    name: "Cinemeta\n1080p",
-    description: "A rehearsal Stream for the Player OSD.",
-    filename: `${chosen.title.name}.rehearsal.1080p.mkv`,
-    bingeGroup: null,
-  };
-  publish({
-    ...state,
-    revision: state.revision + 1,
-    playback: rehearsalPlayback(chosen, nowPlaying),
-  });
-  startTicker();
 }
 
 /**
