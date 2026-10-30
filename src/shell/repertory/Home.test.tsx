@@ -285,6 +285,25 @@ describe("Home's feature presentation", () => {
     expect(document.activeElement).toBe(action);
   });
 
+  it("steps the feature through the base intent, which is the pad's path", async () => {
+    const { value } = renderHome();
+    await flush();
+
+    const action = screen.getByRole("button", { name: /Open the Title/ });
+    act(() => action.focus());
+    const handler = vi
+      .mocked(value.setBaseIntentHandler)
+      .mock.calls.map(([held]) => held)
+      .filter((held): held is NonNullable<typeof held> => held !== null)
+      .at(-1);
+    expect(handler).toBeTypeOf("function");
+
+    act(() => {
+      expect(handler!("right")).toBe(true);
+    });
+    expect(activeSlide()).toBe("tt2");
+  });
+
   it("leaves Left at the first slide to the frame and holds Right at the last", async () => {
     onlyIntervals();
     renderHome();

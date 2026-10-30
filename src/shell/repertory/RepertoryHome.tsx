@@ -17,6 +17,7 @@ import {
 } from "../../browse";
 import { explain, type MetaPreview, type ResumeEntry } from "../../host-client";
 import { cardName, cardNote, progressOf, resumable } from "../../library";
+import { REPEAT_EVERY_MS } from "../../input";
 import { useShell } from "../context";
 import { continueArt, featuredRow, heroSlides, type HeroSlide } from "../home";
 import { FOCUSABLE } from "../layout";
@@ -127,6 +128,7 @@ function Feature({
   const reducedMotion = useReducedMotion();
   const { setBaseIntentHandler } = useShell();
   const frame = useRef<HTMLDivElement | null>(null);
+  const lastSlideAt = useRef(0);
   const active = Math.min(index, Math.max(0, items.length - 1));
   const item = items[active];
   const rotating = items.length > 1 && !reducedMotion;
@@ -210,6 +212,13 @@ function Feature({
           const direction =
             event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : null;
           if (direction !== null) {
+            const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+            if (event.repeat && now - lastSlideAt.current < REPEAT_EVERY_MS) {
+              event.preventDefault();
+              event.stopPropagation();
+              return;
+            }
+            lastSlideAt.current = now;
             if (step(direction)) {
               event.preventDefault();
               event.stopPropagation();
