@@ -104,6 +104,12 @@ export function RepertoryNav({
           setOpen(true);
         }
       }}
+      onBlur={(event) => {
+        const next = event.relatedTarget as Node | null;
+        if (!next || !event.currentTarget.contains(next)) {
+          setOpen(false);
+        }
+      }}
     >
       <ul className="rep-spine-index">
         {destinations.map((destination) => (

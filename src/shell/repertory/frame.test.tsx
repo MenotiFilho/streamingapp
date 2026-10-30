@@ -197,6 +197,12 @@ describe("the repertory frame", () => {
       "data-open",
       "true",
     ));
+
+    act(() => within(nav).getByRole("button", { name: "Discover" }).focus());
+    act(() => screen.getByRole("button", { name: "Content" }).focus());
+    await waitFor(() =>
+      expect(nav, "leaving the spine closes it").not.toHaveAttribute("data-open"),
+    );
   });
 
   test("hover opens the spine, and a press still chooses the destination", async () => {
