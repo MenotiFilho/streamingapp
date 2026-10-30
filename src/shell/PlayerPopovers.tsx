@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { useIsPresent } from "motion/react";
 
 import {
   ASPECTS,
@@ -122,7 +123,15 @@ function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopover
   // tabbing out of it, or leaving the window closes it rather than making them
   // find Back before they can touch the player again. The scrim catches the
   // pointer; focusin catches the keyboard and a pad's focus moves.
+  //
+  // A menu that is already leaving does not close itself again: its level is
+  // inert the moment its exit starts, and the focus moving back to the OSD is
+  // that exit, not a press outside the panel.
+  const present = useIsPresent();
   useEffect(() => {
+    if (!present) {
+      return;
+    }
     const onFocusIn = (event: FocusEvent) => {
       const target = event.target;
       if (target instanceof Node && panel.current && !panel.current.contains(target)) {
@@ -137,7 +146,7 @@ function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopover
       document.removeEventListener("focusin", onFocusIn, true);
       window.removeEventListener("blur", onBlur);
     };
-  }, [pop]);
+  }, [pop, present]);
 
   if (!playback) {
     return null;

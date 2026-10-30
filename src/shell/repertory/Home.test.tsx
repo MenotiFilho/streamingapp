@@ -338,14 +338,20 @@ describe("Home's feature presentation", () => {
     expect(activeSlide()).toBe("tt1");
   });
 
-  it("opens the prototype Program note for the feature until #155", async () => {
-    const { pushed } = renderHome();
+  it("opens the feature's Title through the Featured catalog's Addon", async () => {
+    const { pushed, take } = renderHome();
     await flush();
 
     fireEvent.click(screen.getByRole("button", { name: /Open the Title/ }));
 
-    expect(pushed).toHaveLength(1);
-    expect(pushed[0]?.name).toBe("Program note");
+    expect(pushed[0]?.name).toBe("Title");
+    await waitFor(() =>
+      expect(take).toHaveBeenCalledWith({
+        type: "open_title",
+        addon: "cinemeta",
+        title: { type: "movie", id: "tt1" },
+      }),
+    );
   });
 
   it("heads the screen with one programme line, not a second heading", async () => {
@@ -456,8 +462,8 @@ describe("Home's catalog rows", () => {
     await waitFor(() => expect(value.home.getSnapshot().rows[0]?.done).toBe(true));
   });
 
-  it("opens a card in the whole row through the same Program note", async () => {
-    const { pushed, value } = renderHome({ ask: completePage });
+  it("opens a card in the whole row through the same Title opener", async () => {
+    const { pushed, take, value } = renderHome({ ask: completePage });
     await flush();
 
     fireEvent.click(screen.getByRole("button", { name: "More Popular" }));
@@ -465,8 +471,14 @@ describe("Home's catalog rows", () => {
 
     fireEvent.click(await screen.findByTestId("grid-card-cinemeta-tt1"));
 
-    expect(pushed).toHaveLength(2);
-    expect(pushed[1]?.name).toBe("Program note");
+    expect(pushed[1]?.name).toBe("Title");
+    await waitFor(() =>
+      expect(take).toHaveBeenCalledWith({
+        type: "open_title",
+        addon: "cinemeta",
+        title: { type: "movie", id: "tt1" },
+      }),
+    );
   });
 
   it("the whole row's Back is the shell's pop", async () => {
@@ -504,14 +516,20 @@ describe("Home's catalog rows", () => {
     ).toBeInTheDocument();
   });
 
-  it("opens a poster through the prototype Program note", async () => {
-    const { pushed } = renderHome();
+  it("opens a poster's Title through the Addon that answered the row", async () => {
+    const { pushed, take } = renderHome();
     await flush();
 
     fireEvent.click(screen.getByTestId("card-cinemeta-tt1"));
 
-    expect(pushed).toHaveLength(1);
-    expect(pushed[0]?.name).toBe("Program note");
+    expect(pushed[0]?.name).toBe("Title");
+    await waitFor(() =>
+      expect(take).toHaveBeenCalledWith({
+        type: "open_title",
+        addon: "cinemeta",
+        title: { type: "movie", id: "tt1" },
+      }),
+    );
   });
 });
 

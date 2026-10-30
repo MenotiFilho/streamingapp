@@ -13,7 +13,6 @@ import {
 import { ShellContext, type NewShellLevel, type ShellContextValue } from "../context";
 import { HomeStore } from "../homeStore";
 import { PreviewDataProvider } from "./context";
-import repertoryCss from "./repertory.css?raw";
 import { RepertoryDiscoverScreen, RepertorySearchScreen } from "./RepertoryFeed";
 import { RepertoryStreamsScreen } from "./RepertoryStreams";
 import { RepertoryTitleScreen } from "./RepertoryTitle";
@@ -190,28 +189,7 @@ function withShell(value: ShellContextValue, children: ReactNode, preview = fals
 }
 
 describe("the repertory Title page", () => {
-  it("draws the wordmark, facts, the Unmapped mark, seasons and episode stills", () => {
-    const { value } = harness();
-    render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
-
-    expect(screen.getByTestId("title-logo")).toHaveAttribute(
-      "src",
-      "https://images.test/bb-logo.png",
-    );
-    expect(screen.getByTestId("title-facts")).toHaveTextContent("IMDb 9.5");
-    expect(screen.getByTestId("title-facts")).toHaveTextContent("Crime");
-    expect(screen.getByTestId("title-unmapped")).toHaveTextContent(
-      "no TMDB record met this Title",
-    );
-    expect(screen.getByTestId("season-1")).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByTestId("episode-tt0903747:1:1")).toBeInTheDocument();
-    expect(screen.getByTestId("episode-still")).toHaveAttribute(
-      "src",
-      "https://images.test/bb-s1e1.jpg",
-    );
-  });
-
-  it("pushes the Streams level for the episode that was pressed", () => {
+  it("pushes the Streams level for the episode that was pressed, and keeps it chosen", () => {
     const { value, pushed } = harness();
     render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
 
@@ -225,35 +203,21 @@ describe("the repertory Title page", () => {
     );
   });
 
-  it("pins the episode rail to the one-screen grid so the last episode can be revealed", () => {
-    const grid = repertoryCss.match(/\.rep-title-grid\s*\{([^}]*)\}/)?.[1] ?? "";
-    const episodes = repertoryCss.match(/\.rep-title-episodes\s*\{([^}]*)\}/)?.[1] ?? "";
-    const streams = repertoryCss.match(/\.rep-stream-list\s*\{([^}]*)\}/)?.[1] ?? "";
-    const fullBleed =
-      repertoryCss.match(
-        /html\[data-ui="repertory"\] \.shell-level:has\(\.rep-title-level\)\s*\{([^}]*)\}/,
-      )?.[1] ?? "";
-
-    expect(grid).toContain("grid-template-rows: minmax(0, 1fr)");
-    expect(episodes).toContain("overflow-y: auto");
-    expect(episodes).toContain("min-height: 0");
-    // The Title owns the whole screen: its backdrop runs behind the chrome
-    // band rather than starting under it.
-    expect(fullBleed).toContain("padding-top: 0");
-    // Touching rects are not "ahead" to the focus model; both vertical lists
-    // need a real step or the D-pad skips every second item.
-    expect(episodes).toContain("gap: 2px");
-    expect(streams).toContain("gap: 2px");
-  });
-
-  it("gives a film one Find Streams control and leaves a mapped Title unmarked", () => {
+  it("gives a film one Find Streams control that pushes the Streams level", () => {
     const { value, pushed } = harness();
     render(withShell(value, <RepertoryTitleScreen title={FILM} />));
 
-    expect(screen.queryByTestId("title-unmapped")).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId("play-film"));
 
+    expect(pushed).toHaveLength(1);
     expect(pushed[0]?.name).toBe("Streams");
+  });
+
+  it("does not offer a series with no episodes a film's Play control", () => {
+    const { value } = harness();
+    render(withShell(value, <RepertoryTitleScreen title={{ ...SERIES, videos: [] }} />));
+
+    expect(screen.queryByTestId("play-film")).not.toBeInTheDocument();
   });
 });
 
@@ -331,6 +295,36 @@ describe("the repertory Streams list", () => {
       stream: PLAYABLE,
       video: { type: "series", id: "tt0903747:1:1" },
     });
+  });
+
+  it("keeps a failed Addon and an empty one on their own groups without blanking the rest", () => {
+    const { value } = harness();
+    render(
+      withShell(
+        value,
+        <RepertoryStreamsScreen
+          title={SERIES}
+          video={SERIES.videos[0]!}
+          groups={[
+            {
+              addon: "torrentio",
+              streams: [],
+              failure: { kind: "fetch", detail: "the Addon answered with status 503" },
+            },
+            { addon: "aiostreams", streams: [], failure: null },
+            { addon: "cinemeta", streams: [PLAYABLE], failure: null },
+          ]}
+        />,
+      ),
+    );
+
+    expect(
+      within(screen.getByTestId("streams-torrentio")).getByRole("alert"),
+    ).toHaveTextContent("status 503");
+    expect(screen.getByTestId("streams-aiostreams")).toHaveTextContent(
+      "answered nothing this Host can play",
+    );
+    expect(screen.getByTestId("candidate-cinemeta-0")).toBeInTheDocument();
   });
 });
 

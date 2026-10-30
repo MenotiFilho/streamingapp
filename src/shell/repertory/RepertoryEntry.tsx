@@ -16,8 +16,8 @@ function isTauriWindow(): boolean {
  *
  * In a plain Vite window there is no Host, so a preview transport answers from
  * the public Cinemeta addon; in the Tauri window the real HostClient is used
- * and only the frame and Home change. The prototype's rehearsal settings are
- * gone: the frame is the spine and the feature rotates.
+ * and the same screens wear the repertory surface. The prototype's rehearsal
+ * settings are gone: the frame is the spine and the feature rotates.
  */
 export function RepertoryEntry() {
   const preview = useMemo(() => !isTauriWindow(), []);

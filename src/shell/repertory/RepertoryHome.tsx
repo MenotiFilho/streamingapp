@@ -17,10 +17,12 @@ import {
 } from "../../browse";
 import { explain, type MetaPreview, type ResumeEntry } from "../../host-client";
 import { cardName, cardNote, progressOf, resumable } from "../../library";
+import type { OpenablePreview } from "../../title";
 import { useShell } from "../context";
 import { continueArt, featuredRow, heroSlides, type HeroSlide } from "../home";
 import { FOCUSABLE } from "../layout";
 import { focusAndReveal } from "../reveal";
+import { useTitleOpener } from "../TitleScreen";
 import { useReducedMotion } from "../useReducedMotion";
 import { usePreviewData } from "./context";
 import {
@@ -37,7 +39,6 @@ import {
 import { Button, ContinueWatchingCard, PosterCard, RowTrack } from "./kit";
 import { fade } from "./motion";
 import { ProgrammeLine } from "./ProgrammeLine";
-import { ProgramNote } from "./ProgramNote";
 import { RailGrid } from "./RailGrid";
 import { RailMoreCard } from "./RailMoreCard";
 import { captionParts, featureTitleDensity, programIndex, yearOf } from "./program";
@@ -46,43 +47,19 @@ import "./repertory.css";
 /** Re-exported for a screen test that wants the beat without the component. */
 export { FEATURE_ROTATION_MS };
 
-type NoteCard = {
-  name: string;
-  art: string | null;
-  poster: string | null;
-  year: string | null;
-  rating: string | null;
-  genres: string | null;
-  description: string | null;
-};
-
 type FeatureItem = {
   slide: HeroSlide;
   meta: MetaPreview | null;
 };
 
-function noteFromSlide(slide: HeroSlide): NoteCard {
+/** What a card already knows about the Title it opens, in the shell's shape. */
+function openableOfSlide(slide: HeroSlide): OpenablePreview {
   return {
+    id: slide.id,
+    type: slide.type,
     name: slide.name,
-    art: slide.art,
     poster: slide.poster,
-    year: null,
-    rating: null,
-    genres: null,
-    description: slide.description,
-  };
-}
-
-function noteFromMeta(meta: MetaPreview): NoteCard {
-  const parts = captionParts(meta);
-  return {
-    name: meta.name,
-    art: meta.background ?? meta.poster,
-    poster: meta.poster,
-    year: parts.year,
-    rating: parts.rating,
-    genres: parts.genres,
-    description: meta.description,
+    background: slide.background,
   };
 }
 
@@ -287,11 +264,12 @@ function FeaturePlaceholder() {
  * The data is exactly what Home always reads — the Featured catalog's own row
  * and the Host's Watch progress — so this screen is the same client under a
  * different frame, not a second one. The surface is repertory; the Actions are
- * untouched. A card opens the prototype's Program note until #155 draws the
- * real Title page.
+ * untouched. Every card opens the real Title page over Home, and Continue
+ * watching resumes the Host's own Video where there is a Host to ask.
  */
 export function RepertoryHome() {
   const { snapshot, chosenDestination, choose, take, home, push, pop } = useShell();
+  const { openTitle } = useTitleOpener();
   const preview = usePreviewData();
   const { rows, answered } = useSyncExternalStore(home.subscribe, home.getSnapshot);
   const root = useRef<HTMLElement | null>(null);
@@ -326,52 +304,28 @@ export function RepertoryHome() {
     // refetch what this client already holds.
   }, [home, catalogFingerprint, featuredKey]);
 
-  const openNote = useCallback(
-    (card: NoteCard) => {
-      push({
-        name: "Program note",
-        kind: "overlay",
-        render: () => (
-          <ProgramNote
-            name={card.name}
-            art={card.art}
-            poster={card.poster}
-            year={card.year}
-            rating={card.rating}
-            genres={card.genres}
-            description={card.description}
-            onClose={pop}
-          />
-        ),
-      });
-    },
-    [pop, push],
-  );
-
   const openMeta = useCallback(
-    (meta: MetaPreview) => {
-      openNote(noteFromMeta(meta));
-    },
-    [openNote],
+    (addon: string, meta: MetaPreview) => openTitle(addon, meta),
+    [openTitle],
   );
 
   const openEntry = useCallback(
     (entry: ResumeEntry) => {
-      if (preview) {
-        openNote({
+      // A plain Vite window has no Host to resume from, so the Title page is the
+      // preview's honest next step. The Tauri window resumes the Host's Video.
+      if (preview && entry.title.addon) {
+        openTitle(entry.title.addon, {
+          id: entry.title.id,
+          type: entry.title.type,
           name: entry.title.name,
-          art: continueArt(entry),
           poster: entry.title.poster,
-          year: null,
-          rating: null,
-          genres: null,
-          description: null,
+          background: entry.title.background,
         });
         return;
       }
       void take({ type: "resume", video: { type: entry.title.type, id: entry.video.id } });
     },
-    [openNote, preview, take],
+    [openTitle, preview, take],
   );
 
   /**
@@ -467,10 +421,8 @@ export function RepertoryHome() {
         <Feature
           items={featureItems}
           onOpen={(item) => {
-            if (item.meta) {
-              openMeta(item.meta);
-            } else {
-              openNote(noteFromSlide(item.slide));
+            if (featured) {
+              openTitle(featured.addon, item.meta ?? openableOfSlide(item.slide));
             }
           }}
         />
@@ -556,7 +508,7 @@ export function RepertoryHome() {
                   rating={meta.imdbRating?.trim() || null}
                   subtitle={yearOf(meta)}
                   testId={`card-${row.addon}-${meta.id}`}
-                  onClick={() => openMeta(meta)}
+                  onClick={() => openMeta(row.addon, meta)}
                 />
               ))}
               {row.metas.length > 0 ? (

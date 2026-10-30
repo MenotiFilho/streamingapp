@@ -3,8 +3,10 @@ import { describe, expect, test } from "vitest";
 import { FADE_SECONDS, PANEL_FALLBACK } from "./motion";
 import {
   DESTINATION_FADE_SECONDS,
+  LEVEL_PUSH_PX,
   SPINE_LIMIT,
   destinationTransition,
+  levelPushed,
   spineDestinations,
   spineLabelTransition,
   spineWidthTransition,
@@ -42,5 +44,15 @@ describe("the frame's decisions", () => {
   test("a destination switch cross-fades the base in 240ms and does not wait", () => {
     expect(DESTINATION_FADE_SECONDS).toBe(0.24);
     expect(destinationTransition()).toMatchObject({ duration: 0.24 });
+  });
+
+  test("an overlay is a pushed level; the player and the OSD's popovers are not", () => {
+    expect(levelPushed("overlay"), "a Title, Streams, a leaf, a dialog, the grid").toBe(true);
+    expect(levelPushed("player"), "the player takes the window").toBe(false);
+    expect(levelPushed("popover"), "an OSD popover rises from its own anchor").toBe(false);
+  });
+
+  test("a pushed level enters 24px from the trailing edge", () => {
+    expect(LEVEL_PUSH_PX).toBe(24);
   });
 });

@@ -3,20 +3,19 @@ import { useCallback, useState } from "react";
 import type { Title, Video } from "../../host-client";
 import { theFilm } from "../../stream";
 import {
-  isSeries,
   labelOf,
   nameOf,
-  releaseOf,
   seasonName,
-  seasonsOf,
   titleArtOf,
   type OpenablePreview,
 } from "../../title";
 import { useShell } from "../context";
 import { addonName } from "../home";
+import { Icon } from "./icons";
 import { ChoiceChip } from "./kit";
 import { StreamsLoader } from "../StreamsScreen";
 import { programIndex } from "./program";
+import { titleFacts, titleSide, unmappedOf } from "./titlePage";
 
 /**
  * One Title as a single-screen programme page: the backdrop stays the page,
@@ -37,15 +36,15 @@ export function RepertoryTitleScreen({
   preview?: OpenablePreview | null;
 }) {
   const { snapshot, pop, push } = useShell();
-  const seasons = seasonsOf(title);
+  const side = titleSide(title);
+  const seasons = side.kind === "series" ? side.seasons : [];
   const [shownSeason, setShownSeason] = useState<number | null>(seasons[0]?.season ?? null);
   const [selected, setSelected] = useState<Video | null>(null);
 
   const name = nameOf(title, preview);
-  const release = releaseOf(title, preview);
+  const facts = titleFacts(title, preview);
   const art = titleArtOf(title, preview);
   const shown = seasons.find((season) => season.season === shownSeason) ?? seasons[0];
-  const unmapped = title.key.kind === "addon";
   const suppliedBy = title.addon ? addonName(snapshot, title.addon) ?? title.addon : null;
 
   const play = useCallback(
@@ -102,16 +101,19 @@ export function RepertoryTitleScreen({
               </h1>
             )}
 
-            {title.imdbRating || release || title.runtime || title.genres.length > 0 ? (
+            {facts.length > 0 ? (
               <div className="rep-title-facts" data-testid="title-facts" aria-label="Facts">
-                {title.imdbRating ? (
-                  <span className="rep-title-rating">{`IMDb ${title.imdbRating}`}</span>
-                ) : null}
-                {release ? <span>{release}</span> : null}
-                {title.runtime ? <span>{title.runtime}</span> : null}
-                {title.genres.map((genre) => (
-                  <span key={genre}>{genre}</span>
-                ))}
+                {facts.map((fact) =>
+                  fact.role === "rating" ? (
+                    <span key={`${fact.role}:${fact.text}`} className="rep-title-rating" data-role={fact.role}>
+                      {fact.text}
+                    </span>
+                  ) : (
+                    <span key={`${fact.role}:${fact.text}`} data-role={fact.role}>
+                      {fact.text}
+                    </span>
+                  ),
+                )}
               </div>
             ) : null}
 
@@ -121,7 +123,7 @@ export function RepertoryTitleScreen({
 
             <div className="rep-title-attribution">
               {suppliedBy ? <span>{`Supplied by ${suppliedBy}`}</span> : null}
-              {unmapped ? (
+              {unmappedOf(title) ? (
                 <span className="rep-title-unmapped" data-testid="title-unmapped">
                   Unmapped — no TMDB record met this Title, so it is keyed by its Addon.
                 </span>
@@ -132,34 +134,9 @@ export function RepertoryTitleScreen({
           <aside
             className="rep-title-side"
             data-testid="title-side"
-            data-kind={seasons.length === 0 ? "film" : "series"}
+            data-kind={side.kind === "series" ? "series" : "film"}
           >
-            {seasons.length === 0 ? (
-              <div className="rep-title-film">
-                <p className="rep-title-side-kicker">
-                  {isSeries(title) ? "A series with no episodes" : "One Video · the film itself"}
-                </p>
-                <p className="rep-title-side-note" data-testid="title-no-videos">
-                  {isSeries(title)
-                    ? "This series' Addon listed no episodes, so there is nothing to ask Streams of."
-                    : "The film is one Video. Find the Addons' Streams for it."}
-                </p>
-                {isSeries(title) ? null : (
-                  <button
-                    type="button"
-                    className="rep-play"
-                    data-focusable
-                    data-testid="play-film"
-                    onClick={() => play(theFilm(title))}
-                  >
-                    <span className="rep-play-mark" aria-hidden="true">
-                      ▶
-                    </span>
-                    <span>Find Streams</span>
-                  </button>
-                )}
-              </div>
-            ) : (
+            {side.kind === "series" ? (
               <section
                 className="rep-title-program"
                 data-region="title-seasons"
@@ -225,6 +202,25 @@ export function RepertoryTitleScreen({
                   })}
                 </div>
               </section>
+            ) : (
+              <div className="rep-title-film">
+                <p className="rep-title-side-kicker">{side.kicker}</p>
+                <p className="rep-title-side-note" data-testid="title-no-videos">
+                  {side.note}
+                </p>
+                {side.kind === "film" ? (
+                  <button
+                    type="button"
+                    className="rep-play"
+                    data-focusable
+                    data-testid="play-film"
+                    onClick={() => play(theFilm(title))}
+                  >
+                    <Icon name="play" className="rep-play-mark" />
+                    <span>Find Streams</span>
+                  </button>
+                ) : null}
+              </div>
             )}
           </aside>
         </div>

@@ -10,7 +10,13 @@ import {
 import { Rail } from "./Rail";
 import type { Intent } from "../input";
 import type { Destination, ShellLevel } from "./navigation";
-import { destinationTransition, REPERTORY_RULES } from "./repertory/frame";
+import {
+  destinationTransition,
+  LEVEL_PUSH_PX,
+  levelPushed,
+  REPERTORY_RULES,
+} from "./repertory/frame";
+import { panel } from "./repertory/motion";
 import { RepertoryNav } from "./repertory/RepertoryNav";
 import { focusAndReveal } from "./reveal";
 import { toggleFullscreen, useFullscreen } from "./useFullscreen";
@@ -85,6 +91,82 @@ function RepertoryScreenStack({
         <RepertoryScreenLayer key={destination}>{children}</RepertoryScreenLayer>
       </AnimatePresence>
     </div>
+  );
+}
+
+/**
+ * One level of the repertory stack. A pushed overlay arrives 24px from the
+ * trailing edge with a fade and Back reverses it (design record §6); the level
+ * that is leaving is inert from the first frame of its exit, so the level
+ * beneath never takes a press. The animation never gates input: focus is
+ * restored on the level that is now on top before the transition starts.
+ */
+function RepertoryLevelShell({
+  level,
+  hidden,
+  underPlayer,
+  chrome,
+  attach,
+}: {
+  level: ShellLevel;
+  /** A lower level of the stack: painted, not reachable. */
+  hidden: boolean;
+  /** Painted beneath the player, whose hole is transparent. */
+  underPlayer: boolean;
+  /** This is the top level and its own chrome is drawn. */
+  chrome: boolean;
+  attach: (node: HTMLDivElement | null) => void;
+}) {
+  const [present, safeToRemove] = usePresence();
+  const pushed = levelPushed(level.kind);
+  const node = useRef<HTMLDivElement | null>(null);
+  const setRef = useCallback(
+    (element: HTMLDivElement | null) => {
+      node.current = element;
+      attach(element);
+    },
+    [attach],
+  );
+
+  // A level that is leaving is inert at once. If focus was still inside it, let
+  // go of it here: the focus engine sees a blurred control and restores the
+  // level beneath from its own memory, which is the control Back belongs to.
+  useEffect(() => {
+    if (present) {
+      return;
+    }
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && node.current?.contains(active)) {
+      active.blur();
+    }
+  }, [present]);
+
+  return (
+    <motion.div
+      ref={setRef}
+      className="shell-level"
+      data-level-id={level.id}
+      data-level={level.name}
+      data-level-kind={level.kind}
+      data-under-player={underPlayer ? "true" : undefined}
+      data-region={`level:${level.id}`}
+      data-kind="branch"
+      data-label={level.name}
+      aria-hidden={!present || hidden ? true : undefined}
+      inert={!present || hidden ? true : undefined}
+      initial={pushed ? { opacity: 0, x: LEVEL_PUSH_PX } : false}
+      animate={pushed ? { opacity: 1, x: 0 } : undefined}
+      exit={pushed ? { opacity: 0, x: LEVEL_PUSH_PX } : { opacity: 0 }}
+      transition={pushed ? panel() : { duration: 0 }}
+      onAnimationComplete={() => {
+        if (!present) {
+          safeToRemove();
+        }
+      }}
+    >
+      {level.render()}
+      {chrome ? <WindowChrome /> : null}
+    </motion.div>
   );
 }
 
@@ -274,25 +356,40 @@ export function ShellFrame({
         {levels.length === 0 ? <WindowChrome /> : null}
       </div>
 
-      {levels.map((level, index) => (
-        <div
-          key={level.id}
-          ref={attachLevel}
-          className="shell-level"
-          data-level-id={level.id}
-          data-level={level.name}
-          data-level-kind={level.kind}
-          data-under-player={playerIndex >= 0 && index < playerIndex ? "true" : undefined}
-          data-region={`level:${level.id}`}
-          data-kind="branch"
-          data-label={level.name}
-          aria-hidden={index < topIndex ? true : undefined}
-          inert={index < topIndex ? true : undefined}
-        >
-          {level.render()}
-          {index === topIndex && !takeover ? <WindowChrome /> : null}
-        </div>
-      ))}
+      {repertory ? (
+        <AnimatePresence initial={false}>
+          {levels.map((level, index) => (
+            <RepertoryLevelShell
+              key={level.id}
+              level={level}
+              hidden={index < topIndex}
+              underPlayer={playerIndex >= 0 && index < playerIndex}
+              chrome={index === topIndex && !takeover}
+              attach={attachLevel}
+            />
+          ))}
+        </AnimatePresence>
+      ) : (
+        levels.map((level, index) => (
+          <div
+            key={level.id}
+            ref={attachLevel}
+            className="shell-level"
+            data-level-id={level.id}
+            data-level={level.name}
+            data-level-kind={level.kind}
+            data-under-player={playerIndex >= 0 && index < playerIndex ? "true" : undefined}
+            data-region={`level:${level.id}`}
+            data-kind="branch"
+            data-label={level.name}
+            aria-hidden={index < topIndex ? true : undefined}
+            inert={index < topIndex ? true : undefined}
+          >
+            {level.render()}
+            {index === topIndex && !takeover ? <WindowChrome /> : null}
+          </div>
+        ))
+      )}
     </div>
   );
 }
