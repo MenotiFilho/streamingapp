@@ -66,4 +66,27 @@ describe("the repertory poster card", () => {
     fireEvent.click(card);
     expect(onOpen).not.toHaveBeenCalled();
   });
+
+  test("stamps the account's Continue mark, and only when it is asked", () => {
+    const { rerender } = render(<PosterCard name="The Matrix" continueWatching />);
+    expect(screen.getByText("Continue")).toBeInTheDocument();
+
+    rerender(<PosterCard name="The Matrix" />);
+    expect(screen.queryByText("Continue")).toBeNull();
+  });
+
+  test("a still card keeps the picture and the marks but is not a control", () => {
+    render(
+      <PosterCard
+        name="The Matrix"
+        unplayable
+        openable={false}
+        testId="library-card-tt0133093"
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /The Matrix/ })).toBeNull();
+    expect(screen.getByTestId("library-card-tt0133093")).toBeInTheDocument();
+    expect(screen.getByText("Unplayable")).toBeInTheDocument();
+  });
 });

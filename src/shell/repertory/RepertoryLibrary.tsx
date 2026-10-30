@@ -5,13 +5,12 @@ import {
   explain,
   type ActionError,
   type Library,
-  type LibraryEntry,
 } from "../../host-client";
 import { useShell } from "../context";
-import { Button } from "./kit";
+import { Button, PosterCard } from "./kit";
 import { StremioAccount } from "../StremioAccount";
 import { useTitleOpener } from "../TitleScreen";
-import { libraryAddon, libraryPreview } from "./accountLibrary";
+import { libraryAddon, libraryExpired, libraryPreview } from "./accountLibrary";
 import { LogEmpty, LogGroup, LogHead, LogNote, LogPreviewNote } from "./RepertoryLog";
 
 /**
@@ -129,14 +128,22 @@ function LibraryRoom() {
 
   return (
     <>
-      <div className="rep-feed-grid" data-testid="library-grid">
+      <div
+        className="rep-library-grid"
+        data-testid="library-grid"
+      >
         {library.entries.map((entry) => {
           const addon = libraryAddon(snapshot?.addons ?? [], entry);
           return (
-            <LibraryPoster
+            <PosterCard
               key={entry.id}
-              entry={entry}
-              onOpen={
+              name={entry.name}
+              poster={entry.poster}
+              continueWatching={entry.continueWatching}
+              unplayable={addon === null}
+              openable={addon !== null}
+              testId={`library-card-${entry.id}`}
+              onClick={
                 addon
                   ? () => openTitle(addon.id, libraryPreview(entry))
                   : undefined
@@ -162,9 +169,7 @@ function LibraryFailure({
   failure: ActionError;
   onRetry: () => void;
 }) {
-  const expired =
-    failure.kind === "library" &&
-    (failure.detail ?? "").includes("Session does not exist");
+  const expired = libraryExpired(failure);
 
   return (
     <section className="rep-library-failure" data-testid="library-failure">
@@ -196,60 +201,5 @@ function LibraryFailure({
         </Button>
       )}
     </section>
-  );
-}
-
-/**
- * One account item as the same poster card the feed screens use: the poster,
- * the title, the Continue stamp where the account left a position, and the
- * Unplayable mark where no configured Addon can open it.
- *
- * The card opens the Title through the Addon that answers its `meta`; the room
- * itself made no Addon call to draw it.
- */
-function LibraryPoster({
-  entry,
-  onOpen,
-}: {
-  entry: LibraryEntry;
-  onOpen?: () => void;
-}) {
-  const label = `${entry.name}${entry.continueWatching ? ". Continue watching." : ""}${
-    onOpen ? " Open the Title." : " No configured Addon can open it."
-  }`;
-  const body = (
-    <>
-      <span className="rep-poster">
-        {entry.poster ? (
-          <img src={entry.poster} alt="" loading="lazy" />
-        ) : (
-          <span className="rep-art-missing">{entry.name}</span>
-        )}
-        {entry.continueWatching ? <span className="rep-continue-badge">Continue</span> : null}
-        {onOpen ? null : <span className="rep-unplayable-badge">Unplayable</span>}
-      </span>
-      <span className="rep-caption">
-        <span className="rep-caption-line">
-          <span className="rep-card-title">{entry.name}</span>
-        </span>
-      </span>
-    </>
-  );
-
-  return onOpen ? (
-    <button
-      type="button"
-      className="rep-card"
-      data-focusable
-      data-testid={`library-card-${entry.id}`}
-      aria-label={label}
-      onClick={onOpen}
-    >
-      {body}
-    </button>
-  ) : (
-    <div className="rep-card" data-testid={`library-card-${entry.id}`} data-unplayable="true">
-      {body}
-    </div>
   );
 }

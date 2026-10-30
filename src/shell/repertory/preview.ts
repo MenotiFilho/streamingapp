@@ -19,6 +19,12 @@ import type {
   Track,
 } from "../../host-client";
 
+/**
+ * The one Addon the plain Vite preview reads. The Tauri window reads the Host's
+ * configured Addons; this name is only the preview transport's own catalogue.
+ */
+export const PREVIEW_ADDON = "cinemeta";
+
 /** Cinemeta's own genre lists, as its manifest declares them. */
 export const CINEMETA_MOVIE_GENRES = [
   "Action",

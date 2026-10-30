@@ -291,7 +291,10 @@ system; #159 replaces the prototype's Unicode.
   the Host's register on the right — and an open Addon row carries the
   manifest's own facts as a compact 2×2 (**Id**, Catalogs, Resources, Types)
   plus **Move up**, **Move down** and **Remove**. A narrow window stacks the
-  columns and lets the register scroll under the form.
+  columns and lets the register scroll under the form. The signed-in Library is
+  the one exception: its account collection is a shelf of poster cards (§9),
+  not a hairline register; the gate and the one-line head keep the register's
+  grammar.
 
 ### Cards
 
@@ -306,7 +309,9 @@ system; #159 replaces the prototype's Unicode.
 - **Rail**: one view shows five cards and half of the next; an arrow pages
   exactly five cards. The last card is a **More** card that opens the whole row
   as a grid. Entering a rail from outside a rail starts at its first card;
-  moving between rails keeps the nearest card.
+  moving between rails keeps the nearest card. A feed row is its own source: its
+  quiet head action asks the Host's next page, and its More card opens the cards
+  read so far; the grid does not ask a page of its own.
 - **Feature**: the backdrop between two hairlines, a two-gradient ink scrim, the
   Title in display serif over it, the kicker in mono (`Feature presentation` and
   the programme's position), one line of facts, the description, and one
@@ -389,7 +394,12 @@ Marks, all stamped rather than spoken:
 - **Unmapped**: the brass stamp on the Title page — *Unmapped — no TMDB record
   met this Title, so it is keyed by its Addon* — a mark, not an error.
 - **Unplayable**: a status-red outlined stamp on a card or candidate; it still
-  opens and the Streams list still shows what exists.
+  opens and the Streams list still shows what exists. The exception is a
+  Library entry whose Addon is gone: no Addon can be asked for its Title, so it
+  keeps its picture and stamp and is not a control.
+- **Continue**: a Library item the Stremio account left part-way carries a mono
+  `Continue` stamp on the art. It is the account's own position, not Continue
+  watching and not a progress bar.
 - **Quality / source**: the Addon's own badge lines verbatim, first line as the
   source, the rest as marks; never re-worded, re-ranked or hidden.
 - **Waiting**: a quiet mono line (`Waiting for the Host…` after 150ms), never a
@@ -502,12 +512,11 @@ rule.
 
 | The prototype today | The record | Closed by |
 |---|---|---|
-| Discover, Search, Addons and the logbook still carry per-screen `clamp()` sizes and off-scale paddings; the Title and Streams are on the stage unit | every ten-foot size and layout dimension from the stage unit and the fixed spacing steps (§3–§4) | #156–#159 |
-| Discover and Search still draw the Velvet screen layout and the prototype card wash; the repertory kit is mounted under it | the editorial feed and the result rows in the repertory anatomy, with the wash only on a focused poster's art (§5) | #156 |
+| Addons and Settings still carry per-screen `clamp()` sizes and off-scale paddings, and the Library reuses the shell's Stremio form; the Title, Streams, Discover, Search and the Library's own room are on the stage unit | every ten-foot size and layout dimension from the stage unit and the fixed spacing steps (§3–§4) | #157–#159 |
 | the OSD names the current chapter permanently at the centre | the chapter is named only in the hover/drag callout | #158 |
 | the OSD's ±10s and subtitles marks are text; the Remote is Unicode | one drawn set on both clients | #158, #159 |
 | the volume is the native range with `accent-color` | a drawn rail with a brass fill | #158 |
 | shadows on the OSD | depth is a hairline and one ink step | #158 |
-| Discover, Search and the OSD do not use the Motion presets yet; the Remote is still CSS transitions only | Motion in both clients, with the spring presets and the transition shapes in §6 | #156, #158, #159 |
+| the OSD does not use the Motion presets yet; the Remote is still CSS transitions only | Motion in both clients, with the spring presets and the transition shapes in §6 | #158, #159 |
 | the Remote's strip still scroll-snaps | no snapping: the rail scroll is redirected mid-flight (§6) | #159 |
 | the Velvet sheet and its splice live beside the repertory sheet; the served page keeps `/` and the `?ui` gate | one sheet, one splice, one page | #152, #160 |
