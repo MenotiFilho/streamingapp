@@ -1,5 +1,5 @@
-@import "./fonts.css";
 @import "./osd.css";
+@import "./kit/kit.css";
 @import "./tokens.css";
 
 /*
@@ -37,15 +37,15 @@ html[data-ui="repertory"] ::selection {
 
 html[data-ui="repertory"] [data-focusable] {
   transition:
-    background-color var(--rep-dur-fast) var(--rep-ease),
-    color var(--rep-dur-fast) var(--rep-ease),
-    outline-color var(--rep-dur-fast) var(--rep-ease);
+    background-color var(--rep-motion-fade) var(--rep-ease),
+    color var(--rep-motion-fade) var(--rep-ease),
+    outline-color var(--rep-motion-fade) var(--rep-ease);
 }
 
 html[data-ui="repertory"] [data-focusable]:focus,
 html[data-ui="repertory"] [data-focusable]:focus-visible {
-  outline: 2px solid var(--rep-ivory);
-  outline-offset: 3px;
+  outline: var(--rep-focus-ring);
+  outline-offset: var(--rep-focus-offset);
   box-shadow: none;
 }
 
@@ -79,7 +79,7 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 
 .rep-frame[data-frame="spine"] .shell-stage {
   margin-left: var(--rep-spine-compact);
-  padding: clamp(32px, 2.5vw, 3.2vw) clamp(32px, 2.9vw, 4vw) clamp(64px, 5vw, 7vw);
+  padding: var(--rep-stage-top) var(--rep-gutter) var(--rep-stage-bottom);
 }
 
 /* The programme makes room when the spine opens: a book's margin, not a drawer
@@ -90,8 +90,8 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 
 .rep-frame[data-frame="strip"] .shell-stage {
   margin-left: 0;
-  padding: calc(var(--rep-strip-height) + clamp(28px, 2.1vw, 3vw)) clamp(32px, 2.9vw, 4vw)
-    clamp(64px, 5vw, 7vw);
+  padding: calc(var(--rep-strip-height) + var(--rep-stage-top)) var(--rep-gutter)
+    var(--rep-stage-bottom);
 }
 
 .rep-frame .shell-screen {
@@ -135,9 +135,9 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: clamp(20px, 1.6vw, 2.2vw);
+  gap: var(--rep-space-5);
   width: var(--rep-spine-compact);
-  padding: clamp(24px, 1.8vw, 2.4vw) clamp(12px, 0.9vw, 1.2vw);
+  padding: var(--rep-space-5) var(--rep-space-3);
   border-right: 1px solid var(--rep-hairline);
   background: var(--rep-ink);
   box-sizing: border-box;
@@ -147,14 +147,12 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 /*
  * Navigating the spine is the one moment it opens. It grows over the stage
  * instead of moving it, so the pictures never reflow under the cursor; the
- * compact column stays the page's margin.
+ * compact column stays the page's margin. Depth is the hairline, not a shadow.
  */
 .rep-nav--spine:focus-within {
   justify-content: flex-start;
   width: var(--rep-spine-width);
-  padding: clamp(32px, 2.3vw, 3vw) clamp(20px, 1.5vw, 2vw) clamp(24px, 1.7vw, 2.2vw)
-    clamp(28px, 1.9vw, 2.4vw);
-  box-shadow: 24px 0 80px -40px rgba(0, 0, 0, 0.95);
+  padding: var(--rep-space-7) var(--rep-space-5) var(--rep-space-5) var(--rep-space-6);
 }
 
 .rep-spine-head {
@@ -200,7 +198,7 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   align-items: center;
   gap: 0;
   width: 100%;
-  padding: clamp(9px, 0.7vw, 0.95vw) 0;
+  padding: var(--rep-space-2) 0;
   border: 0;
   background: transparent;
   color: var(--rep-dim);
@@ -214,17 +212,17 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 }
 
 .rep-nav--spine:focus-within .rep-index-item {
-  grid-template-columns: clamp(24px, 1.5vw, 1.8vw) clamp(34px, 2.2vw, 2.8vw) 1fr;
+  grid-template-columns: var(--rep-space-5) var(--rep-space-6) 1fr;
   justify-items: start;
-  gap: 10px;
-  padding: 12px 10px;
+  gap: var(--rep-space-3);
+  padding: var(--rep-space-3) var(--rep-space-2);
 }
 
 .rep-index-icon {
   display: grid;
   place-items: center;
-  width: clamp(26px, 1.7vw, 2vw);
-  height: clamp(26px, 1.7vw, 2vw);
+  width: max(26px, calc(var(--rep-stage) * 1.4));
+  height: max(26px, calc(var(--rep-stage) * 1.4));
   color: var(--rep-muted);
 }
 
@@ -310,9 +308,9 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
-  gap: clamp(24px, 2.1vw, 3vw);
+  gap: var(--rep-space-6);
   height: var(--rep-strip-height);
-  padding: clamp(12px, 1vw, 1.5vw) clamp(32px, 2.9vw, 4vw) 0;
+  padding: var(--rep-space-3) var(--rep-gutter) 0;
   border-bottom: 1px solid var(--rep-hairline);
   background: var(--rep-ink);
   box-sizing: border-box;
@@ -466,11 +464,6 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   outline-offset: 6px;
 }
 
-html[data-ui="repertory"] .rep-feature-card:focus,
-html[data-ui="repertory"] .rep-feature-card:focus-visible {
-  box-shadow: 0 0 72px 10px rgba(201, 164, 92, 0.16);
-}
-
 .rep-feature-art {
   position: relative;
   display: block;
@@ -508,7 +501,11 @@ html[data-ui="repertory"] .rep-feature-card:focus-visible {
   height: 100%;
   padding: 32px;
   background:
-    radial-gradient(80% 120% at 20% 20%, rgba(201, 164, 92, 0.08), transparent 60%),
+    radial-gradient(
+      80% 120% at 20% 20%,
+      color-mix(in srgb, var(--rep-house) 8%, transparent),
+      transparent 60%
+    ),
     var(--rep-ink-raised);
   color: var(--rep-muted);
   font-family: var(--rep-display);
@@ -531,7 +528,7 @@ html[data-ui="repertory"] .rep-feature-card:focus-visible {
   background: var(--rep-ink-raised);
   box-sizing: border-box;
   overflow: hidden;
-  transition: background-color var(--rep-dur-fast) var(--rep-ease);
+  transition: background-color var(--rep-motion-fade) var(--rep-ease);
 }
 
 .rep-feature-card:focus .rep-feature-plate,
@@ -583,7 +580,7 @@ html[data-ui="repertory"] .rep-feature-card:focus-visible {
 
 .rep-feature-description {
   display: -webkit-box;
-  max-width: 46ch;
+  max-width: 58ch;
   overflow: hidden;
   color: var(--rep-dim);
   font-family: var(--rep-sans);
@@ -735,7 +732,7 @@ html[data-ui="repertory"] .rep-feature-card:focus-visible {
   background: var(--rep-focus-wash);
   opacity: 0;
   pointer-events: none;
-  transition: opacity var(--rep-dur-med) var(--rep-ease);
+  transition: opacity var(--rep-motion-fade) var(--rep-ease);
 }
 
 .rep-card:focus::before,
@@ -1035,7 +1032,7 @@ html[data-ui="repertory"] .rep-feature-card:focus-visible {
 .rep-destinations {
   position: relative;
   min-height: calc(100vh - var(--window-chrome-clearance));
-  padding: 48px 56px 56px;
+  padding: var(--rep-stage-top) var(--rep-gutter) var(--rep-space-8);
   background: var(--rep-ink);
   box-sizing: border-box;
 }
@@ -1137,8 +1134,8 @@ html[data-ui="repertory"] .rep-feature-card:focus-visible {
 
 .rep-destinations-close {
   position: absolute;
-  top: 24px;
-  right: 56px;
+  top: var(--rep-space-5);
+  right: var(--rep-gutter);
   margin: 0;
 }
 
@@ -1271,7 +1268,6 @@ html[data-ui="repertory"] .rep-feature-card:focus-visible {
   font-family: var(--rep-mono);
   font-size: 14px;
   line-height: 1.2;
-  box-shadow: 0 18px 40px -20px rgba(0, 0, 0, 0.9);
 }
 
 .rep-rehearsal-label {
@@ -1312,16 +1308,6 @@ html[data-ui="repertory"] .rep-feature-card:focus-visible {
 }
 
 @media (max-width: 1300px) {
-  .rep-frame[data-frame="spine"] .shell-stage {
-    padding-left: 40px;
-    padding-right: 40px;
-  }
-
-  .rep-nav--strip {
-    padding-left: 40px;
-    padding-right: 40px;
-  }
-
   .rep-strip-index {
     padding-right: 64px;
   }
@@ -1370,16 +1356,8 @@ html[data-ui="repertory"] .rep-feature-card:focus-visible {
 }
 
 @media (max-width: 1300px) {
-  .rep-destinations {
-    padding: 40px;
-  }
-
   .rep-destinations-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .rep-destinations-close {
-    right: 40px;
   }
 }
 
@@ -1407,81 +1385,6 @@ html[data-ui="repertory"] .shell-level {
   );
   color: var(--rep-ivory);
   font-family: var(--rep-sans);
-}
-
-/* The Velvet kit is still the control set; these are its repertory clothes. */
-html[data-ui="repertory"] .kit-button {
-  border-radius: 0;
-  border-color: var(--rep-hairline);
-  background: var(--rep-ink-raised);
-  color: var(--rep-ivory);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-text-control);
-  font-weight: 500;
-}
-
-html[data-ui="repertory"] .kit-button[data-variant="primary"] {
-  border-color: transparent;
-  background: var(--rep-house);
-  color: var(--rep-ink);
-}
-
-html[data-ui="repertory"] .kit-button[data-variant="ghost"] {
-  background: transparent;
-  color: var(--rep-dim);
-}
-
-html[data-ui="repertory"] .kit-focus-invert:focus,
-html[data-ui="repertory"] .kit-focus-invert:focus-visible {
-  border-color: var(--rep-ivory);
-  background: var(--rep-ink-elevated);
-  color: var(--rep-ivory);
-}
-
-html[data-ui="repertory"] .kit-button[data-variant="primary"]:focus,
-html[data-ui="repertory"] .kit-button[data-variant="primary"]:focus-visible {
-  background: var(--rep-house);
-  color: var(--rep-ink);
-}
-
-html[data-ui="repertory"] .kit-choice {
-  border-radius: 0;
-  border-color: var(--rep-hairline);
-  background: transparent;
-  color: var(--rep-dim);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-text-control);
-  font-weight: 500;
-}
-
-html[data-ui="repertory"] .kit-choice[aria-pressed="true"] {
-  border-color: var(--rep-house);
-  background: var(--rep-ink-raised);
-  color: var(--rep-ivory);
-}
-
-html[data-ui="repertory"] .kit-chip {
-  border-radius: 0;
-  border-color: var(--rep-hairline);
-  background: var(--rep-ink-raised);
-  color: var(--rep-dim);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-badge);
-}
-
-html[data-ui="repertory"] .kit-chip[data-tone="accent"] {
-  border-color: var(--rep-house);
-  color: var(--rep-house);
-}
-
-html[data-ui="repertory"] .kit-chip[data-tone="warn"] {
-  border-color: var(--rep-house);
-  color: var(--rep-house);
-}
-
-html[data-ui="repertory"] .kit-chip[data-tone="danger"] {
-  border-color: var(--rep-status-red);
-  color: var(--rep-status-red);
 }
 
 /* --------------------------------------------------------------------------
@@ -1765,30 +1668,22 @@ html[data-ui="repertory"] .shell-level:has(.rep-title-level) {
 }
 
 /* A season is a chip like a control is: one press, one season. */
-html[data-ui="repertory"] .rep-season.kit-choice {
+html[data-ui="repertory"] .rep-season.rep-kit-choice {
+  flex: none;
   padding: 0.4rem 0.8rem;
-  border-radius: 0;
-  border-color: var(--rep-hairline);
-  background: color-mix(in srgb, var(--rep-ink) 58%, transparent);
-  color: var(--rep-dim);
-  font-family: var(--rep-sans);
   font-size: var(--rep-text-caption);
   font-weight: 500;
 }
 
-html[data-ui="repertory"] .rep-season.kit-choice > span:first-child {
+html[data-ui="repertory"] .rep-season.rep-kit-choice > span:first-child {
   color: var(--rep-muted);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-badge);
 }
 
-html[data-ui="repertory"] .rep-season.kit-choice[aria-pressed="true"] {
-  border-color: var(--rep-house);
-  background: var(--rep-ink-raised);
-  color: var(--rep-ivory);
-}
-
-html[data-ui="repertory"] .rep-season.kit-choice[aria-pressed="true"] > span:first-child {
+/* The chosen season is the kit's brass inset rule and ivory ink; the screen
+ * only moves the number to brass with it. */
+html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span:first-child {
   color: var(--rep-house);
 }
 
@@ -2181,7 +2076,7 @@ html[data-ui="repertory"] .rep-season.kit-choice[aria-pressed="true"] > span:fir
 
 .rep-streams-note,
 .rep-stream-failure {
-  max-width: 64ch;
+  max-width: 62ch;
   margin: 16px 0;
   color: var(--rep-muted);
   font-family: var(--rep-sans);
@@ -2196,7 +2091,7 @@ html[data-ui="repertory"] .rep-season.kit-choice[aria-pressed="true"] > span:fir
 .rep-streams-chosen {
   position: sticky;
   bottom: 24px;
-  max-width: 70ch;
+  max-width: 62ch;
   margin: 32px 0 0;
   padding: 14px 18px;
   border: 1px solid var(--rep-status-red);
@@ -2263,7 +2158,7 @@ html[data-ui="repertory"] .rep-season.kit-choice[aria-pressed="true"] > span:fir
 }
 
 .rep-feed-note {
-  max-width: 64ch;
+  max-width: 62ch;
   margin: 0;
   color: var(--rep-dim);
   font-family: var(--rep-sans);
@@ -2294,7 +2189,7 @@ html[data-ui="repertory"] .search-screen > .shell-screen-title {
 }
 
 html[data-ui="repertory"] .shell-lede {
-  max-width: 66ch;
+  max-width: 62ch;
   color: var(--rep-dim);
   font-family: var(--rep-sans);
   font-size: var(--rep-text-body);
@@ -2321,7 +2216,7 @@ html[data-ui="repertory"] .search-grid {
 
 html[data-ui="repertory"] .discover-empty {
   gap: 18px;
-  max-width: 60ch;
+  max-width: 62ch;
   margin-top: 0;
   padding: 40px 0;
   border: 0;
@@ -2436,100 +2331,6 @@ html[data-ui="repertory"] .search-row-note {
   font-family: var(--rep-sans);
   font-size: var(--rep-text-body);
   line-height: var(--rep-leading-body);
-}
-
-/* --------------------------------------------------------------------------
- * The repertory poster card used by Discover and Search
- * -------------------------------------------------------------------------- */
-
-html[data-ui="repertory"] .kit-poster[data-variant="repertory"] {
-  width: auto;
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--rep-dim);
-  overflow: visible;
-}
-
-html[data-ui="repertory"] .kit-poster[data-variant="repertory"] .kit-poster-art-frame {
-  background: var(--rep-ink-raised);
-}
-
-html[data-ui="repertory"] .kit-poster[data-variant="repertory"] .kit-poster-info {
-  display: flex;
-  flex-direction: row;
-  align-items: baseline;
-  gap: 8px;
-  padding: 12px 0 0;
-}
-
-html[data-ui="repertory"] .kit-poster[data-variant="repertory"] .kit-poster-name {
-  display: -webkit-box;
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--rep-dim);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-text-control);
-  font-weight: 500;
-  line-height: 1.22;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-html[data-ui="repertory"] .kit-poster[data-variant="repertory"]:focus .kit-poster-name,
-html[data-ui="repertory"] .kit-poster[data-variant="repertory"]:focus-visible .kit-poster-name {
-  color: var(--rep-ivory);
-}
-
-html[data-ui="repertory"] .kit-poster[data-variant="repertory"] .kit-poster-sub {
-  flex: none;
-  margin-top: 1px;
-  padding: 0 5px;
-  border: 1px solid var(--rep-hairline);
-  color: var(--rep-muted);
-  font-family: var(--rep-mono);
-  font-size: calc(var(--rep-text-badge) * 0.78);
-  line-height: 1.3;
-  white-space: nowrap;
-}
-
-html[data-ui="repertory"] .kit-poster[data-variant="repertory"] .kit-badge-unmapped,
-html[data-ui="repertory"] .kit-poster[data-variant="repertory"] .kit-badge-unplayable {
-  top: 10px;
-  left: 10px;
-  padding: 2px 8px;
-  border-radius: 0;
-  background: var(--rep-ink-raised);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-badge);
-}
-
-html[data-ui="repertory"] .kit-poster[data-variant="repertory"] .kit-badge-unmapped {
-  border-color: var(--rep-house);
-  color: var(--rep-house);
-}
-
-html[data-ui="repertory"] .kit-poster[data-variant="repertory"] .kit-badge-unplayable {
-  border-color: var(--rep-status-red);
-  color: var(--rep-status-red);
-}
-
-/* The focus wash a poster earns, matching Home's cards. */
-html[data-ui="repertory"] .kit-poster[data-variant="repertory"]::before {
-  content: "";
-  position: absolute;
-  inset: -18px -14px;
-  background: var(--rep-focus-wash);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--rep-dur-med) var(--rep-ease);
-}
-
-html[data-ui="repertory"] .kit-poster[data-variant="repertory"]:focus::before,
-html[data-ui="repertory"] .kit-poster[data-variant="repertory"]:focus-visible::before {
-  opacity: 1;
 }
 
 /* One row of single-select chips: Movie / Series and the genre filters. */
@@ -2653,7 +2454,7 @@ html[data-ui="repertory"] .kit-poster[data-variant="repertory"]:focus-visible::b
 }
 
 .rep-log-note {
-  max-width: 66ch;
+  max-width: 62ch;
   margin: 0;
   color: var(--rep-dim);
   font-family: var(--rep-sans);
@@ -2665,7 +2466,7 @@ html[data-ui="repertory"] .kit-poster[data-variant="repertory"]:focus-visible::b
 .rep-settings-form {
   display: grid;
   gap: 14px;
-  max-width: 760px;
+  max-width: 46ch;
   min-width: 0;
 }
 
@@ -2715,7 +2516,7 @@ html[data-ui="repertory"] .kit-poster[data-variant="repertory"]:focus-visible::b
 }
 
 /* The kit's control set, drawn as a printed line rather than a box. */
-html[data-ui="repertory"] .kit-button.rep-log-action {
+html[data-ui="repertory"] .rep-kit-button.rep-log-action {
   min-height: auto;
   padding: 6px 0;
   border: 0;
@@ -2729,23 +2530,23 @@ html[data-ui="repertory"] .kit-button.rep-log-action {
   letter-spacing: 0.04em;
 }
 
-html[data-ui="repertory"] .kit-button.rep-log-action:hover,
-html[data-ui="repertory"] .kit-button.rep-log-action:focus,
-html[data-ui="repertory"] .kit-button.rep-log-action:focus-visible {
+html[data-ui="repertory"] .rep-kit-button.rep-log-action:hover,
+html[data-ui="repertory"] .rep-kit-button.rep-log-action:focus,
+html[data-ui="repertory"] .rep-kit-button.rep-log-action:focus-visible {
   border-bottom-color: var(--rep-house);
   background: transparent;
   color: var(--rep-ivory);
 }
 
-html[data-ui="repertory"] .kit-button.rep-log-action:disabled {
+html[data-ui="repertory"] .rep-kit-button.rep-log-action:disabled {
   border-bottom-color: transparent;
   color: var(--rep-muted);
 }
 
-html[data-ui="repertory"] .kit-button.rep-log-action.rep-log-action--danger,
-html[data-ui="repertory"] .kit-button.rep-log-action.rep-log-action--danger:hover,
-html[data-ui="repertory"] .kit-button.rep-log-action.rep-log-action--danger:focus,
-html[data-ui="repertory"] .kit-button.rep-log-action.rep-log-action--danger:focus-visible {
+html[data-ui="repertory"] .rep-kit-button.rep-log-action.rep-log-action--danger,
+html[data-ui="repertory"] .rep-kit-button.rep-log-action.rep-log-action--danger:hover,
+html[data-ui="repertory"] .rep-kit-button.rep-log-action.rep-log-action--danger:focus,
+html[data-ui="repertory"] .rep-kit-button.rep-log-action.rep-log-action--danger:focus-visible {
   border: 0;
   border-bottom: 1px solid var(--rep-status-red);
   border-radius: 0;
@@ -2753,7 +2554,7 @@ html[data-ui="repertory"] .kit-button.rep-log-action.rep-log-action--danger:focu
   color: var(--rep-status-red);
 }
 
-html[data-ui="repertory"] .kit-button.rep-log-action.rep-log-action--danger:disabled {
+html[data-ui="repertory"] .rep-kit-button.rep-log-action.rep-log-action--danger:disabled {
   border-bottom-color: transparent;
   color: var(--rep-muted);
 }
@@ -2764,7 +2565,7 @@ html[data-ui="repertory"] .kit-button.rep-log-action.rep-log-action--danger:disa
   flex-wrap: wrap;
   align-items: baseline;
   gap: 12px;
-  max-width: 1060px;
+  max-width: 62ch;
   margin: 0;
   padding: 12px 0;
   border-top: 1px solid var(--rep-hairline);
@@ -2784,7 +2585,7 @@ html[data-ui="repertory"] .kit-button.rep-log-action.rep-log-action--danger:disa
 /* Two-column facts: the term and its value share one hairline. */
 .rep-log-facts {
   display: grid;
-  max-width: 760px;
+  max-width: 46ch;
   margin: 0;
   border-top: 1px solid var(--rep-hairline);
 }
@@ -2912,7 +2713,7 @@ html[data-ui="repertory"] .kit-button.rep-log-action.rep-log-action--danger:disa
 .rep-log-empty {
   display: grid;
   gap: 14px;
-  max-width: 64ch;
+  max-width: 62ch;
   padding: clamp(26px, 2.2vw, 36px) 0;
   border-top: 1px solid var(--rep-hairline);
   border-bottom: 1px solid var(--rep-hairline);
@@ -2937,7 +2738,7 @@ html[data-ui="repertory"] .kit-button.rep-log-action.rep-log-action--danger:disa
 }
 
 .rep-log-refusal {
-  max-width: 1060px;
+  max-width: 62ch;
   margin: 0;
   padding: 12px 16px;
   border: 1px solid var(--rep-status-red);
@@ -2973,7 +2774,7 @@ html[data-ui="repertory"] .kit-button.rep-log-action.rep-log-action--danger:disa
 
 /* The shared Stremio form, re-dressed without touching its behaviour. */
 html[data-ui="repertory"] .shell-form {
-  max-width: 760px;
+  max-width: 46ch;
   gap: 14px;
 }
 
@@ -3025,10 +2826,10 @@ html[data-ui="repertory"] .shell-inline-refusal {
 }
 
 .rep-log-signin {
-  max-width: 760px;
+  max-width: 46ch;
 }
 
-html[data-ui="repertory"] .rep-log-signin .kit-button {
+html[data-ui="repertory"] .rep-log-signin .rep-kit-button {
   min-height: auto;
   padding: 6px 0;
   border: 0;
@@ -3042,16 +2843,16 @@ html[data-ui="repertory"] .rep-log-signin .kit-button {
   letter-spacing: 0.04em;
 }
 
-html[data-ui="repertory"] .rep-log-signin .kit-button:hover,
-html[data-ui="repertory"] .rep-log-signin .kit-button:focus,
-html[data-ui="repertory"] .rep-log-signin .kit-button:focus-visible {
+html[data-ui="repertory"] .rep-log-signin .rep-kit-button:hover,
+html[data-ui="repertory"] .rep-log-signin .rep-kit-button:focus,
+html[data-ui="repertory"] .rep-log-signin .rep-kit-button:focus-visible {
   border-bottom-color: var(--rep-ivory);
   background: transparent;
   color: var(--rep-ivory);
 }
 
 /* The one strong action in the sign-in form, like Add and Save key. */
-html[data-ui="repertory"] .rep-log-signin .kit-button[type="submit"] {
+html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"] {
   min-height: 2.75rem;
   padding: var(--rep-space-2) var(--rep-space-4);
   border: 0;
@@ -3059,8 +2860,8 @@ html[data-ui="repertory"] .rep-log-signin .kit-button[type="submit"] {
   color: var(--rep-ink);
 }
 
-html[data-ui="repertory"] .rep-log-signin .kit-button[type="submit"]:focus,
-html[data-ui="repertory"] .rep-log-signin .kit-button[type="submit"]:focus-visible {
+html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"]:focus,
+html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"]:focus-visible {
   background: var(--rep-house);
   color: var(--rep-ink);
 }
@@ -3069,7 +2870,7 @@ html[data-ui="repertory"] .rep-log-signin .kit-button[type="submit"]:focus-visib
 .rep-pairing {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  max-width: 760px;
+  max-width: 46ch;
   border: 1px solid var(--rep-hairline);
 }
 
@@ -3157,7 +2958,7 @@ html[data-ui="repertory"] .rep-log-signin .kit-button[type="submit"]:focus-visib
 .rep-library-stub {
   display: grid;
   gap: 16px;
-  max-width: 66ch;
+  max-width: 62ch;
   padding: clamp(28px, 2.4vw, 40px) 0;
   border-top: 1px solid var(--rep-hairline);
   border-bottom: 1px solid var(--rep-hairline);
@@ -3197,7 +2998,7 @@ html[data-ui="repertory"] .rep-log-signin .kit-button[type="submit"]:focus-visib
   flex-direction: column;
   align-items: flex-start;
   gap: clamp(14px, 1.2vw, 20px);
-  max-width: 760px;
+  max-width: 46ch;
   padding: 16px 0;
   border-top: 1px solid var(--rep-hairline);
   border-bottom: 1px solid var(--rep-hairline);
@@ -3216,50 +3017,6 @@ html[data-ui="repertory"] .rep-log-signin .kit-button[type="submit"]:focus-visib
   font-family: var(--rep-mono);
   font-size: var(--rep-text-mono);
   line-height: 1.4;
-}
-
-/* Confirmation surfaces are the same question in the logbook's clothes. */
-html[data-ui="repertory"] .kit-dialog-scrim {
-  background: color-mix(in srgb, var(--rep-ink) 82%, transparent);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-}
-
-html[data-ui="repertory"] .kit-dialog {
-  border: 1px solid var(--rep-hairline);
-  border-radius: 0;
-  background: var(--rep-ink-elevated);
-  box-shadow: none;
-}
-
-html[data-ui="repertory"] .kit-dialog-title {
-  color: var(--rep-ivory);
-  font-family: var(--rep-display);
-  font-size: var(--rep-text-title);
-  font-weight: 500;
-  letter-spacing: var(--rep-tracking-display);
-  line-height: 1.04;
-}
-
-html[data-ui="repertory"] .kit-dialog-body {
-  color: var(--rep-dim);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-text-body);
-  line-height: var(--rep-leading-body);
-}
-
-html[data-ui="repertory"] .kit-button[data-tone="danger"] {
-  border: 1px solid var(--rep-status-red);
-  border-radius: 0;
-  background: transparent;
-  color: var(--rep-status-red);
-}
-
-html[data-ui="repertory"] .kit-button[data-tone="danger"]:focus,
-html[data-ui="repertory"] .kit-button[data-tone="danger"]:focus-visible {
-  border-color: var(--rep-status-red);
-  background: var(--rep-status-red);
-  color: var(--rep-ink);
 }
 
 @media (max-width: 900px) {
@@ -3327,7 +3084,7 @@ html[data-ui="repertory"] .kit-button[data-tone="danger"]:focus-visible {
   min-width: 0;
 }
 
-.rep-addons-form > .kit-button {
+.rep-addons-form > .rep-kit-button {
   justify-self: start;
 }
 
@@ -3419,7 +3176,7 @@ html[data-ui="repertory"] .kit-button[data-tone="danger"]:focus-visible {
 }
 
 .rep-log-section-body > .rep-log-list {
-  max-width: 760px;
+  max-width: 46ch;
 }
 
 /*
@@ -3430,8 +3187,8 @@ html[data-ui="repertory"] .kit-button[data-tone="danger"]:focus-visible {
 html[data-ui="repertory"] .rep-frame[data-frame="spine"] .shell-level:has(.rep-settings-level) {
   left: var(--rep-spine-compact);
   box-sizing: border-box;
-  padding-right: clamp(32px, 2.9vw, 4vw);
-  padding-left: clamp(32px, 2.9vw, 4vw);
+  padding-right: var(--rep-gutter);
+  padding-left: var(--rep-gutter);
   background: var(--rep-ink);
 }
 
@@ -3440,11 +3197,4 @@ html[data-ui="repertory"]
   .rep-frame[data-frame="spine"]:has(.rep-nav--spine:focus-within)
   .shell-level:has(.rep-settings-level) {
   left: var(--rep-spine-width);
-}
-
-@media (max-width: 1300px) {
-  html[data-ui="repertory"] .rep-frame[data-frame="spine"] .shell-level:has(.rep-settings-level) {
-    padding-right: 40px;
-    padding-left: 40px;
-  }
 }

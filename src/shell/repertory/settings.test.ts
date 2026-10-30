@@ -3,27 +3,31 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS, parseSettings, settingsQuery } from "./settings";
 
 describe("the rehearsal settings", () => {
-  it("starts on the spine, Bodoni and a rotating feature", () => {
+  it("starts on the spine and a rotating feature", () => {
     expect(parseSettings("")).toEqual(DEFAULT_SETTINGS);
     expect(DEFAULT_SETTINGS).toEqual({
       frame: "spine",
-      pairing: "bodoni",
       feature: "rotates",
       rehearsal: true,
     });
   });
 
   it("reads a complete comparison from the query string", () => {
-    expect(parseSettings("?frame=strip&type=playfair&feature=still&rehearsal=0")).toEqual({
+    expect(parseSettings("?frame=strip&feature=still&rehearsal=0")).toEqual({
       frame: "strip",
-      pairing: "playfair",
       feature: "still",
       rehearsal: false,
     });
   });
 
+  it("has one type pairing, so a pairing in the query is ignored", () => {
+    // The Playfair alternate was cut (ADR-0030 §3): `?type=` is not a setting,
+    // and an old link must still land on the one pairing rather than fail.
+    expect(parseSettings("?type=playfair")).toEqual(DEFAULT_SETTINGS);
+  });
+
   it("falls back on anything it does not know", () => {
-    expect(parseSettings("?frame=marquee&type=comic&feature=loop&rehearsal=maybe")).toEqual(
+    expect(parseSettings("?frame=marquee&feature=loop&rehearsal=maybe")).toEqual(
       DEFAULT_SETTINGS,
     );
   });
@@ -31,11 +35,10 @@ describe("the rehearsal settings", () => {
   it("round-trips through a stable query string", () => {
     const settings = {
       frame: "strip" as const,
-      pairing: "playfair" as const,
       feature: "still" as const,
       rehearsal: false,
     };
     expect(parseSettings(`?${settingsQuery(settings)}`)).toEqual(settings);
-    expect(settingsQuery(DEFAULT_SETTINGS)).toBe("frame=spine&type=bodoni&feature=rotates");
+    expect(settingsQuery(DEFAULT_SETTINGS)).toBe("frame=spine&feature=rotates");
   });
 });

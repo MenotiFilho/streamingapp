@@ -28,6 +28,11 @@ import { SERIES } from "../title";
 import { useShell } from "./context";
 import { addonName } from "./home";
 import { Button, ChoiceChip, PosterCard } from "./kit";
+import {
+  Button as RepertoryButton,
+  ChoiceChip as RepertoryChoiceChip,
+  PosterCard as RepertoryPosterCard,
+} from "./repertory/kit";
 import { FOCUSABLE } from "./layout";
 import { focusAndReveal } from "./reveal";
 import { SEARCH_KINDS, searchAsk, type SearchKind } from "./search";
@@ -78,6 +83,9 @@ const NO_CATALOG_ANSWER: CatalogAnswer = {
 export function SearchScreen() {
   const { snapshot, ask, unplayable, presentation } = useShell();
   const { openTitle, openDiscoveredTitle } = useTitleOpener();
+  // A shared screen wears the kit of the shell that mounted it (#153).
+  const ActionButton = presentation === "repertory" ? RepertoryButton : Button;
+  const KindChip = presentation === "repertory" ? RepertoryChoiceChip : ChoiceChip;
 
   const [draft, setDraft] = useState("");
   /**
@@ -264,7 +272,7 @@ export function SearchScreen() {
               onChange={(event) => setDraft(event.target.value)}
               data-focusable
             />
-            <Button
+            <ActionButton
               className="search-submit"
               type="submit"
               variant="primary"
@@ -272,7 +280,7 @@ export function SearchScreen() {
               onKeyDown={downToResults}
             >
               Search
-            </Button>
+            </ActionButton>
           </form>
 
           {presentation === "repertory" ? (
@@ -282,20 +290,20 @@ export function SearchScreen() {
               data-kind="row"
               data-label="Kind"
             >
-              <ChoiceChip
+              <KindChip
                 pressed={shownKind === MOVIE}
                 data-testid="search-kind-movie"
                 onClick={() => setShownKind(MOVIE)}
               >
                 Movie
-              </ChoiceChip>
-              <ChoiceChip
+              </KindChip>
+              <KindChip
                 pressed={shownKind === SERIES}
                 data-testid="search-kind-series"
                 onClick={() => setShownKind(SERIES)}
               >
                 Series
-              </ChoiceChip>
+              </KindChip>
             </div>
           ) : null}
 
@@ -461,6 +469,8 @@ function TmdbRow({
   onOpen,
 }: TmdbRowProps) {
   const { presentation } = useShell();
+  const ActionButton = presentation === "repertory" ? RepertoryButton : Button;
+  const Card = presentation === "repertory" ? RepertoryPosterCard : PosterCard;
   const moreAvailable =
     !loading && !feed.done && (feed.page > 0 || feed.failure !== null);
 
@@ -486,11 +496,10 @@ function TmdbRow({
       footnote={note}
     >
       {feed.items.map((meta) => (
-        <PosterCard
+        <Card
           key={meta.id}
           name={meta.name}
           poster={meta.poster}
-          variant={presentation === "repertory" ? "repertory" : "velvet"}
           rating={meta.imdbRating}
           subtitle={meta.releaseInfo}
           description={meta.description}
@@ -502,9 +511,9 @@ function TmdbRow({
 
       {moreAvailable ? (
         <div className="search-more">
-          <Button variant="ghost" onClick={onMore}>
+          <ActionButton variant="ghost" onClick={onMore}>
             More
-          </Button>
+          </ActionButton>
         </div>
       ) : null}
     </ResultRow>
@@ -524,6 +533,7 @@ type AddonRowProps = {
  */
 function AddonRow({ row, addon, onOpen }: AddonRowProps) {
   const { presentation } = useShell();
+  const Card = presentation === "repertory" ? RepertoryPosterCard : PosterCard;
   const key = keyOf(row);
 
   return (
@@ -549,11 +559,10 @@ function AddonRow({ row, addon, onOpen }: AddonRowProps) {
       }
     >
       {row.metas.map((meta) => (
-        <PosterCard
+        <Card
           key={meta.id}
           name={meta.name}
           poster={meta.poster}
-          variant={presentation === "repertory" ? "repertory" : "velvet"}
           rating={meta.imdbRating}
           subtitle={meta.releaseInfo}
           description={meta.description}

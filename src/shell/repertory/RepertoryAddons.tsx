@@ -3,7 +3,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import type { ActionError, AddonManifest } from "../../host-client";
 import { useShell } from "../context";
 import { confirmActionLevel } from "../ConfirmAction";
-import { Button } from "../kit";
+import { Button } from "./kit";
 import { focusAndReveal } from "../reveal";
 import {
   addOutcome,

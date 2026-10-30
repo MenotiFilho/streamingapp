@@ -4,6 +4,7 @@ import type { ActionError } from "../host-client";
 import { useShell } from "./context";
 import { confirmActionLevel } from "./ConfirmAction";
 import { Button } from "./kit";
+import { Button as RepertoryButton } from "./repertory/kit";
 import { Refusal } from "./Refusal";
 
 /**
@@ -27,7 +28,10 @@ export function StremioAccount({
   /** Called after the Host takes a sign-in, so the caller can ask again. */
   onSignedIn?: () => void;
 }) {
-  const { snapshot, ask, push } = useShell();
+  const { snapshot, ask, push, presentation } = useShell();
+  // The account control is shared by both shells; the button wears the kit of
+  // the surface that drew it (#153).
+  const ActionButton = presentation === "repertory" ? RepertoryButton : Button;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<ActionError | null>(null);
@@ -42,7 +46,7 @@ export function StremioAccount({
       return null;
     }
     return (
-      <Button
+      <ActionButton
         onClick={() =>
           push(
             confirmActionLevel({
@@ -62,7 +66,7 @@ export function StremioAccount({
         }
       >
         Sign out
-      </Button>
+      </ActionButton>
     );
   }
 
@@ -114,9 +118,9 @@ export function StremioAccount({
           data-focusable
         />
       </div>
-      <Button type="submit" pending={working}>
+      <ActionButton type="submit" pending={working}>
         Sign in
-      </Button>
+      </ActionButton>
       <Refusal error={error} testId="stremio-sign-in-error" />
     </form>
   );

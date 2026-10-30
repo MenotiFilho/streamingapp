@@ -8,7 +8,7 @@ import {
   type LibraryEntry,
 } from "../../host-client";
 import { useShell } from "../context";
-import { Button } from "../kit";
+import { Button } from "./kit";
 import { StremioAccount } from "../StremioAccount";
 import { useTitleOpener } from "../TitleScreen";
 import { libraryAddon, libraryPreview } from "./accountLibrary";

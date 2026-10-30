@@ -11,12 +11,12 @@ holds no behaviour: every Action, Snapshot, focus rule, level-stack rule and
 Remote flow belongs to the Host and to `CONTEXT.md`, and this record does not
 move them.
 
-The values live in `src/shell/repertory/tokens.css`; #153 adds the motion
-presets in `src/shell/repertory/motion.ts`. The window imports them and
-`crates/host-wire` splices the token sheet into the served Remote page; the
-Velvet sheet sits beside it until the cutover (#160). #153 rebuilds the sheet to
-this record; where the prototype still differs today, the difference is listed
-in §14 rather than left as a second rule.
+The values live in `src/shell/repertory/tokens.css`; the motion presets live in
+`src/shell/repertory/motion.ts`. The window imports them and
+`crates/host-wire` splices the token sheet into the served Remote page and
+serves the same woff2 faces; the Velvet sheet sits beside it until the cutover
+(#160). #153 rebuilt the sheet to this record, and the differences that remain
+are listed in §14 rather than left as a second rule.
 
 ## 1. The direction
 
@@ -49,14 +49,14 @@ are the only loud things; the room around them is quiet.
 Measured on ink (`#0b0a09`), WCAG 2.2: ivory 16.41, dim 10.65, muted 5.29,
 hairline 3.49 (a non-text rule, 3:1), brass 8.43, brass-deep 6.19, red 6.05. On
 `ink-raised` every text pair still clears 4.5:1 and the hairline still clears
-3:1. `tokens.test.ts` measures pairs out of the sheet; today it guards ivory,
-dim, muted, hairline and brass, and #153 extends it to brass-deep and the status
-red, so a colour change fails until its pair is proven again.
+3:1. `tokens.test.ts` measures pairs out of the sheet; it guards ivory, dim,
+muted, hairline, brass, brass-deep and the status red, so a colour change fails
+until its pair is proven again.
 
 Every brass wash or glow derives from `--rep-house` (`color-mix` or a channel
 expression), never a repeated `rgba()` literal: the one allowed brass
-correction has to move the washes with it. #153 makes the existing wash derive
-from the token and adds the test that fails on a brass literal anywhere but
+correction has to move the washes with it. The sheet derives the existing wash
+from the token, and `tokens.test.ts` fails on a brass literal anywhere but
 `--rep-house` and `--rep-house-deep`.
 
 Rules:
@@ -93,7 +93,7 @@ The two-family comparison from research #144 is closed: **Bodoni Moda / Inter /
 IBM Plex Mono**. The prototype's Playfair alternate (Playfair Display + IBM Plex
 Sans) is **cut**, not deferred: it is not a setting and not a second pairing,
 and the prototype's `data-pairing` token block, its `?type=playfair` rehearsal
-option and the Playfair imports leave in #153.
+option and the Playfair imports left in #153.
 
 ### The scale
 
@@ -159,9 +159,8 @@ active item, a drawer's top rule, a popover's top rule); a progress line is 2px.
 **Measure is typographic**, not a pixel column: prose is 58–62ch, a utility
 panel and a form 46ch, a poster caption 2 lines, the feature's description 3
 lines and a Title page's description 6. The spine, the gutter and the stage
-carry the scale; the reading column does not grow with the window. The
-prototype still fixes the utility panels at 760px; #153 moves them to the
-measure.
+carry the scale; the reading column does not grow with the window. Utility
+panels and forms read at 46ch; prose at 58–62ch.
 
 ## 5. Focus
 
@@ -186,10 +185,9 @@ is never clipped, and a rail's first and last card are inset by the same 3px.
 The spine grows on focus (compact → open) and the page makes room; a Settings
 leaf keeps the spine live, with the focus root covering both.
 
-The prototype still carries three leftovers here: the feature at a 6px offset,
-the poster cards keylined 3px outside rather than on the art, and the kit's
-`kit-focus-invert` filling focused controls. The kit is #153's; the feature and
-the cards are #154's; the record's mark is the one above.
+The prototype still carries two leftovers here: the feature at a 6px offset,
+and the poster cards keylined 3px outside rather than on the art. The feature
+and the cards are #154's; the record's mark is the one above.
 
 ## 6. Motion
 
@@ -199,9 +197,9 @@ that are self-contained: a wash, a fill, a colour change, as a `transition` on
 the token duration. Both read the same presets, so a rail and a drawer settle
 with the same feel.
 
-The durations will be declared in `tokens.css` from #153 as
-`--rep-motion-panel` and `--rep-motion-quick` (today `--rep-dur-fast` /
-`--rep-dur-med`). `motion.ts` reads those two custom properties from the document
+The durations are declared in `tokens.css` as
+`--rep-motion-panel` and `--rep-motion-quick`, with `--rep-motion-fade` for the
+one fade. `motion.ts` reads those two custom properties from the document
 and pairs them with `bounce: 0`; the Remote's script reads the same two
 properties. One number, two readers — and no third CSS-as-text test, since
 ADR-0032 allows exactly two presentation locks.
@@ -266,12 +264,11 @@ circle, no square, no container, except a cell of the hairline table.
 The set: the six destination marks, More, back, close, previous episode, next
 episode, −10s, +10s, play, pause, stop, fullscreen, volume, volume muted,
 picture, subtitles, audio, speed, chapters, and the chevron the popovers use.
-The window's inline SVGs are the source for the destination, transport, close
-and fullscreen marks; the ±10s and subtitles marks still draw as text in the
-prototype and join the set in #153/#158. The served page receives the same
-symbols as a sprite spliced at serve time, like the token sheet. **No Unicode
-glyph stands in for a mark on the Remote** — the phone's emoji font is not the
-design system; the prototype still uses Unicode there and #159 replaces it.
+The window's `icons.tsx` is the source for the whole set (#153); the OSD
+re-points at it in #158. The served page receives the same symbols as a sprite
+spliced at serve time, like the token sheet, in #159. **No Unicode glyph stands
+in for a mark on the Remote** — the phone's emoji font is not the design
+system; #159 replaces the prototype's Unicode.
 
 ## 8. Component anatomy
 
@@ -464,9 +461,9 @@ measurement written back here:
   orange rather than gold, one correction is allowed and `tokens.test.ts` is
   re-measured. Judged in the owner's Windows walkthrough.
 - **The hand scale** — the values above, tuned once on a real handset in #159.
-- **The spring durations** — `visualDuration` 0.24/0.14 may be tuned once in
-  #153 against the real panel; the vocabulary, the bounce and the shapes do not
-  change.
+- **The spring durations** — `visualDuration` 0.24/0.14 may be tuned once
+  against the real panel; the vocabulary, the bounce and the shapes do not
+  change. #153 landed the recorded values; the panel judgment remains.
 - **The opacities over a picture** — the OSD scrims, the badge fill, the popover
   plate and the preview plate are judged over a bright film on the panel, and
   only their alpha values may move.
@@ -487,8 +484,8 @@ practice Library account and the `?ui=repertory` selector were introduced across
 - **The staging**: the served page's route or setting is #152; the window's
   `VITE_UI=repertory` flag and both cutovers are #160.
 - **The tests**: which presentation suites survive is #151.
-- **The motion layer's code**: the `motion` dependency and its presets land in
-  #153, and the Remote's vendored bundle in #159 (ADR-0031).
+- **The motion layer's code**: the `motion` dependency and its presets landed in
+  #153, and the Remote's vendored bundle follows in #159 (ADR-0031).
 - **The Windows walkthrough**: `verify.ps1` is not redesigned; the owner verifies
   the window by hand.
 - **Anything the Host says**: this record draws the Host's vocabulary; it never
@@ -503,17 +500,13 @@ rule.
 
 | The prototype today | The record | Closed by |
 |---|---|---|
-| `clamp(rem, n vw, n vw)` per token; layout in `2.9vw` | the `--rep-stage` unit and the floor/step table in §3–§4 | #153 |
-| utility panels and forms at 760px; the log note at 66ch | the `ch` measure (46ch utility, 58–62ch prose) | #153 |
-| the brass wash on every card and rail item, fading at 240ms; the feature at a 6px offset; cards keylined 3px outside | the wash on the feature and a focused poster's art at 140ms; one 3px offset, the keyline on the art's edge | #153, #154 |
-| the Playfair alternate: the `data-pairing` token block, its imports and the `?type=playfair` rehearsal option | cut; one pairing | #153 |
-| `kit-focus-invert` fills focused controls; the Velvet kit's button/choice/poster re-dressed by repertory classes | the repertory kit: keyline, brass inset rule, no fill | #153 |
+| the prototype's own Home cards and feature: a wash on every card and rail item, the feature at a 6px offset, cards keylined 3px outside | the wash on the feature and a focused poster's art at 140ms; one 3px offset, the keyline on the art's edge | #154 |
+| screen CSS still carries per-screen `clamp()` sizes (the Title name, Streams and logbook gaps and paddings); the stage unit covers the frame and the kit | every ten-foot size and layout dimension from the stage unit and the fixed spacing steps (§3–§4) | #154–#159 |
+| Discover and Search still draw the Velvet screen layout; the repertory kit is mounted under it | the editorial feed and the result rows in the repertory anatomy | #156 |
 | the OSD names the current chapter permanently at the centre | the chapter is named only in the hover/drag callout | #158 |
 | the OSD's ±10s and subtitles marks are text; the Remote is Unicode | one drawn set on both clients | #158, #159 |
 | the volume is the native range with `accent-color` | a drawn rail with a brass fill | #158 |
-| brass repeated as `rgba()` literals in the wash and feature glow | every brass derives from `--rep-house` | #153 |
-| shadows on the spine, the feature focus, the popover and the OSD | depth is a hairline and one ink step | #153, #158 |
-| reduced motion zeroes `--rep-dur-*` | transforms and layout off, opacity fades kept, fills snap (§6) | #153 |
-| CSS transitions only; no animation library, no crossing between screens | Motion in both clients, with the spring presets and the transition shapes in §6 | #153, #159 |
+| shadows on the OSD | depth is a hairline and one ink step | #158 |
+| the window carries Motion, but no mounted screen uses the presets yet; the Remote is still CSS transitions only | Motion in both clients, with the spring presets and the transition shapes in §6 | #154–#159 |
 | the Remote's strip still scroll-snaps | no snapping: the rail scroll is redirected mid-flight (§6) | #159 |
 | the Velvet sheet and its splice live beside the repertory sheet; the served page keeps `/` and the `?ui` gate | one sheet, one splice, one page | #152, #160 |

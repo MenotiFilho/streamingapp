@@ -1,0 +1,796 @@
+/*
+ * The repertory kit (#153): the primitives' drawings.
+ *
+ * Every selector is scoped to `html[data-ui="repertory"]` and every class is
+ * prefixed `rep-kit-`, so the Velvet kit keeps its own sheet until the cutover
+ * (#160). Every colour comes from `repertory/tokens.css`; the one brass is
+ * `--rep-house`, and no palette value lives here.
+ *
+ * The rules refuse what the design record refuses: no radius (the pending
+ * spinner is the one circle), no shadows as depth, no fill inversion on focus,
+ * no lift. Focus is the shared ivory keyline from `repertory.css`; a poster or
+ * continue card draws it on the art's edge so a scrollport cannot crop it.
+ */
+
+/* --------------------------------------------------------------------------
+ * Pending spinner — the one circle
+ * -------------------------------------------------------------------------- */
+
+@keyframes rep-kit-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+html[data-ui="repertory"] .rep-kit-spinner {
+  display: inline-block;
+  flex: none;
+  width: 0.72em;
+  height: 0.72em;
+  border: 2px solid color-mix(in srgb, currentColor 28%, transparent);
+  border-top-color: currentColor;
+  border-radius: 50%;
+  animation: rep-kit-spin 700ms linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-ui="repertory"] .rep-kit-spinner {
+    animation-duration: 1600ms;
+  }
+}
+
+/* --------------------------------------------------------------------------
+ * Button — a line of type with a rule
+ * -------------------------------------------------------------------------- */
+
+html[data-ui="repertory"] .rep-kit-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--rep-space-2);
+  padding: var(--rep-space-2) 0;
+  border: 0;
+  border-bottom: 1px solid var(--rep-house);
+  border-radius: 0;
+  background: transparent;
+  color: var(--rep-house);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-control);
+  font-weight: 500;
+  line-height: 1.2;
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition:
+    background-color var(--rep-motion-fade) var(--rep-ease),
+    border-color var(--rep-motion-fade) var(--rep-ease),
+    color var(--rep-motion-fade) var(--rep-ease);
+}
+
+/* Hover is one hairline or one ink step, never the only cue: focus is the
+ * shared keyline and the control's label is always legible. */
+html[data-ui="repertory"] .rep-kit-button:hover:not(:disabled) {
+  border-bottom-color: var(--rep-house-deep);
+  color: var(--rep-ivory);
+}
+
+html[data-ui="repertory"] .rep-kit-button:active:not(:disabled) {
+  background: var(--rep-ink-elevated);
+}
+
+/* The one brass fill, and it carries ink: ivory on brass is 1.95:1. */
+html[data-ui="repertory"] .rep-kit-button[data-variant="primary"] {
+  padding: var(--rep-space-2) var(--rep-space-4);
+  border: 1px solid var(--rep-house);
+  background: var(--rep-house);
+  color: var(--rep-ink);
+}
+
+html[data-ui="repertory"] .rep-kit-button[data-variant="primary"]:hover:not(:disabled) {
+  border-color: var(--rep-house-deep);
+  background: var(--rep-house-deep);
+  color: var(--rep-ink);
+}
+
+html[data-ui="repertory"] .rep-kit-button[data-variant="primary"]:active:not(:disabled) {
+  border-color: var(--rep-house-deep);
+  background: var(--rep-house-deep);
+}
+
+/* The quiet action: no rule at rest, a hairline when hovered or focused. */
+html[data-ui="repertory"] .rep-kit-button[data-variant="ghost"] {
+  border-bottom-color: transparent;
+  color: var(--rep-dim);
+}
+
+html[data-ui="repertory"] .rep-kit-button[data-variant="ghost"]:hover:not(:disabled) {
+  border-bottom-color: var(--rep-hairline);
+  color: var(--rep-ivory);
+}
+
+/* Destructive is red ink; the confirming side is the one red fill, carrying
+ * ink (ivory on red is 2.71:1). */
+html[data-ui="repertory"] .rep-kit-button[data-tone="danger"] {
+  border-bottom-color: var(--rep-status-red);
+  color: var(--rep-status-red);
+}
+
+html[data-ui="repertory"] .rep-kit-button[data-tone="danger"]:hover:not(:disabled) {
+  border-bottom-color: var(--rep-status-red);
+  color: var(--rep-status-red);
+}
+
+html[data-ui="repertory"] .rep-kit-button[data-tone="danger"][data-variant="primary"] {
+  border: 1px solid var(--rep-status-red);
+  background: var(--rep-status-red);
+  color: var(--rep-ink);
+}
+
+html[data-ui="repertory"] .rep-kit-button[data-tone="danger"][data-variant="primary"]:hover:not(
+    :disabled
+  ) {
+  border-color: var(--rep-status-red);
+  background: var(--rep-status-red);
+  color: var(--rep-ink);
+}
+
+html[data-ui="repertory"] .rep-kit-button:disabled {
+  border-bottom-color: transparent;
+  color: var(--rep-muted);
+  cursor: default;
+}
+
+html[data-ui="repertory"] .rep-kit-button[data-variant="primary"]:disabled {
+  border-color: var(--rep-hairline);
+  background: var(--rep-ink-raised);
+  color: var(--rep-muted);
+}
+
+html[data-ui="repertory"] .rep-kit-button[data-tone="danger"]:disabled {
+  border-bottom-color: transparent;
+  color: var(--rep-muted);
+}
+
+/* --------------------------------------------------------------------------
+ * Chip — a stamp, and a choice that is a control
+ * -------------------------------------------------------------------------- */
+
+html[data-ui="repertory"] .rep-kit-chip {
+  display: inline-flex;
+  align-items: baseline;
+  padding: 2px 7px;
+  border: 1px solid var(--rep-hairline);
+  border-radius: 0;
+  background: var(--rep-ink-raised);
+  color: var(--rep-dim);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-badge);
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+html[data-ui="repertory"] .rep-kit-chip[data-tone="accent"],
+html[data-ui="repertory"] .rep-kit-chip[data-tone="warn"] {
+  border-color: var(--rep-house);
+  color: var(--rep-house);
+}
+
+html[data-ui="repertory"] .rep-kit-chip[data-tone="danger"] {
+  border-color: var(--rep-status-red);
+  color: var(--rep-status-red);
+}
+
+html[data-ui="repertory"] .rep-kit-chip[data-tone="ok"] {
+  color: var(--rep-ivory);
+}
+
+html[data-ui="repertory"] .rep-kit-choice {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--rep-space-2);
+  padding: var(--rep-space-2) var(--rep-space-3);
+  border: 1px solid var(--rep-hairline);
+  border-radius: 0;
+  background: transparent;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-control);
+  font-weight: 500;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  box-sizing: border-box;
+  transition:
+    border-color var(--rep-motion-fade) var(--rep-ease),
+    color var(--rep-motion-fade) var(--rep-ease);
+}
+
+html[data-ui="repertory"] .rep-kit-choice:hover:not(:disabled) {
+  border-color: var(--rep-house-deep);
+  color: var(--rep-ivory);
+}
+
+/* Chosen is a 2px brass inset rule on the leading edge and ivory ink. No
+ * fill, no size change: the border and the padding stay exactly as they were.
+ * The focus rule re-asserts the inset rule because the shared focus reset
+ * clears `box-shadow` on every focusable. */
+html[data-ui="repertory"] .rep-kit-choice[aria-pressed="true"] {
+  box-shadow: inset 2px 0 0 var(--rep-house);
+  color: var(--rep-ivory);
+}
+
+html[data-ui="repertory"] .rep-kit-choice[aria-pressed="true"][data-focusable]:focus,
+html[data-ui="repertory"] .rep-kit-choice[aria-pressed="true"][data-focusable]:focus-visible {
+  box-shadow: inset 2px 0 0 var(--rep-house);
+}
+
+html[data-ui="repertory"] .rep-kit-choice:disabled {
+  border-color: var(--rep-hairline);
+  color: var(--rep-muted);
+  cursor: default;
+}
+
+/* --------------------------------------------------------------------------
+ * Poster card — unframed 2:3 art, the Title under it
+ * -------------------------------------------------------------------------- */
+
+html[data-ui="repertory"] .rep-kit-poster {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-3);
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+/* The keyline lives on the art, inset 3px, so a scrollport never crops it.
+ * `[data-focusable]` is carried so this reset outranks the shared focus rule
+ * in `repertory.css`; without it the art would draw both the outside keyline
+ * and this one. */
+html[data-ui="repertory"] .rep-kit-poster[data-focusable]:focus,
+html[data-ui="repertory"] .rep-kit-poster[data-focusable]:focus-visible,
+html[data-ui="repertory"] .rep-kit-continue[data-focusable]:focus,
+html[data-ui="repertory"] .rep-kit-continue[data-focusable]:focus-visible {
+  outline: none;
+}
+
+html[data-ui="repertory"] .rep-kit-poster:focus .rep-kit-poster-art,
+html[data-ui="repertory"] .rep-kit-poster:focus-visible .rep-kit-poster-art,
+html[data-ui="repertory"] .rep-kit-continue:focus .rep-kit-continue-art,
+html[data-ui="repertory"] .rep-kit-continue:focus-visible .rep-kit-continue-art {
+  outline: var(--rep-focus-ring);
+  outline-offset: -3px;
+}
+
+html[data-ui="repertory"] .rep-kit-poster-art {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  overflow: hidden;
+  background: var(--rep-ink-raised);
+}
+
+html[data-ui="repertory"] .rep-kit-poster-image,
+html[data-ui="repertory"] .rep-kit-continue-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+/* The missing-art plate is typographic and intentional, never a grey box. */
+html[data-ui="repertory"] .rep-kit-poster-plate,
+html[data-ui="repertory"] .rep-kit-continue-plate {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  padding: var(--rep-space-4);
+  background: var(--rep-ink-elevated);
+  color: var(--rep-muted);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-section);
+  font-weight: 500;
+  line-height: var(--rep-leading-display);
+  letter-spacing: var(--rep-tracking-display);
+  text-align: center;
+  box-sizing: border-box;
+}
+
+/* The spotlight wash is the focused poster's and nobody else's (design record
+ * §5), and it is a soft radial edge rather than a border. */
+html[data-ui="repertory"] .rep-kit-poster-art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background-image: var(--rep-focus-wash);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--rep-motion-fade) var(--rep-ease);
+}
+
+html[data-ui="repertory"] .rep-kit-poster:focus .rep-kit-poster-art::after,
+html[data-ui="repertory"] .rep-kit-poster:focus-visible .rep-kit-poster-art::after {
+  opacity: 1;
+}
+
+html[data-ui="repertory"] .rep-kit-poster-rating,
+html[data-ui="repertory"] .rep-kit-poster-unmapped,
+html[data-ui="repertory"] .rep-kit-poster-unplayable,
+html[data-ui="repertory"] .rep-kit-continue-unplayable {
+  position: absolute;
+  z-index: 2;
+  padding: 2px 8px;
+  background: var(--rep-ink-raised);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-badge);
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+html[data-ui="repertory"] .rep-kit-poster-rating {
+  right: 10px;
+  bottom: 10px;
+  border: 1px solid var(--rep-hairline);
+  color: var(--rep-house);
+}
+
+html[data-ui="repertory"] .rep-kit-poster-unmapped {
+  top: 10px;
+  left: 10px;
+  border: 1px solid var(--rep-house);
+  color: var(--rep-house);
+}
+
+html[data-ui="repertory"] .rep-kit-poster-unplayable {
+  top: 10px;
+  right: 10px;
+  border: 1px solid var(--rep-status-red);
+  color: var(--rep-status-red);
+}
+
+html[data-ui="repertory"] .rep-kit-poster-caption {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+html[data-ui="repertory"] .rep-kit-poster-name {
+  display: -webkit-box;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-control);
+  font-weight: 500;
+  line-height: 1.22;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+html[data-ui="repertory"] .rep-kit-poster:hover .rep-kit-poster-name,
+html[data-ui="repertory"] .rep-kit-poster:focus .rep-kit-poster-name,
+html[data-ui="repertory"] .rep-kit-poster:focus-visible .rep-kit-poster-name {
+  color: var(--rep-ivory);
+}
+
+/* The year is a small mono stamp after the name, not a second caption row. */
+html[data-ui="repertory"] .rep-kit-poster-year {
+  flex: none;
+  padding: 0 5px;
+  border: 1px solid var(--rep-hairline);
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: calc(var(--rep-text-badge) * 0.78);
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+/* An Unplayable Title still opens (ADR-0020): the mark is the only change. */
+html[data-ui="repertory"] .rep-kit-poster[data-unplayable="true"] {
+  cursor: pointer;
+}
+
+/* --------------------------------------------------------------------------
+ * Continue watching card — 16:9 still, a 2px brass line under it
+ * -------------------------------------------------------------------------- */
+
+html[data-ui="repertory"] .rep-kit-continue {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-2);
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  text-align: left;
+  cursor: pointer;
+}
+
+html[data-ui="repertory"] .rep-kit-continue-art {
+  position: relative;
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: var(--rep-ink-raised);
+}
+
+html[data-ui="repertory"] .rep-kit-continue-unplayable {
+  top: 10px;
+  left: 10px;
+  border: 1px solid var(--rep-status-red);
+  color: var(--rep-status-red);
+}
+
+html[data-ui="repertory"] .rep-kit-continue-progress {
+  display: block;
+  width: 100%;
+  height: 2px;
+  background: var(--rep-hairline);
+}
+
+html[data-ui="repertory"] .rep-kit-continue-progress > span {
+  display: block;
+  height: 100%;
+  background: var(--rep-house);
+}
+
+html[data-ui="repertory"] .rep-kit-continue-note {
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  line-height: 1.3;
+}
+
+html[data-ui="repertory"] .rep-kit-continue-name {
+  overflow: hidden;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-control);
+  font-weight: 500;
+  line-height: 1.22;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[data-ui="repertory"] .rep-kit-continue:hover:not(:disabled) .rep-kit-continue-name,
+html[data-ui="repertory"] .rep-kit-continue:focus .rep-kit-continue-name,
+html[data-ui="repertory"] .rep-kit-continue:focus-visible .rep-kit-continue-name {
+  color: var(--rep-ivory);
+}
+
+html[data-ui="repertory"] .rep-kit-continue[data-unplayable="true"] {
+  cursor: not-allowed;
+}
+
+/* Dim the picture, not the status: the red note is the mark and has to keep
+ * its measured 6.05:1. */
+html[data-ui="repertory"] .rep-kit-continue[data-unplayable="true"] .rep-kit-continue-image,
+html[data-ui="repertory"] .rep-kit-continue[data-unplayable="true"] .rep-kit-continue-plate {
+  opacity: 0.7;
+}
+
+html[data-ui="repertory"] .rep-kit-continue[data-unplayable="true"] .rep-kit-continue-note {
+  color: var(--rep-status-red);
+}
+
+/* --------------------------------------------------------------------------
+ * Row track — a numbered head over a page of cards
+ * -------------------------------------------------------------------------- */
+
+html[data-ui="repertory"] .rep-kit-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-5);
+  min-width: 0;
+}
+
+/* The head is one hairline: index in mono, the name in display serif, the rule
+ * to the trailing end, the tag in mono. `row-rule` is the flex spacer; the
+ * header's bottom border is the drawn line. */
+html[data-ui="repertory"] .rep-kit-row-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--rep-space-4);
+  padding-bottom: var(--rep-space-3);
+  border-bottom: 1px solid var(--rep-hairline);
+}
+
+html[data-ui="repertory"] .rep-kit-row-index {
+  flex: none;
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+}
+
+html[data-ui="repertory"] .rep-kit-row-title {
+  flex: none;
+  margin: 0;
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-section);
+  font-weight: 500;
+  line-height: var(--rep-leading-display);
+  letter-spacing: var(--rep-tracking-display);
+}
+
+html[data-ui="repertory"] .rep-kit-row-rule {
+  flex: 1;
+  height: 1px;
+}
+
+html[data-ui="repertory"] .rep-kit-row-tag {
+  flex: none;
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  white-space: nowrap;
+}
+
+html[data-ui="repertory"] .rep-kit-row-action {
+  flex: none;
+}
+
+html[data-ui="repertory"] .rep-kit-row-viewport {
+  position: relative;
+  min-width: 0;
+}
+
+html[data-ui="repertory"] .rep-kit-row-track {
+  display: flex;
+  gap: var(--rep-row-gap);
+  margin: 0;
+  padding: 6px 3px 10px;
+  list-style: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  touch-action: pan-y;
+}
+
+html[data-ui="repertory"] .rep-kit-row-track::-webkit-scrollbar {
+  display: none;
+}
+
+/* One view always holds `columns` cards: the token is the screen's choice, the
+ * share is the kit's. Nothing snaps and nothing keeps an inertia. */
+html[data-ui="repertory"] .rep-kit-row-item {
+  flex: 0 0 calc(
+    (100% - (var(--row-visible) - 1) * var(--rep-row-gap)) / var(--row-visible)
+  );
+  min-width: 0;
+}
+
+html[data-ui="repertory"] .rep-kit-row-item > * {
+  width: 100%;
+}
+
+html[data-ui="repertory"] .rep-kit-row-track img {
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+html[data-ui="repertory"] .rep-kit-row-arrow {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  width: max(44px, calc(var(--rep-stage) * 2.2));
+  height: max(56px, calc(var(--rep-stage) * 3.2));
+  padding: 0;
+  border: 1px solid var(--rep-hairline);
+  border-radius: 0;
+  background: var(--rep-ink);
+  color: var(--rep-dim);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+html[data-ui="repertory"] .rep-kit-row-arrow svg {
+  width: 55%;
+  height: 55%;
+}
+
+html[data-ui="repertory"] .rep-kit-row-arrow:hover:not(:disabled) {
+  border-color: var(--rep-house-deep);
+  color: var(--rep-ivory);
+}
+
+html[data-ui="repertory"] .rep-kit-row-arrow:disabled {
+  border-color: var(--rep-hairline);
+  color: var(--rep-muted);
+  opacity: 0.35;
+  cursor: default;
+}
+
+html[data-ui="repertory"] .rep-kit-row-arrow-left {
+  left: 0;
+}
+
+html[data-ui="repertory"] .rep-kit-row-arrow-right {
+  right: 0;
+}
+
+/* --------------------------------------------------------------------------
+ * Popover — ink-raised plate with a 2px brass top rule
+ * -------------------------------------------------------------------------- */
+
+html[data-ui="repertory"] .rep-kit-popover {
+  position: absolute;
+  bottom: calc(100% + var(--rep-space-3));
+  left: 0;
+  z-index: 20;
+  min-width: max(240px, calc(var(--rep-stage) * 12));
+  max-width: min(400px, calc(100vw - var(--rep-space-6)));
+  border: 1px solid var(--rep-hairline);
+  border-top: 2px solid var(--rep-house);
+  border-radius: 0;
+  background: var(--rep-ink-raised);
+  color: var(--rep-ivory);
+  font-family: var(--rep-sans);
+  box-shadow: none;
+  box-sizing: border-box;
+}
+
+html[data-ui="repertory"] .rep-kit-popover[data-align="end"] {
+  right: 0;
+  left: auto;
+}
+
+html[data-ui="repertory"] .rep-kit-popover-heading {
+  margin: 0;
+  padding: var(--rep-space-3) var(--rep-space-4);
+  border-bottom: 1px solid var(--rep-hairline);
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-section);
+  font-weight: 500;
+  line-height: var(--rep-leading-display);
+  letter-spacing: var(--rep-tracking-display);
+}
+
+html[data-ui="repertory"] .rep-kit-popover-body {
+  display: grid;
+}
+
+html[data-ui="repertory"] .rep-kit-popover-body > * {
+  margin: 0;
+}
+
+html[data-ui="repertory"] .rep-kit-popover-body > * + * {
+  border-top: 1px solid var(--rep-hairline);
+}
+
+/* A group label and a row are the consumer's, but their clothes are the
+ * kit's: mono bookkeeping over hairline rows. */
+html[data-ui="repertory"] .rep-kit-popover-body [data-group] {
+  padding: var(--rep-space-2) var(--rep-space-4);
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  letter-spacing: var(--rep-tracking-caps);
+  line-height: 1.3;
+  text-transform: uppercase;
+}
+
+html[data-ui="repertory"] .rep-kit-popover-body button {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--rep-space-3);
+  width: 100%;
+  margin: 0;
+  padding: var(--rep-space-2) var(--rep-space-4);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--rep-dim);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* The row rule outranks the button's border reset: every row after the first
+ * keeps its hairline, whether it is a button or a group label. */
+html[data-ui="repertory"] .rep-kit-popover-body > button:not(:first-child) {
+  border-top: 1px solid var(--rep-hairline);
+}
+
+html[data-ui="repertory"] .rep-kit-popover-body button:hover:not(:disabled) {
+  background: var(--rep-ink-elevated);
+  color: var(--rep-ivory);
+}
+
+html[data-ui="repertory"] .rep-kit-popover-body button[aria-pressed="true"],
+html[data-ui="repertory"] .rep-kit-popover-body button[aria-current="true"] {
+  box-shadow: inset 2px 0 0 var(--rep-house);
+  color: var(--rep-ivory);
+}
+
+/* --------------------------------------------------------------------------
+ * Dialog — one question, Cancel focused first, one red fill
+ * -------------------------------------------------------------------------- */
+
+html[data-ui="repertory"] .rep-kit-dialog-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: var(--rep-gutter);
+  background: color-mix(in srgb, var(--rep-ink) 82%, transparent);
+}
+
+html[data-ui="repertory"] .rep-kit-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-4);
+  width: min(58ch, 100%);
+  padding: var(--rep-space-6);
+  border: 1px solid var(--rep-hairline);
+  border-top: 2px solid var(--rep-house);
+  border-radius: 0;
+  background: var(--rep-ink-raised);
+  color: var(--rep-ivory);
+  font-family: var(--rep-sans);
+  box-shadow: none;
+  box-sizing: border-box;
+}
+
+html[data-ui="repertory"] .rep-kit-dialog-title {
+  margin: 0;
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-title);
+  font-weight: 500;
+  line-height: var(--rep-leading-display);
+  letter-spacing: var(--rep-tracking-display);
+}
+
+html[data-ui="repertory"] .rep-kit-dialog-body {
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-body);
+  line-height: var(--rep-leading-body);
+}
+
+html[data-ui="repertory"] .rep-kit-dialog-body > * {
+  margin: 0 0 var(--rep-space-3);
+}
+
+html[data-ui="repertory"] .rep-kit-dialog-body > *:last-child {
+  margin-bottom: 0;
+}
+
+html[data-ui="repertory"] .rep-kit-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: var(--rep-space-4);
+  padding-top: var(--rep-space-3);
+  border-top: 1px solid var(--rep-hairline);
+}

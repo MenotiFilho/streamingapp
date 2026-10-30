@@ -224,6 +224,43 @@ fn a_browser_is_served_the_remote_page_before_it_has_anything_to_say() {
 }
 
 #[test]
+fn the_host_serves_the_fonts_the_page_asks_for() {
+    // #153: the token sheet the page splices names its faces by absolute
+    // `/fonts/<name>` path, so the Host has to answer those bytes itself. The
+    // body is a woff2 face, not a page and not a 404.
+    let (_fixture, server) = server();
+    let mut stream = TcpStream::connect(server.address()).expect("the Host is listening");
+    stream
+        .write_all(
+            b"GET /fonts/inter-latin-wght-normal.woff2 HTTP/1.1\r\n\
+              Host: host\r\n\
+              Connection: close\r\n\r\n",
+        )
+        .expect("the request is sent");
+
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .expect("the Host answers and closes");
+
+    let split = response
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .expect("the response has a head and a body")
+        + 4;
+    let (head, body) = response.split_at(split);
+    let head = String::from_utf8(head.to_vec()).expect("the head is text");
+
+    assert!(
+        head.starts_with("HTTP/1.1 200 OK"),
+        "the face is served: {head}"
+    );
+    assert!(head.contains("Content-Type: font/woff2\r\n"));
+    assert!(head.contains("Cache-Control: public, max-age=3600\r\n"));
+    assert!(body.starts_with(b"wOF2"), "the body is the woff2 face");
+}
+
+#[test]
 fn a_connection_that_has_not_paired_can_only_attempt_to_pair() {
     let (fixture, server) = server();
     let mut client = Client::connect(&server);
