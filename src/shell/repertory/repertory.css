@@ -73,6 +73,31 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   background: var(--rep-ink);
 }
 
+/*
+ * Where the picture is in this window, mpv's child window is the picture
+ * (ADR-0003). The player level, the wrapper, the frame, the base and the spine
+ * all carry ink at rest; while the picture is behind, every one of them paints
+ * nothing and the spine steps out of the way. The base is already inert and
+ * transparent through `data-takeover`, but its repertory background and the
+ * spine sit above it in the stacking order.
+ */
+html[data-ui="repertory"] .shell-level[data-level-kind="player"] {
+  background: transparent;
+}
+
+html[data-ui="repertory"] body.picture-behind,
+html[data-ui="repertory"] body.picture-behind .repertory-ui,
+html[data-ui="repertory"] body.picture-behind .rep-frame,
+html[data-ui="repertory"] body.picture-behind .shell-base,
+html[data-ui="repertory"] body.picture-behind .shell-nav-slot {
+  background: transparent;
+}
+
+html[data-ui="repertory"] body.picture-behind .shell-nav-slot {
+  opacity: 0;
+  pointer-events: none;
+}
+
 .rep-frame .shell-base {
   background: var(--rep-ink);
 }
