@@ -198,7 +198,7 @@ function fakeHost() {
 describe("the repertory Title and Streams journey", () => {
   test("Home → Title → Streams and back restores each level's focus", async () => {
     const host = fakeHost();
-    render(<Shell client={host.client} presentation="repertory" />);
+    render(<Shell client={host.client} />);
 
     const card = await screen.findByTestId("card-cinemeta-tt0903747");
     await waitFor(() => expect(card).toBeInTheDocument());

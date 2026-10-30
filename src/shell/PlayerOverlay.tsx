@@ -31,11 +31,7 @@ import { formatTime, playingName, transportable } from "../playback";
 import { labelOf } from "../title";
 import { useShell } from "./context";
 import { FullscreenButton } from "./FullscreenButton";
-import { Button, PendingSpinner } from "./kit";
-import {
-  Button as RepertoryButton,
-  PendingSpinner as RepertorySpinner,
-} from "./repertory/kit";
+import { Button, PendingSpinner } from "./repertory/kit";
 import { FOCUSABLE } from "./layout";
 import { Refusal } from "./Refusal";
 import { usePending } from "./usePending";
@@ -64,7 +60,7 @@ import { fade, panel } from "./repertory/motion";
 import { focusAndReveal } from "./reveal";
 import { useOsdVisibility } from "./useOsdVisibility";
 import { useReducedMotion } from "./useReducedMotion";
-import "./osd.css";
+import "./repertory/osd.css";
 
 /** One press of the pad's volume faces, on the Host's 0–130 scale. */
 const VOLUME_STEP = 5;
@@ -110,9 +106,9 @@ function usable(element: HTMLElement | null, cluster: HTMLElement | null): eleme
  *
  * The Host owns playback and the window only draws what the one Snapshot says
  * (ADR-0002, ADR-0013). Every control here takes the same Action a Remote
- * client takes: the top-left pills say what is playing, the top-right Stop is
- * Back's second meaning, the right-edge pillar is volume, the strip is the
- * transport and the five per-icon menus, and the flush bottom bar is the
+ * client takes: the top-left programme note says what is playing, the top-right
+ * Stop is Back's second meaning, the right-edge fader is volume, the strip is
+ * the transport and the five per-icon menus, and the flush bottom bar is the
  * timeline with the container's own chapters.
  *
  * The OSD summons on any input — a pad's X/Y included — and puts itself away
@@ -126,12 +122,10 @@ function usable(element: HTMLElement | null, cluster: HTMLElement | null): eleme
  * strip's controls, and between Full screen and Stop.
  */
 export function PlayerOverlay() {
-  const { snapshot, take, ask, popover, pop, push, setIntentHandler, presentation } = useShell();
-  const repertory = presentation === "repertory";
-  const EpisodeButton = repertory ? RepertoryButton : Button;
-  // The plain Vite window has no mpv, so the repertory rehearsal paints the
-  // film's own backdrop behind the OSD instead of a black hole. The Tauri
-  // window never takes this branch: there the picture is mpv's (ADR-0003).
+  const { snapshot, take, ask, popover, pop, push, setIntentHandler } = useShell();
+  // The plain Vite window has no mpv, so the rehearsal paints the film's own
+  // backdrop behind the OSD instead of a black hole. The Tauri window never
+  // takes this branch: there the picture is mpv's (ADR-0003).
   const previewMode = usePreviewData();
   const playback = snapshot?.playback ?? null;
   const [refusal, setRefusal] = useState<ActionError | null>(null);
@@ -433,16 +427,9 @@ export function PlayerOverlay() {
       }
     : null;
   const showPreview = state === "opening" || (!previewSettled && Boolean(preview?.art));
-  // The repertory note names the Title alone: the episode is already on the
-  // kicker's line, and a film is `Feature` there. The Velvet pill keeps its
-  // `Title · S1E2` because its kicker does not exist.
-  const titleText = repertory
-    ? (progress?.title.name ?? streamTitle(nowPlaying))
-    : progress
-      ? [progress.title.name, labelOf(progress.video)]
-          .filter((part): part is string => Boolean(part))
-          .join(" · ")
-      : streamTitle(nowPlaying);
+  // The programme note names the Title alone: the episode is already on the
+  // kicker's line, and a film is `Feature` there.
+  const titleText = progress?.title.name ?? streamTitle(nowPlaying);
 
   const takeAction = (action: Action) => {
     void take(action);
@@ -460,13 +447,12 @@ export function PlayerOverlay() {
 
   return (
     <section
-      className={repertory ? "shell-player rep-player" : "shell-player"}
+      className="shell-player rep-player"
       aria-label="Playing"
       role="region"
       data-testid="shell-player"
       data-state={state}
       data-picture={picture}
-      data-presentation={repertory ? "repertory" : undefined}
       data-region="player"
       data-kind="branch"
       data-label="Player"
@@ -478,7 +464,7 @@ export function PlayerOverlay() {
           squeezes or releases the Stream rather than merely summoning the
           OSD (ADR-0003). */}
       <div className="shell-player-picture" data-testid="picture" data-picture={picture} data-state={state}>
-        {repertory && previewMode && picture === "in_window" && !showPreview && preview?.art ? (
+        {previewMode && picture === "in_window" && !showPreview && preview?.art ? (
           <div className="rep-player-still" data-testid="rehearsal-picture" aria-hidden="true">
             <img className="rep-player-still-art" src={preview.art} alt="" />
             <span className="rep-player-still-scrim" />
@@ -539,13 +525,11 @@ export function PlayerOverlay() {
 
           <header className="shell-osd-top">
             <div className="shell-osd-meta">
-              {repertory ? (
-                <p className="rep-osd-kicker" data-testid="osd-kicker">
-                  <span>Now playing</span>
-                  <span className="rep-osd-kicker-rule" aria-hidden="true" />
-                  <span>{episode ? `S${episode.season}E${episode.episode}` : "Feature"}</span>
-                </p>
-              ) : null}
+              <p className="rep-osd-kicker" data-testid="osd-kicker">
+                <span>Now playing</span>
+                <span className="rep-osd-kicker-rule" aria-hidden="true" />
+                <span>{(episode ? `S${episode.season}E${episode.episode}` : (progress ? labelOf(progress.video) : null)) ?? "Feature"}</span>
+              </p>
               <div className="shell-osd-line">
                 {quality ? (
                   <span className="shell-osd-quality tabular" data-testid="osd-quality">
@@ -566,20 +550,19 @@ export function PlayerOverlay() {
             <div className="shell-osd-window" data-player-stop="top" ref={top}>
               <FullscreenButton
                 ref={fullscreen}
-                className="shell-osd-icon kit-focus-invert"
+                className="shell-osd-icon"
                 testId="fullscreen"
-                presentation={repertory ? "repertory" : "velvet"}
               />
               <button
                 type="button"
-                className="shell-osd-icon kit-focus-invert"
+                className="shell-osd-icon"
                 data-focusable
                 data-testid="stop"
                 aria-label="Stop"
                 title="Stop playback and return (Back)"
                 onClick={() => takeAction({ type: "stop_playback" })}
               >
-                {repertory ? <Icon name="close" strokeWidth={2.2} /> : <CloseIcon />}
+                <Icon name="close" strokeWidth={2.2} />
               </button>
             </div>
           </header>
@@ -591,7 +574,6 @@ export function PlayerOverlay() {
                 playback={playback}
                 sending={wheelVolume}
                 onTake={takeAction}
-                repertory={repertory}
               />
             ) : null}
           </div>
@@ -614,7 +596,7 @@ export function PlayerOverlay() {
                     expanded={popover === osdPopoverId("picture")}
                     onClick={(event) => openPopover("picture", event.currentTarget)}
                   >
-                    {repertory ? <Icon name="picture" strokeWidth={2} /> : <MenuIcon />}
+                    <Icon name="picture" strokeWidth={2} />
                   </IconButton>
                   <IconButton
                     testId="osd-subtitles"
@@ -623,11 +605,7 @@ export function PlayerOverlay() {
                     expanded={popover === osdPopoverId("subtitles")}
                     onClick={(event) => openPopover("subtitles", event.currentTarget)}
                   >
-                    {repertory ? (
-                      <Icon name="subtitles" strokeWidth={2} />
-                    ) : (
-                      <span className="shell-osd-glyph tabular">CC</span>
-                    )}
+                    <Icon name="subtitles" strokeWidth={2} />
                   </IconButton>
                   <IconButton
                     testId="osd-audio"
@@ -636,7 +614,7 @@ export function PlayerOverlay() {
                     expanded={popover === osdPopoverId("audio")}
                     onClick={(event) => openPopover("audio", event.currentTarget)}
                   >
-                    {repertory ? <Icon name="audio" strokeWidth={2} /> : <WaveIcon />}
+                    <Icon name="audio" strokeWidth={2} />
                   </IconButton>
                 </div>
 
@@ -649,11 +627,7 @@ export function PlayerOverlay() {
                     pending={stepping && stepSide === "previous"}
                     onClick={() => void step("previous_episode")}
                   >
-                    {repertory ? (
-                      <Icon name="previous-episode" strokeWidth={2.2} />
-                    ) : (
-                      <SkipBackIcon />
-                    )}
+                    <Icon name="previous-episode" strokeWidth={2.2} />
                   </IconButton>
 
                   {canTransport ? (
@@ -665,11 +639,7 @@ export function PlayerOverlay() {
                         className="shell-osd-glyph tabular"
                         onClick={() => takeAction({ type: "seek", target: { kind: "by", seconds: -10 } })}
                       >
-                        {repertory ? (
-                          <Icon name="rewind-10" strokeWidth={2.2} />
-                        ) : (
-                          "↺10"
-                        )}
+                        <Icon name="rewind-10" strokeWidth={2.2} />
                       </IconButton>
                       <IconButton
                         testId={playing ? "pause" : "play"}
@@ -678,13 +648,7 @@ export function PlayerOverlay() {
                         ref={playPause}
                         onClick={() => takeAction({ type: "set_paused", paused: playing })}
                       >
-                        {repertory ? (
-                          <Icon name={playing ? "pause" : "play"} strokeWidth={2.2} />
-                        ) : playing ? (
-                          <PauseIcon />
-                        ) : (
-                          <PlayIcon />
-                        )}
+                        <Icon name={playing ? "pause" : "play"} strokeWidth={2.2} />
                       </IconButton>
                       <IconButton
                         testId="forward"
@@ -693,11 +657,7 @@ export function PlayerOverlay() {
                         className="shell-osd-glyph tabular"
                         onClick={() => takeAction({ type: "seek", target: { kind: "by", seconds: 10 } })}
                       >
-                        {repertory ? (
-                          <Icon name="forward-10" strokeWidth={2.2} />
-                        ) : (
-                          "10↻"
-                        )}
+                        <Icon name="forward-10" strokeWidth={2.2} />
                       </IconButton>
                     </>
                   ) : null}
@@ -710,11 +670,7 @@ export function PlayerOverlay() {
                     pending={stepping && stepSide === "next"}
                     onClick={() => void step("next_episode")}
                   >
-                    {repertory ? (
-                      <Icon name="next-episode" strokeWidth={2.2} />
-                    ) : (
-                      <SkipForwardIcon />
-                    )}
+                    <Icon name="next-episode" strokeWidth={2.2} />
                   </IconButton>
                 </div>
 
@@ -726,18 +682,10 @@ export function PlayerOverlay() {
                     expanded={popover === osdPopoverId("speed")}
                     onClick={(event) => openPopover("speed", event.currentTarget)}
                   >
-                    {repertory ? (
-                      <>
-                        <Icon name="speed" strokeWidth={2} />
-                        <span className="rep-osd-speed-value tabular">
-                          {formatSpeed(playback.speed ?? 1)}
-                        </span>
-                      </>
-                    ) : (
-                      <span className="shell-osd-glyph tabular">
-                        {formatSpeed(playback.speed ?? 1)}
-                      </span>
-                    )}
+                    <Icon name="speed" strokeWidth={2} />
+                    <span className="rep-osd-speed-value tabular">
+                      {formatSpeed(playback.speed ?? 1)}
+                    </span>
                   </IconButton>
                   <IconButton
                     testId="osd-chapters"
@@ -746,7 +694,7 @@ export function PlayerOverlay() {
                     expanded={popover === osdPopoverId("chapters")}
                     onClick={(event) => openPopover("chapters", event.currentTarget)}
                   >
-                    {repertory ? <Icon name="chapters" strokeWidth={2} /> : <ListIcon />}
+                    <Icon name="chapters" strokeWidth={2} />
                   </IconButton>
                 </div>
               </div>
@@ -754,7 +702,7 @@ export function PlayerOverlay() {
 
             {state === "ended" && !nextEpisodeDisabled(episode) ? (
               <div className="shell-osd-ended">
-                <EpisodeButton
+                <Button
                   variant="primary"
                   data-testid="next-episode-after-end"
                   disabled={stepping}
@@ -762,28 +710,21 @@ export function PlayerOverlay() {
                   onClick={() => void step("next_episode")}
                 >
                   Next episode
-                </EpisodeButton>
+                </Button>
               </div>
             ) : null}
 
-            {repertory ? (
-              <AnimatePresence initial={false}>
-                {stepping ? (
-                  <OsdRise
-                    repertory
-                    className="shell-osd-waiting"
-                    role="status"
-                    data-testid="episode-loading"
-                  >
-                    {waitingText}
-                  </OsdRise>
-                ) : null}
-              </AnimatePresence>
-            ) : stepping ? (
-              <div className="shell-osd-waiting" role="status" data-testid="episode-loading">
-                {waitingText}
-              </div>
-            ) : null}
+            <AnimatePresence initial={false}>
+              {stepping ? (
+                <OsdRise
+                  className="shell-osd-waiting"
+                  role="status"
+                  data-testid="episode-loading"
+                >
+                  {waitingText}
+                </OsdRise>
+              ) : null}
+            </AnimatePresence>
 
             {refusal ? (
               <div className="shell-osd-refusal">
@@ -795,7 +736,6 @@ export function PlayerOverlay() {
               playback={playback}
               interactive={canTransport}
               shown={shownPosition}
-              repertory={repertory}
               onSeek={(seconds) => takeAction({ type: "seek", target: { kind: "to", seconds } })}
             />
           </div>
@@ -815,14 +755,11 @@ function VolumePillar({
   playback,
   sending,
   onTake,
-  repertory = false,
 }: {
   playback: PlaybackSnapshot;
   /** The level the wheel is about to send, drawn until the Host agrees. */
   sending: number | null;
   onTake: (action: Action) => void;
-  /** Whether the repertory surface draws the fader's label. */
-  repertory?: boolean;
 }) {
   const [scrub, setScrub] = useState<number | null>(null);
   const shown = scrub ?? sending ?? Math.round(playback.volume ?? 100);
@@ -837,53 +774,33 @@ function VolumePillar({
 
   return (
     <OsdRise
-      repertory={repertory}
       className="shell-osd-volume"
       data-region="osd-volume"
       data-kind="row"
       data-label="Volume"
     >
-      {repertory ? (
-        <span className="rep-osd-volume-label" aria-hidden="true">
-          Vol
-        </span>
-      ) : null}
+      <span className="rep-osd-volume-label" aria-hidden="true">
+        Vol
+      </span>
       <span className="shell-osd-volume-level tabular" data-testid="volume-level">
         {formatVolume(shown)}
       </span>
-      {repertory ? (
-        <span className="rep-osd-fader" data-testid="volume-rail">
-          <span className="rep-osd-fader-rail" aria-hidden="true" />
-          <span
-            className="rep-osd-fader-fill"
-            data-testid="volume-fill"
-            style={{ height: `${fraction * 100}%` }}
-            aria-hidden="true"
-          />
-          <span
-            className="rep-osd-fader-playhead"
-            style={{ bottom: `${fraction * 100}%` }}
-            aria-hidden="true"
-          />
-          <input
-            type="range"
-            className="rep-osd-fader-input"
-            aria-label="Volume"
-            data-testid="volume"
-            min={0}
-            max={VOLUME_MAX}
-            step={1}
-            value={shown}
-            onChange={(event) => setScrub(Number(event.target.value))}
-            onPointerUp={() => scrub !== null && send(scrub)}
-            onKeyUp={() => scrub !== null && send(scrub)}
-            data-focusable
-          />
-        </span>
-      ) : (
+      <span className="rep-osd-fader" data-testid="volume-rail">
+        <span className="rep-osd-fader-rail" aria-hidden="true" />
+        <span
+          className="rep-osd-fader-fill"
+          data-testid="volume-fill"
+          style={{ height: `${fraction * 100}%` }}
+          aria-hidden="true"
+        />
+        <span
+          className="rep-osd-fader-playhead"
+          style={{ bottom: `${fraction * 100}%` }}
+          aria-hidden="true"
+        />
         <input
           type="range"
-          className="shell-osd-volume-slider"
+          className="rep-osd-fader-input"
           aria-label="Volume"
           data-testid="volume"
           min={0}
@@ -895,10 +812,10 @@ function VolumePillar({
           onKeyUp={() => scrub !== null && send(scrub)}
           data-focusable
         />
-      )}
+      </span>
       <button
         type="button"
-        className="shell-osd-icon kit-focus-invert"
+        className="shell-osd-icon"
         data-focusable
         data-testid="mute"
         aria-label={muted ? "Unmute" : "Mute"}
@@ -906,27 +823,20 @@ function VolumePillar({
         title={muted ? "Unmute" : "Mute"}
         onClick={() => onTake({ type: "set_muted", muted: !muted })}
       >
-        {repertory ? (
-          <Icon name={muted ? "volume-muted" : "volume"} strokeWidth={2} />
-        ) : (
-          <VolumeIcon muted={muted} />
-        )}
+        <Icon name={muted ? "volume-muted" : "volume"} strokeWidth={2} />
       </button>
     </OsdRise>
   );
 }
 
 /**
- * A plate that rises on the panel spring in the repertory room (design record
- * §6). The Velvet OSD keeps its static box: only the new surface moves.
+ * A plate that rises on the panel spring (design record §6).
  */
 function OsdRise({
-  repertory,
   className,
   children,
   ...rest
 }: {
-  repertory: boolean;
   className: string;
   children: ReactNode;
   role?: string;
@@ -936,13 +846,6 @@ function OsdRise({
   "data-label"?: string;
 }) {
   const reducedMotion = useReducedMotion();
-  if (!repertory) {
-    return (
-      <div className={className} {...rest}>
-        {children}
-      </div>
-    );
-  }
   return (
     <motion.div
       className={className}
@@ -958,7 +861,7 @@ function OsdRise({
 }
 
 /**
- * The flush bottom timeline: the track, its chapter diamonds with hover
+ * The flush bottom timeline: the track, its chapter ticks with hover
  * callouts, and the two tabular clocks. The range input is only drawn while the
  * Host would take a seek — the same state gate the old transport had — and it
  * covers the whole bar when it is.
@@ -974,14 +877,11 @@ function Timeline({
   interactive,
   shown,
   onSeek,
-  repertory = false,
 }: {
   playback: PlaybackSnapshot;
   interactive: boolean;
   shown: number;
   onSeek: (seconds: number) => void;
-  /** Whether the repertory surface draws its chapter ticks and current chapter. */
-  repertory?: boolean;
 }) {
   const { position, duration, chapters } = playback;
   const [scrub, setScrub] = useState<number | null>(null);
@@ -993,18 +893,15 @@ function Timeline({
   const fraction = timelineFraction(at, duration);
   const buffered = bufferedSpan(playback.buffered, duration);
   const allMarks = chapterMarks(chapters, duration);
-  // The repertory timeline keeps its ticks at least 24px apart (design record
-  // §8); a track that has not been measured yet keeps every mark.
-  const marks = repertory ? spacedChapterMarks(allMarks, trackWidth) : allMarks;
+  // The timeline keeps its ticks at least 24px apart (design record §8); a
+  // track that has not been measured yet keeps every mark.
+  const marks = spacedChapterMarks(allMarks, trackWidth);
   const dense = marks.length < allMarks.length;
   const left = formatTime(scrub ?? position);
   const right = remainingTime(at, duration);
   const chapter = point ? chapterAt(chapters, point.at) : null;
 
   useEffect(() => {
-    if (!repertory) {
-      return;
-    }
     const node = track.current;
     if (!node) {
       return;
@@ -1019,7 +916,7 @@ function Timeline({
     // A browser without ResizeObserver still has the window's own resize.
     window.addEventListener("resize", measure);
     return () => window.removeEventListener("resize", measure);
-  }, [repertory]);
+  }, []);
 
   const take = (seconds: number) => {
     setScrub(null);
@@ -1070,11 +967,7 @@ function Timeline({
             data-testid={`chapter-marker-${chapter.index}`}
             style={{ left: `${atFraction * 100}%` }}
           >
-            {repertory ? (
-              <span className="rep-osd-chapter-tick" aria-hidden="true" />
-            ) : (
-              <span className="shell-osd-diamond">◆</span>
-            )}
+            <span className="rep-osd-chapter-tick" aria-hidden="true" />
             {dense ? null : (
               <span className="shell-osd-callout">
                 <span className="shell-osd-callout-name">{chapterName(chapter)}</span>
@@ -1171,12 +1064,11 @@ function IconButton({
   ref?: Ref<HTMLButtonElement>;
   children: ReactNode;
 }) {
-  const { presentation } = useShell();
   return (
     <button
       ref={ref}
       type="button"
-      className={`shell-osd-icon kit-focus-invert${className ? ` ${className}` : ""}`}
+      className={`shell-osd-icon${className ? ` ${className}` : ""}`}
       data-focusable
       data-testid={testId}
       aria-label={label}
@@ -1188,92 +1080,7 @@ function IconButton({
       disabled={disabled || pending}
       onClick={onClick}
     >
-      {pending ? (
-        presentation === "repertory" ? (
-          <RepertorySpinner />
-        ) : (
-          <PendingSpinner />
-        )
-      ) : (
-        children
-      )}
+      {pending ? <PendingSpinner /> : children}
     </button>
-  );
-}
-
-function CloseIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
-      <path d="M18 6 6 18M6 6l12 12" />
-    </svg>
-  );
-}
-
-function MenuIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden="true">
-      <path d="M4 6h16M4 12h16M4 18h11" />
-    </svg>
-  );
-}
-
-function WaveIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-      <path d="M12 3v18M8 7v10M4 10v4M16 7v10M20 10v4" />
-    </svg>
-  );
-}
-
-function ListIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
-      <rect x="4" y="4" width="16" height="16" rx="2" />
-      <path d="M8 9h8M8 12h8M8 15h5" />
-    </svg>
-  );
-}
-
-function SkipBackIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M6 6h2v12H6V6zm3.5 6 8.5 6V6l-8.5 6z" />
-    </svg>
-  );
-}
-
-function SkipForwardIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z" />
-    </svg>
-  );
-}
-
-function PlayIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M8 5v14l11-7z" />
-    </svg>
-  );
-}
-
-function PauseIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M6 5h4v14H6V5zm8 0h4v14h-4V5z" />
-    </svg>
-  );
-}
-
-function VolumeIcon({ muted }: { muted: boolean }) {
-  return muted ? (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M11 5 6 9H2v6h4l5 4V5zm5.5 4.5 1.5-1.5 3 3 3-3 1.5 1.5-3 3 3 3-1.5 1.5-3-3-3 3-1.5-1.5 3-3-3-3z" />
-    </svg>
-  ) : (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M11 5 6 9H2v6h4l5 4V5zm4.5 7c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM13 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z" />
-    </svg>
   );
 }

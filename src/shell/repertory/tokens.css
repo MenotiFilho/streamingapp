@@ -5,9 +5,7 @@
  * The window reaches it through `repertory.css`; the Host's served Remote
  * splices the same file into its page at serve time (`crates/host-wire/src/remote.rs`,
  * the `__SPLICE_REPERTORY_TOKENS__` marker) and serves the same woff2 files, so
- * the phone cannot drift from the window's palette, families or faces. The
- * values stay scoped to `html[data-ui="repertory"]`, which is the attribute both
- * clients set; the `@font-face` rules are global because a face has no surface.
+ * the phone cannot drift from the window's palette, families or faces.
  *
  * The record is `docs/design-system.md` (ADR-0030); the motion vocabulary is
  * ADR-0031. This sheet is rebuilt to that record by #153.
@@ -63,7 +61,7 @@
     U+FEFF, U+FFFD;
 }
 
-html[data-ui="repertory"] {
+:root {
   color-scheme: dark;
 
   /*
@@ -175,7 +173,7 @@ html[data-ui="repertory"] {
  * read the two zeroed tokens, so they settle at once.
  */
 @media (prefers-reduced-motion: reduce) {
-  html[data-ui="repertory"] {
+  :root {
     --rep-motion-panel: 0ms;
     --rep-motion-quick: 0ms;
   }

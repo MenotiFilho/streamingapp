@@ -156,7 +156,6 @@ function harness(overrides: Partial<ShellContextValue> = {}) {
   const take = vi.fn(async (_action: Action) => null);
   const ask = vi.fn(async (_action: Action) => ({ response: null, error: null }));
   const value: ShellContextValue = {
-    presentation: "repertory",
     snapshot: SNAPSHOT,
     error: null,
     destination: "home",
@@ -918,7 +917,7 @@ describe("the repertory editorial grid's backward path", () => {
       },
     };
 
-    render(<Shell client={new HostClient(transport)} presentation="repertory" />);
+    render(<Shell client={new HostClient(transport)} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Discover" }));
     const more = await screen.findByTestId("more-discover:movie");

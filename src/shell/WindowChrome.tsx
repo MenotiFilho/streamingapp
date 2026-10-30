@@ -39,7 +39,7 @@ export function WindowChrome() {
       data-label="Window"
     >
       <FullscreenButton
-        className="shell-window-chrome-button kit-focus-invert"
+        className="shell-window-chrome-button"
         testId="window-fullscreen"
       />
     </div>

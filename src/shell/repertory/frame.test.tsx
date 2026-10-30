@@ -64,7 +64,7 @@ function FrameHarness() {
       onChooseDestination={choose}
       levels={levels}
       onBack={back}
-      presentation="repertory"
+     
       onOpenDestinations={openDestinations}
       screen={
         <section
@@ -246,7 +246,7 @@ function PushHarness() {
       onChooseDestination={() => {}}
       levels={levels}
       onBack={() => setLevels([])}
-      presentation="repertory"
+     
       screen={
         <button
           data-focusable
@@ -282,7 +282,7 @@ function PlayerHarness() {
       onChooseDestination={() => {}}
       levels={levels}
       onBack={() => setLevels([])}
-      presentation="repertory"
+     
       screen={
         <button
           data-focusable

@@ -170,7 +170,7 @@ async function renderPlayer(preview = false, hold?: Hold) {
   const host = fakeHost(PLAYING, hold);
   render(
     <PreviewDataProvider value={preview}>
-      <Shell client={host.client} presentation="repertory" />
+      <Shell client={host.client} />
     </PreviewDataProvider>,
   );
   await screen.findByTestId("shell-player");
@@ -188,7 +188,6 @@ describe("the repertory player OSD", () => {
 
     const player = screen.getByTestId("shell-player");
     expect(player).toHaveClass("rep-player");
-    expect(player).toHaveAttribute("data-presentation", "repertory");
 
     expect(screen.getByTestId("osd-kicker")).toHaveTextContent("Now playing");
     expect(screen.getByTestId("osd-kicker")).toHaveTextContent("S1E2");
@@ -250,7 +249,6 @@ describe("the repertory player OSD", () => {
       const panel = await screen.findByTestId(popover);
       const surface = panel.closest(".shell-osd-popover");
       expect(surface).toHaveClass("rep-osd-popover");
-      expect(surface).toHaveAttribute("data-presentation", "repertory");
       await closePopover(popover);
     }
   }, 20_000);

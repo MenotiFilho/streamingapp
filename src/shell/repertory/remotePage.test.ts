@@ -7,11 +7,10 @@ import tmdbLogo from "../../assets/tmdb-logo.svg?raw";
 import appearance from "../../subtitle-appearance.json?raw";
 import languages from "../../subtitle-languages.json?raw";
 import buffer from "../../stream-buffer.json?raw";
-import velvetTokens from "../../tokens.css?raw";
 import repertoryTokens from "./tokens.css?raw";
 
 /**
- * The served Remote's own smoke (#159).
+ * The served Remote's own smoke (#159, cut over to `/` in #160).
  *
  * The page has no seams of its own: one document, one classic script, one
  * module script. This test parses and boots the spliced template in jsdom, hands
@@ -21,7 +20,6 @@ import repertoryTokens from "./tokens.css?raw";
 
 function spliced(): string {
   return template
-    .replace("/*__SPLICE_TOKENS__*/", velvetTokens)
     .replace("/*__SPLICE_REPERTORY_TOKENS__*/", repertoryTokens)
     .replace("<!--__SPLICE_REPERTORY_ICONS__-->", icons)
     .replace("/*__SPLICE_SUBTITLE_LANGUAGES__*/", languages)
@@ -100,14 +98,11 @@ class FakeSocket {
   }
 }
 
-function boot(staged: boolean): { window: any; socket: FakeSocket } {
-  const html = staged
-    ? spliced().replace("<html lang=\"en\">", "<html lang=\"en\" data-ui=\"repertory\">")
-    : spliced();
+function boot(): { window: any; socket: FakeSocket } {
   FakeSocket.instances = [];
-  const dom = new JSDOM(html, {
+  const dom = new JSDOM(spliced(), {
     runScripts: "dangerously",
-    url: staged ? "http://127.0.0.1:8090/next" : "http://127.0.0.1:8090/",
+    url: "http://127.0.0.1:8090/",
     beforeParse(window: any) {
       window.WebSocket = FakeSocket as unknown as typeof WebSocket;
       Object.defineProperty(window, "matchMedia", {
@@ -149,10 +144,10 @@ function expand(window: any): void {
 }
 
 describe("the served Remote's page", () => {
-  test("boots at /next, takes a Snapshot, and puts the transport on the card", () => {
-    const { window, socket } = boot(true);
+  test("boots at /, takes a Snapshot, and puts the transport on the card", () => {
+    const { window, socket } = boot();
 
-    expect(window.document.documentElement.dataset.ui).toBe("repertory");
+    expect(window.document.documentElement.dataset.ui).toBeUndefined();
     expect(
       window.document.getElementById("pairing")?.classList.contains("hidden"),
       "a page with no token asks to pair",
@@ -177,20 +172,5 @@ describe("the served Remote's page", () => {
       cast?.querySelector(".transport [data-a='pause-toggle'] .rep-icon"),
       "the transport uses the sprite, not a Unicode mark",
     ).not.toBeNull();
-  });
-
-  test("boots at / on the old surface, with the same page and no repertory attribute", () => {
-    const { window, socket } = boot(false);
-
-    expect(window.document.documentElement.dataset.ui).toBeUndefined();
-    welcome(socket);
-    snapshot(socket);
-    expand(window);
-    const cast = window.document.getElementById("surface-remote");
-    expect(cast?.querySelector(".transport")).not.toBeNull();
-    expect(
-      cast?.querySelector(".transport .rep-icon"),
-      "the old surface keeps its own drawing",
-    ).toBeNull();
   });
 });

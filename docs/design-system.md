@@ -14,9 +14,7 @@ move them.
 The values live in `src/shell/repertory/tokens.css`; the motion presets live in
 `src/shell/repertory/motion.ts`. The window imports them and
 `crates/host-wire` splices the token sheet into the served Remote page and
-serves the same woff2 faces; the Velvet sheet sits beside it until the cutover
-(#160). #153 rebuilt the sheet to this record, and the differences that remain
-are listed in §14 rather than left as a second rule.
+serves the same `woff2` faces.
 
 ## 1. The direction
 
@@ -131,8 +129,7 @@ description clamps on its card and is read on the Title page.
 The window bundles lean Latin `woff2` faces (Bodoni Moda, Inter, IBM Plex Mono)
 and their OFL notices; the served Remote receives the same files from the Host
 and the same `@font-face` rules, so a phone without them is a fallback, not the
-design. Fontsource's package CSS is prototype plumbing and is replaced by the
-subset files at cutover. No page fetches a font from a third party.
+design. No page fetches a font from a third party.
 
 ## 4. Space, rules and radius
 
@@ -262,11 +259,10 @@ circle, no square, no container, except a cell of the hairline table.
 The set: the six destination marks, More, back, close, previous episode, next
 episode, −10s, +10s, play, pause, stop, fullscreen, volume, volume muted,
 picture, subtitles, audio, speed, chapters, and the chevron the popovers use.
-The window's `icons.tsx` is the source for the whole set (#153); the OSD
-re-points at it in #158. The served page receives the same symbols as a sprite
-spliced at serve time, like the token sheet, in #159. **No Unicode glyph stands
-in for a mark on the Remote** — the phone's emoji font is not the design
-system; #159 replaces the prototype's Unicode.
+The window's `icons.tsx` is the source for the whole set (#153). The served page
+receives the same symbols as a sprite spliced at serve time, like the token
+sheet (#159). **No Unicode glyph stands in for a mark on the Remote** — the
+phone's emoji font is not the design system.
 
 ## 8. Component anatomy
 
@@ -360,8 +356,7 @@ system; #159 replaces the prototype's Unicode.
   Chapters right), then the timeline — a hairline track, a buffered read, the
   brass progress, an ivory playhead, brass chapter ticks, mono clocks at each
   end. The current chapter is named **only in the hover/drag callout**, which
-  names the chapter of the position pointed at; the prototype prints it
-  permanently at the centre, and #158 removes that line. Ticks keep a minimum
+  names the chapter of the position pointed at. Ticks keep a minimum
   spacing (~24px); a container with many chapters collapses to a tick rail
   without names.
 - **Pairing call board**: **Address** in mono, **Pairing code** in large brass
@@ -486,40 +481,24 @@ measurement written back here:
   4:3, and the popover's clearance at a short window height. Judged in the
   window, then written here.
 
-The prototype's scaffolding is not provisional design: the rehearsal bar, the
-sample tracks and statistics, the ticking clock, the sample pairing devices, the
-practice Library account and the `?ui=repertory` selector were introduced across
-#145–#149 and are #152/#160 machinery; they leave with the flag.
+The rehearsal bar, the sample tracks and statistics, the ticking clock, the
+sample pairing devices and the practice Library account live only behind the
+dev-only `VITE_UI=rehearsal` mount (`RehearsalEntry`) and are never compiled
+into the shipping window (`RepertoryEntry`) or the served Remote.
 
 ## 13. What this record does not decide
 
 - **Behaviour**: Actions, Snapshots, the focus model, the level stack, the Back
   order, auto-hide and the Remote flow. Frozen by the map and owned by
   `CONTEXT.md` and the ADRs.
-- **The staging**: the served page's route or setting is #152; the window's
-  `VITE_UI=repertory` flag and both cutovers are #160.
-- **The tests**: which presentation suites survive is #151.
+- **The entry points**: the window mounts `RepertoryEntry` by default and
+  reserves `VITE_UI=rehearsal` for the dev-only rehearsal mount; the served
+  Remote serves the repertory page at `/` (#160).
+- **The tests**: the two presentation locks (`tokens.test.ts` and
+  `remotePage.test.ts`) and the behaviour suites are governed by ADR-0032 (#151).
 - **The motion layer's code**: the `motion` dependency and its presets landed in
-  #153, and the Remote's vendored bundle follows in #159 (ADR-0031).
+  #153, and the Remote's vendored bundle landed in #159 (ADR-0031).
 - **The Windows walkthrough**: `verify.ps1` is not redesigned; the owner verifies
   the window by hand.
 - **Anything the Host says**: this record draws the Host's vocabulary; it never
   invents a word for a Host concept.
-
-## 14. Where the prototype still differs
-
-The prototype is the working set, not the finished sheet. These are the
-differences known at this writing, each with the ticket that closes it; a build
-ticket that finds another one records it here rather than inventing a second
-rule.
-
-| The prototype today | The record | Closed by |
-|---|---|---|
-| the Library and Settings reuse the shell's Stremio form rather than a dedicated repertory primitive | a utility form is drawn by the kit | #160 |
-| the OSD names the current chapter permanently at the centre | the chapter is named only in the hover/drag callout | #158 |
-| the OSD's ±10s and subtitles marks are text; the Remote is Unicode | one drawn set on both clients | #158, #159 (the old `/` page keeps the Velvet glyphs until #160) |
-| the volume is the native range with `accent-color` | a drawn rail with a brass fill | #158 |
-| shadows on the OSD | depth is a hairline and one ink step | #158 |
-| the OSD does not use the Motion presets yet; the Remote is still CSS transitions only | Motion in both clients, with the spring presets and the transition shapes in §6 | #158, #159 |
-| the Remote's strip still scroll-snaps | no snapping: the rail scroll is redirected mid-flight (§6) | #159 (`/next`; the old `/` keeps snapping until #160) |
-| the Velvet sheet and its splice live beside the repertory sheet; the served page keeps the old surface at `/` beside `/next` | one sheet, one splice, one page | #160 |

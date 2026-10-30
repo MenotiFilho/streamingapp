@@ -12,7 +12,6 @@ import {
 import type { Intent } from "../input";
 import { watching } from "../playback";
 import { actionKey, repeats } from "./actionKey";
-import { DestinationScreen } from "./DestinationScreens";
 import { InFlight } from "./inFlight";
 import { PlayerOverlay } from "./PlayerOverlay";
 import { RepertoryDestinationScreen } from "./repertory/RepertoryScreens";
@@ -31,7 +30,7 @@ import {
 const PLAYER_LEVEL = "player";
 
 /**
- * The new shell: the Host's Snapshot, the six-destination frame, and the level
+ * The shell: the Host's Snapshot, the six-destination frame, and the level
  * stack above it.
  *
  * The window owns nothing the Host owns. It follows Snapshots, takes Actions
@@ -39,13 +38,7 @@ const PLAYER_LEVEL = "player";
  * disturbing the focus underneath. The player is a level like any other; when
  * it stops, the browsing stack that was underneath is exactly where it was.
  */
-export function Shell({
-  client,
-  presentation = "velvet",
-}: {
-  client?: HostClient;
-  presentation?: "velvet" | "repertory";
-}) {
+export function Shell({ client }: { client?: HostClient }) {
   const host = useMemo(() => client ?? new HostClient(), [client]);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [error, setError] = useState<ActionError | null>(null);
@@ -72,8 +65,8 @@ export function Shell({
   const setBaseIntentHandler = useCallback(
     (handler: ((intent: Intent) => boolean) | null) => {
       baseIntent.current = handler;
-      // Only the owner that set this handler may clear it: the Repertory base
-      // cross-fades, and an old Home must not unmount the new one's handler.
+      // Only the owner that set this handler may clear it: the base cross-fades,
+      // and an old Home must not unmount the new one's handler.
       return () => {
         if (baseIntent.current === handler) {
           baseIntent.current = null;
@@ -182,9 +175,9 @@ export function Shell({
   );
   const pop = useCallback(() => dispatch({ type: "pop" }), []);
 
-  // The repertory spine's All destinations screen is a level like any other:
-  // it paints above the base, Back returns to the More control that opened it,
-  // and choosing a room goes through the same `choose` the spine uses.
+  // The spine's All destinations screen is a level like any other: it paints
+  // above the base, Back returns to the More control that opened it, and
+  // choosing a room goes through the same `choose` the spine uses.
   const openDestinations = useCallback(() => {
     push({
       name: "All destinations",
@@ -251,7 +244,6 @@ export function Shell({
 
   const value = useMemo(
     () => ({
-      presentation,
       snapshot,
       error,
       destination: nav.destination,
@@ -272,7 +264,6 @@ export function Shell({
       setBaseIntentHandler,
     }),
     [
-      presentation,
       snapshot,
       error,
       nav.destination,
@@ -301,16 +292,9 @@ export function Shell({
         onChooseDestination={choose}
         levels={nav.levels}
         onBack={back}
-        presentation={presentation}
         onOpenDestinations={openDestinations}
         onBaseIntent={(intent) => baseIntent.current?.(intent) ?? false}
-        screen={
-          presentation === "repertory" ? (
-            <RepertoryDestinationScreen destination={nav.destination} />
-          ) : (
-            <DestinationScreen destination={nav.destination} />
-          )
-        }
+        screen={<RepertoryDestinationScreen destination={nav.destination} />}
       />
 
       <div className="shell-alert-stack">

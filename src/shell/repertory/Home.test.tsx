@@ -159,7 +159,6 @@ function renderHome({
   const take = vi.fn(async (_action: Action) => null);
   const choose = vi.fn();
   const value: ShellContextValue = {
-    presentation: "repertory",
     snapshot,
     error: null,
     destination: "home",

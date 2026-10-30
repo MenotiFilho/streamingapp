@@ -2,8 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import type { Action, ActionError } from "../host-client";
 import { useShell, type NewShellLevel } from "./context";
-import { ConfirmDialog } from "./kit";
-import { ConfirmDialog as RepertoryConfirmDialog } from "./repertory/kit";
+import { ConfirmDialog } from "./repertory/kit";
 import { Refusal } from "./Refusal";
 
 export type ConfirmActionOptions = {
@@ -38,11 +37,7 @@ export function ConfirmAction({
   onConfirmed,
   testId,
 }: ConfirmActionOptions) {
-  const { pop, ask, presentation } = useShell();
-  // A level is shared by both surfaces; the question is drawn by the kit of
-  // the shell that pushed it, so the repertory window never wears Velvet
-  // clothes while the screens are being rebuilt under it (#153).
-  const Dialog = presentation === "repertory" ? RepertoryConfirmDialog : ConfirmDialog;
+  const { pop, ask } = useShell();
   const [error, setError] = useState<ActionError | null>(null);
   const [working, setWorking] = useState(false);
   // A person can pop the level while the Host is still answering. The answer
@@ -78,7 +73,7 @@ export function ConfirmAction({
   };
 
   return (
-    <Dialog
+    <ConfirmDialog
       title={title}
       confirmLabel={confirmLabel}
       danger
@@ -89,7 +84,7 @@ export function ConfirmAction({
     >
       {children}
       <Refusal error={error} />
-    </Dialog>
+    </ConfirmDialog>
   );
 }
 

@@ -298,7 +298,6 @@ function CredentialsScreen() {
 
       <LogGroup id="settings-stremio" title="Stremio account">
         <div
-          className="rep-log-signin"
           data-region="settings-stremio-form"
           data-kind="branch"
           data-label="Stremio account"
