@@ -180,7 +180,7 @@ function renderHome({
     take,
     home: new HomeStore(ask),
     setIntentHandler: vi.fn(),
-    setBaseIntentHandler: vi.fn(),
+    setBaseIntentHandler: vi.fn(() => () => {}),
   };
 
   render(
@@ -208,6 +208,18 @@ async function flush() {
 
 function activeSlide(): string | null {
   return screen.getByTestId("repertory-feature").getAttribute("data-active-slide");
+}
+
+function baseIntent(value: ShellContextValue): (intent: "left" | "right") => boolean {
+  const handler = vi
+    .mocked(value.setBaseIntentHandler)
+    .mock.calls.map(([held]) => held)
+    .filter((held): held is NonNullable<typeof held> => held !== null)
+    .at(-1);
+  if (!handler) {
+    throw new Error("the feature did not register a base intent handler");
+  }
+  return handler as (intent: "left" | "right") => boolean;
 }
 
 function onlyIntervals() {
@@ -271,68 +283,47 @@ describe("Home's feature presentation", () => {
     expect(activeSlide()).toBe("tt3");
   });
 
-  it("steps with Left and Right from the action without losing focus", async () => {
+  it("steps with Left and Right through the base intent without losing focus", async () => {
     onlyIntervals();
-    renderHome();
-    await flush();
-
-    const action = screen.getByRole("button", { name: /Open the Title/ });
-    act(() => action.focus());
-
-    expect(fireEvent.keyDown(action, { key: "ArrowRight" }), "a step is the feature's").toBe(
-      false,
-    );
-    expect(activeSlide()).toBe("tt2");
-    expect(document.activeElement).toBe(action);
-
-    expect(fireEvent.keyDown(action, { key: "ArrowLeft" }), "a step is the feature's").toBe(
-      false,
-    );
-    expect(activeSlide()).toBe("tt1");
-    expect(document.activeElement).toBe(action);
-  });
-
-  it("steps the feature through the base intent, which is the pad's path", async () => {
     const { value } = renderHome();
     await flush();
 
     const action = screen.getByRole("button", { name: /Open the Title/ });
     act(() => action.focus());
-    const handler = vi
-      .mocked(value.setBaseIntentHandler)
-      .mock.calls.map(([held]) => held)
-      .filter((held): held is NonNullable<typeof held> => held !== null)
-      .at(-1);
-    expect(handler).toBeTypeOf("function");
+    await flush();
 
-    act(() => {
-      expect(handler!("right")).toBe(true);
-    });
+    act(() => expect(baseIntent(value)("right"), "a step is the feature's").toBe(true));
     expect(activeSlide()).toBe("tt2");
+    expect(document.activeElement).toBe(action);
+
+    await flush();
+    act(() => expect(baseIntent(value)("left")).toBe(true));
+    expect(activeSlide()).toBe("tt1");
+    expect(document.activeElement).toBe(action);
   });
 
   it("leaves Left at the first slide to the frame and holds Right at the last", async () => {
     onlyIntervals();
-    renderHome();
+    const { value } = renderHome();
     await flush();
 
     const action = screen.getByRole("button", { name: /Open the Title/ });
     act(() => action.focus());
+    await flush();
 
     expect(
-      fireEvent.keyDown(action, { key: "ArrowLeft" }),
+      baseIntent(value)("left"),
       "Left at the first slide is not the feature's: the engine crosses to the spine",
-    ).toBe(true);
+    ).toBe(false);
     expect(activeSlide()).toBe("tt1");
 
     for (let step = 0; step < 3; step += 1) {
-      fireEvent.keyDown(action, { key: "ArrowRight" });
+      act(() => baseIntent(value)("right"));
+      await flush();
     }
     expect(activeSlide()).toBe("tt4");
 
-    expect(fireEvent.keyDown(action, { key: "ArrowRight" }), "Right at the last slide stays").toBe(
-      false,
-    );
+    expect(baseIntent(value)("right"), "Right at the last slide stays").toBe(true);
     expect(activeSlide()).toBe("tt4");
   });
 

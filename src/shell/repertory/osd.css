@@ -708,9 +708,6 @@ html[data-ui="repertory"] .rep-osd-popover .shell-osd-delay {
 }
 
 /* The rehearsal bar steps out of the way while the player owns the window. */
-html[data-ui="repertory"] .repertory-ui:has(.shell-player) .rep-rehearsal {
-  display: none;
-}
 
 /* --------------------------------------------------------------------------
  * Reduced motion: the room is still, the wait still turns

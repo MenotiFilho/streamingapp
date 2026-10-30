@@ -10,8 +10,7 @@ import {
 import { Rail } from "./Rail";
 import type { Intent } from "../input";
 import type { Destination, ShellLevel } from "./navigation";
-import { destinationTransition } from "./repertory/frame";
-import { REPERTORY_RULES } from "./repertory/frame";
+import { destinationTransition, REPERTORY_RULES } from "./repertory/frame";
 import { RepertoryNav } from "./repertory/RepertoryNav";
 import { focusAndReveal } from "./reveal";
 import { toggleFullscreen, useFullscreen } from "./useFullscreen";
@@ -179,7 +178,9 @@ export function ShellFrame({
     levelKey: top ? `level:${top.id}` : `base:${destination}`,
     onBack,
     onIntent: top?.onIntent ?? onBaseIntent,
-    rules: repertory ? REPERTORY_RULES : undefined,
+    // The owner's rail/chrome rules are the base programme's: a pushed Title,
+    // Streams list or dialog keeps the settled geometry.
+    rules: repertory && (levels.length === 0 || settingsLeaf) ? REPERTORY_RULES : undefined,
   });
 
   // A destination change is a deliberate choice: focus lands on the rail item

@@ -3142,7 +3142,8 @@ html[data-ui="repertory"] .rep-frame .shell-level:has(.rep-settings-level) {
   background: var(--rep-ink);
 }
 
-/* Focusing the spine opens it; the leaf makes room instead of being covered. */
+/* The spine opens on hover or an arrow-key walk; the leaf makes room instead
+ * of being covered. */
 html[data-ui="repertory"]
   .rep-frame:has(.rep-nav--spine[data-open="true"])
   .shell-level:has(.rep-settings-level) {

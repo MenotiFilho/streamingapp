@@ -181,8 +181,9 @@ form field, row:
 
 The keyline has to fit: a scrollport gets 3px of extra padding so a focused edge
 is never clipped, and a rail's first and last card are inset by the same 3px.
-The spine grows on focus (compact → open) and the page makes room; a Settings
-leaf keeps the spine live, with the focus root covering both.
+The spine grows on hover or an arrow-key walk (compact → open) and the page
+makes room; a Settings leaf keeps the spine live, with the focus root covering
+both.
 
 ## 6. Motion
 
@@ -271,8 +272,8 @@ system; #159 replaces the prototype's Unicode.
 
 - **Spine**: the programme index, each destination's drawn mark and its name,
   the active destination in brass with a 2px rule, the time at the foot (the
-  date joins it when open). Compact at rest, open on **hover or keyboard
-  focus**; the list stays centred in both states. A **More** card ends the
+  date joins it when open). Compact at rest, open on **hover or an arrow-key
+  walk**; the list stays centred in both states. A **More** card ends the
   index and opens the All destinations grid; the grid always holds the whole
   programme.
 - **Programme line**: every screen's head is one line — the destination's name
@@ -503,6 +504,7 @@ rule.
 |---|---|---|
 | screen CSS still carries per-screen `clamp()` sizes (the Title name, Streams and logbook gaps and paddings); the stage unit covers the frame and the kit | every ten-foot size and layout dimension from the stage unit and the fixed spacing steps (§3–§4) | #155–#159 |
 | Discover and Search still draw the Velvet screen layout and the prototype card wash; the repertory kit is mounted under it | the editorial feed and the result rows in the repertory anatomy, with the wash only on a focused poster's art (§5) | #156 |
+| Home's feature and cards open the Program note stand-in, not the real Title page | the one-screen programme page and its Streams list | #155 |
 | the OSD names the current chapter permanently at the centre | the chapter is named only in the hover/drag callout | #158 |
 | the OSD's ±10s and subtitles marks are text; the Remote is Unicode | one drawn set on both clients | #158, #159 |
 | the volume is the native range with `accent-color` | a drawn rail with a brass fill | #158 |

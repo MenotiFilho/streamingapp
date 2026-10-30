@@ -17,7 +17,6 @@ import {
 } from "../../browse";
 import { explain, type MetaPreview, type ResumeEntry } from "../../host-client";
 import { cardName, cardNote, progressOf, resumable } from "../../library";
-import { REPEAT_EVERY_MS } from "../../input";
 import { useShell } from "../context";
 import { continueArt, featuredRow, heroSlides, type HeroSlide } from "../home";
 import { FOCUSABLE } from "../layout";
@@ -128,7 +127,6 @@ function Feature({
   const reducedMotion = useReducedMotion();
   const { setBaseIntentHandler } = useShell();
   const frame = useRef<HTMLDivElement | null>(null);
-  const lastSlideAt = useRef(0);
   const active = Math.min(index, Math.max(0, items.length - 1));
   const item = items[active];
   const rotating = items.length > 1 && !reducedMotion;
@@ -137,7 +135,7 @@ function Feature({
   // both arrive here as intents. At the first slide Left is not consumed, so
   // the focus engine can cross to the spine; at the last slide Right stays.
   useEffect(() => {
-    setBaseIntentHandler((intent) => {
+    const clear = setBaseIntentHandler((intent) => {
       if (document.activeElement !== frame.current) {
         return false;
       }
@@ -152,7 +150,7 @@ function Feature({
       setIndex(next);
       return true;
     });
-    return () => setBaseIntentHandler(null);
+    return clear;
   }, [active, items.length, setBaseIntentHandler]);
 
   useEffect(() => {
@@ -179,15 +177,6 @@ function Feature({
     : { year: null, rating: null, genres: null };
   const density = featureTitleDensity(name);
 
-  const step = (direction: -1 | 1) => {
-    const next = featureStep(active, items.length, direction);
-    if (next === null) {
-      return false;
-    }
-    setIndex(next);
-    return true;
-  };
-
   return (
     <section
       className="rep-feature"
@@ -209,30 +198,6 @@ function Feature({
         onFocus={() => setHeld(true)}
         onBlur={() => setHeld(false)}
         onKeyDown={(event) => {
-          const direction =
-            event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : null;
-          if (direction !== null) {
-            const now = typeof performance !== "undefined" ? performance.now() : Date.now();
-            if (event.repeat && now - lastSlideAt.current < REPEAT_EVERY_MS) {
-              event.preventDefault();
-              event.stopPropagation();
-              return;
-            }
-            lastSlideAt.current = now;
-            if (step(direction)) {
-              event.preventDefault();
-              event.stopPropagation();
-              return;
-            }
-            // Right at the last slide stays on the feature. Left at the first
-            // is not the feature's to consume: the focus engine crosses to the
-            // spine, which is the only way out to the programme index.
-            if (direction === 1) {
-              event.preventDefault();
-              event.stopPropagation();
-            }
-            return;
-          }
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
             onOpen(item);
@@ -454,8 +419,7 @@ export function RepertoryHome() {
 
   const featured = featuredRow(snapshot, visibleRows);
   const allSlides = heroSlides(featured?.metas ?? []);
-  const slides = allSlides;
-  const featureItems: FeatureItem[] = slides.map((slide) => ({
+  const featureItems: FeatureItem[] = allSlides.map((slide) => ({
     slide,
     meta: featured?.metas.find((meta) => meta.id === slide.id) ?? null,
   }));

@@ -62,7 +62,8 @@ function SpineItem({
 }
 
 /**
- * The spine: the programme index, compact at rest and open on focus.
+ * The spine: the programme index, compact at rest and open on hover or an
+ * arrow-key walk.
  *
  * It is the one permanent frame. The six destinations carry their drawn mark
  * and their name, the active one is brass with a 2px rule, and the date and

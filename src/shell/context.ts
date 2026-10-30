@@ -87,7 +87,7 @@ export type ShellContextValue = {
    * feature's Left/Right stepping is the same for the D-pad and the arrow keys,
    * so it lives here rather than in a key handler.
    */
-  setBaseIntentHandler: (handler: ((intent: Intent) => boolean) | null) => void;
+  setBaseIntentHandler: (handler: ((intent: Intent) => boolean) | null) => () => void;
 };
 
 export const ShellContext = createContext<ShellContextValue | null>(null);

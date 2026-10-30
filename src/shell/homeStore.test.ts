@@ -387,6 +387,7 @@ describe("the Home store", () => {
     const kept = store.getSnapshot().rows[0];
     expect(kept?.metas.map((held) => held.id)).toEqual(["tt1", "tt2"]);
     expect(kept?.offset).toBe(2);
+    expect(kept?.done, "a page with no answer ends the row").toBe(true);
   });
 
   test("exactly four asks run at once, and a freed slot starts the next", async () => {

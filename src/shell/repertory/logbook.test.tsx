@@ -149,7 +149,7 @@ function harness(
     take: vi.fn(async (_action: Action) => null),
     home: new HomeStore(ask),
     setIntentHandler: vi.fn(),
-    setBaseIntentHandler: vi.fn(),
+    setBaseIntentHandler: vi.fn(() => () => {}),
     ...overrides,
   };
   return { value, pushed, ask, pop };

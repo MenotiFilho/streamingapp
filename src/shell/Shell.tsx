@@ -69,9 +69,19 @@ export function Shell({
     playerIntent.current = handler;
   }, []);
   const baseIntent = useRef<((intent: Intent) => boolean) | null>(null);
-  const setBaseIntentHandler = useCallback((handler: ((intent: Intent) => boolean) | null) => {
-    baseIntent.current = handler;
-  }, []);
+  const setBaseIntentHandler = useCallback(
+    (handler: ((intent: Intent) => boolean) | null) => {
+      baseIntent.current = handler;
+      // Only the owner that set this handler may clear it: the Repertory base
+      // cross-fades, and an old Home must not unmount the new one's handler.
+      return () => {
+        if (baseIntent.current === handler) {
+          baseIntent.current = null;
+        }
+      };
+    },
+    [],
+  );
 
   const publish = useCallback((next: Snapshot) => {
     setSnapshot((current) => (current && current.revision > next.revision ? current : next));
