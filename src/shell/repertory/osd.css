@@ -677,8 +677,9 @@ html[data-ui="repertory"] .rep-osd-popover .rep-kit-popover {
   border-top: 2px solid var(--rep-house);
   border-radius: 0;
   /* §12 lets the popover plate's alpha move over a bright film; the owner
-     asked for it much lighter after the Windows panel. */
-  background: color-mix(in srgb, var(--rep-ink-raised) 68%, transparent);
+     asked for it much lighter after the Windows panel, so the film stays
+     readable behind a menu. */
+  background: color-mix(in srgb, var(--rep-ink-raised) 42%, transparent);
   box-shadow: none;
 }
 
