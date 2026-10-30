@@ -1,14 +1,9 @@
 import { motion } from "motion/react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { DESTINATIONS, type Destination } from "../navigation";
 import { useReducedMotion } from "../useReducedMotion";
-import {
-  spineDestinations,
-  spineLabelTransition,
-  spineOpensOnFocus,
-  spineWidthTransition,
-} from "./frame";
+import { spineDestinations, spineLabelTransition, spineWidthTransition } from "./frame";
 import { Icon } from "./icons";
 import {
   programShortDate as programShortDateText,
@@ -88,13 +83,6 @@ export function RepertoryNav({
   const now = useNow();
   const reducedMotion = useReducedMotion();
   const [open, setOpen] = useState(false);
-  /**
-   * When the pointer last pressed inside the spine. A click on a compact icon
-   * focuses it, but that focus is the pointer's: opening on it would expand the
-   * spine before the destination was chosen. Keyboard and programmatic focus
-   * carry no fresh press and still reveal the labels.
-   */
-  const pointerAt = useRef(0);
   const destinations = spineDestinations(DESTINATIONS);
 
   return (
@@ -109,25 +97,11 @@ export function RepertoryNav({
       data-open={open ? "true" : undefined}
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
-      onPointerDown={() => {
-        pointerAt.current = Date.now();
-      }}
       onKeyDown={(event) => {
-        // Arrow keys are the D-pad moving through the spine: the labels come
-        // back as soon as a person navigates rather than clicks.
+        // A keyboard walk through the index reveals the labels; a pointer that
+        // merely focuses the nav does not.
         if (event.key.startsWith("Arrow")) {
           setOpen(true);
-        }
-      }}
-      onFocus={() => {
-        if (spineOpensOnFocus(pointerAt.current, Date.now())) {
-          setOpen(true);
-        }
-      }}
-      onBlur={(event) => {
-        const next = event.relatedTarget as Node | null;
-        if (!next || !event.currentTarget.contains(next)) {
-          setOpen(false);
         }
       }}
     >

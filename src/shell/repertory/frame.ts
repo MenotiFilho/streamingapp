@@ -53,16 +53,3 @@ export const REPERTORY_RULES: Rules = {
   chromeExit: "hero",
   rowEntry: "first",
 };
-
-/**
- * How long after a pointer press a focus on the spine still counts as the
- * pointer's own, not as a keyboard or programmatic arrival. A press on a
- * compact icon picks a destination without opening the spine; a later keyboard
- * focus reveals the labels.
- */
-export const SPINE_POINTER_GRACE_MS = 250;
-
-/** Whether a focus should open the spine: anything not caused by a fresh pointer press. */
-export function spineOpensOnFocus(pointerAt: number, now: number): boolean {
-  return now - pointerAt > SPINE_POINTER_GRACE_MS;
-}
