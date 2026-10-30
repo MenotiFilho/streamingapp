@@ -98,6 +98,17 @@ html[data-ui="repertory"] body.picture-behind .shell-nav-slot {
   pointer-events: none;
 }
 
+/*
+ * An OSD popover is a level above the player, not a room of its own: the film
+ * and the OSD underneath must stay visible through it, or opening Picture,
+ * Subtitles, Audio, Speed or Chapters turns the window into a black page with
+ * one menu on it.
+ */
+html[data-ui="repertory"] .rep-frame .shell-level[data-level-kind="popover"] {
+  background: transparent;
+  padding-top: 0;
+}
+
 .rep-frame .shell-base {
   background: var(--rep-ink);
 }
