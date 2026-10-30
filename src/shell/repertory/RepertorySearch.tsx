@@ -4,7 +4,6 @@ import {
   useRef,
   useState,
   type FormEvent,
-  type KeyboardEvent,
 } from "react";
 
 import { keyOf } from "../../browse";
@@ -21,25 +20,25 @@ import {
   explain,
   type ActionError,
   type CatalogRow,
+  type MetaPreview,
 } from "../../host-client";
 import { SERIES } from "../../title";
 import { SEARCH_KINDS, searchAsk, type SearchKind } from "../search";
 import { useShell } from "../context";
 import { addonName } from "../home";
-import { FOCUSABLE } from "../layout";
-import { focusAndReveal } from "../reveal";
 import { useTitleOpener } from "../TitleScreen";
 import { usePreviewData } from "./context";
 import { feedMore, feedState, rowsForKind } from "./editorial";
+import { EditorialGrid } from "./EditorialGrid";
 import { EditorialRow } from "./EditorialRow";
 import { Button, ChoiceChip, PosterCard } from "./kit";
 import { ProgrammeLine } from "./ProgrammeLine";
-import { countLabel, yearOf } from "./program";
+import { rowTagOf, yearOf } from "./program";
 import "./repertory.css";
 
-type KeyedRows = Record<SearchKind, DiscoverFeed>;
+type KeyedFeeds = Record<SearchKind, DiscoverFeed>;
 
-function blankKeyedRows(): KeyedRows {
+function blankKeyedFeeds(): KeyedFeeds {
   return { movie: blankFeed(), series: blankFeed() };
 }
 
@@ -63,24 +62,27 @@ const NO_CATALOG_ANSWER: CatalogAnswer = {
  * A query is asked both ways the Host offers, read from the Snapshot
  * (ADR-0010's amendment, ADR-0020): with a TMDB Credential it is asked once for
  * Movies and once for Series — both in flight, one shown at a time, so a chip
- * switch is instant — and each page keeps its cards and its own failure. With
- * no key it is `search_catalogs`, answered one row per searchable Catalog in
- * the Host's order, and a Catalog that failed stays in its own row (ADR-0010).
- * The bar submits, never asks per keystroke.
+ * switch is instant — and each page keeps its cards and its own failure. The
+ * map's #146 decision narrows the repertory surface to one kind at a time; the
+ * Velvet surface keeps its two rows. With no key it is `search_catalogs`,
+ * answered one row per searchable Catalog in the Host's order, and a Catalog
+ * that failed stays in its own row (ADR-0010). That arm is one page: the Action
+ * takes no page, so a keyless row has no paging to offer. The bar submits,
+ * never asks per keystroke.
  *
  * The plain Vite preview has no Host and no TMDB network, so it always takes the
  * keyless arm even when the rehearsal Settings hold a key flag.
  */
 export function RepertorySearchScreen() {
   const preview = usePreviewData();
-  const { snapshot, ask, unplayable } = useShell();
+  const { snapshot, ask, push, pop, unplayable } = useShell();
   const { openTitle, openDiscoveredTitle } = useTitleOpener();
   const [draft, setDraft] = useState("");
   /** The kind the repertory feed shows; the query still asks both kinds. */
   const [shownKind, setShownKind] = useState<SearchKind>(MOVIE);
   /** The query whose answers are on screen, or null before the first submit. */
   const [committed, setCommitted] = useState<string | null>(null);
-  const [rows, setRows] = useState<KeyedRows>(blankKeyedRows);
+  const [rows, setRows] = useState<KeyedFeeds>(blankKeyedFeeds);
   const [paging, setPaging] = useState<SearchKind[]>([]);
   const [catalogAnswer, setCatalogAnswer] = useState<CatalogAnswer>(NO_CATALOG_ANSWER);
   /**
@@ -89,15 +91,13 @@ export function RepertorySearchScreen() {
    * than landing in the rows of the new one.
    */
   const serial = useRef(0);
-  /** The results container, so Down from the submit control can enter its head. */
-  const results = useRef<HTMLDivElement | null>(null);
 
   const keyed = !preview && (snapshot?.protection.tmdbHeld ?? false);
 
   const reset = useCallback(() => {
     serial.current += 1;
     setCommitted(null);
-    setRows(blankKeyedRows());
+    setRows(blankKeyedFeeds());
     setPaging([]);
     setCatalogAnswer(NO_CATALOG_ANSWER);
   }, []);
@@ -181,29 +181,10 @@ export function RepertorySearchScreen() {
   };
 
   /**
-   * Down from the submit control enters the first results row's head. The text
-   * field gets that by geometry — it is wider than everything a row holds — but
-   * the control beside it is not, so the bar's other half says it here rather
-   * than landing on whichever card happens to sit under the button.
+   * Down from the submit control enters the first results row's first card by
+   * the shell's own rule: the bar is a branch, so a move into a row starts at
+   * that row's first card (design record §5; ADR-0025).
    */
-  const downToResults = (event: KeyboardEvent<HTMLButtonElement>) => {
-    if (event.key !== "ArrowDown") {
-      return;
-    }
-    // The first card of the first result row, not the row's paging action that
-    // sits above it in the head.
-    const first =
-      results.current?.querySelector<HTMLElement>(
-        ".rep-kit-row-track [data-focusable]",
-      ) ?? results.current?.querySelector<HTMLElement>(FOCUSABLE);
-    if (!first) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    focusAndReveal(first);
-  };
-
   const canSubmit = draft.trim().length > 0;
   // The keyless arm answers one row per Catalog; the repertory surface shows
   // the kind a person chose.
@@ -243,6 +224,95 @@ export function RepertorySearchScreen() {
 
   const shownFeed = rows[shownKind];
   const shownLoading = paging.includes(shownKind);
+  const couldPlay =
+    snapshot === null ? false : discoverPlayable(snapshot.addons, shownKind);
+  const keyedTag = rowTagOf("TMDB", shownKind, shownFeed.items.length);
+  const keyedNote = rowNote(shownFeed, shownLoading, committed ?? "");
+
+  const keyedCard = (meta: MetaPreview, testId: string) => (
+    <PosterCard
+      key={meta.id}
+      name={meta.name}
+      poster={meta.poster}
+      rating={meta.imdbRating?.trim() || null}
+      subtitle={yearOf(meta)}
+      unplayable={!couldPlay || unplayable.has(meta.id)}
+      testId={testId}
+      onClick={() => void openDiscoveredTitle(meta)}
+    />
+  );
+
+  const openKeyedGrid = () => {
+    push({
+      name: `All of ${shownLabel}`,
+      kind: "overlay",
+      render: () => (
+        <EditorialGrid
+          title={shownLabel}
+          tag={keyedTag}
+          failure={shownFeed.failure}
+          note={keyedNote}
+          onClose={pop}
+          testId="search-grid"
+        >
+          {shownFeed.items.map((meta) =>
+            keyedCard(meta, `search-grid-card-${shownKind}-${meta.id}`),
+          )}
+        </EditorialGrid>
+      ),
+    });
+  };
+
+  const keyedAction = shownFeed.failure ? (
+    <Button variant="ghost" disabled={shownLoading} onClick={() => more(shownKind)}>
+      Try again
+    </Button>
+  ) : feedMore(shownFeed) ? (
+    <Button variant="ghost" disabled={shownLoading} onClick={() => more(shownKind)}>
+      Read on
+    </Button>
+  ) : null;
+
+  const catalogCard = (row: CatalogRow, meta: MetaPreview, testId: string) => (
+    <PosterCard
+      key={meta.id}
+      name={meta.name}
+      poster={meta.poster}
+      rating={meta.imdbRating?.trim() || null}
+      subtitle={yearOf(meta)}
+      unplayable={unplayable.has(meta.id)}
+      testId={testId}
+      onClick={() => void openTitle(row.addon, meta)}
+    />
+  );
+
+  const catalogTag = (row: CatalogRow) =>
+    rowTagOf(
+      addonName(snapshot, row.addon) ?? row.addon,
+      row.type,
+      row.metas.length,
+    );
+
+  const openCatalogGrid = (row: CatalogRow) => {
+    push({
+      name: `All of ${row.name}`,
+      kind: "overlay",
+      render: () => (
+        <EditorialGrid
+          title={row.name}
+          tag={catalogTag(row)}
+          failure={row.failure}
+          note={catalogNote(row)}
+          onClose={pop}
+          testId="search-catalog-grid"
+        >
+          {row.metas.map((meta) =>
+            catalogCard(row, meta, `search-grid-card-${row.addon}-${meta.id}`),
+          )}
+        </EditorialGrid>
+      ),
+    });
+  };
 
   return (
     <section
@@ -263,7 +333,7 @@ export function RepertorySearchScreen() {
             role="search"
             aria-label="Search"
             data-region="search-bar"
-            data-kind="row"
+            data-kind="branch"
             data-label="Search"
             onSubmit={submit}
           >
@@ -289,7 +359,6 @@ export function RepertorySearchScreen() {
               type="submit"
               variant="primary"
               disabled={!canSubmit}
-              onKeyDown={downToResults}
             >
               Search
             </Button>
@@ -318,45 +387,30 @@ export function RepertorySearchScreen() {
           </div>
 
           {keyed && committed !== null ? (
-            <div className="rep-search-results" data-testid="search-results" ref={results}>
+            <div className="rep-search-results" data-testid="search-results">
               <EditorialRow
                 title={shownLabel}
-                tag={`TMDB / ${countLabel(shownKind, shownFeed.items.length)}`}
-                action={
-                  feedMore(shownFeed) ? (
-                    <Button
-                      variant="ghost"
-                      disabled={shownLoading}
-                      onClick={() => more(shownKind)}
-                    >
-                      More
-                    </Button>
-                  ) : null
-                }
+                tag={keyedTag}
+                action={keyedAction}
                 failure={shownFeed.failure}
-                note={rowNote(shownFeed, shownLoading, committed)}
+                note={keyedNote}
                 region={`search-row:${shownKind}`}
+                onOpenRow={
+                  !shownLoading && shownFeed.items.length > 0
+                    ? openKeyedGrid
+                    : undefined
+                }
                 testId={`search-row-${shownKind}`}
               >
-                {shownFeed.items.map((meta) => (
-                  <PosterCard
-                    key={meta.id}
-                    name={meta.name}
-                    poster={meta.poster}
-                    rating={meta.imdbRating?.trim() || null}
-                    subtitle={yearOf(meta)}
-                    unplayable={!discoverPlayable(snapshot.addons, shownKind) ||
-                      unplayable.has(meta.id)}
-                    testId={`search-card-${shownKind}-${meta.id}`}
-                    onClick={() => void openDiscoveredTitle(meta)}
-                  />
-                ))}
+                {shownFeed.items.map((meta) =>
+                  keyedCard(meta, `search-card-${shownKind}-${meta.id}`),
+                )}
               </EditorialRow>
             </div>
           ) : null}
 
           {!keyed && committed !== null ? (
-            <div className="rep-search-results" data-testid="search-catalogs" ref={results}>
+            <div className="rep-search-results" data-testid="search-catalogs">
               {catalogAnswer.loading ? (
                 <p
                   role="status"
@@ -381,27 +435,16 @@ export function RepertorySearchScreen() {
                 <EditorialRow
                   key={keyOf(row)}
                   title={row.name}
-                  tag={`${addonName(snapshot, row.addon) ?? row.addon} / ${countLabel(
-                    row.type,
-                    row.metas.length,
-                  )}`}
+                  tag={catalogTag(row)}
                   failure={row.failure}
                   note={catalogNote(row)}
                   region={`search-row:${keyOf(row)}`}
+                  onOpenRow={row.metas.length > 0 ? () => openCatalogGrid(row) : undefined}
                   testId={`search-row-${keyOf(row)}`}
                 >
-                  {row.metas.map((meta) => (
-                    <PosterCard
-                      key={meta.id}
-                      name={meta.name}
-                      poster={meta.poster}
-                      rating={meta.imdbRating?.trim() || null}
-                      subtitle={yearOf(meta)}
-                      unplayable={unplayable.has(meta.id)}
-                      testId={`search-card-${row.addon}-${meta.id}`}
-                      onClick={() => void openTitle(row.addon, meta)}
-                    />
-                  ))}
+                  {row.metas.map((meta) =>
+                    catalogCard(row, meta, `search-card-${row.addon}-${meta.id}`),
+                  )}
                 </EditorialRow>
               ))}
 

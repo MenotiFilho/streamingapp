@@ -1,8 +1,9 @@
-import type { ReactNode } from "react";
+import { Children, type ReactNode } from "react";
 
 import { explain, type ActionError } from "../../host-client";
-import { FEED_RAIL_PAGE, FEED_RAIL_VISIBLE } from "./editorial";
 import { RowTrack } from "./kit";
+import { RAIL_PAGE, RAIL_VISIBLE } from "./rail";
+import { RailMoreCard } from "./RailMoreCard";
 
 /**
  * One editorial feed row: Home's rail anatomy under a programme's numbered
@@ -11,7 +12,8 @@ import { RowTrack } from "./kit";
  * The row owns its paging and its failure (design record §8): a page that did
  * not answer leaves the cards already read where they are and prints its reason
  * under this row alone, never as the window's one alert. The rail scrolls with
- * Home's motion; the action beside the head asks the next page of the feed.
+ * Home's motion; the quiet action beside the head asks the next page of the
+ * feed, and the More card at the rail's end opens the loaded row as a grid.
  */
 export function EditorialRow({
   title,
@@ -21,6 +23,7 @@ export function EditorialRow({
   failure,
   note,
   region,
+  onOpenRow,
   testId,
   children,
 }: {
@@ -32,6 +35,8 @@ export function EditorialRow({
   note?: string | null;
   /** The row's identity in the focus model. */
   region: string;
+  /** Open the row's loaded cards as a pushed grid, where it has any. */
+  onOpenRow?: () => void;
   testId?: string;
   children: ReactNode;
 }) {
@@ -48,10 +53,19 @@ export function EditorialRow({
         index={index}
         tag={tag}
         action={action}
-        columns={FEED_RAIL_VISIBLE}
-        page={FEED_RAIL_PAGE}
+        columns={RAIL_VISIBLE}
+        page={RAIL_PAGE}
       >
         {children}
+        {onOpenRow && Children.count(children) > 0 ? (
+          <RailMoreCard
+            key="more"
+            title={title}
+            aspect="2:3"
+            testId={`more-${region}`}
+            onClick={onOpenRow}
+          />
+        ) : null}
       </RowTrack>
       {failure ? (
         <p role="alert" className="rep-feed-failure">

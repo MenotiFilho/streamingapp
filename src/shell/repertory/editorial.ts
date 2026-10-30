@@ -6,7 +6,7 @@ import {
 } from "../../discover";
 import type { Action } from "../../host-client";
 import { CINEMETA_MOVIE_GENRES, CINEMETA_SERIES_GENRES, PREVIEW_ADDON } from "./preview";
-import { countLabel } from "./program";
+import { rowTagOf } from "./program";
 
 /**
  * The editorial feed's decisions, kept out of the drawing (ADR-0032).
@@ -30,14 +30,6 @@ export type GenreChoice = {
   name: string;
   value: number | string;
 };
-
-/**
- * One view of an editorial rail holds five cards and the half card that says
- * the row goes on; an arrow press moves five. It is the record's one rail rule
- * (§8), shared by Home and the feeds.
- */
-export const FEED_RAIL_VISIBLE = 5.5;
-export const FEED_RAIL_PAGE = 5;
 
 /** The genre row for the kind a person is looking at, in the source's own order. */
 export function genresFor(source: FeedSource, kind: DiscoverKind): GenreChoice[] {
@@ -101,7 +93,7 @@ export function discoverTag(
   genre: GenreChoice | null,
   count: number,
 ): string {
-  return `${genre?.name ?? "Trending"} / ${countLabel(kind, count)}`;
+  return rowTagOf(genre?.name ?? "Trending", kind, count);
 }
 
 /** The one line an empty Discover feed prints: what happened, and the way on. */

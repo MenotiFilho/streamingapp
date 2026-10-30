@@ -131,9 +131,6 @@ function LibraryRoom() {
       <div
         className="rep-library-grid"
         data-testid="library-grid"
-        data-region="library-grid"
-        data-kind="branch"
-        data-label="Library"
       >
         {library.entries.map((entry) => {
           const addon = libraryAddon(snapshot?.addons ?? [], entry);

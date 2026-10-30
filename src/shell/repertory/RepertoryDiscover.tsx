@@ -28,6 +28,7 @@ import {
   previewDiscoverAsk,
   type GenreChoice,
 } from "./editorial";
+import { EditorialGrid } from "./EditorialGrid";
 import { EditorialRow } from "./EditorialRow";
 import { Button, ChoiceChip, PosterCard } from "./kit";
 import { PREVIEW_ADDON } from "./preview";
@@ -53,7 +54,7 @@ import "./repertory.css";
  */
 export function RepertoryDiscoverScreen() {
   const preview = usePreviewData();
-  const { snapshot, ask, push, unplayable } = useShell();
+  const { snapshot, ask, push, pop, unplayable } = useShell();
   const { openTitle, openDiscoveredTitle } = useTitleOpener();
   const [kind, setKind] = useState<DiscoverKind>(MOVIE);
   const [genre, setGenre] = useState<GenreChoice | null>(null);
@@ -164,13 +165,52 @@ export function RepertoryDiscoverScreen() {
     void openDiscoveredTitle(meta);
   };
 
-  const more = feedMore(feed) ? (
-    <Button
-      variant="ghost"
-      disabled={loading}
-      onClick={() => void load(feed.page + 1, offset)}
-    >
-      More
+  const card = (meta: MetaPreview, testId: string) => (
+    <PosterCard
+      key={meta.id}
+      name={meta.name}
+      poster={meta.poster}
+      rating={meta.imdbRating?.trim() || null}
+      subtitle={yearOf(meta)}
+      unplayable={!couldPlay || unplayable.has(meta.id)}
+      testId={testId}
+      onClick={() => open(meta)}
+    />
+  );
+
+  /**
+   * The rail's More card opens the loaded row as a pushed grid. It is the same
+   * cards, captured at the press; Back returns to the More card (design record
+   * §8). The rail's quiet action is what asks the feed's next page.
+   */
+  const openGrid = () => {
+    push({
+      name: `All of ${label}`,
+      kind: "overlay",
+      render: () => (
+        <EditorialGrid
+          title={label}
+          index={programIndex(1)}
+          tag={tag}
+          failure={feed.failure}
+          note={note}
+          onClose={pop}
+          testId="discover-grid"
+        >
+          {feed.items.map((meta) => card(meta, `discover-grid-card-${meta.id}`))}
+        </EditorialGrid>
+      ),
+    });
+  };
+
+  const retry = () => void load(feed.page + 1, offset);
+  const action = feed.failure ? (
+    <Button variant="ghost" disabled={loading} onClick={retry}>
+      Try again
+    </Button>
+  ) : feedMore(feed) ? (
+    <Button variant="ghost" disabled={loading} onClick={retry}>
+      Read on
     </Button>
   ) : null;
 
@@ -250,24 +290,16 @@ export function RepertoryDiscoverScreen() {
             title={label}
             index={programIndex(1)}
             tag={tag}
-            action={more}
+            action={action}
             failure={feed.failure}
             note={note}
             region={`discover:${kind}`}
+            onOpenRow={
+              !loading && feed.items.length > 0 ? openGrid : undefined
+            }
             testId={`discover-section-${kind}`}
           >
-            {feed.items.map((meta) => (
-              <PosterCard
-                key={meta.id}
-                name={meta.name}
-                poster={meta.poster}
-                rating={meta.imdbRating?.trim() || null}
-                subtitle={yearOf(meta)}
-                unplayable={!couldPlay || unplayable.has(meta.id)}
-                testId={`discover-card-${meta.id}`}
-                onClick={() => open(meta)}
-              />
-            ))}
+            {feed.items.map((meta) => card(meta, `discover-card-${meta.id}`))}
           </EditorialRow>
         </>
       ) : null}

@@ -389,7 +389,12 @@ Marks, all stamped rather than spoken:
 - **Unmapped**: the brass stamp on the Title page — *Unmapped — no TMDB record
   met this Title, so it is keyed by its Addon* — a mark, not an error.
 - **Unplayable**: a status-red outlined stamp on a card or candidate; it still
-  opens and the Streams list still shows what exists.
+  opens and the Streams list still shows what exists. The exception is a
+  Library entry whose Addon is gone: no Addon can be asked for its Title, so it
+  keeps its picture and stamp and is not a control.
+- **Continue**: a Library item the Stremio account left part-way carries a mono
+  `Continue` stamp on the art. It is the account's own position, not Continue
+  watching and not a progress bar.
 - **Quality / source**: the Addon's own badge lines verbatim, first line as the
   source, the rest as marks; never re-worded, re-ranked or hidden.
 - **Waiting**: a quiet mono line (`Waiting for the Host…` after 150ms), never a
@@ -502,7 +507,7 @@ rule.
 
 | The prototype today | The record | Closed by |
 |---|---|---|
-| Addons and Settings still carry per-screen `clamp()` sizes and off-scale paddings; the Title, Streams, Discover, Search and Library are on the stage unit | every ten-foot size and layout dimension from the stage unit and the fixed spacing steps (§3–§4) | #157–#159 |
+| Addons and Settings still carry per-screen `clamp()` sizes and off-scale paddings, and the Library reuses the shell's Stremio form; the Title, Streams, Discover, Search and the Library's own room are on the stage unit | every ten-foot size and layout dimension from the stage unit and the fixed spacing steps (§3–§4) | #157–#159 |
 | the OSD names the current chapter permanently at the centre | the chapter is named only in the hover/drag callout | #158 |
 | the OSD's ±10s and subtitles marks are text; the Remote is Unicode | one drawn set on both clients | #158, #159 |
 | the volume is the native range with `accent-color` | a drawn rail with a brass fill | #158 |

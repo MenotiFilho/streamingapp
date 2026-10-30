@@ -96,3 +96,8 @@ export function countLabel(type: string, count: number): string {
 export function programIndex(index: number): string {
   return String(index).padStart(2, "0");
 }
+
+/** The bookkeeping a row head prints: where the row came from and its count. */
+export function rowTagOf(source: string, type: string, count: number): string {
+  return `${source} / ${countLabel(type, count)}`;
+}
