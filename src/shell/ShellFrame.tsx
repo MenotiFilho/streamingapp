@@ -171,13 +171,15 @@ function RepertoryLevelShell({
               : false
       }
       animate={
-        reducedMotion
-          ? { opacity: 1 }
-          : pushed
-            ? { opacity: 1, x: 0 }
-            : rises
-              ? { opacity: 1, y: 0 }
-              : undefined
+        underPlayer
+          ? { opacity: 0 }
+          : reducedMotion
+            ? { opacity: 1 }
+            : pushed
+              ? { opacity: 1, x: 0 }
+              : rises
+                ? { opacity: 1, y: 0 }
+                : undefined
       }
       exit={
         reducedMotion
@@ -189,7 +191,13 @@ function RepertoryLevelShell({
               : { opacity: 0 }
       }
       transition={
-        pushed || rises ? (reducedMotion ? fade() : panel()) : { duration: 0 }
+        underPlayer
+          ? { duration: 0 }
+          : pushed || rises
+            ? reducedMotion
+              ? fade()
+              : panel()
+            : { duration: 0 }
       }
       onAnimationComplete={() => {
         if (!present) {

@@ -268,6 +268,65 @@ function PushHarness() {
   );
 }
 
+/**
+ * A base that pushes a browsing level and then the player over it, for the
+ * frozen contract that the player takes the window (ADR-0003): the level under
+ * it stays mounted for Back, but paints nothing over mpv's picture.
+ */
+function PlayerHarness() {
+  const [levels, setLevels] = useState<ShellLevel[]>([]);
+
+  return (
+    <ShellFrame
+      destination="home"
+      onChooseDestination={() => {}}
+      levels={levels}
+      onBack={() => setLevels([])}
+      presentation="repertory"
+      screen={
+        <button
+          data-focusable
+          onClick={() =>
+            setLevels([
+              {
+                id: "selection",
+                name: "Selection",
+                kind: "overlay",
+                render: () => <p>Selection</p>,
+              },
+              {
+                id: "player",
+                name: "Playing",
+                kind: "player",
+                render: () => <p>Player</p>,
+              },
+            ])
+          }
+        >
+          Open
+        </button>
+      }
+    />
+  );
+}
+
+describe("the player's takeover", () => {
+  test("the level under the player stays mounted and paints nothing", async () => {
+    render(<PlayerHarness />);
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+
+    const selection = await screen.findByText("Selection");
+    const level = selection.closest(".shell-level");
+    if (!(level instanceof HTMLElement)) {
+      throw new Error("the browsing level did not mount");
+    }
+
+    await waitFor(() => expect(level.style.opacity).toBe("0"));
+    expect(level).toHaveAttribute("data-under-player", "true");
+    expect(level).toHaveAttribute("aria-hidden", "true");
+  });
+});
+
 describe("a pushed level's motion", () => {
   test("under reduced motion it arrives with the fade and no movement", async () => {
     render(
