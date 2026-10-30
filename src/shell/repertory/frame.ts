@@ -3,6 +3,7 @@ import type { Transition } from "motion/react";
 import { DEFAULT_RULES, type Rules } from "../../focus";
 import type { ShellLevel } from "../navigation";
 import { fade, panel } from "./motion";
+import { SETTINGS_LEVEL_PREFIX } from "./settingsRegister";
 
 /**
  * The frame's decisions, kept out of the drawing (ADR-0032).
@@ -56,6 +57,16 @@ export const LEVEL_PUSH_PX = 24;
  */
 export function levelPushed(kind: ShellLevel["kind"]): boolean {
   return kind === "overlay";
+}
+
+/**
+ * A Settings leaf is a page beside the programme, not a takeover: the spine
+ * stays live and the focus root covers both. Its level id is the one
+ * `settingsLevelId` gave it, so the frame can tell it from a confirmation that
+ * was pushed from inside it.
+ */
+export function isSettingsLeaf(level: Pick<ShellLevel, "id"> | null | undefined): boolean {
+  return level?.id.startsWith(SETTINGS_LEVEL_PREFIX) ?? false;
 }
 
 /**

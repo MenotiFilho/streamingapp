@@ -1,4 +1,11 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
 
 import { version as appVersion } from "../../../package.json";
 import { catalogKey, declaredCatalogs, keyOf, type DeclaredCatalog } from "../../browse";
@@ -22,7 +29,6 @@ import type { Action, ActionError, DeviceSummary } from "../../host-client";
 import {
   HOST_PICKS_PER_VIDEO,
   SUBTITLE_LANGUAGES,
-  subtitleLanguageName,
 } from "../../languages";
 import tmdbLogo from "../../assets/tmdb-logo.svg";
 import { useShell, type NewShellLevel } from "../context";
@@ -39,9 +45,25 @@ import {
   LogPreviewNote,
   LogRefusal,
 } from "./RepertoryLog";
+import {
+  CREDENTIALS_CATEGORY,
+  LICENCE,
+  NO_CATALOG,
+  SETTINGS_CATEGORIES,
+  SETTINGS_LEVEL_PREFIX,
+  TMDB_KEY_SAVED,
+  TMDB_NOTICE,
+  protectionLedger,
+  settingsLevelId,
+  settingsLevelName,
+  unknownColorLabel,
+  unknownLanguageLabel,
+  type SettingsCategory,
+  type SettingsCategoryId,
+} from "./settingsRegister";
 
 /**
- * Settings as a short register (#147).
+ * Settings as a short register (#147, built #157).
  *
  * The four categories are the Host's own — Credentials, Preferences, Remote
  * devices, About/Credits — and choosing one pushes a sub-screen over the list,
@@ -51,43 +73,21 @@ import {
  * facts a person needs to act.
  */
 
-type SettingsCategory = {
-  id: string;
-  title: string;
-  screen: () => ReactNode;
-};
+type SettingsScreen = () => ReactNode;
 
-const CREDENTIALS_CATEGORY: SettingsCategory = {
-  id: "credentials",
-  title: "Credentials",
-  screen: () => <CredentialsScreen />,
+const CATEGORY_SCREENS: Record<SettingsCategoryId, SettingsScreen> = {
+  credentials: () => <CredentialsScreen />,
+  preferences: () => <PreferencesScreen />,
+  "remote-devices": () => <RemoteDevicesScreen />,
+  about: () => <AboutScreen />,
 };
-
-const CATEGORIES: readonly SettingsCategory[] = [
-  CREDENTIALS_CATEGORY,
-  {
-    id: "preferences",
-    title: "Preferences",
-    screen: () => <PreferencesScreen />,
-  },
-  {
-    id: "remote-devices",
-    title: "Remote devices",
-    screen: () => <RemoteDevicesScreen />,
-  },
-  {
-    id: "about",
-    title: "About/Credits",
-    screen: () => <AboutScreen />,
-  },
-];
 
 function categoryLevel(category: SettingsCategory): NewShellLevel {
   return {
-    id: `settings-${category.id}`,
-    name: `Settings — ${category.title}`,
+    id: settingsLevelId(category),
+    name: settingsLevelName(category),
     kind: "overlay",
-    render: category.screen,
+    render: CATEGORY_SCREENS[category.id],
   };
 }
 
@@ -120,7 +120,7 @@ export function RepertorySettingsScreen() {
         data-kind="branch"
         data-label="Settings categories"
       >
-        {CATEGORIES.map((category) => (
+        {SETTINGS_CATEGORIES.map((category) => (
           <li key={category.id} className="rep-log-row">
             <button
               type="button"
@@ -138,7 +138,8 @@ export function RepertorySettingsScreen() {
       </ul>
 
       <LogPreviewNote>
-        Preview data: preferences and credentials stay in this window.
+        Preview data: preferences and credentials stay in this window; the address,
+        code and devices are samples.
       </LogPreviewNote>
     </section>
   );
@@ -148,21 +149,27 @@ export function RepertorySettingsScreen() {
 function SettingsLevel({
   id,
   title,
+  rootRef,
   children,
 }: {
   id: string;
   title: string;
+  /** The level's own root, for a list that has to re-home focus inside it. */
+  rootRef?: RefObject<HTMLElement | null>;
   children: ReactNode;
 }) {
+  const levelId = `${SETTINGS_LEVEL_PREFIX}${id}`;
+
   return (
     <section
+      ref={rootRef}
       className="rep-log rep-settings-level"
-      data-testid={`settings-${id}`}
-      data-region={`settings-${id}`}
+      data-testid={levelId}
+      data-region={levelId}
       data-kind="branch"
       data-label={title}
     >
-      <LogLevelHead title={title} backTestId={`settings-${id}-back`} />
+      <LogLevelHead title={title} backTestId={`${levelId}-back`} />
       {children}
     </section>
   );
@@ -172,9 +179,10 @@ function CredentialsScreen() {
   const { snapshot, ask, push } = useShell();
   const [keyDraft, setKeyDraft] = useState("");
   const [keyError, setKeyError] = useState<ActionError | null>(null);
+  const [keySaved, setKeySaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const held = snapshot?.protection.tmdbHeld ?? false;
-  const protection = snapshot?.protection ?? null;
+  const protection = snapshot ? protectionLedger(snapshot.protection) : null;
 
   const storeKey = async (event: FormEvent) => {
     event.preventDefault();
@@ -183,6 +191,7 @@ function CredentialsScreen() {
       return;
     }
     setKeyError(null);
+    setKeySaved(false);
     setSaving(true);
     const outcome = await ask({ type: "set_tmdb_key", key });
     setSaving(false);
@@ -193,6 +202,7 @@ function CredentialsScreen() {
     // The field is the only place the value was ever shown: a taken key is a
     // fact about the secret store, never a value a Snapshot carries.
     setKeyDraft("");
+    setKeySaved(true);
   };
 
   return (
@@ -204,20 +214,17 @@ function CredentialsScreen() {
             rows={[
               {
                 term: "Secret store",
-                value:
-                  protection.backend === "keyring"
-                    ? "OS keyring"
-                    : "Owner-only (0600) file",
+                value: protection.backend,
                 testId: "protection-backend",
               },
               {
                 term: "TMDB key",
-                value: protection.tmdbHeld ? "Held" : "Not held",
+                value: protection.tmdb,
                 testId: "protection-tmdb",
               },
               {
                 term: "Stremio account",
-                value: protection.stremioHeld ? "Signed in" : "Not signed in",
+                value: protection.stremio,
                 testId: "protection-stremio",
               },
             ]}
@@ -265,6 +272,7 @@ function CredentialsScreen() {
                     confirmLabel: "Clear key",
                     testId: "confirm-clear-tmdb",
                     action: { type: "clear_tmdb_key" },
+                    onConfirmed: () => setKeySaved(false),
                     children: (
                       <p>
                         The Host stops asking TMDB until a key is saved again. Discover
@@ -278,6 +286,12 @@ function CredentialsScreen() {
               Clear key
             </Button>
           </div>
+          {keySaved && held ? (
+            <p className="rep-log-status" role="status" data-testid="tmdb-key-status">
+              <span className="rep-log-status-mark">Logged</span>
+              <span>{TMDB_KEY_SAVED}</span>
+            </p>
+          ) : null}
           <LogRefusal error={keyError} testId="tmdb-key-error" />
         </form>
       </LogGroup>
@@ -292,6 +306,11 @@ function CredentialsScreen() {
           <StremioAccount />
         </div>
       </LogGroup>
+
+      <LogPreviewNote>
+        Preview data: credentials stay in this window; no key or account service is
+        contacted.
+      </LogPreviewNote>
     </SettingsLevel>
   );
 }
@@ -321,6 +340,7 @@ function PreferencesScreen() {
   const [featuredError, setFeaturedError] = useState<ActionError | null>(null);
 
   const known = SUBTITLE_LANGUAGES.some((language) => language.tag === heldLanguage);
+  const otherColor = unknownColorLabel(heldColor);
   const catalogs = declaredCatalogs(snapshot);
   const featured = snapshot?.featuredCatalog ?? null;
   const featuredKey = featured
@@ -405,7 +425,7 @@ function PreferencesScreen() {
               data-testid={`language-${heldLanguage}`}
               onClick={() => void pickLanguage(heldLanguage)}
             >
-              {`${subtitleLanguageName(heldLanguage)} (${heldLanguage})`}
+              {unknownLanguageLabel(heldLanguage)}
             </ChoiceChip>
           ) : null}
           {SUBTITLE_LANGUAGES.map((language) => (
@@ -443,6 +463,17 @@ function PreferencesScreen() {
                 {choice.label}
               </ChoiceChip>
             ))}
+            {otherColor ? (
+              <ChoiceChip
+                pressed
+                data-testid="subtitle-color-other"
+                onClick={() =>
+                  void pickAppearance({ type: "set_subtitle_color", color: heldColor })
+                }
+              >
+                {otherColor}
+              </ChoiceChip>
+            ) : null}
           </div>
         </div>
         <div className="rep-log-choice-group">
@@ -548,7 +579,7 @@ function PreferencesScreen() {
           <LogNote>Waiting for the Host…</LogNote>
         ) : catalogs.length === 0 ? (
           <p className="rep-log-note" data-testid="featured-empty">
-            No configured Addon offers a Catalog.
+            {NO_CATALOG}
           </p>
         ) : null}
         <div
@@ -583,12 +614,17 @@ function PreferencesScreen() {
         </div>
         <LogRefusal error={featuredError} testId="featured-catalog-error" />
       </LogGroup>
+
+      <LogPreviewNote>
+        Preview data: preferences stay in this window.
+      </LogPreviewNote>
     </SettingsLevel>
   );
 }
 
 function RemoteDevicesScreen() {
   const { snapshot, push } = useShell();
+  const screenRef = useRef<HTMLElement | null>(null);
   const devices = snapshot?.devices ?? [];
   /**
    * A revoked device is one row, but the preceding control is what a person
@@ -604,14 +640,15 @@ function RemoteDevicesScreen() {
     if (!rehome || devices.some((device) => device.id === rehome.removed)) {
       return;
     }
+    const root = screenRef.current;
     const target = rehome.previous
-      ? Array.from(document.querySelectorAll<HTMLElement>("[data-revoke-device]")).find(
-          (element) => element.dataset.revokeDevice === rehome.previous,
-        )
-      : document.querySelector<HTMLElement>(
+      ? Array.from(
+          root?.querySelectorAll<HTMLElement>("[data-revoke-device]") ?? [],
+        ).find((element) => element.dataset.revokeDevice === rehome.previous)
+      : root?.querySelector<HTMLElement>(
           '[data-testid="settings-remote-devices-back"]',
         );
-    focusAndReveal(target);
+    focusAndReveal(target ?? null);
     setRehome(null);
   }, [devices, rehome]);
 
@@ -636,7 +673,7 @@ function RemoteDevicesScreen() {
   };
 
   return (
-    <SettingsLevel id="remote-devices" title="Remote devices">
+    <SettingsLevel id="remote-devices" title="Remote devices" rootRef={screenRef}>
       <LogGroup id="settings-pairing" title="Pairing">
         {snapshot ? (
           <div className="rep-pairing" data-testid="pairing">
@@ -659,7 +696,9 @@ function RemoteDevicesScreen() {
       </LogGroup>
 
       <LogGroup id="settings-devices" title="Paired devices">
-        {devices.length === 0 ? (
+        {snapshot === null ? (
+          <LogNote>Waiting for the Host…</LogNote>
+        ) : devices.length === 0 ? (
           <p className="rep-log-note" data-testid="no-devices">
             No device is paired yet.
           </p>
@@ -721,7 +760,7 @@ function AboutScreen() {
             data-testid="tmdb-logo"
           />
           <p className="rep-credit-notice" data-testid="tmdb-notice">
-            This product uses the TMDB API but is not endorsed or certified by TMDB
+            {TMDB_NOTICE}
           </p>
         </div>
       </LogGroup>
@@ -739,9 +778,7 @@ function AboutScreen() {
 
       <LogGroup id="settings-licences" title="Licences">
         <p className="rep-log-note" data-testid="license-credits">
-          streamingapp is free software, released under the GNU General Public License,
-          version 3 or later (GPL-3.0-or-later). Playback uses mpv (libmpv), whose default
-          build is GPLv2 or later, linked in-process so the video surface stays mpv's own.
+          {LICENCE}
         </p>
       </LogGroup>
     </SettingsLevel>

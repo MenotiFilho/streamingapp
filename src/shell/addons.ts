@@ -74,3 +74,18 @@ export function addOutcome(
   });
   return { kind: "refreshed", name: changed?.name ?? null };
 }
+
+/**
+ * What the form says after an add. A new Addon is named; a manifest the Host
+ * already knew is a refresh, and saying so is what keeps a cleared field and an
+ * unchanged list from reading as a failed add.
+ */
+export function addStatusText(outcome: AddOutcome): string {
+  if (outcome.kind === "added") {
+    return `${outcome.name} was added.`;
+  }
+  if (outcome.name) {
+    return `That manifest is already configured as ${outcome.name}; the Host refreshed that Addon instead of adding a second one.`;
+  }
+  return "That manifest is already configured; the Host refreshed that Addon instead of adding a second one.";
+}

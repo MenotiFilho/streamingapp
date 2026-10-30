@@ -12,6 +12,7 @@ import type { Intent } from "../input";
 import type { Destination, ShellLevel } from "./navigation";
 import {
   destinationTransition,
+  isSettingsLeaf,
   LEVEL_PUSH_PX,
   levelPushed,
   REPERTORY_RULES,
@@ -205,7 +206,7 @@ export function ShellFrame({
    * stays live and the focus root covers both. Every other level keeps the
    * spine out of the tab order, as the Title and Streams always have.
    */
-  const settingsLeaf = repertory && top?.id.startsWith("settings-") === true;
+  const settingsLeaf = repertory && isSettingsLeaf(top);
   const navInteractive = repertory && (levels.length === 0 || settingsLeaf);
   const { supported } = useFullscreen();
 

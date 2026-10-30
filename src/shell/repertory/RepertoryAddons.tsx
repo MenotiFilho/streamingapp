@@ -1,4 +1,5 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { motion } from "motion/react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import type { ActionError, AddonManifest } from "../../host-client";
 import { useShell } from "../context";
@@ -7,12 +8,14 @@ import { Button } from "./kit";
 import { focusAndReveal } from "../reveal";
 import {
   addOutcome,
+  addStatusText,
   catalogsOf,
   joinOrNone,
   moveTarget,
   resourcesOf,
   type AddOutcome,
 } from "../addons";
+import { quick } from "./motion";
 import {
   LogEmpty,
   LogHead,
@@ -23,19 +26,24 @@ import {
 } from "./RepertoryLog";
 
 /**
- * Addons as the booth's register (#147).
+ * Addons as the booth's register (#147, built #157).
  *
  * The screen is two columns on one fitted page: the manifest form on the left,
  * the Host's Addons in its own order on the right. A row expands in place on
- * focus, the Move controls name a 0-based position, and Remove asks first. The
+ * focus with the layout spring — focus stays on the row while the register
+ * moves — the Move controls name a 0-based position, and Remove asks first. The
  * manifest URL is never drawn — it can carry the Addon's credentials
  * (ADR-0009).
  */
 export function RepertoryAddonsScreen() {
   const { snapshot, ask, push } = useShell();
+  const screenRef = useRef<HTMLElement | null>(null);
   const [url, setUrl] = useState("");
   const [addError, setAddError] = useState<ActionError | null>(null);
-  const [listError, setListError] = useState<ActionError | null>(null);
+  const [listError, setListError] = useState<{
+    addon: string;
+    error: ActionError;
+  } | null>(null);
   const [addStatus, setAddStatus] = useState<AddOutcome | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
@@ -49,12 +57,13 @@ export function RepertoryAddonsScreen() {
     if (!rehome || addons.some((addon) => addon.id === rehome.removed)) {
       return;
     }
+    const root = screenRef.current;
     const target = rehome.previous
-      ? Array.from(document.querySelectorAll<HTMLElement>("[data-addon-id]")).find(
+      ? Array.from(root?.querySelectorAll<HTMLElement>("[data-addon-id]") ?? []).find(
           (element) => element.dataset.addonId === rehome.previous,
         )
-      : document.querySelector<HTMLElement>('[data-testid="add-addon-submit"]');
-    focusAndReveal(target);
+      : root?.querySelector<HTMLElement>('[data-testid="add-addon-submit"]');
+    focusAndReveal(target ?? null);
     setRehome(null);
   }, [addons, rehome]);
 
@@ -87,7 +96,7 @@ export function RepertoryAddonsScreen() {
     setListError(null);
     const outcome = await ask({ type: "reorder_addon", id: addon.id, position });
     if (outcome.error) {
-      setListError(outcome.error);
+      setListError({ addon: addon.id, error: outcome.error });
     }
   };
 
@@ -116,6 +125,7 @@ export function RepertoryAddonsScreen() {
 
   return (
     <section
+      ref={screenRef}
       className="rep-log rep-log--addons"
       data-testid="addons-screen"
       data-region="addons"
@@ -165,13 +175,7 @@ export function RepertoryAddonsScreen() {
           {addStatus ? (
             <p className="rep-log-status" role="status" data-testid="add-addon-status">
               <span className="rep-log-status-mark">Logged</span>
-              <span>
-                {addStatus.kind === "added"
-                  ? `${addStatus.name} was added.`
-                  : addStatus.name
-                    ? `That manifest is already configured as ${addStatus.name}; the Host refreshed that Addon instead of adding a second one.`
-                    : "That manifest is already configured; the Host refreshed that Addon instead of adding a second one."}
-              </span>
+              <span>{addStatusText(addStatus)}</span>
             </p>
           ) : null}
 
@@ -208,8 +212,10 @@ export function RepertoryAddonsScreen() {
                 {addons.map((addon, index) => {
                   const open = expanded === addon.id;
                   return (
-                    <li
+                    <motion.li
                       key={addon.id}
+                      layout
+                      transition={quick()}
                       className="rep-log-row"
                       data-testid={`addon-${addon.id}`}
                       data-expanded={open ? "true" : undefined}
@@ -294,16 +300,21 @@ export function RepertoryAddonsScreen() {
                               Remove
                             </Button>
                           </div>
+
+                          {listError?.addon === addon.id ? (
+                            <LogRefusal
+                              error={listError.error}
+                              testId="addons-list-error"
+                            />
+                          ) : null}
                         </div>
                       ) : null}
-                    </li>
+                    </motion.li>
                   );
                 })}
               </ul>
             )}
           </div>
-
-          <LogRefusal error={listError} testId="addons-list-error" />
         </section>
       </div>
     </section>

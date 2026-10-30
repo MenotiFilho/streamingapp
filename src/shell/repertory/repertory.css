@@ -1978,7 +1978,7 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
 
 .rep-log-back {
   flex: none;
-  padding: 0 0 5px;
+  padding: 0 0 var(--rep-space-1);
   border-bottom-color: var(--rep-hairline);
   color: var(--rep-dim);
   font-family: var(--rep-mono);
@@ -2001,7 +2001,7 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
   font-size: var(--rep-text-title);
   font-weight: 500;
   letter-spacing: var(--rep-tracking-display);
-  line-height: 1.02;
+  line-height: var(--rep-leading-display);
   overflow-wrap: anywhere;
 }
 
@@ -2043,14 +2043,14 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
 /* Forms: a label in mono, a value on a hairline, one strong action. */
 .rep-settings-form {
   display: grid;
-  gap: 14px;
+  gap: var(--rep-space-4);
   max-width: 46ch;
   min-width: 0;
 }
 
 .rep-log-field {
   display: grid;
-  gap: 8px;
+  gap: var(--rep-space-2);
   min-width: 0;
 }
 
@@ -2065,8 +2065,8 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
 
 .rep-log-input {
   width: 100%;
-  min-height: clamp(44px, 3.2vw, 58px);
-  padding: 4px 2px;
+  min-height: max(44px, calc(var(--rep-stage) * 3));
+  padding: var(--rep-space-1) 0;
   border: 0;
   border-bottom: 1px solid var(--rep-hairline);
   border-radius: 0;
@@ -2090,13 +2090,13 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: clamp(12px, 1vw, 20px);
+  gap: var(--rep-space-4);
 }
 
 /* The kit's control set, drawn as a printed line rather than a box. */
 html[data-ui="repertory"] .rep-kit-button.rep-log-action {
   min-height: auto;
-  padding: 6px 0;
+  padding: var(--rep-space-1) 0;
   border: 0;
   border-bottom: 1px solid var(--rep-hairline);
   border-radius: 0;
@@ -2142,16 +2142,16 @@ html[data-ui="repertory"] .rep-kit-button.rep-log-action.rep-log-action--danger:
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 12px;
+  gap: var(--rep-space-3);
   max-width: 62ch;
   margin: 0;
-  padding: 12px 0;
+  padding: var(--rep-space-3) 0;
   border-top: 1px solid var(--rep-hairline);
   border-bottom: 1px solid var(--rep-hairline);
   color: var(--rep-dim);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-mono);
-  line-height: 1.4;
+  line-height: var(--rep-leading-body);
 }
 
 .rep-log-status-mark {
@@ -2170,9 +2170,9 @@ html[data-ui="repertory"] .rep-kit-button.rep-log-action.rep-log-action--danger:
 
 .rep-log-facts > div {
   display: grid;
-  grid-template-columns: minmax(14rem, 34%) minmax(0, 1fr);
-  gap: clamp(16px, 1.4vw, 24px);
-  padding: 10px 0;
+  grid-template-columns: minmax(max(8rem, calc(var(--rep-stage) * 11.7)), 34%) minmax(0, 1fr);
+  gap: var(--rep-row-gap);
+  padding: var(--rep-space-3) 0;
   border-bottom: 1px solid var(--rep-hairline);
 }
 
@@ -2181,7 +2181,7 @@ html[data-ui="repertory"] .rep-kit-button.rep-log-action.rep-log-action--danger:
   font-family: var(--rep-mono);
   font-size: var(--rep-text-mono);
   letter-spacing: var(--rep-tracking-caps);
-  line-height: 1.4;
+  line-height: var(--rep-leading-body);
   text-transform: uppercase;
 }
 
@@ -2192,7 +2192,7 @@ html[data-ui="repertory"] .rep-kit-button.rep-log-action.rep-log-action--danger:
   color: var(--rep-dim);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-mono);
-  line-height: 1.45;
+  line-height: var(--rep-leading-body);
 }
 
 /* Lists: a 2px step so adjacent rows are "ahead" to the focus model. */
@@ -2213,7 +2213,7 @@ html[data-ui="repertory"] .rep-kit-button.rep-log-action.rep-log-action--danger:
 .rep-log-category {
   display: grid;
   width: 100%;
-  padding: clamp(14px, 1.1vw, 18px) 10px;
+  padding: var(--rep-space-4) var(--rep-space-3);
   border: 0;
   background: transparent;
   color: var(--rep-dim);
@@ -2226,13 +2226,13 @@ html[data-ui="repertory"] .rep-kit-button.rep-log-action.rep-log-action--danger:
 .rep-log-addon-summary {
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: baseline;
-  gap: clamp(14px, 1.2vw, 22px);
+  gap: var(--rep-space-4);
 }
 
 .rep-log-category {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: baseline;
-  gap: clamp(14px, 1.2vw, 22px);
+  gap: var(--rep-space-4);
 }
 
 .rep-log-addon-summary:focus,
@@ -2247,10 +2247,10 @@ html[data-ui="repertory"] .rep-kit-button.rep-log-action.rep-log-action--danger:
   min-width: 0;
   color: var(--rep-ivory);
   font-family: var(--rep-display);
-  font-size: calc(var(--rep-text-control) * 1.18);
+  font-size: var(--rep-text-section);
   font-weight: 500;
-  letter-spacing: -0.008em;
-  line-height: 1.12;
+  letter-spacing: var(--rep-tracking-display);
+  line-height: var(--rep-leading-display);
   overflow-wrap: anywhere;
 }
 
@@ -2267,7 +2267,7 @@ html[data-ui="repertory"] .rep-kit-button.rep-log-action.rep-log-action--danger:
   color: var(--rep-muted);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-mono);
-  line-height: 1.3;
+  line-height: var(--rep-leading-caption);
   white-space: nowrap;
 }
 
@@ -2278,8 +2278,8 @@ html[data-ui="repertory"] .rep-kit-button.rep-log-action.rep-log-action--danger:
 /* An expanded Addon: the facts and its three controls, indented under the name. */
 .rep-log-addon-details {
   display: grid;
-  gap: clamp(14px, 1.2vw, 18px);
-  padding: 4px 10px 22px;
+  gap: var(--rep-space-4);
+  padding: var(--rep-space-1) var(--rep-space-3) var(--rep-space-5);
   background: var(--rep-ink-raised);
 }
 
@@ -2318,20 +2318,20 @@ html[data-ui="repertory"] .rep-kit-button.rep-log-action.rep-log-action--danger:
 .rep-log-refusal {
   max-width: 62ch;
   margin: 0;
-  padding: 12px 16px;
+  padding: var(--rep-space-3) var(--rep-space-4);
   border: 1px solid var(--rep-status-red);
   background: var(--rep-ink-raised);
   color: var(--rep-status-red);
   font-family: var(--rep-sans);
   font-size: var(--rep-text-caption);
-  line-height: 1.45;
+  line-height: var(--rep-leading-body);
   box-sizing: border-box;
 }
 
 /* Choices in a logbook section: a small mono label, then the chips. */
 .rep-log-choice-group {
   display: grid;
-  gap: 10px;
+  gap: var(--rep-space-3);
 }
 
 .rep-log-choice-label {
@@ -2347,13 +2347,13 @@ html[data-ui="repertory"] .rep-kit-button.rep-log-action.rep-log-action--danger:
 .rep-log-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--rep-space-2);
 }
 
 /* The shared Stremio form, re-dressed without touching its behaviour. */
 html[data-ui="repertory"] .shell-form {
   max-width: 46ch;
-  gap: 14px;
+  gap: var(--rep-space-4);
 }
 
 html[data-ui="repertory"] .shell-field label {
@@ -2366,8 +2366,8 @@ html[data-ui="repertory"] .shell-field label {
 }
 
 html[data-ui="repertory"] .shell-field input {
-  min-height: clamp(44px, 3.2vw, 58px);
-  padding: 4px 2px;
+  min-height: max(44px, calc(var(--rep-stage) * 3));
+  padding: var(--rep-space-1) 0;
   border: 0;
   border-bottom: 1px solid var(--rep-hairline);
   border-radius: 0;
@@ -2409,7 +2409,7 @@ html[data-ui="repertory"] .shell-inline-refusal {
 
 html[data-ui="repertory"] .rep-log-signin .rep-kit-button {
   min-height: auto;
-  padding: 6px 0;
+  padding: var(--rep-space-1) 0;
   border: 0;
   border-bottom: 1px solid var(--rep-house);
   border-radius: 0;
@@ -2455,8 +2455,8 @@ html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"]:focus-v
 .rep-pairing-block {
   display: grid;
   align-content: start;
-  gap: 10px;
-  padding: clamp(20px, 1.8vw, 30px);
+  gap: var(--rep-space-3);
+  padding: var(--rep-space-5);
   min-width: 0;
 }
 
@@ -2487,7 +2487,7 @@ html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"]:focus-v
   margin: 0;
   color: var(--rep-house);
   font-family: var(--rep-mono);
-  font-size: clamp(3rem, 4.2vw, 5.2rem);
+  font-size: max(3rem, calc(var(--rep-stage) * 4.2));
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.18em;
   line-height: 1;
@@ -2504,8 +2504,8 @@ html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"]:focus-v
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: clamp(14px, 1.2vw, 22px);
-  padding: clamp(14px, 1.1vw, 18px) 10px;
+  gap: var(--rep-space-4);
+  padding: var(--rep-space-4) var(--rep-space-3);
 }
 
 .rep-log-device-body {
@@ -2517,10 +2517,10 @@ html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"]:focus-v
 .rep-log-device-name {
   color: var(--rep-ivory);
   font-family: var(--rep-display);
-  font-size: calc(var(--rep-text-control) * 1.12);
+  font-size: var(--rep-text-section);
   font-weight: 500;
-  letter-spacing: -0.008em;
-  line-height: 1.12;
+  letter-spacing: var(--rep-tracking-display);
+  line-height: var(--rep-leading-display);
   overflow-wrap: anywhere;
 }
 
@@ -2528,7 +2528,7 @@ html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"]:focus-v
   color: var(--rep-muted);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-mono);
-  line-height: 1.35;
+  line-height: var(--rep-leading-caption);
 }
 
 /* Library: the sign-in gate and the account's own room. */
@@ -2593,31 +2593,36 @@ html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"]:focus-v
   color: var(--rep-muted);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-mono);
-  line-height: 1.4;
+  line-height: var(--rep-leading-body);
 }
 
 @media (max-width: 900px) {
   .rep-log-facts > div {
     grid-template-columns: minmax(0, 1fr);
-    gap: 4px;
+    gap: var(--rep-space-1);
   }
 
   .rep-log-addon-details {
-    padding-left: 10px;
+    padding-left: var(--rep-space-3);
   }
 }
 
 /* The Addons register fits one page: form left, the Host's list right. */
 .rep-log--addons {
-  height: calc(100vh - clamp(120px, 10.5vw, 26vw));
-  min-height: 520px;
+  height: calc(
+    100vh - var(--window-chrome-clearance) - var(--rep-stage-top) -
+      var(--rep-stage-bottom)
+  );
+  min-height: max(520px, calc(var(--rep-stage) * 27));
   padding-bottom: 0;
 }
 
 .rep-addons-columns {
   display: grid;
-  grid-template-columns: minmax(280px, 0.7fr) minmax(0, 1.3fr);
-  gap: clamp(28px, 3vw, 64px);
+  grid-template-columns:
+    minmax(max(280px, calc(var(--rep-stage) * 14.6)), 0.7fr)
+    minmax(0, 1.3fr);
+  gap: max(24px, calc(var(--rep-stage) * 3));
   flex: 1;
   min-height: 0;
 }
@@ -2625,7 +2630,7 @@ html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"]:focus-v
 .rep-addons-column {
   display: flex;
   flex-direction: column;
-  gap: clamp(14px, 1.2vw, 20px);
+  gap: var(--rep-space-4);
   min-height: 0;
 }
 
@@ -2657,7 +2662,7 @@ html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"]:focus-v
 
 .rep-addons-form {
   display: grid;
-  gap: 14px;
+  gap: var(--rep-space-4);
   min-width: 0;
 }
 
@@ -2668,7 +2673,7 @@ html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"]:focus-v
 .rep-addons-scroll {
   flex: 1;
   min-height: 0;
-  padding: 4px 4px 8px;
+  padding: var(--rep-space-1);
   overflow-y: auto;
 }
 
@@ -2676,14 +2681,14 @@ html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"]:focus-v
 .rep-addon-facts {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px clamp(18px, 1.6vw, 28px);
+  gap: var(--rep-space-3) var(--rep-space-5);
   margin: 0;
 }
 
 .rep-addon-facts > div {
   display: grid;
   align-content: start;
-  gap: 3px;
+  gap: var(--rep-space-1);
   min-width: 0;
 }
 
@@ -2692,7 +2697,7 @@ html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"]:focus-v
   font-family: var(--rep-mono);
   font-size: var(--rep-text-mono);
   letter-spacing: var(--rep-tracking-caps);
-  line-height: 1.3;
+  line-height: var(--rep-leading-caption);
   text-transform: uppercase;
 }
 
@@ -2703,7 +2708,7 @@ html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"]:focus-v
   color: var(--rep-dim);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-mono);
-  line-height: 1.4;
+  line-height: var(--rep-leading-body);
 }
 
 @media (max-width: 1000px) {
@@ -2749,7 +2754,7 @@ html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"]:focus-v
 
 /* A menu of four reads wider; a ledger inside a leaf keeps the page's column. */
 .rep-log--settings > .rep-log-list {
-  max-width: 980px;
+  max-width: min(100%, max(640px, calc(var(--rep-stage) * 51)));
 }
 
 .rep-log-section-body > .rep-log-list {
@@ -2764,8 +2769,7 @@ html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"]:focus-v
 html[data-ui="repertory"] .rep-frame .shell-level:has(.rep-settings-level) {
   left: var(--rep-spine-compact);
   box-sizing: border-box;
-  padding-right: var(--rep-gutter);
-  padding-left: var(--rep-gutter);
+  padding: var(--window-chrome-clearance) var(--rep-gutter) var(--rep-stage-bottom);
   background: var(--rep-ink);
 }
 

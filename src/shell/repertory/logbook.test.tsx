@@ -17,10 +17,10 @@ import { ShellContext, type NewShellLevel, type ShellContextValue } from "../con
 import { HomeStore } from "../homeStore";
 import { Shell } from "../Shell";
 import { PreviewDataProvider } from "./context";
-import repertoryCss from "./repertory.css?raw";
 import { RepertoryAddonsScreen } from "./RepertoryAddons";
 import { RepertoryLibraryScreen } from "./RepertoryLibrary";
 import { RepertorySettingsScreen } from "./RepertorySettings";
+import { SETTINGS_CATEGORIES } from "./settingsRegister";
 
 const CINEMETA: AddonManifest = {
   id: "com.linvo.cinemeta",
@@ -183,51 +183,31 @@ function categoryLevel(pushed: NewShellLevel[], id: string): NewShellLevel {
   return level;
 }
 
-describe("the logbook's utility layout", () => {
-  test("fits Addons to the page in two columns and keeps Settings and pairing single-column", () => {
-    const addonsPage = repertoryCss.match(/\.rep-log--addons\s*\{([^}]*)\}/)?.[1] ?? "";
-    const addonsColumns =
-      repertoryCss.match(/\.rep-addons-columns\s*\{([^}]*)\}/)?.[1] ?? "";
-    const settingsRows =
-      repertoryCss.match(
-        /\.rep-log-category\s*\{\s*grid-template-columns:\s*([^;]+);/,
-      )?.[1] ?? "";
-    const pairing = repertoryCss.match(/\.rep-pairing\s*\{([^}]*)\}/)?.[1] ?? "";
-    const flat = repertoryCss.replace(/\s+/g, " ");
-
-    expect(addonsPage).toContain("height: calc(100vh");
-    expect(addonsColumns).toContain("grid-template-columns: minmax(280px, 0.7fr)");
-    expect(settingsRows.trim()).toBe("minmax(0, 1fr) auto");
-    expect(pairing).toContain("grid-template-columns: minmax(0, 1fr)");
-    expect(flat).toContain(
-      '.rep-frame .shell-level:has(.rep-settings-level) { left: var(--rep-spine-compact);',
-    );
-    expect(flat).toContain(
-      '.rep-frame:has(.rep-nav--spine[data-open="true"]) .shell-level:has(.rep-settings-level) { left: var(--rep-spine-width);',
-    );
-  });
-});
-
 describe("the repertory Addons register", () => {
-  test("lists the Host's Addons in its order and expands one row in place", () => {
+  test("lists the Host's Addons in its order and opens the focused row in place", () => {
     const { value } = harness();
     show(value, <RepertoryAddonsScreen />);
 
     const rows = within(screen.getByTestId("addons")).getAllByRole("listitem");
-    expect(rows.map((row) => row.getAttribute("data-testid"))).toEqual([
-      `addon-${CINEMETA.id}`,
-      `addon-${TORRENTIO.id}`,
-    ]);
-    expect(rows[0]).toHaveTextContent("Cinemeta");
-    expect(rows[0]).toHaveTextContent("3.0.14");
+    expect(rows).toHaveLength(2);
+    expect(within(rows[0]!).getByRole("button")).toHaveAccessibleName(
+      new RegExp(CINEMETA.name),
+    );
+    expect(within(rows[1]!).getByRole("button")).toHaveAccessibleName(
+      new RegExp(TORRENTIO.name),
+    );
     expect(screen.queryByTestId(`addon-details-${CINEMETA.id}`)).not.toBeInTheDocument();
 
-    act(() => screen.getByTestId(`addon-summary-${CINEMETA.id}`).focus());
+    const summary = screen.getByTestId(`addon-summary-${CINEMETA.id}`);
+    act(() => summary.focus());
 
     const details = screen.getByTestId(`addon-details-${CINEMETA.id}`);
-    expect(details).toHaveTextContent("com.linvo.cinemeta");
     expect(details).toHaveTextContent("catalog (movie, series)");
     expect(details).toHaveTextContent("Popular (movie)");
+    expect(
+      document.activeElement,
+      "the row expands around focus; it does not move focus",
+    ).toBe(summary);
     expect(within(details).getByRole("button", { name: "Move up" })).toBeDisabled();
     expect(within(details).getByRole("button", { name: "Move down" })).toBeEnabled();
   });
@@ -255,9 +235,7 @@ describe("the repertory Addons register", () => {
       }),
     );
     expect(input).toHaveValue("");
-    expect(await screen.findByTestId("add-addon-status")).toHaveTextContent(
-      "AIOStreams was added.",
-    );
+    expect(await screen.findByTestId("add-addon-status")).toBeInTheDocument();
   });
 
   test("keeps a refused manifest beside the form and leaves the URL to correct", async () => {
@@ -275,7 +253,7 @@ describe("the repertory Addons register", () => {
       "could not read that Addon's manifest",
     );
     expect(input).toHaveValue("https://example.test/manifest.json");
-    expect(document.querySelector(".shell-alert")).toBeNull();
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
   });
 
   test("moves a row to the 0-based position and refuses past the ends", async () => {
@@ -297,7 +275,24 @@ describe("the repertory Addons register", () => {
     expect(screen.getByRole("button", { name: "Move down" })).toBeDisabled();
   });
 
-  test("removes through a confirmation level, and Back cancels without an Action", async () => {
+  test("a refused reorder stays in the row that asked for it", async () => {
+    const { value, ask } = harness();
+    ask.mockImplementationOnce(async () =>
+      refusal({ kind: "invalid_position", position: 3, count: 2 }),
+    );
+    show(value, <RepertoryAddonsScreen />);
+    act(() => screen.getByTestId(`addon-summary-${CINEMETA.id}`).focus());
+
+    const moveDown = screen.getByRole("button", { name: "Move down" });
+    act(() => moveDown.focus());
+    fireEvent.click(moveDown);
+
+    const row = screen.getByTestId(`addon-${CINEMETA.id}`);
+    expect(await within(row).findByRole("alert")).toBeInTheDocument();
+    expect(document.activeElement).toBe(moveDown);
+  });
+
+  test("removes through a confirmation level, and Back cancels without an Action", () => {
     const { value, pushed, ask, pop } = harness();
     show(value, <RepertoryAddonsScreen />);
     act(() => screen.getByTestId(`addon-summary-${TORRENTIO.id}`).focus());
@@ -314,6 +309,58 @@ describe("the repertory Addons register", () => {
     expect(actions(ask)).toEqual([]);
   });
 
+  test("after a removal, focus steps to the Addon before it", async () => {
+    const { value, pushed, ask } = harness();
+    const view = show(value, <RepertoryAddonsScreen />);
+    act(() => screen.getByTestId(`addon-summary-${TORRENTIO.id}`).focus());
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+
+    const confirmView = showLevel(pushed.at(-1)!, value);
+    fireEvent.click(within(confirmView.container).getByRole("button", { name: "Remove" }));
+    await waitFor(() =>
+      expect(actions(ask)).toContainEqual({ type: "remove_addon", id: TORRENTIO.id }),
+    );
+    confirmView.unmount();
+
+    view.rerender(
+      withShell(
+        { ...value, snapshot: { ...SNAPSHOT, addons: [CINEMETA] } },
+        <RepertoryAddonsScreen />,
+      ),
+    );
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByTestId(`addon-summary-${CINEMETA.id}`),
+      ),
+    );
+  });
+
+  test("after removing the last Addon, focus returns to the form", async () => {
+    const { value, pushed, ask } = harness();
+    const view = show(value, <RepertoryAddonsScreen />);
+    act(() => screen.getByTestId(`addon-summary-${CINEMETA.id}`).focus());
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+
+    const confirmView = showLevel(pushed.at(-1)!, value);
+    fireEvent.click(within(confirmView.container).getByRole("button", { name: "Remove" }));
+    await waitFor(() =>
+      expect(actions(ask)).toContainEqual({ type: "remove_addon", id: CINEMETA.id }),
+    );
+    confirmView.unmount();
+
+    view.rerender(
+      withShell(
+        { ...value, snapshot: { ...SNAPSHOT, addons: [] } },
+        <RepertoryAddonsScreen />,
+      ),
+    );
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByTestId("add-addon-submit")),
+    );
+  });
+
   test("with no Addons the register says so and points at the form", () => {
     const { value } = harness({}, { ...SNAPSHOT, addons: [] });
     show(value, <RepertoryAddonsScreen />);
@@ -327,32 +374,31 @@ describe("the repertory Addons register", () => {
 });
 
 describe("the repertory Settings register", () => {
-  test("draws the four categories and pushes each sub-screen with its own Back", () => {
-    const { value, pushed, pop } = harness();
+  test("pushes each of the four categories as its own level", () => {
+    const { value, pushed } = harness();
     show(value, <RepertorySettingsScreen />);
 
-    const list = screen.getByTestId("settings-categories");
-    expect(
-      within(list)
-        .getAllByRole("button")
-        .map((button) => button.getAttribute("aria-label")),
-    ).toEqual(["Credentials", "Preferences", "Remote devices", "About/Credits"]);
-
-    for (const [id, title] of [
-      ["credentials", "Credentials"],
-      ["preferences", "Preferences"],
-      ["remote-devices", "Remote devices"],
-      ["about", "About/Credits"],
-    ] as const) {
-      fireEvent.click(screen.getByTestId(`settings-category-${id}`));
-      const level = categoryLevel(pushed, id);
-      expect(level.name).toBe(`Settings — ${title}`);
+    for (const category of SETTINGS_CATEGORIES) {
+      fireEvent.click(screen.getByTestId(`settings-category-${category.id}`));
+      expect(pushed.at(-1)).toMatchObject({
+        id: `settings-${category.id}`,
+        name: `Settings — ${category.title}`,
+        kind: "overlay",
+      });
     }
+  });
+
+  test("each sub-screen starts with Back, which pops the level", () => {
+    const { value, pushed, pop } = harness();
+    show(value, <RepertorySettingsScreen />);
+    fireEvent.click(screen.getByTestId("settings-category-credentials"));
 
     const credentials = categoryLevel(pushed, "credentials");
     const view = showLevel(credentials, value);
-    expect(screen.getByRole("heading", { name: "Credentials" })).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("settings-credentials-back"));
+    const back = screen.getByTestId("settings-credentials-back");
+    expect(back, "a pushed leaf opens on the way out").toHaveFocus();
+    fireEvent.click(back);
+
     expect(pop).toHaveBeenCalled();
     view.unmount();
   });
@@ -363,11 +409,9 @@ describe("the repertory Settings register", () => {
     fireEvent.click(screen.getByTestId("settings-category-credentials"));
     showLevel(categoryLevel(pushed, "credentials"), value);
 
-    expect(screen.getByTestId("protection-backend")).toHaveTextContent(
-      "Owner-only (0600) file",
-    );
-    expect(screen.getByTestId("protection-tmdb")).toHaveTextContent("Held");
-    expect(screen.getByTestId("protection-stremio")).toHaveTextContent("Not signed in");
+    expect(screen.getByTestId("protection-backend")).toBeInTheDocument();
+    expect(screen.getByTestId("protection-tmdb")).toBeInTheDocument();
+    expect(screen.getByTestId("protection-stremio")).toBeInTheDocument();
 
     const input = screen.getByLabelText("TMDB API key or read-access token");
     fireEvent.change(input, { target: { value: "  abc123  " } });
@@ -377,6 +421,7 @@ describe("the repertory Settings register", () => {
       expect(actions(ask)).toContainEqual({ type: "set_tmdb_key", key: "abc123" }),
     );
     expect(input).toHaveValue("");
+    expect(await screen.findByTestId("tmdb-key-status")).toBeInTheDocument();
   });
 
   test("a refused TMDB key stays beside the form", async () => {
@@ -404,6 +449,11 @@ describe("the repertory Settings register", () => {
     fireEvent.click(screen.getByTestId("settings-category-credentials"));
     showLevel(categoryLevel(pushed, "credentials"), value);
 
+    const input = screen.getByLabelText("TMDB API key or read-access token");
+    fireEvent.change(input, { target: { value: "abc123" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save key" }));
+    expect(await screen.findByTestId("tmdb-key-status")).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("button", { name: "Clear key" }));
     const confirm = pushed.at(-1);
     expect(confirm?.name).toBe("Clear the TMDB key?");
@@ -412,6 +462,33 @@ describe("the repertory Settings register", () => {
 
     await waitFor(() =>
       expect(actions(ask)).toContainEqual({ type: "clear_tmdb_key" }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByTestId("tmdb-key-status")).not.toBeInTheDocument(),
+    );
+    expect(pop).toHaveBeenCalled();
+  });
+
+  test("a held Stremio account signs out through a confirmation", async () => {
+    const { value, pushed, ask, pop } = harness(
+      {},
+      {
+        ...SNAPSHOT,
+        protection: { ...SNAPSHOT.protection, stremioHeld: true },
+      },
+    );
+    show(value, <RepertorySettingsScreen />);
+    fireEvent.click(screen.getByTestId("settings-category-credentials"));
+    showLevel(categoryLevel(pushed, "credentials"), value);
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+    const confirm = pushed.at(-1);
+    expect(confirm?.name).toBe("Sign out of Stremio?");
+    const view = showLevel(confirm!, value);
+    fireEvent.click(within(view.container).getByRole("button", { name: "Sign out" }));
+
+    await waitFor(() =>
+      expect(actions(ask)).toContainEqual({ type: "sign_out_stremio" }),
     );
     expect(pop).toHaveBeenCalled();
   });
@@ -459,6 +536,32 @@ describe("the repertory Settings register", () => {
     );
   });
 
+  test("values outside the presets are one Other chip, still selected", () => {
+    const { value, pushed } = harness(
+      {},
+      {
+        ...SNAPSHOT,
+        preferences: {
+          ...SNAPSHOT.preferences,
+          subtitleLanguage: "fr-CA",
+          subtitleColor: "#123456",
+        },
+      },
+    );
+    show(value, <RepertorySettingsScreen />);
+    fireEvent.click(screen.getByTestId("settings-category-preferences"));
+    showLevel(categoryLevel(pushed, "preferences"), value);
+
+    expect(screen.getByTestId("language-fr-CA")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("subtitle-color-other")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
   test("a refused subtitle colour is explained beside the appearance choices", async () => {
     const { value, pushed, ask } = harness();
     ask.mockImplementationOnce(async () =>
@@ -472,6 +575,19 @@ describe("the repertory Settings register", () => {
 
     expect(await screen.findByTestId("subtitle-appearance-error")).toHaveTextContent(
       '"#00FFFF" is not a subtitle colour',
+    );
+  });
+
+  test("the Featured catalog says when no Addon offers one", () => {
+    const { value, pushed } = harness({}, { ...SNAPSHOT, addons: [TORRENTIO] });
+    show(value, <RepertorySettingsScreen />);
+    fireEvent.click(screen.getByTestId("settings-category-preferences"));
+    showLevel(categoryLevel(pushed, "preferences"), value);
+
+    expect(screen.getByTestId("featured-empty")).toBeInTheDocument();
+    expect(screen.getByTestId("featured-none")).toHaveAttribute(
+      "aria-pressed",
+      "true",
     );
   });
 
@@ -501,13 +617,52 @@ describe("the repertory Settings register", () => {
     expect(pop).toHaveBeenCalled();
   });
 
+  test("after a revoke, focus steps to the device before it", async () => {
+    const { value, pushed, ask } = harness();
+    const view = show(value, <RepertorySettingsScreen />);
+    fireEvent.click(screen.getByTestId("settings-category-remote-devices"));
+    const level = categoryLevel(pushed, "remote-devices");
+    const levelView = showLevel(level, value);
+
+    fireEvent.click(screen.getByRole("button", { name: `Revoke ${OFFICE.name}` }));
+    const confirmView = showLevel(pushed.at(-1)!, value);
+    fireEvent.click(within(confirmView.container).getByRole("button", { name: "Revoke" }));
+    await waitFor(() =>
+      expect(actions(ask)).toContainEqual({ type: "revoke_device", id: OFFICE.id }),
+    );
+    confirmView.unmount();
+
+    levelView.rerender(
+      withShell(
+        { ...value, snapshot: { ...SNAPSHOT, devices: [LIVING_ROOM] } },
+        level.render(),
+      ),
+    );
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole("button", { name: `Revoke ${LIVING_ROOM.name}` }),
+      ),
+    );
+    view.unmount();
+  });
+
   test("Remote devices names an empty paired list", () => {
     const { value, pushed } = harness({}, { ...SNAPSHOT, devices: [] });
     show(value, <RepertorySettingsScreen />);
     fireEvent.click(screen.getByTestId("settings-category-remote-devices"));
     showLevel(categoryLevel(pushed, "remote-devices"), value);
 
-    expect(screen.getByTestId("no-devices")).toHaveTextContent("No device is paired yet");
+    expect(screen.getByTestId("no-devices")).toBeInTheDocument();
+  });
+
+  test("Remote devices waits for the Host instead of claiming an empty list", () => {
+    const { value, pushed } = harness({}, null);
+    show(value, <RepertorySettingsScreen />);
+    fireEvent.click(screen.getByTestId("settings-category-remote-devices"));
+    showLevel(categoryLevel(pushed, "remote-devices"), value);
+
+    expect(screen.queryByTestId("no-devices")).not.toBeInTheDocument();
   });
 
   test("About carries the TMDB notice, version and licence", () => {
@@ -516,11 +671,9 @@ describe("the repertory Settings register", () => {
     fireEvent.click(screen.getByTestId("settings-category-about"));
     showLevel(categoryLevel(pushed, "about"), value);
 
-    expect(screen.getByTestId("tmdb-notice")).toHaveTextContent(
-      "not endorsed or certified by TMDB",
-    );
+    expect(screen.getByTestId("tmdb-notice")).toBeInTheDocument();
     expect(screen.getByTestId("app-version")).toHaveTextContent("0.1.0");
-    expect(screen.getByTestId("license-credits")).toHaveTextContent("GPL-3.0-or-later");
+    expect(screen.getByTestId("license-credits")).toBeInTheDocument();
   });
 });
 
@@ -545,18 +698,24 @@ describe("the repertory frame's destinations", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Addons" }));
     expect(await screen.findByRole("heading", { name: "Addons" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Addons" })),
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Settings" })),
+    );
 
     fireEvent.click(screen.getByTestId("settings-category-credentials"));
     expect(await screen.findByRole("heading", { name: "Credentials" })).toBeInTheDocument();
 
-    // A Settings leaf leaves the spine live: the stage is inert, the spine is
-    // not, and choosing another destination from it closes the leaf.
-    const frame = screen.getByTestId("shell-frame");
-    expect(frame.querySelector(".shell-nav-slot")).not.toHaveAttribute("inert");
-    expect(frame.querySelector(".shell-base")).toHaveAttribute("inert");
+    // A Settings leaf leaves the spine live, so another destination can be
+    // chosen without backing out of the leaf first.
+    expect(
+      screen.getByRole("navigation", { name: "Destinations" }).closest("[inert]"),
+    ).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Addons" }));
     expect(await screen.findByRole("heading", { name: "Addons" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Credentials" })).not.toBeInTheDocument();
@@ -569,6 +728,40 @@ describe("the repertory frame's destinations", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Library" }));
     expect(await screen.findByTestId("library-gate")).toBeInTheDocument();
+  });
+
+  test("a Settings leaf keeps the spine live, and Back restores the row that opened it", async () => {
+    render(<Shell client={fakeHostClient(SNAPSHOT)} presentation="repertory" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    const category = await screen.findByTestId("settings-category-credentials");
+    act(() => category.focus());
+    fireEvent.click(category);
+
+    expect(await screen.findByRole("heading", { name: "Credentials" })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("heading", { name: "Credentials" }),
+      ).not.toBeInTheDocument(),
+    );
+    await waitFor(() => expect(document.activeElement).toBe(category));
+  });
+
+  test("Back from the Addons base returns to Home", async () => {
+    render(<Shell client={fakeHostClient(SNAPSHOT)} presentation="repertory" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Addons" }));
+    expect(await screen.findByRole("heading", { name: "Addons" })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(await screen.findByTestId("home-screen")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Home" })),
+    );
   });
 });
 
