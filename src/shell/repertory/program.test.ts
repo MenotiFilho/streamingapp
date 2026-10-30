@@ -4,7 +4,6 @@ import type { MetaPreview } from "../../host-client";
 import {
   captionParts,
   countLabel,
-  featureSlides,
   featureTitleDensity,
   programDate,
   programIndex,
@@ -61,12 +60,6 @@ describe("the programme's display type", () => {
     expect(featureTitleDensity("A Title So Long It Needs The Smallest Band Of All")).toBe(
       "very-long",
     );
-  });
-
-  it("keeps four slides only when the feature rotates", () => {
-    const slides = [1, 2, 3, 4];
-    expect(featureSlides(slides, "still")).toEqual([1]);
-    expect(featureSlides(slides, "rotates")).toEqual(slides);
   });
 
   it("numbers a programme from two digits and counts its rows in the right noun", () => {

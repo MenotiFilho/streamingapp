@@ -8,6 +8,25 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+/** Give the track's items a measured card pitch; jsdom lays nothing out. */
+function layOutPitch(track: HTMLElement, pitch: number) {
+  const cards = track.querySelectorAll<HTMLElement>(".rep-kit-row-item");
+  cards.forEach((card, index) => {
+    const left = index * pitch;
+    vi.spyOn(card, "getBoundingClientRect").mockReturnValue({
+      x: left,
+      y: 0,
+      width: pitch - 24,
+      height: 240,
+      left,
+      top: 0,
+      right: left + pitch - 24,
+      bottom: 240,
+      toJSON: () => ({}),
+    } as DOMRect);
+  });
+}
+
 /** Ask the window for reduced motion so a page jump settles synchronously. */
 function reduceMotion() {
   vi.stubGlobal(
@@ -62,18 +81,20 @@ describe("the repertory row track", () => {
     expect(within(items[2]!).getByRole("button", { name: "Third" })).toBeInTheDocument();
   });
 
-  test("pages one view at a time with an arrow at each edge", () => {
+  test("pages five whole cards at a time with an arrow at each edge", () => {
     reduceMotion();
     render(
-      <RowTrack title="Popular" columns={4}>
+      <RowTrack title="Popular" columns={5.5} page={5}>
         <PosterCard name="One" />
         <PosterCard name="Two" />
+        <PosterCard name="Three" />
       </RowTrack>,
     );
 
     const track = screen.getByRole("list");
     Object.defineProperty(track, "clientWidth", { configurable: true, value: 400 });
     Object.defineProperty(track, "scrollWidth", { configurable: true, value: 1200 });
+    layOutPitch(track, 100);
     fireEvent.scroll(track);
 
     const left = screen.getByRole("button", { name: "Scroll Popular left" });
@@ -82,7 +103,7 @@ describe("the repertory row track", () => {
     expect(right).toBeEnabled();
 
     fireEvent.click(right);
-    expect(track.scrollLeft, "one press moves exactly one view").toBe(400);
+    expect(track.scrollLeft, "five card pitches, not a 400px viewport").toBe(500);
 
     fireEvent.scroll(track);
     expect(left).toBeEnabled();

@@ -1,9 +1,17 @@
-import { useCallback, useEffect, useRef, type ReactNode } from "react";
+import { AnimatePresence, motion, usePresence } from "motion/react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  type ReactNode,
+} from "react";
 
 import { Rail } from "./Rail";
+import type { Intent } from "../input";
 import type { Destination, ShellLevel } from "./navigation";
+import { destinationTransition, REPERTORY_RULES } from "./repertory/frame";
 import { RepertoryNav } from "./repertory/RepertoryNav";
-import { useRepertorySettings } from "./repertory/context";
 import { focusAndReveal } from "./reveal";
 import { toggleFullscreen, useFullscreen } from "./useFullscreen";
 import { useSpatialFocus } from "./useSpatialFocus";
@@ -23,7 +31,62 @@ export type ShellFrameProps = {
   presentation?: "velvet" | "repertory";
   /** Open the whole destination index, where the frame offers a way to it. */
   onOpenDestinations?: () => void;
+  /** The base screen's own first look at an intent (the feature's slides). */
+  onBaseIntent?: (intent: Intent) => boolean;
 };
+
+/**
+ * One layer of the repertory base. The screen that leaves is inert the moment
+ * its cross-fade starts, so the layer beneath never takes a press and the new
+ * screen is the only thing the D-pad can reach.
+ */
+function RepertoryScreenLayer({ children }: { children: ReactNode }) {
+  const [present, safeToRemove] = usePresence();
+  return (
+    <motion.div
+      className="rep-screen-layer"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={destinationTransition()}
+      aria-hidden={present ? undefined : true}
+      inert={present ? undefined : true}
+      onAnimationComplete={() => {
+        if (!present) {
+          safeToRemove();
+        }
+      }}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+/**
+ * The repertory base cross-fades on a destination switch (design record §6).
+ * Both layers share one grid cell, so the old screen fades out under the new
+ * one instead of sliding or delaying it: the animation never gates input.
+ */
+function RepertoryScreenStack({
+  destination,
+  children,
+}: {
+  destination: Destination;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className="shell-screen rep-screen-stack"
+      data-region="screen"
+      data-kind="branch"
+      data-label="the content"
+    >
+      <AnimatePresence initial={false}>
+        <RepertoryScreenLayer key={destination}>{children}</RepertoryScreenLayer>
+      </AnimatePresence>
+    </div>
+  );
+}
 
 /**
  * The ten-foot frame: one persistent rail, a base screen beside it, and any
@@ -43,8 +106,8 @@ export function ShellFrame({
   onBack,
   presentation = "velvet",
   onOpenDestinations,
+  onBaseIntent,
 }: ShellFrameProps) {
-  const { settings } = useRepertorySettings();
   const repertory = presentation === "repertory";
   const frame = useRef<HTMLDivElement | null>(null);
   const base = useRef<HTMLDivElement | null>(null);
@@ -59,8 +122,7 @@ export function ShellFrame({
    * stays live and the focus root covers both. Every other level keeps the
    * spine out of the tab order, as the Title and Streams always have.
    */
-  const settingsLeaf =
-    repertory && settings.frame === "spine" && top?.id.startsWith("settings-") === true;
+  const settingsLeaf = repertory && top?.id.startsWith("settings-") === true;
   const navInteractive = repertory && (levels.length === 0 || settingsLeaf);
   const { supported } = useFullscreen();
 
@@ -115,14 +177,19 @@ export function ShellFrame({
     root: activeRoot,
     levelKey: top ? `level:${top.id}` : `base:${destination}`,
     onBack,
-    onIntent: top?.onIntent,
+    onIntent: top?.onIntent ?? onBaseIntent,
+    // The owner's rail/chrome rules are the base programme's: a pushed Title,
+    // Streams list or dialog keeps the settled geometry.
+    rules: repertory && (levels.length === 0 || settingsLeaf) ? REPERTORY_RULES : undefined,
   });
 
   // A destination change is a deliberate choice: focus lands on the rail item
   // that was chosen, so the level key's memory holds that item rather than the
   // card the previous screen happened to leave focus on. The first paint is not
-  // a choice — the base screen decides where focus starts.
-  useEffect(() => {
+  // a choice — the base screen decides where focus starts. A layout effect puts
+  // focus on the new repertory level before the cross-fade paints; the Velvet
+  // frame keeps the post-paint effect it shipped with.
+  const restoreDestinationFocus = useCallback(() => {
     if (firstDestination.current) {
       firstDestination.current = false;
       return;
@@ -138,13 +205,24 @@ export function ShellFrame({
     );
   }, [destination, repertory]);
 
+  useLayoutEffect(() => {
+    if (repertory) {
+      restoreDestinationFocus();
+    }
+  }, [repertory, restoreDestinationFocus]);
+
+  useEffect(() => {
+    if (!repertory) {
+      restoreDestinationFocus();
+    }
+  }, [repertory, restoreDestinationFocus]);
+
   return (
     <div
       ref={frame}
       className={repertory ? "shell-frame rep-frame" : "shell-frame"}
       data-testid="shell-frame"
       data-ui={repertory ? "repertory" : undefined}
-      data-frame={repertory ? settings.frame : undefined}
       data-reveal={repertory ? "center" : undefined}
       data-region={repertory ? "frame" : undefined}
       data-kind={repertory ? "branch" : undefined}
@@ -157,7 +235,6 @@ export function ShellFrame({
           aria-hidden={navInteractive ? undefined : true}
         >
           <RepertoryNav
-            variant={settings.frame}
             active={destination}
             onChoose={onChooseDestination}
             onOpenDestinations={onOpenDestinations ?? (() => undefined)}
@@ -178,14 +255,18 @@ export function ShellFrame({
           <Rail active={destination} onChoose={onChooseDestination} />
         )}
         <main className="shell-stage">
-          <div
-            className="shell-screen"
-            data-region="screen"
-            data-kind="branch"
-            data-label="the content"
-          >
-            {screen}
-          </div>
+          {repertory ? (
+            <RepertoryScreenStack destination={destination}>{screen}</RepertoryScreenStack>
+          ) : (
+            <div
+              className="shell-screen"
+              data-region="screen"
+              data-kind="branch"
+              data-label="the content"
+            >
+              {screen}
+            </div>
+          )}
         </main>
         {/* The base's own window control, while it is the surface on top. A
             pushed level draws its own; the player level draws none, because its

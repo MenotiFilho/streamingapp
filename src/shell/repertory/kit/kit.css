@@ -572,11 +572,12 @@ html[data-ui="repertory"] .rep-kit-row-track::-webkit-scrollbar {
   display: none;
 }
 
-/* One view always holds `columns` cards: the token is the screen's choice, the
- * share is the kit's. Nothing snaps and nothing keeps an inertia. */
+/* One view holds `--row-visible` cards; the gap count is one fewer than the
+ * whole cards in that view, so five-and-a-half cards see five gaps. Nothing
+ * snaps and nothing keeps an inertia. */
 html[data-ui="repertory"] .rep-kit-row-item {
   flex: 0 0 calc(
-    (100% - (var(--row-visible) - 1) * var(--rep-row-gap)) / var(--row-visible)
+    (100% - var(--row-gap-count) * var(--rep-row-gap)) / var(--row-visible)
   );
   min-width: 0;
 }

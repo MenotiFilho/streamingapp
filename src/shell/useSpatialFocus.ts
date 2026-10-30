@@ -6,8 +6,15 @@ import {
   rehome,
   type Direction,
   type Focus,
+  type Rules,
 } from "../focus";
-import { isTypingTarget, keyIntent, type Intent } from "../input";
+import {
+  isTypingTarget,
+  keyIntent,
+  REPEAT_AFTER_MS,
+  REPEAT_EVERY_MS,
+  type Intent,
+} from "../input";
 import { firstFocusable, focusOf, readLevel } from "./layout";
 import { focusLanded, onRevealed, reveal } from "./reveal";
 import { useGamepad } from "./useGamepad";
@@ -27,6 +34,8 @@ export type SpatialFocusOptions = {
    * focus engine leaves the intent alone.
    */
   onIntent?: (intent: Intent) => boolean;
+  /** The edge rules this level uses; the settled defaults when omitted. */
+  rules?: Rules;
 };
 
 /**
@@ -41,8 +50,16 @@ export type SpatialFocusOptions = {
  * companion has no pad column: it is served over plain HTTP, an insecure
  * origin where `getGamepads()` returns nothing (research #49).
  */
-export function useSpatialFocus({ root, levelKey, onBack, onIntent }: SpatialFocusOptions) {
+export function useSpatialFocus({
+  root,
+  levelKey,
+  onBack,
+  onIntent,
+  rules = DEFAULT_RULES,
+}: SpatialFocusOptions) {
   const rootRef = useRef(root);
+  const rulesRef = useRef(rules);
+  rulesRef.current = rules;
   rootRef.current = root;
   const keyRef = useRef(levelKey);
   keyRef.current = levelKey;
@@ -55,8 +72,16 @@ export function useSpatialFocus({ root, levelKey, onBack, onIntent }: SpatialFoc
   const regions = useRef(new Map<string, Record<string, number | undefined>>());
   /** For each level, the exact control focus was on, if it is still there. */
   const remembered = useRef(new Map<string, Remembered>());
+  /**
+   * For each level, the last control focus was on outside the rail, the window
+   * chrome and a dialog. The rail's Right returns here when the rules ask for
+   * it, so leaving the content for the programme index is not a one-way trip.
+   */
+  const lastContent = useRef(new Map<string, Remembered>());
   /** The control the reveal last ran for, so an ordinary render does not scroll again. */
   const revealed = useRef<HTMLElement | null>(null);
+  /** A held key's first and last accepted press, so the keyboard repeats like the pad. */
+  const keyRepeat = useRef(new Map<string, { first: number; last: number }>());
 
   /**
    * Take a direct `focusAndReveal`'s reveal as the engine's own, so the render
@@ -129,11 +154,39 @@ export function useSpatialFocus({ root, levelKey, onBack, onIntent }: SpatialFoc
     if (!activeRoot || !activeRoot.contains(element) || !element.hasAttribute("data-focusable")) {
       return;
     }
-    const { elements } = readLevel(activeRoot, regionMemory(keyRef.current));
+    const { layout, elements } = readLevel(activeRoot, regionMemory(keyRef.current));
     const found = focusOf(element, elements);
     if (found) {
+      const kind = layout.regions[found.regionId]?.kind;
+      if (kind !== undefined && kind !== "rail" && kind !== "window" && kind !== "dialog") {
+        lastContent.current.set(keyRef.current, { ...found, element });
+      }
       rememberFocus(found, element);
     }
+  };
+
+  /**
+   * Where the content was last focused, if that control is still one this level
+   * can give focus to. A control that left, turned disabled, or was pruned with
+   * an emptied region is not a landing, and the rail's Right falls back to the
+   * first content control instead.
+   */
+  const rememberedContent = (
+    activeRoot: HTMLElement,
+    elements: Record<string, HTMLElement[]>,
+  ): Focus | null => {
+    const held = lastContent.current.get(keyRef.current);
+    const element = held?.element;
+    if (
+      !element ||
+      !element.isConnected ||
+      !activeRoot.contains(element) ||
+      !element.hasAttribute("data-focusable") ||
+      element.matches(":disabled")
+    ) {
+      return null;
+    }
+    return focusOf(element, elements);
   };
 
   const ensureFocus = () => {
@@ -172,7 +225,7 @@ export function useSpatialFocus({ root, levelKey, onBack, onIntent }: SpatialFoc
         return;
       }
 
-      const landing = rehome(layout, held, DEFAULT_RULES);
+      const landing = rehome(layout, held, rulesRef.current);
       if (landing) {
         const target = elements[landing.regionId]?.[landing.index];
         if (target) {
@@ -209,7 +262,10 @@ export function useSpatialFocus({ root, levelKey, onBack, onIntent }: SpatialFoc
       return;
     }
 
-    const decision = decideMove(layout, current, direction, DEFAULT_RULES);
+    const rules = rulesRef.current;
+    const last =
+      rules.railExit === "last" ? rememberedContent(activeRoot, elements) : null;
+    const decision = decideMove(layout, current, direction, rules, last);
     if (decision.kind === "blocked") {
       return;
     }
@@ -278,8 +334,28 @@ export function useSpatialFocus({ root, levelKey, onBack, onIntent }: SpatialFoc
       if (!intent) {
         return;
       }
+      const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+      if (event.repeat) {
+        const held = keyRepeat.current.get(event.key);
+        if (
+          held &&
+          (now - held.first < REPEAT_AFTER_MS || now - held.last < REPEAT_EVERY_MS)
+        ) {
+          event.preventDefault();
+          return;
+        }
+        if (held) {
+          held.last = now;
+        }
+      } else {
+        keyRepeat.current.set(event.key, { first: now, last: now });
+      }
       event.preventDefault();
       runRef.current(intent);
+    };
+
+    const onKeyUp = (event: KeyboardEvent) => {
+      keyRepeat.current.delete(event.key);
     };
 
     const onFocusIn = (event: FocusEvent) => {
@@ -332,11 +408,13 @@ export function useSpatialFocus({ root, levelKey, onBack, onIntent }: SpatialFoc
     };
 
     document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keyup", onKeyUp);
     document.addEventListener("focusin", onFocusIn);
     document.addEventListener("focusout", onFocusOut, true);
     document.addEventListener("click", onClick, true);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("keyup", onKeyUp);
       document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("focusout", onFocusOut, true);
       document.removeEventListener("click", onClick, true);

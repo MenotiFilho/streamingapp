@@ -77,28 +77,60 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   background: var(--rep-ink);
 }
 
-.rep-frame[data-frame="spine"] .shell-stage {
+.rep-frame .shell-stage {
   margin-left: var(--rep-spine-compact);
   padding: var(--rep-stage-top) var(--rep-gutter) var(--rep-stage-bottom);
 }
 
 /* The programme makes room when the spine opens: a book's margin, not a drawer
  * over the page, so no title is cut in half while navigating. */
-.rep-frame[data-frame="spine"]:has(.rep-nav--spine:focus-within) .shell-stage {
+.rep-frame:has(.rep-nav--spine[data-open="true"]) .shell-stage {
   margin-left: var(--rep-spine-width);
-}
-
-.rep-frame[data-frame="strip"] .shell-stage {
-  margin-left: 0;
-  padding: calc(var(--rep-strip-height) + var(--rep-stage-top)) var(--rep-gutter)
-    var(--rep-stage-bottom);
 }
 
 .rep-frame .shell-screen {
   max-width: none;
 }
 
+/*
+ * A destination switch cross-fades the base: both layers share one grid cell,
+ * so the old screen fades under the new one and never moves the page. The
+ * leaving layer is inert in the component, so a press during the 240ms goes to
+ * the screen a person just chose.
+ */
+.rep-frame .rep-screen-stack {
+  display: grid;
+}
+
+.rep-frame .rep-screen-layer {
+  grid-area: 1 / 1;
+  min-width: 0;
+}
+
+/*
+ * The repertory room's window chrome. It is the same 56px strip the D-pad
+ * geometry measures and the same pointer promise as Velvet: the strip takes no
+ * click, the button at its right end takes its own. The numbers live here as
+ * well as in the Velvet sheet because this record has to survive the cutover
+ * that deletes that sheet (#160).
+ */
+.rep-frame {
+  --window-chrome-height: 56px;
+  --window-chrome-clearance: 4rem;
+}
+
+.rep-frame .shell-window-chrome {
+  top: 0;
+  right: 0;
+  left: 0;
+  height: var(--window-chrome-height);
+  padding: 0.5rem var(--rep-gutter);
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
 .rep-frame .shell-window-chrome-button {
+  pointer-events: auto;
   border: 1px solid var(--rep-hairline);
   border-radius: 0;
   background: color-mix(in srgb, var(--rep-ink) 68%, transparent);
@@ -109,9 +141,13 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 }
 
 .rep-frame .shell-window-chrome-button:hover,
-.rep-frame .shell-window-chrome-button:focus {
+.rep-frame .shell-window-chrome-button:focus,
+.rep-frame .shell-window-chrome-button[data-focusable]:focus,
+.rep-frame .shell-window-chrome-button[data-focusable]:focus-visible {
   border-color: var(--rep-ivory);
+  background: color-mix(in srgb, var(--rep-ink) 68%, transparent);
   color: var(--rep-ivory);
+  box-shadow: none;
 }
 
 .rep-frame .shell-alert {
@@ -134,7 +170,7 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   z-index: 20;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: flex-start;
   gap: var(--rep-space-5);
   width: var(--rep-spine-compact);
   padding: var(--rep-space-5) var(--rep-space-3);
@@ -147,38 +183,12 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 /*
  * Navigating the spine is the one moment it opens. It grows over the stage
  * instead of moving it, so the pictures never reflow under the cursor; the
- * compact column stays the page's margin. Depth is the hairline, not a shadow.
+ * compact column stays the page's margin. The list stays centred in both
+ * states, and depth is the hairline, not a shadow.
  */
-.rep-nav--spine:focus-within {
-  justify-content: flex-start;
+.rep-nav--spine[data-open="true"] {
   width: var(--rep-spine-width);
-  padding: var(--rep-space-7) var(--rep-space-5) var(--rep-space-5) var(--rep-space-6);
-}
-
-.rep-spine-head {
-  display: none;
-  gap: 6px;
-}
-
-.rep-nav--spine:focus-within .rep-spine-head {
-  display: grid;
-}
-
-.rep-spine-label {
-  margin: 0;
-  font-family: var(--rep-sans);
-  font-size: var(--rep-text-control);
-  font-weight: 500;
-  letter-spacing: -0.006em;
-  color: var(--rep-ivory);
-}
-
-.rep-spine-note {
-  margin: 0;
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-mono);
-  line-height: 1.2;
-  color: var(--rep-muted);
+  padding: var(--rep-space-5) var(--rep-space-4);
 }
 
 .rep-spine-index {
@@ -186,19 +196,18 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   flex-direction: column;
   gap: 2px;
   width: 100%;
-  margin: 0;
+  margin: auto 0;
   padding: 0;
   list-style: none;
 }
 
 .rep-index-item {
-  display: grid;
-  grid-template-columns: 1fr;
-  justify-items: center;
+  display: flex;
   align-items: center;
-  gap: 0;
+  justify-content: center;
+  gap: var(--rep-space-3);
   width: 100%;
-  padding: var(--rep-space-2) 0;
+  padding: var(--rep-space-3) var(--rep-space-2);
   border: 0;
   background: transparent;
   color: var(--rep-dim);
@@ -206,20 +215,14 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   font-size: var(--rep-text-control);
   font-weight: 500;
   line-height: 1.2;
-  text-align: left;
+  text-align: center;
   cursor: pointer;
   box-sizing: border-box;
 }
 
-.rep-nav--spine:focus-within .rep-index-item {
-  grid-template-columns: var(--rep-space-5) var(--rep-space-6) 1fr;
-  justify-items: start;
-  gap: var(--rep-space-3);
-  padding: var(--rep-space-3) var(--rep-space-2);
-}
-
 .rep-index-icon {
   display: grid;
+  flex: none;
   place-items: center;
   width: max(26px, calc(var(--rep-stage) * 1.4));
   height: max(26px, calc(var(--rep-stage) * 1.4));
@@ -232,149 +235,70 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 }
 
 .rep-index-item[aria-current="page"] {
-  color: var(--rep-ivory);
+  color: var(--rep-house);
+  box-shadow: inset 2px 0 0 var(--rep-house);
+}
+
+/* The shared focus reset clears `box-shadow`; the current destination keeps
+ * its 2px brass rule while it carries the keyline. */
+.rep-index-item[aria-current="page"]:focus,
+.rep-index-item[aria-current="page"]:focus-visible {
   box-shadow: inset 2px 0 0 var(--rep-house);
 }
 
 .rep-index-item[aria-current="page"] .rep-index-icon {
-  color: var(--rep-ivory);
+  color: var(--rep-house);
 }
 
-.rep-index-number,
 .rep-index-label {
   display: none;
-}
-
-.rep-nav--spine:focus-within .rep-index-number,
-.rep-nav--spine:focus-within .rep-index-label {
-  display: inline;
-}
-
-.rep-index-number {
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-mono);
-  color: var(--rep-muted);
-}
-
-.rep-index-label {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.rep-index-more {
-  color: var(--rep-muted);
+.rep-nav--spine[data-open="true"] .rep-index-label {
+  display: inline;
 }
 
-.rep-index-item[aria-current="page"] .rep-index-number {
-  color: var(--rep-house);
+.rep-index-more {
+  color: var(--rep-muted);
 }
 
 .rep-index-item:focus,
 .rep-index-item:focus-visible {
   outline-offset: -2px;
-  background-image: var(--rep-focus-wash);
 }
 
 .rep-spine-foot {
-  display: none;
-  gap: 8px;
-  margin-top: auto;
-  padding-top: 20px;
+  display: grid;
+  gap: var(--rep-space-2);
+  padding-top: var(--rep-space-5);
   border-top: 1px solid var(--rep-hairline);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-mono);
   line-height: 1.25;
   color: var(--rep-dim);
+  text-align: center;
+  justify-items: center;
 }
 
-.rep-nav--spine:focus-within .rep-spine-foot {
-  display: grid;
+/* Compact, the foot keeps the clock only and reads much smaller: the date is
+ * a programme-line bookkeeping detail that belongs to the open spine. */
+.rep-nav--spine:not([data-open]) .rep-spine-foot {
+  gap: 0;
+  padding-top: var(--rep-space-2);
+  font-size: max(10px, calc(var(--rep-stage) * 0.7));
+  line-height: 1.1;
+}
+
+.rep-nav--spine:not([data-open]) .rep-spine-date {
+  display: none;
 }
 
 .rep-spine-clock {
   color: var(--rep-ivory);
-}
-
-/* --------------------------------------------------------------------------
- * The program strip: the same index across the top
- * -------------------------------------------------------------------------- */
-
-.rep-nav--strip {
-  position: fixed;
-  inset: 0 0 auto 0;
-  z-index: 20;
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: var(--rep-space-6);
-  height: var(--rep-strip-height);
-  padding: var(--rep-space-3) var(--rep-gutter) 0;
-  border-bottom: 1px solid var(--rep-hairline);
-  background: var(--rep-ink);
-  box-sizing: border-box;
-}
-
-.rep-strip-head {
-  display: grid;
-  gap: 6px;
-  padding-bottom: 24px;
-}
-
-.rep-strip-label {
-  margin: 0;
-  font-family: var(--rep-sans);
-  font-size: var(--rep-text-control);
-  font-weight: 500;
-  letter-spacing: -0.006em;
-  color: var(--rep-ivory);
-}
-
-.rep-strip-index {
-  display: flex;
-  align-items: flex-end;
-  gap: 0;
-  margin: 0;
-  padding: 0 72px 0 0;
-  list-style: none;
-}
-
-.rep-strip-item {
-  display: grid;
-  gap: 4px;
-  padding: 12px 16px 16px;
-  border: 0;
-  background: transparent;
-  color: var(--rep-dim);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-text-control);
-  font-weight: 500;
-  line-height: 1.2;
-  text-align: left;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
-.rep-strip-item[aria-current="page"] {
-  color: var(--rep-ivory);
-  box-shadow: inset 0 -2px 0 var(--rep-house);
-}
-
-.rep-strip-number {
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-mono);
-  color: var(--rep-muted);
-}
-
-.rep-strip-item[aria-current="page"] .rep-strip-number {
-  color: var(--rep-house);
-}
-
-.rep-strip-item:focus,
-.rep-strip-item:focus-visible {
-  outline-offset: -2px;
-  background-image: var(--rep-focus-wash);
 }
 
 /* --------------------------------------------------------------------------
@@ -384,29 +308,168 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 .rep-home {
   display: flex;
   flex-direction: column;
-  gap: clamp(32px, 2.1vw, 3vw);
+  gap: var(--rep-space-6);
   min-width: 0;
-  padding-bottom: 72px;
 }
 
-.rep-home-waiting,
-.rep-home-note {
+/* The screen's programme line: the destination in brass mono, then the rule. */
+.rep-programme-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--rep-space-4);
+  margin: 0;
+  padding-bottom: var(--rep-space-3);
+}
+
+.rep-programme-line-name {
+  flex: none;
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+.rep-home-waiting {
   max-width: 58ch;
   margin: 0;
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  line-height: 1.4;
+}
+
+.rep-home-note {
+  max-width: 58ch;
+  margin: var(--rep-space-3) 0 0;
   color: var(--rep-dim);
   font-family: var(--rep-sans);
   font-size: var(--rep-text-body);
   line-height: var(--rep-leading-body);
 }
 
+.rep-home-note--failure {
+  color: var(--rep-status-red);
+}
+
+/* A row whose Addon answered nothing keeps its programme head and its note;
+ * there is no track to page when no card exists. */
+.rep-home .rep-kit-row-viewport:has(.rep-kit-row-track:empty) {
+  display: none;
+}
+
 .rep-preview-note {
   margin: 0;
-  padding-top: 24px;
+  padding-top: var(--rep-space-5);
   border-top: 1px solid var(--rep-hairline);
   color: var(--rep-muted);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-mono);
   line-height: 1.4;
+}
+
+/* --------------------------------------------------------------------------
+ * The More card: the rail's last card, opening the whole row
+ * -------------------------------------------------------------------------- */
+
+/* It reuses the poster or Continue card's anatomy, so it gets the same plate,
+ * keyline and wash. Only the plate's contents are the programme's grid mark. */
+.rep-more-plate {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: var(--rep-space-3);
+  color: var(--rep-house);
+}
+
+.rep-more-mark {
+  width: max(44px, calc(var(--rep-stage) * 3));
+  height: max(44px, calc(var(--rep-stage) * 3));
+}
+
+/* --------------------------------------------------------------------------
+ * The whole row: a rail's More card opens this pushed grid level
+ * -------------------------------------------------------------------------- */
+
+.rep-rail-grid {
+  min-height: calc(100vh - var(--window-chrome-clearance));
+  padding: var(--rep-stage-top) var(--rep-gutter) var(--rep-space-8);
+  background: var(--rep-ink);
+  box-sizing: border-box;
+}
+
+.rep-rail-grid-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--rep-space-4);
+  padding-bottom: var(--rep-space-3);
+  border-bottom: 1px solid var(--rep-hairline);
+}
+
+.rep-rail-grid-index {
+  flex: none;
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+}
+
+.rep-rail-grid-title {
+  flex: none;
+  margin: 0;
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-section);
+  font-weight: 500;
+  line-height: var(--rep-leading-display);
+  letter-spacing: var(--rep-tracking-display);
+}
+
+.rep-rail-grid-rule {
+  flex: 1;
+  height: 1px;
+}
+
+.rep-rail-grid-tag {
+  flex: none;
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  white-space: nowrap;
+}
+
+.rep-rail-grid-close {
+  flex: none;
+  margin-left: var(--rep-space-3);
+}
+
+.rep-rail-grid-cards {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(max(160px, calc(var(--rep-stage) * 8.4)), 1fr)
+  );
+  gap: var(--rep-space-6) var(--rep-row-gap);
+  margin-top: var(--rep-space-6);
+}
+
+.rep-rail-grid-cards[data-rail="continue"] {
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(max(240px, calc(var(--rep-stage) * 12)), 1fr)
+  );
+}
+
+.rep-rail-grid-note {
+  max-width: 58ch;
+  margin: var(--rep-space-5) 0 0;
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  line-height: 1.4;
+}
+
+.rep-rail-grid-note--failure {
+  color: var(--rep-status-red);
 }
 
 /* --------------------------------------------------------------------------
@@ -416,14 +479,121 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 .rep-feature {
   display: flex;
   flex-direction: column;
-  gap: 16px;
   min-width: 0;
+}
+
+/*
+ * The backdrop sits between two hairlines. Both slides share the frame's grid
+ * cell, so the cross-fade never moves the page; the action is one persistent
+ * control over them, which is why stepping slides never takes focus away.
+ */
+.rep-feature-frame {
+  position: relative;
+  display: grid;
+  min-height: max(360px, calc(var(--rep-stage) * 20));
+  overflow: hidden;
+  border-top: 1px solid var(--rep-hairline);
+  border-bottom: 1px solid var(--rep-hairline);
+  background: var(--rep-ink-raised);
+}
+
+.rep-feature-slide {
+  display: flex;
+  grid-area: 1 / 1;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-width: 0;
+  padding: var(--rep-space-7) var(--rep-space-6)
+    calc(var(--rep-space-8) + var(--rep-space-7));
+  box-sizing: border-box;
+}
+
+.rep-feature-art {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  overflow: hidden;
+  background: var(--rep-ink-raised);
+}
+
+.rep-feature-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: saturate(0.92) brightness(0.78);
+}
+
+/* The plate is typographic and intentional: a missing backdrop never becomes a
+ * grey box (design record §9). */
+.rep-feature-plate {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  padding: var(--rep-space-8);
+  color: var(--rep-muted);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-section);
+  font-weight: 500;
+  line-height: var(--rep-leading-display);
+  letter-spacing: var(--rep-tracking-display);
+  text-align: center;
+  box-sizing: border-box;
+}
+
+/* Two gradients bring the picture down to the room: one from the left for the
+ * copy, one from the foot for the action. */
+.rep-feature-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--rep-ink) 92%, transparent) 0%,
+      color-mix(in srgb, var(--rep-ink) 48%, transparent) 52%,
+      transparent 84%
+    ),
+    linear-gradient(
+      0deg,
+      color-mix(in srgb, var(--rep-ink) 88%, transparent) 0%,
+      color-mix(in srgb, var(--rep-ink) 18%, transparent) 56%,
+      transparent 86%
+    );
+  pointer-events: none;
+}
+
+.rep-feature-copy {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-3);
+  max-width: 62ch;
+  min-width: 0;
+}
+
+/* The one spotlight wash on the feature (design record §5): a soft brass edge
+ * while its action holds focus, never a border or a lift. */
+.rep-feature-wash {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background-image: var(--rep-focus-wash);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--rep-motion-fade) var(--rep-ease);
+}
+
+.rep-feature-frame[data-held="true"] .rep-feature-wash {
+  opacity: 1;
 }
 
 .rep-feature-kicker {
   display: flex;
   align-items: center;
-  gap: clamp(12px, 0.94vw, 1.4vw);
+  gap: var(--rep-space-3);
   color: var(--rep-dim);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-mono);
@@ -432,6 +602,7 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 
 .rep-feature-kicker > span:first-child {
   color: var(--rep-house);
+  white-space: nowrap;
 }
 
 .rep-feature-kicker > span:last-child {
@@ -444,137 +615,41 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   background: var(--rep-hairline);
 }
 
-.rep-feature-card {
-  position: relative;
-  display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
-  width: 100%;
-  height: clamp(340px, 22vw, 27vw);
-  padding: 0;
-  border: 0;
-  background: var(--rep-ink-raised);
-  color: var(--rep-ivory);
-  font-family: var(--rep-sans);
-  text-align: left;
-  cursor: pointer;
-}
-
-.rep-feature-card:focus,
-.rep-feature-card:focus-visible {
-  outline-offset: 6px;
-}
-
-.rep-feature-art {
-  position: relative;
-  display: block;
-  width: 100%;
-  height: 100%;
-  min-height: 0;
-  overflow: hidden;
-  background: var(--rep-ink-raised);
-}
-
-.rep-feature-art::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(rgba(11, 10, 9, 0.34), rgba(11, 10, 9, 0.34)),
-    linear-gradient(90deg, rgba(11, 10, 9, 0.5) 0%, rgba(11, 10, 9, 0.08) 46%, transparent 76%),
-    linear-gradient(0deg, rgba(11, 10, 9, 0.28), transparent 44%);
-  pointer-events: none;
-}
-
-.rep-feature-art img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  filter: saturate(0.92) brightness(0.9);
-  animation: rep-fade 600ms var(--rep-ease);
-}
-
-.rep-feature-art-empty {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  height: 100%;
-  padding: 32px;
-  background:
-    radial-gradient(
-      80% 120% at 20% 20%,
-      color-mix(in srgb, var(--rep-house) 8%, transparent),
-      transparent 60%
-    ),
-    var(--rep-ink-raised);
-  color: var(--rep-muted);
-  font-family: var(--rep-display);
-  font-size: var(--rep-text-section);
-  line-height: 1.1;
-  text-align: center;
-  box-sizing: border-box;
-}
-
-.rep-feature-plate {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: clamp(8px, 0.52vw, 0.8vw);
-  min-width: 0;
-  padding: clamp(20px, 1.35vw, 2vw) clamp(24px, 1.67vw, 2.4vw) clamp(20px, 1.46vw, 2.2vw);
-  border-left: 2px solid var(--rep-house);
-  background: var(--rep-ink-raised);
-  box-sizing: border-box;
-  overflow: hidden;
-  transition: background-color var(--rep-motion-fade) var(--rep-ease);
-}
-
-.rep-feature-card:focus .rep-feature-plate,
-.rep-feature-card:focus-visible .rep-feature-plate {
-  background: var(--rep-ink-elevated);
-}
-
-.rep-feature-eyebrow {
-  color: var(--rep-house);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-mono);
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
 .rep-feature-title {
   max-width: 16ch;
+  margin: 0;
+  color: var(--rep-ivory);
   font-family: var(--rep-display);
   font-size: var(--rep-text-hero);
   font-weight: 500;
   line-height: var(--rep-leading-display);
   letter-spacing: var(--rep-tracking-display);
-  color: var(--rep-ivory);
 }
 
+/* A long name steps down through the two densities rather than wrapping to
+ * five lines; both sizes still derive from the stage. */
 .rep-feature-title[data-density="long"] {
-  font-size: clamp(2.75rem, 2.8vw, 4vw);
+  font-size: calc(var(--rep-text-hero) * 0.72);
 }
 
 .rep-feature-title[data-density="very-long"] {
-  font-size: clamp(2.1rem, 2.2vw, 3vw);
+  font-size: calc(var(--rep-text-hero) * 0.55);
 }
 
 .rep-feature-meta {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
+  margin: 0;
   color: var(--rep-dim);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-text-caption);
-  line-height: var(--rep-leading-caption);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  line-height: 1.35;
 }
 
 .rep-feature-meta > span + span {
-  margin-left: 12px;
-  padding-left: 12px;
+  margin-left: var(--rep-space-3);
+  padding-left: var(--rep-space-3);
   border-left: 1px solid var(--rep-hairline);
 }
 
@@ -592,34 +667,80 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   -webkit-line-clamp: 3;
 }
 
-.rep-feature-cta {
-  align-self: flex-start;
-  margin-top: 4px;
-  padding-bottom: 4px;
-  border-bottom: 1px solid var(--rep-house);
-  color: var(--rep-ivory);
+/* The feature's reserved frame while the Featured catalog answers: the same
+ * height and hairlines as the real presentation, so the page never jumps. */
+.rep-feature-placeholder {
+  align-content: center;
+  padding: var(--rep-space-7) var(--rep-space-6);
+  background:
+    linear-gradient(
+      110deg,
+      var(--rep-ink-raised) 0%,
+      color-mix(in srgb, var(--rep-ink-elevated) 70%, var(--rep-ink-raised)) 52%,
+      var(--rep-ink-raised) 100%
+    );
+}
+
+.rep-feature-placeholder-copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-3);
+  max-width: 58ch;
+}
+
+.rep-feature-placeholder-title {
+  margin: 0;
+  color: var(--rep-muted);
+  font-family: var(--rep-display);
+  font-size: calc(var(--rep-text-hero) * 0.72);
+  font-weight: 500;
+  line-height: var(--rep-leading-display);
+  letter-spacing: var(--rep-tracking-display);
+}
+
+.rep-feature-placeholder-note {
+  margin: 0;
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+}
+
+.rep-feature-action {
+  position: absolute;
+  bottom: var(--rep-space-6);
+  left: var(--rep-space-6);
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--rep-space-2) var(--rep-space-4);
+  border: 1px solid var(--rep-house);
+  background: var(--rep-house);
+  color: var(--rep-ink);
   font-family: var(--rep-sans);
   font-size: var(--rep-text-control);
   font-weight: 500;
   line-height: 1.2;
+  pointer-events: none;
+}
+
+/* The feature is one card and one action: focus is the keyline plus the wash,
+ * and the brass label inside is the visible "Open the Title". */
+.rep-feature-frame[data-focusable]:focus,
+.rep-feature-frame[data-focusable]:focus-visible {
+  outline: var(--rep-focus-ring);
+  outline-offset: var(--rep-focus-offset);
 }
 
 /* --------------------------------------------------------------------------
- * Programme sections and rows
+ * Programme sections: the same head the kit's RowTrack prints
  * -------------------------------------------------------------------------- */
-
-.rep-section {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  min-width: 0;
-}
 
 .rep-row-head {
   display: flex;
   align-items: baseline;
-  gap: 18px;
-  padding-bottom: 12px;
+  gap: var(--rep-space-4);
+  padding-bottom: var(--rep-space-3);
   border-bottom: 1px solid var(--rep-hairline);
 }
 
@@ -637,8 +758,8 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   font-family: var(--rep-display);
   font-size: var(--rep-text-section);
   font-weight: 500;
-  line-height: 1.1;
-  letter-spacing: -0.008em;
+  line-height: var(--rep-leading-display);
+  letter-spacing: var(--rep-tracking-display);
 }
 
 .rep-row-rule {
@@ -656,54 +777,17 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   white-space: nowrap;
 }
 
-.rep-row-track {
-  display: flex;
-  gap: var(--rep-row-gap);
-  min-width: 0;
-  padding: 6px 2px 10px;
-  overflow-x: auto;
-  scrollbar-width: none;
-}
-
-.rep-row-track::-webkit-scrollbar {
-  display: none;
-}
-
-.rep-row-note {
-  max-width: 58ch;
-  margin: 0;
-  color: var(--rep-dim);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-text-body);
-  line-height: var(--rep-leading-body);
-}
-
-.rep-row-note[role="alert"] {
-  color: var(--rep-status-red);
-}
-
-.rep-row-more {
-  flex: 0 0 160px;
-  align-self: stretch;
-  border: 0;
-  border-left: 1px solid var(--rep-hairline);
-  background: transparent;
-  color: var(--rep-house);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-mono);
-  cursor: pointer;
-}
-
 /* --------------------------------------------------------------------------
- * Posters and Continue watching
+ * Feed and Library posters: the prototype's card until #156 replaces it
  * -------------------------------------------------------------------------- */
 
-.rep-card,
-.rep-continue {
+.rep-card {
   position: relative;
   display: flex;
+  flex: 0 0 calc((100% - 5 * var(--rep-row-gap)) / 6);
   flex-direction: column;
-  gap: 12px;
+  gap: var(--rep-space-3);
+  min-width: 0;
   padding: 0;
   border: 0;
   background: transparent;
@@ -711,21 +795,9 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   font-family: var(--rep-sans);
   text-align: left;
   cursor: pointer;
-  min-width: 0;
 }
 
-.rep-card {
-  flex: 0 0 calc((100% - 5 * var(--rep-row-gap)) / 6);
-}
-
-.rep-continue {
-  flex: 0 0 calc((100% - 3 * var(--rep-row-gap)) / 4);
-  gap: 10px;
-}
-
-.rep-card::before,
-.rep-continue::before,
-.rep-feature-card::before {
+.rep-card::before {
   content: "";
   position: absolute;
   inset: -18px -14px;
@@ -736,34 +808,21 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 }
 
 .rep-card:focus::before,
-.rep-card:focus-visible::before,
-.rep-continue:focus::before,
-.rep-continue:focus-visible::before,
-.rep-feature-card:focus::before,
-.rep-feature-card:focus-visible::before {
+.rep-card:focus-visible::before {
   opacity: 1;
 }
 
-.rep-poster,
-.rep-continue-art {
+.rep-poster {
   position: relative;
   z-index: 1;
   display: block;
   width: 100%;
+  aspect-ratio: 2 / 3;
   overflow: hidden;
   background: var(--rep-ink-raised);
 }
 
-.rep-poster {
-  aspect-ratio: 2 / 3;
-}
-
-.rep-continue-art {
-  aspect-ratio: 16 / 9;
-}
-
-.rep-poster img,
-.rep-continue-art img {
+.rep-poster img {
   display: block;
   width: 100%;
   height: 100%;
@@ -775,7 +834,7 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   place-items: center;
   width: 100%;
   height: 100%;
-  padding: 18px;
+  padding: var(--rep-space-4);
   border: 1px solid var(--rep-hairline);
   background: var(--rep-ink-elevated);
   color: var(--rep-muted);
@@ -818,8 +877,6 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 
 .rep-card:focus .rep-card-title,
 .rep-card:focus-visible .rep-card-title,
-.rep-continue:focus .rep-card-title,
-.rep-continue:focus-visible .rep-card-title,
 .rep-card[data-unplayable="true"] .rep-card-title {
   color: var(--rep-ivory);
 }
@@ -862,6 +919,7 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   white-space: nowrap;
 }
 
+/* The Library's "Continue" stamp on a poster the account left part-way. */
 .rep-continue-badge {
   position: absolute;
   bottom: 10px;
@@ -880,41 +938,10 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   text-overflow: ellipsis;
 }
 
-.rep-continue-badge[data-unplayable="true"] {
-  border-color: var(--rep-status-red);
-  color: var(--rep-status-red);
-}
-
-.rep-continue-track {
-  display: block;
-  width: 100%;
-  height: 2px;
-  background: var(--rep-hairline);
-}
-
-.rep-continue-track > span {
-  display: block;
-  height: 100%;
-  background: var(--rep-house);
-}
-
-/*
- * A feed card a configured Addon cannot play keeps its full picture and stays
- * openable: opening it is where a person learns what TMDB knows (ADR-0020).
- * Only the Continue watching card, whose Video is the thing that cannot play,
- * is dimmed and refuses the press.
- */
+/* A feed card a configured Addon cannot play keeps its picture and still
+ * opens (ADR-0020); only the mark changes. */
 .rep-card[data-unplayable="true"] {
   cursor: pointer;
-}
-
-.rep-continue[data-unplayable="true"] {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.rep-continue[data-unplayable="true"] .rep-continue-art {
-  border: 1px dashed var(--rep-hairline);
 }
 
 .rep-unplayable-badge {
@@ -938,7 +965,7 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 
 .rep-button {
   align-self: flex-start;
-  padding: 10px 0;
+  padding: var(--rep-space-2) 0;
   border: 0;
   border-bottom: 1px solid var(--rep-house);
   background: transparent;
@@ -963,9 +990,9 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 .rep-empty {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: var(--rep-space-4);
   max-width: 62ch;
-  padding: 48px 0;
+  padding: var(--rep-space-7) 0;
   border-top: 1px solid var(--rep-hairline);
   border-bottom: 1px solid var(--rep-hairline);
 }
@@ -974,9 +1001,9 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   margin: 0;
   color: var(--rep-ivory);
   font-family: var(--rep-display);
-  font-size: var(--rep-text-title);
+  font-size: var(--rep-text-section);
   font-weight: 500;
-  line-height: 1.08;
+  line-height: var(--rep-leading-display);
   letter-spacing: var(--rep-tracking-display);
 }
 
@@ -992,9 +1019,9 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 18px;
+  gap: var(--rep-space-4);
   min-height: 64vh;
-  padding: 40px 0;
+  padding: var(--rep-space-7) 0;
   border-top: 1px solid var(--rep-hairline);
   border-bottom: 1px solid var(--rep-hairline);
 }
@@ -1012,7 +1039,7 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   font-family: var(--rep-display);
   font-size: var(--rep-text-title);
   font-weight: 500;
-  line-height: 1.08;
+  line-height: var(--rep-leading-display);
   letter-spacing: var(--rep-tracking-display);
 }
 
@@ -1090,6 +1117,13 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   box-shadow: inset 0 2px 0 var(--rep-house);
 }
 
+/* The shared focus reset clears `box-shadow`; the current room keeps its 2px
+ * brass rule while it carries the keyline. */
+.rep-destination[aria-current="page"]:focus,
+.rep-destination[aria-current="page"]:focus-visible {
+  box-shadow: inset 0 2px 0 var(--rep-house);
+}
+
 .rep-destination-icon {
   display: grid;
   place-items: center;
@@ -1129,7 +1163,6 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 .rep-destination:focus,
 .rep-destination:focus-visible {
   outline-offset: -2px;
-  background-image: var(--rep-focus-wash);
 }
 
 .rep-destinations-close {
@@ -1248,88 +1281,9 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   line-height: 1.4;
 }
 
-/* --------------------------------------------------------------------------
- * The rehearsal bar: prototype scaffolding, not the programme
- * -------------------------------------------------------------------------- */
-
-.rep-rehearsal {
-  position: fixed;
-  right: 16px;
-  bottom: 16px;
-  z-index: 90;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 14px;
-  padding: 8px 12px;
-  border: 1px solid var(--rep-hairline);
-  background: var(--rep-ink-elevated);
-  color: var(--rep-muted);
-  font-family: var(--rep-mono);
-  font-size: 14px;
-  line-height: 1.2;
-}
-
-.rep-rehearsal-label {
-  color: var(--rep-house);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
-.rep-rehearsal-group {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.rep-rehearsal-group > span {
-  margin-right: 4px;
-  color: var(--rep-muted);
-}
-
-.rep-rehearsal button {
-  padding: 4px 8px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--rep-dim);
-  font: inherit;
-  cursor: pointer;
-}
-
-.rep-rehearsal button[data-selected="true"] {
-  border-color: var(--rep-house);
-  color: var(--rep-ivory);
-}
-
-.rep-rehearsal button:focus,
-.rep-rehearsal button:focus-visible {
-  outline: 1px solid var(--rep-ivory);
-  outline-offset: 1px;
-}
-
 @media (max-width: 1300px) {
-  .rep-strip-index {
-    padding-right: 64px;
-  }
-
   .rep-card {
     flex-basis: calc((100% - 4 * var(--rep-row-gap)) / 5);
-  }
-}
-
-@media (max-width: 1200px) {
-  .rep-feature-card {
-    grid-template-columns: 1fr;
-    height: auto;
-  }
-
-  .rep-feature-art {
-    height: clamp(240px, 30vw, 340px);
-  }
-
-  .rep-feature-plate {
-    border-top: 2px solid var(--rep-house);
-    border-left: 0;
   }
 }
 
@@ -1348,10 +1302,6 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 
   .rep-card {
     flex-basis: calc((100% - 3 * var(--rep-row-gap)) / 4);
-  }
-
-  .rep-continue {
-    flex-basis: calc((100% - 2 * var(--rep-row-gap)) / 3);
   }
 }
 
@@ -3184,7 +3134,7 @@ html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"]:focus-v
  * visible and the level begins where the stage does. The Title and Streams
  * levels keep the whole window; only the Settings sub-screens leave the spine.
  */
-html[data-ui="repertory"] .rep-frame[data-frame="spine"] .shell-level:has(.rep-settings-level) {
+html[data-ui="repertory"] .rep-frame .shell-level:has(.rep-settings-level) {
   left: var(--rep-spine-compact);
   box-sizing: border-box;
   padding-right: var(--rep-gutter);
@@ -3192,9 +3142,10 @@ html[data-ui="repertory"] .rep-frame[data-frame="spine"] .shell-level:has(.rep-s
   background: var(--rep-ink);
 }
 
-/* Focusing the spine opens it; the leaf makes room instead of being covered. */
+/* The spine opens on hover or an arrow-key walk; the leaf makes room instead
+ * of being covered. */
 html[data-ui="repertory"]
-  .rep-frame[data-frame="spine"]:has(.rep-nav--spine:focus-within)
+  .rep-frame:has(.rep-nav--spine[data-open="true"])
   .shell-level:has(.rep-settings-level) {
   left: var(--rep-spine-width);
 }

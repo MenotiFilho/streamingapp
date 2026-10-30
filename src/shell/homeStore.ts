@@ -336,10 +336,13 @@ export class HomeStore {
       return;
     }
     if (!answer) {
-      // A first page with no Catalog answer at all is not a row. A page that
-      // answered nothing leaves the row with what it already holds.
+      // A first page with no Catalog answer at all is not a row. A later page
+      // that answered nothing ends the row with what it already holds; leaving
+      // it open would make a reader ask forever for an answer that is not coming.
       if (task.kind === "first") {
         this.drop(task.key);
+      } else {
+        this.rows.set(task.key, { ...row, done: true });
       }
       return;
     }

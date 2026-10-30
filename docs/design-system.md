@@ -148,7 +148,6 @@ floor:
 | row gap | 24px | `max(16px, 1.25 × stage)` |
 | compact spine | 92px | `max(92px, 4.8 × stage)` |
 | open spine | 280px | `max(280px, 14.6 × stage)` |
-| program strip (strip frame) | 168px | `max(168px, 8.75 × stage)` |
 
 **Radius is zero.** There is no card radius, no pill and no rounded control; the
 one circle in the system is the pending spinner. Depth is a hairline and one ink
@@ -182,12 +181,9 @@ form field, row:
 
 The keyline has to fit: a scrollport gets 3px of extra padding so a focused edge
 is never clipped, and a rail's first and last card are inset by the same 3px.
-The spine grows on focus (compact → open) and the page makes room; a Settings
-leaf keeps the spine live, with the focus root covering both.
-
-The prototype still carries two leftovers here: the feature at a 6px offset,
-and the poster cards keylined 3px outside rather than on the art. The feature
-and the cards are #154's; the record's mark is the one above.
+The spine grows on hover or an arrow-key walk (compact → open) and the page
+makes room; a Settings leaf keeps the spine live, with the focus root covering
+both.
 
 ## 6. Motion
 
@@ -274,10 +270,12 @@ system; #159 replaces the prototype's Unicode.
 
 ### The frame
 
-- **Spine**: the programme index, numbers in mono, names in sans, the active
-  destination in brass with a 2px rule, the date and clock at the foot. Compact
-  at rest, open on focus. Under 15 destinations it lists them and ends with
-  **All destinations**; the grid always holds the whole programme.
+- **Spine**: the programme index, each destination's drawn mark and its name,
+  the active destination in brass with a 2px rule, the time at the foot (the
+  date joins it when open). Compact at rest, open on **hover or an arrow-key
+  walk**; the list stays centred in both states. A **More** card ends the
+  index and opens the All destinations grid; the grid always holds the whole
+  programme.
 - **Programme line**: every screen's head is one line — the destination's name
   in brass mono on the left, then a hairline to the right edge. No second
   heading, no explanatory paragraph above content.
@@ -305,6 +303,10 @@ system; #159 replaces the prototype's Unicode.
 - **Continue watching card**: 16:9 still, a 2px brass progress line under the
   art and a mono note (remaining time or episode), then the Title in sans. An
   entry whose Addon was removed is marked unplayable and does not open.
+- **Rail**: one view shows five cards and half of the next; an arrow pages
+  exactly five cards. The last card is a **More** card that opens the whole row
+  as a grid. Entering a rail from outside a rail starts at its first card;
+  moving between rails keeps the nearest card.
 - **Feature**: the backdrop between two hairlines, a two-gradient ink scrim, the
   Title in display serif over it, the kicker in mono (`Feature presentation` and
   the programme's position), one line of facts, the description, and one
@@ -500,13 +502,13 @@ rule.
 
 | The prototype today | The record | Closed by |
 |---|---|---|
-| the prototype's own Home cards and feature: a wash on every card and rail item, the feature at a 6px offset, cards keylined 3px outside | the wash on the feature and a focused poster's art at 140ms; one 3px offset, the keyline on the art's edge | #154 |
-| screen CSS still carries per-screen `clamp()` sizes (the Title name, Streams and logbook gaps and paddings); the stage unit covers the frame and the kit | every ten-foot size and layout dimension from the stage unit and the fixed spacing steps (§3–§4) | #154–#159 |
-| Discover and Search still draw the Velvet screen layout; the repertory kit is mounted under it | the editorial feed and the result rows in the repertory anatomy | #156 |
+| screen CSS still carries per-screen `clamp()` sizes (the Title name, Streams and logbook gaps and paddings); the stage unit covers the frame and the kit | every ten-foot size and layout dimension from the stage unit and the fixed spacing steps (§3–§4) | #155–#159 |
+| Discover and Search still draw the Velvet screen layout and the prototype card wash; the repertory kit is mounted under it | the editorial feed and the result rows in the repertory anatomy, with the wash only on a focused poster's art (§5) | #156 |
+| Home's feature and cards open the Program note stand-in, not the real Title page | the one-screen programme page and its Streams list | #155 |
 | the OSD names the current chapter permanently at the centre | the chapter is named only in the hover/drag callout | #158 |
 | the OSD's ±10s and subtitles marks are text; the Remote is Unicode | one drawn set on both clients | #158, #159 |
 | the volume is the native range with `accent-color` | a drawn rail with a brass fill | #158 |
 | shadows on the OSD | depth is a hairline and one ink step | #158 |
-| the window carries Motion, but no mounted screen uses the presets yet; the Remote is still CSS transitions only | Motion in both clients, with the spring presets and the transition shapes in §6 | #154–#159 |
+| Discover, Search, Title, Streams and the OSD do not use the Motion presets yet; the Remote is still CSS transitions only | Motion in both clients, with the spring presets and the transition shapes in §6 | #155–#159 |
 | the Remote's strip still scroll-snaps | no snapping: the rail scroll is redirected mid-flight (§6) | #159 |
 | the Velvet sheet and its splice live beside the repertory sheet; the served page keeps `/` and the `?ui` gate | one sheet, one splice, one page | #152, #160 |

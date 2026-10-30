@@ -2,6 +2,7 @@ import { fireEvent, render, waitFor } from "@testing-library/react";
 import { useEffect, useRef } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
+import { DEFAULT_RULES } from "../focus";
 import { focusAndReveal } from "./reveal";
 import { useSpatialFocus } from "./useSpatialFocus";
 
@@ -97,6 +98,81 @@ function Harness({ direct = false, auto = false }: { direct?: boolean; auto?: bo
         <button data-focusable data-testid="two" autoFocus={auto}>
           Two
         </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The repertory frame's shape: a spine at the left, a feature above a row. The
+ * feature is the first content control, so it is what a rail with no history
+ * would enter; the row card is what a return has to remember.
+ */
+function layOutSpine() {
+  const rect = vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement): DOMRect {
+      const key = this.dataset.testid ?? this.dataset.region;
+      const boxes: Record<string, [number, number, number, number]> = {
+        screen: [0, 0, 1000, 600],
+        rail: [0, 0, 100, 600],
+        "rail-home": [0, 0, 100, 60],
+        "rail-settings": [0, 80, 100, 60],
+        content: [200, 0, 760, 600],
+        hero: [200, 0, 760, 80],
+        row: [200, 120, 600, 240],
+        one: [200, 120, 160, 240],
+        two: [380, 120, 160, 240],
+      };
+      const [x, y, w, h] = boxes[key ?? ""] ?? [0, 0, 0, 0];
+      return {
+        x,
+        y,
+        width: w,
+        height: h,
+        left: x,
+        top: y,
+        right: x + w,
+        bottom: y + h,
+        toJSON: () => ({}),
+      } as DOMRect;
+    });
+  return { rect };
+}
+
+function SpineHarness() {
+  const root = useRef<HTMLDivElement | null>(null);
+  useSpatialFocus({
+    root: () => root.current,
+    levelKey: "rail-return-test",
+    onBack: () => {},
+    rules: { ...DEFAULT_RULES, railExit: "last" },
+  });
+
+  return (
+    <div ref={root} data-region="screen" data-kind="branch" data-label="the screen">
+      <nav data-region="rail" data-kind="rail" data-label="the rail">
+        <button data-focusable data-testid="rail-home">
+          Home
+        </button>
+        <button data-focusable data-testid="rail-settings">
+          Settings
+        </button>
+      </nav>
+      <div data-region="content" data-kind="branch" data-label="the content">
+        <div data-region="hero" data-kind="branch" data-label="the feature">
+          <button data-focusable data-testid="hero">
+            Hero
+          </button>
+        </div>
+        <div data-region="row" data-kind="row" data-label="the row">
+          <button data-focusable data-testid="one">
+            One
+          </button>
+          <button data-focusable data-testid="two">
+            Two
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -227,6 +303,39 @@ describe("the spatial focus reveal", () => {
 
     await waitFor(() => expect(document.activeElement).toBe(two));
     expect(track?.scrollLeft, "the return reveals the same control again").toBe(284);
+  });
+
+  test("the spine's Right returns to the content control focus came from", async () => {
+    layOutSpine();
+    render(<SpineHarness />);
+
+    const home = document.querySelector<HTMLElement>('[data-testid="rail-home"]');
+    const hero = document.querySelector<HTMLElement>('[data-testid="hero"]');
+    const one = document.querySelector<HTMLElement>('[data-testid="one"]');
+    const two = document.querySelector<HTMLElement>('[data-testid="two"]');
+    await waitFor(() => expect(document.activeElement).toBe(home));
+
+    // First entry has no history: the rail enters the first content control.
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    await waitFor(() => expect(document.activeElement).toBe(hero));
+
+    // Into the row, along it, and back to its first card.
+    fireEvent.keyDown(document, { key: "ArrowDown" });
+    await waitFor(() => expect(document.activeElement).toBe(one));
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    await waitFor(() => expect(document.activeElement).toBe(two));
+    fireEvent.keyDown(document, { key: "ArrowLeft" });
+    await waitFor(() => expect(document.activeElement).toBe(one));
+
+    // Left off the row's edge enters the spine; it remembers the row's card.
+    fireEvent.keyDown(document, { key: "ArrowLeft" });
+    await waitFor(() => expect(document.activeElement).toBe(home));
+
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    await waitFor(() => expect(document.activeElement).toBe(one));
+    expect(document.activeElement, "not the hero a no-history fallback would enter").not.toBe(
+      hero,
+    );
   });
 
   test("a remembered control that turned disabled is not revealed", async () => {

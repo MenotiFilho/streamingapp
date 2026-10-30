@@ -96,12 +96,3 @@ export function countLabel(type: string, count: number): string {
 export function programIndex(index: number): string {
   return String(index).padStart(2, "0");
 }
-
-/**
- * The feature slides a Home draws: the Featured row's first items, a page at a
- * time. A `still` programme always keeps the first; a `rotates` programme walks
- * the same four the current hero does.
- */
-export function featureSlides<T>(slides: readonly T[], mode: "still" | "rotates"): readonly T[] {
-  return mode === "still" ? slides.slice(0, 1) : slides;
-}
