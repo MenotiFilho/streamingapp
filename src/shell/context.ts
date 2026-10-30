@@ -82,6 +82,12 @@ export type ShellContextValue = {
    * through a ref, so the level never has to be rebuilt.
    */
   setIntentHandler: (handler: ((intent: Intent) => boolean) | null) => void;
+  /**
+   * The base screen's first look at an intent, where it needs one — the
+   * feature's Left/Right stepping is the same for the D-pad and the arrow keys,
+   * so it lives here rather than in a key handler.
+   */
+  setBaseIntentHandler: (handler: ((intent: Intent) => boolean) | null) => void;
 };
 
 export const ShellContext = createContext<ShellContextValue | null>(null);

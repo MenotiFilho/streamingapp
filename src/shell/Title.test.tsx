@@ -260,6 +260,7 @@ function Harness({
     markUnplayable: () => {},
     home: new HomeStore(ask),
     setIntentHandler: () => {},
+    setBaseIntentHandler: () => {},
   };
 
   return (

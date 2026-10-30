@@ -70,6 +70,15 @@ export const PAD_AXES: Readonly<
 export const AXIS_THRESHOLD = 0.5;
 
 /**
+ * The one repeat cadence for a held direction. The pad and a held arrow key
+ * both fire at once, then after this wait, then at this interval; otherwise
+ * the keyboard's OS repeat would outrun the pad and the two would feel like
+ * different rooms.
+ */
+export const REPEAT_AFTER_MS = 400;
+export const REPEAT_EVERY_MS = 160;
+
+/**
  * The least of a gamepad this table reads. A real `Gamepad` fits; a test does
  * not need to invent a whole device to ask what a press means.
  */

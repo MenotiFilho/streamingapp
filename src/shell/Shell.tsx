@@ -68,6 +68,10 @@ export function Shell({
   const setIntentHandler = useCallback((handler: ((intent: Intent) => boolean) | null) => {
     playerIntent.current = handler;
   }, []);
+  const baseIntent = useRef<((intent: Intent) => boolean) | null>(null);
+  const setBaseIntentHandler = useCallback((handler: ((intent: Intent) => boolean) | null) => {
+    baseIntent.current = handler;
+  }, []);
 
   const publish = useCallback((next: Snapshot) => {
     setSnapshot((current) => (current && current.revision > next.revision ? current : next));
@@ -255,6 +259,7 @@ export function Shell({
       markUnplayable,
       home,
       setIntentHandler,
+      setBaseIntentHandler,
     }),
     [
       presentation,
@@ -275,6 +280,7 @@ export function Shell({
       markUnplayable,
       home,
       setIntentHandler,
+      setBaseIntentHandler,
     ],
   );
 
@@ -287,6 +293,7 @@ export function Shell({
         onBack={back}
         presentation={presentation}
         onOpenDestinations={openDestinations}
+        onBaseIntent={(intent) => baseIntent.current?.(intent) ?? false}
         screen={
           presentation === "repertory" ? (
             <RepertoryDestinationScreen destination={nav.destination} />

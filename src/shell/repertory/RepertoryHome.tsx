@@ -25,6 +25,7 @@ import { useReducedMotion } from "../useReducedMotion";
 import { usePreviewData } from "./context";
 import {
   FEATURE_ROTATION_MS,
+  HOME_RAIL_ITEMS,
   HOME_RAIL_PAGE,
   HOME_RAIL_VISIBLE,
   featurePosition,
@@ -124,9 +125,33 @@ function Feature({
   const [index, setIndex] = useState(0);
   const [held, setHeld] = useState(false);
   const reducedMotion = useReducedMotion();
+  const { setBaseIntentHandler } = useShell();
+  const frame = useRef<HTMLDivElement | null>(null);
   const active = Math.min(index, Math.max(0, items.length - 1));
   const item = items[active];
   const rotating = items.length > 1 && !reducedMotion;
+
+  // The feature's Left/Right is one decision for the D-pad and the arrow keys:
+  // both arrive here as intents. At the first slide Left is not consumed, so
+  // the focus engine can cross to the spine; at the last slide Right stays.
+  useEffect(() => {
+    setBaseIntentHandler((intent) => {
+      if (document.activeElement !== frame.current) {
+        return false;
+      }
+      const direction = intent === "right" ? 1 : intent === "left" ? -1 : null;
+      if (direction === null) {
+        return false;
+      }
+      const next = featureStep(active, items.length, direction);
+      if (next === null) {
+        return direction === 1;
+      }
+      setIndex(next);
+      return true;
+    });
+    return () => setBaseIntentHandler(null);
+  }, [active, items.length, setBaseIntentHandler]);
 
   useEffect(() => {
     setIndex(0);
@@ -172,6 +197,7 @@ function Feature({
       data-active-slide={item.slide.id}
     >
       <div
+        ref={frame}
         className="rep-feature-frame"
         role="button"
         tabIndex={0}
@@ -500,7 +526,7 @@ export function RepertoryHome() {
         const key = keyOf(row);
         const isAnswered = answered.has(key);
         const section = homeSectionIndex(index, hasContinue);
-        const tag = rowTag(snapshot, row);
+        const tag = rowTag(snapshot, row, HOME_RAIL_ITEMS);
         return (
           <div
             key={key}
@@ -516,7 +542,7 @@ export function RepertoryHome() {
               columns={HOME_RAIL_VISIBLE}
               page={HOME_RAIL_PAGE}
             >
-              {row.metas.map((meta) => (
+              {row.metas.slice(0, HOME_RAIL_ITEMS).map((meta) => (
                 <PosterCard
                   key={meta.id}
                   name={meta.name}

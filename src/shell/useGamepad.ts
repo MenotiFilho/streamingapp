@@ -1,11 +1,6 @@
 import { useEffect, useRef } from "react";
 
-import type { Intent } from "../input";
-import { padIntents } from "../input";
-
-/** A first press, and then how a held direction repeats. */
-const REPEAT_AFTER = 400;
-const REPEAT_EVERY = 160;
+import { padIntents, REPEAT_AFTER_MS, REPEAT_EVERY_MS, type Intent } from "../input";
 
 /**
  * Which intents a held button repeats. A direction and a volume step are
@@ -60,13 +55,13 @@ export function useGamepad(onIntent: (intent: Intent) => void) {
         seen.add(intent);
         if (!held.get(intent)) {
           held.set(intent, true);
-          next.set(intent, now + REPEAT_AFTER);
+          next.set(intent, now + REPEAT_AFTER_MS);
           latest.current(intent);
           continue;
         }
         const due = next.get(intent) ?? 0;
         if (REPEATABLE.has(intent) && now >= due) {
-          next.set(intent, now + REPEAT_EVERY);
+          next.set(intent, now + REPEAT_EVERY_MS);
           latest.current(intent);
         }
       }

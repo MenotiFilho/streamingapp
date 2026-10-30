@@ -174,6 +174,7 @@ function harness(overrides: Partial<ShellContextValue> = {}) {
     take,
     home: new HomeStore(ask),
     setIntentHandler: vi.fn(),
+    setBaseIntentHandler: vi.fn(),
     ...overrides,
   };
 

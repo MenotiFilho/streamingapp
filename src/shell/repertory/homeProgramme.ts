@@ -29,13 +29,20 @@ export const HOME_RAIL_VISIBLE = 5.5;
 export const HOME_RAIL_PAGE = 5;
 
 /**
- * The label a row's section head carries: the Addon a person reads it by and
- * the count the row has loaded so far. The count is not a total — the Host
- * never sends one — so the grid's head and the rail's head print the same
- * number from the same row.
+ * The rail keeps its first twenty films even after the grid has read on. The
+ * grid is the whole row; the rail is the programme's short list, and reading it
+ * through the grid must not turn one row into an endless rail.
  */
-export function rowTag(snapshot: Snapshot | null, row: Row): string {
-  return `${addonName(snapshot, row.addon) ?? row.addon} / ${countLabel(row.type, row.metas.length)}`;
+export const HOME_RAIL_ITEMS = 20;
+
+/**
+ * The label a row's section head carries: the Addon a person reads it by and
+ * the count it shows. The count is not a total — the Host never sends one — and
+ * a rail prints its capped count while the grid prints the whole loaded row.
+ */
+export function rowTag(snapshot: Snapshot | null, row: Row, limit?: number): string {
+  const count = limit === undefined ? row.metas.length : Math.min(row.metas.length, limit);
+  return `${addonName(snapshot, row.addon) ?? row.addon} / ${countLabel(row.type, count)}`;
 }
 
 /** The feature's position in the programme: `01 / 04`, or one showing. */

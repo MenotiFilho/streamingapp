@@ -72,6 +72,32 @@ describe("Home's programme decisions", () => {
     expect(rowTag(SNAPSHOT, row)).toBe("Cinemeta / 0 films");
   });
 
+  it("caps a rail's label at twenty while the grid reads the whole row", () => {
+    const metas = Array.from({ length: 30 }, (_, index) => ({
+      id: `tt${index}`,
+      type: "movie" as const,
+      name: `Film ${index}`,
+      poster: null,
+      posterShape: "poster" as const,
+      releaseInfo: "2026",
+      imdbRating: null,
+      genres: [],
+      description: null,
+    }));
+    const row = {
+      addon: "cinemeta",
+      type: "movie" as const,
+      id: "top",
+      name: "Popular",
+      metas,
+      offset: 0,
+      failure: null,
+      done: true,
+    };
+    expect(rowTag(SNAPSHOT, row, 20)).toBe("Cinemeta / 20 films");
+    expect(rowTag(SNAPSHOT, row)).toBe("Cinemeta / 30 films");
+  });
+
   it("says what an empty programme needs in the record's voice", () => {
     expect(homeEmptyState(null, 0)).toBeNull();
     expect(homeEmptyState(SNAPSHOT, 1)).toBeNull();

@@ -8,7 +8,13 @@ import {
   type Focus,
   type Rules,
 } from "../focus";
-import { isTypingTarget, keyIntent, type Intent } from "../input";
+import {
+  isTypingTarget,
+  keyIntent,
+  REPEAT_AFTER_MS,
+  REPEAT_EVERY_MS,
+  type Intent,
+} from "../input";
 import { firstFocusable, focusOf, readLevel } from "./layout";
 import { focusLanded, onRevealed, reveal } from "./reveal";
 import { useGamepad } from "./useGamepad";
@@ -74,6 +80,8 @@ export function useSpatialFocus({
   const lastContent = useRef(new Map<string, Remembered>());
   /** The control the reveal last ran for, so an ordinary render does not scroll again. */
   const revealed = useRef<HTMLElement | null>(null);
+  /** A held key's first and last accepted press, so the keyboard repeats like the pad. */
+  const keyRepeat = useRef(new Map<string, { first: number; last: number }>());
 
   /**
    * Take a direct `focusAndReveal`'s reveal as the engine's own, so the render
@@ -326,8 +334,28 @@ export function useSpatialFocus({
       if (!intent) {
         return;
       }
+      const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+      if (event.repeat) {
+        const held = keyRepeat.current.get(event.key);
+        if (
+          held &&
+          (now - held.first < REPEAT_AFTER_MS || now - held.last < REPEAT_EVERY_MS)
+        ) {
+          event.preventDefault();
+          return;
+        }
+        if (held) {
+          held.last = now;
+        }
+      } else {
+        keyRepeat.current.set(event.key, { first: now, last: now });
+      }
       event.preventDefault();
       runRef.current(intent);
+    };
+
+    const onKeyUp = (event: KeyboardEvent) => {
+      keyRepeat.current.delete(event.key);
     };
 
     const onFocusIn = (event: FocusEvent) => {
@@ -380,11 +408,13 @@ export function useSpatialFocus({
     };
 
     document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("keyup", onKeyUp);
     document.addEventListener("focusin", onFocusIn);
     document.addEventListener("focusout", onFocusOut, true);
     document.addEventListener("click", onClick, true);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("keyup", onKeyUp);
       document.removeEventListener("focusin", onFocusIn);
       document.removeEventListener("focusout", onFocusOut, true);
       document.removeEventListener("click", onClick, true);

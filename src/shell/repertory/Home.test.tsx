@@ -180,6 +180,7 @@ function renderHome({
     take,
     home: new HomeStore(ask),
     setIntentHandler: vi.fn(),
+    setBaseIntentHandler: vi.fn(),
   };
 
   render(

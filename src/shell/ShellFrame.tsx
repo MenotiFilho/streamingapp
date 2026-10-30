@@ -8,6 +8,7 @@ import {
 } from "react";
 
 import { Rail } from "./Rail";
+import type { Intent } from "../input";
 import type { Destination, ShellLevel } from "./navigation";
 import { destinationTransition } from "./repertory/frame";
 import { REPERTORY_RULES } from "./repertory/frame";
@@ -31,6 +32,8 @@ export type ShellFrameProps = {
   presentation?: "velvet" | "repertory";
   /** Open the whole destination index, where the frame offers a way to it. */
   onOpenDestinations?: () => void;
+  /** The base screen's own first look at an intent (the feature's slides). */
+  onBaseIntent?: (intent: Intent) => boolean;
 };
 
 /**
@@ -104,6 +107,7 @@ export function ShellFrame({
   onBack,
   presentation = "velvet",
   onOpenDestinations,
+  onBaseIntent,
 }: ShellFrameProps) {
   const repertory = presentation === "repertory";
   const frame = useRef<HTMLDivElement | null>(null);
@@ -174,7 +178,7 @@ export function ShellFrame({
     root: activeRoot,
     levelKey: top ? `level:${top.id}` : `base:${destination}`,
     onBack,
-    onIntent: top?.onIntent,
+    onIntent: top?.onIntent ?? onBaseIntent,
     rules: repertory ? REPERTORY_RULES : undefined,
   });
 
