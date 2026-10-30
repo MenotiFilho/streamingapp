@@ -94,6 +94,30 @@ fn action(body: &str) -> Action {
     Action::parse(&envelope).unwrap_or_else(|error| panic!("{envelope} should parse: {error}"))
 }
 
+/// One plain GET over a real socket, split into its head and its body.
+fn get(server: &Server, path: &str) -> (String, Vec<u8>) {
+    let mut stream = TcpStream::connect(server.address()).expect("the Host is listening");
+    stream
+        .write_all(
+            format!("GET {path} HTTP/1.1\r\nHost: host\r\nConnection: close\r\n\r\n").as_bytes(),
+        )
+        .expect("the request is sent");
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .expect("the Host answers and closes");
+    let split = response
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .expect("the response has a head and a body")
+        + 4;
+    let (head, body) = response.split_at(split);
+    (
+        String::from_utf8(head.to_vec()).expect("the head is text"),
+        body.to_vec(),
+    )
+}
+
 /// A client, as one really is: a WebSocket over a socket, with a read timeout so
 /// a Host that has stopped answering fails the test rather than hanging it.
 struct Client {
@@ -206,21 +230,57 @@ fn pair(client: &mut Client, fixture: &Fixture, name: &str) -> (DeviceSummary, D
 #[test]
 fn a_browser_is_served_the_remote_page_before_it_has_anything_to_say() {
     let (_fixture, server) = server();
-    let mut stream = TcpStream::connect(server.address()).expect("the Host is listening");
-    stream
-        .write_all(b"GET / HTTP/1.1\r\nHost: host\r\nConnection: close\r\n\r\n")
-        .expect("the request is sent");
-
-    let mut response = String::new();
-    stream
-        .read_to_string(&mut response)
-        .expect("the Host answers and closes");
+    let (head, body) = get(&server, "/");
+    let page = String::from_utf8(body).expect("the page is text");
 
     assert!(
-        response.starts_with("HTTP/1.1 200 OK"),
-        "the page is served: {response}"
+        head.starts_with("HTTP/1.1 200 OK"),
+        "the page is served: {head}"
     );
-    assert!(response.contains("Pair this device"));
+    assert!(page.contains("Pair this device"));
+}
+
+#[test]
+fn the_staged_repertory_page_is_served_at_next() {
+    // #152: the Host serves the same document at `/next` with the repertory
+    // attribute already on `<html>`. `/` stays the old page until the cutover.
+    let (_fixture, server) = server();
+
+    let (old_head, old_body) = get(&server, "/");
+    let old_page = String::from_utf8(old_body).expect("the page is text");
+    assert!(old_head.starts_with("HTTP/1.1 200 OK"));
+    assert!(
+        !old_page.contains("<html lang=\"en\" data-ui=\"repertory\">"),
+        "the old page does not set the staged attribute"
+    );
+
+    let (new_head, new_body) = get(&server, "/next");
+    let new_page = String::from_utf8(new_body).expect("the page is text");
+    assert!(new_head.starts_with("HTTP/1.1 200 OK"));
+    assert!(
+        new_page.starts_with("<!doctype html>\n<html lang=\"en\" data-ui=\"repertory\">"),
+        "the staged page carries the attribute server-side"
+    );
+    assert_eq!(
+        new_page.replacen(" data-ui=\"repertory\"", "", 1),
+        old_page,
+        "/next is the same document with one attribute"
+    );
+}
+
+#[test]
+fn the_host_serves_the_versioned_motion_asset_immutably() {
+    // ADR-0031 §1: one same-origin asset, its URL naming the version, cached for
+    // good. The body is Motion's ESM bundle, not a page and not a 404.
+    let (_fixture, server) = server();
+    let (head, body) = get(&server, "/motion-14.7.1.js");
+
+    assert!(head.starts_with("HTTP/1.1 200 OK"), "the asset is served");
+    assert!(head.contains("Content-Type: text/javascript; charset=utf-8\r\n"));
+    assert!(head.contains("Cache-Control: public, max-age=31536000, immutable\r\n"));
+    let bundle = String::from_utf8(body).expect("the bundle is text");
+    assert!(bundle.starts_with("/*! Motion v14.7.1 | MIT"));
+    assert!(bundle.contains("export"));
 }
 
 #[test]
@@ -229,27 +289,7 @@ fn the_host_serves_the_fonts_the_page_asks_for() {
     // `/fonts/<name>` path, so the Host has to answer those bytes itself. The
     // body is a woff2 face, not a page and not a 404.
     let (_fixture, server) = server();
-    let mut stream = TcpStream::connect(server.address()).expect("the Host is listening");
-    stream
-        .write_all(
-            b"GET /fonts/inter-latin-wght-normal.woff2 HTTP/1.1\r\n\
-              Host: host\r\n\
-              Connection: close\r\n\r\n",
-        )
-        .expect("the request is sent");
-
-    let mut response = Vec::new();
-    stream
-        .read_to_end(&mut response)
-        .expect("the Host answers and closes");
-
-    let split = response
-        .windows(4)
-        .position(|window| window == b"\r\n\r\n")
-        .expect("the response has a head and a body")
-        + 4;
-    let (head, body) = response.split_at(split);
-    let head = String::from_utf8(head.to_vec()).expect("the head is text");
+    let (head, body) = get(&server, "/fonts/inter-latin-wght-normal.woff2");
 
     assert!(
         head.starts_with("HTTP/1.1 200 OK"),
