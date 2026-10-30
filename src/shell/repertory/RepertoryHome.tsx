@@ -510,7 +510,7 @@ export function RepertoryHome() {
             }
           }}
         />
-      ) : heroPending ? (
+      ) : heroPending || snapshot === null ? (
         <FeaturePlaceholder />
       ) : null}
 

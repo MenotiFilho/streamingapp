@@ -151,7 +151,7 @@ function renderHome({
   ask = firstPage,
   chosenDestination = true,
 }: {
-  snapshot?: Snapshot;
+  snapshot?: Snapshot | null;
   ask?: (action: Action) => Promise<ActionOutcome>;
   chosenDestination?: boolean;
 } = {}) {
@@ -238,6 +238,13 @@ describe("Home's feature presentation", () => {
       () => new Promise<ActionOutcome>(() => undefined),
     ) as (action: Action) => Promise<ActionOutcome>;
     renderHome({ ask: pending });
+    await flush();
+
+    expect(screen.getByTestId("repertory-feature-placeholder")).toBeInTheDocument();
+  });
+
+  it("holds the feature's frame while the Host has not sent a Snapshot yet", async () => {
+    renderHome({ snapshot: null, chosenDestination: false });
     await flush();
 
     expect(screen.getByTestId("repertory-feature-placeholder")).toBeInTheDocument();
