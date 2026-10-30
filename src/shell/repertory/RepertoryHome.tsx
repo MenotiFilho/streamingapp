@@ -1,3 +1,4 @@
+import { AnimatePresence, motion } from "motion/react";
 import {
   useCallback,
   useEffect,
@@ -21,24 +22,33 @@ import { useShell } from "../context";
 import { addonName, continueArt, featuredRow, heroSlides, type HeroSlide } from "../home";
 import { FOCUSABLE } from "../layout";
 import { focusAndReveal } from "../reveal";
-import { useTitleOpener } from "../TitleScreen";
 import { useReducedMotion } from "../useReducedMotion";
 import { usePreviewData, useRepertorySettings } from "./context";
+import {
+  FEATURE_ROTATION_MS,
+  HOME_CONTINUE_COLUMNS,
+  HOME_ROW_COLUMNS,
+  featurePosition,
+  featureStep,
+  homeEmptyState,
+  homeSectionIndex,
+} from "./homeProgramme";
+import { Button, ContinueWatchingCard, PosterCard, RowTrack } from "./kit";
+import { fade } from "./motion";
+import { ProgrammeLine } from "./ProgrammeLine";
 import { ProgramNote } from "./ProgramNote";
-import { ProgramPoster } from "./ProgramPoster";
 import {
   captionParts,
   countLabel,
   featureSlides,
   featureTitleDensity,
   programIndex,
+  yearOf,
 } from "./program";
-import { RowHead } from "./RowHead";
-import type { RepertorySettings } from "./settings";
 import "./repertory.css";
 
-/** How long one feature holds before the programme moves on. */
-export const FEATURE_ROTATION_MS = 24_000;
+/** Re-exported for a screen test that wants the beat without the component. */
+export { FEATURE_ROTATION_MS };
 
 type NoteCard = {
   name: string;
@@ -67,6 +77,19 @@ function noteFromSlide(slide: HeroSlide): NoteCard {
   };
 }
 
+function noteFromMeta(meta: MetaPreview): NoteCard {
+  const parts = captionParts(meta);
+  return {
+    name: meta.name,
+    art: meta.background ?? meta.poster,
+    poster: meta.poster,
+    year: parts.year,
+    rating: parts.rating,
+    genres: parts.genres,
+    description: meta.description,
+  };
+}
+
 function MetaLine({
   parts,
   className,
@@ -78,64 +101,29 @@ function MetaLine({
     return null;
   }
   return (
-    <span className={className}>
+    <p className={className}>
       {parts.year ? <span>{parts.year}</span> : null}
       {parts.rating ? <span>{parts.rating}</span> : null}
       {parts.genres ? <span>{parts.genres}</span> : null}
-    </span>
+    </p>
   );
 }
 
-function ContinueCard({ entry, onOpen }: { entry: ResumeEntry; onOpen: () => void }) {
-  const playable = resumable(entry);
-  const fraction = progressOf(entry);
-  const art = continueArt(entry);
-  return (
-    <button
-      type="button"
-      className="rep-continue"
-      data-focusable={playable ? true : undefined}
-      data-unplayable={playable ? undefined : "true"}
-      disabled={!playable}
-      onClick={playable ? onOpen : undefined}
-      aria-label={playable ? `${cardName(entry)}. Continue watching.` : cardName(entry)}
-    >
-      <span className="rep-continue-art">
-        {art ? (
-          <img src={art} alt="" loading="lazy" />
-        ) : (
-          <span className="rep-art-missing">{cardName(entry)}</span>
-        )}
-        <span
-          className="rep-continue-badge"
-          data-unplayable={playable ? undefined : "true"}
-        >
-          {cardNote(entry)}
-        </span>
-      </span>
-      {fraction !== null ? (
-        <span className="rep-continue-track" aria-hidden="true">
-          <span style={{ width: `${Math.round(fraction * 100)}%` }} />
-        </span>
-      ) : null}
-      <span className="rep-caption">
-        <span className="rep-card-title">{cardName(entry)}</span>
-      </span>
-    </button>
-  );
-}
-
+/**
+ * The feature presentation: the backdrop between two hairlines, a two-gradient
+ * ink scrim, the Title in display serif over it, the mono kicker with the
+ * programme's position, one line of facts, the description and one action.
+ *
+ * It walks the Featured catalog's first slides every 24 seconds while the
+ * action is unfocused; focus holds it, Left/Right step it, and reduced motion
+ * stops the beat. The slides cross-fade with Motion, and the action is one
+ * persistent control, so stepping never takes focus away from it.
+ */
 function Feature({
   items,
-  addon,
-  catalog,
-  mode,
   onOpen,
 }: {
   items: readonly FeatureItem[];
-  addon: string | null;
-  catalog: string;
-  mode: RepertorySettings["feature"];
   onOpen: (item: FeatureItem) => void;
 }) {
   const [index, setIndex] = useState(0);
@@ -143,11 +131,11 @@ function Feature({
   const reducedMotion = useReducedMotion();
   const active = Math.min(index, Math.max(0, items.length - 1));
   const item = items[active];
-  const rotating = mode === "rotates" && items.length > 1 && !reducedMotion;
+  const rotating = items.length > 1 && !reducedMotion;
 
   useEffect(() => {
     setIndex(0);
-  }, [mode, items.length, items[0]?.slide.id]);
+  }, [items.length, items[0]?.slide.id]);
 
   useEffect(() => {
     if (!rotating || held || items.length < 2) {
@@ -164,11 +152,18 @@ function Feature({
   }
 
   const name = item.slide.name;
-  const parts = item.meta ? captionParts(item.meta) : { year: null, rating: null, genres: null };
+  const parts = item.meta
+    ? captionParts(item.meta)
+    : { year: null, rating: null, genres: null };
   const density = featureTitleDensity(name);
 
-  const step = (delta: number) => {
-    setIndex((current) => Math.max(0, Math.min(items.length - 1, current + delta)));
+  const step = (direction: -1 | 1) => {
+    const next = featureStep(active, items.length, direction);
+    if (next === null) {
+      return false;
+    }
+    setIndex(next);
+    return true;
   };
 
   return (
@@ -176,63 +171,69 @@ function Feature({
       className="rep-feature"
       data-region="home-feature"
       data-kind="row"
-      data-label="Featured"
-      aria-roledescription={rotating ? "carousel" : undefined}
-      aria-label="Featured"
+      data-label="Feature presentation"
+      aria-label="Feature presentation"
+      data-testid="repertory-feature"
+      data-active-slide={item.slide.id}
     >
-      <div className="rep-feature-kicker">
-        <span>Feature presentation</span>
-        <span className="rep-rule" aria-hidden="true" />
-        <span>
-          {rotating ? `${programIndex(active + 1)} / ${programIndex(items.length)}` : "One showing"}
-        </span>
+      <div className="rep-feature-frame" data-held={held ? "true" : undefined}>
+        <span className="rep-feature-wash" aria-hidden="true" />
+        <AnimatePresence initial={false}>
+          <motion.div
+            key={item.slide.id}
+            className="rep-feature-slide"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={fade()}
+          >
+            <div className="rep-feature-art" data-art={item.slide.art ? "image" : "plate"}>
+              {item.slide.art ? (
+                <img src={item.slide.art} alt="" loading="lazy" />
+              ) : (
+                <span className="rep-feature-plate" aria-hidden="true">
+                  {name}
+                </span>
+              )}
+              <span className="rep-feature-scrim" aria-hidden="true" />
+            </div>
+
+            <div className="rep-feature-copy">
+              <div className="rep-feature-kicker">
+                <span>Feature presentation</span>
+                <span className="rep-rule" aria-hidden="true" />
+                <span>{featurePosition(active, items.length)}</span>
+              </div>
+              <h2 className="rep-feature-title" data-density={density}>
+                {name}
+              </h2>
+              <MetaLine parts={parts} className="rep-feature-meta" />
+              {item.slide.description ? (
+                <p className="rep-feature-description">{item.slide.description}</p>
+              ) : null}
+            </div>
+          </motion.div>
+        </AnimatePresence>
+
+        <Button
+          variant="primary"
+          className="rep-feature-action"
+          onFocus={() => setHeld(true)}
+          onBlur={() => setHeld(false)}
+          onKeyDown={(event) => {
+            const direction =
+              event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : null;
+            if (direction === null || !step(direction)) {
+              return;
+            }
+            event.preventDefault();
+            event.stopPropagation();
+          }}
+          onClick={() => onOpen(item)}
+        >
+          Open the Title
+        </Button>
       </div>
-      <button
-        type="button"
-        className="rep-feature-card"
-        data-focusable
-        data-reveal="top"
-        data-testid="repertory-feature"
-        aria-label={`Featured: ${name}. Open the Title.`}
-        onFocus={() => setHeld(true)}
-        onBlur={() => setHeld(false)}
-        onKeyDown={(event) => {
-          if (items.length < 2) {
-            return;
-          }
-          if (event.key === "ArrowRight") {
-            event.preventDefault();
-            event.stopPropagation();
-            step(1);
-          } else if (event.key === "ArrowLeft") {
-            event.preventDefault();
-            event.stopPropagation();
-            step(-1);
-          }
-        }}
-        onClick={() => onOpen(item)}
-      >
-        <span className="rep-feature-art" data-art={item.slide.art ? "image" : "text"}>
-          {item.slide.art ? (
-            <img key={item.slide.id} src={item.slide.art} alt="" />
-          ) : (
-            <span className="rep-feature-art-empty">{name}</span>
-          )}
-        </span>
-        <span className="rep-feature-plate">
-          <span className="rep-feature-eyebrow">
-            {addon ? `From ${addon}` : "Tonight's feature"} / {catalog}
-          </span>
-          <span className="rep-feature-title" data-density={density}>
-            {name}
-          </span>
-          <MetaLine parts={parts} className="rep-feature-meta" />
-          {item.slide.description ? (
-            <span className="rep-feature-description">{item.slide.description}</span>
-          ) : null}
-          <span className="rep-feature-cta">Open the Title</span>
-        </span>
-      </button>
     </section>
   );
 }
@@ -244,11 +245,11 @@ function Feature({
  * The data is exactly what Home always reads — the Featured catalog's own row
  * and the Host's Watch progress — so this screen is the same client under a
  * different frame, not a second one. The surface is repertory; the Actions are
- * untouched.
+ * untouched. A card opens the prototype's Program note until #155 draws the
+ * real Title page.
  */
 export function RepertoryHome() {
   const { snapshot, chosenDestination, choose, take, home, push, pop } = useShell();
-  const { openTitle: openTitleLevel } = useTitleOpener();
   const preview = usePreviewData();
   const { settings } = useRepertorySettings();
   const { rows, answered, paging } = useSyncExternalStore(home.subscribe, home.getSnapshot);
@@ -308,36 +309,30 @@ export function RepertoryHome() {
     [pop, push],
   );
 
-  /**
-   * A card opens the Title on both surfaces now (#146): the preview transport
-   * answers `open_title` from Cinemeta, so the repertory Title page is what a
-   * plain Vite window draws, not a stand-in note. The Program note stays only
-   * for a feature slide whose row item could not be found.
-   */
   const openMeta = useCallback(
-    (addon: string, meta: MetaPreview) => {
-      openTitleLevel(addon, meta);
+    (meta: MetaPreview) => {
+      openNote(noteFromMeta(meta));
     },
-    [openTitleLevel],
+    [openNote],
   );
 
   const openEntry = useCallback(
     (entry: ResumeEntry) => {
       if (preview) {
-        if (entry.title.addon) {
-          openTitleLevel(entry.title.addon, {
-            id: entry.title.id,
-            type: entry.title.type,
-            name: cardName(entry),
-            poster: entry.title.poster,
-            background: entry.title.background ?? null,
-          });
-        }
+        openNote({
+          name: entry.title.name,
+          art: continueArt(entry),
+          poster: entry.title.poster,
+          year: null,
+          rating: null,
+          genres: null,
+          description: null,
+        });
         return;
       }
       void take({ type: "resume", video: { type: entry.title.type, id: entry.video.id } });
     },
-    [openTitleLevel, preview, take],
+    [openNote, preview, take],
   );
 
   const featured = featuredRow(snapshot, visibleRows);
@@ -348,14 +343,15 @@ export function RepertoryHome() {
     meta: featured?.metas.find((meta) => meta.id === slide.id) ?? null,
   }));
   const continueWatching = snapshot?.watchProgress ?? [];
-  const empty = snapshot !== null && catalogs.length === 0;
+  const empty = homeEmptyState(snapshot, catalogs.length);
   const featuredDeclared =
     featuredKey !== null && catalogs.some((catalog) => catalogKey(catalog) === featuredKey);
 
   const hasContent =
-    allSlides.length > 0 ||
-    continueWatching.some(resumable) ||
-    visibleRows.some((row) => row.metas.length > 0);
+    empty !== null ||
+    featureItems.length > 0 ||
+    continueWatching.length > 0 ||
+    visibleRows.some((row) => row.metas.length > 0 || row.failure !== null);
 
   // The feature's row arrives after the Snapshot; hold launch focus until it
   // has answered, or the first card would be Continue watching and never move
@@ -366,7 +362,12 @@ export function RepertoryHome() {
     if (chosenDestination || focusedAtLaunch.current || !hasContent || heroPending) {
       return;
     }
-    const first = root.current?.querySelector<HTMLElement>(FOCUSABLE);
+    // Launch focus is the programme's content, not a row's paging arrow: the
+    // feature's action first, then a Continue card or a poster.
+    const first =
+      root.current?.querySelector<HTMLElement>(
+        ".rep-feature-action, .rep-kit-continue:not([disabled]), .rep-kit-poster, .rep-empty [data-focusable]",
+      ) ?? root.current?.querySelector<HTMLElement>(FOCUSABLE);
     if (!first) {
       return;
     }
@@ -374,125 +375,123 @@ export function RepertoryHome() {
     focusAndReveal(first);
   });
 
-  const sectionOffset = continueWatching.length > 0 ? 2 : 1;
+  const hasContinue = continueWatching.length > 0;
 
   return (
     <section className="rep-home" data-testid="home-screen" ref={root}>
       <h1 className="shell-visually-hidden">Home</h1>
+      <ProgrammeLine name="Home" testId="home-programme-line" />
 
       <Feature
         items={featureItems}
-        addon={featured ? addonName(snapshot, featured.addon) : null}
-        catalog={featured?.name ?? "Featured"}
-        mode={settings.feature}
         onOpen={(item) => {
-          if (!featured) {
-            return;
-          }
           if (item.meta) {
-            openMeta(featured.addon, item.meta);
+            openMeta(item.meta);
           } else {
             openNote(noteFromSlide(item.slide));
           }
         }}
       />
 
-      {continueWatching.length > 0 ? (
-        <section
-          className="rep-section"
+      {hasContinue ? (
+        <div
           data-region="home-continue"
           data-kind="row"
           data-label="Continue watching"
           data-testid="home-continue"
         >
-          <RowHead
-            index={programIndex(1)}
+          <RowTrack
             title="Continue watching"
+            index={programIndex(1)}
             tag={`${continueWatching.length} in progress`}
-          />
-          <div className="rep-row-track">
-            {continueWatching.map((entry) => (
-              <ContinueCard
-                key={`${entry.title.type}/${entry.video.id}`}
-                entry={entry}
-                onOpen={() => openEntry(entry)}
-              />
-            ))}
-          </div>
-        </section>
+            columns={HOME_CONTINUE_COLUMNS}
+          >
+            {continueWatching.map((entry) => {
+              const playable = resumable(entry);
+              return (
+                <ContinueWatchingCard
+                  key={`${entry.title.type}/${entry.video.id}`}
+                  name={cardName(entry)}
+                  note={cardNote(entry)}
+                  art={continueArt(entry)}
+                  progress={progressOf(entry)}
+                  unplayable={!playable}
+                  testId={`resume-${entry.video.id}`}
+                  onClick={playable ? () => openEntry(entry) : undefined}
+                />
+              );
+            })}
+          </RowTrack>
+        </div>
       ) : null}
 
       {empty ? (
         <div className="rep-empty" data-testid="home-empty">
-          <h2 className="rep-empty-title">
-            {snapshot.addons.length === 0
-              ? "No Addons are configured"
-              : "No Catalogs are configured"}
-          </h2>
-          <p className="rep-empty-body">
-            {snapshot.addons.length === 0
-              ? "Tonight's program is drawn from the Catalogs Addons offer. Add an Addon to begin."
-              : "The configured Addons offer no Catalogs, so the program has no sections to print. Choose an Addon that offers one."}
-          </p>
-          <button
-            type="button"
-            className="rep-button"
-            data-focusable
-            onClick={() => choose("addons")}
-          >
+          <h2 className="rep-empty-title">{empty.title}</h2>
+          <p className="rep-empty-body">{empty.body}</p>
+          <Button variant="primary" onClick={() => choose("addons")}>
             Open Addons
-          </button>
+          </Button>
         </div>
       ) : null}
 
       {visibleRows.map((row, index) => {
         const key = keyOf(row);
         const isAnswered = answered.has(key);
+        const canPage =
+          pageable(snapshot, row) &&
+          !row.done &&
+          (row.metas.length > 0 || row.failure !== null);
+        const tag = `${addonName(snapshot, row.addon) ?? row.addon} / ${countLabel(row.type, row.metas.length)}`;
         return (
-          <section
-            className="rep-section"
+          <div
             key={key}
             data-testid={`home-row-${key}`}
             data-region={`home-row:${key}`}
             data-kind="row"
             data-label={row.name}
           >
-            <RowHead
-              index={programIndex(index + sectionOffset)}
+            <RowTrack
               title={row.name}
-              tag={`${addonName(snapshot, row.addon) ?? row.addon} / ${countLabel(row.type, row.metas.length)}`}
-            />
-            {row.metas.length > 0 ? (
-              <div className="rep-row-track">
-                {row.metas.map((meta) => (
-                  <ProgramPoster
-                    key={meta.id}
-                    meta={meta}
-                    onOpen={() => openMeta(row.addon, meta)}
-                  />
-                ))}
-                {pageable(snapshot, row) && !row.done ? (
-                  <button
-                    type="button"
-                    className="rep-row-more"
-                    data-focusable
-                    disabled={paging.has(key)}
+              index={homeSectionIndex(index, hasContinue)}
+              tag={tag}
+              columns={HOME_ROW_COLUMNS}
+              action={
+                canPage ? (
+                  <Button
+                    variant="ghost"
+                    pending={paging.has(key)}
                     onClick={() => page(row)}
                   >
-                    {paging.has(key) ? "Reading…" : "More"}
-                  </button>
-                ) : null}
-              </div>
-            ) : (
-              <p className="rep-row-note" role={row.failure ? "alert" : undefined}>
-                {row.failure
-                  ? explain(row.failure)
-                  : isAnswered
-                    ? "The Addon answered with no Titles in this section."
-                    : "Reading the program…"}
+                    More
+                  </Button>
+                ) : null
+              }
+            >
+              {row.metas.map((meta) => (
+                <PosterCard
+                  key={meta.id}
+                  name={meta.name}
+                  poster={meta.poster}
+                  rating={meta.imdbRating?.trim() || null}
+                  subtitle={yearOf(meta)}
+                  testId={`card-${row.addon}-${meta.id}`}
+                  onClick={() => openMeta(meta)}
+                />
+              ))}
+            </RowTrack>
+            {row.failure ? (
+              <p role="alert" className="rep-home-note rep-home-note--failure">
+                {explain(row.failure)}
               </p>
-            )}
-          </section>
+            ) : row.metas.length === 0 ? (
+              <p className="rep-home-note">
+                {isAnswered
+                  ? "The Addon answered with no Titles in this section."
+                  : "Reading the programme…"}
+              </p>
+            ) : null}
+          </div>
         );
       })}
 

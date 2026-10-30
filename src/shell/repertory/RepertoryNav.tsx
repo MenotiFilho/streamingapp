@@ -1,23 +1,20 @@
+import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 
-import { DestinationIcon } from "../Rail";
 import { DESTINATIONS, type Destination } from "../navigation";
+import { useReducedMotion } from "../useReducedMotion";
+import {
+  ALL_DESTINATIONS,
+  spineDestinations,
+  spineLabelTransition,
+  spineWidthTransition,
+} from "./frame";
+import { Icon } from "./icons";
 import {
   programIndex,
   programShortDate as programShortDateText,
   programTime as programTimeText,
 } from "./program";
-import type { FrameVariant } from "./settings";
-
-/**
- * How many destinations the spine carries before More takes over. The grid
- * always holds the whole programme, so a long index stays navigable without
- * turning the rail into a scroll.
- */
-export const RAIL_LIMIT = 15;
-
-/** The destinations the spine draws; the rest live in All destinations. */
-const RAIL_DESTINATIONS = DESTINATIONS.slice(0, RAIL_LIMIT);
 
 /** The clock the frame keeps, refreshed slowly enough not to be a metronome. */
 function useNow(): Date {
@@ -29,38 +26,19 @@ function useNow(): Date {
   return now;
 }
 
-/** The mark for "All destinations": a grid of rooms, not a seventh destination. */
-function MoreIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <rect x="4" y="5" width="4" height="4" />
-      <rect x="10" y="5" width="4" height="4" />
-      <rect x="16" y="5" width="4" height="4" />
-      <rect x="4" y="13" width="4" height="4" />
-      <rect x="10" y="13" width="4" height="4" />
-      <rect x="16" y="13" width="4" height="4" />
-    </svg>
-  );
-}
-
 function SpineItem({
   destination,
   index,
   active,
+  open,
+  reducedMotion,
   onChoose,
 }: {
   destination: (typeof DESTINATIONS)[number];
   index: number;
   active: Destination;
+  open: boolean;
+  reducedMotion: boolean;
   onChoose: (destination: Destination) => void;
 }) {
   return (
@@ -75,16 +53,42 @@ function SpineItem({
         onClick={() => onChoose(destination.id)}
       >
         <span className="rep-index-icon" aria-hidden="true">
-          <DestinationIcon destination={destination.id} />
+          <Icon name={destination.id} />
         </span>
-        <span className="rep-index-number">{programIndex(index + 1)}</span>
-        <span className="rep-index-label">{destination.label}</span>
+        <motion.span
+          className="rep-index-number"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: open ? 1 : 0 }}
+          transition={spineLabelTransition(reducedMotion)}
+          aria-hidden="true"
+        >
+          {programIndex(index + 1)}
+        </motion.span>
+        <motion.span
+          className="rep-index-label"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: open ? 1 : 0 }}
+          transition={spineLabelTransition(reducedMotion)}
+          aria-hidden="true"
+        >
+          {destination.label}
+        </motion.span>
       </button>
     </li>
   );
 }
 
-function Spine({
+/**
+ * The spine: the programme index, compact at rest and open on focus.
+ *
+ * It is the one permanent frame. The six destinations are numbered in mono and
+ * named in sans, the active one is brass with a 2px rule, and the date and clock
+ * sit at the foot. Under fifteen destinations the spine lists them and ends
+ * with **All destinations**, whose grid holds the whole programme. The width
+ * change is Motion's panel spring, so the spine can be interrupted without
+ * overshoot; the page makes room through CSS.
+ */
+export function RepertoryNav({
   active,
   onChoose,
   onOpenDestinations,
@@ -94,25 +98,41 @@ function Spine({
   onOpenDestinations: () => void;
 }) {
   const now = useNow();
+  const reducedMotion = useReducedMotion();
+  const [open, setOpen] = useState(false);
+  const destinations = spineDestinations(DESTINATIONS);
+
   return (
-    <nav
+    <motion.nav
+      layout
+      transition={spineWidthTransition(reducedMotion)}
       className="rep-nav rep-nav--spine"
       aria-label="Destinations"
       data-region="rail"
       data-kind="rail"
-      data-label="the program index"
+      data-label="the programme index"
+      data-open={open ? "true" : undefined}
+      onFocus={() => setOpen(true)}
+      onBlur={(event) => {
+        const next = event.relatedTarget as Node | null;
+        if (!next || !event.currentTarget.contains(next)) {
+          setOpen(false);
+        }
+      }}
     >
       <div className="rep-spine-head">
-        <p className="rep-spine-label">The program</p>
+        <p className="rep-spine-label">The programme</p>
         <p className="rep-spine-note">Tonight</p>
       </div>
       <ul className="rep-spine-index">
-        {RAIL_DESTINATIONS.map((destination, index) => (
+        {destinations.map((destination, index) => (
           <SpineItem
             key={destination.id}
             destination={destination}
             index={index}
             active={active}
+            open={open}
+            reducedMotion={reducedMotion}
             onChoose={onChoose}
           />
         ))}
@@ -121,14 +141,30 @@ function Spine({
             type="button"
             className="rep-index-item rep-index-more"
             data-focusable
-            aria-label="All destinations"
+            aria-label={ALL_DESTINATIONS}
             onClick={onOpenDestinations}
           >
             <span className="rep-index-icon" aria-hidden="true">
-              <MoreIcon />
+              <Icon name="more" />
             </span>
-            <span className="rep-index-number">{programIndex(RAIL_DESTINATIONS.length + 1)}</span>
-            <span className="rep-index-label">More</span>
+            <motion.span
+              className="rep-index-number"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: open ? 1 : 0 }}
+              transition={spineLabelTransition(reducedMotion)}
+              aria-hidden="true"
+            >
+              {programIndex(destinations.length + 1)}
+            </motion.span>
+            <motion.span
+              className="rep-index-label"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: open ? 1 : 0 }}
+              transition={spineLabelTransition(reducedMotion)}
+              aria-hidden="true"
+            >
+              {ALL_DESTINATIONS}
+            </motion.span>
           </button>
         </li>
       </ul>
@@ -136,79 +172,6 @@ function Spine({
         <span>{programShortDateText(now)}</span>
         <span className="rep-spine-clock">{programTimeText(now)}</span>
       </div>
-    </nav>
-  );
-}
-
-function ProgramStrip({
-  active,
-  onChoose,
-  onOpenDestinations,
-}: {
-  active: Destination;
-  onChoose: (destination: Destination) => void;
-  onOpenDestinations: () => void;
-}) {
-  return (
-    <nav
-      className="rep-nav rep-nav--strip"
-      aria-label="Destinations"
-      data-region="rail"
-      data-kind="rail"
-      data-label="the program strip"
-    >
-      <div className="rep-strip-head">
-        <p className="rep-strip-label">The program</p>
-      </div>
-      <ul className="rep-strip-index">
-        {RAIL_DESTINATIONS.map((destination, index) => (
-          <li key={destination.id}>
-            <button
-              type="button"
-              className="rep-strip-item"
-              data-focusable
-              data-destination={destination.id}
-              aria-current={active === destination.id ? "page" : undefined}
-              aria-label={destination.label}
-              onClick={() => onChoose(destination.id)}
-            >
-              <span className="rep-strip-number">{programIndex(index + 1)}</span>
-              <span>{destination.label}</span>
-            </button>
-          </li>
-        ))}
-        <li>
-          <button
-            type="button"
-            className="rep-strip-item rep-strip-more"
-            data-focusable
-            aria-label="All destinations"
-            onClick={onOpenDestinations}
-          >
-            <span className="rep-strip-number">{programIndex(RAIL_DESTINATIONS.length + 1)}</span>
-            <span>More</span>
-          </button>
-        </li>
-      </ul>
-    </nav>
-  );
-}
-
-/** The six destinations, drawn as a programme index in either frame. */
-export function RepertoryNav({
-  variant,
-  active,
-  onChoose,
-  onOpenDestinations,
-}: {
-  variant: FrameVariant;
-  active: Destination;
-  onChoose: (destination: Destination) => void;
-  onOpenDestinations: () => void;
-}) {
-  return variant === "spine" ? (
-    <Spine active={active} onChoose={onChoose} onOpenDestinations={onOpenDestinations} />
-  ) : (
-    <ProgramStrip active={active} onChoose={onChoose} onOpenDestinations={onOpenDestinations} />
+    </motion.nav>
   );
 }

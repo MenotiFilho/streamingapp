@@ -143,7 +143,6 @@ html[data-ui="repertory"] {
   --rep-row-gap: max(16px, calc(var(--rep-stage) * 1.25));
   --rep-spine-compact: max(92px, calc(var(--rep-stage) * 4.8));
   --rep-spine-width: max(280px, calc(var(--rep-stage) * 14.6));
-  --rep-strip-height: max(168px, calc(var(--rep-stage) * 8.75));
 
   /* Radius is zero. The one circle in the system is the pending spinner. */
   --rep-radius: 0;

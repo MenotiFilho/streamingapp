@@ -1,6 +1,6 @@
-import { DestinationIcon } from "../Rail";
 import { DESTINATIONS, type Destination } from "../navigation";
 import { DESTINATION_NOTES } from "./destinationNotes";
+import { Icon } from "./icons";
 import { programIndex } from "./program";
 
 /**
@@ -26,7 +26,7 @@ export function DestinationGrid({
       aria-label="All destinations"
     >
       <header className="rep-destinations-head">
-        <p className="rep-destinations-kicker">The program</p>
+        <p className="rep-destinations-kicker">The programme</p>
         <h2 className="rep-destinations-title">All destinations</h2>
       </header>
 
@@ -42,7 +42,7 @@ export function DestinationGrid({
             onClick={() => onChoose(destination.id)}
           >
             <span className="rep-destination-icon" aria-hidden="true">
-              <DestinationIcon destination={destination.id} />
+              <Icon name={destination.id} />
             </span>
             <span className="rep-destination-number">{programIndex(index + 1)}</span>
             <span className="rep-destination-label">{destination.label}</span>

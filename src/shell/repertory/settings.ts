@@ -1,35 +1,28 @@
 /**
  * The rehearsal settings of the repertory prototype.
  *
- * The first slice has two frames and two feature models. They are a comparison,
- * not product state: nothing here is a Host preference, and a reload must land
- * on the same frame the owner was looking at. The query string is therefore the
- * whole store — a screenshot URL is a reproducible setting. There is one type
- * pairing (Bodoni Moda / Inter / IBM Plex Mono), so it is not a setting.
+ * The first slice compared two feature models. That is a comparison, not
+ * product state: nothing here is a Host preference, and a reload must land on
+ * the same model the owner was looking at. The query string is therefore the
+ * whole store — a screenshot URL is a reproducible setting. There is one frame
+ * (the spine) and one type pairing (Bodoni Moda / Inter / IBM Plex Mono), so
+ * neither is a setting.
  *
  * These are prototype decisions and leave with the flag.
  */
 
-export type FrameVariant = "spine" | "strip";
 export type FeatureMode = "still" | "rotates";
 
 export type RepertorySettings = {
-  frame: FrameVariant;
   feature: FeatureMode;
   /** Whether the rehearsal bar is drawn. Off for a clean screenshot. */
   rehearsal: boolean;
 };
 
 export const DEFAULT_SETTINGS: RepertorySettings = {
-  frame: "spine",
   feature: "rotates",
   rehearsal: true,
 };
-
-export const FRAME_OPTIONS: readonly { id: FrameVariant; label: string }[] = [
-  { id: "spine", label: "Spine" },
-  { id: "strip", label: "Program strip" },
-];
 
 export const FEATURE_OPTIONS: readonly { id: FeatureMode; label: string }[] = [
   { id: "still", label: "Still" },
@@ -57,11 +50,6 @@ function boolParam(value: string | null, fallback: boolean): boolean {
 export function parseSettings(search: string): RepertorySettings {
   const params = new URLSearchParams(search);
   return {
-    frame: oneOf(
-      params.get("frame"),
-      FRAME_OPTIONS.map((option) => option.id),
-      DEFAULT_SETTINGS.frame,
-    ),
     feature: oneOf(
       params.get("feature"),
       FEATURE_OPTIONS.map((option) => option.id),
@@ -74,7 +62,6 @@ export function parseSettings(search: string): RepertorySettings {
 /** The query string for one set of settings, in a stable order. */
 export function settingsQuery(settings: RepertorySettings): string {
   const params = new URLSearchParams();
-  params.set("frame", settings.frame);
   params.set("feature", settings.feature);
   if (!settings.rehearsal) {
     params.set("rehearsal", "0");

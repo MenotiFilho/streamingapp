@@ -1,6 +1,6 @@
 import { usePreviewData, useRepertorySettings } from "./context";
 import { rehearsePlayer } from "./previewHost";
-import { FEATURE_OPTIONS, FRAME_OPTIONS, type RepertorySettings } from "./settings";
+import { FEATURE_OPTIONS, type RepertorySettings } from "./settings";
 
 function Group<T extends string>({
   label,
@@ -33,9 +33,10 @@ function Group<T extends string>({
 }
 
 /**
- * The rehearsal bar: prototype scaffolding for comparing the two frames and the
- * two feature models. It sits outside the shell's focus root on purpose — it is
- * not a Host control and never reaches a Snapshot.
+ * The rehearsal bar: prototype scaffolding for comparing the two feature
+ * models. It sits outside the shell's focus root on purpose — it is not a Host
+ * control and never reaches a Snapshot. The frame comparison left with #154:
+ * the spine is the frame.
  */
 export function RehearsalBar() {
   const { settings, update } = useRepertorySettings();
@@ -51,12 +52,6 @@ export function RehearsalBar() {
       data-testid="repertory-rehearsal"
     >
       <span className="rep-rehearsal-label">Rehearsal</span>
-      <Group
-        label="Frame"
-        options={FRAME_OPTIONS}
-        value={settings.frame}
-        onChoose={(frame) => choose("frame", frame)}
-      />
       <Group
         label="Feature"
         options={FEATURE_OPTIONS}

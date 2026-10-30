@@ -19,7 +19,7 @@ function isTauriWindow(): boolean {
  * In a plain Vite window there is no Host, so a preview transport answers from
  * the public Cinemeta addon; in the Tauri window the real HostClient is used
  * and only the frame and Home change. The settings live in the query string so
- * a frame comparison is a URL someone can send back.
+ * a feature comparison is a URL someone can send back.
  */
 export function RepertoryEntry() {
   const [settings, setSettings] = useState<RepertorySettings>(() =>
@@ -60,7 +60,7 @@ export function RepertoryEntry() {
          * fades. Direct `animate()` calls check `useReducedMotion()` themselves.
          */}
         <MotionConfig reducedMotion="user">
-          <div className="repertory-ui" data-frame={settings.frame}>
+          <div className="repertory-ui">
             <Shell client={client} presentation="repertory" />
             {settings.rehearsal ? <RehearsalBar /> : null}
           </div>

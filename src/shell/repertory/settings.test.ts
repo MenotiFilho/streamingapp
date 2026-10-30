@@ -3,21 +3,24 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_SETTINGS, parseSettings, settingsQuery } from "./settings";
 
 describe("the rehearsal settings", () => {
-  it("starts on the spine and a rotating feature", () => {
+  it("starts on a rotating feature and keeps the rehearsal bar", () => {
     expect(parseSettings("")).toEqual(DEFAULT_SETTINGS);
     expect(DEFAULT_SETTINGS).toEqual({
-      frame: "spine",
       feature: "rotates",
       rehearsal: true,
     });
   });
 
   it("reads a complete comparison from the query string", () => {
-    expect(parseSettings("?frame=strip&feature=still&rehearsal=0")).toEqual({
-      frame: "strip",
+    expect(parseSettings("?feature=still&rehearsal=0")).toEqual({
       feature: "still",
       rehearsal: false,
     });
+  });
+
+  it("ignores the retired frame comparison, so an old link still lands", () => {
+    // The spine is the one frame (#154): `?frame=strip` is not a setting.
+    expect(parseSettings("?frame=strip")).toEqual(DEFAULT_SETTINGS);
   });
 
   it("has one type pairing, so a pairing in the query is ignored", () => {
@@ -34,11 +37,10 @@ describe("the rehearsal settings", () => {
 
   it("round-trips through a stable query string", () => {
     const settings = {
-      frame: "strip" as const,
       feature: "still" as const,
       rehearsal: false,
     };
     expect(parseSettings(`?${settingsQuery(settings)}`)).toEqual(settings);
-    expect(settingsQuery(DEFAULT_SETTINGS)).toBe("frame=spine&feature=rotates");
+    expect(settingsQuery(DEFAULT_SETTINGS)).toBe("feature=rotates");
   });
 });

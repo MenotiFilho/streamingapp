@@ -199,10 +199,10 @@ describe("the logbook's utility layout", () => {
     expect(settingsRows.trim()).toBe("minmax(0, 1fr) auto");
     expect(pairing).toContain("grid-template-columns: minmax(0, 1fr)");
     expect(flat).toContain(
-      '.rep-frame[data-frame="spine"] .shell-level:has(.rep-settings-level) { left: var(--rep-spine-compact);',
+      '.rep-frame .shell-level:has(.rep-settings-level) { left: var(--rep-spine-compact);',
     );
     expect(flat).toContain(
-      '.rep-frame[data-frame="spine"]:has(.rep-nav--spine:focus-within) .shell-level:has(.rep-settings-level) { left: var(--rep-spine-width);',
+      '.rep-frame:has(.rep-nav--spine[data-open="true"]) .shell-level:has(.rep-settings-level) { left: var(--rep-spine-width);',
     );
   });
 });
