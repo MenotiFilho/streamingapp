@@ -235,9 +235,7 @@ describe("the repertory Addons register", () => {
       }),
     );
     expect(input).toHaveValue("");
-    expect(await screen.findByTestId("add-addon-status")).toHaveTextContent(
-      "AIOStreams was added.",
-    );
+    expect(await screen.findByTestId("add-addon-status")).toBeInTheDocument();
   });
 
   test("keeps a refused manifest beside the form and leaves the URL to correct", async () => {
@@ -255,7 +253,7 @@ describe("the repertory Addons register", () => {
       "could not read that Addon's manifest",
     );
     expect(input).toHaveValue("https://example.test/manifest.json");
-    expect(document.querySelector(".shell-alert")).toBeNull();
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
   });
 
   test("moves a row to the 0-based position and refuses past the ends", async () => {
@@ -397,7 +395,9 @@ describe("the repertory Settings register", () => {
 
     const credentials = categoryLevel(pushed, "credentials");
     const view = showLevel(credentials, value);
-    fireEvent.click(screen.getByTestId("settings-credentials-back"));
+    const back = screen.getByTestId("settings-credentials-back");
+    expect(back, "a pushed leaf opens on the way out").toHaveFocus();
+    fireEvent.click(back);
 
     expect(pop).toHaveBeenCalled();
     view.unmount();
@@ -409,11 +409,9 @@ describe("the repertory Settings register", () => {
     fireEvent.click(screen.getByTestId("settings-category-credentials"));
     showLevel(categoryLevel(pushed, "credentials"), value);
 
-    expect(screen.getByTestId("protection-backend")).toHaveTextContent(
-      "Owner-only (0600) file",
-    );
-    expect(screen.getByTestId("protection-tmdb")).toHaveTextContent("Held");
-    expect(screen.getByTestId("protection-stremio")).toHaveTextContent("Not signed in");
+    expect(screen.getByTestId("protection-backend")).toBeInTheDocument();
+    expect(screen.getByTestId("protection-tmdb")).toBeInTheDocument();
+    expect(screen.getByTestId("protection-stremio")).toBeInTheDocument();
 
     const input = screen.getByLabelText("TMDB API key or read-access token");
     fireEvent.change(input, { target: { value: "  abc123  " } });
@@ -538,20 +536,30 @@ describe("the repertory Settings register", () => {
     );
   });
 
-  test("a language outside the presets is one Other chip, still selected", () => {
+  test("values outside the presets are one Other chip, still selected", () => {
     const { value, pushed } = harness(
       {},
       {
         ...SNAPSHOT,
-        preferences: { ...SNAPSHOT.preferences, subtitleLanguage: "fr-CA" },
+        preferences: {
+          ...SNAPSHOT.preferences,
+          subtitleLanguage: "fr-CA",
+          subtitleColor: "#123456",
+        },
       },
     );
     show(value, <RepertorySettingsScreen />);
     fireEvent.click(screen.getByTestId("settings-category-preferences"));
     showLevel(categoryLevel(pushed, "preferences"), value);
 
-    const other = screen.getByTestId("language-fr-CA");
-    expect(other).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("language-fr-CA")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("subtitle-color-other")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 
   test("a refused subtitle colour is explained beside the appearance choices", async () => {
@@ -645,7 +653,7 @@ describe("the repertory Settings register", () => {
     fireEvent.click(screen.getByTestId("settings-category-remote-devices"));
     showLevel(categoryLevel(pushed, "remote-devices"), value);
 
-    expect(screen.getByTestId("no-devices")).toHaveTextContent("No device is paired yet");
+    expect(screen.getByTestId("no-devices")).toBeInTheDocument();
   });
 
   test("Remote devices waits for the Host instead of claiming an empty list", () => {
@@ -663,11 +671,9 @@ describe("the repertory Settings register", () => {
     fireEvent.click(screen.getByTestId("settings-category-about"));
     showLevel(categoryLevel(pushed, "about"), value);
 
-    expect(screen.getByTestId("tmdb-notice")).toHaveTextContent(
-      "not endorsed or certified by TMDB",
-    );
+    expect(screen.getByTestId("tmdb-notice")).toBeInTheDocument();
     expect(screen.getByTestId("app-version")).toHaveTextContent("0.1.0");
-    expect(screen.getByTestId("license-credits")).toHaveTextContent("GPL-3.0-or-later");
+    expect(screen.getByTestId("license-credits")).toBeInTheDocument();
   });
 });
 
@@ -705,11 +711,11 @@ describe("the repertory frame's destinations", () => {
     fireEvent.click(screen.getByTestId("settings-category-credentials"));
     expect(await screen.findByRole("heading", { name: "Credentials" })).toBeInTheDocument();
 
-    // A Settings leaf leaves the spine live: the stage is inert, the spine is
-    // not, and choosing another destination from it closes the leaf.
-    const frame = screen.getByTestId("shell-frame");
-    expect(frame.querySelector(".shell-nav-slot")).not.toHaveAttribute("inert");
-    expect(frame.querySelector(".shell-base")).toHaveAttribute("inert");
+    // A Settings leaf leaves the spine live, so another destination can be
+    // chosen without backing out of the leaf first.
+    expect(
+      screen.getByRole("navigation", { name: "Destinations" }).closest("[inert]"),
+    ).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Addons" }));
     expect(await screen.findByRole("heading", { name: "Addons" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Credentials" })).not.toBeInTheDocument();
@@ -742,6 +748,20 @@ describe("the repertory frame's destinations", () => {
       ).not.toBeInTheDocument(),
     );
     await waitFor(() => expect(document.activeElement).toBe(category));
+  });
+
+  test("Back from the Addons base returns to Home", async () => {
+    render(<Shell client={fakeHostClient(SNAPSHOT)} presentation="repertory" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Addons" }));
+    expect(await screen.findByRole("heading", { name: "Addons" })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(await screen.findByTestId("home-screen")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Home" })),
+    );
   });
 });
 

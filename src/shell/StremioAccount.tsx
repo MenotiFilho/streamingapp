@@ -47,6 +47,7 @@ export function StremioAccount({
     }
     return (
       <ActionButton
+        danger={presentation === "repertory"}
         onClick={() =>
           push(
             confirmActionLevel({

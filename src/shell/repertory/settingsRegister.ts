@@ -1,4 +1,5 @@
 import type { Protection } from "../../host-client";
+import { SUBTITLE_COLORS, colorSelected } from "../../controls";
 
 /**
  * The Settings register's decisions, kept out of the drawing (ADR-0032).
@@ -75,6 +76,18 @@ export const NO_CATALOG = "No configured Addon offers a Catalog.";
  */
 export function unknownLanguageLabel(tag: string): string {
   return `Other (${tag})`;
+}
+
+/**
+ * A subtitle colour the Host holds but this client's presets do not name: an
+ * Other chip, so the colour row still has a selected value. `null` when one of
+ * the presets owns the colour.
+ */
+export function unknownColorLabel(color: string): string | null {
+  const known = SUBTITLE_COLORS.some((choice) =>
+    colorSelected(color, choice.color),
+  );
+  return known ? null : `Other (${color.toUpperCase()})`;
 }
 
 /** The TMDB notice the API's terms require, carried on About/Credits. */

@@ -50,11 +50,13 @@ import {
   LICENCE,
   NO_CATALOG,
   SETTINGS_CATEGORIES,
+  SETTINGS_LEVEL_PREFIX,
   TMDB_KEY_SAVED,
   TMDB_NOTICE,
   protectionLedger,
   settingsLevelId,
   settingsLevelName,
+  unknownColorLabel,
   unknownLanguageLabel,
   type SettingsCategory,
   type SettingsCategoryId,
@@ -156,16 +158,18 @@ function SettingsLevel({
   rootRef?: RefObject<HTMLElement | null>;
   children: ReactNode;
 }) {
+  const levelId = `${SETTINGS_LEVEL_PREFIX}${id}`;
+
   return (
     <section
       ref={rootRef}
       className="rep-log rep-settings-level"
-      data-testid={`settings-${id}`}
-      data-region={`settings-${id}`}
+      data-testid={levelId}
+      data-region={levelId}
       data-kind="branch"
       data-label={title}
     >
-      <LogLevelHead title={title} backTestId={`settings-${id}-back`} />
+      <LogLevelHead title={title} backTestId={`${levelId}-back`} />
       {children}
     </section>
   );
@@ -282,7 +286,7 @@ function CredentialsScreen() {
               Clear key
             </Button>
           </div>
-          {keySaved ? (
+          {keySaved && held ? (
             <p className="rep-log-status" role="status" data-testid="tmdb-key-status">
               <span className="rep-log-status-mark">Logged</span>
               <span>{TMDB_KEY_SAVED}</span>
@@ -302,6 +306,11 @@ function CredentialsScreen() {
           <StremioAccount />
         </div>
       </LogGroup>
+
+      <LogPreviewNote>
+        Preview data: credentials stay in this window; no key or account service is
+        contacted.
+      </LogPreviewNote>
     </SettingsLevel>
   );
 }
@@ -331,6 +340,7 @@ function PreferencesScreen() {
   const [featuredError, setFeaturedError] = useState<ActionError | null>(null);
 
   const known = SUBTITLE_LANGUAGES.some((language) => language.tag === heldLanguage);
+  const otherColor = unknownColorLabel(heldColor);
   const catalogs = declaredCatalogs(snapshot);
   const featured = snapshot?.featuredCatalog ?? null;
   const featuredKey = featured
@@ -453,6 +463,17 @@ function PreferencesScreen() {
                 {choice.label}
               </ChoiceChip>
             ))}
+            {otherColor ? (
+              <ChoiceChip
+                pressed
+                data-testid="subtitle-color-other"
+                onClick={() =>
+                  void pickAppearance({ type: "set_subtitle_color", color: heldColor })
+                }
+              >
+                {otherColor}
+              </ChoiceChip>
+            ) : null}
           </div>
         </div>
         <div className="rep-log-choice-group">
@@ -593,6 +614,10 @@ function PreferencesScreen() {
         </div>
         <LogRefusal error={featuredError} testId="featured-catalog-error" />
       </LogGroup>
+
+      <LogPreviewNote>
+        Preview data: preferences stay in this window.
+      </LogPreviewNote>
     </SettingsLevel>
   );
 }

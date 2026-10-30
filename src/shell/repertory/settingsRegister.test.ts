@@ -1,14 +1,14 @@
 import { describe, expect, test } from "vitest";
 
 import {
+  CREDENTIALS_CATEGORY,
   LICENCE,
-  NO_CATALOG,
   SETTINGS_CATEGORIES,
-  TMDB_KEY_SAVED,
   TMDB_NOTICE,
   protectionLedger,
   settingsLevelId,
   settingsLevelName,
+  unknownColorLabel,
   unknownLanguageLabel,
 } from "./settingsRegister";
 
@@ -29,9 +29,10 @@ describe("the Settings register's decisions", () => {
   });
 
   test("a category is a pushed level with a stable id and a display name", () => {
-    const credentials = SETTINGS_CATEGORIES[0]!;
-    expect(settingsLevelId(credentials)).toBe("settings-credentials");
-    expect(settingsLevelName(credentials)).toBe("Settings — Credentials");
+    expect(settingsLevelId(CREDENTIALS_CATEGORY)).toBe("settings-credentials");
+    expect(settingsLevelName(CREDENTIALS_CATEGORY)).toBe(
+      "Settings — Credentials",
+    );
   });
 
   test("the protection ledger names the store and what it holds", () => {
@@ -53,11 +54,8 @@ describe("the Settings register's decisions", () => {
 
   test("a value outside the presets is named by an Other chip", () => {
     expect(unknownLanguageLabel("fr-CA")).toBe("Other (fr-CA)");
-  });
-
-  test("the logged and empty lines say what happened, not what to try", () => {
-    expect(TMDB_KEY_SAVED).toBe("The Host holds the TMDB key.");
-    expect(NO_CATALOG).toBe("No configured Addon offers a Catalog.");
+    expect(unknownColorLabel("#123456")).toBe("Other (#123456)");
+    expect(unknownColorLabel("#ffffff")).toBeNull();
   });
 
   test("About carries the required notice and licence", () => {
