@@ -517,9 +517,9 @@ rule.
 |---|---|---|
 | the Library and Settings reuse the shell's Stremio form rather than a dedicated repertory primitive | a utility form is drawn by the kit | #160 |
 | the OSD names the current chapter permanently at the centre | the chapter is named only in the hover/drag callout | #158 |
-| the OSD's ±10s and subtitles marks are text; the Remote is Unicode | one drawn set on both clients | #158, #159 |
+| the OSD's ±10s and subtitles marks are text; the Remote is Unicode | one drawn set on both clients | #158, #159 (the old `/` page keeps the Velvet glyphs until #160) |
 | the volume is the native range with `accent-color` | a drawn rail with a brass fill | #158 |
 | shadows on the OSD | depth is a hairline and one ink step | #158 |
 | the OSD does not use the Motion presets yet; the Remote is still CSS transitions only | Motion in both clients, with the spring presets and the transition shapes in §6 | #158, #159 |
-| the Remote's strip still scroll-snaps | no snapping: the rail scroll is redirected mid-flight (§6) | #159 |
-| the Velvet sheet and its splice live beside the repertory sheet; the served page keeps `/` and the `?ui` gate | one sheet, one splice, one page | #152, #160 |
+| the Remote's strip still scroll-snaps | no snapping: the rail scroll is redirected mid-flight (§6) | #159 (`/next`; the old `/` keeps snapping until #160) |
+| the Velvet sheet and its splice live beside the repertory sheet; the served page keeps the old surface at `/` beside `/next` | one sheet, one splice, one page | #160 |

@@ -156,6 +156,25 @@ pub fn write_asset(stream: &mut TcpStream, content_type: &str, body: &[u8]) -> i
     write_response(stream, "200 OK", content_type, "public, max-age=3600", body)
 }
 
+/// Answer with one permanently cacheable asset whose URL names its version.
+///
+/// The served Remote's Motion bundle is the one such asset (ADR-0031 §1): the
+/// route carries the version, so a new Host ships a new URL rather than a
+/// stale cache, and the browser may keep the old one for good.
+pub fn write_immutable_asset(
+    stream: &mut TcpStream,
+    content_type: &str,
+    body: &[u8],
+) -> io::Result<()> {
+    write_response(
+        stream,
+        "200 OK",
+        content_type,
+        "public, max-age=31536000, immutable",
+        body,
+    )
+}
+
 fn write_response(
     stream: &mut TcpStream,
     status: &str,
@@ -227,6 +246,31 @@ mod tests {
     fn a_head_that_is_not_a_request_is_not_parsed() {
         assert!(Request::parse("").is_none());
         assert!(Request::parse("nonsense\r\n\r\n").is_none());
+    }
+
+    #[test]
+    fn a_versioned_asset_is_answered_as_immutable() {
+        use std::io::Read as _;
+        use std::net::{TcpListener, TcpStream};
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
+        let address = listener.local_addr().expect("the listener's address");
+        let serving = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("one client");
+            write_immutable_asset(&mut stream, "text/javascript; charset=utf-8", b"export{}")
+                .expect("the asset is written");
+        });
+
+        let mut client = TcpStream::connect(address).expect("a loopback client");
+        let mut response = String::new();
+        client
+            .read_to_string(&mut response)
+            .expect("the response is read");
+        serving.join().expect("the writer finished");
+
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(response.contains("Cache-Control: public, max-age=31536000, immutable\r\n"));
+        assert!(response.ends_with("\r\n\r\nexport{}"));
     }
 
     #[test]

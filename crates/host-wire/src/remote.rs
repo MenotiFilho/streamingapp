@@ -4,8 +4,9 @@
 //! A browser on another device has to load *something* before it can pair, and
 //! the Host is the only thing that knows it exists, so the page travels with the
 //! binary rather than from a build directory that may not be there (#31). It is
-//! deliberately one self-contained document with no build step, and it is the
-//! Host's own window's equal rather than a curated subset (#32): pairing,
+//! deliberately one document with no build step, plus the one pinned motion
+//! asset ADR-0031 allows, and it is the Host's own window's equal rather than a
+//! curated subset (#32): pairing,
 //! browsing and search, opening a Title and choosing among its Streams, the full
 //! control set, and the Host's own settings — all over the one Action surface
 //! (ADR-0002). Its capability list is asserted against that surface here, so a
@@ -19,20 +20,22 @@
 //! The template on disk is not quite the page that is served. The Velvet
 //! palette (`src/tokens.css`) that the old surface still reads, the repertory
 //! token sheet (`src/shell/repertory/tokens.css`) that the staged surface reads,
-//! the curated subtitle languages (`src/subtitle-languages.json`), the subtitle
-//! appearance presets (`src/subtitle-appearance.json`), the Stream buffer presets
+//! the drawn icon sprite (`remote/icons.svg`), the curated subtitle languages
+//! (`src/subtitle-languages.json`), the subtitle appearance presets
+//! (`src/subtitle-appearance.json`), the Stream buffer presets
 //! (`src/stream-buffer.json`), and the approved TMDB mark are spliced in here, at
-//! serve time, through one marker convention (`/*__SPLICE_NAME__*/`). That keeps
-//! each palette and each list one source in the tree and one list for two
-//! clients, while the bytes a browser receives are still one self-contained
-//! document with no build step (#88, #126, #135, #149; amending ADR-0017 §2 and
-//! ADR-0018 §1).
+//! serve time, through one marker convention. That keeps each palette, each
+//! drawing and each list one source in the tree, while the bytes a browser
+//! receives are still one document with no build step (#88, #126, #135, #149,
+//! #159; amending ADR-0017 §2 and ADR-0018 §1). Motion is the one asset fetched
+//! beside the document, version-pinned and cached (ADR-0031 §1).
 //!
-//! The repertory surface is staged behind `?ui=repertory` while the window's
-//! counterpart is still behind `VITE_UI=repertory`. That selector is deliberately
-//! provisional: #152 decides the final staging and cutover. The default page at
-//! `/` keeps the old surface and its palette; a paired phone holding that page
-//! open is not disturbed by the staged one.
+//! The repertory surface is staged at `/next` while the window's counterpart is
+//! still behind `VITE_UI=repertory` (#152). `/next` serves the same document
+//! with `data-ui="repertory"` injected server-side; `/` keeps the old surface
+//! and its palette, so a paired phone holding that page open is not disturbed.
+//! The prototype `?ui` selector is not carried. The cutover (#160) removes the
+//! staging route and swaps the two.
 
 use std::io;
 use std::net::TcpStream;
@@ -49,9 +52,19 @@ const TEMPLATE: &str = include_str!("../remote/index.html");
 const TOKENS: &str = include_str!("../../../src/tokens.css");
 
 /// The repertory token sheet (#145–#149), the same file the window imports. The
-/// staged surface at `?ui=repertory` reads `--rep-*` from here; the old surface
-/// never sets `data-ui="repertory"`, so the sheet is inert for it.
+/// staged surface at `/next` reads `--rep-*` from here; the old surface never
+/// sets `data-ui="repertory"`, so the sheet is inert for it.
 const REPERTORY_TOKENS: &str = include_str!("../../../src/shell/repertory/tokens.css");
+
+/// The same drawn icon set the window renders (#153), spliced into the served
+/// page as a symbol sprite (#159). One set, two clients.
+const REPERTORY_ICONS: &str = include_str!("../remote/icons.svg");
+
+/// Motion's vanilla `animate`, the one asset the page fetches outside its own
+/// document (ADR-0031 §1). The file is committed and version-pinned; the route
+/// carries that version and is served `immutable`.
+const MOTION_PATH: &str = "/motion-14.7.1.js";
+const MOTION: &[u8] = include_bytes!("../remote/motion-14.7.1.js");
 
 /// The faces the repertory token sheet names (#153). The window loads them from
 /// its own origin; the served page receives the same bytes at `/fonts/<name>`,
@@ -88,15 +101,17 @@ const KEY_INTENTS_SOURCE: &str = include_str!("../../../src/input.ts");
 /// valid document before it is spliced, and it is consumed in [`splice`].
 const TOKENS_MARKER: &str = "/*__SPLICE_TOKENS__*/";
 const REPERTORY_TOKENS_MARKER: &str = "/*__SPLICE_REPERTORY_TOKENS__*/";
+const REPERTORY_ICONS_MARKER: &str = "<!--__SPLICE_REPERTORY_ICONS__-->";
 const SUBTITLE_LANGUAGES_MARKER: &str = "/*__SPLICE_SUBTITLE_LANGUAGES__*/";
 const SUBTITLE_APPEARANCE_MARKER: &str = "/*__SPLICE_SUBTITLE_APPEARANCE__*/";
 const STREAM_BUFFER_MARKER: &str = "/*__SPLICE_STREAM_BUFFER__*/";
 const TMDB_LOGO_MARKER: &str = "/*__SPLICE_TMDB_LOGO__*/";
 
 /// Every marker the template must carry, in the order it is spliced.
-const MARKERS: [&str; 6] = [
+const MARKERS: [&str; 7] = [
     TOKENS_MARKER,
     REPERTORY_TOKENS_MARKER,
+    REPERTORY_ICONS_MARKER,
     SUBTITLE_LANGUAGES_MARKER,
     SUBTITLE_APPEARANCE_MARKER,
     STREAM_BUFFER_MARKER,
@@ -125,10 +140,37 @@ fn splice(template: &str) -> String {
     template
         .replace(TOKENS_MARKER, TOKENS)
         .replace(REPERTORY_TOKENS_MARKER, REPERTORY_TOKENS)
+        .replace(REPERTORY_ICONS_MARKER, REPERTORY_ICONS)
         .replace(SUBTITLE_LANGUAGES_MARKER, SUBTITLE_LANGUAGES)
         .replace(SUBTITLE_APPEARANCE_MARKER, SUBTITLE_APPEARANCE)
         .replace(STREAM_BUFFER_MARKER, STREAM_BUFFER)
         .replace(TMDB_LOGO_MARKER, TMDB_LOGO)
+}
+
+/// The repertory staging document (#152): the same bytes with the one attribute
+/// the token sheet and the remote's drawing are scoped to injected on `<html>`,
+/// before the first paint. `/` never carries it.
+fn next_page() -> &'static str {
+    static NEXT: OnceLock<String> = OnceLock::new();
+    NEXT.get_or_init(|| {
+        let start = "<html lang=\"en\">";
+        let staged = "<html lang=\"en\" data-ui=\"repertory\">";
+        let page = page();
+        assert!(
+            page.contains(start),
+            "the remote document opens with the html element the staging route sets"
+        );
+        page.replacen(start, staged, 1)
+    })
+}
+
+/// The document a GET path asks for, where it asks for one.
+fn document(path: &str) -> Option<&'static str> {
+    match path {
+        "/" | "/index.html" => Some(page()),
+        "/next" => Some(next_page()),
+        _ => None,
+    }
 }
 
 /// The bytes of one requested face, by the name in its `/fonts/` URL.
@@ -144,33 +186,45 @@ fn font(path: &str) -> Option<&'static [u8]> {
 
 /// Answer a request that is not an upgrade: the page, its faces, or nothing.
 pub(crate) fn serve(stream: &mut TcpStream, request: &Request) -> io::Result<()> {
-    match (request.method.as_str(), request.path.as_str()) {
+    if request.method == "GET" {
         // The page is the whole client, so it is served for both the bare host
-        // and the name a browser might append to it.
-        ("GET", "/") | ("GET", "/index.html") => http::write_document(
-            stream,
-            "200 OK",
-            "text/html; charset=utf-8",
-            page().as_bytes(),
-        ),
-        // A browser asks for this whether or not the page offers one; saying no
-        // is quieter than a 200 with nothing in it.
-        ("GET", "/favicon.ico") => {
-            http::write_document(stream, "404 Not Found", "text/plain; charset=utf-8", b"")
+        // and the name a browser might append to it. `/next` is the staged
+        // repertory document; `/` keeps the old surface until the cutover.
+        if let Some(document) = document(&request.path) {
+            return http::write_document(
+                stream,
+                "200 OK",
+                "text/html; charset=utf-8",
+                document.as_bytes(),
+            );
+        }
+        // One versioned asset, its URL naming the version, so it can be cached
+        // for good (ADR-0031 §1).
+        if request.path == MOTION_PATH {
+            return http::write_immutable_asset(stream, "text/javascript; charset=utf-8", MOTION);
         }
         // The token sheet's `@font-face` rules name these files by absolute
         // path, so the window and the served page read one set of bytes.
-        ("GET", path) if path.starts_with("/fonts/") => match font(path) {
-            Some(bytes) => http::write_asset(stream, "font/woff2", bytes),
-            None => http::write_document(stream, "404 Not Found", "text/plain; charset=utf-8", b""),
-        },
-        _ => http::write_document(
-            stream,
-            "404 Not Found",
-            "text/plain; charset=utf-8",
-            b"the Host serves one page, its fonts and its socket\n",
-        ),
+        if request.path.starts_with("/fonts/") {
+            return match font(&request.path) {
+                Some(bytes) => http::write_asset(stream, "font/woff2", bytes),
+                None => {
+                    http::write_document(stream, "404 Not Found", "text/plain; charset=utf-8", b"")
+                }
+            };
+        }
+        // A browser asks for this whether or not the page offers one; saying no
+        // is quieter than a 200 with nothing in it.
+        if request.path == "/favicon.ico" {
+            return http::write_document(stream, "404 Not Found", "text/plain; charset=utf-8", b"");
+        }
     }
+    http::write_document(
+        stream,
+        "404 Not Found",
+        "text/plain; charset=utf-8",
+        b"the Host serves one page, its fonts, its motion asset and its socket\n",
+    )
 }
 
 #[cfg(test)]
@@ -178,9 +232,44 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use super::{
-        font, page, KEY_INTENTS_SOURCE, MARKERS, REPERTORY_TOKENS, STREAM_BUFFER,
-        SUBTITLE_APPEARANCE, SUBTITLE_LANGUAGES, TEMPLATE, TMDB_LOGO, TOKENS,
+        document, font, next_page, page, KEY_INTENTS_SOURCE, MARKERS, MOTION, MOTION_PATH,
+        REPERTORY_ICONS, REPERTORY_TOKENS, STREAM_BUFFER, SUBTITLE_APPEARANCE, SUBTITLE_LANGUAGES,
+        TEMPLATE, TMDB_LOGO, TOKENS,
     };
+
+    const ICONS_SOURCE: &str = include_str!("../../../src/shell/repertory/icons.tsx");
+    const PACKAGE_JSON: &str = include_str!("../../../package.json");
+
+    /// Every SVG path `d` attribute in a source, for the sprite/window compare.
+    fn d_paths(source: &str) -> BTreeSet<String> {
+        let mut paths = BTreeSet::new();
+        let mut rest = source;
+        while let Some(start) = rest.find(" d=\"") {
+            let after = &rest[start + 4..];
+            let end = after.find('"').expect("an SVG path is quoted");
+            paths.insert(after[..end].to_owned());
+            rest = &after[end..];
+        }
+        paths
+    }
+
+    /// The names `icons.tsx` declares, in the order the window renders them.
+    fn icon_names(source: &str) -> Vec<String> {
+        let start = source
+            .find("export const ICON_NAMES = [")
+            .expect("the window declares its icon names")
+            + "export const ICON_NAMES = [".len();
+        let end = source[start..]
+            .find("] as const")
+            .expect("the icon-name list is closed")
+            + start;
+        source[start..end]
+            .split('"')
+            .skip(1)
+            .step_by(2)
+            .map(str::to_owned)
+            .collect()
+    }
 
     /// The page's capability list: the Actions it says it can send, read out of
     /// the JSON block it carries for exactly this purpose.
@@ -532,31 +621,125 @@ mod tests {
     }
 
     #[test]
-    fn the_repertory_surface_is_staged_behind_a_query() {
-        // #149's staging assumption, explicitly provisional: the old page at
-        // `/` keeps its surface and its palette, and `?ui=repertory` sets the
-        // one attribute the repertory sheet is scoped to. #152 decides the
-        // final staging; this test is the guard that the selector stays
-        // additive while it is the bridge.
+    fn the_next_route_is_the_same_document_with_the_repertory_attribute() {
+        // #152's staging: `/next` serves the one compiled-in document with
+        // `data-ui="repertory"` injected on `<html>`; `/` keeps the old surface.
+        // The prototype `?ui` selector is not carried.
+        let staged = next_page();
+        assert!(
+            staged.starts_with("<!doctype html>\n<html lang=\"en\" data-ui=\"repertory\">"),
+            "the staging attribute is on the html element, before the first paint"
+        );
+        assert!(
+            staged.replacen(" data-ui=\"repertory\"", "", 1) == page(),
+            "/next is the same document as /, with one attribute"
+        );
+        assert!(!page().contains("<html lang=\"en\" data-ui=\"repertory\">"));
+        assert_eq!(document("/"), Some(page()));
+        assert_eq!(document("/index.html"), Some(page()));
+        assert_eq!(document("/next"), Some(next_page()));
+        assert!(document("/next/").is_none());
+
         let served = page();
         for needle in [
-            "URLSearchParams",
-            "get(\"ui\")",
-            "data-ui",
-            "\"repertory\"",
             "html[data-ui=\"repertory\"]",
+            "\"repertory\"",
+            "pairing-card",
         ] {
             assert!(served.contains(needle), "the served page carries {needle}");
         }
         assert!(
-            !TEMPLATE.contains("dataset.ui = \"repertory\";\n      document"),
-            "the template does not set the repertory attribute unconditionally"
+            !served.contains("URLSearchParams"),
+            "the ?ui bridge is gone"
         );
-        // The old surface's own selectors are not scoped to the new attribute:
-        // the page at `/` is still the Velvet one.
+        assert!(!served.contains("get(\"ui\")"), "the ?ui bridge is gone");
         assert!(
-            TEMPLATE.contains(".pairing-card"),
-            "the template still carries the old surface"
+            !TEMPLATE.contains("dataset.ui = \"repertory\";\n      document"),
+            "the template does not set the repertory attribute itself"
+        );
+    }
+
+    #[test]
+    fn the_repertory_surface_carries_the_one_drawn_icon_set() {
+        // #159: the page receives the same symbols the window's `icons.tsx`
+        // declares, spliced as one sprite. A name added to the window must
+        // reach the Remote, or the page would draw nothing for it.
+        let names = icon_names(ICONS_SOURCE);
+        assert_eq!(names.len(), 25, "the window declares the drawn set");
+        for name in &names {
+            let needle = format!("id=\"rep-icon-{name}\"");
+            assert!(
+                REPERTORY_ICONS.contains(&needle),
+                "the sprite carries {needle}"
+            );
+            assert!(page().contains(&needle), "the served page carries {needle}");
+        }
+
+        // The vectors are one drawing, not two that happen to share names: a
+        // path changed in the window has to change in the sprite.
+        let window_paths = d_paths(ICONS_SOURCE);
+        let sprite_paths = d_paths(REPERTORY_ICONS);
+        assert!(!sprite_paths.is_empty(), "the sprite carries drawings");
+        for path in &sprite_paths {
+            assert!(
+                window_paths.contains(path),
+                "the sprite draws a path the window does not: {path}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_motion_asset_is_pinned_licensed_and_read_by_the_module_script() {
+        // ADR-0031: one committed, version-pinned ESM bundle, imported by one
+        // module script that boots only on the staged surface. The spring
+        // durations are read from the token sheet, not copied into the page.
+        let package: serde_json::Value =
+            serde_json::from_str(PACKAGE_JSON).expect("package.json is JSON");
+        let dependency = package["dependencies"]["motion"]
+            .as_str()
+            .expect("the window depends on Motion");
+        let pinned = dependency.trim_start_matches(['^', '~', '=']);
+        assert_eq!(
+            MOTION_PATH,
+            format!("/motion-{pinned}.js"),
+            "the asset's URL names the dependency's version"
+        );
+        let bundle = std::str::from_utf8(MOTION).expect("the Motion bundle is UTF-8");
+        assert!(
+            bundle.starts_with("/*! Motion v14.7.1 | MIT"),
+            "the bundle carries its version and licence"
+        );
+        assert!(bundle.contains("export"), "the bundle is an ES module");
+
+        let served = page();
+        for needle in [
+            MOTION_PATH,
+            "type=\"module\"",
+            "startRepertoryMotion",
+            "prefers-reduced-motion: reduce",
+            "motionSeconds(\"--rep-motion-panel\", 0.24)",
+            "motionSeconds(\"--rep-motion-fade\", 0.14)",
+            "visualDuration",
+            "bounce: 0",
+        ] {
+            assert!(served.contains(needle), "the served page carries {needle}");
+        }
+        // The import is inside the repertory branch, so `/` never runs it.
+        let module_start = served
+            .find("<script type=\"module\">")
+            .expect("the page has one module script");
+        let module_end = served[module_start..]
+            .find("</script>")
+            .map(|offset| module_start + offset)
+            .expect("the module script is closed");
+        let module = &served[module_start..module_end];
+        assert!(
+            module.contains("document.documentElement.dataset.ui === \"repertory\""),
+            "the one module script boots only on the staged surface"
+        );
+        assert!(
+            module.contains("import(\"/motion-14.7.1.js\")"),
+            "the asset is imported, not inlined"
         );
     }
 
@@ -573,7 +756,7 @@ mod tests {
             "function renderSheetMenu",
             "function openMenu",
             "function renderCastMenus",
-            "function muteIcon",
+            r#"mark(p.muted ? "volume-muted" : "volume""#,
             r#"case "episodes": return renderEpisodesSheet();"#,
             r#"case "speed": return html`"#,
             "renderChaptersBody(p, \"sheet-\")",
@@ -598,9 +781,9 @@ mod tests {
             .find("function renderCastMenus")
             .expect("the repertory card draws its menu row");
         let end = served[start..]
-            .find("function muteIcon")
+            .find("function renderCastBody")
             .map(|offset| start + offset)
-            .expect("the menu row is followed by the mute icon");
+            .expect("the menu row is followed by the card body");
         let menus = &served[start..end];
         assert_eq!(
             menus.matches("class=\"utility\"").count(),
