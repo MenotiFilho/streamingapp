@@ -291,7 +291,10 @@ system; #159 replaces the prototype's Unicode.
   the Host's register on the right — and an open Addon row carries the
   manifest's own facts as a compact 2×2 (**Id**, Catalogs, Resources, Types)
   plus **Move up**, **Move down** and **Remove**. A narrow window stacks the
-  columns and lets the register scroll under the form.
+  columns and lets the register scroll under the form. The signed-in Library is
+  the one exception: its account collection is a shelf of poster cards (§9),
+  not a hairline register; the gate and the one-line head keep the register's
+  grammar.
 
 ### Cards
 
@@ -306,7 +309,9 @@ system; #159 replaces the prototype's Unicode.
 - **Rail**: one view shows five cards and half of the next; an arrow pages
   exactly five cards. The last card is a **More** card that opens the whole row
   as a grid. Entering a rail from outside a rail starts at its first card;
-  moving between rails keeps the nearest card.
+  moving between rails keeps the nearest card. A feed row is its own source: its
+  quiet head action asks the Host's next page, and its More card opens the cards
+  read so far; the grid does not ask a page of its own.
 - **Feature**: the backdrop between two hairlines, a two-gradient ink scrim, the
   Title in display serif over it, the kicker in mono (`Feature presentation` and
   the programme's position), one line of facts, the description, and one

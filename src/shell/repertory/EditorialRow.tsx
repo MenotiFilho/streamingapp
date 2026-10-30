@@ -1,7 +1,7 @@
 import { Children, type ReactNode } from "react";
 
 import { explain, type ActionError } from "../../host-client";
-import { RowTrack } from "./kit";
+import { Button, RowTrack } from "./kit";
 import { RAIL_PAGE, RAIL_VISIBLE } from "./rail";
 import { RailMoreCard } from "./RailMoreCard";
 
@@ -74,5 +74,31 @@ export function EditorialRow({
       ) : null}
       {note ? <p className="rep-feed-note">{note}</p> : null}
     </div>
+  );
+}
+
+/**
+ * A feed row's paging action: the next page when there is one, or the failed
+ * page again. The control is quiet; the wait disables it rather than drawing a
+ * spinner on a line a person can still read (design record §9).
+ */
+export function FeedPagingAction({
+  failure,
+  more,
+  loading,
+  onMore,
+}: {
+  failure?: ActionError | null;
+  more: boolean;
+  loading: boolean;
+  onMore: () => void;
+}) {
+  if (!failure && !more) {
+    return null;
+  }
+  return (
+    <Button variant="ghost" disabled={loading} onClick={onMore}>
+      {failure ? "Try again" : "Read on"}
+    </Button>
   );
 }

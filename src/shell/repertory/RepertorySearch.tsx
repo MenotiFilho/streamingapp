@@ -25,12 +25,12 @@ import {
 import { SERIES } from "../../title";
 import { SEARCH_KINDS, searchAsk, type SearchKind } from "../search";
 import { useShell } from "../context";
-import { addonName } from "../home";
+import { addonLabel } from "../home";
 import { useTitleOpener } from "../TitleScreen";
 import { usePreviewData } from "./context";
 import { feedMore, feedState, rowsForKind } from "./editorial";
 import { EditorialGrid } from "./EditorialGrid";
-import { EditorialRow } from "./EditorialRow";
+import { EditorialRow, FeedPagingAction } from "./EditorialRow";
 import { Button, ChoiceChip, PosterCard } from "./kit";
 import { ProgrammeLine } from "./ProgrammeLine";
 import { rowTagOf, yearOf } from "./program";
@@ -49,7 +49,7 @@ type CatalogAnswer = {
   failure: ActionError | null;
 };
 
-const NO_CATALOG_ANSWER: CatalogAnswer = {
+const CATALOG_NOT_ASKED: CatalogAnswer = {
   rows: null,
   loading: false,
   failure: null,
@@ -84,7 +84,7 @@ export function RepertorySearchScreen() {
   const [committed, setCommitted] = useState<string | null>(null);
   const [rows, setRows] = useState<KeyedFeeds>(blankKeyedFeeds);
   const [paging, setPaging] = useState<SearchKind[]>([]);
-  const [catalogAnswer, setCatalogAnswer] = useState<CatalogAnswer>(NO_CATALOG_ANSWER);
+  const [catalogAnswer, setCatalogAnswer] = useState<CatalogAnswer>(CATALOG_NOT_ASKED);
   /**
    * Which query owns the screen. A submit moves it on, so an answer to a query
    * a person has left — or to a paged row of that query — is dropped rather
@@ -99,7 +99,7 @@ export function RepertorySearchScreen() {
     setCommitted(null);
     setRows(blankKeyedFeeds());
     setPaging([]);
-    setCatalogAnswer(NO_CATALOG_ANSWER);
+    setCatalogAnswer(CATALOG_NOT_ASKED);
   }, []);
 
   // A credential added or cleared changes which arm a query takes. The rows of
@@ -180,11 +180,6 @@ export function RepertorySearchScreen() {
     void loadRow(committed, kind, rows[kind].page + 1);
   };
 
-  /**
-   * Down from the submit control enters the first results row's first card by
-   * the shell's own rule: the bar is a branch, so a move into a row starts at
-   * that row's first card (design record §5; ADR-0025).
-   */
   const canSubmit = draft.trim().length > 0;
   // The keyless arm answers one row per Catalog; the repertory surface shows
   // the kind a person chose.
@@ -263,15 +258,14 @@ export function RepertorySearchScreen() {
     });
   };
 
-  const keyedAction = shownFeed.failure ? (
-    <Button variant="ghost" disabled={shownLoading} onClick={() => more(shownKind)}>
-      Try again
-    </Button>
-  ) : feedMore(shownFeed) ? (
-    <Button variant="ghost" disabled={shownLoading} onClick={() => more(shownKind)}>
-      Read on
-    </Button>
-  ) : null;
+  const keyedAction = (
+    <FeedPagingAction
+      failure={shownFeed.failure}
+      more={feedMore(shownFeed)}
+      loading={shownLoading}
+      onMore={() => more(shownKind)}
+    />
+  );
 
   const catalogCard = (row: CatalogRow, meta: MetaPreview, testId: string) => (
     <PosterCard
@@ -287,11 +281,7 @@ export function RepertorySearchScreen() {
   );
 
   const catalogTag = (row: CatalogRow) =>
-    rowTagOf(
-      addonName(snapshot, row.addon) ?? row.addon,
-      row.type,
-      row.metas.length,
-    );
+    rowTagOf(addonLabel(snapshot, row.addon), row.type, row.metas.length);
 
   const openCatalogGrid = (row: CatalogRow) => {
     push({
@@ -328,6 +318,8 @@ export function RepertorySearchScreen() {
 
       {snapshot !== null ? (
         <>
+          {/* The bar is a branch, not a row: Down from it enters the first
+              result row's first card by the shell's rowEntry rule. */}
           <form
             className="rep-search-bar"
             role="search"
@@ -396,9 +388,7 @@ export function RepertorySearchScreen() {
                 note={keyedNote}
                 region={`search-row:${shownKind}`}
                 onOpenRow={
-                  !shownLoading && shownFeed.items.length > 0
-                    ? openKeyedGrid
-                    : undefined
+                  shownFeed.items.length > 0 ? openKeyedGrid : undefined
                 }
                 testId={`search-row-${shownKind}`}
               >
@@ -438,6 +428,16 @@ export function RepertorySearchScreen() {
                   tag={catalogTag(row)}
                   failure={row.failure}
                   note={catalogNote(row)}
+                  action={
+                    row.failure ? (
+                      <Button
+                        variant="ghost"
+                        onClick={() => committed && void loadCatalogs(committed)}
+                      >
+                        Search again
+                      </Button>
+                    ) : null
+                  }
                   region={`search-row:${keyOf(row)}`}
                   onOpenRow={row.metas.length > 0 ? () => openCatalogGrid(row) : undefined}
                   testId={`search-row-${keyOf(row)}`}

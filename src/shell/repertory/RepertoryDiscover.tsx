@@ -21,6 +21,7 @@ import { useTitleOpener } from "../TitleScreen";
 import { usePreviewData } from "./context";
 import {
   discoverEmptyNote,
+  discoverNoKey,
   discoverTag,
   feedMore,
   feedState,
@@ -29,7 +30,7 @@ import {
   type GenreChoice,
 } from "./editorial";
 import { EditorialGrid } from "./EditorialGrid";
-import { EditorialRow } from "./EditorialRow";
+import { EditorialRow, FeedPagingAction } from "./EditorialRow";
 import { Button, ChoiceChip, PosterCard } from "./kit";
 import { PREVIEW_ADDON } from "./preview";
 import { ProgrammeLine } from "./ProgrammeLine";
@@ -141,6 +142,7 @@ export function RepertoryDiscoverScreen() {
 
   const genres = genresFor(source, kind);
   const label = kind === MOVIE ? "Films" : "Series";
+  const noKey = discoverNoKey();
   const state = feedState(feed, loading);
   const couldPlay = snapshot === null ? true : discoverPlayable(snapshot.addons, kind);
   const tag =
@@ -204,15 +206,6 @@ export function RepertoryDiscoverScreen() {
   };
 
   const retry = () => void load(feed.page + 1, offset);
-  const action = feed.failure ? (
-    <Button variant="ghost" disabled={loading} onClick={retry}>
-      Try again
-    </Button>
-  ) : feedMore(feed) ? (
-    <Button variant="ghost" disabled={loading} onClick={retry}>
-      Read on
-    </Button>
-  ) : null;
 
   return (
     <section
@@ -230,14 +223,10 @@ export function RepertoryDiscoverScreen() {
 
       {snapshot !== null && !preview && !keyed ? (
         <section className="rep-feed-empty" data-testid="discover-no-key">
-          <h2 className="rep-feed-empty-title">Discover is powered by TMDB</h2>
-          <p className="rep-feed-empty-body">
-            TMDB supplies the weekly Trending feed and the genres it can be filtered
-            by. Add a TMDB API key in <strong>Settings → Credentials</strong> to
-            browse it.
-          </p>
+          <h2 className="rep-feed-empty-title">{noKey.title}</h2>
+          <p className="rep-feed-empty-body">{noKey.body}</p>
           <Button variant="primary" onClick={() => push(repertoryCredentialsLevel())}>
-            Open Settings → Credentials
+            {noKey.action}
           </Button>
         </section>
       ) : null}
@@ -290,13 +279,18 @@ export function RepertoryDiscoverScreen() {
             title={label}
             index={programIndex(1)}
             tag={tag}
-            action={action}
+            action={
+              <FeedPagingAction
+                failure={feed.failure}
+                more={feedMore(feed)}
+                loading={loading}
+                onMore={retry}
+              />
+            }
             failure={feed.failure}
             note={note}
             region={`discover:${kind}`}
-            onOpenRow={
-              !loading && feed.items.length > 0 ? openGrid : undefined
-            }
+            onOpenRow={feed.items.length > 0 ? openGrid : undefined}
             testId={`discover-section-${kind}`}
           >
             {feed.items.map((meta) => card(meta, `discover-card-${meta.id}`))}

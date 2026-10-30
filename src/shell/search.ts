@@ -22,9 +22,10 @@ import { SERIES } from "../title";
 export type SearchKind = DiscoverKind;
 
 /**
- * The rows the keyed arm always draws, in the order it draws them. There is no
- * kind toggle: a query is asked once per kind and both answers stand side by
- * side (ADR-0010's amendment).
+ * The two kinds the keyed arm asks, in the order it asks them. A query is
+ * asked once per kind and both answers are held; the Velvet surface draws both
+ * rows, and the repertory surface draws one at a time behind its chips (ADR-0010's
+ * amendment, narrowed for the repertory in #156).
  */
 export const SEARCH_KINDS: ReadonlyArray<{ kind: SearchKind; label: string }> = [
   { kind: MOVIE, label: "Movies" },

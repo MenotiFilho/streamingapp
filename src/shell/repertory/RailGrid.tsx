@@ -6,8 +6,9 @@ import { cardName, cardNote, progressOf, resumable } from "../../library";
 import { useShell } from "../context";
 import { continueArt } from "../home";
 import { rowTag } from "./homeProgramme";
-import { Button, ContinueWatchingCard, PosterCard } from "./kit";
+import { ContinueWatchingCard, PosterCard } from "./kit";
 import { yearOf } from "./program";
+import { RailGridHead } from "./RailGridHead";
 
 export type RailGridProps = {
   /**
@@ -80,15 +81,7 @@ export function RailGrid({
       data-label={`All of ${name}`}
       aria-label={`All of ${name}`}
     >
-      <header className="rep-rail-grid-head">
-        {index ? <span className="rep-rail-grid-index">{index}</span> : null}
-        <h2 className="rep-rail-grid-title">{name}</h2>
-        <span className="rep-rail-grid-rule" aria-hidden="true" />
-        {tag ? <span className="rep-rail-grid-tag">{tag}</span> : null}
-        <Button variant="ghost" className="rep-rail-grid-close" onClick={onClose}>
-          Back
-        </Button>
-      </header>
+      <RailGridHead title={name} index={index} tag={tag} onClose={onClose} />
 
       {rowKey === null ? (
         <div className="rep-rail-grid-cards" data-rail="continue">

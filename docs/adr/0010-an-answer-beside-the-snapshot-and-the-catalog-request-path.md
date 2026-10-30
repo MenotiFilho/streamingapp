@@ -10,6 +10,12 @@
 > toggle — and the Addons' catalogs are not asked at all. The ranking/merging
 > rejection below stands for both arms. The search section below is revised;
 > the rest of this ADR is untouched.
+>
+> **Amended again by the repertory map (#146, built in #156).** The TMDB arm is
+> still asked once per kind and both answers are still held; the repertory
+> surface shows one kind at a time behind the single-select Movie/Series chips
+> (Movie on landing), while the Velvet surface keeps the two rows. The Action,
+> the answer shape and the per-row paging are unchanged.
 
 Ticket #23 ("Browse and search the catalogs") is the first ticket that *reads*
 from an Addon rather than configuring one, and the first that has to get something
@@ -140,7 +146,9 @@ Ticket #64 split this rule in two, gated on the Snapshot's `protection.tmdb_held
 `Action::Search { query, kind, page }` — a query, a kind (`movie`/`series`) and a
 page — answered with one `Answer::Search(SearchRow)`. The client fires it once per
 kind to draw the screen's **Movies row and Series row** (there is no toggle; both
-always show), and again per kind to page one row on its own. The row is the shape
+always show; the repertory surface narrows the drawing to one kind at a time —
+see the amendment at the top), and again per kind to page one row on its own. The
+row is the shape
 a `DiscoverRow` is — the items, and a `failure` — so a client draws it with the
 card it already draws for Discover, and a hit opens as a Discovered Title
 (ADR-0020). Like Discover, the TMDB arm is **not cached**, and a failed call, the

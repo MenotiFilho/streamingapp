@@ -87,13 +87,33 @@ export function feedState(feed: DiscoverFeed, loading: boolean): FeedState {
   return "ready";
 }
 
-/** A Discover row's bookkeeping: the filter that made it, or Trending, and the count. */
+/** A Discover feed's bookkeeping: the filter that made it, or Trending, and the count. */
 export function discoverTag(
   kind: DiscoverKind,
   genre: GenreChoice | null,
   count: number,
 ): string {
   return rowTagOf(genre?.name ?? "Trending", kind, count);
+}
+
+/**
+ * Discover with no TMDB Credential: the words the screen prints so it says what
+ * powers it and where the key goes rather than disappearing (ADR-0020). The
+ * copy is the state's rule, so it lives here and a test asks the seam.
+ */
+export type DiscoverNoKey = {
+  title: string;
+  body: string;
+  action: string;
+};
+
+export function discoverNoKey(): DiscoverNoKey {
+  return {
+    title: "Discover is powered by TMDB",
+    body:
+      "TMDB supplies the weekly Trending feed and the genres it can be filtered by. Add a TMDB API key in Settings → Credentials to browse it.",
+    action: "Open Settings → Credentials",
+  };
 }
 
 /** The one line an empty Discover feed prints: what happened, and the way on. */

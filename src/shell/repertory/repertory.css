@@ -442,7 +442,8 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   margin-left: var(--rep-space-3);
 }
 
-.rep-rail-grid-cards {
+.rep-rail-grid-cards,
+.rep-library-grid {
   display: grid;
   grid-template-columns: repeat(
     auto-fill,
@@ -450,6 +451,7 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   );
   gap: var(--rep-space-6) var(--rep-row-gap);
   margin-top: var(--rep-space-6);
+  min-width: 0;
 }
 
 .rep-rail-grid-cards[data-rail="continue"] {
@@ -1865,11 +1867,6 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
   line-height: var(--rep-leading-body);
 }
 
-.rep-feed-empty strong {
-  color: var(--rep-ivory);
-  font-weight: 500;
-}
-
 /* The query bar: one display-serif line over the ink, the submit at its end. */
 .rep-search-bar {
   display: grid;
@@ -1920,17 +1917,7 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
   gap: var(--rep-space-2);
 }
 
-/* The account Library's shelf: the same poster cards the feeds use. */
-.rep-library-grid {
-  display: grid;
-  grid-template-columns: repeat(
-    auto-fill,
-    minmax(max(160px, calc(var(--rep-stage) * 8.4)), 1fr)
-  );
-  gap: var(--rep-space-6) var(--rep-row-gap);
-  margin-top: var(--rep-space-6);
-  min-width: 0;
-}
+/* The account Library's shelf shares the whole-row poster grid's measure. */
 
 /* --------------------------------------------------------------------------
  * The logbook: Addons, Settings, Library, and pairing (#147)

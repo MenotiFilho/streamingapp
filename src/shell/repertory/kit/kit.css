@@ -431,10 +431,6 @@ html[data-ui="repertory"] .rep-kit-poster:not([data-focusable]) {
   cursor: default;
 }
 
-html[data-ui="repertory"] .rep-kit-poster[data-unplayable="true"] .rep-kit-poster-name {
-  color: var(--rep-ivory);
-}
-
 /* --------------------------------------------------------------------------
  * Continue watching card — 16:9 still, a 2px brass line under it
  * -------------------------------------------------------------------------- */

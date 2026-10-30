@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 
 import { explain, type ActionError } from "../../host-client";
-import { Button } from "./kit";
+import { RailGridHead } from "./RailGridHead";
 
 /**
  * One editorial row opened as a whole: the cards the rail has read so far in
@@ -40,15 +40,13 @@ export function EditorialGrid({
       aria-label={`All of ${title}`}
       data-testid={testId}
     >
-      <header className="rep-rail-grid-head">
-        {index ? <span className="rep-rail-grid-index">{index}</span> : null}
-        <h2 className="rep-rail-grid-title">{title}</h2>
-        <span className="rep-rail-grid-rule" aria-hidden="true" />
-        {tag ? <span className="rep-rail-grid-tag">{tag}</span> : null}
-        <Button variant="ghost" className="rep-rail-grid-close" autoFocus onClick={onClose}>
-          Back
-        </Button>
-      </header>
+      <RailGridHead
+        title={title}
+        index={index}
+        tag={tag}
+        onClose={onClose}
+        autoFocus
+      />
 
       <div className="rep-rail-grid-cards" data-rail="poster">
         {children}

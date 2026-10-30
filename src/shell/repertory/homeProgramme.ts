@@ -1,6 +1,6 @@
 import type { Row } from "../../browse";
 import type { Snapshot } from "../../host-client";
-import { addonName } from "../home";
+import { addonLabel } from "../home";
 import { programIndex, rowTagOf } from "./program";
 import { RAIL_PAGE, RAIL_VISIBLE } from "./rail";
 
@@ -43,7 +43,7 @@ export const HOME_RAIL_ITEMS = 20;
  */
 export function rowTag(snapshot: Snapshot | null, row: Row, limit?: number): string {
   const count = limit === undefined ? row.metas.length : Math.min(row.metas.length, limit);
-  return rowTagOf(addonName(snapshot, row.addon) ?? row.addon, row.type, count);
+  return rowTagOf(addonLabel(snapshot, row.addon), row.type, count);
 }
 
 /** The feature's position in the programme: `01 / 04`, or one showing. */

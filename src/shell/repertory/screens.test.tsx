@@ -1,15 +1,18 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  HostClient,
   type Action,
   type AddonManifest,
   type CatalogRow,
   type Snapshot,
   type Stream,
   type Title,
+  type Transport,
 } from "../../host-client";
+import { Shell } from "../Shell";
 import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContextValue } from "../context";
 import { HomeStore } from "../homeStore";
 import { PreviewDataProvider } from "./context";
@@ -662,9 +665,7 @@ describe("the repertory Discover feed against the Host", () => {
 
     render(withShell(value, <RepertoryDiscoverScreen />));
 
-    expect(screen.getByTestId("discover-no-key")).toHaveTextContent(
-      "Discover is powered by TMDB",
-    );
+    expect(screen.getByTestId("discover-no-key")).toBeInTheDocument();
     expect(screen.getByTestId("discover-tmdb-notice")).toBeInTheDocument();
     expect(actions(ask)).toEqual([]);
 
@@ -860,6 +861,13 @@ describe("the repertory Search feed against the Host", () => {
     fireEvent.click(screen.getByTestId("search-kind-series"));
     const series = await screen.findByTestId("search-row-cinemeta/series/top");
     expect(within(series).getByRole("alert")).toHaveTextContent("status 503");
+
+    fireEvent.click(within(series).getByRole("button", { name: "Search again" }));
+    await waitFor(() =>
+      expect(
+        actions(ask).filter((action) => action.type === "search_catalogs"),
+      ).toHaveLength(2),
+    );
   });
 });
 
@@ -886,5 +894,44 @@ describe("the plain Vite preview's Search", () => {
     ).toBeInTheDocument();
     expect(actions(ask)).toContainEqual({ type: "search_catalogs", query: "the" });
     expect(actions(ask).some((action) => action.type === "search")).toBe(false);
+  });
+});
+
+describe("the repertory editorial grid's backward path", () => {
+  it("opens from the More card and returns focus to it on Back", async () => {
+    const transport: Transport = {
+      invoke: async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+        if (command === "snapshot") {
+          return KEYED as T;
+        }
+        if (command === "dispatch") {
+          const action = (args?.envelope as { action: Action }).action;
+          if (action.type === "discover") {
+            return discoverAnswer(action.kind, action.page) as T;
+          }
+        }
+        return { snapshots: [], answer: null } as T;
+      },
+      listen: async <T,>(_event: string, handler: (event: { payload: T }) => void) => {
+        handler({ payload: KEYED as T });
+        return () => undefined;
+      },
+    };
+
+    render(<Shell client={new HostClient(transport)} presentation="repertory" />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Discover" }));
+    const more = await screen.findByTestId("more-discover:movie");
+
+    act(() => more.focus());
+    fireEvent.click(more);
+    await screen.findByTestId("discover-grid");
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("discover-grid")).not.toBeInTheDocument(),
+    );
+    expect(document.activeElement, "the More card the grid was opened from").toBe(more);
   });
 });

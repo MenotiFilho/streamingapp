@@ -4,6 +4,7 @@ import { blankFeed, feedWith, MOVIE, type DiscoverFeed } from "../../discover";
 import { SERIES } from "../../title";
 import {
   discoverEmptyNote,
+  discoverNoKey,
   discoverTag,
   feedMore,
   feedState,
@@ -98,6 +99,15 @@ describe("the editorial row's bookkeeping", () => {
     expect(discoverTag(MOVIE, null, 20)).toBe("Trending / 20 films");
     expect(discoverTag(SERIES, null, 1)).toBe("Trending / 1 series");
     expect(discoverTag(MOVIE, ACTION, 3)).toBe("Action / 3 films");
+  });
+
+  test("the no-key state names what powers Discover and where the key goes", () => {
+    expect(discoverNoKey()).toEqual({
+      title: "Discover is powered by TMDB",
+      body:
+        "TMDB supplies the weekly Trending feed and the genres it can be filtered by. Add a TMDB API key in Settings → Credentials to browse it.",
+      action: "Open Settings → Credentials",
+    });
   });
 
   test("an empty feed says what a person can do about it", () => {
