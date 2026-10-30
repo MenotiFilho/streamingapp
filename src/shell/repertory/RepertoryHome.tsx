@@ -12,38 +12,34 @@ import {
   catalogKey,
   declaredCatalogs,
   keyOf,
-  pageable,
   type DeclaredCatalog,
   type Row,
 } from "../../browse";
 import { explain, type MetaPreview, type ResumeEntry } from "../../host-client";
 import { cardName, cardNote, progressOf, resumable } from "../../library";
 import { useShell } from "../context";
-import { addonName, continueArt, featuredRow, heroSlides, type HeroSlide } from "../home";
+import { continueArt, featuredRow, heroSlides, type HeroSlide } from "../home";
 import { FOCUSABLE } from "../layout";
 import { focusAndReveal } from "../reveal";
 import { useReducedMotion } from "../useReducedMotion";
 import { usePreviewData } from "./context";
 import {
   FEATURE_ROTATION_MS,
-  HOME_CONTINUE_COLUMNS,
-  HOME_ROW_COLUMNS,
+  HOME_RAIL_PAGE,
+  HOME_RAIL_VISIBLE,
   featurePosition,
   featureStep,
   homeEmptyState,
   homeSectionIndex,
+  rowTag,
 } from "./homeProgramme";
 import { Button, ContinueWatchingCard, PosterCard, RowTrack } from "./kit";
 import { fade } from "./motion";
 import { ProgrammeLine } from "./ProgrammeLine";
 import { ProgramNote } from "./ProgramNote";
-import {
-  captionParts,
-  countLabel,
-  featureTitleDensity,
-  programIndex,
-  yearOf,
-} from "./program";
+import { RailGrid } from "./RailGrid";
+import { RailMoreCard } from "./RailMoreCard";
+import { captionParts, featureTitleDensity, programIndex, yearOf } from "./program";
 import "./repertory.css";
 
 /** Re-exported for a screen test that wants the beat without the component. */
@@ -169,7 +165,7 @@ function Feature({
     <section
       className="rep-feature"
       data-region="home-feature"
-      data-kind="row"
+      data-kind="branch"
       data-label="Feature presentation"
       aria-label="Feature presentation"
       data-testid="repertory-feature"
@@ -188,9 +184,18 @@ function Feature({
           const direction =
             event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : null;
           if (direction !== null) {
-            event.preventDefault();
-            event.stopPropagation();
-            step(direction);
+            if (step(direction)) {
+              event.preventDefault();
+              event.stopPropagation();
+              return;
+            }
+            // Right at the last slide stays on the feature. Left at the first
+            // is not the feature's to consume: the focus engine crosses to the
+            // spine, which is the only way out to the programme index.
+            if (direction === 1) {
+              event.preventDefault();
+              event.stopPropagation();
+            }
             return;
           }
           if (event.key === "Enter" || event.key === " ") {
@@ -259,7 +264,7 @@ function Feature({
 export function RepertoryHome() {
   const { snapshot, chosenDestination, choose, take, home, push, pop } = useShell();
   const preview = usePreviewData();
-  const { rows, answered, paging } = useSyncExternalStore(home.subscribe, home.getSnapshot);
+  const { rows, answered } = useSyncExternalStore(home.subscribe, home.getSnapshot);
   const root = useRef<HTMLElement | null>(null);
   const focusedAtLaunch = useRef(false);
 
@@ -291,8 +296,6 @@ export function RepertoryHome() {
     // Keyed on the fingerprint: a new Snapshot with the same Catalogs must not
     // refetch what this client already holds.
   }, [home, catalogFingerprint, featuredKey]);
-
-  const page = useCallback((row: Row) => home.page(keyOf(row)), [home]);
 
   const openNote = useCallback(
     (card: NoteCard) => {
@@ -341,6 +344,49 @@ export function RepertoryHome() {
     },
     [openNote, preview, take],
   );
+
+  /**
+   * A rail's More card opens the whole row as a pushed level. The level reads
+   * the row from the Home store itself, so the pages that land while it is open
+   * are drawn; the grid's Back is the shell's pop, which restores the More card
+   * exactly where it was.
+   */
+  const openRow = useCallback(
+    (row: Row, section: string) => {
+      push({
+        name: `All of ${row.name}`,
+        kind: "overlay",
+        render: () => (
+          <RailGrid
+            rowKey={keyOf(row)}
+            title={row.name}
+            index={section}
+            onOpenMeta={openMeta}
+            onOpenEntry={openEntry}
+            onClose={pop}
+          />
+        ),
+      });
+    },
+    [openEntry, openMeta, pop, push],
+  );
+
+  const openContinue = useCallback(() => {
+    push({
+      name: "All of Continue watching",
+      kind: "overlay",
+      render: () => (
+        <RailGrid
+          rowKey={null}
+          title="Continue watching"
+          index={programIndex(1)}
+          onOpenMeta={openMeta}
+          onOpenEntry={openEntry}
+          onClose={pop}
+        />
+      ),
+    });
+  }, [openEntry, openMeta, pop, push]);
 
   const featured = featuredRow(snapshot, visibleRows);
   const allSlides = heroSlides(featured?.metas ?? []);
@@ -411,7 +457,8 @@ export function RepertoryHome() {
             title="Continue watching"
             index={programIndex(1)}
             tag={`${continueWatching.length} in progress`}
-            columns={HOME_CONTINUE_COLUMNS}
+            columns={HOME_RAIL_VISIBLE}
+            page={HOME_RAIL_PAGE}
           >
             {continueWatching.map((entry) => {
               const playable = resumable(entry);
@@ -428,6 +475,13 @@ export function RepertoryHome() {
                 />
               );
             })}
+            <RailMoreCard
+              key="more"
+              title="Continue watching"
+              aspect="16:9"
+              testId="more-continue"
+              onClick={openContinue}
+            />
           </RowTrack>
         </div>
       ) : null}
@@ -445,11 +499,8 @@ export function RepertoryHome() {
       {visibleRows.map((row, index) => {
         const key = keyOf(row);
         const isAnswered = answered.has(key);
-        const canPage =
-          pageable(snapshot, row) &&
-          !row.done &&
-          (row.metas.length > 0 || row.failure !== null);
-        const tag = `${addonName(snapshot, row.addon) ?? row.addon} / ${countLabel(row.type, row.metas.length)}`;
+        const section = homeSectionIndex(index, hasContinue);
+        const tag = rowTag(snapshot, row);
         return (
           <div
             key={key}
@@ -460,20 +511,10 @@ export function RepertoryHome() {
           >
             <RowTrack
               title={row.name}
-              index={homeSectionIndex(index, hasContinue)}
+              index={section}
               tag={tag}
-              columns={HOME_ROW_COLUMNS}
-              action={
-                canPage ? (
-                  <Button
-                    variant="ghost"
-                    pending={paging.has(key)}
-                    onClick={() => page(row)}
-                  >
-                    More
-                  </Button>
-                ) : null
-              }
+              columns={HOME_RAIL_VISIBLE}
+              page={HOME_RAIL_PAGE}
             >
               {row.metas.map((meta) => (
                 <PosterCard
@@ -486,6 +527,15 @@ export function RepertoryHome() {
                   onClick={() => openMeta(meta)}
                 />
               ))}
+              {row.metas.length > 0 ? (
+                <RailMoreCard
+                  key="more"
+                  title={row.name}
+                  aspect="2:3"
+                  testId={`more-${key}`}
+                  onClick={() => openRow(row, section)}
+                />
+              ) : null}
             </RowTrack>
             {row.failure ? (
               <p role="alert" className="rep-home-note rep-home-note--failure">

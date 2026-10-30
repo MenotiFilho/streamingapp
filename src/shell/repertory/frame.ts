@@ -41,8 +41,28 @@ export function destinationTransition(): Transition {
 }
 
 /**
- * The repertory's edge rules: the rail's Left is a wall, and its Right enters
- * the first card of the content rather than the nearest row action. Everything
- * else is the shell's settled rule.
+ * The repertory's edge rules: the rail's Left is a wall, and its Right returns
+ * to the control the content was left on (or the first card when there is no
+ * history); entering a row from outside a row starts at its first card; and
+ * the window chrome's Left and Right both enter the programme's first control.
+ * Everything else is the shell's settled rule.
  */
-export const REPERTORY_RULES: Rules = { ...DEFAULT_RULES, railExit: "first" };
+export const REPERTORY_RULES: Rules = {
+  ...DEFAULT_RULES,
+  railExit: "last",
+  chromeExit: "hero",
+  rowEntry: "first",
+};
+
+/**
+ * How long after a pointer press a focus on the spine still counts as the
+ * pointer's own, not as a keyboard or programmatic arrival. A press on a
+ * compact icon picks a destination without opening the spine; a later keyboard
+ * focus reveals the labels.
+ */
+export const SPINE_POINTER_GRACE_MS = 250;
+
+/** Whether a focus should open the spine: anything not caused by a fresh pointer press. */
+export function spineOpensOnFocus(pointerAt: number, now: number): boolean {
+  return now - pointerAt > SPINE_POINTER_GRACE_MS;
+}

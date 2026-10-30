@@ -643,6 +643,66 @@ describe("entering a region", () => {
     });
   });
 
+  test("entering a row from a branch starts at its first card under rowEntry first", () => {
+    const held = layout([
+      region("level", {
+        kind: "branch",
+        label: "the level",
+        rect: rect(0, 0, 800, 600),
+        children: ["feature", "row:cards"],
+      }),
+      region("feature", {
+        kind: "branch",
+        label: "the feature",
+        parent: "level",
+        rect: rect(200, 0, 100, 80),
+        items: [rect(200, 0, 100, 80)],
+      }),
+      region("row:cards", {
+        label: "the cards",
+        parent: "level",
+        rect: rect(0, 120, 600, 100),
+        items: [rect(0, 120, 100, 100), rect(120, 120, 100, 100), rect(240, 120, 100, 100)],
+      }),
+    ]);
+
+    expect(
+      decideMove(held, { regionId: "feature", index: 0 }, "down", DEFAULT_RULES),
+      "the locked geometry covers the third card",
+    ).toMatchObject({ kind: "crossed", regionId: "row:cards", index: 2 });
+    expect(
+      decideMove(held, { regionId: "feature", index: 0 }, "down", {
+        ...DEFAULT_RULES,
+        rowEntry: "first",
+      }),
+    ).toMatchObject({
+      kind: "crossed",
+      regionId: "row:cards",
+      index: 0,
+      landedBy: "the row's first card — you came from outside a row",
+    });
+  });
+
+  test("entering a row from another row keeps the aligned landing", () => {
+    const rows = [
+      { id: "row:top", y: 0, items: cards(0, 2) },
+      { id: "row:bottom", y: 120, items: cards(120, 8) },
+    ];
+    const decision = decideMove(
+      shell(rows),
+      { regionId: "row:top", index: 1 },
+      "down",
+      { ...DEFAULT_RULES, rowEntry: "first" },
+    );
+
+    expect(decision).toMatchObject({
+      kind: "crossed",
+      regionId: "row:bottom",
+      index: 1,
+      landedBy: "the card under your middle",
+    });
+  });
+
   test("remembers where a region was left when the rules ask it to", () => {
     const rows = [
       { id: "row:top", y: 0, items: cards(0, 2) },
@@ -680,6 +740,58 @@ describe("the walls", () => {
       "right",
       { ...DEFAULT_RULES, railExit: "first" },
     );
+    expect(decision).toMatchObject({ kind: "crossed", regionId: "row:first" });
+  });
+
+  test("with history, the rail's Right returns to the control the content was left on", () => {
+    const rail = region("rail", { kind: "rail", items: [rect(0, 200, 45, 40)] });
+    const first = region("row:first", {
+      items: [rect(100, 0, 100, 100)],
+    });
+    const last = region("row:last", {
+      items: [rect(100, 300, 100, 100), rect(300, 300, 100, 100)],
+    });
+    const decision = decideMove(
+      layout([rail, first, last]),
+      { regionId: "rail", index: 0 },
+      "right",
+      { ...DEFAULT_RULES, railExit: "last" },
+      { regionId: "row:last", index: 1 },
+    );
+
+    expect(decision).toMatchObject({ kind: "crossed", regionId: "row:last", index: 1 });
+  });
+
+  test("without history, the rail's Right falls back to the first content control", () => {
+    const rail = region("rail", { kind: "rail", items: [rect(0, 200, 45, 40)] });
+    const first = region("row:first", { items: [rect(100, 0, 100, 100)] });
+    const nearest = region("row:nearest", { items: [rect(100, 200, 100, 100)] });
+    const decision = decideMove(
+      layout([rail, first, nearest]),
+      { regionId: "rail", index: 0 },
+      "right",
+      { ...DEFAULT_RULES, railExit: "last" },
+      null,
+    );
+
+    expect(decision).toMatchObject({ kind: "crossed", regionId: "row:first" });
+  });
+
+  test("a remembered region that is no longer content is not a rail exit", () => {
+    const rail = region("rail", { kind: "rail", items: [rect(0, 200, 45, 40)] });
+    const first = region("row:first", { items: [rect(100, 0, 100, 100)] });
+    const chrome = region("window", {
+      kind: "window",
+      items: [rect(100, 200, 40, 40)],
+    });
+    const decision = decideMove(
+      layout([rail, first, chrome]),
+      { regionId: "rail", index: 0 },
+      "right",
+      { ...DEFAULT_RULES, railExit: "last" },
+      { regionId: "window", index: 0 },
+    );
+
     expect(decision).toMatchObject({ kind: "crossed", regionId: "row:first" });
   });
 
@@ -796,6 +908,32 @@ describe("the walls", () => {
     );
 
     expect(decision).toMatchObject({ kind: "crossed", regionId: "window", index: 0 });
+  });
+
+  test("the repertory chrome's Left and Right both enter the first content control", () => {
+    const held = withChrome(shell([{ id: "row:one", y: 120, items: cards(120, 3) }]));
+    const screen = held.regions["screen"];
+    if (!screen) {
+      throw new Error("the fixture has no screen");
+    }
+    held.regions["hero"] = region("hero", {
+      kind: "branch",
+      label: "the feature",
+      parent: "screen",
+      rect: rect(120, 0, 800, 80),
+      items: [rect(120, 0, 800, 80)],
+    });
+    screen.children.unshift("hero");
+
+    const rules = { ...DEFAULT_RULES, chromeExit: "hero" as const };
+    expect(
+      decideMove(held, { regionId: "window", index: 0 }, "left", rules),
+      "Left leaves the fullscreen button for the hero",
+    ).toMatchObject({ kind: "crossed", regionId: "hero", index: 0 });
+    expect(
+      decideMove(held, { regionId: "window", index: 0 }, "right", rules),
+      "Right leaves it for the hero too, not for the nearest row",
+    ).toMatchObject({ kind: "crossed", regionId: "hero", index: 0 });
   });
 
   test("the strip's box decides the region when its button is farther than the rail", () => {

@@ -17,6 +17,7 @@ import { useReducedMotion } from "../../useReducedMotion";
 import { Icon } from "../icons";
 import { panel } from "../motion";
 import { cx } from "./cx";
+import { pagedOffset } from "./rowPaging";
 
 export type RowTrackProps = {
   /** The row's heading: a Catalog's name, or `Continue watching`. */
@@ -29,8 +30,16 @@ export type RowTrackProps = {
   action?: ReactNode;
   /** The cards. Each becomes one item in the horizontal track. */
   children: ReactNode;
-  /** How many cards one view holds. The cards share the width equally. */
+  /**
+   * How many cards one view holds; a half shows that the rail goes on. The
+   * cards share the width equally and the half card is the last one clipped.
+   */
   columns?: number;
+  /**
+   * How many cards one arrow press moves. Defaults to the whole view, rounded
+   * down, so a five-and-a-half-card rail pages five cards at a time.
+   */
+  page?: number;
   className?: string;
   /** A stable id for a screen's tests. */
   testId?: string;
@@ -38,16 +47,40 @@ export type RowTrackProps = {
 
 type Playback = { stop: () => void };
 
+/** The distance from one card's leading edge to the next: one card and one gap. */
+function cardPitch(node: HTMLUListElement): number {
+  const cards = node.querySelectorAll<HTMLElement>(".rep-kit-row-item");
+  const first = cards[0];
+  if (!first) {
+    return 0;
+  }
+  const start = first.getBoundingClientRect();
+  const second = cards[1];
+  if (second) {
+    const next = second.getBoundingClientRect();
+    const pitch = next.left - start.left;
+    if (pitch > 0) {
+      return pitch;
+    }
+  }
+  // A single card has no neighbour to measure against; the computed gap is
+  // enough for the one press the rail can make. An unmeasured rail answers 0
+  // and the page stays put rather than guessing.
+  const gap = Number.parseFloat(getComputedStyle(node).columnGap);
+  return Math.max(0, start.width + (Number.isFinite(gap) ? gap : 0));
+}
+
 /**
  * One horizontal row track: a numbered section head over a rail of cards.
  *
- * A view always holds the same number of cards (`columns`), each taking an equal
- * share of the width, so a row never ends in a clipped half-card. The track has
- * no scrollbar and no snapping: a mouse drag moves it directly, and the two edge
- * buttons page it one view at a time. Paging runs Motion's `animate()` on the
- * track's scroll offset with the panel preset, so a second press redirects the
- * rail mid-flight; a reduced-motion window jumps instead. The block padding
- * leaves the focus keyline room to show.
+ * A view holds `columns` cards, each taking an equal share of the width; a
+ * fractional count leaves a deliberate half card at the trailing edge. The
+ * track has no scrollbar and no snapping: a mouse drag moves it directly, and
+ * the two edge buttons page it by whole cards (`page`, the view rounded down by
+ * default). Paging runs Motion's `animate()` on the track's scroll offset with
+ * the panel preset, so a second press redirects the rail mid-flight; a
+ * reduced-motion window jumps instead. The block padding leaves the focus
+ * keyline room to show.
  */
 export function RowTrack({
   title,
@@ -56,6 +89,7 @@ export function RowTrack({
   action,
   children,
   columns = 7,
+  page,
   className,
   testId,
 }: RowTrackProps) {
@@ -108,15 +142,20 @@ export function RowTrack({
     pagingRun.current += 1;
   };
 
+  const cardsPerPage = page ?? Math.max(1, Math.floor(columns));
+
   const scrollView = (direction: -1 | 1) => {
     const node = track.current;
     if (!node) {
       return;
     }
     const furthest = Math.max(0, node.scrollWidth - node.clientWidth);
-    const target = Math.min(
+    const target = pagedOffset(
+      node.scrollLeft,
       furthest,
-      Math.max(0, Math.round(node.scrollLeft + node.clientWidth * direction)),
+      cardPitch(node),
+      cardsPerPage,
+      direction,
     );
 
     stopPaging();
@@ -192,7 +231,12 @@ export function RowTrack({
     }
   };
 
-  const style = { "--row-visible": columns } as CSSProperties;
+  // Five and a half cards see five gaps, not six: the half card is a sliver of
+  // the sixth, so the widths resolve to exactly one view.
+  const style = {
+    "--row-visible": columns,
+    "--row-gap-count": Math.max(0, Math.ceil(columns) - 1),
+  } as CSSProperties;
 
   return (
     <section className={cx("rep-kit-row", className)} aria-labelledby={headingId} data-testid={testId}>
@@ -207,17 +251,10 @@ export function RowTrack({
       </header>
 
       <div className="rep-kit-row-viewport">
-        <button
-          type="button"
-          className="rep-kit-row-arrow rep-kit-row-arrow-left"
-          data-focusable
-          aria-label={`Scroll ${title} left`}
-          disabled={edges.start}
-          onClick={() => scrollView(-1)}
-        >
-          <Icon name="back" />
-        </button>
-
+        {/* The cards come first in DOM order; the two arrows are positioned
+            over the viewport's edges. A row entered from outside a row lands on
+            its first card, not on the left scroll arrow once that arrow is
+            enabled. */}
         <ul
           ref={track}
           className="rep-kit-row-track"
@@ -238,6 +275,17 @@ export function RowTrack({
             );
           })}
         </ul>
+
+        <button
+          type="button"
+          className="rep-kit-row-arrow rep-kit-row-arrow-left"
+          data-focusable
+          aria-label={`Scroll ${title} left`}
+          disabled={edges.start}
+          onClick={() => scrollView(-1)}
+        >
+          <Icon name="back" />
+        </button>
 
         <button
           type="button"

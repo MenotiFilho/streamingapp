@@ -66,6 +66,12 @@ export function useSpatialFocus({
   const regions = useRef(new Map<string, Record<string, number | undefined>>());
   /** For each level, the exact control focus was on, if it is still there. */
   const remembered = useRef(new Map<string, Remembered>());
+  /**
+   * For each level, the last control focus was on outside the rail, the window
+   * chrome and a dialog. The rail's Right returns here when the rules ask for
+   * it, so leaving the content for the programme index is not a one-way trip.
+   */
+  const lastContent = useRef(new Map<string, Remembered>());
   /** The control the reveal last ran for, so an ordinary render does not scroll again. */
   const revealed = useRef<HTMLElement | null>(null);
 
@@ -140,11 +146,39 @@ export function useSpatialFocus({
     if (!activeRoot || !activeRoot.contains(element) || !element.hasAttribute("data-focusable")) {
       return;
     }
-    const { elements } = readLevel(activeRoot, regionMemory(keyRef.current));
+    const { layout, elements } = readLevel(activeRoot, regionMemory(keyRef.current));
     const found = focusOf(element, elements);
     if (found) {
+      const kind = layout.regions[found.regionId]?.kind;
+      if (kind !== undefined && kind !== "rail" && kind !== "window" && kind !== "dialog") {
+        lastContent.current.set(keyRef.current, { ...found, element });
+      }
       rememberFocus(found, element);
     }
+  };
+
+  /**
+   * Where the content was last focused, if that control is still one this level
+   * can give focus to. A control that left, turned disabled, or was pruned with
+   * an emptied region is not a landing, and the rail's Right falls back to the
+   * first content control instead.
+   */
+  const rememberedContent = (
+    activeRoot: HTMLElement,
+    elements: Record<string, HTMLElement[]>,
+  ): Focus | null => {
+    const held = lastContent.current.get(keyRef.current);
+    const element = held?.element;
+    if (
+      !element ||
+      !element.isConnected ||
+      !activeRoot.contains(element) ||
+      !element.hasAttribute("data-focusable") ||
+      element.matches(":disabled")
+    ) {
+      return null;
+    }
+    return focusOf(element, elements);
   };
 
   const ensureFocus = () => {
@@ -220,7 +254,10 @@ export function useSpatialFocus({
       return;
     }
 
-    const decision = decideMove(layout, current, direction, rulesRef.current);
+    const rules = rulesRef.current;
+    const last =
+      rules.railExit === "last" ? rememberedContent(activeRoot, elements) : null;
+    const decision = decideMove(layout, current, direction, rules, last);
     if (decision.kind === "blocked") {
       return;
     }

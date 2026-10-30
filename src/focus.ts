@@ -110,11 +110,27 @@ export type Rules = {
    * What Right does from the rail. `nearest` is the geometric rule the rest of
    * the level uses; `first` enters the first control in the content, in DOM
    * order, which is the programme's first card rather than whichever row
-   * action happens to sit nearest the spine's item.
+   * action happens to sit nearest the spine's item. `last` returns to the
+   * control the content was left on, and falls back to `first` when the move
+   * carries no history or the remembered control is gone.
    */
-  railExit: "nearest" | "first";
+  railExit: "nearest" | "first" | "last";
+  /**
+   * What Left and Right do from the window's chrome strip. `nearest` is the
+   * geometric rule; `hero` enters the first control in the content, so both
+   * directions land on the programme's first card rather than on whichever
+   * row happens to sit nearest the fullscreen button.
+   */
+  chromeExit: "nearest" | "hero";
   upFromContent: "nothing" | "rail";
   entry: "align" | "remember";
+  /**
+   * Where a move lands entering a horizontal row. `align` is the locked
+   * covering/nearest geometry; `first` takes the row's first card when the move
+   * came from a region that is not itself a row, so entering a rail from the
+   * feature, the chrome, the spine or a branch starts at its left edge.
+   */
+  rowEntry: "align" | "first";
   gone: "previous" | "place" | "head";
   /**
    * How a move ranks the controls on the side it is going. `nearest` is the
@@ -130,8 +146,10 @@ export const DEFAULT_RULES: Rules = {
   rowEnd: "stop",
   railEnd: "stop",
   railExit: "nearest",
+  chromeExit: "nearest",
   upFromContent: "nothing",
   entry: "align",
+  rowEntry: "align",
   gone: "previous",
   edge: "nearest",
 };
@@ -594,6 +612,7 @@ const LANDED = {
   head: "the region's head — what you came from is wider than the whole region",
   outside: "the region's head — nothing in it lies under you",
   memory: "the region's memory",
+  first: "the row's first card — you came from outside a row",
 } as const;
 
 type LandingKind = keyof typeof LANDED;
@@ -601,7 +620,8 @@ type LandingKind = keyof typeof LANDED;
 /**
  * Where focus lands arriving in a leaf region: the item under the middle of
  * where it came from, else the nearest, unless the rules say to trust the
- * region's memory first.
+ * region's memory first. A row entered from outside a row starts at its left
+ * edge under `rowEntry: "first"`, whatever the geometry would cover.
  */
 function enter(
   layout: Layout,
@@ -609,6 +629,7 @@ function enter(
   from: Rect,
   direction: Direction,
   rules: Rules,
+  source: RegionKind,
 ): { index: number; how: LandingKind } {
   const remembered = layout.memory[region.id];
   if (rules.entry === "remember" && remembered !== undefined) {
@@ -616,6 +637,9 @@ function enter(
   }
   if (region.itemRects.length === 0) {
     return { index: 0, how: "head" };
+  }
+  if (rules.rowEntry === "first" && region.kind === "row" && source !== "row") {
+    return { index: 0, how: "first" };
   }
   if (widerThan(from, region.itemRects, direction)) {
     return { index: 0, how: "head" };
@@ -647,7 +671,8 @@ function enter(
 
 /**
  * Arriving in a region; if it is a branch (the screen), walk down to the child
- * region that lines up first.
+ * region that lines up first. `source` is the kind of the region the move left
+ * from, which the row-entry rule reads.
  */
 function land(
   layout: Layout,
@@ -655,9 +680,10 @@ function land(
   from: Rect,
   direction: Direction,
   rules: Rules,
+  source: RegionKind,
 ): { regionId: string; index: number; how: LandingKind } {
   if (region.children.length === 0) {
-    const landing = enter(layout, region, from, direction, rules);
+    const landing = enter(layout, region, from, direction, rules, source);
     return { regionId: region.id, index: landing.index, how: landing.how };
   }
 
@@ -672,7 +698,7 @@ function land(
   );
   const child = children[pick >= 0 ? pick : 0];
   return child
-    ? land(layout, child, from, direction, rules)
+    ? land(layout, child, from, direction, rules, source)
     : { regionId: region.id, index: 0, how: "head" };
 }
 
@@ -685,18 +711,59 @@ function findRail(layout: Layout): Region | null {
   return null;
 }
 
+/** Whether a region is programme content rather than frame furniture. */
+function isContent(region: Region): boolean {
+  return region.kind !== "rail" && region.kind !== "window" && region.kind !== "dialog";
+}
+
 /**
- * One intent, one answer.
+ * The first control in the programme's content, in region and DOM order.
  *
- * `layout` is what the page measured, `focus` is where its people are, and
- * `rules` are the locked answers. The decision never mutates either.
+ * The rail and the window's chrome are frame furniture and a dialog is a
+ * question, not content; everything else counts — a branch such as the feature
+ * first, then the rows inside it. The first region that holds a control wins,
+ * and its first control is the answer. Branches are walked in their children's
+ * DOM order, so the answer is where a person reads the page.
  */
+export function firstContentControl(layout: Layout): LevelTarget | null {
+  const seen = new Set<string>();
+  const search = (region: Region): LevelTarget | null => {
+    if (seen.has(region.id)) {
+      return null;
+    }
+    seen.add(region.id);
+    if (isContent(region) && region.itemRects.length > 0) {
+      return { region, index: 0 };
+    }
+    for (const id of region.children) {
+      const child = layout.regions[id];
+      const found = child ? search(child) : null;
+      if (found) {
+        return found;
+      }
+    }
+    return null;
+  };
+
+  for (const region of Object.values(layout.regions)) {
+    // Roots first, in read order; a region whose parent is gone is its own root.
+    if (region.parent && layout.regions[region.parent]) {
+      continue;
+    }
+    const found = search(region);
+    if (found) {
+      return found;
+    }
+  }
+  return null;
+}
+
 /**
  * The first control in the content to the right, in region and DOM order.
  *
  * The rail is the programme's edge: its Right goes into the first line of the
  * content, not to whichever row action is geometrically closest to the item.
- * Window and dialog regions are not content; the rail itself is skipped.
+ * Window and dialog regions are not content; every rail is skipped.
  */
 function firstControlRight(
   layout: Layout,
@@ -706,6 +773,7 @@ function firstControlRight(
   for (const candidate of Object.values(layout.regions)) {
     if (
       candidate.id === region.id ||
+      candidate.kind === "rail" ||
       candidate.kind === "window" ||
       candidate.kind === "dialog"
     ) {
@@ -721,11 +789,23 @@ function firstControlRight(
   return null;
 }
 
+/**
+ * One intent, one answer.
+ *
+ * `layout` is what the page measured, `focus` is where its people are, and
+ * `rules` are the locked answers. The decision never mutates either.
+ */
 export function decideMove(
   layout: Layout,
   focus: Focus,
   direction: Direction,
   rules: Rules = DEFAULT_RULES,
+  /**
+   * Where the content was last focused, for `railExit: "last"`. The caller is
+   * the DOM's owner and has already checked that the control is still there and
+   * can take focus; the model only clamps the index to what it measured.
+   */
+  lastContent: Focus | null = null,
 ): MoveDecision {
   const region = layout.regions[focus.regionId];
   if (!region || region.itemRects.length === 0) {
@@ -749,12 +829,33 @@ export function decideMove(
     };
   }
 
+  // 1b. The repertory chrome's Left and Right both enter the programme's first
+  //     control: the fullscreen button belongs to the window, not to the row it
+  //     happens to sit over. Falling through keeps the geometric answer when no
+  //     content exists at all.
+  if (
+    region.kind === "window" &&
+    (direction === "left" || direction === "right") &&
+    rules.chromeExit === "hero"
+  ) {
+    const first = firstContentControl(layout);
+    if (first) {
+      return {
+        kind: "crossed",
+        direction,
+        regionId: first.region.id,
+        index: first.index,
+        why: `the chrome's ${direction} enters the first control in ${first.region.label}`,
+      };
+    }
+  }
+
   // 2. Down into one of this region's own children, if one lines up. A branch's
   //    Back sits above the rows it leads to; finding nothing beside it must not
   //    be the end of the move.
   const child = childInDirection(layout.regions, region, from, direction);
   if (child) {
-    const target = land(layout, child, from, direction, rules);
+    const target = land(layout, child, from, direction, rules, region.kind);
     return {
       kind: "crossed",
       direction,
@@ -798,7 +899,7 @@ export function decideMove(
     while (node.parent) {
       const sibling = siblingInDirection(layout.regions, node, from, direction, band);
       if (sibling) {
-        const target = land(layout, sibling, from, direction, rules);
+        const target = land(layout, sibling, from, direction, rules, region.kind);
         return {
           kind: "crossed",
           direction,
@@ -832,9 +933,23 @@ export function decideMove(
     };
   }
 
-  // The programme's Right enters the first card of the content, in DOM order,
-  // rather than the nearest control (which may be a row's More in the head).
-  if (region.kind === "rail" && direction === "right" && rules.railExit === "first") {
+  // The programme's Right enters the content deliberately: it returns to the
+  // control the content was left on, or enters the first card in DOM order
+  // rather than the nearest control (which a row's action may be). `nearest`
+  // keeps the level-wide search below for comparison.
+  if (region.kind === "rail" && direction === "right" && rules.railExit !== "nearest") {
+    if (rules.railExit === "last") {
+      const remembered = lastContent ? layout.regions[lastContent.regionId] : undefined;
+      if (remembered && isContent(remembered) && remembered.itemRects.length > 0) {
+        return {
+          kind: "crossed",
+          direction,
+          regionId: remembered.id,
+          index: clampIndex(lastContent?.index ?? 0, remembered.itemRects.length),
+          why: `the rail's Right returns to where ${remembered.label} was left`,
+        };
+      }
+    }
     const first = firstControlRight(layout, region, from);
     if (first) {
       return {
@@ -866,7 +981,7 @@ export function decideMove(
           why: `nothing ${direction} inside ${region.label}, so focus crossed to the closest control in ${found.region.label}`,
         };
       }
-      const target = land(layout, found.region, from, direction, rules);
+      const target = land(layout, found.region, from, direction, rules, region.kind);
       return {
         kind: "crossed",
         direction,
@@ -902,7 +1017,7 @@ export function decideMove(
   if (direction === "up" && rules.upFromContent === "rail") {
     const rail = findRail(layout);
     if (rail) {
-      const landing = enter(layout, rail, from, "up", rules);
+      const landing = enter(layout, rail, from, "up", rules, region.kind);
       return {
         kind: "crossed",
         direction,

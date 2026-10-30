@@ -270,10 +270,11 @@ system; #159 replaces the prototype's Unicode.
 ### The frame
 
 - **Spine**: the programme index, each destination's drawn mark and its name,
-  the active destination in brass with a 2px rule, the date and clock at the
-  foot. Compact at rest, open on focus; the list stays centred in both states.
-  A **More** card ends the index and opens the All destinations grid; the grid
-  always holds the whole programme.
+  the active destination in brass with a 2px rule, the time at the foot (the
+  date joins it when open). Compact at rest, open on **hover or keyboard
+  focus**; the list stays centred in both states. A **More** card ends the
+  index and opens the All destinations grid; the grid always holds the whole
+  programme.
 - **Programme line**: every screen's head is one line — the destination's name
   in brass mono on the left, then a hairline to the right edge. No second
   heading, no explanatory paragraph above content.
@@ -301,6 +302,10 @@ system; #159 replaces the prototype's Unicode.
 - **Continue watching card**: 16:9 still, a 2px brass progress line under the
   art and a mono note (remaining time or episode), then the Title in sans. An
   entry whose Addon was removed is marked unplayable and does not open.
+- **Rail**: one view shows five cards and half of the next; an arrow pages
+  exactly five cards. The last card is a **More** card that opens the whole row
+  as a grid. Entering a rail from outside a rail starts at its first card;
+  moving between rails keeps the nearest card.
 - **Feature**: the backdrop between two hairlines, a two-gradient ink scrim, the
   Title in display serif over it, the kicker in mono (`Feature presentation` and
   the programme's position), one line of facts, the description, and one

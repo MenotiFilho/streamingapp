@@ -1,5 +1,7 @@
+import type { Row } from "../../browse";
 import type { Snapshot } from "../../host-client";
-import { programIndex } from "./program";
+import { addonName } from "../home";
+import { countLabel, programIndex } from "./program";
 
 /**
  * Home's programme decisions, kept out of the drawing (ADR-0032).
@@ -12,11 +14,29 @@ import { programIndex } from "./program";
 /** How long one feature holds before the programme moves on. */
 export const FEATURE_ROTATION_MS = 24_000;
 
-/** One view of Continue watching holds four 16:9 cards. */
-export const HOME_CONTINUE_COLUMNS = 4;
+/**
+ * One view of a rail holds five whole cards and the half card that says there
+ * is more. The half is where the right arrow sits, so the rail never ends on a
+ * clipped card with nothing behind it.
+ */
+export const HOME_RAIL_VISIBLE = 5.5;
 
-/** One view of a Catalog row holds six posters, as the prototype measured. */
-export const HOME_ROW_COLUMNS = 6;
+/**
+ * One arrow press moves five cards, card and gap together. The rail pages by
+ * cards rather than by the viewport, so the half card at the edge never changes
+ * the step and two presses read ten more cards, not ten and a sliver.
+ */
+export const HOME_RAIL_PAGE = 5;
+
+/**
+ * The label a row's section head carries: the Addon a person reads it by and
+ * the count the row has loaded so far. The count is not a total — the Host
+ * never sends one — so the grid's head and the rail's head print the same
+ * number from the same row.
+ */
+export function rowTag(snapshot: Snapshot | null, row: Row): string {
+  return `${addonName(snapshot, row.addon) ?? row.addon} / ${countLabel(row.type, row.metas.length)}`;
+}
 
 /** The feature's position in the programme: `01 / 04`, or one showing. */
 export function featurePosition(index: number, count: number): string {

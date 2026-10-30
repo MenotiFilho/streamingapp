@@ -119,6 +119,14 @@ const firstPage = vi.fn(async (action: Action) => {
   return answer([catalogRow(FOUR)]);
 });
 
+/** One page that is already the whole row, so opening its grid asks for no more. */
+const completePage = vi.fn(async (action: Action) => {
+  if (!browse(action)) {
+    return { response: null, error: null } satisfies ActionOutcome;
+  }
+  return answer([catalogRow(FOUR, 0)]);
+});
+
 function resumeEntry(overrides: Partial<ResumeEntry> = {}): ResumeEntry {
   return {
     video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
@@ -180,7 +188,12 @@ function renderHome({
     </ShellContext.Provider>,
   );
 
-  return { pushed, take, choose, ask };
+  return { pushed, take, choose, ask, value };
+}
+
+/** Draw a level the Home harness recorded, as the frame would above the base. */
+function renderLevel(level: NewShellLevel, value: ShellContextValue) {
+  render(<ShellContext.Provider value={value}>{level.render()}</ShellContext.Provider>);
 }
 
 async function flush() {
@@ -248,13 +261,42 @@ describe("Home's feature presentation", () => {
     const action = screen.getByRole("button", { name: /Open the Title/ });
     act(() => action.focus());
 
-    fireEvent.keyDown(action, { key: "ArrowRight" });
+    expect(fireEvent.keyDown(action, { key: "ArrowRight" }), "a step is the feature's").toBe(
+      false,
+    );
     expect(activeSlide()).toBe("tt2");
     expect(document.activeElement).toBe(action);
 
-    fireEvent.keyDown(action, { key: "ArrowLeft" });
+    expect(fireEvent.keyDown(action, { key: "ArrowLeft" }), "a step is the feature's").toBe(
+      false,
+    );
     expect(activeSlide()).toBe("tt1");
     expect(document.activeElement).toBe(action);
+  });
+
+  it("leaves Left at the first slide to the frame and holds Right at the last", async () => {
+    onlyIntervals();
+    renderHome();
+    await flush();
+
+    const action = screen.getByRole("button", { name: /Open the Title/ });
+    act(() => action.focus());
+
+    expect(
+      fireEvent.keyDown(action, { key: "ArrowLeft" }),
+      "Left at the first slide is not the feature's: the engine crosses to the spine",
+    ).toBe(true);
+    expect(activeSlide()).toBe("tt1");
+
+    for (let step = 0; step < 3; step += 1) {
+      fireEvent.keyDown(action, { key: "ArrowRight" });
+    }
+    expect(activeSlide()).toBe("tt4");
+
+    expect(fireEvent.keyDown(action, { key: "ArrowRight" }), "Right at the last slide stays").toBe(
+      false,
+    );
+    expect(activeSlide()).toBe("tt4");
   });
 
   it("stops the beat under reduced motion", async () => {
@@ -320,10 +362,39 @@ describe("Home's Continue watching", () => {
     fireEvent.click(card);
     expect(take).not.toHaveBeenCalled();
   });
+
+  it("opens the whole row and resumes the Video from a card there", async () => {
+    const { pushed, take, value } = renderHome({
+      snapshot: { ...BASE_SNAPSHOT, watchProgress: [resumeEntry()] },
+    });
+    await flush();
+
+    fireEvent.click(screen.getByRole("button", { name: "More Continue watching" }));
+
+    expect(pushed[0]?.name).toBe("All of Continue watching");
+    renderLevel(pushed[0]!, value);
+
+    const card = await screen.findByTestId("grid-resume-tt1:1:1");
+    fireEvent.click(card);
+
+    expect(take).toHaveBeenCalledWith({
+      type: "resume",
+      video: { type: "series", id: "tt1:1:1" },
+    });
+  });
 });
 
 describe("Home's catalog rows", () => {
-  it("pages a row on with the Host's skip value", async () => {
+  it("ends the rail with a More card and no header action", async () => {
+    renderHome();
+    await flush();
+
+    expect(screen.queryByRole("button", { name: "More" })).not.toBeInTheDocument();
+    const more = screen.getByRole("button", { name: "More Popular" });
+    expect(more).toBeInTheDocument();
+  });
+
+  it("opens the whole row from the More card and pages it to the end", async () => {
     const ask = vi.fn(async (action: Action) => {
       if (!browse(action)) {
         return { response: null, error: null } satisfies ActionOutcome;
@@ -331,10 +402,17 @@ describe("Home's catalog rows", () => {
       const skip = action.extra.find((extra) => extra.name === "skip")?.value;
       return answer([skip ? catalogRow([meta("tt5", "Five")], 1) : catalogRow(FOUR)]);
     });
-    renderHome({ ask });
+    const { pushed, value } = renderHome({ ask });
     await flush();
 
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(screen.getByRole("button", { name: "More Popular" }));
+
+    expect(pushed).toHaveLength(1);
+    expect(pushed[0]?.name).toBe("All of Popular");
+
+    renderLevel(pushed[0]!, value);
+    expect(await screen.findByRole("region", { name: "All of Popular" })).toBeInTheDocument();
+    expect(screen.getByTestId("grid-card-cinemeta-tt1")).toBeInTheDocument();
 
     await waitFor(() =>
       expect(
@@ -347,6 +425,32 @@ describe("Home's catalog rows", () => {
           ),
       ).toBe(true),
     );
+    await waitFor(() => expect(value.home.getSnapshot().rows[0]?.done).toBe(true));
+  });
+
+  it("opens a card in the whole row through the same Program note", async () => {
+    const { pushed, value } = renderHome({ ask: completePage });
+    await flush();
+
+    fireEvent.click(screen.getByRole("button", { name: "More Popular" }));
+    renderLevel(pushed[0]!, value);
+
+    fireEvent.click(await screen.findByTestId("grid-card-cinemeta-tt1"));
+
+    expect(pushed).toHaveLength(2);
+    expect(pushed[1]?.name).toBe("Program note");
+  });
+
+  it("the whole row's Back is the shell's pop", async () => {
+    const { pushed, value } = renderHome({ ask: completePage });
+    await flush();
+
+    fireEvent.click(screen.getByRole("button", { name: "More Popular" }));
+    renderLevel(pushed[0]!, value);
+
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+
+    expect(value.pop).toHaveBeenCalledTimes(1);
   });
 
   it("draws an Addon's failure inline and keeps the row's head", async () => {

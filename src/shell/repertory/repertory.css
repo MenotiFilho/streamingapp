@@ -272,7 +272,7 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 }
 
 .rep-spine-foot {
-  display: none;
+  display: grid;
   gap: var(--rep-space-2);
   padding-top: var(--rep-space-5);
   border-top: 1px solid var(--rep-hairline);
@@ -281,11 +281,20 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   line-height: 1.25;
   color: var(--rep-dim);
   text-align: center;
+  justify-items: center;
 }
 
-.rep-nav--spine[data-open="true"] .rep-spine-foot {
-  display: grid;
-  justify-items: center;
+/* Compact, the foot keeps the clock only and reads much smaller: the date is
+ * a programme-line bookkeeping detail that belongs to the open spine. */
+.rep-nav--spine:not([data-open]) .rep-spine-foot {
+  gap: 0;
+  padding-top: var(--rep-space-2);
+  font-size: max(10px, calc(var(--rep-stage) * 0.7));
+  line-height: 1.1;
+}
+
+.rep-nav--spine:not([data-open]) .rep-spine-date {
+  display: none;
 }
 
 .rep-spine-clock {
@@ -357,6 +366,110 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   font-family: var(--rep-mono);
   font-size: var(--rep-text-mono);
   line-height: 1.4;
+}
+
+/* --------------------------------------------------------------------------
+ * The More card: the rail's last card, opening the whole row
+ * -------------------------------------------------------------------------- */
+
+/* It reuses the poster or Continue card's anatomy, so it gets the same plate,
+ * keyline and wash. Only the plate's contents are the programme's grid mark. */
+.rep-more-plate {
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: var(--rep-space-3);
+  color: var(--rep-house);
+}
+
+.rep-more-mark {
+  width: max(44px, calc(var(--rep-stage) * 3));
+  height: max(44px, calc(var(--rep-stage) * 3));
+}
+
+/* --------------------------------------------------------------------------
+ * The whole row: a rail's More card opens this pushed grid level
+ * -------------------------------------------------------------------------- */
+
+.rep-rail-grid {
+  min-height: calc(100vh - var(--window-chrome-clearance));
+  padding: var(--rep-stage-top) var(--rep-gutter) var(--rep-space-8);
+  background: var(--rep-ink);
+  box-sizing: border-box;
+}
+
+.rep-rail-grid-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--rep-space-4);
+  padding-bottom: var(--rep-space-3);
+  border-bottom: 1px solid var(--rep-hairline);
+}
+
+.rep-rail-grid-index {
+  flex: none;
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+}
+
+.rep-rail-grid-title {
+  flex: none;
+  margin: 0;
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-section);
+  font-weight: 500;
+  line-height: var(--rep-leading-display);
+  letter-spacing: var(--rep-tracking-display);
+}
+
+.rep-rail-grid-rule {
+  flex: 1;
+  height: 1px;
+}
+
+.rep-rail-grid-tag {
+  flex: none;
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  white-space: nowrap;
+}
+
+.rep-rail-grid-close {
+  flex: none;
+  margin-left: var(--rep-space-3);
+}
+
+.rep-rail-grid-cards {
+  display: grid;
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(max(160px, calc(var(--rep-stage) * 8.4)), 1fr)
+  );
+  gap: var(--rep-space-6) var(--rep-row-gap);
+  margin-top: var(--rep-space-6);
+}
+
+.rep-rail-grid-cards[data-rail="continue"] {
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(max(240px, calc(var(--rep-stage) * 12)), 1fr)
+  );
+}
+
+.rep-rail-grid-note {
+  max-width: 58ch;
+  margin: var(--rep-space-5) 0 0;
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  line-height: 1.4;
+}
+
+.rep-rail-grid-note--failure {
+  color: var(--rep-status-red);
 }
 
 /* --------------------------------------------------------------------------

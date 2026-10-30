@@ -29,6 +29,21 @@ function layOutTrack() {
   const track = screen.getByRole("list");
   Object.defineProperty(track, "clientWidth", { configurable: true, value: 400 });
   Object.defineProperty(track, "scrollWidth", { configurable: true, value: 1200 });
+  const cards = track.querySelectorAll<HTMLElement>(".rep-kit-row-item");
+  cards.forEach((card, index) => {
+    const left = index * 100;
+    vi.spyOn(card, "getBoundingClientRect").mockReturnValue({
+      x: left,
+      y: 0,
+      width: 76,
+      height: 240,
+      left,
+      top: 0,
+      right: left + 76,
+      bottom: 240,
+      toJSON: () => ({}),
+    } as DOMRect);
+  });
   fireEvent.scroll(track);
   return track;
 }
@@ -41,8 +56,9 @@ describe("the row track's paging", () => {
     animateMock.mockReturnValueOnce(first).mockReturnValueOnce(second);
 
     render(
-      <RowTrack title="Popular" columns={4}>
+      <RowTrack title="Popular" columns={5.5} page={5}>
         <PosterCard name="One" />
+        <PosterCard name="Two" />
       </RowTrack>,
     );
     layOutTrack();
@@ -58,8 +74,9 @@ describe("the row track's paging", () => {
   test("reduced motion jumps instead of animating the offset", () => {
     motionWindow(true);
     render(
-      <RowTrack title="Popular" columns={4}>
+      <RowTrack title="Popular" columns={5.5} page={5}>
         <PosterCard name="One" />
+        <PosterCard name="Two" />
       </RowTrack>,
     );
     const track = layOutTrack();
@@ -67,6 +84,6 @@ describe("the row track's paging", () => {
     fireEvent.click(screen.getByRole("button", { name: "Scroll Popular right" }));
 
     expect(animateMock).not.toHaveBeenCalled();
-    expect(track.scrollLeft, "one view straight away").toBe(400);
+    expect(track.scrollLeft, "five card pitches straight away").toBe(500);
   });
 });

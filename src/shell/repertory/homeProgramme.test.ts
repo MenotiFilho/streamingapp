@@ -1,14 +1,16 @@
 import { describe, expect, it } from "vitest";
 
+import type { Row } from "../../browse";
 import type { AddonManifest, Snapshot } from "../../host-client";
 import {
   FEATURE_ROTATION_MS,
-  HOME_CONTINUE_COLUMNS,
-  HOME_ROW_COLUMNS,
+  HOME_RAIL_PAGE,
+  HOME_RAIL_VISIBLE,
   featurePosition,
   featureStep,
   homeEmptyState,
   homeSectionIndex,
+  rowTag,
 } from "./homeProgramme";
 
 const ADDON: AddonManifest = {
@@ -44,12 +46,30 @@ describe("Home's programme decisions", () => {
     expect(featureStep(0, 1, 1)).toBeNull();
   });
 
-  it("gives a row and Continue watching one view each", () => {
-    expect(HOME_ROW_COLUMNS).toBe(6);
-    expect(HOME_CONTINUE_COLUMNS).toBe(4);
+  it("shows five and a half cards and pages five of them at a time", () => {
+    expect(HOME_RAIL_VISIBLE).toBe(5.5);
+    expect(HOME_RAIL_PAGE).toBe(5);
     expect(homeSectionIndex(0, true)).toBe("02");
     expect(homeSectionIndex(0, false)).toBe("01");
     expect(homeSectionIndex(2, true)).toBe("04");
+  });
+
+  it("prints a row's tag from its Addon and the count it has loaded", () => {
+    const row: Row = {
+      addon: "cinemeta",
+      type: "movie",
+      id: "top",
+      name: "Popular",
+      metas: [],
+      offset: 0,
+      failure: null,
+      done: false,
+    };
+
+    expect(rowTag(null, row), "the Addon's id before the Snapshot names it").toBe(
+      "cinemeta / 0 films",
+    );
+    expect(rowTag(SNAPSHOT, row)).toBe("Cinemeta / 0 films");
   });
 
   it("says what an empty programme needs in the record's voice", () => {

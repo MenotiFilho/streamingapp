@@ -4,9 +4,11 @@ import { FADE_SECONDS, PANEL_FALLBACK } from "./motion";
 import {
   DESTINATION_FADE_SECONDS,
   SPINE_LIMIT,
+  SPINE_POINTER_GRACE_MS,
   destinationTransition,
   spineDestinations,
   spineLabelTransition,
+  spineOpensOnFocus,
   spineWidthTransition,
 } from "./frame";
 
@@ -26,6 +28,14 @@ describe("the frame's decisions", () => {
     expect(spineWidthTransition(true), "movement is gone under reduced motion").toEqual({
       duration: 0,
     });
+  });
+
+  test("a fresh pointer press does not open the spine, but keyboard focus does", () => {
+    expect(spineOpensOnFocus(1_000, 1_000 + SPINE_POINTER_GRACE_MS)).toBe(false);
+    expect(spineOpensOnFocus(1_000, 1_000 + SPINE_POINTER_GRACE_MS + 1)).toBe(true);
+    expect(spineOpensOnFocus(0, 1_000), "no press at all is keyboard or programmatic").toBe(
+      true,
+    );
   });
 
   test("the label reveal keeps a fade under reduced motion", () => {

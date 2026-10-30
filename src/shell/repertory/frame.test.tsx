@@ -191,6 +191,31 @@ describe("the repertory frame", () => {
     act(() => content.focus());
     await waitFor(() => expect(nav).not.toHaveAttribute("data-open"));
   });
+
+  test("hover opens the spine, and a press still chooses the destination", async () => {
+    render(<FrameHarness />);
+    const nav = spine();
+    const discover = within(nav).getByRole("button", { name: "Discover" });
+
+    fireEvent.mouseEnter(nav);
+    expect(nav, "the pointer reveals the labels on hover").toHaveAttribute(
+      "data-open",
+      "true",
+    );
+
+    fireEvent.pointerDown(discover);
+    fireEvent.click(discover);
+
+    expect(await screen.findByTestId("content-discover")).toBeInTheDocument();
+    await waitFor(() => expect(document.activeElement).toBe(discover));
+
+    fireEvent.mouseLeave(nav);
+    await waitFor(() =>
+      expect(nav, "leaving the spine returns it to the compact frame").not.toHaveAttribute(
+        "data-open",
+      ),
+    );
+  });
 });
 
 /**
