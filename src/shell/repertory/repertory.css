@@ -778,132 +778,12 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 }
 
 /* --------------------------------------------------------------------------
- * Feed and Library posters: the prototype's card until #156 replaces it
+ * The Velvet kit's repertory poster variant
  * -------------------------------------------------------------------------- */
 
-.rep-card {
-  position: relative;
-  display: flex;
-  flex: 0 0 calc((100% - 5 * var(--rep-row-gap)) / 6);
-  flex-direction: column;
-  gap: var(--rep-space-3);
-  min-width: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--rep-dim);
-  font-family: var(--rep-sans);
-  text-align: left;
-  cursor: pointer;
-}
-
-.rep-card::before {
-  content: "";
-  position: absolute;
-  inset: -18px -14px;
-  background: var(--rep-focus-wash);
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity var(--rep-motion-fade) var(--rep-ease);
-}
-
-.rep-card:focus::before,
-.rep-card:focus-visible::before {
-  opacity: 1;
-}
-
-.rep-poster {
-  position: relative;
-  z-index: 1;
-  display: block;
-  width: 100%;
-  aspect-ratio: 2 / 3;
-  overflow: hidden;
-  background: var(--rep-ink-raised);
-}
-
-.rep-poster img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.rep-art-missing {
-  display: grid;
-  place-items: center;
-  width: 100%;
-  height: 100%;
-  padding: var(--rep-space-4);
-  border: 1px solid var(--rep-hairline);
-  background: var(--rep-ink-elevated);
-  color: var(--rep-muted);
-  font-family: var(--rep-display);
-  font-size: var(--rep-text-caption);
-  line-height: 1.2;
-  text-align: center;
-  box-sizing: border-box;
-}
-
-.rep-caption {
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  min-width: 0;
-}
-
-.rep-caption-line {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-}
-
-.rep-card-title {
-  display: -webkit-box;
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  color: var(--rep-dim);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-text-control);
-  font-weight: 500;
-  line-height: 1.22;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-}
-
-.rep-card:focus .rep-card-title,
-.rep-card:focus-visible .rep-card-title,
-.rep-card[data-unplayable="true"] .rep-card-title {
-  color: var(--rep-ivory);
-}
-
-/*
- * The year is a stamp before the title; the rating is a stamp on the poster.
- * Both are short, non-critical numbers, so they sit above the caption floor
- * but below the title's size, and both keep 4.5:1 on the ink plate.
- */
-.rep-year-badge {
-  flex: none;
-  margin-top: 1px;
-  padding: 0 5px;
-  border: 1px solid var(--rep-hairline);
-  color: var(--rep-muted);
-  font-family: var(--rep-mono);
-  font-size: calc(var(--rep-text-badge) * 0.78);
-  line-height: 1.3;
-  white-space: nowrap;
-}
-
-.rep-card:focus .rep-year-badge,
-.rep-card:focus-visible .rep-year-badge {
-  border-color: var(--rep-dim);
-  color: var(--rep-dim);
-}
-
+/* #156 moved the feeds and the Library to the repertory kit's `PosterCard`; the
+ * Velvet kit still names this stamp for its own `variant="repertory"`, and the
+ * whole kit leaves at the cutover (#160). The repertory kit draws its own. */
 .rep-rating-badge {
   position: absolute;
   right: 10px;
@@ -913,46 +793,6 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   border: 1px solid var(--rep-hairline);
   background: var(--rep-ink-raised);
   color: var(--rep-house);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-badge);
-  line-height: 1.35;
-  white-space: nowrap;
-}
-
-/* The Library's "Continue" stamp on a poster the account left part-way. */
-.rep-continue-badge {
-  position: absolute;
-  bottom: 10px;
-  left: 10px;
-  z-index: 2;
-  max-width: calc(100% - 20px);
-  overflow: hidden;
-  padding: 3px 8px;
-  border: 1px solid var(--rep-hairline);
-  background: var(--rep-ink-raised);
-  color: var(--rep-dim);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-badge);
-  line-height: 1.35;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-/* A feed card a configured Addon cannot play keeps its picture and still
- * opens (ADR-0020); only the mark changes. */
-.rep-card[data-unplayable="true"] {
-  cursor: pointer;
-}
-
-.rep-unplayable-badge {
-  position: absolute;
-  top: 10px;
-  left: 10px;
-  z-index: 2;
-  padding: 2px 8px;
-  border: 1px solid var(--rep-status-red);
-  background: var(--rep-ink-raised);
-  color: var(--rep-status-red);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-badge);
   line-height: 1.35;
@@ -1181,18 +1021,6 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   background: var(--rep-ink);
   color: var(--rep-ivory);
   font-family: var(--rep-sans);
-}
-
-@media (max-width: 1300px) {
-  .rep-card {
-    flex-basis: calc((100% - 4 * var(--rep-row-gap)) / 5);
-  }
-}
-
-@media (max-width: 1000px) {
-  .rep-card {
-    flex-basis: calc((100% - 3 * var(--rep-row-gap)) / 4);
-  }
 }
 
 @media (max-width: 1300px) {
@@ -1962,54 +1790,27 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
 }
 
 /* --------------------------------------------------------------------------
- * Discover and Search as editorial feeds
+ * Discover and Search: the editorial feed (#156)
  * -------------------------------------------------------------------------- */
 
 .rep-feed {
   display: flex;
   flex-direction: column;
-  gap: clamp(28px, 2.2vw, 3vw);
+  gap: var(--rep-space-6);
   min-width: 0;
-  padding-bottom: 72px;
 }
 
-.rep-feed-kicker {
+/* One feed row: Home's rail under the programme's head, then its own notes. */
+.rep-feed-row {
   display: flex;
-  align-items: center;
-  gap: clamp(12px, 0.94vw, 1.4vw);
-  margin: 0;
-  color: var(--rep-dim);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-mono);
-  line-height: 1.2;
-}
-
-.rep-feed-kicker > span:first-child {
-  color: var(--rep-house);
-  white-space: nowrap;
-}
-
-.rep-feed-kicker > span:last-child {
-  white-space: nowrap;
-}
-
-.rep-feed-section {
-  display: grid;
-  gap: 20px;
+  flex-direction: column;
+  gap: var(--rep-space-3);
   min-width: 0;
 }
 
-.rep-feed-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 12rem), 1fr));
-  gap: var(--rep-row-gap);
-  min-width: 0;
-  padding: 6px 2px 10px;
-}
-
-.rep-feed-grid .rep-card {
-  width: 100%;
-  flex: initial;
+/* A row with no cards has no track to page; the head and its note still read. */
+.rep-feed-row .rep-kit-row-viewport:has(.rep-kit-row-track:empty) {
+  display: none;
 }
 
 .rep-feed-note {
@@ -2021,67 +1822,33 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
   line-height: var(--rep-leading-body);
 }
 
-.rep-feed-note--failure {
-  color: var(--rep-status-red);
-}
-
-/* The Velvet screens keep their behaviour; these rules only re-dress them. */
-html[data-ui="repertory"] .discover-screen,
-html[data-ui="repertory"] .search-screen {
-  gap: 24px;
-  min-width: 0;
-}
-
-html[data-ui="repertory"] .discover-screen > .shell-screen-title,
-html[data-ui="repertory"] .search-screen > .shell-screen-title {
-  margin: 0;
-  color: var(--rep-ivory);
-  font-family: var(--rep-display);
-  font-size: var(--rep-text-title);
-  font-weight: 500;
-  line-height: 1.04;
-  letter-spacing: var(--rep-tracking-display);
-}
-
-html[data-ui="repertory"] .shell-lede {
+/* A page that did not answer is a printed refusal under its own row, never the
+ * window's one alert. Red is status only. */
+.rep-feed-failure {
   max-width: 62ch;
-  color: var(--rep-dim);
+  margin: 0;
+  padding-top: var(--rep-space-2);
+  border-top: 1px solid var(--rep-status-red);
+  color: var(--rep-status-red);
   font-family: var(--rep-sans);
   font-size: var(--rep-text-body);
   line-height: var(--rep-leading-body);
 }
 
-html[data-ui="repertory"] .discover-controls {
-  gap: 20px;
-  margin-top: 0;
-}
-
-html[data-ui="repertory"] .discover-kinds,
-html[data-ui="repertory"] .discover-genres {
-  gap: 8px;
-}
-
-html[data-ui="repertory"] .discover-grid,
-html[data-ui="repertory"] .search-grid {
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 12rem), 1fr));
-  gap: var(--rep-row-gap);
-  margin-top: 0;
-  padding-inline: 0;
-}
-
-html[data-ui="repertory"] .discover-empty {
-  gap: 18px;
+/* Discover with no TMDB Credential: it says what powers it and where the key
+ * goes, rather than disappearing (ADR-0020). */
+.rep-feed-empty {
+  display: grid;
+  justify-items: start;
+  gap: var(--rep-space-4);
   max-width: 62ch;
-  margin-top: 0;
-  padding: 40px 0;
-  border: 0;
+  padding: var(--rep-space-6) 0;
   border-top: 1px solid var(--rep-hairline);
   border-bottom: 1px solid var(--rep-hairline);
-  border-radius: 0;
-  background: transparent;
 }
 
-html[data-ui="repertory"] .discover-empty-title {
+.rep-feed-empty-title {
+  margin: 0;
   color: var(--rep-ivory);
   font-family: var(--rep-display);
   font-size: var(--rep-text-title);
@@ -2090,48 +1857,31 @@ html[data-ui="repertory"] .discover-empty-title {
   letter-spacing: var(--rep-tracking-display);
 }
 
-html[data-ui="repertory"] .discover-empty-body {
+.rep-feed-empty-body {
+  margin: 0;
   color: var(--rep-dim);
   font-family: var(--rep-sans);
   font-size: var(--rep-text-body);
   line-height: var(--rep-leading-body);
 }
 
-html[data-ui="repertory"] .discover-failure,
-html[data-ui="repertory"] .search-row-failure {
-  border-radius: 0;
-  border-color: var(--rep-status-red);
-  background: var(--rep-ink-raised);
-  color: var(--rep-status-red);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-text-caption);
+.rep-feed-empty strong {
+  color: var(--rep-ivory);
+  font-weight: 500;
 }
 
-html[data-ui="repertory"] .discover-credit {
-  margin-top: 24px;
-  padding-top: 20px;
-  border-top-color: var(--rep-hairline);
+/* The query bar: one display-serif line over the ink, the submit at its end. */
+.rep-search-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--rep-space-5);
 }
 
-html[data-ui="repertory"] .discover-credit-notice {
-  color: var(--rep-muted);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-mono);
-}
-
-html[data-ui="repertory"] .discover-more,
-html[data-ui="repertory"] .search-more {
-  align-self: center;
-  min-height: auto;
-}
-
-html[data-ui="repertory"] .search-bar {
-  margin-top: 0;
-}
-
-html[data-ui="repertory"] .search-input {
-  min-height: clamp(4rem, 4.4vw, 5.6rem);
-  padding: 0 13rem 0 0;
+.rep-search-input {
+  width: 100%;
+  min-width: 0;
+  padding: var(--rep-space-2) 0;
   border: 0;
   border-bottom: 1px solid var(--rep-hairline);
   border-radius: 0;
@@ -2140,59 +1890,43 @@ html[data-ui="repertory"] .search-input {
   font-family: var(--rep-display);
   font-size: var(--rep-text-title);
   font-weight: 500;
+  line-height: var(--rep-leading-display);
   letter-spacing: var(--rep-tracking-display);
+  box-sizing: border-box;
 }
 
-html[data-ui="repertory"] .search-input::placeholder {
+.rep-search-input::placeholder {
   color: var(--rep-muted);
   font-family: var(--rep-sans);
   font-size: var(--rep-text-body);
   letter-spacing: normal;
 }
 
-html[data-ui="repertory"] .search-submit {
-  right: 0;
+.rep-search-submit {
+  margin-bottom: var(--rep-space-2);
 }
 
-html[data-ui="repertory"] .search-results {
-  gap: clamp(32px, 2.4vw, 3vw);
-  margin-top: 12px;
-}
-
-html[data-ui="repertory"] .search-row-header {
-  align-items: baseline;
-  gap: 18px;
-  margin-bottom: 18px;
-  padding: 0 0 12px;
-  border-bottom: 1px solid var(--rep-hairline);
-}
-
-html[data-ui="repertory"] .search-row-title {
-  color: var(--rep-ivory);
-  font-family: var(--rep-display);
-  font-size: var(--rep-text-section);
-  font-weight: 500;
-  letter-spacing: -0.008em;
-}
-
-html[data-ui="repertory"] .search-row-tag {
-  color: var(--rep-muted);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-mono);
-}
-
-html[data-ui="repertory"] .search-row-note {
-  color: var(--rep-dim);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-text-body);
-  line-height: var(--rep-leading-body);
+.rep-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-6);
+  min-width: 0;
 }
 
 /* One row of single-select chips: Movie / Series and the genre filters. */
 .rep-kind-filter {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--rep-space-2);
+}
+
+/* The account Library's shelf: the same poster cards the feeds use. */
+.rep-library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 12rem), 1fr));
+  gap: var(--rep-row-gap);
+  min-width: 0;
+  padding: 6px 2px 10px;
 }
 
 /* --------------------------------------------------------------------------
@@ -2209,9 +1943,8 @@ html[data-ui="repertory"] .search-row-note {
 .rep-log {
   display: flex;
   flex-direction: column;
-  gap: clamp(30px, 2.4vw, 3.2vw);
+  gap: var(--rep-space-6);
   min-width: 0;
-  padding-bottom: 72px;
 }
 
 /* The base screen's head: one line, the destination in brass, then the rule. */
@@ -2219,8 +1952,8 @@ html[data-ui="repertory"] .search-row-note {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: clamp(12px, 1vw, 1.6vw);
-  padding-bottom: 14px;
+  gap: var(--rep-space-4);
+  padding-bottom: var(--rep-space-3);
   border-bottom: 1px solid var(--rep-hairline);
 }
 
@@ -2248,8 +1981,8 @@ html[data-ui="repertory"] .search-row-note {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: clamp(12px, 1vw, 1.6vw);
-  padding-bottom: 16px;
+  gap: var(--rep-space-4);
+  padding-bottom: var(--rep-space-4);
   border-bottom: 1px solid var(--rep-hairline);
 }
 
@@ -2808,13 +2541,12 @@ html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"]:focus-v
   line-height: 1.35;
 }
 
-/* Library: a room that says it is not furnished. */
-.rep-library-gate,
-.rep-library-stub {
+/* Library: the sign-in gate and the account's own room. */
+.rep-library-gate {
   display: grid;
-  gap: 16px;
+  gap: var(--rep-space-4);
   max-width: 62ch;
-  padding: clamp(28px, 2.4vw, 40px) 0;
+  padding: var(--rep-space-6) 0;
   border-top: 1px solid var(--rep-hairline);
   border-bottom: 1px solid var(--rep-hairline);
 }
@@ -2836,7 +2568,7 @@ html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"]:focus-v
   font-size: var(--rep-text-title);
   font-weight: 500;
   letter-spacing: var(--rep-tracking-display);
-  line-height: 1.04;
+  line-height: var(--rep-leading-display);
 }
 
 .rep-library-body {
@@ -2852,16 +2584,16 @@ html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"]:focus-v
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: clamp(14px, 1.2vw, 20px);
+  gap: var(--rep-space-4);
   max-width: 46ch;
-  padding: 16px 0;
+  padding: var(--rep-space-4) 0;
   border-top: 1px solid var(--rep-hairline);
   border-bottom: 1px solid var(--rep-hairline);
 }
 
 .rep-credit-logo {
   flex: none;
-  width: clamp(96px, 8vw, 128px);
+  width: max(96px, calc(var(--rep-stage) * 6.7));
   height: auto;
 }
 

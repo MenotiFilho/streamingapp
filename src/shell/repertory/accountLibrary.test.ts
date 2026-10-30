@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { AddonManifest } from "../../host-client";
-import { libraryAddon, libraryPreview } from "./accountLibrary";
+import type { AddonManifest, ActionError } from "../../host-client";
+import { libraryAddon, libraryExpired, libraryPreview } from "./accountLibrary";
 
 const CINEMETA: AddonManifest = {
   id: "com.linvo.cinemeta",
@@ -76,5 +76,20 @@ describe("the account Library's Addon bridge", () => {
       name: "The Matrix",
       poster: "https://images.test/matrix.jpg",
     });
+  });
+
+  it("reads an expired Stremio session as a way back in, not an empty room", () => {
+    const expired: ActionError = {
+      kind: "library",
+      detail: "Stremio refused the request: Session does not exist",
+    };
+    const unreachable: ActionError = {
+      kind: "library",
+      detail: "Stremio did not answer",
+    };
+
+    expect(libraryExpired(expired)).toBe(true);
+    expect(libraryExpired(unreachable)).toBe(false);
+    expect(libraryExpired(null)).toBe(false);
   });
 });

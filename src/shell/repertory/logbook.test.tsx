@@ -539,8 +539,8 @@ function fakeHostClient(snapshot: Snapshot): HostClient {
   return new HostClient(transport);
 }
 
-describe("the repertory frame's utility destinations", () => {
-  test("routes Addons, Settings and Library to the logbook and pushes Credentials", async () => {
+describe("the repertory frame's destinations", () => {
+  test("routes every destination, and pushes Credentials from the register", async () => {
     render(<Shell client={fakeHostClient(SNAPSHOT)} presentation="repertory" />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Addons" }));
@@ -560,6 +560,12 @@ describe("the repertory frame's utility destinations", () => {
     fireEvent.click(screen.getByRole("button", { name: "Addons" }));
     expect(await screen.findByRole("heading", { name: "Addons" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Credentials" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Discover" }));
+    expect(await screen.findByTestId("discover-screen")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+    expect(await screen.findByTestId("search-screen")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Library" }));
     expect(await screen.findByTestId("library-gate")).toBeInTheDocument();
@@ -701,5 +707,23 @@ describe("the repertory Library", () => {
       "The Library is empty.",
     );
     expect(screen.queryByTestId("library-failure")).not.toBeInTheDocument();
+  });
+});
+
+describe("the repertory Library's unopenable entries", () => {
+  test("keeps the picture and the Unplayable mark, and is not a control", async () => {
+    const { value } = heldLibraryHarness([
+      libraryEntry({ id: "kitsu:123", name: "A Title No Addon Knows" }),
+    ]);
+    show(value, <RepertoryLibraryScreen />);
+
+    const card = await screen.findByTestId("library-card-kitsu:123");
+    expect(within(card).getByText("Unplayable")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: /A Title No Addon Knows/ }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(card);
+    expect(value.take).not.toHaveBeenCalled();
   });
 });

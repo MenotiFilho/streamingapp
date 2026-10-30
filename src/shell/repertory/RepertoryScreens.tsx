@@ -1,8 +1,9 @@
 import type { Destination } from "../navigation";
 import { RepertoryAddonsScreen } from "./RepertoryAddons";
-import { RepertoryDiscoverScreen, RepertorySearchScreen } from "./RepertoryFeed";
+import { RepertoryDiscoverScreen } from "./RepertoryDiscover";
 import { RepertoryHome } from "./RepertoryHome";
 import { RepertoryLibraryScreen } from "./RepertoryLibrary";
+import { RepertorySearchScreen } from "./RepertorySearch";
 import { RepertorySettingsScreen } from "./RepertorySettings";
 import "./repertory.css";
 

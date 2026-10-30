@@ -30,6 +30,18 @@ export type PosterCardProps = Omit<ComponentPropsWithoutRef<"button">, "children
    * still be opened for what TMDB knows (ADR-0020).
    */
   unplayable?: boolean;
+  /**
+   * The account's Continue mark: a Library item the account left part-way says
+   * so on the art (ADR-0029). It is not Continue watching — that row is the
+   * Host's own and draws its own card.
+   */
+  continueWatching?: boolean;
+  /**
+   * Whether the card is a control. A feed always opens a Title; a Library entry
+   * whose Addon is gone keeps its picture and its Unplayable mark and does not
+   * open, so it is drawn as a still, not as a button that does nothing.
+   */
+  openable?: boolean;
   /** A stable id for a screen's tests. */
   testId?: string;
 };
@@ -50,10 +62,50 @@ export function PosterCard({
   description: _description,
   unmapped = false,
   unplayable = false,
+  continueWatching = false,
+  openable = true,
   testId,
   className,
   ...button
 }: PosterCardProps) {
+  const content = (
+    <>
+      <span className="rep-kit-poster-art" data-aspect="2:3">
+        {poster ? (
+          <img className="rep-kit-poster-image" src={poster} alt="" loading="lazy" />
+        ) : (
+          <span className="rep-kit-poster-plate" aria-hidden="true">
+            {name}
+          </span>
+        )}
+        {rating ? <span className="rep-kit-poster-rating">{`IMDb ${rating}`}</span> : null}
+        {continueWatching ? (
+          <span className="rep-kit-poster-continue">Continue</span>
+        ) : null}
+        {unmapped ? <span className="rep-kit-poster-unmapped">Unmapped</span> : null}
+        {unplayable ? <span className="rep-kit-poster-unplayable">Unplayable</span> : null}
+      </span>
+      <span className="rep-kit-poster-caption">
+        <span className="rep-kit-poster-name">{name}</span>
+        {subtitle ? <span className="rep-kit-poster-year">{subtitle}</span> : null}
+      </span>
+    </>
+  );
+
+  if (!openable) {
+    return (
+      <div
+        className={cx("rep-kit-poster", className)}
+        data-variant={variant}
+        data-testid={testId}
+        data-unmapped={unmapped ? "true" : undefined}
+        data-unplayable={unplayable ? "true" : undefined}
+      >
+        {content}
+      </div>
+    );
+  }
+
   return (
     <button
       {...button}
@@ -65,22 +117,7 @@ export function PosterCard({
       data-unmapped={unmapped ? "true" : undefined}
       data-unplayable={unplayable ? "true" : undefined}
     >
-      <span className="rep-kit-poster-art" data-aspect="2:3">
-        {poster ? (
-          <img className="rep-kit-poster-image" src={poster} alt="" loading="lazy" />
-        ) : (
-          <span className="rep-kit-poster-plate" aria-hidden="true">
-            {name}
-          </span>
-        )}
-        {rating ? <span className="rep-kit-poster-rating">{`IMDb ${rating}`}</span> : null}
-        {unmapped ? <span className="rep-kit-poster-unmapped">Unmapped</span> : null}
-        {unplayable ? <span className="rep-kit-poster-unplayable">Unplayable</span> : null}
-      </span>
-      <span className="rep-kit-poster-caption">
-        <span className="rep-kit-poster-name">{name}</span>
-        {subtitle ? <span className="rep-kit-poster-year">{subtitle}</span> : null}
-      </span>
+      {content}
     </button>
   );
 }

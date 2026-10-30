@@ -35,6 +35,7 @@ import {
   cinemetaPreviews,
   CINEMETA_MOVIE_GENRES,
   CINEMETA_SERIES_GENRES,
+  PREVIEW_ADDON,
   previewStream,
   rehearsalChapterAt,
   sampleLibrary,
@@ -52,7 +53,7 @@ import {
 } from "./previewState";
 
 const CINEMETA = "https://v3-cinemeta.strem.io";
-const ADDON = "cinemeta";
+const ADDON = PREVIEW_ADDON;
 
 const TORRENTIO = "https://torrentio.strem.fun";
 const TORRENTIO_ID = "torrentio";

@@ -8,7 +8,7 @@
  * declares any.
  */
 
-import type { AddonManifest, LibraryEntry } from "../../host-client";
+import type { ActionError, AddonManifest, LibraryEntry } from "../../host-client";
 import type { OpenablePreview } from "../../title";
 
 /** The first configured Addon whose `meta` resource answers for this item. */
@@ -44,4 +44,16 @@ export function libraryPreview(entry: LibraryEntry): OpenablePreview {
     name: entry.name,
     poster: entry.poster,
   };
+}
+
+/**
+ * Whether a read failed because the Stremio session is gone. The Host names
+ * that refusal in its own words; the room's answer is the sign-in form again,
+ * never an empty Library (ADR-0029).
+ */
+export function libraryExpired(failure: ActionError | null): boolean {
+  return (
+    failure?.kind === "library" &&
+    (failure.detail ?? "").includes("Session does not exist")
+  );
 }

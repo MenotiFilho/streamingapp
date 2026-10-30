@@ -361,6 +361,26 @@ html[data-ui="repertory"] .rep-kit-poster-unplayable {
   color: var(--rep-status-red);
 }
 
+/* The account's Continue mark: a Library item left part-way, not the Host's
+ * Continue watching row. It sits opposite the rating on the art's bottom edge. */
+html[data-ui="repertory"] .rep-kit-poster-continue {
+  position: absolute;
+  bottom: 10px;
+  left: 10px;
+  z-index: 2;
+  max-width: calc(100% - 20px);
+  overflow: hidden;
+  padding: 2px 8px;
+  border: 1px solid var(--rep-hairline);
+  background: var(--rep-ink-raised);
+  color: var(--rep-dim);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-badge);
+  line-height: 1.35;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
 html[data-ui="repertory"] .rep-kit-poster-caption {
   display: flex;
   align-items: baseline;
@@ -403,6 +423,16 @@ html[data-ui="repertory"] .rep-kit-poster-year {
 /* An Unplayable Title still opens (ADR-0020): the mark is the only change. */
 html[data-ui="repertory"] .rep-kit-poster[data-unplayable="true"] {
   cursor: pointer;
+}
+
+/* A still card — a Library entry whose Addon is gone — is not a control: it
+ * keeps the picture and the marks, and loses the pointer and the keyline. */
+html[data-ui="repertory"] .rep-kit-poster:not([data-focusable]) {
+  cursor: default;
+}
+
+html[data-ui="repertory"] .rep-kit-poster[data-unplayable="true"] .rep-kit-poster-name {
+  color: var(--rep-ivory);
 }
 
 /* --------------------------------------------------------------------------
