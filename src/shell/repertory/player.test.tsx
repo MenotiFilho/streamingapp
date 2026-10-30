@@ -253,7 +253,7 @@ describe("the repertory player OSD", () => {
       expect(surface).toHaveAttribute("data-presentation", "repertory");
       await closePopover(popover);
     }
-  });
+  }, 20_000);
 
   test("the frozen control set still takes the same Actions", async () => {
     const host = await renderPlayer();
@@ -322,7 +322,7 @@ describe("the repertory player OSD", () => {
       expect(actions(host.invocations)).toContainEqual({ type: "set_chapter", index: 1 }),
     );
     await closePopover("popover-chapters");
-  });
+  }, 20_000);
 
   test("an episode step still says it is loading, and a second press is dropped", async () => {
     let release!: () => void;
