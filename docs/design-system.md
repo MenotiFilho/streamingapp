@@ -225,8 +225,7 @@ stagger on a screen's content — a level arrives as one thing.
   no inertia.
 - The **feature** cross-fades between slides on its 24s beat, replacing the
   earlier no-cross-fade rule; focus still holds it.
-- The **spine's** width and its label reveal use the panel spring. A Settings
-  leaf makes room beside it with the same spring.
+- The **spine's** width and its label reveal use the panel spring.
 - An **Addon row's inline expansion** uses `layout`, so the register moves
   under the focus and the focused row stays where it was.
 - The OSD appears and hides on its own clock (behaviour); its panels use the

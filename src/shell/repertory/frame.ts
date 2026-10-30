@@ -3,6 +3,7 @@ import type { Transition } from "motion/react";
 import { DEFAULT_RULES, type Rules } from "../../focus";
 import type { ShellLevel } from "../navigation";
 import { fade, panel } from "./motion";
+import { SETTINGS_LEVEL_PREFIX } from "./settingsRegister";
 
 /**
  * The frame's decisions, kept out of the drawing (ADR-0032).
@@ -65,7 +66,7 @@ export function levelPushed(kind: ShellLevel["kind"]): boolean {
  * was pushed from inside it.
  */
 export function isSettingsLeaf(level: Pick<ShellLevel, "id"> | null | undefined): boolean {
-  return level?.id.startsWith("settings-") ?? false;
+  return level?.id.startsWith(SETTINGS_LEVEL_PREFIX) ?? false;
 }
 
 /**

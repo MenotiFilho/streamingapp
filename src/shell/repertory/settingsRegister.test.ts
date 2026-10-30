@@ -2,9 +2,10 @@ import { describe, expect, test } from "vitest";
 
 import {
   LICENCE,
+  NO_CATALOG,
   SETTINGS_CATEGORIES,
+  TMDB_KEY_SAVED,
   TMDB_NOTICE,
-  aboutCredits,
   protectionLedger,
   settingsLevelId,
   settingsLevelName,
@@ -54,12 +55,12 @@ describe("the Settings register's decisions", () => {
     expect(unknownLanguageLabel("fr-CA")).toBe("Other (fr-CA)");
   });
 
-  test("About carries the app version, the required notice and the licence", () => {
-    expect(aboutCredits("0.1.0")).toEqual({
-      version: "0.1.0",
-      tmdbNotice: TMDB_NOTICE,
-      licence: LICENCE,
-    });
+  test("the logged and empty lines say what happened, not what to try", () => {
+    expect(TMDB_KEY_SAVED).toBe("The Host holds the TMDB key.");
+    expect(NO_CATALOG).toBe("No configured Addon offers a Catalog.");
+  });
+
+  test("About carries the required notice and licence", () => {
     expect(TMDB_NOTICE).toBe(
       "This product uses the TMDB API but is not endorsed or certified by TMDB",
     );

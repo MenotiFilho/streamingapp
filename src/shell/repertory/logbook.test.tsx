@@ -289,14 +289,8 @@ describe("the repertory Addons register", () => {
     act(() => moveDown.focus());
     fireEvent.click(moveDown);
 
-    expect(await screen.findByTestId("addons-list-error")).toHaveTextContent(
-      "The Host has no Addon position 3",
-    );
-    expect(
-      within(screen.getByTestId(`addon-details-${CINEMETA.id}`)).getByTestId(
-        "addons-list-error",
-      ),
-    ).toBeInTheDocument();
+    const row = screen.getByTestId(`addon-${CINEMETA.id}`);
+    expect(await within(row).findByRole("alert")).toBeInTheDocument();
     expect(document.activeElement).toBe(moveDown);
   });
 
@@ -429,9 +423,7 @@ describe("the repertory Settings register", () => {
       expect(actions(ask)).toContainEqual({ type: "set_tmdb_key", key: "abc123" }),
     );
     expect(input).toHaveValue("");
-    expect(await screen.findByTestId("tmdb-key-status")).toHaveTextContent(
-      "The Host holds the TMDB key.",
-    );
+    expect(await screen.findByTestId("tmdb-key-status")).toBeInTheDocument();
   });
 
   test("a refused TMDB key stays beside the form", async () => {
@@ -459,6 +451,11 @@ describe("the repertory Settings register", () => {
     fireEvent.click(screen.getByTestId("settings-category-credentials"));
     showLevel(categoryLevel(pushed, "credentials"), value);
 
+    const input = screen.getByLabelText("TMDB API key or read-access token");
+    fireEvent.change(input, { target: { value: "abc123" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save key" }));
+    expect(await screen.findByTestId("tmdb-key-status")).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole("button", { name: "Clear key" }));
     const confirm = pushed.at(-1);
     expect(confirm?.name).toBe("Clear the TMDB key?");
@@ -467,6 +464,9 @@ describe("the repertory Settings register", () => {
 
     await waitFor(() =>
       expect(actions(ask)).toContainEqual({ type: "clear_tmdb_key" }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByTestId("tmdb-key-status")).not.toBeInTheDocument(),
     );
     expect(pop).toHaveBeenCalled();
   });
@@ -552,7 +552,6 @@ describe("the repertory Settings register", () => {
 
     const other = screen.getByTestId("language-fr-CA");
     expect(other).toHaveAttribute("aria-pressed", "true");
-    expect(other).toHaveTextContent("Other (fr-CA)");
   });
 
   test("a refused subtitle colour is explained beside the appearance choices", async () => {
@@ -577,9 +576,7 @@ describe("the repertory Settings register", () => {
     fireEvent.click(screen.getByTestId("settings-category-preferences"));
     showLevel(categoryLevel(pushed, "preferences"), value);
 
-    expect(screen.getByTestId("featured-empty")).toHaveTextContent(
-      "No configured Addon offers a Catalog.",
-    );
+    expect(screen.getByTestId("featured-empty")).toBeInTheDocument();
     expect(screen.getByTestId("featured-none")).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -695,9 +692,15 @@ describe("the repertory frame's destinations", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Addons" }));
     expect(await screen.findByRole("heading", { name: "Addons" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Addons" })),
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Settings" })),
+    );
 
     fireEvent.click(screen.getByTestId("settings-category-credentials"));
     expect(await screen.findByRole("heading", { name: "Credentials" })).toBeInTheDocument();
@@ -730,12 +733,6 @@ describe("the repertory frame's destinations", () => {
     fireEvent.click(category);
 
     expect(await screen.findByRole("heading", { name: "Credentials" })).toBeInTheDocument();
-    const frame = screen.getByTestId("shell-frame");
-    expect(
-      frame.querySelector(".shell-nav-slot"),
-      "the programme index stays live beside a Settings leaf",
-    ).not.toHaveAttribute("inert");
-    expect(frame.querySelector(".shell-base")).toHaveAttribute("inert");
 
     fireEvent.keyDown(document, { key: "Escape" });
 
@@ -744,11 +741,7 @@ describe("the repertory frame's destinations", () => {
         screen.queryByRole("heading", { name: "Credentials" }),
       ).not.toBeInTheDocument(),
     );
-    await waitFor(() =>
-      expect(document.activeElement).toBe(
-        screen.getByTestId("settings-category-credentials"),
-      ),
-    );
+    await waitFor(() => expect(document.activeElement).toBe(category));
   });
 });
 

@@ -20,16 +20,24 @@ export type SettingsCategory = {
   title: string;
 };
 
+export const CREDENTIALS_CATEGORY: SettingsCategory = {
+  id: "credentials",
+  title: "Credentials",
+};
+
 export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
-  { id: "credentials", title: "Credentials" },
+  CREDENTIALS_CATEGORY,
   { id: "preferences", title: "Preferences" },
   { id: "remote-devices", title: "Remote devices" },
   { id: "about", title: "About/Credits" },
 ];
 
+/** Every Settings leaf's level id begins with this, so the frame can keep the spine live. */
+export const SETTINGS_LEVEL_PREFIX = "settings-";
+
 /** The id a category's pushed level keeps across every screen that opens it. */
 export function settingsLevelId(category: SettingsCategory): string {
-  return `settings-${category.id}`;
+  return `${SETTINGS_LEVEL_PREFIX}${category.id}`;
 }
 
 /** What the level is called in the stack and on its own head. */
@@ -55,6 +63,12 @@ export function protectionLedger(protection: Protection): ProtectionLedger {
   };
 }
 
+/** The line a saved TMDB key logs; the ledger itself is the durable answer. */
+export const TMDB_KEY_SAVED = "The Host holds the TMDB key.";
+
+/** The Featured catalog's empty state when no Addon offers a Catalog. */
+export const NO_CATALOG = "No configured Addon offers a Catalog.";
+
 /**
  * A subtitle language the Host holds but this client's presets do not name:
  * an Other chip, so one value is still selected rather than every chip bare.
@@ -70,12 +84,3 @@ export const TMDB_NOTICE =
 /** The app's licence, in the words its About screen prints. */
 export const LICENCE =
   "streamingapp is free software, released under the GNU General Public License, version 3 or later (GPL-3.0-or-later). Playback uses mpv (libmpv), whose default build is GPLv2 or later, linked in-process so the video surface stays mpv's own.";
-
-/** What About/Credits carries: the app's version and the two required notices. */
-export function aboutCredits(version: string): {
-  version: string;
-  tmdbNotice: string;
-  licence: string;
-} {
-  return { version, tmdbNotice: TMDB_NOTICE, licence: LICENCE };
-}

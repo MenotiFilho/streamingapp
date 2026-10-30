@@ -46,8 +46,12 @@ import {
   LogRefusal,
 } from "./RepertoryLog";
 import {
+  CREDENTIALS_CATEGORY,
+  LICENCE,
+  NO_CATALOG,
   SETTINGS_CATEGORIES,
-  aboutCredits,
+  TMDB_KEY_SAVED,
+  TMDB_NOTICE,
   protectionLedger,
   settingsLevelId,
   settingsLevelName,
@@ -91,7 +95,7 @@ function categoryLevel(category: SettingsCategory): NewShellLevel {
  * the Velvet surface.
  */
 export function repertoryCredentialsLevel(): NewShellLevel {
-  return categoryLevel(SETTINGS_CATEGORIES[0]!);
+  return categoryLevel(CREDENTIALS_CATEGORY);
 }
 
 export function RepertorySettingsScreen() {
@@ -264,6 +268,7 @@ function CredentialsScreen() {
                     confirmLabel: "Clear key",
                     testId: "confirm-clear-tmdb",
                     action: { type: "clear_tmdb_key" },
+                    onConfirmed: () => setKeySaved(false),
                     children: (
                       <p>
                         The Host stops asking TMDB until a key is saved again. Discover
@@ -280,7 +285,7 @@ function CredentialsScreen() {
           {keySaved ? (
             <p className="rep-log-status" role="status" data-testid="tmdb-key-status">
               <span className="rep-log-status-mark">Logged</span>
-              <span>The Host holds the TMDB key.</span>
+              <span>{TMDB_KEY_SAVED}</span>
             </p>
           ) : null}
           <LogRefusal error={keyError} testId="tmdb-key-error" />
@@ -553,7 +558,7 @@ function PreferencesScreen() {
           <LogNote>Waiting for the Host…</LogNote>
         ) : catalogs.length === 0 ? (
           <p className="rep-log-note" data-testid="featured-empty">
-            No configured Addon offers a Catalog.
+            {NO_CATALOG}
           </p>
         ) : null}
         <div
@@ -719,8 +724,6 @@ function RemoteDevicesScreen() {
 }
 
 function AboutScreen() {
-  const credits = aboutCredits(appVersion);
-
   return (
     <SettingsLevel id="about" title="About/Credits">
       <LogGroup id="settings-tmdb" title="TMDB">
@@ -732,7 +735,7 @@ function AboutScreen() {
             data-testid="tmdb-logo"
           />
           <p className="rep-credit-notice" data-testid="tmdb-notice">
-            {credits.tmdbNotice}
+            {TMDB_NOTICE}
           </p>
         </div>
       </LogGroup>
@@ -742,7 +745,7 @@ function AboutScreen() {
           rows={[
             {
               term: "streamingapp",
-              value: <span data-testid="app-version">{credits.version}</span>,
+              value: <span data-testid="app-version">{appVersion}</span>,
             },
           ]}
         />
@@ -750,7 +753,7 @@ function AboutScreen() {
 
       <LogGroup id="settings-licences" title="Licences">
         <p className="rep-log-note" data-testid="license-credits">
-          {credits.licence}
+          {LICENCE}
         </p>
       </LogGroup>
     </SettingsLevel>
