@@ -14,13 +14,16 @@ import {
   destinationTransition,
   isSettingsLeaf,
   LEVEL_PUSH_PX,
+  POPOVER_RISE_PX,
   levelPushed,
+  levelRises,
   REPERTORY_RULES,
 } from "./repertory/frame";
-import { panel } from "./repertory/motion";
+import { fade, panel } from "./repertory/motion";
 import { RepertoryNav } from "./repertory/RepertoryNav";
 import { focusAndReveal } from "./reveal";
 import { toggleFullscreen, useFullscreen } from "./useFullscreen";
+import { useReducedMotion } from "./useReducedMotion";
 import { useSpatialFocus } from "./useSpatialFocus";
 import { WindowChrome } from "./WindowChrome";
 
@@ -120,7 +123,9 @@ function RepertoryLevelShell({
   attach: (node: HTMLDivElement | null) => void;
 }) {
   const [present, safeToRemove] = usePresence();
+  const reducedMotion = useReducedMotion();
   const pushed = levelPushed(level.kind);
+  const rises = levelRises(level.kind);
   const node = useRef<HTMLDivElement | null>(null);
   const setRef = useCallback(
     (element: HTMLDivElement | null) => {
@@ -156,10 +161,36 @@ function RepertoryLevelShell({
       data-label={level.name}
       aria-hidden={!present || hidden ? true : undefined}
       inert={!present || hidden ? true : undefined}
-      initial={pushed ? { opacity: 0, x: LEVEL_PUSH_PX } : false}
-      animate={pushed ? { opacity: 1, x: 0 } : undefined}
-      exit={pushed ? { opacity: 0, x: LEVEL_PUSH_PX } : { opacity: 0 }}
-      transition={pushed ? panel() : { duration: 0 }}
+      initial={
+        reducedMotion
+          ? { opacity: 0 }
+          : pushed
+            ? { opacity: 0, x: LEVEL_PUSH_PX }
+            : rises
+              ? { opacity: 0, y: POPOVER_RISE_PX }
+              : false
+      }
+      animate={
+        reducedMotion
+          ? { opacity: 1 }
+          : pushed
+            ? { opacity: 1, x: 0 }
+            : rises
+              ? { opacity: 1, y: 0 }
+              : undefined
+      }
+      exit={
+        reducedMotion
+          ? { opacity: 0 }
+          : pushed
+            ? { opacity: 0, x: LEVEL_PUSH_PX }
+            : rises
+              ? { opacity: 0, y: POPOVER_RISE_PX }
+              : { opacity: 0 }
+      }
+      transition={
+        pushed || rises ? (reducedMotion ? fade() : panel()) : { duration: 0 }
+      }
       onAnimationComplete={() => {
         if (!present) {
           safeToRemove();

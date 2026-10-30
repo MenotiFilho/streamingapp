@@ -4,10 +4,12 @@ import { FADE_SECONDS, PANEL_FALLBACK } from "./motion";
 import {
   DESTINATION_FADE_SECONDS,
   LEVEL_PUSH_PX,
+  POPOVER_RISE_PX,
   SPINE_LIMIT,
   destinationTransition,
   isSettingsLeaf,
   levelPushed,
+  levelRises,
   spineDestinations,
   spineLabelTransition,
   spineWidthTransition,
@@ -63,5 +65,13 @@ describe("the frame's decisions", () => {
 
   test("a pushed level enters 24px from the trailing edge", () => {
     expect(LEVEL_PUSH_PX).toBe(24);
+  });
+
+  test("an OSD popover rises from its anchor, not from the edge", () => {
+    expect(levelRises("popover"), "a menu rises above its icon").toBe(true);
+    expect(levelRises("overlay"), "a Title is pushed").toBe(false);
+    expect(levelRises("player"), "the player takes the window").toBe(false);
+    expect(POPOVER_RISE_PX).toBeGreaterThanOrEqual(12);
+    expect(POPOVER_RISE_PX).toBeLessThanOrEqual(16);
   });
 });

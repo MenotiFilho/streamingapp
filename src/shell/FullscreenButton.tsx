@@ -1,5 +1,6 @@
 import type { Ref } from "react";
 
+import { Icon } from "./repertory/icons";
 import { useFullscreen } from "./useFullscreen";
 
 /**
@@ -17,12 +18,15 @@ export function FullscreenButton({
   className,
   testId,
   ref,
+  presentation = "velvet",
 }: {
   /** The kit class the surface draws the control with. */
   className: string;
   testId: string;
   /** The OSD's focus ladder keeps hold of the control it lands on. */
   ref?: Ref<HTMLButtonElement>;
+  /** Which drawn set the surface uses (#158). */
+  presentation?: "velvet" | "repertory";
 }) {
   const { fullscreen, supported, toggle } = useFullscreen();
   if (!supported) {
@@ -42,7 +46,11 @@ export function FullscreenButton({
       title={label}
       onClick={() => void toggle()}
     >
-      <FullscreenIcon exit={fullscreen} />
+      {presentation === "repertory" ? (
+        <Icon name="fullscreen" strokeWidth={2.2} />
+      ) : (
+        <FullscreenIcon exit={fullscreen} />
+      )}
     </button>
   );
 }

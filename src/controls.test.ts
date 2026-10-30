@@ -9,6 +9,7 @@ import {
   SUBTITLE_SCALE_MAX,
   SUBTITLE_SCALE_MIN,
   SUBTITLE_SCALES,
+  VOLUME_MAX,
   aspectSelected,
   centredCrop,
   chapterLabel,
@@ -32,6 +33,7 @@ import {
   subtitlesOn,
   trackLabel,
   trackMarks,
+  volumeFraction,
 } from "./controls";
 import type { Aspect, Crop, CropRectangle, Track, VideoSize } from "./host-client";
 import appearance from "./subtitle-appearance.json";
@@ -147,6 +149,15 @@ describe("volume", () => {
     expect(formatVolume(100)).toBe("100%");
     expect(formatVolume(0)).toBe("0%");
     expect(formatVolume(42.4)).toBe("42%");
+  });
+
+  test("the fader fraction is clamped to the Player's scale", () => {
+    expect(VOLUME_MAX).toBe(130);
+    expect(volumeFraction(0)).toBe(0);
+    expect(volumeFraction(65)).toBe(0.5);
+    expect(volumeFraction(100)).toBeCloseTo(100 / 130);
+    expect(volumeFraction(200)).toBe(1);
+    expect(volumeFraction(-10)).toBe(0);
   });
 });
 

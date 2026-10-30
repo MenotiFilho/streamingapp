@@ -155,6 +155,32 @@ export function chapterMarks(chapters: Chapter[], duration: number | null): Chap
   }));
 }
 
+/** The closest two chapter ticks may sit on the timeline (design record §8). */
+export const CHAPTER_TICK_SPACING_PX = 24;
+
+/**
+ * The chapter ticks a track of this width can carry: the first mark, then every
+ * mark far enough from the one already kept. A title with forty chapters reads
+ * as a tick rail instead of a row of overlapping marks and callouts.
+ *
+ * A width the client has not measured yet (`0`) keeps every mark, so a first
+ * render before layout is not an empty timeline; the drawing measures the
+ * track and asks again.
+ */
+export function spacedChapterMarks(marks: ChapterMark[], width: number): ChapterMark[] {
+  if (width <= 0 || marks.length <= 1) {
+    return marks;
+  }
+  const kept: ChapterMark[] = [];
+  for (const mark of marks) {
+    const last = kept[kept.length - 1];
+    if (!last || (mark.fraction - last.fraction) * width >= CHAPTER_TICK_SPACING_PX) {
+      kept.push(mark);
+    }
+  }
+  return kept;
+}
+
 /**
  * How many seconds of the Stream one still stands for: the Host's own bucket
  * (ADR-0028). A client asks about a moment; the answer is the still of the

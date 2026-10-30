@@ -5,6 +5,8 @@ import {
   bufferedSpan,
   chapterAt,
   chapterMarks,
+  CHAPTER_TICK_SPACING_PX,
+  spacedChapterMarks,
   PREVIEW_BUCKET_SECONDS,
   previewBucket,
   qualityBadge,
@@ -185,6 +187,27 @@ describe("the OSD's readings", () => {
     ]);
     expect(chapterMarks(chapters, null)).toEqual([]);
     expect(chapterMarks(chapters, 0)).toEqual([]);
+  });
+
+  test("chapter ticks keep a minimum spacing, and an unmeasured track keeps them all", () => {
+    const chapters: Chapter[] = [
+      { index: 0, title: "Opening", time: 0 },
+      { index: 1, title: "A beat", time: 120 },
+      { index: 2, title: "The turn", time: 1800 },
+      { index: 3, title: "A second beat", time: 1900 },
+    ];
+    const marks = chapterMarks(chapters, 3600);
+
+    expect(CHAPTER_TICK_SPACING_PX).toBe(24);
+    expect(spacedChapterMarks(marks, 0), "a first render has no width yet").toEqual(marks);
+    expect(
+      spacedChapterMarks(marks, 100).map((mark) => mark.chapter.index),
+      "24px of a 100px track is the closest two ticks may sit",
+    ).toEqual([0, 2]);
+    expect(
+      spacedChapterMarks(marks, 10_000).map((mark) => mark.chapter.index),
+      "a wide track carries every tick",
+    ).toEqual([0, 1, 2, 3]);
   });
 
   test("a still stands for a five-second bucket of the Stream", () => {
