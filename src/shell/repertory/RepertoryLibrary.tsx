@@ -56,7 +56,6 @@ export function RepertoryLibraryScreen() {
 
           <LogGroup id="library-stremio" title="Stremio account">
             <div
-              className="rep-log-signin"
               data-region="library-stremio-form"
               data-kind="branch"
               data-label="Stremio account"
@@ -182,7 +181,6 @@ function LibraryFailure({
           <LogNote>The Stremio session has expired. Sign in again to read your Library.</LogNote>
           <LogGroup id="library-signin" title="Stremio account">
             <div
-              className="rep-log-signin"
               data-region="library-signin-form"
               data-kind="branch"
               data-label="Stremio account"

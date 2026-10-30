@@ -23,8 +23,7 @@ import {
 } from "../controls";
 import type { Action, PlaybackSnapshot, Track } from "../host-client";
 import { useShell, type NewShellLevel } from "./context";
-import { Popover } from "./kit";
-import { Popover as RepertoryPopover } from "./repertory/kit";
+import { Popover } from "./repertory/kit";
 
 /** The five menus the OSD's icon buttons open, one level each. */
 export type OsdPopoverName = "picture" | "subtitles" | "audio" | "speed" | "chapters";
@@ -114,8 +113,7 @@ function anchorStyle(side: "start" | "end", anchor: OsdPopoverAnchor) {
 }
 
 function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopoverAnchor }) {
-  const { snapshot, take, pop, presentation } = useShell();
-  const repertory = presentation === "repertory";
+  const { snapshot, take, pop } = useShell();
   const panel = useRef<HTMLDivElement | null>(null);
   const playback = snapshot?.playback ?? null;
   const subtitleScale = snapshot?.preferences.subtitleScale ?? 1;
@@ -154,7 +152,6 @@ function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopover
   }
 
   const side = SIDES[name];
-  const Surface = repertory ? RepertoryPopover : Popover;
 
   return (
     <div className="shell-osd-popover-layer">
@@ -166,12 +163,11 @@ function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopover
       />
       <div
         ref={panel}
-        className={repertory ? "shell-osd-popover rep-osd-popover" : "shell-osd-popover"}
-        data-presentation={repertory ? "repertory" : undefined}
+        className="shell-osd-popover rep-osd-popover"
         data-side={side}
         style={anchorStyle(side, anchor)}
       >
-        <Surface
+        <Popover
           label={LABELS[name]}
           heading={HEADINGS[name]}
           align={side}
@@ -182,7 +178,7 @@ function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopover
           ) : (
             MENUS[name]({ playback, take })
           )}
-        </Surface>
+        </Popover>
       </div>
     </div>
   );
@@ -467,7 +463,7 @@ function Item({
   return (
     <button
       type="button"
-      className="shell-osd-item kit-focus-invert"
+      className="shell-osd-item"
       data-focusable
       data-testid={testId}
       aria-label={label}

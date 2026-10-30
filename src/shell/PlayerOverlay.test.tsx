@@ -1046,8 +1046,9 @@ describe("the player OSD", () => {
     );
 
     expect(screen.getByTestId("shell-now-playing")).toHaveTextContent(
-      "A Series That Plays · S1E1",
+      "A Series That Plays",
     );
+    expect(screen.getByTestId("osd-kicker")).toHaveTextContent("S1E1");
     expect(screen.getByTestId("shell-now-playing")).not.toHaveTextContent("Remux");
   });
 

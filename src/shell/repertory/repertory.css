@@ -3,7 +3,7 @@
 @import "./tokens.css";
 
 /*
- * Repertory: the first live slice of the window's new frame (#145).
+ * Repertory: the window's frame and programme surfaces (#145, #160).
  *
  * Ink-black canvas, warm ivory ink, one brass house colour; a high-contrast
  * display serif for Titles and section names, a quiet grotesk for the interface,
@@ -12,13 +12,18 @@
  * of cards.
  *
  * The values are declared once in `tokens.css`, which the Host's served Remote
- * also splices into its page. Every rule here is scoped to
- * `html[data-ui="repertory"]`, so the Velvet Curtains surface on `main` keeps its
- * own tokens until the cutover. The palette and the pairs are measured in
+ * also splices into its page. The palette and the pairs are measured in
  * `repertory/tokens.test.ts`.
  */
 
-html[data-ui="repertory"] body {
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
   background: var(--rep-ink);
   color: var(--rep-ivory);
   font-family: var(--rep-sans);
@@ -26,7 +31,7 @@ html[data-ui="repertory"] body {
   -webkit-font-smoothing: antialiased;
 }
 
-html[data-ui="repertory"] ::selection {
+::selection {
   background: var(--rep-house);
   color: var(--rep-ink);
 }
@@ -35,15 +40,15 @@ html[data-ui="repertory"] ::selection {
  * Focus: one ivory keyline, one spotlight wash
  * -------------------------------------------------------------------------- */
 
-html[data-ui="repertory"] [data-focusable] {
+[data-focusable] {
   transition:
     background-color var(--rep-motion-fade) var(--rep-ease),
     color var(--rep-motion-fade) var(--rep-ease),
     outline-color var(--rep-motion-fade) var(--rep-ease);
 }
 
-html[data-ui="repertory"] [data-focusable]:focus,
-html[data-ui="repertory"] [data-focusable]:focus-visible {
+[data-focusable]:focus,
+[data-focusable]:focus-visible {
   outline: var(--rep-focus-ring);
   outline-offset: var(--rep-focus-offset);
   box-shadow: none;
@@ -62,7 +67,10 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
  * The frame
  * -------------------------------------------------------------------------- */
 
+.shell-frame,
 .rep-frame {
+  position: relative;
+  min-height: 100%;
   background: var(--rep-ink);
   color: var(--rep-ivory);
   font-family: var(--rep-sans);
@@ -77,45 +85,49 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
  * Where the picture is in this window, mpv's child window is the picture
  * (ADR-0003). The player level, the wrapper, the frame, the base and the spine
  * all carry ink at rest; while the picture is behind, every one of them paints
- * nothing and the spine steps out of the way. The base is already inert and
- * transparent through `data-takeover`, but its repertory background and the
- * spine sit above it in the stacking order.
+ * nothing and the spine steps out of the way.
  */
-html[data-ui="repertory"] .shell-level[data-level-kind="player"] {
+html.picture-behind,
+body.picture-behind {
+  overflow: hidden;
+}
+
+body.picture-behind,
+body.picture-behind .repertory-ui,
+body.picture-behind .shell-frame,
+body.picture-behind .rep-frame,
+body.picture-behind .shell-base,
+body.picture-behind .shell-nav-slot {
   background: transparent;
 }
 
-html[data-ui="repertory"] body.picture-behind,
-html[data-ui="repertory"] body.picture-behind .repertory-ui,
-html[data-ui="repertory"] body.picture-behind .rep-frame,
-html[data-ui="repertory"] body.picture-behind .shell-base,
-html[data-ui="repertory"] body.picture-behind .shell-nav-slot {
-  background: transparent;
-}
-
-html[data-ui="repertory"] body.picture-behind .shell-nav-slot {
+body.picture-behind .shell-nav-slot {
   opacity: 0;
   pointer-events: none;
 }
 
-/*
- * An OSD popover is a level above the player, not a room of its own: the film
- * and the OSD underneath must stay visible through it, or opening Picture,
- * Subtitles, Audio, Speed or Chapters turns the window into a black page with
- * one menu on it.
- */
-html[data-ui="repertory"] .rep-frame .shell-level[data-level-kind="popover"] {
-  background: transparent;
-  padding-top: 0;
-}
-
+.shell-base,
 .rep-frame .shell-base {
+  min-height: 100vh;
   background: var(--rep-ink);
+  transition: opacity var(--rep-motion-fade) var(--rep-ease);
 }
 
+/*
+ * The player takes over the window: the browsing stack stays mounted (and keeps
+ * its focus for when it comes back) but paints nothing over the video.
+ */
+.shell-base[data-takeover="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.shell-stage,
 .rep-frame .shell-stage {
+  min-height: 100vh;
   margin-left: var(--rep-spine-compact);
   padding: var(--rep-stage-top) var(--rep-gutter) var(--rep-stage-bottom);
+  box-sizing: border-box;
 }
 
 /* The programme makes room when the spine opens: a book's margin, not a drawer
@@ -124,8 +136,23 @@ html[data-ui="repertory"] .rep-frame .shell-level[data-level-kind="popover"] {
   margin-left: var(--rep-spine-width);
 }
 
+.shell-screen,
 .rep-frame .shell-screen {
   max-width: none;
+}
+
+/* A heading the page needs and the screen does not draw. */
+.shell-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 /*
@@ -144,28 +171,41 @@ html[data-ui="repertory"] .rep-frame .shell-level[data-level-kind="popover"] {
 }
 
 /*
- * The repertory room's window chrome. It is the same 56px strip the D-pad
- * geometry measures and the same pointer promise as Velvet: the strip takes no
- * click, the button at its right end takes its own. The numbers live here as
- * well as in the Velvet sheet because this record has to survive the cutover
- * that deletes that sheet (#160).
+ * The window's chrome owns the top 56px of whichever surface is on top, so
+ * content starts below it: 4rem (64px) leaves an 8px step from the first row
+ * up onto the strip (#125). The strip takes no click, and only the button at
+ * its right end does.
  */
+:root,
 .rep-frame {
   --window-chrome-height: 56px;
   --window-chrome-clearance: 4rem;
 }
 
+.shell-window-chrome,
 .rep-frame .shell-window-chrome {
+  position: fixed;
   top: 0;
   right: 0;
   left: 0;
+  z-index: 45;
   height: var(--window-chrome-height);
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
   padding: 0.5rem var(--rep-gutter);
   box-sizing: border-box;
   pointer-events: none;
 }
 
+.shell-window-chrome-button,
 .rep-frame .shell-window-chrome-button {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  cursor: pointer;
   pointer-events: auto;
   border: 1px solid var(--rep-hairline);
   border-radius: 0;
@@ -174,6 +214,12 @@ html[data-ui="repertory"] .rep-frame .shell-level[data-level-kind="popover"] {
   box-shadow: none;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+
+.shell-window-chrome-button svg,
+.rep-frame .shell-window-chrome-button svg {
+  width: 22px;
+  height: 22px;
 }
 
 .rep-frame .shell-window-chrome-button:hover,
@@ -186,7 +232,20 @@ html[data-ui="repertory"] .rep-frame .shell-level[data-level-kind="popover"] {
   box-shadow: none;
 }
 
+.shell-alert-stack {
+  position: fixed;
+  right: var(--rep-gutter);
+  bottom: clamp(1.5rem, 4vw, 4rem);
+  z-index: 100;
+  display: grid;
+  max-width: min(42rem, 70vw);
+  gap: var(--rep-space-2);
+}
+
+.shell-alert,
 .rep-frame .shell-alert {
+  margin: 0;
+  padding: var(--rep-space-3) var(--rep-space-4);
   border: 1px solid var(--rep-status-red);
   border-radius: 0;
   background: var(--rep-ink-raised);
@@ -194,6 +253,20 @@ html[data-ui="repertory"] .rep-frame .shell-level[data-level-kind="popover"] {
   font-family: var(--rep-sans);
   font-size: var(--rep-text-caption);
   box-shadow: none;
+}
+
+.shell-inline-refusal {
+  width: 100%;
+  margin: var(--rep-space-1) 0 0;
+  padding: var(--rep-space-3) var(--rep-space-4);
+  border: 1px solid var(--rep-status-red);
+  border-radius: 0;
+  background: var(--rep-ink-raised);
+  color: var(--rep-status-red);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-caption);
+  line-height: 1.45;
+  box-sizing: border-box;
 }
 
 /* --------------------------------------------------------------------------
@@ -816,28 +889,6 @@ html[data-ui="repertory"] .rep-frame .shell-level[data-level-kind="popover"] {
 }
 
 /* --------------------------------------------------------------------------
- * The Velvet kit's repertory poster variant
- * -------------------------------------------------------------------------- */
-
-/* #156 moved the feeds and the Library to the repertory kit's `PosterCard`; the
- * Velvet kit still names this stamp for its own `variant="repertory"`, and the
- * whole kit leaves at the cutover (#160). The repertory kit draws its own. */
-.rep-rating-badge {
-  position: absolute;
-  right: 10px;
-  bottom: 10px;
-  z-index: 2;
-  padding: 3px 8px;
-  border: 1px solid var(--rep-hairline);
-  background: var(--rep-ink-raised);
-  color: var(--rep-house);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-badge);
-  line-height: 1.35;
-  white-space: nowrap;
-}
-
-/* --------------------------------------------------------------------------
  * A programme button, quiet enough not to invent a kit
  * -------------------------------------------------------------------------- */
 
@@ -1082,7 +1133,12 @@ html[data-ui="repertory"] .rep-frame .shell-level[data-level-kind="popover"] {
  * controls are legible; below it the level paints nothing, which is what lets
  * the Streams list sit as a near-opaque scrim over its Title.
  */
-html[data-ui="repertory"] .shell-level {
+.shell-level {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  overflow: auto;
+  padding-top: var(--window-chrome-clearance);
   background: linear-gradient(
     to bottom,
     var(--rep-ink) 0,
@@ -1091,6 +1147,17 @@ html[data-ui="repertory"] .shell-level {
   );
   color: var(--rep-ivory);
   font-family: var(--rep-sans);
+}
+
+.shell-level[data-level-kind="player"] {
+  z-index: 60;
+  padding-top: 0;
+  background: transparent;
+}
+
+.shell-level[data-under-player="true"] {
+  opacity: 0;
+  pointer-events: none;
 }
 
 /* --------------------------------------------------------------------------
@@ -1102,7 +1169,7 @@ html[data-ui="repertory"] .shell-level {
  * behind the window's chrome band instead of starting under it. Back stays at
  * the top left and the window control at the top right, over the picture.
  */
-html[data-ui="repertory"] .shell-level:has(.rep-title-level) {
+.shell-level:has(.rep-title-level) {
   padding-top: 0;
   background: var(--rep-ink);
 }
@@ -1377,14 +1444,14 @@ html[data-ui="repertory"] .shell-level:has(.rep-title-level) {
 }
 
 /* A season is a chip like a control is: one press, one season. */
-html[data-ui="repertory"] .rep-season.rep-kit-choice {
+.rep-season.rep-kit-choice {
   flex: none;
   padding: var(--rep-space-2) var(--rep-space-3);
   font-size: var(--rep-text-caption);
   font-weight: 500;
 }
 
-html[data-ui="repertory"] .rep-season.rep-kit-choice > span:first-child {
+.rep-season.rep-kit-choice > span:first-child {
   color: var(--rep-muted);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-badge);
@@ -1392,7 +1459,7 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice > span:first-child {
 
 /* The chosen season is the kit's brass inset rule and ivory ink; the screen
  * only moves the number to brass with it. */
-html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span:first-child {
+.rep-season.rep-kit-choice[aria-pressed="true"] > span:first-child {
   color: var(--rep-house);
 }
 
@@ -2130,7 +2197,7 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
 }
 
 /* The kit's control set, drawn as a printed line rather than a box. */
-html[data-ui="repertory"] .rep-kit-button.rep-log-action {
+.rep-kit-button.rep-log-action {
   min-height: auto;
   padding: var(--rep-space-1) 0;
   border: 0;
@@ -2144,23 +2211,23 @@ html[data-ui="repertory"] .rep-kit-button.rep-log-action {
   letter-spacing: 0.04em;
 }
 
-html[data-ui="repertory"] .rep-kit-button.rep-log-action:hover,
-html[data-ui="repertory"] .rep-kit-button.rep-log-action:focus,
-html[data-ui="repertory"] .rep-kit-button.rep-log-action:focus-visible {
+.rep-kit-button.rep-log-action:hover,
+.rep-kit-button.rep-log-action:focus,
+.rep-kit-button.rep-log-action:focus-visible {
   border-bottom-color: var(--rep-house);
   background: transparent;
   color: var(--rep-ivory);
 }
 
-html[data-ui="repertory"] .rep-kit-button.rep-log-action:disabled {
+.rep-kit-button.rep-log-action:disabled {
   border-bottom-color: transparent;
   color: var(--rep-muted);
 }
 
-html[data-ui="repertory"] .rep-kit-button.rep-log-action.rep-log-action--danger,
-html[data-ui="repertory"] .rep-kit-button.rep-log-action.rep-log-action--danger:hover,
-html[data-ui="repertory"] .rep-kit-button.rep-log-action.rep-log-action--danger:focus,
-html[data-ui="repertory"] .rep-kit-button.rep-log-action.rep-log-action--danger:focus-visible {
+.rep-kit-button.rep-log-action.rep-log-action--danger,
+.rep-kit-button.rep-log-action.rep-log-action--danger:hover,
+.rep-kit-button.rep-log-action.rep-log-action--danger:focus,
+.rep-kit-button.rep-log-action.rep-log-action--danger:focus-visible {
   border: 0;
   border-bottom: 1px solid var(--rep-status-red);
   border-radius: 0;
@@ -2168,7 +2235,7 @@ html[data-ui="repertory"] .rep-kit-button.rep-log-action.rep-log-action--danger:
   color: var(--rep-status-red);
 }
 
-html[data-ui="repertory"] .rep-kit-button.rep-log-action.rep-log-action--danger:disabled {
+.rep-kit-button.rep-log-action.rep-log-action--danger:disabled {
   border-bottom-color: transparent;
   color: var(--rep-muted);
 }
@@ -2384,100 +2451,6 @@ html[data-ui="repertory"] .rep-kit-button.rep-log-action.rep-log-action--danger:
   display: flex;
   flex-wrap: wrap;
   gap: var(--rep-space-2);
-}
-
-/* The shared Stremio form, re-dressed without touching its behaviour. */
-html[data-ui="repertory"] .shell-form {
-  max-width: 46ch;
-  gap: var(--rep-space-4);
-}
-
-html[data-ui="repertory"] .shell-field label {
-  color: var(--rep-muted);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-mono);
-  font-weight: 400;
-  letter-spacing: var(--rep-tracking-caps);
-  text-transform: uppercase;
-}
-
-html[data-ui="repertory"] .shell-field input {
-  min-height: max(44px, calc(var(--rep-stage) * 3));
-  padding: var(--rep-space-1) 0;
-  border: 0;
-  border-bottom: 1px solid var(--rep-hairline);
-  border-radius: 0;
-  background: transparent;
-  color: var(--rep-ivory);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-control);
-  box-sizing: border-box;
-}
-
-html[data-ui="repertory"] .shell-field input:focus,
-html[data-ui="repertory"] .shell-field input:focus-visible {
-  border-bottom-color: transparent;
-}
-
-html[data-ui="repertory"] .shell-field input::placeholder {
-  color: var(--rep-muted);
-}
-
-html[data-ui="repertory"] .shell-note {
-  color: var(--rep-muted);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-text-body);
-  line-height: var(--rep-leading-body);
-}
-
-html[data-ui="repertory"] .shell-inline-refusal {
-  border-radius: 0;
-  border-color: var(--rep-status-red);
-  background: var(--rep-ink-raised);
-  color: var(--rep-status-red);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-text-caption);
-}
-
-.rep-log-signin {
-  max-width: 46ch;
-}
-
-html[data-ui="repertory"] .rep-log-signin .rep-kit-button {
-  min-height: auto;
-  padding: var(--rep-space-1) 0;
-  border: 0;
-  border-bottom: 1px solid var(--rep-house);
-  border-radius: 0;
-  background: transparent;
-  color: var(--rep-house);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-mono);
-  font-weight: 400;
-  letter-spacing: 0.04em;
-}
-
-html[data-ui="repertory"] .rep-log-signin .rep-kit-button:hover,
-html[data-ui="repertory"] .rep-log-signin .rep-kit-button:focus,
-html[data-ui="repertory"] .rep-log-signin .rep-kit-button:focus-visible {
-  border-bottom-color: var(--rep-ivory);
-  background: transparent;
-  color: var(--rep-ivory);
-}
-
-/* The one strong action in the sign-in form, like Add and Save key. */
-html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"] {
-  min-height: 2.75rem;
-  padding: var(--rep-space-2) var(--rep-space-4);
-  border: 0;
-  background: var(--rep-house);
-  color: var(--rep-ink);
-}
-
-html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"]:focus,
-html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"]:focus-visible {
-  background: var(--rep-house);
-  color: var(--rep-ink);
 }
 
 /* Pairing: the address and the code as the booth's call board. */
@@ -2802,7 +2775,7 @@ html[data-ui="repertory"] .rep-log-signin .rep-kit-button[type="submit"]:focus-v
  * visible and the level begins where the stage does. The Title and Streams
  * levels keep the whole window; only the Settings sub-screens leave the spine.
  */
-html[data-ui="repertory"] .rep-frame .shell-level:has(.rep-settings-level) {
+.rep-frame .shell-level:has(.rep-settings-level) {
   left: var(--rep-spine-compact);
   box-sizing: border-box;
   padding: var(--window-chrome-clearance) var(--rep-gutter) var(--rep-stage-bottom);
@@ -2811,8 +2784,7 @@ html[data-ui="repertory"] .rep-frame .shell-level:has(.rep-settings-level) {
 
 /* The spine opens on hover or an arrow-key walk; the leaf makes room instead
  * of being covered. */
-html[data-ui="repertory"]
-  .rep-frame:has(.rep-nav--spine[data-open="true"])
+.rep-frame:has(.rep-nav--spine[data-open="true"])
   .shell-level:has(.rep-settings-level) {
   left: var(--rep-spine-width);
 }

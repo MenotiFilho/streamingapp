@@ -1,5 +1,4 @@
-import "./kit";
-import "./shell.css";
+import "./repertory/repertory.css";
 
 export { Shell } from "./Shell";
 export { ShellFrame } from "./ShellFrame";

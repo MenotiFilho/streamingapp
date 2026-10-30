@@ -241,31 +241,31 @@ fn a_browser_is_served_the_remote_page_before_it_has_anything_to_say() {
 }
 
 #[test]
-fn the_staged_repertory_page_is_served_at_next() {
-    // #152: the Host serves the same document at `/next` with the repertory
-    // attribute already on `<html>`. `/` stays the old page until the cutover.
+fn the_staging_route_redirects_permanently_to_the_root() {
+    // #160: `/` serves the repertory document directly; `/next` answers 308
+    // Permanent Redirect to `/` so a bookmark or an open tab on a phone lands
+    // on the one surface.
     let (_fixture, server) = server();
 
-    let (old_head, old_body) = get(&server, "/");
-    let old_page = String::from_utf8(old_body).expect("the page is text");
-    assert!(old_head.starts_with("HTTP/1.1 200 OK"));
+    let (root_head, root_body) = get(&server, "/");
+    let root_page = String::from_utf8(root_body).expect("the page is text");
+    assert!(root_head.starts_with("HTTP/1.1 200 OK"));
     assert!(
-        !old_page.contains("<html lang=\"en\" data-ui=\"repertory\">"),
-        "the old page does not set the staged attribute"
+        root_page.starts_with("<!doctype html>\n<html lang=\"en\">"),
+        "the root page opens without a staging attribute"
     );
+    assert!(root_page.contains("--rep-ink:"));
 
-    let (new_head, new_body) = get(&server, "/next");
-    let new_page = String::from_utf8(new_body).expect("the page is text");
-    assert!(new_head.starts_with("HTTP/1.1 200 OK"));
+    let (next_head, next_body) = get(&server, "/next");
     assert!(
-        new_page.starts_with("<!doctype html>\n<html lang=\"en\" data-ui=\"repertory\">"),
-        "the staged page carries the attribute server-side"
+        next_head.starts_with("HTTP/1.1 308 Permanent Redirect"),
+        "/next redirects permanently: {next_head}"
     );
-    assert_eq!(
-        new_page.replacen(" data-ui=\"repertory\"", "", 1),
-        old_page,
-        "/next is the same document with one attribute"
+    assert!(
+        next_head.contains("Location: /\r\n"),
+        "/next redirects to /: {next_head}"
     );
+    assert!(next_body.is_empty(), "a 308 redirect carries no body");
 }
 
 #[test]

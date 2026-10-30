@@ -1,59 +1,67 @@
 /*
- * The repertory player OSD (#158).
+ * The in-window player OSD (#83, #158).
  *
- * A programme note printed over the film: translucent ink scrims, hairlines,
- * ivory type and one brass house colour. The picture stays the page. Every
- * length comes from the locked stage unit in `tokens.css` (design record §3–§4),
- * the five menus use the repertory kit's popover, and the volume is a drawn rail
- * rather than the browser's range.
+ * The picture is mpv's; this file draws only the furniture over it: a
+ * programme note printed over the film with translucent ink scrims, hairlines,
+ * ivory type and one brass house colour. Every length comes from the locked
+ * stage unit in `tokens.css` (design record §3–§4), the five menus use the
+ * kit's popover, and the volume is a drawn rail rather than the browser's
+ * range.
  *
- * Everything is scoped to `.rep-player`, which only the repertory presentation
- * renders, so the Velvet Curtains OSD keeps its own sheet until the cutover
- * (#160). The plain Vite rehearsal paints the film's own backdrop behind the
- * OSD; the Tauri window never does, because there the picture is mpv's
- * (ADR-0003).
+ * The plain Vite rehearsal paints the film's own backdrop behind the OSD; the
+ * Tauri window never does, because there the picture is mpv's (ADR-0003).
  */
 
-html[data-ui="repertory"] .rep-player {
+.shell-player {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
   color: var(--rep-ivory);
   font-family: var(--rep-sans);
+  pointer-events: none;
 }
 
-/* --------------------------------------------------------------------------
- * The scrims: two ink gradients and one faint brass floor, never a vignette box
- * -------------------------------------------------------------------------- */
+/* The hole the picture goes in. Clicking it is play/pause, not summoning. It
+   is its own stacking context so the full-screen button's focus cannot rise
+   above the OSD and swallow every press. */
+.shell-player-picture {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: auto;
+}
 
-html[data-ui="repertory"] .rep-player .shell-osd-vignette {
-  background:
-    radial-gradient(
-      64% 42% at 50% 100%,
-      color-mix(in srgb, var(--rep-house) 9%, transparent),
-      transparent 72%
-    ),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--rep-ink) 74%, transparent) 0%,
-      color-mix(in srgb, var(--rep-ink) 26%, transparent) 18%,
-      transparent 38%
-    ),
-    linear-gradient(
-      0deg,
-      color-mix(in srgb, var(--rep-ink) 92%, transparent) 0%,
-      color-mix(in srgb, var(--rep-ink) 62%, transparent) 20%,
-      transparent 52%
-    );
+.shell-picture-toggle {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+/* The picture is not a menu button: it takes no focus ring and no focus
+   elevation, so the OSD's controls stay on top and keep their own ring. */
+.shell-player .shell-picture-toggle:focus,
+.shell-player .shell-picture-toggle:focus-visible {
+  z-index: auto;
+  outline: none;
+  box-shadow: none;
 }
 
 /* The rehearsal's stand-in for the picture: a real film's backdrop, never
  * drawn in Tauri, where the child window holds the moving picture. */
-html[data-ui="repertory"] .rep-player-still {
+.rep-player-still {
   position: absolute;
   inset: 0;
   overflow: hidden;
   background: var(--rep-ink);
 }
 
-html[data-ui="repertory"] .rep-player-still-art {
+.rep-player-still-art {
   display: block;
   width: 100%;
   height: 100%;
@@ -61,7 +69,7 @@ html[data-ui="repertory"] .rep-player-still-art {
   filter: saturate(0.82) brightness(0.6);
 }
 
-html[data-ui="repertory"] .rep-player-still-scrim {
+.rep-player-still-scrim {
   position: absolute;
   inset: 0;
   background:
@@ -81,20 +89,74 @@ html[data-ui="repertory"] .rep-player-still-scrim {
 }
 
 /* --------------------------------------------------------------------------
+ * The OSD surface and scrims: two ink gradients and one faint brass floor
+ * -------------------------------------------------------------------------- */
+
+.shell-osd {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.shell-osd-vignette {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(
+      64% 42% at 50% 100%,
+      color-mix(in srgb, var(--rep-house) 9%, transparent),
+      transparent 72%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--rep-ink) 74%, transparent) 0%,
+      color-mix(in srgb, var(--rep-ink) 26%, transparent) 18%,
+      transparent 38%
+    ),
+    linear-gradient(
+      0deg,
+      color-mix(in srgb, var(--rep-ink) 92%, transparent) 0%,
+      color-mix(in srgb, var(--rep-ink) 62%, transparent) 20%,
+      transparent 52%
+    );
+  pointer-events: none;
+}
+
+.shell-osd-top,
+.shell-osd-middle,
+.shell-osd-bottom {
+  position: relative;
+  z-index: 1;
+}
+
+/* --------------------------------------------------------------------------
  * Top: the programme note and the window's two controls
  * -------------------------------------------------------------------------- */
 
-html[data-ui="repertory"] .rep-player .shell-osd-top {
+.shell-osd-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--rep-space-4);
   padding: var(--rep-stage-top) var(--rep-gutter) 0;
+  pointer-events: none;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-meta {
+.shell-osd-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
   gap: var(--rep-space-1);
+  min-width: 0;
   padding-left: var(--rep-space-4);
   border-left: 2px solid var(--rep-house);
 }
 
-html[data-ui="repertory"] .rep-osd-kicker {
+.rep-osd-kicker {
   display: flex;
   align-items: center;
   gap: var(--rep-space-3);
@@ -108,26 +170,29 @@ html[data-ui="repertory"] .rep-osd-kicker {
   text-transform: uppercase;
 }
 
-html[data-ui="repertory"] .rep-osd-kicker > span:first-child {
+.rep-osd-kicker > span:first-child {
   color: var(--rep-house);
   white-space: nowrap;
 }
 
-html[data-ui="repertory"] .rep-osd-kicker > span:last-child {
+.rep-osd-kicker > span:last-child {
   white-space: nowrap;
 }
 
-html[data-ui="repertory"] .rep-osd-kicker-rule {
+.rep-osd-kicker-rule {
   flex: 1 1 auto;
   height: 1px;
   background: var(--rep-hairline);
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-line {
+.shell-osd-line {
+  display: flex;
+  align-items: center;
   gap: var(--rep-space-3);
+  min-width: 0;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-title {
+.shell-osd-title {
   order: 1;
   min-width: 0;
   padding: 0;
@@ -144,7 +209,7 @@ html[data-ui="repertory"] .rep-player .shell-osd-title {
   white-space: nowrap;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-quality {
+.shell-osd-quality {
   order: 2;
   flex: none;
   padding: 2px var(--rep-space-2);
@@ -160,7 +225,7 @@ html[data-ui="repertory"] .rep-player .shell-osd-quality {
   text-transform: uppercase;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-details {
+.shell-osd-details {
   max-width: min(78rem, 78vw);
   margin: var(--rep-space-1) 0 0;
   padding: 0;
@@ -177,12 +242,15 @@ html[data-ui="repertory"] .rep-player .shell-osd-details {
   white-space: nowrap;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-window {
+.shell-osd-window {
+  display: flex;
+  align-items: center;
   gap: var(--rep-space-2);
+  pointer-events: auto;
 }
 
 /* The two top-right controls are square hairline cells with bare marks. */
-html[data-ui="repertory"] .rep-player .shell-osd-window > .shell-osd-icon {
+.shell-osd-window > .shell-osd-icon {
   width: max(44px, calc(var(--rep-stage) * 2.4));
   min-width: max(44px, calc(var(--rep-stage) * 2.4));
   height: max(44px, calc(var(--rep-stage) * 2.4));
@@ -191,22 +259,23 @@ html[data-ui="repertory"] .rep-player .shell-osd-window > .shell-osd-icon {
   border-radius: 0;
   background: color-mix(in srgb, var(--rep-ink) 44%, transparent);
   color: var(--rep-dim);
+  pointer-events: auto;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-window > .shell-osd-icon:hover {
+.shell-osd-window > .shell-osd-icon:hover {
   border-color: var(--rep-ivory);
   background: color-mix(in srgb, var(--rep-ink) 62%, transparent);
   color: var(--rep-ivory);
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-window > .shell-osd-icon:focus,
-html[data-ui="repertory"] .rep-player .shell-osd-window > .shell-osd-icon:focus-visible {
+.shell-osd-window > .shell-osd-icon:focus,
+.shell-osd-window > .shell-osd-icon:focus-visible {
   border-color: var(--rep-ivory);
   background: color-mix(in srgb, var(--rep-ink) 72%, transparent);
   color: var(--rep-ivory);
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-window svg {
+.shell-osd-window svg {
   width: max(20px, calc(var(--rep-stage) * 1.15));
   height: max(20px, calc(var(--rep-stage) * 1.15));
 }
@@ -215,11 +284,23 @@ html[data-ui="repertory"] .rep-player .shell-osd-window svg {
  * The volume fader: a bare right-edge rail, not a glass box or a native range
  * -------------------------------------------------------------------------- */
 
-html[data-ui="repertory"] .rep-player .shell-osd-middle {
+.shell-osd-middle {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: space-between;
   padding: 0 var(--rep-gutter);
+  pointer-events: none;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-volume {
+.shell-osd-spacer {
+  flex: 1 1 auto;
+}
+
+.shell-osd-volume {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   gap: var(--rep-space-2);
   padding: var(--rep-space-3) var(--rep-space-2);
   border: 0;
@@ -231,9 +312,10 @@ html[data-ui="repertory"] .rep-player .shell-osd-volume {
     color-mix(in srgb, var(--rep-ink) 48%, transparent) 100%
   );
   box-shadow: none;
+  pointer-events: auto;
 }
 
-html[data-ui="repertory"] .rep-osd-volume-label {
+.rep-osd-volume-label {
   color: var(--rep-muted);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-badge);
@@ -242,7 +324,7 @@ html[data-ui="repertory"] .rep-osd-volume-label {
   text-transform: uppercase;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-volume-level {
+.shell-osd-volume-level {
   color: var(--rep-ivory);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-mono);
@@ -250,15 +332,15 @@ html[data-ui="repertory"] .rep-player .shell-osd-volume-level {
   letter-spacing: 0.02em;
 }
 
-html[data-ui="repertory"] .rep-osd-fader {
+.rep-osd-fader {
   position: relative;
   display: block;
   width: max(18px, calc(var(--rep-stage) * 1));
   height: max(120px, calc(var(--rep-stage) * 8.4));
 }
 
-html[data-ui="repertory"] .rep-osd-fader-rail,
-html[data-ui="repertory"] .rep-osd-fader-fill {
+.rep-osd-fader-rail,
+.rep-osd-fader-fill {
   position: absolute;
   left: 50%;
   bottom: 0;
@@ -266,16 +348,16 @@ html[data-ui="repertory"] .rep-osd-fader-fill {
   transform: translateX(-50%);
 }
 
-html[data-ui="repertory"] .rep-osd-fader-rail {
+.rep-osd-fader-rail {
   top: 0;
   background: var(--rep-hairline);
 }
 
-html[data-ui="repertory"] .rep-osd-fader-fill {
+.rep-osd-fader-fill {
   background: var(--rep-house);
 }
 
-html[data-ui="repertory"] .rep-osd-fader-playhead {
+.rep-osd-fader-playhead {
   position: absolute;
   left: 50%;
   width: max(14px, calc(var(--rep-stage) * 0.8));
@@ -286,12 +368,12 @@ html[data-ui="repertory"] .rep-osd-fader-playhead {
 
 /* The native input is the accessible control; the rail above is its drawing.
  * It covers the rail, so a click, a drag and the keyboard all still work. */
-html[data-ui="repertory"] .rep-player .rep-osd-fader:focus-within {
+.rep-osd-fader:focus-within {
   outline: var(--rep-focus-ring);
   outline-offset: var(--rep-focus-offset);
 }
 
-html[data-ui="repertory"] .rep-osd-fader-input {
+.rep-osd-fader-input {
   position: absolute;
   inset: 0;
   width: 100%;
@@ -307,7 +389,7 @@ html[data-ui="repertory"] .rep-osd-fader-input {
   direction: rtl;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-volume .shell-osd-icon {
+.shell-osd-volume .shell-osd-icon {
   width: max(40px, calc(var(--rep-stage) * 2));
   height: max(40px, calc(var(--rep-stage) * 2));
   padding: 0;
@@ -316,15 +398,15 @@ html[data-ui="repertory"] .rep-player .shell-osd-volume .shell-osd-icon {
   color: var(--rep-dim);
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-volume .shell-osd-icon:hover {
+.shell-osd-volume .shell-osd-icon:hover {
   color: var(--rep-ivory);
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-volume .shell-osd-icon[aria-pressed="true"] {
+.shell-osd-volume .shell-osd-icon[aria-pressed="true"] {
   color: var(--rep-house);
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-volume svg {
+.shell-osd-volume svg {
   width: max(22px, calc(var(--rep-stage) * 1.15));
   height: max(22px, calc(var(--rep-stage) * 1.15));
 }
@@ -333,20 +415,47 @@ html[data-ui="repertory"] .rep-player .shell-osd-volume svg {
  * The transport strip: bare marks on the page
  * -------------------------------------------------------------------------- */
 
-html[data-ui="repertory"] .rep-player .shell-osd-strip {
-  padding: 0 var(--rep-gutter) var(--rep-space-3);
-  gap: var(--rep-space-3);
+.shell-osd-bottom {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-2);
+  padding-bottom: 0;
+  pointer-events: none;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-cluster {
+.shell-osd-strip {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: var(--rep-space-3);
+  padding: 0 var(--rep-gutter) var(--rep-space-3);
+  pointer-events: auto;
+}
+
+.shell-osd-cluster {
+  display: flex;
+  align-items: center;
   gap: var(--rep-space-1);
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-cluster-center {
+.shell-osd-cluster-left {
+  justify-self: start;
+}
+
+.shell-osd-cluster-center {
+  justify-self: center;
   gap: var(--rep-space-2);
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-icon {
+.shell-osd-cluster-right {
+  justify-self: end;
+}
+
+.shell-osd-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
   min-width: max(46px, calc(var(--rep-stage) * 2.4));
   height: max(46px, calc(var(--rep-stage) * 2.4));
   padding: 0 var(--rep-space-2);
@@ -358,69 +467,78 @@ html[data-ui="repertory"] .rep-player .shell-osd-icon {
   font-size: var(--rep-text-badge);
   font-weight: 400;
   letter-spacing: 0.01em;
+  cursor: pointer;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-icon svg {
+.shell-osd-icon svg {
   width: max(24px, calc(var(--rep-stage) * 1.45));
   height: max(24px, calc(var(--rep-stage) * 1.45));
   flex-shrink: 0;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-icon:hover {
+.shell-osd-icon:hover {
   border-color: var(--rep-hairline);
   background: color-mix(in srgb, var(--rep-ink) 46%, transparent);
   color: var(--rep-ivory);
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-icon:focus,
-html[data-ui="repertory"] .rep-player .shell-osd-icon:focus-visible {
+.shell-osd-icon:focus,
+.shell-osd-icon:focus-visible {
   border-color: var(--rep-ivory);
   background: color-mix(in srgb, var(--rep-ink) 66%, transparent);
   color: var(--rep-ivory);
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-icon[aria-expanded="true"] {
+.shell-osd-icon[aria-expanded="true"] {
   border-color: var(--rep-house);
   color: var(--rep-house);
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-icon[aria-pressed="true"] {
+.shell-osd-icon[aria-pressed="true"] {
   border-color: var(--rep-house);
   color: var(--rep-house);
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-icon:disabled {
+.shell-osd-icon:disabled {
   opacity: 0.28;
   cursor: default;
 }
 
-html[data-ui="repertory"] .rep-player .rep-osd-speed-value {
+.shell-osd-glyph {
+  font-size: var(--rep-text-badge);
+  font-variant-numeric: tabular-nums;
+}
+
+.rep-osd-speed-value {
   color: var(--rep-dim);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-badge);
   letter-spacing: 0.02em;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-cluster-center [data-testid="play"],
-html[data-ui="repertory"] .rep-player .shell-osd-cluster-center [data-testid="pause"] {
+.shell-osd-cluster-center [data-testid="play"],
+.shell-osd-cluster-center [data-testid="pause"] {
   min-width: max(64px, calc(var(--rep-stage) * 3.2));
   height: max(54px, calc(var(--rep-stage) * 2.8));
   color: var(--rep-ivory);
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-cluster-center [data-testid="play"] svg,
-html[data-ui="repertory"] .rep-player .shell-osd-cluster-center [data-testid="pause"] svg {
+.shell-osd-cluster-center [data-testid="play"] svg,
+.shell-osd-cluster-center [data-testid="pause"] svg {
   width: max(30px, calc(var(--rep-stage) * 1.8));
   height: max(30px, calc(var(--rep-stage) * 1.8));
 }
 
 /* The ended Stream's own line, and the wait an episode step draws, as printed
  * plates: an ink step and a hairline, never a shadow. */
-html[data-ui="repertory"] .rep-player .shell-osd-ended {
+.shell-osd-ended {
+  display: flex;
+  justify-content: center;
   padding: 0 var(--rep-gutter) var(--rep-space-3);
+  pointer-events: auto;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-waiting {
+.shell-osd-waiting {
   justify-self: center;
   align-self: center;
   margin: 0 var(--rep-gutter) var(--rep-space-3);
@@ -436,11 +554,12 @@ html[data-ui="repertory"] .rep-player .shell-osd-waiting {
   pointer-events: none;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-refusal {
+.shell-osd-refusal {
   padding: 0 var(--rep-gutter) var(--rep-space-3);
+  pointer-events: auto;
 }
 
-html[data-ui="repertory"] .rep-player .shell-inline-refusal {
+.shell-osd-refusal .shell-inline-refusal {
   border-radius: 0;
   border: 1px solid var(--rep-status-red);
   background: var(--rep-ink-raised);
@@ -453,7 +572,8 @@ html[data-ui="repertory"] .rep-player .shell-inline-refusal {
  * The timeline: a hairline, brass chapter ticks, and the two clocks
  * -------------------------------------------------------------------------- */
 
-html[data-ui="repertory"] .rep-player .shell-osd-timeline {
+.shell-osd-timeline {
+  position: relative;
   height: max(96px, calc(var(--rep-stage) * 5.4));
   border-top: 1px solid var(--rep-hairline);
   background: linear-gradient(
@@ -462,29 +582,38 @@ html[data-ui="repertory"] .rep-player .shell-osd-timeline {
     color-mix(in srgb, var(--rep-ink) 74%, transparent) 58%,
     transparent 100%
   );
+  pointer-events: auto;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-track {
+.shell-osd-track {
+  position: absolute;
+  inset: 0;
   top: var(--rep-space-5);
   bottom: auto;
   height: 2px;
+  overflow: visible;
   background: color-mix(in srgb, var(--rep-hairline) 58%, transparent);
+  pointer-events: none;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-buffered {
+.shell-osd-buffered {
+  position: absolute;
   top: -2px;
   bottom: -2px;
   background: color-mix(in srgb, var(--rep-dim) 24%, transparent);
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-progress {
+.shell-osd-progress {
+  position: absolute;
   top: -1px;
   bottom: -1px;
+  left: 0;
   background: var(--rep-house);
   opacity: 1;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-playhead {
+.shell-osd-playhead {
+  position: absolute;
   top: -8px;
   bottom: -8px;
   width: 2px;
@@ -492,33 +621,53 @@ html[data-ui="repertory"] .rep-player .shell-osd-playhead {
   transform: translateX(-1px);
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-elapsed,
-html[data-ui="repertory"] .rep-player .shell-osd-remaining {
-  top: auto;
+.shell-osd-scrubber {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.shell-osd-elapsed,
+.shell-osd-remaining {
+  position: absolute;
   bottom: var(--rep-space-4);
+  z-index: 2;
   color: var(--rep-ivory);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-mono);
   font-weight: 400;
   letter-spacing: 0.02em;
-  transform: none;
+  pointer-events: none;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-elapsed {
+.shell-osd-elapsed {
   left: var(--rep-gutter);
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-remaining {
+.shell-osd-remaining {
   right: var(--rep-gutter);
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-chapter {
+.shell-osd-chapter {
+  position: absolute;
   top: -8px;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: max(20px, calc(var(--rep-stage) * 1.1));
   height: 18px;
+  transform: translateX(-50%);
+  cursor: pointer;
+  pointer-events: auto;
 }
 
-html[data-ui="repertory"] .rep-osd-chapter-tick {
+.rep-osd-chapter-tick {
   display: block;
   width: 1px;
   height: 14px;
@@ -530,7 +679,7 @@ html[data-ui="repertory"] .rep-osd-chapter-tick {
     opacity var(--rep-motion-fade) var(--rep-ease);
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-chapter:hover .rep-osd-chapter-tick {
+.shell-osd-chapter:hover .rep-osd-chapter-tick {
   height: 20px;
   background: var(--rep-ivory);
   opacity: 1;
@@ -538,8 +687,13 @@ html[data-ui="repertory"] .rep-player .shell-osd-chapter:hover .rep-osd-chapter-
 
 /* The only place a chapter is named on the timeline: the callout under the
  * pointer, or the seek preview while a range is dragged (design record §8). */
-html[data-ui="repertory"] .rep-player .shell-osd-callout {
+.shell-osd-callout {
+  position: absolute;
   bottom: calc(100% + var(--rep-space-2));
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   gap: 0;
   padding: var(--rep-space-2) var(--rep-space-3);
   border: 1px solid var(--rep-hairline);
@@ -547,10 +701,19 @@ html[data-ui="repertory"] .rep-player .shell-osd-callout {
   border-radius: 0;
   background: var(--rep-ink-raised);
   color: var(--rep-ivory);
+  white-space: nowrap;
+  opacity: 0;
+  transform: translateX(-50%);
+  transition: opacity var(--rep-motion-fade) var(--rep-ease);
   box-shadow: none;
+  pointer-events: none;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-callout-name {
+.shell-osd-chapter:hover .shell-osd-callout {
+  opacity: 1;
+}
+
+.shell-osd-callout-name {
   color: var(--rep-ivory);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-badge);
@@ -558,14 +721,20 @@ html[data-ui="repertory"] .rep-player .shell-osd-callout-name {
   letter-spacing: 0.02em;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-callout-time {
+.shell-osd-callout-time {
   color: var(--rep-house);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-badge);
 }
 
 /* The Seek preview, as a small printed plate above the pointer. */
-html[data-ui="repertory"] .rep-player .shell-osd-preview {
+.shell-osd-preview {
+  position: absolute;
+  bottom: calc(100% + 0.5rem);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   max-width: max(200px, calc(var(--rep-stage) * 12.5));
   gap: var(--rep-space-1);
   padding: var(--rep-space-2);
@@ -574,14 +743,24 @@ html[data-ui="repertory"] .rep-player .shell-osd-preview {
   border-radius: 0;
   background: var(--rep-ink-raised);
   box-shadow: none;
+  transform: translateX(-50%);
+  pointer-events: none;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-preview-still {
+.shell-osd-preview-still {
+  display: block;
   width: max(184px, calc(var(--rep-stage) * 11.5));
+  aspect-ratio: 16 / 9;
   border-radius: 0;
+  object-fit: cover;
+  transition: opacity var(--rep-motion-fade) var(--rep-ease);
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-preview-time {
+.shell-osd-preview[data-pending="true"] .shell-osd-preview-still {
+  opacity: 0.45;
+}
+
+.shell-osd-preview-time {
   color: var(--rep-ivory);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-badge);
@@ -589,26 +768,50 @@ html[data-ui="repertory"] .rep-player .shell-osd-preview-time {
   letter-spacing: 0.02em;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-preview-chapter {
+.shell-osd-preview-chapter {
+  max-width: 100%;
+  overflow: hidden;
   color: var(--rep-dim);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-badge);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* --------------------------------------------------------------------------
  * The wait for mpv and the end of the Stream
  * -------------------------------------------------------------------------- */
 
-html[data-ui="repertory"] .rep-player .shell-player-preview {
+.shell-player-preview {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-end;
+  overflow: hidden;
   background: var(--rep-ink);
 }
 
-html[data-ui="repertory"] .rep-player .shell-player-preview-copy {
-  gap: var(--rep-space-1);
-  padding: 0 var(--rep-gutter) calc(var(--rep-stage) * 5.4);
+.shell-player-preview-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
-html[data-ui="repertory"] .rep-player .shell-player-preview-scrim {
+.shell-player-preview-copy {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: var(--rep-space-1);
+  width: 100%;
+  padding: 0 var(--rep-gutter) calc(var(--rep-stage) * 5.4);
+  box-sizing: border-box;
+}
+
+.shell-player-preview-scrim {
+  position: absolute;
+  inset: 0;
   background: linear-gradient(
     0deg,
     color-mix(in srgb, var(--rep-ink) 94%, transparent) 0%,
@@ -617,7 +820,8 @@ html[data-ui="repertory"] .rep-player .shell-player-preview-scrim {
   );
 }
 
-html[data-ui="repertory"] .rep-player .shell-player-preview-title {
+.shell-player-preview-title {
+  margin: 0;
   color: var(--rep-ivory);
   font-family: var(--rep-display);
   font-size: var(--rep-text-title);
@@ -626,22 +830,28 @@ html[data-ui="repertory"] .rep-player .shell-player-preview-title {
   line-height: var(--rep-leading-display);
 }
 
-html[data-ui="repertory"] .rep-player .shell-player-preview-subtitle {
+.shell-player-preview-subtitle {
+  margin: 0;
   color: var(--rep-dim);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-badge);
   font-weight: 400;
 }
 
-html[data-ui="repertory"] .rep-player .shell-player-preview-note {
+.shell-player-preview-note {
+  margin: var(--rep-space-1) 0 0;
   color: var(--rep-house);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-badge);
   letter-spacing: 0.04em;
 }
 
-html[data-ui="repertory"] .rep-player .shell-picture-note {
+.shell-picture-note {
+  position: absolute;
+  top: 50%;
+  left: 50%;
   max-width: min(46rem, 76vw);
+  margin: 0;
   padding: var(--rep-space-5) var(--rep-space-6);
   border: 1px solid var(--rep-hairline);
   border-top: 2px solid var(--rep-house);
@@ -652,18 +862,50 @@ html[data-ui="repertory"] .rep-player .shell-picture-note {
   font-size: var(--rep-text-section);
   font-weight: 500;
   line-height: var(--rep-leading-display);
+  text-align: center;
+  transform: translate(-50%, -50%);
 }
 
 /* --------------------------------------------------------------------------
  * The five icon popovers: a kit plate above the strip
  * -------------------------------------------------------------------------- */
 
-html[data-ui="repertory"] .rep-osd-popover {
-  bottom: calc(var(--rep-stage) * 9.6 + var(--rep-space-4));
-  max-width: min(calc(var(--rep-stage) * 20.8), calc(100vw - 2rem));
+.shell-level[data-level-kind="popover"] {
+  z-index: 70;
+  overflow: visible;
+  padding-top: 0;
+  background: transparent;
+  pointer-events: none;
 }
 
-html[data-ui="repertory"] .rep-osd-popover .rep-kit-popover {
+.shell-osd-popover-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.shell-osd-popover-scrim {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+}
+
+.shell-osd-popover {
+  position: fixed;
+  bottom: calc(var(--rep-stage) * 9.6 + var(--rep-space-4));
+  left: var(--rep-gutter);
+  z-index: 1;
+  max-width: min(calc(var(--rep-stage) * 20.8), calc(100vw - 2rem));
+  pointer-events: auto;
+}
+
+.shell-osd-popover[data-side="right"] {
+  right: var(--rep-gutter);
+  left: auto;
+}
+
+.shell-osd-popover .rep-kit-popover {
+  position: static;
   right: auto;
   left: 0;
   width: min(calc(var(--rep-stage) * 20.8), calc(100vw - 2rem));
@@ -683,21 +925,22 @@ html[data-ui="repertory"] .rep-osd-popover .rep-kit-popover {
   box-shadow: none;
 }
 
-html[data-ui="repertory"] .rep-osd-popover .rep-kit-popover[data-align="end"] {
+.shell-osd-popover .rep-kit-popover[data-align="end"] {
   right: 0;
   left: auto;
 }
 
-html[data-ui="repertory"] .rep-osd-popover .rep-kit-popover-heading {
+.shell-osd-popover .rep-kit-popover-heading {
   font-size: var(--rep-text-section);
 }
 
-html[data-ui="repertory"] .rep-osd-popover .shell-osd-group {
+.shell-osd-popover .shell-osd-group {
+  display: grid;
   gap: 0;
   padding-top: 0;
 }
 
-html[data-ui="repertory"] .rep-osd-popover .shell-osd-group-title {
+.shell-osd-popover .shell-osd-group-title {
   margin: 0;
   padding: var(--rep-space-2) var(--rep-space-4);
   color: var(--rep-house);
@@ -709,8 +952,12 @@ html[data-ui="repertory"] .rep-osd-popover .shell-osd-group-title {
   text-transform: uppercase;
 }
 
-html[data-ui="repertory"] .rep-osd-popover .shell-osd-item {
+.shell-osd-popover .shell-osd-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--rep-space-3);
+  width: 100%;
   padding: var(--rep-space-2) var(--rep-space-4);
   border: 0;
   border-radius: 0;
@@ -719,40 +966,49 @@ html[data-ui="repertory"] .rep-osd-popover .shell-osd-item {
   font-family: var(--rep-mono);
   font-size: var(--rep-text-mono);
   line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
 }
 
 /* The kit rules a direct button; these rows sit inside a group. */
-html[data-ui="repertory"] .rep-osd-popover .shell-osd-group .shell-osd-item {
+.shell-osd-popover .shell-osd-group .shell-osd-item {
   border-bottom: 1px solid color-mix(in srgb, var(--rep-hairline) 58%, transparent);
 }
 
-html[data-ui="repertory"] .rep-osd-popover .shell-osd-item:hover {
+.shell-osd-popover .shell-osd-item:hover {
   background: var(--rep-ink-elevated);
   color: var(--rep-ivory);
 }
 
-html[data-ui="repertory"] .rep-osd-popover .shell-osd-item[aria-pressed="true"] {
+.shell-osd-popover .shell-osd-item[aria-pressed="true"] {
   background: transparent;
   box-shadow: inset 2px 0 0 var(--rep-house);
   color: var(--rep-ivory);
   font-weight: 400;
 }
 
-html[data-ui="repertory"] .rep-osd-popover .shell-osd-marks,
-html[data-ui="repertory"] .rep-osd-popover .shell-osd-note,
-html[data-ui="repertory"] .rep-osd-popover .shell-osd-readout {
+.shell-osd-popover .shell-osd-item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.shell-osd-popover .shell-osd-marks,
+.shell-osd-popover .shell-osd-note,
+.shell-osd-popover .shell-osd-readout {
   color: var(--rep-muted);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-mono);
   line-height: 1.4;
 }
 
-html[data-ui="repertory"] .rep-osd-popover .shell-osd-note,
-html[data-ui="repertory"] .rep-osd-popover .shell-osd-readout {
+.shell-osd-popover .shell-osd-note,
+.shell-osd-popover .shell-osd-readout {
   margin: var(--rep-space-2) var(--rep-space-4);
 }
 
-html[data-ui="repertory"] .rep-osd-popover .shell-osd-statistics {
+.shell-osd-popover .shell-osd-statistics {
+  display: grid;
+  grid-template-columns: auto 1fr;
   gap: 2px var(--rep-space-3);
   margin: var(--rep-space-2) var(--rep-space-4) var(--rep-space-3);
   color: var(--rep-dim);
@@ -760,15 +1016,18 @@ html[data-ui="repertory"] .rep-osd-popover .shell-osd-statistics {
   font-size: var(--rep-text-mono);
 }
 
-html[data-ui="repertory"] .rep-osd-popover .shell-osd-statistics dt {
+.shell-osd-popover .shell-osd-statistics dt {
   color: var(--rep-muted);
 }
 
-html[data-ui="repertory"] .rep-osd-popover .shell-osd-statistics dd {
+.shell-osd-popover .shell-osd-statistics dd {
+  margin: 0;
   color: var(--rep-ivory);
+  font-variant-numeric: tabular-nums;
 }
 
-html[data-ui="repertory"] .rep-osd-popover .shell-osd-delay {
+.shell-osd-popover .shell-osd-delay {
+  display: grid;
   gap: 0;
 }
 
@@ -777,12 +1036,8 @@ html[data-ui="repertory"] .rep-osd-popover .shell-osd-delay {
  * -------------------------------------------------------------------------- */
 
 @media (prefers-reduced-motion: reduce) {
-  html[data-ui="repertory"] .rep-player .rep-osd-chapter-tick {
+  .rep-player .rep-osd-chapter-tick {
     height: 14px;
   }
 
-  html[data-ui="repertory"] .rep-player .rep-kit-spinner,
-  html[data-ui="repertory"] .rep-osd-popover .rep-kit-spinner {
-    animation-duration: 1.6s;
-  }
 }

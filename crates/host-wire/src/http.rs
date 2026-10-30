@@ -137,6 +137,19 @@ pub fn write_upgrade(stream: &mut TcpStream, accept: &str) -> io::Result<()> {
     stream.flush()
 }
 
+/// Answer with one permanent redirect: a staged route retired after cutover.
+pub fn write_permanent_redirect(stream: &mut TcpStream, location: &str) -> io::Result<()> {
+    let head = format!(
+        "HTTP/1.1 308 Permanent Redirect\r\n\
+         Location: {location}\r\n\
+         Content-Length: 0\r\n\
+         Cache-Control: no-store\r\n\
+         Connection: close\r\n\r\n"
+    );
+    stream.write_all(head.as_bytes())?;
+    stream.flush()
+}
+
 /// Answer with one document: the remote client's page, or nothing at all.
 pub fn write_document(
     stream: &mut TcpStream,

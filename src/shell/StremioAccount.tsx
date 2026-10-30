@@ -3,9 +3,8 @@ import { useState, type FormEvent } from "react";
 import type { ActionError } from "../host-client";
 import { useShell } from "./context";
 import { confirmActionLevel } from "./ConfirmAction";
-import { Button } from "./kit";
-import { Button as RepertoryButton } from "./repertory/kit";
-import { Refusal } from "./Refusal";
+import { Button } from "./repertory/kit";
+import { LogNote, LogRefusal } from "./repertory/RepertoryLog";
 
 /**
  * The shared Stremio account control (#30, #82).
@@ -15,7 +14,7 @@ import { Refusal } from "./Refusal";
  * it — the Host exchanges it for an `authKey` it stores, and a refusal is the
  * Host's own answer, kept beside the fields so a typo can be fixed rather than
  * pre-judged. Library reuses the same form with `allowSignOut={false}`: its
- * stub has no sign-out of its own (#84).
+ * gate has no sign-out of its own (#84).
  */
 export function StremioAccount({
   allowSignOut = true,
@@ -28,17 +27,14 @@ export function StremioAccount({
   /** Called after the Host takes a sign-in, so the caller can ask again. */
   onSignedIn?: () => void;
 }) {
-  const { snapshot, ask, push, presentation } = useShell();
-  // The account control is shared by both shells; the button wears the kit of
-  // the surface that drew it (#153).
-  const ActionButton = presentation === "repertory" ? RepertoryButton : Button;
+  const { snapshot, ask, push } = useShell();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<ActionError | null>(null);
   const [working, setWorking] = useState(false);
 
   if (!snapshot) {
-    return <p className="shell-note">Waiting for the Host…</p>;
+    return <LogNote>Waiting for the Host…</LogNote>;
   }
 
   if (snapshot.protection.stremioHeld && !forceSignIn) {
@@ -46,8 +42,10 @@ export function StremioAccount({
       return null;
     }
     return (
-      <ActionButton
-        danger={presentation === "repertory"}
+      <Button
+        variant="ghost"
+        danger
+        className="rep-log-action rep-log-action--danger"
         onClick={() =>
           push(
             confirmActionLevel({
@@ -67,7 +65,7 @@ export function StremioAccount({
         }
       >
         Sign out
-      </ActionButton>
+      </Button>
     );
   }
 
@@ -94,11 +92,12 @@ export function StremioAccount({
   };
 
   return (
-    <form className="shell-form" onSubmit={signIn} noValidate>
-      <div className="shell-field">
+    <form className="rep-settings-form" onSubmit={signIn} noValidate>
+      <div className="rep-log-field">
         <label htmlFor="settings-stremio-email">Stremio email</label>
         <input
           id="settings-stremio-email"
+          className="rep-log-input"
           type="email"
           autoComplete="off"
           placeholder="you@example.com"
@@ -107,10 +106,11 @@ export function StremioAccount({
           data-focusable
         />
       </div>
-      <div className="shell-field">
+      <div className="rep-log-field">
         <label htmlFor="settings-stremio-password">Stremio password</label>
         <input
           id="settings-stremio-password"
+          className="rep-log-input"
           type="password"
           autoComplete="off"
           placeholder="the password Stremio knows"
@@ -119,10 +119,12 @@ export function StremioAccount({
           data-focusable
         />
       </div>
-      <ActionButton type="submit" pending={working}>
-        Sign in
-      </ActionButton>
-      <Refusal error={error} testId="stremio-sign-in-error" />
+      <div className="rep-log-actions">
+        <Button type="submit" variant="primary" pending={working}>
+          Sign in
+        </Button>
+      </div>
+      <LogRefusal error={error} testId="stremio-sign-in-error" />
     </form>
   );
 }

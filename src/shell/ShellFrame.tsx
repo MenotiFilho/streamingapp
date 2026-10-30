@@ -7,7 +7,6 @@ import {
   type ReactNode,
 } from "react";
 
-import { Rail } from "./Rail";
 import type { Intent } from "../input";
 import type { Destination, ShellLevel } from "./navigation";
 import {
@@ -28,7 +27,7 @@ import { useSpatialFocus } from "./useSpatialFocus";
 import { WindowChrome } from "./WindowChrome";
 
 export type ShellFrameProps = {
-  /** The base screen a person chose from the rail. */
+  /** The base screen a person chose from the spine. */
   destination: Destination;
   onChooseDestination: (destination: Destination) => void;
   /** The base screen's contents: Home, Discover, Search, and so on. */
@@ -37,8 +36,6 @@ export type ShellFrameProps = {
   levels: readonly ShellLevel[];
   /** What Back means once the top level has had its own chance to answer. */
   onBack: () => void;
-  /** Which surface draws the frame; the prototype flag chooses repertory (#145). */
-  presentation?: "velvet" | "repertory";
   /** Open the whole destination index, where the frame offers a way to it. */
   onOpenDestinations?: () => void;
   /** The base screen's own first look at an intent (the feature's slides). */
@@ -46,8 +43,8 @@ export type ShellFrameProps = {
 };
 
 /**
- * One layer of the repertory base. The screen that leaves is inert the moment
- * its cross-fade starts, so the layer beneath never takes a press and the new
+ * One layer of the base. The screen that leaves is inert the moment its
+ * cross-fade starts, so the layer beneath never takes a press and the new
  * screen is the only thing the D-pad can reach.
  */
 function RepertoryScreenLayer({ children }: { children: ReactNode }) {
@@ -73,9 +70,9 @@ function RepertoryScreenLayer({ children }: { children: ReactNode }) {
 }
 
 /**
- * The repertory base cross-fades on a destination switch (design record §6).
- * Both layers share one grid cell, so the old screen fades out under the new
- * one instead of sliding or delaying it: the animation never gates input.
+ * The base cross-fades on a destination switch (design record §6). Both layers
+ * share one grid cell, so the old screen fades out under the new one instead of
+ * sliding or delaying it: the animation never gates input.
  */
 function RepertoryScreenStack({
   destination,
@@ -99,12 +96,12 @@ function RepertoryScreenStack({
 }
 
 /**
- * One level of the repertory stack. A pushed overlay arrives 24px from the
- * trailing edge with a fade and Back reverses it (design record §6); the level
- * that is leaving is inert from the first frame of its exit, so the level
- * beneath never takes a press. The animation never gates input: focus lands on
- * the level that is now on top as it mounts, so a press reaches its control
- * while the level is still arriving.
+ * One level of the stack. A pushed overlay arrives 24px from the trailing edge
+ * with a fade and Back reverses it (design record §6); the level that is
+ * leaving is inert from the first frame of its exit, so the level beneath never
+ * takes a press. The animation never gates input: focus lands on the level that
+ * is now on top as it mounts, so a press reaches its control while the level is
+ * still arriving.
  */
 function RepertoryLevelShell({
   level,
@@ -212,7 +209,7 @@ function RepertoryLevelShell({
 }
 
 /**
- * The ten-foot frame: one persistent rail, a base screen beside it, and any
+ * The ten-foot frame: one persistent spine, a base screen beside it, and any
  * number of levels stacked above.
  *
  * Focus belongs to the level on top. A pushed overlay paints over the base
@@ -227,11 +224,9 @@ export function ShellFrame({
   screen,
   levels,
   onBack,
-  presentation = "velvet",
   onOpenDestinations,
   onBaseIntent,
 }: ShellFrameProps) {
-  const repertory = presentation === "repertory";
   const frame = useRef<HTMLDivElement | null>(null);
   const base = useRef<HTMLDivElement | null>(null);
   const levelNodes = useRef(new Map<string, HTMLDivElement>());
@@ -245,8 +240,8 @@ export function ShellFrame({
    * stays live and the focus root covers both. Every other level keeps the
    * spine out of the tab order, as the Title and Streams always have.
    */
-  const settingsLeaf = repertory && isSettingsLeaf(top);
-  const navInteractive = repertory && (levels.length === 0 || settingsLeaf);
+  const settingsLeaf = isSettingsLeaf(top);
+  const navInteractive = levels.length === 0 || settingsLeaf;
   const { supported } = useFullscreen();
 
   // F11 belongs to the window, not to the shell's intent table: it works from
@@ -283,10 +278,10 @@ export function ShellFrame({
   }, []);
 
   const activeRoot = () => {
-    // The repertory base and its Settings leaves share one root with the
-    // spine, so Left reaches the programme index and Right comes back into the
-    // page. A Title, Streams list, dialog or player is still the only root.
-    if (repertory && (levels.length === 0 || settingsLeaf)) {
+    // The base and its Settings leaves share one root with the spine, so Left
+    // reaches the programme index and Right comes back into the page. A Title,
+    // Streams list, dialog or player is still the only root.
+    if (levels.length === 0 || settingsLeaf) {
       return frame.current;
     }
     const level = levels[levels.length - 1];
@@ -303,67 +298,54 @@ export function ShellFrame({
     onIntent: top?.onIntent ?? onBaseIntent,
     // The owner's rail/chrome rules are the base programme's: a pushed Title,
     // Streams list or dialog keeps the settled geometry.
-    rules: repertory && (levels.length === 0 || settingsLeaf) ? REPERTORY_RULES : undefined,
+    rules: levels.length === 0 || settingsLeaf ? REPERTORY_RULES : undefined,
   });
 
-  // A destination change is a deliberate choice: focus lands on the rail item
+  // A destination change is a deliberate choice: focus lands on the spine item
   // that was chosen, so the level key's memory holds that item rather than the
   // card the previous screen happened to leave focus on. The first paint is not
   // a choice — the base screen decides where focus starts. A layout effect puts
-  // focus on the new repertory level before the cross-fade paints; the Velvet
-  // frame keeps the post-paint effect it shipped with.
+  // focus on the new level before the cross-fade paints.
   const restoreDestinationFocus = useCallback(() => {
     if (firstDestination.current) {
       firstDestination.current = false;
       return;
     }
     focusAndReveal(
-      // The rail item is the control a destination change means; a screen's own
-      // `data-destination` marker is a section, not something focus can land on.
-      // The repertory spine lives beside the base, so it is looked up in the
-      // frame; the Velvet rail is still inside the base.
-      (repertory ? frame.current : base.current)?.querySelector<HTMLElement>(
+      // The spine item is the control a destination change means; a screen's
+      // own `data-destination` marker is a section, not something focus can
+      // land on.
+      frame.current?.querySelector<HTMLElement>(
         `[data-destination="${destination}"][data-focusable]`,
       ),
     );
-  }, [destination, repertory]);
+  }, [destination]);
 
   useLayoutEffect(() => {
-    if (repertory) {
-      restoreDestinationFocus();
-    }
-  }, [repertory, restoreDestinationFocus]);
-
-  useEffect(() => {
-    if (!repertory) {
-      restoreDestinationFocus();
-    }
-  }, [repertory, restoreDestinationFocus]);
+    restoreDestinationFocus();
+  }, [restoreDestinationFocus]);
 
   return (
     <div
       ref={frame}
-      className={repertory ? "shell-frame rep-frame" : "shell-frame"}
+      className="shell-frame rep-frame"
       data-testid="shell-frame"
-      data-ui={repertory ? "repertory" : undefined}
-      data-reveal={repertory ? "center" : undefined}
-      data-region={repertory ? "frame" : undefined}
-      data-kind={repertory ? "branch" : undefined}
-      data-label={repertory ? "the window" : undefined}
+      data-reveal="center"
+      data-region="frame"
+      data-kind="branch"
+      data-label="the window"
     >
-      {repertory ? (
-        <div
-          className="shell-nav-slot"
-          inert={navInteractive ? undefined : true}
-          aria-hidden={navInteractive ? undefined : true}
-        >
-          <RepertoryNav
-            active={destination}
-            onChoose={onChooseDestination}
-            onOpenDestinations={onOpenDestinations ?? (() => undefined)}
-          />
-        </div>
-      ) : null}
+      <div
+        className="shell-nav-slot"
+        inert={navInteractive ? undefined : true}
+        aria-hidden={navInteractive ? undefined : true}
+      >
+        <RepertoryNav
+          active={destination}
+          onChoose={onChooseDestination}
+          onOpenDestinations={onOpenDestinations ?? (() => undefined)}
+        />
+      </div>
       <div
         ref={base}
         className="shell-base"
@@ -374,22 +356,8 @@ export function ShellFrame({
         aria-hidden={levels.length > 0 ? true : undefined}
         inert={levels.length > 0 ? true : undefined}
       >
-        {repertory ? null : (
-          <Rail active={destination} onChoose={onChooseDestination} />
-        )}
         <main className="shell-stage">
-          {repertory ? (
-            <RepertoryScreenStack destination={destination}>{screen}</RepertoryScreenStack>
-          ) : (
-            <div
-              className="shell-screen"
-              data-region="screen"
-              data-kind="branch"
-              data-label="the content"
-            >
-              {screen}
-            </div>
-          )}
+          <RepertoryScreenStack destination={destination}>{screen}</RepertoryScreenStack>
         </main>
         {/* The base's own window control, while it is the surface on top. A
             pushed level draws its own; the player level draws none, because its
@@ -397,40 +365,18 @@ export function ShellFrame({
         {levels.length === 0 ? <WindowChrome /> : null}
       </div>
 
-      {repertory ? (
-        <AnimatePresence initial={false}>
-          {levels.map((level, index) => (
-            <RepertoryLevelShell
-              key={level.id}
-              level={level}
-              hidden={index < topIndex}
-              underPlayer={playerIndex >= 0 && index < playerIndex}
-              chrome={index === topIndex && !takeover}
-              attach={attachLevel}
-            />
-          ))}
-        </AnimatePresence>
-      ) : (
-        levels.map((level, index) => (
-          <div
+      <AnimatePresence initial={false}>
+        {levels.map((level, index) => (
+          <RepertoryLevelShell
             key={level.id}
-            ref={attachLevel}
-            className="shell-level"
-            data-level-id={level.id}
-            data-level={level.name}
-            data-level-kind={level.kind}
-            data-under-player={playerIndex >= 0 && index < playerIndex ? "true" : undefined}
-            data-region={`level:${level.id}`}
-            data-kind="branch"
-            data-label={level.name}
-            aria-hidden={index < topIndex ? true : undefined}
-            inert={index < topIndex ? true : undefined}
-          >
-            {level.render()}
-            {index === topIndex && !takeover ? <WindowChrome /> : null}
-          </div>
-        ))
-      )}
+            level={level}
+            hidden={index < topIndex}
+            underPlayer={playerIndex >= 0 && index < playerIndex}
+            chrome={index === topIndex && !takeover}
+            attach={attachLevel}
+          />
+        ))}
+      </AnimatePresence>
     </div>
   );
 }

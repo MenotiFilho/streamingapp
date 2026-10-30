@@ -17,25 +17,21 @@
 //! strip — not the disappearance of the browse surface — is where the one shared
 //! thing, playback, is controlled.
 //!
-//! The template on disk is not quite the page that is served. The Velvet
-//! palette (`src/tokens.css`) that the old surface still reads, the repertory
-//! token sheet (`src/shell/repertory/tokens.css`) that the staged surface reads,
-//! the drawn icon sprite (`remote/icons.svg`), the curated subtitle languages
+//! The template on disk is not quite the page that is served. The repertory
+//! token sheet (`src/shell/repertory/tokens.css`), the drawn icon sprite
+//! (`remote/icons.svg`), the curated subtitle languages
 //! (`src/subtitle-languages.json`), the subtitle appearance presets
 //! (`src/subtitle-appearance.json`), the Stream buffer presets
 //! (`src/stream-buffer.json`), and the approved TMDB mark are spliced in here, at
-//! serve time, through one marker convention. That keeps each palette, each
+//! serve time, through one marker convention. That keeps the palette, each
 //! drawing and each list one source in the tree, while the bytes a browser
 //! receives are still one document with no build step (#88, #126, #135, #149,
 //! #159; amending ADR-0017 §2 and ADR-0018 §1). Motion is the one asset fetched
 //! beside the document, version-pinned and cached (ADR-0031 §1).
 //!
-//! The repertory surface is staged at `/next` while the window's counterpart is
-//! still behind `VITE_UI=repertory` (#152). `/next` serves the same document
-//! with `data-ui="repertory"` injected server-side; `/` keeps the old surface
-//! and its palette, so a paired phone holding that page open is not disturbed.
-//! The prototype `?ui` selector is not carried. The cutover (#160) removes the
-//! staging route and swaps the two.
+//! The repertory surface is served at `/` (#160). `/next`, which staged the
+//! surface while it was being built (#152), answers `308 Permanent Redirect` to
+//! `/` so a bookmark or an open tab on a phone lands on the one surface.
 
 use std::io;
 use std::net::TcpStream;
@@ -47,13 +43,9 @@ use crate::http::{self, Request};
 /// shared assets named by their splice markers.
 const TEMPLATE: &str = include_str!("../remote/index.html");
 
-/// The Velvet palette (#77) the surface at `/` still reads. The remote splices
-/// it rather than keeping a second `:root` block on disk.
-const TOKENS: &str = include_str!("../../../src/tokens.css");
-
-/// The repertory token sheet (#145–#149), the same file the window imports. The
-/// staged surface at `/next` reads `--rep-*` from here; the old surface never
-/// sets `data-ui="repertory"`, so the sheet is inert for it.
+/// The repertory token sheet (#145–#149, #153), the same file the window
+/// imports. The remote splices it rather than keeping a second `:root` block on
+/// disk.
 const REPERTORY_TOKENS: &str = include_str!("../../../src/shell/repertory/tokens.css");
 
 /// The same drawn icon set the window renders (#153), spliced into the served
@@ -97,9 +89,8 @@ const TMDB_LOGO: &str = include_str!("../../../src/assets/tmdb-logo.svg");
 #[cfg(test)]
 const KEY_INTENTS_SOURCE: &str = include_str!("../../../src/input.ts");
 
-/// The one marker convention. A marker is a CSS comment so the template is a
-/// valid document before it is spliced, and it is consumed in [`splice`].
-const TOKENS_MARKER: &str = "/*__SPLICE_TOKENS__*/";
+/// The one marker convention. A marker is a CSS or HTML comment so the template
+/// is a valid document before it is spliced, and it is consumed in [`splice`].
 const REPERTORY_TOKENS_MARKER: &str = "/*__SPLICE_REPERTORY_TOKENS__*/";
 const REPERTORY_ICONS_MARKER: &str = "<!--__SPLICE_REPERTORY_ICONS__-->";
 const SUBTITLE_LANGUAGES_MARKER: &str = "/*__SPLICE_SUBTITLE_LANGUAGES__*/";
@@ -108,8 +99,7 @@ const STREAM_BUFFER_MARKER: &str = "/*__SPLICE_STREAM_BUFFER__*/";
 const TMDB_LOGO_MARKER: &str = "/*__SPLICE_TMDB_LOGO__*/";
 
 /// Every marker the template must carry, in the order it is spliced.
-const MARKERS: [&str; 7] = [
-    TOKENS_MARKER,
+const MARKERS: [&str; 6] = [
     REPERTORY_TOKENS_MARKER,
     REPERTORY_ICONS_MARKER,
     SUBTITLE_LANGUAGES_MARKER,
@@ -138,7 +128,6 @@ fn splice(template: &str) -> String {
     }
 
     template
-        .replace(TOKENS_MARKER, TOKENS)
         .replace(REPERTORY_TOKENS_MARKER, REPERTORY_TOKENS)
         .replace(REPERTORY_ICONS_MARKER, REPERTORY_ICONS)
         .replace(SUBTITLE_LANGUAGES_MARKER, SUBTITLE_LANGUAGES)
@@ -147,28 +136,10 @@ fn splice(template: &str) -> String {
         .replace(TMDB_LOGO_MARKER, TMDB_LOGO)
 }
 
-/// The repertory staging document (#152): the same bytes with the one attribute
-/// the token sheet and the remote's drawing are scoped to injected on `<html>`,
-/// before the first paint. `/` never carries it.
-fn next_page() -> &'static str {
-    static NEXT: OnceLock<String> = OnceLock::new();
-    NEXT.get_or_init(|| {
-        let start = "<html lang=\"en\">";
-        let staged = "<html lang=\"en\" data-ui=\"repertory\">";
-        let page = page();
-        assert!(
-            page.contains(start),
-            "the remote document opens with the html element the staging route sets"
-        );
-        page.replacen(start, staged, 1)
-    })
-}
-
 /// The document a GET path asks for, where it asks for one.
 fn document(path: &str) -> Option<&'static str> {
     match path {
         "/" | "/index.html" => Some(page()),
-        "/next" => Some(next_page()),
         _ => None,
     }
 }
@@ -188,8 +159,7 @@ fn font(path: &str) -> Option<&'static [u8]> {
 pub(crate) fn serve(stream: &mut TcpStream, request: &Request) -> io::Result<()> {
     if request.method == "GET" {
         // The page is the whole client, so it is served for both the bare host
-        // and the name a browser might append to it. `/next` is the staged
-        // repertory document; `/` keeps the old surface until the cutover.
+        // and the name a browser might append to it.
         if let Some(document) = document(&request.path) {
             return http::write_document(
                 stream,
@@ -197,6 +167,11 @@ pub(crate) fn serve(stream: &mut TcpStream, request: &Request) -> io::Result<()>
                 "text/html; charset=utf-8",
                 document.as_bytes(),
             );
+        }
+        // `/next` staged the repertory surface before the cutover (#152); it
+        // now redirects permanently to `/` (#160).
+        if request.path == "/next" {
+            return http::write_permanent_redirect(stream, "/");
         }
         // One versioned asset, its URL naming the version, so it can be cached
         // for good (ADR-0031 §1).
@@ -232,9 +207,9 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use super::{
-        document, font, next_page, page, KEY_INTENTS_SOURCE, MARKERS, MOTION, MOTION_PATH,
-        REPERTORY_ICONS, REPERTORY_TOKENS, STREAM_BUFFER, SUBTITLE_APPEARANCE, SUBTITLE_LANGUAGES,
-        TEMPLATE, TMDB_LOGO, TOKENS,
+        document, font, page, KEY_INTENTS_SOURCE, MARKERS, MOTION, MOTION_PATH, REPERTORY_ICONS,
+        REPERTORY_TOKENS, STREAM_BUFFER, SUBTITLE_APPEARANCE, SUBTITLE_LANGUAGES, TEMPLATE,
+        TMDB_LOGO,
     };
 
     const ICONS_SOURCE: &str = include_str!("../../../src/shell/repertory/icons.tsx");
@@ -583,20 +558,6 @@ mod tests {
     }
 
     #[test]
-    fn the_served_page_carries_every_token_the_window_uses() {
-        let tokens = token_properties(TOKENS);
-        assert!(!tokens.is_empty(), "the token sheet declares its palette");
-
-        let served = page();
-        for token in &tokens {
-            assert!(
-                served.contains(&format!("{token}:")),
-                "the served page carries {token} from src/tokens.css"
-            );
-        }
-    }
-
-    #[test]
     fn the_served_page_carries_every_repertory_token() {
         // #149's bridge: the phone reads the same token sheet the window
         // imports, not a hand-copied palette in the template. A token added to
@@ -621,42 +582,30 @@ mod tests {
     }
 
     #[test]
-    fn the_next_route_is_the_same_document_with_the_repertory_attribute() {
-        // #152's staging: `/next` serves the one compiled-in document with
-        // `data-ui="repertory"` injected on `<html>`; `/` keeps the old surface.
-        // The prototype `?ui` selector is not carried.
-        let staged = next_page();
-        assert!(
-            staged.starts_with("<!doctype html>\n<html lang=\"en\" data-ui=\"repertory\">"),
-            "the staging attribute is on the html element, before the first paint"
-        );
-        assert!(
-            staged.replacen(" data-ui=\"repertory\"", "", 1) == page(),
-            "/next is the same document as /, with one attribute"
-        );
-        assert!(!page().contains("<html lang=\"en\" data-ui=\"repertory\">"));
+    fn the_repertory_surface_is_served_at_the_root_without_a_staging_attribute() {
+        // #160: `/` serves the repertory document directly; `/next` is not a
+        // separate document (it redirects in `serve`). Neither the `data-ui`
+        // staging attribute nor the `?ui` selector remains.
         assert_eq!(document("/"), Some(page()));
         assert_eq!(document("/index.html"), Some(page()));
-        assert_eq!(document("/next"), Some(next_page()));
+        assert!(document("/next").is_none());
         assert!(document("/next/").is_none());
 
         let served = page();
-        for needle in [
-            "html[data-ui=\"repertory\"]",
-            "\"repertory\"",
-            "pairing-card",
-        ] {
-            assert!(served.contains(needle), "the served page carries {needle}");
-        }
+        assert!(
+            served.starts_with("<!doctype html>\n<html lang=\"en\">"),
+            "the root document opens without a staging attribute"
+        );
+        assert!(
+            !served.contains("data-ui="),
+            "the staging attribute is gone from the served page"
+        );
         assert!(
             !served.contains("URLSearchParams"),
             "the ?ui bridge is gone"
         );
         assert!(!served.contains("get(\"ui\")"), "the ?ui bridge is gone");
-        assert!(
-            !TEMPLATE.contains("dataset.ui = \"repertory\";\n      document"),
-            "the template does not set the repertory attribute itself"
-        );
+        assert!(served.contains("pairing-card"));
     }
 
     #[test]
@@ -691,8 +640,8 @@ mod tests {
     #[test]
     fn the_motion_asset_is_pinned_licensed_and_read_by_the_module_script() {
         // ADR-0031: one committed, version-pinned ESM bundle, imported by one
-        // module script that boots only on the staged surface. The spring
-        // durations are read from the token sheet, not copied into the page.
+        // module script. The spring durations are read from the token sheet,
+        // not copied into the page.
         let package: serde_json::Value =
             serde_json::from_str(PACKAGE_JSON).expect("package.json is JSON");
         let dependency = package["dependencies"]["motion"]
@@ -724,7 +673,6 @@ mod tests {
         ] {
             assert!(served.contains(needle), "the served page carries {needle}");
         }
-        // The import is inside the repertory branch, so `/` never runs it.
         let module_start = served
             .find("<script type=\"module\">")
             .expect("the page has one module script");
@@ -733,10 +681,6 @@ mod tests {
             .map(|offset| module_start + offset)
             .expect("the module script is closed");
         let module = &served[module_start..module_end];
-        assert!(
-            module.contains("document.documentElement.dataset.ui === \"repertory\""),
-            "the one module script boots only on the staged surface"
-        );
         assert!(
             module.contains("import(\"/motion-14.7.1.js\")"),
             "the asset is imported, not inlined"
@@ -748,8 +692,7 @@ mod tests {
         // #149's second look: Audio & Subtitles, Episodes, Speed, Chapters and
         // Picture share one drawer and one Done/Back rule. Volume is not a menu:
         // it is the always-visible box between the transport and the five-menu
-        // row, and its mute control is an icon. The old surface keeps its three
-        // utilities (Volume included) and its three inline extras.
+        // row, and its mute control is an icon.
         let served = page();
         for needle in [
             "function sheetTitle",
@@ -761,22 +704,15 @@ mod tests {
             r#"case "speed": return html`"#,
             "renderChaptersBody(p, \"sheet-\")",
             "renderPictureBody(p, \"sheet-\")",
-            "renderSpeedBody(p, \"cast-\")",
-            "renderChaptersBody(p, \"cast-\")",
-            "renderPictureBody(p, \"cast-\")",
             "sheet-season-",
             "sheet-episode-",
             "class=\"volume-panel\"",
             "cast-menus",
-            "cast-utilities",
-            "data-a=\"volume-toggle\"",
-            "menu-mark",
         ] {
             assert!(served.contains(needle), "the served page carries {needle}");
         }
 
-        // The five menu buttons are one row, and Volume is not one of them. The
-        // old surface's utilities keep the volume toggle until the cutover.
+        // The five menu buttons are one row, and Volume is not one of them.
         let start = served
             .find("function renderCastMenus")
             .expect("the repertory card draws its menu row");
@@ -803,7 +739,7 @@ mod tests {
             (".volume-panel", "order: 4;"),
             (".cast-menus", "order: 5;"),
         ] {
-            let rule = format!(r#"html[data-ui="repertory"] {selector} {{"#);
+            let rule = format!("{selector} {{");
             let start = served
                 .find(&rule)
                 .unwrap_or_else(|| panic!("the served page draws {selector}"));
@@ -871,19 +807,20 @@ mod tests {
                 "the served page consumed {marker}"
             );
         }
-        assert!(served.contains("--bg-canvas:"), "the palette was spliced");
+        assert!(served.contains("--rep-ink:"), "the palette was spliced");
     }
 
     #[test]
     fn the_template_holds_no_local_palette() {
-        // `src/tokens.css` is the single source of truth: the template names the
-        // splice marker instead of keeping a second copy of the values.
+        // `src/shell/repertory/tokens.css` is the single source of truth: the
+        // template names the splice marker instead of keeping a second copy of
+        // the values.
         assert!(
             !TEMPLATE.contains(":root"),
             "the template has no local :root block"
         );
         assert!(
-            !TEMPLATE.contains("--bg-canvas:"),
+            !TEMPLATE.contains("--rep-ink:"),
             "the template declares no palette custom properties"
         );
     }
