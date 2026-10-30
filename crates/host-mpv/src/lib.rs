@@ -58,8 +58,8 @@ use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use host_core::{
-    bucket_of, Frame, Observation, Picture, PlaybackError, Player, PreviewCache, Previewer,
-    StreamUrl, Telling,
+    bucket_of, Frame, Observation, Picture, PlaybackError, PlaybackState, Player, PreviewCache,
+    Previewer, StreamUrl, Telling,
 };
 use libmpv2::events::Event;
 use libmpv2::mpv_end_file_reason as EndFileReason;
@@ -270,6 +270,12 @@ impl MpvPlayer {
             // position is unavailable while one is being opened, and a pause is
             // true whether or not there is anything to pause.
             loaded: self.mpv.get_property::<String>("path").is_ok(),
+            // `vo-configured` is the video output's own fact: a resume waits
+            // for it before the first frame can be on screen.
+            configured: self
+                .mpv
+                .get_property::<bool>("vo-configured")
+                .unwrap_or(false),
             paused: self.mpv.get_property::<bool>("pause").unwrap_or(false),
             ended: self
                 .mpv
@@ -419,8 +425,11 @@ impl Player for MpvPlayer {
         // was stopped while the picture was held would be followed by one that
         // opens held too, and a client that asked to play would be shown a
         // Stream sitting at 0:00 offering Play. Opening a Stream means playing
-        // it, whatever the last one was left doing.
-        self.tell(Telling::Pause(false))?;
+        // it, whatever the last one was left doing — except a resume, which is
+        // held until its picture is configured so the room does not start with
+        // sound over a poster.
+        let starting = start.is_some();
+        self.tell(Telling::Pause(starting))?;
 
         // Where a resume begins, set before the file is loaded because that is
         // when mpv reads it: a seek sent afterwards would move a Stream that has
@@ -440,6 +449,9 @@ impl Player for MpvPlayer {
         });
         if result.is_ok() {
             *memory = Memory::asking();
+            if starting {
+                memory.begin_start();
+            }
         }
         result
     }
@@ -471,7 +483,21 @@ impl Player for MpvPlayer {
             .expect("nothing panics while holding the Player's memory");
         self.drain(&mut memory);
         let properties = self.properties();
-        let observation = observe(&memory, &properties);
+
+        // A resume is held paused until the picture is configured. The wait is
+        // bounded: a Stream with no video at all must still play its sound.
+        if memory.starting() {
+            let ready =
+                properties.configured && properties.width.is_some() && properties.height.is_some();
+            if (ready || memory.start_timed_out()) && self.tell(Telling::Pause(false)).is_ok() {
+                memory.start_ready();
+            }
+        }
+
+        let mut observation = observe(&memory, &properties);
+        if memory.starting() {
+            observation.state = PlaybackState::Opening;
+        }
 
         // Said once per Stream, when the picture first comes up: what mpv is
         // decoding with is what says whether hardware decode is engaged, and a

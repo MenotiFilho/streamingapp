@@ -19,6 +19,8 @@ use host_core::{
     Aspect, Buffered, Chapter, CropRectangle, Observation, PlaybackState, Statistics, Track,
     TrackId, TrackKind, VideoSize,
 };
+use std::time::{Duration, Instant};
+
 use serde::Deserialize;
 
 /// What mpv's own events have said about the open the Player was given.
@@ -41,7 +43,19 @@ pub(crate) struct Memory {
     /// person debugging playback wants (it is what the Windows walkthrough read,
     /// and misread, until #28).
     decode: Option<(String, String)>,
+    /// A resume that is held paused until mpv has a picture configured.
+    ///
+    /// A resume starts at a position in the middle of a file; mpv can play its
+    /// audio before the first video frame is on screen, which is a room with
+    /// sound and a poster. The open is held at `pause=yes` until the picture is
+    /// configured (or the wait is plainly not going to end), and the Host says
+    /// `opening` while it waits.
+    starting: bool,
+    starting_since: Option<Instant>,
 }
+
+/// How long a resume waits for a picture before letting the Stream play anyway.
+const START_GRACE: Duration = Duration::from_secs(8);
 
 /// How an open ended, where it did not simply keep playing.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,7 +78,32 @@ impl Memory {
             asking: true,
             ending: None,
             decode: None,
+            starting: false,
+            starting_since: None,
         }
+    }
+
+    /// Hold this open until its picture is configured.
+    pub(crate) fn begin_start(&mut self) {
+        self.starting = true;
+        self.starting_since = Some(Instant::now());
+    }
+
+    /// Whether this open is still waiting for its picture.
+    pub(crate) fn starting(&self) -> bool {
+        self.starting
+    }
+
+    /// The picture is configured, or the wait has gone on long enough.
+    pub(crate) fn start_ready(&mut self) {
+        self.starting = false;
+        self.starting_since = None;
+    }
+
+    /// Whether the resume has waited longer than a picture should take.
+    pub(crate) fn start_timed_out(&self) -> bool {
+        self.starting_since
+            .is_some_and(|since| since.elapsed() > START_GRACE)
     }
 
     /// mpv started a file: whatever was said about the last ending is over.
@@ -171,6 +210,8 @@ pub(crate) struct RawChapter {
 pub(crate) struct Properties {
     /// Whether a file is loaded: mpv answers with a `path`.
     pub(crate) loaded: bool,
+    /// Whether the video output has a picture configured: mpv's `vo-configured`.
+    pub(crate) configured: bool,
     /// Whether playback is held: mpv's `pause`.
     pub(crate) paused: bool,
     /// Whether the file was played to its end: mpv's `eof-reached`, which —
@@ -527,6 +568,7 @@ mod tests {
     fn loading() -> Properties {
         Properties {
             loaded: false,
+            configured: false,
             paused: false,
             ended: false,
             position: None,
@@ -553,6 +595,7 @@ mod tests {
     fn loaded() -> Properties {
         Properties {
             loaded: true,
+            configured: true,
             position: Some(0.2),
             duration: Some(600.0),
             ..loading()
