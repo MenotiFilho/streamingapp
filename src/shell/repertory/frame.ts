@@ -1,6 +1,7 @@
 import type { Transition } from "motion/react";
 
 import { DEFAULT_RULES, type Rules } from "../../focus";
+import type { ShellLevel } from "../navigation";
 import { fade, panel } from "./motion";
 
 /**
@@ -38,6 +39,23 @@ export const DESTINATION_FADE_SECONDS = 0.24;
 
 export function destinationTransition(): Transition {
   return { duration: DESTINATION_FADE_SECONDS, ease: fade().ease };
+}
+
+/**
+ * How far a pushed level enters from the trailing edge, in px. The fade rides
+ * with it; reduced motion keeps the fade and loses the movement (ADR-0031).
+ */
+export const LEVEL_PUSH_PX = 24;
+
+/**
+ * Which levels are pushed. An overlay — a Title, the Streams list, a Settings
+ * leaf, a confirmation, the whole-programme grid — enters 24px from the trailing
+ * edge with a fade and leaves the same way, so Back reverses it. The player is
+ * not pushed: it takes the window. The OSD's popovers are not either: they rise
+ * from their own anchor on the OSD's clock (#158).
+ */
+export function levelPushed(kind: ShellLevel["kind"]): boolean {
+  return kind === "overlay";
 }
 
 /**

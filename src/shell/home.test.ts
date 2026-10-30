@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import type { MetaPreview, ResumeEntry, Snapshot } from "../host-client";
-import { continueArt, featuredRow, heroSlides } from "./home";
+import { addonLabel, continueArt, featuredRow, heroSlides } from "./home";
 
 function meta(overrides: Partial<MetaPreview> = {}): MetaPreview {
   return {
@@ -210,5 +210,27 @@ describe("the Home hero and Continue watching art", () => {
 
     expect(featuredRow(snapshot, rows)?.id).toBe("year");
     expect(featuredRow({ ...snapshot, featuredCatalog: null }, rows)).toBeNull();
+  });
+
+  test("an Addon is named by its manifest name, or by its id when the Host has none", () => {
+    const snapshot: Snapshot = {
+      ...EMPTY,
+      addons: [
+        {
+          id: "torrentio",
+          name: "Torrentio",
+          version: "1.0.0",
+          resources: [],
+          types: [],
+          catalogs: [],
+          idPrefixes: [],
+          behaviorHints: { configurable: false, configurationRequired: false },
+        },
+      ],
+    };
+
+    expect(addonLabel(snapshot, "torrentio")).toBe("Torrentio");
+    expect(addonLabel(snapshot, "unknown.addon")).toBe("unknown.addon");
+    expect(addonLabel(null, "torrentio")).toBe("torrentio");
   });
 });

@@ -1,13 +1,26 @@
 import type { ReactNode } from "react";
 
 import { explain, type AddonStreams, type Stream, type Title, type Video } from "../../host-client";
-import { badgeLines, playabilityNote, unplayableNote, warningNote } from "../../stream";
-import { isSeries, labelOf, nameOf, type OpenablePreview } from "../../title";
+import {
+  badgeLines,
+  playabilityNote,
+  streamsSubject,
+  unplayableNote,
+  warningNote,
+} from "../../stream";
+import type { OpenablePreview } from "../../title";
 import { useShell } from "../context";
+import { addonLabel } from "../home";
 import { PendingSpinner } from "./kit";
 import { useStreamChoice } from "../streamChoice";
 import { programIndex } from "./program";
 import { RowHead } from "./RowHead";
+import {
+  badgeRole,
+  candidateCount,
+  candidateCountLabel,
+  groupAnswerNote,
+} from "./streamsList";
 
 /**
  * The Streams level as a technical screening list: one block per Addon that
@@ -32,7 +45,7 @@ export function RepertoryStreamsScreen({
 }) {
   const { snapshot, pop } = useShell();
   const { chosen, opening, openingStream, choose } = useStreamChoice(title, preview, video);
-  const subject = isSeries(title) ? subjectOf(video) : nameOf(title, preview);
+  const subject = streamsSubject(title, preview, video);
   const count = groups.reduce((held, group) => held + group.streams.length, 0);
 
   return (
@@ -58,10 +71,7 @@ export function RepertoryStreamsScreen({
           <p className="rep-streams-kicker">
             <span>A screening list</span>
             <span className="rep-rule" aria-hidden="true" />
-            <span>
-              {count} {count === 1 ? "candidate" : "candidates"} / {groups.length}{" "}
-              {groups.length === 1 ? "Addon" : "Addons"}
-            </span>
+            <span>{candidateCountLabel(count, groups.length)}</span>
           </p>
           <h1 className="rep-streams-title" data-testid="streams-heading">
             {subject}
@@ -76,7 +86,7 @@ export function RepertoryStreamsScreen({
       ) : null}
 
       {groups.map((group, groupIndex) => {
-        const name = snapshot?.addons.find((addon) => addon.id === group.addon)?.name ?? group.addon;
+        const name = addonLabel(snapshot, group.addon);
         return (
           <section
             className="rep-stream-group"
@@ -89,9 +99,7 @@ export function RepertoryStreamsScreen({
             <RowHead
               index={programIndex(groupIndex + 1)}
               title={name}
-              tag={`${group.streams.length} ${
-                group.streams.length === 1 ? "candidate" : "candidates"
-              }`}
+              tag={candidateCount(group.streams.length)}
             />
 
             {group.failure ? (
@@ -99,8 +107,8 @@ export function RepertoryStreamsScreen({
                 {explain(group.failure)}
               </p>
             ) : null}
-            {!group.failure && group.streams.length === 0 ? (
-              <p className="rep-streams-note">This Addon answered nothing this Host can play.</p>
+            {groupAnswerNote(group) ? (
+              <p className="rep-streams-note">{groupAnswerNote(group)}</p>
             ) : null}
 
             <ol className="rep-stream-list">
@@ -215,7 +223,7 @@ function Candidate({
               <span
                 key={at}
                 className="rep-badge"
-                data-role={at === 0 ? "source" : "quality"}
+                data-role={badgeRole(at)}
               >
                 {badge}
               </span>
@@ -257,10 +265,4 @@ function Candidate({
       <span className="rep-candidate-mark">{unplayable ? "Unplayable" : "Play"}</span>
     </button>
   );
-}
-
-/** What the Streams are Streams *of*: the episode by its number and name. */
-function subjectOf(video: Video): string {
-  const label = labelOf(video) ?? video.id;
-  return [label, video.name].filter((part): part is string => Boolean(part)).join(" — ");
 }

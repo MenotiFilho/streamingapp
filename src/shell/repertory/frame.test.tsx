@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MotionConfig } from "motion/react";
 import { useState } from "react";
 import { describe, expect, test } from "vitest";
 
@@ -228,6 +229,62 @@ describe("the repertory frame", () => {
         "data-open",
       ),
     );
+  });
+});
+
+/**
+ * A base with one button that pushes an overlay, for the motion's final state:
+ * the frame's own tests press a card and read where focus went, and this one
+ * reads what the level settles at.
+ */
+function PushHarness() {
+  const [levels, setLevels] = useState<ShellLevel[]>([]);
+
+  return (
+    <ShellFrame
+      destination="home"
+      onChooseDestination={() => {}}
+      levels={levels}
+      onBack={() => setLevels([])}
+      presentation="repertory"
+      screen={
+        <button
+          data-focusable
+          onClick={() =>
+            setLevels([
+              {
+                id: "pushed",
+                name: "Pushed",
+                kind: "overlay",
+                render: () => <p>Inside</p>,
+              },
+            ])
+          }
+        >
+          Open
+        </button>
+      }
+    />
+  );
+}
+
+describe("a pushed level's motion", () => {
+  test("under reduced motion it arrives with the fade and no movement", async () => {
+    render(
+      <MotionConfig reducedMotion="always">
+        <PushHarness />
+      </MotionConfig>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open" }));
+    const inside = await screen.findByText("Inside");
+    const level = inside.closest(".shell-level");
+    if (!(level instanceof HTMLElement)) {
+      throw new Error("the pushed level did not mount");
+    }
+
+    await waitFor(() => expect(level.style.opacity).toBe("1"));
+    expect(level.style.transform).not.toContain("translateX");
   });
 });
 

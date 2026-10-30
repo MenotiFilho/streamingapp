@@ -1173,7 +1173,7 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 }
 
 /* --------------------------------------------------------------------------
- * A pushed level: the program note Home opens
+ * A pushed level: its canvas and the programme page over it
  * -------------------------------------------------------------------------- */
 
 .rep-frame .shell-level[data-level-kind="overlay"],
@@ -1183,104 +1183,6 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
   font-family: var(--rep-sans);
 }
 
-.rep-note {
-  display: grid;
-  grid-template-columns: 1.05fr 1fr;
-  min-height: calc(100vh - var(--window-chrome-clearance));
-  background: var(--rep-ink);
-}
-
-.rep-note-art {
-  position: relative;
-  min-height: 68vh;
-  overflow: hidden;
-  background: var(--rep-ink-raised);
-}
-
-.rep-note-art img {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.rep-note-body {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  gap: 16px;
-  padding: 64px 56px;
-}
-
-.rep-note-close {
-  position: fixed;
-  top: 72px;
-  right: 56px;
-  z-index: 46;
-  padding: 8px 0;
-  border: 0;
-  border-bottom: 1px solid var(--rep-house);
-  background: transparent;
-  color: var(--rep-ivory);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-text-control);
-  cursor: pointer;
-}
-
-.rep-note-kicker {
-  margin: 0;
-  color: var(--rep-house);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-mono);
-  letter-spacing: var(--rep-tracking-caps);
-  text-transform: uppercase;
-}
-
-.rep-note-title {
-  margin: 0;
-  color: var(--rep-ivory);
-  font-family: var(--rep-display);
-  font-size: var(--rep-text-title);
-  font-weight: 500;
-  line-height: 1.08;
-  letter-spacing: var(--rep-tracking-display);
-}
-
-.rep-note-meta {
-  display: flex;
-  flex-wrap: wrap;
-  margin: 0;
-  color: var(--rep-dim);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-text-caption);
-}
-
-.rep-note-meta > span + span {
-  margin-left: 12px;
-  padding-left: 12px;
-  border-left: 1px solid var(--rep-hairline);
-}
-
-.rep-note-description {
-  max-width: 52ch;
-  margin: 0;
-  color: var(--rep-dim);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-text-body);
-  line-height: var(--rep-leading-body);
-}
-
-.rep-note-boundary {
-  max-width: 52ch;
-  margin: 16px 0 0;
-  padding-top: 16px;
-  border-top: 1px solid var(--rep-hairline);
-  color: var(--rep-muted);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-caption);
-  line-height: 1.4;
-}
-
 @media (max-width: 1300px) {
   .rep-card {
     flex-basis: calc((100% - 4 * var(--rep-row-gap)) / 5);
@@ -1288,18 +1190,6 @@ html[data-ui="repertory"] [data-focusable]:focus-visible {
 }
 
 @media (max-width: 1000px) {
-  .rep-note {
-    grid-template-columns: 1fr;
-  }
-
-  .rep-note-art {
-    min-height: 36vh;
-  }
-
-  .rep-note-body {
-    padding: 40px 32px;
-  }
-
   .rep-card {
     flex-basis: calc((100% - 3 * var(--rep-row-gap)) / 4);
   }
@@ -1400,8 +1290,8 @@ html[data-ui="repertory"] .shell-level:has(.rep-title-level) {
   display: flex;
   align-items: flex-start;
   justify-content: flex-start;
-  gap: 24px;
-  padding: clamp(12px, 1.2vw, 1.8vw) clamp(28px, 2.8vw, 3.8vw) 0;
+  gap: var(--rep-space-5);
+  padding: max(12px, calc(var(--rep-stage) * 1.2)) var(--rep-gutter) 0;
 }
 
 .rep-title-back {
@@ -1413,17 +1303,18 @@ html[data-ui="repertory"] .shell-level:has(.rep-title-level) {
   z-index: 1;
   display: grid;
   flex: 1;
-  grid-template-columns: minmax(0, 0.92fr) minmax(min(42vw, 50rem), 1.08fr);
+  grid-template-columns: minmax(0, 0.92fr)
+    minmax(min(calc(var(--rep-stage) * 42), 50rem), 1.08fr);
   /* The one row is exactly the height left by the top bar: without this, the
      episode list grows to its content and is clipped by the rail instead of
      scrolling, which leaves the last episodes unreachable by the D-pad. */
   grid-template-rows: minmax(0, 1fr);
-  gap: clamp(24px, 2.4vw, 3.2vw);
+  gap: max(24px, calc(var(--rep-stage) * 2.4));
   align-items: stretch;
   min-height: 0;
   /* The right rail reaches the screen's edges; the left copy keeps the page
      margin. The top bar floats over both. */
-  padding: 0 0 0 clamp(28px, 2.8vw, 3.8vw);
+  padding: 0 0 0 var(--rep-gutter);
   box-sizing: border-box;
 }
 
@@ -1431,16 +1322,16 @@ html[data-ui="repertory"] .shell-level:has(.rep-title-level) {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
-  gap: clamp(12px, 0.9vw, 1.4vw);
+  gap: max(12px, calc(var(--rep-stage) * 0.9));
   min-width: 0;
   max-width: 54rem;
-  padding-bottom: clamp(12px, 1.2vw, 1.8vw);
+  padding-bottom: max(12px, calc(var(--rep-stage) * 1.2));
 }
 
 .rep-title-logo {
   display: block;
-  max-width: min(34rem, 56vw);
-  max-height: clamp(6rem, 9vw, 11rem);
+  max-width: min(34rem, calc(var(--rep-stage) * 56));
+  max-height: max(6rem, calc(var(--rep-stage) * 9));
   object-fit: contain;
   object-position: left;
 }
@@ -1450,9 +1341,9 @@ html[data-ui="repertory"] .shell-level:has(.rep-title-level) {
   margin: 0;
   color: var(--rep-ivory);
   font-family: var(--rep-display);
-  font-size: clamp(3.4rem, 4.6vw, 6rem);
+  font-size: var(--rep-text-title);
   font-weight: 500;
-  line-height: 0.98;
+  line-height: var(--rep-leading-display);
   letter-spacing: var(--rep-tracking-display);
   text-wrap: balance;
 }
@@ -1469,8 +1360,8 @@ html[data-ui="repertory"] .shell-level:has(.rep-title-level) {
 }
 
 .rep-title-facts > span + span {
-  margin-left: 14px;
-  padding-left: 14px;
+  margin-left: var(--rep-space-3);
+  padding-left: var(--rep-space-3);
   border-left: 1px solid var(--rep-hairline);
 }
 
@@ -1505,7 +1396,7 @@ html[data-ui="repertory"] .shell-level:has(.rep-title-level) {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: var(--rep-space-3);
   color: var(--rep-muted);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-mono);
@@ -1513,7 +1404,7 @@ html[data-ui="repertory"] .shell-level:has(.rep-title-level) {
 }
 
 .rep-title-unmapped {
-  padding: 3px 9px;
+  padding: var(--rep-space-1) var(--rep-space-2);
   border: 1px solid var(--rep-house);
   color: var(--rep-house);
 }
@@ -1523,10 +1414,11 @@ html[data-ui="repertory"] .shell-level:has(.rep-title-level) {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: clamp(10px, 0.8vw, 1.2vw);
+  gap: max(10px, calc(var(--rep-stage) * 0.8));
   min-height: 0;
   /* Full height, with the top bar floating above its own padding. */
-  padding: clamp(64px, 5vw, 88px) clamp(18px, 1.6vw, 2.2vw) clamp(20px, 1.8vw, 2.4vw);
+  padding: max(64px, calc(var(--rep-stage) * 5)) max(18px, calc(var(--rep-stage) * 1.6))
+    max(20px, calc(var(--rep-stage) * 1.8));
   border-left: 1px solid var(--rep-hairline);
   /*
    * A translucent programme plate, not a second canvas: the backdrop stays
@@ -1566,7 +1458,7 @@ html[data-ui="repertory"] .shell-level:has(.rep-title-level) {
 .rep-title-film {
   display: flex;
   flex-direction: column;
-  gap: clamp(16px, 1.2vw, 1.8vw);
+  gap: max(16px, calc(var(--rep-stage) * 1.2));
 }
 
 /* The film's one action, at the size of the decision. */
@@ -1574,9 +1466,9 @@ html[data-ui="repertory"] .shell-level:has(.rep-title-level) {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 18px;
+  gap: var(--rep-space-4);
   width: 100%;
-  padding: clamp(16px, 1.4vw, 1.8vw) clamp(20px, 1.8vw, 2.4vw);
+  padding: max(16px, calc(var(--rep-stage) * 1.4)) max(20px, calc(var(--rep-stage) * 1.8));
   border: 1px solid var(--rep-house);
   background: var(--rep-house);
   color: var(--rep-ink);
@@ -1590,8 +1482,9 @@ html[data-ui="repertory"] .shell-level:has(.rep-title-level) {
 }
 
 .rep-play-mark {
-  font-size: 0.72em;
-  line-height: 1;
+  flex: none;
+  width: 1em;
+  height: 1em;
 }
 
 .rep-play:focus,
@@ -1620,7 +1513,7 @@ html[data-ui="repertory"] .shell-level:has(.rep-title-level) {
 /* A season is a chip like a control is: one press, one season. */
 html[data-ui="repertory"] .rep-season.rep-kit-choice {
   flex: none;
-  padding: 0.4rem 0.8rem;
+  padding: var(--rep-space-2) var(--rep-space-3);
   font-size: var(--rep-text-caption);
   font-weight: 500;
 }
@@ -1641,7 +1534,7 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: clamp(10px, 0.8vw, 1.2vw);
+  gap: max(10px, calc(var(--rep-stage) * 0.8));
   min-height: 0;
 }
 
@@ -1665,11 +1558,11 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
 
 .rep-episode {
   display: grid;
-  grid-template-columns: clamp(7rem, 8.6vw, 11.5rem) minmax(0, 1fr) auto;
+  grid-template-columns: max(7rem, calc(var(--rep-stage) * 8.6)) minmax(0, 1fr) auto;
   align-items: center;
-  gap: clamp(12px, 1vw, 1.4vw);
+  gap: max(12px, calc(var(--rep-stage) * 1));
   min-width: 0;
-  padding: 10px 8px;
+  padding: var(--rep-space-3) var(--rep-space-2);
   border: 0;
   border-bottom: 1px solid var(--rep-hairline);
   background: color-mix(in srgb, var(--rep-ink) 24%, transparent);
@@ -1706,14 +1599,26 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
   filter: saturate(0.9) brightness(0.86);
 }
 
-.rep-episode-still-empty {
+/* A row with no still degrades to a typographic plate carrying its S#E#, never
+ * an empty grey box (design record §9). */
+.rep-episode-plate {
+  display: grid;
+  place-items: center;
   border: 1px solid var(--rep-hairline);
   box-sizing: border-box;
+  background: var(--rep-ink-raised);
+}
+
+.rep-episode-plate-label {
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  letter-spacing: var(--rep-tracking-caps);
 }
 
 .rep-episode-copy {
   display: grid;
-  gap: 5px;
+  gap: var(--rep-space-1);
   min-width: 0;
 }
 
@@ -1775,7 +1680,7 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
   }
 
   .rep-title-side {
-    padding-top: clamp(24px, 2vw, 3vw);
+    padding-top: max(24px, calc(var(--rep-stage) * 2));
   }
 
   .rep-title-episodes {
@@ -1802,11 +1707,11 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
   .rep-title-grid {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto;
-    padding: 0 clamp(28px, 2.8vw, 3.8vw) clamp(20px, 1.8vw, 2.4vw);
+    padding: 0 var(--rep-gutter) max(20px, calc(var(--rep-stage) * 1.8));
   }
 
   .rep-title-side {
-    padding-top: clamp(24px, 2vw, 3vw);
+    padding-top: max(24px, calc(var(--rep-stage) * 2));
     border-top: 1px solid var(--rep-hairline);
     border-left: 0;
   }
@@ -1822,7 +1727,7 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
 
 .rep-streams {
   min-height: 100%;
-  padding: clamp(32px, 2.6vw, 3.2vw) clamp(32px, 3.2vw, 4.4vw) clamp(80px, 6vw, 8vw);
+  padding: var(--rep-stage-top) var(--rep-gutter) var(--rep-stage-bottom);
   background: color-mix(in srgb, var(--rep-ink) 96%, transparent);
   box-sizing: border-box;
 }
@@ -1830,8 +1735,8 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
 .rep-streams-head {
   display: flex;
   flex-direction: column;
-  gap: clamp(20px, 1.6vw, 2.2vw);
-  padding-bottom: clamp(24px, 2vw, 2.6vw);
+  gap: max(20px, calc(var(--rep-stage) * 1.6));
+  padding-bottom: max(24px, calc(var(--rep-stage) * 2));
   border-bottom: 1px solid var(--rep-hairline);
 }
 
@@ -1841,13 +1746,13 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
 
 .rep-streams-heading {
   display: grid;
-  gap: 10px;
+  gap: var(--rep-space-3);
 }
 
 .rep-streams-kicker {
   display: flex;
   align-items: center;
-  gap: clamp(12px, 0.94vw, 1.4vw);
+  gap: max(12px, calc(var(--rep-stage) * 0.94));
   margin: 0;
   color: var(--rep-dim);
   font-family: var(--rep-mono);
@@ -1871,12 +1776,12 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
   font-family: var(--rep-display);
   font-size: var(--rep-text-title);
   font-weight: 500;
-  line-height: 1.06;
+  line-height: var(--rep-leading-display);
   letter-spacing: var(--rep-tracking-display);
 }
 
 .rep-stream-group {
-  margin-top: clamp(30px, 2.4vw, 3vw);
+  margin-top: max(30px, calc(var(--rep-stage) * 2.4));
 }
 
 .rep-stream-list {
@@ -1892,11 +1797,11 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
 
 .rep-candidate {
   display: grid;
-  grid-template-columns: clamp(42px, 3.4vw, 4.4rem) minmax(0, 1fr) auto;
+  grid-template-columns: max(42px, calc(var(--rep-stage) * 3.4)) minmax(0, 1fr) auto;
   align-items: center;
-  gap: clamp(16px, 1.4vw, 2vw);
+  gap: max(16px, calc(var(--rep-stage) * 1.4));
   width: 100%;
-  padding: 16px 12px;
+  padding: var(--rep-space-4) var(--rep-space-3);
   border: 0;
   border-bottom: 1px solid var(--rep-hairline);
   background: transparent;
@@ -1927,7 +1832,7 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
 
 .rep-candidate-index {
   align-self: start;
-  padding-top: 3px;
+  padding-top: var(--rep-space-1);
   color: var(--rep-house);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-mono);
@@ -1936,7 +1841,7 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
 
 .rep-candidate-body {
   display: grid;
-  gap: 8px;
+  gap: var(--rep-space-2);
   min-width: 0;
 }
 
@@ -1944,11 +1849,11 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--rep-space-2);
 }
 
 .rep-badge {
-  padding: 1px 7px;
+  padding: 1px var(--rep-space-2);
   border: 1px solid var(--rep-hairline);
   color: var(--rep-dim);
   font-family: var(--rep-mono);
@@ -1982,11 +1887,11 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: var(--rep-space-2);
 }
 
 .rep-warning {
-  padding: 2px 8px;
+  padding: 2px var(--rep-space-2);
   border: 1px solid var(--rep-house);
   color: var(--rep-house);
   font-family: var(--rep-sans);
@@ -1995,7 +1900,7 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
 }
 
 .rep-unplayable-note {
-  padding: 2px 8px;
+  padding: 2px var(--rep-space-2);
   border: 1px solid var(--rep-status-red);
   color: var(--rep-status-red);
   font-family: var(--rep-sans);
@@ -2018,7 +1923,7 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
 .rep-candidate-opening {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--rep-space-2);
   color: var(--rep-ivory);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-mono);
@@ -2027,7 +1932,7 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
 .rep-streams-note,
 .rep-stream-failure {
   max-width: 62ch;
-  margin: 16px 0;
+  margin: var(--rep-space-4) 0;
   color: var(--rep-muted);
   font-family: var(--rep-sans);
   font-size: var(--rep-text-body);
@@ -2040,10 +1945,10 @@ html[data-ui="repertory"] .rep-season.rep-kit-choice[aria-pressed="true"] > span
 
 .rep-streams-chosen {
   position: sticky;
-  bottom: 24px;
+  bottom: var(--rep-space-5);
   max-width: 62ch;
-  margin: 32px 0 0;
-  padding: 14px 18px;
+  margin: var(--rep-space-5) 0 0;
+  padding: var(--rep-space-3) var(--rep-space-4);
   border: 1px solid var(--rep-status-red);
   background: var(--rep-ink-raised);
   color: var(--rep-ivory);
@@ -2181,7 +2086,7 @@ html[data-ui="repertory"] .discover-empty-title {
   font-family: var(--rep-display);
   font-size: var(--rep-text-title);
   font-weight: 500;
-  line-height: 1.06;
+  line-height: var(--rep-leading-display);
   letter-spacing: var(--rep-tracking-display);
 }
 

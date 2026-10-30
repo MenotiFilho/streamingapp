@@ -101,3 +101,12 @@ export function continueArt(entry: ResumeEntry): string | null {
 export function addonName(snapshot: Snapshot | null, addon: string): string | null {
   return snapshot?.addons.find((held) => held.id === addon)?.name ?? null;
 }
+
+/**
+ * The Addon as a screen names it: its manifest name, or the id when the Host
+ * knows no name for it. A Title's attribution and a Streams group's head both
+ * print the same thing, so they read the same seam.
+ */
+export function addonLabel(snapshot: Snapshot | null, addon: string): string {
+  return addonName(snapshot, addon) ?? addon;
+}

@@ -20,7 +20,8 @@ export type RailGridProps = {
   title: string;
   /** The programme's numbered section head, as the rail printed it. */
   index?: string;
-  onOpenMeta: (meta: MetaPreview) => void;
+  /** A card opens its Title through the Addon that answered the row. */
+  onOpenMeta: (addon: string, meta: MetaPreview) => void;
   onOpenEntry: (entry: ResumeEntry) => void;
   onClose: () => void;
 };
@@ -35,8 +36,8 @@ export type RailGridProps = {
  * `home.page` the Home rail used to call from its header; the load stops at the
  * row's `done`, at a failure (which is drawn), and at a Catalog that declares no
  * `skip`. Continue watching is the snapshot's own record and has no more pages.
- * A card opens through the same callback Home passes, so the prototype Program
- * note stands in until #155 draws the Title.
+ * A card opens through the same Title opener Home uses, so the whole row and
+ * the rail reach the same programme page.
  */
 export function RailGrid({
   rowKey,
@@ -118,7 +119,7 @@ export function RailGrid({
                 rating={meta.imdbRating?.trim() || null}
                 subtitle={yearOf(meta)}
                 testId={`grid-card-${row.addon}-${meta.id}`}
-                onClick={() => onOpenMeta(meta)}
+                onClick={() => onOpenMeta(row.addon, meta)}
               />
             ))}
           </div>

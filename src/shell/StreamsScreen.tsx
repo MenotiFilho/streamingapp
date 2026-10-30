@@ -9,7 +9,13 @@ import {
   type Title,
   type Video,
 } from "../host-client";
-import { badgeLines, playabilityNote, unplayableNote, warningNote } from "../stream";
+import {
+  badgeLines,
+  playabilityNote,
+  streamsSubject,
+  unplayableNote,
+  warningNote,
+} from "../stream";
 import { isSeries, labelOf, nameOf, type OpenablePreview } from "../title";
 import { useShell } from "./context";
 import { Button, Chip, PendingSpinner } from "./kit";
@@ -33,7 +39,7 @@ export function StreamsLoader({
   video: Video;
 }) {
   const { ask, pop, markUnplayable, presentation } = useShell();
-  const subject = isSeries(title) ? subjectOf(video) : nameOf(title, preview);
+  const subject = streamsSubject(title, preview, video);
   const [state, setState] = useState<{ groups: AddonStreams[] } | { failure: ActionError } | null>(
     null,
   );

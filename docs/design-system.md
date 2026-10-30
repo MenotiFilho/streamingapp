@@ -502,13 +502,12 @@ rule.
 
 | The prototype today | The record | Closed by |
 |---|---|---|
-| screen CSS still carries per-screen `clamp()` sizes (the Title name, Streams and logbook gaps and paddings); the stage unit covers the frame and the kit | every ten-foot size and layout dimension from the stage unit and the fixed spacing steps (§3–§4) | #155–#159 |
+| Discover, Search, Addons and the logbook still carry per-screen `clamp()` sizes and off-scale paddings; the Title and Streams are on the stage unit | every ten-foot size and layout dimension from the stage unit and the fixed spacing steps (§3–§4) | #156–#159 |
 | Discover and Search still draw the Velvet screen layout and the prototype card wash; the repertory kit is mounted under it | the editorial feed and the result rows in the repertory anatomy, with the wash only on a focused poster's art (§5) | #156 |
-| Home's feature and cards open the Program note stand-in, not the real Title page | the one-screen programme page and its Streams list | #155 |
 | the OSD names the current chapter permanently at the centre | the chapter is named only in the hover/drag callout | #158 |
 | the OSD's ±10s and subtitles marks are text; the Remote is Unicode | one drawn set on both clients | #158, #159 |
 | the volume is the native range with `accent-color` | a drawn rail with a brass fill | #158 |
 | shadows on the OSD | depth is a hairline and one ink step | #158 |
-| Discover, Search, Title, Streams and the OSD do not use the Motion presets yet; the Remote is still CSS transitions only | Motion in both clients, with the spring presets and the transition shapes in §6 | #155–#159 |
+| Discover, Search and the OSD do not use the Motion presets yet; the Remote is still CSS transitions only | Motion in both clients, with the spring presets and the transition shapes in §6 | #156, #158, #159 |
 | the Remote's strip still scroll-snaps | no snapping: the rail scroll is redirected mid-flight (§6) | #159 |
 | the Velvet sheet and its splice live beside the repertory sheet; the served page keeps `/` and the `?ui` gate | one sheet, one splice, one page | #152, #160 |
