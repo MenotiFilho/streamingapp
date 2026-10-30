@@ -98,8 +98,9 @@ function RepertoryScreenStack({
  * One level of the repertory stack. A pushed overlay arrives 24px from the
  * trailing edge with a fade and Back reverses it (design record §6); the level
  * that is leaving is inert from the first frame of its exit, so the level
- * beneath never takes a press. The animation never gates input: focus is
- * restored on the level that is now on top before the transition starts.
+ * beneath never takes a press. The animation never gates input: focus lands on
+ * the level that is now on top as it mounts, so a press reaches its control
+ * while the level is still arriving.
  */
 function RepertoryLevelShell({
   level,
@@ -129,8 +130,8 @@ function RepertoryLevelShell({
   );
 
   // A level that is leaving is inert at once. If focus was still inside it, let
-  // go of it here: the focus engine sees a blurred control and restores the
-  // level beneath from its own memory, which is the control Back belongs to.
+  // go of it here: the focus engine's focusout path then restores the level
+  // beneath from its own memory, which is the control Back belongs to.
   useEffect(() => {
     if (present) {
       return;
@@ -165,7 +166,7 @@ function RepertoryLevelShell({
       }}
     >
       {level.render()}
-      {chrome ? <WindowChrome /> : null}
+      {chrome && present ? <WindowChrome /> : null}
     </motion.div>
   );
 }

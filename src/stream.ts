@@ -13,7 +13,7 @@
  */
 
 import type { Playback, Stream, StreamWarning, Title, Video } from "./host-client";
-import { tmdbFilmId } from "./title";
+import { isSeries, labelOf, nameOf, tmdbFilmId, type OpenablePreview } from "./title";
 
 /**
  * The Video a film is watched as: the film itself. A film's Title lists no
@@ -41,6 +41,27 @@ export function badgeLines(named: { name: string | null }): string[] {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
+}
+
+/**
+ * What the Streams are Streams *of*: a series' episode by the number and name
+ * its Addon listed, or the Title a film is. Both surfaces name the level with
+ * this, so the waiting line and the list cannot drift.
+ */
+export function streamsSubject(
+  title: Title,
+  preview: OpenablePreview | null | undefined,
+  video: Video,
+): string {
+  if (!isSeries(title)) {
+    return nameOf(title, preview);
+  }
+
+  const episode = labelOf(video);
+  if (!episode) {
+    return video.name ?? video.id;
+  }
+  return video.name ? `${episode} — ${video.name}` : episode;
 }
 
 /**

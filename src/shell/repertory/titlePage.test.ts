@@ -71,12 +71,8 @@ describe("the Unmapped mark", () => {
 });
 
 describe("what the Title page offers next", () => {
-  test("a film is one Video to find Streams for", () => {
-    expect(titleSide(title())).toEqual({
-      kind: "film",
-      kicker: "One Video · the film itself",
-      note: "The film is one Video. Find the Addons' Streams for it.",
-    });
+  test("a film is one Video to find Streams for, and prints only its action", () => {
+    expect(titleSide(title())).toEqual({ kind: "film" });
   });
 
   test("a series keeps its seasons in the order the Addon listed them", () => {

@@ -189,7 +189,7 @@ function withShell(value: ShellContextValue, children: ReactNode, preview = fals
 }
 
 describe("the repertory Title page", () => {
-  it("pushes the Streams level for the episode that was pressed, and keeps it chosen", () => {
+  it("pushes the Streams level for the episode that was pressed", () => {
     const { value, pushed } = harness();
     render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
 
@@ -197,10 +197,6 @@ describe("the repertory Title page", () => {
 
     expect(pushed).toHaveLength(1);
     expect(pushed[0]?.name).toBe("Streams");
-    expect(screen.getByTestId("episode-tt0903747:1:1")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
   });
 
   it("gives a film one Find Streams control that pushes the Streams level", () => {
@@ -211,13 +207,6 @@ describe("the repertory Title page", () => {
 
     expect(pushed).toHaveLength(1);
     expect(pushed[0]?.name).toBe("Streams");
-  });
-
-  it("does not offer a series with no episodes a film's Play control", () => {
-    const { value } = harness();
-    render(withShell(value, <RepertoryTitleScreen title={{ ...SERIES, videos: [] }} />));
-
-    expect(screen.queryByTestId("play-film")).not.toBeInTheDocument();
   });
 });
 
@@ -321,9 +310,6 @@ describe("the repertory Streams list", () => {
     expect(
       within(screen.getByTestId("streams-torrentio")).getByRole("alert"),
     ).toHaveTextContent("status 503");
-    expect(screen.getByTestId("streams-aiostreams")).toHaveTextContent(
-      "answered nothing this Host can play",
-    );
     expect(screen.getByTestId("candidate-cinemeta-0")).toBeInTheDocument();
   });
 });

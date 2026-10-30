@@ -1,44 +1,45 @@
-import type { Snapshot, Title, Video } from "../../host-client";
-import { isSeries, labelOf, nameOf, type OpenablePreview } from "../../title";
-import { addonName } from "../home";
+import type { AddonStreams } from "../../host-client";
 
 /**
- * The Streams list's own decisions, kept out of the drawing (ADR-0032).
+ * The Streams level's bookkeeping, kept out of the drawing (ADR-0032).
  *
- * The level's name, the Addon a group is headed by, and the count its kicker
- * prints are rules: a series' Streams are its episode's, a film's are the
- * Title's, and an Addon without a display name is still a group.
+ * The count a group prints, the role of each of the Addon's badge lines, and
+ * what a group says when its Addon answered nothing are rules. The level's name
+ * is the stream model's (`streamsSubject`), and the Addon's display name is the
+ * frame's (`addonLabel`), because a Title's attribution prints it too.
  */
+
+/** A group's candidate count, singular where there is one. */
+export function candidateCount(count: number): string {
+  return `${count} ${count === 1 ? "candidate" : "candidates"}`;
+}
+
+/** The list's bookkeeping: `12 candidates / 3 Addons`. */
+export function candidateCountLabel(count: number, addons: number): string {
+  return `${candidateCount(count)} / ${addons} ${addons === 1 ? "Addon" : "Addons"}`;
+}
 
 /**
- * What the Streams are Streams *of*: a series' episode by the number and name
- * its Addon listed, or the Title a film is. The title's own name is the page's,
- * not this level's prefix — the surface says "Streams" around it.
+ * The Addon's own badge lines, read as a screening bill reads them: the first
+ * is the source, every line after it is a quality or source mark. Nothing is
+ * re-worded or re-ranked — the lines are the Addon's.
  */
-export function streamsSubject(
-  title: Title,
-  preview: OpenablePreview | null | undefined,
-  video: Video,
-): string {
-  if (!isSeries(title)) {
-    return nameOf(title, preview);
-  }
+export type BadgeRole = "source" | "quality";
 
-  const episode = labelOf(video);
-  if (!episode) {
-    return video.name ?? video.id;
-  }
-  return video.name ? `${episode} — ${video.name}` : episode;
+export function badgeRole(index: number): BadgeRole {
+  return index === 0 ? "source" : "quality";
 }
 
-/** The Addon a group is headed by: the Host's display name, or the id when it has none. */
-export function streamsGroupName(snapshot: Snapshot | null, addon: string): string {
-  return addonName(snapshot, addon) ?? addon;
-}
+/** What a group that answered nothing says: the list is what exists (ADR-0020). */
+export const NO_CANDIDATES = "This Addon answered nothing this Host can play.";
 
-/** The list's bookkeeping: `12 candidates / 3 Addons`, singular where there is one. */
-export function candidateCountLabel(count: number, addons: number): string {
-  const candidates = count === 1 ? "candidate" : "candidates";
-  const group = addons === 1 ? "Addon" : "Addons";
-  return `${count} ${candidates} / ${addons} ${group}`;
+/**
+ * The line under a group that answered no candidate. A failed Addon is not this
+ * line — its refusal is the Host's own words, drawn as an alert.
+ */
+export function groupAnswerNote(group: Pick<AddonStreams, "streams" | "failure">): string | null {
+  if (group.failure || group.streams.length > 0) {
+    return null;
+  }
+  return NO_CANDIDATES;
 }

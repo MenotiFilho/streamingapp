@@ -10,7 +10,7 @@ import {
   type OpenablePreview,
 } from "../../title";
 import { useShell } from "../context";
-import { addonName } from "../home";
+import { addonLabel } from "../home";
 import { Icon } from "./icons";
 import { ChoiceChip } from "./kit";
 import { StreamsLoader } from "../StreamsScreen";
@@ -45,7 +45,7 @@ export function RepertoryTitleScreen({
   const facts = titleFacts(title, preview);
   const art = titleArtOf(title, preview);
   const shown = seasons.find((season) => season.season === shownSeason) ?? seasons[0];
-  const suppliedBy = title.addon ? addonName(snapshot, title.addon) ?? title.addon : null;
+  const suppliedBy = title.addon ? addonLabel(snapshot, title.addon) : null;
 
   const play = useCallback(
     (video: Video) => {
@@ -187,13 +187,16 @@ export function RepertoryTitleScreen({
                             />
                           </span>
                         ) : (
-                          <span
-                            className="rep-episode-still rep-episode-still-empty"
-                            aria-hidden="true"
-                          />
+                          <span className="rep-episode-still rep-episode-plate">
+                            <span className="rep-episode-plate-label">
+                              {label ?? "Video"}
+                            </span>
+                          </span>
                         )}
                         <span className="rep-episode-copy">
-                          <span className="rep-episode-label">{label ?? "Video"}</span>
+                          {video.thumbnail ? (
+                            <span className="rep-episode-label">{label ?? "Video"}</span>
+                          ) : null}
                           <span className="rep-episode-name">{video.name ?? video.id}</span>
                         </span>
                         <span className="rep-episode-mark">Streams</span>
@@ -204,11 +207,14 @@ export function RepertoryTitleScreen({
               </section>
             ) : (
               <div className="rep-title-film">
-                <p className="rep-title-side-kicker">{side.kicker}</p>
-                <p className="rep-title-side-note" data-testid="title-no-videos">
-                  {side.note}
-                </p>
-                {side.kind === "film" ? (
+                {side.kind === "series-empty" ? (
+                  <>
+                    <p className="rep-title-side-kicker">{side.kicker}</p>
+                    <p className="rep-title-side-note" data-testid="title-no-videos">
+                      {side.note}
+                    </p>
+                  </>
+                ) : (
                   <button
                     type="button"
                     className="rep-play"
@@ -219,7 +225,7 @@ export function RepertoryTitleScreen({
                     <Icon name="play" className="rep-play-mark" />
                     <span>Find Streams</span>
                   </button>
-                ) : null}
+                )}
               </div>
             )}
           </aside>

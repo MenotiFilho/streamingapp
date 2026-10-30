@@ -59,22 +59,19 @@ export function unmappedOf(title: Title): boolean {
 }
 
 /**
- * What the right rail offers next: a film's one action, a series' season
- * index, or the honest note that a series listed no episodes (which must never
- * read as a film with one Video).
+ * What the right rail offers next: a film's one action, a series' season index,
+ * or the honest note that a series listed no episodes (which must never read as
+ * a film with one Video). A film prints only the action — no kicker, no note; the
+ * audio/description column already said what the Title is.
  */
 export type TitleSide =
-  | { kind: "film"; kicker: string; note: string }
+  | { kind: "film" }
   | { kind: "series"; seasons: Season[] }
   | { kind: "series-empty"; kicker: string; note: string };
 
 export function titleSide(title: Title): TitleSide {
   if (!isSeries(title)) {
-    return {
-      kind: "film",
-      kicker: "One Video · the film itself",
-      note: "The film is one Video. Find the Addons' Streams for it.",
-    };
+    return { kind: "film" };
   }
 
   const seasons = seasonsOf(title);

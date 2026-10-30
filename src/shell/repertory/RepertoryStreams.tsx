@@ -1,14 +1,26 @@
 import type { ReactNode } from "react";
 
 import { explain, type AddonStreams, type Stream, type Title, type Video } from "../../host-client";
-import { badgeLines, playabilityNote, unplayableNote, warningNote } from "../../stream";
+import {
+  badgeLines,
+  playabilityNote,
+  streamsSubject,
+  unplayableNote,
+  warningNote,
+} from "../../stream";
 import type { OpenablePreview } from "../../title";
 import { useShell } from "../context";
+import { addonLabel } from "../home";
 import { PendingSpinner } from "./kit";
 import { useStreamChoice } from "../streamChoice";
 import { programIndex } from "./program";
 import { RowHead } from "./RowHead";
-import { candidateCountLabel, streamsGroupName, streamsSubject } from "./streamsList";
+import {
+  badgeRole,
+  candidateCount,
+  candidateCountLabel,
+  groupAnswerNote,
+} from "./streamsList";
 
 /**
  * The Streams level as a technical screening list: one block per Addon that
@@ -74,7 +86,7 @@ export function RepertoryStreamsScreen({
       ) : null}
 
       {groups.map((group, groupIndex) => {
-        const name = streamsGroupName(snapshot, group.addon);
+        const name = addonLabel(snapshot, group.addon);
         return (
           <section
             className="rep-stream-group"
@@ -87,9 +99,7 @@ export function RepertoryStreamsScreen({
             <RowHead
               index={programIndex(groupIndex + 1)}
               title={name}
-              tag={`${group.streams.length} ${
-                group.streams.length === 1 ? "candidate" : "candidates"
-              }`}
+              tag={candidateCount(group.streams.length)}
             />
 
             {group.failure ? (
@@ -97,8 +107,8 @@ export function RepertoryStreamsScreen({
                 {explain(group.failure)}
               </p>
             ) : null}
-            {!group.failure && group.streams.length === 0 ? (
-              <p className="rep-streams-note">This Addon answered nothing this Host can play.</p>
+            {groupAnswerNote(group) ? (
+              <p className="rep-streams-note">{groupAnswerNote(group)}</p>
             ) : null}
 
             <ol className="rep-stream-list">
@@ -129,7 +139,8 @@ export function RepertoryStreamsScreen({
   );
 }
 
-/** The Streams level's furniture before there is a list: Back and the subject. */export function RepertoryStreamsWaiting({
+/** The Streams level's furniture before there is a list: Back and the subject. */
+export function RepertoryStreamsWaiting({
   subject,
   onBack,
   children,
@@ -212,7 +223,7 @@ function Candidate({
               <span
                 key={at}
                 className="rep-badge"
-                data-role={at === 0 ? "source" : "quality"}
+                data-role={badgeRole(at)}
               >
                 {badge}
               </span>

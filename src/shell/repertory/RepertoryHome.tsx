@@ -17,7 +17,6 @@ import {
 } from "../../browse";
 import { explain, type MetaPreview, type ResumeEntry } from "../../host-client";
 import { cardName, cardNote, progressOf, resumable } from "../../library";
-import type { OpenablePreview } from "../../title";
 import { useShell } from "../context";
 import { continueArt, featuredRow, heroSlides, type HeroSlide } from "../home";
 import { FOCUSABLE } from "../layout";
@@ -49,19 +48,8 @@ export { FEATURE_ROTATION_MS };
 
 type FeatureItem = {
   slide: HeroSlide;
-  meta: MetaPreview | null;
+  meta: MetaPreview;
 };
-
-/** What a card already knows about the Title it opens, in the shell's shape. */
-function openableOfSlide(slide: HeroSlide): OpenablePreview {
-  return {
-    id: slide.id,
-    type: slide.type,
-    name: slide.name,
-    poster: slide.poster,
-    background: slide.background,
-  };
-}
 
 function MetaLine({
   parts,
@@ -149,9 +137,7 @@ function Feature({
   }
 
   const name = item.slide.name;
-  const parts = item.meta
-    ? captionParts(item.meta)
-    : { year: null, rating: null, genres: null };
+  const parts = captionParts(item.meta);
   const density = featureTitleDensity(name);
 
   return (
@@ -304,11 +290,6 @@ export function RepertoryHome() {
     // refetch what this client already holds.
   }, [home, catalogFingerprint, featuredKey]);
 
-  const openMeta = useCallback(
-    (addon: string, meta: MetaPreview) => openTitle(addon, meta),
-    [openTitle],
-  );
-
   const openEntry = useCallback(
     (entry: ResumeEntry) => {
       // A plain Vite window has no Host to resume from, so the Title page is the
@@ -344,14 +325,14 @@ export function RepertoryHome() {
             rowKey={keyOf(row)}
             title={row.name}
             index={section}
-            onOpenMeta={openMeta}
+            onOpenMeta={openTitle}
             onOpenEntry={openEntry}
             onClose={pop}
           />
         ),
       });
     },
-    [openEntry, openMeta, pop, push],
+    [openEntry, openTitle, pop, push],
   );
 
   const openContinue = useCallback(() => {
@@ -363,20 +344,20 @@ export function RepertoryHome() {
           rowKey={null}
           title="Continue watching"
           index={programIndex(1)}
-          onOpenMeta={openMeta}
+          onOpenMeta={openTitle}
           onOpenEntry={openEntry}
           onClose={pop}
         />
       ),
     });
-  }, [openEntry, openMeta, pop, push]);
+  }, [openEntry, openTitle, pop, push]);
 
   const featured = featuredRow(snapshot, visibleRows);
-  const allSlides = heroSlides(featured?.metas ?? []);
-  const featureItems: FeatureItem[] = allSlides.map((slide) => ({
-    slide,
-    meta: featured?.metas.find((meta) => meta.id === slide.id) ?? null,
-  }));
+  const featureMetas = featured?.metas ?? [];
+  const featureItems: FeatureItem[] = heroSlides(featureMetas).flatMap((slide) => {
+    const meta = featureMetas.find((held) => held.id === slide.id);
+    return meta ? [{ slide, meta }] : [];
+  });
   const continueWatching = snapshot?.watchProgress ?? [];
   const empty = homeEmptyState(snapshot, catalogs.length);
   const featuredDeclared =
@@ -422,7 +403,7 @@ export function RepertoryHome() {
           items={featureItems}
           onOpen={(item) => {
             if (featured) {
-              openTitle(featured.addon, item.meta ?? openableOfSlide(item.slide));
+              openTitle(featured.addon, item.meta);
             }
           }}
         />
@@ -508,7 +489,7 @@ export function RepertoryHome() {
                   rating={meta.imdbRating?.trim() || null}
                   subtitle={yearOf(meta)}
                   testId={`card-${row.addon}-${meta.id}`}
-                  onClick={() => openMeta(row.addon, meta)}
+                  onClick={() => openTitle(row.addon, meta)}
                 />
               ))}
               {row.metas.length > 0 ? (
