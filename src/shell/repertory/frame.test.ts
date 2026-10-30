@@ -6,6 +6,7 @@ import {
   LEVEL_PUSH_PX,
   SPINE_LIMIT,
   destinationTransition,
+  isSettingsLeaf,
   levelPushed,
   spineDestinations,
   spineLabelTransition,
@@ -50,6 +51,14 @@ describe("the frame's decisions", () => {
     expect(levelPushed("overlay"), "a Title, Streams, a leaf, a dialog, the grid").toBe(true);
     expect(levelPushed("player"), "the player takes the window").toBe(false);
     expect(levelPushed("popover"), "an OSD popover rises from its own anchor").toBe(false);
+  });
+
+  test("a Settings leaf keeps the spine live; every other level owns the window", () => {
+    expect(isSettingsLeaf({ id: "settings-credentials" })).toBe(true);
+    expect(isSettingsLeaf({ id: "settings-remote-devices" })).toBe(true);
+    expect(isSettingsLeaf({ id: "confirm-clear-tmdb" })).toBe(false);
+    expect(isSettingsLeaf({ id: "title" })).toBe(false);
+    expect(isSettingsLeaf(null)).toBe(false);
   });
 
   test("a pushed level enters 24px from the trailing edge", () => {

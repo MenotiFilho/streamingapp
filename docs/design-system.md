@@ -225,7 +225,10 @@ stagger on a screen's content — a level arrives as one thing.
   no inertia.
 - The **feature** cross-fades between slides on its 24s beat, replacing the
   earlier no-cross-fade rule; focus still holds it.
-- The **spine's** width and its label reveal use the panel spring.
+- The **spine's** width and its label reveal use the panel spring. A Settings
+  leaf makes room beside it with the same spring.
+- An **Addon row's inline expansion** uses `layout`, so the register moves
+  under the focus and the focused row stays where it was.
 - The OSD appears and hides on its own clock (behaviour); its panels use the
   panel spring; the timeline and volume fills stay CSS.
 
@@ -290,8 +293,9 @@ system; #159 replaces the prototype's Unicode.
   in mono, and no index numbers. Addons is two columns — the form on the left,
   the Host's register on the right — and an open Addon row carries the
   manifest's own facts as a compact 2×2 (**Id**, Catalogs, Resources, Types)
-  plus **Move up**, **Move down** and **Remove**. A narrow window stacks the
-  columns and lets the register scroll under the form. The signed-in Library is
+  plus **Move up**, **Move down** and **Remove**; the row opens in place with
+  `layout`, and focus stays on the row while the register moves under it. A
+  narrow window stacks the columns and lets the register scroll under the form. The signed-in Library is
   the one exception: its account collection is a shelf of poster cards (§9),
   not a hairline register; the gate and the one-line head keep the register's
   grammar.
@@ -512,7 +516,7 @@ rule.
 
 | The prototype today | The record | Closed by |
 |---|---|---|
-| Addons and Settings still carry per-screen `clamp()` sizes and off-scale paddings, and the Library reuses the shell's Stremio form; the Title, Streams, Discover, Search and the Library's own room are on the stage unit | every ten-foot size and layout dimension from the stage unit and the fixed spacing steps (§3–§4) | #157–#159 |
+| the Library and Settings reuse the shell's Stremio form rather than a dedicated repertory primitive | a utility form is drawn by the kit | #160 |
 | the OSD names the current chapter permanently at the centre | the chapter is named only in the hover/drag callout | #158 |
 | the OSD's ±10s and subtitles marks are text; the Remote is Unicode | one drawn set on both clients | #158, #159 |
 | the volume is the native range with `accent-color` | a drawn rail with a brass fill | #158 |

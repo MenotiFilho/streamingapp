@@ -59,6 +59,16 @@ export function levelPushed(kind: ShellLevel["kind"]): boolean {
 }
 
 /**
+ * A Settings leaf is a page beside the programme, not a takeover: the spine
+ * stays live and the focus root covers both. Its level id is the one
+ * `settingsLevelId` gave it, so the frame can tell it from a confirmation that
+ * was pushed from inside it.
+ */
+export function isSettingsLeaf(level: Pick<ShellLevel, "id"> | null | undefined): boolean {
+  return level?.id.startsWith("settings-") ?? false;
+}
+
+/**
  * The repertory's edge rules: the rail's Left is a wall, and its Right returns
  * to the control the content was left on (or the first card when there is no
  * history); entering a row from outside a row starts at its first card; and

@@ -1,7 +1,14 @@
 import { describe, expect, test } from "vitest";
 
 import type { AddonManifest } from "../host-client";
-import { addOutcome, catalogsOf, joinOrNone, moveTarget, resourcesOf } from "./addons";
+import {
+  addOutcome,
+  addStatusText,
+  catalogsOf,
+  joinOrNone,
+  moveTarget,
+  resourcesOf,
+} from "./addons";
 
 const ADDON: AddonManifest = {
   id: "com.linvo.cinemeta",
@@ -57,5 +64,17 @@ describe("the Addons screen's readings", () => {
       addOutcome([ADDON], [{ ...ADDON, version: "3.0.1" }]),
     ).toEqual({ kind: "refreshed", name: "Cinemeta" });
     expect(addOutcome([], null)).toBeNull();
+  });
+
+  test("the form says which Addon arrived, or that the Host refreshed one", () => {
+    expect(addStatusText({ kind: "added", name: "Cinemeta" })).toBe(
+      "Cinemeta was added.",
+    );
+    expect(addStatusText({ kind: "refreshed", name: "Cinemeta" })).toBe(
+      "That manifest is already configured as Cinemeta; the Host refreshed that Addon instead of adding a second one.",
+    );
+    expect(addStatusText({ kind: "refreshed", name: null })).toBe(
+      "That manifest is already configured; the Host refreshed that Addon instead of adding a second one.",
+    );
   });
 });

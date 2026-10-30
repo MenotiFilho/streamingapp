@@ -8,10 +8,10 @@ import { usePreviewData } from "./context";
  * The logbook's shared furniture (#147).
  *
  * Addons, Settings and Library are the booth's register rather than admin
- * forms: one brass destination line, numbered sections in the display serif,
- * hairline rules, and the bookkeeping in mono. These pieces keep that grammar
- * one grammar — a section is a `RowHead` plus its body, a level is Back and one
- * title line, and a refusal is the same red rule wherever it appears.
+ * forms: one brass destination line, plain mono section labels with their
+ * rules, hairline rows, and the bookkeeping in mono. These pieces keep that
+ * grammar one grammar — a section is a label plus its body, a level is Back and
+ * one title line, and a refusal is the same red rule wherever it appears.
  */
 
 /** The base screen's one-line head: the destination in brass, then the rule. */
