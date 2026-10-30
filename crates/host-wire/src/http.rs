@@ -144,11 +144,30 @@ pub fn write_document(
     content_type: &str,
     body: &[u8],
 ) -> io::Result<()> {
+    write_response(stream, status, content_type, "no-store", body)
+}
+
+/// Answer with one cacheable asset: a woff2 face the token sheet names.
+///
+/// The URL is not content-versioned, so a long `immutable` lifetime would keep
+/// a stale face in a browser after a Host update. An hour is long enough to
+/// spare a reload and short enough that an upgrade reaches the phone.
+pub fn write_asset(stream: &mut TcpStream, content_type: &str, body: &[u8]) -> io::Result<()> {
+    write_response(stream, "200 OK", content_type, "public, max-age=3600", body)
+}
+
+fn write_response(
+    stream: &mut TcpStream,
+    status: &str,
+    content_type: &str,
+    cache_control: &str,
+    body: &[u8],
+) -> io::Result<()> {
     let head = format!(
         "HTTP/1.1 {status}\r\n\
          Content-Type: {content_type}\r\n\
          Content-Length: {}\r\n\
-         Cache-Control: no-store\r\n\
+         Cache-Control: {cache_control}\r\n\
          Connection: close\r\n\r\n",
         body.len()
     );
@@ -208,5 +227,30 @@ mod tests {
     fn a_head_that_is_not_a_request_is_not_parsed() {
         assert!(Request::parse("").is_none());
         assert!(Request::parse("nonsense\r\n\r\n").is_none());
+    }
+
+    #[test]
+    fn an_asset_is_answered_with_a_bounded_cache() {
+        use std::io::Read as _;
+        use std::net::{TcpListener, TcpStream};
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
+        let address = listener.local_addr().expect("the listener's address");
+        let serving = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("one client");
+            write_asset(&mut stream, "font/woff2", b"wOF2").expect("the asset is written");
+        });
+
+        let mut client = TcpStream::connect(address).expect("a loopback client");
+        let mut response = String::new();
+        client
+            .read_to_string(&mut response)
+            .expect("the response is read");
+        serving.join().expect("the writer finished");
+
+        assert!(response.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(response.contains("Content-Type: font/woff2\r\n"));
+        assert!(response.contains("Cache-Control: public, max-age=3600\r\n"));
+        assert!(response.ends_with("\r\n\r\nwOF2"));
     }
 }

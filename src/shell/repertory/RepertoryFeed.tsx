@@ -11,7 +11,7 @@ import { discoverPlayable, MOVIE } from "../../discover";
 import { SERIES } from "../../title";
 import { DiscoverScreen } from "../DiscoverScreen";
 import { useShell } from "../context";
-import { ChoiceChip } from "../kit";
+import { ChoiceChip } from "./kit";
 import { SearchScreen } from "../SearchScreen";
 import { useTitleOpener } from "../TitleScreen";
 import { usePreviewData } from "./context";

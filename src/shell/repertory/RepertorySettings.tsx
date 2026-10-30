@@ -27,7 +27,7 @@ import {
 import tmdbLogo from "../../assets/tmdb-logo.svg";
 import { useShell, type NewShellLevel } from "../context";
 import { confirmActionLevel } from "../ConfirmAction";
-import { Button, ChoiceChip } from "../kit";
+import { Button, ChoiceChip } from "./kit";
 import { focusAndReveal } from "../reveal";
 import { StremioAccount } from "../StremioAccount";
 import {

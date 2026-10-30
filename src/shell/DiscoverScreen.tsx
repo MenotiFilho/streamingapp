@@ -15,6 +15,11 @@ import { SERIES } from "../title";
 import tmdbLogo from "../assets/tmdb-logo.svg";
 import { useShell } from "./context";
 import { Button, ChoiceChip, PosterCard } from "./kit";
+import {
+  Button as RepertoryButton,
+  ChoiceChip as RepertoryChoiceChip,
+  PosterCard as RepertoryPosterCard,
+} from "./repertory/kit";
 import { repertoryCredentialsLevel } from "./repertory/RepertorySettings";
 import { credentialsLevel } from "./SettingsScreen";
 import { useTitleOpener } from "./TitleScreen";
@@ -38,6 +43,10 @@ import "./discover.css";
  */
 export function DiscoverScreen() {
   const { snapshot, ask, push, unplayable, presentation } = useShell();
+  // A shared screen wears the kit of the shell that mounted it (#153).
+  const ActionButton = presentation === "repertory" ? RepertoryButton : Button;
+  const KindChip = presentation === "repertory" ? RepertoryChoiceChip : ChoiceChip;
+  const Card = presentation === "repertory" ? RepertoryPosterCard : PosterCard;
   const { openDiscoveredTitle } = useTitleOpener();
   const [kind, setKind] = useState<DiscoverKind>(MOVIE);
   const [genre, setGenre] = useState<number | null>(null);
@@ -137,14 +146,14 @@ export function DiscoverScreen() {
             filtered by. Add a TMDB API key in <strong>Settings → Credentials</strong>{" "}
             to browse it.
           </p>
-          <Button
+          <ActionButton
             variant="primary"
             onClick={() =>
               push(presentation === "repertory" ? repertoryCredentialsLevel() : credentialsLevel())
             }
           >
             Open Settings → Credentials
-          </Button>
+          </ActionButton>
         </div>
       ) : null}
 
@@ -164,12 +173,12 @@ export function DiscoverScreen() {
               data-kind="row"
               data-label="Kind"
             >
-              <ChoiceChip pressed={kind === MOVIE} onClick={() => chooseKind(MOVIE)}>
+              <KindChip pressed={kind === MOVIE} onClick={() => chooseKind(MOVIE)}>
                 Movie
-              </ChoiceChip>
-              <ChoiceChip pressed={kind === SERIES} onClick={() => chooseKind(SERIES)}>
+              </KindChip>
+              <KindChip pressed={kind === SERIES} onClick={() => chooseKind(SERIES)}>
                 Series
-              </ChoiceChip>
+              </KindChip>
             </div>
 
             <div
@@ -178,17 +187,17 @@ export function DiscoverScreen() {
               data-kind="row"
               data-label="Genres"
             >
-              <ChoiceChip pressed={genre === null} onClick={() => chooseGenre(null)}>
+              <KindChip pressed={genre === null} onClick={() => chooseGenre(null)}>
                 All genres
-              </ChoiceChip>
+              </KindChip>
               {genres.map((held) => (
-                <ChoiceChip
+                <KindChip
                   key={held.id}
                   pressed={genre === held.id}
                   onClick={() => chooseGenre(held.id)}
                 >
                   {held.name}
-                </ChoiceChip>
+                </KindChip>
               ))}
             </div>
           </div>
@@ -214,11 +223,10 @@ export function DiscoverScreen() {
             aria-label="Discover titles"
           >
             {feed.items.map((meta) => (
-              <PosterCard
+              <Card
                 key={meta.id}
                 name={meta.name}
                 poster={meta.poster}
-                variant={presentation === "repertory" ? "repertory" : "velvet"}
                 rating={meta.imdbRating}
                 subtitle={meta.releaseInfo}
                 description={meta.description}
@@ -230,9 +238,9 @@ export function DiscoverScreen() {
 
             {moreAvailable ? (
               <div className="discover-more">
-                <Button variant="ghost" disabled={loading} onClick={more}>
+                <ActionButton variant="ghost" disabled={loading} onClick={more}>
                   More
-                </Button>
+                </ActionButton>
               </div>
             ) : null}
           </section>

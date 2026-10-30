@@ -53,6 +53,17 @@ const TOKENS: &str = include_str!("../../../src/tokens.css");
 /// never sets `data-ui="repertory"`, so the sheet is inert for it.
 const REPERTORY_TOKENS: &str = include_str!("../../../src/shell/repertory/tokens.css");
 
+/// The faces the repertory token sheet names (#153). The window loads them from
+/// its own origin; the served page receives the same bytes at `/fonts/<name>`,
+/// so a phone without the faces is a fallback, not a different design.
+const FONT_BODONI_MODA: &[u8] =
+    include_bytes!("../../../public/fonts/bodoni-moda-latin-wght-normal.woff2");
+const FONT_INTER: &[u8] = include_bytes!("../../../public/fonts/inter-latin-wght-normal.woff2");
+const FONT_PLEX_400: &[u8] =
+    include_bytes!("../../../public/fonts/ibm-plex-mono-latin-400-normal.woff2");
+const FONT_PLEX_500: &[u8] =
+    include_bytes!("../../../public/fonts/ibm-plex-mono-latin-500-normal.woff2");
+
 /// The curated subtitle languages (#82), spliced as the JSON the picker reads.
 const SUBTITLE_LANGUAGES: &str = include_str!("../../../src/subtitle-languages.json");
 
@@ -120,7 +131,18 @@ fn splice(template: &str) -> String {
         .replace(TMDB_LOGO_MARKER, TMDB_LOGO)
 }
 
-/// Answer a request that is not an upgrade: the page, or nothing.
+/// The bytes of one requested face, by the name in its `/fonts/` URL.
+fn font(path: &str) -> Option<&'static [u8]> {
+    match path.strip_prefix("/fonts/")? {
+        "bodoni-moda-latin-wght-normal.woff2" => Some(FONT_BODONI_MODA),
+        "inter-latin-wght-normal.woff2" => Some(FONT_INTER),
+        "ibm-plex-mono-latin-400-normal.woff2" => Some(FONT_PLEX_400),
+        "ibm-plex-mono-latin-500-normal.woff2" => Some(FONT_PLEX_500),
+        _ => None,
+    }
+}
+
+/// Answer a request that is not an upgrade: the page, its faces, or nothing.
 pub(crate) fn serve(stream: &mut TcpStream, request: &Request) -> io::Result<()> {
     match (request.method.as_str(), request.path.as_str()) {
         // The page is the whole client, so it is served for both the bare host
@@ -136,11 +158,17 @@ pub(crate) fn serve(stream: &mut TcpStream, request: &Request) -> io::Result<()>
         ("GET", "/favicon.ico") => {
             http::write_document(stream, "404 Not Found", "text/plain; charset=utf-8", b"")
         }
+        // The token sheet's `@font-face` rules name these files by absolute
+        // path, so the window and the served page read one set of bytes.
+        ("GET", path) if path.starts_with("/fonts/") => match font(path) {
+            Some(bytes) => http::write_asset(stream, "font/woff2", bytes),
+            None => http::write_document(stream, "404 Not Found", "text/plain; charset=utf-8", b""),
+        },
         _ => http::write_document(
             stream,
             "404 Not Found",
             "text/plain; charset=utf-8",
-            b"the Host serves one page and its socket\n",
+            b"the Host serves one page, its fonts and its socket\n",
         ),
     }
 }
@@ -150,8 +178,8 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use super::{
-        page, KEY_INTENTS_SOURCE, MARKERS, REPERTORY_TOKENS, STREAM_BUFFER, SUBTITLE_APPEARANCE,
-        SUBTITLE_LANGUAGES, TEMPLATE, TMDB_LOGO, TOKENS,
+        font, page, KEY_INTENTS_SOURCE, MARKERS, REPERTORY_TOKENS, STREAM_BUFFER,
+        SUBTITLE_APPEARANCE, SUBTITLE_LANGUAGES, TEMPLATE, TMDB_LOGO, TOKENS,
     };
 
     /// The page's capability list: the Actions it says it can send, read out of
@@ -191,6 +219,24 @@ mod tests {
                 Some(format!("--{}", name.trim()))
             })
             .collect()
+    }
+
+    /// Every face the token sheet's `@font-face` rules name, by file name.
+    ///
+    /// The rules write an absolute `url("/fonts/<name>")`, which is the same
+    /// path the window's origin resolves from `public/` and the served page
+    /// asks the Host for.
+    fn referenced_fonts(css: &str) -> BTreeSet<String> {
+        const MARKER: &str = "url(\"/fonts/";
+        let mut names = BTreeSet::new();
+        let mut rest = css;
+        while let Some(start) = rest.find(MARKER) {
+            let after = &rest[start + MARKER.len()..];
+            let end = after.find('"').expect("the font URL is quoted");
+            names.insert(after[..end].to_owned());
+            rest = &after[end..];
+        }
+        names
     }
 
     /// The `KEY_INTENTS` table in a source file, as keys and intents.
@@ -598,6 +644,37 @@ mod tests {
             assert!(served.contains(tag), "the served page carries {tag}");
             assert!(served.contains(name), "the served page carries {name}");
         }
+    }
+
+    #[test]
+    fn the_host_serves_every_face_the_token_sheet_names() {
+        // #153: the sheet's `@font-face` rules are the only list of faces, and
+        // the Host must answer every one of them. A URL the browser asks for
+        // and the Host does not know is a page in a fallback face.
+        let names = referenced_fonts(REPERTORY_TOKENS);
+        assert_eq!(names.len(), 4, "the sheet names four faces: {names:?}");
+        for expected in [
+            "bodoni-moda-latin-wght-normal.woff2",
+            "inter-latin-wght-normal.woff2",
+            "ibm-plex-mono-latin-400-normal.woff2",
+            "ibm-plex-mono-latin-500-normal.woff2",
+        ] {
+            assert!(names.contains(expected), "the sheet names {expected}");
+        }
+
+        for name in &names {
+            let path = format!("/fonts/{name}");
+            let bytes = font(&path).unwrap_or_else(|| panic!("the Host serves {path}"));
+            assert!(
+                bytes.starts_with(b"wOF2"),
+                "{name} is served as a woff2 face, not something else"
+            );
+        }
+
+        // The cut Playfair alternate is not a face this Host carries.
+        assert!(font("/fonts/playfair-display-latin-wght-normal.woff2").is_none());
+        assert!(font("/fonts/").is_none());
+        assert!(font("/elsewhere/inter-latin-wght-normal.woff2").is_none());
     }
 
     #[test]

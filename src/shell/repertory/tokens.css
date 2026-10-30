@@ -1,16 +1,67 @@
 /*
- * The repertory token sheet: one declaration of the palette, the family
- * stacks, the ten-foot scale, the spacing steps and the motion curves.
+ * The repertory token sheet: one declaration of the palette, the families,
+ * the ten-foot scale, the hand scale, spacing, layout, motion and focus.
  *
  * The window reaches it through `repertory.css`; the Host's served Remote
  * splices the same file into its page at serve time (`crates/host-wire/src/remote.rs`,
- * the `__SPLICE_REPERTORY_TOKENS__` marker), so the phone cannot drift from the
- * window's palette and families. The values stay scoped to
- * `html[data-ui="repertory"]`, which is the attribute both clients set.
+ * the `__SPLICE_REPERTORY_TOKENS__` marker) and serves the same woff2 files, so
+ * the phone cannot drift from the window's palette, families or faces. The
+ * values stay scoped to `html[data-ui="repertory"]`, which is the attribute both
+ * clients set; the `@font-face` rules are global because a face has no surface.
  *
- * This is the bridge, not the final packaging: #150/#153 decide how the
- * design system ships the sheet (and whether the Remote gets its own scale).
+ * The record is `docs/design-system.md` (ADR-0030); the motion vocabulary is
+ * ADR-0031. This sheet is rebuilt to that record by #153.
  */
+
+/*
+ * The faces on disk: one Lean Latin woff2 per role, committed under
+ * `public/fonts/` with its OFL notice. The window loads them from its own
+ * origin; the served Remote receives the same bytes from the Host at
+ * `/fonts/<name>`, so the same `@font-face` rules dress both clients.
+ */
+@font-face {
+  font-family: "Bodoni Moda";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 900;
+  src: url("/fonts/bodoni-moda-latin-wght-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("/fonts/inter-latin-wght-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url("/fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 500;
+  src: url("/fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
+    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
+    U+FEFF, U+FFFD;
+}
 
 html[data-ui="repertory"] {
   color-scheme: dark;
@@ -30,30 +81,26 @@ html[data-ui="repertory"] {
   --rep-house-deep: #b08a45;
   --rep-status-red: #ff4d4d;
 
-  /* The two pairings. Both use IBM Plex Mono for timecode. */
-  --rep-display: "Bodoni Moda Variable", "Bodoni Moda", Didot, "Bodoni MT", Georgia, serif;
-  --rep-sans: "Inter Variable", Inter, "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  /* One pairing: Bodoni Moda / Inter / IBM Plex Mono. */
+  --rep-display: "Bodoni Moda", Didot, "Bodoni MT", Georgia, serif;
+  --rep-sans: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --rep-mono: "IBM Plex Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
 
   /*
-   * The ten-foot scale, with the 4K policy the prototype is testing: a vw
-   * middle and a vw ceiling, floored at the 1080p value. At 1920 these land on
-   * the research's numbers; at 3840/100% they double with the window instead of
-   * halving physically. The rem floor keeps a desk window legible.
-   *
-   * This is the window's scale. The served Remote is held in a hand, not read
-   * from a sofa, and carries its own phone scale in `remote/index.html`; the
-   * phone scale is a #150/#153 question, recorded in
-   * `docs/research/repertory-remote.md`.
+   * The ten-foot scale. One stage unit drives every size, proportional to the
+   * shorter side of the window so a wide, shallow window does not inflate the
+   * type; each role is a rem floor plus a stage step, and there is no rem
+   * ceiling (a rem cap is the 4K-at-100% trap measured in research #144).
    */
-  --rep-text-hero: clamp(4.5rem, 4.6vw, 6vw);
-  --rep-text-title: clamp(3rem, 3vw, 4vw);
-  --rep-text-section: clamp(2.25rem, 2.1vw, 3.2vw);
-  --rep-text-body: clamp(1.75rem, 1.667vw, 2.2vw);
-  --rep-text-caption: clamp(1.5rem, 1.25vw, 1.7vw);
-  --rep-text-control: clamp(1.625rem, 1.35vw, 1.8vw);
-  --rep-text-mono: clamp(1.5rem, 1.25vw, 1.7vw);
-  --rep-text-badge: clamp(1.125rem, 1.1vw, 1.45vw);
+  --rep-stage: min(1vw, 1.7778vh);
+  --rep-text-hero: max(72px, calc(var(--rep-stage) * 4.6));
+  --rep-text-title: max(48px, calc(var(--rep-stage) * 3));
+  --rep-text-section: max(36px, calc(var(--rep-stage) * 2.1));
+  --rep-text-body: max(28px, calc(var(--rep-stage) * 1.667));
+  --rep-text-control: max(26px, calc(var(--rep-stage) * 1.35));
+  --rep-text-caption: max(24px, calc(var(--rep-stage) * 1.25));
+  --rep-text-mono: max(24px, calc(var(--rep-stage) * 1.25));
+  --rep-text-badge: max(18px, calc(var(--rep-stage) * 1.1));
 
   --rep-leading-display: 1.08;
   --rep-leading-body: 1.4;
@@ -63,11 +110,9 @@ html[data-ui="repertory"] {
   --rep-tracking-caps: 0.08em;
 
   /*
-   * The Remote's phone scale (#149). The ten-foot scale above is read across a
-   * room; a phone held at arm's length needs a different set of sizes from the
-   * same families, tracking and leading. It lives in this sheet so the served
-   * page does not grow a silent second scale; whether #150 promotes it to a
-   * first-class part of the design system is decided there.
+   * The Remote's phone scale: the same family roles and tracking, sized for a
+   * hand at arm's length rather than a sofa. Both scales live here so the served
+   * page does not grow a silent second scale.
    */
   --rep-remote-text-hero: 2.25rem;
   --rep-remote-text-title: 1.75rem;
@@ -82,6 +127,7 @@ html[data-ui="repertory"] {
   --rep-remote-strip: 4.5rem;
   --rep-remote-gutter: 1.125rem;
 
+  /* Spacing is fixed in rem; layout below scales with the stage. */
   --rep-space-1: 0.25rem;
   --rep-space-2: 0.5rem;
   --rep-space-3: 0.75rem;
@@ -91,36 +137,47 @@ html[data-ui="repertory"] {
   --rep-space-7: 3rem;
   --rep-space-8: 4rem;
 
-  --rep-spine-compact: clamp(92px, 4.8vw, 6vw);
-  --rep-spine-width: clamp(280px, 14.6vw, 18vw);
-  --rep-strip-height: clamp(168px, 8.75vw, 10vw);
-  --rep-row-gap: clamp(16px, 1.25vw, 1.8vw);
+  --rep-gutter: max(32px, calc(var(--rep-stage) * 2.9));
+  --rep-stage-top: max(32px, calc(var(--rep-stage) * 2.5));
+  --rep-stage-bottom: max(64px, calc(var(--rep-stage) * 5));
+  --rep-row-gap: max(16px, calc(var(--rep-stage) * 1.25));
+  --rep-spine-compact: max(92px, calc(var(--rep-stage) * 4.8));
+  --rep-spine-width: max(280px, calc(var(--rep-stage) * 14.6));
+  --rep-strip-height: max(168px, calc(var(--rep-stage) * 8.75));
+
+  /* Radius is zero. The one circle in the system is the pending spinner. */
+  --rep-radius: 0;
+
+  /*
+   * Motion: two spring durations and one fade. `motion.ts` reads the two
+   * durations from the document at call time and pairs them with `bounce: 0`;
+   * the served Remote's script reads the same properties (ADR-0031).
+   */
+  --rep-motion-panel: 240ms;
+  --rep-motion-quick: 140ms;
+  --rep-motion-fade: 140ms;
   --rep-ease: cubic-bezier(0.22, 1, 0.36, 1);
-  --rep-dur-fast: 140ms;
-  --rep-dur-med: 240ms;
 
-  --focus-ring: 0 0 0 2px var(--rep-ivory);
-  --focus-transform: none;
-
+  /* One focus mark: a 2px ivory keyline, 3px off, and a brass wash. */
+  --rep-focus-ring: 2px solid var(--rep-ivory);
+  --rep-focus-offset: 3px;
   --rep-focus-wash: radial-gradient(
     80% 90% at 50% 32%,
-    rgba(201, 164, 92, 0.16),
-    rgba(201, 164, 92, 0.05) 48%,
+    color-mix(in srgb, var(--rep-house) 16%, transparent),
+    color-mix(in srgb, var(--rep-house) 5%, transparent) 48%,
     transparent 72%
   );
 }
 
-/* Playfair's larger x-height makes the same sizes read a little larger. */
-html[data-ui="repertory"][data-pairing="playfair"] {
-  --rep-display: "Playfair Display Variable", "Playfair Display", Georgia, "Times New Roman",
-    serif;
-  --rep-sans: "IBM Plex Sans Variable", "IBM Plex Sans", "Segoe UI Variable Text", "Segoe UI",
-    system-ui, sans-serif;
-}
-
+/*
+ * Reduced motion keeps the fades and loses the movement (ADR-0031 §5): a
+ * transform or a width fill snaps, while opacity and colour still fade on
+ * `--rep-motion-fade`. The CSS transitions that carry a transform or a width
+ * read the two zeroed tokens, so they settle at once.
+ */
 @media (prefers-reduced-motion: reduce) {
   html[data-ui="repertory"] {
-    --rep-dur-fast: 0ms;
-    --rep-dur-med: 0ms;
+    --rep-motion-panel: 0ms;
+    --rep-motion-quick: 0ms;
   }
 }

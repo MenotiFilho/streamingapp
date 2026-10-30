@@ -14,7 +14,7 @@ import {
 } from "../../title";
 import { useShell } from "../context";
 import { addonName } from "../home";
-import { ChoiceChip } from "../kit";
+import { ChoiceChip } from "./kit";
 import { StreamsLoader } from "../StreamsScreen";
 import { programIndex } from "./program";
 

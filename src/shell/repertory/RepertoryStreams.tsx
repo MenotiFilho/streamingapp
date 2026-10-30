@@ -4,7 +4,7 @@ import { explain, type AddonStreams, type Stream, type Title, type Video } from 
 import { badgeLines, playabilityNote, unplayableNote, warningNote } from "../../stream";
 import { isSeries, labelOf, nameOf, type OpenablePreview } from "../../title";
 import { useShell } from "../context";
-import { PendingSpinner } from "../kit";
+import { PendingSpinner } from "./kit";
 import { useStreamChoice } from "../streamChoice";
 import { programIndex } from "./program";
 import { RowHead } from "./RowHead";
