@@ -183,7 +183,7 @@ async function closePopover(testId: string) {
 }
 
 describe("the repertory player OSD", () => {
-  test("prints the programme note, the chapter line and the two clocks over the film", async () => {
+  test("prints the programme note and the two clocks over the film", async () => {
     await renderPlayer();
 
     const player = screen.getByTestId("shell-player");
@@ -192,29 +192,30 @@ describe("the repertory player OSD", () => {
 
     expect(screen.getByTestId("osd-kicker")).toHaveTextContent("Now playing");
     expect(screen.getByTestId("osd-kicker")).toHaveTextContent("S1E2");
-    expect(screen.getByTestId("shell-now-playing")).toHaveTextContent("The Invite · S1E2");
+    expect(
+      screen.getByTestId("shell-now-playing").textContent,
+      "the kicker carries the episode; the display line carries the Title alone",
+    ).toBe("The Invite");
     expect(screen.getByTestId("osd-quality")).toHaveTextContent("1080p");
     expect(screen.getByTestId("osd-details")).toHaveTextContent("cinemeta");
     expect(screen.getByTestId("osd-details")).toHaveTextContent("12.5 Mbps");
     expect(screen.getByTestId("osd-details")).toHaveTextContent("d3d11va");
 
     expect(screen.getByTestId("stop")).toHaveAccessibleName("Stop");
-    expect(
-      screen.getByTestId("stop").querySelector("svg"),
-      "Back is the X, as it always was",
-    ).not.toBeNull();
-
     expect(screen.getByTestId("volume-level")).toHaveTextContent("60%");
     expect(screen.getByText("Vol")).toBeInTheDocument();
     expect(screen.getByTestId("mute")).toHaveAttribute("aria-pressed", "true");
 
     expect(screen.getByTestId("elapsed")).toHaveTextContent("15:00");
     expect(screen.getByTestId("remaining")).toHaveTextContent("−1:32:00");
-    expect(screen.getByTestId("osd-current-chapter")).toHaveTextContent("Opening");
     const buffered = screen.getByTestId("osd-buffered");
     expect(parseFloat(buffered.style.left)).toBeCloseTo((300 / 6420) * 100, 3);
     expect(parseFloat(buffered.style.width)).toBeCloseTo((1800 / 6420) * 100, 3);
 
+    expect(
+      screen.queryByTestId("osd-current-chapter"),
+      "the current chapter is named only in the hover/drag callout",
+    ).not.toBeInTheDocument();
     const second = screen.getByTestId("chapter-marker-1");
     expect(second).toHaveTextContent("The first movement");
     expect(second).toHaveTextContent("25:41");

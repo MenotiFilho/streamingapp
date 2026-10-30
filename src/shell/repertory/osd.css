@@ -1,18 +1,17 @@
 /*
- * The repertory player OSD (#148).
+ * The repertory player OSD (#158).
  *
- * The same furniture the Host has always drawn — stream/stats pills, Stop/Back,
- * the volume fader, the centred transport, the five icon popovers and the
- * chapter-marked timeline — re-dressed for the repertory room. No glass, no
- * rounded boxes: the picture stays the page, and the OSD is a programme note
- * printed over it in translucent ink, hairline rules, ivory type and one brass
- * house colour. Timecode, bitrate, codecs and the fader are IBM Plex Mono; the
- * Title is Bodoni Moda; the labels are Inter.
+ * A programme note printed over the film: translucent ink scrims, hairlines,
+ * ivory type and one brass house colour. The picture stays the page. Every
+ * length comes from the locked stage unit in `tokens.css` (design record §3–§4),
+ * the five menus use the repertory kit's popover, and the volume is a drawn rail
+ * rather than the browser's range.
  *
  * Everything is scoped to `.rep-player`, which only the repertory presentation
- * renders, so the Velvet Curtains OSD on `main` is untouched. The plain Vite
- * rehearsal also paints the film's own backdrop behind the OSD; the Tauri
- * window never does, because there the picture is mpv's (ADR-0003).
+ * renders, so the Velvet Curtains OSD keeps its own sheet until the cutover
+ * (#160). The plain Vite rehearsal paints the film's own backdrop behind the
+ * OSD; the Tauri window never does, because there the picture is mpv's
+ * (ADR-0003).
  */
 
 html[data-ui="repertory"] .rep-player {
@@ -21,7 +20,7 @@ html[data-ui="repertory"] .rep-player {
 }
 
 /* --------------------------------------------------------------------------
- * The two scrims: a warm floor, not a vignette box
+ * The scrims: two ink gradients and one faint brass floor, never a vignette box
  * -------------------------------------------------------------------------- */
 
 html[data-ui="repertory"] .rep-player .shell-osd-vignette {
@@ -46,7 +45,7 @@ html[data-ui="repertory"] .rep-player .shell-osd-vignette {
 }
 
 /* The rehearsal's stand-in for the picture: a real film's backdrop, never
-   drawn in Tauri, where the child window holds the moving picture. */
+ * drawn in Tauri, where the child window holds the moving picture. */
 html[data-ui="repertory"] .rep-player-still {
   position: absolute;
   inset: 0;
@@ -86,26 +85,26 @@ html[data-ui="repertory"] .rep-player-still-scrim {
  * -------------------------------------------------------------------------- */
 
 html[data-ui="repertory"] .rep-player .shell-osd-top {
-  padding: clamp(20px, 1.8vw, 28px) clamp(24px, 2.4vw, 3.2vw) 0;
+  padding: var(--rep-stage-top) var(--rep-gutter) 0;
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-meta {
-  gap: 10px;
-  padding-left: clamp(14px, 1.1vw, 20px);
+  gap: var(--rep-space-1);
+  padding-left: var(--rep-space-4);
   border-left: 2px solid var(--rep-house);
 }
 
 html[data-ui="repertory"] .rep-osd-kicker {
   display: flex;
   align-items: center;
-  gap: 14px;
-  width: min(56rem, 74vw);
+  gap: var(--rep-space-3);
+  width: min(72rem, 74vw);
   margin: 0;
   color: var(--rep-muted);
   font-family: var(--rep-mono);
-  font-size: clamp(0.82rem, 0.72vw, 1rem);
+  font-size: var(--rep-text-mono);
   line-height: 1.2;
-  letter-spacing: 0.1em;
+  letter-spacing: var(--rep-tracking-caps);
   text-transform: uppercase;
 }
 
@@ -125,69 +124,73 @@ html[data-ui="repertory"] .rep-osd-kicker-rule {
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-line {
-  gap: 16px;
+  gap: var(--rep-space-3);
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-title {
   order: 1;
   min-width: 0;
   padding: 0;
+  overflow: hidden;
+  border-radius: 0;
   background: transparent;
   color: var(--rep-ivory);
   font-family: var(--rep-display);
-  font-size: clamp(2.2rem, 2.35vw, 3.1rem);
+  font-size: var(--rep-text-title);
   font-weight: 500;
-  line-height: 1.02;
+  line-height: var(--rep-leading-display);
   letter-spacing: var(--rep-tracking-display);
-  text-shadow: 0 2px 22px color-mix(in srgb, var(--rep-ink) 88%, transparent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-quality {
   order: 2;
   flex: none;
-  padding: 2px 9px;
+  padding: 2px var(--rep-space-2);
   border: 1px solid var(--rep-house);
   border-radius: 0;
   background: color-mix(in srgb, var(--rep-ink) 42%, transparent);
   color: var(--rep-house);
   font-family: var(--rep-mono);
-  font-size: clamp(0.82rem, 0.73vw, 1rem);
+  font-size: var(--rep-text-badge);
   font-weight: 400;
-  line-height: 1.5;
-  letter-spacing: 0.08em;
+  line-height: 1.35;
+  letter-spacing: var(--rep-tracking-caps);
   text-transform: uppercase;
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-details {
-  max-width: min(72rem, 78vw);
-  margin: 0;
+  max-width: min(78rem, 78vw);
+  margin: var(--rep-space-1) 0 0;
   padding: 0;
   overflow: hidden;
+  border-radius: 0;
   background: transparent;
   color: var(--rep-dim);
   font-family: var(--rep-mono);
-  font-size: clamp(0.86rem, 0.78vw, 1.08rem);
+  font-size: var(--rep-text-mono);
   font-style: normal;
-  line-height: 1.35;
+  line-height: 1.4;
   letter-spacing: 0.015em;
   text-overflow: ellipsis;
-  text-shadow: 0 1px 14px color-mix(in srgb, var(--rep-ink) 90%, transparent);
   white-space: nowrap;
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-window {
-  gap: 10px;
+  gap: var(--rep-space-2);
 }
 
+/* The two top-right controls are square hairline cells with bare marks. */
 html[data-ui="repertory"] .rep-player .shell-osd-window > .shell-osd-icon {
-  min-width: 48px;
-  height: 44px;
-  padding: 0 12px;
+  width: max(44px, calc(var(--rep-stage) * 2.4));
+  min-width: max(44px, calc(var(--rep-stage) * 2.4));
+  height: max(44px, calc(var(--rep-stage) * 2.4));
+  padding: 0;
   border: 1px solid var(--rep-hairline);
   border-radius: 0;
   background: color-mix(in srgb, var(--rep-ink) 44%, transparent);
   color: var(--rep-dim);
-  font-family: var(--rep-sans);
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-window > .shell-osd-icon:hover {
@@ -204,21 +207,21 @@ html[data-ui="repertory"] .rep-player .shell-osd-window > .shell-osd-icon:focus-
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-window svg {
-  width: 20px;
-  height: 20px;
+  width: max(20px, calc(var(--rep-stage) * 1.15));
+  height: max(20px, calc(var(--rep-stage) * 1.15));
 }
 
 /* --------------------------------------------------------------------------
- * The volume fader: a bare right-edge rail, not a glass box
+ * The volume fader: a bare right-edge rail, not a glass box or a native range
  * -------------------------------------------------------------------------- */
 
 html[data-ui="repertory"] .rep-player .shell-osd-middle {
-  padding: 0 clamp(18px, 1.6vw, 26px) 0;
+  padding: 0 var(--rep-gutter);
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-volume {
-  gap: 8px;
-  padding: 16px 10px 14px;
+  gap: var(--rep-space-2);
+  padding: var(--rep-space-3) var(--rep-space-2);
   border: 0;
   border-left: 1px solid var(--rep-hairline);
   border-radius: 0;
@@ -233,27 +236,81 @@ html[data-ui="repertory"] .rep-player .shell-osd-volume {
 html[data-ui="repertory"] .rep-osd-volume-label {
   color: var(--rep-muted);
   font-family: var(--rep-mono);
-  font-size: clamp(0.62rem, 0.54vw, 0.74rem);
+  font-size: var(--rep-text-badge);
   line-height: 1.2;
-  letter-spacing: 0.16em;
+  letter-spacing: var(--rep-tracking-caps);
   text-transform: uppercase;
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-volume-level {
   color: var(--rep-ivory);
   font-family: var(--rep-mono);
-  font-size: clamp(0.86rem, 0.78vw, 1.05rem);
+  font-size: var(--rep-text-mono);
   font-weight: 400;
   letter-spacing: 0.02em;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-volume-slider {
-  width: 1.5rem;
-  height: clamp(6.4rem, 8vw, 9rem);
-  accent-color: var(--rep-house);
+html[data-ui="repertory"] .rep-osd-fader {
+  position: relative;
+  display: block;
+  width: max(18px, calc(var(--rep-stage) * 1));
+  height: max(120px, calc(var(--rep-stage) * 8.4));
+}
+
+html[data-ui="repertory"] .rep-osd-fader-rail,
+html[data-ui="repertory"] .rep-osd-fader-fill {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 2px;
+  transform: translateX(-50%);
+}
+
+html[data-ui="repertory"] .rep-osd-fader-rail {
+  top: 0;
+  background: var(--rep-hairline);
+}
+
+html[data-ui="repertory"] .rep-osd-fader-fill {
+  background: var(--rep-house);
+}
+
+html[data-ui="repertory"] .rep-osd-fader-playhead {
+  position: absolute;
+  left: 50%;
+  width: max(14px, calc(var(--rep-stage) * 0.8));
+  height: 2px;
+  background: var(--rep-ivory);
+  transform: translate(-50%, 50%);
+}
+
+/* The native input is the accessible control; the rail above is its drawing.
+ * It covers the rail, so a click, a drag and the keyboard all still work. */
+html[data-ui="repertory"] .rep-player .rep-osd-fader:focus-within {
+  outline: var(--rep-focus-ring);
+  outline-offset: var(--rep-focus-offset);
+}
+
+html[data-ui="repertory"] .rep-osd-fader-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  /* The control is vertical like the rail it covers, so a drag maps to the
+     level rather than to a horizontal phantom track. */
+  writing-mode: vertical-lr;
+  direction: rtl;
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-volume .shell-osd-icon {
+  width: max(40px, calc(var(--rep-stage) * 2));
+  height: max(40px, calc(var(--rep-stage) * 2));
+  padding: 0;
   border-radius: 0;
   background: transparent;
   color: var(--rep-dim);
@@ -267,40 +324,46 @@ html[data-ui="repertory"] .rep-player .shell-osd-volume .shell-osd-icon[aria-pre
   color: var(--rep-house);
 }
 
+html[data-ui="repertory"] .rep-player .shell-osd-volume svg {
+  width: max(22px, calc(var(--rep-stage) * 1.15));
+  height: max(22px, calc(var(--rep-stage) * 1.15));
+}
+
 /* --------------------------------------------------------------------------
  * The transport strip: bare marks on the page
  * -------------------------------------------------------------------------- */
 
 html[data-ui="repertory"] .rep-player .shell-osd-strip {
-  padding: 0 clamp(24px, 2.4vw, 3.2vw) 12px;
-  gap: clamp(10px, 0.9vw, 16px);
+  padding: 0 var(--rep-gutter) var(--rep-space-3);
+  gap: var(--rep-space-3);
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-cluster {
-  gap: 4px;
+  gap: var(--rep-space-1);
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-cluster-center {
-  gap: clamp(8px, 0.8vw, 14px);
+  gap: var(--rep-space-2);
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-icon {
-  min-width: 46px;
-  height: 46px;
-  padding: 0 10px;
+  min-width: max(46px, calc(var(--rep-stage) * 2.4));
+  height: max(46px, calc(var(--rep-stage) * 2.4));
+  padding: 0 var(--rep-space-2);
   border: 1px solid transparent;
   border-radius: 0;
   background: transparent;
   color: var(--rep-dim);
   font-family: var(--rep-mono);
-  font-size: clamp(0.88rem, 0.8vw, 1.08rem);
+  font-size: var(--rep-text-badge);
   font-weight: 400;
   letter-spacing: 0.01em;
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-icon svg {
-  width: 26px;
-  height: 26px;
+  width: max(24px, calc(var(--rep-stage) * 1.45));
+  height: max(24px, calc(var(--rep-stage) * 1.45));
+  flex-shrink: 0;
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-icon:hover {
@@ -331,57 +394,67 @@ html[data-ui="repertory"] .rep-player .shell-osd-icon:disabled {
   cursor: default;
 }
 
-html[data-ui="repertory"] .rep-player .shell-osd-glyph {
+html[data-ui="repertory"] .rep-player .rep-osd-speed-value {
+  color: var(--rep-dim);
   font-family: var(--rep-mono);
-  font-size: clamp(0.94rem, 0.86vw, 1.14rem);
-  letter-spacing: 0.01em;
+  font-size: var(--rep-text-badge);
+  letter-spacing: 0.02em;
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-cluster-center [data-testid="play"],
 html[data-ui="repertory"] .rep-player .shell-osd-cluster-center [data-testid="pause"] {
-  min-width: 64px;
-  height: 54px;
+  min-width: max(64px, calc(var(--rep-stage) * 3.2));
+  height: max(54px, calc(var(--rep-stage) * 2.8));
   color: var(--rep-ivory);
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-cluster-center [data-testid="play"] svg,
 html[data-ui="repertory"] .rep-player .shell-osd-cluster-center [data-testid="pause"] svg {
-  width: 34px;
-  height: 34px;
+  width: max(30px, calc(var(--rep-stage) * 1.8));
+  height: max(30px, calc(var(--rep-stage) * 1.8));
 }
 
-/* The ended Stream's own line, and the wait an episode step draws. */
+/* The ended Stream's own line, and the wait an episode step draws, as printed
+ * plates: an ink step and a hairline, never a shadow. */
 html[data-ui="repertory"] .rep-player .shell-osd-ended {
-  padding: 0 clamp(24px, 2.4vw, 3.2vw) 14px;
+  padding: 0 var(--rep-gutter) var(--rep-space-3);
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-waiting {
-  padding: 0 clamp(24px, 2.4vw, 3.2vw) 10px;
-  color: var(--rep-house);
+  justify-self: center;
+  align-self: center;
+  margin: 0 var(--rep-gutter) var(--rep-space-3);
+  padding: var(--rep-space-3) var(--rep-space-5);
+  border: 1px solid var(--rep-hairline);
+  border-top: 2px solid var(--rep-house);
+  border-radius: 0;
+  background: var(--rep-ink-raised);
+  color: var(--rep-ivory);
   font-family: var(--rep-mono);
-  font-size: clamp(0.84rem, 0.76vw, 1rem);
+  font-size: var(--rep-text-badge);
   letter-spacing: 0.04em;
+  pointer-events: none;
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-refusal {
-  padding: 0 clamp(24px, 2.4vw, 3.2vw) 10px;
+  padding: 0 var(--rep-gutter) var(--rep-space-3);
 }
 
 html[data-ui="repertory"] .rep-player .shell-inline-refusal {
   border-radius: 0;
-  border-color: var(--rep-status-red);
-  background: color-mix(in srgb, var(--rep-ink) 70%, transparent);
+  border: 1px solid var(--rep-status-red);
+  background: var(--rep-ink-raised);
   color: var(--rep-status-red);
   font-family: var(--rep-sans);
-  font-size: clamp(0.86rem, 0.78vw, 1.04rem);
+  font-size: var(--rep-text-badge);
 }
 
 /* --------------------------------------------------------------------------
- * The timeline: a hairline, chapter ticks, and the two clocks
+ * The timeline: a hairline, brass chapter ticks, and the two clocks
  * -------------------------------------------------------------------------- */
 
 html[data-ui="repertory"] .rep-player .shell-osd-timeline {
-  height: clamp(84px, 5.4vw, 104px);
+  height: max(96px, calc(var(--rep-stage) * 5.4));
   border-top: 1px solid var(--rep-hairline);
   background: linear-gradient(
     0deg,
@@ -392,7 +465,7 @@ html[data-ui="repertory"] .rep-player .shell-osd-timeline {
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-track {
-  top: 24px;
+  top: var(--rep-space-5);
   bottom: auto;
   height: 2px;
   background: color-mix(in srgb, var(--rep-hairline) 58%, transparent);
@@ -422,45 +495,26 @@ html[data-ui="repertory"] .rep-player .shell-osd-playhead {
 html[data-ui="repertory"] .rep-player .shell-osd-elapsed,
 html[data-ui="repertory"] .rep-player .shell-osd-remaining {
   top: auto;
-  bottom: 16px;
+  bottom: var(--rep-space-4);
   color: var(--rep-ivory);
   font-family: var(--rep-mono);
-  font-size: clamp(1rem, 0.95vw, 1.28rem);
+  font-size: var(--rep-text-mono);
   font-weight: 400;
   letter-spacing: 0.02em;
-  text-shadow: 0 1px 14px color-mix(in srgb, var(--rep-ink) 92%, transparent);
   transform: none;
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-elapsed {
-  left: clamp(24px, 2.4vw, 3.2vw);
+  left: var(--rep-gutter);
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-remaining {
-  right: clamp(24px, 2.4vw, 3.2vw);
-}
-
-html[data-ui="repertory"] .rep-osd-now-chapter {
-  position: absolute;
-  bottom: 16px;
-  left: 50%;
-  max-width: min(38%, 34rem);
-  overflow: hidden;
-  color: var(--rep-muted);
-  font-family: var(--rep-mono);
-  font-size: clamp(0.78rem, 0.7vw, 0.94rem);
-  line-height: 1.3;
-  letter-spacing: 0.08em;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-  transform: translateX(-50%);
-  pointer-events: none;
+  right: var(--rep-gutter);
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-chapter {
   top: -8px;
-  width: 20px;
+  width: max(20px, calc(var(--rep-stage) * 1.1));
   height: 18px;
 }
 
@@ -482,60 +536,63 @@ html[data-ui="repertory"] .rep-player .shell-osd-chapter:hover .rep-osd-chapter-
   opacity: 1;
 }
 
+/* The only place a chapter is named on the timeline: the callout under the
+ * pointer, or the seek preview while a range is dragged (design record §8). */
 html[data-ui="repertory"] .rep-player .shell-osd-callout {
-  bottom: calc(100% + 10px);
-  gap: 2px;
-  padding: 7px 10px;
+  bottom: calc(100% + var(--rep-space-2));
+  gap: 0;
+  padding: var(--rep-space-2) var(--rep-space-3);
   border: 1px solid var(--rep-hairline);
+  border-top: 2px solid var(--rep-house);
   border-radius: 0;
-  background: color-mix(in srgb, var(--rep-ink) 88%, transparent);
+  background: var(--rep-ink-raised);
   color: var(--rep-ivory);
-  box-shadow: 0 18px 40px -28px rgba(0, 0, 0, 0.95);
+  box-shadow: none;
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-callout-name {
   color: var(--rep-ivory);
-  font-family: var(--rep-display);
-  font-size: clamp(0.9rem, 0.8vw, 1.08rem);
-  font-weight: 500;
-  letter-spacing: 0;
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-badge);
+  font-weight: 400;
+  letter-spacing: 0.02em;
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-callout-time {
   color: var(--rep-house);
   font-family: var(--rep-mono);
-  font-size: clamp(0.7rem, 0.62vw, 0.84rem);
+  font-size: var(--rep-text-badge);
 }
 
 /* The Seek preview, as a small printed plate above the pointer. */
 html[data-ui="repertory"] .rep-player .shell-osd-preview {
-  max-width: 12.5rem;
-  gap: 6px;
-  padding: 8px 8px 10px;
+  max-width: max(200px, calc(var(--rep-stage) * 12.5));
+  gap: var(--rep-space-1);
+  padding: var(--rep-space-2);
   border: 1px solid var(--rep-hairline);
   border-top: 2px solid var(--rep-house);
   border-radius: 0;
-  background: color-mix(in srgb, var(--rep-ink) 90%, transparent);
-  box-shadow: 0 24px 50px -30px rgba(0, 0, 0, 0.95);
+  background: var(--rep-ink-raised);
+  box-shadow: none;
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-preview-still {
-  width: 11.5rem;
+  width: max(184px, calc(var(--rep-stage) * 11.5));
   border-radius: 0;
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-preview-time {
   color: var(--rep-ivory);
   font-family: var(--rep-mono);
-  font-size: clamp(0.8rem, 0.7vw, 0.94rem);
+  font-size: var(--rep-text-badge);
   font-weight: 400;
   letter-spacing: 0.02em;
 }
 
 html[data-ui="repertory"] .rep-player .shell-osd-preview-chapter {
   color: var(--rep-dim);
-  font-family: var(--rep-sans);
-  font-size: clamp(0.74rem, 0.66vw, 0.88rem);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-badge);
 }
 
 /* --------------------------------------------------------------------------
@@ -544,6 +601,11 @@ html[data-ui="repertory"] .rep-player .shell-osd-preview-chapter {
 
 html[data-ui="repertory"] .rep-player .shell-player-preview {
   background: var(--rep-ink);
+}
+
+html[data-ui="repertory"] .rep-player .shell-player-preview-copy {
+  gap: var(--rep-space-1);
+  padding: 0 var(--rep-gutter) calc(var(--rep-stage) * 5.4);
 }
 
 html[data-ui="repertory"] .rep-player .shell-player-preview-scrim {
@@ -558,116 +620,116 @@ html[data-ui="repertory"] .rep-player .shell-player-preview-scrim {
 html[data-ui="repertory"] .rep-player .shell-player-preview-title {
   color: var(--rep-ivory);
   font-family: var(--rep-display);
-  font-size: clamp(2.4rem, 2.6vw, 3.4rem);
+  font-size: var(--rep-text-title);
   font-weight: 500;
   letter-spacing: var(--rep-tracking-display);
-  line-height: 1.02;
+  line-height: var(--rep-leading-display);
 }
 
 html[data-ui="repertory"] .rep-player .shell-player-preview-subtitle {
   color: var(--rep-dim);
   font-family: var(--rep-mono);
-  font-size: clamp(0.86rem, 0.78vw, 1.04rem);
+  font-size: var(--rep-text-badge);
   font-weight: 400;
 }
 
 html[data-ui="repertory"] .rep-player .shell-player-preview-note {
   color: var(--rep-house);
   font-family: var(--rep-mono);
-  font-size: clamp(0.84rem, 0.76vw, 1rem);
+  font-size: var(--rep-text-badge);
   letter-spacing: 0.04em;
 }
 
 html[data-ui="repertory"] .rep-player .shell-picture-note {
   max-width: min(46rem, 76vw);
-  padding: 24px 30px;
+  padding: var(--rep-space-5) var(--rep-space-6);
   border: 1px solid var(--rep-hairline);
   border-top: 2px solid var(--rep-house);
   border-radius: 0;
-  background: color-mix(in srgb, var(--rep-ink) 84%, transparent);
+  background: var(--rep-ink-raised);
   color: var(--rep-ivory);
   font-family: var(--rep-display);
-  font-size: clamp(1.4rem, 1.35vw, 1.9rem);
+  font-size: var(--rep-text-section);
   font-weight: 500;
-  line-height: 1.2;
+  line-height: var(--rep-leading-display);
 }
 
 /* --------------------------------------------------------------------------
- * The five icon popovers
+ * The five icon popovers: a kit plate above the strip
  * -------------------------------------------------------------------------- */
 
 html[data-ui="repertory"] .rep-osd-popover {
-  bottom: clamp(11rem, 10vw, 13rem);
-  max-width: min(28rem, calc(100vw - 2rem));
+  bottom: calc(var(--rep-stage) * 9.6 + var(--rep-space-4));
+  max-width: min(calc(var(--rep-stage) * 20.8), calc(100vw - 2rem));
 }
 
-html[data-ui="repertory"] .rep-osd-popover .kit-popover {
-  width: min(25rem, calc(100vw - 2rem));
-  max-height: min(62vh, 32rem);
-  gap: 0;
-  padding: 18px 18px 16px;
+html[data-ui="repertory"] .rep-osd-popover .rep-kit-popover {
+  right: auto;
+  left: 0;
+  width: min(calc(var(--rep-stage) * 20.8), calc(100vw - 2rem));
+  max-height: min(
+    62vh,
+    calc(var(--rep-stage) * 26.7),
+    calc(100vh - var(--rep-stage) * 9.6 - var(--rep-space-6))
+  );
+  overflow-y: auto;
   border: 1px solid var(--rep-hairline);
   border-top: 2px solid var(--rep-house);
   border-radius: 0;
-  background: color-mix(in srgb, var(--rep-ink) 88%, transparent);
-  box-shadow: 0 30px 70px -36px rgba(0, 0, 0, 0.96);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
+  background: var(--rep-ink-raised);
+  box-shadow: none;
 }
 
-html[data-ui="repertory"] .rep-osd-popover .kit-popover-heading {
-  padding: 0 0 12px;
-  border-bottom: 1px solid var(--rep-hairline);
-  color: var(--rep-ivory);
-  font-family: var(--rep-display);
-  font-size: clamp(1.20rem, 1.05vw, 1.5rem);
-  font-weight: 500;
-  line-height: 1.1;
-  letter-spacing: var(--rep-tracking-display);
-  text-transform: none;
+html[data-ui="repertory"] .rep-osd-popover .rep-kit-popover[data-align="end"] {
+  right: 0;
+  left: auto;
 }
 
-html[data-ui="repertory"] .rep-osd-popover .kit-popover-body {
-  gap: 0;
+html[data-ui="repertory"] .rep-osd-popover .rep-kit-popover-heading {
+  font-size: var(--rep-text-section);
 }
 
 html[data-ui="repertory"] .rep-osd-popover .shell-osd-group {
   gap: 0;
-  padding-top: 4px;
+  padding-top: 0;
 }
 
 html[data-ui="repertory"] .rep-osd-popover .shell-osd-group-title {
-  margin: 12px 0 5px;
+  margin: 0;
+  padding: var(--rep-space-2) var(--rep-space-4);
   color: var(--rep-house);
   font-family: var(--rep-mono);
-  font-size: clamp(0.68rem, 0.6vw, 0.8rem);
+  font-size: var(--rep-text-badge);
   font-weight: 400;
-  line-height: 1.2;
-  letter-spacing: 0.14em;
+  line-height: 1.3;
+  letter-spacing: var(--rep-tracking-caps);
   text-transform: uppercase;
 }
 
 html[data-ui="repertory"] .rep-osd-popover .shell-osd-item {
-  gap: 14px;
-  padding: 9px 8px;
+  gap: var(--rep-space-3);
+  padding: var(--rep-space-2) var(--rep-space-4);
   border: 0;
-  border-bottom: 1px solid color-mix(in srgb, var(--rep-hairline) 58%, transparent);
   border-radius: 0;
   background: transparent;
   color: var(--rep-dim);
-  font-family: var(--rep-sans);
-  font-size: clamp(0.9rem, 0.82vw, 1.08rem);
-  line-height: 1.35;
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  line-height: 1.4;
+}
+
+/* The kit rules a direct button; these rows sit inside a group. */
+html[data-ui="repertory"] .rep-osd-popover .shell-osd-group .shell-osd-item {
+  border-bottom: 1px solid color-mix(in srgb, var(--rep-hairline) 58%, transparent);
 }
 
 html[data-ui="repertory"] .rep-osd-popover .shell-osd-item:hover {
-  background: color-mix(in srgb, var(--rep-ink-elevated) 58%, transparent);
+  background: var(--rep-ink-elevated);
   color: var(--rep-ivory);
 }
 
 html[data-ui="repertory"] .rep-osd-popover .shell-osd-item[aria-pressed="true"] {
-  border-bottom-color: var(--rep-hairline);
-  background: color-mix(in srgb, var(--rep-ink-elevated) 78%, transparent);
+  background: transparent;
   box-shadow: inset 2px 0 0 var(--rep-house);
   color: var(--rep-ivory);
   font-weight: 400;
@@ -678,21 +740,21 @@ html[data-ui="repertory"] .rep-osd-popover .shell-osd-note,
 html[data-ui="repertory"] .rep-osd-popover .shell-osd-readout {
   color: var(--rep-muted);
   font-family: var(--rep-mono);
-  font-size: clamp(0.68rem, 0.6vw, 0.82rem);
+  font-size: var(--rep-text-mono);
   line-height: 1.4;
 }
 
 html[data-ui="repertory"] .rep-osd-popover .shell-osd-note,
 html[data-ui="repertory"] .rep-osd-popover .shell-osd-readout {
-  margin: 6px 8px;
+  margin: var(--rep-space-2) var(--rep-space-4);
 }
 
 html[data-ui="repertory"] .rep-osd-popover .shell-osd-statistics {
-  gap: 3px 14px;
-  margin: 6px 8px 10px;
+  gap: 2px var(--rep-space-3);
+  margin: var(--rep-space-2) var(--rep-space-4) var(--rep-space-3);
   color: var(--rep-dim);
   font-family: var(--rep-mono);
-  font-size: clamp(0.68rem, 0.6vw, 0.82rem);
+  font-size: var(--rep-text-mono);
 }
 
 html[data-ui="repertory"] .rep-osd-popover .shell-osd-statistics dt {
@@ -707,10 +769,8 @@ html[data-ui="repertory"] .rep-osd-popover .shell-osd-delay {
   gap: 0;
 }
 
-/* The rehearsal bar steps out of the way while the player owns the window. */
-
 /* --------------------------------------------------------------------------
- * Reduced motion: the room is still, the wait still turns
+ * Reduced motion: the room keeps its fades and loses its movement
  * -------------------------------------------------------------------------- */
 
 @media (prefers-reduced-motion: reduce) {
@@ -718,8 +778,8 @@ html[data-ui="repertory"] .rep-osd-popover .shell-osd-delay {
     height: 14px;
   }
 
-  html[data-ui="repertory"] .rep-player .kit-spinner,
-  html[data-ui="repertory"] .rep-osd-popover .kit-spinner {
-    animation-duration: 2.4s;
+  html[data-ui="repertory"] .rep-player .rep-kit-spinner,
+  html[data-ui="repertory"] .rep-osd-popover .rep-kit-spinner {
+    animation-duration: 1.6s;
   }
 }
