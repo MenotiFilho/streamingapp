@@ -233,6 +233,16 @@ afterEach(() => {
 });
 
 describe("Home's feature presentation", () => {
+  it("keeps the feature's frame while the Featured catalog is still answering", async () => {
+    const pending = vi.fn(
+      () => new Promise<ActionOutcome>(() => undefined),
+    ) as (action: Action) => Promise<ActionOutcome>;
+    renderHome({ ask: pending });
+    await flush();
+
+    expect(screen.getByTestId("repertory-feature-placeholder")).toBeInTheDocument();
+  });
+
   it("rotates on its 24s beat and holds while the action is focused", async () => {
     onlyIntervals();
     renderHome();

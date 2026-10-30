@@ -278,6 +278,35 @@ function Feature({
 }
 
 /**
+ * The feature's reserved frame while the Featured catalog is still answering.
+ *
+ * It has the feature's own height and hairlines, so the page does not jump when
+ * the real presentation arrives; the copy is a quiet programme note, not a
+ * spinner or invented content.
+ */
+function FeaturePlaceholder() {
+  return (
+    <section className="rep-feature" aria-label="Feature presentation">
+      <div
+        className="rep-feature-frame rep-feature-placeholder"
+        data-testid="repertory-feature-placeholder"
+        role="status"
+      >
+        <div className="rep-feature-placeholder-copy">
+          <div className="rep-feature-kicker">
+            <span>Feature presentation</span>
+            <span className="rep-rule" aria-hidden="true" />
+            <span>—</span>
+          </div>
+          <p className="rep-feature-placeholder-title">Tonight&rsquo;s feature</p>
+          <p className="rep-feature-placeholder-note">Reading the programme…</p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/**
  * Home as tonight's programme: one feature presentation, Continue watching,
  * and one section per declared Catalog.
  *
@@ -461,16 +490,20 @@ export function RepertoryHome() {
       <h1 className="shell-visually-hidden">Home</h1>
       <ProgrammeLine name="Home" testId="home-programme-line" />
 
-      <Feature
-        items={featureItems}
-        onOpen={(item) => {
-          if (item.meta) {
-            openMeta(item.meta);
-          } else {
-            openNote(noteFromSlide(item.slide));
-          }
-        }}
-      />
+      {featureItems.length > 0 ? (
+        <Feature
+          items={featureItems}
+          onOpen={(item) => {
+            if (item.meta) {
+              openMeta(item.meta);
+            } else {
+              openNote(noteFromSlide(item.slide));
+            }
+          }}
+        />
+      ) : heroPending ? (
+        <FeaturePlaceholder />
+      ) : null}
 
       {hasContinue ? (
         <div
