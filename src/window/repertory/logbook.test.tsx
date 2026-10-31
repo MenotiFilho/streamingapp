@@ -167,7 +167,7 @@ function show(value: ShellContextValue, children: ReactNode) {
 }
 
 function showLevel(level: NewShellLevel, value: ShellContextValue) {
-  return show(value, level.render());
+  return show(value, level.payload.render());
 }
 
 function actions(ask: ReturnType<typeof harness>["ask"]): Action[] {
@@ -634,7 +634,7 @@ describe("the repertory Settings register", () => {
     levelView.rerender(
       withShell(
         { ...value, snapshot: { ...SNAPSHOT, devices: [LIVING_ROOM] } },
-        level.render(),
+        level.payload.render(),
       ),
     );
 

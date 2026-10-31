@@ -90,7 +90,9 @@ function categoryLevel(category: SettingsCategory): NewShellLevel {
     id: settingsLevelId(category),
     name: settingsLevelName(category),
     kind: "overlay",
-    render: CATEGORY_SCREENS[category.id],
+    payload: {
+      render: CATEGORY_SCREENS[category.id],
+    },
   };
 }
 

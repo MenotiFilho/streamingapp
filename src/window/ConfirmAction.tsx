@@ -95,6 +95,8 @@ export function confirmActionLevel(options: ConfirmActionOptions): NewShellLevel
     id: options.id,
     name: options.title,
     kind: "overlay",
-    render: () => <ConfirmAction {...options} />,
+    payload: {
+      render: () => <ConfirmAction {...options} />,
+    },
   };
 }

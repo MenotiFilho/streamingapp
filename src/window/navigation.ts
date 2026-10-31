@@ -1,34 +1,23 @@
 /**
- * The shell's navigation: six destinations, and a stack of overlays above
- * whichever one is showing.
+ * The window's navigation: the core's destinations and level stack, with the
+ * payload the window puts in a level — the drawing it holds, and the level's
+ * first chances at Back and at an intent.
  *
- * A destination is not a level. The rail is persistent, so choosing one
- * replaces the base screen; Back on a screen returns to Home rather than
- * walking back through every icon visited. Only an overlay — a Title, the
- * Streams list, a Settings sub-screen, a confirmation, a player popover — is
- * pushed, and Back pops it to the exact focus underneath (#51, #52).
+ * The rules for the stack are the core's (ADR-0035). This module only says
+ * what a window level holds, and keeps the names the window's screens import.
  */
 
 import type { ReactNode } from "react";
 
-import { DESTINATIONS, type Destination } from "../core/destinations";
 import type { Intent } from "../core/input";
+import type { Level, Navigation as CoreNavigation, NewLevel } from "../core/navigation";
 
-// The destinations are the core's; the window still hands them to its screens
-// by these names, so the move is invisible to every consumer.
-export { DESTINATIONS, type Destination };
+// The destinations are the core's; the window's screens read them by these
+// names so the move is invisible to every consumer.
+export { DESTINATIONS, type Destination } from "../core/destinations";
 
-/**
- * One pushed level. `kind` is what Back needs to know beyond "pop it": a
- * `player` level is the one Back stops, and every other level is a surface the
- * shell can put away. A `popover` is the player's own furniture — an icon's
- * menu — and paints above the player rather than beside it.
- */
-export type ShellLevel = {
-  id: string;
-  /** What the level is, for a test, an announcement, or a settings sub-screen. */
-  name: string;
-  kind: "overlay" | "player" | "popover";
+/** What a window level holds: its drawing, and its own first look at input. */
+export type WindowPayload = {
   /** The level's contents, drawn when it is on top of the stack. */
   render: () => ReactNode;
   /**
@@ -45,95 +34,11 @@ export type ShellLevel = {
   onIntent?: (intent: Intent) => boolean;
 };
 
-/** The shell's whole navigation state. */
-export type Navigation = {
-  destination: Destination;
-  /** Outermost first; the last level is the one a person is on. */
-  levels: ShellLevel[];
-};
+/** One pushed level, as the window holds it. */
+export type ShellLevel = Level<WindowPayload>;
 
-export const INITIAL_NAVIGATION: Navigation = { destination: "home", levels: [] };
+/** A level a screen asks the shell to push; the shell gives it its id. */
+export type NewShellLevel = NewLevel<WindowPayload>;
 
-/** Everything a person can do to the stack. */
-export type NavigationEvent =
-  | { type: "choose"; destination: Destination }
-  | { type: "push"; level: ShellLevel }
-  | { type: "pop" }
-  | { type: "remove"; id: string }
-  | { type: "remove-from"; id: string }
-  | { type: "back" };
-
-/** The label a destination is announced and drawn by. */
-export function destinationLabel(destination: Destination): string {
-  return DESTINATIONS.find((entry) => entry.id === destination)?.label ?? "Home";
-}
-
-/** Push one level, keeping everything below it exactly where it was. */
-export function pushLevel(state: Navigation, level: ShellLevel): Navigation {
-  const at = state.levels.findIndex((held) => held.id === level.id);
-  if (at < 0) {
-    return { ...state, levels: [...state.levels, level] };
-  }
-  const levels = state.levels.slice();
-  levels[at] = level;
-  return { ...state, levels };
-}
-
-/** Take one level out by id, wherever it sits. */
-export function removeLevel(state: Navigation, id: string): Navigation {
-  return state.levels.some((level) => level.id === id)
-    ? { ...state, levels: state.levels.filter((level) => level.id !== id) }
-    : state;
-}
-
-/**
- * Take a level out along with everything above it. This is what a takeover
- * uses when it ends: a player's open popovers belong to the player, not to the
- * screen the player was over.
- */
-export function removeFrom(state: Navigation, id: string): Navigation {
-  const at = state.levels.findIndex((level) => level.id === id);
-  return at < 0 ? state : { ...state, levels: state.levels.slice(0, at) };
-}
-
-/** Pop the top level, if there is one. */
-export function popLevel(state: Navigation): Navigation {
-  return state.levels.length === 0
-    ? state
-    : { ...state, levels: state.levels.slice(0, -1) };
-}
-
-/**
- * Back: pop one pushed level, or return a non-Home base screen to Home. On
- * Home with nothing pushed, Back is a wall.
- */
-export function back(state: Navigation): Navigation {
-  if (state.levels.length > 0) {
-    return popLevel(state);
-  }
-  if (state.destination !== "home") {
-    return { destination: "home", levels: [] };
-  }
-  return state;
-}
-
-/** Apply one navigation event. */
-export function navigate(state: Navigation, event: NavigationEvent): Navigation {
-  switch (event.type) {
-    case "choose":
-      // A destination replaces the base screen. An overlay over the screen it
-      // replaced would be a level of a place a person has left; the rail is the
-      // one control that gets to change the base, so it closes what was above.
-      return { destination: event.destination, levels: [] };
-    case "push":
-      return pushLevel(state, event.level);
-    case "pop":
-      return popLevel(state);
-    case "remove":
-      return removeLevel(state, event.id);
-    case "remove-from":
-      return removeFrom(state, event.id);
-    case "back":
-      return back(state);
-  }
-}
+/** The window's whole navigation state. */
+export type Navigation = CoreNavigation<WindowPayload>;

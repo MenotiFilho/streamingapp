@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { explain } from "../core/errors";
 import type { HostLink } from "../core/link";
+import { useNavigation } from "../core/react/useNavigation";
 import { useSession } from "../core/react/useSession";
 import { TauriLink } from "./tauriLink";
 import type { Intent } from "../core/input";
@@ -10,12 +11,11 @@ import { PlayerOverlay } from "./PlayerOverlay";
 import { RepertoryDestinationScreen } from "./repertory/RepertoryScreens";
 import { DestinationGrid } from "./repertory/DestinationGrid";
 import { ShellFrame } from "./ShellFrame";
-import { ShellContext, type NewShellLevel } from "./context";
+import { ShellContext } from "./context";
 import {
-  INITIAL_NAVIGATION,
-  navigate,
   type Destination,
   type ShellLevel,
+  type WindowPayload,
 } from "./navigation";
 
 /** The id the player level holds, so a later push can replace it rather than stack a copy. */
@@ -37,9 +37,8 @@ export function Shell({ client }: { client?: HostLink }) {
   const { session, state } = useSession(link);
   const { snapshot, error, unplayable, pending } = state;
   const { ask, take, markUnplayable, home } = session;
-  const [nav, dispatch] = useReducer(navigate, INITIAL_NAVIGATION);
+  const nav = useNavigation<WindowPayload>();
   const [chosenDestination, setChosenDestination] = useState(false);
-  const nextLevelId = useRef(0);
   const levelsRef = useRef(nav.levels);
   levelsRef.current = nav.levels;
   /**
@@ -66,23 +65,20 @@ export function Shell({ client }: { client?: HostLink }) {
     [],
   );
 
-  const choose = useCallback((destination: Destination) => {
-    setChosenDestination(true);
-    dispatch({ type: "choose", destination });
-  }, []);
+  const { choose: chooseDestination, push, remove, removeFrom, pop, back: backStack } = nav;
 
-  const push = useCallback((level: NewShellLevel): string => {
-    const id = level.id ?? `level-${(nextLevelId.current += 1)}`;
-    dispatch({ type: "push", level: { ...level, id } });
-    return id;
-  }, []);
+  const choose = useCallback(
+    (destination: Destination) => {
+      setChosenDestination(true);
+      chooseDestination(destination);
+    },
+    [chooseDestination],
+  );
 
-  const remove = useCallback((id: string) => dispatch({ type: "remove", id }), []);
   const levelExists = useCallback(
     (id: string) => levelsRef.current.some((level) => level.id === id),
     [],
   );
-  const pop = useCallback(() => dispatch({ type: "pop" }), []);
 
   // The spine's All destinations screen is a level like any other: it paints
   // above the base, Back returns to the More control that opened it, and
@@ -91,9 +87,11 @@ export function Shell({ client }: { client?: HostLink }) {
     push({
       name: "All destinations",
       kind: "overlay",
-      render: () => (
-        <DestinationGrid active={nav.destination} onChoose={choose} onClose={pop} />
-      ),
+      payload: {
+        render: () => (
+          <DestinationGrid active={nav.destination} onChoose={choose} onClose={pop} />
+        ),
+      },
     });
   }, [choose, nav.destination, pop, push]);
 
@@ -106,7 +104,7 @@ export function Shell({ client }: { client?: HostLink }) {
 
   const back = useCallback(() => {
     const top = nav.levels[nav.levels.length - 1];
-    if (top?.onBack?.()) {
+    if (top?.payload.onBack?.()) {
       return;
     }
     if (top?.kind === "player") {
@@ -115,8 +113,8 @@ export function Shell({ client }: { client?: HostLink }) {
       void take({ type: "stop_playback" });
       return;
     }
-    dispatch({ type: "back" });
-  }, [nav.levels, take]);
+    backStack();
+  }, [nav.levels, backStack, take]);
 
   // The player takes over the window only where the picture is in this window:
   // mpv's own window is not something this page can draw over, and nowhere is
@@ -126,18 +124,20 @@ export function Shell({ client }: { client?: HostLink }) {
       // The level is going, and with it the handler it reads: the player
       // rewrites this on every render, so a stale one must not answer.
       playerIntent.current = null;
-      dispatch({ type: "remove-from", id: PLAYER_LEVEL });
+      removeFrom(PLAYER_LEVEL);
       return;
     }
     const player: ShellLevel = {
       id: PLAYER_LEVEL,
       name: "Playing",
       kind: "player",
-      render: () => <PlayerOverlay />,
-      onIntent: (intent) => playerIntent.current?.(intent) ?? false,
+      payload: {
+        render: () => <PlayerOverlay />,
+        onIntent: (intent) => playerIntent.current?.(intent) ?? false,
+      },
     };
-    dispatch({ type: "push", level: player });
-  }, [playerActive]);
+    push(player);
+  }, [playerActive, push, removeFrom]);
 
   // Where the picture is in this window, the page must stop painting its own
   // rectangle so mpv's child window shows through (ADR-0003), and the browsing

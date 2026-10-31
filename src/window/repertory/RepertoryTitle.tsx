@@ -53,7 +53,11 @@ export function RepertoryTitleScreen({
       push({
         name: "Streams",
         kind: "overlay",
-        render: () => <StreamsLoader title={title} preview={preview} video={video} />,
+        payload: {
+          render: () => (
+            <StreamsLoader title={title} preview={preview} video={video} />
+          ),
+        },
       });
     },
     [preview, push, title],

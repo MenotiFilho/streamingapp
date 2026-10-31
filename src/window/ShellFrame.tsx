@@ -202,7 +202,7 @@ function RepertoryLevelShell({
         }
       }}
     >
-      {level.render()}
+      {level.payload.render()}
       {chrome && present ? <WindowChrome /> : null}
     </motion.div>
   );
@@ -295,7 +295,7 @@ export function ShellFrame({
     root: activeRoot,
     levelKey: top ? `level:${top.id}` : `base:${destination}`,
     onBack,
-    onIntent: top?.onIntent ?? onBaseIntent,
+    onIntent: top?.payload.onIntent ?? onBaseIntent,
     // The owner's rail/chrome rules are the base programme's: a pushed Title,
     // Streams list or dialog keeps the settled geometry.
     rules: levels.length === 0 || settingsLeaf ? REPERTORY_RULES : undefined,

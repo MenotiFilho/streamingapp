@@ -37,13 +37,15 @@ export function useTitleOpener() {
       const id = push({
         name: "Title",
         kind: "overlay",
-        render: () => <RepertoryTitleLoading preview={preview} />,
-        onBack: () => {
-          // Backing out of the waiting Title lets the next card be pressed
-          // without waiting for the first answer; the late answer is dropped.
-          cancelled = true;
-          opening.current = false;
-          return false;
+        payload: {
+          render: () => <RepertoryTitleLoading preview={preview} />,
+          onBack: () => {
+            // Backing out of the waiting Title lets the next card be pressed
+            // without waiting for the first answer; the late answer is dropped.
+            cancelled = true;
+            opening.current = false;
+            return false;
+          },
         },
       });
       try {
@@ -102,7 +104,9 @@ export function titleLevelOf(
   return {
     name: "Title",
     kind: "overlay",
-    render: () => <RepertoryTitleScreen title={title} preview={preview} />,
+    payload: {
+      render: () => <RepertoryTitleScreen title={title} preview={preview} />,
+    },
   };
 }
 
