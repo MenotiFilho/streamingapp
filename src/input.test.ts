@@ -11,7 +11,7 @@ import {
   type Intent,
   type PadLike,
 } from "./input";
-import { REPEATABLE } from "./shell/useGamepad";
+import { REPEATABLE } from "./window/useGamepad";
 
 const button = (pressed: boolean) => ({ pressed });
 
