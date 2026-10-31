@@ -1,7 +1,7 @@
 # The Remote and the window: what is duplicated, what is shared, and what only one of them has
 
-**Ticket:** #188 (wayfinder map #187). **Branch:**
-`research/remote-window-duplication`. **Read:** 2026-10-31.
+**Ticket:** #188 (wayfinder map #187). **Captured on:**
+`research/remote-window-duplication` @ `d5821ae`. **Read:** 2026-10-31.
 
 This is an inventory, not a decision. It maps every render function, screen,
 style block and piece of state in the served Remote
@@ -12,8 +12,8 @@ sequence. Where the two clients genuinely differ — not "drawn differently" but
 "one can do a thing the other cannot" — it says so plainly.
 
 It is the evidence base for #190 (the core boundary), #191 (the kit's shared
-surface and the player split) and #192 (the migration sequence), and for the ADR
-#193 will record.
+surface and the player split) and #192 (the migration sequence), and for ADR-0035,
+which records it.
 
 ## How to read the classification
 

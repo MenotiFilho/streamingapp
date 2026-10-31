@@ -1,7 +1,7 @@
 # Building, embedding, and serving the two-entry Remote
 
-**Ticket:** #189 (wayfinder map #187). **Branch:**
-`research/remote-build-and-serve`. **Read:** 2026-10-31.
+**Ticket:** #189 (wayfinder map #187). **Captured on:**
+`research/remote-build-and-serve` @ `fc793a9`. **Read:** 2026-10-31.
 
 This is the build/serve half of the map: the Remote becomes a React client of the
 same tree as the window (a second Vite entry, `remote.html`), its built artifact
@@ -22,7 +22,7 @@ version-pinned vendor asset. This note recommends the build step the map already
 settled on, and replaces the vendor asset with a bundled chunk. The *principle*
 those ADRs protect is kept: the page travels with the binary, is served by the
 Host, and fetches nothing outside it for its own assets. The explicit ADR
-supersession is #193's job; this note records the contradiction so it is not
+supersession is ADR-0035's; this note records the contradiction so it is not
 mistaken for an accident.
 
 ## Sources, and what each one is
