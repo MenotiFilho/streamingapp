@@ -282,6 +282,15 @@ the Host's, not a client's, and the same on every Stream: it ends where either
 limit is reached first (ADR-0026).
 _Avoid_: cache (the Host already caches Addon pages), preload, buffer size
 
+### Clients
+
+**Level**:
+A surface a client pushes above what it was showing — a Title, the Streams of
+one, a settings category, a confirm — and pops one at a time with Back. A Level
+is client-side only: it moves nothing on the Host and is not shared between
+devices (ADR-0005).
+_Avoid_: screen, page, route, modal
+
 ### Remote clients
 
 **Remote client**:
