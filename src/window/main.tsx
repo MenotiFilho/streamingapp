@@ -1,8 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 
-import { RehearsalEntry } from "./shell/repertory/RehearsalEntry";
-import { RepertoryEntry } from "./shell/repertory/RepertoryEntry";
+import { RehearsalEntry } from "./repertory/RehearsalEntry";
+import { RepertoryEntry } from "./repertory/RepertoryEntry";
 
 const root = document.getElementById("root");
 if (!root) {
@@ -12,8 +12,8 @@ if (!root) {
 /**
  * The window is the ten-foot repertory shell (#87, #160).
  *
- * There is one client: `src/shell/` takes Actions from the Host and renders the
- * Snapshots it is sent. `src/shell/repertory/tokens.css` is its only palette.
+ * There is one client: `src/window/` takes Actions from the Host and renders the
+ * Snapshots it is sent. `src/window/repertory/tokens.css` is its only palette.
  * `VITE_UI=rehearsal` selects the browser rehearsal entry that answers from the
  * public Cinemeta addon when no Tauri Host is present; every other build renders
  * the production entry directly.

@@ -23,11 +23,11 @@ export default defineConfig({
     css: {
       include: [
         /src\/tokens\.css/,
-        /src\/shell\/kit\/kit\.css/,
-        /src\/shell\/shell\.css/,
-        /src\/shell\/osd\.css/,
-        /src\/shell\/repertory\/repertory\.css/,
-        /src\/shell\/repertory\/tokens\.css/,
+        /src\/window\/kit\/kit\.css/,
+        /src\/window\/shell\.css/,
+        /src\/window\/osd\.css/,
+        /src\/window\/repertory\/repertory\.css/,
+        /src\/window\/repertory\/tokens\.css/,
       ],
     },
   },
