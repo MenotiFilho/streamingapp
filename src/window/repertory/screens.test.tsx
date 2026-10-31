@@ -867,6 +867,25 @@ describe("the repertory Search feed against the Host", () => {
       ).toHaveLength(2),
     );
   });
+
+  it("a refused search keeps the query in the field to correct", async () => {
+    const ask = vi.fn(async (_action: Action): Promise<ActionOutcome> => ({
+      response: null,
+      error: { kind: "fetch", detail: "the Addon answered with status 503" },
+    }));
+    const { value } = harness({ ask });
+
+    render(withShell(value, <RepertorySearchScreen />));
+    const input = screen.getByLabelText("Search for a Title");
+    fireEvent.change(input, { target: { value: "the" } });
+    fireEvent.click(screen.getByRole("button", { name: "Search" }));
+
+    expect(await screen.findByTestId("search-catalogs-failure")).toHaveTextContent(
+      "The Host could not fetch that Addon: the Addon answered with status 503.",
+    );
+    expect(actions(ask)).toContainEqual({ type: "search_catalogs", query: "the" });
+    expect(input).toHaveValue("the");
+  });
 });
 
 describe("the plain Vite preview's Search", () => {

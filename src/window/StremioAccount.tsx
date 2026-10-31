@@ -4,7 +4,9 @@ import type { ActionError } from "../core/errors";
 import { useShell } from "./context";
 import { confirmActionLevel } from "./ConfirmAction";
 import { Button } from "../kit/Button";
-import { LogNote, LogRefusal } from "./repertory/RepertoryLog";
+import { Field } from "../kit/Field";
+import { Refusal } from "./Refusal";
+import { LogNote } from "./repertory/RepertoryLog";
 
 /**
  * The shared Stremio account control (#30, #82).
@@ -93,38 +95,30 @@ export function StremioAccount({
 
   return (
     <form className="rep-settings-form" onSubmit={signIn} noValidate>
-      <div className="rep-log-field">
-        <label htmlFor="settings-stremio-email">Stremio email</label>
-        <input
-          id="settings-stremio-email"
-          className="rep-log-input"
-          type="email"
-          autoComplete="off"
-          placeholder="you@example.com"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          data-focusable
-        />
-      </div>
-      <div className="rep-log-field">
-        <label htmlFor="settings-stremio-password">Stremio password</label>
-        <input
-          id="settings-stremio-password"
-          className="rep-log-input"
-          type="password"
-          autoComplete="off"
-          placeholder="the password Stremio knows"
-          value={password}
-          onChange={(event) => setPassword(event.target.value)}
-          data-focusable
-        />
-      </div>
+      <Field
+        id="settings-stremio-email"
+        label="Stremio email"
+        type="email"
+        autoComplete="off"
+        placeholder="you@example.com"
+        value={email}
+        onChange={setEmail}
+      />
+      <Field
+        id="settings-stremio-password"
+        label="Stremio password"
+        type="password"
+        autoComplete="off"
+        placeholder="the password Stremio knows"
+        value={password}
+        onChange={setPassword}
+      />
       <div className="rep-log-actions">
         <Button type="submit" variant="primary" pending={working}>
           Sign in
         </Button>
       </div>
-      <LogRefusal error={error} testId="stremio-sign-in-error" />
+      <Refusal error={error} testId="stremio-sign-in-error" />
     </form>
   );
 }

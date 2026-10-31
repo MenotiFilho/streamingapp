@@ -2091,40 +2091,10 @@ body.picture-behind .shell-nav-slot {
   line-height: var(--rep-leading-body);
 }
 
-/* The query bar: one display-serif line over the ink, the submit at its end. */
+/* The query bar: the Field's own row carries the submit at its end. */
 .rep-search-bar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
-  gap: var(--rep-space-5);
-}
-
-.rep-search-input {
-  width: 100%;
+  display: block;
   min-width: 0;
-  padding: var(--rep-space-2) 0;
-  border: 0;
-  border-bottom: 1px solid var(--rep-hairline);
-  border-radius: 0;
-  background: transparent;
-  color: var(--rep-ivory);
-  font-family: var(--rep-display);
-  font-size: var(--rep-text-title);
-  font-weight: 500;
-  line-height: var(--rep-leading-display);
-  letter-spacing: var(--rep-tracking-display);
-  box-sizing: border-box;
-}
-
-.rep-search-input::placeholder {
-  color: var(--rep-muted);
-  font-family: var(--rep-sans);
-  font-size: var(--rep-text-body);
-  letter-spacing: normal;
-}
-
-.rep-search-submit {
-  margin-bottom: var(--rep-space-2);
 }
 
 .rep-search-results {
@@ -2270,44 +2240,6 @@ body.picture-behind .shell-nav-slot {
   gap: var(--rep-space-4);
   max-width: 46ch;
   min-width: 0;
-}
-
-.rep-log-field {
-  display: grid;
-  gap: var(--rep-space-2);
-  min-width: 0;
-}
-
-.rep-log-field label {
-  color: var(--rep-muted);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-mono);
-  letter-spacing: var(--rep-tracking-caps);
-  line-height: 1.2;
-  text-transform: uppercase;
-}
-
-.rep-log-input {
-  width: 100%;
-  min-height: max(44px, calc(var(--rep-stage) * 3));
-  padding: var(--rep-space-1) 0;
-  border: 0;
-  border-bottom: 1px solid var(--rep-hairline);
-  border-radius: 0;
-  background: transparent;
-  color: var(--rep-ivory);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-control);
-  box-sizing: border-box;
-}
-
-.rep-log-input::placeholder {
-  color: var(--rep-muted);
-}
-
-.rep-log-input:focus,
-.rep-log-input:focus-visible {
-  border-bottom-color: transparent;
 }
 
 .rep-log-actions {
@@ -2794,10 +2726,6 @@ body.picture-behind .shell-nav-slot {
   display: grid;
   gap: var(--rep-space-4);
   min-width: 0;
-}
-
-.rep-addons-form > .rep-kit-button {
-  justify-self: start;
 }
 
 .rep-addons-scroll {

@@ -6,6 +6,8 @@ import type { ActionError } from "../../core/errors";
 import { useShell } from "../context";
 import { confirmActionLevel } from "../ConfirmAction";
 import { Button } from "../../kit/Button";
+import { Field } from "../../kit/Field";
+import { Refusal } from "../Refusal";
 import { focusAndReveal } from "../reveal";
 import {
   addOutcome,
@@ -22,7 +24,6 @@ import {
   LogHead,
   LogNote,
   LogPreviewNote,
-  LogRefusal,
   LogSectionHead,
 } from "./RepertoryLog";
 
@@ -151,26 +152,25 @@ export function RepertoryAddonsScreen() {
             data-label="Add an Addon"
             onSubmit={add}
           >
-            <div className="rep-log-field">
-              <label htmlFor="addons-manifest-url">Addon manifest URL</label>
-              <input
-                id="addons-manifest-url"
-                className="rep-log-input"
-                placeholder="https://example.com/manifest.json"
-                value={url}
-                onChange={(event) => setUrl(event.target.value)}
-                data-focusable
-              />
-            </div>
-            <Button
-              type="submit"
-              variant="primary"
-              pending={adding}
-              data-testid="add-addon-submit"
-            >
-              Add
-            </Button>
-            <LogRefusal error={addError} testId="add-addon-error" />
+            <Field
+              id="addons-manifest-url"
+              label="Addon manifest URL"
+              placeholder="https://example.com/manifest.json"
+              value={url}
+              onChange={setUrl}
+              error={addError}
+              refusalTestId="add-addon-error"
+              trailing={
+                <Button
+                  type="submit"
+                  variant="primary"
+                  pending={adding}
+                  data-testid="add-addon-submit"
+                >
+                  Add
+                </Button>
+              }
+            />
           </form>
 
           {addStatus ? (
@@ -303,7 +303,7 @@ export function RepertoryAddonsScreen() {
                           </div>
 
                           {listError?.addon === addon.id ? (
-                            <LogRefusal
+                            <Refusal
                               error={listError.error}
                               testId="addons-list-error"
                             />

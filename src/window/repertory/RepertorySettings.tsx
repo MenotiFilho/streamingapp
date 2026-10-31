@@ -36,7 +36,9 @@ import { useShell, type NewShellLevel } from "../context";
 import { confirmActionLevel } from "../ConfirmAction";
 import { Button } from "../../kit/Button";
 import { ChoiceChip } from "../../kit/Chip";
+import { Field } from "../../kit/Field";
 import { focusAndReveal } from "../reveal";
+import { Refusal } from "../Refusal";
 import { StremioAccount } from "../StremioAccount";
 import {
   LogFacts,
@@ -45,7 +47,6 @@ import {
   LogLevelHead,
   LogNote,
   LogPreviewNote,
-  LogRefusal,
 } from "./RepertoryLog";
 import {
   CREDENTIALS_CATEGORY,
@@ -244,19 +245,17 @@ function CredentialsScreen() {
           data-label="TMDB key"
           onSubmit={storeKey}
         >
-          <div className="rep-log-field">
-            <label htmlFor="settings-tmdb-key">TMDB API key or read-access token</label>
-            <input
-              id="settings-tmdb-key"
-              className="rep-log-input"
-              type="password"
-              autoComplete="off"
-              placeholder="the key TMDB gave you"
-              value={keyDraft}
-              onChange={(event) => setKeyDraft(event.target.value)}
-              data-focusable
-            />
-          </div>
+          <Field
+            id="settings-tmdb-key"
+            label="TMDB API key or read-access token"
+            type="password"
+            autoComplete="off"
+            placeholder="the key TMDB gave you"
+            value={keyDraft}
+            onChange={setKeyDraft}
+            error={keyError}
+            refusalTestId="tmdb-key-error"
+          />
           <div className="rep-log-actions">
             <Button type="submit" variant="primary" pending={saving}>
               Save key
@@ -294,7 +293,6 @@ function CredentialsScreen() {
               <span>{TMDB_KEY_SAVED}</span>
             </p>
           ) : null}
-          <LogRefusal error={keyError} testId="tmdb-key-error" />
         </form>
       </LogGroup>
 
@@ -440,7 +438,7 @@ function PreferencesScreen() {
             </ChoiceChip>
           ))}
         </div>
-        <LogRefusal error={languageError} testId="subtitle-language-error" />
+        <Refusal error={languageError} testId="subtitle-language-error" />
       </LogGroup>
 
       <LogGroup id="settings-subtitle-appearance" title="Subtitle appearance">
@@ -510,7 +508,7 @@ function PreferencesScreen() {
             ) : null}
           </div>
         </div>
-        <LogRefusal error={appearanceError} testId="subtitle-appearance-error" />
+        <Refusal error={appearanceError} testId="subtitle-appearance-error" />
       </LogGroup>
 
       <LogGroup id="settings-stream-buffer" title="Stream buffer">
@@ -572,7 +570,7 @@ function PreferencesScreen() {
             ) : null}
           </div>
         </div>
-        <LogRefusal error={bufferError} testId="stream-buffer-error" />
+        <Refusal error={bufferError} testId="stream-buffer-error" />
       </LogGroup>
 
       <LogGroup id="settings-featured-catalog" title="Featured catalog">
@@ -613,7 +611,7 @@ function PreferencesScreen() {
             );
           })}
         </div>
-        <LogRefusal error={featuredError} testId="featured-catalog-error" />
+        <Refusal error={featuredError} testId="featured-catalog-error" />
       </LogGroup>
 
       <LogPreviewNote>
