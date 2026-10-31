@@ -28,6 +28,7 @@ import { EditorialGrid } from "./EditorialGrid";
 import { EditorialRow, FeedPagingAction } from "./EditorialRow";
 import { Button } from "../../kit/Button";
 import { ChoiceChip } from "../../kit/Chip";
+import { Field } from "../../kit/Field";
 import { PosterCard } from "../../kit/PosterCard";
 import { ProgrammeLine } from "./ProgrammeLine";
 import { rowTagOf, yearOf } from "./program";
@@ -326,12 +327,9 @@ export function RepertorySearchScreen() {
             data-label="Search"
             onSubmit={submit}
           >
-            <label className="shell-visually-hidden" htmlFor="rep-search-query">
-              Search for a Title
-            </label>
-            <input
+            <Field
               id="rep-search-query"
-              className="rep-search-input"
+              label="Search for a Title"
               type="search"
               autoComplete="off"
               placeholder={
@@ -340,17 +338,13 @@ export function RepertorySearchScreen() {
                   : "Search the Addons' searchable Catalogs"
               }
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              data-focusable
+              onChange={setDraft}
+              trailing={
+                <Button type="submit" variant="primary" disabled={!canSubmit}>
+                  Search
+                </Button>
+              }
             />
-            <Button
-              className="rep-search-submit"
-              type="submit"
-              variant="primary"
-              disabled={!canSubmit}
-            >
-              Search
-            </Button>
           </form>
 
           <div

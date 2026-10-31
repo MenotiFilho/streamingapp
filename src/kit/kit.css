@@ -248,6 +248,76 @@
 }
 
 /* --------------------------------------------------------------------------
+ * Field — a mono caps label over one hairline, a refusal under it
+ * -------------------------------------------------------------------------- */
+
+.rep-kit-field {
+  display: grid;
+  gap: var(--rep-space-2);
+  min-width: 0;
+}
+
+.rep-kit-field-label {
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  letter-spacing: var(--rep-tracking-caps);
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.rep-kit-field-row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--rep-space-4);
+  min-width: 0;
+}
+
+.rep-kit-field-input {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: max(44px, calc(var(--rep-stage) * 3));
+  padding: var(--rep-space-1) 0;
+  border: 0;
+  border-bottom: 1px solid var(--rep-hairline);
+  border-radius: 0;
+  background: transparent;
+  color: var(--rep-ivory);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-control);
+  box-sizing: border-box;
+}
+
+.rep-kit-field-input::placeholder {
+  color: var(--rep-muted);
+}
+
+/* The ivory keyline is the focus mark; the hairline would draw a second line
+ * just inside it. */
+.rep-kit-field-input:focus,
+.rep-kit-field-input:focus-visible {
+  border-bottom-color: transparent;
+}
+
+.rep-kit-field-trailing {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+}
+
+.rep-kit-field-refusal {
+  max-width: 62ch;
+  margin: 0;
+  padding-top: var(--rep-space-2);
+  border-top: 1px solid var(--rep-status-red);
+  color: var(--rep-status-red);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-caption);
+  line-height: var(--rep-leading-caption);
+}
+
+/* --------------------------------------------------------------------------
  * Poster card — unframed 2:3 art, the Title under it
  * -------------------------------------------------------------------------- */
 

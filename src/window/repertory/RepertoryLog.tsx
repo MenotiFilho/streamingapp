@@ -1,6 +1,5 @@
 import type { ReactNode } from "react";
 
-import { explain, type ActionError } from "../../core/errors";
 import { useShell } from "../context";
 import { usePreviewData } from "./context";
 
@@ -10,8 +9,8 @@ import { usePreviewData } from "./context";
  * Addons, Settings and Library are the booth's register rather than admin
  * forms: one brass destination line, plain mono section labels with their
  * rules, hairline rows, and the bookkeeping in mono. These pieces keep that
- * grammar one grammar — a section is a label plus its body, a level is Back and
- * one title line, and a refusal is the same red rule wherever it appears.
+ * grammar one grammar — a section is a label plus its body, and a level is
+ * Back and one title line.
  */
 
 /** The base screen's one-line head: the destination in brass, then the rule. */
@@ -141,24 +140,6 @@ export function LogEmpty({
       <p className="rep-log-empty-title">{title}</p>
       <p className="rep-log-empty-body">{body}</p>
     </div>
-  );
-}
-
-/** A refusal owned by the form or list that raised it. */
-export function LogRefusal({
-  error,
-  testId,
-}: {
-  error: ActionError | null;
-  testId?: string;
-}) {
-  if (!error) {
-    return null;
-  }
-  return (
-    <p role="alert" className="rep-log-refusal" data-testid={testId}>
-      {explain(error)}
-    </p>
   );
 }
 
