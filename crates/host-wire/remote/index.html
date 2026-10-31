@@ -1863,7 +1863,7 @@
       const CONNECT_TIMEOUT = 8000;
       const HEARTBEAT_AFTER = 12000;
       const STALE_AFTER = 30000;
-      const PROBE_WAIT = 3000;
+      const PROBE_WAIT = 1500;
       const PROJECTION_MS = 250;
       const CAPABILITIES = JSON.parse(document.getElementById("action-capabilities").textContent);
 
@@ -2725,7 +2725,6 @@
         attempts: 0,
         lastFrameAt: 0,
         lastHelloAt: 0,
-        probeUntil: 0,
         connect(onFrame) {
           this.drop();
           const generation = this.generation;
@@ -2769,13 +2768,11 @@
             this.attempts = 0;
             this.lastFrameAt = Date.now();
             this.lastHelloAt = this.lastFrameAt;
-            this.probeUntil = 0;
             onFrame({ open: true });
           });
           socket.addEventListener("message", (event) => {
             if (!current()) { return; }
             this.lastFrameAt = Date.now();
-            this.probeUntil = 0;
             let frame;
             try { frame = JSON.parse(event.data); } catch (e) { return; }
             onFrame({ frame });
@@ -6127,6 +6124,10 @@
       }
 
       function onFrame(event) {
+        if (probeTimer !== null) {
+          clearTimeout(probeTimer);
+          probeTimer = null;
+        }
         if (event.open) {
           state.online = true;
           net.send({ version: VERSION, hello: { token: state.token } });
@@ -6211,10 +6212,15 @@
       // phone is not woken by a reconnect loop; coming back to the page is what
       // starts the connection again.
       let reconnectTimer = null;
+      let probeTimer = null;
       function connect() {
         if (reconnectTimer !== null) {
           clearTimeout(reconnectTimer);
           reconnectTimer = null;
+        }
+        if (probeTimer !== null) {
+          clearTimeout(probeTimer);
+          probeTimer = null;
         }
         net.connect(onFrame);
       }
@@ -6229,7 +6235,10 @@
         }, delay);
       }
       function restart() {
-        net.probeUntil = 0;
+        if (probeTimer !== null) {
+          clearTimeout(probeTimer);
+          probeTimer = null;
+        }
         net.drop();
         if (state.online) {
           state.online = false;
@@ -6259,31 +6268,42 @@
         net.lastHelloAt = Date.now();
         net.send({ version: VERSION, hello: { token: state.token } });
       }
-      function heartbeat(force) {
-        if (!force && document.visibilityState === "hidden") { return; }
+      /**
+       * A page that has just been looked at asks at once, rather than waiting
+       * for the idle window. A phone can background a tab and come back with a
+       * socket that still says OPEN but is dead; the greeting's answer is the
+       * proof, and a short deadline turns silence into a reconnect.
+       */
+      function probe() {
+        if (document.visibilityState === "hidden") { return; }
         if (!net.socket || net.socket.readyState !== WebSocket.OPEN) {
-          ensureConnected(force);
+          ensureConnected(true);
+          return;
+        }
+        const socket = net.socket;
+        greet();
+        if (probeTimer !== null) { clearTimeout(probeTimer); }
+        probeTimer = setTimeout(() => {
+          probeTimer = null;
+          if (net.socket !== socket) { return; }
+          if (Date.now() - net.lastFrameAt < PROBE_WAIT) { return; }
+          restart();
+        }, PROBE_WAIT);
+      }
+      function heartbeat() {
+        if (document.visibilityState === "hidden") { return; }
+        if (!net.socket || net.socket.readyState !== WebSocket.OPEN) {
+          ensureConnected(false);
           return;
         }
         const now = Date.now();
         const idle = now - net.lastFrameAt;
-        if (idle > STALE_AFTER) {
-          // A page that was just looked at gets one question before its socket
-          // is thrown away: it may have slept through the silence, not missed
-          // it. A page that is awake and still hears nothing reconnects.
-          if (force && net.probeUntil === 0) {
-            net.probeUntil = now + PROBE_WAIT;
-            greet();
-            return;
-          }
-          if (now >= net.probeUntil) { restart(); }
-          return;
-        }
+        if (idle > STALE_AFTER) { restart(); return; }
         if (idle > HEARTBEAT_AFTER && now - net.lastHelloAt > HEARTBEAT_AFTER) {
           greet();
         }
       }
-      setInterval(() => heartbeat(false), 5000);
+      setInterval(() => heartbeat(), 5000);
       // The cast card's clock is the page's own between Snapshots. It stops
       // while the card is covered, hidden or paused: a surface nobody can see
       // is not repainted four times a second.
@@ -6302,11 +6322,11 @@
             state.needsRefresh = false;
             refresh();
           }
-          heartbeat(true);
+          probe();
         }
       });
-      window.addEventListener("online", () => heartbeat(true));
-      window.addEventListener("pageshow", () => heartbeat(true));
+      window.addEventListener("online", () => probe());
+      window.addEventListener("pageshow", () => probe());
 
       // A device with no token yet is looking at the pairing form, whatever the
       // Host is about to say; one with a token waits for the welcome, which is
