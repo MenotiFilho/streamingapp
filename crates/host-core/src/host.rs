@@ -528,13 +528,17 @@ impl Host {
     ///
     /// The one door that is not an Action: playback moves on its own, so the
     /// Host looks at its own Player between Actions and folds what it reports
-    /// into state. A report that says the same thing as last time moves nothing
-    /// and publishes nothing; a position that moved, a Stream that ended, and an
-    /// open that failed all do.
+    /// into state. A report that says exactly what the Host holds moves nothing
+    /// and publishes nothing. A position that moved is not by itself a change:
+    /// clients project the clock from the position a Snapshot anchored, so the
+    /// tick updates the Host's own record and lets the next public change or
+    /// Watch progress write carry the correction. A Stream that ended, an open
+    /// that failed, a track list that arrived and a control that moved are what
+    /// a client cannot invent and therefore what publishes.
     ///
     /// The Host holds no clock of its own — host-core has no threads and no
     /// timers — so whoever owns the shell's event loop calls this while
-    /// something is playing (ADR-0013).
+    /// something is playing (ADR-0013, ADR-0033).
     pub fn sample(&mut self) -> Option<Snapshot> {
         let observation = self.player.observe();
 
@@ -577,6 +581,7 @@ impl Host {
         }
 
         let next = self.state.playback().advanced(&observation)?;
+        let published = next.differs_publicly_from(self.state.playback());
 
         self.state.set_playback(next);
 
@@ -585,10 +590,18 @@ impl Host {
         // a duration that arrived — and it is written *now* rather than on a
         // stop, which is what survives a Host killed mid-Stream (#29). A store
         // that refuses the write loses this tick and not the Stream: the next
-        // write is seconds away, and playback is not the store's to stop.
+        // write is seconds away, and playback is not the store's to stop. The
+        // write is also the low-rate correction a projecting client gets: the
+        // Snapshot carries the position its clock should be anchored to.
         let now = self.clock.now_millis();
-        if let Some(entry) = self.state.refresh_watch(now, false) {
+        let written = self.state.refresh_watch(now, false);
+        let corrected = written.is_some();
+        if let Some(entry) = written {
             let _ = self.store.write_watch_progress(&entry);
+        }
+
+        if !published && !corrected {
+            return None;
         }
 
         self.revision += 1;

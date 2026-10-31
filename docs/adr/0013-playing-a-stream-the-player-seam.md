@@ -56,7 +56,9 @@ Host reads the Player rather than being called back by it:
   and from the events drained since the last look, with no blocking anywhere.
 - `Host::sample()` folds that into state and returns a Snapshot **only when
   something moved**. A tick that reports the same position is not a change and
-  publishes nothing.
+  publishes nothing. A position that moved is likewise not a publish of its own:
+  ADR-0033 narrows this to public changes and Watch progress writes, and the
+  clients project the clock between them.
 - The clock is the app shell's: `host-core` holds no threads and no timers (the
   whole crate is a handful of pure decisions and one mutex), so the shell's
   sampler thread asks every 250 ms and publishes what changed through the same

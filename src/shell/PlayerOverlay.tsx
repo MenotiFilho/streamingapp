@@ -59,6 +59,7 @@ import { Icon } from "./repertory/icons";
 import { fade, panel } from "./repertory/motion";
 import { focusAndReveal } from "./reveal";
 import { useOsdVisibility } from "./useOsdVisibility";
+import { usePlaybackPosition } from "./usePlaybackPosition";
 import { useReducedMotion } from "./useReducedMotion";
 import "./repertory/osd.css";
 
@@ -204,6 +205,7 @@ export function PlayerOverlay() {
     chrome,
     onHide: () => focusAndReveal(pictureButton.current),
   });
+  const livePosition = usePlaybackPosition(playback, visible);
 
   /** Put focus on a stop, and say whether there was a control to land on. */
   const focusStop = (stop: PlayerStop): boolean => {
@@ -401,12 +403,12 @@ export function PlayerOverlay() {
     return null;
   }
 
-  const { state, picture, nowPlaying, episode, position } = playback;
+  const { state, picture, nowPlaying, episode } = playback;
   const playing = state === "playing";
   const canTransport = transportable(state);
   const quality = qualityBadge(nowPlaying);
   const details = streamDetails(playback);
-  const shownPosition = position ?? 0;
+  const shownPosition = livePosition;
 
   // What the opening Stream will be: the Watch progress entry the Host now
   // holds for this Video carries the Title's backdrop, poster and episode still
@@ -883,7 +885,7 @@ function Timeline({
   shown: number;
   onSeek: (seconds: number) => void;
 }) {
-  const { position, duration, chapters } = playback;
+  const { duration, chapters } = playback;
   const [scrub, setScrub] = useState<number | null>(null);
   const [point, setPoint] = useState<{ at: number; fraction: number } | null>(null);
   const [trackWidth, setTrackWidth] = useState(0);
@@ -897,7 +899,7 @@ function Timeline({
   // track that has not been measured yet keeps every mark.
   const marks = spacedChapterMarks(allMarks, trackWidth);
   const dense = marks.length < allMarks.length;
-  const left = formatTime(scrub ?? position);
+  const left = formatTime(at);
   const right = remainingTime(at, duration);
   const chapter = point ? chapterAt(chapters, point.at) : null;
 
