@@ -12,7 +12,7 @@ import {
   sampleResumeEntries,
   type CinemetaMeta,
 } from "./preview";
-import type { NowPlaying, ResumeEntry } from "../../host-client";
+import type { NowPlaying, ResumeEntry } from "../../core/wire";
 
 const film: CinemetaMeta = {
   imdb_id: "tt14173636",

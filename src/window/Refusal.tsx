@@ -1,4 +1,4 @@
-import { explain, type ActionError } from "../host-client";
+import { explain, type ActionError } from "../core/errors";
 
 /**
  * A refusal, beside the control or list that raised it.

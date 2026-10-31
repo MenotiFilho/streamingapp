@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import type { PlaybackSnapshot } from "../host-client";
+import type { PlaybackSnapshot } from "../core/wire";
 import { usePlaybackPosition } from "./usePlaybackPosition";
 
 let now = 0;

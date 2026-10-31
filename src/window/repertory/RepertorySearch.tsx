@@ -6,26 +6,21 @@ import {
   type FormEvent,
 } from "react";
 
-import { keyOf } from "../../browse";
+import { keyOf } from "../../core/browse";
 import {
   blankFeed,
   discoverPlayable,
   feedWith,
   MOVIE,
   type DiscoverFeed,
-} from "../../discover";
-import {
-  answeredCatalogs,
-  answeredSearch,
-  explain,
-  type ActionError,
-  type CatalogRow,
-  type MetaPreview,
-} from "../../host-client";
-import { SERIES } from "../../title";
-import { SEARCH_KINDS, searchAsk, type SearchKind } from "../search";
+} from "../../core/discover";
+import type { CatalogRow, MetaPreview } from "../../core/wire";
+import { explain, type ActionError } from "../../core/errors";
+import { answeredCatalogs, answeredSearch } from "../../core/answers";
+import { SERIES } from "../../core/title";
+import { SEARCH_KINDS, searchAsk, type SearchKind } from "../../core/search";
 import { useShell } from "../context";
-import { addonLabel } from "../home";
+import { addonLabel } from "../../core/home";
 import { useTitleOpener } from "../TitleScreen";
 import { usePreviewData } from "./context";
 import { feedMore, feedState, rowsForKind } from "./editorial";

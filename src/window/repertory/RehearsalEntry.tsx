@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 
-import { HostClient } from "../../host-client";
+import { HostClient } from "../host-client";
 import { PreviewDataProvider } from "./context";
 import { previewTransport } from "./previewHost";
 import { RepertoryEntry } from "./RepertoryEntry";

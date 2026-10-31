@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
-import type { PlaybackSnapshot } from "../host-client";
-import { projectedPosition } from "./osd";
+import type { PlaybackSnapshot } from "../core/wire";
+import { projectedPosition } from "../core/osd";
 
 /** How often the clock is re-projected while a person is looking at it. */
 export const PROJECTION_MS = 250;

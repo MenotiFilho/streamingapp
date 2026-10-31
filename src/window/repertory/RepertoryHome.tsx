@@ -14,11 +14,12 @@ import {
   keyOf,
   type DeclaredCatalog,
   type Row,
-} from "../../browse";
-import { explain, type MetaPreview, type ResumeEntry } from "../../host-client";
-import { cardName, cardNote, progressOf, resumable } from "../../library";
+} from "../../core/browse";
+import type { MetaPreview, ResumeEntry } from "../../core/wire";
+import { explain } from "../../core/errors";
+import { cardName, cardNote, progressOf, resumable } from "../../core/library";
 import { useShell } from "../context";
-import { continueArt, featuredRow, heroSlides, type HeroSlide } from "../home";
+import { continueArt, featuredRow, heroSlides, type HeroSlide } from "../../core/home";
 import { FOCUSABLE } from "../layout";
 import { focusAndReveal } from "../reveal";
 import { useTitleOpener } from "../TitleScreen";
@@ -36,7 +37,7 @@ import {
   rowTag,
 } from "./homeProgramme";
 import { Button, ContinueWatchingCard, PosterCard, RowTrack } from "./kit";
-import { fade } from "./motion";
+import { fade } from "../../core/react/motion";
 import { ProgrammeLine } from "./ProgrammeLine";
 import { RailGrid } from "./RailGrid";
 import { RailMoreCard } from "./RailMoreCard";

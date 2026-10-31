@@ -1,7 +1,8 @@
 import { motion } from "motion/react";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
-import type { ActionError, AddonManifest } from "../../host-client";
+import type { AddonManifest } from "../../core/wire";
+import type { ActionError } from "../../core/errors";
 import { useShell } from "../context";
 import { confirmActionLevel } from "../ConfirmAction";
 import { Button } from "./kit";
@@ -14,8 +15,8 @@ import {
   moveTarget,
   resourcesOf,
   type AddOutcome,
-} from "../addons";
-import { quick } from "./motion";
+} from "../../core/addons";
+import { quick } from "../../core/react/motion";
 import {
   LogEmpty,
   LogHead,

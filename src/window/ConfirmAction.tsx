@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import type { Action, ActionError } from "../host-client";
+import type { Action } from "../core/wire";
+import type { ActionError } from "../core/errors";
 import { useShell, type NewShellLevel } from "./context";
 import { ConfirmDialog } from "./repertory/kit";
 import { Refusal } from "./Refusal";

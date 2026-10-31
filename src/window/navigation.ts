@@ -11,20 +11,12 @@
 
 import type { ReactNode } from "react";
 
-import type { Intent } from "../input";
+import { DESTINATIONS, type Destination } from "../core/destinations";
+import type { Intent } from "../core/input";
 
-/** The six destinations, in the rail's order. */
-export const DESTINATIONS = [
-  { id: "home", label: "Home" },
-  { id: "discover", label: "Discover" },
-  { id: "search", label: "Search" },
-  { id: "library", label: "Library" },
-  { id: "addons", label: "Addons" },
-  { id: "settings", label: "Settings" },
-] as const;
-
-/** One of the six persistent destinations. */
-export type Destination = (typeof DESTINATIONS)[number]["id"];
+// The destinations are the core's; the window still hands them to its screens
+// by these names, so the move is invisible to every consumer.
+export { DESTINATIONS, type Destination };
 
 /**
  * One pushed level. `kind` is what Back needs to know beyond "pop it": a

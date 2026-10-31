@@ -1,10 +1,11 @@
 import { useEffect, useSyncExternalStore } from "react";
 
-import { keyOf, pageable } from "../../browse";
-import { explain, type MetaPreview, type ResumeEntry } from "../../host-client";
-import { cardName, cardNote, progressOf, resumable } from "../../library";
+import { keyOf, pageable } from "../../core/browse";
+import type { MetaPreview, ResumeEntry } from "../../core/wire";
+import { explain } from "../../core/errors";
+import { cardName, cardNote, progressOf, resumable } from "../../core/library";
 import { useShell } from "../context";
-import { continueArt } from "../home";
+import { continueArt } from "../../core/home";
 import { rowTag } from "./homeProgramme";
 import { ContinueWatchingCard, PosterCard } from "./kit";
 import { yearOf } from "./program";

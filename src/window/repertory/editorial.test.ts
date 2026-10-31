@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
-import { blankFeed, feedWith, MOVIE, type DiscoverFeed } from "../../discover";
-import { SERIES } from "../../title";
+import { blankFeed, feedWith, MOVIE, type DiscoverFeed } from "../../core/discover";
+import { SERIES } from "../../core/title";
 import {
   discoverEmptyNote,
   discoverNoKey,

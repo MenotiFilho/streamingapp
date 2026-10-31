@@ -2,7 +2,7 @@ import { fireEvent, render, waitFor } from "@testing-library/react";
 import { useEffect, useRef } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { DEFAULT_RULES } from "../focus";
+import { DEFAULT_RULES } from "./focus";
 import { focusAndReveal } from "./reveal";
 import { useSpatialFocus } from "./useSpatialFocus";
 

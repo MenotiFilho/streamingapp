@@ -1,9 +1,9 @@
 import type { Transition } from "motion/react";
 
-import { DEFAULT_RULES, type Rules } from "../../focus";
+import { DEFAULT_RULES, type Rules } from "../focus";
 import type { ShellLevel } from "../navigation";
-import { fade, panel } from "./motion";
-import { SETTINGS_LEVEL_PREFIX } from "./settingsRegister";
+import { fade, panel } from "../../core/react/motion";
+import { SETTINGS_LEVEL_PREFIX } from "../../core/settingsRegister";
 
 /**
  * The frame's decisions, kept out of the drawing (ADR-0032).

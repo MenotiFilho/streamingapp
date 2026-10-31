@@ -1,16 +1,17 @@
 import type { ReactNode } from "react";
 
-import { explain, type AddonStreams, type Stream, type Title, type Video } from "../../host-client";
+import type { AddonStreams, Stream, Title, Video } from "../../core/wire";
+import { explain } from "../../core/errors";
 import {
   badgeLines,
   playabilityNote,
   streamsSubject,
   unplayableNote,
   warningNote,
-} from "../../stream";
-import type { OpenablePreview } from "../../title";
+} from "../../core/stream";
+import type { OpenablePreview } from "../../core/title";
 import { useShell } from "../context";
-import { addonLabel } from "../home";
+import { addonLabel } from "../../core/home";
 import { PendingSpinner } from "./kit";
 import { useStreamChoice } from "../streamChoice";
 import { programIndex } from "./program";
@@ -20,7 +21,7 @@ import {
   candidateCount,
   candidateCountLabel,
   groupAnswerNote,
-} from "./streamsList";
+} from "../../core/streamsList";
 
 /**
  * The Streams level as a technical screening list: one block per Addon that

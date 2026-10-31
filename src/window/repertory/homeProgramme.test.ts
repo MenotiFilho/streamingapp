@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import type { Row } from "../../browse";
-import type { AddonManifest, Snapshot } from "../../host-client";
+import type { Row } from "../../core/browse";
+import type { AddonManifest, Snapshot } from "../../core/wire";
 import {
   FEATURE_ROTATION_MS,
   HOME_RAIL_PAGE,

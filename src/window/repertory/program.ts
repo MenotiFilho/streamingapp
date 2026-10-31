@@ -7,7 +7,7 @@
  * room a long feature title gets, and the date on the programme.
  */
 
-import type { MetaPreview } from "../../host-client";
+import type { MetaPreview } from "../../core/wire";
 
 /** The parts of a poster caption, in the order the programme prints them. */
 export type CaptionParts = {

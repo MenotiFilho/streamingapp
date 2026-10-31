@@ -1,15 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 
-import {
-  HostClient,
-  type Action,
-  type AddonManifest,
-  type Snapshot,
-  type Stream,
-  type Title,
-  type Transport,
-} from "../../host-client";
+import type { Action, AddonManifest, Snapshot, Stream, Title } from "../../core/wire";
+import { HostClient, type Transport } from "../host-client";
 import { Shell } from "../Shell";
 
 /**

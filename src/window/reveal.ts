@@ -15,7 +15,7 @@
  * track, a seasons strip, a popover menu and the player's OSD have no chrome.
  */
 
-import type { Rect } from "../focus";
+import type { Rect } from "./focus";
 import { measureRect, type Measurable } from "./layout";
 
 /** Pixels every reveal keeps between a control and its scrollport's edge. */

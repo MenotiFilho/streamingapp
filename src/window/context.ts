@@ -1,18 +1,21 @@
 import { createContext, useContext } from "react";
 
-import type { Action, ActionError, Response, Snapshot } from "../host-client";
-import type { Intent } from "../input";
-import type { HomeStore } from "./homeStore";
+import type { ActionOutcome } from "../core/answers";
+import type { Action, Response, Snapshot } from "../core/wire";
+import type { ActionError } from "../core/errors";
+import type { Intent } from "../core/input";
+import type { HomeStore } from "../core/homeStore";
 import type { Destination, ShellLevel } from "./navigation";
 
 /** A level a screen asks the shell to push; the shell gives it its id. */
 export type NewShellLevel = Omit<ShellLevel, "id"> & { id?: string };
 
-/** What taking an Action came to: the answer, or why the Host refused it. */
-export type ActionOutcome = {
-  response: Response | null;
-  error: ActionError | null;
-};
+/**
+ * What taking an Action came to: the answer, or why the Host refused it. It is
+ * the core's answer shape; the window re-exports it so a screen that reads the
+ * shell keeps one import.
+ */
+export type { ActionOutcome };
 
 /** What every screen under the shell can ask of it. */
 export type ShellContextValue = {

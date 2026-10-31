@@ -21,16 +21,16 @@
 import {
   SNAPSHOT_EVENT,
   type Action,
-  type ActionError,
   type AddonManifest,
   type CatalogRow,
   type PlaybackSnapshot,
   type Response,
   type Snapshot,
   type Title,
-  type Transport,
   type Video,
-} from "../../host-client";
+} from "../../core/wire";
+import type { ActionError } from "../../core/errors";
+import type { Transport } from "../host-client";
 import {
   cinemetaPreviews,
   CINEMETA_MOVIE_GENRES,

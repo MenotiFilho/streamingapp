@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { AddonManifest } from "../../host-client";
+import type { AddonManifest } from "../../core/wire";
 import {
   manifestFrom,
   PREVIEW_DEVICES,

@@ -87,7 +87,7 @@ const TMDB_LOGO: &str = include_str!("../../../src/assets/tmdb-logo.svg");
 /// The window's keyboard intent table, read only by the test that keeps the two
 /// clients agreeing on what a key means.
 #[cfg(test)]
-const KEY_INTENTS_SOURCE: &str = include_str!("../../../src/input.ts");
+const KEY_INTENTS_SOURCE: &str = include_str!("../../../src/core/input.ts");
 
 /// The one marker convention. A marker is a CSS or HTML comment so the template
 /// is a valid document before it is spliced, and it is consumed in [`splice`].

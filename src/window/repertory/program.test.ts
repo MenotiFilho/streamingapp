@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import type { MetaPreview } from "../../host-client";
+import type { MetaPreview } from "../../core/wire";
 import {
   captionParts,
   countLabel,

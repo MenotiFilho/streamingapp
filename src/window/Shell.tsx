@@ -1,24 +1,18 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
-import {
-  asActionError,
-  explain,
-  HostClient,
-  type Action,
-  type ActionError,
-  type Response,
-  type Snapshot,
-} from "../host-client";
-import type { Intent } from "../input";
-import { watching } from "../playback";
-import { actionKey, repeats } from "./actionKey";
-import { InFlight } from "./inFlight";
+import type { Action, Response, Snapshot } from "../core/wire";
+import { asActionError, explain, type ActionError } from "../core/errors";
+import { HostClient } from "./host-client";
+import type { Intent } from "../core/input";
+import { watching } from "../core/playback";
+import { actionKey, repeats } from "../core/actionKey";
+import { InFlight } from "../core/inFlight";
 import { PlayerOverlay } from "./PlayerOverlay";
 import { RepertoryDestinationScreen } from "./repertory/RepertoryScreens";
 import { DestinationGrid } from "./repertory/DestinationGrid";
 import { ShellFrame } from "./ShellFrame";
 import { ShellContext, type ActionOutcome, type NewShellLevel } from "./context";
-import { HomeStore } from "./homeStore";
+import { HomeStore } from "../core/homeStore";
 import {
   INITIAL_NAVIGATION,
   navigate,

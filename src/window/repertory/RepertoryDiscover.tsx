@@ -8,13 +8,10 @@ import {
   MOVIE,
   type DiscoverFeed,
   type DiscoverKind,
-} from "../../discover";
-import {
-  answeredCatalogs,
-  answeredDiscover,
-  type MetaPreview,
-} from "../../host-client";
-import { SERIES } from "../../title";
+} from "../../core/discover";
+import type { MetaPreview } from "../../core/wire";
+import { answeredCatalogs, answeredDiscover } from "../../core/answers";
+import { SERIES } from "../../core/title";
 import tmdbLogo from "../../assets/tmdb-logo.svg";
 import { useShell } from "../context";
 import { useTitleOpener } from "../TitleScreen";

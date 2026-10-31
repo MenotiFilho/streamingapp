@@ -3,8 +3,8 @@ import {
   MOVIE,
   type DiscoverFeed,
   type DiscoverKind,
-} from "../../discover";
-import type { Action } from "../../host-client";
+} from "../../core/discover";
+import type { Action } from "../../core/wire";
 import { CINEMETA_MOVIE_GENRES, CINEMETA_SERIES_GENRES, PREVIEW_ADDON } from "./preview";
 import { rowTagOf } from "./program";
 

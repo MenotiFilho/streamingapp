@@ -1,13 +1,8 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import {
-  HostClient,
-  type Action,
-  type ResumeEntry,
-  type Snapshot,
-  type Transport,
-} from "../../host-client";
+import type { Action, ResumeEntry, Snapshot } from "../../core/wire";
+import { HostClient, type Transport } from "../host-client";
 import { Shell } from "../Shell";
 import { PreviewDataProvider } from "./context";
 

@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 
-/** How long the OSD stays up with nothing happening. */
-export const OSD_IDLE_MS = 3000;
+import { OSD_IDLE_MS } from "../core/osd";
+
+// The idle duration is the OSD decision's; the hook that runs the timer reads
+// it from the core, and window consumers keep this door.
+export { OSD_IDLE_MS };
 
 export type OsdVisibilityOptions = {
   /** Something above the OSD — an open popover — keeps it up by itself. */

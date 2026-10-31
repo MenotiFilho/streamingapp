@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { explain, type ActionError } from "../../host-client";
+import { explain, type ActionError } from "../../core/errors";
 import { RailGridHead } from "./RailGridHead";
 
 /**

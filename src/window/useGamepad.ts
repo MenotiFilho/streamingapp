@@ -1,20 +1,10 @@
 import { useEffect, useRef } from "react";
 
-import { padIntents, REPEAT_AFTER_MS, REPEAT_EVERY_MS, type Intent } from "../input";
+import { padIntents, REPEAT_AFTER_MS, REPEAT_EVERY_MS, REPEATABLE, type Intent } from "../core/input";
 
-/**
- * Which intents a held button repeats. A direction and a volume step are
- * things a person holds to go further; activating or going Back fires once per
- * press.
- */
-export const REPEATABLE: ReadonlySet<Intent> = new Set<Intent>([
-  "up",
-  "down",
-  "left",
-  "right",
-  "volume_up",
-  "volume_down",
-]);
+// The repeat rule is the input table's; the hook that runs it reads it from the
+// core, and window consumers keep this door.
+export { REPEATABLE };
 
 /**
  * Poll the standard-mapping gamepad, because the Gamepad API has no key event

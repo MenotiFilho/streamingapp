@@ -1,21 +1,21 @@
 import { useCallback, useState } from "react";
 
-import type { Title, Video } from "../../host-client";
-import { theFilm } from "../../stream";
+import type { Title, Video } from "../../core/wire";
+import { theFilm } from "../../core/stream";
 import {
   labelOf,
   nameOf,
   seasonName,
   titleArtOf,
   type OpenablePreview,
-} from "../../title";
+} from "../../core/title";
 import { useShell } from "../context";
-import { addonLabel } from "../home";
+import { addonLabel } from "../../core/home";
 import { Icon } from "./icons";
 import { ChoiceChip } from "./kit";
 import { StreamsLoader } from "../StreamsScreen";
 import { programIndex } from "./program";
-import { titleFacts, titleSide, unmappedOf } from "./titlePage";
+import { titleFacts, titleSide, unmappedOf } from "../../core/titlePage";
 
 /**
  * One Title as a single-screen programme page: the backdrop stays the page,
