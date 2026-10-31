@@ -188,19 +188,21 @@ export function RepertoryDiscoverScreen() {
     push({
       name: `All of ${label}`,
       kind: "overlay",
-      render: () => (
-        <EditorialGrid
-          title={label}
-          index={programIndex(1)}
-          tag={tag}
-          failure={feed.failure}
-          note={note}
-          onClose={pop}
-          testId="discover-grid"
-        >
-          {feed.items.map((meta) => card(meta, `discover-grid-card-${meta.id}`))}
-        </EditorialGrid>
-      ),
+      payload: {
+        render: () => (
+          <EditorialGrid
+            title={label}
+            index={programIndex(1)}
+            tag={tag}
+            failure={feed.failure}
+            note={note}
+            onClose={pop}
+            testId="discover-grid"
+          >
+            {feed.items.map((meta) => card(meta, `discover-grid-card-${meta.id}`))}
+          </EditorialGrid>
+        ),
+      },
     });
   };
 

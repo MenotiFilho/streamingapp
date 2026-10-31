@@ -239,20 +239,22 @@ export function RepertorySearchScreen() {
     push({
       name: `All of ${shownLabel}`,
       kind: "overlay",
-      render: () => (
-        <EditorialGrid
-          title={shownLabel}
-          tag={keyedTag}
-          failure={shownFeed.failure}
-          note={keyedNote}
-          onClose={pop}
-          testId="search-grid"
-        >
-          {shownFeed.items.map((meta) =>
-            keyedCard(meta, `search-grid-card-${shownKind}-${meta.id}`),
-          )}
-        </EditorialGrid>
-      ),
+      payload: {
+        render: () => (
+          <EditorialGrid
+            title={shownLabel}
+            tag={keyedTag}
+            failure={shownFeed.failure}
+            note={keyedNote}
+            onClose={pop}
+            testId="search-grid"
+          >
+            {shownFeed.items.map((meta) =>
+              keyedCard(meta, `search-grid-card-${shownKind}-${meta.id}`),
+            )}
+          </EditorialGrid>
+        ),
+      },
     });
   };
 
@@ -285,20 +287,22 @@ export function RepertorySearchScreen() {
     push({
       name: `All of ${row.name}`,
       kind: "overlay",
-      render: () => (
-        <EditorialGrid
-          title={row.name}
-          tag={catalogTag(row)}
-          failure={row.failure}
-          note={catalogNote(row)}
-          onClose={pop}
-          testId="search-catalog-grid"
-        >
-          {row.metas.map((meta) =>
-            catalogCard(row, meta, `search-grid-card-${row.addon}-${meta.id}`),
-          )}
-        </EditorialGrid>
-      ),
+      payload: {
+        render: () => (
+          <EditorialGrid
+            title={row.name}
+            tag={catalogTag(row)}
+            failure={row.failure}
+            note={catalogNote(row)}
+            onClose={pop}
+            testId="search-catalog-grid"
+          >
+            {row.metas.map((meta) =>
+              catalogCard(row, meta, `search-grid-card-${row.addon}-${meta.id}`),
+            )}
+          </EditorialGrid>
+        ),
+      },
     });
   };
 

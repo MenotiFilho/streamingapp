@@ -5,10 +5,9 @@ import type { Action, Response, Snapshot } from "../core/wire";
 import type { ActionError } from "../core/errors";
 import type { Intent } from "../core/input";
 import type { HomeStore } from "../core/homeStore";
-import type { Destination, ShellLevel } from "./navigation";
+import type { Destination, NewShellLevel } from "./navigation";
 
-/** A level a screen asks the shell to push; the shell gives it its id. */
-export type NewShellLevel = Omit<ShellLevel, "id"> & { id?: string };
+export type { NewShellLevel };
 
 /**
  * What taking an Action came to: the answer, or why the Host refused it. It is

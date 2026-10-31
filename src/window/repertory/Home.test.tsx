@@ -194,7 +194,7 @@ function renderHome({
 
 /** Draw a level the Home harness recorded, as the frame would above the base. */
 function renderLevel(level: NewShellLevel, value: ShellContextValue) {
-  render(<ShellContext.Provider value={value}>{level.render()}</ShellContext.Provider>);
+  render(<ShellContext.Provider value={value}>{level.payload.render()}</ShellContext.Provider>);
 }
 
 async function flush() {

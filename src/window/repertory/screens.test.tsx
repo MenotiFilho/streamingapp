@@ -730,7 +730,7 @@ describe("the repertory Discover feed against the Host", () => {
     const grid = pushed.at(-1);
     expect(grid?.name).toBe("All of Films");
 
-    const view = render(withShell(value, grid!.render()));
+    const view = render(withShell(value, grid!.payload.render()));
     expect(
       within(view.container).getByTestId("discover-grid-card-tmdb:603"),
     ).toBeInTheDocument();
@@ -910,7 +910,7 @@ describe("the repertory Search feed against the Host", () => {
     const grid = pushed.at(-1);
     expect(grid?.name).toBe("All of Movies");
 
-    const view = render(withShell(value, grid!.render()));
+    const view = render(withShell(value, grid!.payload.render()));
     expect(
       within(view.container).getByTestId("search-grid-card-movie-tmdb:603"),
     ).toBeInTheDocument();

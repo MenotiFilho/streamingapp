@@ -324,16 +324,18 @@ export function RepertoryHome() {
       push({
         name: `All of ${row.name}`,
         kind: "overlay",
-        render: () => (
-          <RailGrid
-            rowKey={keyOf(row)}
-            title={row.name}
-            index={section}
-            onOpenMeta={openTitle}
-            onOpenEntry={openEntry}
-            onClose={pop}
-          />
-        ),
+        payload: {
+          render: () => (
+            <RailGrid
+              rowKey={keyOf(row)}
+              title={row.name}
+              index={section}
+              onOpenMeta={openTitle}
+              onOpenEntry={openEntry}
+              onClose={pop}
+            />
+          ),
+        },
       });
     },
     [openEntry, openTitle, pop, push],
@@ -343,16 +345,18 @@ export function RepertoryHome() {
     push({
       name: "All of Continue watching",
       kind: "overlay",
-      render: () => (
-        <RailGrid
-          rowKey={null}
-          title="Continue watching"
-          index={programIndex(1)}
-          onOpenMeta={openTitle}
-          onOpenEntry={openEntry}
-          onClose={pop}
-        />
-      ),
+      payload: {
+        render: () => (
+          <RailGrid
+            rowKey={null}
+            title="Continue watching"
+            index={programIndex(1)}
+            onOpenMeta={openTitle}
+            onOpenEntry={openEntry}
+            onClose={pop}
+          />
+        ),
+      },
     });
   }, [openEntry, openTitle, pop, push]);
 

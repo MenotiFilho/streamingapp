@@ -1,21 +1,32 @@
 import { describe, expect, test } from "vitest";
 
 import {
-  DESTINATIONS,
   INITIAL_NAVIGATION,
   back,
+  canGoBack,
   destinationLabel,
   navigate,
+  type Level,
   type Navigation,
-  type ShellLevel,
 } from "./navigation";
+import { DESTINATIONS } from "./destinations";
 
-const level = (id: string, kind: ShellLevel["kind"] = "overlay"): ShellLevel => ({
+/** The client's own payload, standing in for the window's own contents. */
+type Payload = { label: string };
+
+const level = (
+  id: string,
+  kind: Level<Payload>["kind"] = "overlay",
+  label = id,
+): Level<Payload> => ({
   id,
   name: id,
   kind,
-  render: () => null,
+  payload: { label },
 });
+
+/** The initial state, as a client that holds a payload reads it. */
+const initial: Navigation<Payload> = INITIAL_NAVIGATION;
 
 describe("the six destinations", () => {
   test("are Home, Discover, Search, Library, Addons and Settings, in that order", () => {
@@ -41,7 +52,7 @@ describe("the level stack", () => {
   });
 
   test("choosing a destination replaces the base screen and clears overlays", () => {
-    const held: Navigation = {
+    const held: Navigation<Payload> = {
       destination: "home",
       levels: [level("title"), level("streams")],
     };
@@ -53,7 +64,7 @@ describe("the level stack", () => {
   });
 
   test("pushing an overlay keeps the level underneath, untouched", () => {
-    const held = navigate(INITIAL_NAVIGATION, { type: "push", level: level("title") });
+    const held = navigate(initial, { type: "push", level: level("title") });
     const pushed = navigate(held, { type: "push", level: level("streams") });
 
     expect(pushed.levels.map((entry) => entry.id)).toEqual(["title", "streams"]);
@@ -61,14 +72,32 @@ describe("the level stack", () => {
   });
 
   test("pushing the same id again replaces it in place, without stacking a copy", () => {
-    const held: Navigation = { destination: "home", levels: [level("title"), level("player", "player")] };
+    const held: Navigation<Payload> = {
+      destination: "home",
+      levels: [level("title"), level("player", "player")],
+    };
     const pushed = navigate(held, { type: "push", level: level("player", "player") });
 
     expect(pushed.levels.map((entry) => entry.id)).toEqual(["title", "player"]);
   });
 
+  test("pushing the same id again keeps the new payload, not the one it replaced", () => {
+    const held: Navigation<Payload> = {
+      destination: "home",
+      levels: [level("title", "overlay", "old")],
+    };
+
+    const pushed = navigate(held, {
+      type: "push",
+      level: level("title", "overlay", "new"),
+    });
+
+    expect(pushed.levels).toHaveLength(1);
+    expect(pushed.levels[0]?.payload).toEqual({ label: "new" });
+  });
+
   test("removing a level by id leaves the others in order", () => {
-    const held: Navigation = {
+    const held: Navigation<Payload> = {
       destination: "home",
       levels: [level("title"), level("player", "player")],
     };
@@ -78,7 +107,7 @@ describe("the level stack", () => {
   });
 
   test("removing a takeaway level takes everything it had opened above it", () => {
-    const held: Navigation = {
+    const held: Navigation<Payload> = {
       destination: "home",
       levels: [level("title"), level("player", "player"), level("popover")],
     };
@@ -88,7 +117,7 @@ describe("the level stack", () => {
   });
 
   test("Back pops one overlay and leaves the base alone", () => {
-    const held: Navigation = {
+    const held: Navigation<Payload> = {
       destination: "home",
       levels: [level("title"), level("streams")],
     };
@@ -117,5 +146,21 @@ describe("the level stack", () => {
 
     expect(watching.levels).toHaveLength(1);
     expect(watching.levels[0]?.kind).toBe("player");
+  });
+});
+
+describe("canGoBack", () => {
+  test("is false on Home with nothing pushed", () => {
+    expect(canGoBack(INITIAL_NAVIGATION)).toBe(false);
+  });
+
+  test("is true when a level is pushed", () => {
+    expect(canGoBack(navigate(initial, { type: "push", level: level("title") }))).toBe(
+      true,
+    );
+  });
+
+  test("is true on a non-Home destination with nothing pushed", () => {
+    expect(canGoBack({ destination: "settings", levels: [] })).toBe(true);
   });
 });

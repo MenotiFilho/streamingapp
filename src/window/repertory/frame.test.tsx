@@ -47,13 +47,15 @@ function FrameHarness() {
         id: "destinations",
         name: "All destinations",
         kind: "overlay",
-        render: () => (
-          <DestinationGrid
-            active={destination}
-            onChoose={choose}
-            onClose={() => setLevels((held) => held.slice(0, -1))}
-          />
-        ),
+        payload: {
+          render: () => (
+            <DestinationGrid
+              active={destination}
+              onChoose={choose}
+              onClose={() => setLevels((held) => held.slice(0, -1))}
+            />
+          ),
+        },
       },
     ]);
   };
@@ -256,7 +258,9 @@ function PushHarness() {
                 id: "pushed",
                 name: "Pushed",
                 kind: "overlay",
-                render: () => <p>Inside</p>,
+                payload: {
+                  render: () => <p>Inside</p>,
+                },
               },
             ])
           }
@@ -292,13 +296,17 @@ function PlayerHarness() {
                 id: "selection",
                 name: "Selection",
                 kind: "overlay",
-                render: () => <p>Selection</p>,
+                payload: {
+                  render: () => <p>Selection</p>,
+                },
               },
               {
                 id: "player",
                 name: "Playing",
                 kind: "player",
-                render: () => <p>Player</p>,
+                payload: {
+                  render: () => <p>Player</p>,
+                },
               },
             ])
           }

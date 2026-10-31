@@ -94,7 +94,9 @@ export function osdPopoverLevel(
     id: osdPopoverId(name),
     name: `${LABELS[name]} popover`,
     kind: "popover",
-    render: () => <OsdPopover name={name} anchor={anchor} />,
+    payload: {
+      render: () => <OsdPopover name={name} anchor={anchor} />,
+    },
   };
 }
 
