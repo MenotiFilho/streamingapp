@@ -1,19 +1,16 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 
-import type { Action, Response, Snapshot } from "../core/wire";
-import { asActionError, explain, type ActionError } from "../core/errors";
+import { explain } from "../core/errors";
 import type { HostLink } from "../core/link";
+import { useSession } from "../core/react/useSession";
 import { TauriLink } from "./tauriLink";
 import type { Intent } from "../core/input";
 import { watching } from "../core/playback";
-import { actionKey, repeats } from "../core/actionKey";
-import { InFlight } from "../core/inFlight";
 import { PlayerOverlay } from "./PlayerOverlay";
 import { RepertoryDestinationScreen } from "./repertory/RepertoryScreens";
 import { DestinationGrid } from "./repertory/DestinationGrid";
 import { ShellFrame } from "./ShellFrame";
-import { ShellContext, type ActionOutcome, type NewShellLevel } from "./context";
-import { HomeStore } from "../core/homeStore";
+import { ShellContext, type NewShellLevel } from "./context";
 import {
   INITIAL_NAVIGATION,
   navigate,
@@ -34,16 +31,14 @@ const PLAYER_LEVEL = "player";
  * it stops, the browsing stack that was underneath is exactly where it was.
  */
 export function Shell({ client }: { client?: HostLink }) {
-  const host = useMemo(() => client ?? new TauriLink(), [client]);
-  const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
-  const [error, setError] = useState<ActionError | null>(null);
+  // The window's link is always ready: it is the Host's own window, already
+  // paired and with no socket to lose (ADR-0035 §1). A test hands its own in.
+  const link = useMemo(() => client ?? new TauriLink(), [client]);
+  const { session, state } = useSession(link);
+  const { snapshot, error, unplayable, pending } = state;
+  const { ask, take, markUnplayable, home } = session;
   const [nav, dispatch] = useReducer(navigate, INITIAL_NAVIGATION);
   const [chosenDestination, setChosenDestination] = useState(false);
-  // What this client has learned about Titles that cannot be played (ADR-0020).
-  // It is not the Host's state and is not published anywhere: a mark earned by
-  // opening a Title stays for this window's lifetime, and a new window starts
-  // as ignorant as the Host is.
-  const [unplayable, setUnplayable] = useState<ReadonlySet<string>>(() => new Set());
   const nextLevelId = useRef(0);
   const levelsRef = useRef(nav.levels);
   levelsRef.current = nav.levels;
@@ -71,79 +66,9 @@ export function Shell({ client }: { client?: HostLink }) {
     [],
   );
 
-  const publish = useCallback((next: Snapshot) => {
-    setSnapshot((current) => (current && current.revision > next.revision ? current : next));
-  }, []);
-
-  // Follow the Host first, then ask it where things stand: an update that lands
-  // while the first read is in flight then still wins on revision.
-  useEffect(() => {
-    const stop = host.onSnapshot(publish);
-    void host.snapshot().then(publish).catch((caught: unknown) => setError(asActionError(caught)));
-    return stop;
-  }, [host, publish]);
-
-  /** The same, with the refusal returned rather than raised as the window's alert. */
-  const inFlight = useRef(new InFlight<ActionOutcome>());
-  const ask = useCallback(
-    async (action: Action): Promise<ActionOutcome> => {
-      const send = async (): Promise<ActionOutcome> => {
-        try {
-          return { response: await host.dispatch(action), error: null };
-        } catch (caught) {
-          return { response: null, error: asActionError(caught) };
-        }
-      };
-      // A relative Action in flight does not absorb the next one: two rewinds
-      // are two steps (#137). Everything else — the episode steps included —
-      // joins an identical Action already in flight, so a double press sends
-      // one.
-      if (repeats(action)) {
-        return send();
-      }
-      return inFlight.current.run(actionKey(action), send);
-    },
-    [host],
-  );
-
-  /** Take an Action a person asked for: a refusal becomes the window's alert. */
-  const take = useCallback(
-    async (action: Action): Promise<Response | null> => {
-      setError(null);
-      const { response, error } = await ask(action);
-      if (error) {
-        setError(error);
-      }
-      return response;
-    },
-    [ask],
-  );
-
-  // Home's rows belong to the session, not to the screen: leaving the
-  // destination unmounts `HomeScreen`, and this store is what keeps the asks
-  // already sent running and their answers on hand for the return (#112).
-  // `useState`'s initializer, unlike `useMemo`, is guaranteed to be kept for
-  // the life of this Shell; `ask` is stable for that life too.
-  const [home] = useState(() => new HomeStore(ask));
-
   const choose = useCallback((destination: Destination) => {
     setChosenDestination(true);
     dispatch({ type: "choose", destination });
-  }, []);
-
-  const markUnplayable = useCallback((id: string, unplayable: boolean) => {
-    setUnplayable((held) => {
-      if (held.has(id) === unplayable) {
-        return held;
-      }
-      const next = new Set(held);
-      if (unplayable) {
-        next.add(id);
-      } else {
-        next.delete(id);
-      }
-      return next;
-    });
   }, []);
 
   const push = useCallback((level: NewShellLevel): string => {
@@ -234,6 +159,7 @@ export function Shell({ client }: { client?: HostLink }) {
       chosenDestination,
       popover,
       unplayable,
+      pending,
       choose,
       push,
       remove,
@@ -254,6 +180,7 @@ export function Shell({ client }: { client?: HostLink }) {
       chosenDestination,
       popover,
       unplayable,
+      pending,
       choose,
       push,
       remove,

@@ -228,6 +228,27 @@ describe("the Tauri link's adapter", () => {
     expect(host.envelopes()).toEqual([{ version: ACTION_VERSION, action: ACCEPTED }]);
   });
 
+  test("a Device token a transport still delivered never leaves the link", async () => {
+    const device = { id: "device-1", name: "Phone", pairedAt: 1_700_000_000_000 };
+    const leaked = {
+      snapshots: [],
+      answer: { paired: { device, token: "secret" } },
+    } as unknown as Response;
+    const transport: Transport = {
+      invoke: async <T,>() => leaked as T,
+      listen: async () => () => undefined,
+    };
+    const link = new TauriLink(transport);
+
+    const response = await link.dispatch({
+      type: "pair_device",
+      code: "4K7Q2M",
+      name: "Phone",
+    });
+
+    expect(response.answer).toEqual({ paired: { device } });
+  });
+
   test("snapshot() asks the Host for the state it holds", async () => {
     const host = fakeTauriHost();
     const link = new TauriLink(host.transport);

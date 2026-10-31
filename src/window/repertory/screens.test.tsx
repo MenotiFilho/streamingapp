@@ -161,6 +161,7 @@ function harness(overrides: Partial<ShellContextValue> = {}) {
     chosenDestination: false,
     popover: null,
     unplayable: new Set<string>(),
+    pending: new Set<string>(),
     markUnplayable: vi.fn(),
     choose: vi.fn(),
     push: vi.fn((level: NewShellLevel) => {

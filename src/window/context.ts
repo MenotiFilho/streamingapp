@@ -40,6 +40,12 @@ export type ShellContextValue = {
    */
   unplayable: ReadonlySet<string>;
   /**
+   * The keys of the Actions this client has sent and whose answers are still on
+   * their way. A control derives its wait from its own Action's key, so a
+   * double press is one dispatch and a repeated Action is a new step (#137).
+   */
+  pending: ReadonlySet<string>;
+  /**
    * Remember what a Title's Streams answer said: `true` when every Addon
    * answered with no candidate, `false` when a later answer carried one. A
    * failed Addon proves nothing either way, so its caller leaves the mark be.

@@ -2,12 +2,34 @@ import type { ActionError } from "./errors";
 import type {
   AddonStreams,
   CatalogRow,
+  DeviceSummary,
   DiscoverRow,
   Library,
   Response,
   SearchRow,
   Title,
 } from "./wire";
+
+/**
+ * The answer a client may hold: the same Response with the Device token taken
+ * out, where a transport still delivered one.
+ *
+ * A token is the WebSocket link's to keep, not the core's to carry (ADR-0035
+ * §1). The type already says `paired` is a Device and no token; this is the
+ * runtime half of that promise for a transport that has not caught up. A
+ * response with nothing to drop is returned untouched.
+ */
+export function withoutToken(response: Response): Response {
+  const answer = response.answer;
+  if (!answer || !("paired" in answer)) {
+    return response;
+  }
+  const paired = answer.paired as { device: DeviceSummary; token?: string };
+  if (!("token" in paired)) {
+    return response;
+  }
+  return { ...response, answer: { ...answer, paired: { device: paired.device } } };
+}
 
 /**
  * The catalog rows an answer carries, when the Action was a browse or a search.

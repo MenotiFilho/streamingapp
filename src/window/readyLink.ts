@@ -1,3 +1,4 @@
+import { withoutToken } from "../core/answers";
 import { asActionError } from "../core/errors";
 import type { HostLink, LinkState } from "../core/link";
 import { ACTION_VERSION, SNAPSHOT_EVENT } from "../core/wire";
@@ -35,9 +36,10 @@ export class ReadyLink implements HostLink {
   /** Take an Action through the one door, and get back what came of it. */
   async dispatch(action: Action): Promise<Response> {
     try {
-      return await this.transport.invoke<Response>("dispatch", {
+      const response = await this.transport.invoke<Response>("dispatch", {
         envelope: { version: ACTION_VERSION, action },
       });
+      return withoutToken(response);
     } catch (caught: unknown) {
       throw asActionError(caught);
     }
