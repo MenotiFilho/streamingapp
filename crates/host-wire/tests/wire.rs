@@ -356,6 +356,31 @@ fn a_paired_client_sees_state_change_without_asking_for_it() {
 }
 
 #[test]
+fn a_reply_is_an_answer_and_not_a_second_copy_of_state() {
+    let (fixture, server) = server();
+    let mut client = Client::connect(&server);
+    client.hello(None);
+    pair(&mut client, &fixture, "Test phone");
+    let _joined = client.next_snapshot();
+
+    let reply = client.command(
+        3,
+        json!({ "type": "set_subtitle_language", "language": "pt-BR" }),
+    );
+    assert_eq!(
+        reply["response"]["snapshots"],
+        json!([]),
+        "the reply carries the answer; state arrives as a pushed Snapshot"
+    );
+    let pushed =
+        client.snapshot_where(|snapshot| snapshot["preferences"]["subtitleLanguage"] == "pt-BR");
+    assert_eq!(
+        pushed["snapshot"]["preferences"]["subtitleScale"], 1.0,
+        "the pushed Snapshot is the one state the client applies: {pushed}"
+    );
+}
+
+#[test]
 fn a_paired_client_sets_the_subtitle_appearance_and_sees_the_hosts_values() {
     let (fixture, server) = server();
     let mut client = Client::connect(&server);

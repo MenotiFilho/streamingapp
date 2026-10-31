@@ -1863,7 +1863,8 @@
       const CONNECT_TIMEOUT = 8000;
       const HEARTBEAT_AFTER = 12000;
       const STALE_AFTER = 30000;
-      const PROBE_WAIT = 3000;
+      const PROBE_WAIT = 1500;
+      const PROJECTION_MS = 250;
       const CAPABILITIES = JSON.parse(document.getElementById("action-capabilities").textContent);
 
       // Spliced from `src/subtitle-languages.json` at serve time (#88): one list,
@@ -2724,7 +2725,6 @@
         attempts: 0,
         lastFrameAt: 0,
         lastHelloAt: 0,
-        probeUntil: 0,
         connect(onFrame) {
           this.drop();
           const generation = this.generation;
@@ -2768,13 +2768,11 @@
             this.attempts = 0;
             this.lastFrameAt = Date.now();
             this.lastHelloAt = this.lastFrameAt;
-            this.probeUntil = 0;
             onFrame({ open: true });
           });
           socket.addEventListener("message", (event) => {
             if (!current()) { return; }
             this.lastFrameAt = Date.now();
-            this.probeUntil = 0;
             let frame;
             try { frame = JSON.parse(event.data); } catch (e) { return; }
             onFrame({ frame });
@@ -2872,6 +2870,9 @@
         token: null,
         device: null,
         snapshot: null,
+        // When the last Snapshot arrived: the anchor a playing clock projects
+        // from. The Host publishes state, not a position four times a second.
+        playbackAt: 0,
         online: false,
         // A Snapshot that arrived while the page was hidden. The state is kept
         // current; the drawing waits for the page to be looked at again, so a
@@ -2896,7 +2897,7 @@
           generation: 0, status: null,
         },
         unplayable: new Set(),
-        addons: { expanded: null, status: null },
+        addons: { expanded: null, status: null, expect: null },
         // The level stack above the destination, outermost first.
         levels: [],
         // The three surfaces. `sheet` is the open drawer's kind: null, "av",
@@ -2944,6 +2945,30 @@
       // Drawing
       // ---------------------------------------------------------------------
       function playback() { return state.snapshot ? state.snapshot.playback : null; }
+
+      /**
+       * Where playback is now, between Snapshots.
+       *
+       * The Snapshot's position is the anchor the Host last published; the page
+       * projects it with its own monotonic clock at the Stream's speed. A new
+       * Snapshot — a pause, a seek, a speed change, a track correction — moves
+       * the anchor. Nothing here asks the Host how far a Stream has got.
+       */
+      function livePosition(p) {
+        if (!p || p.position === null || p.position === undefined) {
+          return p ? p.position : null;
+        }
+        if (p.state !== "playing") { return p.position; }
+        const speed = typeof p.speed === "number" && Number.isFinite(p.speed) && p.speed > 0
+          ? p.speed : 1;
+        const played = Math.max(0, Date.now() - state.playbackAt) / 1000;
+        const moved = p.position + played * speed;
+        if (p.duration !== null && p.duration !== undefined &&
+            Number.isFinite(p.duration) && p.duration > 0) {
+          return Math.min(p.duration, moved);
+        }
+        return moved;
+      }
 
       // ---------------------------------------------------------------------
       // Motion (ADR-0031): the staged page imports the pinned `animate` bundle
@@ -4291,6 +4316,7 @@
         const playing = p.state === "playing";
         const volume = Math.round(p.volume === null ? 100 : p.volume);
         const note = pictureNote(p.picture);
+        const at = livePosition(p);
 
         cast.innerHTML = html`
           <div class="cast-inner">
@@ -4325,9 +4351,9 @@
               <div class="seek-track">
                 <span class="seek-buffered" data-buffered aria-hidden="true" hidden></span>
                 <span class="seek-played" data-played aria-hidden="true"
-                      style="width:${timelineFraction(p.position, p.duration) * 100}%"></span>
+                      style="width:${timelineFraction(at, p.duration) * 100}%"></span>
                 <input type="range" data-seek min="0" max="${p.duration === null ? 0 : p.duration}" step="1"
-                       value="${p.position === null ? 0 : p.position}" aria-label="Position"
+                       value="${at === null ? 0 : at}" aria-label="Position"
                        ${off(p.duration === null || !canTransport)} data-focusable data-focus-key="cast-seek" />
                 <div class="seek-preview" data-preview-tip hidden>
                   <img data-preview-still alt="" hidden />
@@ -4336,8 +4362,8 @@
                 </div>
               </div>
               <div class="times">
-                <span class="tabular" data-clock>${formatTime(p.position)}</span>
-                <span class="tabular" data-remaining>${remainingTime(p.position, p.duration)}</span>
+                <span class="tabular" data-clock>${formatTime(at)}</span>
+                <span class="tabular" data-remaining>${remainingTime(at, p.duration)}</span>
               </div>
             </div>
 
@@ -4382,10 +4408,11 @@
         const p = playback();
         if (!p) { return; }
         const cast = $("surface-remote");
+        const at = livePosition(p);
         const clock = cast.querySelector("[data-clock]");
-        if (clock) { clock.textContent = formatTime(p.position); }
+        if (clock) { clock.textContent = formatTime(at); }
         const remaining = cast.querySelector("[data-remaining]");
-        if (remaining) { remaining.textContent = remainingTime(p.position, p.duration); }
+        if (remaining) { remaining.textContent = remainingTime(at, p.duration); }
         const seek = cast.querySelector("[data-seek]");
         if (seek) {
           // The range is not moved under a finger that is dragging it, but the
@@ -4394,9 +4421,9 @@
           const dragging = document.activeElement === seek;
           if (!dragging) {
             seek.max = p.duration === null ? 0 : p.duration;
-            seek.value = p.position === null ? 0 : p.position;
+            seek.value = at === null ? 0 : at;
           }
-          const shown = dragging ? Number(seek.value) : p.position;
+          const shown = dragging ? Number(seek.value) : at;
           const played = cast.querySelector("[data-played]");
           if (played) { played.style.width = (timelineFraction(shown, p.duration) * 100) + "%"; }
           const bufferedLayer = cast.querySelector("[data-buffered]");
@@ -4909,6 +4936,17 @@
       function refresh() {
         if (!state.device || !state.snapshot) { return; }
         const s = state.snapshot;
+        // An Addon press is answered before the Snapshot that names what it
+        // added; the reply itself is the answer alone, and the pushed Snapshot
+        // is what says whether the manifest was added or refreshed.
+        if (state.addons.expect) {
+          const outcome = addOutcome(state.addons.expect, s.addons);
+          state.addons.expect = null;
+          if (outcome) {
+            state.addons.status = outcome;
+            state.screenSignature = null;
+          }
+        }
         const keys = declaredCatalogs(s).map(catalogKey).join("|");
         if (keys !== state.catalogueKeys) {
           state.catalogueKeys = keys;
@@ -5973,17 +6011,17 @@
           const url = ($("manifest-url").value || "").trim();
           if (!url) { return; }
           const before = state.snapshot.addons.slice();
+          state.addons.expect = before;
           void runWaiting(form.querySelector('button[type="submit"]'), () =>
             take({ type: "add_addon", url }).then((taken) => {
-              if (taken) {
-                const after = taken.snapshots.length > 0
-                  ? taken.snapshots[taken.snapshots.length - 1].addons : null;
-                state.addons.status = addOutcome(before, after);
-                const field = $("manifest-url");
-                if (field) { field.value = ""; }
-                state.screenSignature = null;
-                renderScreen();
+              if (!taken) {
+                state.addons.expect = null;
+                return;
               }
+              const field = $("manifest-url");
+              if (field) { field.value = ""; }
+              state.screenSignature = null;
+              renderScreen();
             })
           );
         } else if (form.id === "tmdb-form") {
@@ -6086,6 +6124,10 @@
       }
 
       function onFrame(event) {
+        if (probeTimer !== null) {
+          clearTimeout(probeTimer);
+          probeTimer = null;
+        }
         if (event.open) {
           state.online = true;
           net.send({ version: VERSION, hello: { token: state.token } });
@@ -6129,6 +6171,7 @@
               state.bufferDraft = null;
             }
             state.snapshot = snapshot;
+            state.playbackAt = Date.now();
             if (document.visibilityState === "hidden") {
               state.needsRefresh = true;
             } else {
@@ -6169,10 +6212,15 @@
       // phone is not woken by a reconnect loop; coming back to the page is what
       // starts the connection again.
       let reconnectTimer = null;
+      let probeTimer = null;
       function connect() {
         if (reconnectTimer !== null) {
           clearTimeout(reconnectTimer);
           reconnectTimer = null;
+        }
+        if (probeTimer !== null) {
+          clearTimeout(probeTimer);
+          probeTimer = null;
         }
         net.connect(onFrame);
       }
@@ -6187,7 +6235,10 @@
         }, delay);
       }
       function restart() {
-        net.probeUntil = 0;
+        if (probeTimer !== null) {
+          clearTimeout(probeTimer);
+          probeTimer = null;
+        }
         net.drop();
         if (state.online) {
           state.online = false;
@@ -6217,42 +6268,65 @@
         net.lastHelloAt = Date.now();
         net.send({ version: VERSION, hello: { token: state.token } });
       }
-      function heartbeat(force) {
-        if (!force && document.visibilityState === "hidden") { return; }
+      /**
+       * A page that has just been looked at asks at once, rather than waiting
+       * for the idle window. A phone can background a tab and come back with a
+       * socket that still says OPEN but is dead; the greeting's answer is the
+       * proof, and a short deadline turns silence into a reconnect.
+       */
+      function probe() {
+        if (document.visibilityState === "hidden") { return; }
         if (!net.socket || net.socket.readyState !== WebSocket.OPEN) {
-          ensureConnected(force);
+          ensureConnected(true);
+          return;
+        }
+        const socket = net.socket;
+        greet();
+        if (probeTimer !== null) { clearTimeout(probeTimer); }
+        probeTimer = setTimeout(() => {
+          probeTimer = null;
+          if (net.socket !== socket) { return; }
+          if (Date.now() - net.lastFrameAt < PROBE_WAIT) { return; }
+          restart();
+        }, PROBE_WAIT);
+      }
+      function heartbeat() {
+        if (document.visibilityState === "hidden") { return; }
+        if (!net.socket || net.socket.readyState !== WebSocket.OPEN) {
+          ensureConnected(false);
           return;
         }
         const now = Date.now();
         const idle = now - net.lastFrameAt;
-        if (idle > STALE_AFTER) {
-          // A page that was just looked at gets one question before its socket
-          // is thrown away: it may have slept through the silence, not missed
-          // it. A page that is awake and still hears nothing reconnects.
-          if (force && net.probeUntil === 0) {
-            net.probeUntil = now + PROBE_WAIT;
-            greet();
-            return;
-          }
-          if (now >= net.probeUntil) { restart(); }
-          return;
-        }
+        if (idle > STALE_AFTER) { restart(); return; }
         if (idle > HEARTBEAT_AFTER && now - net.lastHelloAt > HEARTBEAT_AFTER) {
           greet();
         }
       }
-      setInterval(() => heartbeat(false), 5000);
+      setInterval(() => heartbeat(), 5000);
+      // The cast card's clock is the page's own between Snapshots. It stops
+      // while the card is covered, hidden or paused: a surface nobody can see
+      // is not repainted four times a second.
+      setInterval(() => {
+        if (document.visibilityState === "hidden" || !state.cast || state.sheet !== null ||
+            state.levels.length > 0) {
+          return;
+        }
+        const p = playback();
+        if (!p || p.state !== "playing") { return; }
+        updateCastLive();
+      }, PROJECTION_MS);
       document.addEventListener("visibilitychange", () => {
         if (document.visibilityState !== "hidden") {
           if (state.needsRefresh) {
             state.needsRefresh = false;
             refresh();
           }
-          heartbeat(true);
+          probe();
         }
       });
-      window.addEventListener("online", () => heartbeat(true));
-      window.addEventListener("pageshow", () => heartbeat(true));
+      window.addEventListener("online", () => probe());
+      window.addEventListener("pageshow", () => probe());
 
       // A device with no token yet is looking at the pairing form, whatever the
       // Host is about to say; one with a token waits for the welcome, which is

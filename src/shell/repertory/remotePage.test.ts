@@ -148,6 +148,14 @@ function snapshot(socket: FakeSocket, body: unknown = SNAPSHOT): void {
   socket.emit("message", { data: JSON.stringify({ version: 1, snapshot: body }) });
 }
 
+function lastSent(socket: FakeSocket): any {
+  const last = socket.sent.at(-1);
+  if (!last) {
+    throw new Error("the page sent no frame");
+  }
+  return JSON.parse(last);
+}
+
 function expand(window: any): void {
   const center = window.document.querySelector('#mini-strip [data-a="expand-cast"]');
   if (!center) {
@@ -157,6 +165,10 @@ function expand(window: any): void {
 }
 
 describe("the served Remote's page", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   test("boots at /, takes a Snapshot, and puts the transport on the card", () => {
     const { window, socket } = boot();
 
@@ -222,6 +234,23 @@ describe("the served Remote's page", () => {
     expect(sheet.classList.contains("hidden")).toBe(true);
   });
 
+  test("the cast clock moves between Snapshots without another one", () => {
+    vi.useFakeTimers();
+    let now = 1_000_000;
+    const { window, socket } = boot(() => now);
+    welcome(socket);
+    snapshot(socket);
+    expand(window);
+
+    const cast = window.document.getElementById("surface-remote");
+    const clock = () => cast.querySelector("[data-clock]").textContent;
+    expect(clock()).toBe("2:00");
+
+    now += 2000;
+    vi.advanceTimersByTime(2000);
+    expect(clock()).toBe("2:02");
+  });
+
   test("a moving bitrate updates the statistics where they stand", () => {
     const { window, socket } = boot();
     const playing = (bitrate: number, revision: number) => ({
@@ -248,6 +277,66 @@ describe("the served Remote's page", () => {
       "the drawer, and the Done on it, are not rebuilt for a number that moves",
     ).toBe(done);
     expect(sheet.querySelector('[data-stat="Bitrate"]')?.textContent).toBe("2.0 Mbps");
+  });
+
+  test("a pushed Snapshot moves the transport's own state", async () => {
+    const { window, socket } = boot();
+    welcome(socket);
+    snapshot(socket);
+    socket.emit("open");
+    expand(window);
+    const cast = window.document.getElementById("surface-remote");
+
+    cast.querySelector('[data-focus-key="cast-pause"]').click();
+    const sent = lastSent(socket);
+    expect(sent.command.type).toBe("set_paused");
+    socket.emit("message", {
+      data: JSON.stringify({
+        version: 1,
+        id: sent.id,
+        response: { snapshots: [], answer: null },
+      }),
+    });
+    socket.emit("message", {
+      data: JSON.stringify({
+        version: 1,
+        snapshot: {
+          ...SNAPSHOT,
+          revision: 3,
+          playback: { ...SNAPSHOT.playback, state: "paused" },
+        },
+      }),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(
+      cast.querySelector('[data-focus-key="cast-pause"]').getAttribute("aria-label"),
+      "the pushed state, not the reply, is what the button follows",
+    ).toBe("Play");
+
+    cast.querySelector('[data-focus-key="cast-mute"]').click();
+    const muted = lastSent(socket);
+    expect(muted.command.type).toBe("set_muted");
+    socket.emit("message", {
+      data: JSON.stringify({
+        version: 1,
+        id: muted.id,
+        response: { snapshots: [], answer: null },
+      }),
+    });
+    socket.emit("message", {
+      data: JSON.stringify({
+        version: 1,
+        snapshot: {
+          ...SNAPSHOT,
+          revision: 4,
+          playback: { ...SNAPSHOT.playback, state: "paused", muted: true },
+        },
+      }),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(
+      cast.querySelector('[data-focus-key="cast-mute"]').getAttribute("aria-label"),
+    ).toBe("Unmute");
   });
 
   test("a command in flight when the socket closes is refused, not left waiting", async () => {
@@ -292,6 +381,30 @@ describe("the served Remote's connection", () => {
       replacement.sent.some((frame) => frame.includes('"hello"')),
       "a reconnect is a greeting",
     ).toBe(true);
+  });
+
+  test("returning to the page probes at once, and a dead socket reconnects", () => {
+    vi.useFakeTimers();
+    let now = 1_000_000;
+    const { window, socket } = boot(() => now);
+    welcome(socket);
+    socket.emit("open");
+    socket.sent.length = 0;
+
+    window.document.dispatchEvent(new window.Event("visibilitychange"));
+    expect(
+      socket.sent.some((frame) => frame.includes('"hello"')),
+      "the page asks the moment it is looked at again",
+    ).toBe(true);
+    expect(FakeSocket.instances).toHaveLength(1);
+
+    now += 2000;
+    vi.advanceTimersByTime(1600);
+    vi.advanceTimersByTime(1000);
+    expect(
+      FakeSocket.instances.length,
+      "a socket that does not answer is replaced without waiting for the idle window",
+    ).toBe(2);
   });
 
   test("an idle socket is greeted again before it is treated as dead", () => {

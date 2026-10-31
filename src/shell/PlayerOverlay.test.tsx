@@ -362,6 +362,9 @@ afterEach(() => {
 
 describe("the player OSD", () => {
   test("draws the uosc furniture the Snapshot describes", async () => {
+    // The clock now projects from its anchor, so hold the anchor still for an
+    // assertion about what the Snapshot drew.
+    vi.spyOn(performance, "now").mockReturnValue(0);
     await renderPlayer();
 
     expect(screen.getByTestId("osd-quality")).toHaveTextContent("4K HDR");

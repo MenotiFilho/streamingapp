@@ -10,6 +10,7 @@ import {
   PREVIEW_BUCKET_SECONDS,
   previewBucket,
   qualityBadge,
+  projectedPosition,
   remainingTime,
   selectedTrack,
   streamDetails,
@@ -72,6 +73,22 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
 }
 
 describe("the OSD's readings", () => {
+  test("a playing position is projected from its anchor at the Stream's speed", () => {
+    const playing = playback({ state: "playing", position: 900, duration: 3600, speed: 1 });
+    expect(projectedPosition(playing, 0)).toBe(900);
+    expect(projectedPosition(playing, 12.5)).toBe(912.5);
+    expect(projectedPosition({ ...playing, speed: 2 }, 10)).toBe(920);
+    expect(
+      projectedPosition(playing, 10_000),
+      "a projection never runs past the Stream's end",
+    ).toBe(3600);
+    expect(
+      projectedPosition({ ...playing, state: "paused" }, 10),
+      "a paused Stream holds the anchor",
+    ).toBe(900);
+    expect(projectedPosition({ ...playing, position: null }, 10)).toBeNull();
+  });
+
   test("the quality badge is the Addon's own resolution line, wherever it sits", () => {
     expect(qualityBadge(nowPlaying({ name: "AIOStreams\n4K HDR" }))).toBe("4K HDR");
     expect(qualityBadge(nowPlaying({ name: "1080p\nTorrentio" }))).toBe("1080p");

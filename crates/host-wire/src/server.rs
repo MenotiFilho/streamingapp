@@ -454,7 +454,7 @@ impl Conversation<'_> {
                 }
 
                 match self.surface.dispatch(action) {
-                    Ok(response) => {
+                    Ok(mut response) => {
                         // A pairing answers with the token this connection now
                         // holds; adopting it here is what makes the rest of the
                         // conversation a paired one without a second greeting.
@@ -468,6 +468,12 @@ impl Conversation<'_> {
                                 token: issued.clone(),
                             });
                         }
+                        // The Snapshots were already published by the
+                        // `WireSurface` that took the Action; the connection
+                        // receives them through `push`. A Reply is the answer
+                        // this client asked for, not a second copy of state —
+                        // which was 42 KB of duplicated state per command.
+                        response.snapshots.clear();
                         send(socket, &ServerFrame::Reply { id, response })?;
                         Ok(Outcome::Keep)
                     }

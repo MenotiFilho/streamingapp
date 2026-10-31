@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import {
   HostClient,
@@ -182,8 +182,15 @@ async function closePopover(testId: string) {
   await waitFor(() => expect(screen.queryByTestId(testId)).not.toBeInTheDocument());
 }
 
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe("the repertory player OSD", () => {
   test("prints the programme note and the two clocks over the film", async () => {
+    // The clock projects from its anchor; hold the anchor still to assert the
+    // reading the Snapshot drew.
+    vi.spyOn(performance, "now").mockReturnValue(0);
     await renderPlayer();
 
     const player = screen.getByTestId("shell-player");
