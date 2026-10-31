@@ -22,7 +22,7 @@ import { fade, panel } from "../core/react/motion";
 import { RepertoryNav } from "./repertory/RepertoryNav";
 import { focusAndReveal } from "./reveal";
 import { toggleFullscreen, useFullscreen } from "./useFullscreen";
-import { useReducedMotion } from "./useReducedMotion";
+import { useReducedMotion } from "../core/react/useReducedMotion";
 import { useSpatialFocus } from "./useSpatialFocus";
 import { WindowChrome } from "./WindowChrome";
 

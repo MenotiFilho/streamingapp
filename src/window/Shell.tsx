@@ -153,6 +153,7 @@ export function Shell({ client }: { client?: HostLink }) {
 
   const value = useMemo(
     () => ({
+      session,
       snapshot,
       error,
       destination: nav.destination,
@@ -174,6 +175,7 @@ export function Shell({ client }: { client?: HostLink }) {
       setBaseIntentHandler,
     }),
     [
+      session,
       snapshot,
       error,
       nav.destination,

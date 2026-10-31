@@ -12,13 +12,17 @@
  * buckets sends one ask, then the one the pointer came to rest on. The still
  * already drawn stays until the new bucket's answer arrives, so the tooltip
  * never blinks empty while it is being read.
+ *
+ * The Hook is given the Session's `ask` rather than reaching for a client's
+ * context: the core React pocket may not import the window, and the Session's
+ * door is what the OSD already uses so a refusal stays inline.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { answeredPreview } from "../core/answers";
-import { useShell } from "./context";
-import { previewBucket } from "../core/osd";
+import { answeredPreview, type ActionOutcome } from "../answers";
+import { previewBucket } from "../osd";
+import type { Action } from "../wire";
 
 /**
  * The still being drawn: the image, and the bucket it is the still of.
@@ -62,14 +66,16 @@ export type PreviewReads = {
   point: (at: number | null) => void;
 };
 
+/** The Session's ask, as the preview needs it. */
+export type PreviewAsk = (action: Action) => Promise<ActionOutcome>;
+
 /**
  * The still a person pointing at the timeline sees, for the Stream playing now.
  *
  * `stream` is what a client can tell one Stream from another by — `streamKey` in
- * `./osd` — and a new one clears the stills of the Stream before it.
+ * `../osd` — and a new one clears the stills of the Stream before it.
  */
-export function usePreview(stream: string | null): PreviewReads {
-  const { ask } = useShell();
+export function usePreview(stream: string | null, ask: PreviewAsk): PreviewReads {
   const [still, setStill] = useState<PreviewStill | null>(null);
   const [waiting, setWaiting] = useState(false);
 
@@ -87,7 +93,7 @@ export function usePreview(stream: string | null): PreviewReads {
    * than kept under a bucket the two Streams happen to share.
    */
   const generation = useRef(0);
-  /** The shell's ask, held by ref so a render never restarts a request. */
+  /** The Session's ask, held by ref so a render never restarts a request. */
   const asking = useRef(ask);
   asking.current = ask;
 

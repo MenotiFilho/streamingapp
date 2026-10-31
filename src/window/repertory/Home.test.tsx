@@ -13,6 +13,7 @@ import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContext
 import { HomeStore } from "../../core/homeStore";
 import { FEATURE_ROTATION_MS } from "./homeProgramme";
 import { RepertoryHome } from "./RepertoryHome";
+import { quietSession } from "../session.testing";
 
 const CATALOG = {
   type: "movie",
@@ -159,6 +160,7 @@ function renderHome({
   const take = vi.fn(async (_action: Action) => null);
   const choose = vi.fn();
   const value: ShellContextValue = {
+    session: quietSession(),
     snapshot,
     error: null,
     destination: "home",

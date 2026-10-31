@@ -13,7 +13,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { useReducedMotion } from "./useReducedMotion";
+import { useReducedMotion } from "../core/react/useReducedMotion";
 import { Icon } from "../kit/icons";
 import { panel } from "../core/react/motion";
 import { cx } from "../kit/cx";

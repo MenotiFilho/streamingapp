@@ -23,7 +23,7 @@ import { continueArt, featuredRow, heroSlides, type HeroSlide } from "../../core
 import { FOCUSABLE } from "../layout";
 import { focusAndReveal } from "../reveal";
 import { useTitleOpener } from "../TitleScreen";
-import { useReducedMotion } from "../useReducedMotion";
+import { useReducedMotion } from "../../core/react/useReducedMotion";
 import { usePreviewData } from "./context";
 import {
   FEATURE_ROTATION_MS,

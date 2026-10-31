@@ -11,40 +11,26 @@ import {
   type WheelEvent,
 } from "react";
 
-import type { Action, Chapter, PlaybackSnapshot } from "../core/wire";
-import { actionKey } from "../core/actionKey";
+import type { Action, Chapter } from "../core/wire";
 import type { ActionError } from "../core/errors";
-import {
-  VOLUME_MAX,
-  controllable,
-  formatSpeed,
-  formatVolume,
-  nextEpisodeDisabled,
-  previousEpisodeDisabled,
-  volumeFraction,
-} from "../core/controls";
+import { VOLUME_MAX, formatSpeed, formatVolume, volumeFraction } from "../core/controls";
 import type { Intent } from "../core/input";
-import { formatTime, playingName, transportable } from "../core/playback";
-import { labelOf } from "../core/title";
+import { formatTime, playingName } from "../core/playback";
+import { remainingTime, spacedChapterMarks, timelineFraction } from "../core/osd";
+import type { PlaybackView } from "../core/playbackView";
+import {
+  transportControls,
+  type TransportControl,
+  type TransportControlId,
+} from "../core/transportControls";
+import { usePlaybackView } from "../core/react/usePlaybackView";
+import { usePreview, type PreviewAsk } from "../core/react/usePreview";
 import { useShell } from "./context";
 import { FullscreenButton } from "./FullscreenButton";
 import { Button } from "../kit/Button";
 import { PendingSpinner } from "../kit/PendingSpinner";
 import { FOCUSABLE } from "./layout";
 import { Refusal } from "./Refusal";
-import { usePreview } from "./usePreview";
-import {
-  bufferedSpan,
-  chapterAt,
-  chapterMarks,
-  qualityBadge,
-  remainingTime,
-  spacedChapterMarks,
-  streamDetails,
-  streamKey,
-  streamTitle,
-  timelineFraction,
-} from "../core/osd";
 import {
   osdPopoverId,
   osdPopoverLevel,
@@ -56,18 +42,15 @@ import { Icon } from "../kit/icons";
 import { fade, panel } from "../core/react/motion";
 import { focusAndReveal } from "./reveal";
 import { useOsdVisibility } from "./useOsdVisibility";
-import { usePlaybackPosition } from "./usePlaybackPosition";
-import { useReducedMotion } from "./useReducedMotion";
+import { useReducedMotion } from "../core/react/useReducedMotion";
 import "./repertory/osd.css";
 
 /** One press of the pad's volume faces, on the Host's 0–130 scale. */
 const VOLUME_STEP = 5;
 
-/** The two episode steps, and the keys whose pendingness is their one wait. */
+/** The two episode steps, and the one Action each takes. */
 const NEXT_EPISODE: Action = { type: "next_episode" };
 const PREVIOUS_EPISODE: Action = { type: "previous_episode" };
-const NEXT_EPISODE_KEY = actionKey(NEXT_EPISODE);
-const PREVIOUS_EPISODE_KEY = actionKey(PREVIOUS_EPISODE);
 
 /** What each step is called on the strip, and the one Action it takes. */
 const EPISODE_STEPS: Record<
@@ -135,7 +118,7 @@ function usable(element: HTMLElement | null, cluster: HTMLElement | null): eleme
  * strip's controls, and between Full screen and Stop.
  */
 export function PlayerOverlay() {
-  const { snapshot, take, ask, popover, pop, push, setIntentHandler, pending } = useShell();
+  const { session, snapshot, take, ask, popover, pop, push, setIntentHandler } = useShell();
   // The plain Vite window has no mpv, so the rehearsal paints the film's own
   // backdrop behind the OSD instead of a black hole. The Tauri window never
   // takes this branch: there the picture is mpv's (ADR-0003).
@@ -146,16 +129,12 @@ export function PlayerOverlay() {
   // list and the neighbour's Stream under its change lock, so no Snapshot
   // arrives until the step has resolved (#137, ADR-0022). Both arrows share one
   // wait: a step either way is the same answer this strip is waiting for.
-  const pendingSide = pending.has(NEXT_EPISODE_KEY)
-    ? "next"
-    : pending.has(PREVIOUS_EPISODE_KEY)
-      ? "previous"
-      : null;
-  const stepping = pendingSide !== null;
+  //
+  // The wait is drawn from the Session's pending keys (A6); `stepSide` only
+  // holds the side a press named until that key lands, because a Next and a
+  // Previous pressed in one tick have different keys and the key state cannot
+  // name the side before the paint.
   const [stepSide, setStepSide] = useState<"previous" | "next" | null>(null);
-  // The side the press named, or — where an overlapping step cleared its own
-  // label first — the side whose answer is still on its way.
-  const waitingSide = stepSide ?? pendingSide;
   const [wheelVolume, setWheelVolume] = useState<number | null>(null);
   const [previewSettled, setPreviewSettled] = useState(() => playback?.state !== "opening");
   const chrome = useRef<HTMLDivElement | null>(null);
@@ -228,7 +207,10 @@ export function PlayerOverlay() {
     chrome,
     onHide: () => focusAndReveal(pictureButton.current),
   });
-  const livePosition = usePlaybackPosition(playback, visible);
+  // The OSD reads the Session the Shell owns: the same pending keys its own
+  // Actions set, and the one clock between Snapshots (#191 §5, #137).
+  const view = usePlaybackView(session, visible);
+  const canControl = view?.controllable ?? false;
 
   /** Put focus on a stop, and say whether there was a control to land on. */
   const focusStop = (stop: PlayerStop): boolean => {
@@ -347,11 +329,11 @@ export function PlayerOverlay() {
 
   /** The Host's volume, moved a step and sent once the steps settle. */
   const nudgeVolume = (delta: number) => {
-    if (!playback) {
+    if (!view) {
       return;
     }
-    const current = wheel.current.level ?? playback.volume ?? 100;
-    const next = Math.min(130, Math.max(0, Math.round(current + delta)));
+    const current = wheel.current.level ?? view.volume.level;
+    const next = Math.min(VOLUME_MAX, Math.max(0, Math.round(current + delta)));
     wheel.current.level = next;
     setWheelVolume(next);
     if (wheel.current.timer !== null) {
@@ -367,8 +349,6 @@ export function PlayerOverlay() {
     }, 80);
   };
 
-  const controls = playback !== null && controllable(playback.state);
-
   /**
    * The player's own intents. The pad's X and Y step the volume through the
    * same debounced path the wheel uses; Up and Down walk the
@@ -380,7 +360,7 @@ export function PlayerOverlay() {
   const handleIntent = (intent: Intent): boolean => {
     if (intent === "volume_up" || intent === "volume_down") {
       wake("key");
-      if (!controls) {
+      if (!canControl) {
         return false;
       }
       nudgeVolume(intent === "volume_up" ? VOLUME_STEP : -VOLUME_STEP);
@@ -427,39 +407,31 @@ export function PlayerOverlay() {
 
   // Nothing to draw while the Host is between Streams: the shell takes the
   // level away in the same pass that told it the Stream stopped.
-  if (!playback) {
+  if (!playback || !view) {
     return null;
   }
 
-  const { state, picture, nowPlaying, episode } = playback;
-  const playing = state === "playing";
-  const canTransport = transportable(state);
-  const quality = qualityBadge(nowPlaying);
-  const details = streamDetails(playback);
-  const shownPosition = livePosition;
+  const allControls = transportControls(view);
+  const controlOf = (id: TransportControlId): TransportControl =>
+    allControls.find((held) => held.id === id)!;
+  const previous = controlOf("previous");
+  const rewind = controlOf("rewind");
+  const playPauseControl = controlOf("playPause");
+  const forward = controlOf("forward");
+  const nextEpisode = controlOf("next");
+  const stop = controlOf("stop");
 
-  // What the opening Stream will be: the Watch progress entry the Host now
-  // holds for this Video carries the Title's backdrop, poster and episode still
-  // (#29). The player draws it in the hole while mpv is still opening, so the
-  // wait is a picture of what is coming rather than an empty window.
-  const progress =
-    nowPlaying === null
-      ? null
-      : (snapshot?.watchProgress.find((entry) => entry.video.id === nowPlaying.video.id) ?? null);
-  const preview = progress
-    ? {
-        art: progress.video.thumbnail ?? progress.title.background ?? progress.title.poster,
-        title: progress.title.name,
-        subtitle:
-          [labelOf(progress.video), progress.video.name]
-            .filter((part): part is string => Boolean(part))
-            .join(" · ") || null,
-      }
-    : null;
-  const showPreview = state === "opening" || (!previewSettled && Boolean(preview?.art));
-  // The programme note names the Title alone: the episode is already on the
-  // kicker's line, and a film is `Feature` there.
-  const titleText = progress?.title.name ?? streamTitle(nowPlaying);
+  // The wait is the Session's key for the step in flight; a press that has not
+  // painted yet names its side itself.
+  const pendingSide = previous.pending ? "previous" : nextEpisode.pending ? "next" : null;
+  const stepping = pendingSide !== null;
+  const waitingSide = stepSide ?? pendingSide;
+
+  const state = view.state;
+  const picture = view.picture;
+  const canTransport = view.transportable;
+  const showPreview =
+    view.state === "opening" || (!previewSettled && Boolean(view.openingPreview?.art));
 
   const takeAction = (action: Action) => {
     void take(action);
@@ -469,7 +441,7 @@ export function PlayerOverlay() {
     waitingSide === "previous" ? "Loading the previous episode…" : "Loading the next episode…";
 
   const onWheel = (event: WheelEvent<HTMLElement>) => {
-    if (!controls || event.deltaY === 0) {
+    if (!canControl || event.deltaY === 0) {
       return;
     }
     nudgeVolume(event.deltaY < 0 ? VOLUME_STEP : -VOLUME_STEP);
@@ -494,9 +466,9 @@ export function PlayerOverlay() {
           squeezes or releases the Stream rather than merely summoning the
           OSD (ADR-0003). */}
       <div className="shell-player-picture" data-testid="picture" data-picture={picture} data-state={state}>
-        {previewMode && picture === "in_window" && !showPreview && preview?.art ? (
+        {previewMode && picture === "in_window" && !showPreview && view.openingPreview?.art ? (
           <div className="rep-player-still" data-testid="rehearsal-picture" aria-hidden="true">
-            <img className="rep-player-still-art" src={preview.art} alt="" />
+            <img className="rep-player-still-art" src={view.openingPreview.art} alt="" />
             <span className="rep-player-still-scrim" />
           </div>
         ) : null}
@@ -509,34 +481,34 @@ export function PlayerOverlay() {
             data-focusable
             data-player-stop="picture"
             aria-label="Play or pause"
-            onClick={() => takeAction({ type: "set_paused", paused: playing })}
+            onClick={() => takeAction({ type: "set_paused", paused: view.state === "playing" })}
           />
         ) : null}
         {showPreview ? (
           <div
             className="shell-player-preview"
             data-testid="opening-preview"
-            data-art={preview?.art ? "true" : "false"}
+            data-art={view.openingPreview?.art ? "true" : "false"}
           >
-            {preview?.art ? (
+            {view.openingPreview?.art ? (
               <img
                 className="shell-player-preview-art"
                 data-testid="opening-preview-art"
-                src={preview.art}
+                src={view.openingPreview.art}
                 alt=""
               />
             ) : null}
             <span className="shell-player-preview-scrim" aria-hidden="true" />
             <div className="shell-player-preview-copy">
-              {preview?.title ? (
-                <p className="shell-player-preview-title">{preview.title}</p>
+              {view.openingPreview?.title ? (
+                <p className="shell-player-preview-title">{view.openingPreview.title}</p>
               ) : null}
-              {preview?.subtitle ? (
-                <p className="shell-player-preview-subtitle">{preview.subtitle}</p>
+              {view.openingPreview?.subtitle ? (
+                <p className="shell-player-preview-subtitle">{view.openingPreview.subtitle}</p>
               ) : null}
               {state === "opening" ? (
                 <p className="shell-player-preview-note" data-testid="opening-stream">
-                  {`Opening ${playingName(nowPlaying)}…`}
+                  {`Opening ${playingName(view.nowPlaying)}…`}
                 </p>
               ) : null}
             </div>
@@ -558,21 +530,21 @@ export function PlayerOverlay() {
               <p className="rep-osd-kicker" data-testid="osd-kicker">
                 <span>Now playing</span>
                 <span className="rep-osd-kicker-rule" aria-hidden="true" />
-                <span>{(episode ? `S${episode.season}E${episode.episode}` : (progress ? labelOf(progress.video) : null)) ?? "Feature"}</span>
+                <span>{view.episodeLabel}</span>
               </p>
               <div className="shell-osd-line">
-                {quality ? (
+                {view.quality ? (
                   <span className="shell-osd-quality tabular" data-testid="osd-quality">
-                    {quality}
+                    {view.quality}
                   </span>
                 ) : null}
                 <span className="shell-osd-title" data-testid="shell-now-playing">
-                  {titleText}
+                  {view.title}
                 </span>
               </div>
-              {details ? (
+              {view.details ? (
                 <p className="shell-osd-details tabular" data-testid="osd-details">
-                  {details}
+                  {view.details}
                 </p>
               ) : null}
             </div>
@@ -588,20 +560,21 @@ export function PlayerOverlay() {
                 className="shell-osd-icon"
                 data-focusable
                 data-testid="stop"
-                aria-label="Stop"
+                aria-label={stop.label}
                 title="Stop playback and return (Back)"
-                onClick={() => takeAction({ type: "stop_playback" })}
+                onClick={() => takeAction(stop.action)}
               >
-                <Icon name="close" strokeWidth={2.2} />
+                <Icon name={stop.icon} strokeWidth={2.2} />
               </button>
             </div>
           </header>
 
           <div className="shell-osd-middle">
             <div className="shell-osd-spacer" />
-            {controls ? (
+            {canControl ? (
               <VolumePillar
-                playback={playback}
+                level={view.volume.level}
+                muted={view.volume.muted}
                 sending={wheelVolume}
                 onTake={takeAction}
               />
@@ -609,7 +582,7 @@ export function PlayerOverlay() {
           </div>
 
           <div className="shell-osd-bottom">
-            {controls ? (
+            {canControl ? (
               <div
                 className="shell-osd-strip"
                 data-region="osd-strip"
@@ -651,56 +624,56 @@ export function PlayerOverlay() {
                 <div className="shell-osd-cluster shell-osd-cluster-center">
                   <IconButton
                     testId="previous-episode"
-                    label="Previous episode"
-                    title="Previous episode"
-                    disabled={previousEpisodeDisabled(episode) || stepping}
+                    label={previous.label}
+                    title={previous.label}
+                    disabled={previous.disabled || stepping}
                     pending={stepping && waitingSide === "previous"}
                     onClick={() => void step("previous_episode")}
                   >
-                    <Icon name="previous-episode" strokeWidth={2.2} />
+                    <Icon name={previous.icon} strokeWidth={2.2} />
                   </IconButton>
 
                   {canTransport ? (
                     <>
                       <IconButton
                         testId="rewind"
-                        label="Back ten seconds"
+                        label={rewind.label}
                         title="Rewind 10 seconds"
                         className="shell-osd-glyph tabular"
-                        onClick={() => takeAction({ type: "seek", target: { kind: "by", seconds: -10 } })}
+                        onClick={() => takeAction(rewind.action)}
                       >
-                        <Icon name="rewind-10" strokeWidth={2.2} />
+                        <Icon name={rewind.icon} strokeWidth={2.2} />
                       </IconButton>
                       <IconButton
-                        testId={playing ? "pause" : "play"}
-                        label={playing ? "Pause" : "Play"}
-                        title={playing ? "Pause" : "Play"}
+                        testId={view.state === "playing" ? "pause" : "play"}
+                        label={playPauseControl.label}
+                        title={playPauseControl.label}
                         ref={playPause}
-                        onClick={() => takeAction({ type: "set_paused", paused: playing })}
+                        onClick={() => takeAction(playPauseControl.action)}
                       >
-                        <Icon name={playing ? "pause" : "play"} strokeWidth={2.2} />
+                        <Icon name={playPauseControl.icon} strokeWidth={2.2} />
                       </IconButton>
                       <IconButton
                         testId="forward"
-                        label="Forward ten seconds"
+                        label={forward.label}
                         title="Forward 10 seconds"
                         className="shell-osd-glyph tabular"
-                        onClick={() => takeAction({ type: "seek", target: { kind: "by", seconds: 10 } })}
+                        onClick={() => takeAction(forward.action)}
                       >
-                        <Icon name="forward-10" strokeWidth={2.2} />
+                        <Icon name={forward.icon} strokeWidth={2.2} />
                       </IconButton>
                     </>
                   ) : null}
 
                   <IconButton
                     testId="next-episode"
-                    label="Next episode"
-                    title="Next episode"
-                    disabled={nextEpisodeDisabled(episode) || stepping}
+                    label={nextEpisode.label}
+                    title={nextEpisode.label}
+                    disabled={nextEpisode.disabled || stepping}
                     pending={stepping && waitingSide === "next"}
                     onClick={() => void step("next_episode")}
                   >
-                    <Icon name="next-episode" strokeWidth={2.2} />
+                    <Icon name={nextEpisode.icon} strokeWidth={2.2} />
                   </IconButton>
                 </div>
 
@@ -714,7 +687,7 @@ export function PlayerOverlay() {
                   >
                     <Icon name="speed" strokeWidth={2} />
                     <span className="rep-osd-speed-value tabular">
-                      {formatSpeed(playback.speed ?? 1)}
+                      {formatSpeed(view.speed)}
                     </span>
                   </IconButton>
                   <IconButton
@@ -730,7 +703,7 @@ export function PlayerOverlay() {
               </div>
             ) : null}
 
-            {state === "ended" && !nextEpisodeDisabled(episode) ? (
+            {state === "ended" && !nextEpisode.disabled ? (
               <div className="shell-osd-ended">
                 <Button
                   variant="primary"
@@ -763,9 +736,9 @@ export function PlayerOverlay() {
             ) : null}
 
             <Timeline
-              playback={playback}
+              view={view}
+              ask={ask}
               interactive={canTransport}
-              shown={shownPosition}
               onSeek={(seconds) => takeAction({ type: "seek", target: { kind: "to", seconds } })}
             />
           </div>
@@ -782,18 +755,20 @@ export function PlayerOverlay() {
  * then what they moved it to.
  */
 function VolumePillar({
-  playback,
+  level,
+  muted,
   sending,
   onTake,
 }: {
-  playback: PlaybackSnapshot;
+  /** The Host's level, rounded the way the view reads it. */
+  level: number;
+  muted: boolean;
   /** The level the wheel is about to send, drawn until the Host agrees. */
   sending: number | null;
   onTake: (action: Action) => void;
 }) {
   const [scrub, setScrub] = useState<number | null>(null);
-  const shown = scrub ?? sending ?? Math.round(playback.volume ?? 100);
-  const muted = playback.muted ?? false;
+  const shown = scrub ?? sending ?? level;
 
   const send = (level: number) => {
     setScrub(null);
@@ -903,33 +878,33 @@ function OsdRise({
  * the chapter alone.
  */
 function Timeline({
-  playback,
+  view,
+  ask,
   interactive,
-  shown,
   onSeek,
 }: {
-  playback: PlaybackSnapshot;
+  view: PlaybackView;
+  ask: PreviewAsk;
   interactive: boolean;
-  shown: number;
   onSeek: (seconds: number) => void;
 }) {
-  const { duration, chapters } = playback;
+  const { duration } = view;
   const [scrub, setScrub] = useState<number | null>(null);
   const [point, setPoint] = useState<{ at: number; fraction: number } | null>(null);
   const [trackWidth, setTrackWidth] = useState(0);
   const track = useRef<HTMLDivElement | null>(null);
-  const preview = usePreview(streamKey(playback.nowPlaying));
-  const at = scrub ?? shown;
+  const preview = usePreview(view.streamKey, ask);
+  const at = scrub ?? view.position ?? 0;
   const fraction = timelineFraction(at, duration);
-  const buffered = bufferedSpan(playback.buffered, duration);
-  const allMarks = chapterMarks(chapters, duration);
+  const buffered = view.buffered;
+  const allMarks = view.marks;
   // The timeline keeps its ticks at least 24px apart (design record §8); a
   // track that has not been measured yet keeps every mark.
   const marks = spacedChapterMarks(allMarks, trackWidth);
   const dense = marks.length < allMarks.length;
   const left = formatTime(at);
   const right = remainingTime(at, duration);
-  const chapter = point ? chapterAt(chapters, point.at) : null;
+  const chapter = point ? view.chapterAt(point.at) : null;
 
   useEffect(() => {
     const node = track.current;

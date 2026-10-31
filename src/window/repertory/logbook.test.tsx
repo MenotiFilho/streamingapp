@@ -16,6 +16,7 @@ import { ShellContext, type NewShellLevel, type ShellContextValue } from "../con
 import { HomeStore } from "../../core/homeStore";
 import { Shell } from "../Shell";
 import { PreviewDataProvider } from "./context";
+import { quietSession } from "../session.testing";
 import { RepertoryAddonsScreen } from "./RepertoryAddons";
 import { RepertoryLibraryScreen } from "./RepertoryLibrary";
 import { RepertorySettingsScreen } from "./RepertorySettings";
@@ -127,6 +128,7 @@ function harness(
   const ask = vi.fn(async (_action: Action): Promise<Outcome> => ok());
   const pop = vi.fn();
   const value: ShellContextValue = {
+    session: quietSession(),
     snapshot,
     error: null,
     destination: "settings",

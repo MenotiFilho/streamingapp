@@ -908,6 +908,27 @@ describe("the player OSD", () => {
     await closePopover("popover-subtitles");
   });
 
+  test("a delay step keeps focus on the row it pressed", async () => {
+    const host = await renderPlayer();
+
+    fireEvent.click(screen.getByTestId("osd-subtitles"));
+    const subtitles = await screen.findByTestId("popover-subtitles");
+    const step = within(subtitles).getByTestId("delay-forward");
+    step.focus();
+    expect(step).toHaveFocus();
+
+    fireEvent.click(step);
+    await waitFor(() =>
+      expect(actions(host.invocations)).toContainEqual({
+        type: "set_subtitle_delay",
+        seconds: 0.1,
+      }),
+    );
+
+    expect(screen.getByTestId("delay-forward")).toHaveFocus();
+    await closePopover("popover-subtitles");
+  });
+
   test("the popovers carry the whole control set", async () => {
     const host = await renderPlayer();
 
