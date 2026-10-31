@@ -448,3 +448,128 @@ describe("the served Remote's connection", () => {
     ).toBe(2);
   });
 });
+
+describe("the served Remote's system Back", () => {
+  // jsdom reports a traversal on its own queued step, after the one `back()`
+  // books: one tick reads the history before the popstate has been dispatched.
+  const settle = async (): Promise<void> => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  };
+
+  test("a paired page keeps one history entry; pairing keeps none", () => {
+    const { window, socket } = boot();
+
+    expect(
+      window.history.state,
+      "a page that has not paired has nothing to go back into",
+    ).toBeNull();
+
+    welcome(socket);
+
+    expect(
+      window.history.state,
+      "once paired, the phone's Back belongs to the page",
+    ).toEqual({ remote: "sentinel" });
+    expect(
+      window.location.href,
+      "the entry is opaque: the position never reaches the URL",
+    ).toBe("http://127.0.0.1:8090/");
+  });
+
+  test("a Back unwinds a surface and leaves the page armed again", async () => {
+    const { window, socket } = boot();
+    welcome(socket);
+    snapshot(socket);
+    expand(window);
+    const cast = window.document.getElementById("surface-remote");
+    expect(cast.classList.contains("hidden")).toBe(false);
+
+    window.history.back();
+    await settle();
+
+    expect(
+      cast.classList.contains("hidden"),
+      "the system Back collapses the Cast Remote, as Escape does",
+    ).toBe(true);
+    expect(window.history.state, "there is still something to go back to").toEqual({
+      remote: "sentinel",
+    });
+  });
+
+  test("a Back at rest warns, and the next one is the browser's", async () => {
+    const { window, socket } = boot();
+    welcome(socket);
+    snapshot(socket);
+    const notice = window.document.getElementById("back-notice");
+    expect(notice.hidden).toBe(true);
+
+    window.history.back();
+    await settle();
+
+    expect(notice.hidden, "the first Back says what the second does").toBe(false);
+    expect(
+      window.history.state,
+      "the warned page does not trap the Back",
+    ).toBeNull();
+  });
+
+  test("a Snapshot arriving after the warning is not a navigation", async () => {
+    const { window, socket } = boot();
+    welcome(socket);
+    snapshot(socket);
+
+    window.history.back();
+    await settle();
+    expect(window.history.state).toBeNull();
+
+    snapshot(socket, { ...SNAPSHOT, revision: 9 });
+
+    expect(
+      window.history.state,
+      "a pushed Snapshot must not re-arm what the warning disarmed",
+    ).toBeNull();
+  });
+
+  test("a reconnect's Welcome is not a navigation either", async () => {
+    const { window, socket } = boot();
+    welcome(socket);
+    snapshot(socket);
+
+    window.history.back();
+    await settle();
+    expect(window.history.state).toBeNull();
+
+    // The probe greets again after a wake; the Host answers with another
+    // Welcome for a page that is already inside the app.
+    welcome(socket);
+    snapshot(socket, { ...SNAPSHOT, revision: 9 });
+
+    expect(
+      window.history.state,
+      "a Welcome after the warning must not re-arm the trap",
+    ).toBeNull();
+  });
+
+  test("a Back closes a Level the way its own Back does", async () => {
+    const { window, socket } = boot();
+    welcome(socket);
+    snapshot(socket);
+
+    window.document.querySelector('[data-destination="settings"]')?.click();
+    const category = window.document.querySelector('[data-a="settings-category"]');
+    expect(category, "Settings offers a Level to open").not.toBeNull();
+    category?.click();
+
+    const level = window.document.getElementById("level-host");
+    expect(level?.classList.contains("hidden")).toBe(false);
+
+    window.history.back();
+    await settle();
+
+    expect(
+      level?.classList.contains("hidden"),
+      "the system Back pops the Level onto the screen it came from",
+    ).toBe(true);
+  });
+});

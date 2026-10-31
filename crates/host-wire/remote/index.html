@@ -1262,19 +1262,28 @@
         font-size: var(--rep-remote-text-caption);
       }
 
-      .pending-pill {
+      /* One stack at the foot of the page holds the status lines, so a second
+         one never has to guess the height of the first (#185). */
+      .status-stack {
         position: fixed;
         left: 50%;
         bottom: calc(var(--rep-remote-nav) + var(--rep-remote-strip) + 1rem + env(safe-area-inset-bottom));
         transform: translateX(-50%);
         z-index: 80;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 0.5rem;
+        pointer-events: none;
+      }
+      .pending-pill,
+      .back-notice {
         padding: 0.45rem 0.8rem;
         border: 1px solid var(--rep-hairline);
         background: var(--rep-ink);
         color: var(--rep-dim);
         font-family: var(--rep-mono);
         font-size: var(--rep-remote-text-badge);
-        pointer-events: none;
       }
       [data-pending="true"] { opacity: 0.5; cursor: progress; }
       [data-pending="true"][data-a="choose-stream"]::after {
@@ -1797,9 +1806,15 @@
     -->
     <script type="application/json" id="action-capabilities">["set_subtitle_language","clear_subtitle_language","set_subtitle_color","set_subtitle_scale","set_stream_buffer","set_featured_catalog","clear_featured_catalog","add_addon","reorder_addon","remove_addon","set_tmdb_key","clear_tmdb_key","sign_in_stremio","sign_out_stremio","pair_device","revoke_device","browse_catalog","search_catalogs","discover","search","open_title","open_discovered_title","find_streams","preview","library","play_stream","resume","set_paused","seek","set_audio_track","set_subtitle_track","set_subtitle_delay","set_speed","set_volume","set_muted","next_chapter","previous_chapter","set_chapter","set_crop","autocrop","set_aspect","next_episode","previous_episode","stop_playback"]</script>
 
-    <!-- The wait every control shows while the Host answers (#137). -->
-    <div id="pending-pill" class="pending-pill" role="status" aria-live="polite" hidden>
-      Waiting for the Host…
+    <!-- The short notice the page shows when a Back has nothing left to undo
+         (#185). Above the wait, which keeps its place at the foot of the stack. -->
+    <div id="status-stack" class="status-stack">
+      <div id="back-notice" class="back-notice" role="status" aria-live="polite" hidden>
+        Press back again to leave
+      </div>
+      <div id="pending-pill" class="pending-pill" role="status" aria-live="polite" hidden>
+        Waiting for the Host…
+      </div>
     </div>
 
     <!-- What a device that has not paired sees. -->
@@ -3103,6 +3118,7 @@
         state.sheet = menu;
         if (menu !== "episodes") { state.episodes = null; }
         state.focusTarget = "sheet";
+        armSentinel();
         paint();
       }
 
@@ -4911,6 +4927,69 @@
         if (target.key) { focusByKey(target.key); }
       }
 
+      // ---------------------------------------------------------------------
+      // The system Back.
+      //
+      // A browser hands the phone's Back to history, and a page with no entries
+      // gives it nothing to pop, so the Remote is left behind by the gesture
+      // every Android user makes. One opaque entry, pushed whenever the page is
+      // paired and navigates, turns that gesture into one more trigger of
+      // goBack() (#185). The entry itself is the armed state: after a warning
+      // the page sits on the one below it, so the next Back is the browser's.
+      // ---------------------------------------------------------------------
+      const SENTINEL = { remote: "sentinel" };
+      let noticeTimer = null;
+
+      function isSentinel(entry) {
+        return !!(entry && entry.remote === SENTINEL.remote);
+      }
+
+      /**
+       * Sit the page on a sentinel entry, and clear a notice the new surface
+       * has outgrown. Nulls nothing on a browser that refuses history.
+       */
+      function armSentinel() {
+        if (!state.device) { return; }
+        hideBackNotice();
+        if (isSentinel(history.state)) { return; }
+        try {
+          history.pushState(SENTINEL, "");
+        } catch (e) {
+          /* A browser that refuses history keeps its own Back. */
+        }
+      }
+
+      function onSystemBack(event) {
+        // A forward traversal lands on the sentinel itself: that is not a Back.
+        if (isSentinel(event.state)) { return; }
+        // Before pairing there is no app of the page's to go back into.
+        if (!state.device) { return; }
+        if (goBack()) { armSentinel(); return; }
+        showBackNotice();
+      }
+
+      /** The one press that is absorbed, so the next one is the browser's. */
+      function showBackNotice() {
+        const notice = document.getElementById("back-notice");
+        if (!notice) { return; }
+        notice.hidden = false;
+        if (noticeTimer !== null) { clearTimeout(noticeTimer); }
+        noticeTimer = setTimeout(() => {
+          noticeTimer = null;
+          notice.hidden = true;
+        }, 2000);
+      }
+
+      function hideBackNotice() {
+        if (noticeTimer === null) { return; }
+        clearTimeout(noticeTimer);
+        noticeTimer = null;
+        const notice = document.getElementById("back-notice");
+        if (notice) { notice.hidden = true; }
+      }
+
+      window.addEventListener("popstate", onSystemBack);
+
       /** The whole app, drawn from nothing: a connect, or a local change. */
       function paint() {
         if (!state.device) { showPairing(); return; }
@@ -5011,6 +5090,7 @@
         state.destination = destination;
         state.levels = [];
         stopHero();
+        armSentinel();
         if (destination === "discover") {
           if (state.snapshot && state.snapshot.protection.tmdbHeld &&
               state.discover.feed.page === 0 && !state.discover.loading) {
@@ -5247,6 +5327,7 @@
         if (level.returnFocus === undefined && active) { level.returnFocus = focusKey(active); }
         state.levels.push(level);
         state.focusTarget = "level";
+        armSentinel();
         paint();
         return level;
       }
@@ -5255,6 +5336,7 @@
         state.focusTarget = state.levels.length > 0
           ? "level"
           : level && level.returnFocus ? { key: level.returnFocus } : "screen";
+        armSentinel();
         paint();
       }
 
@@ -5430,6 +5512,7 @@
         state.episodes = episodes;
         state.sheet = "episodes";
         state.focusTarget = "sheet";
+        armSentinel();
         paint();
         if (!cached) { void loadSheetEpisodes(episodes, series); }
       }
@@ -5532,6 +5615,7 @@
           state.episodes = null;
           state.cast = true;
           state.focusTarget = "cast";
+          armSentinel();
           paint();
         } else {
           episodes.loadingStreams = false;
@@ -5881,6 +5965,7 @@
             state.sheet = null;
             state.episodes = null;
             state.focusTarget = "cast";
+            armSentinel();
             paint();
             return;
           }
@@ -6078,14 +6163,19 @@
         // `activate` is the control's own native activation (Enter/Space).
       });
 
+      /**
+       * Unwind one surface. Answers whether there was one: the phone's Back uses
+       * that to know when it has reached the foot of the page, where the next
+       * press belongs to the browser (#185).
+       */
       function goBack() {
         if (state.sheet) {
           closeSheet();
-          return;
+          return true;
         }
         if (state.levels.length > 0) {
           popLevel();
-          return;
+          return true;
         }
         if (state.cast) {
           state.cast = false;
@@ -6093,12 +6183,14 @@
           state.episodes = null;
           state.focusTarget = state.castReturn ? { key: state.castReturn } : { key: "mini-center" };
           paint();
-          return;
+          return true;
         }
         if (state.destination !== "home") {
           state.focusTarget = { key: "nav-home" };
           chooseDestination("home");
+          return true;
         }
+        return false;
       }
 
       // --- the pairing and the conversation ---------------------------------
@@ -6121,6 +6213,7 @@
         state.device = device;
         state.token = token;
         try { window.localStorage.setItem(TOKEN_KEY, token); } catch (e) { /* private mode */ }
+        armSentinel();
       }
 
       function onFrame(event) {
@@ -6152,9 +6245,13 @@
         if (frame.welcome) {
           const device = frame.welcome.device;
           if (device) {
+            // A reconnect is another Welcome for a page already inside the app;
+            // only the first one has a page to arm (#185).
+            const first = !state.device;
             state.device = device;
             try { window.localStorage.setItem(TOKEN_KEY, state.token); } catch (e) { /* private mode */ }
             paint();
+            if (first) { armSentinel(); }
           } else {
             state.device = null;
             showPairing();
