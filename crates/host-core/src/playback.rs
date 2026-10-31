@@ -1219,6 +1219,32 @@ impl PlaybackSession {
 
         (next != *self).then_some(next)
     }
+
+    /// Whether this report differs from an earlier one in something a client
+    /// draws, rather than in the clock's own moving numbers.
+    ///
+    /// `position` is an anchor clients project from with their own monotonic
+    /// clock, and `statistics` move with the bitrate a picture happens to be
+    /// reading. Neither is news on every sample. The buffered span stays visible:
+    /// a client cannot project a cache, and the span's comparison already
+    /// ignores a movement too small to see.
+    pub(crate) fn differs_publicly_from(&self, earlier: &Self) -> bool {
+        self.playing != earlier.playing
+            || self.state != earlier.state
+            || self.duration != earlier.duration
+            || self.buffered != earlier.buffered
+            || self.failure != earlier.failure
+            || self.tracks != earlier.tracks
+            || self.chapters != earlier.chapters
+            || self.chapter != earlier.chapter
+            || self.speed != earlier.speed
+            || self.volume != earlier.volume
+            || self.muted != earlier.muted
+            || self.subtitle_delay != earlier.subtitle_delay
+            || self.crop != earlier.crop
+            || self.aspect != earlier.aspect
+            || self.resolution != earlier.resolution
+    }
 }
 
 /// Where in its Title a Video sits: which season, and which episode.

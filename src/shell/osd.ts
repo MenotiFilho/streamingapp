@@ -81,6 +81,36 @@ export function streamDetails(playback: PlaybackSnapshot): string | null {
  * remaining with the minus sign a countdown carries, or `--:--` while either
  * end of the sum is unknown.
  */
+/**
+ * Where playback stands between Snapshots.
+ *
+ * A Snapshot's `position` is an anchor, not a value that moves on the wire: the
+ * Host publishes when the state moves, and the client's own monotonic clock
+ * projects the position forward at the Stream's speed. A pause, a seek, a speed
+ * change or a correction from Watch progress arrives as a new anchor. `played`
+ * is the time since that anchor was received, in seconds.
+ */
+export function projectedPosition(
+  playback: Pick<PlaybackSnapshot, "state" | "position" | "duration" | "speed">,
+  played: number,
+): number | null {
+  if (playback.position === null) {
+    return null;
+  }
+  if (playback.state !== "playing") {
+    return playback.position;
+  }
+  const speed =
+    playback.speed !== null && Number.isFinite(playback.speed) && playback.speed > 0
+      ? playback.speed
+      : 1;
+  const moved = playback.position + Math.max(0, played) * speed;
+  if (playback.duration !== null && Number.isFinite(playback.duration) && playback.duration > 0) {
+    return Math.min(playback.duration, moved);
+  }
+  return moved;
+}
+
 export function remainingTime(position: number | null, duration: number | null): string {
   if (
     position === null ||

@@ -157,6 +157,10 @@ function expand(window: any): void {
 }
 
 describe("the served Remote's page", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   test("boots at /, takes a Snapshot, and puts the transport on the card", () => {
     const { window, socket } = boot();
 
@@ -220,6 +224,23 @@ describe("the served Remote's page", () => {
 
     sheet.click();
     expect(sheet.classList.contains("hidden")).toBe(true);
+  });
+
+  test("the cast clock moves between Snapshots without another one", () => {
+    vi.useFakeTimers();
+    let now = 1_000_000;
+    const { window, socket } = boot(() => now);
+    welcome(socket);
+    snapshot(socket);
+    expand(window);
+
+    const cast = window.document.getElementById("surface-remote");
+    const clock = () => cast.querySelector("[data-clock]").textContent;
+    expect(clock()).toBe("2:00");
+
+    now += 2000;
+    vi.advanceTimersByTime(2000);
+    expect(clock()).toBe("2:02");
   });
 
   test("a moving bitrate updates the statistics where they stand", () => {

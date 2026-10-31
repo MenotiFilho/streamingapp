@@ -172,19 +172,9 @@ fn a_snapshot_says_what_is_playing_and_never_where_its_bytes_are() {
 }
 
 #[test]
-fn what_the_player_reports_moves_the_snapshot_until_it_says_the_same_thing_twice() {
+fn a_moving_position_is_projected_until_watch_progress_anchors_it() {
     let mut fixture = fixture();
     playing(&mut fixture);
-
-    fixture
-        .player
-        .now_reporting(Observation::playing(15.0, 8100.0));
-    let published = fixture.host.sample().expect("the position moved on again");
-    let reported = playback_of(std::slice::from_ref(&published));
-
-    assert_eq!(reported.state, PlaybackState::Playing);
-    assert_eq!(reported.position, Some(15.0));
-    assert_eq!(reported.duration, Some(8100.0));
 
     fixture
         .player
@@ -192,7 +182,76 @@ fn what_the_player_reports_moves_the_snapshot_until_it_says_the_same_thing_twice
     assert_eq!(
         fixture.host.sample(),
         None,
+        "a position that moved by a little is the clock's own business, not a publish"
+    );
+
+    fixture
+        .player
+        .now_reporting(Observation::playing(18.0, 8100.0));
+    let published = fixture
+        .host
+        .sample()
+        .expect("a Watch progress write anchors the clock again");
+    let reported = playback_of(std::slice::from_ref(&published));
+
+    assert_eq!(reported.state, PlaybackState::Playing);
+    assert_eq!(reported.position, Some(18.0));
+    assert_eq!(reported.duration, Some(8100.0));
+
+    fixture
+        .player
+        .now_reporting(Observation::playing(18.0, 8100.0));
+    assert_eq!(
+        fixture.host.sample(),
+        None,
         "a tick that reports what the Host already holds publishes nothing"
+    );
+}
+
+#[test]
+fn a_position_a_client_projects_still_reaches_a_pause() {
+    let mut fixture = fixture();
+    playing(&mut fixture);
+
+    fixture
+        .player
+        .now_reporting(Observation::playing(15.0, 8100.0));
+    assert_eq!(
+        fixture.host.sample(),
+        None,
+        "the tick is projected, not published"
+    );
+
+    let paused = fixture
+        .host
+        .dispatch(action(
+            &serde_json::json!({ "type": "set_paused", "paused": true }),
+        ))
+        .expect("pausing something that is playing works");
+    assert_eq!(
+        playback_of(&paused.snapshots).position,
+        Some(15.0),
+        "the position the client projected is the one the Host acts on"
+    );
+}
+
+#[test]
+fn a_bitrate_that_moved_is_not_a_public_change() {
+    let mut fixture = fixture();
+    playing(&mut fixture);
+
+    fixture.player.now_reporting(Observation {
+        statistics: Some(host_core::Statistics {
+            bitrate: Some(8_000_000),
+            dropped_frames: Some(0),
+            hardware_decode: Some("no".to_owned()),
+        }),
+        ..Observation::playing(12.5, 8100.0)
+    });
+    assert_eq!(
+        fixture.host.sample(),
+        None,
+        "a number only the Picture menu reads does not move every client"
     );
 }
 

@@ -50,6 +50,20 @@ home network. A connection looks at what the Host published between reads rather
 than blocking on a writer, which is why a pushed Snapshot arrives within a
 quarter of a second.
 
+**A Reply is the answer, not a second copy of state.** The transport clears the
+`snapshots` a `Response` carries before it writes the Reply: the same Snapshots
+were already published by the `WireSurface`, and every paired connection reads
+them from the push. Sending them twice put a ~42 KB Snapshot inside every
+command's answer, which the shipped page then ignored — the largest burst a
+play/pause ever caused. The window's IPC response still carries its Snapshots;
+that is a different door with no push beside it.
+
+Rejected, with reasons: **trusting a client to read the Reply's Snapshots**
+(state is what every client is told, not what one answer happens to include);
+**dropping the push for the connection that asked** (it would need a per
+connection ledger of which Snapshots a Reply covered, and a second client on the
+same change would still need the push).
+
 This supersedes one line of ADR-0009, which expected #31's adapter to run the
 Host's `dispatch` inside `spawn_blocking`: `spawn_blocking` is a runtime's
 primitive and this Host has no runtime. The intent is kept — a fetch on one
