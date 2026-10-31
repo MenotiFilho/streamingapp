@@ -2,19 +2,18 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  HostClient,
-  type Action,
-  type AddonManifest,
-  type CatalogRow,
-  type Snapshot,
-  type Stream,
-  type Title,
-  type Transport,
-} from "../../host-client";
+import type {
+  Action,
+  AddonManifest,
+  CatalogRow,
+  Snapshot,
+  Stream,
+  Title,
+} from "../../core/wire";
+import { HostClient, type Transport } from "../host-client";
 import { Shell } from "../Shell";
 import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContextValue } from "../context";
-import { HomeStore } from "../homeStore";
+import { HomeStore } from "../../core/homeStore";
 import { PreviewDataProvider } from "./context";
 import { RepertoryDiscoverScreen } from "./RepertoryDiscover";
 import { RepertoryStreamsScreen } from "./RepertoryStreams";

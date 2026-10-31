@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 
-import type { ActionError } from "../host-client";
+import type { ActionError } from "../core/errors";
 import { useShell } from "./context";
 import { confirmActionLevel } from "./ConfirmAction";
 import { Button } from "./repertory/kit";

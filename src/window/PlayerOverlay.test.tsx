@@ -2,14 +2,8 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import {
-  HostClient,
-  type Action,
-  type PlaybackSnapshot,
-  type ResumeEntry,
-  type Snapshot,
-  type Transport,
-} from "../host-client";
+import type { Action, PlaybackSnapshot, ResumeEntry, Snapshot } from "../core/wire";
+import { HostClient, type Transport } from "./host-client";
 import {
   fakeWindowState,
   installTauriRuntime,

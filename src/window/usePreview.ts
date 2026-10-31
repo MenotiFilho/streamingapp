@@ -16,9 +16,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { answeredPreview } from "../host-client";
+import { answeredPreview } from "../core/answers";
 import { useShell } from "./context";
-import { previewBucket } from "./osd";
+import { previewBucket } from "../core/osd";
 
 /**
  * The still being drawn: the image, and the bucket it is the still of.

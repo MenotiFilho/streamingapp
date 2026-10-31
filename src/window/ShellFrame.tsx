@@ -7,7 +7,7 @@ import {
   type ReactNode,
 } from "react";
 
-import type { Intent } from "../input";
+import type { Intent } from "../core/input";
 import type { Destination, ShellLevel } from "./navigation";
 import {
   destinationTransition,
@@ -18,7 +18,7 @@ import {
   levelRises,
   REPERTORY_RULES,
 } from "./repertory/frame";
-import { fade, panel } from "./repertory/motion";
+import { fade, panel } from "../core/react/motion";
 import { RepertoryNav } from "./repertory/RepertoryNav";
 import { focusAndReveal } from "./reveal";
 import { toggleFullscreen, useFullscreen } from "./useFullscreen";

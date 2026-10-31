@@ -2,25 +2,24 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import type { ReactNode } from "react";
 import { describe, expect, test, vi } from "vitest";
 
-import {
-  HostClient,
-  type Action,
-  type ActionError,
-  type AddonManifest,
-  type DeviceSummary,
-  type LibraryEntry,
-  type Response,
-  type Snapshot,
-  type Transport,
-} from "../../host-client";
+import type {
+  Action,
+  AddonManifest,
+  DeviceSummary,
+  LibraryEntry,
+  Response,
+  Snapshot,
+} from "../../core/wire";
+import type { ActionError } from "../../core/errors";
+import { HostClient, type Transport } from "../host-client";
 import { ShellContext, type NewShellLevel, type ShellContextValue } from "../context";
-import { HomeStore } from "../homeStore";
+import { HomeStore } from "../../core/homeStore";
 import { Shell } from "../Shell";
 import { PreviewDataProvider } from "./context";
 import { RepertoryAddonsScreen } from "./RepertoryAddons";
 import { RepertoryLibraryScreen } from "./RepertoryLibrary";
 import { RepertorySettingsScreen } from "./RepertorySettings";
-import { SETTINGS_CATEGORIES } from "./settingsRegister";
+import { SETTINGS_CATEGORIES } from "../../core/settingsRegister";
 
 const CINEMETA: AddonManifest = {
   id: "com.linvo.cinemeta",

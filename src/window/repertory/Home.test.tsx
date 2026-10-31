@@ -1,16 +1,16 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  type Action,
-  type AddonManifest,
-  type CatalogRow,
-  type MetaPreview,
-  type ResumeEntry,
-  type Snapshot,
-} from "../../host-client";
+import type {
+  Action,
+  AddonManifest,
+  CatalogRow,
+  MetaPreview,
+  ResumeEntry,
+  Snapshot,
+} from "../../core/wire";
 import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContextValue } from "../context";
-import { HomeStore } from "../homeStore";
+import { HomeStore } from "../../core/homeStore";
 import { FEATURE_ROTATION_MS } from "./homeProgramme";
 import { RepertoryHome } from "./RepertoryHome";
 

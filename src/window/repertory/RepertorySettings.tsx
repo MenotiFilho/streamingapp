@@ -8,7 +8,7 @@ import {
 } from "react";
 
 import { version as appVersion } from "../../../package.json";
-import { catalogKey, declaredCatalogs, keyOf, type DeclaredCatalog } from "../../browse";
+import { catalogKey, declaredCatalogs, keyOf, type DeclaredCatalog } from "../../core/browse";
 import {
   STREAM_BUFFER_DEFAULT_MEGABYTES,
   STREAM_BUFFER_DEFAULT_SECONDS,
@@ -24,12 +24,13 @@ import {
   formatScale,
   scalePreset,
   scaleSelected,
-} from "../../controls";
-import type { Action, ActionError, DeviceSummary } from "../../host-client";
+} from "../../core/controls";
+import type { Action, DeviceSummary } from "../../core/wire";
+import type { ActionError } from "../../core/errors";
 import {
   HOST_PICKS_PER_VIDEO,
   SUBTITLE_LANGUAGES,
-} from "../../languages";
+} from "../../core/languages";
 import tmdbLogo from "../../assets/tmdb-logo.svg";
 import { useShell, type NewShellLevel } from "../context";
 import { confirmActionLevel } from "../ConfirmAction";
@@ -60,7 +61,7 @@ import {
   unknownLanguageLabel,
   type SettingsCategory,
   type SettingsCategoryId,
-} from "./settingsRegister";
+} from "../../core/settingsRegister";
 
 /**
  * Settings as a short register (#147, built #157).

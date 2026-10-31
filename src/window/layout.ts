@@ -8,7 +8,7 @@
  * measures.
  */
 
-import type { Focus, Layout, Rect, Region, RegionKind } from "../focus";
+import type { Focus, Layout, Rect, Region, RegionKind } from "./focus";
 
 /** How a region or control is measured; injectable so a test need not lay out a page. */
 export type Measure = (element: Element) => Rect;

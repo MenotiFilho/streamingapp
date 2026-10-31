@@ -1,16 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 
-import {
-  answeredLibrary,
-  explain,
-  type ActionError,
-  type Library,
-} from "../../host-client";
+import type { Library } from "../../core/wire";
+import { explain, type ActionError } from "../../core/errors";
+import { answeredLibrary } from "../../core/answers";
 import { useShell } from "../context";
 import { Button, PosterCard } from "./kit";
 import { StremioAccount } from "../StremioAccount";
 import { useTitleOpener } from "../TitleScreen";
-import { libraryAddon, libraryExpired, libraryPreview } from "./accountLibrary";
+import { libraryAddon, libraryExpired, libraryPreview } from "../../core/accountLibrary";
 import { LogEmpty, LogGroup, LogHead, LogNote, LogPreviewNote } from "./RepertoryLog";
 
 /**

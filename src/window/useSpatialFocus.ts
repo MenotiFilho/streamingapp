@@ -7,14 +7,14 @@ import {
   type Direction,
   type Focus,
   type Rules,
-} from "../focus";
+} from "./focus";
 import {
   isTypingTarget,
   keyIntent,
   REPEAT_AFTER_MS,
   REPEAT_EVERY_MS,
   type Intent,
-} from "../input";
+} from "../core/input";
 import { firstFocusable, focusOf, readLevel } from "./layout";
 import { focusLanded, onRevealed, reveal } from "./reveal";
 import { useGamepad } from "./useGamepad";

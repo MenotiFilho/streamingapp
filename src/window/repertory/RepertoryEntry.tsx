@@ -1,6 +1,6 @@
 import { MotionConfig } from "motion/react";
 
-import type { HostClient } from "../../host-client";
+import type { HostClient } from "../host-client";
 import { Shell } from "../Shell";
 import "./repertory.css";
 

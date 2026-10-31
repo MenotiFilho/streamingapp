@@ -1,7 +1,8 @@
 import { useCallback, useRef } from "react";
 
-import { answeredTitle, type Action, type Title } from "../host-client";
-import { discoveredKeyOf, type OpenablePreview } from "../title";
+import type { Action, Title } from "../core/wire";
+import { answeredTitle } from "../core/answers";
+import { discoveredKeyOf, type OpenablePreview } from "../core/title";
 import { useShell, type NewShellLevel } from "./context";
 import { RepertoryTitleLoading, RepertoryTitleScreen } from "./repertory/RepertoryTitle";
 

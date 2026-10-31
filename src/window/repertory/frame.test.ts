@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { FADE_SECONDS, PANEL_FALLBACK } from "./motion";
+import { FADE_SECONDS, PANEL_FALLBACK } from "../../core/react/motion";
 import {
   DESTINATION_FADE_SECONDS,
   LEVEL_PUSH_PX,

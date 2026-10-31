@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import remotePage from "../../crates/host-wire/remote/index.html?raw";
-import { nearest, type Direction, type Rect } from "../focus";
+import { nearest, type Direction, type Rect } from "./focus";
 
 type PickNearest = (from: Rect, rects: readonly Rect[], direction: Direction) => number;
 

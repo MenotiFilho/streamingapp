@@ -11,9 +11,9 @@
 
 import { useCallback, useState } from "react";
 
-import type { Stream, Title, Video } from "../host-client";
-import { playabilityNote } from "../stream";
-import { titleStubOf, type OpenablePreview } from "../title";
+import type { Stream, Title, Video } from "../core/wire";
+import { playabilityNote } from "../core/stream";
+import { titleStubOf, type OpenablePreview } from "../core/title";
 import { useShell } from "./context";
 import { usePending } from "./usePending";
 

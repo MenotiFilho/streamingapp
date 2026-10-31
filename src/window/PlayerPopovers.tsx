@@ -20,8 +20,8 @@ import {
   subtitlesOn,
   trackLabel,
   trackMarks,
-} from "../controls";
-import type { Action, PlaybackSnapshot, Track } from "../host-client";
+} from "../core/controls";
+import type { Action, PlaybackSnapshot, Track } from "../core/wire";
 import { useShell, type NewShellLevel } from "./context";
 import { Popover } from "./repertory/kit";
 

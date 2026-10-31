@@ -12,12 +12,12 @@
  */
 
 import type {
-  ActionError,
   AddonCatalog,
   AddonManifest,
   AddonResource,
   DeviceSummary,
-} from "../../host-client";
+} from "../../core/wire";
+import type { ActionError } from "../../core/errors";
 
 /** The sample address and code the preview draws. A real Host publishes its own. */
 export const PREVIEW_ADDRESS = "192.168.1.24:8090";

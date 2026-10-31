@@ -11,12 +11,8 @@ import {
   type WheelEvent,
 } from "react";
 
-import {
-  type Action,
-  type ActionError,
-  type Chapter,
-  type PlaybackSnapshot,
-} from "../host-client";
+import type { Action, Chapter, PlaybackSnapshot } from "../core/wire";
+import type { ActionError } from "../core/errors";
 import {
   VOLUME_MAX,
   controllable,
@@ -25,10 +21,10 @@ import {
   nextEpisodeDisabled,
   previousEpisodeDisabled,
   volumeFraction,
-} from "../controls";
-import type { Intent } from "../input";
-import { formatTime, playingName, transportable } from "../playback";
-import { labelOf } from "../title";
+} from "../core/controls";
+import type { Intent } from "../core/input";
+import { formatTime, playingName, transportable } from "../core/playback";
+import { labelOf } from "../core/title";
 import { useShell } from "./context";
 import { FullscreenButton } from "./FullscreenButton";
 import { Button, PendingSpinner } from "./repertory/kit";
@@ -47,7 +43,7 @@ import {
   streamKey,
   streamTitle,
   timelineFraction,
-} from "./osd";
+} from "../core/osd";
 import {
   osdPopoverId,
   osdPopoverLevel,
@@ -56,7 +52,7 @@ import {
 import { usePreviewData } from "./repertory/context";
 import { POPOVER_RISE_PX } from "./repertory/frame";
 import { Icon } from "./repertory/icons";
-import { fade, panel } from "./repertory/motion";
+import { fade, panel } from "../core/react/motion";
 import { focusAndReveal } from "./reveal";
 import { useOsdVisibility } from "./useOsdVisibility";
 import { usePlaybackPosition } from "./usePlaybackPosition";

@@ -1,15 +1,10 @@
 import { useEffect, useState } from "react";
 
-import {
-  answeredStreams,
-  explain,
-  type ActionError,
-  type AddonStreams,
-  type Title,
-  type Video,
-} from "../host-client";
-import { streamsSubject } from "../stream";
-import type { OpenablePreview } from "../title";
+import type { AddonStreams, Title, Video } from "../core/wire";
+import { explain, type ActionError } from "../core/errors";
+import { answeredStreams } from "../core/answers";
+import { streamsSubject } from "../core/stream";
+import type { OpenablePreview } from "../core/title";
 import { useShell } from "./context";
 import { RepertoryStreamsScreen, RepertoryStreamsWaiting } from "./repertory/RepertoryStreams";
 

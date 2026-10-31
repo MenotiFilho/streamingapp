@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import type { Rect } from "../focus";
+import type { Rect } from "./focus";
 import {
   CHROME_CLEARANCE,
   REVEAL_MARGIN,

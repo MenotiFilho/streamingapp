@@ -1,6 +1,6 @@
-import type { Row } from "../../browse";
-import type { Snapshot } from "../../host-client";
-import { addonLabel } from "../home";
+import type { Row } from "../../core/browse";
+import type { Snapshot } from "../../core/wire";
+import { addonLabel } from "../../core/home";
 import { programIndex, rowTagOf } from "./program";
 import { RAIL_PAGE, RAIL_VISIBLE } from "./rail";
 

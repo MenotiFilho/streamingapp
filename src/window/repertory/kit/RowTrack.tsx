@@ -15,7 +15,7 @@ import {
 
 import { useReducedMotion } from "../../useReducedMotion";
 import { Icon } from "../icons";
-import { panel } from "../motion";
+import { panel } from "../../../core/react/motion";
 import { cx } from "./cx";
 import { pagedOffset } from "./rowPaging";
 

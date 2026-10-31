@@ -17,7 +17,7 @@ import type {
   Stream,
   StreamWarning,
   Track,
-} from "../../host-client";
+} from "../../core/wire";
 
 /**
  * The one Addon the plain Vite preview reads. The Tauri window reads the Host's
