@@ -7,7 +7,8 @@ import { cardName, cardNote, progressOf, resumable } from "../../core/library";
 import { useShell } from "../context";
 import { continueArt } from "../../core/home";
 import { rowTag } from "./homeProgramme";
-import { ContinueWatchingCard, PosterCard } from "./kit";
+import { ContinueWatchingCard } from "../../kit/ContinueWatchingCard";
+import { PosterCard } from "../../kit/PosterCard";
 import { yearOf } from "./program";
 import { RailGridHead } from "./RailGridHead";
 

@@ -15,19 +15,16 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/setup-tests.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
-    // The token sheet is part of #77's contract, and the shell's window
-    // control (#125) states its pointer and band rules in CSS — the level's
-    // player reset lives in the shell sheet and its popover reset in the OSD
-    // sheet — so all of them are read as text. Vitest replaces other CSS with
-    // an empty string.
+    // The token sheet is part of #77's contract, and the window's sheet
+    // states its pointer and band rules in CSS — the level's player reset
+    // lives in that sheet and its popover reset in the OSD sheet — so all of
+    // them are read as text. Vitest replaces other CSS with an empty string.
     css: {
       include: [
-        /src\/tokens\.css/,
-        /src\/window\/kit\/kit\.css/,
-        /src\/window\/shell\.css/,
-        /src\/window\/osd\.css/,
+        /src\/kit\/tokens\.css/,
+        /src\/kit\/kit\.css/,
+        /src\/window\/repertory\/osd\.css/,
         /src\/window\/repertory\/repertory\.css/,
-        /src\/window\/repertory\/tokens\.css/,
       ],
     },
   },

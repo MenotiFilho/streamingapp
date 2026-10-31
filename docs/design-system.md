@@ -11,9 +11,9 @@ holds no behaviour: every Action, Snapshot, focus rule, level-stack rule and
 Remote flow belongs to the Host and to `CONTEXT.md`, and this record does not
 move them.
 
-The values live in `src/shell/repertory/tokens.css`; the motion presets live in
-`src/shell/repertory/motion.ts`. The window imports them and
-`crates/host-wire` splices the token sheet into the served Remote page and
+The values live in `src/kit/tokens.css`; the motion presets live in
+`src/core/react/motion.ts`. The window imports them, and `crates/host-wire`
+splices the token sheet (`src/kit/tokens.css`) into the served Remote page and
 serves the same `woff2` faces.
 
 ## 1. The direction
@@ -259,7 +259,7 @@ circle, no square, no container, except a cell of the hairline table.
 The set: the six destination marks, More, back, close, previous episode, next
 episode, −10s, +10s, play, pause, stop, fullscreen, volume, volume muted,
 picture, subtitles, audio, speed, chapters, and the chevron the popovers use.
-The window's `icons.tsx` is the source for the whole set (#153). The served page
+`src/kit/icons.tsx` is the source for the whole set (#153). The served page
 receives the same symbols as a sprite spliced at serve time, like the token
 sheet (#159). **No Unicode glyph stands in for a mark on the Remote** — the
 phone's emoji font is not the design system.

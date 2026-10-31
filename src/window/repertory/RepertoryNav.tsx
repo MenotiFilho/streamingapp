@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { DESTINATIONS, type Destination } from "../navigation";
 import { useReducedMotion } from "../useReducedMotion";
 import { spineDestinations, spineLabelTransition, spineWidthTransition } from "./frame";
-import { Icon } from "./icons";
+import { Icon } from "../../kit/icons";
 import {
   programShortDate as programShortDateText,
   programTime as programTimeText,

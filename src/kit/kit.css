@@ -2,14 +2,34 @@
  * The repertory kit (#153): the primitives' drawings.
  *
  * Every class is prefixed `rep-kit-` and every colour comes from
- * `repertory/tokens.css`; the one brass is `--rep-house`, and no palette value
- * lives here.
+ * `tokens.css` beside this sheet; the one brass is `--rep-house`, and no
+ * palette value lives here.
  *
  * The rules refuse what the design record refuses: no radius (the pending
  * spinner is the one circle), no shadows as depth, no fill inversion on focus,
- * no lift. Focus is the shared ivory keyline from `repertory.css`; a poster or
- * continue card draws it on the art's edge so a scrollport cannot crop it.
+ * no lift. Focus is the shared ivory keyline below; a poster or continue card
+ * draws it on the art's edge so a scrollport cannot crop it.
  */
+
+@import "./tokens.css";
+
+/* --------------------------------------------------------------------------
+ * Focus: one ivory keyline, one spotlight wash
+ * -------------------------------------------------------------------------- */
+
+[data-focusable] {
+  transition:
+    background-color var(--rep-motion-fade) var(--rep-ease),
+    color var(--rep-motion-fade) var(--rep-ease),
+    outline-color var(--rep-motion-fade) var(--rep-ease);
+}
+
+[data-focusable]:focus,
+[data-focusable]:focus-visible {
+  outline: var(--rep-focus-ring);
+  outline-offset: var(--rep-focus-offset);
+  box-shadow: none;
+}
 
 /* --------------------------------------------------------------------------
  * Pending spinner — the one circle
@@ -250,8 +270,8 @@
 
 /* The keyline lives on the art, inset 3px, so a scrollport never crops it.
  * `[data-focusable]` is carried so this reset outranks the shared focus rule
- * in `repertory.css`; without it the art would draw both the outside keyline
- * and this one. */
+ * above; without it the art would draw both the outside keyline and this
+ * one. */
 .rep-kit-poster[data-focusable]:focus,
 .rep-kit-poster[data-focusable]:focus-visible,
 .rep-kit-continue[data-focusable]:focus,
@@ -514,146 +534,6 @@
 
 .rep-kit-continue[data-unplayable="true"] .rep-kit-continue-note {
   color: var(--rep-status-red);
-}
-
-/* --------------------------------------------------------------------------
- * Row track — a numbered head over a page of cards
- * -------------------------------------------------------------------------- */
-
-.rep-kit-row {
-  display: flex;
-  flex-direction: column;
-  gap: var(--rep-space-5);
-  min-width: 0;
-}
-
-/* The head is one hairline: index in mono, the name in display serif, the rule
- * to the trailing end, the tag in mono. `row-rule` is the flex spacer; the
- * header's bottom border is the drawn line. */
-.rep-kit-row-head {
-  display: flex;
-  align-items: baseline;
-  gap: var(--rep-space-4);
-  padding-bottom: var(--rep-space-3);
-  border-bottom: 1px solid var(--rep-hairline);
-}
-
-.rep-kit-row-index {
-  flex: none;
-  color: var(--rep-house);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-mono);
-}
-
-.rep-kit-row-title {
-  flex: none;
-  margin: 0;
-  color: var(--rep-ivory);
-  font-family: var(--rep-display);
-  font-size: var(--rep-text-section);
-  font-weight: 500;
-  line-height: var(--rep-leading-display);
-  letter-spacing: var(--rep-tracking-display);
-}
-
-.rep-kit-row-rule {
-  flex: 1;
-  height: 1px;
-}
-
-.rep-kit-row-tag {
-  flex: none;
-  color: var(--rep-muted);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-mono);
-  white-space: nowrap;
-}
-
-.rep-kit-row-action {
-  flex: none;
-}
-
-.rep-kit-row-viewport {
-  position: relative;
-  min-width: 0;
-}
-
-.rep-kit-row-track {
-  display: flex;
-  gap: var(--rep-row-gap);
-  margin: 0;
-  padding: 6px 3px 10px;
-  list-style: none;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  touch-action: pan-y;
-}
-
-.rep-kit-row-track::-webkit-scrollbar {
-  display: none;
-}
-
-/* One view holds `--row-visible` cards; the gap count is one fewer than the
- * whole cards in that view, so five-and-a-half cards see five gaps. Nothing
- * snaps and nothing keeps an inertia. */
-.rep-kit-row-item {
-  flex: 0 0 calc(
-    (100% - var(--row-gap-count) * var(--rep-row-gap)) / var(--row-visible)
-  );
-  min-width: 0;
-}
-
-.rep-kit-row-item > * {
-  width: 100%;
-}
-
-.rep-kit-row-track img {
-  -webkit-user-drag: none;
-  user-select: none;
-}
-
-.rep-kit-row-arrow {
-  position: absolute;
-  top: 50%;
-  z-index: 2;
-  display: grid;
-  place-items: center;
-  width: max(44px, calc(var(--rep-stage) * 2.2));
-  height: max(56px, calc(var(--rep-stage) * 3.2));
-  padding: 0;
-  border: 1px solid var(--rep-hairline);
-  border-radius: 0;
-  background: var(--rep-ink);
-  color: var(--rep-dim);
-  cursor: pointer;
-  transform: translateY(-50%);
-}
-
-.rep-kit-row-arrow svg {
-  width: 55%;
-  height: 55%;
-}
-
-.rep-kit-row-arrow:hover:not(:disabled) {
-  border-color: var(--rep-house-deep);
-  color: var(--rep-ivory);
-}
-
-.rep-kit-row-arrow:disabled {
-  border-color: var(--rep-hairline);
-  color: var(--rep-muted);
-  opacity: 0.35;
-  cursor: default;
-}
-
-.rep-kit-row-arrow-left {
-  left: 0;
-}
-
-.rep-kit-row-arrow-right {
-  right: 0;
 }
 
 /* --------------------------------------------------------------------------

@@ -11,8 +11,8 @@ import {
 } from "../../core/title";
 import { useShell } from "../context";
 import { addonLabel } from "../../core/home";
-import { Icon } from "./icons";
-import { ChoiceChip } from "./kit";
+import { Icon } from "../../kit/icons";
+import { ChoiceChip } from "../../kit/Chip";
 import { StreamsLoader } from "../StreamsScreen";
 import { programIndex } from "./program";
 import { titleFacts, titleSide, unmappedOf } from "../../core/titlePage";

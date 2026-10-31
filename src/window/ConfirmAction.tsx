@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import type { Action } from "../core/wire";
 import type { ActionError } from "../core/errors";
 import { useShell, type NewShellLevel } from "./context";
-import { ConfirmDialog } from "./repertory/kit";
+import { ConfirmDialog } from "../kit/ConfirmDialog";
 import { Refusal } from "./Refusal";
 
 export type ConfirmActionOptions = {

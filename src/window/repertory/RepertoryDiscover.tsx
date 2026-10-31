@@ -28,7 +28,9 @@ import {
 } from "./editorial";
 import { EditorialGrid } from "./EditorialGrid";
 import { EditorialRow, FeedPagingAction } from "./EditorialRow";
-import { Button, ChoiceChip, PosterCard } from "./kit";
+import { Button } from "../../kit/Button";
+import { ChoiceChip } from "../../kit/Chip";
+import { PosterCard } from "../../kit/PosterCard";
 import { PREVIEW_ADDON } from "./preview";
 import { ProgrammeLine } from "./ProgrammeLine";
 import { programIndex, yearOf } from "./program";

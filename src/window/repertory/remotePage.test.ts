@@ -7,7 +7,7 @@ import tmdbLogo from "../../assets/tmdb-logo.svg?raw";
 import appearance from "../../subtitle-appearance.json?raw";
 import languages from "../../subtitle-languages.json?raw";
 import buffer from "../../stream-buffer.json?raw";
-import repertoryTokens from "./tokens.css?raw";
+import repertoryTokens from "../../kit/tokens.css?raw";
 
 /**
  * The served Remote's own smoke (#159, cut over to `/` in #160).

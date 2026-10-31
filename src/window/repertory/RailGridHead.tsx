@@ -1,4 +1,4 @@
-import { Button } from "./kit";
+import { Button } from "../../kit/Button";
 
 /**
  * The head of a whole-row grid: the programme's index, the row's name, its

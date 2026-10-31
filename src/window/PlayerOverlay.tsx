@@ -27,7 +27,8 @@ import { formatTime, playingName, transportable } from "../core/playback";
 import { labelOf } from "../core/title";
 import { useShell } from "./context";
 import { FullscreenButton } from "./FullscreenButton";
-import { Button, PendingSpinner } from "./repertory/kit";
+import { Button } from "../kit/Button";
+import { PendingSpinner } from "../kit/PendingSpinner";
 import { FOCUSABLE } from "./layout";
 import { Refusal } from "./Refusal";
 import { usePending } from "./usePending";
@@ -51,7 +52,7 @@ import {
 } from "./PlayerPopovers";
 import { usePreviewData } from "./repertory/context";
 import { POPOVER_RISE_PX } from "./repertory/frame";
-import { Icon } from "./repertory/icons";
+import { Icon } from "../kit/icons";
 import { fade, panel } from "../core/react/motion";
 import { focusAndReveal } from "./reveal";
 import { useOsdVisibility } from "./useOsdVisibility";

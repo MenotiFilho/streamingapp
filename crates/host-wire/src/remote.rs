@@ -46,7 +46,7 @@ const TEMPLATE: &str = include_str!("../remote/index.html");
 /// The repertory token sheet (#145–#149, #153), the same file the window
 /// imports. The remote splices it rather than keeping a second `:root` block on
 /// disk.
-const REPERTORY_TOKENS: &str = include_str!("../../../src/window/repertory/tokens.css");
+const REPERTORY_TOKENS: &str = include_str!("../../../src/kit/tokens.css");
 
 /// The same drawn icon set the window renders (#153), spliced into the served
 /// page as a symbol sprite (#159). One set, two clients.
@@ -212,7 +212,7 @@ mod tests {
         TMDB_LOGO,
     };
 
-    const ICONS_SOURCE: &str = include_str!("../../../src/window/repertory/icons.tsx");
+    const ICONS_SOURCE: &str = include_str!("../../../src/kit/icons.tsx");
     const PACKAGE_JSON: &str = include_str!("../../../package.json");
 
     /// Every SVG path `d` attribute in a source, for the sprite/window compare.

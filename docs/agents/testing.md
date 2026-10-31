@@ -31,7 +31,7 @@ Rust is tested the usual way (`cargo test`, seams with in-memory fakes — see
 | Pure decisions (`focus`, `input`, `controls`, `navigation`, `layout`, `reveal`, `osd`, `homeStore`, `program`, `settings`, `previewState`, the parsers) | Leave it. These are the tests the rule is named after. |
 | Hooks that drive the window (`useFullscreen`, `useSpatialFocus`, `usePending`) | Leave it. The hook's contract is behaviour. |
 | The repertory prototype's suites (`repertory/screens`, `logbook`, `player`) | Inherit as the baseline and extend to the gate. |
-| The repertory kit (`repertory/kit/*`) | Built by #153: each primitive's props contract — focusable, disabled, paging, selection, pending — asserted without the drawing. The Velvet kit (`kit/*`) stays frozen with its suites until #160. |
+| The repertory kit (`src/kit/*`) | Built by #153: each primitive's props contract — focusable, disabled, paging, selection, pending — asserted without the drawing. The Velvet kit (`kit/*`) stays frozen with its suites until #160. |
 | A Velvet screen (`Home`, `Title`, `Settings`, `Addons`, `Search`, `Discover`, `Shell`, `ShellFrame`, `Library`) | **Mine then freeze.** Read it for the rules it encodes, extract each into a module and test the module. Do not edit the file; it stays green until #160 deletes it. |
 | `PlayerOverlay` | **Adapt deep** at #159: the OSD keeps its focus ladder, pad, idle window, pending states, refusals and popover dismissal, re-pointed at the repertory OSD. |
 | `kit/tokens` (Velvet palette) | Dies with Velvet at #160; `repertory/tokens` carries the contrast lock. |

@@ -1,4 +1,4 @@
-import { Icon } from "./icons";
+import { Icon } from "../../kit/icons";
 
 export type RailMoreCardProps = {
   /** The row this card opens; its accessible name is `More <title>`. */

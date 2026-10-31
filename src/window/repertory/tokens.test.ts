@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { contrastRatio, readToken } from "./contrast";
 import osdCss from "./osd.css?raw";
 import repertoryCss from "./repertory.css?raw";
-import tokensCss from "./tokens.css?raw";
+import tokensCss from "../../kit/tokens.css?raw";
 
 const ink = readToken(tokensCss, "--rep-ink");
 const inkRaised = readToken(tokensCss, "--rep-ink-raised");
@@ -69,7 +69,7 @@ describe("the one palette", () => {
       // guard it when it is there rather than pinning the test to a path that
       // may not exist yet.
       ...Object.entries(
-        import.meta.glob<string>("./kit/kit.css", {
+        import.meta.glob<string>("../../kit/kit.css", {
           eager: true,
           query: "?raw",
           import: "default",
