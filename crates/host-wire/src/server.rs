@@ -28,7 +28,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use host_core::{
     Action, ActionError, Answer, ClientFrame, DeviceId, DeviceSummary, DeviceToken, Response,
@@ -46,6 +46,17 @@ const READ_TIMEOUT: Duration = Duration::from_millis(200);
 
 /// How often the listener looks at whether it has been asked to stop.
 const ACCEPT_PAUSE: Duration = Duration::from_millis(25);
+
+/// How often an idle connection is pinged. The browser answers at the framing
+/// layer, so this costs the page nothing and keeps a home router's mapping for
+/// a phone whose screen has been off for a while.
+const PING_EVERY: Duration = Duration::from_secs(20);
+
+/// How long a connection may say nothing — not even a pong — before the Host
+/// hangs up on it. A phone that was suspended has already lost the connection
+/// in practice; this is how the Host's thread learns it. The client reconnects
+/// as soon as its page is visible again.
+const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// How many wrong pairing codes one connection may offer before the Host hangs
 /// up on it. A six-character code is thirty bits; five guesses is not a way to
@@ -214,10 +225,13 @@ fn connection(
     let subscription = broadcast.subscribe();
     let mut paired: Option<Paired> = None;
     let mut wrong_codes = 0u32;
+    let mut last_seen = Instant::now();
+    let mut last_ping = Instant::now();
 
     loop {
         match socket.read() {
             Ok(Message::Text(text)) => {
+                last_seen = Instant::now();
                 let mut conversation = Conversation {
                     surface,
                     paired: &mut paired,
@@ -231,8 +245,11 @@ fn connection(
             }
             Ok(Message::Close(_)) => return Ok(()),
             // A ping is answered by the framing layer on the next write; a pong
-            // is nobody's business; a binary frame has no meaning here.
-            Ok(_) => {}
+            // is the answer this Host asked for, and either is proof the client
+            // is still there. A binary frame has no meaning here.
+            Ok(_) => {
+                last_seen = Instant::now();
+            }
             Err(tungstenite::Error::Io(error))
                 if matches!(
                     error.kind(),
@@ -251,6 +268,45 @@ fn connection(
         if !push(surface, &subscription, &paired, socket)? {
             return Ok(());
         }
+
+        match keepalive(Instant::now(), last_seen, last_ping) {
+            Keepalive::Close => {
+                tracing::debug!("a remote connection stopped answering; closing it");
+                let _ = socket.close(None);
+                let _ = socket.flush();
+                return Ok(());
+            }
+            Keepalive::Ping => {
+                last_ping = Instant::now();
+                // The reply is the browser's, not the page's: a locked phone
+                // still answers it, and a dead one does not.
+                let _ = socket.send(Message::Ping(Vec::new().into()));
+            }
+            Keepalive::None => {}
+        }
+    }
+}
+
+/// What a connection's own clock says to do after a read and a push.
+#[derive(Debug, PartialEq, Eq)]
+enum Keepalive {
+    /// Nothing yet: keep reading, and keep looking for published state.
+    None,
+    /// The connection has been quiet long enough to ask whether anyone is there.
+    Ping,
+    /// The connection has said nothing, not even a pong, for too long.
+    Close,
+}
+
+/// The liveness decision at the two edges it defines: a connection is pinged
+/// after one quiet interval, and closed only after a longer one with no answer.
+fn keepalive(now: Instant, last_seen: Instant, last_ping: Instant) -> Keepalive {
+    if now.saturating_duration_since(last_seen) >= IDLE_TIMEOUT {
+        Keepalive::Close
+    } else if now.saturating_duration_since(last_ping) >= PING_EVERY {
+        Keepalive::Ping
+    } else {
+        Keepalive::None
     }
 }
 
@@ -287,10 +343,16 @@ fn push(
 ) -> io::Result<bool> {
     let _ = socket.flush();
     loop {
-        let snapshot = match subscription.try_recv() {
-            Some(snapshot) => snapshot,
-            None => return Ok(true),
+        // A Snapshot is the whole state, not a delta: if this connection has
+        // fallen behind, the newest one is the only one worth sending. A phone
+        // that slept through a minute of playback should hear where the Host is
+        // now, not replay every quarter-second it missed.
+        let Some(mut snapshot) = subscription.try_recv() else {
+            return Ok(true);
         };
+        while let Some(newer) = subscription.try_recv() {
+            snapshot = newer;
+        }
 
         let Some(paired) = paired.as_ref() else {
             // A connection that has not paired is not told what is playing.
@@ -509,5 +571,24 @@ pub struct Subscription {
 impl Subscription {
     fn try_recv(&self) -> Option<Snapshot> {
         self.receiver.try_recv().ok()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_quiet_connection_is_pinged_before_it_is_closed() {
+        let now = Instant::now();
+        assert_eq!(keepalive(now, now, now), Keepalive::None);
+        assert_eq!(
+            keepalive(now, now - PING_EVERY, now - PING_EVERY),
+            Keepalive::Ping
+        );
+        assert_eq!(
+            keepalive(now, now - IDLE_TIMEOUT, now - Duration::from_secs(1)),
+            Keepalive::Close
+        );
     }
 }
