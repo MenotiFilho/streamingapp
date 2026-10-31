@@ -169,6 +169,8 @@ export function PlayerOverlay() {
   const rememberedTop = useRef<HTMLElement | null>(null);
   /** Where an Up that summoned the OSD should land once it is drawn. */
   const pendingStop = useRef<PlayerStop | null>(null);
+  /** The step's synchronous guard: set before React paints, so one press starts. */
+  const steppingRef = useRef(false);
   const sawOpening = useRef(false);
   const wheel = useRef<{ level: number | null; timer: ReturnType<typeof setTimeout> | null }>({
     level: null,
@@ -319,6 +321,12 @@ export function PlayerOverlay() {
    */
   const step = useCallback(
     async (type: "previous_episode" | "next_episode") => {
+      // The two steps are different Actions, so the Session's door cannot join
+      // them: this ref is what drops a Next and a Previous pressed in one tick.
+      if (steppingRef.current) {
+        return;
+      }
+      steppingRef.current = true;
       setRefusal(null);
       const { side, action } = EPISODE_STEPS[type];
       // The side is set before the ask: a press the Session joins still shows
@@ -330,6 +338,7 @@ export function PlayerOverlay() {
           setRefusal(error);
         }
       } finally {
+        steppingRef.current = false;
         setStepSide(null);
       }
     },

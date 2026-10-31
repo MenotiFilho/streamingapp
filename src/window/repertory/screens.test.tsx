@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import type {
@@ -10,6 +10,7 @@ import type {
   Stream,
   Title,
 } from "../../core/wire";
+import { actionKey } from "../../core/actionKey";
 import { TauriLink, type Transport } from "../tauriLink";
 import { Shell } from "../Shell";
 import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContextValue } from "../context";
@@ -150,6 +151,14 @@ const PLAYABLE: Stream = {
   bingeGroup: null,
 };
 
+/** A second playable candidate, with its own Action key. */
+const SECOND_PLAYABLE: Stream = {
+  ...PLAYABLE,
+  name: "AIOStreams\n4k HDR",
+  playback: { kind: "direct", url: "https://stream.example.org/bb-s1e1-4k.mkv" },
+  filename: "Breaking.Bad.S01E01.2160p.mkv",
+};
+
 function harness(overrides: Partial<ShellContextValue> = {}) {
   const pushed: NewShellLevel[] = [];
   const take = vi.fn(async (_action: Action) => null);
@@ -188,6 +197,37 @@ function withShell(value: ShellContextValue, children: ReactNode, preview = fals
     <ShellContext.Provider value={value}>
       <PreviewDataProvider value={preview}>{children}</PreviewDataProvider>
     </ShellContext.Provider>
+  );
+}
+
+/**
+ * The Streams screen over a pending set the press itself fills, the way the
+ * Session's pending keys do. The gate keeps the one Action in flight.
+ */
+function PendingStreams({ gate }: { gate: Promise<null> }) {
+  const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set<string>());
+  const take = useCallback(
+    async (action: Action) => {
+      setPending(new Set([actionKey(action)]));
+      try {
+        return await gate;
+      } finally {
+        setPending(new Set<string>());
+      }
+    },
+    [gate],
+  );
+  const { value } = harness({ pending, take });
+
+  return withShell(
+    value,
+    <RepertoryStreamsScreen
+      title={SERIES}
+      video={SERIES.videos[0]!}
+      groups={[
+        { addon: "aiostreams", streams: [PLAYABLE, SECOND_PLAYABLE], failure: null },
+      ]}
+    />,
   );
 }
 
@@ -287,6 +327,86 @@ describe("the repertory Streams list", () => {
       stream: PLAYABLE,
       video: { type: "series", id: "tt0903747:1:1" },
     });
+  });
+
+  it("drops a second Stream pressed in the same tick, before the rows lock", async () => {
+    let release!: () => void;
+    const gate = new Promise<null>((resolve) => {
+      release = () => resolve(null);
+    });
+    const take = vi.fn((_action: Action) => gate);
+    const { value } = harness({ take });
+    render(
+      withShell(
+        value,
+        <RepertoryStreamsScreen
+          title={SERIES}
+          video={SERIES.videos[0]!}
+          groups={[
+            { addon: "aiostreams", streams: [PLAYABLE, SECOND_PLAYABLE], failure: null },
+          ]}
+        />,
+      ),
+    );
+
+    // Both clicks in one act: the rows have not painted disabled yet, so the
+    // control's own ref is what drops the second Stream.
+    act(() => {
+      fireEvent.click(screen.getByTestId("candidate-aiostreams-0"));
+      fireEvent.click(screen.getByTestId("candidate-aiostreams-1"));
+    });
+
+    expect(take).toHaveBeenCalledTimes(1);
+    expect(take.mock.calls[0]?.[0]).toMatchObject({
+      type: "play_stream",
+      stream: PLAYABLE,
+    });
+    // This harness holds no Session key, so the drawing does not claim rows are
+    // locked: the pending key is what locks them.
+    expect(screen.getByTestId("candidate-aiostreams-0")).toBeEnabled();
+    expect(screen.getByTestId("candidate-aiostreams-1")).toBeEnabled();
+
+    await act(async () => {
+      release();
+      await gate;
+    });
+
+    fireEvent.click(screen.getByTestId("candidate-aiostreams-1"));
+    await waitFor(() => expect(take).toHaveBeenCalledTimes(2));
+    expect(take.mock.calls[1]?.[0]).toMatchObject({
+      type: "play_stream",
+      stream: SECOND_PLAYABLE,
+    });
+  });
+
+  it("locks every row while the candidate's opening key is pending", async () => {
+    let release!: () => void;
+    const gate = new Promise<null>((resolve) => {
+      release = () => resolve(null);
+    });
+    render(<PendingStreams gate={gate} />);
+
+    fireEvent.click(screen.getByTestId("candidate-aiostreams-0"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("candidate-aiostreams-0")).toBeDisabled(),
+    );
+    expect(screen.getByTestId("candidate-aiostreams-1")).toBeDisabled();
+    expect(screen.getByTestId("candidate-aiostreams-0")).toHaveAttribute(
+      "aria-busy",
+      "true",
+    );
+    expect(screen.getByTestId("candidate-aiostreams-1")).not.toHaveAttribute(
+      "aria-busy",
+    );
+
+    await act(async () => {
+      release();
+      await gate;
+    });
+    await waitFor(() =>
+      expect(screen.getByTestId("candidate-aiostreams-1")).toBeEnabled(),
+    );
   });
 
   it("keeps a failed Addon and an empty one on their own groups without blanking the rest", () => {

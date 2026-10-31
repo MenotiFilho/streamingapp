@@ -4,13 +4,14 @@
  * The decision is the Host's and the behaviour is frozen (#27, #137): a
  * candidate this Host can open is taken back to the Host with its Title card,
  * a candidate it cannot is marked where it stands and asks the Host nothing,
- * and a second press of the same candidate joins the Action already in flight
- * rather than sending it twice. Only the drawing of that decision belongs to a
- * surface, which is why this hook lives beside `StreamsScreen` rather than
- * inside it.
+ * and every row is locked while one candidate is opening. Two guards enforce
+ * that (ADR-0027 §2): this control's ref drops a second press before React
+ * paints, and the Session's door joins an identical Action. Only the drawing of
+ * that decision belongs to a surface, which is why this hook lives beside
+ * `StreamsScreen` rather than inside it.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
 import { actionKey } from "../core/actionKey";
 import type { Action, Stream, Title, Video } from "../core/wire";
@@ -35,6 +36,9 @@ export function useStreamChoice(
 ): StreamChoice {
   const { take, pending } = useShell();
   const [chosen, setChosen] = useState<Stream | null>(null);
+  // The control's synchronous guard: set before React paints, so two presses in
+  // one tick cannot both start. The hook is the door's join, not this layer.
+  const openingRef = useRef(false);
   // The candidate whose press is on its way, and the one Action it sent. The
   // wait is derived from the Session's pending key, so a joined press shows the
   // same wait rather than a second one.
@@ -46,6 +50,14 @@ export function useStreamChoice(
         setChosen(stream);
         return;
       }
+
+      // Every row is locked while one candidate is opening: a press that lands
+      // before the drawing disables it is dropped here, not sent as a second
+      // play_stream. Its different key would not join at the Session's door.
+      if (openingRef.current) {
+        return;
+      }
+      openingRef.current = true;
 
       setChosen(null);
       // One Action, built once: the same one is taken and whose key names the
@@ -61,6 +73,7 @@ export function useStreamChoice(
       try {
         await take(action);
       } finally {
+        openingRef.current = false;
         setOpening(null);
       }
     },
