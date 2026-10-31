@@ -1,7 +1,8 @@
 import { Children, type ReactNode } from "react";
 
 import { explain, type ActionError } from "../../core/errors";
-import { Button, RowTrack } from "./kit";
+import { Button } from "../../kit/Button";
+import { RowTrack } from "../RowTrack";
 import { RAIL_PAGE, RAIL_VISIBLE } from "./rail";
 import { RailMoreCard } from "./RailMoreCard";
 

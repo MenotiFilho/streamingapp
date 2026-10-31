@@ -12,7 +12,7 @@ import {
 import type { OpenablePreview } from "../../core/title";
 import { useShell } from "../context";
 import { addonLabel } from "../../core/home";
-import { PendingSpinner } from "./kit";
+import { PendingSpinner } from "../../kit/PendingSpinner";
 import { useStreamChoice } from "../streamChoice";
 import { programIndex } from "./program";
 import { RowHead } from "./RowHead";

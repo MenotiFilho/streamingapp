@@ -23,7 +23,7 @@ import {
 } from "../core/controls";
 import type { Action, PlaybackSnapshot, Track } from "../core/wire";
 import { useShell, type NewShellLevel } from "./context";
-import { Popover } from "./repertory/kit";
+import { Popover } from "../kit/Popover";
 
 /** The five menus the OSD's icon buttons open, one level each. */
 export type OsdPopoverName = "picture" | "subtitles" | "audio" | "speed" | "chapters";

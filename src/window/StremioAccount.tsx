@@ -3,7 +3,7 @@ import { useState, type FormEvent } from "react";
 import type { ActionError } from "../core/errors";
 import { useShell } from "./context";
 import { confirmActionLevel } from "./ConfirmAction";
-import { Button } from "./repertory/kit";
+import { Button } from "../kit/Button";
 import { LogNote, LogRefusal } from "./repertory/RepertoryLog";
 
 /**

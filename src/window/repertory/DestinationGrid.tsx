@@ -1,6 +1,6 @@
 import { DESTINATIONS, type Destination } from "../navigation";
 import { DESTINATION_NOTES } from "../../core/destinationNotes";
-import { Icon } from "./icons";
+import { Icon } from "../../kit/icons";
 import { programIndex } from "./program";
 
 /**

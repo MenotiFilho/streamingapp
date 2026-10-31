@@ -1,6 +1,6 @@
 import type { Ref } from "react";
 
-import { Icon } from "./repertory/icons";
+import { Icon } from "../kit/icons";
 import { useFullscreen } from "./useFullscreen";
 
 /**

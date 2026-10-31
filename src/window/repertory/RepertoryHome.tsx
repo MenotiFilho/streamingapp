@@ -36,7 +36,10 @@ import {
   homeSectionIndex,
   rowTag,
 } from "./homeProgramme";
-import { Button, ContinueWatchingCard, PosterCard, RowTrack } from "./kit";
+import { Button } from "../../kit/Button";
+import { ContinueWatchingCard } from "../../kit/ContinueWatchingCard";
+import { PosterCard } from "../../kit/PosterCard";
+import { RowTrack } from "../RowTrack";
 import { fade } from "../../core/react/motion";
 import { ProgrammeLine } from "./ProgrammeLine";
 import { RailGrid } from "./RailGrid";

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-import { PosterCard } from "./PosterCard";
+import { PosterCard } from "../kit/PosterCard";
 import { RowTrack } from "./RowTrack";
 
 afterEach(() => {

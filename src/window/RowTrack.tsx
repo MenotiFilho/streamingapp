@@ -13,10 +13,10 @@ import {
   type ReactNode,
 } from "react";
 
-import { useReducedMotion } from "../../useReducedMotion";
-import { Icon } from "../icons";
-import { panel } from "../../../core/react/motion";
-import { cx } from "./cx";
+import { useReducedMotion } from "./useReducedMotion";
+import { Icon } from "../kit/icons";
+import { panel } from "../core/react/motion";
+import { cx } from "../kit/cx";
 import { pagedOffset } from "./rowPaging";
 
 export type RowTrackProps = {
