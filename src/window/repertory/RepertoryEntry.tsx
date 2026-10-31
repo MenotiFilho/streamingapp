@@ -1,19 +1,19 @@
 import { MotionConfig } from "motion/react";
 
-import type { HostClient } from "../host-client";
+import type { HostLink } from "../../core/link";
 import { Shell } from "../Shell";
 import "./repertory.css";
 
 interface RepertoryEntryProps {
-  client?: HostClient;
+  client?: HostLink;
 }
 
 /**
  * The window's entry point (#160).
  *
- * Renders the shell over the real `HostClient` in the Tauri window (or an
- * explicit client handed in by a test or the rehearsal entry). It never wires
- * the rehearsal preview transport or sample data on its own.
+ * Renders the shell over the real `TauriLink` in the Tauri window (or an
+ * explicit link handed in by a test or the rehearsal entry). It never wires the
+ * rehearsal preview transport or sample data on its own.
  */
 export function RepertoryEntry({ client }: RepertoryEntryProps = {}) {
   return (

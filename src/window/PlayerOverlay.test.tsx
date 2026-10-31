@@ -3,7 +3,7 @@ import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import type { Action, PlaybackSnapshot, ResumeEntry, Snapshot } from "../core/wire";
-import { HostClient, type Transport } from "./host-client";
+import { TauriLink, type Transport } from "./tauriLink";
 import {
   fakeWindowState,
   installTauriRuntime,
@@ -195,7 +195,7 @@ function fakeHost(
   };
 
   return {
-    client: new HostClient(transport),
+    client: new TauriLink(transport),
     invocations,
     publish(next: Snapshot) {
       current = next;

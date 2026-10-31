@@ -10,7 +10,7 @@ import type {
   Stream,
   Title,
 } from "../../core/wire";
-import { HostClient, type Transport } from "../host-client";
+import { TauriLink, type Transport } from "../tauriLink";
 import { Shell } from "../Shell";
 import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContextValue } from "../context";
 import { HomeStore } from "../../core/homeStore";
@@ -935,7 +935,7 @@ describe("the repertory editorial grid's backward path", () => {
       },
     };
 
-    render(<Shell client={new HostClient(transport)} />);
+    render(<Shell client={new TauriLink(transport)} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Discover" }));
     const more = await screen.findByTestId("more-discover:movie");

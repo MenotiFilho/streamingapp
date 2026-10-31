@@ -6,7 +6,14 @@ import type { ActionError } from "./errors";
  */
 export const ACTION_VERSION = 1;
 
-/** The event the Host publishes Snapshots on. Mirrors `SNAPSHOT_EVENT` in `src-tauri/src/ipc.rs`. */
+/**
+ * The event the Host publishes Snapshots on. Mirrors `SNAPSHOT_EVENT` in
+ * `src-tauri/src/ipc.rs`.
+ *
+ * The #190 resolution put it on the Tauri adapter; it stays here because the
+ * rehearsal's preview Host publishes on the same name, and moving it would make
+ * `previewHost` import the Tauri adapter it must know nothing about (#200).
+ */
 export const SNAPSHOT_EVENT = "host://snapshot";
 
 /** The Host's state as it travels outward. Mirrors `Snapshot` in `host-core`. */
