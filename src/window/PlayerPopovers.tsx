@@ -1,28 +1,19 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useIsPresent } from "motion/react";
 
 import {
-  ASPECTS,
-  DELAY_STEP,
-  SPEEDS,
-  aspectSelected,
-  chapterLabel,
-  cropChoices,
-  cropSelected,
-  formatDelay,
-  formatScale,
-  formatSpeed,
-  orderedTracks,
-  speedSelected,
-  statisticsLines,
-  stepDelay,
-  stepScale,
-  subtitlesOn,
-  trackLabel,
-  trackMarks,
-} from "../core/controls";
-import type { Action, PlaybackSnapshot, Track } from "../core/wire";
+  audioSection,
+  chaptersSection,
+  pictureSections,
+  speedSection,
+  STATISTICS_TOGGLE_KEY,
+  subtitleSections,
+  type PanelGroup,
+  type PanelRow,
+} from "../core/playerPanels";
+import type { Action, PlaybackSnapshot } from "../core/wire";
 import { useShell, type NewShellLevel } from "./context";
+import { MenuGroup, MenuReadout, MenuRow } from "../kit/Menu";
 import { Popover } from "../kit/Popover";
 
 /** The five menus the OSD's icon buttons open, one level each. */
@@ -186,293 +177,120 @@ function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopover
   );
 }
 
+/** Render the shared sections as this client's groups and rows. */
+function Sections({
+  groups,
+  onPress,
+}: {
+  groups: PanelGroup[];
+  onPress: (row: PanelRow) => void;
+}) {
+  return (
+    <>
+      {groups.map((group, index) => (
+        // The group's place is its identity: a delay group's title carries the
+        // value in force, and keying by it would remount the row a press left
+        // focus on.
+        <MenuGroup key={index} title={group.title}>
+          {group.rows.map((row) => (
+            <Row key={row.key} row={row} onPress={onPress} />
+          ))}
+        </MenuGroup>
+      ))}
+    </>
+  );
+}
+
+function Row({ row, onPress }: { row: PanelRow; onPress: (row: PanelRow) => void }) {
+  if (row.kind === "note") {
+    return (
+      <p className="rep-kit-menu-note" data-testid={row.key}>
+        {row.text}
+      </p>
+    );
+  }
+
+  if (row.kind === "readout") {
+    return (
+      <MenuReadout testId={row.key} label={row.label} value={row.value} lines={row.lines} />
+    );
+  }
+
+  return (
+    <MenuRow
+      testId={row.key}
+      label={row.label}
+      pressed={row.pressed}
+      marks={row.kind === "choice" ? row.marks : undefined}
+      disabled={row.disabled}
+      onPress={() => onPress(row)}
+    >
+      {row.text ?? row.label}
+    </MenuRow>
+  );
+}
+
+/** Send the row's one Action, where it has one. */
+function send(take: MenuProps["take"], row: PanelRow): void {
+  if (row.kind === "choice" || row.kind === "action") {
+    if (row.action) {
+      void take(row.action);
+    }
+  }
+}
+
 /** Aspect, the crop choices, the Autocrop toggle, and statistics. */
 function PictureMenu({ playback, take }: MenuProps) {
   const [showStatistics, setShowStatistics] = useState(false);
-  const crop = playback.crop;
 
   return (
-    <>
-      <Group title="Aspect">
-        {ASPECTS.map(({ label, aspect }) => (
-          <Item
-            key={label}
-            testId={`aspect-${label}`}
-            pressed={aspectSelected(playback.aspect, aspect)}
-            onClick={() => void take({ type: "set_aspect", aspect })}
-          >
-            {label}
-          </Item>
-        ))}
-      </Group>
-
-      <Group title="Crop">
-        {cropChoices(playback.resolution).map(({ label, crop: choice }) => (
-          <Item
-            key={label}
-            testId={`crop-${label}`}
-            pressed={cropSelected(crop, choice)}
-            onClick={() => void take({ type: "set_crop", crop: choice })}
-          >
-            {label}
-          </Item>
-        ))}
-        <Item testId="autocrop" onClick={() => void take({ type: "autocrop" })}>
-          {crop ? "Restore full frame" : "Autocrop"}
-        </Item>
-        <p className="shell-osd-readout tabular" data-testid="osd-crop-readout">
-          {crop
-            ? `Autocrop keeps ${crop.width}×${crop.height}+${crop.x}+${crop.y}.`
-            : "Autocrop keeps the whole frame."}
-        </p>
-      </Group>
-
-      <Group title="Statistics">
-        <Item
-          testId="toggle-statistics"
-          pressed={showStatistics}
-          onClick={() => setShowStatistics((shown) => !shown)}
-        >
-          {showStatistics ? "Hide statistics" : "Show statistics"}
-        </Item>
-        {showStatistics ? (
-          <dl className="shell-osd-statistics" data-testid="statistics">
-            {statisticsLines(playback.statistics).map(({ label, value }) => (
-              <Fragment key={label}>
-                <dt>{label}</dt>
-                <dd>{value}</dd>
-              </Fragment>
-            ))}
-          </dl>
-        ) : null}
-      </Group>
-    </>
+    <Sections
+      groups={pictureSections(playback, showStatistics)}
+      onPress={(row) => {
+        if (row.key === STATISTICS_TOGGLE_KEY) {
+          setShowStatistics((shown) => !shown);
+          return;
+        }
+        send(take, row);
+      }}
+    />
   );
 }
 
 /** Subtitle tracks embedded-first, subtitles off, the delay's tenth-of-a-second steps, and the size. */
 function SubtitlesMenu({ playback, subtitleScale, take }: SubtitlesMenuProps) {
-  const tracks = orderedTracks(playback.tracks, "subtitle");
-  const delay = playback.subtitleDelay ?? 0;
-
-  return (
-    <>
-      <Group title="Tracks">
-        {tracks.length === 0 ? (
-          <p className="shell-osd-note">This Stream carries no subtitle track to pick.</p>
-        ) : null}
-        {tracks.map((track) => (
-          <TrackItem key={track.id} track={track} onTake={take} />
-        ))}
-        <Item
-          testId="subtitles-off"
-          pressed={!subtitlesOn(playback.tracks)}
-          onClick={() => void take({ type: "set_subtitle_track", track: null })}
-        >
-          Subtitles off
-        </Item>
-      </Group>
-
-      <Group title={`Delay · ${formatDelay(delay)}`}>
-        <p className="shell-osd-readout tabular" data-testid="subtitle-delay">
-          {formatDelay(delay)}
-        </p>
-        <div className="shell-osd-delay">
-          <Item
-            testId="delay-back"
-            onClick={() =>
-              void take({
-                type: "set_subtitle_delay",
-                seconds: stepDelay(delay, -DELAY_STEP),
-              })
-            }
-          >
-            −0.1 s
-          </Item>
-          <Item
-            testId="delay-forward"
-            onClick={() =>
-              void take({
-                type: "set_subtitle_delay",
-                seconds: stepDelay(delay, DELAY_STEP),
-              })
-            }
-          >
-            +0.1 s
-          </Item>
-          <Item
-            testId="delay-reset"
-            pressed={delay === 0}
-            onClick={() => void take({ type: "set_subtitle_delay", seconds: 0 })}
-          >
-            Reset
-          </Item>
-        </div>
-      </Group>
-
-      <Group title="Size">
-        <p
-          className="shell-osd-readout tabular"
-          data-testid="subtitle-scale"
-          aria-label={`Subtitle size ${formatScale(subtitleScale)}`}
-        >
-          {`Subtitle size ${formatScale(subtitleScale)}`}
-        </p>
-        <div className="shell-osd-delay">
-          <Item
-            testId="subtitle-scale-down"
-            label="Smaller subtitles"
-            onClick={() =>
-              void take({
-                type: "set_subtitle_scale",
-                scale: stepScale(subtitleScale, -1),
-              })
-            }
-          >
-            −
-          </Item>
-          <Item
-            testId="subtitle-scale-up"
-            label="Larger subtitles"
-            onClick={() =>
-              void take({
-                type: "set_subtitle_scale",
-                scale: stepScale(subtitleScale, 1),
-              })
-            }
-          >
-            +
-          </Item>
-        </div>
-      </Group>
-    </>
-  );
+  return <Sections groups={subtitleSections(playback, subtitleScale)} onPress={(row) => send(take, row)} />;
 }
 
 /** The Stream's audio tracks, embedded-first. */
 function AudioMenu({ playback, take }: MenuProps) {
-  const tracks = orderedTracks(playback.tracks, "audio");
-
-  return (
-    <Group title="Tracks">
-      {tracks.length === 0 ? (
-        <p className="shell-osd-note">This Stream carries no audio track to pick.</p>
-      ) : null}
-      {tracks.map((track) => (
-        <TrackItem key={track.id} track={track} onTake={take} />
-      ))}
-    </Group>
-  );
+  return <Sections groups={[audioSection(playback)]} onPress={(row) => send(take, row)} />;
 }
 
 /** The rates a person can pick, with the one in force marked. */
 function SpeedMenu({ playback, take }: MenuProps) {
-  return (
-    <Group title="Playback speed">
-      {SPEEDS.map((rate) => (
-        <Item
-          key={rate}
-          testId={`speed-${rate}`}
-          pressed={speedSelected(playback.speed, rate)}
-          onClick={() => void take({ type: "set_speed", rate })}
-        >
-          {formatSpeed(rate)}
-        </Item>
-      ))}
-    </Group>
-  );
+  return <Sections groups={[speedSection(playback)]} onPress={(row) => send(take, row)} />;
 }
 
 /**
  * The container's chapters, in its own order. Choosing one is `set_chapter`;
- * there are deliberately no step buttons here (#50, #57).
+ * the window deliberately draws no step buttons here (#50, #57), so the section
+ * builder's Previous/Next rows are filtered out by this client alone.
  */
 function ChaptersMenu({ playback, take }: MenuProps) {
-  return (
-    <Group title="Chapters">
-      {playback.chapters.length === 0 ? (
-        <p className="shell-osd-note">This Stream lists no chapters.</p>
-      ) : null}
-      {playback.chapters.map((chapter) => (
-        <Item
-          key={chapter.index}
-          testId={`chapter-${chapter.index}`}
-          pressed={playback.chapter === chapter.index}
-          onClick={() => void take({ type: "set_chapter", index: chapter.index })}
-        >
-          <span>{chapterLabel(chapter)}</span>
-        </Item>
-      ))}
-    </Group>
-  );
-}
+  const section = chaptersSection(playback);
+  const groups: PanelGroup[] = [
+    {
+      ...section,
+      rows: section.rows.filter(
+        (row) =>
+          !(
+            row.kind === "action" &&
+            (row.action?.type === "previous_chapter" || row.action?.type === "next_chapter")
+          ),
+      ),
+    },
+  ];
 
-/** One track choice: its own words, the marks the container gave it, and the Action. */
-function TrackItem({
-  track,
-  onTake,
-}: {
-  track: Track;
-  onTake: (action: Action) => Promise<unknown>;
-}) {
-  const marks = trackMarks(track);
-  return (
-    <Item
-      testId={`track-${track.kind}-${track.id}`}
-      pressed={track.selected}
-      onClick={() =>
-        void onTake(
-          track.kind === "audio"
-            ? { type: "set_audio_track", track: track.id }
-            : { type: "set_subtitle_track", track: track.id },
-        )
-      }
-    >
-      <span>{trackLabel(track)}</span>
-      {marks.length > 0 ? (
-        <span className="shell-osd-marks">{marks.join(" · ")}</span>
-      ) : null}
-    </Item>
-  );
-}
-
-function Group({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="shell-osd-group">
-      <h3 className="shell-osd-group-title" data-group>
-        {title}
-      </h3>
-      {children}
-    </div>
-  );
-}
-
-/** One full-width row in a popover: a choice, marked with `aria-pressed` where it is one. */
-function Item({
-  testId,
-  label,
-  pressed,
-  onClick,
-  children,
-}: {
-  testId?: string;
-  /** The accessible name, where the visible text is a glyph. */
-  label?: string;
-  pressed?: boolean;
-  onClick: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      className="shell-osd-item"
-      data-focusable
-      data-testid={testId}
-      aria-label={label}
-      aria-pressed={pressed}
-      onClick={onClick}
-    >
-      {children}
-    </button>
-  );
+  return <Sections groups={groups} onPress={(row) => send(take, row)} />;
 }

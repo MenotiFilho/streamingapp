@@ -14,6 +14,7 @@ import { actionKey } from "../../core/actionKey";
 import { TauriLink, type Transport } from "../tauriLink";
 import { Shell } from "../Shell";
 import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContextValue } from "../context";
+import { quietSession } from "../session.testing";
 import { HomeStore } from "../../core/homeStore";
 import { PreviewDataProvider } from "./context";
 import { RepertoryDiscoverScreen } from "./RepertoryDiscover";
@@ -164,6 +165,7 @@ function harness(overrides: Partial<ShellContextValue> = {}) {
   const take = vi.fn(async (_action: Action) => null);
   const ask = vi.fn(async (_action: Action) => ({ response: null, error: null }));
   const value: ShellContextValue = {
+    session: quietSession(),
     snapshot: SNAPSHOT,
     error: null,
     destination: "home",

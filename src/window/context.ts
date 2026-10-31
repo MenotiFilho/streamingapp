@@ -5,6 +5,7 @@ import type { Action, Response, Snapshot } from "../core/wire";
 import type { ActionError } from "../core/errors";
 import type { Intent } from "../core/input";
 import type { HomeStore } from "../core/homeStore";
+import type { Session } from "../core/session";
 import type { Destination, NewShellLevel } from "./navigation";
 
 export type { NewShellLevel };
@@ -18,6 +19,8 @@ export type { ActionOutcome };
 
 /** What every screen under the shell can ask of it. */
 export type ShellContextValue = {
+  /** The one Session over this client's link: the Snapshot, the pending keys and the one alert. */
+  session: Session;
   /** What the Host last published, or null before the first answer. */
   snapshot: Snapshot | null;
   /** Why the last Action this window took was refused, where one was. */

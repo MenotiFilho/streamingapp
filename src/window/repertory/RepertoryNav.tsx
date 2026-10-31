@@ -2,7 +2,7 @@ import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 
 import { DESTINATIONS, type Destination } from "../navigation";
-import { useReducedMotion } from "../useReducedMotion";
+import { useReducedMotion } from "../../core/react/useReducedMotion";
 import { spineDestinations, spineLabelTransition, spineWidthTransition } from "./frame";
 import { Icon } from "../../kit/icons";
 import {
