@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import type { Action, ResumeEntry, Snapshot } from "../../core/wire";
-import { HostClient, type Transport } from "../host-client";
+import { TauriLink, type Transport } from "../tauriLink";
 import { Shell } from "../Shell";
 import { PreviewDataProvider } from "./context";
 
@@ -150,7 +150,7 @@ function fakeHost(initial: Snapshot, hold?: Hold) {
     },
   };
 
-  return { client: new HostClient(transport), invocations };
+  return { client: new TauriLink(transport), invocations };
 }
 
 function actions(

@@ -1,8 +1,7 @@
 import { useMemo } from "react";
 
-import { HostClient } from "../host-client";
+import { PreviewLink } from "../previewLink";
 import { PreviewDataProvider } from "./context";
-import { previewTransport } from "./previewHost";
 import { RepertoryEntry } from "./RepertoryEntry";
 
 /**
@@ -14,7 +13,7 @@ import { RepertoryEntry } from "./RepertoryEntry";
  * production entry (`RepertoryEntry`) never imports or activates either.
  */
 export function RehearsalEntry() {
-  const client = useMemo(() => new HostClient(previewTransport), []);
+  const client = useMemo(() => new PreviewLink(), []);
 
   return (
     <PreviewDataProvider value={true}>

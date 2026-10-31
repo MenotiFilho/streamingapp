@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 
 import type { Action, Response, Snapshot } from "../core/wire";
 import { asActionError, explain, type ActionError } from "../core/errors";
-import { HostClient } from "./host-client";
+import type { HostLink } from "../core/link";
+import { TauriLink } from "./tauriLink";
 import type { Intent } from "../core/input";
 import { watching } from "../core/playback";
 import { actionKey, repeats } from "../core/actionKey";
@@ -32,8 +33,8 @@ const PLAYER_LEVEL = "player";
  * disturbing the focus underneath. The player is a level like any other; when
  * it stops, the browsing stack that was underneath is exactly where it was.
  */
-export function Shell({ client }: { client?: HostClient }) {
-  const host = useMemo(() => client ?? new HostClient(), [client]);
+export function Shell({ client }: { client?: HostLink }) {
+  const host = useMemo(() => client ?? new TauriLink(), [client]);
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [error, setError] = useState<ActionError | null>(null);
   const [nav, dispatch] = useReducer(navigate, INITIAL_NAVIGATION);
@@ -77,20 +78,9 @@ export function Shell({ client }: { client?: HostClient }) {
   // Follow the Host first, then ask it where things stand: an update that lands
   // while the first read is in flight then still wins on revision.
   useEffect(() => {
-    let stop: (() => void) | undefined;
-    let closed = false;
-    void host.onSnapshot(publish).then((unlisten) => {
-      if (closed) {
-        unlisten();
-      } else {
-        stop = unlisten;
-      }
-    });
+    const stop = host.onSnapshot(publish);
     void host.snapshot().then(publish).catch((caught: unknown) => setError(asActionError(caught)));
-    return () => {
-      closed = true;
-      stop?.();
-    };
+    return stop;
   }, [host, publish]);
 
   /** The same, with the refusal returned rather than raised as the window's alert. */

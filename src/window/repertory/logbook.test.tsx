@@ -11,7 +11,7 @@ import type {
   Snapshot,
 } from "../../core/wire";
 import type { ActionError } from "../../core/errors";
-import { HostClient, type Transport } from "../host-client";
+import { TauriLink, type Transport } from "../tauriLink";
 import { ShellContext, type NewShellLevel, type ShellContextValue } from "../context";
 import { HomeStore } from "../../core/homeStore";
 import { Shell } from "../Shell";
@@ -675,7 +675,7 @@ describe("the repertory Settings register", () => {
   });
 });
 
-function fakeHostClient(snapshot: Snapshot): HostClient {
+function fakeHost(snapshot: Snapshot): TauriLink {
   const transport: Transport = {
     invoke: async <T,>(command: string): Promise<T> => {
       if (command === "snapshot") {
@@ -687,12 +687,12 @@ function fakeHostClient(snapshot: Snapshot): HostClient {
       return () => undefined;
     },
   };
-  return new HostClient(transport);
+  return new TauriLink(transport);
 }
 
 describe("the repertory frame's destinations", () => {
   test("routes every destination, and pushes Credentials from the register", async () => {
-    render(<Shell client={fakeHostClient(SNAPSHOT)} />);
+    render(<Shell client={fakeHost(SNAPSHOT)} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Addons" }));
     expect(await screen.findByRole("heading", { name: "Addons" })).toBeInTheDocument();
@@ -729,7 +729,7 @@ describe("the repertory frame's destinations", () => {
   });
 
   test("a Settings leaf keeps the spine live, and Back restores the row that opened it", async () => {
-    render(<Shell client={fakeHostClient(SNAPSHOT)} />);
+    render(<Shell client={fakeHost(SNAPSHOT)} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
     const category = await screen.findByTestId("settings-category-credentials");
@@ -749,7 +749,7 @@ describe("the repertory frame's destinations", () => {
   });
 
   test("Back from the Addons base returns to Home", async () => {
-    render(<Shell client={fakeHostClient(SNAPSHOT)} />);
+    render(<Shell client={fakeHost(SNAPSHOT)} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "Addons" }));
     expect(await screen.findByRole("heading", { name: "Addons" })).toBeInTheDocument();

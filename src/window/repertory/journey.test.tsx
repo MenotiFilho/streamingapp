@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 
 import type { Action, AddonManifest, Snapshot, Stream, Title } from "../../core/wire";
-import { HostClient, type Transport } from "../host-client";
+import { TauriLink, type Transport } from "../tauriLink";
 import { Shell } from "../Shell";
 
 /**
@@ -178,7 +178,7 @@ function fakeHost() {
   };
 
   return {
-    client: new HostClient(transport),
+    client: new TauriLink(transport),
     invocations,
     actions(): Action[] {
       return invocations

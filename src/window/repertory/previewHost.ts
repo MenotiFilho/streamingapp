@@ -15,7 +15,7 @@
  * credentials and paired devices are kept in this window and published as
  * Snapshots. The address, pairing code and devices are samples named as such;
  * no new Action is invented, and the preview never runs in Tauri, where the
- * real HostClient answers with the Host's own state.
+ * real TauriLink answers with the Host's own state.
  */
 
 import {
@@ -30,7 +30,7 @@ import {
   type Video,
 } from "../../core/wire";
 import type { ActionError } from "../../core/errors";
-import type { Transport } from "../host-client";
+import type { Transport } from "../transport";
 import {
   cinemetaPreviews,
   CINEMETA_MOVIE_GENRES,
@@ -492,7 +492,8 @@ function refuse(error: ActionError): never {
 
 let ticker: ReturnType<typeof setInterval> | null = null;
 
-function stopTicker(): void {
+/** Stop the rehearsal's clock; the preview's link calls this when it closes. */
+export function stopTicker(): void {
   if (ticker !== null) {
     clearInterval(ticker);
     ticker = null;

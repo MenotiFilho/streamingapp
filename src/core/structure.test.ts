@@ -36,6 +36,16 @@ const kitSources = import.meta.glob<string>("../kit/**/*.{ts,tsx}", {
   import: "default",
 });
 
+/**
+ * The window's sources, read as text, for the one rule about the rehearsal's
+ * link: it is a client of the preview Host and never of Tauri (ADR-0035 §1).
+ */
+const windowSources = import.meta.glob<string>("../window/**/*.{ts,tsx}", {
+  eager: true,
+  query: "?raw",
+  import: "default",
+});
+
 type Source = { file: string; text: string };
 
 /**
@@ -372,5 +382,56 @@ describe("the kit", () => {
       "src/kit/Probe.tsx imports @tauri-apps/api/core",
       "src/kit/Probe.tsx names localStorage or WebSocket",
     ]);
+  });
+});
+
+describe("the window's rehearsal", () => {
+  test("the preview link is built without a Tauri module", () => {
+    // The rehearsal mounts the same room as the window, so `Shell` keeps its
+    // `TauriLink` default; what must not happen is the preview's own link — and
+    // everything it is built from — reaching a Tauri module (ADR-0035 §1).
+    const sources = new Map(
+      sourcesIn("src/window", windowSources).map((source) => [source.file, source]),
+    );
+    const sourceAt = (path: string): Source | undefined =>
+      sources.get(path) ??
+      sources.get(`${path}.ts`) ??
+      sources.get(`${path}.tsx`);
+    const seen = new Set<string>();
+    const queue = ["src/window/previewLink.ts"];
+    const offenders: string[] = [];
+
+    while (queue.length > 0) {
+      const file = queue.pop();
+      if (file === undefined || seen.has(file)) {
+        continue;
+      }
+      seen.add(file);
+
+      const source = sourceAt(file);
+      if (!source) {
+        continue;
+      }
+
+      for (const specifier of importsOf(source.text)) {
+        if (specifier.startsWith("@tauri-apps")) {
+          offenders.push(`${file} imports ${specifier}`);
+          continue;
+        }
+        const target = resolves(file, specifier);
+        const next = target === null ? undefined : sourceAt(target);
+        if (next) {
+          queue.push(next.file);
+        }
+      }
+    }
+
+    expect(
+      offenders,
+      "the preview link points at the preview Host, never at Tauri",
+    ).toEqual([]);
+    expect(seen, "the walk reached the preview Host").toContain(
+      "src/window/repertory/previewHost.ts",
+    );
   });
 });
