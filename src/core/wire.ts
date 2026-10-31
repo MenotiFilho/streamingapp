@@ -554,6 +554,10 @@ export type AddonStreams = {
  * Snapshots every client is owed, and the answer only the client that asked gets.
  * A question is answered with catalogs, Discover rows, a Search row, a Title or
  * Streams, never several.
+ *
+ * The one difference is `paired`: the Host's wire answer carries the Device's
+ * token, and a link takes it out before the core sees it, so this mirror is the
+ * answer a client may hold (ADR-0035 §1).
  */
 export type Response = {
   snapshots: Snapshot[];
@@ -564,7 +568,10 @@ export type Response = {
     | { title: Title }
     | { streams: AddonStreams[] }
     | { preview: { at: number; image: string | null } }
-    | { paired: { device: DeviceSummary; token: string } }
+    // The Device token never crosses the client's door (ADR-0035 §1): a
+    // WebSocket link takes it out of the answer and stores it itself, so the
+    // core sees the Device and no credential.
+    | { paired: { device: DeviceSummary } }
     | { library: Library }
     | null;
 };

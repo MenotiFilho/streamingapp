@@ -165,6 +165,7 @@ function renderHome({
     chosenDestination,
     popover: null,
     unplayable: new Set<string>(),
+    pending: new Set<string>(),
     markUnplayable: vi.fn(),
     choose,
     push: vi.fn((level: NewShellLevel) => {

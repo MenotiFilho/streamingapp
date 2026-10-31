@@ -731,6 +731,45 @@ describe("the player OSD", () => {
     );
   });
 
+  test("a Next and a Previous pressed in the same tick send one episode Action", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const host = await renderPlayer(
+      { episode: { season: 1, episode: 2 } },
+      undefined,
+      [],
+      { type: "next_episode", gate },
+    );
+
+    // Both clicks in one act: React has not painted the disabled arrows yet, so
+    // only the control's own ref can drop the second press.
+    act(() => {
+      fireEvent.click(screen.getByTestId("next-episode"));
+      fireEvent.click(screen.getByTestId("previous-episode"));
+    });
+
+    await waitFor(() =>
+      expect(screen.getByTestId("next-episode")).toHaveAttribute("aria-busy", "true"),
+    );
+    expect(screen.getByTestId("next-episode")).toBeDisabled();
+    expect(screen.getByTestId("previous-episode")).toBeDisabled();
+    // The side that was pressed is the one drawn as waiting.
+    expect(screen.getByTestId("previous-episode")).not.toHaveAttribute("aria-busy");
+    expect(
+      actions(host.invocations).filter(
+        (action) => action.type === "next_episode" || action.type === "previous_episode",
+      ),
+    ).toEqual([{ type: "next_episode" }]);
+
+    await act(async () => {
+      release();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(screen.getByTestId("next-episode")).toBeEnabled());
+  });
+
   test("a paused Stream offers Play, and picture-toggle has the same meaning", async () => {
     const host = await renderPlayer({ state: "paused" });
 

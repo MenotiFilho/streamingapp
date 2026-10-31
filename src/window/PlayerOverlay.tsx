@@ -12,6 +12,7 @@ import {
 } from "react";
 
 import type { Action, Chapter, PlaybackSnapshot } from "../core/wire";
+import { actionKey } from "../core/actionKey";
 import type { ActionError } from "../core/errors";
 import {
   VOLUME_MAX,
@@ -31,7 +32,6 @@ import { Button } from "../kit/Button";
 import { PendingSpinner } from "../kit/PendingSpinner";
 import { FOCUSABLE } from "./layout";
 import { Refusal } from "./Refusal";
-import { usePending } from "./usePending";
 import { usePreview } from "./usePreview";
 import {
   bufferedSpan,
@@ -62,6 +62,21 @@ import "./repertory/osd.css";
 
 /** One press of the pad's volume faces, on the Host's 0–130 scale. */
 const VOLUME_STEP = 5;
+
+/** The two episode steps, and the keys whose pendingness is their one wait. */
+const NEXT_EPISODE: Action = { type: "next_episode" };
+const PREVIOUS_EPISODE: Action = { type: "previous_episode" };
+const NEXT_EPISODE_KEY = actionKey(NEXT_EPISODE);
+const PREVIOUS_EPISODE_KEY = actionKey(PREVIOUS_EPISODE);
+
+/** What each step is called on the strip, and the one Action it takes. */
+const EPISODE_STEPS: Record<
+  "previous_episode" | "next_episode",
+  { side: "previous" | "next"; action: Action }
+> = {
+  previous_episode: { side: "previous", action: PREVIOUS_EPISODE },
+  next_episode: { side: "next", action: NEXT_EPISODE },
+};
 
 /** The three places the player's D-pad ladder stops at, top to bottom. */
 type PlayerStop = "picture" | "strip" | "top";
@@ -120,7 +135,7 @@ function usable(element: HTMLElement | null, cluster: HTMLElement | null): eleme
  * strip's controls, and between Full screen and Stop.
  */
 export function PlayerOverlay() {
-  const { snapshot, take, ask, popover, pop, push, setIntentHandler } = useShell();
+  const { snapshot, take, ask, popover, pop, push, setIntentHandler, pending } = useShell();
   // The plain Vite window has no mpv, so the rehearsal paints the film's own
   // backdrop behind the OSD instead of a black hole. The Tauri window never
   // takes this branch: there the picture is mpv's (ADR-0003).
@@ -129,9 +144,18 @@ export function PlayerOverlay() {
   const [refusal, setRefusal] = useState<ActionError | null>(null);
   // The episode step is the wait a person sees: the Host asks the Addons for the
   // list and the neighbour's Stream under its change lock, so no Snapshot
-  // arrives until the step has resolved (#137, ADR-0022).
-  const { pending: stepping, run: stepOnce } = usePending();
+  // arrives until the step has resolved (#137, ADR-0022). Both arrows share one
+  // wait: a step either way is the same answer this strip is waiting for.
+  const pendingSide = pending.has(NEXT_EPISODE_KEY)
+    ? "next"
+    : pending.has(PREVIOUS_EPISODE_KEY)
+      ? "previous"
+      : null;
+  const stepping = pendingSide !== null;
   const [stepSide, setStepSide] = useState<"previous" | "next" | null>(null);
+  // The side the press named, or — where an overlapping step cleared its own
+  // label first — the side whose answer is still on its way.
+  const waitingSide = stepSide ?? pendingSide;
   const [wheelVolume, setWheelVolume] = useState<number | null>(null);
   const [previewSettled, setPreviewSettled] = useState(() => playback?.state !== "opening");
   const chrome = useRef<HTMLDivElement | null>(null);
@@ -145,6 +169,8 @@ export function PlayerOverlay() {
   const rememberedTop = useRef<HTMLElement | null>(null);
   /** Where an Up that summoned the OSD should land once it is drawn. */
   const pendingStop = useRef<PlayerStop | null>(null);
+  /** The step's synchronous guard: set before React paints, so one press starts. */
+  const steppingRef = useRef(false);
   const sawOpening = useRef(false);
   const wheel = useRef<{ level: number | null; timer: ReturnType<typeof setTimeout> | null }>({
     level: null,
@@ -295,23 +321,28 @@ export function PlayerOverlay() {
    */
   const step = useCallback(
     async (type: "previous_episode" | "next_episode") => {
+      // The two steps are different Actions, so the Session's door cannot join
+      // them: this ref is what drops a Next and a Previous pressed in one tick.
+      if (steppingRef.current) {
+        return;
+      }
+      steppingRef.current = true;
       setRefusal(null);
-      const side = type === "next_episode" ? "next" : "previous";
-      await stepOnce(async () => {
-        // The side is set inside the guarded work: a press that the guard drops
-        // must not relabel a step that is already in flight.
-        setStepSide(side);
-        try {
-          const { error } = await ask({ type });
-          if (error) {
-            setRefusal(error);
-          }
-        } finally {
-          setStepSide(null);
+      const { side, action } = EPISODE_STEPS[type];
+      // The side is set before the ask: a press the Session joins still shows
+      // the side this strip is waiting on, and the label goes when it settles.
+      setStepSide(side);
+      try {
+        const { error } = await ask(action);
+        if (error) {
+          setRefusal(error);
         }
-      });
+      } finally {
+        steppingRef.current = false;
+        setStepSide(null);
+      }
     },
-    [ask, stepOnce],
+    [ask],
   );
 
   /** The Host's volume, moved a step and sent once the steps settle. */
@@ -435,7 +466,7 @@ export function PlayerOverlay() {
   };
 
   const waitingText =
-    stepSide === "previous" ? "Loading the previous episode…" : "Loading the next episode…";
+    waitingSide === "previous" ? "Loading the previous episode…" : "Loading the next episode…";
 
   const onWheel = (event: WheelEvent<HTMLElement>) => {
     if (!controls || event.deltaY === 0) {
@@ -623,7 +654,7 @@ export function PlayerOverlay() {
                     label="Previous episode"
                     title="Previous episode"
                     disabled={previousEpisodeDisabled(episode) || stepping}
-                    pending={stepping && stepSide === "previous"}
+                    pending={stepping && waitingSide === "previous"}
                     onClick={() => void step("previous_episode")}
                   >
                     <Icon name="previous-episode" strokeWidth={2.2} />
@@ -666,7 +697,7 @@ export function PlayerOverlay() {
                     label="Next episode"
                     title="Next episode"
                     disabled={nextEpisodeDisabled(episode) || stepping}
-                    pending={stepping && stepSide === "next"}
+                    pending={stepping && waitingSide === "next"}
                     onClick={() => void step("next_episode")}
                   >
                     <Icon name="next-episode" strokeWidth={2.2} />
@@ -705,7 +736,7 @@ export function PlayerOverlay() {
                   variant="primary"
                   data-testid="next-episode-after-end"
                   disabled={stepping}
-                  pending={stepping && stepSide === "next"}
+                  pending={stepping && waitingSide === "next"}
                   onClick={() => void step("next_episode")}
                 >
                   Next episode

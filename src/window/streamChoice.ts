@@ -4,18 +4,20 @@
  * The decision is the Host's and the behaviour is frozen (#27, #137): a
  * candidate this Host can open is taken back to the Host with its Title card,
  * a candidate it cannot is marked where it stands and asks the Host nothing,
- * and a second press while the first is in flight is dropped. Only the drawing
- * of that decision belongs to a surface, which is why this hook lives beside
+ * and every row is locked while one candidate is opening. Two guards enforce
+ * that (ADR-0027 §2): this control's ref drops a second press before React
+ * paints, and the Session's door joins an identical Action. Only the drawing of
+ * that decision belongs to a surface, which is why this hook lives beside
  * `StreamsScreen` rather than inside it.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 
-import type { Stream, Title, Video } from "../core/wire";
+import { actionKey } from "../core/actionKey";
+import type { Action, Stream, Title, Video } from "../core/wire";
 import { playabilityNote } from "../core/stream";
 import { titleStubOf, type OpenablePreview } from "../core/title";
 import { useShell } from "./context";
-import { usePending } from "./usePending";
 
 export type StreamChoice = {
   /** The unplayable candidate that was pressed, drawn as a note. */
@@ -32,12 +34,15 @@ export function useStreamChoice(
   preview: OpenablePreview | null | undefined,
   video: Video,
 ): StreamChoice {
-  const { take } = useShell();
+  const { take, pending } = useShell();
   const [chosen, setChosen] = useState<Stream | null>(null);
-  // Choosing a Stream is the second wait a person sees: the row says it is
-  // opening, and a second press while the Host answers is dropped (#137).
-  const { pending: opening, run: openOnce } = usePending();
-  const [openingStream, setOpeningStream] = useState<Stream | null>(null);
+  // The control's synchronous guard: set before React paints, so two presses in
+  // one tick cannot both start. The hook is the door's join, not this layer.
+  const openingRef = useRef(false);
+  // The candidate whose press is on its way, and the one Action it sent. The
+  // wait is derived from the Session's pending key, so a joined press shows the
+  // same wait rather than a second one.
+  const [opening, setOpening] = useState<{ action: Action; stream: Stream } | null>(null);
 
   const choose = useCallback(
     async (addon: string, stream: Stream) => {
@@ -46,24 +51,41 @@ export function useStreamChoice(
         return;
       }
 
+      // Every row is locked while one candidate is opening: a press that lands
+      // before the drawing disables it is dropped here, not sent as a second
+      // play_stream. Its different key would not join at the Session's door.
+      if (openingRef.current) {
+        return;
+      }
+      openingRef.current = true;
+
       setChosen(null);
-      await openOnce(async () => {
-        setOpeningStream(stream);
-        try {
-          await take({
-            type: "play_stream",
-            video: { type: title.type, id: video.id },
-            addon,
-            stream,
-            title: titleStubOf(title, preview),
-          });
-        } finally {
-          setOpeningStream(null);
-        }
-      });
+      // One Action, built once: the same one is taken and whose key names the
+      // wait this row draws.
+      const action: Action = {
+        type: "play_stream",
+        video: { type: title.type, id: video.id },
+        addon,
+        stream,
+        title: titleStubOf(title, preview),
+      };
+      setOpening({ action, stream });
+      try {
+        await take(action);
+      } finally {
+        openingRef.current = false;
+        setOpening(null);
+      }
     },
-    [openOnce, preview, take, title, video.id],
+    [preview, take, title, video.id],
   );
 
-  return { chosen, opening, openingStream, choose };
+  const waiting = opening !== null && pending.has(actionKey(opening.action));
+
+  return {
+    chosen,
+    opening: waiting,
+    openingStream: waiting ? opening.stream : null,
+    choose,
+  };
 }
