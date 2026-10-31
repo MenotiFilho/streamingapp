@@ -1856,6 +1856,14 @@
       // ---------------------------------------------------------------------
       const VERSION = 1;
       const TOKEN_KEY = "streamingapp.device.token";
+      // A socket that never opens is retried rather than waited on forever; a
+      // quiet one is greeted so the browser, the network and the Host all know
+      // it is still there. The Remote is a page that may be locked in a pocket
+      // for an hour, so these are deliberately tolerant of a sleeping phone.
+      const CONNECT_TIMEOUT = 8000;
+      const HEARTBEAT_AFTER = 12000;
+      const STALE_AFTER = 30000;
+      const PROBE_WAIT = 3000;
       const CAPABILITIES = JSON.parse(document.getElementById("action-capabilities").textContent);
 
       // Spliced from `src/subtitle-languages.json` at serve time (#88): one list,
@@ -2648,10 +2656,14 @@
               Math.min(parent.scrollWidth - parent.clientWidth, centred),
             );
             if (motion.animate && !motion.reduced) {
-              motion.animate(parent.scrollLeft, target, {
-                ...quickTransition(),
-                onUpdate: (value) => { parent.scrollLeft = value; },
-              });
+              try {
+                motion.animate(parent.scrollLeft, target, {
+                  ...quickTransition(),
+                  onUpdate: (value) => { parent.scrollLeft = value; },
+                });
+              } catch (error) {
+                parent.scrollLeft = target;
+              }
             } else {
               parent.scrollLeft = target;
             }
@@ -2705,21 +2717,101 @@
         socket: null,
         nextId: 1,
         pending: new Map(),
+        // A socket may be replaced while its own close event is already queued.
+        // The generation marks which socket is current, so a stale event cannot
+        // start a second reconnect or answer a frame from the old connection.
+        generation: 0,
+        attempts: 0,
+        lastFrameAt: 0,
+        lastHelloAt: 0,
+        probeUntil: 0,
         connect(onFrame) {
+          this.drop();
+          const generation = this.generation;
           const scheme = location.protocol === "https:" ? "wss" : "ws";
-          this.socket = new WebSocket(scheme + "://" + location.host + "/");
-          this.socket.addEventListener("open", () => onFrame({ open: true }));
-          this.socket.addEventListener("message", (event) => {
+          let socket;
+          try {
+            socket = new WebSocket(scheme + "://" + location.host + "/");
+          } catch (error) {
+            // An origin the browser refuses to open a socket to is an ordinary
+            // reconnect, not a page that stops working.
+            onFrame({ close: true });
+            return;
+          }
+          this.socket = socket;
+
+          let closed = false;
+          let opening = 0;
+          const current = () => this.generation === generation && this.socket === socket;
+          const finish = () => {
+            if (closed) { return; }
+            closed = true;
+            clearTimeout(opening);
+            if (!current()) { return; }
+            this.socket = null;
+            this.fail({ kind: "unreachable", detail: "the Host is not connected" });
+            onFrame({ close: true });
+          };
+          // A connection that never opens is not a connection. Browsers can
+          // leave a socket CONNECTING across a lock screen without ever saying
+          // so; without this the page would wait on it forever.
+          opening = setTimeout(() => {
+            if (socket.readyState !== WebSocket.OPEN) {
+              try { socket.close(); } catch (e) { /* already gone */ }
+              finish();
+            }
+          }, CONNECT_TIMEOUT);
+
+          socket.addEventListener("open", () => {
+            if (!current()) { return; }
+            clearTimeout(opening);
+            this.attempts = 0;
+            this.lastFrameAt = Date.now();
+            this.lastHelloAt = this.lastFrameAt;
+            this.probeUntil = 0;
+            onFrame({ open: true });
+          });
+          socket.addEventListener("message", (event) => {
+            if (!current()) { return; }
+            this.lastFrameAt = Date.now();
+            this.probeUntil = 0;
             let frame;
             try { frame = JSON.parse(event.data); } catch (e) { return; }
             onFrame({ frame });
           });
-          this.socket.addEventListener("close", () => onFrame({ close: true }));
+          socket.addEventListener("close", () => {
+            clearTimeout(opening);
+            if (closed) { return; }
+            finish();
+          });
+          socket.addEventListener("error", () => {
+            // `close` normally follows; forcing it makes a browser that only
+            // reports the error start the reconnect instead of staying silent.
+            try { socket.close(); } catch (e) { /* already gone */ }
+          });
+        },
+        /** Forget the current socket. Its queued events are ignored. */
+        drop() {
+          const socket = this.socket;
+          this.socket = null;
+          this.generation += 1;
+          if (socket) {
+            try { socket.close(); } catch (e) { /* already gone */ }
+          }
+          this.fail({ kind: "unreachable", detail: "the Host is not connected" });
+        },
+        fail(error) {
+          for (const pending of this.pending.values()) { pending.reject(error); }
+          this.pending.clear();
         },
         send(frame) {
           if (this.socket && this.socket.readyState === WebSocket.OPEN) {
-            this.socket.send(JSON.stringify(frame));
-            return true;
+            try {
+              this.socket.send(JSON.stringify(frame));
+              return true;
+            } catch (error) {
+              return false;
+            }
           }
           return false;
         },
@@ -2781,6 +2873,10 @@
         device: null,
         snapshot: null,
         online: false,
+        // A Snapshot that arrived while the page was hidden. The state is kept
+        // current; the drawing waits for the page to be looked at again, so a
+        // phone in a pocket is not repainted every quarter second for nobody.
+        needsRefresh: false,
         error: null,
         // The Stream buffer pair the preferences chips draw before the Host has
         // answered a press, so two quick presses compose instead of the second
@@ -2896,24 +2992,43 @@
        */
       function animateRise(node, fromY) {
         if (!node || !motion.animate) { return; }
-        const keyframes = motion.reduced
-          ? [{ opacity: 0 }, { opacity: 1 }]
-          : [{ opacity: 0, y: fromY === undefined ? 14 : fromY }, { opacity: 1, y: 0 }];
-        motion.animate(node, keyframes, motion.reduced ? fadeTransition() : panelTransition());
+        try {
+          const keyframes = motion.reduced
+            ? [{ opacity: 0 }, { opacity: 1 }]
+            : [{ opacity: 0, y: fromY === undefined ? 14 : fromY }, { opacity: 1, y: 0 }];
+          motion.animate(node, keyframes, motion.reduced ? fadeTransition() : panelTransition());
+        } catch (error) {
+          // A still panel is a working panel. The state has already moved; an
+          // animation that cannot read this browser must not hold it back.
+        }
       }
 
       /** The same shape in reverse, then the caller's work. */
       function animateSink(node, done) {
         if (!node || !motion.animate) { done(); return; }
-        const keyframes = motion.reduced
-          ? [{ opacity: 1 }, { opacity: 0 }]
-          : [{ opacity: 1, y: 0 }, { opacity: 0, y: 16 }];
-        const controls = motion.animate(
-          node,
-          keyframes,
-          motion.reduced ? fadeTransition() : panelTransition(),
-        );
-        controls.finished.then(done, done);
+        let settled = false;
+        const finish = () => {
+          if (settled) { return; }
+          settled = true;
+          done();
+        };
+        try {
+          const keyframes = motion.reduced
+            ? [{ opacity: 1 }, { opacity: 0 }]
+            : [{ opacity: 1, y: 0 }, { opacity: 0, y: 16 }];
+          const controls = motion.animate(
+            node,
+            keyframes,
+            motion.reduced ? fadeTransition() : panelTransition(),
+          );
+          if (controls && controls.finished && typeof controls.finished.then === "function") {
+            controls.finished.then(finish, finish);
+          } else {
+            finish();
+          }
+        } catch (error) {
+          finish();
+        }
       }
 
       /** The scrim under a drawer fades in with it, never slides. */
@@ -2923,7 +3038,11 @@
           node.style.opacity = String(to);
           return;
         }
-        motion.animate(node, { opacity: to }, fadeTransition());
+        try {
+          motion.animate(node, { opacity: to }, fadeTransition());
+        } catch (error) {
+          node.style.opacity = String(to);
+        }
       }
 
       /**
@@ -2968,28 +3087,45 @@
        * focus and a second Back are never held by the animation (ADR-0031 §4).
        */
       function closeSheet() {
+        if (!state.sheet) { return; }
         const sheet = $("sheet");
         const panel = sheet.querySelector(".sheet-panel");
+        let ghost = null;
         if (motion.animate && panel && !sheet.classList.contains("hidden")) {
-          const ghost = panel.cloneNode(true);
-          const rect = panel.getBoundingClientRect();
-          ghost.classList.add("sheet-ghost");
-          ghost.setAttribute("aria-hidden", "true");
-          ghost.querySelectorAll("[data-focusable]").forEach((node) => {
-            node.removeAttribute("data-focusable");
-            node.tabIndex = -1;
-          });
-          ghost.style.left = rect.left + "px";
-          ghost.style.top = rect.top + "px";
-          ghost.style.width = rect.width + "px";
-          ghost.style.height = rect.height + "px";
-          document.body.appendChild(ghost);
-          animateSink(ghost, () => ghost.remove());
+          // Make the ghost before the panel is hidden, but do not let cloning or
+          // measuring it stand between the press and the close: the state moves
+          // on even if the browser cannot draw the sink.
+          try {
+            const rect = panel.getBoundingClientRect();
+            ghost = panel.cloneNode(true);
+            ghost.classList.add("sheet-ghost");
+            ghost.setAttribute("aria-hidden", "true");
+            ghost.querySelectorAll("[data-focusable]").forEach((node) => {
+              node.removeAttribute("data-focusable");
+              node.tabIndex = -1;
+            });
+            ghost.style.left = rect.left + "px";
+            ghost.style.top = rect.top + "px";
+            ghost.style.width = rect.width + "px";
+            ghost.style.height = rect.height + "px";
+          } catch (error) {
+            ghost = null;
+          }
         }
         state.sheet = null;
         state.episodes = null;
         state.focusTarget = state.sheetReturn ? { key: state.sheetReturn } : "cast";
+        // Hide the drawer here as well as in the next paint: a redraw that
+        // stumbles for an unrelated reason must not leave the modal surface
+        // standing over a page that has already left it.
+        sheet.classList.add("hidden");
+        sheet.innerHTML = "";
+        state.sheetSignature = null;
         paint();
+        if (ghost) {
+          document.body.appendChild(ghost);
+          animateSink(ghost, () => ghost.remove());
+        }
       }
 
       function showPairing(message) {
@@ -3116,7 +3252,6 @@
         return JSON.stringify({
           open: state.cast,
           sheet: state.sheet,
-          showStatistics: state.showStatistics,
           state: p.state,
           playing: p.nowPlaying ? p.nowPlaying.video.type + "/" + p.nowPlaying.video.id : null,
           episode: p.episode,
@@ -3130,7 +3265,6 @@
           crop: p.crop,
           aspect: p.aspect,
           resolution: p.resolution,
-          statistics: p.statistics,
           failure: p.failure,
           online: state.online,
           device: state.device ? state.device.name : null,
@@ -3156,8 +3290,7 @@
           crop: p.crop,
           aspect: p.aspect,
           resolution: p.resolution,
-          statistics: p.statistics,
-          showStatistics: state.showStatistics,
+          showStatistics: state.sheet === "picture" ? state.showStatistics : null,
           episodes: state.episodes
             ? {
                 loading: state.episodes.loading,
@@ -4483,6 +4616,16 @@
         }
       }
 
+      function updateSheetStatistics() {
+        const p = playback();
+        if (!p || state.sheet !== "picture" || !state.showStatistics) { return; }
+        const sheet = $("sheet");
+        for (const line of statisticsLines(p.statistics)) {
+          const node = sheet.querySelector('[data-stat="' + line.label + '"]');
+          if (node) { node.textContent = line.value; }
+        }
+      }
+
       function renderSheetMenu(menu, p) {
         switch (menu) {
           case "episodes": return renderEpisodesSheet();
@@ -4618,7 +4761,7 @@
             ${state.showStatistics ? "Hide statistics" : "Show statistics"}</button>
           ${state.showStatistics
             ? html`<dl class="readout" style="margin-top:0.5rem">${statisticsLines(p.statistics).map((line) => html`
-                <dt>${line.label}</dt><dd class="tabular">${line.value}</dd>`)}</dl>`
+                <dt>${line.label}</dt><dd class="tabular" data-stat="${line.label}">${line.value}</dd>`)}</dl>`
             : null}`;
       }
 
@@ -4748,7 +4891,12 @@
         const view = captureView();
         renderConnection();
         renderNav();
-        renderScreen();
+        // The base screen is redrawn only when it can be seen. Opening or
+        // closing the card or its drawer is not a reason to rebuild a Home that
+        // is covered; when the cover leaves, this paints it from the state it
+        // kept.
+        const covered = state.cast || state.sheet !== null || state.levels.length > 0;
+        if (!covered) { renderScreen(); }
         renderLevel();
         renderMini();
         renderCast();
@@ -4776,9 +4924,6 @@
 
         const view = captureView();
         renderConnection();
-        if (screenSignature() !== state.screenSignature) { renderScreen(); }
-        if (levelSignature() !== state.levelSignature) { renderLevel(); }
-        if (miniSignature() !== state.miniSignature) { renderMini(); }
         if (state.cast) {
           if (!watching(playback().state)) {
             state.cast = false;
@@ -4790,7 +4935,15 @@
             updateCastLive();
           }
         }
+        // Nothing behind a covering surface is looked at, so a Snapshot that
+        // moved the browse page is not redrawn under the card or its drawer.
+        // Closing the surface paints it again from the state that was kept.
+        const covered = state.cast || state.sheet !== null || state.levels.length > 0;
+        if (!covered && screenSignature() !== state.screenSignature) { renderScreen(); }
+        if (levelSignature() !== state.levelSignature) { renderLevel(); }
+        if (miniSignature() !== state.miniSignature) { renderMini(); }
         renderSheet();
+        updateSheetStatistics();
         renderError();
         restoreView(view);
       }
@@ -4934,6 +5087,7 @@
         }
         if (state.heroTimer) { return; }
         state.heroTimer = setInterval(() => {
+          if (document.visibilityState === "hidden") { return; }
           if (state.destination !== "home" || state.levels.length > 0 || state.cast ||
               state.sheet || state.heroHeld) { return; }
           const active = document.activeElement;
@@ -5769,6 +5923,14 @@
       // Events
       // ---------------------------------------------------------------------
       document.addEventListener("click", (event) => {
+        // The drawer is a modal surface, so the ink around its panel is a way
+        // out as well as Done and Back. A press inside the panel is a control's,
+        // never the scrim's.
+        const sheet = $("sheet");
+        if (sheet && event.target === sheet) {
+          closeSheet();
+          return;
+        }
         const node = event.target.closest("[data-a]");
         if (!node) { return; }
         event.preventDefault();
@@ -5937,7 +6099,7 @@
           renderConnection();
           renderMini();
           if (state.cast) { renderCast(); }
-          setTimeout(connect, 1000);
+          scheduleReconnect();
           return;
         }
         const frame = event.frame;
@@ -5967,7 +6129,11 @@
               state.bufferDraft = null;
             }
             state.snapshot = snapshot;
-            refresh();
+            if (document.visibilityState === "hidden") {
+              state.needsRefresh = true;
+            } else {
+              refresh();
+            }
           }
           return;
         }
@@ -5992,7 +6158,101 @@
         }
       }
 
-      function connect() { net.connect(onFrame); }
+      // --- staying connected ------------------------------------------------
+      //
+      // A phone is not a desktop: its screen locks, its radio sleeps, and the
+      // browser may freeze this page for minutes. The connection is therefore
+      // treated as something that can go away without saying so. A socket that
+      // never opens is given up on, a quiet one is greeted (a greeting is
+      // answered with Welcome and a fresh Snapshot), and a silent one is
+      // replaced. While the page is hidden nothing is retried, so a locked
+      // phone is not woken by a reconnect loop; coming back to the page is what
+      // starts the connection again.
+      let reconnectTimer = null;
+      function connect() {
+        if (reconnectTimer !== null) {
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        net.connect(onFrame);
+      }
+      function scheduleReconnect() {
+        if (reconnectTimer !== null || document.visibilityState === "hidden") { return; }
+        const delay = Math.min(8000, 400 * Math.pow(1.6, net.attempts)) +
+          Math.round(Math.random() * 250);
+        net.attempts += 1;
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null;
+          connect();
+        }, delay);
+      }
+      function restart() {
+        net.probeUntil = 0;
+        net.drop();
+        if (state.online) {
+          state.online = false;
+          renderConnection();
+          renderMini();
+          if (state.cast) { renderCast(); }
+        }
+        scheduleReconnect();
+      }
+      function ensureConnected(now) {
+        if (document.visibilityState === "hidden") { return; }
+        if (reconnectTimer !== null) {
+          if (!now) { return; }
+          clearTimeout(reconnectTimer);
+          reconnectTimer = null;
+        }
+        if (!net.socket) { connect(); return; }
+        // CONNECTING is left to its own timeout; anything already closing has
+        // nothing to wait for.
+        if (net.socket.readyState === WebSocket.CLOSED ||
+            (now && net.socket.readyState === WebSocket.CLOSING)) {
+          connect();
+        }
+      }
+      /** Ask the Host to say it is still there. Its answer is Welcome plus state. */
+      function greet() {
+        net.lastHelloAt = Date.now();
+        net.send({ version: VERSION, hello: { token: state.token } });
+      }
+      function heartbeat(force) {
+        if (!force && document.visibilityState === "hidden") { return; }
+        if (!net.socket || net.socket.readyState !== WebSocket.OPEN) {
+          ensureConnected(force);
+          return;
+        }
+        const now = Date.now();
+        const idle = now - net.lastFrameAt;
+        if (idle > STALE_AFTER) {
+          // A page that was just looked at gets one question before its socket
+          // is thrown away: it may have slept through the silence, not missed
+          // it. A page that is awake and still hears nothing reconnects.
+          if (force && net.probeUntil === 0) {
+            net.probeUntil = now + PROBE_WAIT;
+            greet();
+            return;
+          }
+          if (now >= net.probeUntil) { restart(); }
+          return;
+        }
+        if (idle > HEARTBEAT_AFTER && now - net.lastHelloAt > HEARTBEAT_AFTER) {
+          greet();
+        }
+      }
+      setInterval(() => heartbeat(false), 5000);
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState !== "hidden") {
+          if (state.needsRefresh) {
+            state.needsRefresh = false;
+            refresh();
+          }
+          heartbeat(true);
+        }
+      });
+      window.addEventListener("online", () => heartbeat(true));
+      window.addEventListener("pageshow", () => heartbeat(true));
 
       // A device with no token yet is looking at the pairing form, whatever the
       // Host is about to say; one with a token waits for the welcome, which is
