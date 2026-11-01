@@ -165,10 +165,10 @@ function PairingGate({
  * The room behind the gate: six destinations, the level stack, the browser's
  * Back, and the connection's own news.
  *
- * B2 draws Home, B3 Discover and Search, B4 the account Library and B5 the
- * Addons form and register; Settings still draws the skeleton's placeholder.
- * The navigation, the level stack's Back and the history sentinel are the ones
- * every later screen uses (ADR-0035 §1).
+ * B2 draws Home, B3 Discover and Search, B4 the account Library, B5 the
+ * Addons form and register, and B6 the Title and its Streams; Settings still
+ * draws the skeleton's placeholder. The navigation, the level stack's Back and
+ * the history sentinel are the ones every later screen uses (ADR-0035 §1).
  */
 function RemoteRoom({
   session,
@@ -232,7 +232,13 @@ function RemoteRoom({
 
       <main className="remote-main">
         {level ? (
-          <RemoteLevel level={level} session={session} pop={nav.pop} />
+          <RemoteLevel
+            level={level}
+            session={session}
+            state={sessionState}
+            push={nav.push}
+            pop={nav.pop}
+          />
         ) : nav.destination === "home" ? (
           <Home
             session={session}

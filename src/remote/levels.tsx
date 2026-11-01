@@ -1,23 +1,26 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { explain, type ActionError } from "../core/errors";
 import type { Level, NewLevel } from "../core/navigation";
-import type { Session } from "../core/session";
-import type { Action, MetaPreview } from "../core/wire";
+import type { Session, SessionState } from "../core/session";
+import type { Action, MetaPreview, Title, Video } from "../core/wire";
+import { Button } from "../kit/Button";
 import { ConfirmDialog } from "../kit/ConfirmDialog";
+import { StreamsScreen } from "./StreamsScreen";
+import { TitleScreen } from "./TitleScreen";
 
 /**
  * What a level on the Remote's stack carries (ADR-0035 §1).
  *
  * The stack is the core's; the payload is this client's. A Title a card opened
- * carries the card's identity so the screen B6 lands can ask the Host for the
- * rest without the stack being reshaped.
+ * carries the card's identity so the Title screen can ask the Host the question
+ * its card names, and the answer it gets is kept on the same level.
  *
  * The Addon travels with it because that is what `open_title` asks by, and a
  * card knows which Addon answered its row. `addon: null` is the other case: a
  * Discovered Title, which TMDB named before any Addon did — a Discover card and
- * a keyed Search hit carry no Addon, and B6 opens those against TMDB (#207,
- * ADR-0020).
+ * a keyed Search hit carry no Addon, and the Title screen opens those against
+ * TMDB (#207, ADR-0020).
  */
 export type RemoteTitle = {
   /** The Addon whose Catalog answered, or null for a Discovered Title. */
@@ -48,18 +51,31 @@ export type RemoteConfirm = {
   action: Action;
 };
 
-/** One level's contents, as the Remote holds them. */
+/**
+ * One level's contents, as the Remote holds them.
+ *
+ * A Title carries the card's identity and, once the Host has answered, the
+ * Title itself: the level is re-pushed with its answer so a Streams level above
+ * it and a Back do not ask the Host a second time. A Streams level carries the
+ * answered Title and the one Video whose candidates it lists.
+ */
 export type RemotePayload =
-  | { kind: "title"; title: RemoteTitle }
+  | { kind: "title"; title: RemoteTitle; answer: Title | null }
+  | { kind: "streams"; title: Title; video: Video }
   | { kind: "confirm"; confirm: RemoteConfirm };
 
 /**
  * The level a press on a card pushes: an overlay above the destination, named
  * as the window names it. A Continue watching card pushes the same level,
  * because what it opens is the Title; resuming the Host's Video is B8 and B9's.
+ * It is pushed unanswered, which is what makes the screen ask.
  */
 export function titleLevel(title: RemoteTitle): NewLevel<RemotePayload> {
-  return { name: "Title", kind: "overlay", payload: { kind: "title", title } };
+  return {
+    name: "Title",
+    kind: "overlay",
+    payload: { kind: "title", title, answer: null },
+  };
 }
 
 /**
@@ -75,24 +91,52 @@ export function titleLevelOf(
 }
 
 /**
- * The top level, drawn. A Title is B6's screen; a confirmation is the kit's
- * `ConfirmDialog`, because asking before removing an Addon is a question and
- * not a screen (#209).
+ * The top level, drawn. A Title is its own screen (B6), a Streams list is the
+ * level a Play pushes (B6), and a confirmation is the kit's `ConfirmDialog`,
+ * because asking before removing an Addon is a question and not a screen (#209).
  */
 export function RemoteLevel({
   level,
   session,
+  state,
+  push,
   pop,
 }: {
   level: Level<RemotePayload>;
-  /** The Session the confirming answer is taken through. */
+  /** The Session the level's questions are taken through. */
   session: Session;
-  /** Pop this level: Cancel, and what a successful confirmation does. */
+  /** What the Host last published: the Addons a Streams group is named by. */
+  state: SessionState;
+  /** Push a level, which is how a Play opens the Streams list. */
+  push: (level: NewLevel<RemotePayload>) => string;
+  /** Pop this level: Back, Cancel, and what a successful confirmation does. */
   pop: () => void;
 }) {
   switch (level.payload.kind) {
     case "title":
-      return <TitlePlaceholder title={level.payload.title} />;
+      return (
+        <LevelPage onBack={pop}>
+          <TitleScreen
+            levelId={level.id}
+            card={level.payload.title}
+            answer={level.payload.answer}
+            session={session}
+            state={state}
+            push={push}
+          />
+        </LevelPage>
+      );
+    case "streams":
+      return (
+        <LevelPage onBack={pop}>
+          <StreamsScreen
+            title={level.payload.title}
+            video={level.payload.video}
+            session={session}
+            state={state}
+          />
+        </LevelPage>
+      );
     case "confirm":
       return (
         <ConfirmLevel
@@ -102,6 +146,31 @@ export function RemoteLevel({
         />
       );
   }
+}
+
+/**
+ * The frame a Title and a Streams level are drawn in: the room's Back control
+ * at the top of the page, a hairline to the edge, and the level under it. Back
+ * is the room's (ADR-0035 §1) — the level says only what it is.
+ */
+function LevelPage({
+  onBack,
+  children,
+}: {
+  onBack: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div className="remote-level-page">
+      <header className="remote-level-head">
+        <Button variant="ghost" className="remote-level-back" onClick={onBack}>
+          Back
+        </Button>
+        <span className="remote-level-rule" aria-hidden="true" />
+      </header>
+      {children}
+    </div>
+  );
 }
 
 /**
@@ -172,16 +241,3 @@ function ConfirmLevel({
   );
 }
 
-/**
- * The Title until B6 draws it: the card's name, and whose screen it is. B2
- * pushes a real level so Back, the history sentinel and the stack's shape are
- * already the ones the screen will use.
- */
-function TitlePlaceholder({ title }: { title: RemoteTitle }) {
-  return (
-    <section className="remote-level" aria-label="Title" data-testid="remote-title">
-      <h2 className="remote-level-title">{title.name}</h2>
-      <p className="remote-level-note">The Title screen lands in B6.</p>
-    </section>
-  );
-}
