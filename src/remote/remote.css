@@ -110,7 +110,10 @@ body {
   align-items: stretch;
   min-height: var(--rep-remote-nav);
   border-top: 1px solid var(--rep-hairline);
-  padding-bottom: env(safe-area-inset-bottom);
+  /* The keyline is drawn outside the control, so the index keeps room below it:
+     at the viewport's edge the ring around the bottom row is cropped to three
+     sides. The safe-area inset stays on top of that room. */
+  padding-bottom: calc(env(safe-area-inset-bottom) + var(--rep-space-2));
 }
 
 .remote-index .rep-kit-button {
