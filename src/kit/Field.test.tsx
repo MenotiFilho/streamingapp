@@ -22,6 +22,7 @@ describe("the repertory field", () => {
     );
 
     const input = screen.getByLabelText("Addon manifest URL");
+    expect(input).toHaveAccessibleName("Addon manifest URL");
     expect(input).toHaveAttribute("data-focusable");
 
     fireEvent.change(input, {

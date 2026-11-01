@@ -54,6 +54,7 @@ export function Field({
         <input
           id={id}
           className="rep-kit-field-input"
+          aria-label={label}
           type={type}
           value={value}
           onChange={(event) => onChange(event.target.value)}

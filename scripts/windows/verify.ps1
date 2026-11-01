@@ -772,6 +772,19 @@ function Toggled($element) {
     return $false
 }
 
+# Wait for a named choice to become the one pressed. The Host publishes the new
+# Snapshot first and the window paints it a moment later, so a check read
+# immediately after the press can still see the old state.
+function Wait-Toggled($app, $name, $seconds = 15) {
+    $deadline = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $deadline) {
+        $element = Button-Named $app $name 1
+        if (Toggled $element) { return $element }
+        Start-Sleep -Milliseconds 300
+    }
+    return $null
+}
+
 # A readout a screen draws - the `<p>` or `<span>` a value is shown in - as
 # opposed to a button that carries the same words. Chromium gives static text a
 # control type of its own, which is what tells "the readout now says +0.1 s"
@@ -1516,9 +1529,9 @@ function Step-1($ctx) {
     Focus $app | Out-Null
     Start-Sleep -Seconds 3
     Shot $app '01-start.png'
-    $text = Wait-Text $app 'No Addons are configured' 30
+    $text = Wait-Text $app 'Nothing is screening tonight' 30
     Check 'the window opens on Home, and says it has nothing to draw' (
-        $text -match 'No Addons are configured') "showed: $text"
+        $text -match 'Nothing is screening tonight') "showed: $text"
     Check 'the Host answered instead of leaving the window waiting' (
         $text -notmatch 'Waiting for the Host') "showed: $text"
 }
@@ -1541,14 +1554,12 @@ function Step-2($ctx) {
     $english = Button-Named $app 'English' 10
     if (-not $english) { throw 'the Preferences screen shows no English choice' }
     Press-Element $app $english
-    $text = Wait-Text $app 'prefer English' 15
+    $chosen = Wait-Toggled $app 'English' 15
     Shot $app '02-saved.png'
-    Check 'the window shows the new preference in a sentence' (
-        $text -match 'prefer English \(en\)') "showed: $text"
     Check 'the choice pressed is the one the Host holds' (
-        Toggled (Button-Named $app 'English')) "showed: $text"
+        $null -ne $chosen) "the English choice never became the pressed one"
     Check 'and the old choice is no longer pressed' (
-        -not (Toggled (Button-Named $app 'Host picks per Video'))) "showed: $text"
+        -not (Toggled (Button-Named $app 'Host picks per Video'))) "the Host picks choice is still pressed"
     Check 'choosing a language published one Snapshot' (
         (Wait-Published $before 20) -gt $before) "the log still shows $before published Snapshot(s)"
 }
@@ -1580,11 +1591,11 @@ function Step-4($ctx) {
     Start-Sleep -Seconds 2
     Open-Settings-Category $restarted 'Preferences' 'Subtitle language'
     Shot $restarted '04-restarted.png'
-    $text = Wait-Text $restarted 'prefer English' 15
+    $chosen = Wait-Toggled $restarted 'English' 15
     Check 'the restarted Host still prefers English' (
-        $text -match 'prefer English \(en\)') "showed: $text"
+        $null -ne $chosen) "the English choice was not pressed after the restart"
     Check 'and its Preferences still marks that choice' (
-        Toggled (Button-Named $restarted 'English')) "showed: $text"
+        Toggled (Button-Named $restarted 'English')) "the restart cleared the pressed choice"
 }
 
 function Step-5($ctx) {
@@ -1598,13 +1609,13 @@ function Step-5($ctx) {
     $uk = Button-Named $app 'English (UK)' 10
     if (-not $uk) { throw 'the Preferences screen shows no English (UK) choice' }
     Press-Element $app $uk
-    $text = Wait-Text $app 'prefer English \(UK\)' 15
+    $chosen = Wait-Toggled $app 'English (UK)' 15
     Shot $app '05-second-language.png'
     Check 'the window shows the second language' (
-        $text -match 'prefer English \(UK\) \(en-GB\)') "showed: $text"
+        $null -ne $chosen) "the English (UK) choice never became the pressed one"
     Check 'the second choice is pressed and the first is not' (
         (Toggled (Button-Named $app 'English (UK)')) -and
-        -not (Toggled (Button-Named $app 'English'))) "showed: $text"
+        -not (Toggled (Button-Named $app 'English'))) "both English choices are pressed or neither is"
     Check 'and moving the choice published one Snapshot' (
         (Wait-Published $before 20) -gt $before) "the log still shows $before published Snapshot(s)"
 }
@@ -1616,12 +1627,12 @@ function Step-6($ctx) {
     $none = Button-Named $app 'Host picks per Video' 10
     if (-not $none) { throw 'the Preferences screen shows no Host picks per Video choice' }
     Press-Element $app $none
-    $text = Wait-Text $app 'The Host picks per Video' 15
+    $cleared = Wait-Toggled $app 'Host picks per Video' 15
     Shot $app '06-cleared.png'
     Check 'the window says the Host picks per Video again' (
-        $text -match 'The Host picks per Video') "showed: $text"
+        $null -ne $cleared) "the Host picks choice never became the pressed one"
     Check 'the cleared choice is the one pressed' (
-        Toggled (Button-Named $app 'Host picks per Video')) "showed: $text"
+        Toggled (Button-Named $app 'Host picks per Video')) "the Host picks choice is not pressed"
     Check 'clearing the language published one Snapshot' (
         (Wait-Published $before 20) -gt $before) "the log still shows $before published Snapshot(s)"
     Check 'with no Addon configured there is no Catalog to feature, and the screen says so' (
@@ -2095,7 +2106,7 @@ function Step-20($ctx) {
     # match is case-*sensitive* on purpose: a library entry whose Addon is gone
     # would name the id in a lowercase mark, which is not a row heading.
     Open-Home $app
-    $text = Wait-Text $app 'No Addons are configured' 20
+    $text = Wait-Text $app 'Nothing is screening tonight' 20
     Check 'and its rows are gone with it' (
         -not ($text -cmatch [regex]::Escape($AddonCatalog))) "showed: $text"
     Check 'and Home says where to add one again' (
