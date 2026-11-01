@@ -219,20 +219,21 @@ function RemoteRoom({
   }, [nav]);
 
   const refusal = sessionState.error;
-  const top = nav.levels[nav.levels.length - 1] ?? null;
   const playback = sessionState.snapshot?.playback?.state ?? "idle";
-  // A card of a Stream the Host has stopped is no card: the level leaves the
-  // stack, and until it does the destination underneath is what is drawn.
-  const level =
-    top && !playerLevelStale(top.payload, playback) ? top : null;
+  // A card of a Stream the Host has stopped is no card, and a card the Host has
+  // not yet confirmed is not drawn yet either: what is on screen is the top
+  // level that is not such a card — the Title it was opened over, say — and the
+  // destination only when there is none.
+  const drawn = nav.levels.filter(
+    (held) => !playerLevelStale(held.payload, playback),
+  );
+  const level = drawn[drawn.length - 1] ?? null;
   // A sheet is furniture above the card, not a screen of its own: the level
   // under it stays drawn so Back puts the plate away and the card is still
   // there. While it is open the card and the dock are inert, which is what
   // makes the modal panel the one region a press or a tab can reach.
   const sheetOpen = level?.payload.kind === "sheet";
-  const under = sheetOpen
-    ? nav.levels[nav.levels.length - 2] ?? null
-    : null;
+  const under = sheetOpen ? (drawn[drawn.length - 2] ?? null) : null;
 
   // The Snapshot is the truth: when it says the Stream is gone, the player and
   // every plate above it leave the stack, whatever closed it — Stop, the
