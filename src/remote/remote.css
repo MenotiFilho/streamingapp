@@ -539,6 +539,76 @@ body {
 }
 
 /* --------------------------------------------------------------------------
+ * Discover and Search: the filters above the feed, and the query bar
+ * -------------------------------------------------------------------------- */
+
+.remote-discover,
+.remote-search {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-5);
+  min-width: 0;
+}
+
+/* The kind and genre chips slide under the finger in one line, like a rail.
+ * Chips sit at the design record's 40px, under the 44px touch floor because
+ * they are a filter row and not the one control a screen offers. */
+.remote-filters {
+  display: flex;
+  gap: var(--rep-space-2);
+  min-width: 0;
+  padding-bottom: var(--rep-space-1);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.remote-filters::-webkit-scrollbar {
+  display: none;
+}
+
+.remote-filters > * {
+  flex: none;
+  min-height: 2.5rem;
+  padding: var(--rep-space-2) var(--rep-space-3);
+}
+
+.remote-search-form .rep-kit-field {
+  min-width: 0;
+}
+
+.remote-search-form .rep-kit-field-trailing .rep-kit-button {
+  min-height: var(--rep-remote-touch);
+  padding: 0 var(--rep-space-4);
+}
+
+.remote-search-catalogs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-5);
+  min-width: 0;
+}
+
+/* A destination's own quiet line or failure, outside a row's head. */
+.remote-quiet,
+.remote-failure {
+  margin: 0;
+  font-family: var(--rep-sans);
+  font-size: var(--rep-remote-text-body);
+  line-height: var(--rep-leading-body);
+}
+
+.remote-quiet {
+  color: var(--rep-dim);
+}
+
+.remote-failure {
+  color: var(--rep-status-red);
+}
+
+/* --------------------------------------------------------------------------
  * The pushed level: one screen, named, over the destination it was opened from
  * -------------------------------------------------------------------------- */
 

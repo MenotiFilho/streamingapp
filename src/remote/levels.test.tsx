@@ -4,7 +4,7 @@ import { describe, expect, test } from "vitest";
 import type { ResumeEntry, Snapshot } from "../core/wire";
 import { RemoteApp } from "./RemoteApp";
 import { ISSUED_TOKEN, NOTHING, PHONE, fakeLink } from "./fakeSocket.testing";
-import { RemoteLevel, titleLevel } from "./levels";
+import { RemoteLevel, titleLevel, titleLevelOf } from "./levels";
 
 /**
  * The one level B2 pushes (ADR-0035 §1).
@@ -12,7 +12,9 @@ import { RemoteLevel, titleLevel } from "./levels";
  * A press on a card is a decision about the stack, not about the drawing: the
  * level's name, kind and payload are the shape B6 fills in. The placeholder is
  * read for the one thing it must know — which Title it is — and the app path
- * proves the room draws it and Back takes it away.
+ * proves the room draws it and Back takes it away. The payload carries an Addon
+ * where an Addon answered, and `null` where TMDB named the Title before any
+ * Addon did (#207).
  */
 
 const RESUME: ResumeEntry = {
@@ -50,6 +52,43 @@ describe("the Remote's Title level", () => {
     render(<RemoteLevel level={level} />);
 
     expect(screen.getByRole("heading", { name: "Nine" })).toBeInTheDocument();
+  });
+
+  test("a card's identity becomes the level's payload, with the Addon that answered", () => {
+    expect(
+      titleLevelOf("cinemeta", { id: "tt1", type: "movie", name: "One" }),
+    ).toEqual(
+      titleLevel({ addon: "cinemeta", id: "tt1", type: "movie", name: "One" }),
+    );
+    expect(
+      titleLevelOf(null, { id: "tmdb:603", type: "movie", name: "The Matrix" }).payload,
+    ).toEqual({
+      kind: "title",
+      title: {
+        addon: null,
+        id: "tmdb:603",
+        type: "movie",
+        name: "The Matrix",
+      },
+    });
+  });
+
+  test("a Discovered Title's level names no Addon, because TMDB named it first", () => {
+    expect(
+      titleLevel({ addon: null, id: "tmdb:603", type: "movie", name: "The Matrix" }),
+    ).toEqual({
+      name: "Title",
+      kind: "overlay",
+      payload: {
+        kind: "title",
+        title: {
+          addon: null,
+          id: "tmdb:603",
+          type: "movie",
+          name: "The Matrix",
+        },
+      },
+    });
   });
 
   test("a Continue watching press opens the level, and Back closes it", async () => {

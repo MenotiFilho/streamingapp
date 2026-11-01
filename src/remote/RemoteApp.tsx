@@ -12,7 +12,9 @@ import type { Session, SessionState } from "../core/session";
 import type { DeviceSummary } from "../core/wire";
 import { Button } from "../kit/Button";
 import { Field } from "../kit/Field";
+import { Discover } from "./Discover";
 import { Home } from "./Home";
+import { Search } from "./Search";
 import { armSentinel, decideHistory } from "./history";
 import { RemoteLevel, type RemotePayload } from "./levels";
 import { RemoteDestination } from "./placeholders";
@@ -161,7 +163,7 @@ function PairingGate({
  * The room behind the gate: six destinations, the level stack, the browser's
  * Back, and the connection's own news.
  *
- * B2 draws Home and the Title level a card pushes; the other five destinations
+ * B2 draws Home; B3 draws Discover and Search; the other three destinations
  * still draw the skeleton's placeholder. The navigation, the level stack's Back
  * and the history sentinel are the ones every later screen uses (ADR-0035 §1).
  */
@@ -235,6 +237,10 @@ function RemoteRoom({
             push={nav.push}
             choose={nav.choose}
           />
+        ) : nav.destination === "discover" ? (
+          <Discover session={session} state={sessionState} push={nav.push} />
+        ) : nav.destination === "search" ? (
+          <Search session={session} state={sessionState} push={nav.push} />
         ) : (
           <RemoteDestination destination={nav.destination} />
         )}
