@@ -1226,8 +1226,10 @@ body.picture-behind .shell-nav-slot {
  * A pushed level: its canvas and the programme page over it
  * -------------------------------------------------------------------------- */
 
-.rep-frame .shell-level[data-level-kind="overlay"],
-.rep-frame .shell-level[data-level-kind="popover"] {
+/* An overlay is a full canvas; a popover is not. The popover is anchored over
+ * the playing picture, so its level stays transparent (osd.css) and only the
+ * popover plate paints — an ink canvas here would hide the film behind it. */
+.rep-frame .shell-level[data-level-kind="overlay"] {
   background: var(--rep-ink);
   color: var(--rep-ivory);
   font-family: var(--rep-sans);
