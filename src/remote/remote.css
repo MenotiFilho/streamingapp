@@ -539,11 +539,34 @@ body {
 }
 
 /* --------------------------------------------------------------------------
- * Discover and Search: the filters above the feed, and the query bar
+ * Library: the account's shelf, its gate, and the two ways out of a failure
+ * -------------------------------------------------------------------------- */
+
+.remote-library-failure {
+  display: grid;
+  justify-items: start;
+  gap: var(--rep-space-3);
+}
+
+.remote-library-failure .rep-kit-button {
+  min-height: var(--rep-remote-touch);
+  padding: var(--rep-space-2) var(--rep-space-5);
+}
+
+.remote-library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: var(--rep-space-5) var(--rep-space-4);
+  min-width: 0;
+}
+
+/* --------------------------------------------------------------------------
+ * Discover, Search and Library: the destination column, its filters and shelf
  * -------------------------------------------------------------------------- */
 
 .remote-discover,
-.remote-search {
+.remote-search,
+.remote-library {
   display: flex;
   flex-direction: column;
   gap: var(--rep-space-5);
