@@ -42,6 +42,17 @@ function openLink(paired: boolean) {
   );
 }
 
+/**
+ * Whether a destination's own control is the one showing.
+ *
+ * The destination is the navigation's decision, and the control announces it
+ * through the same `aria-pressed` the kit gives every toggle: a test reads that
+ * rather than the copy of the screen the destination happens to be drawn with.
+ */
+function pressed(label: string): boolean {
+  return screen.getByRole("button", { name: label }).getAttribute("aria-pressed") === "true";
+}
+
 describe("the Remote's app", () => {
   test("the pairing gate sends pair_device, and the token it answers with is stored", async () => {
     const { host, tokens, link, release } = openLink(false);
@@ -96,6 +107,31 @@ describe("the Remote's app", () => {
     try {
       await screen.findByLabelText("Pairing code");
       expect(reads()).toBe(0);
+    } finally {
+      view.unmount();
+      release();
+    }
+  });
+
+  test("a dropped socket keeps the destination the person was reading", async () => {
+    const { host, link, release } = openLink(true);
+    await host.connect();
+    const view = render(<RemoteApp link={link} />);
+    try {
+      fireEvent.click(await screen.findByRole("button", { name: "Library" }));
+      expect(pressed("Library")).toBe(true);
+
+      // A phone that locked is still in the room it was in, and still on the
+      // destination it was reading: the socket is the connection's business,
+      // the visit is the client's.
+      host.drop();
+      expect(pressed("Library")).toBe(true);
+      await waitFor(() => expect(link.state().kind).toBe("reconnecting"));
+
+      host.flush();
+      await host.connect();
+      await waitFor(() => expect(link.state().kind).toBe("ready"));
+      expect(pressed("Library")).toBe(true);
     } finally {
       view.unmount();
       release();

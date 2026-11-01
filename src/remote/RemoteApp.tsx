@@ -6,7 +6,7 @@ import { explain } from "../core/errors";
 import type { ActionError } from "../core/errors";
 import { isTypingTarget, keyIntent } from "../core/input";
 import type { HostLink } from "../core/link";
-import { useNavigation } from "../core/react/useNavigation";
+import { useNavigation, type NavigationReads } from "../core/react/useNavigation";
 import { useSession } from "../core/react/useSession";
 import type { Session, SessionState } from "../core/session";
 import type { DeviceSummary } from "../core/wire";
@@ -41,6 +41,11 @@ export function RemoteApp({ link }: RemoteAppProps) {
   const linkState = useSyncExternalStore(subscribe, read, read);
   const { session, state } = useSession(link);
 
+  // Where the person is belongs to the app, not to the room that draws it: a
+  // socket that drops and comes back is the same visit, so a phone that locked
+  // lands on the destination it was reading rather than at Home (ADR-0035 §1).
+  const nav = useNavigation<null>();
+
   // Whether this page has ever been inside. A page whose first connection
   // failed is still on its way to the gate; one that was paired and dropped is
   // in the room it was in, with the state it holds.
@@ -67,6 +72,7 @@ export function RemoteApp({ link }: RemoteAppProps) {
     case "ready":
       return (
         <RemoteRoom
+          nav={nav}
           sessionState={state}
           device={linkState.device}
           reconnecting={false}
@@ -74,7 +80,7 @@ export function RemoteApp({ link }: RemoteAppProps) {
       );
     case "reconnecting":
       return everPaired ? (
-        <RemoteRoom sessionState={state} device={null} reconnecting />
+        <RemoteRoom nav={nav} sessionState={state} device={null} reconnecting />
       ) : (
         <RemoteNotice title="Connecting" note="Waiting for the Host…" />
       );
@@ -151,16 +157,16 @@ function PairingGate({
  * uses (ADR-0035 §1).
  */
 function RemoteRoom({
+  nav,
   sessionState,
   device,
   reconnecting,
 }: {
+  nav: NavigationReads<null>;
   sessionState: SessionState;
   device: DeviceSummary | null;
   reconnecting: boolean;
 }) {
-  const nav = useNavigation<null>();
-
   // A page that is paired and navigates sits on its own sentinel entry, so the
   // phone's Back gesture is one more `back()` rather than a page left behind.
   useEffect(() => {
