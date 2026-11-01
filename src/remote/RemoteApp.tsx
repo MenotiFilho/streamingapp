@@ -19,7 +19,7 @@ import { Library } from "./Library";
 import { Search } from "./Search";
 import { armSentinel, decideHistory } from "./history";
 import { RemoteLevel, type RemotePayload } from "./levels";
-import { RemoteDestination } from "./placeholders";
+import { Settings } from "./Settings";
 
 export type RemoteAppProps = {
   /**
@@ -165,10 +165,11 @@ function PairingGate({
  * The room behind the gate: six destinations, the level stack, the browser's
  * Back, and the connection's own news.
  *
- * B2 draws Home, B3 Discover and Search, B4 the account Library, B5 the
- * Addons form and register, and B6 the Title and its Streams; Settings still
- * draws the skeleton's placeholder. The navigation, the level stack's Back and
- * the history sentinel are the ones every later screen uses (ADR-0035 §1).
+ * Every destination has its own screen — Home (B2), Discover and Search (B3),
+ * the account Library (B4), the Addons form and register (B5), Settings and its
+ * four leaves (B7) — and the Title and Streams levels are B6's. The navigation,
+ * the level stack's Back and the history sentinel are the ones every screen
+ * uses (ADR-0035 §1).
  */
 function RemoteRoom({
   session,
@@ -259,9 +260,9 @@ function RemoteRoom({
           />
         ) : nav.destination === "addons" ? (
           <Addons session={session} state={sessionState} push={nav.push} />
-        ) : (
-          <RemoteDestination destination={nav.destination} />
-        )}
+        ) : nav.destination === "settings" ? (
+          <Settings push={nav.push} />
+        ) : null}
         <RemoteRefusal error={refusal} />
       </main>
 

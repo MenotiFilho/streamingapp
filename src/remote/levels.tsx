@@ -3,9 +3,11 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { explain, type ActionError } from "../core/errors";
 import type { Level, NewLevel } from "../core/navigation";
 import type { Session, SessionState } from "../core/session";
+import type { SettingsCategoryId } from "../core/settingsRegister";
 import type { Action, MetaPreview, Title, Video } from "../core/wire";
 import { Button } from "../kit/Button";
 import { ConfirmDialog } from "../kit/ConfirmDialog";
+import { SettingsLeaf } from "./Settings";
 import { StreamsScreen } from "./StreamsScreen";
 import { TitleScreen } from "./TitleScreen";
 
@@ -57,11 +59,13 @@ export type RemoteConfirm = {
  * A Title carries the card's identity and, once the Host has answered, the
  * Title itself: the level is re-pushed with its answer so a Streams level above
  * it and a Back do not ask the Host a second time. A Streams level carries the
- * answered Title and the one Video whose candidates it lists.
+ * answered Title and the one Video whose candidates it lists. A Settings level
+ * carries the register id of the category it draws (#211).
  */
 export type RemotePayload =
   | { kind: "title"; title: RemoteTitle; answer: Title | null }
   | { kind: "streams"; title: Title; video: Video }
+  | { kind: "settings"; category: SettingsCategoryId }
   | { kind: "confirm"; confirm: RemoteConfirm };
 
 /**
@@ -92,8 +96,9 @@ export function titleLevelOf(
 
 /**
  * The top level, drawn. A Title is its own screen (B6), a Streams list is the
- * level a Play pushes (B6), and a confirmation is the kit's `ConfirmDialog`,
- * because asking before removing an Addon is a question and not a screen (#209).
+ * level a Play pushes (B6), a Settings category is its leaf (#211), and a
+ * confirmation is the kit's `ConfirmDialog`, because asking before removing an
+ * Addon is a question and not a screen (#209).
  */
 export function RemoteLevel({
   level,
@@ -134,6 +139,17 @@ export function RemoteLevel({
             video={level.payload.video}
             session={session}
             state={state}
+          />
+        </LevelPage>
+      );
+    case "settings":
+      return (
+        <LevelPage onBack={pop}>
+          <SettingsLeaf
+            category={level.payload.category}
+            session={session}
+            state={state}
+            push={push}
           />
         </LevelPage>
       );
