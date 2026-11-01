@@ -280,8 +280,9 @@ fn document_assets(document: &str) -> Vec<String> {
 #[test]
 fn the_retired_staging_prefix_is_one_permanent_redirect_to_the_root() {
     // `/next` was the staged Remote's route until the cutover. Every spelling
-    // of it — the bare prefix, the document, an old asset URL, a neighbouring
-    // name — is one permanent redirect to `/`, never a second document.
+    // of it — the bare route, the document, an old asset URL — is one permanent
+    // redirect to `/`, never a second document. A neighbouring name is not the
+    // retired route and is answered as nothing.
     let (_fixture, server) = server();
 
     for path in [
@@ -289,7 +290,6 @@ fn the_retired_staging_prefix_is_one_permanent_redirect_to_the_root() {
         "/next/",
         "/next/assets/remote-abc123.js",
         "/next/anything",
-        "/nextish",
     ] {
         let (head, body) = get(&server, path);
         assert!(
@@ -302,6 +302,13 @@ fn the_retired_staging_prefix_is_one_permanent_redirect_to_the_root() {
         );
         assert!(body.is_empty(), "a 308 redirect carries no body");
     }
+
+    let (head, body) = get(&server, "/nextish");
+    assert!(
+        head.starts_with("HTTP/1.1 404 Not Found"),
+        "a neighbouring name is not the retired route: {head}"
+    );
+    assert!(body.is_empty());
 }
 
 #[test]

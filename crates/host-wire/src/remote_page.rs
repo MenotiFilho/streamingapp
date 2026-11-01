@@ -56,7 +56,7 @@ fn route(path: &str) -> Route<'_> {
     if path == "/" || path == "/index.html" {
         return Route::Document;
     }
-    if path.starts_with("/next") {
+    if path == "/next" || path.starts_with("/next/") {
         return Route::Redirect;
     }
     if path == BUILD_INFO || path == LICENSES || path == DOCUMENT {
@@ -226,18 +226,19 @@ mod tests {
             Route::Asset("remote-abc123.js")
         );
 
-        // The retired staging route, in every spelling a bookmark may hold —
-        // the prefix is the whole `/next…` string, so a neighbouring name goes
-        // to the same document rather than to a second one.
+        // The retired staging route, in every spelling a bookmark may hold:
+        // the bare route, its document, and an asset URL from a tab that was
+        // open before the cutover all land on `/`.
         for path in [
             "/next",
             "/next/",
             "/next/assets/remote-abc123.js",
             "/next/anything",
-            "/nextish",
         ] {
             assert_eq!(route(path), Route::Redirect, "{path} is the retired prefix");
         }
+        // A neighbouring name is not the retired route, and is not served.
+        assert_eq!(route("/nextish"), Route::NotFound);
 
         // A path this module does not answer is not a path it serves: the
         // build's metadata, the document by its file name, the browser's
