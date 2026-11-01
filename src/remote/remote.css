@@ -71,6 +71,15 @@ body {
   color: var(--rep-muted);
 }
 
+/* A device name is what a person typed when it paired, so it is the one line in
+   the bar that can be long: it gives way to the connection state. */
+.remote-status > * {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .remote-connection[data-live="true"] {
   color: var(--rep-house);
 }
@@ -389,7 +398,11 @@ body {
 }
 
 .remote-rail-title {
-  flex: none;
+  /* A long Catalog name gives way to the tag rather than widening the page:
+     the head is one line on a phone, and the row's number and count are what
+     a person scans. */
+  flex: 0 1 auto;
+  min-width: 0;
   max-width: 55%;
   overflow: hidden;
   margin: 0;
@@ -409,10 +422,15 @@ body {
 }
 
 .remote-rail-tag {
-  flex: none;
+  /* The count gives way too: a long "Addon / 92 films" line is bookkeeping, and
+     it truncates rather than carrying the page past the phone's edge. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
   color: var(--rep-muted);
   font-family: var(--rep-mono);
   font-size: var(--rep-remote-text-mono);
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
