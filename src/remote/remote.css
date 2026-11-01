@@ -1,0 +1,180 @@
+/*
+ * The served Remote's sheet (ADR-0035 §2).
+ *
+ * It imports the kit's own sheet, which imports the token sheet, so the palette,
+ * the families and the primitives are the window's by construction. What is
+ * added here is the Remote's scale: the same role names re-mapped to the hand
+ * values in `tokens.css`, and a layout that puts the six destinations at the
+ * bottom of a phone rather than a rail down the side of a television.
+ */
+
+@import "../kit/kit.css";
+
+:root {
+  --rep-text-hero: var(--rep-remote-text-hero);
+  --rep-text-title: var(--rep-remote-text-title);
+  --rep-text-section: var(--rep-remote-text-section);
+  --rep-text-body: var(--rep-remote-text-body);
+  --rep-text-control: var(--rep-remote-text-control);
+  --rep-text-caption: var(--rep-remote-text-caption);
+  --rep-text-mono: var(--rep-remote-text-mono);
+  --rep-text-badge: var(--rep-remote-text-badge);
+  --rep-gutter: var(--rep-remote-gutter);
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--rep-ink);
+  color: var(--rep-ivory);
+  font-family: var(--rep-sans);
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  min-height: 100dvh;
+}
+
+#root {
+  min-height: 100dvh;
+}
+
+/* --------------------------------------------------------------------------
+ * The room: a header, the destination, the index
+ * -------------------------------------------------------------------------- */
+
+.remote-ui {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  min-height: 100dvh;
+  padding-top: env(safe-area-inset-top);
+}
+
+.remote-status {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--rep-space-3);
+  padding: var(--rep-space-3) var(--rep-remote-gutter);
+  border-bottom: 1px solid var(--rep-hairline);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-remote-text-mono);
+  letter-spacing: var(--rep-tracking-caps);
+  text-transform: uppercase;
+  color: var(--rep-muted);
+}
+
+.remote-connection[data-live="true"] {
+  color: var(--rep-house);
+}
+
+.remote-main {
+  padding: var(--rep-space-5) var(--rep-remote-gutter);
+}
+
+.remote-destination-title {
+  margin: 0 0 var(--rep-space-3);
+  font-family: var(--rep-display);
+  font-size: var(--rep-remote-text-hero);
+  font-weight: 400;
+  line-height: var(--rep-leading-display);
+  letter-spacing: var(--rep-tracking-display);
+  color: var(--rep-ivory);
+}
+
+.remote-destination-note {
+  margin: 0 0 var(--rep-space-4);
+  max-width: 34rem;
+  font-size: var(--rep-remote-text-body);
+  line-height: var(--rep-leading-body);
+  color: var(--rep-dim);
+}
+
+.remote-destination-wait {
+  margin: 0;
+  font-family: var(--rep-mono);
+  font-size: var(--rep-remote-text-mono);
+  letter-spacing: var(--rep-tracking-caps);
+  text-transform: uppercase;
+  color: var(--rep-muted);
+}
+
+/* --------------------------------------------------------------------------
+ * The index: six destinations along the bottom, 44px targets
+ * -------------------------------------------------------------------------- */
+
+.remote-index {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  align-items: stretch;
+  min-height: var(--rep-remote-nav);
+  border-top: 1px solid var(--rep-hairline);
+  /* The keyline is drawn outside the control, so the index keeps room below it:
+     at the viewport's edge the ring around the bottom row is cropped to three
+     sides. The safe-area inset stays on top of that room. */
+  padding-bottom: calc(env(safe-area-inset-bottom) + var(--rep-space-2));
+}
+
+.remote-index .rep-kit-button {
+  justify-content: center;
+  min-height: var(--rep-remote-touch);
+  padding: var(--rep-space-2) var(--rep-space-1);
+  border: 0;
+  border-top: 2px solid transparent;
+  font-size: var(--rep-remote-text-caption);
+  text-align: center;
+  color: var(--rep-dim);
+}
+
+.remote-index .rep-kit-button[aria-pressed="true"] {
+  border-top-color: var(--rep-house);
+  color: var(--rep-ivory);
+}
+
+/* --------------------------------------------------------------------------
+ * The pairing gate, and the one refusal a person can be shown here
+ * -------------------------------------------------------------------------- */
+
+.remote-pairing,
+.remote-notice {
+  display: grid;
+  gap: var(--rep-space-4);
+  align-content: start;
+  max-width: 30rem;
+  margin: 0 auto;
+  padding: calc(var(--rep-space-6) + env(safe-area-inset-top)) var(--rep-remote-gutter)
+    calc(var(--rep-space-6) + env(safe-area-inset-bottom));
+}
+
+.remote-pairing-title,
+.remote-notice-title {
+  margin: 0;
+  font-family: var(--rep-display);
+  font-size: var(--rep-remote-text-title);
+  font-weight: 400;
+  line-height: var(--rep-leading-display);
+  color: var(--rep-ivory);
+}
+
+.remote-pairing-note,
+.remote-notice-note {
+  margin: 0;
+  font-size: var(--rep-remote-text-body);
+  line-height: var(--rep-leading-body);
+  color: var(--rep-dim);
+}
+
+.remote-pairing .rep-kit-button {
+  justify-content: center;
+  min-height: var(--rep-remote-touch);
+  padding: var(--rep-space-2) var(--rep-space-4);
+}
+
+.remote-refusal {
+  margin: 0;
+  font-family: var(--rep-mono);
+  font-size: var(--rep-remote-text-mono);
+  line-height: var(--rep-leading-body);
+  color: var(--rep-status-red);
+}

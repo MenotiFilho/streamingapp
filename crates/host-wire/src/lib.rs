@@ -38,6 +38,7 @@
 mod discovery;
 mod http;
 mod remote;
+mod remote_next;
 mod server;
 
 pub use discovery::{

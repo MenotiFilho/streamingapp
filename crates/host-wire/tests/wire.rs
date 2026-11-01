@@ -240,32 +240,132 @@ fn a_browser_is_served_the_remote_page_before_it_has_anything_to_say() {
     assert!(page.contains("Pair this device"));
 }
 
+/// The `/next/assets/<name>` URLs a document names, in the order it names them.
+fn staged_assets(document: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut rest = document;
+    while let Some(start) = rest.find("/next/assets/") {
+        let after = &rest[start + "/next/assets/".len()..];
+        let end = after
+            .find(['"', '?', '#'])
+            .expect("an asset URL is quoted or carries a query");
+        names.push(after[..end].to_owned());
+        rest = &after[end..];
+    }
+    names
+}
+
 #[test]
-fn the_staging_route_redirects_permanently_to_the_root() {
-    // #160: `/` serves the repertory document directly; `/next` answers 308
-    // Permanent Redirect to `/` so a bookmark or an open tab on a phone lands
-    // on the one surface.
+fn the_staging_route_redirects_to_its_document() {
+    // `/next` without its slash is the staging route's old spelling: a bookmark
+    // or an open tab on a phone lands on the document, and the redirect is
+    // permanent because the route is not going back.
     let (_fixture, server) = server();
 
+    // `/` still serves the hand-written page: the staging route is beside it,
+    // not instead of it (ADR-0035 §5).
     let (root_head, root_body) = get(&server, "/");
-    let root_page = String::from_utf8(root_body).expect("the page is text");
     assert!(root_head.starts_with("HTTP/1.1 200 OK"));
     assert!(
-        root_page.starts_with("<!doctype html>\n<html lang=\"en\">"),
-        "the root page opens without a staging attribute"
+        String::from_utf8(root_body)
+            .expect("the page is text")
+            .contains("--rep-ink:"),
+        "the root page is still the hand-written client"
     );
-    assert!(root_page.contains("--rep-ink:"));
 
-    let (next_head, next_body) = get(&server, "/next");
+    let (head, body) = get(&server, "/next");
     assert!(
-        next_head.starts_with("HTTP/1.1 308 Permanent Redirect"),
-        "/next redirects permanently: {next_head}"
+        head.starts_with("HTTP/1.1 308 Permanent Redirect"),
+        "/next redirects to its document: {head}"
     );
     assert!(
-        next_head.contains("Location: /\r\n"),
-        "/next redirects to /: {next_head}"
+        head.contains("Location: /next/\r\n"),
+        "/next redirects to /next/: {head}"
     );
-    assert!(next_body.is_empty(), "a 308 redirect carries no body");
+    assert!(body.is_empty(), "a 308 redirect carries no body");
+}
+
+#[test]
+fn the_staged_document_is_served_without_a_cache() {
+    // The document is the entry of the built Remote, and it is never cached:
+    // a new Host ships a new page, and the hashed assets beside it are the ones
+    // that may be kept.
+    let (_fixture, server) = server();
+    let (head, body) = get(&server, "/next/");
+
+    assert!(
+        head.starts_with("HTTP/1.1 200 OK"),
+        "the page is served: {head}"
+    );
+    assert!(head.contains("Content-Type: text/html; charset=utf-8\r\n"));
+    assert!(head.contains("Cache-Control: no-store\r\n"));
+
+    let document = String::from_utf8(body).expect("the document is text");
+    assert!(
+        document.starts_with("<!doctype html>"),
+        "the staged document is the built page: {document}"
+    );
+    assert!(
+        !staged_assets(&document).is_empty(),
+        "the document names the bundle it loads"
+    );
+}
+
+#[test]
+fn the_staged_assets_are_served_immutably() {
+    // Every asset the document names is embedded, and its URL names its
+    // contents, so the browser may keep it for good.
+    let (_fixture, server) = server();
+    let (_, body) = get(&server, "/next/");
+    let document = String::from_utf8(body).expect("the document is text");
+
+    for name in staged_assets(&document) {
+        let (head, body) = get(&server, &format!("/next/assets/{name}"));
+
+        assert!(
+            head.starts_with("HTTP/1.1 200 OK"),
+            "assets/{name} is served: {head}"
+        );
+        assert!(
+            head.contains("Cache-Control: public, max-age=31536000, immutable\r\n"),
+            "assets/{name} is immutable: {head}"
+        );
+        assert!(!body.is_empty(), "assets/{name} has its bytes");
+        if name.ends_with(".js") {
+            assert!(
+                head.contains("Content-Type: text/javascript; charset=utf-8\r\n"),
+                "a script is served as a script: {head}"
+            );
+        }
+        if name.ends_with(".css") {
+            assert!(
+                head.contains("Content-Type: text/css; charset=utf-8\r\n"),
+                "a stylesheet is served as a stylesheet: {head}"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_stagings_metadata_is_compiled_in_and_never_served() {
+    // The capability list and the bundled notices travel with the binary, and
+    // neither is a client asset: a browser that asks for one gets nothing.
+    let (_fixture, server) = server();
+
+    for path in [
+        "/next/build-info.json",
+        "/next/licenses.md",
+        "/next/index.html",
+        "/next/assets/missing-abc123.js",
+        "/next/anything",
+    ] {
+        let (head, body) = get(&server, path);
+        assert!(
+            head.starts_with("HTTP/1.1 404 Not Found"),
+            "{path} is not a route: {head}"
+        );
+        assert!(body.is_empty(), "{path} carries no body");
+    }
 }
 
 #[test]
