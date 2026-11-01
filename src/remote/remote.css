@@ -602,7 +602,8 @@ body {
   min-width: 0;
 }
 
-.remote-search-form .rep-kit-field-trailing .rep-kit-button {
+.remote-search-form .rep-kit-field-trailing .rep-kit-button,
+.remote-addons-form .rep-kit-field-trailing .rep-kit-button {
   min-height: var(--rep-remote-touch);
   padding: 0 var(--rep-space-4);
 }
@@ -629,6 +630,139 @@ body {
 
 .remote-failure {
   color: var(--rep-status-red);
+}
+
+/* --------------------------------------------------------------------------
+ * Addons: the manifest form and the Host's register
+ * -------------------------------------------------------------------------- */
+
+.remote-addons {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-5);
+  min-width: 0;
+}
+
+.remote-addons-columns {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-6);
+  min-width: 0;
+}
+
+.remote-addons-add {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-3);
+  min-width: 0;
+}
+
+.remote-addons-status {
+  margin: 0;
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-remote-text-mono);
+  line-height: var(--rep-leading-body);
+}
+
+.remote-addons-register {
+  min-width: 0;
+}
+
+.remote-addons-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.remote-addon {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-3);
+  padding: var(--rep-space-4) 0;
+  border-top: 1px solid var(--rep-hairline);
+}
+
+.remote-addon:last-child {
+  border-bottom: 1px solid var(--rep-hairline);
+}
+
+.remote-addon-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--rep-space-3);
+}
+
+.remote-addon-name {
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-remote-text-section);
+  font-weight: 500;
+  line-height: var(--rep-leading-display);
+  letter-spacing: var(--rep-tracking-display);
+}
+
+.remote-addon-version {
+  flex: none;
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-remote-text-mono);
+}
+
+.remote-addon-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--rep-space-3) var(--rep-space-4);
+  margin: 0;
+}
+
+.remote-addon-facts dt {
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-remote-text-mono);
+  letter-spacing: var(--rep-tracking-caps);
+  text-transform: uppercase;
+}
+
+.remote-addon-facts dd {
+  margin: var(--rep-space-1) 0 0;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-remote-text-body);
+  line-height: var(--rep-leading-body);
+  overflow-wrap: anywhere;
+}
+
+.remote-addon-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--rep-space-2) var(--rep-space-4);
+}
+
+.remote-addon-actions .rep-kit-button {
+  min-height: var(--rep-remote-touch);
+  padding: var(--rep-space-2) var(--rep-space-3);
+}
+
+.remote-addon-refusal {
+  margin: 0;
+  color: var(--rep-status-red);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-remote-text-body);
+  line-height: var(--rep-leading-body);
+}
+
+/* A tablet gets the design record's two columns; a phone stacks the form over
+ * the register, so the empty state still sits beside the way on. */
+@media (min-width: 48rem) {
+  .remote-addons-columns {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+    align-items: start;
+  }
 }
 
 /* --------------------------------------------------------------------------
