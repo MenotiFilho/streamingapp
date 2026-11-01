@@ -37,7 +37,7 @@ use host_core::{
 use tungstenite::protocol::{Message, Role, WebSocket};
 
 use crate::http;
-use crate::remote;
+use crate::remote_page;
 
 /// How long a connection waits for a client's frame before looking at what the
 /// Host has published. Small enough that a pushed Snapshot arrives as the eye
@@ -194,7 +194,7 @@ fn serve(
     };
 
     if !request.is_websocket_upgrade() {
-        return remote::serve(&mut stream, &request);
+        return remote_page::serve(&mut stream, &request);
     }
 
     let Some(accept) = request.accept_key() else {

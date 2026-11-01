@@ -8,15 +8,15 @@ import { REMOTE_ACTIONS } from "./src/remote/actions";
  * The Remote's build (ADR-0035 §3).
  *
  * A second entry of the same tree, not a second package: `remote.html` and the
- * React Remote behind it build into `crates/host-wire/remote-next/`, which is
+ * React Remote behind it build into `crates/host-wire/remote/`, which is
  * committed and compiled into the binary. Nothing here is built at serve time,
  * and no asset comes from a network.
  *
- * `base: "/next/"` is what lets the Host serve the page under its staging route
- * without the document knowing where it will live later: every asset URL is
- * relative to that base. `publicDir: false` keeps the token sheet's
- * root-absolute `/fonts/<name>` URLs pointing at the Host's existing route
- * instead of being copied into this bundle.
+ * `base: "/"` is the page's real home: the Host serves the document at `/` and
+ * every asset URL the document names is rooted there, so the hashed assets are
+ * `/assets/<name>`. `publicDir: false` keeps the token sheet's root-absolute
+ * `/fonts/<name>` URLs pointing at the Host's existing route instead of being
+ * copied into this bundle.
  */
 
 /**
@@ -45,11 +45,11 @@ function buildInfo(): Plugin {
 }
 
 export default defineConfig({
-  base: "/next/",
+  base: "/",
   publicDir: false,
   plugins: [react(), buildInfo()],
   build: {
-    outDir: "crates/host-wire/remote-next",
+    outDir: "crates/host-wire/remote",
     // The output lives outside this project's root, so Vite would otherwise
     // leave whatever a previous build wrote beside the new files.
     emptyOutDir: true,
@@ -63,8 +63,8 @@ export default defineConfig({
         assetFileNames: "assets/[name]-[hash][extname]",
       },
     },
-    // Motion's MIT notice travels with the bundle, beside the page, and is
-    // never served: the Host answers it 404 (ADR-0031 §1, ADR-0035 §3).
+    // The bundled dependencies' notices travel with the bundle, beside the
+    // page, and are never served: the Host answers them 404 (ADR-0035 §3).
     license: { fileName: "licenses.md" },
   },
 });

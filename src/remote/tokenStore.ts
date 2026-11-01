@@ -1,7 +1,7 @@
 /**
- * The key the Device token is kept under. It is the hand-written page's key, on
- * the same origin, so a phone paired at `/` is already paired at `/next`
- * (ADR-0035 §1).
+ * The key the Device token is kept under. It was the hand-written page's key,
+ * and the staging route shared its origin, so a phone paired before the
+ * cutover is still paired at `/` (ADR-0035 §1).
  */
 export const TOKEN_KEY = "streamingapp.device.token";
 

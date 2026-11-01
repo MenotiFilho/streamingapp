@@ -2568,15 +2568,17 @@ function Step-25($ctx) {
     'which drives a real socket; this step walks the window and the pairing by hand.'
 }
 
-# The full remote (#32): a browser on another device does everything the Host's
-# own window does, because it sends the same Actions. The page is the Cast Remote
-# (#88): six destinations, a docked strip that expands into the full-screen
-# surface, and the Audio & Subtitles sheet. What this step can check is the half
-# that is shared state - a Stream started, paused and stopped from the phone
-# shows up in the window, which is another client of the same Snapshot - because
-# the phone's own screen is not something this script can screenshot. The
-# operator walks the page itself; its capability list is asserted against the
-# Action surface by `host-wire/src/remote.rs`.
+# The full remote (#32, ADR-0035): a browser on another device does everything
+# the Host's own window does, because it sends the same Actions. Since the
+# cutover (#216) `/` serves the React Remote, drawn as the Cast Remote: a
+# pairing gate, the six destinations, pushed Title and Streams levels, and the
+# docked player strip that expands into the transport card and its five plates.
+# What this step can check is the half
+# that is shared state - a Stream started, paused, sought and stopped from the
+# phone shows up in the window, which is another client of the same Snapshot -
+# because the phone's own screen is not something this script can screenshot.
+# The operator walks the page itself; its capability list is asserted against
+# the Action surface by `host-wire`'s `build-info.json` test.
 function Step-26($ctx) {
     '--- 26. the full remote: browse, play and control from another device'
     $app = $ctx.App
@@ -2595,9 +2597,9 @@ function Step-26($ctx) {
     $published = Published-Snapshots
     ''
     "DRIVE THE REMOTE NOW: on another device on this network, open"
-    "http://$address in a browser and enter the code $code. Then, from that page,"
-    'search or browse, open a Title, pick a Stream and press play. This script waits'
-    'until the Host lists the paired device (up to 5 minutes).'
+    "http://$address in a browser. The page greets an unpaired connection with"
+    "'Pair this device': enter the code $code and a device name, then press Pair."
+    'This script waits until the Host lists the paired device (up to 5 minutes).'
     $text = Wait-No-Text $app 'No device is paired yet' 300
     Shot $app '26-paired.png'
     Check 'the remote paired and is listed as a device' (
@@ -2609,23 +2611,27 @@ function Step-26($ctx) {
     # The page itself is the operator's evidence. These lines are the route, in
     # the order a person walks it; the script cannot screenshot the phone.
     ''
-    'WALK SURFACE 1 (Browse) NOW. The page is the Cast Remote:'
-    '  - the bottom nav has Home · Discover · Search · Library · Addons · Settings;'
-    '  - Home draws the Featured hero, a 16:9 Continue watching row, and one row'
-    '    per Catalog in the Addons order, each with More where the Catalog pages;'
+    'WALK THE CAST REMOTE (BROWSE) NOW. The bottom index is Home · Discover ·'
+    'Search · Library · Addons · Settings, with the active one keylined:'
+    '  - Home draws the Featured catalog as a feature that holds for 24 seconds,'
+    '    a 16:9 Continue watching row, and one touch rail per Catalog in the'
+    '    Addons order, each with More where the Catalog pages;'
     '  - Discover is TMDB weekly Trending with Movie/Series and a genre filter, or'
     '    says where a TMDB key goes when none is held;'
     '  - Search asks TMDB Movies and Series with a key, or every searchable Addon'
     '    Catalog without one;'
-    '  - Library shows the shared Stremio sign-in gate, or the signed-in placeholder;'
+    '  - Library shows the shared Stremio sign-in gate, or the signed-in list;'
     '  - Addons adds by manifest URL, expands a row in place, and offers'
     '    Move up · Move down · Remove (Remove asks for confirmation);'
-    '  - Settings pushes Credentials, Preferences, Remote devices and About/Credits.'
+    '  - Settings pushes Credentials, Preferences, Remote devices and About/Credits'
+    '    as levels; Remote devices reads the address and code and lists this'
+    '    paired phone with Revoke.'
     '  - a card opens a Title level; a Video opens the Addon-grouped Streams level.'
-    'Press Escape to pop each level; it must return to the screen underneath.'
+    'Press Escape, or the browser Back, to pop each level; it must return to the'
+    'screen underneath.'
     ''
     'Now open a Title and press play on a Stream. The levels collapse and the'
-    'docked cast strip appears directly above the bottom nav.'
+    'docked player strip appears directly above the bottom index.'
     $playing = Wait-Shows $app 'Pause' 120
     Shot $app '26-playing.png'
     Check 'a Stream started from the remote plays on the Host' $playing (
@@ -2633,14 +2639,13 @@ function Step-26($ctx) {
 
     if ($playing) {
         ''
-        'WALK SURFACE 2 (the expanded Cast Remote) NOW: tap the centered strip.'
-        '  - the full-screen surface shows the centered poster, the three utility'
-        '    icons (Audio & Subtitles, Volume, Episodes), the scrubber and times,'
-        '    and the transport: Prev Ep · -10 · play/pause · +10 · Next Ep · Stop;'
+        'WALK THE PLAYER NOW: tap the centered strip to open the expanded card.'
+        '  - the card shows the plate, the timeline with its time and chapter'
+        '    preview, the six-cell transport (Prev Ep · -10 · play/pause · +10 ·'
+        '    Next Ep · Stop), the five menu plates (Audio & Subtitles, Picture,'
+        '    Speed, Chapters, Episodes) and the always-visible volume box;'
         '  - Episodes is active for a series and lists the playing series'' episodes;'
-        '  - the Speed, Chapters and Picture rows below the transport carry the'
-        '    rest of the control set;'
-        '  - the footer names the connected Host.'
+        '  - the status line names the device and the live connection.'
         ''
         'NOW, ON THE REMOTE: pause it. This script watches the Host for the pause -'
         'the window''s OSD offers Play where it offered Pause.'
@@ -2648,13 +2653,13 @@ function Step-26($ctx) {
         Check 'pause, taken on the remote, pauses the Host' $paused (Page-Text $app)
 
         ''
-        'WALK SURFACE 3 (Audio & Subtitles) NOW: from the expanded surface, open'
-        'Audio & Subtitles. Choose an audio track, a subtitle track (or Subtitles'
-        'off), and nudge the subtitle delay. Each choice reaches the Host at once;'
-        'there is no Apply. Press Done to close the sheet.'
+        'WALK THE AUDIO & SUBTITLES PLATE NOW: open Audio & Subtitles from the'
+        'card. Choose an audio track, a subtitle track (or Subtitles off), and'
+        'nudge the subtitle delay. Each choice reaches the Host at once; there is'
+        'no Apply. Press Close to put the plate away.'
         ''
-        'NOW, ON THE REMOTE: seek (for example +10 s). The Host''s position should'
-        'move even though playback is paused.'
+        'NOW, ON THE REMOTE: seek - press +10 s, or drag the timeline and release.'
+        'The Host''s position should move even though playback is paused.'
         Wake-Osd $app
         $still = Position-Seconds $app
         $seeked = $still
@@ -2674,7 +2679,7 @@ function Step-26($ctx) {
 
         ''
         'NOW, ON THE REMOTE: press Stop. The window returns to what it was reading,'
-        'and the remote''s docked strip goes away.'
+        'and the docked strip goes away.'
         $text = Wait-No-Text $app 'Pause' 120
         Check 'stopping from the remote clears playback everywhere' (
             $text -notmatch 'Pause') "showed: $text"

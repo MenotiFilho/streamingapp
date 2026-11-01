@@ -104,6 +104,12 @@ leave Remote code in the Tauri bundle.
 `immutable`, and keeps `/fonts/*` at its existing route and hour-long cache —
 `publicDir: false` leaves the token sheet's root-absolute font URLs untouched.
 
+> **At the cutover (#216).** `base` becomes `/`, the artifact moves from
+> `remote-next/` to `remote/`, the Host serves the document at `/` and its
+> hashed assets at `/assets/<hash>` with the same caches, and every path under
+> `/next` is a `308 Permanent Redirect` to `/`. The artifact is still committed,
+> embedded and held by the same three locks, with the CI path following it.
+
 **The stale artifact is the risk, and it has three locks.** The artifact is
 deterministic (no timestamp, SHA, absolute path or locale in it); CI rebuilds
 `pnpm build:remote` and fails on any `git status --porcelain -- …/remote-next`

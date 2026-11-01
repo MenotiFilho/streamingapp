@@ -12,9 +12,8 @@ Remote flow belongs to the Host and to `CONTEXT.md`, and this record does not
 move them.
 
 The values live in `src/kit/tokens.css`; the motion presets live in
-`src/core/react/motion.ts`. The window imports them, and `crates/host-wire`
-splices the token sheet (`src/kit/tokens.css`) into the served Remote page and
-serves the same `woff2` faces.
+`src/core/react/motion.ts`. The window and the served Remote both import the
+sheet, and `crates/host-wire` serves the same `woff2` faces.
 
 ## 1. The direction
 
@@ -185,17 +184,16 @@ both.
 ## 6. Motion
 
 **Two engines, one vocabulary.** Movement runs on **Motion** — `motion/react` in
-the window, the vanilla `animate` served to the Remote. CSS keeps the effects
-that are self-contained: a wash, a fill, a colour change, as a `transition` on
-the token duration. Both read the same presets, so a rail and a drawer settle
-with the same feel.
+the window — for springs and gestures, and on CSS for the effects that are
+self-contained: a wash, a fill, a colour change, as a `transition` on the token
+duration. The served Remote draws from the same tree and the same presets, so a
+rail and a drawer settle with the same feel.
 
 The durations are declared in `tokens.css` as
 `--rep-motion-panel` and `--rep-motion-quick`, with `--rep-motion-fade` for the
 one fade. `motion.ts` reads those two custom properties from the document
-and pairs them with `bounce: 0`; the Remote's script reads the same two
-properties. One number, two readers — and no third CSS-as-text test, since
-ADR-0032 allows exactly two presentation locks.
+and pairs them with `bounce: 0`. One number, one module — and no third
+CSS-as-text test, since ADR-0032 allows exactly two presentation locks.
 
 | Preset | Value | Used for |
 |---|---|---|
@@ -236,9 +234,8 @@ fade), and no control scales under the pointer.
 the root: transform and layout animations off, opacity and colour fades kept.
 That config only reaches `motion` components, so the window's direct `animate()`
 calls — the rail scroll and the focus reveal — check `useReducedMotion()` and
-jump instead of animating. The Remote cannot use the React APIs, so its module
-script reads `matchMedia("(prefers-reduced-motion: reduce)")` (and listens for
-changes) and runs only the opacity/colour animations. Under the same media query
+jump instead of animating. The served Remote reads the same hook from
+`src/core/react`. Under the same media query
 the CSS transform transitions are disabled and the width fills snap; only opacity
 and colour still fade. The feature stops rotating. This **replaces** the earlier
 0ms rule: with reduced motion the room keeps its fades and loses its movement.
@@ -259,10 +256,10 @@ circle, no square, no container, except a cell of the hairline table.
 The set: the six destination marks, More, back, close, previous episode, next
 episode, −10s, +10s, play, pause, stop, fullscreen, volume, volume muted,
 picture, subtitles, audio, speed, chapters, and the chevron the popovers use.
-`src/kit/icons.tsx` is the source for the whole set (#153). The served page
-receives the same symbols as a sprite spliced at serve time, like the token
-sheet (#159). **No Unicode glyph stands in for a mark on the Remote** — the
-phone's emoji font is not the design system.
+`src/kit/icons.tsx` is the source for the whole set (#153). The served Remote
+imports the same component, like every other kit primitive; there is no sprite
+spliced at serve time. **No Unicode glyph stands in for a mark on the Remote** —
+the phone's emoji font is not the design system.
 
 ## 8. Component anatomy
 
@@ -493,11 +490,12 @@ into the shipping window (`RepertoryEntry`) or the served Remote.
   `CONTEXT.md` and the ADRs.
 - **The entry points**: the window mounts `RepertoryEntry` by default and
   reserves `VITE_UI=rehearsal` for the dev-only rehearsal mount; the served
-  Remote serves the repertory page at `/` (#160).
-- **The tests**: the two presentation locks (`tokens.test.ts` and
-  `remotePage.test.ts`) and the behaviour suites are governed by ADR-0032 (#151).
+  Remote serves the React Remote built from `remote.html` at `/` (ADR-0035).
+- **The tests**: the presentation locks (`tokens.test.ts` and `frame.test.tsx`)
+  and the behaviour suites are governed by ADR-0032 (#151).
 - **The motion layer's code**: the `motion` dependency and its presets landed in
-  #153, and the Remote's vendored bundle landed in #159 (ADR-0031).
+  #153; the hand-written page's vendored bundle (#159) is deleted at the cutover
+  (ADR-0035 §4).
 - **The Windows walkthrough**: `verify.ps1` is not redesigned; the owner verifies
   the window by hand.
 - **Anything the Host says**: this record draws the Host's vocabulary; it never

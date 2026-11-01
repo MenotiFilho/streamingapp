@@ -228,70 +228,12 @@ fn pair(client: &mut Client, fixture: &Fixture, name: &str) -> (DeviceSummary, D
 }
 
 #[test]
-fn a_browser_is_served_the_remote_page_before_it_has_anything_to_say() {
+fn the_root_serves_the_built_remote_document_without_a_cache() {
+    // The cutover (ADR-0035 §5): `/` is the React Remote's built document, and
+    // the document is never cached — a new Host ships a new page, and the
+    // hashed assets beside it are the ones that may be kept.
     let (_fixture, server) = server();
     let (head, body) = get(&server, "/");
-    let page = String::from_utf8(body).expect("the page is text");
-
-    assert!(
-        head.starts_with("HTTP/1.1 200 OK"),
-        "the page is served: {head}"
-    );
-    assert!(page.contains("Pair this device"));
-}
-
-/// The `/next/assets/<name>` URLs a document names, in the order it names them.
-fn staged_assets(document: &str) -> Vec<String> {
-    let mut names = Vec::new();
-    let mut rest = document;
-    while let Some(start) = rest.find("/next/assets/") {
-        let after = &rest[start + "/next/assets/".len()..];
-        let end = after
-            .find(['"', '?', '#'])
-            .expect("an asset URL is quoted or carries a query");
-        names.push(after[..end].to_owned());
-        rest = &after[end..];
-    }
-    names
-}
-
-#[test]
-fn the_staging_route_redirects_to_its_document() {
-    // `/next` without its slash is the staging route's old spelling: a bookmark
-    // or an open tab on a phone lands on the document, and the redirect is
-    // permanent because the route is not going back.
-    let (_fixture, server) = server();
-
-    // `/` still serves the hand-written page: the staging route is beside it,
-    // not instead of it (ADR-0035 §5).
-    let (root_head, root_body) = get(&server, "/");
-    assert!(root_head.starts_with("HTTP/1.1 200 OK"));
-    assert!(
-        String::from_utf8(root_body)
-            .expect("the page is text")
-            .contains("--rep-ink:"),
-        "the root page is still the hand-written client"
-    );
-
-    let (head, body) = get(&server, "/next");
-    assert!(
-        head.starts_with("HTTP/1.1 308 Permanent Redirect"),
-        "/next redirects to its document: {head}"
-    );
-    assert!(
-        head.contains("Location: /next/\r\n"),
-        "/next redirects to /next/: {head}"
-    );
-    assert!(body.is_empty(), "a 308 redirect carries no body");
-}
-
-#[test]
-fn the_staged_document_is_served_without_a_cache() {
-    // The document is the entry of the built Remote, and it is never cached:
-    // a new Host ships a new page, and the hashed assets beside it are the ones
-    // that may be kept.
-    let (_fixture, server) = server();
-    let (head, body) = get(&server, "/next/");
 
     assert!(
         head.starts_with("HTTP/1.1 200 OK"),
@@ -303,24 +245,75 @@ fn the_staged_document_is_served_without_a_cache() {
     let document = String::from_utf8(body).expect("the document is text");
     assert!(
         document.starts_with("<!doctype html>"),
-        "the staged document is the built page: {document}"
+        "the root document is the built page: {document}"
     );
     assert!(
-        !staged_assets(&document).is_empty(),
+        !document_assets(&document).is_empty(),
         "the document names the bundle it loads"
+    );
+
+    // The name a browser may append is the same document, not a second page.
+    let (index_head, index_body) = get(&server, "/index.html");
+    assert!(index_head.starts_with("HTTP/1.1 200 OK"));
+    assert_eq!(
+        index_body.as_slice(),
+        document.as_bytes(),
+        "/index.html is the document by its other name"
     );
 }
 
+/// The `/assets/<name>` URLs a document names, in the order it names them.
+fn document_assets(document: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut rest = document;
+    while let Some(start) = rest.find("/assets/") {
+        let after = &rest[start + "/assets/".len()..];
+        let end = after
+            .find(['"', '?', '#'])
+            .expect("an asset URL is quoted or carries a query");
+        names.push(after[..end].to_owned());
+        rest = &after[end..];
+    }
+    names
+}
+
 #[test]
-fn the_staged_assets_are_served_immutably() {
+fn the_retired_staging_prefix_is_one_permanent_redirect_to_the_root() {
+    // `/next` was the staged Remote's route until the cutover. Every spelling
+    // of it — the bare prefix, the document, an old asset URL, a neighbouring
+    // name — is one permanent redirect to `/`, never a second document.
+    let (_fixture, server) = server();
+
+    for path in [
+        "/next",
+        "/next/",
+        "/next/assets/remote-abc123.js",
+        "/next/anything",
+        "/nextish",
+    ] {
+        let (head, body) = get(&server, path);
+        assert!(
+            head.starts_with("HTTP/1.1 308 Permanent Redirect"),
+            "{path} redirects: {head}"
+        );
+        assert!(
+            head.contains("Location: /\r\n"),
+            "{path} redirects to the root: {head}"
+        );
+        assert!(body.is_empty(), "a 308 redirect carries no body");
+    }
+}
+
+#[test]
+fn the_remotes_assets_are_served_immutably() {
     // Every asset the document names is embedded, and its URL names its
     // contents, so the browser may keep it for good.
     let (_fixture, server) = server();
-    let (_, body) = get(&server, "/next/");
+    let (_, body) = get(&server, "/");
     let document = String::from_utf8(body).expect("the document is text");
 
-    for name in staged_assets(&document) {
-        let (head, body) = get(&server, &format!("/next/assets/{name}"));
+    for name in document_assets(&document) {
+        let (head, body) = get(&server, &format!("/assets/{name}"));
 
         assert!(
             head.starts_with("HTTP/1.1 200 OK"),
@@ -347,17 +340,19 @@ fn the_staged_assets_are_served_immutably() {
 }
 
 #[test]
-fn the_stagings_metadata_is_compiled_in_and_never_served() {
+fn the_remotes_metadata_and_every_unknown_path_is_a_404() {
     // The capability list and the bundled notices travel with the binary, and
-    // neither is a client asset: a browser that asks for one gets nothing.
+    // neither is a client asset. The document by its build name, the browser's
+    // favicon and a name the artifact does not hold are refused the same way.
     let (_fixture, server) = server();
 
     for path in [
-        "/next/build-info.json",
-        "/next/licenses.md",
-        "/next/index.html",
-        "/next/assets/missing-abc123.js",
-        "/next/anything",
+        "/build-info.json",
+        "/licenses.md",
+        "/remote.html",
+        "/favicon.ico",
+        "/assets/missing-abc123.js",
+        "/anything",
     ] {
         let (head, body) = get(&server, path);
         assert!(
@@ -369,35 +364,52 @@ fn the_stagings_metadata_is_compiled_in_and_never_served() {
 }
 
 #[test]
-fn the_host_serves_the_versioned_motion_asset_immutably() {
-    // ADR-0031 §1: one same-origin asset, its URL naming the version, cached for
-    // good. The body is Motion's ESM bundle, not a page and not a 404.
+fn the_vendored_motion_route_is_gone() {
+    // ADR-0035 §4: the hand-written page's pinned Motion asset is deleted at
+    // the cutover, and its route dies with it rather than being left as a
+    // second copy.
     let (_fixture, server) = server();
     let (head, body) = get(&server, "/motion-14.7.1.js");
 
-    assert!(head.starts_with("HTTP/1.1 200 OK"), "the asset is served");
-    assert!(head.contains("Content-Type: text/javascript; charset=utf-8\r\n"));
-    assert!(head.contains("Cache-Control: public, max-age=31536000, immutable\r\n"));
-    let bundle = String::from_utf8(body).expect("the bundle is text");
-    assert!(bundle.starts_with("/*! Motion v14.7.1 | MIT"));
-    assert!(bundle.contains("export"));
+    assert!(
+        head.starts_with("HTTP/1.1 404 Not Found"),
+        "the vendored bundle is not a route: {head}"
+    );
+    assert!(body.is_empty());
 }
 
 #[test]
 fn the_host_serves_the_fonts_the_page_asks_for() {
-    // #153: the token sheet the page splices names its faces by absolute
+    // #153: the token sheet the page imports names its faces by absolute
     // `/fonts/<name>` path, so the Host has to answer those bytes itself. The
     // body is a woff2 face, not a page and not a 404.
     let (_fixture, server) = server();
-    let (head, body) = get(&server, "/fonts/inter-latin-wght-normal.woff2");
 
+    for name in [
+        "bodoni-moda-latin-wght-normal.woff2",
+        "inter-latin-wght-normal.woff2",
+        "ibm-plex-mono-latin-400-normal.woff2",
+        "ibm-plex-mono-latin-500-normal.woff2",
+    ] {
+        let (head, body) = get(&server, &format!("/fonts/{name}"));
+        assert!(
+            head.starts_with("HTTP/1.1 200 OK"),
+            "/fonts/{name} is served: {head}"
+        );
+        assert!(head.contains("Content-Type: font/woff2\r\n"));
+        assert!(head.contains("Cache-Control: public, max-age=3600\r\n"));
+        assert!(
+            body.starts_with(b"wOF2"),
+            "the body is the woff2 face: {name}"
+        );
+    }
+
+    let (head, body) = get(&server, "/fonts/not-a-face.woff2");
     assert!(
-        head.starts_with("HTTP/1.1 200 OK"),
-        "the face is served: {head}"
+        head.starts_with("HTTP/1.1 404 Not Found"),
+        "a name the sheet does not carry is not a face: {head}"
     );
-    assert!(head.contains("Content-Type: font/woff2\r\n"));
-    assert!(head.contains("Cache-Control: public, max-age=3600\r\n"));
-    assert!(body.starts_with(b"wOF2"), "the body is the woff2 face");
+    assert!(body.is_empty());
 }
 
 #[test]
