@@ -802,6 +802,69 @@
 }
 
 /* --------------------------------------------------------------------------
+ * Sheet — a plate on the bottom edge, its heading over its rows
+ * -------------------------------------------------------------------------- */
+
+.rep-kit-sheet-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: flex-end;
+  background: color-mix(in srgb, var(--rep-ink) 82%, transparent);
+}
+
+.rep-kit-sheet {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: min(84dvh, 46rem);
+  overflow: hidden;
+  border-top: 2px solid var(--rep-house);
+  border-radius: 0;
+  background: var(--rep-ink-raised);
+  color: var(--rep-ivory);
+  font-family: var(--rep-sans);
+  box-shadow: none;
+  box-sizing: border-box;
+}
+
+.rep-kit-sheet-head {
+  display: flex;
+  flex: none;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--rep-space-4);
+  padding: var(--rep-space-3) var(--rep-space-4);
+  border-bottom: 1px solid var(--rep-hairline);
+}
+
+.rep-kit-sheet-title {
+  margin: 0;
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-section);
+  font-weight: 500;
+  line-height: var(--rep-leading-display);
+  letter-spacing: var(--rep-tracking-display);
+}
+
+.rep-kit-sheet-body {
+  display: grid;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+.rep-kit-sheet-body > * {
+  margin: 0;
+}
+
+.rep-kit-sheet-body > * + * {
+  border-top: 1px solid var(--rep-hairline);
+}
+
+/* --------------------------------------------------------------------------
  * Dialog — one question, Cancel focused first, one red fill
  * -------------------------------------------------------------------------- */
 

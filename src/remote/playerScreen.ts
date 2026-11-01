@@ -6,7 +6,7 @@ import {
   transportControls,
   type TransportControl,
 } from "../core/transportControls";
-import type { Action, PlaybackState } from "../core/wire";
+import type { Action, PlaybackState, Title } from "../core/wire";
 import type { RemotePayload } from "./levels";
 
 /**
@@ -22,8 +22,17 @@ import type { RemotePayload } from "./levels";
  * is the truth and the Session's pending keys are the wait.
  */
 
-/** The level a strip press pushes: the one expanded card. */
-export type RemotePlayer = { kind: "player" };
+/**
+ * The level a strip press pushes: the one expanded card, and the Title the
+ * playing Stream belongs to.
+ *
+ * The Title is data the client already holds: the stack under the card is a
+ * Title or a Streams level whenever playback started from one, and the
+ * Episodes plate lists its seasons from there rather than asking the Host for
+ * a Title it has already answered (#214, ADR-0005). A strip opened after the
+ * Title has left the stack carries `null` and the plate says it lists nothing.
+ */
+export type RemotePlayer = { kind: "player"; title: Title | null };
 
 /**
  * The card's name — the level's name, as a test, an announcement and Back call
@@ -67,12 +76,12 @@ export function chapterName(chapter: { index: number; title: string | null }): s
  * the card, so a second press replaces the card rather than stacking a second
  * one that one Back cannot close.
  */
-export function playerLevel(): NewLevel<RemotePlayer> {
+export function playerLevel(title: Title | null = null): NewLevel<RemotePlayer> {
   return {
     id: "player",
     name: CARD_NAME,
     kind: "player",
-    payload: { kind: "player" },
+    payload: { kind: "player", title },
   };
 }
 

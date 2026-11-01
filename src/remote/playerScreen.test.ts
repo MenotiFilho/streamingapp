@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { playbackView } from "../core/playbackView";
-import type { PlaybackSnapshot } from "../core/wire";
+import type { PlaybackSnapshot, Title } from "../core/wire";
 import {
   CARD_NAME,
   playerLevel,
@@ -70,9 +70,30 @@ describe("the Remote's player level", () => {
       id: "player",
       name: CARD_NAME,
       kind: "player",
-      payload: { kind: "player" },
+      payload: { kind: "player", title: null },
     });
     expect(CARD_NAME).toBe("Player");
+  });
+
+  test("carries the Title the strip already holds, for the Episodes plate", () => {
+    const title: Title = {
+      addon: "cinemeta",
+      id: "tt1",
+      key: { kind: "addon", addon: "cinemeta", id: "tt1" },
+      type: "series",
+      name: "One",
+      poster: null,
+      background: null,
+      logo: null,
+      description: null,
+      releaseInfo: null,
+      runtime: null,
+      imdbRating: null,
+      genres: [],
+      videos: [],
+    };
+
+    expect(playerLevel(title).payload).toEqual({ kind: "player", title });
   });
 
   test("a second strip press replaces the card instead of stacking one", () => {
@@ -83,7 +104,7 @@ describe("the Remote's player level", () => {
   });
 
   test("a player level is stale exactly when the Host has nothing playing", () => {
-    const player = { kind: "player" } as const;
+    const player = { kind: "player", title: null } as const;
     const title = {
       kind: "title",
       title: { addon: null, id: "tt1", type: "movie", name: "One" },

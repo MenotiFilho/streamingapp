@@ -8,16 +8,19 @@ import {
   SETTINGS_CATEGORIES,
   settingsLevelId,
 } from "../core/settingsRegister";
-import type { ResumeEntry, Snapshot } from "../core/wire";
+import type { ResumeEntry, Snapshot, Title, Video } from "../core/wire";
 import { RemoteApp } from "./RemoteApp";
 import { FakeHost } from "./fakeHost.testing";
 import { ISSUED_TOKEN, NOTHING, PHONE, fakeLink } from "./fakeSocket.testing";
 import {
+  heldTitle,
+  levelTitle,
   RemoteLevel,
   titleLevel,
   titleLevelOf,
   type RemotePayload,
 } from "./levels";
+import { playerSheetLevel } from "./playerSheets";
 import { CARD_NAME, playerLevel } from "./playerScreen";
 import { settingsLevel } from "./settingsScreen";
 
@@ -126,6 +129,70 @@ describe("the Remote's Title level", () => {
       view.unmount();
       release();
     }
+  });
+});
+
+const HELD_TITLE: Title = {
+  addon: "cinemeta",
+  id: "tt1",
+  key: { kind: "addon", addon: "cinemeta", id: "tt1" },
+  type: "series",
+  name: "One",
+  poster: null,
+  background: null,
+  logo: null,
+  description: null,
+  releaseInfo: null,
+  runtime: null,
+  imdbRating: null,
+  genres: [],
+  videos: [],
+};
+
+const HELD_VIDEO: Video = {
+  id: "tt1:1:1",
+  name: "Pilot",
+  season: 1,
+  episode: 1,
+  thumbnail: null,
+};
+
+/**
+ * The Title a stack already holds (#214).
+ *
+ * The player level carries it as data so the Episodes plate lists the seasons
+ * this client has answered rather than asking the Host for a Title again. The
+ * nearest level that has one wins, from the top down, and a player pushed with
+ * nothing is still the card of the Streams level under it.
+ */
+describe("the Title a level stack holds", () => {
+  test("the nearest answered Title travels into the player and its sheet", () => {
+    const answered: Level<RemotePayload> = {
+      id: "level-1",
+      name: "Title",
+      kind: "overlay",
+      payload: {
+        kind: "title",
+        title: { addon: "cinemeta", id: "tt1", type: "series", name: "One" },
+        answer: HELD_TITLE,
+      },
+    };
+    const streams: Level<RemotePayload> = {
+      id: "level-2",
+      name: "Streams",
+      kind: "overlay",
+      payload: { kind: "streams", title: HELD_TITLE, video: HELD_VIDEO },
+    };
+    const card: Level<RemotePayload> = { ...playerLevel(), id: "player" };
+
+    expect(heldTitle([])).toBeNull();
+    expect(heldTitle([answered])).toBe(HELD_TITLE);
+    expect(heldTitle([answered, streams])).toBe(HELD_TITLE);
+    expect(heldTitle([streams, card])).toBe(HELD_TITLE);
+    expect(levelTitle(playerLevel(HELD_TITLE).payload)).toBe(HELD_TITLE);
+    expect(levelTitle(playerSheetLevel("episodes", HELD_TITLE).payload)).toBe(
+      HELD_TITLE,
+    );
   });
 });
 
