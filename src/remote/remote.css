@@ -766,6 +766,249 @@ body {
 }
 
 /* --------------------------------------------------------------------------
+ * Settings: the register, and the four leaves a category opens (#211)
+ * -------------------------------------------------------------------------- */
+
+.remote-settings,
+.remote-settings-leaf {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-5);
+  min-width: 0;
+}
+
+.remote-settings-register {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.remote-settings-row {
+  border-top: 1px solid var(--rep-hairline);
+}
+
+.remote-settings-row:last-child {
+  border-bottom: 1px solid var(--rep-hairline);
+}
+
+/* A register row is a control the whole width of the page: the name in the
+ * display serif, and the hairline doing the framing rather than a fill. */
+.remote-settings-row .rep-kit-button {
+  justify-content: flex-start;
+  width: 100%;
+  min-height: var(--rep-remote-touch);
+  padding: var(--rep-space-3) 0;
+  border: 0;
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-remote-text-section);
+  letter-spacing: var(--rep-tracking-display);
+}
+
+.remote-settings-row .rep-kit-button:hover:not(:disabled) {
+  color: var(--rep-house);
+}
+
+.remote-settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-3);
+  min-width: 0;
+}
+
+.remote-settings-label {
+  margin: 0;
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-remote-text-mono);
+  letter-spacing: var(--rep-tracking-caps);
+  text-transform: uppercase;
+}
+
+.remote-settings-sub {
+  margin: var(--rep-space-2) 0 0;
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-remote-text-mono);
+}
+
+.remote-settings-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--rep-space-2);
+}
+
+.remote-settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-4);
+  min-width: 0;
+}
+
+.remote-settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--rep-space-3);
+}
+
+.remote-settings-actions .rep-kit-button {
+  min-height: var(--rep-remote-touch);
+  padding: var(--rep-space-2) var(--rep-space-4);
+}
+
+.remote-settings-status {
+  margin: 0;
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-remote-text-mono);
+  line-height: var(--rep-leading-body);
+}
+
+/* The ledger: a term in mono, the fact under it, two to a row. */
+.remote-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--rep-space-3) var(--rep-space-4);
+  margin: 0;
+}
+
+.remote-facts dt {
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-remote-text-mono);
+  letter-spacing: var(--rep-tracking-caps);
+  text-transform: uppercase;
+}
+
+.remote-facts dd {
+  margin: var(--rep-space-1) 0 0;
+  color: var(--rep-dim);
+  font-size: var(--rep-remote-text-body);
+  line-height: var(--rep-leading-body);
+  overflow-wrap: anywhere;
+}
+
+/* The pairing readout is the screen a second device is paired from: the code
+ * is drawn at hand scale, in the bookkeeping family, with room to read out. */
+.remote-pairing {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-4);
+  padding: var(--rep-space-4) 0;
+  border-top: 1px solid var(--rep-hairline);
+  border-bottom: 1px solid var(--rep-hairline);
+}
+
+.remote-pairing-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-1);
+  min-width: 0;
+}
+
+.remote-pairing-value {
+  margin: 0;
+  color: var(--rep-ivory);
+  font-size: var(--rep-remote-text-body);
+  line-height: var(--rep-leading-body);
+  overflow-wrap: anywhere;
+}
+
+.remote-pairing-code {
+  margin: 0;
+  color: var(--rep-ivory);
+  font-family: var(--rep-mono);
+  font-size: 1.75rem;
+  line-height: 1.2;
+  letter-spacing: 0.16em;
+  overflow-wrap: anywhere;
+}
+
+.remote-settings-devices {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.remote-settings-device {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--rep-space-3);
+  padding: var(--rep-space-3) 0;
+  border-top: 1px solid var(--rep-hairline);
+}
+
+.remote-settings-device:last-child {
+  border-bottom: 1px solid var(--rep-hairline);
+}
+
+.remote-settings-device-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-1);
+  min-width: 0;
+}
+
+.remote-settings-device-name {
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-remote-text-section);
+  line-height: var(--rep-leading-display);
+  letter-spacing: var(--rep-tracking-display);
+  overflow-wrap: anywhere;
+}
+
+.remote-settings-device-date {
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-remote-text-mono);
+}
+
+.remote-settings-device .rep-kit-button {
+  flex: none;
+  min-height: var(--rep-remote-touch);
+  padding: var(--rep-space-2) var(--rep-space-3);
+}
+
+/* About/Credits: the mark, its required notice, and the licence. */
+.remote-credit {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--rep-space-3);
+}
+
+.remote-credit-logo {
+  width: auto;
+  height: 1.5rem;
+}
+
+.remote-credit-notice,
+.remote-licence {
+  margin: 0;
+  color: var(--rep-dim);
+  font-size: var(--rep-remote-text-body);
+  line-height: var(--rep-leading-body);
+}
+
+@media (min-width: 48rem) {
+  .remote-pairing {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: var(--rep-space-6);
+  }
+
+  .remote-pairing > * {
+    flex: 1;
+  }
+}
+
+/* --------------------------------------------------------------------------
  * The pushed level: one screen, named, over the destination it was opened from
  * -------------------------------------------------------------------------- */
 

@@ -4,6 +4,10 @@ import { describe, expect, test, vi } from "vitest";
 import { explain, type ActionError } from "../core/errors";
 import type { Level } from "../core/navigation";
 import { Session } from "../core/session";
+import {
+  SETTINGS_CATEGORIES,
+  settingsLevelId,
+} from "../core/settingsRegister";
 import type { ResumeEntry, Snapshot } from "../core/wire";
 import { RemoteApp } from "./RemoteApp";
 import { FakeHost } from "./fakeHost.testing";
@@ -14,6 +18,7 @@ import {
   titleLevelOf,
   type RemotePayload,
 } from "./levels";
+import { settingsLevel } from "./settingsScreen";
 
 /**
  * The one level B2 pushes (ADR-0035 §1).
@@ -218,5 +223,37 @@ describe("the Remote's confirm level", () => {
     ).toBeInTheDocument();
     expect(pop).not.toHaveBeenCalled();
     expect(host.asked("remove_addon")).toHaveLength(1);
+  });
+});
+
+/**
+ * The settings kind B7 adds (#211, ADR-0035 §1).
+ *
+ * A Settings category is a level like any other: the register's id names it,
+ * the leaf draws over the destination it was opened from, and Back pops it —
+ * without the Host being asked anything.
+ */
+describe("the Remote's settings level", () => {
+  test("draws its leaf, and Back pops it without dispatching", () => {
+    const host = new FakeHost(NOTHING);
+    const session = new Session(host);
+    const pop = vi.fn();
+    const category = SETTINGS_CATEGORIES[1]!;
+
+    render(
+      <RemoteLevel
+        level={{ ...settingsLevel(category), id: "level-1" }}
+        session={session}
+        state={session.getState()}
+        push={() => "level-2"}
+        pop={pop}
+      />,
+    );
+
+    expect(screen.getByTestId(settingsLevelId(category))).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(pop).toHaveBeenCalledOnce();
+    expect(host.actions).toEqual([]);
   });
 });
