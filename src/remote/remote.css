@@ -46,6 +46,12 @@ body {
 
 .remote-ui {
   display: grid;
+  /* One column, and no more than the phone's width. Without this the implicit
+     `auto` column sizes to the widest rail's max-content — a row of twenty
+     posters — and every screen becomes a page the width of the whole row, with
+     the feature and the rails stretched to match. The rows still say header,
+     body, index; the column is what keeps the page a phone. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr auto;
   min-height: 100dvh;
   padding-top: env(safe-area-inset-top);
