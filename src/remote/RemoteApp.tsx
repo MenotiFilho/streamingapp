@@ -12,7 +12,9 @@ import type { Session, SessionState } from "../core/session";
 import type { DeviceSummary } from "../core/wire";
 import { Button } from "../kit/Button";
 import { Field } from "../kit/Field";
+import { Home } from "./Home";
 import { armSentinel, decideHistory } from "./history";
+import { RemoteLevel, type RemotePayload } from "./levels";
 import { RemoteDestination } from "./placeholders";
 
 export type RemoteAppProps = {
@@ -44,7 +46,7 @@ export function RemoteApp({ link }: RemoteAppProps) {
   // Where the person is belongs to the app, not to the room that draws it: a
   // socket that drops and comes back is the same visit, so a phone that locked
   // lands on the destination it was reading rather than at Home (ADR-0035 §1).
-  const nav = useNavigation<null>();
+  const nav = useNavigation<RemotePayload>();
 
   // Whether this page has ever been inside. A page whose first connection
   // failed is still on its way to the gate; one that was paired and dropped is
@@ -72,6 +74,7 @@ export function RemoteApp({ link }: RemoteAppProps) {
     case "ready":
       return (
         <RemoteRoom
+          session={session}
           nav={nav}
           sessionState={state}
           device={linkState.device}
@@ -80,7 +83,13 @@ export function RemoteApp({ link }: RemoteAppProps) {
       );
     case "reconnecting":
       return everPaired ? (
-        <RemoteRoom nav={nav} sessionState={state} device={null} reconnecting />
+        <RemoteRoom
+          session={session}
+          nav={nav}
+          sessionState={state}
+          device={null}
+          reconnecting
+        />
       ) : (
         <RemoteNotice title="Connecting" note="Waiting for the Host…" />
       );
@@ -149,20 +158,22 @@ function PairingGate({
 }
 
 /**
- * The room behind the gate: six destinations, the browser's Back, and the
- * connection's own news.
+ * The room behind the gate: six destinations, the level stack, the browser's
+ * Back, and the connection's own news.
  *
- * B1 draws each destination as its placeholder; the navigation, the level
- * stack's Back and the history sentinel are already the ones every later screen
- * uses (ADR-0035 §1).
+ * B2 draws Home and the Title level a card pushes; the other five destinations
+ * still draw the skeleton's placeholder. The navigation, the level stack's Back
+ * and the history sentinel are the ones every later screen uses (ADR-0035 §1).
  */
 function RemoteRoom({
+  session,
   nav,
   sessionState,
   device,
   reconnecting,
 }: {
-  nav: NavigationReads<null>;
+  session: Session;
+  nav: NavigationReads<RemotePayload>;
   sessionState: SessionState;
   device: DeviceSummary | null;
   reconnecting: boolean;
@@ -199,6 +210,7 @@ function RemoteRoom({
   }, [nav]);
 
   const refusal = sessionState.error;
+  const level = nav.levels[nav.levels.length - 1] ?? null;
 
   return (
     <div className="remote-ui">
@@ -214,7 +226,18 @@ function RemoteRoom({
       </header>
 
       <main className="remote-main">
-        <RemoteDestination destination={nav.destination} />
+        {level ? (
+          <RemoteLevel level={level} />
+        ) : nav.destination === "home" ? (
+          <Home
+            session={session}
+            state={sessionState}
+            push={nav.push}
+            choose={nav.choose}
+          />
+        ) : (
+          <RemoteDestination destination={nav.destination} />
+        )}
         <RemoteRefusal error={refusal} />
       </main>
 

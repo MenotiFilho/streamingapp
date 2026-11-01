@@ -1,0 +1,77 @@
+import { Children, isValidElement, useId, type ReactNode } from "react";
+
+/**
+ * One touch rail: a section head over a horizontally scrolling line of cards.
+ *
+ * The window's rail is a ten-foot apparatus — a view of five and a half cards,
+ * arrows at both edges, and a page that moves exactly five. A hand has none of
+ * that: the list itself slides under the finger, and the only control at the end
+ * of a row is the one that asks the store for more. So this is a plain scroll,
+ * with the snap points a finger expects and no keyboard step of its own.
+ *
+ * The head is the programme's: the row's number in mono, the name in display
+ * serif, a hairline to the trailing end, and the tag the core prints. A row
+ * with no cards yet, or a row whose Addon refused, keeps that head and draws
+ * its note in the cards' place instead of an empty track.
+ */
+export type RemoteRailProps = {
+  /** The programme's numbered section head, where the row has one. */
+  index?: string;
+  /** The row's heading: a Catalog's name, or `Continue watching`. */
+  title: string;
+  /** The bookkeeping beside the heading, as the core printed it. */
+  tag?: string | null;
+  /** A quiet line where the cards would be: a failure, an empty answer, or a wait. */
+  note?: ReactNode;
+  /** The trailing control, where the row can page on. */
+  action?: ReactNode;
+  /** The cards. Each becomes one item in the scrolling line. */
+  children?: ReactNode;
+  /** A stable id for a screen's tests. */
+  testId?: string;
+};
+
+export function RemoteRail({
+  index,
+  title,
+  tag,
+  note,
+  action,
+  children,
+  testId,
+}: RemoteRailProps) {
+  const headingId = useId();
+  const items = Children.toArray(children);
+
+  return (
+    <section className="remote-rail" aria-labelledby={headingId} data-testid={testId}>
+      <header className="remote-rail-head">
+        {index ? <span className="remote-rail-index">{index}</span> : null}
+        <h2 id={headingId} className="remote-rail-title">
+          {title}
+        </h2>
+        <span className="remote-rail-rule" aria-hidden="true" />
+        {tag ? <span className="remote-rail-tag">{tag}</span> : null}
+      </header>
+
+      {note ? <div className="remote-rail-note">{note}</div> : null}
+
+      {items.length > 0 || action ? (
+        <ul className="remote-rail-track">
+          {items.map((item, itemIndex) => {
+            const key =
+              isValidElement(item) && item.key !== null ? item.key : itemIndex;
+            return (
+              <li className="remote-rail-item" key={key}>
+                {item}
+              </li>
+            );
+          })}
+          {action ? (
+            <li className="remote-rail-item remote-rail-more">{action}</li>
+          ) : null}
+        </ul>
+      ) : null}
+    </section>
+  );
+}

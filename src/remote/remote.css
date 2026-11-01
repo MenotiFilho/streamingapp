@@ -178,3 +178,392 @@ body {
   line-height: var(--rep-leading-body);
   color: var(--rep-status-red);
 }
+
+/* --------------------------------------------------------------------------
+ * Home: tonight's programme, at hand scale
+ * -------------------------------------------------------------------------- */
+
+.remote-home {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-6);
+  min-width: 0;
+}
+
+/* The screen's programme line: the destination in brass mono, then the rule
+ * that runs to the edge. The rule is the line; the head draws no border of its
+ * own, or the page would carry two. */
+.remote-screen-head {
+  display: flex;
+  align-items: center;
+  gap: var(--rep-space-3);
+  padding-bottom: var(--rep-space-3);
+}
+
+.remote-screen-title {
+  margin: 0;
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-remote-text-mono);
+  font-weight: 400;
+  letter-spacing: var(--rep-tracking-caps);
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.remote-screen-rule {
+  flex: 1;
+  height: 1px;
+  background: var(--rep-hairline);
+}
+
+/* The feature: the 16:9 art between two hairlines, the copy over its scrim. It
+ * is one press, so it is one button and the copy is its label. */
+.remote-feature {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-top: 1px solid var(--rep-hairline);
+  border-bottom: 1px solid var(--rep-hairline);
+  border-radius: 0;
+  aspect-ratio: 16 / 9;
+  background: var(--rep-ink-raised);
+  color: var(--rep-ivory);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.remote-feature-art {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  display: block;
+  overflow: hidden;
+}
+
+.remote-feature-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: saturate(0.92) brightness(0.78);
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+/* A slide with no 16:9 art is a typographic plate, never a stretched poster
+ * (design record §9): the name in display serif over the raised ink. */
+.remote-feature-plate {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  padding: var(--rep-space-4);
+  color: var(--rep-muted);
+  font-family: var(--rep-display);
+  font-size: var(--rep-remote-text-section);
+  font-weight: 500;
+  line-height: var(--rep-leading-display);
+  letter-spacing: var(--rep-tracking-display);
+  text-align: center;
+  box-sizing: border-box;
+}
+
+/* Two gradients bring the picture down to the hand: one from the foot for the
+ * copy, one from the left so a wide still does not leave it floating. */
+.remote-feature-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(
+      0deg,
+      color-mix(in srgb, var(--rep-ink) 92%, transparent) 0%,
+      color-mix(in srgb, var(--rep-ink) 42%, transparent) 58%,
+      transparent 88%
+    ),
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--rep-ink) 72%, transparent) 0%,
+      transparent 78%
+    );
+  pointer-events: none;
+}
+
+.remote-feature-copy {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-2);
+  padding: var(--rep-space-4);
+  min-width: 0;
+}
+
+.remote-feature-kicker {
+  display: flex;
+  align-items: center;
+  gap: var(--rep-space-3);
+  color: var(--rep-dim);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-remote-text-mono);
+  letter-spacing: var(--rep-tracking-caps);
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.remote-feature-kicker > span:first-child {
+  color: var(--rep-house);
+  white-space: nowrap;
+}
+
+.remote-feature-kicker > span:last-child {
+  white-space: nowrap;
+}
+
+.remote-feature-rule {
+  flex: 1;
+  height: 1px;
+  background: var(--rep-hairline);
+}
+
+.remote-feature-name {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-remote-text-hero);
+  font-weight: 400;
+  line-height: var(--rep-leading-display);
+  letter-spacing: var(--rep-tracking-display);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.remote-feature-description {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-remote-text-caption);
+  line-height: var(--rep-leading-caption);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+/* A row: the head, then the touch rail. */
+.remote-rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-3);
+  min-width: 0;
+}
+
+.remote-rail-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--rep-space-3);
+  padding-bottom: var(--rep-space-2);
+  border-bottom: 1px solid var(--rep-hairline);
+}
+
+.remote-rail-index {
+  flex: none;
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-remote-text-mono);
+  line-height: 1.2;
+}
+
+.remote-rail-title {
+  flex: none;
+  max-width: 55%;
+  overflow: hidden;
+  margin: 0;
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-remote-text-section);
+  font-weight: 500;
+  line-height: var(--rep-leading-display);
+  letter-spacing: var(--rep-tracking-display);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.remote-rail-rule {
+  flex: 1;
+  height: 1px;
+}
+
+.remote-rail-tag {
+  flex: none;
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-remote-text-mono);
+  white-space: nowrap;
+}
+
+.remote-rail-note {
+  margin: 0;
+}
+
+.remote-rail-failure,
+.remote-rail-quiet {
+  margin: 0;
+  font-family: var(--rep-sans);
+  font-size: var(--rep-remote-text-body);
+  line-height: var(--rep-leading-body);
+}
+
+.remote-rail-failure {
+  color: var(--rep-status-red);
+}
+
+.remote-rail-quiet {
+  color: var(--rep-dim);
+}
+
+/* The rail slides under the finger: no arrows, no ten-foot paging, and the
+ * scrollbar is hidden because the cards say there is more. The block padding
+ * leaves the focus keyline room inside the scrollport. */
+.remote-rail-track {
+  display: flex;
+  gap: var(--rep-space-3);
+  margin: 0;
+  padding: 3px 0 8px;
+  list-style: none;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.remote-rail-track::-webkit-scrollbar {
+  display: none;
+}
+
+.remote-rail-item {
+  flex: 0 0 auto;
+  scroll-snap-align: start;
+}
+
+/* A poster rail carries roughly two and a half posters; a 16:9 rail one and a
+ * sliver of the next. Both are the kit's cards at the width the hand gives. */
+.remote-rail-item .rep-kit-poster {
+  width: clamp(7rem, 34vw, 9.5rem);
+}
+
+.remote-rail-item .rep-kit-continue {
+  width: clamp(12.5rem, 70vw, 19rem);
+}
+
+.remote-rail-more {
+  width: clamp(7rem, 34vw, 9.5rem);
+}
+
+/* The More card: the rail's last plate, the one control that asks the store
+ * for the row's next page. */
+.remote-more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: var(--rep-remote-touch);
+  aspect-ratio: 2 / 3;
+  padding: var(--rep-space-3);
+  border: 1px solid var(--rep-hairline);
+  border-radius: 0;
+  background: transparent;
+  color: var(--rep-dim);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-remote-text-mono);
+  letter-spacing: var(--rep-tracking-caps);
+  text-align: center;
+  text-transform: uppercase;
+}
+
+.remote-more:hover:not(:disabled) {
+  border-color: var(--rep-house-deep);
+  background: transparent;
+  color: var(--rep-ivory);
+}
+
+.remote-more:disabled {
+  border-color: var(--rep-hairline);
+  color: var(--rep-muted);
+  opacity: 0.5;
+}
+
+/* The empty programme: one title, one line, one way out. */
+.remote-empty {
+  display: grid;
+  justify-items: start;
+  gap: var(--rep-space-3);
+  padding: var(--rep-space-5) 0;
+  border-top: 1px solid var(--rep-hairline);
+  border-bottom: 1px solid var(--rep-hairline);
+}
+
+.remote-empty-title {
+  margin: 0;
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-remote-text-title);
+  font-weight: 400;
+  line-height: var(--rep-leading-display);
+  letter-spacing: var(--rep-tracking-display);
+}
+
+.remote-empty-body {
+  max-width: 34rem;
+  margin: 0;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-remote-text-body);
+  line-height: var(--rep-leading-body);
+}
+
+.remote-empty .rep-kit-button {
+  min-height: var(--rep-remote-touch);
+  padding: var(--rep-space-2) var(--rep-space-5);
+}
+
+/* --------------------------------------------------------------------------
+ * The pushed level: one screen, named, over the destination it was opened from
+ * -------------------------------------------------------------------------- */
+
+.remote-level {
+  display: grid;
+  gap: var(--rep-space-3);
+  align-content: start;
+  min-height: 40dvh;
+}
+
+.remote-level-title {
+  margin: 0;
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-remote-text-title);
+  font-weight: 400;
+  line-height: var(--rep-leading-display);
+  letter-spacing: var(--rep-tracking-display);
+}
+
+.remote-level-note {
+  margin: 0;
+  color: var(--rep-dim);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-remote-text-body);
+  line-height: var(--rep-leading-body);
+}
+

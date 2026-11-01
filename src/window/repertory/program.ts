@@ -9,6 +9,14 @@
 
 import type { MetaPreview } from "../../core/wire";
 
+/**
+ * The programme's index and its row-tag arithmetic now live in the client core,
+ * beside Home's decisions, because the Remote prints the same tag (ADR-0035
+ * §1). They are re-exported here so this window's screens keep importing the
+ * module they always have.
+ */
+export { countLabel, programIndex, rowTagOf } from "../../core/homeProgramme";
+
 /** The parts of a poster caption, in the order the programme prints them. */
 export type CaptionParts = {
   year: string | null;
@@ -79,25 +87,4 @@ export function programTime(now: Date): string {
     minute: "2-digit",
     hour12: false,
   }).format(now);
-}
-
-/** The count a row prints at its right end, e.g. `49 films`. */
-export function countLabel(type: string, count: number): string {
-  if (type === "movie") {
-    return `${count} ${count === 1 ? "film" : "films"}`;
-  }
-  if (type === "series") {
-    return `${count} ${count === 1 ? "series" : "series"}`;
-  }
-  return `${count} ${count === 1 ? "title" : "titles"}`;
-}
-
-/** The two-digit index a programme uses beside a row or a destination. */
-export function programIndex(index: number): string {
-  return String(index).padStart(2, "0");
-}
-
-/** The bookkeeping a row head prints: where the row came from and its count. */
-export function rowTagOf(source: string, type: string, count: number): string {
-  return `${source} / ${countLabel(type, count)}`;
 }
