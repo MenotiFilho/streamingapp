@@ -4,9 +4,9 @@
  *
  * The rows a plate draws are the core's (`playerPanels`, `episodes`); what
  * lives here is which plate a control opens, how a plate is named on the stack,
- * and the one sentence the Episodes plate says where the Addons offer nothing
- * this Host can play. Rows are never re-worded: their label, text, marks, value
- * and lines come from the modules above.
+ * and the one sentence the Episodes plate says where the Title lists no seasons.
+ * Rows are never re-worded: their label, text, marks, value and lines come from
+ * the modules above.
  */
 
 import {
@@ -17,16 +17,9 @@ import {
   subtitleSections,
   type PanelGroup,
 } from "../core/playerPanels";
-import { playabilityNote } from "../core/stream";
-import { NO_CANDIDATES } from "../core/streamsList";
 import { labelOf } from "../core/title";
 import type { NewLevel } from "../core/navigation";
-import type {
-  AddonStreams,
-  PlaybackSnapshot,
-  Title,
-  Video,
-} from "../core/wire";
+import type { PlaybackSnapshot, Title, Video } from "../core/wire";
 import type { IconName } from "../kit/icons";
 
 /**
@@ -133,15 +126,6 @@ export const NO_EPISODES = "No episodes are available for the playing series.";
  * words about the candidates that did answer, and its empty-group copy where
  * every group was empty.
  */
-export function noPlayableNote(groups: readonly AddonStreams[]): string {
-  for (const group of groups) {
-    const first = group.streams[0];
-    if (first) {
-      return playabilityNote(first.playback) ?? NO_CANDIDATES;
-    }
-  }
-  return NO_CANDIDATES;
-}
 
 /** How an episode is named on the plate: its number, then the Addon's title. */
 export function episodeLabel(video: Video): string {

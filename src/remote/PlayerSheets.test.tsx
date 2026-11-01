@@ -22,15 +22,13 @@ import {
   subtitleSections,
 } from "../core/playerPanels";
 import { Session } from "../core/session";
-import { playabilityNote, playStreamAction } from "../core/stream";
 import { labelOf, seasonName } from "../core/title";
 import type {
-  AddonStreams,
   PlaybackSnapshot,
   Snapshot,
-  Stream,
   Title,
   Track,
+  Video,
 } from "../core/wire";
 import { RemoteApp } from "./RemoteApp";
 import { FakeHost, type Respond } from "./fakeHost.testing";
@@ -39,7 +37,6 @@ import { PlayerSheets } from "./PlayerSheets";
 import {
   episodeLabel,
   NO_EPISODES,
-  noPlayableNote,
   PLAYER_SHEET_CONTROLS,
   SHEET_TITLES,
   sheetGroups,
@@ -157,27 +154,6 @@ const SERIES: Title = {
   ],
 };
 
-function stream(playback: Stream["playback"]): Stream {
-  return {
-    name: "A candidate",
-    description: null,
-    playback,
-    warnings: [],
-    filename: null,
-    bingeGroup: null,
-  };
-}
-
-const TORRENT = stream({ kind: "info_hash", infoHash: "abc" });
-const DIRECT = stream({ kind: "direct", url: "https://example.test/episode.mkv" });
-
-const GROUPS: AddonStreams[] = [
-  { addon: "torrentio", failure: null, streams: [TORRENT, DIRECT] },
-];
-
-const TORRENT_ONLY: AddonStreams[] = [
-  { addon: "torrentio", failure: null, streams: [TORRENT] },
-];
 
 /** A mounted sheet that follows the Session's own state, as the room does. */
 function Live({
@@ -185,11 +161,13 @@ function Live({
   title,
   session,
   onClose,
+  onEpisode,
 }: {
   plate: PlayerSheetName;
   title: Title | null;
   session: Session;
   onClose: () => void;
+  onEpisode: (title: Title, video: Video) => void;
 }) {
   const state = useSyncExternalStore(
     session.subscribe,
@@ -203,6 +181,7 @@ function Live({
       session={session}
       state={state}
       onClose={onClose}
+      onEpisode={onEpisode}
     />
   );
 }
@@ -232,12 +211,14 @@ async function mountSheet(
   const session = new Session(host);
   const stop = session.start();
   const onClose = vi.fn();
+  const onEpisode = vi.fn();
   const view = render(
     <Live
       plate={plate}
       title={options.title ?? null}
       session={session}
       onClose={onClose}
+      onEpisode={onEpisode}
     />,
   );
   cleanups.push(() => {
@@ -245,7 +226,7 @@ async function mountSheet(
     view.unmount();
   });
   await waitFor(() => expect(session.getState().snapshot).not.toBeNull());
-  return { host, session, onClose, view };
+  return { host, session, onClose, onEpisode, view };
 }
 
 /** One row's Action, read from the core's own sections. */
@@ -436,13 +417,9 @@ describe("the Picture plate", () => {
 });
 
 describe("the Episodes plate", () => {
-  test("lists the Title's seasons, plays the first candidate the Host can open, and closes", async () => {
-    const { host, onClose } = await mountSheet("episodes", {
+  test("lists the Title's seasons and hands the pressed episode to the room", async () => {
+    const { host, onClose, onEpisode } = await mountSheet("episodes", {
       title: SERIES,
-      respond: (action) =>
-        action.type === "find_streams"
-          ? { snapshots: [], answer: { streams: GROUPS } }
-          : { snapshots: [], answer: null },
     });
     const sheet = await screen.findByRole("dialog", { name: "Episodes" });
 
@@ -458,34 +435,13 @@ describe("the Episodes plate", () => {
     const video = SERIES.videos[0]!;
     fireEvent.click(within(sheet).getByTestId(`episode-${video.id}`));
 
-    await waitFor(() => expect(onClose).toHaveBeenCalledOnce());
-    expect(host.asked("find_streams")).toEqual([
-      { type: "find_streams", video: { type: SERIES.type, id: video.id } },
-    ]);
-    expect(host.asked("play_stream")).toEqual([
-      playStreamAction(SERIES, video, "torrentio", DIRECT),
-    ]);
-    expect(labelOf(video)).not.toBeNull();
-  });
-
-  test("says the core's words and plays nothing when no candidate can play", async () => {
-    const { host, onClose } = await mountSheet("episodes", {
-      title: SERIES,
-      respond: (action) =>
-        action.type === "find_streams"
-          ? { snapshots: [], answer: { streams: TORRENT_ONLY } }
-          : { snapshots: [], answer: null },
-    });
-    const sheet = await screen.findByRole("dialog", { name: "Episodes" });
-    const video = SERIES.videos[0]!;
-
-    fireEvent.click(within(sheet).getByTestId(`episode-${video.id}`));
-
-    const note = await within(sheet).findByTestId("episode-note");
-    expect(note.textContent).toBe(noPlayableNote(TORRENT_ONLY));
-    expect(note.textContent).toBe(playabilityNote(TORRENT.playback));
-    expect(host.asked("play_stream")).toEqual([]);
+    // The plate opens the Streams list the Title's Play opens; it does not pick
+    // a candidate behind the person's back (#215, decided on the P2 walk).
+    expect(onEpisode).toHaveBeenCalledWith(SERIES, video);
     expect(onClose).not.toHaveBeenCalled();
+    expect(host.asked("find_streams")).toEqual([]);
+    expect(host.asked("play_stream")).toEqual([]);
+    expect(labelOf(video)).not.toBeNull();
   });
 
   test("a Title with no seasons says so without asking the Host anything", async () => {

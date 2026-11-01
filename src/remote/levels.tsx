@@ -10,8 +10,9 @@ import { ConfirmDialog } from "../kit/ConfirmDialog";
 import { PlayerCard } from "./Player";
 import { PlayerSheets } from "./PlayerSheets";
 import type { RemoteSheet } from "./playerSheets";
-import { playerLevelStale, type RemotePlayer } from "./playerScreen";
+import { playerLevel, playerLevelStale, type RemotePlayer } from "./playerScreen";
 import { SettingsLeaf } from "./Settings";
+import { streamsLevelFor } from "./titleScreen";
 import { StreamsScreen } from "./StreamsScreen";
 import { TitleScreen } from "./TitleScreen";
 
@@ -174,17 +175,26 @@ export function RemoteLevel({
           />
         </LevelPage>
       );
-    case "streams":
+    case "streams": {
+      const title = level.payload.title;
       return (
         <LevelPage onBack={pop}>
           <StreamsScreen
-            title={level.payload.title}
+            title={title}
             video={level.payload.video}
             session={session}
             state={state}
+            onOpened={() => {
+              // The list is spent once the Host has the Stream: putting it away
+              // and opening the card leaves one Back for the Title, which is
+              // where a person picks something else to watch (#215).
+              pop();
+              push(playerLevel(title));
+            }}
           />
         </LevelPage>
       );
+    }
     case "settings":
       return (
         <LevelPage onBack={pop}>
@@ -221,6 +231,13 @@ export function RemoteLevel({
           session={session}
           state={state}
           onClose={pop}
+          onEpisode={(title, video) => {
+            // The sheet is furniture over the card, and the Streams list is a
+            // screen: putting the plate away first keeps the stack the one the
+            // Title's Play builds, so one Back leaves the list for the card.
+            pop();
+            push(streamsLevelFor(title, video));
+          }}
         />
       );
     case "confirm":

@@ -5,18 +5,10 @@ import {
   pictureSections,
   subtitleSections,
 } from "../core/playerPanels";
-import { playabilityNote } from "../core/stream";
-import { NO_CANDIDATES } from "../core/streamsList";
-import type {
-  AddonStreams,
-  PlaybackSnapshot,
-  Stream,
-  Title,
-} from "../core/wire";
+import type { PlaybackSnapshot, Title } from "../core/wire";
 import {
   episodeLabel,
   NO_EPISODES,
-  noPlayableNote,
   PLAYER_SHEET_ID,
   PLAYER_SHEET_NAME,
   playerSheetLevel,
@@ -47,18 +39,7 @@ const TITLE: Title = {
   videos: [],
 };
 
-function stream(playback: Stream["playback"]): Stream {
-  return {
-    name: "A candidate",
-    description: null,
-    playback,
-    warnings: [],
-    filename: null,
-    bingeGroup: null,
-  };
-}
 
-const TORRENT = stream({ kind: "info_hash", infoHash: "abc" });
 
 const PLAYBACK: PlaybackSnapshot = {
   state: "playing",
@@ -81,10 +62,6 @@ const PLAYBACK: PlaybackSnapshot = {
   resolution: null,
   statistics: null,
 };
-
-const groups = (...streams: Stream[]): AddonStreams[] => [
-  { addon: "torrentio", failure: null, streams },
-];
 
 describe("a player sheet level", () => {
   test("is the core's popover, named once so a second plate replaces it", () => {
@@ -131,16 +108,7 @@ describe("the groups a plate draws", () => {
 });
 
 describe("the Episodes plate's words", () => {
-  test("says the core's words when the Addons offered no candidate at all", () => {
-    expect(noPlayableNote([])).toBe(NO_CANDIDATES);
-    expect(noPlayableNote(groups())).toBe(NO_CANDIDATES);
-  });
 
-  test("names why the candidates that did answer cannot play", () => {
-    expect(noPlayableNote(groups(TORRENT))).toBe(
-      playabilityNote(TORRENT.playback),
-    );
-  });
 
   test("says so where the Title lists no seasons", () => {
     expect(NO_EPISODES).toBe("No episodes are available for the playing series.");
