@@ -12,6 +12,7 @@ import type { Session, SessionState } from "../core/session";
 import type { DeviceSummary } from "../core/wire";
 import { Button } from "../kit/Button";
 import { Field } from "../kit/Field";
+import { Addons } from "./Addons";
 import { Discover } from "./Discover";
 import { Home } from "./Home";
 import { Library } from "./Library";
@@ -164,10 +165,10 @@ function PairingGate({
  * The room behind the gate: six destinations, the level stack, the browser's
  * Back, and the connection's own news.
  *
- * B2 draws Home, B3 Discover and Search, B4 the account Library; Addons and
- * Settings still draw the skeleton's placeholder. The navigation, the level
- * stack's Back and the history sentinel are the ones every later screen uses
- * (ADR-0035 §1).
+ * B2 draws Home, B3 Discover and Search, B4 the account Library and B5 the
+ * Addons form and register; Settings still draws the skeleton's placeholder.
+ * The navigation, the level stack's Back and the history sentinel are the ones
+ * every later screen uses (ADR-0035 §1).
  */
 function RemoteRoom({
   session,
@@ -231,7 +232,7 @@ function RemoteRoom({
 
       <main className="remote-main">
         {level ? (
-          <RemoteLevel level={level} />
+          <RemoteLevel level={level} session={session} pop={nav.pop} />
         ) : nav.destination === "home" ? (
           <Home
             session={session}
@@ -250,6 +251,8 @@ function RemoteRoom({
             push={nav.push}
             choose={nav.choose}
           />
+        ) : nav.destination === "addons" ? (
+          <Addons session={session} state={sessionState} push={nav.push} />
         ) : (
           <RemoteDestination destination={nav.destination} />
         )}

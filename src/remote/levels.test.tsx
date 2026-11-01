@@ -1,10 +1,19 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
+import { explain, type ActionError } from "../core/errors";
+import type { Level } from "../core/navigation";
+import { Session } from "../core/session";
 import type { ResumeEntry, Snapshot } from "../core/wire";
 import { RemoteApp } from "./RemoteApp";
+import { FakeHost } from "./fakeHost.testing";
 import { ISSUED_TOKEN, NOTHING, PHONE, fakeLink } from "./fakeSocket.testing";
-import { RemoteLevel, titleLevel, titleLevelOf } from "./levels";
+import {
+  RemoteLevel,
+  titleLevel,
+  titleLevelOf,
+  type RemotePayload,
+} from "./levels";
 
 /**
  * The one level B2 pushes (ADR-0035 §1).
@@ -49,7 +58,8 @@ describe("the Remote's Title level", () => {
 
   test("the placeholder knows which Title it stands for", () => {
     const level = { ...titleLevel({ addon: null, id: "tt9", type: "movie", name: "Nine" }), id: "level-1" };
-    render(<RemoteLevel level={level} />);
+    const session = new Session(new FakeHost(NOTHING));
+    render(<RemoteLevel level={level} session={session} pop={() => {}} />);
 
     expect(screen.getByRole("heading", { name: "Nine" })).toBeInTheDocument();
   });
@@ -115,5 +125,79 @@ describe("the Remote's Title level", () => {
       view.unmount();
       release();
     }
+  });
+});
+
+const CONFIRM: Level<RemotePayload> = {
+  id: "level-1",
+  name: "Remove Cinemeta?",
+  kind: "overlay",
+  payload: {
+    kind: "confirm",
+    confirm: {
+      id: "confirm-remove-cinemeta",
+      title: "Remove Cinemeta?",
+      body: "The Host stops asking this Addon for Catalogs, Meta previews and Streams.",
+      confirmLabel: "Remove",
+      action: { type: "remove_addon", id: "cinemeta" },
+    },
+  },
+};
+
+/**
+ * The confirm kind B5 adds (#209, ADR-0035 §1).
+ *
+ * A destructive question is a level like any other: it carries its words and
+ * its Action as data, Cancel pops it and asks nothing, and only the confirming
+ * answer reaches the Host — through the Session, and then the level pops.
+ */
+describe("the Remote's confirm level", () => {
+  test("draws the question, and Cancel pops it without dispatching", () => {
+    const host = new FakeHost(NOTHING);
+    const session = new Session(host);
+    const pop = vi.fn();
+    render(<RemoteLevel level={CONFIRM} session={session} pop={pop} />);
+
+    expect(
+      screen.getByRole("dialog", { name: "Remove Cinemeta?" }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(pop).toHaveBeenCalledOnce();
+    expect(host.actions).toEqual([]);
+  });
+
+  test("confirming takes the Action once, then pops the question", async () => {
+    const host = new FakeHost(NOTHING);
+    const session = new Session(host);
+    const pop = vi.fn();
+    render(<RemoteLevel level={CONFIRM} session={session} pop={pop} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+
+    await waitFor(() => expect(pop).toHaveBeenCalledOnce());
+    expect(host.asked("remove_addon")).toEqual([
+      { type: "remove_addon", id: "cinemeta" },
+    ]);
+  });
+
+  test("a refusal keeps the question open with the Host's words", async () => {
+    const refusal: ActionError = {
+      kind: "store",
+      detail: "the database is locked",
+    };
+    const host = new FakeHost(NOTHING, () => refusal);
+    const session = new Session(host);
+    const pop = vi.fn();
+    render(<RemoteLevel level={CONFIRM} session={session} pop={pop} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(explain(refusal));
+    expect(
+      screen.getByRole("dialog", { name: "Remove Cinemeta?" }),
+    ).toBeInTheDocument();
+    expect(pop).not.toHaveBeenCalled();
+    expect(host.asked("remove_addon")).toHaveLength(1);
   });
 });
