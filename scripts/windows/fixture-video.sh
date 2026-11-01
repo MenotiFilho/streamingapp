@@ -17,18 +17,21 @@
 #   - two chapters (`Intro`, `Middle`), so the chapter controls move;
 #   - 1280x540 of picture padded into a 1280x720 frame, so there are 90 px black
 #     bars top and bottom for the Autocrop toggle to find;
-#   - two minutes, so a person can walk the menu while it plays and so the
-#     Autocrop detect — which needs more than a second of playtime remaining —
-#     has something to work on at the crop step;
+#   - five minutes, so the whole OSD walk (every icon's menu, the delay, the
+#     size, the volume, the chapters and the episode steps) fits inside one
+#     Stream, and so the Autocrop detect — which needs more than a second of
+#     playtime remaining — has something to work on at the crop step. It was
+#     two minutes, which the walk now outlasts: the Stream ended mid-menu and
+#     the OSD's strip went with it;
 #   - H.264 `yuv420p`, compressed, so hardware decode has something to engage on.
 #     A raw stream would say nothing about whether a GPU decoder did anything.
 #
 # The ffmpeg that makes it, run in the container from the repo root:
 #
 #   ffmpeg -y \
-#     -f lavfi -i "testsrc2=size=1280x540:rate=30:duration=120" \
-#     -f lavfi -i "sine=frequency=440:duration=120" \
-#     -f lavfi -i "sine=frequency=880:duration=120" \
+#     -f lavfi -i "testsrc2=size=1280x540:rate=30:duration=300" \
+#     -f lavfi -i "sine=frequency=440:duration=300" \
+#     -f lavfi -i "sine=frequency=880:duration=300" \
 #     -f ffmetadata -i chapters.txt -i en.srt -i pt.srt -i styled.ass \
 #     -map 0:v -map 1:a -map 2:a -map 4:s -map 5:s -map 6:s -map_metadata 3 \
 #     -vf "pad=1280:720:0:90:black" \
@@ -64,19 +67,19 @@ cat > "$scratch/chapters.txt" <<'EOF'
 [CHAPTER]
 TIMEBASE=1/1000
 START=0
-END=60000
+END=150000
 title=Intro
 [CHAPTER]
 TIMEBASE=1/1000
-START=60000
-END=120000
+START=150000
+END=300000
 title=Middle
 EOF
 
 # Plain-text cues sit in short windows with long gaps, all in the first 100 s.
 # They have to be on screen for step 34's first two screenshots (the SRT at 100%
 # and at 125%), and must be gone by the time later steps screenshot the picture:
-# a cue covering the whole two minutes leaks subtitle text into unrelated shots.
+# a cue covering the whole five minutes leaks subtitle text into unrelated shots.
 cat > "$scratch/en.srt" <<'EOF'
 1
 00:00:02,000 --> 00:00:30,000
@@ -126,9 +129,9 @@ docker compose cp "$scratch/pt.srt" dev:/tmp/verify-pt.srt >/dev/null
 docker compose cp "$scratch/styled.ass" dev:/tmp/verify-styled.ass >/dev/null
 
 docker compose exec -T dev ffmpeg -hide_banner -loglevel error -nostdin -y \
-  -f lavfi -i "testsrc2=size=1280x540:rate=30:duration=120" \
-  -f lavfi -i "sine=frequency=440:duration=120" \
-  -f lavfi -i "sine=frequency=880:duration=120" \
+  -f lavfi -i "testsrc2=size=1280x540:rate=30:duration=300" \
+  -f lavfi -i "sine=frequency=440:duration=300" \
+  -f lavfi -i "sine=frequency=880:duration=300" \
   -f ffmetadata -i /tmp/verify-chapters.txt \
   -i /tmp/verify-en.srt -i /tmp/verify-pt.srt -i /tmp/verify-styled.ass \
   -map 0:v -map 1:a -map 2:a -map 4:s -map 5:s -map 6:s -map_metadata 3 \
