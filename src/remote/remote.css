@@ -125,6 +125,13 @@ body {
   align-items: stretch;
   min-height: var(--rep-remote-nav);
   border-top: 1px solid var(--rep-hairline);
+  /* The index is the phone's furniture, not the page's last line: it stays on
+     the screen while a long destination scrolls under it, and it keeps the
+     page's own colour behind it so a card never reads through. */
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  background: var(--rep-ink);
   /* The keyline is drawn outside the control, so the index keeps room below it:
      at the viewport's edge the ring around the bottom row is cropped to three
      sides. The safe-area inset stays on top of that room. */
