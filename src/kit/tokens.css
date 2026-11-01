@@ -3,10 +3,9 @@
  * the ten-foot scale, the hand scale, spacing, layout, motion and focus.
  *
  * The window reaches it through `kit.css`, which imports it; the Host's served
- * Remote splices the same file into its page at serve time
- * (`crates/host-wire/src/remote.rs`, the `__SPLICE_REPERTORY_TOKENS__` marker)
- * and serves the same woff2 files, so the phone cannot drift from the window's
- * palette, families or faces.
+ * Remote imports the same `kit.css` in its own sheet and the Host serves the
+ * same woff2 files, so the phone cannot drift from the window's palette,
+ * families or faces.
  *
  * The record is `docs/design-system.md` (ADR-0030); the motion vocabulary is
  * ADR-0031. This sheet is rebuilt to that record by #153.

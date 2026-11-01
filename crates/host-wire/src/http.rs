@@ -169,10 +169,10 @@ pub fn write_asset(stream: &mut TcpStream, content_type: &str, body: &[u8]) -> i
     write_response(stream, "200 OK", content_type, "public, max-age=3600", body)
 }
 
-/// Answer with one permanently cacheable asset whose URL names its version.
+/// Answer with one permanently cacheable asset whose URL names its contents.
 ///
-/// The served Remote's Motion bundle is the one such asset (ADR-0031 §1): the
-/// route carries the version, so a new Host ships a new URL rather than a
+/// The served Remote's hashed bundle is what this answers (ADR-0035 §3): the
+/// URL carries the content hash, so a new Host ships a new URL rather than a
 /// stale cache, and the browser may keep the old one for good.
 pub fn write_immutable_asset(
     stream: &mut TcpStream,

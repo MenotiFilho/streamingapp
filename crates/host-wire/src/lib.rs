@@ -38,7 +38,7 @@
 mod discovery;
 mod http;
 mod remote;
-mod remote_next;
+mod remote_page;
 mod server;
 
 pub use discovery::{

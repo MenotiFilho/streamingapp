@@ -70,7 +70,8 @@ the gate:
 - the OSD's deep suite, re-pointed at the repertory OSD;
 - one journey — Home → Title → Streams → play → OSD → Stop → Title, with focus
   restored where it was left;
-- the Remote: `host-wire`'s wire suite plus a jsdom smoke over the spliced page;
+- the Remote: `host-wire`'s wire suite plus the component suites beside it
+  (amended at #216);
 - the two presentation locks of §4.
 
 Why the OSD is deep and the destinations are not: the OSD is where the frozen
@@ -120,6 +121,11 @@ the socket opens passes every wire test); **extracting the 6,297-line page into
 tested modules** (the right end state, but a refactor riding on a design ticket,
 and nothing in this effort needs it).
 
+> **Amended by #216.** The hand-written page is gone: the served Remote is
+> `src/remote` over `src/core`, and its suites are the component tests beside
+> it (ADR-0035). §1's rule covers it like any other screen; no client asserts
+> markup.
+
 ## 6. Where the rule lives
 
 `docs/agents/testing.md` carries the mechanics: the per-suite dispositions, the
@@ -145,5 +151,6 @@ checklist age differently).
 - The price is accepted explicitly: a design detail that was only ever proven by
   markup is now proven by the owner's eyes on the Windows walkthrough, or not at
   all.
-- The `host-wire` page smoke is the one place a client's markup is asserted,
-  because that client has no seams of its own.
+- The `host-wire` page smoke was the one place a client's markup was asserted,
+  because that client had no seams of its own; #216 gave the served Remote the
+  core's seams (§5).

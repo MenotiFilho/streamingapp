@@ -145,7 +145,7 @@ jobs:
         if: steps.scope.outputs.code == 'true'
         run: .github/scripts/dev-run.sh pnpm build
 
-      # The staged Remote is a second build, not a second entry of the window's:
+      # The Remote is a second build, not a second entry of the window's:
       # `pnpm build` must never put it in `dist/`, which is what Tauri embeds
       # (ADR-0035 §3).
       - name: Build the Remote
@@ -160,10 +160,10 @@ jobs:
         if: steps.scope.outputs.code == 'true'
         run: |
           set -euo pipefail
-          stale="$(git status --porcelain -- crates/host-wire/remote-next)"
+          stale="$(git status --porcelain -- crates/host-wire/remote)"
           if [ -n "$stale" ]; then
             printf '%s\n' "$stale"
-            echo "crates/host-wire/remote-next is stale: run pnpm build:remote and commit it." >&2
+            echo "crates/host-wire/remote is stale: run pnpm build:remote and commit it." >&2
             exit 1
           fi
 

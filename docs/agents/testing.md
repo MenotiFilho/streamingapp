@@ -53,7 +53,8 @@ A screen's Velvet counterpart may only be deleted once all of this is true:
 - **The OSD**: the deep suite, re-pointed.
 - **One journey**: Home → Title → Streams → play → OSD → Stop → Title, with
   focus restored where it was left.
-- **The Remote**: `host-wire`'s wire suite, plus the page smoke below.
+- **The Remote**: `host-wire`'s wire suite, plus the Remote's component suites
+  below.
 - **The two locks** below.
 
 ## The two presentation locks
@@ -73,12 +74,18 @@ probably belongs on a decision instead.
 
 ## The served Remote
 
-`crates/host-wire/remote/index.html` is one page with no seams of its own, so it
-is the one client whose markup gets asserted. `host-wire`'s wire tests cover the
-protocol (pairing, push, revoke, reconnection, version refusal, rate limiting);
-#159 adds a jsdom smoke over the spliced template: the page parses, it boots, and
-the transport is where it should be. The page's decision logic is not extracted
-into tested modules in this effort (ADR-0032 §5).
+The served Remote is `src/remote`, a client of `src/core` built into
+`crates/host-wire/remote/` by `pnpm build:remote` (ADR-0035 §1, §3). Its
+decisions live in the shared core and are tested there; its screens are the
+component suites beside them (`src/remote/*.test.tsx`), which drive a screen
+from a fake `HostLink` and assert the Action at the boundary, the first mount
+and one empty or failure path — never markup. The pairing gate, the browser
+history and the socket and device-token storage have their own module suites.
+`host-wire`'s wire suite covers the protocol (pairing, push, revoke,
+reconnection, version refusal, rate limiting) and the served routes; the
+artifact's capability list, `build-info.json`, is compared to
+`Action::SPELLINGS` and `ACTION_VERSION` by a Rust test, so a capability added
+on one side cannot pass.
 
 ## Writing a test
 
