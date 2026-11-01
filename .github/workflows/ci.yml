@@ -145,6 +145,33 @@ jobs:
         if: steps.scope.outputs.code == 'true'
         run: .github/scripts/dev-run.sh pnpm build
 
+      # The staged Remote is a second build, not a second entry of the window's:
+      # `pnpm build` must never put it in `dist/`, which is what Tauri embeds
+      # (ADR-0035 §3).
+      - name: Build the Remote
+        if: steps.scope.outputs.code == 'true'
+        run: .github/scripts/dev-run.sh pnpm build:remote
+
+      # The artifact is committed and compiled in, so a build that differs from
+      # the tree is a Remote that silently differs from its source. `git status`
+      # is the check rather than a checksum: the container runs as root and may
+      # own the files it wrote, and git reads the contents either way.
+      - name: Check the committed Remote artifact is current
+        if: steps.scope.outputs.code == 'true'
+        run: |
+          set -euo pipefail
+          stale="$(git status --porcelain -- crates/host-wire/remote-next)"
+          if [ -n "$stale" ]; then
+            printf '%s\n' "$stale"
+            echo "crates/host-wire/remote-next is stale: run pnpm build:remote and commit it." >&2
+            exit 1
+          fi
+
+      # The Remote belongs to the Host's binary, never to the window's bundle.
+      - name: Check the Remote stays out of the window's bundle
+        if: steps.scope.outputs.code == 'true'
+        run: test ! -e dist/remote.html
+
       - name: Test the window
         if: steps.scope.outputs.code == 'true'
         run: .github/scripts/dev-run.sh pnpm test

@@ -30,8 +30,12 @@
 //! beside the document, version-pinned and cached (ADR-0031 §1).
 //!
 //! The repertory surface is served at `/` (#160). `/next`, which staged the
-//! surface while it was being built (#152), answers `308 Permanent Redirect` to
-//! `/` so a bookmark or an open tab on a phone lands on the one surface.
+//! surface while it was being built (#152) and then redirected to `/`, now
+//! serves the React Remote: a second entry of the same client, built by
+//! `pnpm build:remote` and compiled in as a directory (`remote_next`, ADR-0035
+//! §3). This module answers `/` and its own assets exactly as before; the
+//! staging route is the other module's, and the cutover makes it a permanent
+//! redirect back here.
 
 use std::io;
 use std::net::TcpStream;
@@ -157,6 +161,13 @@ fn font(path: &str) -> Option<&'static [u8]> {
 
 /// Answer a request that is not an upgrade: the page, its faces, or nothing.
 pub(crate) fn serve(stream: &mut TcpStream, request: &Request) -> io::Result<()> {
+    // The staged React Remote owns its own prefix: one module decides every
+    // answer under it, so this page's routes cannot grow a second meaning there
+    // (ADR-0035 §3).
+    if request.path == "/next" || request.path.starts_with("/next/") {
+        return crate::remote_next::serve(stream, request);
+    }
+
     if request.method == "GET" {
         // The page is the whole client, so it is served for both the bare host
         // and the name a browser might append to it.
@@ -167,11 +178,6 @@ pub(crate) fn serve(stream: &mut TcpStream, request: &Request) -> io::Result<()>
                 "text/html; charset=utf-8",
                 document.as_bytes(),
             );
-        }
-        // `/next` staged the repertory surface before the cutover (#152); it
-        // now redirects permanently to `/` (#160).
-        if request.path == "/next" {
-            return http::write_permanent_redirect(stream, "/");
         }
         // One versioned asset, its URL naming the version, so it can be cached
         // for good (ADR-0031 §1).
