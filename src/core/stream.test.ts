@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
 
-import type { Title } from "./wire";
-import { streamsSubject, theFilm } from "./stream";
+import type { Stream, Title, Video } from "./wire";
+import { playStreamAction, streamsSubject, theFilm } from "./stream";
+import { titleStubOf } from "./title";
 
 function film(overrides: Partial<Title> = {}): Title {
   return {
@@ -40,7 +41,7 @@ describe("the Video a film is watched as", () => {
 });
 
 describe("what the Streams are Streams of", () => {
-  const video = {
+  const video: Video = {
     id: "tt0903747:1:2",
     name: "Cat's in the Bag...",
     season: 1,
@@ -78,5 +79,61 @@ describe("what the Streams are Streams of", () => {
     expect(
       streamsSubject(series, null, { ...video, season: null, episode: null, name: null }),
     ).toBe("tt0903747:1:2");
+  });
+});
+
+describe("the Action a chosen Stream is", () => {
+  const video: Video = {
+    id: "tt0133093",
+    name: null,
+    season: null,
+    episode: null,
+    thumbnail: null,
+  };
+  const stream: Stream = {
+    name: "4k DV\nHDR",
+    description: "A release, in the Addon's words.",
+    playback: { kind: "direct", url: "https://example.test/film.mkv" },
+    warnings: ["p2p"],
+    filename: "film.mkv",
+    bingeGroup: null,
+  };
+
+  test("the Video, the Addon, the candidate and the Title card travel exactly as sent", () => {
+    expect(playStreamAction(film(), video, "torrentio", stream)).toEqual({
+      type: "play_stream",
+      video: { type: "movie", id: video.id },
+      addon: "torrentio",
+      stream,
+      title: titleStubOf(film()),
+    });
+  });
+
+  test("the card stands in for what a sparse meta answer left out", () => {
+    const sparse = film({ name: "tt0133093", poster: null });
+
+    const action = playStreamAction(sparse, video, "torrentio", stream, {
+      name: "The Matrix",
+      poster: "https://images.test/matrix.jpg",
+      background: "https://images.test/matrix-backdrop.jpg",
+    });
+
+    expect(action.title).toEqual({
+      addon: "community.stremboxd",
+      id: "tt0133093",
+      type: "movie",
+      name: "The Matrix",
+      poster: "https://images.test/matrix.jpg",
+      background: "https://images.test/matrix-backdrop.jpg",
+    });
+  });
+
+  test("a Title with no backdrop carries no background key at all", () => {
+    const action = playStreamAction(film(), video, "torrentio", stream, {
+      name: "The Matrix",
+      poster: null,
+    });
+
+    expect(action.title).not.toHaveProperty("background");
   });
 });

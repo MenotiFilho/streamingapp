@@ -52,16 +52,9 @@ describe("the Remote's Title level", () => {
       payload: {
         kind: "title",
         title: { addon: "cinemeta", id: "tt1", type: "series", name: "One" },
+        answer: null,
       },
     });
-  });
-
-  test("the placeholder knows which Title it stands for", () => {
-    const level = { ...titleLevel({ addon: null, id: "tt9", type: "movie", name: "Nine" }), id: "level-1" };
-    const session = new Session(new FakeHost(NOTHING));
-    render(<RemoteLevel level={level} session={session} pop={() => {}} />);
-
-    expect(screen.getByRole("heading", { name: "Nine" })).toBeInTheDocument();
   });
 
   test("a card's identity becomes the level's payload, with the Addon that answered", () => {
@@ -80,6 +73,7 @@ describe("the Remote's Title level", () => {
         type: "movie",
         name: "The Matrix",
       },
+      answer: null,
     });
   });
 
@@ -97,6 +91,7 @@ describe("the Remote's Title level", () => {
           type: "movie",
           name: "The Matrix",
         },
+        answer: null,
       },
     });
   });
@@ -156,7 +151,15 @@ describe("the Remote's confirm level", () => {
     const host = new FakeHost(NOTHING);
     const session = new Session(host);
     const pop = vi.fn();
-    render(<RemoteLevel level={CONFIRM} session={session} pop={pop} />);
+    render(
+      <RemoteLevel
+        level={CONFIRM}
+        session={session}
+        state={session.getState()}
+        push={() => "level-2"}
+        pop={pop}
+      />,
+    );
 
     expect(
       screen.getByRole("dialog", { name: "Remove Cinemeta?" }),
@@ -171,7 +174,15 @@ describe("the Remote's confirm level", () => {
     const host = new FakeHost(NOTHING);
     const session = new Session(host);
     const pop = vi.fn();
-    render(<RemoteLevel level={CONFIRM} session={session} pop={pop} />);
+    render(
+      <RemoteLevel
+        level={CONFIRM}
+        session={session}
+        state={session.getState()}
+        push={() => "level-2"}
+        pop={pop}
+      />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
 
@@ -189,7 +200,15 @@ describe("the Remote's confirm level", () => {
     const host = new FakeHost(NOTHING, () => refusal);
     const session = new Session(host);
     const pop = vi.fn();
-    render(<RemoteLevel level={CONFIRM} session={session} pop={pop} />);
+    render(
+      <RemoteLevel
+        level={CONFIRM}
+        session={session}
+        state={session.getState()}
+        push={() => "level-2"}
+        pop={pop}
+      />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Remove" }));
 

@@ -15,8 +15,8 @@ import { useCallback, useRef, useState } from "react";
 
 import { actionKey } from "../core/actionKey";
 import type { Action, Stream, Title, Video } from "../core/wire";
-import { playabilityNote } from "../core/stream";
-import { titleStubOf, type OpenablePreview } from "../core/title";
+import { playabilityNote, playStreamAction } from "../core/stream";
+import type { OpenablePreview } from "../core/title";
 import { useShell } from "./context";
 
 export type StreamChoice = {
@@ -60,15 +60,9 @@ export function useStreamChoice(
       openingRef.current = true;
 
       setChosen(null);
-      // One Action, built once: the same one is taken and whose key names the
-      // wait this row draws.
-      const action: Action = {
-        type: "play_stream",
-        video: { type: title.type, id: video.id },
-        addon,
-        stream,
-        title: titleStubOf(title, preview),
-      };
+      // One Action, built once by the core: the same one is taken and whose
+      // key names the wait this row draws.
+      const action: Action = playStreamAction(title, video, addon, stream, preview);
       setOpening({ action, stream });
       try {
         await take(action);

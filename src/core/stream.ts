@@ -12,8 +12,16 @@
  * the list, marked, so the list is what exists rather than only what will work.
  */
 
-import type { Playback, Stream, StreamWarning, Title, Video } from "./wire";
-import { isSeries, labelOf, nameOf, tmdbFilmId, type OpenablePreview } from "./title";
+import type { Action, Playback, Stream, StreamWarning, Title, Video } from "./wire";
+import {
+  isSeries,
+  labelOf,
+  nameOf,
+  titleStubOf,
+  tmdbFilmId,
+  type OpenablePreview,
+  type TitlePreview,
+} from "./title";
 
 /**
  * The Video a film is watched as: the film itself. A film's Title lists no
@@ -62,6 +70,32 @@ export function streamsSubject(
     return video.name ?? video.id;
   }
   return video.name ? `${episode} — ${video.name}` : episode;
+}
+
+/**
+ * The one Action a chosen Stream is: the Video asked about, the Addon that
+ * offered the candidate, the candidate itself, and the least of the Title the
+ * Host records Watch progress against (#29, #27).
+ *
+ * Both clients build it here rather than in their own drawing, so the Action a
+ * window and a phone send for the same candidate cannot differ. The card stands
+ * in for what a sparse meta answer left out, which is the same fallback the
+ * Title screen draws from (ADR-0011).
+ */
+export function playStreamAction(
+  title: Title,
+  video: Video,
+  addon: string,
+  stream: Stream,
+  preview?: TitlePreview | null,
+): Extract<Action, { type: "play_stream" }> {
+  return {
+    type: "play_stream",
+    video: { type: title.type, id: video.id },
+    addon,
+    stream,
+    title: titleStubOf(title, preview),
+  };
 }
 
 /**
