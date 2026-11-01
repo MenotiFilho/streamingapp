@@ -8,7 +8,9 @@ import type { Action, MetaPreview, Title, Video } from "../core/wire";
 import { Button } from "../kit/Button";
 import { ConfirmDialog } from "../kit/ConfirmDialog";
 import { PlayerCard } from "./Player";
-import { playerLevelStale } from "./playerScreen";
+import { PlayerSheets } from "./PlayerSheets";
+import type { RemoteSheet } from "./playerSheets";
+import { playerLevelStale, type RemotePlayer } from "./playerScreen";
 import { SettingsLeaf } from "./Settings";
 import { StreamsScreen } from "./StreamsScreen";
 import { TitleScreen } from "./TitleScreen";
@@ -63,14 +65,51 @@ export type RemoteConfirm = {
  * it and a Back do not ask the Host a second time. A Streams level carries the
  * answered Title and the one Video whose candidates it lists. A Settings level
  * carries the register id of the category it draws (#211). A Player level is the
- * one expanded card (#213).
+ * one expanded card (#213) and a Sheet level is one of its plates above the card
+ * (#214).
  */
 export type RemotePayload =
   | { kind: "title"; title: RemoteTitle; answer: Title | null }
   | { kind: "streams"; title: Title; video: Video }
   | { kind: "settings"; category: SettingsCategoryId }
   | { kind: "confirm"; confirm: RemoteConfirm }
-  | { kind: "player" };
+  | RemotePlayer
+  | RemoteSheet;
+
+/**
+ * The Title a level already holds, or null where it holds none.
+ *
+ * A Title level carries the answer it was given, a Streams level the Title it
+ * was opened from, and a player and its sheet the Title they were handed. This
+ * is the one reading a strip uses to put the Title in the player level, so an
+ * Episodes plate never asks the Host again for facts the client already holds.
+ */
+export function levelTitle(payload: RemotePayload): Title | null {
+  switch (payload.kind) {
+    case "title":
+      return payload.answer;
+    case "streams":
+      return payload.title;
+    case "player":
+    case "sheet":
+      return payload.title;
+    default:
+      return null;
+  }
+}
+
+/** The nearest Title the stack holds, from the top down. */
+export function heldTitle(
+  levels: ReadonlyArray<Level<RemotePayload>>,
+): Title | null {
+  for (let index = levels.length - 1; index >= 0; index -= 1) {
+    const title = levelTitle(levels[index]!.payload);
+    if (title) {
+      return title;
+    }
+  }
+  return null;
+}
 
 /**
  * The level a press on a card pushes: an overlay above the destination, named
@@ -165,8 +204,24 @@ export function RemoteLevel({
         state.snapshot?.playback?.state ?? "idle",
       ) ? null : (
         <LevelPage onBack={pop}>
-          <PlayerCard session={session} />
+          <PlayerCard
+            session={session}
+            title={level.payload.title}
+            push={push}
+          />
         </LevelPage>
+      );
+    case "sheet":
+      // The plate is furniture above the card: the room draws the card under
+      // it, and Back pops only this level.
+      return (
+        <PlayerSheets
+          plate={level.payload.plate}
+          title={level.payload.title}
+          session={session}
+          state={state}
+          onClose={pop}
+        />
       );
     case "confirm":
       return (

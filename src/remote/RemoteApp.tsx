@@ -18,7 +18,7 @@ import { Home } from "./Home";
 import { Library } from "./Library";
 import { Search } from "./Search";
 import { armSentinel, decideHistory } from "./history";
-import { RemoteLevel, type RemotePayload } from "./levels";
+import { heldTitle, RemoteLevel, type RemotePayload } from "./levels";
 import { PlayerStrip } from "./Player";
 import { playerLevelStale } from "./playerScreen";
 import { Settings } from "./Settings";
@@ -224,15 +224,26 @@ function RemoteRoom({
   // stack, and until it does the destination underneath is what is drawn.
   const level =
     top && !playerLevelStale(top.payload, playback) ? top : null;
+  // A sheet is furniture above the card, not a screen of its own: the level
+  // under it stays drawn so Back puts the plate away and the card is still
+  // there. While it is open the card and the dock are inert, which is what
+  // makes the modal panel the one region a press or a tab can reach.
+  const sheetOpen = level?.payload.kind === "sheet";
+  const under = sheetOpen
+    ? nav.levels[nav.levels.length - 2] ?? null
+    : null;
 
-  // The Snapshot is the truth: when it says the Stream is gone, the level goes
-  // with it, whatever closed it — Stop, the Host's own end, or another client's
-  // Stop.
+  // The Snapshot is the truth: when it says the Stream is gone, the player and
+  // every plate above it leave the stack, whatever closed it — Stop, the
+  // Host's own end, or another client's Stop.
   useEffect(() => {
-    if (top && playerLevelStale(top.payload, playback)) {
-      nav.pop();
+    const stale = nav.levels.find((held) =>
+      playerLevelStale(held.payload, playback),
+    );
+    if (stale) {
+      nav.removeFrom(stale.id);
     }
-  }, [top, nav, playback]);
+  }, [nav, playback]);
 
   return (
     <div className="remote-ui">
@@ -248,6 +259,17 @@ function RemoteRoom({
       </header>
 
       <main className="remote-main">
+        {under ? (
+          <div inert aria-hidden="true">
+            <RemoteLevel
+              level={under}
+              session={session}
+              state={sessionState}
+              push={nav.push}
+              pop={nav.pop}
+            />
+          </div>
+        ) : null}
         {level ? (
           <RemoteLevel
             level={level}
@@ -282,8 +304,16 @@ function RemoteRoom({
         <RemoteRefusal error={refusal} />
       </main>
 
-      <div className="remote-dock">
-        <PlayerStrip session={session} push={nav.push} />
+      <div
+        className="remote-dock"
+        inert={sheetOpen ? true : undefined}
+        aria-hidden={sheetOpen ? true : undefined}
+      >
+        <PlayerStrip
+          session={session}
+          title={heldTitle(nav.levels)}
+          push={nav.push}
+        />
 
         <nav className="remote-index" aria-label="Destinations">
           {DESTINATIONS.map((destination) => (

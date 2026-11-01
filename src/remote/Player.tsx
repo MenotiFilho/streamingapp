@@ -22,10 +22,15 @@ import {
   transportControls,
   type TransportControl,
 } from "../core/transportControls";
-import type { Action } from "../core/wire";
+import type { Action, Title } from "../core/wire";
 import { Icon } from "../kit/icons";
 import { PendingSpinner } from "../kit/PendingSpinner";
 import type { RemotePayload } from "./levels";
+import {
+  PLAYER_SHEET_CONTROLS,
+  playerSheetLevel,
+  SHEET_TITLES,
+} from "./playerSheets";
 import {
   CARD_NAME,
   chapterName,
@@ -62,6 +67,8 @@ import {
 export type PlayerStripProps = {
   /** The Session the strip's questions go through. */
   session: Session;
+  /** The Title the playing Stream belongs to, where the stack still holds it. */
+  title: Title | null;
   /** Push a level, which is how a strip press opens the card. */
   push: (level: NewLevel<RemotePayload>) => string;
 };
@@ -76,7 +83,7 @@ export type PlayerStripProps = {
  * picture is not here (`own_window`, `nowhere`), the strip says so in the core's
  * own words.
  */
-export function PlayerStrip({ session, push }: PlayerStripProps) {
+export function PlayerStrip({ session, title, push }: PlayerStripProps) {
   const view = usePlaybackView(session, true);
 
   if (!view || !watching(view.state)) {
@@ -100,7 +107,7 @@ export function PlayerStrip({ session, push }: PlayerStripProps) {
         type="button"
         className="remote-player-strip-open"
         data-focusable
-        onClick={() => push(playerLevel())}
+        onClick={() => push(playerLevel(title))}
       >
         <span className="remote-player-strip-title">{view.title}</span>
         <span className="remote-player-strip-episode">{view.episodeLabel}</span>
@@ -129,7 +136,17 @@ export function PlayerStrip({ session, push }: PlayerStripProps) {
  * and the always-visible volume box. It is the level a strip press pushes, so
  * the room's Back closes it without asking the Host anything.
  */
-export function PlayerCard({ session }: { session: Session }) {
+export function PlayerCard({
+  session,
+  title,
+  push,
+}: {
+  session: Session;
+  /** The Title the player belongs to, handed on to the Episodes plate. */
+  title: Title | null;
+  /** Push a level, which is how a plate opens above the card. */
+  push: (level: NewLevel<RemotePayload>) => string;
+}) {
   const view = usePlaybackView(session, true);
 
   if (!view || !watching(view.state)) {
@@ -174,8 +191,41 @@ export function PlayerCard({ session }: { session: Session }) {
         ))}
       </div>
 
+      <PlayerMenus title={title} push={push} />
+
       <VolumeBox view={view} session={session} />
     </section>
+  );
+}
+
+/**
+ * The card's menu row: the five plates the core's sections fill (#214). Each
+ * control is a level of its own, so Back puts the plate away and leaves the
+ * card exactly as it was.
+ */
+function PlayerMenus({
+  title,
+  push,
+}: {
+  title: Title | null;
+  push: (level: NewLevel<RemotePayload>) => string;
+}) {
+  return (
+    <div className="remote-player-menus" role="group" aria-label="Player menus">
+      {PLAYER_SHEET_CONTROLS.map((control) => (
+        <button
+          key={control.plate}
+          type="button"
+          className="remote-player-icon"
+          data-focusable
+          data-testid={`player-menu-${control.plate}`}
+          aria-label={SHEET_TITLES[control.plate]}
+          onClick={() => push(playerSheetLevel(control.plate, title))}
+        >
+          <Icon name={control.icon} strokeWidth={2} />
+        </button>
+      ))}
+    </div>
   );
 }
 

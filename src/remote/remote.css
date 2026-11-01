@@ -1993,6 +1993,20 @@ body {
   padding: 0;
 }
 
+/* The five plates the card opens: one icon each, at the same hand-sized target
+   as the transport, above the volume box. */
+.remote-player-menus {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--rep-space-1);
+}
+
+.remote-player-menus .remote-player-icon {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+}
+
 .remote-player-volume {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
