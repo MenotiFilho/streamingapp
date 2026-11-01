@@ -352,6 +352,65 @@ describe("the Remote's player level", () => {
 });
 
 /**
+ * The Episodes sheet's one decision (#215, from the P2 walk).
+ *
+ * An episode is a Video like any other, so pressing one opens the Streams list
+ * the Title's Play opens — the person chooses a candidate there rather than the
+ * client picking one behind their back. The sheet goes first, so one Back
+ * leaves the list for the card.
+ */
+describe("the Episodes sheet's press", () => {
+  test("opens the Streams level for the episode, and the plate is put away", async () => {
+    const playing: Snapshot = {
+      ...NOTHING,
+      revision: 2,
+      playback: {
+        ...NOTHING.playback,
+        state: "playing",
+        position: 10,
+        duration: 100,
+      },
+    };
+    const host = new FakeHost(playing);
+    const session = new Session(host);
+    const stop = session.start();
+    const pop = vi.fn();
+    const push = vi.fn(() => "level-2");
+    // The Episodes plate lists the Title's own Videos, so this case needs one.
+    const series: Title = { ...HELD_TITLE, videos: [HELD_VIDEO] };
+
+    try {
+      await waitFor(() => expect(session.getState().snapshot).not.toBeNull());
+      render(
+        <RemoteLevel
+          level={{ ...playerSheetLevel("episodes", series), id: "sheet" }}
+          session={session}
+          state={session.getState()}
+          push={push}
+          pop={pop}
+        />,
+      );
+
+      const episode = HELD_VIDEO;
+      fireEvent.click(screen.getByTestId(`episode-${episode.id}`));
+
+      expect(pop).toHaveBeenCalledOnce();
+      expect(push).toHaveBeenCalledOnce();
+      expect(push).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "Streams",
+          kind: "overlay",
+          payload: { kind: "streams", title: series, video: episode },
+        }),
+      );
+      expect(host.actions).toEqual([]);
+    } finally {
+      stop();
+    }
+  });
+});
+
+/**
  * The settings kind B7 adds (#211, ADR-0035 §1).
  *
  * A Settings category is a level like any other: the register's id names it,

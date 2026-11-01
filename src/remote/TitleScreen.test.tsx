@@ -382,13 +382,13 @@ describe("a series' Play", () => {
     ]);
   });
 
-  test("a chosen episode is the Video the Play opens Streams for", async () => {
+  test("an episode press opens its Streams, and the Play still opens the chosen one", async () => {
     const { host } = mountStack(answering(SERIES), titleLevel({ addon: "cinemeta", id: "tt1", type: "series", name: "One" }));
     await screen.findByTestId("remote-title-page");
 
+    // The press is the play: an episode opens the list for that Video, as the
+    // window's Title does (#215).
     fireEvent.click(screen.getByTestId("episode-tt1:1:2"));
-    fireEvent.click(screen.getByRole("button", { name: FIND_STREAMS }));
-
     await screen.findByTestId("remote-streams");
     expect(host.asked("find_streams")).toEqual([
       { type: "find_streams", video: { type: "series", id: "tt1:1:2" } },

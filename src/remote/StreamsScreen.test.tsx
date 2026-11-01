@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useEffect, useSyncExternalStore } from "react";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import { explain } from "../core/errors";
 import type { Respond } from "./fakeHost.testing";
@@ -104,7 +104,7 @@ function answer(groups: AddonStreams[]): Response {
 }
 
 /** The screen as the room hands it: a Session over the door, and the wait it publishes. */
-function Shown({ session }: { session: Session }) {
+function Shown({ session, onOpened }: { session: Session; onOpened?: () => void }) {
   const state = useSyncExternalStore(session.subscribe, session.getState);
   useEffect(() => session.start(), [session]);
   return (
@@ -113,6 +113,7 @@ function Shown({ session }: { session: Session }) {
       video={VIDEO}
       session={session}
       state={state}
+      onOpened={onOpened ?? (() => undefined)}
     />
   );
 }
@@ -203,6 +204,35 @@ describe("choosing a candidate", () => {
     expect(host.asked("play_stream")).toEqual([
       playStreamAction(TITLE, VIDEO, "torrentio", DIRECT),
     ]);
+  });
+
+  test("the Stream the Host takes opens the player, and a refused one does not", async () => {
+    let refused = false;
+    const onOpened = vi.fn();
+    const host = new FakeHost(SNAPSHOT, (action) =>
+      action.type === "find_streams"
+        ? answer([group("torrentio", [DIRECT])])
+        : refused
+          ? Promise.reject({ kind: "unreachable", detail: "the Host is not connected" })
+          : { snapshots: [], answer: null },
+    );
+    const session = new SessionClass(host);
+    render(<Shown session={session} onOpened={onOpened} />);
+    await screen.findByTestId("stream-torrentio-0");
+
+    fireEvent.click(screen.getByTestId("stream-torrentio-0"));
+    await waitFor(() => expect(onOpened).toHaveBeenCalledOnce());
+
+    // A refusal leaves the list where it is: the person still has candidates
+    // to choose from, and a card of nothing is not the player.
+    refused = true;
+    fireEvent.click(screen.getByTestId("stream-torrentio-0"));
+    await waitFor(() =>
+      expect(screen.getByTestId("stream-torrentio-0")).not.toHaveAttribute(
+        "aria-busy",
+      ),
+    );
+    expect(onOpened).toHaveBeenCalledOnce();
   });
 
   test("every row is disabled while one is on its way, so a second press sends nothing", async () => {

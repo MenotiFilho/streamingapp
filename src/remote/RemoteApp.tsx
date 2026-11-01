@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { actionKey } from "../core/actionKey";
 import { DESTINATIONS } from "../core/destinations";
@@ -6,6 +6,7 @@ import { explain } from "../core/errors";
 import type { ActionError } from "../core/errors";
 import { isTypingTarget, keyIntent } from "../core/input";
 import type { HostLink } from "../core/link";
+import { watching } from "../core/playback";
 import { useNavigation, type NavigationReads } from "../core/react/useNavigation";
 import { useSession } from "../core/react/useSession";
 import type { Session, SessionState } from "../core/session";
@@ -218,27 +219,42 @@ function RemoteRoom({
   }, [nav]);
 
   const refusal = sessionState.error;
-  const top = nav.levels[nav.levels.length - 1] ?? null;
   const playback = sessionState.snapshot?.playback?.state ?? "idle";
-  // A card of a Stream the Host has stopped is no card: the level leaves the
-  // stack, and until it does the destination underneath is what is drawn.
-  const level =
-    top && !playerLevelStale(top.payload, playback) ? top : null;
+  // A card of a Stream the Host has stopped is no card, and a card the Host has
+  // not yet confirmed is not drawn yet either: what is on screen is the top
+  // level that is not such a card — the Title it was opened over, say — and the
+  // destination only when there is none.
+  const drawn = nav.levels.filter(
+    (held) => !playerLevelStale(held.payload, playback),
+  );
+  const level = drawn[drawn.length - 1] ?? null;
   // A sheet is furniture above the card, not a screen of its own: the level
   // under it stays drawn so Back puts the plate away and the card is still
   // there. While it is open the card and the dock are inert, which is what
   // makes the modal panel the one region a press or a tab can reach.
   const sheetOpen = level?.payload.kind === "sheet";
-  const under = sheetOpen
-    ? nav.levels[nav.levels.length - 2] ?? null
-    : null;
+  const under = sheetOpen ? (drawn[drawn.length - 2] ?? null) : null;
 
   // The Snapshot is the truth: when it says the Stream is gone, the player and
   // every plate above it leave the stack, whatever closed it — Stop, the
   // Host's own end, or another client's Stop.
+  //
+  // "Gone" means gone: a card is opened the moment the Host takes the Stream,
+  // and the Snapshot that says it is playing is the next frame — so a card that
+  // has not yet been drawn over a playing Stream is still on its way, not
+  // stale. The ids that have been watching are the ones a stop may take away.
+  const watchingIds = useRef(new Set<string>());
   useEffect(() => {
-    const stale = nav.levels.find((held) =>
-      playerLevelStale(held.payload, playback),
+    const live = watching(playback);
+    for (const held of nav.levels) {
+      if (live && held.payload.kind === "player") {
+        watchingIds.current.add(held.id);
+      }
+    }
+    const stale = nav.levels.find(
+      (held) =>
+        playerLevelStale(held.payload, playback) &&
+        watchingIds.current.has(held.id),
     );
     if (stale) {
       nav.removeFrom(stale.id);

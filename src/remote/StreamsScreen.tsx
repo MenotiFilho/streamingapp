@@ -39,6 +39,11 @@ export type StreamsScreenProps = {
   session: Session;
   /** What the Host last published: the Addons a group is named by, and the waits. */
   state: SessionState;
+  /**
+   * The Stream opened: the room puts this list away and opens the player card,
+   * which is where every control for what is now playing lives (#215).
+   */
+  onOpened: () => void;
 };
 
 /** What the one ask has answered so far. */
@@ -67,6 +72,7 @@ export function StreamsScreen({
   video,
   session,
   state,
+  onOpened,
 }: StreamsScreenProps) {
   const [answer, setAnswer] = useState<LevelAnswer>({ kind: "waiting" });
   /** The unplayable candidate that was pressed, drawn as a note. */
@@ -122,7 +128,11 @@ export function StreamsScreen({
     setChosen(null);
     setPressed({ action, stream });
     try {
-      await session.take(action);
+      // The Host taking the Stream is what opens the player: the list has done
+      // its job, and the card is where the playing Stream is controlled.
+      if (await session.take(action)) {
+        onOpened();
+      }
     } finally {
       setPressed(null);
     }

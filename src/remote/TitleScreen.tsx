@@ -336,7 +336,14 @@ function SeriesProgram({
               data-focusable
               data-testid={`episode-${video.id}`}
               aria-pressed={chosen?.id === video.id}
-              onClick={() => setChosen(video)}
+              // An episode is a Video like any other: pressing it opens its
+              // Streams, as the window does. Choosing it without opening it
+              // left the one control a person expects to find behind another
+              // press (#215).
+              onClick={() => {
+                setChosen(video);
+                push(streamsLevelFor(title, video));
+              }}
             >
               {video.thumbnail ? (
                 <img

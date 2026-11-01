@@ -1,12 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
 import { actionKey } from "../core/actionKey";
-import { answeredStreams } from "../core/answers";
-import { explain } from "../core/errors";
-import { episodesOf, firstPlayableStream } from "../core/episodes";
+import { episodesOf } from "../core/episodes";
 import type { PanelGroup, PanelRow } from "../core/playerPanels";
 import type { Session, SessionState } from "../core/session";
-import { playStreamAction } from "../core/stream";
 import { seasonName } from "../core/title";
 import type { Title, Video } from "../core/wire";
 import { MenuGroup, MenuReadout, MenuRow } from "../kit/Menu";
@@ -14,12 +11,10 @@ import { Sheet } from "../kit/Sheet";
 import {
   episodeLabel,
   NO_EPISODES,
-  noPlayableNote,
   SHEET_TITLES,
   sheetGroups,
   type PlayerSheetName,
 } from "./playerSheets";
-import { streamsAsk } from "./streamsScreen";
 
 export type PlayerSheetsProps = {
   /** Which plate the card opened. */
@@ -32,6 +27,12 @@ export type PlayerSheetsProps = {
   state: SessionState;
   /** Put the sheet away: its close control, its scrim, or the client's Back. */
   onClose: () => void;
+  /**
+   * Open the Streams list for one episode. An episode is a Video like any
+   * other, so the plate hands the pair to the room, which puts the sheet away
+   * and pushes the Streams level the Title's Play pushes (#215).
+   */
+  onEpisode: (title: Title, video: Video) => void;
 };
 
 /**
@@ -40,9 +41,11 @@ export type PlayerSheetsProps = {
  * Every plate is the core's own rows drawn through the kit: Audio & Subtitles
  * composes `audioSection` and `subtitleSections` in that order, Picture is
  * `pictureSections`, Speed is `speedSection`, Chapters is `chaptersSection`, and
- * Episodes is `episodesOf` and `firstPlayableStream`. A choice or action row
- * sends the Action the core chose; the statistics row has no Action and opens
- * the readout this client owns; a note or readout is never a press.
+ * Episodes is `episodesOf`, and a press there is the room's: it opens the
+ * Streams level for that episode, which is the same list the Title's Play
+ * opens. A choice or action row sends the Action the core chose; the statistics
+ * row has no Action and opens the readout this client owns; a note or readout is
+ * never a press.
  */
 export function PlayerSheets({
   plate,
@@ -50,6 +53,7 @@ export function PlayerSheets({
   session,
   state,
   onClose,
+  onEpisode,
 }: PlayerSheetsProps) {
   const [showStatistics, setShowStatistics] = useState(false);
   const playback = state.snapshot?.playback ?? null;
@@ -74,7 +78,7 @@ export function PlayerSheets({
       testId={`player-sheet-${plate}`}
     >
       {plate === "episodes" ? (
-        <EpisodesPlate title={title} session={session} onClose={onClose} />
+        <EpisodesPlate title={title} onEpisode={onEpisode} />
       ) : (
         <Sections
           groups={groups}
@@ -185,56 +189,12 @@ function Row({
  */
 function EpisodesPlate({
   title,
-  session,
-  onClose,
+  onEpisode,
 }: {
   title: Title | null;
-  session: Session;
-  onClose: () => void;
+  onEpisode: (title: Title, video: Video) => void;
 }) {
-  const [pressed, setPressed] = useState<string | null>(null);
-  const [note, setNote] = useState<{ text: string; alert: boolean } | null>(null);
-  // A person can put the sheet away while the Host is still asking. The answer
-  // then belongs to a plate that is no longer on screen and must not play.
-  const open = useRef(true);
-
-  useEffect(
-    () => () => {
-      open.current = false;
-    },
-    [],
-  );
-
   const seasons = title ? episodesOf(title) : [];
-
-  const play = async (video: Video) => {
-    if (!title || pressed !== null) {
-      return;
-    }
-    setNote(null);
-    setPressed(video.id);
-    const outcome = await session.ask(streamsAsk(title, video));
-    if (!open.current) {
-      return;
-    }
-    if (outcome.error) {
-      setPressed(null);
-      setNote({ text: explain(outcome.error), alert: true });
-      return;
-    }
-    const groups = answeredStreams(outcome.response);
-    const chosen = firstPlayableStream(groups);
-    if (!chosen) {
-      setPressed(null);
-      setNote({ text: noPlayableNote(groups), alert: false });
-      return;
-    }
-    await session.take(playStreamAction(title, video, chosen.addon, chosen.stream));
-    setPressed(null);
-    if (open.current) {
-      onClose();
-    }
-  };
 
   if (!title || seasons.length === 0) {
     return (
@@ -255,9 +215,7 @@ function EpisodesPlate({
                 key={video.id}
                 testId={`episode-${video.id}`}
                 label={label}
-                disabled={pressed !== null}
-                pending={pressed === video.id}
-                onPress={() => void play(video)}
+                onPress={() => onEpisode(title, video)}
               >
                 {label}
               </MenuRow>
@@ -265,15 +223,6 @@ function EpisodesPlate({
           })}
         </MenuGroup>
       ))}
-      {note ? (
-        <p
-          className="rep-kit-menu-note"
-          role={note.alert ? "alert" : "status"}
-          data-testid="episode-note"
-        >
-          {note.text}
-        </p>
-      ) : null}
     </>
   );
 }
