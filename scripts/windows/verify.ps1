@@ -626,19 +626,53 @@ function Press-Button($app, $label, $seconds = 10) {
 function Click-Element($app, $element) {
     if (-not $element) { throw 'there is no control to click' }
     # A menu panel is taller than the window when it carries every group, so the
-    # last choice can start below the panel's visible area. Scroll it into view;
-    # a click on coordinates outside the window would land on the desktop (and
-    # take the foreground away) instead of the control.
+    # last choice can start below the panel's visible area - and a row clipped by
+    # that scroll still reports the rectangle it would have had, which is a point
+    # on the panel's header or on the scrim outside it. Scrolling it into view
+    # first is what makes the rectangle clickable, and Chromium animates that
+    # scroll, so where the control is is read once it has stopped moving.
     $scroll = $null
     if ($element.TryGetCurrentPattern([Windows.Automation.ScrollItemPattern]::Pattern, [ref]$scroll)) {
         try { $scroll.ScrollIntoView() } catch { }
-        Start-Sleep -Milliseconds 600
+    }
+    # ScrollIntoView returns before the scroll runs, so a first look would read
+    # the row where it was and call that settled. Give it a beat, then wait for
+    # two consecutive reads to agree.
+    Start-Sleep -Milliseconds 600
+    $last = $element.Current.BoundingRectangle
+    $steady = 0
+    for ($i = 0; $i -lt 20; $i++) {
+        Start-Sleep -Milliseconds 300
+        $now = $element.Current.BoundingRectangle
+        if ($now.IsEmpty) { $last = $now; $steady = 0; continue }
+        if (($now.Left -eq $last.Left) -and ($now.Top -eq $last.Top)) {
+            $steady += 1
+            if ($steady -ge 2) { break }
+        } else {
+            $steady = 0
+        }
+        $last = $now
     }
     $rect = $element.Current.BoundingRectangle
     if ($rect.IsEmpty -or $rect.Width -le 0 -or $rect.Height -le 0) {
         throw 'the control has no rectangle to click'
     }
+    # A row inside a scrolling menu is scrolled into view when it takes the focus
+    # a press gives it, which can move it out from under the pointer: the press
+    # then lands as focus and nothing else. The row holds that focus, so the key
+    # a remote sends is what presses it - and only for a choice, whose press sets
+    # the value it already carries rather than toggling something twice.
+    $toggle = $null
+    $chosen = $element.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern, [ref]$toggle)
+    $was = if ($chosen) { $toggle.Current.ToggleState } else { $null }
     [W]::Click([int]($rect.Left + ($rect.Width / 2)), [int]($rect.Top + ($rect.Height / 2)))
+    Start-Sleep -Milliseconds 600
+    if ($chosen) {
+        $now = $toggle.Current.ToggleState
+        if ($now -eq $was) {
+            [Windows.Forms.SendKeys]::SendWait('{ENTER}')
+        }
+    }
     Start-Sleep -Seconds 2
 }
 
@@ -689,26 +723,63 @@ function Button-Named($app, $name, $seconds = 8) {
     return $null
 }
 
-# The Continue watching cards: the buttons whose note ends in `left` and that
-# are not a row's scroll arrow (`Scroll <row> left`).
+# The Continue watching cards: the buttons whose note says how much of the
+# Video is left (`42:10 left`), and that are not a row's scroll arrow (`Scroll
+# <row> left`). A repertory card is named by its note and then its Title, so the
+# note is matched wherever it sits in the name rather than at its end.
 function Continue-Cards($app) {
     @(Buttons $app | Where-Object {
-        ($_.Current.Name -notlike 'Scroll *') -and ($_.Current.Name -like '* left')
+        ($_.Current.Name -notlike 'Scroll *') -and
+        ($_.Current.Name -match '\d+:\d+ left')
     })
 }
 
-# Every control inside a row track: the buttons between a track's two scroll
-# arrows. That is its cards and its More, when the Catalog pages; `Buttons` lists
-# the tree in draw order, so the arrows bracket exactly the track's controls and
-# this is the row's structure rather than a guess from a control's words.
-function Track-Controls($app) {
-    $controls = New-Object Collections.Generic.List[object]
-    $inside = $false
+# The card at the foot of a rail that opens the whole row: its accessible name
+# is `More <row>`, and it sits in the row's band - so the rail's own `More
+# destinations` item is not one of them.
+function More-Cards($app) {
+    $bands = Row-Bands $app
+    @(Buttons $app | Where-Object {
+        ($_.Current.Name -like 'More *') -and (In-RowBand $bands $_)
+    })
+}
+
+# The vertical band each row's two edge buttons are centred in. The arrows are
+# drawn over the track's edges and the cards come before them in the tree, so a
+# row's controls are found by the band they share with the row's own arrows
+# rather than by the order the tree lists them in.
+function Row-Bands($app) {
+    $bands = New-Object Collections.Generic.List[object]
     foreach ($button in (Buttons $app)) {
-        $name = $button.Current.Name
-        if ($name -like 'Scroll * left') { $inside = $true; continue }
-        if ($name -like 'Scroll * right') { $inside = $false; continue }
-        if ($inside) { $controls.Add($button) }
+        if ($button.Current.Name -notlike 'Scroll *') { continue }
+        $rect = $button.Current.BoundingRectangle
+        if ($rect.IsEmpty -or $rect.Height -le 0) { continue }
+        $bands.Add(@{ At = $rect.Top + ($rect.Height / 2); Span = $rect.Height })
+    }
+    return $bands
+}
+
+# Whether a control sits in one of the row bands: a card is as tall as its track
+# and centred in it, so its middle is the row's middle.
+function In-RowBand($bands, $element) {
+    $rect = $element.Current.BoundingRectangle
+    if ($rect.IsEmpty -or $rect.Height -le 0) { return $false }
+    $held = $rect.Top + ($rect.Height / 2)
+    foreach ($band in $bands) {
+        if ([Math]::Abs($held - $band.At) -le [Math]::Max($band.Span, 8)) { return $true }
+    }
+    return $false
+}
+
+# Every control inside a row track: its cards, and the More at its foot. Those
+# are what the focus engine ranks inside a row, so this is the row's structure
+# rather than a guess from a control's words.
+function Track-Controls($app) {
+    $bands = Row-Bands $app
+    $controls = New-Object Collections.Generic.List[object]
+    foreach ($button in (Buttons $app)) {
+        if ($button.Current.Name -like 'Scroll *') { continue }
+        if (In-RowBand $bands $button) { $controls.Add($button) }
     }
     return $controls
 }
@@ -788,41 +859,66 @@ function Wait-Toggled($app, $name, $seconds = 15) {
 # A readout a screen draws - the `<p>` or `<span>` a value is shown in - as
 # opposed to a button that carries the same words. Chromium gives static text a
 # control type of its own, which is what tells "the readout now says +0.1 s"
-# apart from "there is a +0.1 s button".
+# apart from "there is a +0.1 s button". A readout that names itself with
+# `aria-label` is exposed as a group *and* the text inside it, so the text is
+# what is asked for rather than the first element that carries the name.
 function Readout($app, $name, $seconds = 8) {
     $deadline = (Get-Date).AddSeconds($seconds)
     while ((Get-Date) -lt $deadline) {
-        $element = Find-Element (Window-Root $app) $name $null 1
-        if ($element -and $element.Current.ControlType -eq [Windows.Automation.ControlType]::Text) {
-            return $element
-        }
+        $element = Find-Element (Window-Root $app) $name ([Windows.Automation.ControlType]::Text) 1
+        if ($element) { return $element }
         Start-Sleep -Milliseconds 300
     }
     return $null
 }
 
+# The cards of one Home row, in the order it draws them. A row is named by its
+# own left arrow (`Scroll <row> left`); its cards are the buttons that share the
+# band that arrow is centred in, minus the two arrows and the More at the foot.
+# The cards come before the arrows in the tree, so the band is what identifies
+# them rather than the button that happens to follow the left arrow.
+function Row-Cards($app, $row) {
+    $arrow = @(Buttons-Named $app ('Scroll ' + $row + ' left'))[0]
+    if (-not $arrow) { return @() }
+    $rect = $arrow.Current.BoundingRectangle
+    if ($rect.IsEmpty -or $rect.Height -le 0) { return @() }
+    $bands = @(@{ At = $rect.Top + ($rect.Height / 2); Span = $rect.Height })
+    @(Buttons $app | Where-Object {
+        $name = $_.Current.Name
+        if ($name -like 'Scroll *') { return $false }
+        if ($name -like 'More *') { return $false }
+        In-RowBand $bands $_
+    } | Sort-Object { $_.Current.BoundingRectangle.Left })
+}
+
+# The rows Home drew, by the heading each row's own left arrow names.
+function Row-Names($app) {
+    @(Buttons $app | Where-Object { $_.Current.Name -like 'Scroll * left' } |
+        ForEach-Object {
+            $row = $_.Current.Name.Substring(7)
+            $row.Substring(0, $row.Length - 5)
+        })
+}
+
+# What a skip says it saw, so "no series row" is a fact about this window rather
+# than a guess about the Addon.
+function Rows-Seen($app) {
+    $rows = @(Row-Names $app)
+    if ($rows.Count -eq 0) { return 'none' }
+    return ($rows -join ', ')
+}
+
 # The series card in the Home rows: the first card of the first row that is
-# neither Continue watching nor the movie Catalog the walkthrough names. A row's
-# cards sit between its two edge buttons, so its left arrow names the row and
-# the next button after it is the row's first card. Home fills its rows one
-# answer at a time, so this waits for the row to arrive.
+# neither Continue watching nor the movie Catalog the walkthrough names. Home
+# fills its rows one answer at a time, so this waits for the row to arrive.
 function Series-Card($app, $seconds = 25) {
     $deadline = (Get-Date).AddSeconds($seconds)
     while ((Get-Date) -lt $deadline) {
-        $buttons = Buttons $app
-        for ($i = 0; $i -lt $buttons.Count; $i++) {
-            $name = $buttons[$i].Current.Name
-            if ($name -notlike 'Scroll * left') { continue }
-            $row = $name.Substring(7)
-            $row = $row.Substring(0, $row.Length - 5)
+        foreach ($row in (Row-Names $app)) {
             if ($row -eq 'Continue watching') { continue }
             if ($row -eq $AddonCatalog) { continue }
-            for ($j = $i + 1; $j -lt $buttons.Count; $j++) {
-                $next = $buttons[$j].Current.Name
-                if ($next -like 'Scroll *') { continue }
-                if ($next -eq 'More') { break }
-                return $buttons[$j]
-            }
+            $cards = @(Row-Cards $app $row)
+            if ($cards.Count -gt 0) { return $cards[0] }
         }
         Start-Sleep -Milliseconds 500
     }
@@ -856,11 +952,13 @@ function Position-Seconds($app) {
     return -1
 }
 
-# The Featured hero's current slide name, read from its own label.
+# The Featured hero's current slide name, read from the feature's own control.
+# The surface is `Feature presentation` and the one control inside it is named
+# `Open the Title: <name>`, where the name is the slide the hero is showing.
 function Hero-Title($app) {
-    $match = [regex]::Match((Page-Text $app), 'Featured Title: (.*?)\. Open Title')
-    if ($match.Success) { return $match.Groups[1].Value }
-    return ''
+    $button = @(Buttons-Matching $app 'Open the Title: ')[0]
+    if (-not $button) { return '' }
+    return ($button.Current.Name -replace '^Open the Title:\s*', '')
 }
 
 # The episode number the OSD is on, from the now-playing line, or -1.
@@ -970,15 +1068,25 @@ function Clear-TmdbKey($app) {
     Press-Element $app $clear
     Wait-Text $app 'Clear the TMDB key' 10 | Out-Null
     Press-Last $app 'Clear key'
-    Wait-Text $app 'No TMDB key is held' 20 | Out-Null
+    Wait-Text $app 'Not held' 20 | Out-Null
 }
 
 # What the Remote devices screen reads out: the address a browser opens and the
-# code it redeems once.
+# code it redeems once. Each is a readout of its own - `Address` and `Pairing
+# code · single use` label them - so both are read off the element that holds
+# them rather than out of the page's joined text, where a label's own words sit
+# between the two.
 function Read-Pairing($app) {
     $text = Wait-Text $app 'Pairing code' 20
-    $address = ([regex]::Match($text, 'Address[^0-9]*([0-9][0-9.]*:[0-9]+)')).Groups[1].Value
-    $code = ([regex]::Match($text, 'Pairing code[^A-Z0-9]{0,6}([A-HJ-NP-Z2-9]{6})')).Groups[1].Value
+    $address = ''
+    $code = ''
+    $root = Window-Root $app
+    foreach ($node in $root.FindAll([Windows.Automation.TreeScope]::Descendants,
+            [Windows.Automation.Condition]::TrueCondition)) {
+        $name = $node.Current.Name
+        if ($name -match '^[0-9]+\.[0-9.]*:[0-9]+$') { $address = $name }
+        if ($name -match '^[A-HJ-NP-Z2-9]{6}$') { $code = $name }
+    }
     return @{ Text = $text; Address = $address; Code = $code }
 }
 
@@ -1037,7 +1145,7 @@ function Ensure-AddonHost($ctx) {
     Ensure-Featured $app
     Open-Home $app
     Start-Sleep -Seconds 2
-    Wait-Text $app 'Featured Title:' 45 | Out-Null
+    Wait-Text $app 'Feature presentation' 45 | Out-Null
 }
 
 # Open the first Title Home offers: the hero's slide when there is one, else the
@@ -1045,7 +1153,7 @@ function Ensure-AddonHost($ctx) {
 function Open-First-Title($app) {
     Open-Home $app
     Start-Sleep -Seconds 2
-    $hero = @(Buttons-Matching $app 'Featured Title:')[0]
+    $hero = @(Buttons-Matching $app 'Open the Title: ')[0]
     if ($hero) {
         Press-Element $app $hero
     } else {
@@ -1109,11 +1217,11 @@ function Choose-Candidate($app) {
 # look at the SRT and ASS tracks, and once to see the size it set on a new Stream.
 function Play-The-First-Stream($app) {
     Open-First-Title $app
-    $text = Wait-Text $app 'This Title is one Video|Season \d+' 25
+    $text = Wait-Text $app 'Supplied by|Season \d+' 25
     if ($text -match 'Season \d+') {
         if (-not (Open-Streams $app 'S1E1')) { return $false }
-    } elseif ($text -match 'This Title is one Video') {
-        if (-not (Open-Streams $app 'Play')) { return $false }
+    } elseif ($text -match 'Find Streams') {
+        if (-not (Open-Streams $app 'Find Streams')) { return $false }
     } else {
         return $false
     }
@@ -1339,20 +1447,38 @@ function Walk-Controls($app) {
         $text -match 'Subtitles off') "showed: $text"
     $subtitles = Buttons-Matching $app 'subrip'
     $assTrack = @(Buttons-Matching $app 'ASS styled')[0]
+    # A row is named by its label - the container's own words about the track,
+    # its language and its codec - and the `embedded` mark beside that label is
+    # not part of the name (a control named by `aria-label` does not carry its
+    # children's text). The mark is what the screenshot is for; what is asserted
+    # here is that the file's own tracks are the ones listed.
     Check 'the file carries two plain-text subtitle tracks, and both are listed' (
         ($subtitles.Count -ge 2) -and
-        ($subtitles[0].Current.Name -match 'embedded') -and
-        ($subtitles[1].Current.Name -match 'embedded')) "showed: $text"
-    Check 'and the third, ASS track is listed and marked embedded' (
-        ($assTrack -ne $null) -and ($assTrack.Current.Name -match 'embedded')) "showed: $text"
+        ($subtitles[0].Current.Name -match 'subrip') -and
+        ($subtitles[1].Current.Name -match 'subrip')) "showed: $text"
+    Check 'and the third, ASS track is listed beside them' (
+        ($assTrack -ne $null) -and ($assTrack.Current.Name -match 'ass')) "showed: $text"
+    'review 13-subtitles.png: each track row should carry the embedded mark, and the ASS one its own'
     Check 'the file''s default subtitle track is the one in force before a choice' (
         (Toggled $subtitles[0]) -and
         -not (Toggled (Button-Named $app 'Subtitles off'))) "showed: $text"
     Click-Element $app $subtitles[1]
+    # The Host answers the press with a Snapshot, so the rows change a moment
+    # after the click: wait for the choice to be the one on rather than reading
+    # the frame the click left.
+    $chosen = $null
+    $deadline = (Get-Date).AddSeconds(10)
+    while (-not $chosen -and ((Get-Date) -lt $deadline)) {
+        $rows = @(Buttons-Matching $app 'subrip')
+        if (($rows.Count -ge 2) -and (Toggled $rows[1]) -and -not (Toggled $rows[0]) -and
+            -not (Toggled (Button-Named $app 'Subtitles off' 1))) {
+            $chosen = $rows[1]
+        } else {
+            Start-Sleep -Milliseconds 400
+        }
+    }
     Check 'choosing another subtitle track turns it on, and takes the default off' (
-        (Toggled (Buttons-Matching $app 'subrip')[1]) -and
-        -not (Toggled (Buttons-Matching $app 'subrip')[0]) -and
-        -not (Toggled (Button-Named $app 'Subtitles off'))) "showed: $(Page-Text $app)"
+        $null -ne $chosen) "showed: $(Page-Text $app)"
     Click-Element $app (Button-Named $app 'Subtitles off')
     Check 'Subtitles off turns every subtitle track off' (
         (Toggled (Button-Named $app 'Subtitles off')) -and
@@ -1366,6 +1492,12 @@ function Walk-Controls($app) {
     Check 'stepping the delay moves the readout to +0.1 s' (
         (Readout $app '+0.1 s') -ne $null) "showed: $(Page-Text $app)"
     Click-Element $app (Button-Named $app 'Reset')
+    if ((Readout $app '0.0 s' 3) -eq $null) {
+        # A press inside a scrolling menu can land as focus only. Resetting is
+        # the same request however many times it is asked, so ask again rather
+        # than reporting a state the press never reached.
+        Click-Element $app (Button-Named $app 'Reset')
+    }
     Check 'resetting the delay moves the readout back to 0.0 s' (
         (Readout $app '0.0 s') -ne $null) "showed: $(Page-Text $app)"
 
@@ -1405,15 +1537,24 @@ function Walk-Controls($app) {
     $audioPor = Buttons-Matching $app 'Portuguese'
     Check 'the file carries two audio tracks, and both are listed' (
         ($audioEng.Count -ge 1) -and ($audioPor.Count -ge 1)) "showed: $text"
-    Check 'and both audio tracks are the file''s own, marked embedded' (
-        ($audioEng[0].Current.Name -match 'embedded') -and
-        ($audioPor[0].Current.Name -match 'embedded')) (
+    Check 'and both audio tracks are the file''s own, named by language and codec' (
+        ($audioEng[0].Current.Name -match 'aac') -and
+        ($audioPor[0].Current.Name -match 'aac')) (
         "$($audioEng[0].Current.Name) | $($audioPor[0].Current.Name)")
     Click-Element $app $audioPor[0]
+    $chosen = $null
+    $deadline = (Get-Date).AddSeconds(10)
+    while (-not $chosen -and ((Get-Date) -lt $deadline)) {
+        $rows = @(Buttons-Matching $app 'Portuguese')
+        if (($rows.Count -ge 1) -and (Toggled $rows[0]) -and
+            -not (Toggled (@(Buttons-Matching $app 'English stereo')[0]))) {
+            $chosen = $rows[0]
+        } else {
+            Start-Sleep -Milliseconds 400
+        }
+    }
     Check 'selecting the other audio track takes: its toggle is on and the first is off' (
-        (Toggled (Buttons-Matching $app 'Portuguese')[0]) -and
-        -not (Toggled (Buttons-Matching $app 'English stereo')[0])) (
-        "showed: $(Page-Text $app)")
+        $null -ne $chosen) "showed: $(Page-Text $app)"
     Press-Keys $app '{ESC}'
     Start-Sleep -Milliseconds 500
 
@@ -1472,11 +1613,13 @@ function Walk-Controls($app) {
     $moved = if ($after.Success) { [int]$after.Groups[1].Value } else { -1 }
     Check 'moving the volume moves its readout' (
         ($level -ge 0) -and ($moved -ne $level)) "the readout went $level% to $moved%"
+    Wake-Osd $app
     Press-Element $app (Button-Named $app 'Mute')
     Check 'muting flips the control to Unmute' (
         Shows $app 'Unmute' 10) "showed: $(Page-Text $app)"
     Check 'and the muted choice is the one toggled on' (
         Toggled (Button-Named $app 'Unmute')) "showed: $(Page-Text $app)"
+    Wake-Osd $app
     Press-Element $app (Button-Named $app 'Unmute')
     Check 'unmuting flips it back to Mute' (
         (Shows $app 'Mute' 10) -and -not (Shows $app 'Unmute' 2)) (
@@ -1727,10 +1870,10 @@ function Step-10($ctx) {
     Shot $app '10-featured-choice.png'
 
     Open-Home $app
-    $text = Wait-Text $app 'Featured Title:' 45
+    $text = Wait-Text $app 'Feature presentation' 45
     Shot $app '10-home.png'
     Check 'Home draws the Featured hero' (
-        $text -match 'Featured Title:') "showed: $text"
+        $text -match 'Feature presentation') "showed: $text"
     Check 'a row is drawn for each Catalog the Addon declares' (
         ($text -match [regex]::Escape($AddonCatalog)) -and
         ($text -match [regex]::Escape($AddonName))) "showed: $text"
@@ -1753,19 +1896,21 @@ function Step-11($ctx) {
     # the hero where there is one - then Down goes to the first row's card and
     # Enter presses it. This is the D-pad path, not a programmatic click.
     Focus-On $app 'Home' ([Windows.Automation.ControlType]::Button)
-    $hero = @(Buttons-Matching $app 'Featured Title:').Count -gt 0
+    $hero = @(Buttons-Matching $app 'Open the Title: ').Count -gt 0
     Press-Keys $app '{RIGHT}'
     if ($hero) { Press-Keys $app '{DOWN}' }
     Press-Keys $app '{ENTER}'
-    $text = Wait-Text $app 'This Title is one Video|Season \d+|listed no episodes' 25
+    $text = Wait-Text $app 'Supplied by|Season \d+|listed no episodes' 25
     Shot $app '11-title-opened.png'
     Check 'the arrow keys reached a card and OK opened the Title' (
-        $text -match 'This Title is one Video|Season \d+|listed no episodes') "showed: $text"
+        $text -match 'Supplied by|Season \d+|listed no episodes') "showed: $text"
     Check 'the opened Title names the Addon that answered for it' (
-        $text -match [regex]::Escape($AddonId)) "showed: $text"
+        $text -match ('Supplied by ' + [regex]::Escape($AddonName))) "showed: $text"
     Check 'opening a Title is a question: no Snapshot goes out' (
         (Snapshot-Baseline) -eq $published) "the log went from $published to $(Published-Snapshots)"
-    $film = $text -match 'This Title is one Video'
+    # A film's Title offers the one action that asks for its Streams; a series
+    # lists its seasons instead, so the action is what tells the two apart.
+    $film = $text -match 'Find Streams'
     $series = $text -match 'Season \d+'
     $noEpisodes = $text -match 'listed no episodes'
     Check 'the opened Title is a film, or a series with its seasons' (
@@ -1802,9 +1947,10 @@ function Step-12($ctx) {
     } elseif ($noEpisodes) {
         'the Title opened is a series whose Addon listed no episodes, so there is no Video to press play on'
     } else {
-        # A film is one Video - the film itself - so its Title screen offers Play.
+        # A film is one Video - the film itself - so its Title offers the one
+        # action that asks for its Streams.
         Check 'pressing play on a film asks for its Streams, and the list is what came back' (
-            Open-Streams $app 'Play') "showed: $(Page-Text $app)"
+            Open-Streams $app 'Find Streams') "showed: $(Page-Text $app)"
         Shot $app '12-film-streams.png'
     }
 
@@ -1818,7 +1964,7 @@ function Step-12($ctx) {
         Press-Keys $app '{ESC}'
         Start-Sleep -Seconds 1
         Check 'Back leaves the Streams and returns to the Video it was asked from' (
-            (Page-Text $app) -match 'This Title is one Video|Season \d+') "showed: $(Page-Text $app)"
+            (Page-Text $app) -match 'Supplied by|Season \d+') "showed: $(Page-Text $app)"
         Press-Keys $app '{ESC}'
         Start-Sleep -Seconds 1
     }
@@ -1829,8 +1975,8 @@ function Step-12($ctx) {
     $unplayable = @(Buttons-Matching $app 'A Film That Cannot Play')[0]
     if ($unplayable) {
         Press-Element $app $unplayable
-        Wait-Text $app 'This Title is one Video' 20 | Out-Null
-        Open-Streams $app 'Play' | Out-Null
+        Wait-Text $app 'Supplied by' 20 | Out-Null
+        Open-Streams $app 'Find Streams' | Out-Null
         Play-A-Candidate $app
         Press-Keys $app '{ESC}'
         Start-Sleep -Seconds 1
@@ -1846,7 +1992,7 @@ function Step-13($ctx) {
     $app = $ctx.App
     if (-not (Open-Series $app)) {
         Skip 'the full OSD' (
-            "this Addon drew no series row, so there is no episode to play: run with -AddonName Verify (or -Addon <a Series Addon>) to walk the OSD")
+            "this Addon drew no series row (rows seen: $(Rows-Seen $app)), so there is no episode to play: run with -AddonName Verify (or -Addon <a Series Addon>) to walk the OSD")
         return
     }
     if (-not (Open-Streams $app 'S1E1')) {
@@ -1887,31 +2033,31 @@ function Step-14($ctx) {
     '--- 14. Back leaves the Title, and the same Title opens again'
     $app = $ctx.App
     Open-First-Title $app
-    $text = Wait-Text $app 'This Title is one Video|Season \d+' 25
+    $text = Wait-Text $app 'Supplied by|Season \d+' 25
     Check 'a Title is open to back out of' (
-        $text -match 'This Title is one Video|Season \d+') "showed: $text"
+        $text -match 'Supplied by|Season \d+') "showed: $text"
     $published = Snapshot-Baseline
     Press-Keys $app '{ESC}'
-    $text = Wait-Text $app 'Featured Title:' 20
+    $text = Wait-Text $app 'Feature presentation' 20
     Shot $app '14-title-back.png'
     Check 'Back returns to Home' (
-        $text -match 'Featured Title:') "showed: $text"
+        $text -match 'Feature presentation') "showed: $text"
     Check 'and the Title surface is gone' (
-        $text -notmatch 'This Title is one Video|Season \d+') "showed: $text"
+        $text -notmatch 'Supplied by|Season \d+') "showed: $text"
 
     Open-First-Title $app
-    $text = Wait-Text $app 'This Title is one Video|Season \d+' 25
+    $text = Wait-Text $app 'Supplied by|Season \d+' 25
     Shot $app '14-title-reopened.png'
     Check 'the same Title opens again' (
-        $text -match 'This Title is one Video|Season \d+') "showed: $text"
+        $text -match 'Supplied by|Season \d+') "showed: $text"
     Check 'and opening it moved nothing either' (
         (Snapshot-Baseline) -eq $published) "the log went from $published to $(Published-Snapshots)"
 
     Press-Keys $app '{ESC}'
-    $text = Wait-Text $app 'Featured Title:' 20
+    $text = Wait-Text $app 'Feature presentation' 20
     Check 'and Back leaves it again' (
-        ($text -match 'Featured Title:') -and
-        ($text -notmatch 'This Title is one Video|Season \d+')) "showed: $text"
+        ($text -match 'Feature presentation') -and
+        ($text -notmatch 'Supplied by|Season \d+')) "showed: $text"
 }
 
 function Step-15($ctx) {
@@ -1919,8 +2065,8 @@ function Step-15($ctx) {
     $app = $ctx.App
     $card = Series-Card $app
     if (-not $card) {
-        'this Addon answered with no second row, so there was no series to open'
-        'by hand: open a series row and check its seasons and episodes'
+        Skip 'a series'' seasons and episodes' (
+            "this Addon drew no second row (rows seen: $(Rows-Seen $app)), so there was no series to open")
         return
     }
     Press-Element $app $card
@@ -1943,32 +2089,49 @@ function Step-15($ctx) {
     Check 'Back leaves the Streams and returns to the episodes' (
         $text -match 'Season \d+') "showed: $text"
     Press-Keys $app '{ESC}'
-    $text = Wait-Text $app 'Featured Title:' 20
+    $text = Wait-Text $app 'Feature presentation' 20
     Check 'and Back leaves the series again' (
-        $text -match 'Featured Title:') "showed: $text"
+        $text -match 'Feature presentation') "showed: $text"
 }
 
 function Step-16($ctx) {
     '--- 16. paging a row is not a change: no Snapshot goes out'
     $app = $ctx.App
+    Open-Home $app
+    Start-Sleep -Seconds 2
     $published = Snapshot-Baseline
-    $more = @(Buttons-Named $app 'More')
-    if ($more.Count -eq 0) {
-        Skip 'paging a row' 'the Addon Catalog offers no way to page on (no More control)'
+    # A row is paged on through the More card at its foot: it pushes the whole
+    # row as a grid, and the grid asks the Catalog for its next page until the
+    # Addon has nothing more to answer. That is a question, not a change - the
+    # same walk the row's own More action used to make.
+    $label = 'More ' + $AddonCatalog
+    $more = @(More-Cards $app | Where-Object { $_.Current.Name -eq $label })[0]
+    if (-not $more) {
+        Skip 'paging a row' (
+            "the $AddonCatalog row offers no '$label' card to page it with (rows seen: $(Rows-Seen $app))")
         return
     }
-    $before = $more.Count
-    Press-Element $app $more[0]
-    Start-Sleep -Seconds 4
-    $text = Wait-No-Text $app 'Looking for' 30
+    Press-Element $app $more
+    Wait-Text $app ('All of ' + [regex]::Escape($AddonCatalog)) 20 | Out-Null
+    # The grid reads its next page on its own and prints `Reading the programme`
+    # while that ask is in flight; wait for it to settle rather than reading the
+    # first frame, which would call a page still travelling "stopped".
+    $deadline = (Get-Date).AddSeconds(30)
+    $text = Page-Text $app
+    while (($text -match 'Reading the programme') -and ((Get-Date) -lt $deadline)) {
+        Start-Sleep -Milliseconds 500
+        $text = Page-Text $app
+    }
     Shot $app '16-paged.png'
     Check 'the row paged on without emptying' (
-        $text -match [regex]::Escape($AddonCatalog)) "showed: $text"
-    Check 'the row that answered nothing new stopped offering More' (
-        @(Buttons-Named $app 'More').Count -lt $before) (
-        "the window still offers $(@(Buttons-Named $app 'More').Count) More control(s)")
+        ($text -match ('All of ' + [regex]::Escape($AddonCatalog))) -and
+        ($text -notmatch 'The Addon answered with no Titles in this section')) "showed: $text"
+    Check 'the row that answered nothing new stopped reading on' (
+        $text -notmatch 'Reading the programme') "showed: $text"
     Check 'paging is a question, not a change: no Snapshot went out' (
         (Snapshot-Baseline) -eq $published) "the log went from $published to $(Published-Snapshots)"
+    Press-Keys $app '{ESC}'
+    Start-Sleep -Milliseconds 500
 }
 
 function Step-17($ctx) {
@@ -1977,18 +2140,21 @@ function Step-17($ctx) {
     $published = Snapshot-Baseline
     Open-Destination $app 'Search'
     $text = Wait-Text $app 'Search' 15
+    # The bar is one Field named `Search for a Title`, with the submit beside it.
+    # The placeholder is the input's own help text rather than a name in the
+    # tree, so what is asserted is the label and the control that sends it.
     Check 'the Search destination draws its query bar' (
-        (Shows $app 'Search the Addons'' searchable Catalogs' 5) -or
-        (Shows $app 'Search TMDB for a film or a series' 5) -or
-        ((Page-Text $app) -match 'Every Addon''s Catalog that offers a search')) (Page-Text $app)
+        (Shows $app 'Search for a Title' 5) -and
+        ((Page-Text $app) -match 'SEARCH FOR A TITLE')) (Page-Text $app)
     $keyed = (Page-Text $app) -match 'TMDB searches its Movies and Series together'
 
     Type-With-Keys $app 'Search for a Title' $SearchQuery
     Check 'typing a query enables the submit control' (
         (Wait-Enabled $app 'Search' 10) -ne $null) 'the search submit is still disabled after typing'
-    # Enter in the field submits the same form the Search button does; a real
-    # key is what a remote's OK sends.
-    Press-Keys $app '{ENTER}'
+    # The bar's own submit control is pressed: a `type=search` input owns Enter
+    # and Escape in Chromium, so a key sent into the field never reaches the
+    # form. It is the last Search control in the tree, after the rail's.
+    Press-Last $app 'Search'
     if ($keyed) {
         Wait-No-Text $app 'Looking for (movies|series)' 30 | Out-Null
         $text = Wait-Text $app 'Movies' 30
@@ -2014,12 +2180,18 @@ function Step-18($ctx) {
     '--- 18. Back returns to Home, from the keyboard'
     $app = $ctx.App
     # Search is a destination, not a pushed level, so Back is the shell's return
-    # to Home - the same Escape a remote sends.
+    # to Home - the same Escape a remote sends. A `type=search` field owns Escape
+    # while it has the focus (it clears the query), so the key is sent again from
+    # the rail when the first one only emptied the field.
     Press-Keys $app '{ESC}'
-    $text = Wait-Text $app 'Featured Title:' 25
+    if ((Page-Text $app) -notmatch 'Feature presentation') {
+        Focus-On $app 'Search' ([Windows.Automation.ControlType]::Button)
+        Press-Keys $app '{ESC}'
+    }
+    $text = Wait-Text $app 'Feature presentation' 25
     Shot $app '18-back.png'
     Check 'Back returns to Home' (
-        $text -match 'Featured Title:') "showed: $text"
+        $text -match 'Feature presentation') "showed: $text"
     Check 'and the Search surface is gone' (
         $text -notmatch 'Search the Addons'' searchable Catalogs') "showed: $text"
     Check 'and the rail marks Home as the current destination' (
@@ -2033,10 +2205,10 @@ function Step-19($ctx) {
     # The value the walkthrough enters is its own and it takes it out again
     # before the step ends: the point is the round trip, not a credential.
     Clear-TmdbKey $app
-    $text = Wait-Text $app 'No TMDB key is held' 15
+    $text = Wait-Text $app 'Not held' 15
     Shot $app '19-tmdb-key-none.png'
     Check 'a Host with no key says so' (
-        $text -match 'No TMDB key is held') "showed: $text"
+        $text -match 'Not held') "showed: $text"
     Check 'the window says which backend would hold a key' (
         ($text -match 'OS keyring') -or ($text -match '0600')) "showed: $text"
 
@@ -2044,10 +2216,10 @@ function Step-19($ctx) {
     $before = Snapshot-Baseline
     Set-TmdbKey $app $testKey
     Press $app 'Save key'
-    $text = Wait-Text $app 'A TMDB key is held' 20
+    $text = Wait-Text $app 'The Host holds the TMDB key.' 20
     Shot $app '19-tmdb-key-saved.png'
     Check 'saving a key is a change: the Snapshot says one is held' (
-        $text -match 'A TMDB key is held') "showed: $text"
+        $text -match 'The Host holds the TMDB key.') "showed: $text"
     Check 'saving a key published one Snapshot' (
         (Wait-Published $before 20) -gt $before) "the log still shows $before published Snapshot(s)"
     # The value has no place in the window; step 21 reads the log for it.
@@ -2059,10 +2231,10 @@ function Step-19($ctx) {
     # and an id only TMDB could map cannot have been mapped with it.
     Open-Home $app
     Open-First-Title $app
-    $text = Wait-Text $app 'This Title is one Video|Season \d+' 40
+    $text = Wait-Text $app 'Supplied by|Season \d+' 40
     Shot $app '19-tmdb-key-refused.png'
     Check 'a Title still opens when TMDB refuses the key' (
-        $text -match 'This Title is one Video|Season \d+') "showed: $text"
+        $text -match 'Supplied by|Season \d+') "showed: $text"
     if ($text -match 'Unmapped') {
         'and it is marked unmapped rather than blanked'
     } else {
@@ -2074,10 +2246,10 @@ function Step-19($ctx) {
     Open-Settings-Category $app 'Credentials' 'TMDB key'
     $before = Snapshot-Baseline
     Clear-TmdbKey $app
-    $text = Wait-Text $app 'No TMDB key is held' 20
+    $text = Wait-Text $app 'Not held' 20
     Shot $app '19-tmdb-key-cleared.png'
     Check 'clearing the key says no key is held' (
-        $text -match 'No TMDB key is held') "showed: $text"
+        $text -match 'Not held') "showed: $text"
     Check 'and clearing published one Snapshot' (
         (Wait-Published $before 20) -gt $before) "the log still shows $before published Snapshot(s)"
     $ctx.TestKey = $testKey
@@ -2148,7 +2320,7 @@ function Step-23($ctx) {
     # entries, and a resume reads one of them.
     if (-not (Open-Series $app)) {
         Skip 'Watch progress outlives a killed Host' (
-            "this Addon drew no series row, so there is no series to watch: run with -AddonName Verify (or -Addon <a Series Addon>)")
+            "this Addon drew no series row (rows seen: $(Rows-Seen $app)), so there is no series to watch: run with -AddonName Verify (or -Addon <a Series Addon>)")
         return
     }
     if (-not (Open-Streams $app 'S1E1')) {
@@ -2236,12 +2408,15 @@ function Step-24($ctx) {
         Click-Element $app (Button-Named $app 'Sign out')
         Wait-Text $app 'Sign out of Stremio' 10 | Out-Null
         Press-Last $app 'Sign out'
-        Wait-Text $app 'No Stremio account is signed in' 20 | Out-Null
+        Wait-Shows $app 'Stremio email' 20 | Out-Null
     }
-    $text = Wait-Text $app 'No Stremio account is signed in' 15
+    $text = Page-Text $app
     Shot $app '24-before-signin.png'
-    Check 'with no account the window says so' (
-        $text -match 'No Stremio account is signed in') "showed: $text"
+    Check 'with no account the window asks for one' (
+        (Shows $app 'Stremio email') -and (Shows $app 'Stremio password')) (
+        'the window shows no sign-in form')
+    Check 'and the Credentials ledger says no account is held' (
+        Shows $app 'Not signed in') "showed: $text"
     Check 'and it offers a sign-in rather than a sign-out' (
         (Shows $app 'Sign in') -and -not (Shows $app 'Sign out' 1)) (
         'the window shows no Sign in button')
@@ -2254,11 +2429,12 @@ function Step-24($ctx) {
     ''
     'SIGN IN NOW, in the Host window under Settings > Credentials > Stremio account:'
     'type your Stremio email and password, and press Sign in. This script waits for'
-    'the window to say an account is held (up to 5 minutes); nothing is typed here.'
-    $text = Wait-Text $app 'A Stremio account is signed in' 300
+    'the window to hold an account (up to 5 minutes); nothing is typed here.'
+    $signedIn = Wait-Shows $app 'Sign out' 300
+    $text = Page-Text $app
     Shot $app '24-signed-in.png'
-    Check 'signing in is held: the window says the account is signed in' (
-        $text -match 'A Stremio account is signed in') "showed: $text"
+    Check 'signing in is held: the window offers the sign-out instead of the form' (
+        $signedIn -and (Shows $app 'Signed in' 5)) "showed: $text"
     Check 'and the form is gone, so no password sits in the window' (
         -not (Shows $app 'Stremio email' 1)) 'the sign-in form is still there'
     Check 'and the window says a credential is held, never the credential itself' (
@@ -2272,10 +2448,12 @@ function Step-24($ctx) {
     Click-Element $app (Button-Named $app 'Sign out')
     Wait-Text $app 'Sign out of Stremio' 10 | Out-Null
     Press-Last $app 'Sign out'
-    $text = Wait-Text $app 'No Stremio account is signed in' 20
+    $backToForm = Wait-Shows $app 'Stremio email' 20
+    $text = Page-Text $app
     Shot $app '24-signed-out.png'
-    Check 'signing out forgets the account: the window says no account is signed in' (
-        $text -match 'No Stremio account is signed in') "showed: $text"
+    Check 'signing out forgets the account: the ledger says none is held' (
+        $backToForm -and (Shows $app 'Not signed in') -and -not (Shows $app 'Signed in' 1)) (
+        "showed: $text")
     Check 'and it offers the sign-in form again' (
         Shows $app 'Stremio email') 'the sign-in form did not come back'
 
@@ -2529,8 +2707,10 @@ function Step-27($ctx) {
     Open-Home $app
     Start-Sleep -Seconds 2
 
-    # The rail's two ends are walls: Up on Home is the top, and Down on Settings
-    # is the bottom. Nothing wraps.
+    # The rail's two ends are walls: Up on Home is the top, and Down past the
+    # last item is the bottom. Nothing wraps. The last item is the way into the
+    # destinations the six leave out (`More destinations`), so the bottom is
+    # after Settings rather than at it.
     Focus-On $app 'Home' ([Windows.Automation.ControlType]::Button)
     $at = Focused-Name
     Check 'the rail starts on Home' ($at -eq 'Home') "focus is on '$at'"
@@ -2541,9 +2721,14 @@ function Step-27($ctx) {
     $at = Focused-Name
     Check 'Down walks the rail to Settings' ($at -eq 'Settings') "focus is on '$at'"
     Press-Keys $app '{DOWN}'
+    $last = Focused-Name
+    Check 'Down walks on to the rail''s last item' (
+        ($last -ne '') -and ($last -ne 'Settings')) "focus is on '$last'"
+    Press-Keys $app '{DOWN}'
     $at = Focused-Name
-    Check 'Down at the bottom of the rail stops there' ($at -eq 'Settings') "focus is on '$at'"
-    for ($i = 0; $i -lt 5; $i++) { Press-Keys $app '{UP}' }
+    Check 'Down at the bottom of the rail stops there' ($at -eq $last) (
+        "focus went from '$last' to '$at'")
+    for ($i = 0; $i -lt 6; $i++) { Press-Keys $app '{UP}' }
     $at = Focused-Name
     Check 'Up walks it back to Home' ($at -eq 'Home') "focus is on '$at'"
 
@@ -2601,48 +2786,45 @@ function Step-28($ctx) {
     $app = $ctx.App
     Open-Home $app
     Start-Sleep -Seconds 2
-    $hero = @(Buttons-Matching $app 'Featured Title:')[0]
+    $hero = @(Buttons-Matching $app 'Open the Title: ')[0]
     if (-not $hero) {
         Skip 'the hero rotation' 'Home drew no Featured hero here, so there is no slide to rotate'
         return
     }
 
-    $text = Page-Text $app
-    if ($text -match 'Rotation off') {
-        'the hero says Rotation off (one slide, or the system asks for reduced motion)'
-        Check 'a single-slide hero states that it does not rotate' $true ''
-    } else {
-        # Focused, the six-second timer holds: the slide a person is reading must
-        # not change under them.
-        $hero.SetFocus()
-        Start-Sleep -Seconds 1
-        $text = Wait-Text $app 'Focused . rotation held' 10
-        Shot $app '28-hero-focused.png'
-        Check 'focusing the hero holds its rotation' (
-            $text -match 'Focused . rotation held') "showed: $text"
-        $before = Hero-Title $app
-        Start-Sleep -Seconds 7
-        $after = Hero-Title $app
-        Check 'and the slide does not move while it is focused' (
-            ($before -ne '') -and ($after -eq $before)) "the slide went '$before' to '$after'"
-
-        # Unfocused, it steps on its own every six seconds.
-        Focus-On $app 'Home' ([Windows.Automation.ControlType]::Button)
-        Start-Sleep -Seconds 1
-        $text = Wait-Text $app 'Auto-rotating' 10
-        Check 'an unfocused hero says it rotates' (
-            $text -match 'Auto-rotating') "showed: $text"
-        $before = Hero-Title $app
-        $after = $before
-        $deadline = (Get-Date).AddSeconds(10)
-        while (($after -eq $before) -and ((Get-Date) -lt $deadline)) {
-            Start-Sleep -Milliseconds 500
-            $after = Hero-Title $app
-        }
-        Shot $app '28-hero-rotated.png'
-        Check 'and it steps to another slide on its own' (
-            ($before -ne '') -and ($before -ne $after)) "the slide stayed '$before'"
+    # The beat is one decision in the window: the feature holds its slide while
+    # its action has the focus, and steps it every 24 seconds while it does not.
+    # Neither the hold nor the beat prints a word, so both are read off the
+    # control's own name - `Open the Title: <slide>` - either side of one beat.
+    if ((Page-Text $app) -match 'One showing') {
+        Skip 'the hero rotation' (
+            'the Featured Catalog answered one Title, so there is no second slide to rotate to: run with an Addon whose Featured Catalog lists more')
+        return
     }
+
+    $hero.SetFocus()
+    Start-Sleep -Seconds 1
+    $before = Hero-Title $app
+    # One beat is 24 s (FEATURE_ROTATION_MS); a beat and a settle outlasts it.
+    Start-Sleep -Seconds 27
+    $after = Hero-Title $app
+    Shot $app '28-hero-focused.png'
+    Check 'focusing the hero holds its rotation' (
+        ($before -ne '') -and ($after -eq $before)) "the slide went '$before' to '$after' over one beat"
+
+    # Unfocused, it steps on its own every 24 seconds.
+    Focus-On $app 'Home' ([Windows.Automation.ControlType]::Button)
+    Start-Sleep -Seconds 1
+    $before = Hero-Title $app
+    $after = $before
+    $deadline = (Get-Date).AddSeconds(32)
+    while (($after -eq $before) -and ((Get-Date) -lt $deadline)) {
+        Start-Sleep -Milliseconds 500
+        $after = Hero-Title $app
+    }
+    Shot $app '28-hero-rotated.png'
+    Check 'and it steps to another slide on its own' (
+        ($before -ne '') -and ($before -ne $after)) "the slide stayed '$before' for a whole beat"
 
     # The fixture carries portrait posters and no billboard art, so the hero has
     # to fall back to its text slide rather than stretching a 2:3 poster. UI
@@ -2657,12 +2839,16 @@ function Step-29($ctx) {
     '--- 29. Library: the sign-in gate, and no collection it does not have'
     $app = $ctx.App
     Open-Destination $app 'Library'
-    $text = Wait-Text $app 'Your Library will hold|Signed in to Stremio' 20
+    $text = Wait-Text $app 'Your Library holds|The Library is empty|Continue' 20
     Shot $app '29-library.png'
-    $gate = $text -match 'Your Library will hold the Titles saved in your Stremio account'
-    $held = $text -match 'Signed in to Stremio\. The Titles saved in your account will appear here'
-    Check 'Library either offers the Stremio sign-in gate or says the collection is not built' (
-        $gate -or $held) "showed: $text"
+    $gate = $text -match 'Your Library holds the Titles saved in your Stremio account'
+    $empty = $text -match 'The Library is empty'
+    # An account held draws its own collection instead of the gate: the cards,
+    # each marked Continue where the account left one part-way. The Host's own
+    # Continue watching is not that collection, which the next check reads.
+    $collection = (-not $gate) -and ($text -match 'Continue')
+    Check 'Library offers the Stremio sign-in gate, or the collection the account draws' (
+        $gate -or $empty -or $collection) "showed: $text"
     Check 'it draws no collection it does not have' (
         $text -notmatch 'Continue watching') "showed: $text"
     if ($gate) {
@@ -2678,9 +2864,9 @@ function Step-29($ctx) {
     }
 
     Press-Keys $app '{ESC}'
-    $text = Wait-Text $app 'Featured Title:' 20
+    $text = Wait-Text $app 'Feature presentation' 20
     Check 'Back returns to Home' (
-        $text -match 'Featured Title:') "showed: $text"
+        $text -match 'Feature presentation') "showed: $text"
 }
 
 function Step-30($ctx) {
@@ -2708,13 +2894,15 @@ function Step-30($ctx) {
     Clear-TmdbKey $app
     Set-TmdbKey $app '0123456789abcdef'
     Press $app 'Save key'
-    Wait-Text $app 'A TMDB key is held' 20 | Out-Null
+    Wait-Text $app 'The Host holds the TMDB key.' 20 | Out-Null
 
     Open-Destination $app 'Discover'
-    $text = Wait-Text $app 'TMDB''s weekly Trending feed' 20
+    # The keyed feed's row head prints where the row came from: TMDB's weekly
+    # Trending, narrowed by the kind the chips hold.
+    $text = Wait-Text $app 'Trending' 20
     Shot $app '30-discover-keyed.png'
     Check 'with a key, Discover draws the feed it is named for' (
-        $text -match 'TMDB''s weekly Trending feed') "showed: $text"
+        $text -match 'Trending') "showed: $text"
     Check 'and the kind and genre filters' (
         (Shows $app 'Movie') -and (Shows $app 'Series') -and (Shows $app 'All genres')) (
         "showed: $text")
@@ -2728,23 +2916,23 @@ function Step-30($ctx) {
     # Leave no key behind: the walkthrough started with none.
     Open-Settings-Category $app 'Credentials' 'TMDB key'
     Clear-TmdbKey $app
-    $text = Wait-Text $app 'No TMDB key is held' 20
+    $text = Wait-Text $app 'Not held' 20
     Check 'clearing the test key leaves no key held' (
-        $text -match 'No TMDB key is held') "showed: $text"
+        $text -match 'Not held') "showed: $text"
     Open-Destination $app 'Discover'
     $text = Wait-Text $app 'Discover is powered by TMDB' 20
     Check 'and Discover is back to its no-key state' (
         $text -match 'Discover is powered by TMDB') "showed: $text"
 
     Press-Keys $app '{ESC}'
-    Wait-Text $app 'Featured Title:' 20 | Out-Null
+    Wait-Text $app 'Feature presentation' 20 | Out-Null
 }
 
 function Step-31($ctx) {
     '--- 31. the previous episode: a wall at S1E1, and a step back from S1E2'
     $app = $ctx.App
     if (-not (Open-Series $app)) {
-        Skip 'the previous episode' 'this Addon drew no series row to play an episode from'
+        Skip 'the previous episode' ('this Addon drew no series row to play an episode from (rows seen: ' + (Rows-Seen $app) + ')')
         return
     }
     if (-not (Open-Streams $app 'S1E1')) {
@@ -2808,7 +2996,7 @@ function Step-33($ctx) {
     $app = $ctx.App
     Open-Home $app
     Start-Sleep -Seconds 2
-    Wait-Text $app 'Featured Title:' 20 | Out-Null
+    Wait-Text $app 'Feature presentation' 20 | Out-Null
 
     # No player is open, so the OSD has no button here: the window's own control
     # is the one the browsing surface offers, and it says what pressing it does.
@@ -2818,7 +3006,7 @@ function Step-33($ctx) {
 
     # The strip is the focus region, not the button: Up from the top row lands
     # on it, while the rail's own top item still stops (#125).
-    $hero = @(Buttons-Matching $app 'Featured Title:')[0]
+    $hero = @(Buttons-Matching $app 'Open the Title: ')[0]
     if ($hero) {
         $hero.SetFocus()
         Start-Sleep -Seconds 1
@@ -2853,12 +3041,12 @@ function Step-33($ctx) {
     # The two F11 presses above resized the window, and a UI Automation element
     # can go stale across that, so ask the tree for the hero again before
     # clicking it rather than reusing the one from the Up check.
-    $hero = @(Buttons-Matching $app 'Featured Title:')[0]
+    $hero = @(Buttons-Matching $app 'Open the Title: ')[0]
     if ($hero) {
         Click-Element $app $hero
-        $text = Wait-Text $app 'This Title is one Video|Season \d+' 25
+        $text = Wait-Text $app 'Supplied by|Season \d+' 25
         Check 'a click on Home''s first card opens the Title' (
-            $text -match 'This Title is one Video|Season \d+') "showed: $text"
+            $text -match 'Supplied by|Season \d+') "showed: $text"
         Shot $app '33-hero-click.png'
 
         # A pushed level gets the same control, because the base underneath is
@@ -2874,7 +3062,7 @@ function Step-33($ctx) {
         Check 'F11 again leaves it from the Title' (
             $text -notmatch 'Exit full screen') "showed: $text"
         Press-Keys $app '{ESC}'
-        Wait-Text $app 'Featured Title:' 20 | Out-Null
+        Wait-Text $app 'Feature presentation' 20 | Out-Null
     } else {
         Skip 'the hero click and the pushed Title' 'the Addon drew no Title to open'
     }
@@ -2905,9 +3093,9 @@ function Step-33($ctx) {
     $homeRect = $home.Current.BoundingRectangle
     if (-not (Focus $app)) { throw 'the click-through step needs the Host in the foreground' }
     [W]::Click([int]($homeRect.Left + 10), [int]($homeRect.Top + 8))
-    $text = Wait-Text $app 'Featured Title:' 20
+    $text = Wait-Text $app 'Feature presentation' 20
     Check 'a click inside the strip reaches the rail under it' (
-        $text -match 'Featured Title:') "showed: $text"
+        $text -match 'Feature presentation') "showed: $text"
     Shot $app '33-click-through-strip.png'
 
     # A dialog is a level like any other: the shell draws the chrome above its
@@ -2947,13 +3135,13 @@ function Step-33($ctx) {
         Skip 'fullscreen over a confirm dialog' 'the Addons screen shows no Addon row to ask about'
     }
     Open-Home $app
-    Wait-Text $app 'Featured Title:' 20 | Out-Null
+    Wait-Text $app 'Feature presentation' 20 | Out-Null
 
     # The player is the one level that hides the chrome: its OSD carries the
     # same button, and the shared fact means F11 and the OSD agree.
     if (-not (Open-Series $app)) {
         Skip 'fullscreen in the player' (
-            'this Addon drew no series row: run with -AddonName Verify (or -Addon <a Series Addon>) to walk it')
+            'this Addon drew no series row (rows seen: ' + (Rows-Seen $app) + '): run with -AddonName Verify (or -Addon <a Series Addon>) to walk it')
         return
     }
     if (-not (Open-Streams $app 'S1E1')) {
@@ -3033,7 +3221,7 @@ function Step-33($ctx) {
     # After Stop the stack is Streams -> Title -> Home, so leave all of it rather
     # than one Escape and a wait that would still be looking at the Title.
     Open-Home $app
-    Wait-Text $app 'Featured Title:' 45 | Out-Null
+    Wait-Text $app 'Feature presentation' 45 | Out-Null
 }
 
 function Step-34($ctx) {
