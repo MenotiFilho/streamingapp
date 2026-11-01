@@ -19,6 +19,8 @@ import { Library } from "./Library";
 import { Search } from "./Search";
 import { armSentinel, decideHistory } from "./history";
 import { RemoteLevel, type RemotePayload } from "./levels";
+import { PlayerStrip } from "./Player";
+import { playerLevelStale } from "./playerScreen";
 import { Settings } from "./Settings";
 
 export type RemoteAppProps = {
@@ -216,7 +218,21 @@ function RemoteRoom({
   }, [nav]);
 
   const refusal = sessionState.error;
-  const level = nav.levels[nav.levels.length - 1] ?? null;
+  const top = nav.levels[nav.levels.length - 1] ?? null;
+  const playback = sessionState.snapshot?.playback?.state ?? "idle";
+  // A card of a Stream the Host has stopped is no card: the level leaves the
+  // stack, and until it does the destination underneath is what is drawn.
+  const level =
+    top && !playerLevelStale(top.payload, playback) ? top : null;
+
+  // The Snapshot is the truth: when it says the Stream is gone, the level goes
+  // with it, whatever closed it — Stop, the Host's own end, or another client's
+  // Stop.
+  useEffect(() => {
+    if (top && playerLevelStale(top.payload, playback)) {
+      nav.pop();
+    }
+  }, [top, nav, playback]);
 
   return (
     <div className="remote-ui">
@@ -266,18 +282,22 @@ function RemoteRoom({
         <RemoteRefusal error={refusal} />
       </main>
 
-      <nav className="remote-index" aria-label="Destinations">
-        {DESTINATIONS.map((destination) => (
-          <Button
-            key={destination.id}
-            variant="ghost"
-            pressed={nav.destination === destination.id}
-            onClick={() => nav.choose(destination.id)}
-          >
-            {destination.label}
-          </Button>
-        ))}
-      </nav>
+      <div className="remote-dock">
+        <PlayerStrip session={session} push={nav.push} />
+
+        <nav className="remote-index" aria-label="Destinations">
+          {DESTINATIONS.map((destination) => (
+            <Button
+              key={destination.id}
+              variant="ghost"
+              pressed={nav.destination === destination.id}
+              onClick={() => nav.choose(destination.id)}
+            >
+              {destination.label}
+            </Button>
+          ))}
+        </nav>
+      </div>
     </div>
   );
 }

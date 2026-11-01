@@ -18,6 +18,7 @@ import {
   titleLevelOf,
   type RemotePayload,
 } from "./levels";
+import { CARD_NAME, playerLevel } from "./playerScreen";
 import { settingsLevel } from "./settingsScreen";
 
 /**
@@ -223,6 +224,63 @@ describe("the Remote's confirm level", () => {
     ).toBeInTheDocument();
     expect(pop).not.toHaveBeenCalled();
     expect(host.asked("remove_addon")).toHaveLength(1);
+  });
+});
+
+/**
+ * The player kind B8 adds (#213, ADR-0035 §2).
+ *
+ * The expanded card is a level like any other: the strip pushes it, it draws
+ * the core's playback facts over the destination it was opened from, and Back
+ * pops it without asking the Host anything — Stop is the card's own control.
+ */
+describe("the Remote's player level", () => {
+  test("draws the playing Stream's card, and Back pops it without stopping", async () => {
+    const playing: Snapshot = {
+      ...NOTHING,
+      revision: 2,
+      playback: {
+        ...NOTHING.playback,
+        state: "playing",
+        nowPlaying: {
+          video: { type: "movie", id: "tt1" },
+          addon: "torrentio",
+          name: "Torrentio\n4k DV",
+          description: null,
+          filename: "film.mkv",
+          bingeGroup: null,
+        },
+        position: 10,
+        duration: 100,
+        volume: 60,
+        muted: false,
+      },
+    };
+    const host = new FakeHost(playing);
+    const session = new Session(host);
+    const stop = session.start();
+    const pop = vi.fn();
+
+    try {
+      await waitFor(() => expect(session.getState().snapshot).not.toBeNull());
+      render(
+        <RemoteLevel
+          level={{ ...playerLevel(), id: "level-1" }}
+          session={session}
+          state={session.getState()}
+          push={() => "level-2"}
+          pop={pop}
+        />,
+      );
+
+      expect(screen.getByRole("region", { name: CARD_NAME })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole("button", { name: "Back" }));
+      expect(pop).toHaveBeenCalledOnce();
+      expect(host.actions).toEqual([]);
+    } finally {
+      stop();
+    }
   });
 });
 

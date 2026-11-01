@@ -7,6 +7,8 @@ import type { SettingsCategoryId } from "../core/settingsRegister";
 import type { Action, MetaPreview, Title, Video } from "../core/wire";
 import { Button } from "../kit/Button";
 import { ConfirmDialog } from "../kit/ConfirmDialog";
+import { PlayerCard } from "./Player";
+import { playerLevelStale } from "./playerScreen";
 import { SettingsLeaf } from "./Settings";
 import { StreamsScreen } from "./StreamsScreen";
 import { TitleScreen } from "./TitleScreen";
@@ -60,13 +62,15 @@ export type RemoteConfirm = {
  * Title itself: the level is re-pushed with its answer so a Streams level above
  * it and a Back do not ask the Host a second time. A Streams level carries the
  * answered Title and the one Video whose candidates it lists. A Settings level
- * carries the register id of the category it draws (#211).
+ * carries the register id of the category it draws (#211). A Player level is the
+ * one expanded card (#213).
  */
 export type RemotePayload =
   | { kind: "title"; title: RemoteTitle; answer: Title | null }
   | { kind: "streams"; title: Title; video: Video }
   | { kind: "settings"; category: SettingsCategoryId }
-  | { kind: "confirm"; confirm: RemoteConfirm };
+  | { kind: "confirm"; confirm: RemoteConfirm }
+  | { kind: "player" };
 
 /**
  * The level a press on a card pushes: an overlay above the destination, named
@@ -151,6 +155,17 @@ export function RemoteLevel({
             state={state}
             push={push}
           />
+        </LevelPage>
+      );
+    case "player":
+      // A card of a Stream the Host has stopped is no card. The room pops the
+      // level in the same pass; this only keeps the bare frame from painting.
+      return playerLevelStale(
+        level.payload,
+        state.snapshot?.playback?.state ?? "idle",
+      ) ? null : (
+        <LevelPage onBack={pop}>
+          <PlayerCard session={session} />
         </LevelPage>
       );
     case "confirm":
