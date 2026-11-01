@@ -14,6 +14,7 @@ import { Button } from "../kit/Button";
 import { Field } from "../kit/Field";
 import { Discover } from "./Discover";
 import { Home } from "./Home";
+import { Library } from "./Library";
 import { Search } from "./Search";
 import { armSentinel, decideHistory } from "./history";
 import { RemoteLevel, type RemotePayload } from "./levels";
@@ -163,9 +164,10 @@ function PairingGate({
  * The room behind the gate: six destinations, the level stack, the browser's
  * Back, and the connection's own news.
  *
- * B2 draws Home; B3 draws Discover and Search; the other three destinations
- * still draw the skeleton's placeholder. The navigation, the level stack's Back
- * and the history sentinel are the ones every later screen uses (ADR-0035 §1).
+ * B2 draws Home, B3 Discover and Search, B4 the account Library; Addons and
+ * Settings still draw the skeleton's placeholder. The navigation, the level
+ * stack's Back and the history sentinel are the ones every later screen uses
+ * (ADR-0035 §1).
  */
 function RemoteRoom({
   session,
@@ -241,6 +243,13 @@ function RemoteRoom({
           <Discover session={session} state={sessionState} push={nav.push} />
         ) : nav.destination === "search" ? (
           <Search session={session} state={sessionState} push={nav.push} />
+        ) : nav.destination === "library" ? (
+          <Library
+            session={session}
+            state={sessionState}
+            push={nav.push}
+            choose={nav.choose}
+          />
         ) : (
           <RemoteDestination destination={nav.destination} />
         )}
