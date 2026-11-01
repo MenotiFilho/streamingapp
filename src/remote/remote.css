@@ -46,6 +46,12 @@ body {
 
 .remote-ui {
   display: grid;
+  /* One column, and no more than the phone's width. Without this the implicit
+     `auto` column sizes to the widest rail's max-content — a row of twenty
+     posters — and every screen becomes a page the width of the whole row, with
+     the feature and the rails stretched to match. The rows still say header,
+     body, index; the column is what keeps the page a phone. */
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto 1fr auto;
   min-height: 100dvh;
   padding-top: env(safe-area-inset-top);
@@ -63,6 +69,15 @@ body {
   letter-spacing: var(--rep-tracking-caps);
   text-transform: uppercase;
   color: var(--rep-muted);
+}
+
+/* A device name is what a person typed when it paired, so it is the one line in
+   the bar that can be long: it gives way to the connection state. */
+.remote-status > * {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .remote-connection[data-live="true"] {
@@ -110,6 +125,13 @@ body {
   align-items: stretch;
   min-height: var(--rep-remote-nav);
   border-top: 1px solid var(--rep-hairline);
+  /* The index is the phone's furniture, not the page's last line: it stays on
+     the screen while a long destination scrolls under it, and it keeps the
+     page's own colour behind it so a card never reads through. */
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  background: var(--rep-ink);
   /* The keyline is drawn outside the control, so the index keeps room below it:
      at the viewport's edge the ring around the bottom row is cropped to three
      sides. The safe-area inset stays on top of that room. */
@@ -383,7 +405,11 @@ body {
 }
 
 .remote-rail-title {
-  flex: none;
+  /* A long Catalog name gives way to the tag rather than widening the page:
+     the head is one line on a phone, and the row's number and count are what
+     a person scans. */
+  flex: 0 1 auto;
+  min-width: 0;
   max-width: 55%;
   overflow: hidden;
   margin: 0;
@@ -403,10 +429,15 @@ body {
 }
 
 .remote-rail-tag {
-  flex: none;
+  /* The count gives way too: a long "Addon / 92 films" line is bookkeeping, and
+     it truncates rather than carrying the page past the phone's edge. */
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
   color: var(--rep-muted);
   font-family: var(--rep-mono);
   font-size: var(--rep-remote-text-mono);
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
