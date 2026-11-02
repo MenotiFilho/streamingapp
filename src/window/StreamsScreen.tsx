@@ -18,10 +18,17 @@ export function StreamsLoader({
   title,
   preview,
   video,
+  onOpened,
 }: {
   title: Title;
   preview?: OpenablePreview | null;
   video: Video;
+  /**
+   * The Host took the chosen Stream. A level that opened the list just for one
+   * press puts itself away here; the Title's own flow leaves this out, so its
+   * list stays where a person left it.
+   */
+  onOpened?: () => void;
 }) {
   const { ask, pop, markUnplayable } = useShell();
   const subject = streamsSubject(title, preview, video);
@@ -86,6 +93,7 @@ export function StreamsLoader({
       preview={preview}
       video={video}
       groups={state.groups}
+      onOpened={onOpened}
     />
   );
 }
