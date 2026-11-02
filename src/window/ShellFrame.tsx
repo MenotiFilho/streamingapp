@@ -20,6 +20,7 @@ import {
 } from "./repertory/frame";
 import { fade, panel } from "../core/react/motion";
 import { RepertoryNav } from "./repertory/RepertoryNav";
+import { firstFocusable } from "./layout";
 import { focusAndReveal } from "./reveal";
 import { toggleFullscreen, useFullscreen } from "./useFullscreen";
 import { useReducedMotion } from "../core/react/useReducedMotion";
@@ -40,6 +41,13 @@ export type ShellFrameProps = {
   onOpenDestinations?: () => void;
   /** The base screen's own first look at an intent (the feature's slides). */
   onBaseIntent?: (intent: Intent) => boolean;
+  /**
+   * The docked transport, where the picture is not in this window (#194).
+   * It is drawn inside the frame rather than pushed as a level, because it is
+   * a band in the page: while it is there the frame is the focus root, so the
+   * browsing surface (or the level above it) and the dock stay reachable.
+   */
+  dock?: ReactNode;
 };
 
 /**
@@ -226,6 +234,7 @@ export function ShellFrame({
   onBack,
   onOpenDestinations,
   onBaseIntent,
+  dock = null,
 }: ShellFrameProps) {
   const frame = useRef<HTMLDivElement | null>(null);
   const base = useRef<HTMLDivElement | null>(null);
@@ -235,6 +244,13 @@ export function ShellFrame({
   const playerIndex = levels.findIndex((level) => level.kind === "player");
   const takeover = playerIndex >= 0;
   const topIndex = levels.length - 1;
+  /**
+   * The dock is not a level: it is drawn in the frame beside whatever level is
+   * on top, so the frame is the focus root while it is there. The inert levels
+   * below still keep the base out of reach, and the spine too unless this is a
+   * Settings leaf, which keeps it live.
+   */
+  const docked = Boolean(dock);
   /**
    * A Settings leaf is a page beside the programme, not a takeover: the spine
    * stays live and the focus root covers both. Every other level keeps the
@@ -280,8 +296,10 @@ export function ShellFrame({
   const activeRoot = () => {
     // The base and its Settings leaves share one root with the spine, so Left
     // reaches the programme index and Right comes back into the page. A Title,
-    // Streams list, dialog or player is still the only root.
-    if (levels.length === 0 || settingsLeaf) {
+    // Streams list, dialog or player is still the only root. The dock joins the
+    // frame's root so it and the level on top are reachable together; the inert
+    // levels below are skipped by the measure, so nothing else is exposed.
+    if (levels.length === 0 || settingsLeaf || docked) {
       return frame.current;
     }
     const level = levels[levels.length - 1];
@@ -293,7 +311,10 @@ export function ShellFrame({
 
   useSpatialFocus({
     root: activeRoot,
-    levelKey: top ? `level:${top.id}` : `base:${destination}`,
+    // The dock is a different membership of the same level. Its own key keeps
+    // the level's remembered control from being replaced by a dock control
+    // when the Stream stops and the band leaves.
+    levelKey: `${top ? `level:${top.id}` : `base:${destination}`}${docked ? ":dock" : ""}`,
     onBack,
     onIntent: top?.payload.onIntent ?? onBaseIntent,
     // The owner's rail/chrome rules are the base programme's: a pushed Title,
@@ -324,6 +345,29 @@ export function ShellFrame({
   useLayoutEffect(() => {
     restoreDestinationFocus();
   }, [restoreDestinationFocus]);
+
+  // The dock keeps the frame as the focus root, so a pushed level no longer
+  // changes the root by itself. Focus still lands on the level that just
+  // arrived — the contract a root change gives every other push — and never
+  // stays on the dock while the level above it is the one on show.
+  const previousDocked = useRef(false);
+  const previousTop = useRef<string | null>(null);
+  useLayoutEffect(() => {
+    const id = top?.id ?? null;
+    const arrived =
+      docked && id !== null && (!previousDocked.current || id !== previousTop.current);
+    previousDocked.current = docked;
+    previousTop.current = id;
+    if (!arrived) {
+      return;
+    }
+    const node = levelNodes.current.get(id);
+    const active = document.activeElement;
+    if (!node || (active instanceof HTMLElement && node.contains(active))) {
+      return;
+    }
+    focusAndReveal(firstFocusable(node));
+  }, [docked, top?.id]);
 
   return (
     <div
@@ -377,6 +421,8 @@ export function ShellFrame({
           />
         ))}
       </AnimatePresence>
+
+      {dock}
     </div>
   );
 }

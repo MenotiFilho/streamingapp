@@ -196,10 +196,14 @@ export function useSpatialFocus({
     }
 
     const active = document.activeElement;
+    // A control inside an inert subtree is not this level's focus even when
+    // the active element still points at it: the dock keeps the frame as the
+    // root while the level beneath turns inert.
     if (
       active instanceof HTMLElement &&
       active !== activeRoot &&
       activeRoot.contains(active) &&
+      !active.closest("[inert]") &&
       active.hasAttribute("data-focusable")
     ) {
       // A control auto-focused while the level mounted reaches neither the
@@ -215,10 +219,15 @@ export function useSpatialFocus({
 
     if (held) {
       const exact = held.element;
+      // An inert control is not this level's focus even when the active
+      // element still points at it: the dock keeps the frame as the root while
+      // the level beneath turns inert, and jsdom does not blur it the way a
+      // browser would.
       if (
         exact &&
         exact.isConnected &&
         activeRoot.contains(exact) &&
+        !exact.closest("[inert]") &&
         exact.hasAttribute("data-focusable")
       ) {
         focusElement(exact);

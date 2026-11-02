@@ -73,7 +73,15 @@ function DirectFocus() {
   return null;
 }
 
-function Harness({ direct = false, auto = false }: { direct?: boolean; auto?: boolean }) {
+function Harness({
+  direct = false,
+  auto = false,
+  inertFirst = false,
+}: {
+  direct?: boolean;
+  auto?: boolean;
+  inertFirst?: boolean;
+}) {
   const root = useRef<HTMLDivElement | null>(null);
   useSpatialFocus({
     root: () => root.current,
@@ -92,7 +100,7 @@ function Harness({ direct = false, auto = false }: { direct?: boolean; auto?: bo
         data-testid="track"
         style={{ overflowX: "auto" }}
       >
-        <button data-focusable data-testid="one">
+        <button data-focusable data-testid="one" inert={inertFirst ? true : undefined}>
           One
         </button>
         <button data-focusable data-testid="two" autoFocus={auto}>
@@ -336,6 +344,20 @@ describe("the spatial focus reveal", () => {
     expect(document.activeElement, "not the hero a no-history fallback would enter").not.toBe(
       hero,
     );
+  });
+
+  test("a control inside a subtree that turned inert is not kept as the level's focus", async () => {
+    layOutRow();
+    const { rerender } = render(<Harness />);
+
+    const one = document.querySelector<HTMLElement>('[data-testid="one"]');
+    const two = document.querySelector<HTMLElement>('[data-testid="two"]');
+    await waitFor(() => expect(document.activeElement).toBe(one));
+
+    // A real browser moves focus off an inert subtree; jsdom leaves the active
+    // element where it was. The engine must not accept it as the level's focus.
+    rerender(<Harness inertFirst />);
+    await waitFor(() => expect(document.activeElement).toBe(two));
   });
 
   test("a remembered control that turned disabled is not revealed", async () => {
