@@ -1,0 +1,294 @@
+/*
+ * The docked transport (#194).
+ *
+ * Where the picture is not in this window there is nothing to print an OSD
+ * over: mpv has a window of its own, or the Host has no video output. The
+ * transport is a band at the foot of the page instead — one ink plate, a brass
+ * top rule and a hairline through the controls — so the browsing programme
+ * above stays painted, scrollable and reachable by the D-pad.
+ */
+
+:root,
+.rep-frame {
+  --rep-player-dock-height: max(132px, calc(var(--rep-stage) * 7.2));
+}
+
+.shell-player-dock {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 55;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) auto;
+  align-items: center;
+  gap: var(--rep-space-5);
+  padding: var(--rep-space-3) var(--rep-gutter);
+  border-top: 2px solid var(--rep-house);
+  background: var(--rep-ink-raised);
+  box-sizing: border-box;
+  color: var(--rep-ivory);
+  font-family: var(--rep-sans);
+  pointer-events: auto;
+}
+
+/* --------------------------------------------------------------------------
+ * The programme note: the Title, its episode and where the picture went
+ * -------------------------------------------------------------------------- */
+
+.shell-player-dock-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.shell-player-dock-kicker {
+  display: flex;
+  align-items: center;
+  gap: var(--rep-space-2);
+  margin: 0;
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-badge);
+  line-height: 1.2;
+  letter-spacing: var(--rep-tracking-caps);
+  text-transform: uppercase;
+}
+
+.shell-player-dock-kicker > span:first-child {
+  color: var(--rep-house);
+  white-space: nowrap;
+}
+
+.shell-player-dock-kicker > span:last-child {
+  white-space: nowrap;
+}
+
+.shell-player-dock-kicker-rule {
+  flex: 1 1 auto;
+  height: 1px;
+  background: var(--rep-hairline);
+}
+
+.shell-player-dock-title {
+  margin: 0;
+  overflow: hidden;
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-section);
+  font-weight: 500;
+  line-height: var(--rep-leading-display);
+  letter-spacing: var(--rep-tracking-display);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shell-player-dock-note {
+  margin: 0;
+  overflow: hidden;
+  color: var(--rep-dim);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-badge);
+  line-height: 1.3;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------------
+ * The transport: play/pause and the timeline, with its two clocks
+ * -------------------------------------------------------------------------- */
+
+.shell-player-dock-transport {
+  display: flex;
+  align-items: center;
+  gap: var(--rep-space-3);
+  min-width: 0;
+}
+
+.shell-player-dock-timeline {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: auto minmax(120px, 1fr) auto;
+  align-items: center;
+  gap: var(--rep-space-2);
+  min-width: 0;
+}
+
+.shell-player-dock-clock {
+  color: var(--rep-ivory);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-badge);
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.shell-player-dock-track,
+.shell-player-dock-fader {
+  position: relative;
+  display: block;
+  min-width: 0;
+  height: max(24px, calc(var(--rep-stage) * 1.4));
+}
+
+.shell-player-dock-track-rail,
+.shell-player-dock-track-buffered,
+.shell-player-dock-track-progress,
+.shell-player-dock-fader-rail,
+.shell-player-dock-fader-fill {
+  position: absolute;
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+}
+
+.shell-player-dock-track-rail,
+.shell-player-dock-fader-rail {
+  right: 0;
+  left: 0;
+  background: var(--rep-hairline);
+}
+
+.shell-player-dock-track-buffered {
+  background: color-mix(in srgb, var(--rep-dim) 24%, transparent);
+}
+
+.shell-player-dock-track-progress,
+.shell-player-dock-fader-fill {
+  left: 0;
+  background: var(--rep-house);
+}
+
+.shell-player-dock-track-playhead,
+.shell-player-dock-fader-playhead {
+  position: absolute;
+  top: calc(50% - 8px);
+  width: 2px;
+  height: 16px;
+  background: var(--rep-ivory);
+  transform: translateX(-1px);
+}
+
+/* The native control is the accessible one; the rail under it is the drawing. */
+.shell-player-dock-range {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.shell-player-dock-track:focus-within,
+.shell-player-dock-fader:focus-within {
+  outline: var(--rep-focus-ring);
+  outline-offset: var(--rep-focus-offset);
+}
+
+.shell-player-dock-range:disabled {
+  cursor: default;
+}
+
+/* --------------------------------------------------------------------------
+ * Volume and Stop
+ * -------------------------------------------------------------------------- */
+
+.shell-player-dock-settings {
+  display: flex;
+  align-items: center;
+  gap: var(--rep-space-3);
+}
+
+.shell-player-dock-volume {
+  display: flex;
+  align-items: center;
+  gap: var(--rep-space-2);
+}
+
+.shell-player-dock-volume-level {
+  min-width: 3.2em;
+  color: var(--rep-ivory);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-badge);
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  text-align: right;
+}
+
+.shell-player-dock-fader {
+  width: max(96px, calc(var(--rep-stage) * 6));
+  flex: none;
+}
+
+.shell-player-dock-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: max(44px, calc(var(--rep-stage) * 2.4));
+  height: max(44px, calc(var(--rep-stage) * 2.4));
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
+  color: var(--rep-dim);
+  cursor: pointer;
+}
+
+.shell-player-dock-control svg {
+  width: max(22px, calc(var(--rep-stage) * 1.3));
+  height: max(22px, calc(var(--rep-stage) * 1.3));
+  flex-shrink: 0;
+}
+
+.shell-player-dock-control:hover {
+  border-color: var(--rep-hairline);
+  background: color-mix(in srgb, var(--rep-ink) 46%, transparent);
+  color: var(--rep-ivory);
+}
+
+.shell-player-dock-control:focus,
+.shell-player-dock-control:focus-visible {
+  border-color: var(--rep-ivory);
+  background: color-mix(in srgb, var(--rep-ink) 66%, transparent);
+  color: var(--rep-ivory);
+}
+
+.shell-player-dock-control[aria-pressed="true"] {
+  border-color: var(--rep-house);
+  color: var(--rep-house);
+}
+
+.shell-player-dock-control:disabled {
+  opacity: 0.28;
+  cursor: default;
+}
+
+.shell-player-dock-play {
+  width: max(52px, calc(var(--rep-stage) * 2.8));
+  height: max(52px, calc(var(--rep-stage) * 2.8));
+  border-color: var(--rep-hairline);
+  color: var(--rep-ivory);
+}
+
+.shell-player-dock-play svg {
+  width: max(28px, calc(var(--rep-stage) * 1.6));
+  height: max(28px, calc(var(--rep-stage) * 1.6));
+}
+
+.shell-player-dock-stop {
+  border-color: var(--rep-hairline);
+}
+
+/* --------------------------------------------------------------------------
+ * The page makes room for the band: it is an overlay, not a cover
+ * -------------------------------------------------------------------------- */
+
+.rep-frame:has(.shell-player-dock) .shell-stage {
+  padding-bottom: calc(var(--rep-stage-bottom) + var(--rep-player-dock-height));
+}
+
+.rep-frame:has(.shell-player-dock) .shell-level {
+  padding-bottom: var(--rep-player-dock-height);
+}

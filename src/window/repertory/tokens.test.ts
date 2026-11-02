@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { contrastRatio, readToken } from "./contrast";
+import dockCss from "./dock.css?raw";
 import osdCss from "./osd.css?raw";
 import repertoryCss from "./repertory.css?raw";
 import tokensCss from "../../kit/tokens.css?raw";
@@ -65,6 +66,7 @@ describe("the one palette", () => {
       ["tokens.css", tokensCss],
       ["repertory.css", repertoryCss],
       ["osd.css", osdCss],
+      ["dock.css", dockCss],
       // The kit sheet lands in its own directory while #153 is in flight;
       // guard it when it is there rather than pinning the test to a path that
       // may not exist yet.

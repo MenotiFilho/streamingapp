@@ -7,6 +7,7 @@ import { useSession } from "../core/react/useSession";
 import { TauriLink } from "./tauriLink";
 import type { Intent } from "../core/input";
 import { watching } from "../core/playback";
+import { PlayerDock, dockedTransport } from "./PlayerDock";
 import { PlayerOverlay } from "./PlayerOverlay";
 import { RepertoryDestinationScreen } from "./repertory/RepertoryScreens";
 import { DestinationGrid } from "./repertory/DestinationGrid";
@@ -98,6 +99,11 @@ export function Shell({ client }: { client?: HostLink }) {
   const playback = snapshot?.playback ?? null;
   const playerActive =
     playback !== null && watching(playback.state) && playback.picture === "in_window";
+  // Where the picture is elsewhere the transport is still the Host's: the
+  // window draws it as a docked band rather than an OSD over a picture it does
+  // not have (#194).
+  const docked =
+    playback !== null && dockedTransport(playback.state, playback.picture);
   // The player's open OSD popover, where there is one: its own level, so Back
   // puts it away before it reaches the player's stop rule.
   const popover = nav.levels.find((level) => level.kind === "popover")?.id ?? null;
@@ -208,6 +214,7 @@ export function Shell({ client }: { client?: HostLink }) {
         onOpenDestinations={openDestinations}
         onBaseIntent={(intent) => baseIntent.current?.(intent) ?? false}
         screen={<RepertoryDestinationScreen destination={nav.destination} />}
+        dock={docked ? <PlayerDock /> : null}
       />
 
       <div className="shell-alert-stack">

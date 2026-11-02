@@ -3,6 +3,7 @@ import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import type { Action, PlaybackSnapshot, ResumeEntry, Snapshot } from "../core/wire";
+import { pictureNote } from "../core/playback";
 import { TauriLink, type Transport } from "./tauriLink";
 import {
   fakeWindowState,
@@ -11,6 +12,7 @@ import {
   resetFakeWindow,
 } from "./tauriWindow.testing";
 import { Shell } from "./Shell";
+import { dockedTransport } from "./PlayerDock";
 import { OSD_IDLE_MS } from "./useOsdVisibility";
 
 /**
@@ -234,6 +236,25 @@ async function renderPlayer(
   return host;
 }
 
+/**
+ * Render a Stream whose picture is not in this window. The dock is the
+ * transport there, so the player's OSD level is not on the stack at all.
+ */
+async function renderDock(
+  picture: "own_window" | "nowhere",
+  overrides: Partial<PlaybackSnapshot> = {},
+) {
+  const host = fakeHost({
+    ...NOTHING_SAID,
+    revision: 9,
+    playback: playback({ picture, ...overrides }),
+  });
+  render(<Shell client={host.client} />);
+  await screen.findByTestId("player-dock");
+  await act(async () => {});
+  return host;
+}
+
 function resumeEntry(overrides: Partial<ResumeEntry> = {}): ResumeEntry {
   return {
     video: {
@@ -295,6 +316,42 @@ function layOutPlayer() {
     mute: [1850, 650, 40, 40],
     position: [0, 1020, 1920, 24],
     "osd-timeline": [0, 1020, 1920, 48],
+  };
+
+  return vi
+    .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+    .mockImplementation(function (this: HTMLElement): DOMRect {
+      const key = this.dataset.testid ?? this.dataset.region ?? this.dataset.playerStop;
+      const [x, y, width, height] = (key ? boxes[key] : undefined) ?? [0, 0, 0, 0];
+      return {
+        x,
+        y,
+        width,
+        height,
+        top: y,
+        left: x,
+        right: x + width,
+        bottom: y + height,
+        toJSON: () => ({}),
+      } as DOMRect;
+    });
+}
+
+/**
+ * jsdom measures every box as zero, so the dock's band has to be given a place
+ * on the page: the browsing screen's way out sits above it, and the dock's
+ * controls sit in one line across its foot.
+ */
+function layOutDock() {
+  const boxes: Record<string, [number, number, number, number]> = {
+    frame: [0, 0, 1920, 1080],
+    "base-open-addons": [300, 200, 200, 44],
+    "player-dock": [0, 900, 1920, 140],
+    "dock-play-pause": [300, 930, 56, 56],
+    "dock-position": [420, 940, 500, 24],
+    "dock-volume": [1300, 940, 140, 24],
+    "dock-mute": [1460, 930, 44, 44],
+    "dock-stop": [1700, 930, 48, 48],
   };
 
   return vi
@@ -388,6 +445,10 @@ describe("the player OSD", () => {
 
     expect(screen.queryByTestId("player-menu")).not.toBeInTheDocument();
     expect(screen.queryByTestId("toggle-menu")).not.toBeInTheDocument();
+    expect(
+      screen.queryByTestId("player-dock"),
+      "the picture is in this window, so the transport is the OSD, not the dock",
+    ).not.toBeInTheDocument();
     expect(
       document.documentElement,
       "the browsing page underneath offers no scrollbar while the player owns the window",
@@ -1347,6 +1408,157 @@ describe("the player OSD", () => {
     expect(screen.getByTestId("popover-chapters")).toBeInTheDocument();
 
     vi.useRealTimers();
+  });
+});
+
+describe("the player transport where the picture is elsewhere", () => {
+  const ELSEWHERE = ["own_window", "nowhere"] as const;
+
+  test("draws the dock for a watched Stream whose picture is not in this window", () => {
+    expect(dockedTransport("opening", "own_window")).toBe(true);
+    expect(dockedTransport("playing", "nowhere")).toBe(true);
+    expect(dockedTransport("paused", "own_window")).toBe(true);
+    expect(dockedTransport("ended", "nowhere")).toBe(true);
+    expect(dockedTransport("playing", "in_window")).toBe(false);
+    expect(dockedTransport("idle", "own_window")).toBe(false);
+    expect(dockedTransport("idle", "nowhere")).toBe(false);
+  });
+
+  for (const picture of ELSEWHERE) {
+    test(`draws the dock instead of the OSD for ${picture}, and leaves the page live`, async () => {
+      vi.spyOn(performance, "now").mockReturnValue(0);
+      const host = await renderDock(picture);
+      const dock = screen.getByTestId("player-dock");
+
+      expect(dock).toBeInTheDocument();
+      expect(screen.queryByTestId("shell-player")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("shell-osd")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("osd-picture")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("picture-toggle")).not.toBeInTheDocument();
+      expect(
+        dock.querySelector("[data-player-stop]"),
+        "the OSD's Up/Down ladder is picture chrome and stays out of the dock",
+      ).toBeNull();
+      expect(screen.getByTestId("dock-elapsed")).toHaveTextContent("15:00");
+      expect(screen.getByTestId("dock-remaining")).toHaveTextContent("−45:00");
+      expect(screen.getByTestId("player-dock-note")).toHaveTextContent(pictureNote(picture)!);
+      expect(document.body).not.toHaveClass("picture-behind");
+      expect(document.documentElement).not.toHaveClass("picture-behind");
+
+      const shell = screen.getByTestId("shell-frame").querySelector('[data-region="shell"]');
+      expect(shell).not.toBeNull();
+      expect(shell).not.toHaveAttribute("inert");
+
+      const base = screen.getByRole("button", { name: "Open Addons" });
+      act(() => base.focus());
+      expect(base, "the browsing page under the dock can still take focus").toHaveFocus();
+      expect(actions(host.invocations)).not.toContainEqual({ type: "stop_playback" });
+    });
+
+    test(`the dock's transport takes the OSD's Actions for ${picture}`, async () => {
+      const host = await renderDock(picture);
+
+      fireEvent.click(screen.getByTestId("dock-play-pause"));
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "set_paused", paused: true }),
+      );
+
+      fireEvent.change(screen.getByTestId("dock-position"), { target: { value: "60" } });
+      fireEvent.pointerUp(screen.getByTestId("dock-position"));
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({
+          type: "seek",
+          target: { kind: "to", seconds: 60 },
+        }),
+      );
+
+      fireEvent.change(screen.getByTestId("dock-position"), { target: { value: "120" } });
+      fireEvent.keyUp(screen.getByTestId("dock-position"));
+      await waitFor(() =>
+        expect(
+          actions(host.invocations),
+          "a key commits the range the same way a pointer release does",
+        ).toContainEqual({ type: "seek", target: { kind: "to", seconds: 120 } }),
+      );
+
+      fireEvent.change(screen.getByTestId("dock-volume"), { target: { value: "40" } });
+      fireEvent.pointerUp(screen.getByTestId("dock-volume"));
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "set_volume", level: 40 }),
+      );
+
+      fireEvent.click(screen.getByTestId("dock-mute"));
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "set_muted", muted: false }),
+      );
+
+      fireEvent.click(screen.getByTestId("dock-stop"));
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "stop_playback" }),
+      );
+    });
+  }
+
+  test("the dock has no idle clock and does not hide itself", async () => {
+    vi.useFakeTimers();
+    const host = fakeHost({
+      ...NOTHING_SAID,
+      revision: 9,
+      playback: playback({ picture: "own_window" }),
+    });
+    render(<Shell client={host.client} />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId("player-dock")).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(OSD_IDLE_MS * 2));
+    expect(
+      screen.getByTestId("player-dock"),
+      "the dock is a band in the page, not an OSD with a three-second clock",
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("shell-osd")).not.toBeInTheDocument();
+
+    vi.useRealTimers();
+  });
+
+  test("the dock is reachable from the page, and a pushed level keeps its controls", async () => {
+    const host = await renderDock("own_window");
+    const base = screen.getByRole("button", { name: "Open Addons" });
+    // The harness needs a box for the base's own way out; the layout spy reads
+    // boxes by testid and this control does not carry one.
+    base.dataset.testid = "base-open-addons";
+    layOutDock();
+
+    await act(async () => base.focus());
+    fireEvent.keyDown(document, { key: "ArrowDown" });
+    expect(
+      screen.getByTestId("dock-play-pause"),
+      "Down from the page's own content reaches the dock band",
+    ).toHaveFocus();
+
+    fireEvent.click(screen.getByTestId("dock-play-pause"));
+    await waitFor(() =>
+      expect(actions(host.invocations)).toContainEqual({ type: "set_paused", paused: true }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "More destinations" }));
+    const grid = await screen.findByRole("region", { name: "All destinations" });
+    expect(screen.getByTestId("player-dock")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        grid.contains(document.activeElement),
+        "the level on top shares the frame's focus root with the dock",
+      ).toBe(true),
+    );
+
+    fireEvent.click(within(grid).getByRole("button", { name: /Discover/ }));
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: "All destinations" })).not.toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("discover-screen")).toBeInTheDocument();
+    expect(screen.getByTestId("player-dock")).toBeInTheDocument();
   });
 });
 
