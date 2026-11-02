@@ -104,18 +104,17 @@ body.picture-behind .shell-nav-slot {
   pointer-events: none;
 }
 
+/*
+ * The stage keeps the compact spine's margin whether the spine is open or not:
+ * the open spine floats over the page, so opening the label column never reflows
+ * a row. The nav's opaque ink is the cover it draws with.
+ */
 .shell-stage,
 .rep-frame .shell-stage {
   min-height: 100vh;
   margin-left: var(--rep-spine-compact);
   padding: var(--rep-stage-top) var(--rep-gutter) var(--rep-stage-bottom);
   box-sizing: border-box;
-}
-
-/* The programme makes room when the spine opens: a book's margin, not a drawer
- * over the page, so no title is cut in half while navigating. */
-.rep-frame:has(.rep-nav--spine[data-open="true"]) .shell-stage {
-  margin-left: var(--rep-spine-width);
 }
 
 .shell-screen,
@@ -204,10 +203,15 @@ body.picture-behind .shell-nav-slot {
   height: 22px;
 }
 
-.rep-frame .shell-window-chrome-button:hover,
-.rep-frame .shell-window-chrome-button:focus,
-.rep-frame .shell-window-chrome-button[data-focusable]:focus,
-.rep-frame .shell-window-chrome-button[data-focusable]:focus-visible {
+.rep-frame .shell-window-chrome-button:hover {
+  border-color: var(--rep-ivory);
+  background: color-mix(in srgb, var(--rep-ink) 68%, transparent);
+  color: var(--rep-ivory);
+  box-shadow: none;
+}
+
+:where(html[data-input="navigation"]) .rep-frame .shell-window-chrome-button:focus,
+:where(html[data-input="navigation"]) .rep-frame .shell-window-chrome-button[data-focusable]:focus {
   border-color: var(--rep-ivory);
   background: color-mix(in srgb, var(--rep-ink) 68%, transparent);
   color: var(--rep-ivory);
@@ -276,10 +280,21 @@ body.picture-behind .shell-nav-slot {
  * instead of moving it, so the pictures never reflow under the cursor; the
  * compact column stays the page's margin. The list stays centred in both
  * states, and depth is the hairline, not a shadow.
+ *
+ * Open, the spine floats above the stage and above a Settings leaf, which is a
+ * `.shell-level` at 40, while staying under the fixed chrome at 45: the top
+ * band keeps its drag region and its button. Every surface that takes the whole
+ * window — a Title, Streams, a dialog, the player — covers the spine instead:
+ * those levels mark the nav slot inert below, which drops it under the stack.
  */
 .rep-nav--spine[data-open="true"] {
   width: var(--rep-spine-width);
   padding: var(--rep-space-5) var(--rep-space-4);
+  z-index: 44;
+}
+
+.shell-nav-slot[inert] .rep-nav--spine {
+  z-index: 20;
 }
 
 .rep-spine-index {
@@ -331,9 +346,10 @@ body.picture-behind .shell-nav-slot {
 }
 
 /* The shared focus reset clears `box-shadow`; the current destination keeps
- * its 2px brass rule while it carries the keyline. */
-.rep-index-item[aria-current="page"]:focus,
-.rep-index-item[aria-current="page"]:focus-visible {
+ * its 2px brass rule while it carries the keyline. The selected branch is not
+ * gated by input modality: the rule is the destination's mark, not a focus
+ * decoration. */
+.rep-index-item[aria-current="page"]:focus {
   box-shadow: inset 2px 0 0 var(--rep-house);
 }
 
@@ -357,8 +373,7 @@ body.picture-behind .shell-nav-slot {
   color: var(--rep-muted);
 }
 
-.rep-index-item:focus,
-.rep-index-item:focus-visible {
+:where(html[data-input="navigation"]) .rep-index-item:focus {
   outline-offset: -2px;
 }
 
@@ -959,8 +974,7 @@ body.picture-behind .shell-nav-slot {
 
 /* The feature is one card and one action: focus is the keyline plus the wash,
  * and the brass label inside is the visible "Open the Title". */
-.rep-feature-frame[data-focusable]:focus,
-.rep-feature-frame[data-focusable]:focus-visible {
+:where(html[data-input="navigation"]) .rep-feature-frame[data-focusable]:focus {
   outline: var(--rep-focus-ring);
   outline-offset: var(--rep-focus-offset);
 }
@@ -1169,9 +1183,9 @@ body.picture-behind .shell-nav-slot {
 }
 
 /* The shared focus reset clears `box-shadow`; the current room keeps its 2px
- * brass rule while it carries the keyline. */
-.rep-destination[aria-current="page"]:focus,
-.rep-destination[aria-current="page"]:focus-visible {
+ * brass rule while it carries the keyline. The selected branch is not gated by
+ * input modality: the rule is the room's mark, not a focus decoration. */
+.rep-destination[aria-current="page"]:focus {
   box-shadow: inset 0 2px 0 var(--rep-house);
 }
 
@@ -1211,8 +1225,7 @@ body.picture-behind .shell-nav-slot {
   line-height: var(--rep-leading-body);
 }
 
-.rep-destination:focus,
-.rep-destination:focus-visible {
+:where(html[data-input="navigation"]) .rep-destination:focus {
   outline-offset: -2px;
 }
 
@@ -1544,8 +1557,7 @@ body.picture-behind .shell-nav-slot {
   height: 1em;
 }
 
-.rep-play:focus,
-.rep-play:focus-visible {
+:where(html[data-input="navigation"]) .rep-play:focus {
   outline: 2px solid var(--rep-ivory);
   outline-offset: 3px;
   background: var(--rep-house-deep);
@@ -1630,8 +1642,7 @@ body.picture-behind .shell-nav-slot {
   box-sizing: border-box;
 }
 
-.rep-episode:focus,
-.rep-episode:focus-visible {
+:where(html[data-input="navigation"]) .rep-episode:focus {
   background: var(--rep-ink-raised);
 }
 
@@ -1698,8 +1709,7 @@ body.picture-behind .shell-nav-slot {
   -webkit-line-clamp: 2;
 }
 
-.rep-episode:focus .rep-episode-name,
-.rep-episode:focus-visible .rep-episode-name,
+:where(html[data-input="navigation"]) .rep-episode:focus .rep-episode-name,
 .rep-episode[aria-pressed="true"] .rep-episode-name {
   color: var(--rep-ivory);
 }
@@ -1869,8 +1879,7 @@ body.picture-behind .shell-nav-slot {
   box-sizing: border-box;
 }
 
-.rep-candidate:focus,
-.rep-candidate:focus-visible {
+:where(html[data-input="navigation"]) .rep-candidate:focus {
   background: var(--rep-ink-raised);
 }
 
@@ -2183,8 +2192,7 @@ body.picture-behind .shell-nav-slot {
   letter-spacing: 0.04em;
 }
 
-.rep-log-back:focus,
-.rep-log-back:focus-visible {
+:where(html[data-input="navigation"]) .rep-log-back:focus {
   border-bottom-color: var(--rep-ivory);
   color: var(--rep-ivory);
 }
@@ -2268,8 +2276,7 @@ body.picture-behind .shell-nav-slot {
 }
 
 .rep-kit-button.rep-log-action:hover,
-.rep-kit-button.rep-log-action:focus,
-.rep-kit-button.rep-log-action:focus-visible {
+:where(html[data-input="navigation"]) .rep-kit-button.rep-log-action:focus {
   border-bottom-color: var(--rep-house);
   background: transparent;
   color: var(--rep-ivory);
@@ -2282,8 +2289,8 @@ body.picture-behind .shell-nav-slot {
 
 .rep-kit-button.rep-log-action.rep-log-action--danger,
 .rep-kit-button.rep-log-action.rep-log-action--danger:hover,
-.rep-kit-button.rep-log-action.rep-log-action--danger:focus,
-.rep-kit-button.rep-log-action.rep-log-action--danger:focus-visible {
+:where(html[data-input="navigation"])
+  .rep-kit-button.rep-log-action.rep-log-action--danger:focus {
   border: 0;
   border-bottom: 1px solid var(--rep-status-red);
   border-radius: 0;
@@ -2394,10 +2401,8 @@ body.picture-behind .shell-nav-slot {
   gap: var(--rep-space-4);
 }
 
-.rep-log-addon-summary:focus,
-.rep-log-addon-summary:focus-visible,
-.rep-log-category:focus,
-.rep-log-category:focus-visible {
+:where(html[data-input="navigation"]) .rep-log-addon-summary:focus,
+:where(html[data-input="navigation"]) .rep-log-category:focus {
   background: var(--rep-ink-raised);
 }
 
@@ -2413,10 +2418,8 @@ body.picture-behind .shell-nav-slot {
   overflow-wrap: anywhere;
 }
 
-.rep-log-addon-summary:focus .rep-log-addon-name,
-.rep-log-addon-summary:focus-visible .rep-log-addon-name,
-.rep-log-category:focus .rep-log-category-title,
-.rep-log-category:focus-visible .rep-log-category-title {
+:where(html[data-input="navigation"]) .rep-log-addon-summary:focus .rep-log-addon-name,
+:where(html[data-input="navigation"]) .rep-log-category:focus .rep-log-category-title {
   color: var(--rep-ivory);
 }
 
@@ -2824,19 +2827,13 @@ body.picture-behind .shell-nav-slot {
 
 /*
  * A Settings leaf is a page in the programme, not a takeover: the spine stays
- * visible and the level begins where the stage does. The Title and Streams
- * levels keep the whole window; only the Settings sub-screens leave the spine.
+ * live and the level begins where the stage does, at the compact edge. The open
+ * spine draws over the leaf rather than pushing it right. The Title, Streams
+ * and player levels keep the whole window.
  */
 .rep-frame .shell-level:has(.rep-settings-level) {
   left: var(--rep-spine-compact);
   box-sizing: border-box;
   padding: var(--window-chrome-clearance) var(--rep-gutter) var(--rep-stage-bottom);
   background: var(--rep-ink);
-}
-
-/* The spine opens on hover or an arrow-key walk; the leaf makes room instead
- * of being covered. */
-.rep-frame:has(.rep-nav--spine[data-open="true"])
-  .shell-level:has(.rep-settings-level) {
-  left: var(--rep-spine-width);
 }

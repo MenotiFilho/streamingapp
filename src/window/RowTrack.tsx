@@ -13,6 +13,7 @@ import {
   type ReactNode,
 } from "react";
 
+import { DRAG_SLOP } from "../core/input";
 import { useReducedMotion } from "../core/react/useReducedMotion";
 import { Icon } from "../kit/icons";
 import { panel } from "../core/react/motion";
@@ -199,7 +200,7 @@ export function RowTrack({
       return;
     }
     const movedBy = event.clientX - drag.current.startX;
-    if (!drag.current.moved && Math.abs(movedBy) < 5) {
+    if (!drag.current.moved && Math.abs(movedBy) < DRAG_SLOP) {
       return;
     }
     if (!drag.current.moved) {
@@ -251,10 +252,10 @@ export function RowTrack({
       </header>
 
       <div className="rep-kit-row-viewport">
-        {/* The cards come first in DOM order; the two arrows are positioned
-            over the viewport's edges. A row entered from outside a row lands on
-            its first card, not on the left scroll arrow once that arrow is
-            enabled. */}
+        {/* The cards are the row's focus targets. The two arrows are pointer
+            and touch furniture — a click or a tap pages five cards — and are
+            kept out of the Tab and D-pad order; the D-pad walks the cards one
+            by one. */}
         <ul
           ref={track}
           className="rep-kit-row-track"
@@ -279,7 +280,7 @@ export function RowTrack({
         <button
           type="button"
           className="rep-kit-row-arrow rep-kit-row-arrow-left"
-          data-focusable
+          tabIndex={-1}
           aria-label={`Scroll ${title} left`}
           disabled={edges.start}
           onClick={() => scrollView(-1)}
@@ -290,7 +291,7 @@ export function RowTrack({
         <button
           type="button"
           className="rep-kit-row-arrow rep-kit-row-arrow-right"
-          data-focusable
+          tabIndex={-1}
           aria-label={`Scroll ${title} right`}
           disabled={edges.end}
           onClick={() => scrollView(1)}
