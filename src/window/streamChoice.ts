@@ -33,6 +33,7 @@ export function useStreamChoice(
   title: Title,
   preview: OpenablePreview | null | undefined,
   video: Video,
+  onOpened?: () => void,
 ): StreamChoice {
   const { take, pending } = useShell();
   const [chosen, setChosen] = useState<Stream | null>(null);
@@ -65,13 +66,18 @@ export function useStreamChoice(
       const action: Action = playStreamAction(title, video, addon, stream, preview);
       setOpening({ action, stream });
       try {
-        await take(action);
+        // The Host taking the Stream is what tells a list opened for one press
+        // that it is spent. A refusal returns null and leaves the list to say
+        // why; the Title's flow passes no callback and keeps the list either way.
+        if (await take(action)) {
+          onOpened?.();
+        }
       } finally {
         openingRef.current = false;
         setOpening(null);
       }
     },
-    [preview, take, title, video.id],
+    [onOpened, preview, take, title, video.id],
   );
 
   const waiting = opening !== null && pending.has(actionKey(opening.action));

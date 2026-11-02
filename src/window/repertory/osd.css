@@ -4,7 +4,7 @@
  * The picture is mpv's; this file draws only the furniture over it: a
  * programme note printed over the film with translucent ink scrims, hairlines,
  * ivory type and one brass house colour. Every length comes from the locked
- * stage unit in `tokens.css` (design record §3–§4), the five menus use the
+ * stage unit in `tokens.css` (design record §3–§4), the menus use the
  * kit's popover, and the volume is a drawn rail rather than the browser's
  * range.
  *
@@ -867,7 +867,7 @@
 }
 
 /* --------------------------------------------------------------------------
- * The five icon popovers: a kit plate above the strip
+ * The icon popovers: a kit plate above the strip
  * -------------------------------------------------------------------------- */
 
 .shell-level[data-level-kind="popover"] {
@@ -932,6 +932,25 @@
 
 .shell-osd-popover .rep-kit-popover-heading {
   font-size: var(--rep-text-section);
+}
+
+/* The Episodes plate's seasons are one horizontal line, never wrapped: the
+ * chosen one is the kit's brass inset rule, the same chip the Title page uses. */
+.shell-osd-seasons {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--rep-space-2);
+  padding: var(--rep-space-2) var(--rep-space-4);
+  overflow-x: auto;
+  scrollbar-color: var(--rep-hairline) transparent;
+  scrollbar-width: thin;
+}
+
+.shell-osd-seasons .shell-osd-season {
+  flex: none;
+  padding: var(--rep-space-2) var(--rep-space-3);
+  font-size: var(--rep-text-caption);
+  font-weight: 500;
 }
 
 /* --------------------------------------------------------------------------

@@ -1,15 +1,15 @@
 /**
  * The Episodes decisions: which series a playing Stream belongs to, how its
- * seasons are grouped, and which candidate an Episodes press can play (#191 §8).
+ * seasons are grouped, and which candidate is the first this Host can open
+ * (#191 §8).
  *
- * The window draws no Episodes menu yet (#195); the served Remote has the only
- * one, and it calls these rules. They live here so a later window menu cannot
- * grow a second rule for the same questions.
+ * The window and the served Remote both draw an Episodes menu; these decisions
+ * are shared so neither can grow a second rule for the same questions.
  */
 
 import { playabilityNote } from "./stream";
 import { discoveredKeyOf, seasonsOf, type Season } from "./title";
-import type { AddonStreams, NowPlaying, Snapshot, Stream, Title } from "./wire";
+import type { Action, AddonStreams, NowPlaying, Snapshot, Stream, Title } from "./wire";
 
 /**
  * Which series a playing Stream belongs to, and how a client asks for its
@@ -98,6 +98,20 @@ export function seriesRef(
     title: { type: video.type, id: stripped },
     cache: `${nowPlaying.addon}|${video.type}|${stripped}`,
   };
+}
+
+/**
+ * The series a playing Stream belongs to, as a question a client can ask: an
+ * Addon's Title is opened through that Addon, and a Discovered Title is opened
+ * against TMDB with the key its card names.
+ *
+ * The Episodes menu asks the question a Title's card does, without building the
+ * Action itself or growing a second mapping.
+ */
+export function seriesAction(ref: SeriesRef): Action {
+  return ref.kind === "addon"
+    ? { type: "open_title", addon: ref.addon, title: ref.title }
+    : { type: "open_discovered_title", key: ref.key, kind: ref.type };
 }
 
 /**

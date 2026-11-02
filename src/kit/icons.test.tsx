@@ -5,8 +5,9 @@ import { ICON_NAMES } from "./icons";
 /**
  * The set design record §7 locks: the six destinations, More, back, close,
  * previous episode, next episode, −10s, +10s, play, pause, stop, fullscreen,
- * volume, volume muted, picture, subtitles, audio, speed, chapters and the
- * chevron. A mark added or removed is a decision, so it is asserted here.
+ * volume, volume muted, picture, subtitles, audio, speed, chapters, episodes
+ * and the chevron. A mark added or removed is a decision, so it is asserted
+ * here.
  */
 const DOCUMENTED = [
   "home",
@@ -33,6 +34,7 @@ const DOCUMENTED = [
   "audio",
   "speed",
   "chapters",
+  "episodes",
   "chevron",
 ];
 

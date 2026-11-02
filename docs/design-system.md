@@ -255,7 +255,10 @@ circle, no square, no container, except a cell of the hairline table.
 
 The set: the six destination marks, More, back, close, previous episode, next
 episode, −10s, +10s, play, pause, stop, fullscreen, volume, volume muted,
-picture, subtitles, audio, speed, chapters, and the chevron the popovers use.
+picture, subtitles, audio, speed, chapters, episodes, and the chevron the
+popovers use. The **episodes** mark is a front episode plate with a second one
+behind it and a play mark on the front: not the chapter list beside it, and not
+the transport's step arrows.
 `src/kit/icons.tsx` is the source for the whole set (#153). The served Remote
 imports the same component, like every other kit primitive; there is no sprite
 spliced at serve time. **No Unicode glyph stands in for a mark on the Remote** —
@@ -349,13 +352,29 @@ the phone's emoji font is not the design system.
   facts in one mono line. Top right: fullscreen and Stop, each a square hairline
   control (Stop is the X). Right edge: the bare volume rail — a **drawn rail with
   a brass fill**, not the browser's native range. Bottom: the centred transport
-  with the five icon menus around it (Picture, Subtitles, Audio left; Speed,
-  Chapters right), then the timeline — a hairline track, a buffered read, the
-  brass progress, an ivory playhead, brass chapter ticks, mono clocks at each
-  end. The current chapter is named **only in the hover/drag callout**, which
-  names the chapter of the position pointed at. Ticks keep a minimum
+  with the six icon menus around it (Picture, Subtitles, Audio left; Episodes,
+  Speed, Chapters right), then the timeline — a hairline track, a buffered read,
+  the brass progress, an ivory playhead, brass chapter ticks, mono clocks at
+  each end. The current chapter is named **only in the hover/drag callout**,
+  which names the chapter of the position pointed at. Ticks keep a minimum
   spacing (~24px); a container with many chapters collapses to a tick rail
   without names.
+- **Episodes menu**: the OSD's sixth icon, drawn only where the playing Video is
+  a series; a film has no menu rather than one that opens empty. Opening it asks
+  the Host once by the series the Stream belongs to — the Watch-progress Title's
+  Addon, else the TMDB key, else the Stream's Addon — and says it is looking; a
+  refusal, or a series with no episodes, is said inline. The Title's seasons are
+  one scrolling line of single-select chips, the chosen season's Videos are
+  hairline rows, and the episode playing now is marked where it appears. A press
+  opens that Video's Streams list — the picker chooses the candidate, never the
+  menu — and the list puts itself away once the Host has taken the Stream,
+  leaving the OSD on the new episode.
+- **Docked transport**: the OSD's no-picture sibling (#194). When a Stream is
+  watched and the Picture is not in this window — mpv's own window, or nowhere —
+  the page draws a band at its foot instead of an OSD over a hole: now playing,
+  the Title, the picture fact, the seek timeline, play/pause, volume and Stop.
+  It keeps the page's own focus root and has no OSD ladder, idle clock or
+  popovers, because there is no picture to print them over.
 - **Pairing call board**: **Address** in mono, **Pairing code** in large brass
   mono with the label `Pairing code · single use`, then the paired-device ledger
   (name in display serif, paired stamp in mono, **Revoke** in red). Revoke asks

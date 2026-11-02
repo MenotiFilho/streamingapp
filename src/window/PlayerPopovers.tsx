@@ -15,9 +15,16 @@ import type { Action, PlaybackSnapshot } from "../core/wire";
 import { useShell, type NewShellLevel } from "./context";
 import { MenuGroup, MenuReadout, MenuRow } from "../kit/Menu";
 import { Popover } from "../kit/Popover";
+import { OsdEpisodesMenu } from "./PlayerEpisodes";
 
-/** The five menus the OSD's icon buttons open, one level each. */
-export type OsdPopoverName = "picture" | "subtitles" | "audio" | "speed" | "chapters";
+/** The six menus the OSD's icon buttons open, one level each. */
+export type OsdPopoverName =
+  | "picture"
+  | "subtitles"
+  | "audio"
+  | "episodes"
+  | "speed"
+  | "chapters";
 
 /** The id the shell's level stack and the OSD's icons both name a popover by. */
 export function osdPopoverId(name: OsdPopoverName): string {
@@ -39,6 +46,7 @@ const LABELS: Record<OsdPopoverName, string> = {
   picture: "Picture",
   subtitles: "Subtitles",
   audio: "Audio",
+  episodes: "Episodes",
   speed: "Speed",
   chapters: "Chapters",
 };
@@ -50,6 +58,7 @@ const HEADINGS: Record<OsdPopoverName, string> = {
   picture: "Aspect, crop & statistics",
   subtitles: "Subtitles",
   audio: "Audio",
+  episodes: "Episodes",
   speed: "Speed",
   chapters: "Chapters",
 };
@@ -58,11 +67,15 @@ const SIDES: Record<OsdPopoverName, "start" | "end"> = {
   picture: "start",
   subtitles: "start",
   audio: "start",
+  episodes: "end",
   speed: "end",
   chapters: "end",
 };
 
-const MENUS: Record<Exclude<OsdPopoverName, "subtitles">, (props: MenuProps) => ReactNode> = {
+const MENUS: Record<
+  Exclude<OsdPopoverName, "subtitles" | "episodes">,
+  (props: MenuProps) => ReactNode
+> = {
   picture: (props) => <PictureMenu {...props} />,
   audio: (props) => <AudioMenu {...props} />,
   speed: (props) => <SpeedMenu {...props} />,
@@ -106,19 +119,20 @@ function anchorStyle(side: "start" | "end", anchor: OsdPopoverAnchor) {
 }
 
 function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopoverAnchor }) {
-  const { snapshot, take, pop } = useShell();
+  const { snapshot, take, pop, levelExists } = useShell();
   const panel = useRef<HTMLDivElement | null>(null);
   const playback = snapshot?.playback ?? null;
   const subtitleScale = snapshot?.preferences.subtitleScale ?? 1;
+  const id = osdPopoverId(name);
 
   // A menu is a thing a person opened in passing: clicking anywhere outside it,
   // tabbing out of it, or leaving the window closes it rather than making them
   // find Back before they can touch the player again. The scrim catches the
   // pointer; focusin catches the keyboard and a pad's focus moves.
   //
-  // A menu that is already leaving does not close itself again: its level is
-  // inert the moment its exit starts, and the focus moving back to the OSD is
-  // that exit, not a press outside the panel.
+  // A menu that has already been popped does not close itself again: its exit
+  // moves focus back to the OSD, and that move is not a press outside the
+  // panel.
   const present = useIsPresent();
   useEffect(() => {
     if (!present) {
@@ -126,11 +140,24 @@ function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopover
     }
     const onFocusIn = (event: FocusEvent) => {
       const target = event.target;
-      if (target instanceof Node && panel.current && !panel.current.contains(target)) {
+      const current = panel.current;
+      // A menu that has been popped is no longer a menu: its exit moves focus
+      // to the surface beneath, and that move is not a press outside an open
+      // plate. Checking the stack (rather than waiting for this level's cleanup
+      // or its inert mark) also stops an Episodes press from closing the
+      // Streams level it just opened.
+      if (!current || !levelExists(id)) {
+        return;
+      }
+      if (target instanceof Node && !current.contains(target)) {
         pop();
       }
     };
-    const onBlur = () => pop();
+    const onBlur = () => {
+      if (levelExists(id)) {
+        pop();
+      }
+    };
 
     document.addEventListener("focusin", onFocusIn, true);
     window.addEventListener("blur", onBlur);
@@ -138,7 +165,7 @@ function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopover
       document.removeEventListener("focusin", onFocusIn, true);
       window.removeEventListener("blur", onBlur);
     };
-  }, [pop, present]);
+  }, [id, levelExists, pop, present]);
 
   if (!playback) {
     return null;
@@ -168,6 +195,8 @@ function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopover
         >
           {name === "subtitles" ? (
             <SubtitlesMenu playback={playback} subtitleScale={subtitleScale} take={take} />
+          ) : name === "episodes" ? (
+            <OsdEpisodesMenu playback={playback} />
           ) : (
             MENUS[name]({ playback, take })
           )}
