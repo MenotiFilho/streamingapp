@@ -1,10 +1,11 @@
 /**
  * The player panels' sections, as rows both players compose (#191 §7).
  *
- * The five menus are not the same five — the window opens one popover per icon,
- * the Remote folds Audio and Subtitles into one sheet — so the *panel* stays a
- * client's. The *sections* are shared: each returns the groups and rows that
- * client arranges, and the drawing decides chips, rows, notes and readouts.
+ * The sectioned menus are not the same on both clients — the window opens one
+ * popover per icon, the Remote folds Audio and Subtitles into one sheet — so
+ * the *panel* stays a client's. The *sections* are shared: each returns the
+ * groups and rows that client arranges, and the drawing decides chips, rows,
+ * notes and readouts.
  */
 
 import {

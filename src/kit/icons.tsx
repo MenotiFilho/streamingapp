@@ -40,6 +40,7 @@ export const ICON_NAMES = [
   "audio",
   "speed",
   "chapters",
+  "episodes",
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -164,6 +165,15 @@ const DRAWINGS: Record<IconName, ReactNode> = {
     </>
   ),
   chapters: <path d="M4 6h3M4 12h3M4 18h3M10 6h10M10 12h10M10 18h10" />,
+  // A front episode plate with one behind it, and a play mark on the front: a
+  // series' Videos, not the chapter list beside it or the step arrows.
+  episodes: (
+    <>
+      <rect x="3" y="4" width="13" height="9" />
+      <path d="M19 8v9a2 2 0 0 1-2 2H8" />
+      <path d="m8 6.5 3.5 2L8 10.5z" />
+    </>
+  ),
 };
 
 export type IconProps = {

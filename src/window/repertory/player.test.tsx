@@ -237,7 +237,7 @@ describe("the repertory player OSD", () => {
     ).not.toBeNull();
   });
 
-  test("the five icon popovers open as repertory panels", async () => {
+  test("the shared icon popovers open as repertory panels", async () => {
     await renderPlayer();
 
     for (const [icon, popover] of [

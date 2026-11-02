@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { episodesOf, firstPlayableStream, seriesRef } from "./episodes";
+import { episodesOf, firstPlayableStream, seriesAction, seriesRef } from "./episodes";
 import type {
   AddonStreams,
   NowPlaying,
@@ -196,6 +196,39 @@ describe("the series a playing Stream belongs to", () => {
       addon: "community.aiostreams",
       title: { type: "movie", id: "tt0133093" },
       cache: "community.aiostreams|movie|tt0133093",
+    });
+  });
+});
+
+describe("the question an Episodes menu asks about its series", () => {
+  test("an Addon's series is open_title with that Addon and its key", () => {
+    expect(
+      seriesAction({
+        kind: "addon",
+        addon: "cinemeta",
+        title: { type: "series", id: "tt7777777" },
+        cache: "cinemeta|series|tt7777777",
+      }),
+    ).toEqual({
+      type: "open_title",
+      addon: "cinemeta",
+      title: { type: "series", id: "tt7777777" },
+    });
+  });
+
+  test("a Discovered series is open_discovered_title with the TMDB key and kind", () => {
+    expect(
+      seriesAction({
+        kind: "discovered",
+        key: { kind: "tmdb", id: 7777777 },
+        type: "series",
+        fallbackAddon: "community.aiostreams",
+        cache: "tmdb|series|7777777",
+      }),
+    ).toEqual({
+      type: "open_discovered_title",
+      key: { kind: "tmdb", id: 7777777 },
+      kind: "series",
     });
   });
 });

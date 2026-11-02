@@ -2,7 +2,16 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import type { Action, PlaybackSnapshot, ResumeEntry, Snapshot } from "../core/wire";
+import type {
+  Action,
+  AddonStreams,
+  PlaybackSnapshot,
+  Response,
+  ResumeEntry,
+  Snapshot,
+  Stream,
+  Title,
+} from "../core/wire";
 import { pictureNote } from "../core/playback";
 import { TauriLink, type Transport } from "./tauriLink";
 import {
@@ -13,6 +22,7 @@ import {
 } from "./tauriWindow.testing";
 import { Shell } from "./Shell";
 import { dockedTransport } from "./PlayerDock";
+import { EPISODES_EMPTY } from "./episodesMenu";
 import { OSD_IDLE_MS } from "./useOsdVisibility";
 
 /**
@@ -153,11 +163,15 @@ type Hold = { type: Action["type"]; gate: Promise<void> };
  */
 type PreviewAnswers = (at: number) => { image: string | null; gate?: Promise<void> };
 
+/** A Host answer a test writes: the one question's answer, or nothing. */
+type Answering = (action: Action) => Response | null;
+
 function fakeHost(
   initial: Snapshot,
   reject?: Rejection,
   hold?: Hold,
   answers?: PreviewAnswers,
+  respond?: Answering,
 ) {
   const invocations: Array<{ command: string; args?: Record<string, unknown> }> = [];
   let listener: ((event: { payload: Snapshot }) => void) | undefined;
@@ -185,6 +199,10 @@ function fakeHost(
       }
       if (hold && action?.type === hold.type) {
         await hold.gate;
+      }
+      const answered = action ? respond?.(action) : null;
+      if (answered) {
+        return answered as T;
       }
       return { snapshots: [], answer: null } as T;
     },
@@ -280,6 +298,102 @@ function resumeEntry(overrides: Partial<ResumeEntry> = {}): ResumeEntry {
   };
 }
 
+/** The Watch-progress Title that can list the playing series' episodes. */
+function seriesEntry(): ResumeEntry {
+  const held = resumeEntry();
+  return { ...held, title: { ...held.title, addon: "cinemeta" } };
+}
+
+const SERIES_PLAYING: Partial<PlaybackSnapshot> = {
+  nowPlaying: {
+    video: { type: "series", id: "tt7777777:1:1" },
+    addon: "community.aiostreams",
+    name: "AIOStreams\nS1E1 1080p",
+    description: null,
+    filename: null,
+    bingeGroup: null,
+  },
+  episode: { season: 1, episode: 1 },
+};
+
+const EPISODES_TITLE: Title = {
+  addon: "cinemeta",
+  id: "tt7777777",
+  key: { kind: "addon", addon: "cinemeta", id: "tt7777777" },
+  type: "series",
+  name: "A Series That Plays",
+  poster: null,
+  background: null,
+  logo: null,
+  description: null,
+  releaseInfo: null,
+  runtime: null,
+  imdbRating: null,
+  genres: [],
+  videos: [
+    { id: "tt7777777:1:1", name: "Episode One", season: 1, episode: 1, thumbnail: null },
+    { id: "tt7777777:1:2", name: "Episode Two", season: 1, episode: 2, thumbnail: null },
+    { id: "tt7777777:2:1", name: "Season Two, One", season: 2, episode: 1, thumbnail: null },
+  ],
+};
+
+const EPISODE_STREAM: Stream = {
+  name: "Cinemeta\n1080p",
+  description: null,
+  playback: { kind: "direct", url: "https://stream.test/episode.mkv" },
+  warnings: [],
+  filename: null,
+  bingeGroup: null,
+};
+
+const EPISODE_STREAMS: AddonStreams[] = [
+  { addon: "cinemeta", failure: null, streams: [EPISODE_STREAM] },
+];
+
+/**
+ * The fake Host's Episodes answers: the series lookup names a complete Title,
+ * and the Streams question names one playable candidate. Every other Action
+ * answers nothing, as the rest of this suite expects.
+ */
+function episodesAnswer(action: Action): Response | null {
+  if (action.type === "open_title") {
+    return { snapshots: [], answer: { title: EPISODES_TITLE } };
+  }
+  if (action.type === "find_streams") {
+    return { snapshots: [], answer: { streams: EPISODE_STREAMS } };
+  }
+  if (action.type === "play_stream") {
+    // The Host takes the Stream: a response, not a refusal, is what spends the
+    // Streams list.
+    return { snapshots: [], answer: null };
+  }
+  return null;
+}
+
+/** Render a series whose OSD can open Episodes, with a Host that answers it. */
+async function renderEpisodesPlayer(
+  answer: Answering = episodesAnswer,
+  overrides: Partial<PlaybackSnapshot> = {},
+  watchProgress: ResumeEntry[] = [seriesEntry()],
+) {
+  const host = fakeHost(
+    {
+      ...NOTHING_SAID,
+      revision: 9,
+      playback: playback({ ...SERIES_PLAYING, ...overrides }),
+      watchProgress,
+    },
+    undefined,
+    undefined,
+    undefined,
+    answer,
+  );
+  render(<Shell client={host.client} />);
+  await screen.findByTestId("shell-player");
+  await act(async () => {});
+  return host;
+}
+
 /** Close the open popover the way Back does, and wait for its level to go. */
 async function closePopover(testId: string) {
   fireEvent.keyDown(document, { key: "Escape" });
@@ -310,6 +424,7 @@ function layOutPlayer() {
     pause: [820, 920, 40, 40],
     forward: [870, 920, 60, 40],
     "next-episode": [940, 920, 40, 40],
+    "osd-episodes": [1500, 920, 40, 40],
     "osd-speed": [1560, 920, 60, 40],
     "osd-chapters": [1630, 920, 40, 40],
     volume: [1850, 420, 40, 200],
@@ -1318,7 +1433,10 @@ describe("the player OSD", () => {
   });
 
   test("the OSD hides after three idle seconds and summons again on input", async () => {
-    vi.useFakeTimers();
+    // Fake the OSD's own clock, not the animation frame: a level's exit uses
+    // `requestAnimationFrame`, and a fake one left behind would stall the next
+    // test's popover.
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const host = fakeHost({ ...NOTHING_SAID, revision: 9, playback: playback() });
     render(<Shell client={host.client} />);
     await act(async () => {
@@ -1346,7 +1464,7 @@ describe("the player OSD", () => {
   });
 
   test("a control holding focus keeps the OSD up", async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const host = fakeHost({ ...NOTHING_SAID, revision: 9, playback: playback() });
     render(<Shell client={host.client} />);
     await act(async () => {
@@ -1367,7 +1485,7 @@ describe("the player OSD", () => {
   });
 
   test("a clicked control does not pin the OSD after the mouse stops", async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const host = fakeHost({ ...NOTHING_SAID, revision: 9, playback: playback() });
     render(<Shell client={host.client} />);
     await act(async () => {
@@ -1387,7 +1505,7 @@ describe("the player OSD", () => {
   });
 
   test("an open popover keeps the OSD up even while its own controls idle", async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const host = fakeHost({ ...NOTHING_SAID, revision: 9, playback: playback() });
     render(<Shell client={host.client} />);
     await act(async () => {
@@ -1408,6 +1526,136 @@ describe("the player OSD", () => {
     expect(screen.getByTestId("popover-chapters")).toBeInTheDocument();
 
     vi.useRealTimers();
+  });
+});
+
+describe("the Episodes menu", () => {
+  test("a film has no Episodes menu", async () => {
+    await renderPlayer();
+    expect(screen.queryByTestId("osd-episodes")).not.toBeInTheDocument();
+  });
+
+  test("a series draws the Episodes menu", async () => {
+    await renderEpisodesPlayer();
+
+    expect(screen.getByTestId("osd-episodes")).toHaveAccessibleName("Episodes");
+  });
+
+  test("opening it asks the Watch-progress Title's Addon once, composes the seasons, and switches season", async () => {
+    const host = await renderEpisodesPlayer();
+
+    fireEvent.click(screen.getByTestId("osd-episodes"));
+    const panel = await screen.findByTestId("popover-episodes");
+    await screen.findByTestId("osd-season-1");
+
+    expect(
+      actions(host.invocations).filter((action) => action.type === "open_title"),
+      "the Addon that supplied the Title is the one asked for its episodes",
+    ).toEqual([
+      {
+        type: "open_title",
+        addon: "cinemeta",
+        title: { type: "series", id: "tt7777777" },
+      },
+    ]);
+
+    expect(screen.getByTestId("osd-season-1")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("osd-episode-tt7777777:1:1")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("osd-episode-tt7777777:1:2")).toBeInTheDocument();
+    expect(screen.queryByTestId("osd-episode-tt7777777:2:1")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("osd-season-2"));
+
+    expect(screen.getByTestId("osd-season-2")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("osd-episode-tt7777777:2:1")).toBeInTheDocument();
+    expect(screen.queryByTestId("osd-episode-tt7777777:1:1")).not.toBeInTheDocument();
+
+    // A new Snapshot about the same series is not a new question.
+    act(() => {
+      host.publish({
+        ...NOTHING_SAID,
+        revision: 10,
+        playback: playback(SERIES_PLAYING),
+        watchProgress: [seriesEntry()],
+      });
+    });
+    expect(
+      actions(host.invocations).filter((action) => action.type === "open_title"),
+    ).toHaveLength(1);
+    expect(panel).toBeInTheDocument();
+  });
+
+  test("a series with no episodes says so and asks for no Streams", async () => {
+    const host = await renderEpisodesPlayer((action) =>
+      action.type === "open_title"
+        ? { snapshots: [], answer: { title: { ...EPISODES_TITLE, videos: [] } } }
+        : null,
+    );
+
+    fireEvent.click(screen.getByTestId("osd-episodes"));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("osd-episodes-note")).toHaveTextContent(EPISODES_EMPTY),
+    );
+    expect(actions(host.invocations).filter((action) => action.type === "find_streams")).toEqual(
+      [],
+    );
+  });
+
+  test("choosing an episode asks for its Streams, and a chosen candidate plays it and puts the list away", async () => {
+    const host = await renderEpisodesPlayer();
+
+    fireEvent.click(screen.getByTestId("osd-episodes"));
+    await screen.findByTestId("osd-season-1");
+    fireEvent.click(screen.getByTestId("osd-episode-tt7777777:1:2"));
+
+    // The plate went first: the Streams level is the only surface above the OSD.
+    await waitFor(() =>
+      expect(screen.queryByTestId("popover-episodes")).not.toBeInTheDocument(),
+    );
+    const streams = await screen.findByTestId("streams");
+    expect(actions(host.invocations)).toContainEqual({
+      type: "find_streams",
+      video: { type: "series", id: "tt7777777:1:2" },
+    });
+    expect(screen.queryByTestId("popover-episodes")).not.toBeInTheDocument();
+
+    fireEvent.click(within(streams).getByTestId("candidate-cinemeta-0"));
+
+    await waitFor(() =>
+      expect(actions(host.invocations)).toContainEqual(
+        expect.objectContaining({
+          type: "play_stream",
+          video: { type: "series", id: "tt7777777:1:2" },
+          addon: "cinemeta",
+        }),
+      ),
+    );
+    await waitFor(() => expect(screen.queryByTestId("streams")).not.toBeInTheDocument());
+
+    expect(screen.getByTestId("shell-player")).toBeInTheDocument();
+    expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
+  });
+
+  test("Back closes the Episodes menu before the player's stop rule", async () => {
+    const host = await renderEpisodesPlayer();
+
+    fireEvent.click(screen.getByTestId("osd-episodes"));
+    await screen.findByTestId("popover-episodes");
+    await screen.findByTestId("osd-season-1");
+
+    await closePopover("popover-episodes");
+
+    expect(screen.getByTestId("osd-episodes")).toHaveAttribute("aria-expanded", "false");
+    expect(actions(host.invocations)).not.toContainEqual({ type: "stop_playback" });
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() =>
+      expect(actions(host.invocations)).toContainEqual({ type: "stop_playback" }),
+    );
   });
 });
 
@@ -1500,7 +1748,7 @@ describe("the player transport where the picture is elsewhere", () => {
   }
 
   test("the dock has no idle clock and does not hide itself", async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const host = fakeHost({
       ...NOTHING_SAID,
       revision: 9,
@@ -1564,7 +1812,7 @@ describe("the player transport where the picture is elsewhere", () => {
 
 describe("the player's focus ladder", () => {
   test("summons the OSD on Play, walks up to Full screen and Stop, and down again", async () => {
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     layOutPlayer();
     const host = fakeHost({
       ...NOTHING_SAID,
@@ -1678,7 +1926,7 @@ describe("the player's focus ladder", () => {
   test("Up in an opening Stream lands on the strip's head, since Play is not drawn yet", async () => {
     // Opening has no transport, so the preferred Play does not exist: Up must
     // still land somewhere in the strip rather than nowhere.
-    vi.useFakeTimers();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const host = fakeHost({
       ...NOTHING_SAID,
       revision: 9,

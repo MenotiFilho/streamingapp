@@ -41,6 +41,7 @@ import { POPOVER_RISE_PX } from "./repertory/frame";
 import { Icon } from "../kit/icons";
 import { fade, panel } from "../core/react/motion";
 import { focusAndReveal } from "./reveal";
+import { episodesMenuVisible } from "./episodesMenu";
 import { useOsdVisibility } from "./useOsdVisibility";
 import { useReducedMotion } from "../core/react/useReducedMotion";
 import "./repertory/osd.css";
@@ -104,7 +105,7 @@ function usable(element: HTMLElement | null, cluster: HTMLElement | null): eleme
  * (ADR-0002, ADR-0013). Every control here takes the same Action a Remote
  * client takes: the top-left programme note says what is playing, the top-right
  * Stop is Back's second meaning, the right-edge fader is volume, the strip is
- * the transport and the five per-icon menus, and the flush bottom bar is the
+ * the transport and the six per-icon menus, and the flush bottom bar is the
  * timeline with the container's own chapters.
  *
  * The OSD summons on any input — a pad's X/Y included — and puts itself away
@@ -430,6 +431,7 @@ export function PlayerOverlay() {
   const state = view.state;
   const picture = view.picture;
   const canTransport = view.transportable;
+  const episodesMenu = episodesMenuVisible(playback);
   const showPreview =
     view.state === "opening" || (!previewSettled && Boolean(view.openingPreview?.art));
 
@@ -678,6 +680,17 @@ export function PlayerOverlay() {
                 </div>
 
                 <div className="shell-osd-cluster shell-osd-cluster-right">
+                  {episodesMenu ? (
+                    <IconButton
+                      testId="osd-episodes"
+                      label="Episodes"
+                      title="Episodes — seasons and episodes"
+                      expanded={popover === osdPopoverId("episodes")}
+                      onClick={(event) => openPopover("episodes", event.currentTarget)}
+                    >
+                      <Icon name="episodes" strokeWidth={2} />
+                    </IconButton>
+                  ) : null}
                   <IconButton
                     testId="osd-speed"
                     label="Playback speed"

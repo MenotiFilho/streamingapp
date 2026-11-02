@@ -38,14 +38,22 @@ export function RepertoryStreamsScreen({
   preview,
   video,
   groups,
+  onOpened,
 }: {
   title: Title;
   preview?: OpenablePreview | null;
   video: Video;
   groups: AddonStreams[];
+  /** The Host took the chosen Stream, where this list was opened for one press. */
+  onOpened?: () => void;
 }) {
   const { snapshot, pop } = useShell();
-  const { chosen, opening, openingStream, choose } = useStreamChoice(title, preview, video);
+  const { chosen, opening, openingStream, choose } = useStreamChoice(
+    title,
+    preview,
+    video,
+    onOpened,
+  );
   const subject = streamsSubject(title, preview, video);
   const count = groups.reduce((held, group) => held + group.streams.length, 0);
 
