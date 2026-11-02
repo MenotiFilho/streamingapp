@@ -269,6 +269,8 @@ describe("decideMove inside a region", () => {
 
 describe("crossing between regions", () => {
   test("crosses down to the row below and enters the card under the origin's middle", () => {
+    // Vertical moves keep the level-wide search: only a horizontal exit from a
+    // row takes the overlap guard (#245, ADR-0036).
     const rows = [
       { id: "row:top", y: 0, items: cards(0, 2) },
       { id: "row:bottom", y: 120, items: cards(120, 8) },
@@ -288,7 +290,9 @@ describe("crossing between regions", () => {
     });
   });
 
-  test("crosses left from a card to the full-height rail at the matching height", () => {
+  test("Left from the first card still reaches the full-height rail that overlaps the row", () => {
+    // The row-exit guard asks only for overlap on the cross axis: the rail
+    // spans the row's height, so Left is still an exit (#245, ADR-0036).
     const rows = [{ id: "row:one", y: 0, items: cards(0, 3) }];
     const decision = decideMove(
       shell(rows),
@@ -300,10 +304,49 @@ describe("crossing between regions", () => {
     expect(decision).toMatchObject({ kind: "crossed", regionId: "rail", index: 0 });
   });
 
-  test("Right at the end of a short row crosses to the closest control in the row below", () => {
-    // Continue watching has three cards; the row beneath has eight. Right at
-    // the end of the short row now crosses to the next occupied card on that
-    // side (#128): the fourth card of the wide row, below and to the right.
+  test("a horizontal move to a control in a sibling at the same height still crosses", () => {
+    // The guard is about the cross axis, not the region: a control in another
+    // region that shares the row's vertical band is still a legal exit.
+    const held = shell([
+      { id: "row:left", y: 0, items: [rect(120, 0, 100, 100)] },
+      { id: "row:right", y: 40, items: [rect(400, 40, 100, 100)] },
+    ]);
+
+    const decision = decideMove(
+      held,
+      { regionId: "row:left", index: 0 },
+      "right",
+      DEFAULT_RULES,
+    );
+
+    expect(decision).toMatchObject({
+      kind: "crossed",
+      regionId: "row:right",
+      index: 0,
+      landedBy: "the card under your middle",
+    });
+  });
+
+  test("Left reaches the spine from a row below the rail's own items", () => {
+    // The rail is a column, not a row: its items do not have to overlap the
+    // row's y for the row's Left to reach the spine. The overlap guard walls
+    // the rows from each other, never the rail (#245, ADR-0036).
+    const rows = [{ id: "row:low", y: 900, items: cards(900, 3) }];
+    const decision = decideMove(
+      shell(rows),
+      { regionId: "row:low", index: 0 },
+      "left",
+      DEFAULT_RULES,
+    );
+
+    expect(decision).toMatchObject({ kind: "crossed", regionId: "rail" });
+  });
+
+  test("Right at the end of a short row is a wall when the row below does not overlap it", () => {
+    // Continue watching has three cards; the row beneath has eight, and sits
+    // lower. The row below does not overlap the short row vertically, so
+    // Right at the row's end is a wall instead of a diagonal step into the
+    // next rail (#245, ADR-0036).
     const rows = [
       { id: "row:short", y: 0, items: cards(0, 3) },
       { id: "row:wide", y: 120, items: cards(120, 8) },
@@ -313,6 +356,25 @@ describe("crossing between regions", () => {
       { regionId: "row:short", index: 2 },
       "right",
       DEFAULT_RULES,
+    );
+
+    expect(decision.kind).toBe("blocked");
+    expect(decision.kind === "blocked" && decision.why).toContain("end of the row");
+  });
+
+  test("rowExit level keeps #128's diagonal crossing at the end of a short row", () => {
+    // The rejected model stays selectable so the reversal is a decision, not an
+    // accident: Right crosses to the next occupied card on that side, the
+    // fourth card of the wide row below (#128, ADR-0025 §3).
+    const rows = [
+      { id: "row:short", y: 0, items: cards(0, 3) },
+      { id: "row:wide", y: 120, items: cards(120, 8) },
+    ];
+    const decision = decideMove(
+      shell(rows),
+      { regionId: "row:short", index: 2 },
+      "right",
+      { ...DEFAULT_RULES, rowExit: "level" },
     );
 
     expect(decision).toMatchObject({
@@ -341,10 +403,11 @@ describe("crossing between regions", () => {
     expect(decision.kind === "blocked" && decision.why).toContain("end of the row");
   });
 
-  test("crosses into a sibling that is below and off to the side when it is closest", () => {
-    // The same sibling the overlap guard used to reject is now the closest
-    // control on that side, so it is entered. The wide row's box and cards are
-    // both pushed right of the source control.
+  test("rowExit level crosses into a sibling that is below and off to the side when it is closest", () => {
+    // Under #128's rejected model the sibling the overlap guard used to reject
+    // is the closest control on that side, so it is entered. The wide row's box
+    // and cards are both pushed right of the source control. The default
+    // `rowExit: "overlap"` is what walls this move now (#245, ADR-0036).
     const rows = [
       { id: "row:short", y: 0, items: cards(0, 3) },
       { id: "row:wide", y: 120, items: cards(120, 8) },
@@ -361,7 +424,7 @@ describe("crossing between regions", () => {
       held,
       { regionId: "row:short", index: 2 },
       "right",
-      DEFAULT_RULES,
+      { ...DEFAULT_RULES, rowExit: "level" },
     );
 
     expect(decision).toMatchObject({ kind: "crossed", regionId: "row:wide", index: 0 });

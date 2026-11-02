@@ -96,7 +96,7 @@ $Steps = @(
     [pscustomobject]@{ Id = 24; Title = 'Settings > Credentials: signing in to Stremio, and out again'; Ground = 'addon'; After = @(); Need = 'a real Stremio account: it waits while you sign in by hand in the window, then checks and signs out again' }
     [pscustomobject]@{ Id = 25; Title = 'Settings > Remote devices: pairing a phone browser and revoking it'; Ground = 'addon'; After = @(); Need = 'a second device on the same network: it waits while you pair by hand in a browser, then revokes' }
     [pscustomobject]@{ Id = 26; Title = 'the full remote: browse, play and control from another device'; Ground = 'addon'; After = @(); Need = 'a playable Stream and a second device: it waits while you browse, play, pause and seek from a browser on that device' }
-    [pscustomobject]@{ Id = 27; Title = 'the rail and the D-pad: edges stop, and a short row crosses to the closest control'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (a Continue watching row makes the short-row crossing walkable; without one it is skipped)' }
+    [pscustomobject]@{ Id = 27; Title = 'the rail and the D-pad: edges stop, and a short row''s end is a wall'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (a Continue watching row makes the short-row wall walkable; without one it is skipped)' }
     [pscustomobject]@{ Id = 28; Title = 'the hero: rotation while unfocused, and its text fallback'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home, with at least two hero slides' }
     [pscustomobject]@{ Id = 29; Title = 'Library: the sign-in gate, and no collection it does not have'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home' }
     [pscustomobject]@{ Id = 30; Title = 'Discover: the no-key state, and the keyed feed'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it enters and clears a test TMDB key)' }
@@ -782,53 +782,6 @@ function Track-Controls($app) {
         if (In-RowBand $bands $button) { $controls.Add($button) }
     }
     return $controls
-}
-
-# The control the settled focus rule picks to the right of a control: direct-first
-# (a control whose height overlaps the origin wins), then the closest by edge
-# distance, with the nearer centre as the tie-break. That is focus.ts's ranking
-# (#128); the step uses it so the walkthrough asserts the destination, not merely
-# that focus moved somewhere. It can be a card or the row's own More, whichever
-# is the closest control on that side.
-function Closest-Control-Right($app, $from) {
-    $origin = $from.Current.BoundingRectangle
-    $best = $null
-    $bestAligned = $false
-    $bestStep = 0.0
-    $bestDistance = 0.0
-    $bestAcross = 0.0
-    foreach ($control in (Track-Controls $app)) {
-        if (-not $control.Current.IsEnabled) { continue }
-        $rect = $control.Current.BoundingRectangle
-        if ($rect.IsEmpty -or $rect.Width -le 0 -or $rect.Height -le 0) { continue }
-        $step = $rect.Left - $origin.Right
-        if ($step -le 1) { continue }
-        $gap = [Math]::Max(
-            [Math]::Max($origin.Top, $rect.Top) - [Math]::Min($origin.Bottom, $rect.Bottom), 0)
-        $across = [Math]::Abs(
-            (($origin.Top + $origin.Bottom) / 2) - (($rect.Top + $rect.Bottom) / 2))
-        $aligned = $gap -le 1
-        $distance = [Math]::Sqrt(($step * $step) + ($gap * $gap))
-        if (-not $best) {
-            $better = $true
-        } elseif ($aligned -ne $bestAligned) {
-            $better = $aligned
-        } elseif ($aligned) {
-            $better = ($step -lt ($bestStep - 1)) -or (
-                ([Math]::Abs($step - $bestStep) -le 1) -and ($across -lt $bestAcross))
-        } else {
-            $better = ($distance -lt ($bestDistance - 1)) -or (
-                ([Math]::Abs($distance - $bestDistance) -le 1) -and ($across -lt $bestAcross))
-        }
-        if ($better) {
-            $best = $control
-            $bestAligned = $aligned
-            $bestStep = $step
-            $bestDistance = $distance
-            $bestAcross = $across
-        }
-    }
-    return $best
 }
 
 # Whether a choice is the one on. Chromium exposes `aria-pressed` on a button
@@ -2707,7 +2660,7 @@ function Step-26($ctx) {
 }
 
 function Step-27($ctx) {
-    '--- 27. the rail and the D-pad: edges stop, and a short row crosses to the closest control'
+    '--- 27. the rail and the D-pad: edges stop, and a short row''s end is a wall'
     $app = $ctx.App
     Open-Home $app
     Start-Sleep -Seconds 2
@@ -2752,35 +2705,33 @@ function Step-27($ctx) {
     Check 'and Left comes back to the rail at the matching height' (
         $destinations -contains $at) "focus is on '$at'"
 
-    # A short row crosses to the closest control on that side: Right on its
-    # last card leaves the row for the next occupied control (the rule in
-    # focus.ts), rather than stopping at the row's own wall. That can be a card
-    # or the row's own More, whichever the ranking picks.
+    # A rail is a line of cards: Right on its last control is a wall, even when
+    # a control exists diagonally in the rail below (#245, ADR-0036). The last
+    # control is the row's More card; the paging arrows are pointer furniture
+    # and are not in the spatial focus model.
     $cards = Continue-Cards $app
     if ($cards.Count -eq 0) {
-        Skip 'the short-row crossing' (
+        Skip 'the short-row wall' (
             'Home has no Continue watching row here: run the checklist through step 23, or watch something first')
     } else {
-        $last = $cards[$cards.Count - 1]
-        $last.SetFocus()
-        Start-Sleep -Milliseconds 400
-        $before = Focused-Name
-        $target = Closest-Control-Right $app $last
-        $targetName = if ($target) { $target.Current.Name } else { '' }
-        if (-not $target) {
-            Skip 'the short-row crossing' (
-                'no control lies to the right of the short row in this AddOn layout')
+        $more = @(Buttons-Named $app 'More Continue watching')[0]
+        if (-not $more) {
+            Skip 'the short-row wall' (
+                'the Continue watching row has no More card to stand on')
         } else {
+            $more.SetFocus()
+            Start-Sleep -Milliseconds 400
+            $before = Focused-Name
             Press-Keys $app '{RIGHT}'
             $focused = [Windows.Automation.AutomationElement]::FocusedElement
             $after = if ($focused) { $focused.Current.Name } else { '' }
-            $landedOnTarget = $false
+            $stayed = $false
             if ($focused) {
-                $landedOnTarget = [Windows.Automation.Automation]::Compare($focused, $target)
+                $stayed = [Windows.Automation.Automation]::Compare($focused, $more)
             }
-            Check 'Right at the end of a short row crosses to the closest control on the right' (
-                ($before -ne '') -and ($after -ne '') -and ($after -ne $before) -and $landedOnTarget) (
-                "focus went from '$before' to '$after'; the closest control on the right is '$targetName'")
+            Check 'Right at the end of a rail is a wall' (
+                ($before -eq 'More Continue watching') -and $stayed -and ($after -eq $before)) (
+                "focus went from '$before' to '$after'; the rail's end must hold")
         }
     }
     Shot $app '27-dpad.png'
