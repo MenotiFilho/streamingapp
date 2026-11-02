@@ -1,8 +1,9 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MotionConfig } from "motion/react";
 import { useState } from "react";
-import { describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
+import { markNavigation, markPointer } from "../../core/inputModality";
 import { CHROME_CLEARANCE } from "../reveal";
 import type { Destination, ShellLevel } from "../navigation";
 import { DestinationGrid } from "./DestinationGrid";
@@ -85,6 +86,15 @@ function FrameHarness() {
 function spine() {
   return screen.getByRole("navigation", { name: "Destinations" });
 }
+
+beforeEach(() => {
+  markNavigation();
+});
+
+afterEach(() => {
+  cleanup();
+  markPointer();
+});
 
 describe("the repertory frame", () => {
   test("draws the six destinations, then the More card that opens the grid", () => {
@@ -179,14 +189,15 @@ describe("the repertory frame", () => {
     await waitFor(() => expect(document.activeElement).toBe(library));
   });
 
-  test("a bare focus does not open the spine; hover and an arrow walk do", async () => {
+  test("a pointer focus leaves the spine compact; hover and a navigation focus open it", async () => {
+    markPointer();
     render(<FrameHarness />);
     const nav = spine();
     const home = within(nav).getByRole("button", { name: "Home" });
 
     act(() => home.focus());
     await waitFor(() =>
-      expect(nav, "focus alone leaves the compact frame").not.toHaveAttribute("data-open"),
+      expect(nav, "a pointer focus leaves the compact frame").not.toHaveAttribute("data-open"),
     );
 
     fireEvent.mouseEnter(nav);
@@ -195,6 +206,16 @@ describe("the repertory frame", () => {
     fireEvent.mouseLeave(nav);
     await waitFor(() => expect(nav).not.toHaveAttribute("data-open"));
 
+    // A navigation focus is the room being walked: it opens the labels. A
+    // same-element focus would fire nothing, so step out and back in.
+    act(() => markNavigation());
+    act(() => screen.getByRole("button", { name: "Content" }).focus());
+    act(() => home.focus());
+    await waitFor(() =>
+      expect(nav, "a navigation focus reveals the labels").toHaveAttribute("data-open", "true"),
+    );
+
+    fireEvent.mouseLeave(nav);
     fireEvent.keyDown(home, { key: "ArrowDown" });
     await waitFor(() => expect(nav, "a keyboard walk reveals the labels").toHaveAttribute(
       "data-open",

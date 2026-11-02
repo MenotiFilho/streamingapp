@@ -24,8 +24,16 @@
     outline-color var(--rep-motion-fade) var(--rep-ease);
 }
 
-[data-focusable]:focus,
-[data-focusable]:focus-visible {
+/* Focus decoration belongs to navigation: a pointer press is direct
+ * manipulation and leaves the control exactly as it was (ADR-0037). The
+ * pointer reset also removes the browser's own focus outline, which a text
+ * input would otherwise paint on a click; navigation replaces it with the one
+ * keyline below. */
+:where(html[data-input="pointer"]) [data-focusable]:focus {
+  outline: none;
+}
+
+:where(html[data-input="navigation"]) [data-focusable]:focus {
   outline: var(--rep-focus-ring);
   outline-offset: var(--rep-focus-offset);
   box-shadow: none;
@@ -230,14 +238,14 @@
 /* Chosen is a 2px brass inset rule on the leading edge and ivory ink. No
  * fill, no size change: the border and the padding stay exactly as they were.
  * The focus rule re-asserts the inset rule because the shared focus reset
- * clears `box-shadow` on every focusable. */
+ * clears `box-shadow` on a navigation focus; the chosen state itself is never
+ * gated (ADR-0037). */
 .rep-kit-choice[aria-pressed="true"] {
   box-shadow: inset 2px 0 0 var(--rep-house);
   color: var(--rep-ivory);
 }
 
-.rep-kit-choice[aria-pressed="true"][data-focusable]:focus,
-.rep-kit-choice[aria-pressed="true"][data-focusable]:focus-visible {
+.rep-kit-choice[aria-pressed="true"][data-focusable]:focus {
   box-shadow: inset 2px 0 0 var(--rep-house);
 }
 
@@ -294,9 +302,9 @@
 }
 
 /* The ivory keyline is the focus mark; the hairline would draw a second line
- * just inside it. */
-.rep-kit-field-input:focus,
-.rep-kit-field-input:focus-visible {
+ * just inside it. Both are navigation's, so a pointer press leaves the field's
+ * own rule alone (ADR-0037). */
+:where(html[data-input="navigation"]) .rep-kit-field-input:focus {
   border-bottom-color: transparent;
 }
 
@@ -341,18 +349,14 @@
 /* The keyline lives on the art, inset 3px, so a scrollport never crops it.
  * `[data-focusable]` is carried so this reset outranks the shared focus rule
  * above; without it the art would draw both the outside keyline and this
- * one. */
-.rep-kit-poster[data-focusable]:focus,
-.rep-kit-poster[data-focusable]:focus-visible,
-.rep-kit-continue[data-focusable]:focus,
-.rep-kit-continue[data-focusable]:focus-visible {
+ * one. Both are navigation's (ADR-0037). */
+:where(html[data-input="navigation"]) .rep-kit-poster[data-focusable]:focus,
+:where(html[data-input="navigation"]) .rep-kit-continue[data-focusable]:focus {
   outline: none;
 }
 
-.rep-kit-poster:focus .rep-kit-poster-art,
-.rep-kit-poster:focus-visible .rep-kit-poster-art,
-.rep-kit-continue:focus .rep-kit-continue-art,
-.rep-kit-continue:focus-visible .rep-kit-continue-art {
+:where(html[data-input="navigation"]) .rep-kit-poster:focus .rep-kit-poster-art,
+:where(html[data-input="navigation"]) .rep-kit-continue:focus .rep-kit-continue-art {
   outline: var(--rep-focus-ring);
   outline-offset: -3px;
 }
@@ -408,8 +412,7 @@
   transition: opacity var(--rep-motion-fade) var(--rep-ease);
 }
 
-.rep-kit-poster:focus .rep-kit-poster-art::after,
-.rep-kit-poster:focus-visible .rep-kit-poster-art::after {
+:where(html[data-input="navigation"]) .rep-kit-poster:focus .rep-kit-poster-art::after {
   opacity: 1;
 }
 
@@ -490,8 +493,7 @@
 }
 
 .rep-kit-poster:hover .rep-kit-poster-name,
-.rep-kit-poster:focus .rep-kit-poster-name,
-.rep-kit-poster:focus-visible .rep-kit-poster-name {
+:where(html[data-input="navigation"]) .rep-kit-poster:focus .rep-kit-poster-name {
   color: var(--rep-ivory);
 }
 
@@ -586,8 +588,7 @@
 }
 
 .rep-kit-continue:hover:not(:disabled) .rep-kit-continue-name,
-.rep-kit-continue:focus .rep-kit-continue-name,
-.rep-kit-continue:focus-visible .rep-kit-continue-name {
+:where(html[data-input="navigation"]) .rep-kit-continue:focus .rep-kit-continue-name {
   color: var(--rep-ivory);
 }
 
@@ -760,6 +761,15 @@
   box-shadow: inset 2px 0 0 var(--rep-house);
   color: var(--rep-ivory);
   font-weight: 400;
+}
+
+/* The shared navigation focus reset clears `box-shadow` on a focused control.
+ * A chosen row is a state, not a focus decoration: it keeps its brass inset
+ * while focused, and the state itself is never gated (ADR-0037). */
+:where(html[data-input="navigation"]) .rep-kit-menu-row[aria-pressed="true"]:focus,
+:where(html[data-input="navigation"]) .rep-kit-popover-body button[aria-pressed="true"]:focus,
+:where(html[data-input="navigation"]) .rep-kit-popover-body button[aria-current="true"]:focus {
+  box-shadow: inset 2px 0 0 var(--rep-house);
 }
 
 .rep-kit-menu-row:disabled {

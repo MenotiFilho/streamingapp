@@ -12,6 +12,7 @@ import {
   levelRises,
   spineDestinations,
   spineLabelTransition,
+  spineOpensOn,
   spineWidthTransition,
 } from "./frame";
 
@@ -20,6 +21,11 @@ describe("the frame's decisions", () => {
     const many = Array.from({ length: 20 }, (_, index) => `destination-${index}`);
     expect(spineDestinations(many)).toHaveLength(SPINE_LIMIT);
     expect(spineDestinations(many)).toEqual(many.slice(0, SPINE_LIMIT));
+  });
+
+  test("the spine opens on a navigation focus and stays compact on a pointer press", () => {
+    expect(spineOpensOn("navigation")).toBe(true);
+    expect(spineOpensOn("pointer")).toBe(false);
   });
 
   test("the spine's width uses the panel spring and snaps under reduced motion", () => {

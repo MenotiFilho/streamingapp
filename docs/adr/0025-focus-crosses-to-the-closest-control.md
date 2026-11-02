@@ -1,5 +1,7 @@
 # Focus crosses to the closest control on that side: #51's anti-leak walls, reversed
 
+**Superseded in part by ADR-0036** — §3's diagonal row-end crossing is reversed; §1, §2 and §4 stand.
+
 Ticket #128 changes where a D-pad move goes when nothing inside the focused
 region lies that way. #51 deliberately made a short row stop at its end rather
 than leak diagonally into the wider row below; this ticket reverses that wall.
@@ -120,10 +122,11 @@ Remote page's own `nearest` out of the served template and asserts it matches
 the window's, with an absolute answer for each direction.
 
 The Windows walkthrough is deferred with the rest of the #126/#127/#128 batch.
-`verify.ps1` step 27 asserts the crossing: Right at the end of a short row lands
-on the closest control on the right (a card, or a row's More where that is
-nearer), and its screenshot records the landing. The step's log also records both
-rail ends stopping; those are check-log assertions, not screenshots. Up from the
+`verify.ps1` step 27 asserted the crossing when #128 landed; since ADR-0036 the
+same step asserts the wall (Right at the end of a short row holds), and the
+crossing this section describes is pinned by `rowExit: "level"` in
+`focus.test.ts`. The step's log also records both rail ends stopping; those are
+check-log assertions, not screenshots. Up from the
 top row to the strip is step 33's own screenshot. Down from a branch's Back into
 an off-side child is not scripted; `focus.test.ts` covers it. The run itself is
 the owner's, and was not performed as part of this change.

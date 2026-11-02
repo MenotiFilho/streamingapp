@@ -19,13 +19,18 @@
  * - when the focused region has nothing at all on that side, focus crosses to
  *   the closest control anywhere in the same active level, choosing that
  *   control's region and landing there by the covering/head rules. That
- *   reverses #51's anti-leak walls: a short row can now cross into a wider one
- *   below, and a sibling or child can be entered off to the side when it holds
- *   the closest control. The window's full-width strip adds its own box to that
- *   search beside its one control, so Up from any top-row card still reaches it;
- *   the dialog's safe-head landing still applies. The rail's vertical ends stay
- *   walls, and a row's end stops only when no control exists on that side
- *   (#128, ADR-0025);
+ *   reverses #51's anti-leak walls for vertical moves and for regions that are
+ *   not rows: a sibling or child can be entered off to the side when it holds
+ *   the closest control. A horizontal exit from a `row` is the exception: it
+ *   must overlap the row on the cross axis (`gap <= ALIGNED`), so Right at a
+ *   short row's end is a wall instead of a diagonal step into the row below,
+ *   while the rail — a column, not a card row — stays reachable as the left
+ *   edge (#245, ADR-0036). `rowExit: "level"` keeps #128's diagonal crossing for
+ *   comparison. The window's full-width strip adds its own box to that search
+ *   beside its one control, so Up from any top-row card still reaches it; the
+ *   dialog's safe-head landing still applies. The rail's vertical ends stay
+ *   walls, and a row's end stops when no overlapping control exists on that
+ *   side (#128, ADR-0025);
  * - `edge: "stop"` keeps the old crossing guard: only a sibling overlapping the
  *   band the control sits in on the cross axis (`gap <= ALIGNED`) is entered,
  *   with no level-wide fallback, so the same layout can be compared against
@@ -99,9 +104,9 @@ export type Layout = {
 export type Focus = { regionId: string; index: number };
 
 /**
- * The switches the prototype let a person feel, plus the edge rule #128 added.
- * The shell uses `DEFAULT_RULES`; the alternatives exist so a later screen
- * never has to guess what was rejected.
+ * The switches the prototype let a person feel, plus the rules #128 and #245
+ * added. The shell uses `DEFAULT_RULES`; the alternatives exist so a later
+ * screen never has to guess what was rejected.
  */
 export type Rules = {
   rowEnd: "stop" | "wrap";
@@ -131,6 +136,15 @@ export type Rules = {
    * feature, the chrome, the spine or a branch starts at its left edge.
    */
   rowEntry: "align" | "first";
+  /**
+   * What a horizontal exit from a row may reach. `overlap` is the settled rule
+   * (#245): the level-wide search may only choose a control that overlaps the
+   * row vertically, so Right at a short row's end stops instead of landing in
+   * the row below, and the full-height rail stays reachable from the row's
+   * first card. `level` keeps #128's diagonal crossing, so the rejected model
+   * can still be locked by a test.
+   */
+  rowExit: "overlap" | "level";
   gone: "previous" | "place" | "head";
   /**
    * How a move ranks the controls on the side it is going. `nearest` is the
@@ -141,7 +155,10 @@ export type Rules = {
   edge: "stop" | "nearest";
 };
 
-/** The locked answers, as #51 settled them and #128 amended the edge. */
+/**
+ * The locked answers, as #51 settled them, #128 amended the edge and #245 the
+ * row exit.
+ */
 export const DEFAULT_RULES: Rules = {
   rowEnd: "stop",
   railEnd: "stop",
@@ -150,6 +167,7 @@ export const DEFAULT_RULES: Rules = {
   upFromContent: "nothing",
   entry: "align",
   rowEntry: "align",
+  rowExit: "overlap",
   gone: "previous",
   edge: "nearest",
 };
@@ -482,13 +500,20 @@ function levelRoot(regions: Record<string, Region>, region: Region): Region {
  * (#128): one level-wide search, direct-first then closest, finds the control
  * on that side even when it sits in a region the old overlap guard did not
  * reach — an off-side child or sibling — rather than stopping at the region's
- * wall.
+ * wall. A horizontal exit from a row restores that guard for its own
+ * candidates (#245, ADR-0036).
  */
 function controlInLevel(
   layout: Layout,
   focused: Region,
   from: Rect,
   direction: Direction,
+  /**
+   * When set, only candidates that overlap the origin on the cross axis count.
+   * A horizontal exit from a row uses this (#245, ADR-0036); every other move
+   * keeps the whole-level search.
+   */
+  mustOverlap = false,
 ): LevelTarget | null {
   const regions: Region[] = [];
   const visit = (region: Region) => {
@@ -514,12 +539,19 @@ function controlInLevel(
     // button stays a candidate beside the box, so the box adds reach rather
     // than replacing the control.
     const box = windowBox(region);
-    if (box) {
+    if (box && (!mustOverlap || gap(from, box, direction) <= ALIGNED)) {
       candidates.push({ region, index: 0, rect: box });
     }
+    // The rail is the left edge of the room: its items are a column, not a
+    // row, and the wall of one row must not close it off. The overlap guard is
+    // for another row; a rail candidate is always reachable (#245).
+    const rail = region.kind === "rail";
     for (let index = 0; index < region.itemRects.length; index += 1) {
       const rect = region.itemRects[index];
       if (!rect) {
+        continue;
+      }
+      if (mustOverlap && !rail && gap(from, rect, direction) > ALIGNED) {
         continue;
       }
       candidates.push({ region, index, rect });
@@ -964,8 +996,12 @@ export function decideMove(
 
   if (rules.edge === "nearest") {
     // 4. The focused region has nothing at all on that side: take the closest
-    //    control anywhere in the active level, direct-first, then closest.
-    const found = controlInLevel(layout, region, from, direction);
+    //    control anywhere in the active level, direct-first, then closest. A
+    //    horizontal exit from a row must overlap the row, so Right at its end
+    //    is a wall while the full-height rail still answers Left (#245).
+    const mustOverlap =
+      region.kind === "row" && !isVertical(direction) && rules.rowExit === "overlap";
+    const found = controlInLevel(layout, region, from, direction, mustOverlap);
     if (found) {
       // A control in a branch is that branch's own control, not a request to
       // descend into one of its children. `land` would do the latter and return
@@ -994,8 +1030,9 @@ export function decideMove(
   }
 
   // 5. The end of a row: a wall, or the wrap the rules ask for. Under
-  //    `edge: "nearest"` this is reached only when no control exists on that
-  //    side anywhere in the level (#128).
+  //    `edge: "nearest"` this is reached when no control exists on that side
+  //    anywhere in the level (#128), or — for a horizontal row exit under
+  //    `rowExit: "overlap"` — when none of them overlaps the row (#245).
   if (region.kind === "row" && !isVertical(direction)) {
     if (rules.rowEnd === "wrap") {
       return {

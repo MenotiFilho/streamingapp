@@ -17,6 +17,7 @@
 
 import type { Rect } from "./focus";
 import { measureRect, type Measurable } from "./layout";
+import { inputModality } from "../core/inputModality";
 
 /** Pixels every reveal keeps between a control and its scrollport's edge. */
 export const REVEAL_MARGIN = 24;
@@ -36,25 +37,35 @@ export type RevealOffsets = { left: number; top: number };
 export type RevealMode = "nearest" | "center";
 
 /**
- * The scroll that centres `target` in the usable part of `viewport`, on both
- * axes. A target larger than the usable box is aligned to its start, for the
- * same reason the nearest policy does: the head is what a person needs.
+ * Which axis the centring owns. A D-pad move centres the axis it moved on and
+ * minimally reveals the other; a mount, a Back restore or a destination change
+ * centres both (ADR-0037).
+ */
+export type RevealAxis = "x" | "y" | "both";
+
+/**
+ * The scroll that centres `target` in the usable part of `viewport`, on the
+ * chosen axes. A target larger than the usable box is aligned to its start, for
+ * the same reason the nearest policy does: the head is what a person needs.
  *
  * This is the repertory spine's navigation rule — the picture being read stays
  * in the middle of the room — while the Velvet screens keep the minimal reveal.
+ * With `axis: "x"` the vertical scroll is the minimal one, and `"y"` the
+ * reverse: a horizontal move must not recentre a two-line title vertically.
  */
 export function centeredOffsets(
   viewport: Rect,
   target: Rect,
   margin: number = REVEAL_MARGIN,
   insetTop: number = 0,
+  axis: RevealAxis = "both",
 ): RevealOffsets {
   const fromX = viewport.x + margin;
   const toX = viewport.x + viewport.w - margin;
   const fromY = viewport.y + margin + insetTop;
   const toY = viewport.y + viewport.h - margin;
 
-  return {
+  const centred = {
     left:
       target.w > toX - fromX
         ? target.x - fromX
@@ -64,6 +75,20 @@ export function centeredOffsets(
         ? target.y - fromY
         : target.y + target.h / 2 - (fromY + (toY - fromY) / 2),
   };
+
+  if (axis === "x") {
+    return {
+      left: centred.left,
+      top: revealOffsets(viewport, target, margin, insetTop).top,
+    };
+  }
+  if (axis === "y") {
+    return {
+      left: revealOffsets(viewport, target, margin, insetTop).left,
+      top: centred.top,
+    };
+  }
+  return centred;
 }
 
 /**
@@ -143,6 +168,7 @@ export function revealIn(
   target: Measurable,
   ports: readonly RevealScrollport[],
   mode: RevealMode = "nearest",
+  axis: RevealAxis = "both",
 ): void {
   for (const port of ports) {
     if (!port.moves) {
@@ -154,7 +180,13 @@ export function revealIn(
     }
     const offsets =
       mode === "center"
-        ? centeredOffsets(viewport, measureRect(target), REVEAL_MARGIN, port.insetTop)
+        ? centeredOffsets(
+            viewport,
+            measureRect(target),
+            REVEAL_MARGIN,
+            port.insetTop,
+            axis,
+          )
         : revealOffsets(viewport, measureRect(target), REVEAL_MARGIN, port.insetTop);
     if (port.horizontal === false) {
       offsets.left = 0;
@@ -270,15 +302,37 @@ export function scrollportsOf(control: Element): RevealScrollport[] {
   return ports;
 }
 
-/** Reveal a control in every scrollport it lives in, instantly. */
-export function reveal(control: Element): void {
+/** How a reveal is asked for: the marker's mode unless overridden. */
+export type RevealOptions = {
+  /** Force centring or the minimal reveal; the `data-reveal` marker when omitted. */
+  mode?: RevealMode;
+  /** Which axis the centre owns; both when omitted. */
+  axis?: RevealAxis;
+  /**
+   * Reveal even in pointer modality. The one pointer scroll is the cut-off
+   * first press, which focuses and brings the control in minimally.
+   */
+  force?: boolean;
+};
+
+/**
+ * Reveal a control in every scrollport it lives in, instantly. A pointer press
+ * reveals nothing: the room is direct manipulation, and only the cut-off first
+ * press asks for the one exception with `force` (ADR-0037).
+ */
+export function reveal(control: Element, options: RevealOptions = {}): void {
+  if (!options.force && inputModality() === "pointer") {
+    return;
+  }
+
+
   const marker = control.closest("[data-reveal]");
-  const mode = marker?.getAttribute("data-reveal");
+  const markerMode = marker?.getAttribute("data-reveal");
 
   // The hero is the top of the programme: focusing it puts the page back at
   // its first frame so the whole top of the screen is in view, not a centred
   // crop of it. Only the repertory surface marks this.
-  if (mode === "top") {
+  if (markerMode === "top") {
     const page = document.scrollingElement ?? document.documentElement;
     if (page) {
       page.scrollTop = 0;
@@ -286,7 +340,15 @@ export function reveal(control: Element): void {
     return;
   }
 
-  revealIn(control, scrollportsOf(control), mode === "center" ? "center" : "nearest");
+  const mode =
+    options.mode ??
+    (markerMode === "center" ? "center" : "nearest");
+  revealIn(
+    control,
+    scrollportsOf(control),
+    mode,
+    options.axis ?? "both",
+  );
 }
 
 /**
@@ -345,8 +407,15 @@ export function onRevealed(listener: RevealedListener): () => void {
  * browser's own scroll, then reveal it with the margin (#127). The focus moves
  * outside the focus engine go through here. A no-op when there is no control,
  * when focus is refused, or when the control takes no focus at all.
+ *
+ * In pointer modality focus moves with `preventScroll` and nothing else: no
+ * scroll, no listener, no decoration. The cut-off first press is the one
+ * exception and asks for it with `force` (ADR-0037).
  */
-export function focusAndReveal(control: HTMLElement | null | undefined): void {
+export function focusAndReveal(
+  control: HTMLElement | null | undefined,
+  options: RevealOptions = {},
+): void {
   if (!control) {
     return;
   }
@@ -359,7 +428,10 @@ export function focusAndReveal(control: HTMLElement | null | undefined): void {
   if (!landed) {
     return;
   }
-  reveal(landed);
+  if (!options.force && inputModality() === "pointer") {
+    return;
+  }
+  reveal(landed, options);
   if (revealedListeners.size === 0) {
     unreportedReveal = landed;
     return;

@@ -15,8 +15,9 @@ import {
   REPEAT_EVERY_MS,
   type Intent,
 } from "../core/input";
+import { inputModality, markNavigation } from "../core/inputModality";
 import { firstFocusable, focusOf, readLevel } from "./layout";
-import { focusLanded, onRevealed, reveal } from "./reveal";
+import { focusLanded, onRevealed, reveal, type RevealAxis } from "./reveal";
 import { useGamepad } from "./useGamepad";
 
 type Remembered = Focus & { element: HTMLElement | null };
@@ -80,6 +81,13 @@ export function useSpatialFocus({
   const lastContent = useRef(new Map<string, Remembered>());
   /** The control the reveal last ran for, so an ordinary render does not scroll again. */
   const revealed = useRef<HTMLElement | null>(null);
+  /**
+   * The axis the next reveal centres. A D-pad move sets the axis it moved on
+   * before focusing; the focusin listener consumes it synchronously inside
+   * `.focus()`. Any other reveal — a mount, a Back restore, a destination
+   * change — centres both.
+   */
+  const pendingAxis = useRef<RevealAxis>("both");
   /** A held key's first and last accepted press, so the keyboard repeats like the pad. */
   const keyRepeat = useRef(new Map<string, { first: number; last: number }>());
 
@@ -110,8 +118,16 @@ export function useSpatialFocus({
    * guard keeps a re-render from scrolling a control a person deliberately
    * wheeled away. Focus leaving the level forgets the guard, so a return to the
    * same control reveals it again.
+   *
+   * Pointer modality reveals nothing: the focus still moves and the engine
+   * still remembers it, but the room is under direct manipulation and the
+   * decoration belongs to navigation (ADR-0037). The axis is consumed either
+   * way, so a later navigation reveal never inherits a pointer press's axis.
    */
   const revealFocused = (element: HTMLElement) => {
+    const axis = pendingAxis.current;
+    pendingAxis.current = "both";
+
     const activeRoot = rootRef.current();
     if (!activeRoot) {
       return;
@@ -123,8 +139,11 @@ export function useSpatialFocus({
     if (revealed.current === element) {
       return;
     }
+    if (inputModality() !== "navigation") {
+      return;
+    }
     revealed.current = element;
-    reveal(element);
+    reveal(element, { axis });
   };
 
   /**
@@ -135,10 +154,17 @@ export function useSpatialFocus({
    * 0x0 rectangle would jolt the page, so only the element that now holds focus
    * is revealed.
    */
-  const focusElement = (element: HTMLElement) => {
+  const focusElement = (element: HTMLElement, axis: RevealAxis = "both") => {
+    pendingAxis.current = axis;
     element.focus({ preventScroll: true });
     const landed = focusLanded(element);
-    if (landed) {
+    if (!landed) {
+      pendingAxis.current = "both";
+      return;
+    }
+    if (revealed.current !== landed) {
+      // The focusin listener did not get there first; take the axis now.
+      pendingAxis.current = axis;
       revealFocused(landed);
     }
   };
@@ -194,6 +220,9 @@ export function useSpatialFocus({
     if (!activeRoot) {
       return;
     }
+    // A mount, a Back restore or a destination change is not a direction: both
+    // axes are centred.
+    pendingAxis.current = "both";
 
     const active = document.activeElement;
     // A control inside an inert subtree is not this level's focus even when
@@ -282,11 +311,14 @@ export function useSpatialFocus({
     const target = elements[decision.regionId]?.[decision.index];
     if (target) {
       rememberFocus({ regionId: decision.regionId, index: decision.index }, target);
-      focusElement(target);
+      focusElement(target, direction === "left" || direction === "right" ? "x" : "y");
     }
   };
 
   const run = (intent: Intent) => {
+    // Every intent is navigation, from a key or the pad; the gamepad has no key
+    // event to have switched the modality already (ADR-0037).
+    markNavigation();
     if (intent === "back") {
       backRef.current();
       return;

@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { PosterCard } from "../kit/PosterCard";
+import { readLevel } from "./layout";
 import { RowTrack } from "./RowTrack";
 
 afterEach(() => {
@@ -109,6 +110,33 @@ describe("the repertory row track", () => {
     expect(left).toBeEnabled();
     fireEvent.click(left);
     expect(track.scrollLeft, "a second press pages back").toBe(0);
+  });
+
+  test("offers the cards to the focus model and not the paging arrows", () => {
+    render(
+      <div data-region="row:popular" data-kind="row" data-label="Popular" data-testid="row">
+        <RowTrack title="Popular" columns={5.5} page={5}>
+          <PosterCard name="One" />
+          <PosterCard name="Two" />
+        </RowTrack>
+      </div>,
+    );
+
+    const track = screen.getByRole("list");
+    Object.defineProperty(track, "clientWidth", { configurable: true, value: 400 });
+    Object.defineProperty(track, "scrollWidth", { configurable: true, value: 1200 });
+    fireEvent.scroll(track);
+    expect(
+      screen.getByRole("button", { name: "Scroll Popular right" }),
+      "the arrow is enabled, so the focus model skips it for what it is, not for a disabled state",
+    ).toBeEnabled();
+
+    const { elements } = readLevel(screen.getByTestId("row"), {});
+
+    expect(elements["row:popular"]).toEqual([
+      screen.getByRole("button", { name: "One" }),
+      screen.getByRole("button", { name: "Two" }),
+    ]);
   });
 
   test("moves with a drag and swallows the card press that would follow it", () => {
