@@ -181,8 +181,8 @@
   cursor: pointer;
 }
 
-.shell-player-dock-track:focus-within,
-.shell-player-dock-fader:focus-within {
+:where(html[data-input="navigation"]) .shell-player-dock-track:focus-within,
+:where(html[data-input="navigation"]) .shell-player-dock-fader:focus-within {
   outline: var(--rep-focus-ring);
   outline-offset: var(--rep-focus-offset);
 }
@@ -248,8 +248,7 @@
   color: var(--rep-ivory);
 }
 
-.shell-player-dock-control:focus,
-.shell-player-dock-control:focus-visible {
+:where(html[data-input="navigation"]) .shell-player-dock-control:focus {
   border-color: var(--rep-ivory);
   background: color-mix(in srgb, var(--rep-ink) 66%, transparent);
   color: var(--rep-ivory);

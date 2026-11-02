@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { markNavigation, markPointer } from "../core/inputModality";
 import type { Rect } from "./focus";
 import {
   CHROME_CLEARANCE,
@@ -144,6 +145,38 @@ describe("the repertory centre", () => {
     // The page's visible middle is 200; the card's middle at 620 moves it 420.
     expect(fake.scrolled).toEqual({ row: 440, page: 420 });
   });
+
+  test("a horizontal move centres x and only minimally reveals y", () => {
+    // The card's centre is already x 180 (the usable centre is 500) and its
+    // bottom is 740 against the usable 576. Axis x takes the -320 centre and
+    // the 164 minimal scroll, not the 320 vertical centre.
+    expect(
+      centeredOffsets(viewport, { x: 100, y: 500, w: 160, h: 240 }, REVEAL_MARGIN, 0, "x"),
+    ).toEqual({ left: -320, top: 164 });
+  });
+
+  test("a vertical move centres y and only minimally reveals x", () => {
+    expect(
+      centeredOffsets(viewport, { x: 100, y: 500, w: 160, h: 240 }, REVEAL_MARGIN, 0, "y"),
+    ).toEqual({ left: 0, top: 320 });
+  });
+
+  test("a fully visible card does not scroll on the other axis", () => {
+    expect(
+      centeredOffsets(viewport, card, REVEAL_MARGIN, 0, "x"),
+      "the vertical reveal is minimal and the card already clears it",
+    ).toEqual({ left: -320, top: 0 });
+    expect(
+      centeredOffsets(viewport, card, REVEAL_MARGIN, 0, "y"),
+      "the horizontal reveal is minimal and the card already clears it",
+    ).toEqual({ left: 0, top: -80 });
+  });
+
+  test("nearest ignores the axis and keeps the minimal reveal on both", () => {
+    const fake = nested();
+    revealIn(fake.target, [fake.row, fake.page], "nearest", "x");
+    expect(fake.scrolled).toEqual({ row: 244, page: 364 });
+  });
 });
 
 /** A target whose client rect follows the fakes' scroll offsets. */
@@ -277,7 +310,12 @@ function shellTree(levelKind: string | null = "overlay", chrome = true) {
   return { card, row, level };
 }
 
+beforeEach(() => {
+  markNavigation();
+});
+
 afterEach(() => {
+  markPointer();
   document.body.innerHTML = "";
   document.documentElement.scrollTop = 0;
   vi.restoreAllMocks();
@@ -548,5 +586,66 @@ describe("the reveal after a focus attempt", () => {
     } finally {
       stop();
     }
+  });
+
+  test("a pointer focus moves focus but reveals nothing", () => {
+    markPointer();
+    const control = document.createElement("button");
+    document.body.append(control);
+    belowTheFold(control);
+
+    focusAndReveal(control);
+
+    expect(document.activeElement).toBe(control);
+    expect(
+      document.documentElement.scrollTop,
+      "direct manipulation does not move the page",
+    ).toBe(0);
+  });
+
+  test("a pointer focus does not notify the reveal listeners", () => {
+    markPointer();
+    const seen = vi.fn();
+    const stop = onRevealed(seen);
+    const control = document.createElement("button");
+    document.body.append(control);
+    belowTheFold(control);
+
+    try {
+      focusAndReveal(control);
+      expect(seen).not.toHaveBeenCalled();
+    } finally {
+      stop();
+    }
+  });
+
+  test("the cut-off first press's forced reveal is the one pointer scroll", () => {
+    markPointer();
+    const seen = vi.fn();
+    const stop = onRevealed(seen);
+    const control = document.createElement("button");
+    document.body.append(control);
+    belowTheFold(control);
+
+    try {
+      focusAndReveal(control, { mode: "nearest", force: true });
+
+      expect(document.activeElement).toBe(control);
+      expect(document.documentElement.scrollTop).toBe(324);
+      expect(seen, "the engine guards the one pointer reveal").toHaveBeenCalledWith(control);
+    } finally {
+      stop();
+    }
+  });
+
+  test("a bare reveal in pointer mode does nothing", () => {
+    markPointer();
+    const control = document.createElement("button");
+    document.body.append(control);
+    belowTheFold(control);
+
+    reveal(control);
+
+    expect(document.documentElement.scrollTop).toBe(0);
   });
 });

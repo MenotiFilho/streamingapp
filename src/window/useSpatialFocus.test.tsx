@@ -1,7 +1,9 @@
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { useEffect, useRef } from "react";
-import { afterEach, describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { markNavigation, markPointer } from "../core/inputModality";
+import { installPointerPress } from "../core/react/pointerPress";
 import { DEFAULT_RULES } from "./focus";
 import { focusAndReveal } from "./reveal";
 import { useSpatialFocus } from "./useSpatialFocus";
@@ -77,10 +79,12 @@ function Harness({
   direct = false,
   auto = false,
   inertFirst = false,
+  onActivate,
 }: {
   direct?: boolean;
   auto?: boolean;
   inertFirst?: boolean;
+  onActivate?: () => void;
 }) {
   const root = useRef<HTMLDivElement | null>(null);
   useSpatialFocus({
@@ -103,7 +107,7 @@ function Harness({
         <button data-focusable data-testid="one" inert={inertFirst ? true : undefined}>
           One
         </button>
-        <button data-focusable data-testid="two" autoFocus={auto}>
+        <button data-focusable data-testid="two" autoFocus={auto} onClick={onActivate}>
           Two
         </button>
       </div>
@@ -187,7 +191,12 @@ function SpineHarness() {
 }
 
 afterEach(() => {
+  markPointer();
   vi.restoreAllMocks();
+});
+
+beforeEach(() => {
+  markNavigation();
 });
 
 describe("the spatial focus reveal", () => {
@@ -390,5 +399,62 @@ describe("the spatial focus reveal", () => {
       track?.scrollLeft,
       "a refused focus must not reveal the remembered control's stale box",
     ).toBe(0);
+  });
+
+  test("pointer modality moves focus without revealing; navigation reveals", async () => {
+    layOutRow();
+    markPointer();
+    render(<Harness />);
+
+    const one = document.querySelector<HTMLElement>('[data-testid="one"]');
+    const two = document.querySelector<HTMLElement>('[data-testid="two"]');
+    const track = document.querySelector<HTMLElement>('[data-testid="track"]');
+    await waitFor(() => expect(document.activeElement).toBe(one));
+    expect(track?.scrollLeft, "the mount focus is not revealed under the pointer").toBe(0);
+
+    two?.focus();
+    await waitFor(() => expect(document.activeElement).toBe(two));
+    expect(track?.scrollLeft, "a pointer focus moves focus and nothing else").toBe(0);
+
+    markNavigation();
+    fireEvent.keyDown(document, { key: "ArrowLeft" });
+    await waitFor(() => expect(document.activeElement).toBe(one));
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    await waitFor(() => expect(document.activeElement).toBe(two));
+    expect(track?.scrollLeft, "navigation reveals the card on the movement's axis").toBe(
+      284,
+    );
+  });
+
+  test("the cut-off first press focuses without activating; the second activates", async () => {
+    layOutRow();
+    markPointer();
+    const activated = vi.fn();
+    const stop = installPointerPress(document.documentElement, {
+      focusAndReveal: (control) =>
+        focusAndReveal(control, { mode: "nearest", force: true }),
+    });
+
+    try {
+      render(<Harness onActivate={activated} />);
+      const one = document.querySelector<HTMLElement>('[data-testid="one"]');
+      const two = document.querySelector<HTMLElement>('[data-testid="two"]');
+      const track = document.querySelector<HTMLElement>('[data-testid="track"]');
+      await waitFor(() => expect(document.activeElement).toBe(one));
+
+      fireEvent.pointerDown(two as HTMLElement);
+      fireEvent.click(two as HTMLElement);
+
+      await waitFor(() => expect(document.activeElement).toBe(two));
+      expect(activated, "the cut-off first press is not the one aimed at").not.toHaveBeenCalled();
+      expect(track?.scrollLeft, "it focuses and reveals the card minimally").toBe(284);
+
+      fireEvent.pointerDown(two as HTMLElement);
+      fireEvent.click(two as HTMLElement);
+
+      expect(activated, "the second press activates the now-focused control").toHaveBeenCalledTimes(1);
+    } finally {
+      stop();
+    }
   });
 });

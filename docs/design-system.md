@@ -159,8 +159,8 @@ panels and forms read at 46ch; prose at 58–62ch.
 
 ## 5. Focus
 
-One mark, on every focusable thing — poster card, rail item, button, OSD icon,
-form field, row:
+One mark, on every focusable thing **when navigation is the input** — poster
+card, rail item, button, OSD icon, form field, row:
 
 - a **2px ivory keyline with a 3px offset**, outside a control; where the art
   fills the row (a poster or continue card), the same 3px offset is drawn
@@ -175,11 +175,22 @@ form field, row:
   2px brass inset rule on the leading edge plus ivory ink — no fill, no size
   change.
 
+A pointer press is direct manipulation: it paints none of the mark — no
+keyline, ivory ink, spotlight wash or focus background — while a selected
+control keeps its selected state. The reveal follows the same rule: it scrolls
+only for navigation, and then only the axis the movement used, so a two-line
+title does not jiggle the page on a Left/Right step. A control cut off by its
+scrollport is the one pointer scroll: the first press focuses and minimally
+reveals it, and the next press activates. The room opens in pointer modality;
+the first key or pad intent turns the mark on. The served Remote follows the
+same rule.
+
 The keyline has to fit: a scrollport gets 3px of extra padding so a focused edge
 is never clipped, and a rail's first and last card are inset by the same 3px.
-The spine grows on hover or an arrow-key walk (compact → open) and the page
-makes room; a Settings leaf keeps the spine live, with the focus root covering
-both.
+The spine grows on hover or a navigation walk (compact → open) and floats over
+the page; the page keeps its compact margin. A Settings leaf stays at the
+compact edge, with the focus root covering both, and the open spine draws over
+it. The spine's opaque ink is the cover — no scrim and no shadow.
 
 ## 6. Motion
 
@@ -305,12 +316,14 @@ the phone's emoji font is not the design system.
 - **Continue watching card**: 16:9 still, a 2px brass progress line under the
   art and a mono note (remaining time or episode), then the Title in sans. An
   entry whose Addon was removed is marked unplayable and does not open.
-- **Rail**: one view shows five cards and half of the next; an arrow pages
-  exactly five cards. The last card is a **More** card that opens the whole row
-  as a grid. Entering a rail from outside a rail starts at its first card;
-  moving between rails keeps the nearest card. A feed row is its own source: its
-  quiet head action asks the Host's next page, and its More card opens the cards
-  read so far; the grid does not ask a page of its own.
+- **Rail**: one view shows five cards and half of the next; the `<`/`>` arrows
+  page exactly five cards when clicked or tapped, and are not in the Tab or
+  D-pad order. The D-pad walks the cards one by one. The last card is a **More**
+  card that opens the whole row as a grid. Entering a rail from outside a rail
+  starts at its first card; moving between rails keeps the nearest card. A feed
+  row is its own source: its quiet head action asks the Host's next page, and
+  its More card opens the cards read so far; the grid does not ask a page of
+  its own.
 - **Feature**: the backdrop between two hairlines, a two-gradient ink scrim, the
   Title in display serif over it, the kicker in mono (`Feature presentation` and
   the programme's position), one line of facts, the description, and one

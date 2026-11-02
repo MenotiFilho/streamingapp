@@ -7,7 +7,8 @@ import { Children, isValidElement, useId, type ReactNode } from "react";
  * arrows at both edges, and a page that moves exactly five. A hand has none of
  * that: the list itself slides under the finger, and the only control at the end
  * of a row is the one that asks the store for more. So this is a plain scroll,
- * with the snap points a finger expects and no keyboard step of its own.
+ * with no keyboard step of its own and no snap: a snap point fights the minimal
+ * reveal the cut-off first press asks for (#245).
  *
  * The head is the programme's: the row's number in mono, the name in display
  * serif, a hairline to the trailing end, and the tag the core prints. A row
@@ -57,7 +58,7 @@ export function RemoteRail({
       {note ? <div className="remote-rail-note">{note}</div> : null}
 
       {items.length > 0 || action ? (
-        <ul className="remote-rail-track">
+        <ul className="remote-rail-track" data-kind="row">
           {items.map((item, itemIndex) => {
             const key =
               isValidElement(item) && item.key !== null ? item.key : itemIndex;

@@ -44,9 +44,9 @@
 }
 
 /* The picture is not a menu button: it takes no focus ring and no focus
-   elevation, so the OSD's controls stay on top and keep their own ring. */
-.shell-player .shell-picture-toggle:focus,
-.shell-player .shell-picture-toggle:focus-visible {
+   elevation, so the OSD's controls stay on top and keep their own ring. The
+   reset is navigation's; a pointer press draws nothing anyway (ADR-0037). */
+:where(html[data-input="navigation"]) .shell-player .shell-picture-toggle:focus {
   z-index: auto;
   outline: none;
   box-shadow: none;
@@ -268,8 +268,7 @@
   color: var(--rep-ivory);
 }
 
-.shell-osd-window > .shell-osd-icon:focus,
-.shell-osd-window > .shell-osd-icon:focus-visible {
+:where(html[data-input="navigation"]) .shell-osd-window > .shell-osd-icon:focus {
   border-color: var(--rep-ivory);
   background: color-mix(in srgb, var(--rep-ink) 72%, transparent);
   color: var(--rep-ivory);
@@ -368,7 +367,7 @@
 
 /* The native input is the accessible control; the rail above is its drawing.
  * It covers the rail, so a click, a drag and the keyboard all still work. */
-.rep-osd-fader:focus-within {
+:where(html[data-input="navigation"]) .rep-osd-fader:focus-within {
   outline: var(--rep-focus-ring);
   outline-offset: var(--rep-focus-offset);
 }
@@ -482,8 +481,7 @@
   color: var(--rep-ivory);
 }
 
-.shell-osd-icon:focus,
-.shell-osd-icon:focus-visible {
+:where(html[data-input="navigation"]) .shell-osd-icon:focus {
   border-color: var(--rep-ivory);
   background: color-mix(in srgb, var(--rep-ink) 66%, transparent);
   color: var(--rep-ivory);

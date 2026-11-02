@@ -1,5 +1,6 @@
 import type { Transition } from "motion/react";
 
+import type { InputModality } from "../../core/inputModality";
 import { DEFAULT_RULES, type Rules } from "../focus";
 import type { ShellLevel } from "../navigation";
 import { fade, panel } from "../../core/react/motion";
@@ -21,6 +22,16 @@ export const SPINE_LIMIT = 15;
 /** The destinations the spine draws; the grid always holds the whole programme. */
 export function spineDestinations<T>(destinations: readonly T[]): T[] {
   return destinations.slice(0, SPINE_LIMIT);
+}
+
+/**
+ * Whether the spine opens when one of its items takes focus. A navigation
+ * focus — a key, the pad, or a restore after Back — reveals the labels; a
+ * pointer press on the same item is direct manipulation and leaves the spine
+ * compact (ADR-0037).
+ */
+export function spineOpensOn(modality: InputModality): boolean {
+  return modality === "navigation";
 }
 
 /**

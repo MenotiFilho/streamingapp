@@ -467,9 +467,10 @@ body {
   color: var(--rep-dim);
 }
 
-/* The rail slides under the finger: no arrows, no ten-foot paging, and the
- * scrollbar is hidden because the cards say there is more. The block padding
- * leaves the focus keyline room inside the scrollport. */
+/* The rail slides under the finger: no arrows, no ten-foot paging, no snap and
+ * the scrollbar is hidden because the cards say there is more. A snap point
+ * fights the minimal reveal a cut-off first press asks for (#245). The block
+ * padding leaves the focus keyline room inside the scrollport. */
 .remote-rail-track {
   display: flex;
   gap: var(--rep-space-3);
@@ -479,7 +480,6 @@ body {
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
-  scroll-snap-type: x proximity;
   scrollbar-width: none;
   -ms-overflow-style: none;
   -webkit-overflow-scrolling: touch;
@@ -491,7 +491,6 @@ body {
 
 .remote-rail-item {
   flex: 0 0 auto;
-  scroll-snap-align: start;
 }
 
 /* A poster rail carries roughly two and a half posters; a 16:9 rail one and a

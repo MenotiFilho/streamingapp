@@ -70,6 +70,13 @@ export const PAD_AXES: Readonly<
 export const AXIS_THRESHOLD = 0.5;
 
 /**
+ * How far a pointer may move and still be a press rather than a drag. The row's
+ * own drag and the cut-off press plan share it, so a drag that synthesises a
+ * click is never mistaken for a press on the card under the pointer.
+ */
+export const DRAG_SLOP = 5;
+
+/**
  * The one repeat cadence for a held direction. The pad and a held arrow key
  * both fire at once, then after this wait, then at this interval; otherwise
  * the keyboard's OS repeat would outrun the pad and the two would feel like
