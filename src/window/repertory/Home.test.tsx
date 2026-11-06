@@ -212,6 +212,24 @@ function activeSlide(): string | null {
   return screen.getByTestId("repertory-feature").getAttribute("data-active-slide");
 }
 
+/**
+ * jsdom has no layout, and the gesture's distance is a share of the frame's
+ * width: the test hands the screen the width the window would give it.
+ */
+function withWidth(element: HTMLElement, width: number) {
+  vi.spyOn(element, "getBoundingClientRect").mockReturnValue({
+    x: 0,
+    y: 0,
+    width,
+    height: (width * 9) / 16,
+    top: 0,
+    right: width,
+    bottom: (width * 9) / 16,
+    left: 0,
+    toJSON: () => ({}),
+  } as DOMRect);
+}
+
 function baseIntent(value: ShellContextValue): (intent: "left" | "right") => boolean {
   const handler = vi
     .mocked(value.setBaseIntentHandler)
@@ -264,7 +282,7 @@ describe("Home's feature presentation", () => {
     expect(screen.getByTestId("repertory-feature-placeholder")).toBeInTheDocument();
   });
 
-  it("rotates on its 24s beat and holds while the action is focused", async () => {
+  it("rotates on its 15s beat and holds while the action is focused", async () => {
     onlyIntervals();
     renderHome();
     await flush();
@@ -283,6 +301,28 @@ describe("Home's feature presentation", () => {
     act(() => action.blur());
     act(() => vi.advanceTimersByTime(FEATURE_ROTATION_MS));
     expect(activeSlide()).toBe("tt3");
+  });
+
+  it("does not hold the beat for the focus the screen places at launch", async () => {
+    onlyIntervals();
+    renderHome({ chosenDestination: false });
+    await flush();
+
+    const action = screen.getByRole("button", { name: /Open the Title/ });
+    expect(document.activeElement, "the screen seats the feature on launch").toBe(action);
+
+    act(() => vi.advanceTimersByTime(FEATURE_ROTATION_MS));
+    expect(
+      activeSlide(),
+      "the screen's own focus is not a hand on the programme, so the beat starts",
+    ).toBe("tt2");
+
+    // A person's focus is still a hold: the ADR's pause is about a hand, not
+    // about where the screen put the seat.
+    act(() => action.blur());
+    act(() => action.focus());
+    act(() => vi.advanceTimersByTime(FEATURE_ROTATION_MS * 2));
+    expect(activeSlide(), "a person's focus holds the programme").toBe("tt2");
   });
 
   it("steps with Left and Right through the base intent without losing focus", async () => {
@@ -391,6 +431,7 @@ describe("Home's feature presentation", () => {
     await flush();
 
     const frame = screen.getByRole("button", { name: /Open the Title/ });
+    withWidth(frame, 400);
     fireEvent.pointerDown(frame, {
       pointerId: 1,
       pointerType: "touch",
@@ -400,19 +441,58 @@ describe("Home's feature presentation", () => {
     fireEvent.pointerMove(frame, {
       pointerId: 1,
       pointerType: "touch",
-      clientX: 240,
+      clientX: 200,
       clientY: 204,
     });
     fireEvent.pointerUp(frame, {
       pointerId: 1,
       pointerType: "touch",
-      clientX: 240,
+      clientX: 200,
       clientY: 204,
     });
     fireEvent.click(frame, { detail: 1 });
 
-    expect(activeSlide()).toBe("tt2");
+    await waitFor(() => expect(activeSlide(), "120 of 400 crosses the share").toBe("tt2"));
     expect(pushed, "the drag's click is not a press on the feature").toHaveLength(0);
+  });
+
+  it("snaps a drag back when it comes back under the share", async () => {
+    onlyIntervals();
+    renderHome();
+    await flush();
+
+    const frame = screen.getByRole("button", { name: /Open the Title/ });
+    withWidth(frame, 400);
+    fireEvent.pointerDown(frame, {
+      pointerId: 1,
+      pointerType: "mouse",
+      button: 0,
+      clientX: 320,
+      clientY: 200,
+    });
+    fireEvent.pointerMove(frame, {
+      pointerId: 1,
+      pointerType: "mouse",
+      button: 0,
+      clientX: 200,
+      clientY: 204,
+    });
+    fireEvent.pointerMove(frame, {
+      pointerId: 1,
+      pointerType: "mouse",
+      button: 0,
+      clientX: 290,
+      clientY: 204,
+    });
+    fireEvent.pointerUp(frame, {
+      pointerId: 1,
+      pointerType: "mouse",
+      button: 0,
+      clientX: 290,
+      clientY: 204,
+    });
+
+    await waitFor(() => expect(activeSlide(), "30 of 400 is under the share").toBe("tt1"));
   });
 
   it("does not leave the programme held by a press that focused the frame", async () => {
@@ -452,6 +532,7 @@ describe("Home's feature presentation", () => {
     await flush();
 
     const frame = screen.getByRole("button", { name: /Open the Title/ });
+    withWidth(frame, 400);
     fireEvent.pointerDown(frame, {
       pointerId: 1,
       pointerType: "touch",
@@ -472,7 +553,7 @@ describe("Home's feature presentation", () => {
     });
     fireEvent.click(frame, { detail: 1 });
 
-    expect(activeSlide()).toBe("tt4");
+    await waitFor(() => expect(activeSlide(), "a rightward drag wraps to the last").toBe("tt4"));
   });
 
   it("lets the next keyboard Enter open the Title after a drag synthesised no click", async () => {

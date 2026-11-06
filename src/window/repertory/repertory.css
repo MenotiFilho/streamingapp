@@ -732,13 +732,16 @@ body.picture-behind .shell-nav-slot {
 }
 
 /*
- * The backdrop sits between two hairlines. Both slides share the frame's grid
- * cell, so the cross-fade never moves the page; the action is one persistent
- * control over them, which is why stepping slides never takes focus away.
+ * The backdrop sits between two hairlines. Every slide shares the frame's one
+ * grid row, so the cross-fade never moves the page and the row can never grow
+ * taller than the frame: the copy is clamped to what the frame holds, never the
+ * other way round. The action is part of the copy's flow, below the
+ * description, so it cannot cover it.
  */
 .rep-feature-frame {
   position: relative;
   display: grid;
+  grid-template-rows: minmax(0, 1fr);
   /* One size for every slide: the art covers the frame, and a long name or a
    * long description is clamped rather than growing the page between items. */
   height: max(360px, calc(var(--rep-stage) * 20));
@@ -747,8 +750,10 @@ body.picture-behind .shell-nav-slot {
   border-bottom: 1px solid var(--rep-hairline);
   background: var(--rep-ink-raised);
   /* A horizontal drag steps the programme instead of panning a page; a
-   * vertical drag still scrolls Home. */
+   * vertical drag still scrolls Home. A mouse drag must move the slides, not
+   * select the copy it crosses. */
   touch-action: pan-y;
+  user-select: none;
 }
 
 .rep-feature-slide {
@@ -757,10 +762,12 @@ body.picture-behind .shell-nav-slot {
   flex-direction: column;
   justify-content: flex-end;
   min-width: 0;
-  padding: var(--rep-space-7) var(--rep-space-6)
-    calc(var(--rep-space-8) + var(--rep-space-7));
+  min-height: 0;
+  overflow: hidden;
+  padding: var(--rep-space-6);
   box-sizing: border-box;
 }
+
 
 .rep-feature-art {
   position: absolute;
@@ -826,8 +833,13 @@ body.picture-behind .shell-nav-slot {
   display: flex;
   flex-direction: column;
   gap: var(--rep-space-3);
-  max-width: 62ch;
+  /* The measure is the body text's: 62 characters of the description, not of
+   * the 16px root, so the copy is not squeezed into a third of the frame. The
+   * right reserve keeps the ticks clear of the action. */
+  max-width: min(62ch, calc(100% - 12rem));
   min-width: 0;
+  min-height: 0;
+  font-size: var(--rep-text-body);
 }
 
 /* The one spotlight wash on the feature (design record §5): a soft brass edge
@@ -853,9 +865,11 @@ body.picture-behind .shell-nav-slot {
   background: var(--rep-hairline);
 }
 
+/* The Title is one line: a long name steps down through the two densities
+ * rather than wrapping, so the copy always has room for the description and the
+ * action inside the frame. */
 .rep-feature-title {
-  display: -webkit-box;
-  max-width: 16ch;
+  max-width: 100%;
   overflow: hidden;
   margin: 0;
   color: var(--rep-ivory);
@@ -864,8 +878,8 @@ body.picture-behind .shell-nav-slot {
   font-weight: 500;
   line-height: var(--rep-leading-display);
   letter-spacing: var(--rep-tracking-display);
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 /* A long name steps down through the two densities rather than wrapping to
@@ -900,6 +914,7 @@ body.picture-behind .shell-nav-slot {
 .rep-feature-description {
   display: -webkit-box;
   max-width: 58ch;
+  margin: 0;
   overflow: hidden;
   color: var(--rep-dim);
   font-family: var(--rep-sans);
@@ -908,7 +923,7 @@ body.picture-behind .shell-nav-slot {
   line-height: var(--rep-leading-body);
   letter-spacing: var(--rep-tracking-body);
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
 }
 
 /* The feature's reserved frame while the Featured catalog answers: the same
@@ -949,11 +964,11 @@ body.picture-behind .shell-nav-slot {
   font-size: var(--rep-text-mono);
 }
 
+/* The frame's one action, in the copy's flow below the description: it is the
+ * frame's press that opens the Title, so the plate itself takes no pointer. */
 .rep-feature-action {
-  position: absolute;
-  bottom: var(--rep-space-6);
-  left: var(--rep-space-6);
-  z-index: 3;
+  align-self: flex-start;
+  flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -970,7 +985,7 @@ body.picture-behind .shell-nav-slot {
 
 /*
  * The programme's ticks: one hairline per slide at the feature's foot, the
- * current one filling brass over the slide's 24 seconds (ADR-0036 §2). They are
+ * current one filling brass over the slide's 15 seconds (ADR-0036 §2). They are
  * pointer and touch furniture, like a rail's arrows: outside the frame's focus
  * order, and never a second way to open the Title.
  */

@@ -9,7 +9,9 @@ import {
 } from "react";
 import type {
   MouseEvent as ReactMouseEvent,
+  MutableRefObject,
   PointerEvent as ReactPointerEvent,
+  RefObject,
 } from "react";
 
 import {
@@ -46,6 +48,7 @@ import {
   featureElapse,
   featureHold,
   featureJump,
+  featureNeighbour,
   featureProgress,
   featureRelease,
   featureRotates,
@@ -62,7 +65,8 @@ import { Button } from "../../kit/Button";
 import { ContinueWatchingCard } from "../../kit/ContinueWatchingCard";
 import { PosterCard } from "../../kit/PosterCard";
 import { RowTrack } from "../RowTrack";
-import { fade } from "../../core/react/motion";
+import { fade, panel } from "../../core/react/motion";
+import { useReducedMotion } from "../../core/react/useReducedMotion";
 import { ProgrammeLine } from "./ProgrammeLine";
 import { RailGrid } from "./RailGrid";
 import { RailMoreCard } from "./RailMoreCard";
@@ -96,34 +100,135 @@ function MetaLine({
   );
 }
 
+/** One slide's art and copy, drawn the same in the current and the neighbour layer. */
+function FeatureSlideBody({ item }: { item: FeatureItem }) {
+  const name = item.slide.name;
+  const parts = captionParts(item.meta);
+  const density = featureTitleDensity(name);
+
+  return (
+    <>
+      <div className="rep-feature-art" data-art={item.slide.art ? "image" : "plate"}>
+        {item.slide.art ? (
+          <img src={item.slide.art} alt="" loading="lazy" />
+        ) : (
+          <span className="rep-feature-plate" aria-hidden="true">
+            {name}
+          </span>
+        )}
+        <span className="rep-feature-scrim" aria-hidden="true" />
+      </div>
+
+      <div className="rep-feature-copy">
+        <h2 className="rep-feature-title" data-density={density}>
+          {name}
+        </h2>
+        <MetaLine parts={parts} className="rep-feature-meta" />
+        {item.slide.description ? (
+          <p className="rep-feature-description">{item.slide.description}</p>
+        ) : null}
+        <span className="rep-feature-action" aria-hidden="true">
+          Open the Title
+        </span>
+      </div>
+    </>
+  );
+}
+
+/** The slides' position during a gesture: the offset, and the neighbour beside it. */
+type FeatureTrack = { offset: number; direction: -1 | 1 | null };
+
+/** A released gesture finishing its travel: to the neighbour, or back. */
+type FeatureSettle = { direction: -1 | 1; target: number; commit: boolean };
+
 /**
  * The feature presentation: the backdrop between two hairlines, a two-gradient
  * ink scrim, the Title in display serif over it, one line of facts, the
  * description and one action.
  *
- * It walks the Featured catalog's first slides on its 24-second beat, one tick
- * per slide filling under it. Focus or a held pointer pauses the fill;
- * Left/Right and a horizontal drag step it; a tick jumps to its slide; every
- * interaction restarts that slide's time (ADR-0036 §2). The step, jump, hold,
- * drag and beat decisions are the core's programme; this screen only holds it
- * and reads it. The slides cross-fade with Motion, and reduced motion keeps the
- * beat — the tick's fill is the only movement it leaves.
+ * It walks the Featured catalog's first slides on its 15-second beat, one tick
+ * per slide filling under it. A person's focus or a held pointer pauses the
+ * fill — the focus the screen seats at launch does not, so the beat starts on
+ * launch (#248) — Left/Right step it, a horizontal drag carries the slides
+ * with the hand and commits or snaps back on release, and a tick jumps to its
+ * slide; every interaction restarts that slide's time (ADR-0036 §2). The step,
+ * jump, hold, drag and beat decisions are the core's programme; this screen
+ * only holds it and reads it. The slides cross-fade with Motion, and reduced
+ * motion keeps the beat and drops the drag's tracking — the tick's fill is the
+ * only movement it leaves.
  */
 function Feature({
   items,
   onOpen,
+  frameRef,
+  screenFocus,
 }: {
   items: readonly FeatureItem[];
   onOpen: (item: FeatureItem) => void;
+  /** The frame the screen seats at launch, so it can measure and focus it. */
+  frameRef: RefObject<HTMLDivElement | null>;
+  /**
+   * True only while the screen itself is placing focus on the frame. That
+   * focus is a courtesy of the screen, not a hand on the programme, so it must
+   * not hold the fill (ADR-0036 §2): the beat has to start on launch.
+   */
+  screenFocus: MutableRefObject<boolean>;
 }) {
   const [programme, setProgramme] = useState<FeatureProgramme>(FEATURE_START);
+  const [track, setTrack] = useState<FeatureTrack | null>(null);
+  const [settle, setSettle] = useState<FeatureSettle | null>(null);
   const { setBaseIntentHandler } = useShell();
-  const frame = useRef<HTMLDivElement | null>(null);
+  const frame = frameRef;
   const drag = useRef<FeatureDrag>(FEATURE_DRAG_IDLE);
+  const width = useRef(0);
+  const settleTimer = useRef<number | null>(null);
+  const settleNow = useRef<FeatureSettle | null>(null);
+  const reducedMotion = useReducedMotion();
   const active = clampItem(programme.index, items.length);
   const item = items[active];
   const rotating = featureRotates(items.length);
   const progress = featureProgress(programme);
+
+  settleNow.current = settle;
+
+  const stopSettleTimer = useCallback(() => {
+    if (settleTimer.current !== null) {
+      window.clearTimeout(settleTimer.current);
+      settleTimer.current = null;
+    }
+  }, []);
+
+  /**
+   * Finish a released gesture at once: a commit lands its step, a snap leaves
+   * the programme where it was. A second gesture or a step taken while the
+   * slides are still travelling finishes it here rather than losing it.
+   */
+  const finishSettle = useCallback(() => {
+    stopSettleTimer();
+    const held = settleNow.current;
+    settleNow.current = null;
+    if (held?.commit) {
+      setProgramme((current) => featureStepThrough(current, items.length, held.direction));
+    }
+    setTrack(null);
+    setSettle(null);
+  }, [items.length, stopSettleTimer]);
+
+  const beginSettle = (direction: -1 | 1, target: number, commit: boolean) => {
+    const held: FeatureSettle = { direction, target, commit };
+    settleNow.current = held;
+    setSettle(held);
+    stopSettleTimer();
+    // Motion's spring is the same visual duration; the margin lets it land
+    // before the programme swaps the slides.
+    const milliseconds = Math.round((panel().visualDuration ?? 0.24) * 1000) + 20;
+    settleTimer.current = window.setTimeout(finishSettle, milliseconds);
+  };
+
+  // Nothing of a gesture may outlive the screen that drew it.
+  useEffect(() => {
+    return () => stopSettleTimer();
+  }, [stopSettleTimer]);
 
   // Focus and a held pointer both pause the fill. A pointer that lets go
   // releases it even where the press focused the frame: the press was the
@@ -131,6 +236,17 @@ function Feature({
   // clients). Keyboard and D-pad focus still hold through `onFocus`.
   const hold = () => setProgramme(featureHold);
   const release = () => setProgramme(featureRelease);
+  // The screen seats focus on the feature when Home mounts; that focus is the
+  // screen's, not a person's hand, so the beat must not stop before it starts
+  // (#248). Every later focus — a D-pad walk onto the frame, a pointer press
+  // that focused it — still holds.
+  const onFocus = () => {
+    if (screenFocus.current) {
+      screenFocus.current = false;
+      return;
+    }
+    hold();
+  };
 
   // The feature's Left/Right is one decision for the D-pad and the arrow keys:
   // both arrive here as intents. At the first slide Left is not consumed, so
@@ -150,17 +266,23 @@ function Feature({
       }
       // The press steps to the slide `featureStep` named, and restarts that
       // slide's time. It never wraps: at the first slide Left is the frame's.
+      finishSettle();
       setProgramme((current) => featureJump(current, items.length, next));
       return true;
     });
     return clear;
-  }, [active, items.length, setBaseIntentHandler]);
+  }, [active, items.length, setBaseIntentHandler, finishSettle]);
 
   // A new Featured catalog starts its programme over at the first slide; a
-  // focus that is still on the frame keeps holding the new programme.
+  // focus that is still on the frame keeps holding the new programme. A
+  // gesture in flight belongs to the old programme and is dropped.
   useEffect(() => {
+    stopSettleTimer();
+    settleNow.current = null;
+    setTrack(null);
+    setSettle(null);
     setProgramme((current) => ({ ...FEATURE_START, held: current.held }));
-  }, [items.length, items[0]?.slide.id]);
+  }, [items.length, items[0]?.slide.id, stopSettleTimer]);
 
   // The clock: the core decides that a held programme spends nothing and that
   // a finished item wraps with its remainder. The ticks' fill is drawn from
@@ -175,41 +297,78 @@ function Feature({
     return () => window.clearInterval(timer);
   }, [rotating, programme.held, items.length]);
 
+  // A hand lands: a settle still travelling finishes first, so a committed
+  // step is never lost under the next press. The frame is held while the hand
+  // is on it.
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType === "mouse" && event.button !== 0) {
       return;
     }
-    drag.current = featureDragBegin(event.clientX, event.clientY);
+    finishSettle();
+    width.current = event.currentTarget.getBoundingClientRect().width;
+    drag.current = featureDragBegin(event.clientX, event.clientY, event.timeStamp);
+    setTrack(null);
     setProgramme(featureHold);
   };
 
-  // The rule that decides a step is the core's: far enough across, further
-  // across than down, and only once per gesture. A long drag does not run
-  // through the whole programme.
+  // The seam decides where the slides sit: across more than down, past the
+  // slop, the current slide follows the hand 1:1 and the neighbour is named.
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    const moved = featureDragMove(drag.current, event.clientX, event.clientY);
+    const moved = featureDragMove(
+      drag.current,
+      event.clientX,
+      event.clientY,
+      event.timeStamp,
+      width.current,
+    );
     drag.current = moved.drag;
-    const { direction } = moved;
-    if (direction === null) {
+    if (moved.drag.axis !== "across") {
       return;
     }
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    setProgramme((current) => featureStepThrough(current, items.length, direction));
+    if (reducedMotion || items.length < 2) {
+      return;
+    }
+    setTrack({ offset: moved.offset, direction: moved.direction });
   };
 
+  // The release: past the share or fast enough it commits to the neighbour and
+  // the slides finish the journey; short and slow it snaps back. Either way the
+  // pointer has let go, so the fill resumes.
   const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!drag.current.active) {
       return;
     }
-    drag.current = featureDragEnd(drag.current);
-    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    const ended = featureDragEnd(drag.current, width.current, event.timeStamp);
+    drag.current = ended.drag;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+    }
+
+    const direction = ended.direction;
+    if (direction !== null && items.length > 1) {
+      if (reducedMotion) {
+        setProgramme((current) => featureStepThrough(current, items.length, direction));
+        setTrack(null);
+      } else {
+        beginSettle(direction, direction === 1 ? -width.current : width.current, true);
+      }
+    } else if (track?.direction != null && items.length > 1) {
+      if (reducedMotion) {
+        setTrack(null);
+      } else {
+        beginSettle(track.direction, 0, false);
+      }
+    } else {
+      setTrack(null);
+    }
     release();
   };
 
   // The click a browser synthesises at the end of a drag is the drag's, not a
   // press on the feature: it must not open the Title. A keyboard click
-  // (`detail === 0`) is never the drag's, and it clears a step flag a swipe left
-  // behind, so a swipe that produced no click cannot swallow the next Enter.
+  // (`detail === 0`) is never the drag's, and it clears a claim a drag left
+  // behind, so a drag that produced no click cannot swallow the next Enter.
   const onClickCapture = (event: ReactMouseEvent<HTMLDivElement>) => {
     const click = featureDragClick(drag.current, event.detail);
     drag.current = click.drag;
@@ -220,13 +379,31 @@ function Feature({
     event.stopPropagation();
   };
 
+  // A tick is a step like a swipe: it puts away a settle still travelling and
+  // restarts the item's time.
+  const jumpTo = (index: number) => {
+    finishSettle();
+    setProgramme((current) => featureJump(current, items.length, index));
+  };
+
   if (!item) {
     return null;
   }
 
   const name = item.slide.name;
-  const parts = captionParts(item.meta);
-  const density = featureTitleDensity(name);
+  const gestureMode = track !== null || settle !== null;
+  const neighbourDirection = settle?.direction ?? track?.direction ?? null;
+  const neighbour =
+    neighbourDirection !== null && items.length > 1
+      ? items[featureNeighbour(active, items.length, neighbourDirection)]
+      : null;
+  const currentX = settle ? settle.target : track?.offset ?? 0;
+  const neighbourX = settle
+    ? settle.target + (settle.direction === 1 ? width.current : -width.current)
+    : track && track.direction !== null
+      ? track.offset + (track.direction === 1 ? width.current : -width.current)
+      : 0;
+  const slideTransition = settle ? panel() : gestureMode ? { duration: 0 } : fade();
 
   return (
     <section
@@ -246,7 +423,7 @@ function Feature({
         data-focusable
         data-held={programme.held ? "true" : undefined}
         aria-label={`Open the Title: ${name}`}
-        onFocus={hold}
+        onFocus={onFocus}
         onBlur={release}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
@@ -262,41 +439,36 @@ function Feature({
         onClick={() => onOpen(item)}
       >
         <span className="rep-feature-wash" aria-hidden="true" />
+        {/*
+         * The current slide is always a Motion layer, so a gesture's neighbour
+         * becomes it without a remount and then a later beat still cross-fades.
+         * While a hand drags, x follows it with no transition; a released
+         * gesture travels the rest of the way on the panel's duration.
+         */}
         <AnimatePresence initial={false}>
+          {neighbour ? (
+            <motion.div
+              key={neighbour.slide.id}
+              className="rep-feature-slide"
+              initial={false}
+              animate={{ x: neighbourX }}
+              transition={slideTransition}
+              aria-hidden="true"
+            >
+              <FeatureSlideBody item={neighbour} />
+            </motion.div>
+          ) : null}
           <motion.div
             key={item.slide.id}
             className="rep-feature-slide"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
+            initial={gestureMode ? false : { opacity: 0 }}
+            animate={{ x: currentX, opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={fade()}
+            transition={slideTransition}
           >
-            <div className="rep-feature-art" data-art={item.slide.art ? "image" : "plate"}>
-              {item.slide.art ? (
-                <img src={item.slide.art} alt="" loading="lazy" />
-              ) : (
-                <span className="rep-feature-plate" aria-hidden="true">
-                  {name}
-                </span>
-              )}
-              <span className="rep-feature-scrim" aria-hidden="true" />
-            </div>
-
-            <div className="rep-feature-copy">
-              <h2 className="rep-feature-title" data-density={density}>
-                {name}
-              </h2>
-              <MetaLine parts={parts} className="rep-feature-meta" />
-              {item.slide.description ? (
-                <p className="rep-feature-description">{item.slide.description}</p>
-              ) : null}
-            </div>
+            <FeatureSlideBody item={item} />
           </motion.div>
         </AnimatePresence>
-
-        <span className="rep-feature-action" aria-hidden="true">
-          Open the Title
-        </span>
       </div>
 
       {/* One tick per slide, pointer and touch furniture outside the frame's
@@ -315,7 +487,7 @@ function Feature({
               aria-label={`Show ${tick.slide.name}`}
               aria-current={tickIndex === active ? "step" : undefined}
               onMouseDown={(event) => event.preventDefault()}
-              onClick={() => setProgramme((current) => featureJump(current, items.length, tickIndex))}
+              onClick={() => jumpTo(tickIndex)}
             >
               <span
                 className="rep-feature-tick-fill"
@@ -369,6 +541,8 @@ export function RepertoryHome() {
   const preview = usePreviewData();
   const { rows, answered } = useSyncExternalStore(home.subscribe, home.getSnapshot);
   const root = useRef<HTMLElement | null>(null);
+  const featureFrame = useRef<HTMLDivElement | null>(null);
+  const screenFocus = useRef(false);
   const focusedAtLaunch = useRef(false);
 
   const catalogs = useMemo<DeclaredCatalog[]>(() => declaredCatalogs(snapshot), [snapshot]);
@@ -493,16 +667,24 @@ export function RepertoryHome() {
       return;
     }
     // Launch focus is the programme's content, not a row's paging arrow: the
-    // feature's action first, then a Continue card or a poster.
+    // feature's frame first, then a Continue card or a poster.
     const first =
+      featureFrame.current ??
       root.current?.querySelector<HTMLElement>(
-        ".rep-feature-frame[data-focusable], .rep-kit-continue:not([disabled]), .rep-kit-poster, .rep-empty [data-focusable]",
-      ) ?? root.current?.querySelector<HTMLElement>(FOCUSABLE);
+        ".rep-kit-continue:not([disabled]), .rep-kit-poster, .rep-empty [data-focusable]",
+      ) ??
+      root.current?.querySelector<HTMLElement>(FOCUSABLE);
     if (!first) {
       return;
     }
     focusedAtLaunch.current = true;
+    // The feature's own focus is the screen's, not a hand's: the frame reads
+    // this flag in its focus handler and lets the beat start (#248). Focus that
+    // lands anywhere else is not a hold either, so the flag is only set for the
+    // frame.
+    screenFocus.current = first === featureFrame.current;
     focusAndReveal(first);
+    screenFocus.current = false;
   });
 
   const hasContinue = continueWatching.length > 0;
@@ -515,6 +697,8 @@ export function RepertoryHome() {
       {featureItems.length > 0 ? (
         <Feature
           items={featureItems}
+          frameRef={featureFrame}
+          screenFocus={screenFocus}
           onOpen={(item) => {
             if (featured) {
               openTitle(featured.addon, item.meta);

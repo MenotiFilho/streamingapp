@@ -950,7 +950,9 @@ fn preview_directory() -> std::path::PathBuf {
 /// keeps a machine without it playing (ADR-0003); `hwdec=auto-safe` so that
 /// hardware decode is engaged where the machine can and playback still works
 /// where it cannot; `keep-open` so that a Stream at its end stays loaded, which
-/// is what makes "ended" and a resume from it possible (#29).
+/// is what makes "ended" and a resume from it possible (#29). A placement in
+/// the Host's own window also keeps the video output up, black, when no Stream
+/// is playing, so a Stop never leaves a hole where the desktop shows (#250).
 ///
 /// `scripts` is where mpv's stock autocrop goes, and it is an option only mpv
 /// reads before it starts — like `wid` — so its path is resolved by the caller
@@ -994,7 +996,18 @@ fn options(surface: Placement, script: Option<&str>) -> Vec<(&'static str, Strin
         // `wid`, before mpv is initialized: it is an option, and mpv reads it
         // once. This is the one thing the prototype's recipe carries over as a
         // constraint rather than a curiosity (docs/research/spike-windows-embedding.md).
-        Placement::InWindow { handle } => options.push(("wid", handle.to_string())),
+        //
+        // `force-window` keeps the video output — and the child window `wid`
+        // named — alive with no video, drawing `background-color`; without it a
+        // Stop destroys the child before the Host publishes `idle`, and the
+        // Host's transparent window shows the desktop (#250). The shell paints
+        // its ink over the kept window once `idle` arrives, so the black is
+        // never seen at rest (docs/research/mpv-idle-window.md).
+        Placement::InWindow { handle } => {
+            options.push(("wid", handle.to_string()));
+            options.push(("force-window", "yes".to_owned()));
+            options.push(("background-color", "#000000".to_owned()));
+        }
         Placement::OwnWindow => {}
         // Nobody to hear it: a Stream still plays, and every property a headless
         // test asserts on is answered the same way.
@@ -1038,6 +1051,35 @@ mod tests {
             "HDR passthrough needs gpu-next, and the fallback keeps the rest playing"
         );
         assert_eq!(option(&options, "hwdec"), Some("auto-safe"));
+    }
+
+    #[test]
+    fn a_host_window_is_kept_up_and_black_while_idle() {
+        // The Host paints its own ink before it tears a Stream down, but a Stop
+        // from a Remote arrives here directly and mpv destroys its child window
+        // before the Host can publish `idle`; the transparent window then shows
+        // the desktop (#250). `force-window` keeps the video output — and the
+        // child window `wid` named — alive with no video, drawing the background
+        // colour, so there is never a hole for the page to race. A window of
+        // mpv's own has no such hole: the page is not transparent over it.
+        let host_window = options(Placement::InWindow { handle: 1234 }, None);
+
+        assert_eq!(option(&host_window, "force-window"), Some("yes"));
+        assert_eq!(
+            option(&host_window, "background-color"),
+            Some("#000000"),
+            "the kept window is black, not whatever mpv last drew"
+        );
+        assert_eq!(
+            option(&options(Placement::OwnWindow, None), "force-window"),
+            None,
+            "a window of mpv's own is not behind the Host's page"
+        );
+        assert_eq!(
+            option(&options(Placement::Headless, None), "force-window"),
+            None,
+            "a headless Player draws nowhere"
+        );
     }
 
     #[test]

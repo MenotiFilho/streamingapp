@@ -47,6 +47,13 @@ only, with Left/Right on the window. Both clients now:
   Remote — as focus already held the window's rotation;
 - **restart** the current item's time on any interaction: a step, a drag, a tick.
 
+(Amended 2026-11-06, sprint 248: the hold is a *person's* — a focus move of
+their own, a finger — not the focus the screen seats on the feature when Home
+mounts, so the beat starts on launch (#250, #248). A swipe now follows the
+finger and commits past a share of the frame or on a flick, snapping back
+otherwise; the Remote's hero also carries previous/next arrows that step and
+wrap. `docs/design-system.md` *Feature* is amended to match.)
+
 **Reduced motion no longer stops the rotation.** This supersedes the line in the
 design system (*Feature*: "reduced motion stops it") and is a deliberate
 exception to ADR-0031 §5 for this one component, at the owner's request. What
