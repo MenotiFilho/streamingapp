@@ -1,42 +1,55 @@
 # CI and landing a ticket
 
-Ticket work lands through a pull request. `.github/workflows/ci.yml` runs the
-same suites `AGENTS.md` asks for, inside the same `docker/dev.Dockerfile` image
-the development container uses:
+Ticket work lands through a pull request, and `verify` runs **on the owner's
+machine**, not on GitHub's runners. `scripts/ci.sh` runs the same suites
+`AGENTS.md` asks for, inside the same `docker/dev.Dockerfile` image the
+development container uses:
 
-1. `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm build`, `pnpm test`
-2. `cargo fmt --check`
-3. `cargo clippy --all-targets -- -D warnings`
-4. `cargo test --workspace --no-fail-fast`
+1. `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm build`,
+   `pnpm build:remote`, `pnpm test`
+2. the committed Remote artifact is current, and stays out of `dist/`
+3. `cargo fmt --check`
+4. `cargo clippy --all-targets -- -D warnings`
+5. `cargo test --workspace --no-fail-fast`
 
-The job is `verify`, and `main` is protected: the `verify` check must pass,
-administrators are included, and force pushes and deletions are refused.
+It checks the pull request's head out into a throwaway worktree, so nothing
+uncommitted in your checkout reaches the result, and posts the outcome as a
+commit status named `verify` on the head commit.
+
+## Why not GitHub's runners
+
+The repository is private on the free plan: GitHub's hosted runners stopped
+starting (`startup_failure`) and branch protection is not available, so the
+required `verify` check no longer existed to enforce. `verify` is now this
+machine's word. `.github/workflows/ci.yml` stays as the written-down suite and
+runs only by hand (`workflow_dispatch`); the `Auto-merge` workflow is gone, its
+job is the script's.
+
+Because nothing on GitHub enforces it, **do not push to `main` or merge by
+hand**: a change lands only through `scripts/ci.sh`.
 
 ## Docs-only pull requests
 
-`verify` runs on every pull request because it is the required check. When every
-changed path ends in `.md` or lives under `docs/`, the job skips the image build
-and the suites and finishes in seconds; the required check is still green. Any
-other change — including this workflow — runs the full list, and pushes to
-`main` always run it.
+When every changed path ends in `.md` or lives under `docs/` (a rename counts as
+a deletion plus an addition), the script skips the image and the suites and
+posts `verify` green. Any other change runs the full list.
 
 ## The landing sequence
 
 1. Work in a worktree on a branch, never in the main checkout.
 2. Push the branch and open a pull request against `main`.
-3. Let `verify` finish. Fix failures on the branch; a new push reruns it.
-4. Put the review trail on the pull request as a comment — what the reviews
+3. Put the review trail on the pull request as a comment — what the reviews
    found, what changed, and what was deliberately kept.
-5. Merge `origin/main` into the branch if it moved, and push.
-6. Add the `automerge` label. The `Auto-merge` workflow enables GitHub's
-   auto-merge with a merge commit; GitHub lands the PR once `verify` is green.
-   Removing the label cancels auto-merge.
+4. Merge `origin/main` into the branch if it moved, and push. The script refuses
+   a branch that is behind its base.
+5. Add the `automerge` label: it is the moment a person or agent says the review
+   trail is complete.
+6. Run `scripts/ci.sh <pr>` from any checkout. It verifies the head, posts
+   `verify`, and — only with the label — merges with a merge commit, pinned to
+   the head it verified (`--match-head-commit`). `--no-merge` verifies only.
+   Fix a failure on the branch, push, and run it again.
 7. Fetch, and confirm the merged tree is the one verified:
    `git diff origin/main <branch>` must be empty.
-
-Auto-merge is opt-in rather than automatic for every green PR: the label is the
-moment a person or agent says the review trail is complete. The required check
-is the part that cannot be skipped.
 
 ## What this is not
 
