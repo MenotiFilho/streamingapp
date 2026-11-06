@@ -56,12 +56,12 @@ import {
  * The Remote's player, drawn at hand scale (#213, ADR-0035 §2).
  *
  * Two drawings of the core's playback facts: a docked strip that is on every
- * destination while something is playing, and the one expanded card a strip
- * press pushes. Neither invents Host state: the position is the Snapshot's
- * projection, a control's wait is the Session's pending key, and the picture's
- * absence is the core's `pictureNote`. The player level is the core's, so Back
- * pops the card and leaves the destination underneath; Stop is the sixth cell
- * and its own control.
+ * screen but the player's own while something is playing, and the one expanded
+ * card a strip press pushes. Neither invents Host state: the position is the
+ * Snapshot's projection, a control's wait is the Session's pending key, and the
+ * picture's absence is the core's `pictureNote`. The player level is the core's,
+ * so Back pops the card and leaves the destination underneath; Stop is the sixth
+ * cell and its own control.
  */
 
 export type PlayerStripProps = {
@@ -79,9 +79,10 @@ export type PlayerStripProps = {
  *
  * It is drawn whenever the Host says something is playing — `watching`, not
  * "the picture is in this client" — because that is the phone's rule: the
- * controls are the Host's, so they work wherever the picture is. Where the
- * picture is not here (`own_window`, `nowhere`), the strip says so in the core's
- * own words.
+ * controls are the Host's, so they work wherever the picture is. The room
+ * withholds it on the player's own screen, where the card already says what is
+ * playing (ADR-0036 §4). Where the picture is not here (`own_window`,
+ * `nowhere`), the strip says so in the core's own words.
  */
 export function PlayerStrip({ session, title, push }: PlayerStripProps) {
   const view = usePlaybackView(session, true);
