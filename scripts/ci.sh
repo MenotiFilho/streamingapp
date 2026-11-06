@@ -59,7 +59,12 @@ git -C "$root" worktree remove --force "$work" 2>/dev/null || rm -rf "$work"
 git -C "$root" worktree prune
 git -C "$root" worktree add --quiet --detach "$work" "$head_sha"
 
-run() { GITHUB_WORKSPACE="$work" IMAGE="$image" "$root/.github/scripts/dev-run.sh" "$@"; }
+# The pnpm store is a named volume, like the cargo and node_modules ones
+# dev-run.sh already keeps, so a second run does not download every package again.
+run() {
+  GITHUB_WORKSPACE="$work" IMAGE="$image" CI_PNPM_STORE=streamingapp-pnpm-store \
+    "$root/.github/scripts/dev-run.sh" "$@"
+}
 
 cleanup() {
   # The container writes as root into the bind mount; hand those files back
@@ -103,7 +108,7 @@ status pending "running on the owner's machine"
 if [[ "$code" == true ]]; then
   step "Build the development image" \
     docker build --quiet -t "$image" -f "$work/docker/dev.Dockerfile" "$work"
-  step "Install the window's dependencies" run pnpm install --frozen-lockfile
+  step "Install the window's dependencies" run pnpm install --frozen-lockfile --store-dir=/pnpm-store
   step "Typecheck the window" run pnpm typecheck
   step "Build the window" run pnpm build
   step "Build the Remote" run pnpm build:remote
