@@ -739,7 +739,9 @@ body.picture-behind .shell-nav-slot {
 .rep-feature-frame {
   position: relative;
   display: grid;
-  min-height: max(360px, calc(var(--rep-stage) * 20));
+  /* One size for every slide: the art covers the frame, and a long name or a
+   * long description is clamped rather than growing the page between items. */
+  height: max(360px, calc(var(--rep-stage) * 20));
   overflow: hidden;
   border-top: 1px solid var(--rep-hairline);
   border-bottom: 1px solid var(--rep-hairline);
@@ -844,24 +846,6 @@ body.picture-behind .shell-nav-slot {
   opacity: 1;
 }
 
-.rep-feature-kicker {
-  display: flex;
-  align-items: center;
-  gap: var(--rep-space-3);
-  color: var(--rep-dim);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-text-mono);
-  line-height: 1.2;
-}
-
-.rep-feature-kicker > span:first-child {
-  color: var(--rep-house);
-  white-space: nowrap;
-}
-
-.rep-feature-kicker > span:last-child {
-  white-space: nowrap;
-}
 
 .rep-rule {
   flex: 1;
@@ -870,7 +854,9 @@ body.picture-behind .shell-nav-slot {
 }
 
 .rep-feature-title {
+  display: -webkit-box;
   max-width: 16ch;
+  overflow: hidden;
   margin: 0;
   color: var(--rep-ivory);
   font-family: var(--rep-display);
@@ -878,6 +864,8 @@ body.picture-behind .shell-nav-slot {
   font-weight: 500;
   line-height: var(--rep-leading-display);
   letter-spacing: var(--rep-tracking-display);
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 /* A long name steps down through the two densities rather than wrapping to
@@ -892,13 +880,15 @@ body.picture-behind .shell-nav-slot {
 
 .rep-feature-meta {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: baseline;
+  overflow: hidden;
   margin: 0;
   color: var(--rep-dim);
   font-family: var(--rep-mono);
   font-size: var(--rep-text-mono);
   line-height: 1.35;
+  white-space: nowrap;
 }
 
 .rep-feature-meta > span + span {
@@ -1022,7 +1012,7 @@ body.picture-behind .shell-nav-slot {
 }
 
 .rep-feature-tick:hover::before {
-  background: var(--rep-dim);
+  background: var(--rep-house-deep);
 }
 
 /* The fill is the one thing that keeps moving under reduced motion; it reads

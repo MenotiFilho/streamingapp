@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 
 import { explain } from "../core/errors";
@@ -234,6 +234,26 @@ describe("Discover over TMDB", () => {
     ).toHaveLength(asked);
   });
 
+  test("the rail's head action asks the next page into the same cards", async () => {
+    const { host } = mount();
+    await screen.findByTestId("discover-card-tmdb:2");
+
+    fireEvent.click(screen.getByRole("button", { name: "Read on" }));
+
+    await waitFor(() =>
+      expect(host.asked("discover").at(-1)).toEqual({
+        type: "discover",
+        kind: "movie",
+        page: 2,
+      }),
+    );
+    expect(await screen.findByTestId("discover-card-tmdb:3")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("discover-card-tmdb:1"),
+      "the cards already read keep their place",
+    ).toBeInTheDocument();
+  });
+
   test("a feed that answered nothing draws its quiet line and offers no more", async () => {
     mount({ respond: () => discoverAnswer(row([])) });
 
@@ -307,6 +327,37 @@ describe("Discover with no TMDB Credential", () => {
         addon: "cinemeta",
         catalog: { type: "series", id: "shows" },
         extra: [],
+      }),
+    );
+  });
+
+  test("a Catalog row's head action asks the page after what it read", async () => {
+    const { host } = mount({
+      snapshot: UNKEYED,
+      respond: (action) => {
+        if (action.type !== "browse_catalog") {
+          return { snapshots: [], answer: null };
+        }
+        return catalogAnswer(
+          "cinemeta",
+          action.catalog.type,
+          action.catalog.id,
+          [meta(`tt-${action.catalog.id}`, "One")],
+          action.catalog.id === "top" ? "Popular" : "New",
+        );
+      },
+    });
+    const rail = await screen.findByTestId("discover-row-cinemeta/movie/top");
+    await waitFor(() => expect(within(rail).getByTestId("discover-card-tt-top")).toBeInTheDocument());
+
+    fireEvent.click(within(rail).getByRole("button", { name: "Read on" }));
+
+    await waitFor(() =>
+      expect(host.asked("browse_catalog").at(-1)).toEqual({
+        type: "browse_catalog",
+        addon: "cinemeta",
+        catalog: { type: "movie", id: "top" },
+        extra: [{ name: "skip", value: "1" }],
       }),
     );
   });

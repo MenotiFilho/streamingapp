@@ -409,10 +409,41 @@ describe("Home's feature presentation", () => {
       clientX: 240,
       clientY: 204,
     });
-    fireEvent.click(frame);
+    fireEvent.click(frame, { detail: 1 });
 
     expect(activeSlide()).toBe("tt2");
     expect(pushed, "the drag's click is not a press on the feature").toHaveLength(0);
+  });
+
+  it("does not leave the programme held by a press that focused the frame", async () => {
+    onlyIntervals();
+    renderHome();
+    await flush();
+
+    const frame = screen.getByRole("button", { name: /Open the Title/ });
+    // A mouse press focuses the frame before the pointer events arrive.
+    act(() => frame.focus());
+    fireEvent.pointerDown(frame, {
+      pointerId: 1,
+      pointerType: "mouse",
+      button: 0,
+      clientX: 300,
+      clientY: 200,
+    });
+    fireEvent.pointerUp(frame, {
+      pointerId: 1,
+      pointerType: "mouse",
+      button: 0,
+      clientX: 300,
+      clientY: 200,
+    });
+
+    expect(document.activeElement, "the press focused the frame").toBe(frame);
+    act(() => vi.advanceTimersByTime(FEATURE_ROTATION_MS));
+    expect(
+      activeSlide(),
+      "the pointer's release let go even though focus stayed",
+    ).toBe("tt2");
   });
 
   it("wraps a drag back from the first slide to the last", async () => {
@@ -439,9 +470,41 @@ describe("Home's feature presentation", () => {
       clientX: 300,
       clientY: 198,
     });
-    fireEvent.click(frame);
+    fireEvent.click(frame, { detail: 1 });
 
     expect(activeSlide()).toBe("tt4");
+  });
+
+  it("lets the next keyboard Enter open the Title after a drag synthesised no click", async () => {
+    onlyIntervals();
+    const { pushed } = renderHome();
+    await flush();
+
+    const frame = screen.getByRole("button", { name: /Open the Title/ });
+    fireEvent.pointerDown(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 320,
+      clientY: 200,
+    });
+    fireEvent.pointerMove(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 240,
+      clientY: 204,
+    });
+    fireEvent.pointerUp(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 240,
+      clientY: 204,
+    });
+
+    // The browser synthesises no click after this gesture, so the step flag is
+    // still set. A keyboard activation carries detail 0 and must not be eaten.
+    fireEvent.click(frame, { detail: 0 });
+
+    expect(pushed[0]?.name).toBe("Title");
   });
 
   it("opens the feature's Title through the Featured catalog's Addon", async () => {

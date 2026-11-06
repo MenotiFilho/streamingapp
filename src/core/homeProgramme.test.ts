@@ -5,10 +5,15 @@ import type { AddonManifest, Snapshot } from "./wire";
 import {
   FEATURE_ROTATION_MS,
   FEATURE_START,
+  clampItem,
+  continueTag,
+  featureDragBegin,
+  featureDragClick,
+  featureDragEnd,
+  featureDragMove,
   featureElapse,
   featureHold,
   featureJump,
-  featurePosition,
   featureProgress,
   featureRelease,
   featureRotates,
@@ -44,11 +49,8 @@ const SNAPSHOT = {
 } as unknown as Snapshot;
 
 describe("Home's programme decisions", () => {
-  it("holds one feature for 24 seconds and shows its position in the programme", () => {
+  it("holds one feature for 24 seconds", () => {
     expect(FEATURE_ROTATION_MS).toBe(24_000);
-    expect(featurePosition(0, 4)).toBe("01 / 04");
-    expect(featurePosition(3, 4)).toBe("04 / 04");
-    expect(featurePosition(0, 1)).toBe("One showing");
   });
 
   it("steps a feature only while there is a slide in that direction", () => {
@@ -107,6 +109,19 @@ describe("Home's programme decisions", () => {
     };
     expect(rowTag(SNAPSHOT, row, 20)).toBe("Cinemeta / 20 films");
     expect(rowTag(SNAPSHOT, row)).toBe("Cinemeta / 30 films");
+  });
+
+  it("spells Continue watching's bookkeeping once, for every row that prints it", () => {
+    expect(continueTag(0)).toBe("0 in progress");
+    expect(continueTag(1)).toBe("1 in progress");
+    expect(continueTag(7)).toBe("7 in progress");
+  });
+
+  it("holds an item's index inside a programme of its size", () => {
+    expect(clampItem(2, 4)).toBe(2);
+    expect(clampItem(9, 4)).toBe(3);
+    expect(clampItem(-1, 4)).toBe(0);
+    expect(clampItem(2, 0)).toBe(0);
   });
 
   it("says what an empty programme needs in the record's voice", () => {
@@ -183,10 +198,68 @@ describe("The feature's programme", () => {
   });
 
   it("keeps the beat under reduced motion", () => {
-    expect(featureRotates(4, true), "ADR-0036 §2 supersedes 'reduced motion stops it'").toBe(
-      true,
-    );
-    expect(featureRotates(1, true)).toBe(false);
-    expect(featureRotates(4, false)).toBe(true);
+    expect(featureRotates(4), "ADR-0036 §2 supersedes 'reduced motion stops it'").toBe(true);
+    expect(featureRotates(1)).toBe(false);
+    expect(featureRotates(0)).toBe(false);
+  });
+});
+
+/**
+ * The gesture both clients read: a hand lands, travels, and lets go. The rule
+ * that decides a step is the same on the window's drag and the Remote's swipe
+ * (ADR-0035 §1, ADR-0036 §2).
+ */
+describe("The feature's drag", () => {
+  it("steps forward on a leftward gesture and back on a rightward one", () => {
+    expect(featureDragMove(featureDragBegin(320, 200), 240, 204).direction).toBe(1);
+    expect(featureDragMove(featureDragBegin(200, 200), 300, 198).direction).toBe(-1);
+  });
+
+  it("leaves a short gesture, or one that travelled further down, to the page", () => {
+    expect(
+      featureDragMove(featureDragBegin(200, 200), 220, 200).direction,
+      "under the threshold",
+    ).toBeNull();
+    expect(
+      featureDragMove(featureDragBegin(200, 200), 260, 260).direction,
+      "across and down by the same amount is not across",
+    ).toBeNull();
+    expect(featureDragMove(featureDragBegin(200, 200), 200, 400).direction).toBeNull();
+  });
+
+  it("steps once per gesture: a long drag does not run through the programme", () => {
+    const first = featureDragMove(featureDragBegin(320, 200), 240, 200);
+    expect(first.direction).toBe(1);
+    expect(
+      featureDragMove(first.drag, 0, 200),
+      "the rest of the gesture is spent",
+    ).toEqual({ drag: first.drag, direction: null });
+  });
+
+  it("does not step after the hand has let go", () => {
+    const ended = featureDragEnd(featureDragBegin(320, 200));
+    expect(ended.active).toBe(false);
+    expect(featureDragMove(ended, 240, 200).direction).toBeNull();
+  });
+
+  it("claims the click a drag synthesises, and clears the flag for the next press", () => {
+    const stepped = featureDragMove(featureDragBegin(320, 200), 240, 200).drag;
+
+    const dragClick = featureDragClick(stepped, 1);
+    expect(dragClick.ours).toBe(true);
+    expect(dragClick.drag.stepped).toBe(false);
+
+    expect(featureDragClick(stepped, 0).ours, "a keyboard click is never the drag's").toBe(false);
+  });
+
+  it("does not let a swipe that produced no click swallow the next keyboard Enter", () => {
+    const swallowed = featureDragMove(featureDragBegin(320, 200), 240, 200).drag;
+
+    const keyboard = featureDragClick(swallowed, 0);
+    expect(keyboard.ours).toBe(false);
+    expect(keyboard.drag.stepped, "the stale step is cleared").toBe(false);
+
+    const later = featureDragClick(keyboard.drag, 0);
+    expect(later.ours).toBe(false);
   });
 });

@@ -20,9 +20,9 @@ import { ChoiceChip } from "../kit/Chip";
 import { Field } from "../kit/Field";
 import { PosterCard } from "../kit/PosterCard";
 import { RemoteRail } from "./RemoteRail";
-import { MoreControl, RowNote } from "./RemoteRow";
+import { MoreControl, PagingControl, RowNote } from "./RemoteRow";
 import { gridLevel } from "./grid";
-import { feedAfter, feedPhase } from "./feed";
+import { feedAfter, feedMore, feedPhase, pageToAsk } from "./feed";
 import { titleLevelOf, type RemotePayload } from "./levels";
 import {
   CATALOGS_READING,
@@ -260,6 +260,14 @@ export function Search({ session, state, push }: SearchProps) {
                 />
               }
               action={
+                <PagingControl
+                  failure={feed.failure}
+                  more={feedMore(feed)}
+                  loading={paging.has(shown)}
+                  onMore={() => void loadRow(query, shown, pageToAsk(feed))}
+                />
+              }
+              more={
                 feed.items.length > 0 ? (
                   <MoreControl
                     label={kindLabel(shown)}

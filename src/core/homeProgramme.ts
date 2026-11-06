@@ -1,10 +1,10 @@
 /**
  * Home's programme decisions, and the programme arithmetic every screen prints.
  *
- * The feature's beat and its position, the section a row is numbered, the tag a
- * row's head carries, and the words an empty programme uses are rules both
- * clients share (ADR-0035 §1). They live in the core so a test asks the
- * decision rather than a rendered element (ADR-0032).
+ * The feature's programme and its drag, the section a row is numbered, the tag a
+ * row's head carries, the caption a feature prints, and the words an empty
+ * programme uses are rules both clients share (ADR-0035 §1). They live in the
+ * core so a test asks the decision rather than a rendered element (ADR-0032).
  *
  * The ten-foot rail's measurements are not here: how many cards a view holds is
  * the window's layout, and it stays with the window that draws it.
@@ -12,10 +12,24 @@
 
 import type { Row } from "./browse";
 import { addonLabel } from "./home";
-import type { Snapshot } from "./wire";
+import type { MetaPreview, Snapshot } from "./wire";
 
 /** How long one feature holds before the programme moves on. */
 export const FEATURE_ROTATION_MS = 24_000;
+
+/**
+ * How often the programme's clock is read while the feature is on screen.
+ * Both clients read the same tick, so a paused fill and a beat agree to a
+ * hundredth of a second (ADR-0036 §2).
+ */
+export const FEATURE_CLOCK_MS = 100;
+
+/**
+ * How far a horizontal drag or swipe travels before it steps one item. A
+ * gesture that has not travelled this far, or that travelled further down than
+ * across, is not the feature's: the page keeps it.
+ */
+export const FEATURE_DRAG_PX = 40;
 
 /**
  * The label a row's section head carries: the Addon a person reads it by and
@@ -26,11 +40,6 @@ export const FEATURE_ROTATION_MS = 24_000;
 export function rowTag(snapshot: Snapshot | null, row: Row, limit?: number): string {
   const count = limit === undefined ? row.metas.length : Math.min(row.metas.length, limit);
   return rowTagOf(addonLabel(snapshot, row.addon), row.type, count);
-}
-
-/** The feature's position in the programme: `01 / 04`, or one showing. */
-export function featurePosition(index: number, count: number): string {
-  return count > 1 ? `${programIndex(index + 1)} / ${programIndex(count)}` : "One showing";
 }
 
 /**
@@ -69,13 +78,15 @@ export type FeatureProgramme = {
 /** A programme on its first item with the whole 24 seconds ahead of it. */
 export const FEATURE_START: FeatureProgramme = { index: 0, elapsed: 0, held: false };
 
-/** Whether the feature's beat turns at all. */
-export function featureRotates(count: number, reducedMotion: boolean): boolean {
-  // ADR-0036 §2 supersedes the design record's "reduced motion stops it" for
-  // this one component: the programme keeps turning, and reduced motion only
-  // takes the change's movement away. The question is still asked here so the
-  // exception is read, not discovered by a caller.
-  void reducedMotion;
+/**
+ * Whether the feature's beat turns at all.
+ *
+ * ADR-0036 §2 supersedes the design record's "reduced motion stops it" for this
+ * one component: the programme keeps turning, and reduced motion only takes the
+ * change's movement away. The question is still asked here so a caller reads
+ * that exception rather than discovering it.
+ */
+export function featureRotates(count: number): boolean {
   return count > 1;
 }
 
@@ -138,8 +149,78 @@ export function featureProgress(programme: FeatureProgramme): number {
 }
 
 /** One item's index, held inside a programme of `count` items. */
-function clampItem(index: number, count: number): number {
+export function clampItem(index: number, count: number): number {
   return Math.min(Math.max(0, Math.trunc(index)), Math.max(0, count - 1));
+}
+
+/**
+ * One gesture on the feature: where a hand landed and what it has done since.
+ * The window's drag and the Remote's swipe are the same gesture, so the rule
+ * that decides a step lives here rather than in either client's handler
+ * (ADR-0035 §1, ADR-0036 §2).
+ */
+export type FeatureDrag = {
+  active: boolean;
+  x: number;
+  y: number;
+  /** Whether this gesture has already stepped the programme. */
+  stepped: boolean;
+};
+
+/** A gesture that has not begun. */
+export const FEATURE_DRAG_IDLE: FeatureDrag = {
+  active: false,
+  x: 0,
+  y: 0,
+  stepped: false,
+};
+
+/** A hand lands on the frame at a point. */
+export function featureDragBegin(x: number, y: number): FeatureDrag {
+  return { active: true, x, y, stepped: false };
+}
+
+/**
+ * A hand moves: the direction it steps, if this gesture has travelled far
+ * enough and travelled further across than down. A long gesture steps once —
+ * `stepped` is set in the returned state, so the rest of its travel is spent.
+ */
+export function featureDragMove(
+  drag: FeatureDrag,
+  x: number,
+  y: number,
+): { drag: FeatureDrag; direction: -1 | 1 | null } {
+  if (!drag.active || drag.stepped) {
+    return { drag, direction: null };
+  }
+  const dx = x - drag.x;
+  const dy = y - drag.y;
+  if (Math.abs(dx) < FEATURE_DRAG_PX || Math.abs(dx) <= Math.abs(dy)) {
+    return { drag, direction: null };
+  }
+  return { drag: { ...drag, stepped: true }, direction: dx < 0 ? 1 : -1 };
+}
+
+/** A hand lets go: the gesture is over, and a later move is not a step. */
+export function featureDragEnd(drag: FeatureDrag): FeatureDrag {
+  return drag.active ? { ...drag, active: false } : drag;
+}
+
+/**
+ * What a click after a gesture means. A browser synthesises a click at the end
+ * of a drag, and that click is the drag's — except for a keyboard activation,
+ * which carries `detail === 0`. A keyboard click is never the drag's, and it
+ * clears a step flag the drag left behind: a swipe that produced no click must
+ * not swallow the next Enter (both clients).
+ */
+export function featureDragClick(
+  drag: FeatureDrag,
+  detail: number,
+): { drag: FeatureDrag; ours: boolean } {
+  if (!drag.stepped) {
+    return { drag, ours: false };
+  }
+  return { drag: { ...drag, stepped: false }, ours: detail !== 0 };
 }
 
 /** A Home section's number, after the feature: Continue watching is 01 when it is drawn. */
@@ -171,6 +252,51 @@ export function homeEmptyState(
   };
 }
 
+/** The parts of a feature's or a poster's caption, in the order the programme prints them. */
+export type CaptionParts = {
+  year: string | null;
+  rating: string | null;
+  genres: string | null;
+};
+
+/** The rating as a programme reads it, or null when the Addon did not say. */
+export function ratingOf(meta: Pick<MetaPreview, "imdbRating">): string | null {
+  const rating = meta.imdbRating?.trim();
+  return rating ? `IMDb ${rating}` : null;
+}
+
+/** The year the Addon published, trimmed of the range's trailing dash where one exists. */
+export function yearOf(meta: Pick<MetaPreview, "releaseInfo">): string | null {
+  const year = meta.releaseInfo?.trim().replace(/[–-]$/, "").trim();
+  return year || null;
+}
+
+/**
+ * A caption's three parts. A Meta preview carries no runtime, so the programme
+ * prints year and rating and leaves runtime to the Titles that can tell it.
+ */
+export function captionParts(meta: MetaPreview): CaptionParts {
+  const genres = meta.genres.slice(0, 2).join(" / ") || null;
+  return {
+    year: yearOf(meta),
+    rating: ratingOf(meta),
+    genres,
+  };
+}
+
+/**
+ * How much display type a feature title can carry. The research puts the
+ * repertory hero at 72–96 px for a short name and 48–64 px for a long one;
+ * these three bands are the prototype's reading of that rule.
+ */
+export function featureTitleDensity(name: string): "regular" | "long" | "very-long" {
+  const length = name.trim().length;
+  if (length <= 24) {
+    return "regular";
+  }
+  return length <= 40 ? "long" : "very-long";
+}
+
 /** The two-digit index a programme uses beside a row or a destination. */
 export function programIndex(index: number): string {
   return String(index).padStart(2, "0");
@@ -185,6 +311,11 @@ export function countLabel(type: string, count: number): string {
     return `${count} ${count === 1 ? "series" : "series"}`;
   }
   return `${count} ${count === 1 ? "title" : "titles"}`;
+}
+
+/** Continue watching's bookkeeping: the entries the Host holds, one phrase. */
+export function continueTag(count: number): string {
+  return `${count} in progress`;
 }
 
 /** The bookkeeping a row head prints: where the row came from and its count. */
