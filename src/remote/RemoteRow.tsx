@@ -40,26 +40,23 @@ export function RowNote({
 }
 
 /**
- * The rail's last plate: one press asks the row for its next page. It is
- * disabled while that ask is queued or running, and the screen draws it only
- * where the feed has a page to ask for.
+ * The rail's last plate: one press opens the row as a whole, as a pushed grid
+ * (#253, design system *Rail*). It asks for no page itself — the grid's own
+ * head action does that, over the cards the rail has read.
  */
 export function MoreControl({
   label,
-  paging,
-  onPage,
+  onOpen,
 }: {
   label: string;
-  paging: boolean;
-  onPage: () => void;
+  onOpen: () => void;
 }) {
   return (
     <Button
       variant="ghost"
       className="remote-more"
       aria-label={`More ${label}`}
-      pending={paging}
-      onClick={onPage}
+      onClick={onOpen}
     >
       More
     </Button>

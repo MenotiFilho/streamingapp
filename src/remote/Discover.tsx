@@ -25,16 +25,15 @@ import {
   DISCOVER_KINDS,
   NO_CREDENTIAL_NOTE,
   catalogAsk,
-  catalogMore,
   catalogNote,
-  catalogPageAsk,
   catalogsOf,
   discoverNote,
   discoverTag,
   feedTitle,
   noCatalogState,
 } from "./discoverScreen";
-import { feedAfter, feedMore, feedPhase, pageToAsk } from "./feed";
+import { feedAfter, feedPhase } from "./feed";
+import { gridLevel } from "./grid";
 import { titleLevelOf, type RemotePayload } from "./levels";
 
 export type DiscoverProps = {
@@ -120,6 +119,7 @@ export function Discover({ session, state, push }: DiscoverProps) {
               genre={genre}
               chooseGenre={setGenre}
               open={open}
+              push={push}
             />
           ) : (
             <CatalogDiscover
@@ -127,6 +127,7 @@ export function Discover({ session, state, push }: DiscoverProps) {
               state={state}
               kind={kind}
               open={open}
+              push={push}
             />
           )}
         </>
@@ -137,9 +138,9 @@ export function Discover({ session, state, push }: DiscoverProps) {
 
 /**
  * Discover over TMDB: the genre rail for the kind, and one feed asked page by
- * page. A kind or a genre is a new feed and asks page 1; `More` asks the page
- * after what was read, and a page that failed is that same press again — the
- * cards already read keep their place either way (`feedWith`).
+ * page. A kind or a genre is a new feed and asks page 1; the rail's More card
+ * opens the feed as a whole-row grid, whose head asks the next page (or the
+ * page that failed) into the same cards (`feedWith`).
  */
 function KeyedDiscover({
   session,
@@ -148,6 +149,7 @@ function KeyedDiscover({
   genre,
   chooseGenre,
   open,
+  push,
 }: {
   session: Session;
   state: SessionState;
@@ -155,6 +157,7 @@ function KeyedDiscover({
   genre: number | null;
   chooseGenre: (genre: number | null) => void;
   open: (addon: string | null, meta: MetaPreview) => void;
+  push: (level: NewLevel<RemotePayload>) => string;
 }) {
   const snapshot = state.snapshot;
   const [feed, setFeed] = useState<DiscoverFeed>(blankFeed);
@@ -197,6 +200,18 @@ function KeyedDiscover({
   const phase = feedPhase(feed, reading);
   const couldPlay = snapshot ? discoverPlayable(snapshot.addons, kind) : true;
 
+  const openGrid = () => {
+    push(
+      gridLevel({
+        title: feedTitle(kind),
+        index: programIndex(1),
+        tag: discoverTag(kind, genreName, feed.items.length),
+        addon: null,
+        source: { kind: "discover", feedKind: kind, genre, feed },
+      }),
+    );
+  };
+
   return (
     <>
       <div className="remote-filters" role="group" aria-label="Genres">
@@ -223,12 +238,8 @@ function KeyedDiscover({
           <RowNote failure={feed.failure} quiet={discoverNote(phase, genreName)} />
         }
         action={
-          feedMore(feed) ? (
-            <MoreControl
-              label={feedTitle(kind)}
-              paging={reading}
-              onPage={() => void read(pageToAsk(feed))}
-            />
+          feed.items.length > 0 ? (
+            <MoreControl label={feedTitle(kind)} onOpen={openGrid} />
           ) : null
         }
       >
@@ -260,17 +271,18 @@ function CatalogDiscover({
   state,
   kind,
   open,
+  push,
 }: {
   session: Session;
   state: SessionState;
   kind: DiscoverKind;
   open: (addon: string | null, meta: MetaPreview) => void;
+  push: (level: NewLevel<RemotePayload>) => string;
 }) {
   const snapshot = state.snapshot;
   const catalogs = useMemo(() => catalogsOf(snapshot, kind), [snapshot, kind]);
   const fingerprint = catalogs.map((catalog) => catalogKey(catalog)).join("|");
   const [rows, setRows] = useState<Row[]>([]);
-  const [reading, setReading] = useState<ReadonlySet<string>>(() => new Set());
   // Which kind owns the rows: an answer to the kind a person left is dropped
   // rather than landing in a row that is no longer drawn.
   const serial = useRef(0);
@@ -278,16 +290,10 @@ function CatalogDiscover({
   const run = useCallback(
     async (key: string, action: Action) => {
       const token = serial.current;
-      setReading((held) => new Set(held).add(key));
       const outcome = await session.ask(action);
       if (token !== serial.current) {
         return;
       }
-      setReading((held) => {
-        const next = new Set(held);
-        next.delete(key);
-        return next;
-      });
       setRows((held) =>
         held.map((row) => (keyOf(row) === key ? settled(row, outcome) : row)),
       );
@@ -300,7 +306,6 @@ function CatalogDiscover({
   useEffect(() => {
     serial.current += 1;
     setRows(catalogs.map((catalog) => blankRow(catalog)));
-    setReading(new Set());
     for (const catalog of catalogs) {
       void run(catalogKey(catalog), catalogAsk(catalog));
     }
@@ -337,11 +342,20 @@ function CatalogDiscover({
               <RowNote failure={row.failure} quiet={catalogNote(row)} />
             }
             action={
-              catalogMore(snapshot, row) ? (
+              row.metas.length > 0 ? (
                 <MoreControl
                   label={row.name}
-                  paging={reading.has(key)}
-                  onPage={() => void run(key, catalogPageAsk(row))}
+                  onOpen={() =>
+                    push(
+                      gridLevel({
+                        title: row.name,
+                        index: programIndex(index + 1),
+                        tag: rowTag(snapshot, row),
+                        addon: row.addon,
+                        source: { kind: "catalog", row },
+                      }),
+                    )
+                  }
                 />
               ) : null
             }

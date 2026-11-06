@@ -4,8 +4,9 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { explain } from "../core/errors";
 import type { ActionError } from "../core/errors";
+import type { Row } from "../core/browse";
 import type { Destination } from "../core/destinations";
-import { FEATURE_ROTATION_MS } from "../core/homeProgramme";
+import { FEATURE_ROTATION_MS, rowTag } from "../core/homeProgramme";
 import type { HostLink, LinkState } from "../core/link";
 import type { NewLevel } from "../core/navigation";
 import { useSession } from "../core/react/useSession";
@@ -22,6 +23,7 @@ import type {
 } from "../core/wire";
 import { Home } from "./Home";
 import { NOTHING } from "./fakeSocket.testing";
+import { gridLevel } from "./grid";
 import { titleLevel, type RemotePayload } from "./levels";
 
 /**
@@ -72,6 +74,20 @@ function meta(id: string, name: string): MetaPreview {
 }
 
 const FOUR = [meta("tt1", "One"), meta("tt2", "Two"), meta("tt3", "Three"), meta("tt4", "Four")];
+
+/** The row the Session's store holds after a first page. */
+function homeRow(metas: MetaPreview[]): Row {
+  return {
+    addon: "cinemeta",
+    type: "movie",
+    id: "top",
+    name: "Popular",
+    metas,
+    offset: metas.length,
+    failure: null,
+    done: false,
+  };
+}
 
 /** A Catalog's name as its Addon declared it, which is what a row's head prints. */
 const NAMES: Record<string, string> = { top: "Popular", new: "New", other: "Other" };
@@ -292,16 +308,25 @@ describe("Home's rows", () => {
     expect(within(row).getByRole("status")).toBeInTheDocument();
   });
 
-  test("a Catalog that declares no skip has no next page to offer", async () => {
-    mount({
-      snapshot: {
-        ...SNAPSHOT,
-        addons: [{ ...CINEMETA, catalogs: [{ ...POPULAR, extra: [] }] }],
-      },
-    });
+  test("a Catalog that declares no skip still opens its whole row, with no page to ask", async () => {
+    const snapshot: Snapshot = {
+      ...SNAPSHOT,
+      addons: [{ ...CINEMETA, catalogs: [{ ...POPULAR, extra: [] }] }],
+    };
+    const { pushes } = mount({ snapshot });
 
     await waitFor(() => expect(screen.getByTestId("card-cinemeta-tt1")).toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: "More Popular" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "More Popular" }));
+
+    expect(pushes).toEqual([
+      gridLevel({
+        title: "Popular",
+        index: "01",
+        tag: rowTag(snapshot, homeRow(FOUR)),
+        addon: "cinemeta",
+        source: { kind: "home", rowKey: "cinemeta/movie/top" },
+      }),
+    ]);
   });
 
   test("a row the Host could not fetch draws the core's explanation in place of its cards", async () => {
@@ -389,40 +414,60 @@ describe("Home's presses", () => {
     expect(screen.getByTestId("resume-tt2:1:1")).toBeDisabled();
   });
 
-  test("More asks the store for the next page and keeps the cards already drawn", async () => {
-    const { host } = mount();
+  test("More opens the row as a whole-row grid and asks no page itself", async () => {
+    const { host, pushes } = mount();
     await waitFor(() => expect(screen.getByTestId("card-cinemeta-tt4")).toBeInTheDocument());
+    const asked = asks(host).length;
 
     fireEvent.click(screen.getByRole("button", { name: "More Popular" }));
 
-    await waitFor(() =>
-      expect(asks(host)).toContainEqual({
-        type: "browse_catalog",
+    expect(pushes).toEqual([
+      gridLevel({
+        title: "Popular",
+        index: "01",
+        tag: rowTag(SNAPSHOT, homeRow(FOUR)),
         addon: "cinemeta",
-        catalog: { type: "movie", id: "top" },
-        extra: [{ name: "skip", value: "4" }],
+        source: { kind: "home", rowKey: "cinemeta/movie/top" },
       }),
-    );
-    await waitFor(() => expect(screen.getByTestId("card-cinemeta-tt5")).toBeInTheDocument());
+    ]);
     expect(
-      screen.getByTestId("card-cinemeta-tt1"),
-      "the first page is still drawn",
-    ).toBeInTheDocument();
+      asks(host),
+      "the grid asks the row's next page from its own head, not on opening",
+    ).toHaveLength(asked);
+  });
 
-    // A page that brings nothing new is what ends a row, and the only thing
-    // that takes the control away.
-    fireEvent.click(screen.getByRole("button", { name: "More Popular" }));
-    await waitFor(() =>
-      expect(asks(host)).toContainEqual({
-        type: "browse_catalog",
+  test("the Continue watching rail's More card opens its whole row", async () => {
+    const entry: ResumeEntry = {
+      video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
+      title: {
         addon: "cinemeta",
-        catalog: { type: "movie", id: "top" },
-        extra: [{ name: "skip", value: "5" }],
+        id: "tt1",
+        type: "series",
+        name: "One",
+        poster: null,
+        background: null,
+      },
+      position: 300,
+      duration: 600,
+      watched: false,
+      unplayable: null,
+    };
+    const { pushes } = mount({
+      snapshot: { ...SNAPSHOT, watchProgress: [entry] },
+    });
+    await waitFor(() => expect(screen.getByTestId("resume-tt1:1:1")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "More Continue watching" }));
+
+    expect(pushes).toEqual([
+      gridLevel({
+        title: "Continue watching",
+        index: "01",
+        tag: "1 in progress",
+        addon: null,
+        source: { kind: "home", rowKey: null },
       }),
-    );
-    await waitFor(() =>
-      expect(screen.queryByRole("button", { name: "More Popular" })).not.toBeInTheDocument(),
-    );
+    ]);
   });
 
   test("the empty programme offers the one way out the core names", async () => {
