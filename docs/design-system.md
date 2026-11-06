@@ -292,8 +292,10 @@ the phone's emoji font is not the design system.
   then the row. Utility screens use a plain mono label and its rule instead; the
   numbered head is the programme's, not the register's.
 - **Page**: one screen, fitted where the content allows; the content column is
-  the measure, not the window. A short window scrolls the page rather than
-  clipping the copy.
+  the measure, not the window. Discover, Search, Title and the Remote's player
+  screen never scroll vertically: they fit the window, and anything longer
+  scrolls inside its own panel (ADR-0036). Elsewhere a short window scrolls the
+  page rather than clipping the copy.
 - **Utility register** (Addons, Settings, Library): the same one line at the
   top, then hairline rows with a 2px step, names in display serif, bookkeeping
   in mono, and no index numbers. Addons is two columns — the form on the left,
@@ -327,8 +329,11 @@ the phone's emoji font is not the design system.
 - **Feature**: the backdrop between two hairlines, a two-gradient ink scrim, the
   Title in display serif over it, the kicker in mono (`Feature presentation` and
   the programme's position), one line of facts, the description, and one
-  action — **Open the Title**. It rotates every 24s while unfocused; focus holds
-  it; Left/Right step it; reduced motion stops it.
+  action — **Open the Title**. One tick per item shows the programme, the
+  current tick filling over the item's 24s; a tick jumps to its item. Left/Right
+  and a horizontal drag step it; focus or a held finger pauses it; any of these
+  restarts the item's time. Reduced motion keeps the rotation and turns the slide
+  into a fade (ADR-0036).
 - **Episode row**: 16:9 still (or a typographic plate), `S#E#` and the name, a
   **Streams** mark. The season rail is single-select chips in one scrolling
   line; the episode list scrolls under it.
@@ -338,8 +343,9 @@ the phone's emoji font is not the design system.
 - **Chip**: a hairline box, mono/sans label, single-select; chosen is the brass
   inset rule and ivory ink, never a fill. A value outside the presets is named
   by an **Other** chip rather than leaving every chip unpressed. Discover's
-  genre row is **All genres** first, then TMDB's own genre order — one list,
-  never a curated second one.
+  genre row is **All genres** first, then the union of TMDB's film and series
+  genres — one list filtering both the Movies and the Series row, never a
+  curated second one (ADR-0036). Search and Discover have no kind chips.
 - **Button**: a line of type with a rule under it; the one primary action is a
   **brass fill carrying ink** (never ivory, 8.43:1), a quiet action is brass ink
   with a rule, and destructive is red ink and always asks first.
