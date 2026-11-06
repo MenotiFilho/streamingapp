@@ -267,6 +267,24 @@ function activeSlide(): string | null {
   return screen.getByTestId("remote-feature").getAttribute("data-active-slide");
 }
 
+/**
+ * jsdom has no layout, and the gesture's distance is a share of the frame's
+ * width: the test hands the screen the width a phone would give it.
+ */
+function withWidth(element: HTMLElement, width: number) {
+  vi.spyOn(element, "getBoundingClientRect").mockReturnValue({
+    x: 0,
+    y: 0,
+    width,
+    height: (width * 9) / 16,
+    top: 0,
+    right: width,
+    bottom: (width * 9) / 16,
+    left: 0,
+    toJSON: () => ({}),
+  } as DOMRect);
+}
+
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -368,7 +386,7 @@ describe("Home's rows", () => {
 });
 
 describe("Home's feature", () => {
-  test("advances on the core's 24 second beat and starts the programme over at its end", async () => {
+  test("advances on the core's 15 second beat and starts the programme over at its end", async () => {
     onlyIntervals();
     mount();
 
@@ -498,6 +516,7 @@ describe("Home's feature, driven as a page", () => {
 
     const feature = await screen.findByTestId("remote-feature");
     const frame = within(feature).getByRole("button", { name: /Open the Title/ });
+    withWidth(frame, 400);
     expect(activeSlide()).toBe("tt1");
 
     fireEvent.pointerDown(frame, {
@@ -509,19 +528,155 @@ describe("Home's feature, driven as a page", () => {
     fireEvent.pointerMove(frame, {
       pointerId: 1,
       pointerType: "touch",
-      clientX: 240,
+      clientX: 200,
       clientY: 204,
     });
     fireEvent.pointerUp(frame, {
       pointerId: 1,
       pointerType: "touch",
-      clientX: 240,
+      clientX: 200,
       clientY: 204,
     });
     fireEvent.click(frame, { detail: 1 });
-
-    expect(activeSlide()).toBe("tt2");
+    await waitFor(() => expect(activeSlide(), "120 of 400 crosses the share").toBe("tt2"));
     expect(pushes, "the swipe's click is not a press on the feature").toHaveLength(0);
+  });
+
+  test("a swipe that comes back under the share snaps back", async () => {
+    onlyIntervals();
+    mount();
+
+    const feature = await screen.findByTestId("remote-feature");
+    const frame = within(feature).getByRole("button", { name: /Open the Title/ });
+    withWidth(frame, 400);
+
+    fireEvent.pointerDown(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 300,
+      clientY: 200,
+    });
+    fireEvent.pointerMove(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 180,
+      clientY: 204,
+    });
+    fireEvent.pointerMove(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 270,
+      clientY: 204,
+    });
+    fireEvent.pointerUp(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 270,
+      clientY: 204,
+    });
+
+    await waitFor(() => expect(activeSlide(), "30 of 400 is under the share").toBe("tt1"));
+  });
+
+  test("a vertical drag is the page's, not the programme's", async () => {
+    onlyIntervals();
+    mount();
+
+    const feature = await screen.findByTestId("remote-feature");
+    const frame = within(feature).getByRole("button", { name: /Open the Title/ });
+    withWidth(frame, 400);
+
+    fireEvent.pointerDown(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 300,
+      clientY: 200,
+    });
+    fireEvent.pointerMove(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 302,
+      clientY: 280,
+    });
+    fireEvent.pointerUp(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 302,
+      clientY: 280,
+    });
+
+    expect(activeSlide(), "a vertical drag scrolls the page").toBe("tt1");
+  });
+
+  test("a tap on the hero still opens the Title", async () => {
+    onlyIntervals();
+    const { pushes } = mount();
+
+    const feature = await screen.findByTestId("remote-feature");
+    const frame = within(feature).getByRole("button", { name: /Open the Title/ });
+    fireEvent.click(frame, { detail: 1 });
+
+    expect(pushes).toHaveLength(1);
+  });
+
+  test("the arrows step and wrap like a swipe, and are not a press on the Title", async () => {
+    onlyIntervals();
+    const { pushes } = mount();
+
+    await screen.findByTestId("remote-feature");
+    expect(activeSlide()).toBe("tt1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous feature" }));
+    expect(activeSlide(), "the previous arrow wraps to the last item").toBe("tt4");
+
+    fireEvent.click(screen.getByRole("button", { name: "Next feature" }));
+    expect(activeSlide(), "the next arrow wraps to the first").toBe("tt1");
+
+    expect(pushes, "arrows are furniture, not the Title").toHaveLength(0);
+  });
+
+  test("an arrow restarts the item's time, as a step does", async () => {
+    onlyIntervals();
+    mount();
+
+    await screen.findByTestId("remote-feature");
+    act(() => vi.advanceTimersByTime(12_000));
+    fireEvent.click(screen.getByRole("button", { name: "Next feature" }));
+    expect(activeSlide()).toBe("tt2");
+
+    act(() => vi.advanceTimersByTime(12_000));
+    expect(activeSlide(), "the arrow restarted Two's time").toBe("tt2");
+  });
+
+  test("reduced motion commits a swipe without tracking it", async () => {
+    reduceMotion();
+    onlyIntervals();
+    mount();
+
+    const feature = await screen.findByTestId("remote-feature");
+    const frame = within(feature).getByRole("button", { name: /Open the Title/ });
+    withWidth(frame, 400);
+
+    fireEvent.pointerDown(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 320,
+      clientY: 200,
+    });
+    fireEvent.pointerMove(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 200,
+      clientY: 204,
+    });
+    fireEvent.pointerUp(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 200,
+      clientY: 204,
+    });
+
+    expect(activeSlide(), "reduced motion steps at once, as a fade").toBe("tt2");
   });
 
   test("a tap on a tick jumps to that item and restarts its time", async () => {

@@ -2566,7 +2566,7 @@ function Step-26($ctx) {
     ''
     'WALK THE CAST REMOTE (BROWSE) NOW. The bottom index is Home · Discover ·'
     'Search · Library · Addons · Settings, with the active one keylined:'
-    '  - Home draws the Featured catalog as a feature that holds for 24 seconds,'
+    '  - Home draws the Featured catalog as a feature that holds for 15 seconds,'
     '    a 16:9 Continue watching row, and one touch rail per Catalog in the'
     '    Addons order, each with More where the Catalog pages;'
     '  - Discover is TMDB weekly Trending with Movie/Series and a genre filter, or'
@@ -2738,9 +2738,16 @@ function Step-27($ctx) {
 }
 
 function Step-28($ctx) {
-    '--- 28. the hero: rotation while unfocused, and its text fallback'
-    $app = $ctx.App
-    Open-Home $app
+    "--- 28. the hero: the screen's seat does not hold it, a person's focus does, and its text fallback"
+    # The bug this step guards is a *launch* one: the ground already has the
+    # Addon configured and its Catalog featured, so restarting here puts the
+    # Host back on Home with the hero arriving from the Host's Snapshot before
+    # anyone has touched the screen.
+    Stop-Host $ctx.App
+    $app = Start-Host
+    $ctx.App = $app
+    Focus $app | Out-Null
+    Wait-Text $app 'Feature presentation' 45 | Out-Null
     Start-Sleep -Seconds 2
     $hero = @(Buttons-Matching $app 'Open the Title: ')[0]
     if (-not $hero) {
@@ -2748,38 +2755,56 @@ function Step-28($ctx) {
         return
     }
 
-    # The beat is one decision in the window: the feature holds its slide while
-    # its action has the focus, and steps it every 24 seconds while it does not.
-    # Neither the hold nor the beat prints a word, so both are read off the
-    # control's own name - `Open the Title: <slide>` - either side of one beat.
+    # The beat is one decision in the window: a person's focus holds the slide,
+    # while the focus the screen seats on mount does not. Neither state prints a
+    # word, so both are read off the control's own name - `Open the Title:
+    # <slide>` - either side of one beat, which is 15 s (FEATURE_ROTATION_MS).
     if ((Page-Text $app) -match 'One showing') {
         Skip 'the hero rotation' (
             'the Featured Catalog answered one Title, so there is no second slide to rotate to: run with an Addon whose Featured Catalog lists more')
         return
     }
 
+    # Home has mounted and the screen has seated focus on the hero (#248). The
+    # beat must already be running; a slide that never moves here is the bug the
+    # review found.
+    $seated = Hero-Title $app
+    $after = $seated
+    $deadline = (Get-Date).AddSeconds(20)
+    while (($after -eq $seated) -and ((Get-Date) -lt $deadline)) {
+        Start-Sleep -Milliseconds 500
+        $after = Hero-Title $app
+    }
+    Shot $app '28-hero-launched.png'
+    Check 'the screen seating focus does not stop the beat on launch' (
+        ($seated -ne '') -and ($seated -ne $after)) "the slide stayed '$seated' for a whole beat"
+
+    # A person's focus holds it: leave the hero, then come back to it.
+    Focus-On $app 'Home' ([Windows.Automation.ControlType]::Button)
+    Start-Sleep -Seconds 1
+    $hero = @(Buttons-Matching $app 'Open the Title: ')[0]
     $hero.SetFocus()
     Start-Sleep -Seconds 1
     $before = Hero-Title $app
-    # One beat is 24 s (FEATURE_ROTATION_MS); a beat and a settle outlasts it.
-    Start-Sleep -Seconds 27
+    # A beat and a settle outlast it.
+    Start-Sleep -Seconds 18
     $after = Hero-Title $app
     Shot $app '28-hero-focused.png'
-    Check 'focusing the hero holds its rotation' (
+    Check 'a person focusing the hero holds its rotation' (
         ($before -ne '') -and ($after -eq $before)) "the slide went '$before' to '$after' over one beat"
 
-    # Unfocused, it steps on its own every 24 seconds.
+    # Unfocused again, it steps on its own every 15 seconds.
     Focus-On $app 'Home' ([Windows.Automation.ControlType]::Button)
     Start-Sleep -Seconds 1
     $before = Hero-Title $app
     $after = $before
-    $deadline = (Get-Date).AddSeconds(32)
+    $deadline = (Get-Date).AddSeconds(20)
     while (($after -eq $before) -and ((Get-Date) -lt $deadline)) {
         Start-Sleep -Milliseconds 500
         $after = Hero-Title $app
     }
     Shot $app '28-hero-rotated.png'
-    Check 'and it steps to another slide on its own' (
+    Check 'and it steps to another slide on its own again' (
         ($before -ne '') -and ($before -ne $after)) "the slide stayed '$before' for a whole beat"
 
     # The fixture carries portrait posters and no billboard art, so the hero has

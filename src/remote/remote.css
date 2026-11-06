@@ -297,6 +297,16 @@ body {
   animation: remote-feature-fade var(--rep-motion-fade) var(--rep-ease) both;
 }
 
+/* A slide that is part of a gesture is already on screen: no entrance fade.
+ * A released gesture travels the rest of the way with the panel's duration. */
+.remote-feature-slide[data-tracking] {
+  animation: none;
+}
+
+.remote-feature-slide[data-settling] {
+  transition: transform var(--rep-motion-panel) var(--rep-ease);
+}
+
 .remote-feature-art {
   position: absolute;
   inset: 0;
@@ -353,6 +363,8 @@ body {
   pointer-events: none;
 }
 
+/* The copy is anchored to the foot of the fixed 16:9 frame. The action is one
+ * of its items, below the description, so it can never cover the copy. */
 .remote-feature-copy {
   position: absolute;
   right: 0;
@@ -362,7 +374,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--rep-space-2);
-  padding: var(--rep-space-4) var(--rep-space-4) calc(var(--rep-space-6) + var(--rep-space-2));
+  padding: var(--rep-space-3) var(--rep-space-4);
   min-width: 0;
 }
 
@@ -414,16 +426,14 @@ body {
   font-size: var(--rep-remote-text-caption);
   line-height: var(--rep-leading-caption);
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
 }
 
-/* The frame's one action, as the window draws it: a brass plate at the foot's
- * left, with the ticks to its right under the frame. */
+/* The frame's one action, in the copy's flow below the description: a brass
+ * plate at the foot's left, with the ticks to its right on the frame. */
 .remote-feature-action {
-  position: absolute;
-  bottom: var(--rep-space-3);
-  left: var(--rep-space-4);
-  z-index: 3;
+  align-self: flex-start;
+  flex: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -437,7 +447,53 @@ body {
   pointer-events: none;
 }
 
-/* One tick per slide under the frame: the current one fills over the item's 24
+/* A phone too narrow for a two-line name and a two-line description holds one
+ * line of each: the 16:9 frame is fixed, and the copy may not grow past it. */
+@media (max-width: 22.4rem) {
+  .remote-feature-name,
+  .remote-feature-description {
+    -webkit-line-clamp: 1;
+  }
+}
+
+/* Previous and next on the hero: a tap target at each side, drawn over the art
+ * as pointer furniture. They sit outside the frame's press, so pressing one
+ * steps the programme and never opens the Title. */
+.remote-feature-arrow {
+  position: absolute;
+  top: 50%;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: var(--rep-remote-touch);
+  height: var(--rep-remote-touch);
+  padding: 0;
+  border: 1px solid var(--rep-hairline);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--rep-ink) 62%, transparent);
+  color: var(--rep-ivory);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.remote-feature-arrow svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.remote-feature-arrow:hover {
+  border-color: var(--rep-house-deep);
+}
+
+.remote-feature-arrow--previous {
+  left: var(--rep-space-2);
+}
+
+.remote-feature-arrow--next {
+  right: var(--rep-space-2);
+}
+
+/* One tick per slide under the frame: the current one fills over the item's 15
  * seconds, the others are hairlines. A tick is a tap target; it is outside the
  * frame's own press so a tap on it never opens the Title. */
 .remote-feature-ticks {

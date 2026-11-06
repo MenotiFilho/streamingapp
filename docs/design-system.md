@@ -229,8 +229,8 @@ stagger on a screen's content — a level arrives as one thing.
 - A **rail** scrolls with `animate()` on its scroll offset, so a second press
   redirects it mid-flight; the focus reveal uses the same path. No snapping and
   no inertia.
-- The **feature** cross-fades between slides on its 24s beat, replacing the
-  earlier no-cross-fade rule; focus still holds it.
+- The **feature** cross-fades between slides on its 15s beat, replacing the
+  earlier no-cross-fade rule; a person's focus still holds it.
 - The **spine's** width and its label reveal use the panel spring.
 - An **Addon row's inline expansion** uses `layout`, so the register moves
   under the focus and the focused row stays where it was.
@@ -329,17 +329,31 @@ the phone's emoji font is not the design system.
   its More card opens the cards read so far; the grid does not ask a page of
   its own.
 - **Feature**: the backdrop between two hairlines, a two-gradient ink scrim, the
-  Title in display serif over it, one line of facts, the description, and one
-  action — **Open the Title**. The frame is one fixed size for every item: the
-  art covers it (crop, never letterbox or stretch), and long copy is clamped
-  rather than growing the frame. One tick per item sits under the frame, the
-  current tick filling over the item's 24s; a tick jumps to its item. Left/Right
-  and a horizontal drag step it; focus or a held finger pauses it; any of these
-  restarts the item's time. A pointer that lets go releases the fill even where
-  the press focused the frame; keyboard and D-pad focus still hold it. Reduced
-  motion keeps the rotation and turns the slide into a fade (ADR-0036 §2). The
-  kicker and the `01 / 04` position are gone: the ticks are where the programme
-  is (ADR-0036 §2, owner's by-hand review on PR #261).
+  Title in display serif over it, one line of facts, the description clamped to
+  two lines, and one action — **Open the Title** — *below* the description, in
+  the copy's flow, with the copy's own spacing; it never overlays the copy. The
+  Title is one line and steps down through the two densities for a long name;
+  it ellipsises rather than growing the copy. The frame is one fixed size for
+  every item: the art covers it (crop, never letterbox or stretch), and long
+  copy is clamped rather than growing the frame. One tick per item sits under
+  the frame, the current tick filling over the item's 15s; a tick jumps to its
+  item. Left/Right step it; a horizontal drag carries the slides with the hand
+  and commits to the neighbour past a share of the frame or on a fast flick,
+  and a short or slow release snaps back. A person's focus or a held finger
+  pauses it; the focus the screen seats on launch does not hold the beat, and
+  the fill starts on launch. Any step, drag, tick or arrow restarts the item's
+  time. A pointer that lets go releases the fill even where the press focused
+  the frame; keyboard and D-pad focus still hold it. Reduced motion keeps the
+  rotation, drops the tracking, and turns a committed swipe into a fade
+  (ADR-0036 §2). The kicker and the `01 / 04` position are gone: the ticks are
+  where the programme is (ADR-0036 §2, owner's by-hand review on PR #261).
+
+  The Remote's hero is the same anatomy at hand scale: the same clamps and the
+  action below the description, **previous/next arrows** at the sides that step
+  and wrap like a swipe, and the ticks under the frame. The arrows and the ticks
+  are pointer furniture: they never open the Title. The window's feature has no
+  arrows — its D-pad walk, Left/Right and the ticks already step it, and a
+  10-foot hero does not need a second pair of pointer marks.
 - **Episode row**: 16:9 still (or a typographic plate), `S#E#` and the name, a
   **Streams** mark. The season rail is single-select chips in one scrolling
   line; the episode list scrolls under it.

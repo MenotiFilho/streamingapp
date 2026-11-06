@@ -34,8 +34,11 @@ export const HOME_RAIL_ITEMS = 20;
 
 export {
   FEATURE_CLOCK_MS,
+  FEATURE_COMMIT_SHARE,
   FEATURE_DRAG_IDLE,
-  FEATURE_DRAG_PX,
+  FEATURE_DRAG_SLOP_PX,
+  FEATURE_FLICK_PX_PER_MS,
+  FEATURE_FLICK_WINDOW_MS,
   FEATURE_ROTATION_MS,
   FEATURE_START,
   captionParts,
@@ -48,6 +51,7 @@ export {
   featureElapse,
   featureHold,
   featureJump,
+  featureNeighbour,
   featureProgress,
   featureRelease,
   featureRotates,

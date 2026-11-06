@@ -15,7 +15,7 @@ import { addonLabel } from "./home";
 import type { MetaPreview, Snapshot } from "./wire";
 
 /** How long one feature holds before the programme moves on. */
-export const FEATURE_ROTATION_MS = 24_000;
+export const FEATURE_ROTATION_MS = 15_000;
 
 /**
  * How often the programme's clock is read while the feature is on screen.
@@ -25,11 +25,30 @@ export const FEATURE_ROTATION_MS = 24_000;
 export const FEATURE_CLOCK_MS = 100;
 
 /**
- * How far a horizontal drag or swipe travels before it steps one item. A
- * gesture that has not travelled this far, or that travelled further down than
- * across, is not the feature's: the page keeps it.
+ * How far a hand travels before the feature claims a gesture. Under this it is
+ * still a tap, and a tap opens the Title; a gesture that has travelled further
+ * down than across is the page's, and scrolls Home.
  */
-export const FEATURE_DRAG_PX = 40;
+export const FEATURE_DRAG_SLOP_PX = 10;
+
+/**
+ * The share of the frame's width a release must cross to commit to the
+ * neighbour. The rest of the gesture — short of this — snaps back.
+ */
+export const FEATURE_COMMIT_SHARE = 0.22;
+
+/**
+ * How fast a release must be travelling to commit as a flick, in pixels per
+ * millisecond. A flick commits whatever distance it covered, as long as it is
+ * going the way the hand moved.
+ */
+export const FEATURE_FLICK_PX_PER_MS = 0.45;
+
+/**
+ * If the last movement is older than this, the hand rested before letting go
+ * and the release is not a flick however fast the last sample was.
+ */
+export const FEATURE_FLICK_WINDOW_MS = 120;
 
 /**
  * The label a row's section head carries: the Addon a person reads it by and
@@ -75,7 +94,7 @@ export type FeatureProgramme = {
   held: boolean;
 };
 
-/** A programme on its first item with the whole 24 seconds ahead of it. */
+/** A programme on its first item with the whole 15 seconds ahead of it. */
 export const FEATURE_START: FeatureProgramme = { index: 0, elapsed: 0, held: false };
 
 /**
@@ -120,17 +139,24 @@ export function featureElapse(
 }
 
 /**
- * A step that wraps — a drag or a swipe takes it — restarting the item's time.
- * A keyboard press uses `featureStep` instead: at either end the focus engine
- * still has to be able to cross out of the feature.
+ * The item one step from `index`, wrapping at either end. The gesture's
+ * name for the slide that arrives from the side.
+ */
+export function featureNeighbour(index: number, count: number, direction: -1 | 1): number {
+  return count > 0 ? (clampItem(index, count) + direction + count) % count : 0;
+}
+
+/**
+ * A step that wraps — a drag, a swipe or the Remote's arrow takes it —
+ * restarting the item's time. A keyboard press uses `featureStep` instead: at
+ * either end the focus engine still has to be able to cross out of the feature.
  */
 export function featureStepThrough(
   programme: FeatureProgramme,
   count: number,
   direction: -1 | 1,
 ): FeatureProgramme {
-  const index = count > 0 ? (clampItem(programme.index, count) + direction + count) % count : 0;
-  return { ...programme, index, elapsed: 0 };
+  return { ...programme, index: featureNeighbour(programme.index, count, direction), elapsed: 0 };
 }
 
 /** A tick press: jump to the item it names and restart that item's time. */
@@ -153,18 +179,29 @@ export function clampItem(index: number, count: number): number {
   return Math.min(Math.max(0, Math.trunc(index)), Math.max(0, count - 1));
 }
 
+/** Which way a gesture has been decided: not yet, the feature's, or the page's. */
+export type FeatureDragAxis = "pending" | "across" | "down";
+
 /**
- * One gesture on the feature: where a hand landed and what it has done since.
- * The window's drag and the Remote's swipe are the same gesture, so the rule
- * that decides a step lives here rather than in either client's handler
+ * One gesture on the feature: where a hand landed, where it was last seen, and
+ * how fast it was going. The window's drag and the Remote's swipe are the same
+ * gesture, so the rule that decides the offset, the neighbour and whether a
+ * release commits lives here rather than in either client's handler
  * (ADR-0035 §1, ADR-0036 §2).
  */
 export type FeatureDrag = {
   active: boolean;
+  /** Where the hand landed. */
   x: number;
   y: number;
-  /** Whether this gesture has already stepped the programme. */
-  stepped: boolean;
+  /** The last sample, from which the release's speed is read. */
+  lastX: number;
+  lastTime: number;
+  /** The last sample's speed in px/ms, positive to the right. */
+  velocity: number;
+  axis: FeatureDragAxis;
+  /** Whether this gesture is the feature's, so its synthesised click is not a tap. */
+  claimed: boolean;
 };
 
 /** A gesture that has not begun. */
@@ -172,55 +209,132 @@ export const FEATURE_DRAG_IDLE: FeatureDrag = {
   active: false,
   x: 0,
   y: 0,
-  stepped: false,
+  lastX: 0,
+  lastTime: 0,
+  velocity: 0,
+  axis: "pending",
+  claimed: false,
 };
 
-/** A hand lands on the frame at a point. */
-export function featureDragBegin(x: number, y: number): FeatureDrag {
-  return { active: true, x, y, stepped: false };
+/** A hand lands on the frame at a point, at a moment. */
+export function featureDragBegin(x: number, y: number, time: number): FeatureDrag {
+  return { ...FEATURE_DRAG_IDLE, active: true, x, y, lastX: x, lastTime: time };
 }
 
+/** Where the slides sit after one move sample. */
+export type FeatureDragMove = {
+  drag: FeatureDrag;
+  /**
+   * How far the current slide sits from the frame's left edge, in px: the
+   * hand's own travel, clamped to one frame's width. Negative is leftward.
+   */
+  offset: number;
+  /** The slide beside it: 1 for the next, -1 for the previous, null for none. */
+  direction: -1 | 1 | null;
+};
+
 /**
- * A hand moves: the direction it steps, if this gesture has travelled far
- * enough and travelled further across than down. A long gesture steps once —
- * `stepped` is set in the returned state, so the rest of its travel is spent.
+ * A hand moves: the slide follows it 1:1 once the gesture has crossed more to
+ * the side than down and left the slop. A gesture that went down first is the
+ * page's for the rest of its life; the page keeps the scroll it has started.
  */
 export function featureDragMove(
   drag: FeatureDrag,
   x: number,
   y: number,
-): { drag: FeatureDrag; direction: -1 | 1 | null } {
-  if (!drag.active || drag.stepped) {
-    return { drag, direction: null };
+  time: number,
+  width: number,
+): FeatureDragMove {
+  if (!drag.active) {
+    return { drag, offset: 0, direction: null };
   }
+
   const dx = x - drag.x;
   const dy = y - drag.y;
-  if (Math.abs(dx) < FEATURE_DRAG_PX || Math.abs(dx) <= Math.abs(dy)) {
-    return { drag, direction: null };
+  let axis = drag.axis;
+  if (axis === "pending") {
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < FEATURE_DRAG_SLOP_PX) {
+      return { drag: { ...drag, lastX: x, lastTime: time }, offset: 0, direction: null };
+    }
+    axis = Math.abs(dx) > Math.abs(dy) ? "across" : "down";
   }
-  return { drag: { ...drag, stepped: true }, direction: dx < 0 ? 1 : -1 };
+
+  if (axis === "down") {
+    return {
+      drag: { ...drag, axis, lastX: x, lastTime: time, velocity: 0 },
+      offset: 0,
+      direction: null,
+    };
+  }
+
+  const elapsed = time - drag.lastTime;
+  const velocity = elapsed > 0 ? (x - drag.lastX) / elapsed : drag.velocity;
+  const offset = width > 0 ? Math.max(-width, Math.min(width, dx)) : 0;
+  const direction = dx < 0 ? 1 : dx > 0 ? -1 : null;
+  return {
+    drag: { ...drag, axis, claimed: true, lastX: x, lastTime: time, velocity },
+    offset,
+    direction,
+  };
 }
 
-/** A hand lets go: the gesture is over, and a later move is not a step. */
-export function featureDragEnd(drag: FeatureDrag): FeatureDrag {
-  return drag.active ? { ...drag, active: false } : drag;
+/** What a release decides. */
+export type FeatureDragEnd = {
+  drag: FeatureDrag;
+  /** The step the release commits to; null when the slides snap back. */
+  direction: -1 | 1 | null;
+};
+
+/**
+ * The hand lets go: commit to the neighbour when it crossed a share of the
+ * frame, or when it left as a flick in the direction it had travelled;
+ * otherwise snap back. A tap — never claimed as across — commits nothing, so
+ * its click is still the frame's.
+ */
+export function featureDragEnd(
+  drag: FeatureDrag,
+  width: number,
+  time: number,
+): FeatureDragEnd {
+  const ended: FeatureDrag = { ...drag, active: false };
+  if (!drag.active || drag.axis !== "across") {
+    return { drag: ended, direction: null };
+  }
+
+  const dx = drag.lastX - drag.x;
+  const direction = dx < 0 ? 1 : dx > 0 ? -1 : null;
+  if (direction === null) {
+    return { drag: ended, direction: null };
+  }
+
+  const share = width > 0 ? Math.abs(dx) / width : 0;
+  const rested = time - drag.lastTime > FEATURE_FLICK_WINDOW_MS;
+  const flick =
+    !rested &&
+    drag.velocity * dx > 0 &&
+    Math.abs(drag.velocity) >= FEATURE_FLICK_PX_PER_MS;
+
+  return {
+    drag: ended,
+    direction: share >= FEATURE_COMMIT_SHARE || flick ? direction : null,
+  };
 }
 
 /**
  * What a click after a gesture means. A browser synthesises a click at the end
- * of a drag, and that click is the drag's — except for a keyboard activation,
- * which carries `detail === 0`. A keyboard click is never the drag's, and it
- * clears a step flag the drag left behind: a swipe that produced no click must
- * not swallow the next Enter (both clients).
+ * of a drag, and that click is the drag's — whether it committed or snapped
+ * back. A keyboard activation, which carries `detail === 0`, is never the
+ * drag's, and it clears a claim the drag left behind: a swipe that produced no
+ * click must not swallow the next Enter (both clients).
  */
 export function featureDragClick(
   drag: FeatureDrag,
   detail: number,
 ): { drag: FeatureDrag; ours: boolean } {
-  if (!drag.stepped) {
+  if (!drag.claimed) {
     return { drag, ours: false };
   }
-  return { drag: { ...drag, stepped: false }, ours: detail !== 0 };
+  return { drag: { ...drag, claimed: false }, ours: detail !== 0 };
 }
 
 /** A Home section's number, after the feature: Continue watching is 01 when it is drawn. */
