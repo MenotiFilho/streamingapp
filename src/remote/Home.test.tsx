@@ -244,6 +244,29 @@ async function flush() {
   });
 }
 
+/** The feature's beat without a real clock: only the interval is faked. */
+function onlyIntervals() {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+}
+
+/** The system asking for motion to be left out. */
+function reduceMotion() {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn(() => ({
+      matches: true,
+      media: "(prefers-reduced-motion: reduce)",
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })),
+  );
+}
+
+/** The item the feature is showing, as the screen's own contract states it. */
+function activeSlide(): string | null {
+  return screen.getByTestId("remote-feature").getAttribute("data-active-slide");
+}
+
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -346,20 +369,161 @@ describe("Home's rows", () => {
 
 describe("Home's feature", () => {
   test("advances on the core's 24 second beat and starts the programme over at its end", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    onlyIntervals();
     mount();
 
     const feature = await screen.findByTestId("remote-feature");
     expect(feature.getAttribute("data-active-slide")).toBe("tt1");
 
     act(() => vi.advanceTimersByTime(FEATURE_ROTATION_MS));
-    expect(screen.getByTestId("remote-feature").getAttribute("data-active-slide")).toBe("tt2");
+    expect(activeSlide()).toBe("tt2");
 
     act(() => vi.advanceTimersByTime(FEATURE_ROTATION_MS * 3));
     expect(
-      screen.getByTestId("remote-feature").getAttribute("data-active-slide"),
+      activeSlide(),
       "the beat wraps where a Left/Right press would stop",
     ).toBe("tt1");
+  });
+
+  test("steps with Left and Right, restarting the item's time", async () => {
+    onlyIntervals();
+    mount();
+
+    await screen.findByTestId("remote-feature");
+    expect(activeSlide()).toBe("tt1");
+
+    act(() => vi.advanceTimersByTime(12_000));
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(activeSlide()).toBe("tt2");
+
+    act(() => vi.advanceTimersByTime(12_000));
+    expect(activeSlide(), "the press restarted Two's time").toBe("tt2");
+    act(() => vi.advanceTimersByTime(12_000));
+    expect(activeSlide()).toBe("tt3");
+
+    fireEvent.keyDown(window, { key: "ArrowLeft" });
+    expect(activeSlide()).toBe("tt2");
+  });
+
+  test("leaves a step at either end alone rather than wrapping the programme", async () => {
+    onlyIntervals();
+    mount();
+
+    await screen.findByTestId("remote-feature");
+
+    fireEvent.keyDown(window, { key: "ArrowLeft" });
+    expect(activeSlide()).toBe("tt1");
+
+    for (let step = 0; step < 3; step += 1) {
+      fireEvent.keyDown(window, { key: "ArrowRight" });
+    }
+    expect(activeSlide()).toBe("tt4");
+
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(activeSlide()).toBe("tt4");
+  });
+
+  test("keeps the beat under reduced motion", async () => {
+    reduceMotion();
+    onlyIntervals();
+    mount();
+
+    await screen.findByTestId("remote-feature");
+    expect(activeSlide()).toBe("tt1");
+
+    act(() => vi.advanceTimersByTime(FEATURE_ROTATION_MS));
+    expect(
+      activeSlide(),
+      "ADR-0036 §2 supersedes the design record's 'reduced motion stops it'",
+    ).toBe("tt2");
+  });
+
+  test("holds the fill while a finger is down and resumes where it stopped", async () => {
+    onlyIntervals();
+    mount();
+
+    const feature = await screen.findByTestId("remote-feature");
+    const frame = within(feature).getByRole("button", { name: /Open the Title/ });
+
+    act(() => vi.advanceTimersByTime(12_000));
+    fireEvent.pointerDown(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 300,
+      clientY: 200,
+    });
+
+    act(() => vi.advanceTimersByTime(FEATURE_ROTATION_MS * 2));
+    expect(activeSlide(), "a held finger pauses the fill").toBe("tt1");
+
+    fireEvent.pointerUp(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 300,
+      clientY: 200,
+    });
+    act(() => vi.advanceTimersByTime(12_000));
+    expect(activeSlide(), "the fill carries on from where it stopped").toBe("tt2");
+  });
+});
+
+/**
+ * The page smoke the ticket asks for (ADR-0032, docs/agents/testing.md): a
+ * swipe and a tick are driven through the screen, and the assertion is the
+ * programme's item — the decision the shared seam states — never the drawing.
+ */
+describe("Home's feature, driven as a page", () => {
+  test("a swipe across the hero steps the programme and does not open the Title", async () => {
+    onlyIntervals();
+    const { pushes } = mount();
+
+    const feature = await screen.findByTestId("remote-feature");
+    const frame = within(feature).getByRole("button", { name: /Open the Title/ });
+    expect(activeSlide()).toBe("tt1");
+
+    fireEvent.pointerDown(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 320,
+      clientY: 200,
+    });
+    fireEvent.pointerMove(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 240,
+      clientY: 204,
+    });
+    fireEvent.pointerUp(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 240,
+      clientY: 204,
+    });
+    fireEvent.click(frame);
+
+    expect(activeSlide()).toBe("tt2");
+    expect(pushes, "the swipe's click is not a press on the feature").toHaveLength(0);
+  });
+
+  test("a tap on a tick jumps to that item and restarts its time", async () => {
+    onlyIntervals();
+    mount();
+
+    await screen.findByTestId("remote-feature");
+    act(() => vi.advanceTimersByTime(12_000));
+    expect(activeSlide()).toBe("tt1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Show Three" }));
+    expect(activeSlide()).toBe("tt3");
+    expect(screen.getByRole("button", { name: "Show Three" })).toHaveAttribute(
+      "aria-current",
+      "step",
+    );
+
+    act(() => vi.advanceTimersByTime(12_000));
+    expect(activeSlide(), "the jump restarted Three's time").toBe("tt3");
+    act(() => vi.advanceTimersByTime(12_000));
+    expect(activeSlide()).toBe("tt4");
   });
 });
 
