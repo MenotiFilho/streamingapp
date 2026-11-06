@@ -1,15 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
 import {
   blankFeed,
+  discoverFeedKey,
   discoverPlayable,
-  feedWith,
-  MOVIE,
-  type DiscoverFeed,
   type DiscoverKind,
 } from "../../core/discover";
 import type { MetaPreview } from "../../core/wire";
-import { answeredCatalogs, answeredDiscover } from "../../core/answers";
 import { pageFit } from "../../core/pageLayout";
 import { SERIES } from "../../core/title";
 import tmdbLogo from "../../assets/tmdb-logo.svg";
@@ -28,7 +25,7 @@ import {
   genresFor,
   type GenreChoice,
 } from "./editorial";
-import { EditorialGrid } from "./EditorialGrid";
+import { FeedGrid } from "./FeedGrid";
 import { EditorialRow, FeedPagingAction } from "./EditorialRow";
 import { Button } from "../../kit/Button";
 import { ChoiceChip } from "../../kit/Chip";
@@ -41,19 +38,9 @@ import "./repertory.css";
 
 /** The two rows Discover draws, Movies then Series, each asked and paged alone. */
 const ROWS: ReadonlyArray<{ kind: DiscoverKind; label: string }> = [
-  { kind: MOVIE, label: "Movies" },
+  { kind: "movie", label: "Movies" },
   { kind: SERIES, label: "Series" },
 ];
-
-type Feeds = Record<DiscoverKind, DiscoverFeed>;
-
-function blankFeeds(): Feeds {
-  return { movie: blankFeed(), series: blankFeed() };
-}
-
-function blankOffsets(): Record<DiscoverKind, number> {
-  return { movie: 0, series: 0 };
-}
 
 /**
  * Discover as an editorial feed (design record §8, ADR-0036 §1): one programme
@@ -68,91 +55,80 @@ function blankOffsets(): Record<DiscoverKind, number> {
  * (ADR-0020); in the plain Vite window there is no Host, so the same two rows
  * are read from Cinemeta's Popular catalogue as a live stand-in.
  *
- * Each row pages and fails on its own: a page that fails prints under its own
- * row and keeps the cards already read, and `Read on` asks that row's next page.
- * Each row's More card opens the cards read so far as a pushed grid. A Title no
- * configured Addon could play keeps its Unplayable stamp and still opens
- * (ADR-0020).
+ * The rows and the chosen genre live in the Session (#264), so a whole-row grid
+ * pages the same row the rail draws and Back keeps the cards. Each row pages and
+ * fails on its own: a page that fails prints under its own row and keeps the
+ * cards already read, and `Read on` asks that row's next page. Each row's More
+ * card opens the cards read so far as a pushed grid, which reads on by itself
+ * near its end. A Title no configured Addon could play keeps its Unplayable
+ * stamp and still opens (ADR-0020).
  */
 export function RepertoryDiscoverScreen() {
   const preview = usePreviewData();
-  const { snapshot, ask, push, pop, unplayable } = useShell();
+  const { snapshot, session, push, pop, unplayable } = useShell();
   const { openTitle, openDiscoveredTitle } = useTitleOpener();
-  const [genre, setGenre] = useState<GenreChoice | null>(null);
-  const [feeds, setFeeds] = useState<Feeds>(blankFeeds);
-  const [offsets, setOffsets] = useState<Record<DiscoverKind, number>>(blankOffsets);
-  const [paging, setPaging] = useState<DiscoverKind[]>([]);
-  // Which genre owns both rows: an answer for a genre a person has left must
-  // not land in the rows they are looking at.
-  const serial = useRef(0);
+  const genreKey = useSyncExternalStore(
+    session.discoverGenre.subscribe,
+    session.discoverGenre.get,
+  );
+  const feeds = useSyncExternalStore(session.feeds.subscribe, session.feeds.getSnapshot);
 
   const keyed = snapshot?.protection.tmdbHeld ?? false;
   const source = preview ? "preview" : "host";
   const active = preview || keyed;
+  const genres = useMemo(() => genresFor(source), [source]);
+  const genre = genreKey === null
+    ? null
+    : (genres.find((held) => held.key === genreKey) ?? null);
 
-  /** Ask one row's page and fold its answer into that row alone. */
-  const load = useCallback(
-    async (kind: DiscoverKind, page: number, skip: number) => {
-      const action = discoverPageAsk({ source, kind, genre, page, skip });
-      if (!action) {
-        return;
-      }
-      const token = serial.current;
-      setPaging((held) => (held.includes(kind) ? held : [...held, kind]));
-      const outcome = await ask(action);
-      if (token !== serial.current) {
-        return;
-      }
-      setPaging((held) => held.filter((heldKind) => heldKind !== kind));
-      if (outcome.error) {
-        setFeeds((held) => ({
-          ...held,
-          [kind]: { ...held[kind], failure: outcome.error },
-        }));
-        return;
-      }
-      const answer =
-        source === "preview"
-          ? (answeredCatalogs(outcome.response)[0] ?? null)
-          : (answeredDiscover(outcome.response)[0] ?? null);
-      if (!answer) {
-        setFeeds((held) => ({ ...held, [kind]: { ...held[kind], done: true } }));
-        return;
-      }
-      if (source === "preview" && !answer.failure) {
-        setOffsets((held) => ({ ...held, [kind]: held[kind] + answer.sent }));
-      }
-      setFeeds((held) => ({ ...held, [kind]: feedWith(held[kind], answer) }));
-    },
-    [ask, genre, source],
-  );
-
-  // A key, a genre, or the surface itself is a new pair of feeds: the pages a
-  // person read for the last one are not pages of these.
+  // The arm or the source changed: the chips of the last feed are not chips of
+  // this one, and the old genre's pages are not its pages.
+  const previous = useRef({ active, source });
   useEffect(() => {
-    serial.current += 1;
-    setFeeds(blankFeeds());
-    setOffsets(blankOffsets());
-    setPaging([]);
+    if (previous.current.active !== active || previous.current.source !== source) {
+      session.discoverGenre.set(null);
+    }
+    previous.current = { active, source };
+  }, [active, source, session]);
+
+  // A key, a genre, or the surface itself is a different pair of feeds. The
+  // Session store joins a page already in flight and never asks an answered row
+  // again, so mounting after a Title or a grid is free (#264).
+  useEffect(() => {
     if (!active) {
       return;
     }
-    for (const { kind } of ROWS) {
-      void load(kind, 1, 0);
+    // The arm or the source changed in the effect above; this render's closure
+    // still holds the chip of the old feed, and it must not ask it again.
+    if (session.discoverGenre.get() !== (genre?.key ?? null)) {
+      return;
     }
-    return () => {
-      serial.current += 1;
-    };
-  }, [active, load]);
+    for (const { kind } of ROWS) {
+      const first = discoverPageAsk({ source, kind, genre, page: 1, skip: 0 });
+      if (!first) {
+        continue;
+      }
+      const key = discoverFeedKey(source, genre?.key ?? null, kind);
+      session.feeds.read(key, first, (row) =>
+        discoverPageAsk({
+          source,
+          kind,
+          genre,
+          page: row.page + 1,
+          skip: row.offset,
+        }),
+      );
+    }
+  }, [active, genre, session, source]);
 
   const chooseGenre = (next: GenreChoice | null) => {
-    if ((genre?.key ?? null) !== (next?.key ?? null)) {
-      setGenre(next);
-    }
+    session.discoverGenre.set(next?.key ?? null);
   };
 
-  const retry = (kind: DiscoverKind) =>
-    void load(kind, feeds[kind].page + 1, offsets[kind]);
+  const retry = (kind: DiscoverKind) => {
+    const key = discoverFeedKey(source, genre?.key ?? null, kind);
+    session.feeds.more(key);
+  };
 
   const open = (meta: MetaPreview) => {
     if (source === "preview") {
@@ -165,6 +141,7 @@ export function RepertoryDiscoverScreen() {
   const posterCard = (meta: MetaPreview, kind: DiscoverKind, testId: string) => (
     <PosterCard
       key={meta.id}
+      data-grid-card
       name={meta.name}
       poster={meta.poster}
       rating={meta.imdbRating?.trim() || null}
@@ -179,33 +156,33 @@ export function RepertoryDiscoverScreen() {
   );
 
   const noKey = discoverNoKey();
-  const genres = genresFor(source);
   const fit = pageFit("discover");
 
   /**
-   * The rail's More card opens that row's loaded cards as a pushed grid. It is
-   * the same cards, captured at the press; Back returns to the More card (design
-   * record §8). The row's quiet action is what asks its next page.
+   * The rail's More card opens that row as a pushed grid. The grid reads the
+   * same Session row on every render, so a page it asks is in the rail after
+   * Back and a page the rail asked is in the grid (#264). Back returns to the
+   * More card (design record §8).
    */
   const openGrid = (kind: DiscoverKind, label: string, index: string) => {
-    const feed = feeds[kind];
+    const key = discoverFeedKey(source, genre?.key ?? null, kind);
+    const feed = feeds.rows.get(key);
     push({
       name: `All of ${label}`,
       kind: "overlay",
       payload: {
         render: () => (
-          <EditorialGrid
+          <FeedGrid
+            feedKey={key}
             title={label}
             index={index}
-            tag={discoverTag(kind, genre, feed.items.length)}
-            failure={feed.failure}
+            tag={discoverTag(kind, genre, feed?.items.length ?? 0)}
+            renderCard={(meta) =>
+              posterCard(meta, kind, `discover-grid-card-${meta.id}`)
+            }
             onClose={pop}
             testId="discover-grid"
-          >
-            {feed.items.map((meta) =>
-              posterCard(meta, kind, `discover-grid-card-${meta.id}`),
-            )}
-          </EditorialGrid>
+          />
         ),
       },
     });
@@ -262,8 +239,9 @@ export function RepertoryDiscoverScreen() {
 
         {active
           ? ROWS.map(({ kind, label }, at) => {
-              const feed = feeds[kind];
-              const loading = paging.includes(kind);
+              const key = discoverFeedKey(source, genre?.key ?? null, kind);
+              const feed = feeds.rows.get(key) ?? blankFeed();
+              const loading = feeds.reading.has(key);
               const ask = genreAsk(genre, kind);
               const state = feedState(feed, loading);
               const tag = discoverRowTag(feed, kind, genre, ask);

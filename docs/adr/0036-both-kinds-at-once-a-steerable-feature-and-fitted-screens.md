@@ -80,6 +80,23 @@ programme of many rows still scrolls.
 The floating *now playing* bar the Remote shows over every screen is hidden while
 the player screen itself is open; it points at the screen a person is already on.
 
+## 5. Whole-row grids read past their first page
+
+(Amended 2026-11-06, sprint 248.) The design system's *Rail* said a whole-row
+grid opens the cards read so far and asks no page of its own. The owner's
+by-hand test reversed that: a row reads 20 per page, so the grid stopped at 20
+unless the rail's **Read on** had been pressed first. A grid now reads on by
+itself — when the person scrolls or moves focus near its end it asks that row's
+next page into the same accumulated row the rail draws — until the row is done.
+Back therefore keeps the cards the grid read, and a page read on the rail is in
+the grid. A page that fails keeps the cards it had and offers Try again, and the
+rail keeps its quiet **Read on** head action (#264).
+
+On the Remote, Discover's and Search's rows, genre, query and pages now live in
+the Session rather than in the screen, so a pushed Title or grid no longer takes
+them away; that also closes #262. The design system's *Rail* entry is amended to
+match.
+
 ## Rejected, with reasons
 
 - *Keeping the kind chips and adding a "Both" chip* — three states for what the

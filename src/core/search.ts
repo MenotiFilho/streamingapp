@@ -39,6 +39,15 @@ export type SearchPage = {
 };
 
 /**
+ * A Search feed's identity in the Session's feed store (#264). The query is
+ * part of the key, so two queries keep their own pages and an answer to one
+ * cannot land in the other; a return to a query finds its rows where it left.
+ */
+export function searchFeedKey(query: string, kind: SearchKind): string {
+  return `search/${query}/${kind}`;
+}
+
+/**
  * The ask for one page. TMDB's answer is a `SearchRow` — the shape a
  * `DiscoverRow` is — and the Host judges the query and the page (ADR-0020).
  */

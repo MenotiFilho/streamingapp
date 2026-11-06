@@ -1,9 +1,12 @@
 import { actionKey, repeats } from "./actionKey";
 import { withoutToken, type ActionOutcome } from "./answers";
+import { CatalogSearchStore } from "./catalogSearch";
 import { asActionError, type ActionError } from "./errors";
+import { FeedStore } from "./feedStore";
 import { HomeStore } from "./homeStore";
 import { InFlight } from "./inFlight";
 import type { HostLink, LinkState } from "./link";
+import { Selection } from "./selection";
 import type { Action, Response, Snapshot } from "./wire";
 
 /**
@@ -26,6 +29,21 @@ export type SessionState = {
   /** The keys of the Actions whose answers are still on their way. */
   pending: ReadonlySet<string>;
 };
+
+/**
+ * Search's place on the screen (#264): the words being typed and the query
+ * whose rows are drawn. It lives in the Session so a pushed Title or grid does
+ * not take the query away; the keyless arm's own answer is `searchCatalogs`.
+ */
+export type SearchView = {
+  /** The field's text, kept with the query so Back returns to what was typed. */
+  draft: string;
+  /** The query whose rows are on screen, or null before the first submit. */
+  query: string | null;
+};
+
+/** Search before a person has asked anything. */
+export const EMPTY_SEARCH_VIEW: SearchView = { draft: "", query: null };
 
 /**
  * One client's Session over the Host's one door.
@@ -62,11 +80,28 @@ export class Session {
    */
   readonly home: HomeStore;
 
+  /**
+   * Discover's and Search's feeds belong to the Session, like Home's rows: a
+   * pushed Title or grid unmounts those screens on the Remote, and the return
+   * must paint the same rows at the same page (#264).
+   */
+  readonly feeds: FeedStore;
+  /** Discover's chosen genre chip, by the name the two clients share. */
+  readonly discoverGenre: Selection<string | null>;
+  /** Search's field and committed query. */
+  readonly searchView: Selection<SearchView>;
+  /** The keyless Search arm's one answer per query. */
+  readonly searchCatalogs: CatalogSearchStore;
+
   constructor(
     private readonly link: HostLink,
     private readonly now: () => number = () => performance.now(),
   ) {
     this.home = new HomeStore(this.ask);
+    this.feeds = new FeedStore(this.ask);
+    this.discoverGenre = new Selection<string | null>(null);
+    this.searchView = new Selection<SearchView>(EMPTY_SEARCH_VIEW);
+    this.searchCatalogs = new CatalogSearchStore(this.ask);
   }
 
   /**

@@ -1,28 +1,28 @@
 import {
-  useCallback,
   useEffect,
   useRef,
-  useState,
+  useSyncExternalStore,
   type FormEvent,
 } from "react";
 
 import { keyOf } from "../../core/browse";
-import {
-  blankFeed,
-  discoverPlayable,
-  feedWith,
-  type DiscoverFeed,
-} from "../../core/discover";
+import { blankFeed, discoverPlayable, type DiscoverFeed } from "../../core/discover";
 import type { CatalogRow, MetaPreview } from "../../core/wire";
-import { explain, type ActionError } from "../../core/errors";
-import { answeredCatalogs, answeredSearch } from "../../core/answers";
+import { explain } from "../../core/errors";
 import { pageFit } from "../../core/pageLayout";
-import { SEARCH_KINDS, searchAsk, type SearchKind } from "../../core/search";
+import {
+  SEARCH_KINDS,
+  searchAsk,
+  searchFeedKey,
+  type SearchKind,
+} from "../../core/search";
+import { EMPTY_SEARCH_VIEW } from "../../core/session";
 import { useShell } from "../context";
 import { addonLabel } from "../../core/home";
 import { useTitleOpener } from "../TitleScreen";
 import { usePreviewData } from "./context";
 import { feedMore, feedState } from "./editorial";
+import { FeedGrid } from "./FeedGrid";
 import { EditorialGrid } from "./EditorialGrid";
 import { EditorialRow, FeedPagingAction } from "./EditorialRow";
 import { Button } from "../../kit/Button";
@@ -31,25 +31,6 @@ import { PosterCard } from "../../kit/PosterCard";
 import { ProgrammeLine } from "./ProgrammeLine";
 import { rowTagOf, yearOf } from "./program";
 import "./repertory.css";
-
-type KeyedFeeds = Record<SearchKind, DiscoverFeed>;
-
-function blankKeyedFeeds(): KeyedFeeds {
-  return { movie: blankFeed(), series: blankFeed() };
-}
-
-/** What one `search_catalogs` question has answered so far. */
-type CatalogAnswer = {
-  rows: CatalogRow[] | null;
-  loading: boolean;
-  failure: ActionError | null;
-};
-
-const CATALOG_NOT_ASKED: CatalogAnswer = {
-  rows: null,
-  loading: false,
-  failure: null,
-};
 
 /**
  * Search as an editorial feed: one submit-only query bar drawn as a
@@ -65,83 +46,67 @@ const CATALOG_NOT_ASKED: CatalogAnswer = {
  * page, so a keyless row has no paging to offer. The bar submits, never asks
  * per keystroke.
  *
+ * The field, the query and the rows live in the Session (#264): a whole-row
+ * grid is a pushed level, and the screen must come back to the same words and
+ * pages. A keyed row's grid reads the same Session row the rail draws, so a
+ * page read there is in the rail after Back.
+ *
  * The plain Vite preview has no Host and no TMDB network, so it always takes the
  * keyless arm even when the rehearsal Settings hold a key flag.
  */
 export function RepertorySearchScreen() {
   const preview = usePreviewData();
-  const { snapshot, ask, push, pop, unplayable } = useShell();
+  const { snapshot, session, push, pop, unplayable } = useShell();
   const { openTitle, openDiscoveredTitle } = useTitleOpener();
-  const [draft, setDraft] = useState("");
-  /** The query whose answers are on screen, or null before the first submit. */
-  const [committed, setCommitted] = useState<string | null>(null);
-  const [rows, setRows] = useState<KeyedFeeds>(blankKeyedFeeds);
-  const [paging, setPaging] = useState<SearchKind[]>([]);
-  const [catalogAnswer, setCatalogAnswer] = useState<CatalogAnswer>(CATALOG_NOT_ASKED);
-  /**
-   * Which query owns the screen. A submit moves it on, so an answer to a query
-   * a person has left — or to a paged row of that query — is dropped rather
-   * than landing in the rows of the new one.
-   */
-  const serial = useRef(0);
+  const view = useSyncExternalStore(
+    session.searchView.subscribe,
+    session.searchView.get,
+  );
+  const feeds = useSyncExternalStore(session.feeds.subscribe, session.feeds.getSnapshot);
+  const catalogAnswers = useSyncExternalStore(
+    session.searchCatalogs.subscribe,
+    session.searchCatalogs.getSnapshot,
+  );
+  const { draft, query: committed } = view;
 
   const keyed = !preview && (snapshot?.protection.tmdbHeld ?? false);
 
-  const reset = useCallback(() => {
-    serial.current += 1;
-    setCommitted(null);
-    setRows(blankKeyedFeeds());
-    setPaging([]);
-    setCatalogAnswer(CATALOG_NOT_ASKED);
-  }, []);
-
   // A credential added or cleared changes which arm a query takes. The rows of
   // the old arm are not answers to the new one, so they go.
+  const previous = useRef(keyed);
   useEffect(() => {
-    reset();
-  }, [keyed, reset]);
+    if (previous.current !== keyed) {
+      session.searchView.set(EMPTY_SEARCH_VIEW);
+    }
+    previous.current = keyed;
+  }, [keyed, session]);
 
-  /** Ask TMDB for one row's page and fold its answer into that row alone. */
-  const loadRow = useCallback(
-    async (query: string, kind: SearchKind, page: number) => {
-      const token = serial.current;
-      setPaging((held) => (held.includes(kind) ? held : [...held, kind]));
-      const { response, error } = await ask(searchAsk({ query, kind, page }));
-      if (token !== serial.current) {
-        return;
+  // A mount joins the Session's rows; only a query with no answer asks page 1.
+  useEffect(() => {
+    if (committed === null) {
+      return;
+    }
+    // A credential change resets the view in the effect above; this render's
+    // closure still holds the old query, and it must not ask the new arm.
+    if (session.searchView.get().query !== committed) {
+      return;
+    }
+    if (keyed) {
+      for (const { kind } of SEARCH_KINDS) {
+        const key = searchFeedKey(committed, kind);
+        session.feeds.read(
+          key,
+          searchAsk({ query: committed, kind, page: 1 }),
+          (row) => searchAsk({ query: committed, kind, page: row.page + 1 }),
+        );
       }
-      setPaging((held) => held.filter((heldKind) => heldKind !== kind));
+    } else {
+      session.searchCatalogs.search(committed);
+    }
+  }, [committed, keyed, session]);
 
-      const answer = error ? null : answeredSearch(response);
-      setRows((held) => ({
-        ...held,
-        [kind]: error
-          ? { ...held[kind], failure: error }
-          : answer
-            ? feedWith(held[kind], answer)
-            : { ...held[kind], done: true },
-      }));
-    },
-    [ask],
-  );
-
-  /** Ask every searchable Catalog in one Action, and draw the rows it answers. */
-  const loadCatalogs = useCallback(
-    async (query: string) => {
-      const token = serial.current;
-      setCatalogAnswer({ rows: null, loading: true, failure: null });
-      const { response, error } = await ask({ type: "search_catalogs", query });
-      if (token !== serial.current) {
-        return;
-      }
-      setCatalogAnswer({
-        rows: error ? null : answeredCatalogs(response),
-        loading: false,
-        failure: error,
-      });
-    },
-    [ask],
-  );
+  const setDraft = (next: string) =>
+    session.searchView.set({ draft: next, query: committed });
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -149,26 +114,15 @@ export function RepertorySearchScreen() {
     if (!query) {
       return;
     }
-
-    reset();
-    setCommitted(query);
-    if (keyed) {
-      // Both kinds are asked for one page each: there is no kind toggle, and
-      // not asking one of them would leave a row that is simply absent.
-      for (const { kind } of SEARCH_KINDS) {
-        void loadRow(query, kind, 1);
-      }
-    } else {
-      void loadCatalogs(query);
-    }
+    session.searchView.set({ draft, query });
   };
 
   /** Page one keyed row on from where it has read to. */
   const more = (kind: SearchKind) => {
-    if (!committed || paging.includes(kind)) {
+    if (committed === null) {
       return;
     }
-    void loadRow(committed, kind, rows[kind].page + 1);
+    session.feeds.more(searchFeedKey(committed, kind));
   };
 
   const canSubmit = draft.trim().length > 0;
@@ -213,6 +167,7 @@ export function RepertorySearchScreen() {
   const keyedCard = (meta: MetaPreview, testId: string, playable: boolean) => (
     <PosterCard
       key={meta.id}
+      data-grid-card
       name={meta.name}
       poster={meta.poster}
       rating={meta.imdbRating?.trim() || null}
@@ -224,40 +179,44 @@ export function RepertorySearchScreen() {
   );
 
   const openKeyedGrid = (kind: SearchKind, label: string) => {
-    const feed = rows[kind];
+    if (committed === null) {
+      return;
+    }
+    const key = searchFeedKey(committed, kind);
+    const feed = feeds.rows.get(key) ?? blankFeed();
     push({
       name: `All of ${label}`,
       kind: "overlay",
       payload: {
         render: () => (
-          <EditorialGrid
+          <FeedGrid
+            feedKey={key}
             title={label}
             tag={rowTagOf("TMDB", kind, feed.items.length)}
-            failure={feed.failure}
-            note={rowNote(feed, paging.includes(kind), kind, committed ?? "")}
-            onClose={pop}
-            testId="search-grid"
-          >
-            {feed.items.map((meta) =>
+            renderCard={(meta) =>
               keyedCard(
                 meta,
                 `search-grid-card-${kind}-${meta.id}`,
                 couldPlay(kind),
-              ),
-            )}
-          </EditorialGrid>
+              )
+            }
+            onClose={pop}
+            testId="search-grid"
+          />
         ),
       },
     });
   };
 
   const keyedAction = (kind: SearchKind) => {
-    const feed = rows[kind];
+    const key = searchFeedKey(committed ?? "", kind);
+    const feed = feeds.rows.get(key) ?? blankFeed();
+    const loading = feeds.reading.has(key);
     return (
       <FeedPagingAction
         failure={feed.failure}
         more={feedMore(feed)}
-        loading={paging.includes(kind)}
+        loading={loading}
         onMore={() => more(kind)}
       />
     );
@@ -266,6 +225,7 @@ export function RepertorySearchScreen() {
   const catalogCard = (row: CatalogRow, meta: MetaPreview, testId: string) => (
     <PosterCard
       key={meta.id}
+      data-grid-card
       name={meta.name}
       poster={meta.poster}
       rating={meta.imdbRating?.trim() || null}
@@ -301,6 +261,11 @@ export function RepertorySearchScreen() {
       },
     });
   };
+
+  const answer = committed === null ? null : catalogAnswers.answers.get(committed);
+  const catalogRows = answer?.rows ?? null;
+  const catalogFailure = answer?.failure ?? null;
+  const catalogLoading = committed !== null && catalogAnswers.reading.has(committed);
 
   return (
     <section
@@ -353,7 +318,9 @@ export function RepertorySearchScreen() {
             {keyed && committed !== null ? (
               <div className="rep-search-results" data-testid="search-results">
                 {SEARCH_KINDS.map(({ kind, label }) => {
-                  const feed = rows[kind];
+                  const key = searchFeedKey(committed, kind);
+                  const feed = feeds.rows.get(key) ?? blankFeed();
+                  const loading = feeds.reading.has(key);
                   return (
                     <EditorialRow
                       key={kind}
@@ -361,7 +328,7 @@ export function RepertorySearchScreen() {
                       tag={rowTagOf("TMDB", kind, feed.items.length)}
                       action={keyedAction(kind)}
                       failure={feed.failure}
-                      note={rowNote(feed, paging.includes(kind), kind, committed)}
+                      note={rowNote(feed, loading, kind, committed)}
                       region={`search-row:${kind}`}
                       onOpenRow={
                         feed.items.length > 0
@@ -385,7 +352,7 @@ export function RepertorySearchScreen() {
 
             {!keyed && committed !== null ? (
               <div className="rep-search-results" data-testid="search-catalogs">
-                {catalogAnswer.loading ? (
+                {catalogLoading ? (
                   <p
                     role="status"
                     className="rep-feed-note"
@@ -395,17 +362,25 @@ export function RepertorySearchScreen() {
                   </p>
                 ) : null}
 
-                {catalogAnswer.failure ? (
-                  <p
-                    role="alert"
-                    className="rep-feed-failure"
-                    data-testid="search-catalogs-failure"
-                  >
-                    {explain(catalogAnswer.failure)}
-                  </p>
+                {catalogFailure ? (
+                  <>
+                    <p
+                      role="alert"
+                      className="rep-feed-failure"
+                      data-testid="search-catalogs-failure"
+                    >
+                      {explain(catalogFailure)}
+                    </p>
+                    <Button
+                      variant="ghost"
+                      onClick={() => session.searchCatalogs.retry(committed)}
+                    >
+                      Search again
+                    </Button>
+                  </>
                 ) : null}
 
-                {catalogAnswer.rows?.map((row) => (
+                {catalogRows?.map((row) => (
                   <EditorialRow
                     key={keyOf(row)}
                     title={row.name}
@@ -416,7 +391,7 @@ export function RepertorySearchScreen() {
                       row.failure ? (
                         <Button
                           variant="ghost"
-                          onClick={() => committed && void loadCatalogs(committed)}
+                          onClick={() => session.searchCatalogs.retry(committed)}
                         >
                           Search again
                         </Button>
@@ -432,14 +407,13 @@ export function RepertorySearchScreen() {
                   </EditorialRow>
                 ))}
 
-                {!catalogAnswer.loading &&
-                !catalogAnswer.failure &&
-                catalogAnswer.rows?.length === 0 ? (
+                {!catalogLoading &&
+                !catalogFailure &&
+                catalogRows?.length === 0 ? (
                   <p className="rep-feed-note" data-testid="search-no-answer">
                     No Addon offers a Catalog that can be searched.
                   </p>
                 ) : null}
-
               </div>
             ) : null}
           </div>

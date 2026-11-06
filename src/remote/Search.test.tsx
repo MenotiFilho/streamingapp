@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, test } from "vitest";
 
 import { explain } from "../core/errors";
@@ -6,6 +7,7 @@ import { rowTagOf } from "../core/homeProgramme";
 import type { HostLink } from "../core/link";
 import type { NewLevel } from "../core/navigation";
 import { useSession } from "../core/react/useSession";
+import { searchFeedKey } from "../core/search";
 import type {
   AddonCatalog,
   AddonManifest,
@@ -141,6 +143,39 @@ function Show({
   );
 }
 
+/**
+ * A Search screen that leaves the tree when a card pushes a Title, as the
+ * Remote unmounts the destination under a level (#262, #264).
+ */
+function Room({
+  link,
+  pushes,
+}: {
+  link: HostLink;
+  pushes: NewLevel<RemotePayload>[];
+}) {
+  const { session, state } = useSession(link);
+  const [away, setAway] = useState(false);
+  if (away) {
+    return (
+      <button type="button" onClick={() => setAway(false)}>
+        Back from Title
+      </button>
+    );
+  }
+  return (
+    <Search
+      session={session}
+      state={state}
+      push={(level) => {
+        pushes.push(level);
+        setAway(true);
+        return `level-${pushes.length}`;
+      }}
+    />
+  );
+}
+
 function mount({
   snapshot = KEYED,
   respond = tmdb,
@@ -217,18 +252,13 @@ describe("Search over TMDB", () => {
           kind: "search",
           feedKind: "movie",
           query: "dune",
-          feed: {
-            page: 1,
-            items: [meta("tmdb:1", "movie", "One"), meta("tmdb:2", "movie", "Two")],
-            failure: null,
-            done: false,
-          },
+          feedKey: searchFeedKey("dune", "movie"),
         },
       }),
     );
     expect(
       host.asked("search"),
-      "the grid asks no page of its own",
+      "the grid being pushed asks nothing; rendering it is what reads on",
     ).toHaveLength(asked);
 
     fireEvent.click(screen.getByRole("button", { name: "More Series" }));
@@ -242,12 +272,7 @@ describe("Search over TMDB", () => {
           kind: "search",
           feedKind: "series",
           query: "dune",
-          feed: {
-            page: 1,
-            items: [meta("tmdb:s1", "series", "A Show")],
-            failure: null,
-            done: false,
-          },
+          feedKey: searchFeedKey("dune", "series"),
         },
       }),
     );
@@ -274,6 +299,45 @@ describe("Search over TMDB", () => {
       host.asked("search").filter((action) => action.kind === "series"),
       "the other row was not paged",
     ).toHaveLength(1);
+  });
+
+  test("Back from a Title keeps the query and the pages, and asks no page 1 again", async () => {
+    const host = new FakeHost(KEYED, tmdb);
+    const pushes: NewLevel<RemotePayload>[] = [];
+    const view = render(<Room link={host} pushes={pushes} />);
+    try {
+      await search("dune");
+      await screen.findByTestId("search-card-movie-tmdb:1");
+
+      const movies = screen.getByTestId("remote-search-row-movie");
+      fireEvent.click(within(movies).getByRole("button", { name: "Read on" }));
+      await screen.findByTestId("search-card-movie-tmdb:3");
+      const firstPages = host
+        .asked("search")
+        .filter((action) => action.kind === "movie" && action.page === 1).length;
+
+      fireEvent.click(screen.getByTestId("search-card-movie-tmdb:3"));
+      expect(await screen.findByRole("button", { name: "Back from Title" })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Back from Title" }));
+
+      expect(
+        await screen.findByLabelText("Search for a Title"),
+      ).toHaveValue("dune");
+      expect(
+        await screen.findByTestId("search-card-movie-tmdb:3"),
+        "the page read before the Title is still there",
+      ).toBeInTheDocument();
+      expect(
+        screen.getByTestId("search-card-series-tmdb:s1"),
+        "the other kind's row is still there",
+      ).toBeInTheDocument();
+      expect(
+        host.asked("search").filter((action) => action.kind === "movie" && action.page === 1),
+        "the return does not ask page 1 again",
+      ).toHaveLength(firstPages);
+    } finally {
+      view.unmount();
+    }
   });
 
   test("a kind that failed draws its explanation and leaves the other kind's row alone", async () => {
@@ -382,6 +446,36 @@ describe("Search over TMDB", () => {
 });
 
 describe("Search with no TMDB Credential", () => {
+  test("a keyless query keeps its rows and words across a Title", async () => {
+    const host = new FakeHost(UNKEYED, () => ({
+      snapshots: [],
+      answer: {
+        catalogs: [
+          catalogRow("cinemeta", "movie", "top", [meta("tt1", "movie", "One")]),
+        ],
+      },
+    }));
+    const pushes: NewLevel<RemotePayload>[] = [];
+    const view = render(<Room link={host} pushes={pushes} />);
+    try {
+      await search("dune");
+      expect(await screen.findByTestId("search-card-cinemeta-tt1")).toBeInTheDocument();
+
+      fireEvent.click(screen.getByTestId("search-card-cinemeta-tt1"));
+      expect(await screen.findByRole("button", { name: "Back from Title" })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Back from Title" }));
+
+      expect(await screen.findByLabelText("Search for a Title")).toHaveValue("dune");
+      expect(await screen.findByTestId("search-card-cinemeta-tt1")).toBeInTheDocument();
+      expect(
+        host.asked("search_catalogs"),
+        "the return does not ask the same query again",
+      ).toHaveLength(1);
+    } finally {
+      view.unmount();
+    }
+  });
+
   test("a submit asks the Catalogs once, and every answering row is drawn", async () => {
     const { host, pushes } = mount({
       snapshot: UNKEYED,

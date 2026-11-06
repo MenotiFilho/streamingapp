@@ -607,7 +607,7 @@ export function RepertoryHome() {
         payload: {
           render: () => (
             <RailGrid
-              rowKey={keyOf(row)}
+              source={{ kind: "home", rowKey: keyOf(row) }}
               title={row.name}
               index={section}
               onOpenMeta={openTitle}
@@ -628,7 +628,7 @@ export function RepertoryHome() {
       payload: {
         render: () => (
           <RailGrid
-            rowKey={null}
+            source={{ kind: "continue" }}
             title="Continue watching"
             index={programIndex(1)}
             onOpenMeta={openTitle}

@@ -326,8 +326,12 @@ the phone's emoji font is not the design system.
   card that opens the whole row as a grid. Entering a rail from outside a rail
   starts at its first card; moving between rails keeps the nearest card. A feed
   row is its own source: its quiet head action asks the Host's next page, and
-  its More card opens the cards read so far; the grid does not ask a page of
-  its own.
+  its More card opens the whole row as a grid. The grid reads on by itself near
+  its end — scrolling or moving focus toward the last cards asks that row's next
+  page into the same accumulated row the rail draws, so Back keeps those cards
+  and a page the rail asked is in the grid. A page that fails leaves the cards
+  it had and offers Try again; the rail keeps its quiet **Read on** (ADR-0036,
+  amended 2026-11-06, #264).
 - **Feature**: the backdrop between two hairlines, a two-gradient ink scrim, the
   Title in display serif over it, one line of facts, the description clamped to
   two lines, and one action — **Open the Title** — *below* the description, in

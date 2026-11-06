@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { useCallback, useState, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { MOVIE } from "../../core/discover";
+import { MOVIE, discoverFeedKey } from "../../core/discover";
 import type {
   Action,
   AddonManifest,
@@ -12,6 +12,7 @@ import type {
   Title,
 } from "../../core/wire";
 import { actionKey } from "../../core/actionKey";
+import { searchFeedKey } from "../../core/search";
 import { TauriLink, type Transport } from "../tauriLink";
 import { Shell } from "../Shell";
 import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContextValue } from "../context";
@@ -165,9 +166,10 @@ const SECOND_PLAYABLE: Stream = {
 function harness(overrides: Partial<ShellContextValue> = {}) {
   const pushed: NewShellLevel[] = [];
   const take = vi.fn(async (_action: Action) => null);
-  const ask = vi.fn(async (_action: Action) => ({ response: null, error: null }));
+  const ask = (overrides.ask ??
+    vi.fn(async (_action: Action) => ({ response: null, error: null }))) as AskSpy;
   const value: ShellContextValue = {
-    session: quietSession(),
+    session: quietSession(ask),
     snapshot: SNAPSHOT,
     error: null,
     destination: "home",
@@ -658,7 +660,9 @@ const KEYED: Snapshot = {
 const MATRIX_META = MATRIX_ROW.metas[0]!;
 const BREAKING_BAD_META = BREAKING_BAD_ROW.metas[0]!;
 
-type AskSpy = { mock: { calls: [Action][] } };
+type AskSpy = ((action: Action) => Promise<ActionOutcome>) & {
+  mock: { calls: [Action][] };
+};
 
 function actions(ask: AskSpy): Action[] {
   return ask.mock.calls.map(([action]) => action);
@@ -811,12 +815,19 @@ describe("the repertory Discover feed against the Host", () => {
     expect(
       within(view.container).getByTestId("discover-grid-card-tmdb:603"),
     ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        value.session.feeds.feed(discoverFeedKey("host", null, "movie")).done,
+        "the grid's own page settles before the test leaves it",
+      ).toBe(true),
+    );
 
     fireEvent.click(within(view.container).getByRole("button", { name: "Back" }));
     expect(value.pop).toHaveBeenCalled();
 
     fireEvent.click(screen.getByTestId("more-discover:series"));
     expect(pushed.at(-1)?.name).toBe("All of Series");
+    view.unmount();
   });
 
   it("keeps a failed page in its own row and offers that page again", async () => {
@@ -1013,6 +1024,12 @@ describe("the repertory Search feed against the Host", () => {
     expect(
       within(movieView.container).getByTestId("search-grid-card-movie-tmdb:603"),
     ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        value.session.feeds.feed(searchFeedKey("the", "movie")).done,
+        "the grid's own page settles before the test leaves it",
+      ).toBe(true),
+    );
 
     fireEvent.click(screen.getByTestId("more-search-row:series"));
     const seriesGrid = pushed.at(-1);
@@ -1022,6 +1039,11 @@ describe("the repertory Search feed against the Host", () => {
     expect(
       within(seriesView.container).getByTestId("search-grid-card-series-tmdb:1396"),
     ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(value.session.feeds.feed(searchFeedKey("the", "series")).done).toBe(true),
+    );
+    movieView.unmount();
+    seriesView.unmount();
   });
 
   it("a failed row keeps its own failure and the other kind's row still stands", async () => {
