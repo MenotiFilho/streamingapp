@@ -580,7 +580,7 @@ describe("the repertory Discover preview", () => {
 });
 
 describe("the repertory Search feed", () => {
-  it("defaults to Movie, switches to Series, and shows one kind's rows", async () => {
+  it("a keyless query draws every answering Catalog's row, and has no kind chips", async () => {
     const ask = vi.fn(async (action: Action): Promise<ActionOutcome> => ({
       response:
         action.type === "search_catalogs"
@@ -592,10 +592,9 @@ describe("the repertory Search feed", () => {
 
     render(withShell(value, <RepertorySearchScreen />, true));
 
-    expect(screen.getByTestId("search-kind-movie")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    expect(screen.queryByTestId("search-kind-movie")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("search-kind-series")).not.toBeInTheDocument();
+
     fireEvent.change(screen.getByLabelText("Search for a Title"), {
       target: { value: "the" },
     });
@@ -605,25 +604,8 @@ describe("the repertory Search feed", () => {
       await screen.findByTestId("search-row-cinemeta/movie/top"),
     ).toBeInTheDocument();
     expect(
-      screen.queryByTestId("search-row-cinemeta/series/top"),
-    ).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId("search-kind-series"));
-
-    expect(
       await screen.findByTestId("search-row-cinemeta/series/top"),
     ).toBeInTheDocument();
-    expect(
-      screen.queryByTestId("search-row-cinemeta/movie/top"),
-    ).not.toBeInTheDocument();
-    expect(screen.getByTestId("search-kind-movie")).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
-    expect(screen.getByTestId("search-kind-series")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
   });
 });
 
@@ -815,7 +797,7 @@ describe("the repertory Search feed against the Host", () => {
     };
   }
 
-  it("asks both kinds on submit and switches between their rows", async () => {
+  it("asks both kinds on submit, draws Movies then Series, and has no kind chips", async () => {
     const ask = vi.fn(async (action: Action): Promise<ActionOutcome> => ({
       response:
         action.type === "search"
@@ -826,12 +808,17 @@ describe("the repertory Search feed against the Host", () => {
     const { value } = harness({ ask, snapshot: KEYED });
 
     render(withShell(value, <RepertorySearchScreen />));
+
+    expect(screen.queryByTestId("search-kind-movie")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("search-kind-series")).not.toBeInTheDocument();
+
     fireEvent.change(screen.getByLabelText("Search for a Title"), {
       target: { value: "the" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Search" }));
 
     expect(await screen.findByTestId("search-card-movie-tmdb:603")).toBeInTheDocument();
+    expect(await screen.findByTestId("search-card-series-tmdb:1396")).toBeInTheDocument();
     expect(actions(ask)).toContainEqual({
       type: "search",
       query: "the",
@@ -844,17 +831,17 @@ describe("the repertory Search feed against the Host", () => {
       kind: "series",
       page: 1,
     });
-    expect(screen.queryByTestId("search-card-series-tmdb:1396")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId("search-kind-series"));
-
-    expect(
-      await screen.findByTestId("search-card-series-tmdb:1396"),
-    ).toBeInTheDocument();
-    expect(screen.queryByTestId("search-card-movie-tmdb:603")).not.toBeInTheDocument();
+    const rows = screen.getAllByTestId(/^search-row-(movie|series)$/);
+    expect(rows.map((row) => row.getAttribute("data-testid"))).toEqual([
+      "search-row-movie",
+      "search-row-series",
+    ]);
+    expect(screen.getByTestId("more-search-row:movie")).toBeInTheDocument();
+    expect(screen.getByTestId("more-search-row:series")).toBeInTheDocument();
   });
 
-  it("pages one row by its own More, asking that kind's next page", async () => {
+  it("pages one row from its own More, leaving the other row where it read to", async () => {
     const ask = vi.fn(async (action: Action): Promise<ActionOutcome> => ({
       response:
         action.type === "search"
@@ -879,21 +866,27 @@ describe("the repertory Search feed against the Host", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Search" }));
     await screen.findByTestId("search-card-movie-tmdb:603");
+    await screen.findByTestId("search-card-series-tmdb:1396");
 
-    fireEvent.click(screen.getByTestId("search-kind-series"));
-    const row = await screen.findByTestId("search-row-series");
-    fireEvent.click(within(row).getByRole("button", { name: "Read on" }));
+    const series = screen.getByTestId("search-row-series");
+    fireEvent.click(within(series).getByRole("button", { name: "Read on" }));
 
     expect(await screen.findByTestId("search-card-series-tmdb:1397")).toBeInTheDocument();
+    expect(screen.getByTestId("search-card-movie-tmdb:603")).toBeInTheDocument();
     expect(actions(ask)).toContainEqual({
       type: "search",
       query: "the",
       kind: "series",
       page: 2,
     });
+    expect(
+      actions(ask).filter(
+        (action) => action.type === "search" && action.kind === "movie" && action.page === 2,
+      ),
+    ).toEqual([]);
   });
 
-  it("opens one kind's row as a grid from its More card", async () => {
+  it("opens each kind's row as a grid from its own More card", async () => {
     const ask = vi.fn(async (action: Action): Promise<ActionOutcome> => ({
       response:
         action.type === "search" ? keyedSearchAnswer(action.kind) : null,
@@ -907,14 +900,24 @@ describe("the repertory Search feed against the Host", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Search" }));
     await screen.findByTestId("search-card-movie-tmdb:603");
+    await screen.findByTestId("search-card-series-tmdb:1396");
 
     fireEvent.click(screen.getByTestId("more-search-row:movie"));
-    const grid = pushed.at(-1);
-    expect(grid?.name).toBe("All of Movies");
+    const movieGrid = pushed.at(-1);
+    expect(movieGrid?.name).toBe("All of Movies");
 
-    const view = render(withShell(value, grid!.payload.render()));
+    const movieView = render(withShell(value, movieGrid!.payload.render()));
     expect(
-      within(view.container).getByTestId("search-grid-card-movie-tmdb:603"),
+      within(movieView.container).getByTestId("search-grid-card-movie-tmdb:603"),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("more-search-row:series"));
+    const seriesGrid = pushed.at(-1);
+    expect(seriesGrid?.name).toBe("All of Series");
+
+    const seriesView = render(withShell(value, seriesGrid!.payload.render()));
+    expect(
+      within(seriesView.container).getByTestId("search-grid-card-series-tmdb:1396"),
     ).toBeInTheDocument();
   });
 
@@ -941,12 +944,12 @@ describe("the repertory Search feed against the Host", () => {
     fireEvent.click(screen.getByRole("button", { name: "Search" }));
 
     expect(await screen.findByTestId("search-card-movie-tmdb:603")).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("search-kind-series"));
 
     const row = await screen.findByTestId("search-row-series");
     expect(within(row).getByRole("alert")).toHaveTextContent("status 429");
     expect(within(row).getByRole("button", { name: "Try again" })).toBeEnabled();
-    expect(screen.queryByTestId("search-card-movie-tmdb:603")).not.toBeInTheDocument();
+    expect(screen.getByTestId("search-card-movie-tmdb:603")).toBeInTheDocument();
+    expect(screen.queryByTestId("search-card-series-tmdb:1396")).not.toBeInTheDocument();
   });
 
   it("a failing Catalog keeps its own row on the keyless arm", async () => {
@@ -979,9 +982,9 @@ describe("the repertory Search feed against the Host", () => {
     expect(await screen.findByTestId("search-row-cinemeta/movie/top")).toBeInTheDocument();
     expect(screen.getByTestId("search-card-cinemeta-tt0133093")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId("search-kind-series"));
     const series = await screen.findByTestId("search-row-cinemeta/series/top");
     expect(within(series).getByRole("alert")).toHaveTextContent("status 503");
+    expect(screen.getByTestId("search-row-cinemeta/movie/top")).toBeInTheDocument();
 
     fireEvent.click(within(series).getByRole("button", { name: "Search again" }));
     await waitFor(() =>
