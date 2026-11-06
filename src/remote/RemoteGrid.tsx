@@ -70,7 +70,7 @@ export function RemoteGrid({ grid, session, state, push, pop }: RemoteGridProps)
   const metas = row?.metas ?? feed?.items ?? [];
   const addon = row?.addon ?? grid.addon;
   const title = row?.name ?? grid.title;
-  const tag = tagOf(source, row, entries, snapshot);
+  const tag = tagOf(source, row, entries, snapshot) ?? grid.tag;
   const failure = row?.failure ?? feed?.failure ?? null;
   const couldPlay =
     source.kind === "discover" || source.kind === "search"
