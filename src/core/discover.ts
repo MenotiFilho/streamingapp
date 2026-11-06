@@ -10,8 +10,11 @@
  *
  * The genre lists are TMDB's, captured from `/genre/movie/list` and
  * `/genre/tv/list` as the #48 research note records them. The two lists are not
- * the same set, which is why a filter belongs to the kind it was chosen in;
- * the Host judges the ids against the same split (research note §3, ADR-0020).
+ * the same set. Discover draws one genre row, their union by name with **All
+ * genres** first, and a chip carries the id each kind is asked by; a kind with
+ * no counterpart answers `null` so its row can say so rather than hiding it
+ * (ADR-0036 §1). The Host judges the ids against the same split (research note
+ * §3, ADR-0020).
  */
 
 import type { Action, AddonManifest, DiscoverRow, MetaPreview } from "./wire";
@@ -76,6 +79,92 @@ const SERIES_GENRES: readonly DiscoverGenre[] = [
 /** The filters one kind offers: TMDB's list for that kind and no other. */
 export function genresOf(kind: DiscoverKind): readonly DiscoverGenre[] {
   return kind === SERIES ? SERIES_GENRES : MOVIE_GENRES;
+}
+
+/**
+ * One chip of Discover's one genre row: the name a person reads, the id each
+ * kind is asked by, and whether the chip filters at all.
+ */
+export type DiscoverGenreChoice = {
+  /** The chip's text: TMDB's film name for a genre, or All genres. */
+  name: string;
+  /** The id films are asked by, or `null` where films have no such genre. */
+  movie: number | null;
+  /** The id series are asked by, or `null` where series have no such genre. */
+  series: number | null;
+  /**
+   * Whether the choice filters nothing. All genres is the row's first chip; a
+   * genre that answers `null` for a kind is instead "no counterpart", and that
+   * kind's row is drawn empty with a line saying so.
+   */
+  all: boolean;
+};
+
+/** The chip that clears the genre filter: TMDB's whole weekly feed. */
+export const ALL_GENRES: DiscoverGenreChoice = {
+  name: "All genres",
+  movie: null,
+  series: null,
+  all: true,
+};
+
+/**
+ * The series genre TMDB folds a film genre into where the two lists name it
+ * differently: Action and Adventure are *Action & Adventure*, Science Fiction
+ * and Fantasy are *Sci-Fi & Fantasy*, War is *War & Politics* (ADR-0036 §1).
+ */
+const SERIES_FOLD: Readonly<Record<number, number>> = {
+  28: 10759,
+  12: 10759,
+  14: 10765,
+  878: 10765,
+  10752: 10768,
+};
+
+/** The series genres reached through a film genre, so never chips of their own. */
+const SERIES_FOLDED: ReadonlySet<number> = new Set(Object.values(SERIES_FOLD));
+
+/** The series id a film genre is asked by, or `null` where series have no counterpart. */
+function seriesIdFor(film: DiscoverGenre): number | null {
+  const folded = SERIES_FOLD[film.id];
+  if (folded !== undefined) {
+    return folded;
+  }
+  return SERIES_GENRES.find((genre) => genre.name === film.name)?.id ?? null;
+}
+
+/**
+ * Discover's one genre row: All genres, TMDB's film list in its own order,
+ * then the series-only names. The combined series genres are not chips of
+ * their own — they are reached through the film parts that fold into them
+ * (ADR-0036 §1).
+ */
+export const DISCOVER_GENRES: readonly DiscoverGenreChoice[] = [
+  ALL_GENRES,
+  ...MOVIE_GENRES.map((film) => ({
+    name: film.name,
+    movie: film.id,
+    series: seriesIdFor(film),
+    all: false,
+  })),
+  ...SERIES_GENRES.filter(
+    (genre) =>
+      !SERIES_FOLDED.has(genre.id) &&
+      !MOVIE_GENRES.some((film) => film.name === genre.name),
+  ).map((genre) => ({
+    name: genre.name,
+    movie: null,
+    series: genre.id,
+    all: false,
+  })),
+];
+
+/**
+ * The id a chosen genre asks a kind by, or `null` where that kind has no
+ * counterpart: the row is then drawn empty rather than hidden (ADR-0036 §1).
+ */
+export function genreIdFor(choice: DiscoverGenreChoice, kind: DiscoverKind): number | null {
+  return kind === MOVIE ? choice.movie : choice.series;
 }
 
 /** One page a client is asking for: the kind, the page, and the genre filter. */
