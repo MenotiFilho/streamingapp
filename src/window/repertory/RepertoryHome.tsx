@@ -165,8 +165,10 @@ function Feature({
     return clear;
   }, [active, items.length, setBaseIntentHandler]);
 
+  // A new Featured catalog starts its programme over at the first slide; a
+  // focus that is still on the frame keeps holding the new programme.
   useEffect(() => {
-    setProgramme(FEATURE_START);
+    setProgramme((current) => ({ ...FEATURE_START, held: current.held }));
   }, [items.length, items[0]?.slide.id]);
 
   // The clock: the core decides that a held programme spends nothing and that
