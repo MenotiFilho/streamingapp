@@ -22,11 +22,40 @@
 - Do not leave warnings or errors introduced by the task unresolved.
 - A container has no GPU here (no `/dev/dri`), so it cannot verify HDR passthrough
   or hardware decode. Those are verified on the Windows-native build.
-- Every change lands through a pull request. Do not push to `main` or merge by
-  hand: nothing on GitHub enforces it any more. After the review trail is on the
-  PR and the branch is current with `main`, add the `automerge` label and run
-  `scripts/ci.sh <pr>`: it runs `verify` on this machine, posts it to the PR, and
-  merges. The full sequence is in `docs/agents/ci.md`.
+- Every change lands through a pull request, by the sequence below.
+
+## Landing a pull request (CI runs on this machine)
+
+GitHub's runners are not used: the repository is private on the free plan, its
+hosted runners fail at startup, and branch protection is unavailable. `verify`
+runs here, through `scripts/ci.sh`, and **nothing on GitHub enforces it** — so
+never push to `main` and never merge by hand (`gh pr merge`, the web button).
+
+1. Work in a worktree on a branch, never in the main checkout.
+2. Push the branch and open a pull request against `main`.
+3. Put the review trail on the PR as a comment: what the reviews found, what
+   changed, what was deliberately kept.
+4. Bring the branch current: `git fetch origin && git merge origin/main`, then
+   push. The script refuses a branch that is behind its base.
+5. Add the label: `gh pr edit <pr> --add-label automerge`.
+6. Run the CI, which verifies, posts the `verify` status and merges:
+
+```sh
+scripts/ci.sh <pr>             # verify, post `verify`, merge if labelled
+scripts/ci.sh <pr> --no-merge  # verify and post only
+```
+
+7. Fetch and confirm the merged tree is the verified one:
+   `git diff origin/main <branch>` must be empty.
+
+What the script does: checks the PR's head out into a throwaway worktree (your
+uncommitted files never reach the result), runs the same suites as
+`.github/workflows/ci.yml` in the dev image through `.github/scripts/dev-run.sh`,
+and merges with a merge commit pinned to the head it verified. A docs-only PR
+(every path `*.md` or under `docs/`) skips the suites. The image layers and the
+cargo, `node_modules` and pnpm-store volumes are kept between runs, so only the
+first run downloads everything. A failure posts `verify` red: fix it on the
+branch, push, and run it again. Details: `docs/agents/ci.md`.
 
 ## Verifying the window (Windows, from WSL)
 
