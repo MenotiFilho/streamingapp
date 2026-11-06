@@ -248,7 +248,9 @@ calls — the rail scroll and the focus reveal — check `useReducedMotion()` an
 jump instead of animating. The served Remote reads the same hook from
 `src/core/react`. Under the same media query
 the CSS transform transitions are disabled and the width fills snap; only opacity
-and colour still fade. The feature stops rotating. This **replaces** the earlier
+and colour still fade. The feature is the exception: its beat keeps turning and
+its tick's fill is the one movement left, while the slide change is a fade
+(ADR-0036 §2). This **replaces** the earlier
 0ms rule: with reduced motion the room keeps its fades and loses its movement.
 The OSD's auto-hide clock, the focus rules and every Action are untouched.
 
