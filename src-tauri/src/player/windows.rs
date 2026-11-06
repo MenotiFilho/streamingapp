@@ -1,9 +1,9 @@
 //! The Windows half of putting the picture in the Host's window.
 //!
 //! mpv is handed the Host window's handle as its `wid` and creates a child
-//! window of ours when a Stream starts. Two things about that child are ours to
-//! fix, and neither has a safe wrapper in the `windows` crate — which is why
-//! this module, alone in the app shell, allows `unsafe`:
+//! window of ours when the video output starts. Two things about that child are
+//! ours to fix, and neither has a safe wrapper in the `windows` crate — which is
+//! why this module, alone in the app shell, allows `unsafe`:
 //!
 //! - It is created *on top* of the webview, so until it is pushed to the bottom
 //!   of the z-order the picture covers the interface. It is pushed down as soon
@@ -32,9 +32,10 @@ use windows::Win32::UI::WindowsAndMessaging::{
 
 /// How often the child window is looked for, and re-measured once it is found.
 ///
-/// mpv creates its child when a Stream starts, and a Stream starts when a person
-/// presses play, so this is the difference between a picture that appears at
-/// once and one that appears a quarter of a second later. Nothing here is on the
+/// mpv creates its child when the video output starts — the first Stream, not
+/// the Host's launch — and keeps it for the Host's life once `force-window` is
+/// on (#250), so this is the difference between a picture that appears at once
+/// and one that appears a quarter of a second later. Nothing here is on the
 /// path of a frame: mpv draws in its own thread.
 const WATCH: Duration = Duration::from_millis(250);
 
@@ -45,10 +46,10 @@ const SUBCLASS: usize = 0x5354_5245; // "STRE"
 /// Watch for mpv's child window under the Host's, adopt it, and keep it the size
 /// of the window from then on.
 ///
-/// Runs on a thread of its own for as long as the Host does: there is no moment
-/// at which the child is known to exist (mpv creates it per Stream), and the
-/// window's own size is only knowable from the window. The handle travels as a
-/// number because a raw window handle is not `Send`; the thread makes its own.
+/// Runs on a thread of its own for as long as the Host does: the first moment
+/// the child exists is mpv's own, and the window's own size is only knowable
+/// from the window. The handle travels as a number because a raw window handle
+/// is not `Send`; the thread makes its own.
 pub fn adopt(handle: i64) {
     thread::spawn(move || {
         let host = HWND(handle as *mut core::ffi::c_void);
