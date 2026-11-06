@@ -16,7 +16,8 @@ import type {
 import { Discover } from "./Discover";
 import { FakeHost, type Respond } from "./fakeHost.testing";
 import { NOTHING } from "./fakeSocket.testing";
-import { discoverNote } from "./discoverScreen";
+import { discoverNote, discoverTag } from "./discoverScreen";
+import { gridLevel } from "./grid";
 import { titleLevel, type RemotePayload } from "./levels";
 
 /**
@@ -206,48 +207,31 @@ describe("Discover over TMDB", () => {
     ).toBeInTheDocument();
   });
 
-  test("More asks the next page and keeps the cards already read", async () => {
-    const { host } = mount();
+  test("More opens the feed as a whole-row grid and asks no page itself", async () => {
+    const { host, pushes } = mount();
     await screen.findByTestId("discover-card-tmdb:2");
+    const asked = host.asked("discover").length;
 
     fireEvent.click(screen.getByRole("button", { name: "More Movies" }));
 
-    await waitFor(() =>
-      expect(host.asked("discover").at(-1)).toEqual({
-        type: "discover",
-        kind: "movie",
-        page: 2,
+    expect(pushes).toEqual([
+      gridLevel({
+        title: "Movies",
+        index: "01",
+        tag: discoverTag("movie", null, 2),
+        addon: null,
+        source: {
+          kind: "discover",
+          feedKind: "movie",
+          genre: null,
+          feed: { page: 1, items: [meta("tmdb:1", "One"), meta("tmdb:2", "Two")], failure: null, done: false },
+        },
       }),
-    );
-    await screen.findByTestId("discover-card-tmdb:3");
-    expect(screen.getByTestId("discover-card-tmdb:1")).toBeInTheDocument();
-  });
-
-  test("a failed page keeps its cards and the same press asks that page again", async () => {
-    let failed = false;
-    const { host } = mount({
-      respond: (action) => {
-        if (action.type === "discover" && action.page === 2 && !failed) {
-          failed = true;
-          return { kind: "tmdb", detail: "TMDB answered with status 429" };
-        }
-        return pages(action);
-      },
-    });
-    await screen.findByTestId("discover-card-tmdb:1");
-
-    fireEvent.click(screen.getByRole("button", { name: "More Movies" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      explain({ kind: "tmdb", detail: "TMDB answered with status 429" }),
-    );
+    ]);
     expect(
-      screen.getByTestId("discover-card-tmdb:1"),
-      "the page that failed did not wipe what was read",
-    ).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "More Movies" }));
-    await screen.findByTestId("discover-card-tmdb:3");
-    expect(host.asked("discover").map((action) => action.page)).toEqual([1, 2, 2]);
+      host.asked("discover"),
+      "the page is the grid's head action's, not the More card's",
+    ).toHaveLength(asked);
   });
 
   test("a feed that answered nothing draws its quiet line and offers no more", async () => {
@@ -327,37 +311,52 @@ describe("Discover with no TMDB Credential", () => {
     );
   });
 
-  test("a Catalog's row pages on by the skip it has read to", async () => {
-    const { host } = mount({
+  test("a Catalog's More card opens its row as a grid, carrying what it read", async () => {
+    const { host, pushes } = mount({
       snapshot: UNKEYED,
       respond: (action) => {
         if (action.type !== "browse_catalog") {
           return { snapshots: [], answer: null };
         }
-        const skip = action.extra.find((extra) => extra.name === "skip")?.value;
         return catalogAnswer(
           "cinemeta",
           action.catalog.type,
           action.catalog.id,
-          skip
-            ? [meta(`tt-${action.catalog.id}-more`, "More")]
-            : [meta(`tt-${action.catalog.id}`, "One")],
+          [meta(`tt-${action.catalog.id}`, "One")],
           action.catalog.id === "top" ? "Popular" : "New",
         );
       },
     });
     await waitFor(() => expect(host.asked("browse_catalog")).toHaveLength(2));
+    const asked = host.asked("browse_catalog").length;
 
     fireEvent.click(screen.getByRole("button", { name: "More Popular" }));
 
-    await waitFor(() =>
-      expect(host.asked("browse_catalog")).toContainEqual({
-        type: "browse_catalog",
+    expect(pushes).toEqual([
+      gridLevel({
+        title: "Popular",
+        index: "01",
+        tag: "Cinemeta / 1 film",
         addon: "cinemeta",
-        catalog: { type: "movie", id: "top" },
-        extra: [{ name: "skip", value: "1" }],
+        source: {
+          kind: "catalog",
+          row: {
+            addon: "cinemeta",
+            type: "movie",
+            id: "top",
+            name: "Popular",
+            metas: [meta("tt-top", "One")],
+            offset: 1,
+            failure: null,
+            done: false,
+          },
+        },
       }),
-    );
+    ]);
+    expect(
+      host.asked("browse_catalog"),
+      "the grid asks the next page from its head, not from the More card",
+    ).toHaveLength(asked);
   });
 
   test("a press carries the Addon whose Catalog answered", async () => {

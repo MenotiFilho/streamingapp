@@ -4,8 +4,8 @@ import {
   catalogKey,
   declaredCatalogs,
   keyOf,
-  pageable,
   type DeclaredCatalog,
+  type Row,
 } from "../core/browse";
 import type { Destination } from "../core/destinations";
 import { explain } from "../core/errors";
@@ -27,7 +27,9 @@ import type { MetaPreview, ResumeEntry } from "../core/wire";
 import { Button } from "../kit/Button";
 import { ContinueWatchingCard } from "../kit/ContinueWatchingCard";
 import { PosterCard } from "../kit/PosterCard";
+import { gridLevel } from "./grid";
 import { RemoteRail } from "./RemoteRail";
+import { MoreControl } from "./RemoteRow";
 import { titleLevel, type RemotePayload, type RemoteTitle } from "./levels";
 
 export type HomeProps = {
@@ -62,7 +64,7 @@ export type HomeProps = {
 export function Home({ session, state, push, choose }: HomeProps) {
   const { home } = session;
   const snapshot = state.snapshot;
-  const { rows, answered, paging } = useSyncExternalStore(home.subscribe, home.getSnapshot);
+  const { rows, answered } = useSyncExternalStore(home.subscribe, home.getSnapshot);
 
   const catalogs = useMemo<DeclaredCatalog[]>(() => declaredCatalogs(snapshot), [snapshot]);
   const catalogFingerprint = useMemo(
@@ -112,6 +114,23 @@ export function Home({ session, state, push, choose }: HomeProps) {
     });
   };
 
+  /**
+   * A rail's More card opens the whole row as a pushed grid (#253). The level
+   * reads the row from the Session's store, so a page the grid's head action
+   * asks lands in the rail's own row and Back returns to it.
+   */
+  const openRow = (row: Row, index: string) => {
+    push(
+      gridLevel({
+        title: row.name,
+        index,
+        tag: rowTag(snapshot, row),
+        addon: row.addon,
+        source: { kind: "home", rowKey: keyOf(row) },
+      }),
+    );
+  };
+
   // The store drops a row when its Catalog leaves the snapshot, but only on the
   // next `sync`; a declared-key filter keeps the frame between them honest.
   const visibleRows = rows.filter((row) => declaredKeys.has(keyOf(row)));
@@ -120,6 +139,18 @@ export function Home({ session, state, push, choose }: HomeProps) {
   const continueWatching = snapshot?.watchProgress ?? [];
   const empty = homeEmptyState(snapshot, catalogs.length);
   const hasContinue = continueWatching.length > 0;
+
+  const openContinue = () => {
+    push(
+      gridLevel({
+        title: "Continue watching",
+        index: programIndex(1),
+        tag: `${continueWatching.length} in progress`,
+        addon: null,
+        source: { kind: "home", rowKey: null },
+      }),
+    );
+  };
 
   return (
     <section className="remote-home" data-testid="remote-home">
@@ -149,6 +180,7 @@ export function Home({ session, state, push, choose }: HomeProps) {
           title="Continue watching"
           tag={`${continueWatching.length} in progress`}
           testId="remote-continue"
+          action={<MoreControl label="Continue watching" onOpen={openContinue} />}
         >
           {continueWatching.map((entry) => {
             const playable = resumable(entry);
@@ -202,11 +234,12 @@ export function Home({ session, state, push, choose }: HomeProps) {
               ) : null
             }
             action={
-              row.metas.length > 0 && pageable(snapshot, row) && !row.done ? (
+              row.metas.length > 0 ? (
                 <MoreControl
-                  title={row.name}
-                  paging={paging.has(key)}
-                  onPage={() => home.page(key)}
+                  label={row.name}
+                  onOpen={() =>
+                    openRow(row, homeSectionIndex(index, hasContinue))
+                  }
                 />
               ) : null
             }
@@ -226,35 +259,6 @@ export function Home({ session, state, push, choose }: HomeProps) {
         );
       })}
     </section>
-  );
-}
-
-/**
- * The last item of a rail that has more to read: one press asks the store for
- * the row's next page, through the same queue as first paint. It is disabled
- * while that ask is queued or running, and it is never drawn on a row that has
- * already ended or one whose Catalog declares no `skip` — there is no second
- * page to ask for, and `home.page` is the only fetch path either way.
- */
-function MoreControl({
-  title,
-  paging,
-  onPage,
-}: {
-  title: string;
-  paging: boolean;
-  onPage: () => void;
-}) {
-  return (
-    <Button
-      variant="ghost"
-      className="remote-more"
-      aria-label={`More ${title}`}
-      pending={paging}
-      onClick={onPage}
-    >
-      More
-    </Button>
   );
 }
 

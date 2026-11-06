@@ -507,8 +507,8 @@ body {
   width: clamp(7rem, 34vw, 9.5rem);
 }
 
-/* The More card: the rail's last plate, the one control that asks the store
- * for the row's next page. */
+/* The More card: the rail's last plate, the one control that opens the whole
+ * row as a grid. */
 .remote-more {
   display: flex;
   align-items: center;
@@ -538,6 +538,44 @@ body {
   border-color: var(--rep-hairline);
   color: var(--rep-muted);
   opacity: 0.5;
+}
+
+/* A rail opened as a whole (#253): the cards the row has read, wrapping under
+ * the same head the rail draws, with Back and the row's paging action in it.
+ * The grid never asks a page on mount; its head action does. */
+.remote-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-4);
+  min-width: 0;
+}
+
+.remote-grid-head {
+  flex-wrap: wrap;
+}
+
+.remote-grid-head .rep-kit-button {
+  min-height: var(--rep-remote-touch);
+  padding: var(--rep-space-2) var(--rep-space-3);
+}
+
+.remote-grid-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(6.75rem, 1fr));
+  gap: var(--rep-space-5) var(--rep-space-4);
+  min-width: 0;
+}
+
+.remote-grid-cards .rep-kit-poster {
+  width: 100%;
+}
+
+.remote-grid-continue {
+  grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr));
+}
+
+.remote-grid-continue .rep-kit-continue {
+  width: 100%;
 }
 
 /* The empty programme: one title, one line, one way out. */
