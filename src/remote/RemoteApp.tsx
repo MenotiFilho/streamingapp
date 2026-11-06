@@ -21,7 +21,7 @@ import { Search } from "./Search";
 import { armSentinel, decideHistory } from "./history";
 import { heldTitle, RemoteLevel, type RemotePayload } from "./levels";
 import { PlayerStrip } from "./Player";
-import { playerLevelStale } from "./playerScreen";
+import { playerLevelStale, stripDrawn } from "./playerScreen";
 import { Settings } from "./Settings";
 
 export type RemoteAppProps = {
@@ -325,11 +325,13 @@ function RemoteRoom({
         inert={sheetOpen ? true : undefined}
         aria-hidden={sheetOpen ? true : undefined}
       >
-        <PlayerStrip
-          session={session}
-          title={heldTitle(nav.levels)}
-          push={nav.push}
-        />
+        {stripDrawn(drawn) ? (
+          <PlayerStrip
+            session={session}
+            title={heldTitle(nav.levels)}
+            push={nav.push}
+          />
+        ) : null}
 
         <nav className="remote-index" aria-label="Destinations">
           {DESTINATIONS.map((destination) => (
