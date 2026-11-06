@@ -114,7 +114,9 @@ const MAX_STREAM_URL_LEN = 4096;
  * #249).
  */
 function playableDirectUrl(raw: string): boolean {
-  if (raw.length === 0 || raw.length > MAX_STREAM_URL_LEN) {
+  // The Host's bound is in bytes (Rust's `str::len`), not UTF-16 units.
+  const bytes = new TextEncoder().encode(raw).length;
+  if (bytes === 0 || bytes > MAX_STREAM_URL_LEN) {
     return false;
   }
   if (/[\u0000-\u001f\u007f-\u009f]/.test(raw)) {

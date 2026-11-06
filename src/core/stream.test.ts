@@ -178,6 +178,13 @@ describe("which direct Streams the list marks unplayable", () => {
     ).not.toBeNull();
   });
 
+  test("the Stream bound counts bytes, as the Host does, not characters", () => {
+    // 2,100 two-byte characters: under 4,096 characters, over 4,096 bytes.
+    const wide = `https://example.test/${"é".repeat(2100)}`;
+    expect(wide.length).toBeLessThan(4096);
+    expect(playabilityNote({ kind: "direct", url: wide })).not.toBeNull();
+  });
+
   test("a torrent is still marked and is not a URL question", () => {
     expect(playabilityNote({ kind: "info_hash", infoHash: "abc" })).toContain("torrent");
   });
