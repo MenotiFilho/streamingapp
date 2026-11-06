@@ -219,116 +219,118 @@ export function Search({ session, state, push }: SearchProps) {
             />
           </form>
 
-          {keyed && committed !== null ? (
-            SEARCH_KINDS.map(({ kind, label }, index) => {
-              const feed = feeds[kind];
-              const phase = feedPhase(feed, paging.has(kind));
-              const couldPlay = snapshot
-                ? discoverPlayable(snapshot.addons, kind)
-                : true;
-              return (
-                <RemoteRail
-                  key={kind}
-                  index={programIndex(index + 1)}
-                  title={label}
-                  tag={rowTagOf("TMDB", kind, feed.items.length)}
-                  testId={`remote-search-row-${kind}`}
-                  note={
-                    <RowNote
-                      failure={feed.failure}
-                      quiet={searchNote(phase, kind, query)}
-                    />
-                  }
-                  action={
-                    <PagingControl
-                      failure={feed.failure}
-                      more={feedMore(feed)}
-                      loading={paging.has(kind)}
-                      onMore={() => void loadRow(query, kind, pageToAsk(feed))}
-                    />
-                  }
-                  more={
-                    feed.items.length > 0 ? (
-                      <MoreControl label={label} onOpen={() => openGrid(kind)} />
-                    ) : null
-                  }
-                >
-                  {feed.items.map((meta) => (
-                    <PosterCard
-                      key={meta.id}
-                      name={meta.name}
-                      poster={meta.poster}
-                      rating={meta.imdbRating?.trim() || null}
-                      subtitle={meta.releaseInfo}
-                      unplayable={!couldPlay || state.unplayable.has(meta.id)}
-                      testId={`search-card-${kind}-${meta.id}`}
-                      onClick={() => open(null, meta)}
-                    />
-                  ))}
-                </RemoteRail>
-              );
-            })
-          ) : null}
+          <div className="remote-page-panel">
+            {keyed && committed !== null ? (
+              SEARCH_KINDS.map(({ kind, label }, index) => {
+                const feed = feeds[kind];
+                const phase = feedPhase(feed, paging.has(kind));
+                const couldPlay = snapshot
+                  ? discoverPlayable(snapshot.addons, kind)
+                  : true;
+                return (
+                  <RemoteRail
+                    key={kind}
+                    index={programIndex(index + 1)}
+                    title={label}
+                    tag={rowTagOf("TMDB", kind, feed.items.length)}
+                    testId={`remote-search-row-${kind}`}
+                    note={
+                      <RowNote
+                        failure={feed.failure}
+                        quiet={searchNote(phase, kind, query)}
+                      />
+                    }
+                    action={
+                      <PagingControl
+                        failure={feed.failure}
+                        more={feedMore(feed)}
+                        loading={paging.has(kind)}
+                        onMore={() => void loadRow(query, kind, pageToAsk(feed))}
+                      />
+                    }
+                    more={
+                      feed.items.length > 0 ? (
+                        <MoreControl label={label} onOpen={() => openGrid(kind)} />
+                      ) : null
+                    }
+                  >
+                    {feed.items.map((meta) => (
+                      <PosterCard
+                        key={meta.id}
+                        name={meta.name}
+                        poster={meta.poster}
+                        rating={meta.imdbRating?.trim() || null}
+                        subtitle={meta.releaseInfo}
+                        unplayable={!couldPlay || state.unplayable.has(meta.id)}
+                        testId={`search-card-${kind}-${meta.id}`}
+                        onClick={() => open(null, meta)}
+                      />
+                    ))}
+                  </RemoteRail>
+                );
+              })
+            ) : null}
 
-          {!keyed && committed !== null ? (
-            <div
-              className="remote-search-catalogs"
-              data-testid="remote-search-catalogs"
-            >
-              {catalogs.loading ? (
-                <p role="status" className="remote-quiet">
-                  {CATALOGS_READING}
-                </p>
-              ) : null}
-
-              {catalogs.failure ? (
-                <>
-                  <p role="alert" className="remote-failure">
-                    {explain(catalogs.failure)}
+            {!keyed && committed !== null ? (
+              <div
+                className="remote-search-catalogs"
+                data-testid="remote-search-catalogs"
+              >
+                {catalogs.loading ? (
+                  <p role="status" className="remote-quiet">
+                    {CATALOGS_READING}
                   </p>
-                  <Button variant="ghost" onClick={() => void loadCatalogs(query)}>
-                    Search again
-                  </Button>
-                </>
-              ) : null}
+                ) : null}
 
-              {catalogs.rows?.map((row, index) => (
-                <RemoteRail
-                  key={keyOf(row)}
-                  index={programIndex(index + 1)}
-                  title={row.name}
-                  tag={rowTagOf(
-                    addonLabel(snapshot, row.addon),
-                    row.type,
-                    row.metas.length,
-                  )}
-                  testId={`remote-search-catalog-${keyOf(row)}`}
-                  note={<RowNote failure={row.failure} quiet={rowNote(row)} />}
-                >
-                  {row.metas.map((meta) => (
-                    <PosterCard
-                      key={meta.id}
-                      name={meta.name}
-                      poster={meta.poster}
-                      rating={meta.imdbRating?.trim() || null}
-                      subtitle={meta.releaseInfo}
-                      unplayable={state.unplayable.has(meta.id)}
-                      testId={`search-card-${row.addon}-${meta.id}`}
-                      onClick={() => open(row.addon, meta)}
-                    />
-                  ))}
-                </RemoteRail>
-              ))}
+                {catalogs.failure ? (
+                  <>
+                    <p role="alert" className="remote-failure">
+                      {explain(catalogs.failure)}
+                    </p>
+                    <Button variant="ghost" onClick={() => void loadCatalogs(query)}>
+                      Search again
+                    </Button>
+                  </>
+                ) : null}
 
-              {!catalogs.loading &&
-              !catalogs.failure &&
-              catalogs.rows?.length === 0 ? (
-                <p role="status" className="remote-quiet">
-                  {NO_SEARCHABLE_CATALOGS}
-                </p>
-              ) : null}
-            </div>
-          ) : null}
+                {catalogs.rows?.map((row, index) => (
+                  <RemoteRail
+                    key={keyOf(row)}
+                    index={programIndex(index + 1)}
+                    title={row.name}
+                    tag={rowTagOf(
+                      addonLabel(snapshot, row.addon),
+                      row.type,
+                      row.metas.length,
+                    )}
+                    testId={`remote-search-catalog-${keyOf(row)}`}
+                    note={<RowNote failure={row.failure} quiet={rowNote(row)} />}
+                  >
+                    {row.metas.map((meta) => (
+                      <PosterCard
+                        key={meta.id}
+                        name={meta.name}
+                        poster={meta.poster}
+                        rating={meta.imdbRating?.trim() || null}
+                        subtitle={meta.releaseInfo}
+                        unplayable={state.unplayable.has(meta.id)}
+                        testId={`search-card-${row.addon}-${meta.id}`}
+                        onClick={() => open(row.addon, meta)}
+                      />
+                    ))}
+                  </RemoteRail>
+                ))}
+
+                {!catalogs.loading &&
+                !catalogs.failure &&
+                catalogs.rows?.length === 0 ? (
+                  <p role="status" className="remote-quiet">
+                    {NO_SEARCHABLE_CATALOGS}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
         </>
       )}
     </section>

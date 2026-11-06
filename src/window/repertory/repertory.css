@@ -122,6 +122,61 @@ body.picture-behind .shell-nav-slot {
   max-width: none;
 }
 
+/* --------------------------------------------------------------------------
+ * The page rule (ADR-0036 §3)
+ * -------------------------------------------------------------------------- */
+
+/*
+ * A fitted screen is sized to the stage's content box and never scrolls
+ * vertically. The panel its screen names is the one scrollport, so Discover's
+ * and Search's head, chips and bar stay where a person left them while the feed
+ * moves beneath. Home and the utility register keep the page rule: they grow,
+ * and a short window scrolls them.
+ */
+.rep-feed[data-page="fitted"] {
+  height: calc(100vh - var(--rep-stage-top) - var(--rep-stage-bottom));
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rep-page-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-6);
+  min-width: 0;
+}
+
+.rep-feed[data-page="fitted"][data-panel="rows"] > .rep-page-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-color: var(--rep-hairline) transparent;
+  scrollbar-width: thin;
+}
+
+/* The credit is the feed's foot, not a second row: on a fitted page it keeps
+ * the attribution on screen without taking the room a row needs. */
+.rep-feed[data-page="fitted"] .rep-credit {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--rep-space-4);
+  max-width: none;
+  padding: var(--rep-space-2) 0;
+}
+
+.rep-feed[data-page="fitted"] .rep-credit-logo {
+  width: max(72px, calc(var(--rep-stage) * 4.4));
+}
+
+/* The Title is one page: its backdrop is the page, and the episode rail is the
+ * only scrollport (ADR-0036 §3). The frame's level already owns the screen, so
+ * this page never asks the window to scroll it. */
+.rep-title-level[data-page="fitted"] {
+  height: 100%;
+  min-height: 0;
+}
+
 /* A heading the page needs and the screen does not draw. */
 .shell-visually-hidden {
   position: absolute;
@@ -1374,6 +1429,7 @@ body.picture-behind .shell-nav-slot {
  */
 .shell-level:has(.rep-title-level) {
   padding-top: 0;
+  overflow: hidden;
   background: var(--rep-ink);
 }
 

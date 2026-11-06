@@ -10,6 +10,7 @@ import {
 } from "../../core/discover";
 import type { MetaPreview } from "../../core/wire";
 import { answeredCatalogs, answeredDiscover } from "../../core/answers";
+import { pageFit } from "../../core/pageLayout";
 import { SERIES } from "../../core/title";
 import tmdbLogo from "../../assets/tmdb-logo.svg";
 import { useShell } from "../context";
@@ -179,6 +180,7 @@ export function RepertoryDiscoverScreen() {
 
   const noKey = discoverNoKey();
   const genres = genresFor(source);
+  const fit = pageFit("discover");
 
   /**
    * The rail's More card opens that row's loaded cards as a pushed grid. It is
@@ -216,6 +218,8 @@ export function RepertoryDiscoverScreen() {
       data-region="discover"
       data-kind="branch"
       data-label="Discover"
+      data-page={fit.fitted ? "fitted" : undefined}
+      data-panel={fit.panel ?? undefined}
     >
       <ProgrammeLine name="Discover" testId="discover-programme-line" />
 
@@ -223,78 +227,80 @@ export function RepertoryDiscoverScreen() {
         <p className="rep-home-waiting">Waiting for the Host…</p>
       ) : null}
 
-      {snapshot !== null && !preview && !keyed ? (
-        <section className="rep-feed-empty" data-testid="discover-no-key">
-          <h2 className="rep-feed-empty-title">{noKey.title}</h2>
-          <p className="rep-feed-empty-body">{noKey.body}</p>
-          <Button variant="primary" onClick={() => push(repertoryCredentialsLevel())}>
-            {noKey.action}
-          </Button>
-        </section>
-      ) : null}
-
       {active ? (
-        <>
-          <div
-            className="rep-kind-filter"
-            data-region="discover-genres"
-            data-kind="row"
-            data-label="Genres"
-          >
-            <ChoiceChip pressed={genre === null} onClick={() => chooseGenre(null)}>
-              All genres
+        <div
+          className="rep-kind-filter"
+          data-region="discover-genres"
+          data-kind="row"
+          data-label="Genres"
+        >
+          <ChoiceChip pressed={genre === null} onClick={() => chooseGenre(null)}>
+            All genres
+          </ChoiceChip>
+          {genres.map((held) => (
+            <ChoiceChip
+              key={held.key}
+              pressed={genre?.key === held.key}
+              onClick={() => chooseGenre(held)}
+            >
+              {held.name}
             </ChoiceChip>
-            {genres.map((held) => (
-              <ChoiceChip
-                key={held.key}
-                pressed={genre?.key === held.key}
-                onClick={() => chooseGenre(held)}
-              >
-                {held.name}
-              </ChoiceChip>
-            ))}
-          </div>
-
-          {ROWS.map(({ kind, label }, at) => {
-            const feed = feeds[kind];
-            const loading = paging.includes(kind);
-            const ask = genreAsk(genre, kind);
-            const state = feedState(feed, loading);
-            const tag = discoverRowTag(feed, kind, genre, ask);
-            const note = discoverRowNote(state, kind, genre, ask);
-            const index = programIndex(at + 1);
-            return (
-              <EditorialRow
-                key={kind}
-                title={label}
-                index={index}
-                tag={tag}
-                action={
-                  <FeedPagingAction
-                    failure={feed.failure}
-                    more={feedMore(feed)}
-                    loading={loading}
-                    onMore={() => retry(kind)}
-                  />
-                }
-                failure={feed.failure}
-                note={note}
-                region={`discover:${kind}`}
-                onOpenRow={
-                  feed.items.length > 0
-                    ? () => openGrid(kind, label, index)
-                    : undefined
-                }
-                testId={`discover-section-${kind}`}
-              >
-                {feed.items.map((meta) =>
-                  posterCard(meta, kind, `discover-card-${meta.id}`),
-                )}
-              </EditorialRow>
-            );
-          })}
-        </>
+          ))}
+        </div>
       ) : null}
+
+      <div className="rep-page-panel">
+        {snapshot !== null && !preview && !keyed ? (
+          <section className="rep-feed-empty" data-testid="discover-no-key">
+            <h2 className="rep-feed-empty-title">{noKey.title}</h2>
+            <p className="rep-feed-empty-body">{noKey.body}</p>
+            <Button variant="primary" onClick={() => push(repertoryCredentialsLevel())}>
+              {noKey.action}
+            </Button>
+          </section>
+        ) : null}
+
+        {active
+          ? ROWS.map(({ kind, label }, at) => {
+              const feed = feeds[kind];
+              const loading = paging.includes(kind);
+              const ask = genreAsk(genre, kind);
+              const state = feedState(feed, loading);
+              const tag = discoverRowTag(feed, kind, genre, ask);
+              const note = discoverRowNote(state, kind, genre, ask);
+              const index = programIndex(at + 1);
+              return (
+                <EditorialRow
+                  key={kind}
+                  title={label}
+                  index={index}
+                  tag={tag}
+                  action={
+                    <FeedPagingAction
+                      failure={feed.failure}
+                      more={feedMore(feed)}
+                      loading={loading}
+                      onMore={() => retry(kind)}
+                    />
+                  }
+                  failure={feed.failure}
+                  note={note}
+                  region={`discover:${kind}`}
+                  onOpenRow={
+                    feed.items.length > 0
+                      ? () => openGrid(kind, label, index)
+                      : undefined
+                  }
+                  testId={`discover-section-${kind}`}
+                >
+                  {feed.items.map((meta) =>
+                    posterCard(meta, kind, `discover-card-${meta.id}`),
+                  )}
+                </EditorialRow>
+              );
+            })
+          : null}
+      </div>
 
       {preview ? (
         <p className="rep-preview-note">
