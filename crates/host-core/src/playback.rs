@@ -35,7 +35,7 @@ use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
 
-use crate::addon::{AddonId, MAX_URL_LEN};
+use crate::addon::{AddonId, MAX_STRING_LEN};
 use crate::preferences::{StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale};
 use crate::request::VideoRef;
 use crate::stream::{holdable, Playback, Stream};
@@ -56,12 +56,17 @@ impl StreamUrl {
     /// Only `http` and `https`: the Streams this Host plays are files served
     /// over the web, and a scheme nothing here would ever open is a promise
     /// this Host would not be keeping (ADR-0009).
+    ///
+    /// As long as a Stream's own words may be (`MAX_STRING_LEN`), not as long as
+    /// a manifest URL: a Stream is listed with any URL the list holds, and a
+    /// debrid URL carries the owner's configuration and runs past 2 KiB. A
+    /// shorter bound here listed candidates the press then refused (#249).
     pub fn parse(raw: &str) -> Result<Self, InvalidStreamUrl> {
         let refused = || InvalidStreamUrl {
             url: raw.to_owned(),
         };
 
-        if raw.is_empty() || raw.len() > MAX_URL_LEN {
+        if raw.is_empty() || raw.len() > MAX_STRING_LEN {
             return Err(refused());
         }
         if raw.chars().any(char::is_control) {
@@ -1577,6 +1582,36 @@ mod tests {
                 "{raw:?} is not a Stream URL this Host will open"
             );
         }
+    }
+
+    /// #249: a debrid or AIOStreams URL carries the owner's configuration in
+    /// its path and runs past two thousand bytes. The list holds any word up to
+    /// `MAX_STRING_LEN`, so the URL a candidate is listed with must be one the
+    /// Host opens — a candidate listed as playable and refused at the press is
+    /// the bug.
+    #[test]
+    fn a_direct_url_the_list_holds_is_a_url_the_host_plays() {
+        let held_url = |len: usize| {
+            let head = "https://debrid.example.org/stream/";
+            format!("{head}{}.mkv", "a".repeat(len - head.len() - ".mkv".len()))
+        };
+
+        for len in [crate::addon::MAX_URL_LEN + 1, crate::addon::MAX_STRING_LEN] {
+            let raw = held_url(len);
+            assert!(crate::stream::holdable(&raw), "the list holds {len} bytes");
+            assert!(
+                ChosenStream::parse(
+                    video(),
+                    addon(),
+                    &candidate(Playback::Direct { url: raw.clone() }),
+                )
+                .is_ok(),
+                "a {len}-byte direct URL is listed as playable, so it must play"
+            );
+        }
+
+        // Past what the list holds, the candidate never reaches a list at all.
+        assert!(StreamUrl::parse(&held_url(crate::addon::MAX_STRING_LEN + 1)).is_err());
     }
 
     #[test]
