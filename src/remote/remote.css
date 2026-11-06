@@ -245,9 +245,17 @@ body {
   background: var(--rep-hairline);
 }
 
-/* The feature: the 16:9 art between two hairlines, the copy over its scrim. It
- * is one press, so it is one button and the copy is its label. */
+/* The feature: the 16:9 art between two hairlines, the copy over its scrim. The
+ * frame is one press, so it is one button and the copy is its label; the ticks
+ * are the programme's furniture beside it, not inside it. */
 .remote-feature {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.remote-feature-frame {
   position: relative;
   display: block;
   width: 100%;
@@ -264,6 +272,27 @@ body {
   font: inherit;
   text-align: left;
   cursor: pointer;
+  /* A horizontal swipe steps the programme instead of panning a page; a
+   * vertical drag still scrolls Home. */
+  touch-action: pan-y;
+}
+
+/* The slide's own change is a fade (ADR-0036 §2); the keyed layer is replaced
+ * when the programme steps, so the new item fades in without moving the page. */
+@keyframes remote-feature-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.remote-feature-slide {
+  position: absolute;
+  inset: 0;
+  display: block;
+  animation: remote-feature-fade var(--rep-motion-fade) cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 .remote-feature-art {
@@ -384,6 +413,54 @@ body {
   line-height: var(--rep-leading-caption);
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 3;
+}
+
+/* One tick per slide, top right over the art: the current one fills over the
+ * item's 24 seconds, the others are hairlines. A tick is a tap target; it is
+ * outside the frame's own press so a tap on it never opens the Title. */
+.remote-feature-ticks {
+  position: absolute;
+  top: var(--rep-space-3);
+  right: var(--rep-gutter);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: var(--rep-space-2);
+}
+
+.remote-feature-tick {
+  position: relative;
+  display: block;
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+}
+
+.remote-feature-tick::before,
+.remote-feature-tick-fill {
+  position: absolute;
+  top: calc(50% - 1px);
+  right: 0;
+  left: 0;
+  height: 2px;
+}
+
+.remote-feature-tick::before {
+  content: "";
+  background: color-mix(in srgb, var(--rep-ivory) 38%, transparent);
+}
+
+/* The fill is the one thing that keeps moving under reduced motion; it reads
+ * the programme's elapsed time and carries no transition of its own. */
+.remote-feature-tick-fill {
+  background: var(--rep-house);
+  transform-origin: left center;
+  transform: scaleX(0);
 }
 
 /* A row: the head, then the touch rail. */
