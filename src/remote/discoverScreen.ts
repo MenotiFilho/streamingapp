@@ -12,28 +12,21 @@ import type { Action, Snapshot } from "../core/wire";
 import type { FeedPhase } from "./feed";
 
 /**
- * Discover's own decisions and its own copy (#207, ADR-0035 §1).
+ * Discover's own decisions and its own copy (#207, ADR-0036 §1).
  *
  * The genres, the ask and the feed are the core's (`discover.ts`); what lives
- * here is what only this screen says — the two kind chips, the words a feed
- * prints while it reads or comes back empty, the tag beside its head, and the
- * Catalog rows the screen draws where no TMDB Credential is held. The feed's
- * own paging decisions are `feed.ts`'s, because the search screen reads the
- * same rule rather than growing a second copy of it.
+ * here is what only this screen says — the two rows it draws, the words a feed
+ * prints while it reads, comes back empty, or has no counterpart in its kind,
+ * the tag beside its head, and the Catalog rows the screen draws where no TMDB
+ * Credential is held. The feed's own paging decisions are `feed.ts`'s, because
+ * the search screen reads the same rule rather than growing a second copy of it.
  */
 
-/** The two kind chips, in the order a person reads them; Movie is where a person lands. */
-export const DISCOVER_KINDS: ReadonlyArray<{ kind: DiscoverKind; label: string }> = [
-  { kind: MOVIE, label: "Movie" },
+/** The two rows Discover draws, Movies then Series (ADR-0036 §1). */
+export const DISCOVER_ROWS: ReadonlyArray<{ kind: DiscoverKind; label: string }> = [
+  { kind: MOVIE, label: "Movies" },
   { kind: SERIES, label: "Series" },
 ];
-
-/**
- * The chip that clears the genre filter: TMDB's whole weekly feed. The genre
- * chips after it are `genresOf(kind)` untouched — one list, never a curated
- * second one (design record §11).
- */
-export const ALL_GENRES = "All genres";
 
 /** A feed's head: the kind it holds, in the plural a rail prints. */
 export function feedTitle(kind: DiscoverKind): string {
@@ -62,6 +55,16 @@ export function discoverNote(
   }
 }
 
+/**
+ * Why a row is drawn empty: the chosen genre is one TMDB does not list for that
+ * kind, and the row says so instead of hiding (ADR-0036 §1).
+ */
+export function discoverNoCounterpart(kind: DiscoverKind, genre: string): string {
+  return `Nothing is screening here: ${genre} is not a ${
+    kind === MOVIE ? "film" : "series"
+  } genre.`;
+}
+
 /** A feed's bookkeeping: the filter that made it, or Trending, and the count. */
 export function discoverTag(
   kind: DiscoverKind,
@@ -73,17 +76,12 @@ export function discoverTag(
 
 /**
  * The Catalogs Discover draws where no TMDB Credential is held: every declared
- * Catalog of the kind a person chose, in the Addons' own order. They are the
- * only rows a Host with no credential can answer, and narrowing them to the
- * kind is what keeps the two chips meaningful in this arm too (ADR-0020).
+ * Catalog, both kinds, in the Addons' own order. They are the only rows a Host
+ * with no credential can answer, and with no kind chips there is nothing that
+ * would narrow them (ADR-0020, ADR-0036 §1).
  */
-export function catalogsOf(
-  snapshot: Snapshot | null,
-  kind: DiscoverKind,
-): DeclaredCatalog[] {
-  return declaredCatalogs(snapshot).filter(
-    ({ catalog }) => catalog.type === kind,
-  );
+export function catalogsOf(snapshot: Snapshot | null): DeclaredCatalog[] {
+  return declaredCatalogs(snapshot);
 }
 
 /** The first page of one Catalog's row: no values, the Catalog in its own order. */
@@ -134,13 +132,11 @@ export const NO_CREDENTIAL_NOTE =
 /** One empty state's words: what happened, and the way on. */
 export type CatalogEmpty = { title: string; body: string };
 
-/** What Discover says where no Addon offers a Catalog of the chosen kind. */
-export function noCatalogState(kind: DiscoverKind): CatalogEmpty {
+/** What Discover says where no Addon offers a Catalog at all. */
+export function noCatalogState(): CatalogEmpty {
   return {
-    title: "Nothing is screening in this kind.",
-    body: `No configured Addon offers a ${
-      kind === MOVIE ? "film" : "series"
-    } Catalog. Add one in Addons, or look at the other kind.`,
+    title: "Nothing is screening.",
+    body: "No configured Addon offers a Catalog. Add one in Addons.",
   };
 }
 

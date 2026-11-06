@@ -1,5 +1,10 @@
 import { keyOf, type Row } from "../core/browse";
-import { discoverPlayable, type DiscoverFeed, type DiscoverKind } from "../core/discover";
+import {
+  discoverPlayable,
+  type DiscoverFeed,
+  type DiscoverGenreChoice,
+  type DiscoverKind,
+} from "../core/discover";
 import type { ActionError } from "../core/errors";
 import type { NewLevel } from "../core/navigation";
 import type { SearchKind } from "../core/search";
@@ -28,7 +33,8 @@ export type RemoteGridSource =
   | {
       kind: "discover";
       feedKind: DiscoverKind;
-      genre: number | null;
+      /** The genre chip the row was asked under, or null for All genres. */
+      genre: DiscoverGenreChoice | null;
       feed: DiscoverFeed;
     }
   | {

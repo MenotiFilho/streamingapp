@@ -8,7 +8,7 @@ import {
   discoverAsk,
   discoverPlayable,
   feedWith,
-  genreIdFor,
+  genreFilterFor,
   genresOf,
   MOVIE,
 } from "./discover";
@@ -115,28 +115,40 @@ describe("Discover's one genre row", () => {
     expect(names).not.toContain("Action & Adventure");
     expect(names).not.toContain("Sci-Fi & Fantasy");
     expect(names).not.toContain("War & Politics");
-    expect(genreIdFor(genreNamed("Action"), SERIES)).toBe(10759);
-    expect(genreIdFor(genreNamed("Adventure"), SERIES)).toBe(10759);
-    expect(genreIdFor(genreNamed("Science Fiction"), SERIES)).toBe(10765);
-    expect(genreIdFor(genreNamed("Fantasy"), SERIES)).toBe(10765);
-    expect(genreIdFor(genreNamed("War"), SERIES)).toBe(10768);
+    expect(genreFilterFor(genreNamed("Action"), SERIES)).toEqual({ kind: "id", id: 10759 });
+    expect(genreFilterFor(genreNamed("Adventure"), SERIES)).toEqual({
+      kind: "id",
+      id: 10759,
+    });
+    expect(genreFilterFor(genreNamed("Science Fiction"), SERIES)).toEqual({
+      kind: "id",
+      id: 10765,
+    });
+    expect(genreFilterFor(genreNamed("Fantasy"), SERIES)).toEqual({ kind: "id", id: 10765 });
+    expect(genreFilterFor(genreNamed("War"), SERIES)).toEqual({ kind: "id", id: 10768 });
   });
 
   test("All genres filters neither kind, unlike a genre with no counterpart in one", () => {
     expect(DISCOVER_GENRES[0]).toBe(ALL_GENRES);
     expect(ALL_GENRES.all).toBe(true);
-    expect(genreIdFor(ALL_GENRES, MOVIE)).toBeNull();
-    expect(genreIdFor(ALL_GENRES, SERIES)).toBeNull();
+    expect(
+      genreFilterFor(ALL_GENRES, MOVIE),
+      "All genres is not a genre id and not a missing one: it filters nothing",
+    ).toEqual({ kind: "all" });
+    expect(genreFilterFor(ALL_GENRES, SERIES)).toEqual({ kind: "all" });
 
     const filmOnly = genreNamed("TV Movie");
     expect(filmOnly.all).toBe(false);
-    expect(genreIdFor(filmOnly, MOVIE)).toBe(10770);
-    expect(genreIdFor(filmOnly, SERIES)).toBeNull();
+    expect(genreFilterFor(filmOnly, MOVIE)).toEqual({ kind: "id", id: 10770 });
+    expect(
+      genreFilterFor(filmOnly, SERIES),
+      "series have no TV Movie: the row is drawn empty, not asked unfiltered",
+    ).toEqual({ kind: "none" });
 
     const seriesOnly = genreNamed("Kids");
     expect(seriesOnly.all).toBe(false);
-    expect(genreIdFor(seriesOnly, MOVIE)).toBeNull();
-    expect(genreIdFor(seriesOnly, SERIES)).toBe(10762);
+    expect(genreFilterFor(seriesOnly, MOVIE)).toEqual({ kind: "none" });
+    expect(genreFilterFor(seriesOnly, SERIES)).toEqual({ kind: "id", id: 10762 });
   });
 });
 

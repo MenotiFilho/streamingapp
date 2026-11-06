@@ -1,5 +1,6 @@
 import {
-  genresOf,
+  DISCOVER_GENRES,
+  discoverAsk,
   MOVIE,
   type DiscoverFeed,
   type DiscoverKind,
@@ -21,27 +22,59 @@ import { rowTagOf } from "./program";
 export type FeedSource = "host" | "preview";
 
 /**
- * One filter a row can be narrowed by. `key` is the chip's identity, `value` is
- * what travels: TMDB's genre id where the Host answers, Cinemeta's own name in
- * the preview, whose catalogue takes the word rather than the id.
+ * One chip of Discover's one genre row. `key` is the chip's identity; `movie`
+ * and `series` are what each row is asked by in the source's own vocabulary —
+ * TMDB's id where the Host answers, Cinemeta's name in the preview — or null
+ * where that kind has no such genre (ADR-0036 §1).
  */
 export type GenreChoice = {
   key: string;
   name: string;
-  value: number | string;
+  movie: number | string | null;
+  series: number | string | null;
 };
 
-/** The genre row for the kind a person is looking at, in the source's own order. */
-export function genresFor(source: FeedSource, kind: DiscoverKind): GenreChoice[] {
+/** What a chosen genre asks one kind by: nothing, no counterpart, or a value. */
+export type GenreAsk =
+  | { kind: "all" }
+  | { kind: "none" }
+  | { kind: "value"; value: number | string };
+
+const CINEMETA_FILMS: ReadonlySet<string> = new Set(CINEMETA_MOVIE_GENRES);
+
+/**
+ * Discover's one genre row: the union of the source's two lists, by name, in
+ * the film list's order with the series-only names after it. All genres is the
+ * chip that clears the filter and is drawn apart, so it is not one of these.
+ */
+export function genresFor(source: FeedSource): GenreChoice[] {
   if (source === "preview") {
-    const names = kind === MOVIE ? CINEMETA_MOVIE_GENRES : CINEMETA_SERIES_GENRES;
-    return names.map((name) => ({ key: name, name, value: name }));
+    return CINEMETA_SERIES_GENRES.map((name) => ({
+      key: name,
+      name,
+      movie: CINEMETA_FILMS.has(name) ? name : null,
+      series: name,
+    }));
   }
-  return genresOf(kind).map((genre) => ({
-    key: String(genre.id),
+  return DISCOVER_GENRES.filter((genre) => !genre.all).map((genre) => ({
+    key: genre.name,
     name: genre.name,
-    value: genre.id,
+    movie: genre.movie,
+    series: genre.series,
   }));
+}
+
+/**
+ * What a chip asks one kind by. All genres filters nothing, which is not the
+ * same answer as a kind with no counterpart: the latter draws its row empty
+ * with a line saying so rather than asking the kind unfiltered (ADR-0036 §1).
+ */
+export function genreAsk(choice: GenreChoice | null, kind: DiscoverKind): GenreAsk {
+  if (choice === null) {
+    return { kind: "all" };
+  }
+  const value = kind === MOVIE ? choice.movie : choice.series;
+  return value === null ? { kind: "none" } : { kind: "value", value };
 }
 
 /**
@@ -52,7 +85,7 @@ export function genresFor(source: FeedSource, kind: DiscoverKind): GenreChoice[]
  */
 export function previewDiscoverAsk(
   kind: DiscoverKind,
-  genre: GenreChoice | null,
+  genre: number | string | null,
   skip: number,
 ): Action {
   return {
@@ -60,10 +93,39 @@ export function previewDiscoverAsk(
     addon: PREVIEW_ADDON,
     catalog: { type: kind, id: "top" },
     extra: [
-      ...(genre ? [{ name: "genre", value: String(genre.value) }] : []),
+      ...(genre === null ? [] : [{ name: "genre", value: String(genre) }]),
       ...(skip > 0 ? [{ name: "skip", value: String(skip) }] : []),
     ],
   };
+}
+
+/** One page a Discover row is asked for, under the genre the person chose. */
+export type DiscoverPageAsk = {
+  source: FeedSource;
+  kind: DiscoverKind;
+  genre: GenreChoice | null;
+  page: number;
+  skip: number;
+};
+
+/**
+ * The Action that asks one row's page, or null where the chosen genre has no
+ * counterpart in that kind: such a row is drawn empty and asks nothing, because
+ * an ask without the genre would answer the unfiltered feed instead.
+ */
+export function discoverPageAsk(page: DiscoverPageAsk): Action | null {
+  const ask = genreAsk(page.genre, page.kind);
+  if (ask.kind === "none") {
+    return null;
+  }
+  const value = ask.kind === "value" ? ask.value : null;
+  return page.source === "preview"
+    ? previewDiscoverAsk(page.kind, value, page.skip)
+    : discoverAsk({
+        kind: page.kind,
+        page: page.page,
+        genre: typeof value === "number" ? value : null,
+      });
 }
 
 /** Whether a feed has a page to ask for: the next one, or the failed one again. */
@@ -94,6 +156,60 @@ export function discoverTag(
   count: number,
 ): string {
   return rowTagOf(genre?.name ?? "Trending", kind, count);
+}
+
+/**
+ * A row's bookkeeping as it is drawn: Reading before its first answer, then its
+ * filter and count. A row with no counterpart has no feed and so no tag.
+ */
+export function discoverRowTag(
+  feed: DiscoverFeed,
+  kind: DiscoverKind,
+  genre: GenreChoice | null,
+  ask: GenreAsk,
+): string | null {
+  if (ask.kind === "none") {
+    return null;
+  }
+  if (feed.page === 0 && !feed.failure) {
+    return "Reading";
+  }
+  return discoverTag(kind, genre, feed.items.length);
+}
+
+/**
+ * Why a row is drawn empty: the chosen genre is one the source does not list
+ * for that kind, and the row says so instead of hiding (ADR-0036 §1).
+ */
+export function discoverNoCounterpart(kind: DiscoverKind, genre: string): string {
+  return `Nothing is screening here: ${genre} is not a ${
+    kind === MOVIE ? "film" : "series"
+  } genre.`;
+}
+
+/**
+ * What a row prints under its cards: why it cannot have any, or its state's
+ * line. A failure is the Host's own words through `explain`, so it is not here.
+ */
+export function discoverRowNote(
+  state: FeedState,
+  kind: DiscoverKind,
+  genre: GenreChoice | null,
+  ask: GenreAsk,
+): string | null {
+  if (ask.kind === "none" && genre !== null) {
+    return discoverNoCounterpart(kind, genre.name);
+  }
+  switch (state) {
+    case "reading":
+      return "Reading the programme…";
+    case "reading-more":
+      return "Reading on…";
+    case "empty":
+      return discoverEmptyNote(genre);
+    default:
+      return null;
+  }
 }
 
 /**
