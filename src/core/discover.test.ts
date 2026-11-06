@@ -1,7 +1,17 @@
 import { describe, expect, test } from "vitest";
 
 import type { AddonManifest, DiscoverRow, MetaPreview } from "./wire";
-import { blankFeed, discoverAsk, discoverPlayable, feedWith, genresOf, MOVIE } from "./discover";
+import {
+  ALL_GENRES,
+  blankFeed,
+  DISCOVER_GENRES,
+  discoverAsk,
+  discoverPlayable,
+  feedWith,
+  genreIdFor,
+  genresOf,
+  MOVIE,
+} from "./discover";
 import { SERIES } from "./title";
 
 function meta(overrides: Partial<MetaPreview> = {}): MetaPreview {
@@ -54,6 +64,79 @@ describe("Discover's genres", () => {
       genresOf(SERIES).map((genre) => genre.id),
       "a film's Action is not a series' genre",
     ).not.toContain(28);
+  });
+});
+
+describe("Discover's one genre row", () => {
+  function genreNamed(name: string) {
+    const choice = DISCOVER_GENRES.find((held) => held.name === name);
+    if (!choice) {
+      throw new Error(`Discover's row has no ${name}`);
+    }
+    return choice;
+  }
+
+  test("is All genres, then TMDB's film order, then the series-only names, with the id each kind is asked by", () => {
+    expect(
+      DISCOVER_GENRES.map(({ name, movie, series }) => [name, movie, series]),
+      "the union is TMDB's film list in its own order, with every series-only name after it",
+    ).toEqual([
+      ["All genres", null, null],
+      ["Action", 28, 10759],
+      ["Adventure", 12, 10759],
+      ["Animation", 16, 16],
+      ["Comedy", 35, 35],
+      ["Crime", 80, 80],
+      ["Documentary", 99, 99],
+      ["Drama", 18, 18],
+      ["Family", 10751, 10751],
+      ["Fantasy", 14, 10765],
+      ["History", 36, null],
+      ["Horror", 27, null],
+      ["Music", 10402, null],
+      ["Mystery", 9648, 9648],
+      ["Romance", 10749, null],
+      ["Science Fiction", 878, 10765],
+      ["TV Movie", 10770, null],
+      ["Thriller", 53, null],
+      ["War", 10752, 10768],
+      ["Western", 37, 37],
+      ["Kids", null, 10762],
+      ["News", null, 10763],
+      ["Reality", null, 10764],
+      ["Soap", null, 10766],
+      ["Talk", null, 10767],
+    ]);
+  });
+
+  test("a combined series genre is reached through its film parts and is not a chip of its own", () => {
+    const names = DISCOVER_GENRES.map((choice) => choice.name);
+
+    expect(names).not.toContain("Action & Adventure");
+    expect(names).not.toContain("Sci-Fi & Fantasy");
+    expect(names).not.toContain("War & Politics");
+    expect(genreIdFor(genreNamed("Action"), SERIES)).toBe(10759);
+    expect(genreIdFor(genreNamed("Adventure"), SERIES)).toBe(10759);
+    expect(genreIdFor(genreNamed("Science Fiction"), SERIES)).toBe(10765);
+    expect(genreIdFor(genreNamed("Fantasy"), SERIES)).toBe(10765);
+    expect(genreIdFor(genreNamed("War"), SERIES)).toBe(10768);
+  });
+
+  test("All genres filters neither kind, unlike a genre with no counterpart in one", () => {
+    expect(DISCOVER_GENRES[0]).toBe(ALL_GENRES);
+    expect(ALL_GENRES.all).toBe(true);
+    expect(genreIdFor(ALL_GENRES, MOVIE)).toBeNull();
+    expect(genreIdFor(ALL_GENRES, SERIES)).toBeNull();
+
+    const filmOnly = genreNamed("TV Movie");
+    expect(filmOnly.all).toBe(false);
+    expect(genreIdFor(filmOnly, MOVIE)).toBe(10770);
+    expect(genreIdFor(filmOnly, SERIES)).toBeNull();
+
+    const seriesOnly = genreNamed("Kids");
+    expect(seriesOnly.all).toBe(false);
+    expect(genreIdFor(seriesOnly, MOVIE)).toBeNull();
+    expect(genreIdFor(seriesOnly, SERIES)).toBe(10762);
   });
 });
 
