@@ -6,7 +6,7 @@ import { explain } from "../../core/errors";
 import { cardName, cardNote, progressOf, resumable } from "../../core/library";
 import { useShell } from "../context";
 import { continueArt } from "../../core/home";
-import { rowTag } from "./homeProgramme";
+import { continueTag, rowTag } from "./homeProgramme";
 import { ContinueWatchingCard } from "../../kit/ContinueWatchingCard";
 import { PosterCard } from "../../kit/PosterCard";
 import { yearOf } from "./program";
@@ -56,7 +56,7 @@ export function RailGrid({
   const name = row?.name ?? title;
   const tag =
     rowKey === null
-      ? `${snapshot?.watchProgress.length ?? 0} in progress`
+      ? continueTag(snapshot?.watchProgress.length ?? 0)
       : row
         ? rowTag(snapshot, row)
         : null;

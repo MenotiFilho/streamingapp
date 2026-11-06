@@ -1,29 +1,29 @@
-import { answeredCatalogs, answeredDiscover, answeredSearch } from "../core/answers";
-import type { ActionOutcome } from "../core/answers";
-import { rowWith, type Row } from "../core/browse";
-import { discoverAsk, type DiscoverFeed, type DiscoverKind } from "../core/discover";
+import { keyOf, type Row } from "../core/browse";
+import { discoverPlayable, type DiscoverFeed, type DiscoverKind } from "../core/discover";
+import type { ActionError } from "../core/errors";
 import type { NewLevel } from "../core/navigation";
-import { searchAsk, type SearchKind } from "../core/search";
-import type { Action } from "../core/wire";
-import { catalogPageAsk } from "./discoverScreen";
-import { feedAfter, pageToAsk } from "./feed";
+import type { SearchKind } from "../core/search";
+import type { MetaPreview, ResumeEntry, Snapshot } from "../core/wire";
 
 /**
  * One rail opened as a whole (#253, ADR-0036 §1, design system *Rail*).
  *
- * The grid is the row the rail has read so far, not a second read: its head
- * action asks the same row for its next page, and the page appends to the same
- * accumulated cards. It never asks a page on mount. A Home row is read from
- * the Session's `HomeStore`, so the rail and the grid are one row; the feeds
- * the Discover and Search screens hold are carried into the level, because
- * those screens unmount under a pushed level.
+ * The grid is the row the rail has read so far, not a second read: it never
+ * asks a page of its own. Paging belongs to the rail's quiet head action, which
+ * asks the next page into the same accumulated cards; More opens those cards.
+ * A Home row is read from the Session's `HomeStore`, so the rail and the grid
+ * are one row; the feeds the Discover and Search screens hold are carried into
+ * the level, because those screens unmount under a pushed level.
  *
- * The type and the two pure decisions live here; `RemoteGrid` draws them.
+ * The type and the pure decisions live here; `RemoteGrid` draws them. The page
+ * a rail asks is its own seam (`feed.ts`, `discoverScreen.ts`) because paging
+ * belongs to the rail, not to the grid.
  */
 
-/** Where a grid's cards come from, and the page its head action asks. */
+/** Where a grid's cards come from. */
 export type RemoteGridSource =
-  | { kind: "home"; rowKey: string | null }
+  | { kind: "home"; rowKey: string }
+  | { kind: "continue" }
   | { kind: "catalog"; row: Row }
   | {
       kind: "discover";
@@ -48,7 +48,7 @@ export type RemoteGrid = {
   tag: string | null;
   /** The Addon that answered a poster row, or null for a Discovered Title. */
   addon: string | null;
-  /** The cards and the row they page. */
+  /** The cards the rail has read. */
   source: RemoteGridSource;
 };
 
@@ -69,76 +69,66 @@ export function gridLevel(grid: RemoteGrid): NewLevel<GridPayload> {
 }
 
 /**
- * The page a grid's head action asks, or null where the row pages through a
- * store instead of an Action (Home, and Continue watching's own record).
+ * The row a Home grid shares with its rail: the store's row for the key, or
+ * null where the Catalog has gone since the level was pushed.
  */
-export function gridPageAsk(source: RemoteGridSource): Action | null {
-  switch (source.kind) {
-    case "home":
-      return null;
-    case "catalog":
-      return catalogPageAsk(source.row);
-    case "discover":
-      return discoverAsk({
-        kind: source.feedKind,
-        page: pageToAsk(source.feed),
-        genre: source.genre,
-      });
-    case "search":
-      return searchAsk({
-        query: source.query,
-        kind: source.feedKind,
-        page: pageToAsk(source.feed),
-      });
-  }
+export function gridRow(source: RemoteGridSource, rows: readonly Row[]): Row | null {
+  return source.kind === "home"
+    ? (rows.find((row) => keyOf(row) === source.rowKey) ?? null)
+    : source.kind === "catalog"
+      ? source.row
+      : null;
+}
+
+/** The Continue watching entries a grid draws, or null for a poster row. */
+export function gridEntries(
+  source: RemoteGridSource,
+  snapshot: Snapshot | null,
+): ResumeEntry[] | null {
+  return source.kind === "continue" ? (snapshot?.watchProgress ?? []) : null;
 }
 
 /**
- * The source with one page answer folded in. A failure keeps every card the
- * row already read and leaves the page where it was, so the same press asks
- * that page again (ADR-0020). Home is untouched: its page comes through the
- * store, which is the row the rail draws.
+ * Whether the grid's Titles can be played. A Catalog row's cards carry their
+ * own Addon, so only a Discovered Title depends on an Addon being able to play
+ * its kind; before the first Snapshot the screen does not guess.
  */
-export function gridWithPage(
+export function gridCouldPlay(
   source: RemoteGridSource,
-  outcome: ActionOutcome,
-): RemoteGridSource {
-  switch (source.kind) {
-    case "home":
-      return source;
-    case "catalog": {
-      if (outcome.error) {
-        return { ...source, row: { ...source.row, failure: outcome.error } };
-      }
-      const answer = answeredCatalogs(outcome.response)[0] ?? null;
-      return {
-        ...source,
-        row: answer
-          ? rowWith(source.row, answer)
-          : { ...source.row, done: true },
-      };
-    }
-    case "discover": {
-      if (outcome.error) {
-        return {
-          ...source,
-          feed: { ...source.feed, failure: outcome.error },
-        };
-      }
-      const answer = answeredDiscover(outcome.response)[0] ?? null;
-      return { ...source, feed: feedAfter(source.feed, answer) };
-    }
-    case "search": {
-      if (outcome.error) {
-        return {
-          ...source,
-          feed: { ...source.feed, failure: outcome.error },
-        };
-      }
-      return {
-        ...source,
-        feed: feedAfter(source.feed, answeredSearch(outcome.response)),
-      };
-    }
+  snapshot: Snapshot | null,
+): boolean {
+  if (source.kind !== "discover" && source.kind !== "search") {
+    return true;
   }
+  return snapshot ? discoverPlayable(snapshot.addons, source.feedKind) : true;
+}
+
+/** What a grid draws, decided once from its source and the rows the client holds. */
+export type GridView = {
+  row: Row | null;
+  entries: ResumeEntry[] | null;
+  metas: MetaPreview[];
+  addon: string | null;
+  title: string;
+  failure: ActionError | null;
+  couldPlay: boolean;
+};
+
+export function gridView(
+  grid: RemoteGrid,
+  rows: readonly Row[],
+  snapshot: Snapshot | null,
+): GridView {
+  const { source } = grid;
+  const row = gridRow(source, rows);
+  const feed = source.kind === "discover" || source.kind === "search" ? source.feed : null;
+  return {
+    row,
+    entries: gridEntries(source, snapshot),
+    metas: row?.metas ?? feed?.items ?? [],
+    addon: row?.addon ?? grid.addon,
+    title: row?.name ?? grid.title,
+    failure: row?.failure ?? feed?.failure ?? null,
+    couldPlay: gridCouldPlay(source, snapshot),
+  };
 }

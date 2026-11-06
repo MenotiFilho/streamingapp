@@ -6,7 +6,7 @@ import { explain } from "../core/errors";
 import type { ActionError } from "../core/errors";
 import type { Row } from "../core/browse";
 import type { Destination } from "../core/destinations";
-import { FEATURE_ROTATION_MS, rowTag } from "../core/homeProgramme";
+import { FEATURE_ROTATION_MS, continueTag, rowTag } from "../core/homeProgramme";
 import type { HostLink, LinkState } from "../core/link";
 import type { NewLevel } from "../core/navigation";
 import { useSession } from "../core/react/useSession";
@@ -438,6 +438,25 @@ describe("Home's feature", () => {
     ).toBe("tt2");
   });
 
+  test("leaves the arrows to a rail card, a text field, or a key with a modifier", async () => {
+    onlyIntervals();
+    mount();
+
+    await screen.findByTestId("remote-feature");
+
+    const card = await screen.findByTestId("card-cinemeta-tt1");
+    act(() => card.focus());
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(activeSlide(), "a rail card keeps its own arrows").toBe("tt1");
+
+    act(() => card.blur());
+    fireEvent.keyDown(window, { key: "ArrowRight", altKey: true });
+    expect(activeSlide(), "Alt+Left/Right is the browser's Back/Forward").toBe("tt1");
+
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(activeSlide(), "from nowhere the feature takes the arrow").toBe("tt2");
+  });
+
   test("holds the fill while a finger is down and resumes where it stopped", async () => {
     onlyIntervals();
     mount();
@@ -499,7 +518,7 @@ describe("Home's feature, driven as a page", () => {
       clientX: 240,
       clientY: 204,
     });
-    fireEvent.click(frame);
+    fireEvent.click(frame, { detail: 1 });
 
     expect(activeSlide()).toBe("tt2");
     expect(pushes, "the swipe's click is not a press on the feature").toHaveLength(0);
@@ -600,6 +619,27 @@ describe("Home's presses", () => {
     ).toHaveLength(asked);
   });
 
+  test("the rail's head action asks the next page into the row the rail draws", async () => {
+    const { host } = mount();
+    const row = await screen.findByTestId("remote-row-cinemeta/movie/top");
+    await waitFor(() => expect(within(row).getByTestId("card-cinemeta-tt4")).toBeInTheDocument());
+    const asked = asks(host).length;
+
+    fireEvent.click(within(row).getByRole("button", { name: "Read on" }));
+
+    await waitFor(() =>
+      expect(asks(host).slice(asked)).toEqual([
+        {
+          type: "browse_catalog",
+          addon: "cinemeta",
+          catalog: { type: "movie", id: "top" },
+          extra: [{ name: "skip", value: "4" }],
+        },
+      ]),
+    );
+    expect(await within(row).findByTestId("card-cinemeta-tt5")).toBeInTheDocument();
+  });
+
   test("the Continue watching rail's More card opens its whole row", async () => {
     const entry: ResumeEntry = {
       video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
@@ -627,9 +667,9 @@ describe("Home's presses", () => {
       gridLevel({
         title: "Continue watching",
         index: "01",
-        tag: "1 in progress",
+        tag: continueTag(1),
         addon: null,
-        source: { kind: "home", rowKey: null },
+        source: { kind: "continue" },
       }),
     ]);
   });

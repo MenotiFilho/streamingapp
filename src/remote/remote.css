@@ -245,9 +245,11 @@ body {
   background: var(--rep-hairline);
 }
 
-/* The feature: the 16:9 art between two hairlines, the copy over its scrim. The
- * frame is one press, so it is one button and the copy is its label; the ticks
- * are the programme's furniture beside it, not inside it. */
+/* The feature: the 16:9 art between two hairlines, the copy over its scrim. One
+ * size for every slide — the art covers the frame, and long copy is clamped
+ * rather than growing it. The frame is one press, so it is one button and the
+ * copy is its label; the ticks are the programme's furniture under it, not
+ * inside it. */
 .remote-feature {
   position: relative;
   display: block;
@@ -292,7 +294,7 @@ body {
   position: absolute;
   inset: 0;
   display: block;
-  animation: remote-feature-fade var(--rep-motion-fade) cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: remote-feature-fade var(--rep-motion-fade) var(--rep-ease) both;
 }
 
 .remote-feature-art {
@@ -360,35 +362,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--rep-space-2);
-  padding: var(--rep-space-4);
+  padding: var(--rep-space-4) var(--rep-space-4) calc(var(--rep-space-6) + var(--rep-space-2));
   min-width: 0;
-}
-
-.remote-feature-kicker {
-  display: flex;
-  align-items: center;
-  gap: var(--rep-space-3);
-  color: var(--rep-dim);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  letter-spacing: var(--rep-tracking-caps);
-  line-height: 1.2;
-  text-transform: uppercase;
-}
-
-.remote-feature-kicker > span:first-child {
-  color: var(--rep-house);
-  white-space: nowrap;
-}
-
-.remote-feature-kicker > span:last-child {
-  white-space: nowrap;
-}
-
-.remote-feature-rule {
-  flex: 1;
-  height: 1px;
-  background: var(--rep-hairline);
 }
 
 .remote-feature-name {
@@ -404,6 +379,33 @@ body {
   -webkit-line-clamp: 2;
 }
 
+/* A long name steps down through the same two densities the window uses, rather
+ * than wrapping the fixed frame taller. */
+.remote-feature-name[data-density="long"] {
+  font-size: calc(var(--rep-remote-text-hero) * 0.72);
+}
+
+.remote-feature-name[data-density="very-long"] {
+  font-size: calc(var(--rep-remote-text-hero) * 0.55);
+}
+
+.remote-feature-meta {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--rep-space-2);
+  overflow: hidden;
+  color: var(--rep-dim);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-remote-text-mono);
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.remote-feature-meta > span + span {
+  padding-left: var(--rep-space-2);
+  border-left: 1px solid var(--rep-hairline);
+}
+
 .remote-feature-description {
   display: -webkit-box;
   overflow: hidden;
@@ -415,13 +417,33 @@ body {
   -webkit-line-clamp: 3;
 }
 
-/* One tick per slide, top right over the art: the current one fills over the
- * item's 24 seconds, the others are hairlines. A tick is a tap target; it is
- * outside the frame's own press so a tap on it never opens the Title. */
+/* The frame's one action, as the window draws it: a brass plate at the foot's
+ * left, with the ticks to its right under the frame. */
+.remote-feature-action {
+  position: absolute;
+  bottom: var(--rep-space-3);
+  left: var(--rep-space-4);
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--rep-space-1) var(--rep-space-3);
+  background: var(--rep-house);
+  color: var(--rep-ink);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-remote-text-control);
+  font-weight: 500;
+  line-height: 1.2;
+  pointer-events: none;
+}
+
+/* One tick per slide under the frame: the current one fills over the item's 24
+ * seconds, the others are hairlines. A tick is a tap target; it is outside the
+ * frame's own press so a tap on it never opens the Title. */
 .remote-feature-ticks {
   position: absolute;
-  top: var(--rep-space-3);
   right: var(--rep-gutter);
+  bottom: var(--rep-space-3);
   z-index: 3;
   display: flex;
   align-items: center;
@@ -524,6 +546,11 @@ body {
   white-space: nowrap;
 }
 
+/* The rail's quiet head action: the next page, or the page that failed. */
+.remote-rail-action {
+  flex: none;
+}
+
 .remote-rail-note {
   margin: 0;
 }
@@ -618,8 +645,8 @@ body {
 }
 
 /* A rail opened as a whole (#253): the cards the row has read, wrapping under
- * the same head the rail draws, with Back and the row's paging action in it.
- * The grid never asks a page on mount; its head action does. */
+ * the same head the rail draws, with Back in it. The grid is static — the
+ * rail's quiet head action is the one that pages. */
 .remote-grid {
   display: flex;
   flex-direction: column;

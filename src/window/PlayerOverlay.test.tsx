@@ -1400,26 +1400,25 @@ describe("the player OSD", () => {
     expect(fakeWindowState().calls).toEqual([true, false]);
   });
 
-  test("Stop gives the shell its ink back before the Host reports idle (#250)", async () => {
-    // The Host tears mpv's window down before it publishes `idle`: until the
-    // shell paints again the transparent hole shows the desktop.
+  test("Stop is sent while the Host still reports the Stream (#250)", async () => {
+    // The Host tears mpv's window down before it publishes `idle`. The shell's
+    // ink decision (`pictureBehind(playback, closing)`) is covered in
+    // `core/playback.test.ts`; here the boundary says the Stop leaves at once,
+    // before any Snapshot says the Stream is gone.
     let release: () => void = () => {};
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
     const host = await renderPlayer({}, undefined, [], { type: "stop_playback", gate });
-    expect(document.body).toHaveClass("picture-behind");
 
     fireEvent.click(screen.getByTestId("stop"));
     await waitFor(() =>
       expect(actions(host.invocations)).toContainEqual({ type: "stop_playback" }),
     );
-
     expect(
-      document.body,
-      "no idle Snapshot has arrived, yet the shell already paints its backdrop",
-    ).not.toHaveClass("picture-behind");
-    expect(document.documentElement).not.toHaveClass("picture-behind");
+      screen.getByTestId("shell-player"),
+      "the Host has not answered yet: the player is still the reported Stream",
+    ).toBeInTheDocument();
 
     release();
     await act(async () => {
@@ -1427,10 +1426,9 @@ describe("the player OSD", () => {
       await Promise.resolve();
     });
     await waitFor(() => expect(screen.queryByTestId("shell-player")).not.toBeInTheDocument());
-    expect(document.body).not.toHaveClass("picture-behind");
   });
 
-  test("a Stop the Host refuses leaves the picture where it was", async () => {
+  test("a Stop the Host refuses leaves the player where it was", async () => {
     const host = await renderPlayer({}, {
       type: "stop_playback",
       error: { kind: "internal", detail: "the player did not answer" },
@@ -1441,8 +1439,10 @@ describe("the player OSD", () => {
       expect(actions(host.invocations)).toContainEqual({ type: "stop_playback" }),
     );
 
-    await waitFor(() => expect(document.body).toHaveClass("picture-behind"));
-    expect(screen.getByTestId("shell-player")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("shell-player"),
+      "a refused Stop is not a closed Stream",
+    ).toBeInTheDocument();
   });
 
   test("without a Tauri window the OSD draws no fullscreen control", async () => {

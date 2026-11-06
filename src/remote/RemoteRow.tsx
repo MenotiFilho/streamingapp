@@ -40,9 +40,35 @@ export function RowNote({
 }
 
 /**
+ * The rail's quiet head action: the next page when there is one, or the failed
+ * page again (design system *Rail*). It is disabled while that ask is in
+ * flight, and it is drawn only where the source has a page to ask for.
+ */
+export function PagingControl({
+  failure,
+  more,
+  loading,
+  onMore,
+}: {
+  failure: ActionError | null;
+  more: boolean;
+  loading: boolean;
+  onMore: () => void;
+}) {
+  if (!failure && !more) {
+    return null;
+  }
+  return (
+    <Button variant="ghost" disabled={loading} onClick={onMore}>
+      {failure ? "Try again" : "Read on"}
+    </Button>
+  );
+}
+
+/**
  * The rail's last plate: one press opens the row as a whole, as a pushed grid
- * (#253, design system *Rail*). It asks for no page itself — the grid's own
- * head action does that, over the cards the rail has read.
+ * (#253, design system *Rail*). It asks for no page itself — the rail's head
+ * action does that, and the grid is the cards read so far.
  */
 export function MoreControl({
   label,

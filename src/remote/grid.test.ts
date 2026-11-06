@@ -1,22 +1,29 @@
 import { describe, expect, test } from "vitest";
 
-import type { ActionOutcome } from "../core/answers";
 import type { Row } from "../core/browse";
 import { blankFeed } from "../core/discover";
-import type { CatalogRow, DiscoverRow, MetaPreview } from "../core/wire";
+import type {
+  AddonManifest,
+  MetaPreview,
+  ResumeEntry,
+  Snapshot,
+} from "../core/wire";
 import {
+  gridCouldPlay,
   gridLevel,
-  gridPageAsk,
-  gridWithPage,
+  gridView,
+  type RemoteGrid,
   type RemoteGridSource,
 } from "./grid";
 
 /**
- * The grid's own decisions (#253, ADR-0036 §1).
+ * The whole-row grid's decisions (#253, ADR-0036 §1, design system *Rail*).
  *
- * A row opened as a whole is the cards the rail has read, and the grid's head
- * action asks that same row for its next page — never a page of the grid's own.
- * These cases hold the pure half: the level it pushes, the ask, and the fold.
+ * The grid is the cards the rail has read: paging belongs to the rail's quiet
+ * head action, so the grid decides only what it draws — the row it shares with
+ * the store, the Continue watching record, the tag the rail printed, and
+ * whether a Discovered Title can play. Its paging rules live with their own
+ * seams (`feed.ts`, `discoverScreen.ts`).
  */
 
 function meta(id: string, name: string): MetaPreview {
@@ -34,51 +41,22 @@ function meta(id: string, name: string): MetaPreview {
   };
 }
 
-function catalogRow(
-  id: string,
-  metas: MetaPreview[],
-  sent = metas.length,
-  failure: CatalogRow["failure"] = null,
-): CatalogRow {
-  return {
-    addon: "cinemeta",
-    type: "movie",
-    id,
-    name: "Popular",
-    sent,
-    metas,
-    failure,
-  };
-}
+const ADDON: AddonManifest = {
+  id: "cinemeta",
+  name: "Cinemeta",
+  version: "3.0.14",
+  resources: [{ name: "stream", types: ["movie", "series"], idPrefixes: ["tt"] }],
+  types: ["movie", "series"],
+  catalogs: [],
+  idPrefixes: ["tt"],
+  behaviorHints: { configurable: false, configurationRequired: false },
+};
 
-function discoverRow(
-  metas: MetaPreview[],
-  sent = metas.length,
-  failure: DiscoverRow["failure"] = null,
-): DiscoverRow {
-  return { type: "movie", sent, metas, failure };
-}
-
-function catalogAnswer(row: CatalogRow): ActionOutcome {
-  return {
-    response: { snapshots: [], answer: { catalogs: [row] } },
-    error: null,
-  };
-}
-
-function discoverAnswer(row: DiscoverRow): ActionOutcome {
-  return {
-    response: { snapshots: [], answer: { discover: [row] } },
-    error: null,
-  };
-}
-
-function searchAnswer(row: DiscoverRow): ActionOutcome {
-  return {
-    response: { snapshots: [], answer: { search: row } },
-    error: null,
-  };
-}
+const SNAPSHOT = {
+  addons: [ADDON],
+  featuredCatalog: null,
+  watchProgress: [],
+} as unknown as Snapshot;
 
 const CATALOG_ROW: Row = {
   addon: "cinemeta",
@@ -89,6 +67,22 @@ const CATALOG_ROW: Row = {
   offset: 1,
   failure: null,
   done: false,
+};
+
+const CONTINUE: ResumeEntry = {
+  video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
+  title: {
+    addon: "cinemeta",
+    id: "tt1",
+    type: "series",
+    name: "One",
+    poster: null,
+    background: null,
+  },
+  position: 300,
+  duration: 600,
+  watched: false,
+  unplayable: null,
 };
 
 describe("a whole-row grid", () => {
@@ -116,144 +110,78 @@ describe("a whole-row grid", () => {
       },
     });
   });
+});
 
-  test("a catalog's head action asks the page after what the row has read", () => {
-    expect(gridPageAsk({ kind: "catalog", row: CATALOG_ROW })).toEqual({
-      type: "browse_catalog",
-      addon: "cinemeta",
-      catalog: { type: "movie", id: "top" },
-      extra: [{ name: "skip", value: "1" }],
-    });
-  });
+describe("what a grid draws", () => {
+  function grid(source: RemoteGridSource, tag: string | null = null): RemoteGrid {
+    return { title: "Popular", index: "02", tag, addon: "cinemeta", source };
+  }
 
-  test("a catalog page appends to the cards the rail already read", () => {
-    const source: RemoteGridSource = { kind: "catalog", row: CATALOG_ROW };
-
-    const next = gridWithPage(
-      source,
-      catalogAnswer(catalogRow("top", [meta("tt2", "Two")], 1)),
+  test("a Home grid shares the store's row, so a page the rail read is drawn", () => {
+    const view = gridView(
+      grid({ kind: "home", rowKey: "cinemeta/movie/top" }),
+      [CATALOG_ROW],
+      SNAPSHOT,
     );
 
-    expect(next).toMatchObject({
-      kind: "catalog",
-      row: {
-        metas: [meta("tt1", "One"), meta("tt2", "Two")],
-        offset: 2,
-        done: false,
-      },
-    });
+    expect(view.row).toBe(CATALOG_ROW);
+    expect(view.metas).toEqual(CATALOG_ROW.metas);
+    expect(view.title).toBe("Popular");
+    expect(view.addon).toBe("cinemeta");
   });
 
-  test("a failed catalog page keeps the cards and asks that page again", () => {
-    const source: RemoteGridSource = { kind: "catalog", row: CATALOG_ROW };
-    const failure = { kind: "fetch", detail: "timed out" } as const;
+  test("a Home row that has gone falls back to the name the rail printed", () => {
+    const view = gridView(
+      grid({ kind: "home", rowKey: "cinemeta/movie/top" }),
+      [],
+      SNAPSHOT,
+    );
 
-    const next = gridWithPage(source, { response: null, error: failure });
-
-    expect(next).toMatchObject({
-      kind: "catalog",
-      row: { metas: [meta("tt1", "One")], failure },
-    });
-    expect(gridPageAsk(next)).toEqual({
-      type: "browse_catalog",
-      addon: "cinemeta",
-      catalog: { type: "movie", id: "top" },
-      extra: [{ name: "skip", value: "1" }],
-    });
+    expect(view.row).toBeNull();
+    expect(view.title).toBe("Popular");
+    expect(view.addon).toBe("cinemeta");
   });
 
-  test("a Discover feed's head action asks one page on from what it read", () => {
-    const feed = { ...blankFeed(), page: 1, items: [meta("tmdb:1", "One")] };
-    const source: RemoteGridSource = {
-      kind: "discover",
-      feedKind: "movie",
-      genre: 28,
-      feed,
-    };
+  test("Continue watching is its own source, carrying the Host's entries", () => {
+    const snapshot = { ...SNAPSHOT, watchProgress: [CONTINUE] } as Snapshot;
+    const view = gridView(grid({ kind: "continue" }, "1 in progress"), [], snapshot);
 
-    expect(gridPageAsk(source)).toEqual({
-      type: "discover",
-      kind: "movie",
-      page: 2,
-      genre: 28,
-    });
+    expect(view.entries).toEqual([CONTINUE]);
+    expect(view.metas).toEqual([]);
+    expect(view.row).toBeNull();
   });
 
-  test("a Discover page appends to the feed, and a failure keeps what it read", () => {
-    const feed = { ...blankFeed(), page: 1, items: [meta("tmdb:1", "One")] };
-    const source: RemoteGridSource = {
+  test("a Discovered grid's Titles are judged by the Addon that can play their kind", () => {
+    const discover: RemoteGridSource = {
       kind: "discover",
       feedKind: "movie",
       genre: null,
-      feed,
+      feed: { ...blankFeed(), page: 1, items: [meta("tmdb:1", "One")] },
     };
-
-    const next = gridWithPage(
-      source,
-      discoverAnswer(discoverRow([meta("tmdb:2", "Two")], 1)),
-    );
-    expect(next).toMatchObject({
-      kind: "discover",
-      feed: {
-        page: 2,
-        items: [meta("tmdb:1", "One"), meta("tmdb:2", "Two")],
-      },
-    });
-
-    const failure = { kind: "tmdb", detail: "TMDB answered with status 429" } as const;
-    const failed = gridWithPage(next, { response: null, error: failure });
-    expect(failed).toMatchObject({
-      kind: "discover",
-      feed: { page: 2, items: [meta("tmdb:1", "One"), meta("tmdb:2", "Two")], failure },
-    });
-    expect(gridPageAsk(failed)).toEqual({
-      type: "discover",
-      kind: "movie",
-      page: 3,
-    });
+    expect(gridCouldPlay(discover, SNAPSHOT)).toBe(true);
+    expect(
+      gridCouldPlay(discover, null),
+      "before the first Snapshot the screen does not guess",
+    ).toBe(true);
+    expect(
+      gridCouldPlay(discover, { ...SNAPSHOT, addons: [] }),
+      "no Addon can play the kind",
+    ).toBe(false);
+    expect(
+      gridCouldPlay({ kind: "catalog", row: CATALOG_ROW }, { ...SNAPSHOT, addons: [] }),
+      "a Catalog card has its own Addon",
+    ).toBe(true);
   });
 
-  test("a Search page appends to the feed the query has read", () => {
-    const feed = { ...blankFeed(), page: 1, items: [meta("tmdb:1", "One")] };
-    const source: RemoteGridSource = {
-      kind: "search",
-      feedKind: "movie",
-      query: "the",
-      feed,
-    };
-
-    const next = gridWithPage(
-      source,
-      searchAnswer(discoverRow([meta("tmdb:2", "Two")], 1)),
+  test("the tag is the string the rail printed, not a second decision", () => {
+    const view = gridView(
+      grid({ kind: "catalog", row: CATALOG_ROW }, "Cinemeta / 1 film"),
+      [],
+      SNAPSHOT,
     );
-
-    expect(next).toEqual({
-      kind: "search",
-      feedKind: "movie",
-      query: "the",
-      feed: {
-        page: 2,
-        items: [meta("tmdb:1", "One"), meta("tmdb:2", "Two")],
-        failure: null,
-        done: false,
-      },
-    });
-  });
-
-  test("a search asks the same page again when it failed", () => {
-    const failure = { kind: "fetch", detail: "timed out" } as const;
-    const source: RemoteGridSource = {
-      kind: "search",
-      feedKind: "movie",
-      query: "the",
-      feed: { ...blankFeed(), failure },
-    };
-
-    expect(gridPageAsk(source)).toEqual({
-      type: "search",
-      query: "the",
-      kind: "movie",
-      page: 1,
-    });
+    expect(view.metas).toEqual(CATALOG_ROW.metas);
+    expect(grid({ kind: "catalog", row: CATALOG_ROW }, "Cinemeta / 1 film").tag).toBe(
+      "Cinemeta / 1 film",
+    );
   });
 });

@@ -329,13 +329,17 @@ the phone's emoji font is not the design system.
   its More card opens the cards read so far; the grid does not ask a page of
   its own.
 - **Feature**: the backdrop between two hairlines, a two-gradient ink scrim, the
-  Title in display serif over it, the kicker in mono (`Feature presentation` and
-  the programme's position), one line of facts, the description, and one
-  action — **Open the Title**. One tick per item shows the programme, the
+  Title in display serif over it, one line of facts, the description, and one
+  action — **Open the Title**. The frame is one fixed size for every item: the
+  art covers it (crop, never letterbox or stretch), and long copy is clamped
+  rather than growing the frame. One tick per item sits under the frame, the
   current tick filling over the item's 24s; a tick jumps to its item. Left/Right
   and a horizontal drag step it; focus or a held finger pauses it; any of these
-  restarts the item's time. Reduced motion keeps the rotation and turns the slide
-  into a fade (ADR-0036).
+  restarts the item's time. A pointer that lets go releases the fill even where
+  the press focused the frame; keyboard and D-pad focus still hold it. Reduced
+  motion keeps the rotation and turns the slide into a fade (ADR-0036 §2). The
+  kicker and the `01 / 04` position are gone: the ticks are where the programme
+  is (ADR-0036 §2, owner's by-hand review on PR #261).
 - **Episode row**: 16:9 still (or a typographic plate), `S#E#` and the name, a
   **Streams** mark. The season rail is single-select chips in one scrolling
   line; the episode list scrolls under it.
@@ -483,6 +487,15 @@ icons and marks, with its own **hand scale**.
 | `--rep-remote-nav` | 4.25rem | the bottom index |
 | `--rep-remote-strip` | 4.5rem | the docked strip |
 | `--rep-remote-gutter` | 1.125rem | the page gutter |
+
+**Feature / Remote hero.** The Remote's Feature is the window's, at hand scale:
+the same 16:9 frame (one size for every slide, the art cropped to cover it), the
+two-gradient scrim, the display-serif Title, one line of facts, the clamped
+description, the **Open the Title** action, and the programme's ticks under the
+frame. Its steering is the one core seam the window reads — Left/Right, a
+horizontal swipe, a tick jump, a hold, and a restart on any of them — and the
+kicker and `01 / 04` position are gone, because the ticks say where the
+programme is (ADR-0036 §2; owner's by-hand review on PR #261).
 
 Ink, ivory, brass, hairlines and the same display/interface/mono roles. Touch
 first: 44px targets (40px chips), safe-area insets, never hover as the only cue;

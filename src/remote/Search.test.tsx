@@ -224,7 +224,7 @@ describe("Search over TMDB", () => {
     ]);
     expect(
       host.asked("search"),
-      "the grid asks the kind's next page from its own head",
+      "the grid asks no page of its own",
     ).toHaveLength(asked);
 
     fireEvent.click(screen.getByRole("button", { name: "Series" }));
@@ -237,6 +237,28 @@ describe("Search over TMDB", () => {
       screen.queryByTestId("search-card-series-tmdb:s1"),
       "the two rows were held separately, never mixed",
     ).not.toBeInTheDocument();
+  });
+
+  test("the rail's head action pages the shown kind alone", async () => {
+    const { host } = mount();
+    await search("dune");
+    await screen.findByTestId("search-card-movie-tmdb:1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Read on" }));
+
+    await waitFor(() =>
+      expect(host.asked("search").at(-1)).toEqual({
+        type: "search",
+        query: "dune",
+        kind: "movie",
+        page: 2,
+      }),
+    );
+    expect(await screen.findByTestId("search-card-movie-tmdb:3")).toBeInTheDocument();
+    expect(
+      host.asked("search").filter((action) => action.kind === "series"),
+      "the kind a person is not looking at was not paged",
+    ).toHaveLength(1);
   });
 
   test("a kind that failed draws its explanation and leaves the other kind's row alone", async () => {

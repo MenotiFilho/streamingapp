@@ -27,26 +27,35 @@ import { continueArt, featuredRow, heroSlides, type HeroSlide } from "../../core
 import { FOCUSABLE } from "../layout";
 import { focusAndReveal } from "../reveal";
 import { useTitleOpener } from "../TitleScreen";
-import { useReducedMotion } from "../../core/react/useReducedMotion";
 import { usePreviewData } from "./context";
 import {
+  FEATURE_CLOCK_MS,
+  FEATURE_DRAG_IDLE,
   FEATURE_ROTATION_MS,
   FEATURE_START,
   HOME_RAIL_ITEMS,
   HOME_RAIL_PAGE,
   HOME_RAIL_VISIBLE,
+  captionParts,
+  clampItem,
+  continueTag,
+  featureDragBegin,
+  featureDragClick,
+  featureDragEnd,
+  featureDragMove,
   featureElapse,
   featureHold,
   featureJump,
-  featurePosition,
   featureProgress,
   featureRelease,
   featureRotates,
   featureStep,
   featureStepThrough,
+  featureTitleDensity,
   homeEmptyState,
   homeSectionIndex,
   rowTag,
+  type FeatureDrag,
   type FeatureProgramme,
 } from "./homeProgramme";
 import { Button } from "../../kit/Button";
@@ -57,7 +66,7 @@ import { fade } from "../../core/react/motion";
 import { ProgrammeLine } from "./ProgrammeLine";
 import { RailGrid } from "./RailGrid";
 import { RailMoreCard } from "./RailMoreCard";
-import { captionParts, featureTitleDensity, programIndex, yearOf } from "./program";
+import { programIndex, yearOf } from "./program";
 import "./repertory.css";
 
 /** Re-exported for a screen test that wants the beat without the component. */
@@ -66,21 +75,6 @@ export { FEATURE_ROTATION_MS };
 type FeatureItem = {
   slide: HeroSlide;
   meta: MetaPreview;
-};
-
-/** How often the programme's clock is read while the Feature is on screen. */
-const FEATURE_CLOCK_MS = 100;
-
-/** How far a horizontal drag travels before it steps one item. */
-const FEATURE_DRAG_PX = 40;
-
-/** One gesture on the feature: where it started and what it has done. */
-type FeatureDrag = {
-  active: boolean;
-  x: number;
-  y: number;
-  /** Whether this gesture has already stepped the programme. */
-  stepped: boolean;
 };
 
 function MetaLine({
@@ -104,15 +98,15 @@ function MetaLine({
 
 /**
  * The feature presentation: the backdrop between two hairlines, a two-gradient
- * ink scrim, the Title in display serif over it, the mono kicker with the
- * programme's position, one line of facts, the description and one action.
+ * ink scrim, the Title in display serif over it, one line of facts, the
+ * description and one action.
  *
  * It walks the Featured catalog's first slides on its 24-second beat, one tick
- * per slide filling under the action. Focus or a held pointer pauses the fill;
+ * per slide filling under it. Focus or a held pointer pauses the fill;
  * Left/Right and a horizontal drag step it; a tick jumps to its slide; every
- * interaction restarts that slide's time (ADR-0036 §2). The step, jump, hold
- * and beat decisions are the core's programme; this screen only holds it and
- * reads it. The slides cross-fade with Motion, and reduced motion keeps the
+ * interaction restarts that slide's time (ADR-0036 §2). The step, jump, hold,
+ * drag and beat decisions are the core's programme; this screen only holds it
+ * and reads it. The slides cross-fade with Motion, and reduced motion keeps the
  * beat — the tick's fill is the only movement it leaves.
  */
 function Feature({
@@ -123,23 +117,20 @@ function Feature({
   onOpen: (item: FeatureItem) => void;
 }) {
   const [programme, setProgramme] = useState<FeatureProgramme>(FEATURE_START);
-  const reducedMotion = useReducedMotion();
   const { setBaseIntentHandler } = useShell();
   const frame = useRef<HTMLDivElement | null>(null);
-  const drag = useRef<FeatureDrag>({ active: false, x: 0, y: 0, stepped: false });
-  const active = Math.min(programme.index, Math.max(0, items.length - 1));
+  const drag = useRef<FeatureDrag>(FEATURE_DRAG_IDLE);
+  const active = clampItem(programme.index, items.length);
   const item = items[active];
-  const rotating = featureRotates(items.length, reducedMotion);
+  const rotating = featureRotates(items.length);
   const progress = featureProgress(programme);
 
-  // Focus and a held pointer both pause the fill. A pointer that lets go while
-  // focus is still on the frame does not release the programme: focus holds it.
+  // Focus and a held pointer both pause the fill. A pointer that lets go
+  // releases it even where the press focused the frame: the press was the
+  // pointer's, and the fill must not stay held until focus leaves (both
+  // clients). Keyboard and D-pad focus still hold through `onFocus`.
   const hold = () => setProgramme(featureHold);
-  const release = () => {
-    if (document.activeElement !== frame.current) {
-      setProgramme(featureRelease);
-    }
-  };
+  const release = () => setProgramme(featureRelease);
 
   // The feature's Left/Right is one decision for the D-pad and the arrow keys:
   // both arrive here as intents. At the first slide Left is not consumed, so
@@ -188,45 +179,45 @@ function Feature({
     if (event.pointerType === "mouse" && event.button !== 0) {
       return;
     }
-    drag.current = { active: true, x: event.clientX, y: event.clientY, stepped: false };
+    drag.current = featureDragBegin(event.clientX, event.clientY);
     setProgramme(featureHold);
   };
 
-  // A drag steps once, when it has travelled far enough and travelled further
-  // across than down; a long drag does not run through the whole programme.
+  // The rule that decides a step is the core's: far enough across, further
+  // across than down, and only once per gesture. A long drag does not run
+  // through the whole programme.
   const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!drag.current.active || drag.current.stepped) {
+    const moved = featureDragMove(drag.current, event.clientX, event.clientY);
+    drag.current = moved.drag;
+    const { direction } = moved;
+    if (direction === null) {
       return;
     }
-    const dx = event.clientX - drag.current.x;
-    const dy = event.clientY - drag.current.y;
-    if (Math.abs(dx) < FEATURE_DRAG_PX || Math.abs(dx) <= Math.abs(dy)) {
-      return;
-    }
-    drag.current.stepped = true;
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    setProgramme((current) => featureStepThrough(current, items.length, dx < 0 ? 1 : -1));
+    setProgramme((current) => featureStepThrough(current, items.length, direction));
   };
 
   const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (!drag.current.active) {
       return;
     }
-    drag.current.active = false;
+    drag.current = featureDragEnd(drag.current);
     event.currentTarget.releasePointerCapture?.(event.pointerId);
     release();
   };
 
   // The click a browser synthesises at the end of a drag is the drag's, not a
-  // press on the feature: it must not open the Title. A fresh pointerdown
-  // clears the flag, so a drag that never produced a click cannot eat the next.
+  // press on the feature: it must not open the Title. A keyboard click
+  // (`detail === 0`) is never the drag's, and it clears a step flag a swipe left
+  // behind, so a swipe that produced no click cannot swallow the next Enter.
   const onClickCapture = (event: ReactMouseEvent<HTMLDivElement>) => {
-    if (!drag.current.stepped) {
+    const click = featureDragClick(drag.current, event.detail);
+    drag.current = click.drag;
+    if (!click.ours) {
       return;
     }
     event.preventDefault();
     event.stopPropagation();
-    drag.current.stepped = false;
   };
 
   if (!item) {
@@ -292,11 +283,6 @@ function Feature({
             </div>
 
             <div className="rep-feature-copy">
-              <div className="rep-feature-kicker">
-                <span>Feature presentation</span>
-                <span className="rep-rule" aria-hidden="true" />
-                <span>{featurePosition(active, items.length)}</span>
-              </div>
               <h2 className="rep-feature-title" data-density={density}>
                 {name}
               </h2>
@@ -359,11 +345,6 @@ function FeaturePlaceholder() {
         role="status"
       >
         <div className="rep-feature-placeholder-copy">
-          <div className="rep-feature-kicker">
-            <span>Feature presentation</span>
-            <span className="rep-rule" aria-hidden="true" />
-            <span>—</span>
-          </div>
           <p className="rep-feature-placeholder-title">Tonight&rsquo;s feature</p>
           <p className="rep-feature-placeholder-note">Reading the programme…</p>
         </div>
@@ -554,7 +535,7 @@ export function RepertoryHome() {
           <RowTrack
             title="Continue watching"
             index={programIndex(1)}
-            tag={`${continueWatching.length} in progress`}
+            tag={continueTag(continueWatching.length)}
             columns={HOME_RAIL_VISIBLE}
             page={HOME_RAIL_PAGE}
           >

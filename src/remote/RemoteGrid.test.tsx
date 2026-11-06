@@ -23,11 +23,12 @@ import type { RemoteGrid as Grid } from "./grid";
 import { titleLevel, type RemotePayload } from "./levels";
 
 /**
- * The Remote's whole-row grid (#253, ADR-0032).
+ * The Remote's whole-row grid (#253, ADR-0032, design system *Rail*).
  *
- * The grid is drawn over a real Session with a fake Host: every assertion is a
- * decision — the cards the row has read, the Action its head asks, the store
- * one row is shared through, and Back. Nothing here reads a class or a nesting.
+ * The grid is static: it draws the cards the rail has read and asks no page of
+ * its own. Paging is the rail's, and its own tests hold that. Every assertion
+ * here is a decision — the cards the row has read, no Action on opening, the
+ * store one row is shared through, and Back. Nothing reads a class or nesting.
  */
 
 const SKIP = { name: "skip", isRequired: false, options: [], optionsLimit: 0 };
@@ -115,7 +116,7 @@ const CONTINUE_GRID: Grid = {
   index: "01",
   tag: "1 in progress",
   addon: null,
-  source: { kind: "home", rowKey: null },
+  source: { kind: "continue" },
 };
 
 const DISCOVER_GRID: Grid = {
@@ -230,36 +231,8 @@ describe("the whole-row grid", () => {
 
       expect(
         host.asked("browse_catalog"),
-        "opening the grid is not a page of the grid's own",
+        "the grid asks no page of its own",
       ).toEqual([]);
-    } finally {
-      view.unmount();
-      stop();
-    }
-  });
-
-  test("its head action asks the same row's next page and appends the cards", async () => {
-    const { host, view, stop } = mount();
-    try {
-      fireEvent.click(await screen.findByRole("button", { name: "Read on" }));
-
-      await waitFor(() =>
-        expect(host.asked("browse_catalog")).toEqual([
-          {
-            type: "browse_catalog",
-            addon: "cinemeta",
-            catalog: { type: "movie", id: "top" },
-            extra: [{ name: "skip", value: "2" }],
-          },
-        ]),
-      );
-      expect(
-        await screen.findByTestId("grid-card-cinemeta-tt3"),
-      ).toBeInTheDocument();
-      expect(
-        screen.getByTestId("grid-card-cinemeta-tt1"),
-        "the cards already read keep their place",
-      ).toBeInTheDocument();
     } finally {
       view.unmount();
       stop();
@@ -298,7 +271,10 @@ describe("the whole-row grid", () => {
       );
 
       try {
-        fireEvent.click(await screen.findByRole("button", { name: "Read on" }));
+        // The rail's head action is the one that pages; a page landing in the
+        // store is a page the open grid draws.
+        act(() => session.home.page("cinemeta/movie/top"));
+
         expect(
           await screen.findByTestId("grid-card-cinemeta-tt3"),
         ).toBeInTheDocument();
@@ -314,78 +290,41 @@ describe("the whole-row grid", () => {
     }
   });
 
-  test("a Continue watching grid draws the Host's entries and offers no page", async () => {
-    const { view, stop } = mount({
+  test("a Continue watching grid draws the Host's entries and pages nothing", async () => {
+    const { host, view, stop } = mount({
       grid: CONTINUE_GRID,
       snapshot: { ...SNAPSHOT, watchProgress: [RESUME] },
     });
     try {
       expect(await screen.findByTestId("grid-resume-tt1:1:1")).toBeInTheDocument();
-      expect(
-        screen.queryByRole("button", { name: "Read on" }),
-      ).not.toBeInTheDocument();
+      expect(host.asked("browse_catalog")).toEqual([]);
     } finally {
       view.unmount();
       stop();
     }
   });
 
-  test("a failed Discover page keeps its cards, says why, and asks that page again", async () => {
-    let failed = false;
-    const { host, view, stop } = mount({
-      grid: DISCOVER_GRID,
-      respond: (action) => {
-        if (action.type !== "discover") {
-          return { snapshots: [], answer: null };
-        }
-        if (!failed) {
-          failed = true;
-          return { kind: "tmdb", detail: "TMDB answered with status 429" };
-        }
-        return {
-          snapshots: [],
-          answer: {
-            discover: [
-              { type: "movie", sent: 1, metas: [meta("tmdb:3", "Three")], failure: null },
-            ],
-          },
-        };
+  test("a Discovered grid draws the feed it was handed, and its failure where the rail said it", async () => {
+    const failure = { kind: "tmdb", detail: "TMDB answered with status 429" } as const;
+    const grid: Grid = {
+      ...DISCOVER_GRID,
+      source: {
+        kind: "discover",
+        feedKind: "movie",
+        genre: null,
+        feed: {
+          ...blankFeed(),
+          page: 1,
+          items: [meta("tmdb:1", "One")],
+          failure,
+        },
       },
-    });
+    };
+    const { host, view, stop } = mount({ grid });
     try {
-      fireEvent.click(await screen.findByRole("button", { name: "Read on" }));
-
-      expect(await screen.findByRole("alert")).toHaveTextContent(
-        explain({ kind: "tmdb", detail: "TMDB answered with status 429" }),
-      );
-      expect(
-        screen.getByTestId("discover-grid-card-tmdb:1"),
-        "the page that failed did not wipe what was read",
-      ).toBeInTheDocument();
-
-      fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-      expect(
-        await screen.findByTestId("discover-grid-card-tmdb:3"),
-      ).toBeInTheDocument();
-      expect(host.asked("discover").map((action) => action.page)).toEqual([2, 2]);
-    } finally {
-      view.unmount();
-      stop();
-    }
-  });
-
-  test("a row whose Catalog declares no skip has no head action", async () => {
-    const { view, stop } = mount({
-      snapshot: {
-        ...SNAPSHOT,
-        addons: [{ ...CINEMETA, catalogs: [{ ...POPULAR, extra: [] }] }],
-      },
-    });
-    try {
-      expect(await screen.findByRole("button", { name: "Back" })).toBeInTheDocument();
-      expect(
-        screen.queryByRole("button", { name: "Read on" }),
-      ).not.toBeInTheDocument();
+      expect(screen.getByTestId("discover-grid-card-tmdb:1")).toBeInTheDocument();
+      expect(screen.getByRole("alert")).toHaveTextContent(explain(failure));
+      expect(host.asked("discover"), "the grid does not ask a page").toEqual([]);
     } finally {
       view.unmount();
       stop();
