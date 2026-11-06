@@ -95,8 +95,10 @@ without named presets** (each screen would pick its own and drift).
 - A **rail** scrolls with `animate()` on its scroll offset, so a second press
   redirects it mid-flight; the focus reveal uses the same path. No snapping, no
   inertia.
-- The **feature** cross-fades on its 24s beat, replacing the record's earlier
+- The **feature** cross-fades on its 15s beat, replacing the record's earlier
   no-cross-fade rule; focus still holds it.
+  (Amended 2026-11-06: the beat was 24s; it is 15s at the owner's decision on
+  PR #261, sprint 248. The motion rule above is unchanged.)
 
 Nothing else moves: no poster zoom, no row stagger, no card lift, no control
 scale. The keyline's geometry never animates.

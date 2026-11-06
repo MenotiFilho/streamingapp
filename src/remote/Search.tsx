@@ -20,7 +20,8 @@ import { ChoiceChip } from "../kit/Chip";
 import { Field } from "../kit/Field";
 import { PosterCard } from "../kit/PosterCard";
 import { RemoteRail } from "./RemoteRail";
-import { MoreControl, RowNote } from "./RemoteRow";
+import { MoreControl, PagingControl, RowNote } from "./RemoteRow";
+import { gridLevel } from "./grid";
 import { feedAfter, feedMore, feedPhase, pageToAsk } from "./feed";
 import { titleLevelOf, type RemotePayload } from "./levels";
 import {
@@ -172,12 +173,25 @@ export function Search({ session, state, push }: SearchProps) {
     }
   };
 
-  /** Page one keyed row on from where it has read to. */
-  const more = (at: SearchKind) => {
-    if (!committed || paging.has(at)) {
+  /** Open the shown kind's feed as a whole-row grid (#253). */
+  const openGrid = (at: SearchKind) => {
+    if (!committed || feeds[at].items.length === 0) {
       return;
     }
-    void loadRow(committed, at, pageToAsk(feeds[at]));
+    push(
+      gridLevel({
+        title: kindLabel(at),
+        index: programIndex(1),
+        tag: rowTagOf("TMDB", at, feeds[at].items.length),
+        addon: null,
+        source: {
+          kind: "search",
+          feedKind: at,
+          query: committed,
+          feed: feeds[at],
+        },
+      }),
+    );
   };
 
   const open = (addon: string | null, meta: MetaPreview) => {
@@ -246,11 +260,18 @@ export function Search({ session, state, push }: SearchProps) {
                 />
               }
               action={
-                feedMore(feed) ? (
+                <PagingControl
+                  failure={feed.failure}
+                  more={feedMore(feed)}
+                  loading={paging.has(shown)}
+                  onMore={() => void loadRow(query, shown, pageToAsk(feed))}
+                />
+              }
+              more={
+                feed.items.length > 0 ? (
                   <MoreControl
                     label={kindLabel(shown)}
-                    paging={reading}
-                    onPage={() => more(shown)}
+                    onOpen={() => openGrid(shown)}
                   />
                 ) : null
               }

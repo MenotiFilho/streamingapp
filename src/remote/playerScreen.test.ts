@@ -1,7 +1,9 @@
 import { describe, expect, test } from "vitest";
 
+import type { Level } from "../core/navigation";
 import { playbackView } from "../core/playbackView";
 import type { PlaybackSnapshot, Title } from "../core/wire";
+import type { RemotePayload } from "./levels";
 import {
   CARD_NAME,
   playerLevel,
@@ -10,10 +12,12 @@ import {
   setMuted,
   setVolume,
   stripControls,
+  stripDrawn,
   timelineRange,
   trackFills,
   volumeRange,
 } from "./playerScreen";
+import { playerSheetLevel } from "./playerSheets";
 
 /**
  * The Remote player's own decisions (#213, ADR-0035 §2).
@@ -96,10 +100,11 @@ describe("the Remote's player level", () => {
     expect(playerLevel(title).payload).toEqual({ kind: "player", title });
   });
 
-  test("a second strip press replaces the card instead of stacking one", () => {
-    // The id is what `pushLevel` replaces by; without it the strip, still drawn
-    // under the card, would push a second identical level and one Back would
-    // leave a card on screen.
+  test("a second push replaces the card instead of stacking one", () => {
+    // The id is what `pushLevel` replaces by; changing an episode opens a
+    // Streams list above the card, and without the id the Stream picked there
+    // would push a second identical level and one Back would leave a card on
+    // screen.
     expect(playerLevel().id).toBe("player");
   });
 
@@ -117,6 +122,69 @@ describe("the Remote's player level", () => {
     expect(playerLevelStale(player, "ended")).toBe(false);
     expect(playerLevelStale(player, "idle")).toBe(true);
     expect(playerLevelStale(title, "idle")).toBe(false);
+  });
+});
+
+/**
+ * Where the docked strip is drawn (#258, ADR-0036 §4).
+ *
+ * The strip points at what is playing from the screen under it, so the player's
+ * own screen is the one place it steps aside. A sheet is furniture above that
+ * screen, not a screen of its own, and a Streams list opened from the Episodes
+ * plate is a screen again — the top screen decides, never the level beneath it.
+ */
+describe("the docked strip's place", () => {
+  const title: Level<RemotePayload> = {
+    id: "title",
+    name: "Title",
+    kind: "overlay",
+    payload: {
+      kind: "title",
+      title: { addon: null, id: "tt1", type: "movie", name: "One" },
+      answer: null,
+    },
+  };
+  const card: Level<RemotePayload> = { ...playerLevel(), id: "player" };
+  const sheet: Level<RemotePayload> = {
+    ...playerSheetLevel("audio", null),
+    id: "player-sheet",
+  };
+  const streams: Level<RemotePayload> = {
+    id: "streams",
+    name: "Streams",
+    kind: "overlay",
+    payload: {
+      kind: "streams",
+      title: {
+        addon: "cinemeta",
+        id: "tt1",
+        key: { kind: "addon", addon: "cinemeta", id: "tt1" },
+        type: "movie",
+        name: "One",
+        poster: null,
+        background: null,
+        logo: null,
+        description: null,
+        releaseInfo: null,
+        runtime: null,
+        imdbRating: null,
+        genres: [],
+        videos: [],
+      },
+      video: { id: "tt1", name: null, season: null, episode: null, thumbnail: null },
+    },
+  };
+
+  test("is drawn on a destination and a Title, and steps aside on the player screen", () => {
+    expect(stripDrawn([])).toBe(true);
+    expect(stripDrawn([title])).toBe(true);
+    expect(stripDrawn([card])).toBe(false);
+  });
+
+  test("stays away under the player's sheets, and returns on a screen above the card", () => {
+    expect(stripDrawn([card, sheet])).toBe(false);
+    expect(stripDrawn([card, streams])).toBe(true);
+    expect(stripDrawn([title, streams])).toBe(true);
   });
 });
 

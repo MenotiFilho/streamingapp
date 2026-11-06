@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { describe, expect, test } from "vitest";
 
 import { explain } from "../core/errors";
+import { rowTagOf } from "../core/homeProgramme";
 import type { HostLink } from "../core/link";
 import type { NewLevel } from "../core/navigation";
 import { useSession } from "../core/react/useSession";
@@ -17,6 +18,7 @@ import type {
 import { FakeHost, type HostAnswer, type Respond } from "./fakeHost.testing";
 import { NOTHING } from "./fakeSocket.testing";
 import { Search } from "./Search";
+import { gridLevel } from "./grid";
 import { titleLevel, type RemotePayload } from "./levels";
 import { NO_SEARCHABLE_CATALOGS } from "./searchScreen";
 
@@ -188,8 +190,8 @@ describe("Search over TMDB", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  test("one kind is shown at a time, and More pages that kind alone", async () => {
-    const { host } = mount();
+  test("one kind is shown at a time, and More opens that kind's grid", async () => {
+    const { host, pushes } = mount();
     await search("dune");
     await screen.findByTestId("search-card-movie-tmdb:1");
 
@@ -198,22 +200,32 @@ describe("Search over TMDB", () => {
       "the row a person is not looking at is held, not drawn",
     ).not.toBeInTheDocument();
 
+    const asked = host.asked("search").length;
     fireEvent.click(screen.getByRole("button", { name: "More Movies" }));
-    await waitFor(() =>
-      expect(host.asked("search").at(-1)).toEqual({
-        type: "search",
-        query: "dune",
-        kind: "movie",
-        page: 2,
+
+    expect(pushes).toEqual([
+      gridLevel({
+        title: "Movies",
+        index: "01",
+        tag: rowTagOf("TMDB", "movie", 2),
+        addon: null,
+        source: {
+          kind: "search",
+          feedKind: "movie",
+          query: "dune",
+          feed: {
+            page: 1,
+            items: [meta("tmdb:1", "movie", "One"), meta("tmdb:2", "movie", "Two")],
+            failure: null,
+            done: false,
+          },
+        },
       }),
-    );
-    await screen.findByTestId("search-card-movie-tmdb:3");
+    ]);
     expect(
-      host.asked("search").some(
-        (action) => action.kind === "series" && action.page === 2,
-      ),
-      "the kind a person is not looking at is not paged",
-    ).toBe(false);
+      host.asked("search"),
+      "the grid asks no page of its own",
+    ).toHaveLength(asked);
 
     fireEvent.click(screen.getByRole("button", { name: "Series" }));
     expect(await screen.findByTestId("search-card-series-tmdb:s1")).toBeInTheDocument();
@@ -225,6 +237,28 @@ describe("Search over TMDB", () => {
       screen.queryByTestId("search-card-series-tmdb:s1"),
       "the two rows were held separately, never mixed",
     ).not.toBeInTheDocument();
+  });
+
+  test("the rail's head action pages the shown kind alone", async () => {
+    const { host } = mount();
+    await search("dune");
+    await screen.findByTestId("search-card-movie-tmdb:1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Read on" }));
+
+    await waitFor(() =>
+      expect(host.asked("search").at(-1)).toEqual({
+        type: "search",
+        query: "dune",
+        kind: "movie",
+        page: 2,
+      }),
+    );
+    expect(await screen.findByTestId("search-card-movie-tmdb:3")).toBeInTheDocument();
+    expect(
+      host.asked("search").filter((action) => action.kind === "series"),
+      "the kind a person is not looking at was not paged",
+    ).toHaveLength(1);
   });
 
   test("a kind that failed draws its explanation and leaves the other kind's row alone", async () => {

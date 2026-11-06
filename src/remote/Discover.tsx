@@ -19,7 +19,7 @@ import type { Action, MetaPreview } from "../core/wire";
 import { ChoiceChip } from "../kit/Chip";
 import { PosterCard } from "../kit/PosterCard";
 import { RemoteRail } from "./RemoteRail";
-import { MoreControl, RowNote } from "./RemoteRow";
+import { MoreControl, PagingControl, RowNote } from "./RemoteRow";
 import {
   ALL_GENRES,
   DISCOVER_KINDS,
@@ -35,6 +35,7 @@ import {
   noCatalogState,
 } from "./discoverScreen";
 import { feedAfter, feedMore, feedPhase, pageToAsk } from "./feed";
+import { gridLevel } from "./grid";
 import { titleLevelOf, type RemotePayload } from "./levels";
 
 export type DiscoverProps = {
@@ -120,6 +121,7 @@ export function Discover({ session, state, push }: DiscoverProps) {
               genre={genre}
               chooseGenre={setGenre}
               open={open}
+              push={push}
             />
           ) : (
             <CatalogDiscover
@@ -127,6 +129,7 @@ export function Discover({ session, state, push }: DiscoverProps) {
               state={state}
               kind={kind}
               open={open}
+              push={push}
             />
           )}
         </>
@@ -137,9 +140,10 @@ export function Discover({ session, state, push }: DiscoverProps) {
 
 /**
  * Discover over TMDB: the genre rail for the kind, and one feed asked page by
- * page. A kind or a genre is a new feed and asks page 1; `More` asks the page
- * after what was read, and a page that failed is that same press again — the
- * cards already read keep their place either way (`feedWith`).
+ * page. A kind or a genre is a new feed and asks page 1; the rail's quiet head
+ * action asks the page after what was read, or the page that failed, and the
+ * cards already read keep their place either way (`feedWith`). The rail's More
+ * card opens those cards as a static whole-row grid.
  */
 function KeyedDiscover({
   session,
@@ -148,6 +152,7 @@ function KeyedDiscover({
   genre,
   chooseGenre,
   open,
+  push,
 }: {
   session: Session;
   state: SessionState;
@@ -155,6 +160,7 @@ function KeyedDiscover({
   genre: number | null;
   chooseGenre: (genre: number | null) => void;
   open: (addon: string | null, meta: MetaPreview) => void;
+  push: (level: NewLevel<RemotePayload>) => string;
 }) {
   const snapshot = state.snapshot;
   const [feed, setFeed] = useState<DiscoverFeed>(blankFeed);
@@ -197,6 +203,18 @@ function KeyedDiscover({
   const phase = feedPhase(feed, reading);
   const couldPlay = snapshot ? discoverPlayable(snapshot.addons, kind) : true;
 
+  const openGrid = () => {
+    push(
+      gridLevel({
+        title: feedTitle(kind),
+        index: programIndex(1),
+        tag: discoverTag(kind, genreName, feed.items.length),
+        addon: null,
+        source: { kind: "discover", feedKind: kind, genre, feed },
+      }),
+    );
+  };
+
   return (
     <>
       <div className="remote-filters" role="group" aria-label="Genres">
@@ -223,12 +241,16 @@ function KeyedDiscover({
           <RowNote failure={feed.failure} quiet={discoverNote(phase, genreName)} />
         }
         action={
-          feedMore(feed) ? (
-            <MoreControl
-              label={feedTitle(kind)}
-              paging={reading}
-              onPage={() => void read(pageToAsk(feed))}
-            />
+          <PagingControl
+            failure={feed.failure}
+            more={feedMore(feed)}
+            loading={reading}
+            onMore={() => void read(pageToAsk(feed))}
+          />
+        }
+        more={
+          feed.items.length > 0 ? (
+            <MoreControl label={feedTitle(kind)} onOpen={openGrid} />
           ) : null
         }
       >
@@ -260,11 +282,13 @@ function CatalogDiscover({
   state,
   kind,
   open,
+  push,
 }: {
   session: Session;
   state: SessionState;
   kind: DiscoverKind;
   open: (addon: string | null, meta: MetaPreview) => void;
+  push: (level: NewLevel<RemotePayload>) => string;
 }) {
   const snapshot = state.snapshot;
   const catalogs = useMemo(() => catalogsOf(snapshot, kind), [snapshot, kind]);
@@ -337,11 +361,28 @@ function CatalogDiscover({
               <RowNote failure={row.failure} quiet={catalogNote(row)} />
             }
             action={
-              catalogMore(snapshot, row) ? (
+              <PagingControl
+                failure={row.failure}
+                more={catalogMore(snapshot, row)}
+                loading={reading.has(key)}
+                onMore={() => void run(key, catalogPageAsk(row))}
+              />
+            }
+            more={
+              row.metas.length > 0 ? (
                 <MoreControl
                   label={row.name}
-                  paging={reading.has(key)}
-                  onPage={() => void run(key, catalogPageAsk(row))}
+                  onOpen={() =>
+                    push(
+                      gridLevel({
+                        title: row.name,
+                        index: programIndex(index + 1),
+                        tag: rowTag(snapshot, row),
+                        addon: row.addon,
+                        source: { kind: "catalog", row },
+                      }),
+                    )
+                  }
                 />
               ) : null
             }

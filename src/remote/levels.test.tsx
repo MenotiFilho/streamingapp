@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 
 import { explain, type ActionError } from "../core/errors";
@@ -8,7 +8,18 @@ import {
   SETTINGS_CATEGORIES,
   settingsLevelId,
 } from "../core/settingsRegister";
-import type { ResumeEntry, Snapshot, Title, Video } from "../core/wire";
+import type {
+  Action,
+  AddonCatalog,
+  AddonManifest,
+  CatalogRow,
+  MetaPreview,
+  Response,
+  ResumeEntry,
+  Snapshot,
+  Title,
+  Video,
+} from "../core/wire";
 import { RemoteApp } from "./RemoteApp";
 import { FakeHost } from "./fakeHost.testing";
 import { ISSUED_TOKEN, NOTHING, PHONE, fakeLink } from "./fakeSocket.testing";
@@ -193,6 +204,116 @@ describe("the Title a level stack holds", () => {
     expect(levelTitle(playerSheetLevel("episodes", HELD_TITLE).payload)).toBe(
       HELD_TITLE,
     );
+  });
+});
+
+/**
+ * The whole-row grid (#253, ADR-0036 §1).
+ *
+ * More on a rail pushes the grid as a level; paging belongs to the rail's quiet
+ * head action, and the grid draws the cards the rail has read. Back unwinds it
+ * to the rail it came from — the cards the page appended are still there.
+ */
+
+const SKIP = { name: "skip", isRequired: false, options: [], optionsLimit: 0 };
+
+const POPULAR: AddonCatalog = {
+  type: "movie",
+  id: "top",
+  name: "Popular",
+  extra: [SKIP],
+};
+
+const CINEMETA: AddonManifest = {
+  id: "cinemeta",
+  name: "Cinemeta",
+  version: "3.0.14",
+  resources: [{ name: "catalog", types: ["movie"], idPrefixes: ["tt"] }],
+  types: ["movie"],
+  catalogs: [POPULAR],
+  idPrefixes: ["tt"],
+  behaviorHints: { configurable: false, configurationRequired: false },
+};
+
+const GRID_SNAPSHOT: Snapshot = { ...NOTHING, addons: [CINEMETA] };
+
+function gridMeta(id: string, name: string): MetaPreview {
+  return {
+    id,
+    type: "movie",
+    name,
+    poster: null,
+    posterShape: "poster",
+    background: null,
+    releaseInfo: "2026",
+    imdbRating: null,
+    genres: [],
+    description: null,
+  };
+}
+
+function gridRow(metas: MetaPreview[], sent = metas.length): CatalogRow {
+  return {
+    addon: "cinemeta",
+    type: "movie",
+    id: "top",
+    name: "Popular",
+    sent,
+    metas,
+    failure: null,
+  };
+}
+
+/** The Host's first page of four, and one more item at skip=4. */
+function gridPages(action: Action): Response {
+  if (action.type !== "browse_catalog") {
+    return { snapshots: [], answer: null };
+  }
+  const skip = action.extra.find((extra) => extra.name === "skip")?.value;
+  return skip === undefined
+    ? { snapshots: [], answer: { catalogs: [gridRow([gridMeta("tt1", "One"), gridMeta("tt2", "Two"), gridMeta("tt3", "Three"), gridMeta("tt4", "Four")], 4)] } }
+    : { snapshots: [], answer: { catalogs: [gridRow([gridMeta("tt5", "Five")], 1)] } };
+}
+
+describe("the Remote's grid level", () => {
+  test("More opens it, the rail's head pages the same row, and Back returns to the cards", async () => {
+    const host = new FakeHost(GRID_SNAPSHOT, gridPages);
+    const view = render(<RemoteApp link={host} />);
+    try {
+      await screen.findByTestId("card-cinemeta-tt4");
+
+      fireEvent.click(screen.getByRole("button", { name: "More Popular" }));
+
+      const grid = await screen.findByTestId("remote-grid");
+      expect(grid).toHaveAccessibleName("All of Popular");
+      expect(screen.getByTestId("grid-card-cinemeta-tt1")).toBeInTheDocument();
+      expect(
+        within(grid).queryByRole("button", { name: "Read on" }),
+        "the grid is static: paging is the rail's",
+      ).not.toBeInTheDocument();
+
+      fireEvent.keyDown(window, { key: "Escape" });
+      await waitFor(() =>
+        expect(screen.queryByTestId("remote-grid")).not.toBeInTheDocument(),
+      );
+
+      fireEvent.click(await screen.findByRole("button", { name: "Read on" }));
+      await waitFor(() => expect(screen.getByTestId("card-cinemeta-tt5")).toBeInTheDocument());
+      expect(host.asked("browse_catalog").at(-1)).toEqual({
+        type: "browse_catalog",
+        addon: "cinemeta",
+        catalog: { type: "movie", id: "top" },
+        extra: [{ name: "skip", value: "4" }],
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: "More Popular" }));
+      expect(
+        await screen.findByTestId("grid-card-cinemeta-tt5"),
+        "the grid draws the row the rail has read",
+      ).toBeInTheDocument();
+    } finally {
+      view.unmount();
+    }
   });
 });
 

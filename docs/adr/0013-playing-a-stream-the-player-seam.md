@@ -189,6 +189,11 @@ else an
 `unsafe` block is a build failure, as it is in the rest of the workspace. The
 watching thread that adopts the child lives beside the sampling clock because it
 polls for the same reason the clock does: mpv creates its child per Stream.
+(Amended 2026-11-06, sprint 248: `force-window` keeps the video output — and
+therefore that child — up with no Stream playing, so the child is created once
+rather than per Stream; the watching thread still polls to keep it sized and
+behind the interface. The reason is the Stop hole, #250,
+`docs/research/mpv-idle-window.md`.)
 
 Rejected: **carrying the adoption in `host-mpv`** (the crate would gain
 `unsafe`, a Win32 dependency and knowledge of Tauri's window — and a Player that

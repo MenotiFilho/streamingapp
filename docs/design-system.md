@@ -229,8 +229,8 @@ stagger on a screen's content — a level arrives as one thing.
 - A **rail** scrolls with `animate()` on its scroll offset, so a second press
   redirects it mid-flight; the focus reveal uses the same path. No snapping and
   no inertia.
-- The **feature** cross-fades between slides on its 24s beat, replacing the
-  earlier no-cross-fade rule; focus still holds it.
+- The **feature** cross-fades between slides on its 15s beat, replacing the
+  earlier no-cross-fade rule; a person's focus still holds it.
 - The **spine's** width and its label reveal use the panel spring.
 - An **Addon row's inline expansion** uses `layout`, so the register moves
   under the focus and the focused row stays where it was.
@@ -248,7 +248,9 @@ calls — the rail scroll and the focus reveal — check `useReducedMotion()` an
 jump instead of animating. The served Remote reads the same hook from
 `src/core/react`. Under the same media query
 the CSS transform transitions are disabled and the width fills snap; only opacity
-and colour still fade. The feature stops rotating. This **replaces** the earlier
+and colour still fade. The feature is the exception: its beat keeps turning and
+its tick's fill is the one movement left, while the slide change is a fade
+(ADR-0036 §2). This **replaces** the earlier
 0ms rule: with reduced motion the room keeps its fades and loses its movement.
 The OSD's auto-hide clock, the focus rules and every Action are untouched.
 
@@ -327,13 +329,31 @@ the phone's emoji font is not the design system.
   its More card opens the cards read so far; the grid does not ask a page of
   its own.
 - **Feature**: the backdrop between two hairlines, a two-gradient ink scrim, the
-  Title in display serif over it, the kicker in mono (`Feature presentation` and
-  the programme's position), one line of facts, the description, and one
-  action — **Open the Title**. One tick per item shows the programme, the
-  current tick filling over the item's 24s; a tick jumps to its item. Left/Right
-  and a horizontal drag step it; focus or a held finger pauses it; any of these
-  restarts the item's time. Reduced motion keeps the rotation and turns the slide
-  into a fade (ADR-0036).
+  Title in display serif over it, one line of facts, the description clamped to
+  two lines, and one action — **Open the Title** — *below* the description, in
+  the copy's flow, with the copy's own spacing; it never overlays the copy. The
+  Title is one line and steps down through the two densities for a long name;
+  it ellipsises rather than growing the copy. The frame is one fixed size for
+  every item: the art covers it (crop, never letterbox or stretch), and long
+  copy is clamped rather than growing the frame. One tick per item sits under
+  the frame, the current tick filling over the item's 15s; a tick jumps to its
+  item. Left/Right step it; a horizontal drag carries the slides with the hand
+  and commits to the neighbour past a share of the frame or on a fast flick,
+  and a short or slow release snaps back. A person's focus or a held finger
+  pauses it; the focus the screen seats on launch does not hold the beat, and
+  the fill starts on launch. Any step, drag, tick or arrow restarts the item's
+  time. A pointer that lets go releases the fill even where the press focused
+  the frame; keyboard and D-pad focus still hold it. Reduced motion keeps the
+  rotation, drops the tracking, and turns a committed swipe into a fade
+  (ADR-0036 §2). The kicker and the `01 / 04` position are gone: the ticks are
+  where the programme is (ADR-0036 §2, owner's by-hand review on PR #261).
+
+  The Remote's hero is the same anatomy at hand scale: the same clamps and the
+  action below the description, **previous/next arrows** at the sides that step
+  and wrap like a swipe, and the ticks under the frame. The arrows and the ticks
+  are pointer furniture: they never open the Title. The window's feature has no
+  arrows — its D-pad walk, Left/Right and the ticks already step it, and a
+  10-foot hero does not need a second pair of pointer marks.
 - **Episode row**: 16:9 still (or a typographic plate), `S#E#` and the name, a
   **Streams** mark. The season rail is single-select chips in one scrolling
   line; the episode list scrolls under it.
@@ -482,17 +502,27 @@ icons and marks, with its own **hand scale**.
 | `--rep-remote-strip` | 4.5rem | the docked strip |
 | `--rep-remote-gutter` | 1.125rem | the page gutter |
 
+**Feature / Remote hero.** The Remote's Feature is the window's, at hand scale:
+the same 16:9 frame (one size for every slide, the art cropped to cover it), the
+two-gradient scrim, the display-serif Title, one line of facts, the clamped
+description, the **Open the Title** action, and the programme's ticks under the
+frame. Its steering is the one core seam the window reads — Left/Right, a
+horizontal swipe, a tick jump, a hold, and a restart on any of them — and the
+kicker and `01 / 04` position are gone, because the ticks say where the
+programme is (ADR-0036 §2; owner's by-hand review on PR #261).
+
 Ink, ivory, brass, hairlines and the same display/interface/mono roles. Touch
 first: 44px targets (40px chips), safe-area insets, never hover as the only cue;
 keyboard focus keeps the ivory keyline for a Remote driven by a keyboard, and a
 finger gets the pressed ink step. The bottom index is the six destinations with
 a 2px brass keyline on the active one. The docked strip is a full-width band
 above the index (still, Title/episode, progress hairline, −10s, play/pause) and
-reserves its height. The expanded card is the programme card: the backdrop
-between hairlines, the Title, the timeline, the six-cell transport, the
-always-visible volume box, and the five-menu row (Audio, Episodes, Speed,
-Chapters, Picture) opening one shared drawer. **Remote devices is a Settings
-leaf**, not a seventh destination.
+reserves its height; on the player screen itself it steps aside, and the card
+and the index are the whole dock (ADR-0036 §4). The expanded card is the
+programme card: the backdrop between hairlines, the Title, the timeline, the
+six-cell transport, the always-visible volume box, and the five-menu row (Audio,
+Episodes, Speed, Chapters, Picture) opening one shared drawer. **Remote devices
+is a Settings leaf**, not a seventh destination.
 
 The hand scale is locked as measured; one tuning pass on a real handset is
 allowed in the Remote's build ticket (#159), and it changes values, not roles.
