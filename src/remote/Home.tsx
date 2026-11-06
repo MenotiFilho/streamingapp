@@ -1,4 +1,8 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import type {
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 
 import {
   catalogKey,
@@ -11,16 +15,25 @@ import type { Destination } from "../core/destinations";
 import { explain } from "../core/errors";
 import { continueArt, featuredRow, heroSlides, type HeroSlide } from "../core/home";
 import {
-  FEATURE_ROTATION_MS,
+  FEATURE_START,
+  featureElapse,
+  featureHold,
+  featureJump,
   featurePosition,
+  featureProgress,
+  featureRelease,
+  featureRotates,
   featureStep,
+  featureStepThrough,
   homeEmptyState,
   homeSectionIndex,
   programIndex,
   rowTag,
+  type FeatureProgramme,
 } from "../core/homeProgramme";
 import { cardName, cardNote, progressOf, resumable } from "../core/library";
 import type { NewLevel } from "../core/navigation";
+import { isTypingTarget } from "../core/input";
 import { useReducedMotion } from "../core/react/useReducedMotion";
 import type { Session, SessionState } from "../core/session";
 import type { MetaPreview, ResumeEntry } from "../core/wire";
@@ -262,11 +275,35 @@ export function Home({ session, state, push, choose }: HomeProps) {
   );
 }
 
+/** How often the programme's clock is read while the feature is on screen. */
+const FEATURE_CLOCK_MS = 100;
+
+/** How far a horizontal swipe travels before it steps one item. */
+const FEATURE_SWIPE_PX = 40;
+
+/** One gesture on the hero: where it started and what it has done. */
+type FeatureSwipe = {
+  active: boolean;
+  x: number;
+  y: number;
+  /** Whether this gesture has already stepped the programme. */
+  stepped: boolean;
+};
+
 /**
  * The feature presentation at hand scale: the 16:9 art between two hairlines,
  * a two-gradient ink scrim, the Title in display serif, the kicker with the
  * programme's position, and the description. Its beat is the core's 24 seconds;
  * a slide with no 16:9 art is a typographic plate, never a stretched poster.
+ *
+ * The window's own programme, in a hand (ADR-0036 §2): one tick per slide fills
+ * over the item's time, Left/Right and a horizontal swipe step it, a tap on a
+ * tick jumps to its slide, and a finger held on the hero pauses the fill. Every
+ * step, swipe and tick restarts that slide's time. The decisions are the core's
+ * programme, so the Remote asks the same seam the window does rather than
+ * keeping a second copy (ADR-0035 §1, ADR-0032). The slide change is a fade,
+ * and reduced motion keeps the beat — the tick's fill is the only movement it
+ * leaves.
  */
 function RemoteFeature({
   slides,
@@ -278,64 +315,181 @@ function RemoteFeature({
   addon: string;
   onOpen: (addon: string, slide: HeroSlide) => void;
 }) {
-  const [index, setIndex] = useState(0);
+  const [programme, setProgramme] = useState<FeatureProgramme>(FEATURE_START);
   const reducedMotion = useReducedMotion();
+  const drag = useRef<FeatureSwipe>({ active: false, x: 0, y: 0, stepped: false });
   const first = slides[0]?.id;
-  const active = Math.min(index, Math.max(0, slides.length - 1));
+  const active = Math.min(programme.index, Math.max(0, slides.length - 1));
   const slide = slides[active];
+  const rotating = featureRotates(slides.length, reducedMotion);
+  const progress = featureProgress(programme);
 
   // A new Featured Catalog starts its programme at the first slide again.
   useEffect(() => {
-    setIndex(0);
+    setProgramme(FEATURE_START);
   }, [first, slides.length]);
 
-  // The beat: `featureStep` decides what the next slide is, and the end of the
-  // programme starts it over, which is what a beat does and a press does not.
+  // The clock: the core decides that a held programme spends nothing and that
+  // a finished item wraps with its remainder. The ticks' fill is drawn from the
+  // same elapsed time, so a hold, a jump and the beat all agree.
   useEffect(() => {
-    if (reducedMotion || slides.length < 2) {
+    if (!rotating || programme.held) {
       return;
     }
     const timer = window.setInterval(() => {
-      setIndex((current) => featureStep(current, slides.length, 1) ?? 0);
-    }, FEATURE_ROTATION_MS);
+      setProgramme((current) => featureElapse(current, slides.length, FEATURE_CLOCK_MS));
+    }, FEATURE_CLOCK_MS);
     return () => window.clearInterval(timer);
-  }, [reducedMotion, slides.length, first]);
+  }, [rotating, programme.held, slides.length]);
+
+  // A finger landing on the hero holds the fill where it is. The click that
+  // opens the Title still happens on release, as it did before.
+  const onPointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.pointerType === "mouse" && event.button !== 0) {
+      return;
+    }
+    drag.current = { active: true, x: event.clientX, y: event.clientY, stepped: false };
+    setProgramme(featureHold);
+  };
+
+  // A swipe steps once, when it has travelled far enough and travelled further
+  // across than down; a long swipe does not run through the whole programme.
+  const onPointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!drag.current.active || drag.current.stepped) {
+      return;
+    }
+    const dx = event.clientX - drag.current.x;
+    const dy = event.clientY - drag.current.y;
+    if (Math.abs(dx) < FEATURE_SWIPE_PX || Math.abs(dx) <= Math.abs(dy)) {
+      return;
+    }
+    drag.current.stepped = true;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setProgramme((current) => featureStepThrough(current, slides.length, dx < 0 ? 1 : -1));
+  };
+
+  const endSwipe = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!drag.current.active) {
+      return;
+    }
+    drag.current.active = false;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture?.(event.pointerId);
+    }
+    setProgramme(featureRelease);
+  };
+
+  // The click a browser synthesises at the end of a swipe is the swipe's, not a
+  // press on the feature: it must not open the Title. A fresh pointerdown
+  // clears the flag, so a swipe that never produced a click cannot eat the next
+  // press.
+  const onClickCapture = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (!drag.current.stepped) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    drag.current.stepped = false;
+  };
+
+  // Left/Right step the programme from anywhere on Home, the way the window's
+  // feature takes the arrows when it holds the focus: a phone has no keyboard,
+  // and a desktop browser has no focus engine here to hand them to the feature.
+  // A step at either end is left alone rather than wrapping — the swipe is the
+  // one that wraps — and a text field keeps its caret. The step restarts the
+  // item the seam names.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (isTypingTarget(event.target)) {
+        return;
+      }
+      const direction = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : null;
+      if (direction === null) {
+        return;
+      }
+      const next = featureStep(active, slides.length, direction);
+      if (next === null) {
+        return;
+      }
+      event.preventDefault();
+      setProgramme((current) => featureJump(current, slides.length, next));
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [active, slides.length]);
 
   if (!slide) {
     return null;
   }
 
   return (
-    <button
-      type="button"
+    <section
       className="remote-feature"
-      data-focusable
       data-testid="remote-feature"
-      data-art={slide.artKind}
       data-active-slide={slide.id}
-      aria-label={`Open the Title: ${slide.name}`}
-      onClick={() => onOpen(addon, slide)}
+      data-art={slide.artKind}
+      aria-label="Feature presentation"
     >
-      <span className="remote-feature-art" aria-hidden="true">
-        {slide.art ? (
-          <img className="remote-feature-image" src={slide.art} alt="" loading="lazy" />
-        ) : (
-          <span className="remote-feature-plate">{slide.name}</span>
-        )}
-        <span className="remote-feature-scrim" aria-hidden="true" />
-      </span>
+      <button
+        type="button"
+        className="remote-feature-frame"
+        data-focusable
+        data-held={programme.held ? "true" : undefined}
+        aria-label={`Open the Title: ${slide.name}`}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endSwipe}
+        onPointerCancel={endSwipe}
+        onPointerLeave={endSwipe}
+        onClickCapture={onClickCapture}
+        onClick={() => onOpen(addon, slide)}
+      >
+        <span key={slide.id} className="remote-feature-slide">
+          <span className="remote-feature-art" aria-hidden="true">
+            {slide.art ? (
+              <img className="remote-feature-image" src={slide.art} alt="" loading="lazy" />
+            ) : (
+              <span className="remote-feature-plate">{slide.name}</span>
+            )}
+            <span className="remote-feature-scrim" aria-hidden="true" />
+          </span>
 
-      <span className="remote-feature-copy">
-        <span className="remote-feature-kicker">
-          <span>Feature presentation</span>
-          <span className="remote-feature-rule" aria-hidden="true" />
-          <span>{featurePosition(active, slides.length)}</span>
+          <span className="remote-feature-copy">
+            <span className="remote-feature-kicker">
+              <span>Feature presentation</span>
+              <span className="remote-feature-rule" aria-hidden="true" />
+              <span>{featurePosition(active, slides.length)}</span>
+            </span>
+            <span className="remote-feature-name">{slide.name}</span>
+            {slide.description ? (
+              <span className="remote-feature-description">{slide.description}</span>
+            ) : null}
+          </span>
         </span>
-        <span className="remote-feature-name">{slide.name}</span>
-        {slide.description ? (
-          <span className="remote-feature-description">{slide.description}</span>
-        ) : null}
-      </span>
-    </button>
+      </button>
+
+      {/* One tick per slide, the current one filling over its item's time. The
+          ticks are the feature's own furniture, outside the frame's press, and
+          a one-slide programme has nothing to choose between. */}
+      {slides.length > 1 ? (
+        <div className="remote-feature-ticks" role="group" aria-label="Feature programme">
+          {slides.map((tick, tickIndex) => (
+            <button
+              key={tick.id}
+              type="button"
+              className="remote-feature-tick"
+              aria-label={`Show ${tick.name}`}
+              aria-current={tickIndex === active ? "step" : undefined}
+              onClick={() => setProgramme((current) => featureJump(current, slides.length, tickIndex))}
+            >
+              <span
+                className="remote-feature-tick-fill"
+                style={{ transform: `scaleX(${tickIndex === active ? progress : 0})` }}
+              />
+            </button>
+          ))}
+        </div>
+      ) : null}
+    </section>
   );
 }
