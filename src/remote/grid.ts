@@ -1,7 +1,13 @@
 import { answeredCatalogs, answeredDiscover, answeredSearch } from "../core/answers";
 import type { ActionOutcome } from "../core/answers";
 import { rowWith, type Row } from "../core/browse";
-import { discoverAsk, type DiscoverFeed, type DiscoverKind } from "../core/discover";
+import {
+  discoverAsk,
+  genreFilterFor,
+  type DiscoverFeed,
+  type DiscoverGenreChoice,
+  type DiscoverKind,
+} from "../core/discover";
 import type { NewLevel } from "../core/navigation";
 import { searchAsk, type SearchKind } from "../core/search";
 import type { Action } from "../core/wire";
@@ -28,7 +34,8 @@ export type RemoteGridSource =
   | {
       kind: "discover";
       feedKind: DiscoverKind;
-      genre: number | null;
+      /** The genre chip the row was asked under, or null for All genres. */
+      genre: DiscoverGenreChoice | null;
       feed: DiscoverFeed;
     }
   | {
@@ -78,12 +85,20 @@ export function gridPageAsk(source: RemoteGridSource): Action | null {
       return null;
     case "catalog":
       return catalogPageAsk(source.row);
-    case "discover":
+    case "discover": {
+      const filter =
+        source.genre === null
+          ? { kind: "all" as const }
+          : genreFilterFor(source.genre, source.feedKind);
+      if (filter.kind === "none") {
+        return null;
+      }
       return discoverAsk({
         kind: source.feedKind,
         page: pageToAsk(source.feed),
-        genre: source.genre,
+        genre: filter.kind === "id" ? filter.id : null,
       });
+    }
     case "search":
       return searchAsk({
         query: source.query,

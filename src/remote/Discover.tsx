@@ -5,11 +5,12 @@ import type { ActionOutcome } from "../core/answers";
 import { blankRow, catalogKey, keyOf, rowWith, type Row } from "../core/browse";
 import {
   blankFeed,
+  DISCOVER_GENRES,
   discoverAsk,
   discoverPlayable,
-  genresOf,
-  MOVIE,
+  genreFilterFor,
   type DiscoverFeed,
+  type DiscoverGenreChoice,
   type DiscoverKind,
 } from "../core/discover";
 import { programIndex, rowTag } from "../core/homeProgramme";
@@ -21,12 +22,12 @@ import { PosterCard } from "../kit/PosterCard";
 import { RemoteRail } from "./RemoteRail";
 import { MoreControl, RowNote } from "./RemoteRow";
 import {
-  ALL_GENRES,
-  DISCOVER_KINDS,
+  DISCOVER_ROWS,
   NO_CREDENTIAL_NOTE,
   catalogAsk,
   catalogNote,
   catalogsOf,
+  discoverNoCounterpart,
   discoverNote,
   discoverTag,
   feedTitle,
@@ -46,13 +47,15 @@ export type DiscoverProps = {
 };
 
 /**
- * Discover, in a hand (#207, ADR-0035 §1).
+ * Discover, in a hand (#207, ADR-0036 §1).
  *
  * Two arms, and which one is drawn is the Host's fact: with a TMDB Credential
- * the screen asks `discover` for the kind and genre a person chose, and without
- * one it draws the Addons' own Catalog rows through `browse_catalog` — the only
- * rows a Host with no credential can answer. A credential gained or cleared is
- * a new feed: the arm is a different question, so nothing of the old one stays.
+ * the screen shows one genre row — the union of TMDB's film and series lists —
+ * then two rows, Movies and Series, each asked and paged on its own. Without a
+ * credential it draws the Addons' own Catalog rows through `browse_catalog` —
+ * the only rows a Host with no credential can answer. A credential gained or
+ * cleared is a new pair of rows: the arm is a different question, so nothing of
+ * the old one stays.
  *
  * A press opens a Title and nothing more: a Discovered Title carries no Addon
  * (TMDB named it before any Addon did), and B6 owns the request itself.
@@ -62,29 +65,16 @@ export function Discover({ session, state, push }: DiscoverProps) {
   // Which arm a person gets is the Host's fact. Before the first Snapshot it is
   // not a guess to make: the screen waits rather than asking the wrong Host.
   const credential = snapshot ? snapshot.protection.tmdbHeld : null;
-  const [kind, setKind] = useState<DiscoverKind>(MOVIE);
-  const [genre, setGenre] = useState<number | null>(null);
+  const [genre, setGenre] = useState<DiscoverGenreChoice | null>(null);
   const [arm, setArm] = useState(credential);
 
-  // A credential gained or cleared is a new feed: the filters of the last arm
-  // are not filters of this one, so the screen starts on Movie again. It is
-  // done in the render that learns the fact, so the new arm mounts on Movie
-  // rather than asking the old kind first.
+  // A credential gained or cleared is a new pair of rows: the filters of the
+  // last arm are not filters of this one. It is done in the render that learns
+  // the fact, so the new arm mounts on every genre rather than the old one's.
   if (arm !== credential) {
     setArm(credential);
-    setKind(MOVIE);
     setGenre(null);
   }
-
-  const chooseKind = (next: DiscoverKind) => {
-    if (next === kind) {
-      return;
-    }
-    // TMDB's two genre lists are not the same set, so a film's genre is not a
-    // series' filter. A kind change starts from the whole new feed.
-    setKind(next);
-    setGenre(null);
-  };
 
   const open = (addon: string | null, meta: MetaPreview) => {
     push(titleLevelOf(addon, meta));
@@ -97,55 +87,44 @@ export function Discover({ session, state, push }: DiscoverProps) {
         <span className="remote-screen-rule" aria-hidden="true" />
       </header>
 
-      {credential === null ? null : (
-        <>
-          <div className="remote-filters" role="group" aria-label="Kind">
-            {DISCOVER_KINDS.map(({ kind: entry, label }) => (
-              <ChoiceChip
-                key={entry}
-                pressed={kind === entry}
-                onClick={() => chooseKind(entry)}
-              >
-                {label}
-              </ChoiceChip>
-            ))}
-          </div>
-
-          {credential ? (
-            <KeyedDiscover
-              session={session}
-              state={state}
-              kind={kind}
-              genre={genre}
-              chooseGenre={setGenre}
-              open={open}
-              push={push}
-            />
-          ) : (
-            <CatalogDiscover
-              session={session}
-              state={state}
-              kind={kind}
-              open={open}
-              push={push}
-            />
-          )}
-        </>
+      {credential === null ? null : credential ? (
+        <KeyedDiscover
+          session={session}
+          state={state}
+          genre={genre}
+          chooseGenre={setGenre}
+          open={open}
+          push={push}
+        />
+      ) : (
+        <CatalogDiscover
+          session={session}
+          state={state}
+          open={open}
+          push={push}
+        />
       )}
     </section>
   );
 }
 
+type Feeds = Record<DiscoverKind, DiscoverFeed>;
+
+function blankFeeds(): Feeds {
+  return { movie: blankFeed(), series: blankFeed() };
+}
+
 /**
- * Discover over TMDB: the genre rail for the kind, and one feed asked page by
- * page. A kind or a genre is a new feed and asks page 1; the rail's More card
- * opens the feed as a whole-row grid, whose head asks the next page (or the
- * page that failed) into the same cards (`feedWith`).
+ * Discover over TMDB: one genre row, then Movies and Series, each a feed asked
+ * page by page. A genre is a new pair of feeds and asks page 1 of each kind it
+ * has a counterpart in; a kind with no counterpart keeps its row, drawn empty
+ * with a line saying why. A row's More card opens that row as a whole-row grid,
+ * whose head asks the next page (or the page that failed) into the same cards
+ * (`feedWith`).
  */
 function KeyedDiscover({
   session,
   state,
-  kind,
   genre,
   chooseGenre,
   open,
@@ -153,59 +132,75 @@ function KeyedDiscover({
 }: {
   session: Session;
   state: SessionState;
-  kind: DiscoverKind;
-  genre: number | null;
-  chooseGenre: (genre: number | null) => void;
+  genre: DiscoverGenreChoice | null;
+  chooseGenre: (genre: DiscoverGenreChoice | null) => void;
   open: (addon: string | null, meta: MetaPreview) => void;
   push: (level: NewLevel<RemotePayload>) => string;
 }) {
   const snapshot = state.snapshot;
-  const [feed, setFeed] = useState<DiscoverFeed>(blankFeed);
-  const [reading, setReading] = useState(false);
-  // Which ask owns the feed: an answer for a kind or a genre a person has left
-  // must not land in the one they are looking at.
+  const [feeds, setFeeds] = useState<Feeds>(blankFeeds);
+  const [reading, setReading] = useState<DiscoverKind[]>([]);
+  // Which genre owns both rows: an answer for a genre a person has left must
+  // not land in the rows they are looking at.
   const serial = useRef(0);
 
   const read = useCallback(
-    async (page: number) => {
-      const token = (serial.current += 1);
-      setReading(true);
-      const outcome = await session.ask(discoverAsk({ kind, page, genre }));
+    async (kind: DiscoverKind, page: number) => {
+      const filter =
+        genre === null ? { kind: "all" as const } : genreFilterFor(genre, kind);
+      if (filter.kind === "none") {
+        return;
+      }
+      const token = serial.current;
+      setReading((held) => (held.includes(kind) ? held : [...held, kind]));
+      const outcome = await session.ask(
+        discoverAsk({
+          kind,
+          page,
+          genre: filter.kind === "id" ? filter.id : null,
+        }),
+      );
       if (token !== serial.current) {
         return;
       }
-      setReading(false);
+      setReading((held) => held.filter((heldKind) => heldKind !== kind));
       if (outcome.error) {
-        setFeed((held) => ({ ...held, failure: outcome.error }));
+        setFeeds((held) => ({
+          ...held,
+          [kind]: { ...held[kind], failure: outcome.error },
+        }));
         return;
       }
       const answer = answeredDiscover(outcome.response)[0] ?? null;
-      setFeed((held) => feedAfter(held, answer));
+      setFeeds((held) => ({ ...held, [kind]: feedAfter(held[kind], answer) }));
     },
-    [session, kind, genre],
+    [session, genre],
   );
 
-  // A kind or a genre is a new feed: the page a person read for the last one is
-  // not a page of this one, and the old ask's answer is no longer wanted.
+  // A genre is a new pair of feeds: the pages a person read for the last one
+  // are not pages of these, and the old ask's answer is no longer wanted.
   useEffect(() => {
     serial.current += 1;
-    setFeed(blankFeed());
-    void read(1);
+    setFeeds(blankFeeds());
+    setReading([]);
+    for (const { kind } of DISCOVER_ROWS) {
+      void read(kind, 1);
+    }
     return () => {
       serial.current += 1;
     };
   }, [read]);
 
-  const genreName = genresOf(kind).find((held) => held.id === genre)?.name ?? null;
-  const phase = feedPhase(feed, reading);
-  const couldPlay = snapshot ? discoverPlayable(snapshot.addons, kind) : true;
-
-  const openGrid = () => {
+  const openGrid = (kind: DiscoverKind, index: string) => {
+    const feed = feeds[kind];
+    if (feed.items.length === 0) {
+      return;
+    }
     push(
       gridLevel({
         title: feedTitle(kind),
-        index: programIndex(1),
-        tag: discoverTag(kind, genreName, feed.items.length),
+        index,
+        tag: discoverTag(kind, genre?.name ?? null, feed.items.length),
         addon: null,
         source: { kind: "discover", feedKind: kind, genre, feed },
       }),
@@ -216,75 +211,92 @@ function KeyedDiscover({
     <>
       <div className="remote-filters" role="group" aria-label="Genres">
         <ChoiceChip pressed={genre === null} onClick={() => chooseGenre(null)}>
-          {ALL_GENRES}
+          All genres
         </ChoiceChip>
-        {genresOf(kind).map((held) => (
+        {DISCOVER_GENRES.filter((choice) => !choice.all).map((choice) => (
           <ChoiceChip
-            key={held.id}
-            pressed={genre === held.id}
-            onClick={() => chooseGenre(held.id)}
+            key={choice.name}
+            pressed={genre?.name === choice.name}
+            onClick={() => chooseGenre(choice)}
           >
-            {held.name}
+            {choice.name}
           </ChoiceChip>
         ))}
       </div>
 
-      <RemoteRail
-        index={programIndex(1)}
-        title={feedTitle(kind)}
-        tag={discoverTag(kind, genreName, feed.items.length)}
-        testId="remote-discover-feed"
-        note={
-          <RowNote failure={feed.failure} quiet={discoverNote(phase, genreName)} />
-        }
-        action={
-          feed.items.length > 0 ? (
-            <MoreControl label={feedTitle(kind)} onOpen={openGrid} />
-          ) : null
-        }
-      >
-        {feed.items.map((meta) => (
-          <PosterCard
-            key={meta.id}
-            name={meta.name}
-            poster={meta.poster}
-            rating={meta.imdbRating?.trim() || null}
-            subtitle={meta.releaseInfo}
-            unplayable={!couldPlay || state.unplayable.has(meta.id)}
-            testId={`discover-card-${meta.id}`}
-            onClick={() => open(null, meta)}
-          />
-        ))}
-      </RemoteRail>
+      {DISCOVER_ROWS.map(({ kind }, at) => {
+        const feed = feeds[kind];
+        const loading = reading.includes(kind);
+        const filter =
+          genre === null ? { kind: "all" as const } : genreFilterFor(genre, kind);
+        const none = filter.kind === "none";
+        const phase = feedPhase(feed, loading);
+        const couldPlay = snapshot ? discoverPlayable(snapshot.addons, kind) : true;
+        const title = feedTitle(kind);
+        const index = programIndex(at + 1);
+        const quiet =
+          none && genre !== null
+            ? discoverNoCounterpart(kind, genre.name)
+            : discoverNote(phase, genre?.name ?? null);
+
+        return (
+          <RemoteRail
+            key={kind}
+            index={index}
+            title={title}
+            tag={
+              none ? null : discoverTag(kind, genre?.name ?? null, feed.items.length)
+            }
+            testId={`remote-discover-row-${kind}`}
+            note={<RowNote failure={feed.failure} quiet={quiet} />}
+            action={
+              feed.items.length > 0 ? (
+                <MoreControl label={title} onOpen={() => openGrid(kind, index)} />
+              ) : null
+            }
+          >
+            {feed.items.map((meta) => (
+              <PosterCard
+                key={meta.id}
+                name={meta.name}
+                poster={meta.poster}
+                rating={meta.imdbRating?.trim() || null}
+                subtitle={meta.releaseInfo}
+                unplayable={!couldPlay || state.unplayable.has(meta.id)}
+                testId={`discover-card-${meta.id}`}
+                onClick={() => open(null, meta)}
+              />
+            ))}
+          </RemoteRail>
+        );
+      })}
     </>
   );
 }
 
 /**
- * Discover with no TMDB Credential: the Addons' own Catalog rows, of the kind a
- * person chose, each asked page by page. The genre rail is TMDB's and stays
- * away — an Addon's `genre` values are the Addon's own, and sending TMDB's ids
- * for them would be a second table that lies (ADR-0010, ADR-0020).
+ * Discover with no TMDB Credential: the Addons' own Catalog rows of both kinds,
+ * in the Addons' order, each asked page by page. The genre row is TMDB's and
+ * stays away — an Addon's `genre` values are the Addon's own, and sending
+ * TMDB's ids for them would be a second table that lies (ADR-0010, ADR-0020).
  */
 function CatalogDiscover({
   session,
   state,
-  kind,
   open,
   push,
 }: {
   session: Session;
   state: SessionState;
-  kind: DiscoverKind;
   open: (addon: string | null, meta: MetaPreview) => void;
   push: (level: NewLevel<RemotePayload>) => string;
 }) {
   const snapshot = state.snapshot;
-  const catalogs = useMemo(() => catalogsOf(snapshot, kind), [snapshot, kind]);
+  const catalogs = useMemo(() => catalogsOf(snapshot), [snapshot]);
   const fingerprint = catalogs.map((catalog) => catalogKey(catalog)).join("|");
   const [rows, setRows] = useState<Row[]>([]);
-  // Which kind owns the rows: an answer to the kind a person left is dropped
-  // rather than landing in a row that is no longer drawn.
+  // Which Catalogs own the rows: an answer to the last set is dropped rather
+  // than landing in a row that is no longer drawn.
   const serial = useRef(0);
 
   const run = useCallback(
@@ -301,8 +313,8 @@ function CatalogDiscover({
     [session],
   );
 
-  // A kind, or the Catalogs it names, is a new feed: page 1 of each, in the
-  // Addons' order, and nothing carried over from the last one.
+  // The Catalogs are a new set of rows: page 1 of each, in the Addons' order,
+  // and nothing carried over from the last one.
   useEffect(() => {
     serial.current += 1;
     setRows(catalogs.map((catalog) => blankRow(catalog)));
@@ -317,7 +329,7 @@ function CatalogDiscover({
   }, [fingerprint, run]);
 
   if (catalogs.length === 0) {
-    const empty = noCatalogState(kind);
+    const empty = noCatalogState();
     return (
       <div className="remote-empty" data-testid="discover-no-catalogs">
         <h2 className="remote-empty-title">{empty.title}</h2>

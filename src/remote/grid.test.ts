@@ -162,21 +162,32 @@ describe("a whole-row grid", () => {
     });
   });
 
-  test("a Discover feed's head action asks one page on from what it read", () => {
+  test("a Discover feed's head action asks one page on, by the kind's own genre id", () => {
     const feed = { ...blankFeed(), page: 1, items: [meta("tmdb:1", "One")] };
     const source: RemoteGridSource = {
       kind: "discover",
-      feedKind: "movie",
-      genre: 28,
+      feedKind: "series",
+      genre: { name: "Action", movie: 28, series: 10759, all: false },
       feed,
     };
 
     expect(gridPageAsk(source)).toEqual({
       type: "discover",
-      kind: "movie",
+      kind: "series",
       page: 2,
-      genre: 28,
+      genre: 10759,
     });
+  });
+
+  test("a grid under a genre its kind has no counterpart in has no page to ask", () => {
+    const source: RemoteGridSource = {
+      kind: "discover",
+      feedKind: "series",
+      genre: { name: "TV Movie", movie: 10770, series: null, all: false },
+      feed: { ...blankFeed(), page: 1, items: [meta("tmdb:1", "One")] },
+    };
+
+    expect(gridPageAsk(source)).toBeNull();
   });
 
   test("a Discover page appends to the feed, and a failure keeps what it read", () => {

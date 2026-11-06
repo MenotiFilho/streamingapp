@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { keyOf, pageable, type Row } from "../core/browse";
-import { discoverPlayable, genresOf } from "../core/discover";
+import { discoverPlayable } from "../core/discover";
 import { continueArt } from "../core/home";
 import { rowTag, rowTagOf } from "../core/homeProgramme";
 import { cardName, cardNote, progressOf, resumable } from "../core/library";
@@ -207,10 +207,11 @@ function tagOf(
     return `${entries?.length ?? 0} in progress`;
   }
   if (source.kind === "discover") {
-    const genre =
-      genresOf(source.feedKind).find((held) => held.id === source.genre)?.name ??
-      null;
-    return discoverTag(source.feedKind, genre, source.feed.items.length);
+    return discoverTag(
+      source.feedKind,
+      source.genre?.name ?? null,
+      source.feed.items.length,
+    );
   }
   if (source.kind === "search") {
     return rowTagOf("TMDB", source.feedKind, source.feed.items.length);

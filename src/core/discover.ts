@@ -12,7 +12,7 @@
  * `/genre/tv/list` as the #48 research note records them. The two lists are not
  * the same set. Discover draws one genre row, their union by name with **All
  * genres** first, and a chip carries the id each kind is asked by; a kind with
- * no counterpart answers `null` so its row can say so rather than hiding it
+ * no counterpart answers `none` so its row can say so rather than hiding it
  * (ADR-0036 §1). The Host judges the ids against the same split (research note
  * §3, ADR-0020).
  */
@@ -95,7 +95,7 @@ export type DiscoverGenreChoice = {
   /**
    * Whether the choice filters nothing. All genres is the row's first chip; a
    * genre that answers `null` for a kind is instead "no counterpart", and that
-   * kind's row is drawn empty with a line saying so.
+   * kind's row is drawn empty with a line saying so (`genreFilterFor`).
    */
   all: boolean;
 };
@@ -160,11 +160,31 @@ export const DISCOVER_GENRES: readonly DiscoverGenreChoice[] = [
 ];
 
 /**
- * The id a chosen genre asks a kind by, or `null` where that kind has no
- * counterpart: the row is then drawn empty rather than hidden (ADR-0036 §1).
+ * How a chosen genre filters one kind: nothing at all, nothing at all *for that
+ * kind* because TMDB lists no counterpart, or TMDB's own id (ADR-0036 §1).
+ *
+ * The two "nothing"s are different answers and a caller must not read them as
+ * one: All genres asks the whole weekly feed, while a kind with no counterpart
+ * draws its row empty with a line saying why.
  */
-export function genreIdFor(choice: DiscoverGenreChoice, kind: DiscoverKind): number | null {
-  return kind === MOVIE ? choice.movie : choice.series;
+export type GenreFilter =
+  | { kind: "all" }
+  | { kind: "none" }
+  | { kind: "id"; id: number };
+
+/**
+ * How a chosen genre filters one kind: `all` for All genres, `none` where that
+ * kind has no counterpart, and TMDB's id for the kind where it has one.
+ */
+export function genreFilterFor(
+  choice: DiscoverGenreChoice,
+  kind: DiscoverKind,
+): GenreFilter {
+  if (choice.all) {
+    return { kind: "all" };
+  }
+  const id = kind === MOVIE ? choice.movie : choice.series;
+  return id === null ? { kind: "none" } : { kind: "id", id };
 }
 
 /** One page a client is asking for: the kind, the page, and the genre filter. */
