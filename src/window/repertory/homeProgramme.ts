@@ -34,10 +34,18 @@ export const HOME_RAIL_ITEMS = 20;
 
 export {
   FEATURE_ROTATION_MS,
+  FEATURE_START,
+  featureElapse,
+  featureHold,
+  featureJump,
   featurePosition,
+  featureProgress,
+  featureRelease,
+  featureRotates,
   featureStep,
+  featureStepThrough,
   homeEmptyState,
   homeSectionIndex,
   rowTag,
 } from "../../core/homeProgramme";
-export type { HomeEmptyState } from "../../core/homeProgramme";
+export type { FeatureProgramme, HomeEmptyState } from "../../core/homeProgramme";

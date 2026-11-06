@@ -204,24 +204,21 @@ describe("the Remote's docked strip", () => {
     );
   });
 
-  test("opens the card, and the strip stays drawn under it", async () => {
+  test("steps aside on the player screen, and returns on leaving it", async () => {
     mount();
-    const card = await openCard();
+    expect(await screen.findByLabelText(STRIP_LABEL)).toBeInTheDocument();
 
-    expect(card).toBeInTheDocument();
-    expect(screen.getByLabelText(STRIP_LABEL)).toBeInTheDocument();
-  });
-
-  test("a second press replaces the card rather than stacking a second one", async () => {
-    mount();
     await openCard();
+    expect(screen.queryByLabelText(STRIP_LABEL)).not.toBeInTheDocument();
 
-    fireEvent.click(
-      within(strip()).getByRole("button", { name: new RegExp(STRIP_EXPAND) }),
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    await waitFor(() =>
+      expect(screen.getByLabelText(STRIP_LABEL)).toBeInTheDocument(),
     );
-
-    expect(screen.getAllByRole("region", { name: CARD_NAME })).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: "Back" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Home" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 });
 

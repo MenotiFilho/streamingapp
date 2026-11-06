@@ -4,11 +4,20 @@ import type { Row } from "./browse";
 import type { AddonManifest, Snapshot } from "./wire";
 import {
   FEATURE_ROTATION_MS,
+  FEATURE_START,
+  featureElapse,
+  featureHold,
+  featureJump,
   featurePosition,
+  featureProgress,
+  featureRelease,
+  featureRotates,
   featureStep,
+  featureStepThrough,
   homeEmptyState,
   homeSectionIndex,
   rowTag,
+  type FeatureProgramme,
 } from "./homeProgramme";
 
 /**
@@ -113,5 +122,71 @@ describe("Home's programme decisions", () => {
       body: "No Addon offers a Catalog to print.",
       action: "addons",
     });
+  });
+});
+
+/** A programme part-way through an item, as the seam's callers hold it. */
+function at(index: number, elapsed = 0, held = false): FeatureProgramme {
+  return { index, elapsed, held };
+}
+
+/**
+ * The feature's programme as both clients steer it (ADR-0036 §2): a step that
+ * wraps, a tick that jumps and restarts, a hold that pauses, and a beat that
+ * keeps turning under reduced motion.
+ */
+describe("The feature's programme", () => {
+  it("starts on the first item with its whole time ahead of it", () => {
+    expect(FEATURE_START).toEqual(at(0));
+  });
+
+  it("steps through the programme, wrapping at either end and restarting the item's time", () => {
+    expect(featureStepThrough(at(0, 12_000), 4, 1)).toEqual(at(1));
+    expect(
+      featureStepThrough(at(0, 12_000), 4, -1),
+      "Left at the first item wraps",
+    ).toEqual(at(3));
+    expect(
+      featureStepThrough(at(3, 23_000), 4, 1),
+      "Right at the last item wraps",
+    ).toEqual(at(0));
+  });
+
+  it("spends each item's 24 seconds and wraps to the next with the remainder", () => {
+    expect(featureElapse(at(0), 4, 12_000)).toEqual(at(0, 12_000));
+    expect(featureElapse(at(0), 4, FEATURE_ROTATION_MS)).toEqual(at(1));
+    expect(featureElapse(at(3, 23_950), 4, 100)).toEqual(at(0, 50));
+    expect(
+      featureElapse(at(0, 1_000), 1, FEATURE_ROTATION_MS),
+      "one item has nowhere to turn",
+    ).toEqual(at(0, 1_000));
+  });
+
+  it("jumps to the tick a person presses and restarts that item's time", () => {
+    expect(featureJump(at(0, 12_000), 4, 2)).toEqual(at(2));
+    expect(featureJump(at(0), 4, 9), "a tick outside the programme lands on the last").toEqual(
+      at(3),
+    );
+    expect(featureJump(at(0), 4, -1)).toEqual(at(0));
+  });
+
+  it("holds the fill and resumes it from where it stopped", () => {
+    const held = featureHold(at(0, 5_000));
+    expect(featureElapse(held, 4, FEATURE_ROTATION_MS)).toEqual(held);
+    expect(featureElapse(featureRelease(held), 4, 4_000)).toEqual(at(0, 9_000));
+  });
+
+  it("fills the current tick over the item's 24 seconds", () => {
+    expect(featureProgress(at(0))).toBe(0);
+    expect(featureProgress(at(0, 12_000))).toBe(0.5);
+    expect(featureProgress(at(0, FEATURE_ROTATION_MS))).toBe(1);
+  });
+
+  it("keeps the beat under reduced motion", () => {
+    expect(featureRotates(4, true), "ADR-0036 §2 supersedes 'reduced motion stops it'").toBe(
+      true,
+    );
+    expect(featureRotates(1, true)).toBe(false);
+    expect(featureRotates(4, false)).toBe(true);
   });
 });

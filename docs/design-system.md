@@ -248,7 +248,9 @@ calls — the rail scroll and the focus reveal — check `useReducedMotion()` an
 jump instead of animating. The served Remote reads the same hook from
 `src/core/react`. Under the same media query
 the CSS transform transitions are disabled and the width fills snap; only opacity
-and colour still fade. The feature stops rotating. This **replaces** the earlier
+and colour still fade. The feature is the exception: its beat keeps turning and
+its tick's fill is the one movement left, while the slide change is a fade
+(ADR-0036 §2). This **replaces** the earlier
 0ms rule: with reduced motion the room keeps its fades and loses its movement.
 The OSD's auto-hide clock, the focus rules and every Action are untouched.
 
@@ -488,11 +490,12 @@ keyboard focus keeps the ivory keyline for a Remote driven by a keyboard, and a
 finger gets the pressed ink step. The bottom index is the six destinations with
 a 2px brass keyline on the active one. The docked strip is a full-width band
 above the index (still, Title/episode, progress hairline, −10s, play/pause) and
-reserves its height. The expanded card is the programme card: the backdrop
-between hairlines, the Title, the timeline, the six-cell transport, the
-always-visible volume box, and the five-menu row (Audio, Episodes, Speed,
-Chapters, Picture) opening one shared drawer. **Remote devices is a Settings
-leaf**, not a seventh destination.
+reserves its height; on the player screen itself it steps aside, and the card
+and the index are the whole dock (ADR-0036 §4). The expanded card is the
+programme card: the backdrop between hairlines, the Title, the timeline, the
+six-cell transport, the always-visible volume box, and the five-menu row (Audio,
+Episodes, Speed, Chapters, Picture) opening one shared drawer. **Remote devices
+is a Settings leaf**, not a seventh destination.
 
 The hand scale is locked as measured; one tuning pass on a real handset is
 allowed in the Remote's build ticket (#159), and it changes values, not roles.
