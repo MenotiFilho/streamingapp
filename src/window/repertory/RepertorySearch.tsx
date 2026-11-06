@@ -16,6 +16,7 @@ import {
 import type { CatalogRow, MetaPreview } from "../../core/wire";
 import { explain, type ActionError } from "../../core/errors";
 import { answeredCatalogs, answeredSearch } from "../../core/answers";
+import { pageFit } from "../../core/pageLayout";
 import { SEARCH_KINDS, searchAsk, type SearchKind } from "../../core/search";
 import { useShell } from "../context";
 import { addonLabel } from "../../core/home";
@@ -171,6 +172,7 @@ export function RepertorySearchScreen() {
   };
 
   const canSubmit = draft.trim().length > 0;
+  const fit = pageFit("search");
 
   const rowNote = (
     feed: DiscoverFeed,
@@ -307,6 +309,8 @@ export function RepertorySearchScreen() {
       data-region="search-screen"
       data-kind="branch"
       data-label="Search"
+      data-page={fit.fitted ? "fitted" : undefined}
+      data-panel={fit.panel ?? undefined}
     >
       <ProgrammeLine name="Search" testId="search-programme-line" />
 
@@ -345,98 +349,100 @@ export function RepertorySearchScreen() {
             />
           </form>
 
-          {keyed && committed !== null ? (
-            <div className="rep-search-results" data-testid="search-results">
-              {SEARCH_KINDS.map(({ kind, label }) => {
-                const feed = rows[kind];
-                return (
-                  <EditorialRow
-                    key={kind}
-                    title={label}
-                    tag={rowTagOf("TMDB", kind, feed.items.length)}
-                    action={keyedAction(kind)}
-                    failure={feed.failure}
-                    note={rowNote(feed, paging.includes(kind), kind, committed)}
-                    region={`search-row:${kind}`}
-                    onOpenRow={
-                      feed.items.length > 0
-                        ? () => openKeyedGrid(kind, label)
-                        : undefined
-                    }
-                    testId={`search-row-${kind}`}
+          <div className="rep-page-panel">
+            {keyed && committed !== null ? (
+              <div className="rep-search-results" data-testid="search-results">
+                {SEARCH_KINDS.map(({ kind, label }) => {
+                  const feed = rows[kind];
+                  return (
+                    <EditorialRow
+                      key={kind}
+                      title={label}
+                      tag={rowTagOf("TMDB", kind, feed.items.length)}
+                      action={keyedAction(kind)}
+                      failure={feed.failure}
+                      note={rowNote(feed, paging.includes(kind), kind, committed)}
+                      region={`search-row:${kind}`}
+                      onOpenRow={
+                        feed.items.length > 0
+                          ? () => openKeyedGrid(kind, label)
+                          : undefined
+                      }
+                      testId={`search-row-${kind}`}
+                    >
+                      {feed.items.map((meta) =>
+                        keyedCard(
+                          meta,
+                          `search-card-${kind}-${meta.id}`,
+                          couldPlay(kind),
+                        ),
+                      )}
+                    </EditorialRow>
+                  );
+                })}
+              </div>
+            ) : null}
+
+            {!keyed && committed !== null ? (
+              <div className="rep-search-results" data-testid="search-catalogs">
+                {catalogAnswer.loading ? (
+                  <p
+                    role="status"
+                    className="rep-feed-note"
+                    data-testid="search-catalogs-loading"
                   >
-                    {feed.items.map((meta) =>
-                      keyedCard(
-                        meta,
-                        `search-card-${kind}-${meta.id}`,
-                        couldPlay(kind),
-                      ),
+                    Searching every searchable Catalog…
+                  </p>
+                ) : null}
+
+                {catalogAnswer.failure ? (
+                  <p
+                    role="alert"
+                    className="rep-feed-failure"
+                    data-testid="search-catalogs-failure"
+                  >
+                    {explain(catalogAnswer.failure)}
+                  </p>
+                ) : null}
+
+                {catalogAnswer.rows?.map((row) => (
+                  <EditorialRow
+                    key={keyOf(row)}
+                    title={row.name}
+                    tag={catalogTag(row)}
+                    failure={row.failure}
+                    note={catalogNote(row)}
+                    action={
+                      row.failure ? (
+                        <Button
+                          variant="ghost"
+                          onClick={() => committed && void loadCatalogs(committed)}
+                        >
+                          Search again
+                        </Button>
+                      ) : null
+                    }
+                    region={`search-row:${keyOf(row)}`}
+                    onOpenRow={row.metas.length > 0 ? () => openCatalogGrid(row) : undefined}
+                    testId={`search-row-${keyOf(row)}`}
+                  >
+                    {row.metas.map((meta) =>
+                      catalogCard(row, meta, `search-card-${row.addon}-${meta.id}`),
                     )}
                   </EditorialRow>
-                );
-              })}
-            </div>
-          ) : null}
+                ))}
 
-          {!keyed && committed !== null ? (
-            <div className="rep-search-results" data-testid="search-catalogs">
-              {catalogAnswer.loading ? (
-                <p
-                  role="status"
-                  className="rep-feed-note"
-                  data-testid="search-catalogs-loading"
-                >
-                  Searching every searchable Catalog…
-                </p>
-              ) : null}
+                {!catalogAnswer.loading &&
+                !catalogAnswer.failure &&
+                catalogAnswer.rows?.length === 0 ? (
+                  <p className="rep-feed-note" data-testid="search-no-answer">
+                    No Addon offers a Catalog that can be searched.
+                  </p>
+                ) : null}
 
-              {catalogAnswer.failure ? (
-                <p
-                  role="alert"
-                  className="rep-feed-failure"
-                  data-testid="search-catalogs-failure"
-                >
-                  {explain(catalogAnswer.failure)}
-                </p>
-              ) : null}
-
-              {catalogAnswer.rows?.map((row) => (
-                <EditorialRow
-                  key={keyOf(row)}
-                  title={row.name}
-                  tag={catalogTag(row)}
-                  failure={row.failure}
-                  note={catalogNote(row)}
-                  action={
-                    row.failure ? (
-                      <Button
-                        variant="ghost"
-                        onClick={() => committed && void loadCatalogs(committed)}
-                      >
-                        Search again
-                      </Button>
-                    ) : null
-                  }
-                  region={`search-row:${keyOf(row)}`}
-                  onOpenRow={row.metas.length > 0 ? () => openCatalogGrid(row) : undefined}
-                  testId={`search-row-${keyOf(row)}`}
-                >
-                  {row.metas.map((meta) =>
-                    catalogCard(row, meta, `search-card-${row.addon}-${meta.id}`),
-                  )}
-                </EditorialRow>
-              ))}
-
-              {!catalogAnswer.loading &&
-              !catalogAnswer.failure &&
-              catalogAnswer.rows?.length === 0 ? (
-                <p className="rep-feed-note" data-testid="search-no-answer">
-                  No Addon offers a Catalog that can be searched.
-                </p>
-              ) : null}
-
-            </div>
-          ) : null}
+              </div>
+            ) : null}
+          </div>
         </>
       ) : null}
 

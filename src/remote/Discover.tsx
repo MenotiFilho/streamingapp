@@ -227,60 +227,62 @@ function KeyedDiscover({
         ))}
       </div>
 
-      {DISCOVER_ROWS.map(({ kind }, at) => {
-        const feed = feeds[kind];
-        const loading = reading.includes(kind);
-        const filter =
-          genre === null ? { kind: "all" as const } : genreFilterFor(genre, kind);
-        const none = filter.kind === "none";
-        const phase = feedPhase(feed, loading);
-        const couldPlay = snapshot ? discoverPlayable(snapshot.addons, kind) : true;
-        const title = feedTitle(kind);
-        const index = programIndex(at + 1);
-        const quiet =
-          none && genre !== null
-            ? discoverNoCounterpart(kind, genre.name)
-            : discoverNote(phase, genre?.name ?? null);
+      <div className="remote-page-panel">
+        {DISCOVER_ROWS.map(({ kind }, at) => {
+          const feed = feeds[kind];
+          const loading = reading.includes(kind);
+          const filter =
+            genre === null ? { kind: "all" as const } : genreFilterFor(genre, kind);
+          const none = filter.kind === "none";
+          const phase = feedPhase(feed, loading);
+          const couldPlay = snapshot ? discoverPlayable(snapshot.addons, kind) : true;
+          const title = feedTitle(kind);
+          const index = programIndex(at + 1);
+          const quiet =
+            none && genre !== null
+              ? discoverNoCounterpart(kind, genre.name)
+              : discoverNote(phase, genre?.name ?? null);
 
-        return (
-          <RemoteRail
-            key={kind}
-            index={index}
-            title={title}
-            tag={
-              none ? null : discoverTag(kind, genre?.name ?? null, feed.items.length)
-            }
-            testId={`remote-discover-row-${kind}`}
-            note={<RowNote failure={feed.failure} quiet={quiet} />}
-            action={
-              <PagingControl
-                failure={feed.failure}
-                more={feedMore(feed)}
-                loading={loading}
-                onMore={() => void read(kind, pageToAsk(feed))}
-              />
-            }
-            more={
-              feed.items.length > 0 ? (
-                <MoreControl label={title} onOpen={() => openGrid(kind, index)} />
-              ) : null
-            }
-          >
-            {feed.items.map((meta) => (
-              <PosterCard
-                key={meta.id}
-                name={meta.name}
-                poster={meta.poster}
-                rating={meta.imdbRating?.trim() || null}
-                subtitle={meta.releaseInfo}
-                unplayable={!couldPlay || state.unplayable.has(meta.id)}
-                testId={`discover-card-${meta.id}`}
-                onClick={() => open(null, meta)}
-              />
-            ))}
-          </RemoteRail>
-        );
-      })}
+          return (
+            <RemoteRail
+              key={kind}
+              index={index}
+              title={title}
+              tag={
+                none ? null : discoverTag(kind, genre?.name ?? null, feed.items.length)
+              }
+              testId={`remote-discover-row-${kind}`}
+              note={<RowNote failure={feed.failure} quiet={quiet} />}
+              action={
+                <PagingControl
+                  failure={feed.failure}
+                  more={feedMore(feed)}
+                  loading={loading}
+                  onMore={() => void read(kind, pageToAsk(feed))}
+                />
+              }
+              more={
+                feed.items.length > 0 ? (
+                  <MoreControl label={title} onOpen={() => openGrid(kind, index)} />
+                ) : null
+              }
+            >
+              {feed.items.map((meta) => (
+                <PosterCard
+                  key={meta.id}
+                  name={meta.name}
+                  poster={meta.poster}
+                  rating={meta.imdbRating?.trim() || null}
+                  subtitle={meta.releaseInfo}
+                  unplayable={!couldPlay || state.unplayable.has(meta.id)}
+                  testId={`discover-card-${meta.id}`}
+                  onClick={() => open(null, meta)}
+                />
+              ))}
+            </RemoteRail>
+          );
+        })}
+      </div>
     </>
   );
 }
@@ -360,10 +362,11 @@ function CatalogDiscover({
   return (
     <>
       <p className="remote-quiet">{NO_CREDENTIAL_NOTE}</p>
-      {rows.map((row, index) => {
-        const key = keyOf(row);
-        return (
-          <RemoteRail
+      <div className="remote-page-panel">
+        {rows.map((row, index) => {
+          const key = keyOf(row);
+          return (
+            <RemoteRail
             key={key}
             index={programIndex(index + 1)}
             title={row.name}
@@ -413,7 +416,8 @@ function CatalogDiscover({
             ))}
           </RemoteRail>
         );
-      })}
+        })}
+      </div>
     </>
   );
 }

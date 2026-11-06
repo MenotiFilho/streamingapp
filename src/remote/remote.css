@@ -88,6 +88,109 @@ body {
   padding: var(--rep-space-5) var(--rep-remote-gutter);
 }
 
+/* --------------------------------------------------------------------------
+ * The page rule (ADR-0036 §3): a fitted screen fills the phone's viewport and
+ * never scrolls it. The screen's own panel is the one scrollport; Home and the
+ * utility register keep a scrolling page.
+ * -------------------------------------------------------------------------- */
+
+.remote-ui[data-page="fitted"] {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.remote-ui[data-page="fitted"] .remote-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.remote-ui[data-page="fitted"] .remote-main > .remote-discover,
+.remote-ui[data-page="fitted"] .remote-main > .remote-search,
+.remote-ui[data-page="fitted"] .remote-main > .remote-level-page {
+  flex: 1;
+  min-height: 0;
+}
+
+.remote-ui[data-page="fitted"] .remote-discover,
+.remote-ui[data-page="fitted"] .remote-search {
+  overflow: hidden;
+}
+
+.remote-page-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-5);
+  min-width: 0;
+}
+
+/* The feed's own panel: Discover's and Search's rows move under a fixed head
+ * and chips, and the page does not. */
+.remote-ui[data-page="fitted"][data-panel="rows"] .remote-discover > .remote-page-panel,
+.remote-ui[data-page="fitted"][data-panel="rows"] .remote-search > .remote-page-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+/* The Title is one page: the episode list scrolls inside its own panel. */
+.remote-ui[data-page="fitted"] .remote-level-page {
+  overflow: hidden;
+}
+
+.remote-ui[data-page="fitted"][data-panel="episodes"] .remote-title-level {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.remote-ui[data-page="fitted"][data-panel="episodes"] .remote-title {
+  flex: 1;
+  min-height: 0;
+}
+
+.remote-ui[data-page="fitted"][data-panel="episodes"] .remote-title-copy {
+  flex: none;
+}
+
+.remote-ui[data-page="fitted"][data-panel="episodes"] .remote-title-side {
+  flex: 1;
+  min-height: 0;
+}
+
+.remote-ui[data-page="fitted"][data-panel="episodes"] .remote-title-program {
+  flex: 1;
+  min-height: 0;
+}
+
+.remote-ui[data-page="fitted"][data-panel="episodes"] .remote-title-episodes {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+/* The player card is one screen: the controls are laid out to fit, and only a
+ * viewport shorter than the card scrolls the card itself. */
+.remote-ui[data-page="fitted"][data-panel="card"] .remote-level-page > .remote-player-card {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
 .remote-destination-title {
   margin: 0 0 var(--rep-space-3);
   font-family: var(--rep-display);
@@ -1803,6 +1906,13 @@ body {
   .remote-title-side {
     border-top: 0;
     padding-top: 0;
+  }
+
+  /* A fitted Title's two columns share the page's height, so the episode rail
+   * has a panel to scroll inside rather than its content height. */
+  .remote-ui[data-page="fitted"][data-panel="episodes"] .remote-title {
+    align-items: stretch;
+    grid-template-rows: minmax(0, 1fr);
   }
 }
 
