@@ -5,15 +5,15 @@ name: CI
 # only supported toolchain: the Host links libmpv and the window needs WebKitGTK,
 # so a bare `ubuntu-latest` job would not be the environment the code is built in.
 #
-# A docs-only pull request still runs `verify` — it is the required check — but
-# the job short-circuits before building the image. Everything else, including
-# this workflow, runs the full list.
+# A docs-only pull request still runs `verify`, but the job short-circuits
+# before building the image. Everything else, including this workflow, runs the
+# full list.
+#
+# It runs only by hand. `verify` runs on the owner's machine through
+# `scripts/ci.sh`, which posts the result to the pull request; GitHub's runners
+# are not part of landing a change (docs/agents/ci.md).
 
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
