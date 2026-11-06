@@ -329,7 +329,7 @@ describe("Home's feature presentation", () => {
     expect(activeSlide()).toBe("tt4");
   });
 
-  it("stops the beat under reduced motion", async () => {
+  it("keeps the beat under reduced motion", async () => {
     reduceMotion();
     onlyIntervals();
     renderHome();
@@ -337,7 +337,111 @@ describe("Home's feature presentation", () => {
 
     expect(activeSlide()).toBe("tt1");
     act(() => vi.advanceTimersByTime(FEATURE_ROTATION_MS));
+    expect(
+      activeSlide(),
+      "ADR-0036 §2 supersedes the design record's 'reduced motion stops it'",
+    ).toBe("tt2");
+  });
+
+  it("restarts the stepped-to slide's time when focus lets go", async () => {
+    onlyIntervals();
+    const { value } = renderHome();
+    await flush();
+
+    const action = screen.getByRole("button", { name: /Open the Title/ });
+    act(() => action.focus());
+    await flush();
+    act(() => vi.advanceTimersByTime(12_000));
+
+    act(() => expect(baseIntent(value)("right")).toBe(true));
+    expect(activeSlide()).toBe("tt2");
+
+    act(() => action.blur());
+    act(() => vi.advanceTimersByTime(12_000));
+    expect(activeSlide(), "the press restarted Two's time").toBe("tt2");
+    act(() => vi.advanceTimersByTime(12_000));
+    expect(activeSlide()).toBe("tt3");
+  });
+
+  it("jumps to the tick a person presses and restarts that item's time", async () => {
+    onlyIntervals();
+    renderHome();
+    await flush();
+
+    act(() => vi.advanceTimersByTime(12_000));
     expect(activeSlide()).toBe("tt1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Show Three" }));
+    expect(activeSlide()).toBe("tt3");
+    expect(screen.getByRole("button", { name: "Show Three" })).toHaveAttribute(
+      "aria-current",
+      "step",
+    );
+
+    act(() => vi.advanceTimersByTime(12_000));
+    expect(activeSlide(), "the jump restarted Three's time").toBe("tt3");
+
+    act(() => vi.advanceTimersByTime(12_000));
+    expect(activeSlide()).toBe("tt4");
+  });
+
+  it("steps with a horizontal drag and does not open the Title", async () => {
+    onlyIntervals();
+    const { pushed } = renderHome();
+    await flush();
+
+    const frame = screen.getByRole("button", { name: /Open the Title/ });
+    fireEvent.pointerDown(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 320,
+      clientY: 200,
+    });
+    fireEvent.pointerMove(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 240,
+      clientY: 204,
+    });
+    fireEvent.pointerUp(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 240,
+      clientY: 204,
+    });
+    fireEvent.click(frame);
+
+    expect(activeSlide()).toBe("tt2");
+    expect(pushed, "the drag's click is not a press on the feature").toHaveLength(0);
+  });
+
+  it("wraps a drag back from the first slide to the last", async () => {
+    onlyIntervals();
+    renderHome();
+    await flush();
+
+    const frame = screen.getByRole("button", { name: /Open the Title/ });
+    fireEvent.pointerDown(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 200,
+      clientY: 200,
+    });
+    fireEvent.pointerMove(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 300,
+      clientY: 198,
+    });
+    fireEvent.pointerUp(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 300,
+      clientY: 198,
+    });
+    fireEvent.click(frame);
+
+    expect(activeSlide()).toBe("tt4");
   });
 
   it("opens the feature's Title through the Featured catalog's Addon", async () => {

@@ -7,6 +7,10 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import type {
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 
 import {
   catalogKey,
@@ -27,14 +31,23 @@ import { useReducedMotion } from "../../core/react/useReducedMotion";
 import { usePreviewData } from "./context";
 import {
   FEATURE_ROTATION_MS,
+  FEATURE_START,
   HOME_RAIL_ITEMS,
   HOME_RAIL_PAGE,
   HOME_RAIL_VISIBLE,
+  featureElapse,
+  featureHold,
+  featureJump,
   featurePosition,
+  featureProgress,
+  featureRelease,
+  featureRotates,
   featureStep,
+  featureStepThrough,
   homeEmptyState,
   homeSectionIndex,
   rowTag,
+  type FeatureProgramme,
 } from "./homeProgramme";
 import { Button } from "../../kit/Button";
 import { ContinueWatchingCard } from "../../kit/ContinueWatchingCard";
@@ -53,6 +66,21 @@ export { FEATURE_ROTATION_MS };
 type FeatureItem = {
   slide: HeroSlide;
   meta: MetaPreview;
+};
+
+/** How often the programme's clock is read while the Feature is on screen. */
+const FEATURE_CLOCK_MS = 100;
+
+/** How far a horizontal drag travels before it steps one item. */
+const FEATURE_DRAG_PX = 40;
+
+/** One gesture on the feature: where it started and what it has done. */
+type FeatureDrag = {
+  active: boolean;
+  x: number;
+  y: number;
+  /** Whether this gesture has already stepped the programme. */
+  stepped: boolean;
 };
 
 function MetaLine({
@@ -79,10 +107,13 @@ function MetaLine({
  * ink scrim, the Title in display serif over it, the mono kicker with the
  * programme's position, one line of facts, the description and one action.
  *
- * It walks the Featured catalog's first slides every 24 seconds while the
- * action is unfocused; focus holds it, Left/Right step it, and reduced motion
- * stops the beat. The slides cross-fade with Motion, and the action is one
- * persistent control, so stepping never takes focus away from it.
+ * It walks the Featured catalog's first slides on its 24-second beat, one tick
+ * per slide filling under the action. Focus or a held pointer pauses the fill;
+ * Left/Right and a horizontal drag step it; a tick jumps to its slide; every
+ * interaction restarts that slide's time (ADR-0036 §2). The step, jump, hold
+ * and beat decisions are the core's programme; this screen only holds it and
+ * reads it. The slides cross-fade with Motion, and reduced motion keeps the
+ * beat — the tick's fill is the only movement it leaves.
  */
 function Feature({
   items,
@@ -91,14 +122,24 @@ function Feature({
   items: readonly FeatureItem[];
   onOpen: (item: FeatureItem) => void;
 }) {
-  const [index, setIndex] = useState(0);
-  const [held, setHeld] = useState(false);
+  const [programme, setProgramme] = useState<FeatureProgramme>(FEATURE_START);
   const reducedMotion = useReducedMotion();
   const { setBaseIntentHandler } = useShell();
   const frame = useRef<HTMLDivElement | null>(null);
-  const active = Math.min(index, Math.max(0, items.length - 1));
+  const drag = useRef<FeatureDrag>({ active: false, x: 0, y: 0, stepped: false });
+  const active = Math.min(programme.index, Math.max(0, items.length - 1));
   const item = items[active];
-  const rotating = items.length > 1 && !reducedMotion;
+  const rotating = featureRotates(items.length, reducedMotion);
+  const progress = featureProgress(programme);
+
+  // Focus and a held pointer both pause the fill. A pointer that lets go while
+  // focus is still on the frame does not release the programme: focus holds it.
+  const hold = () => setProgramme(featureHold);
+  const release = () => {
+    if (document.activeElement !== frame.current) {
+      setProgramme(featureRelease);
+    }
+  };
 
   // The feature's Left/Right is one decision for the D-pad and the arrow keys:
   // both arrive here as intents. At the first slide Left is not consumed, so
@@ -116,25 +157,75 @@ function Feature({
       if (next === null) {
         return direction === 1;
       }
-      setIndex(next);
+      // The press steps to the slide `featureStep` named, and restarts that
+      // slide's time. It never wraps: at the first slide Left is the frame's.
+      setProgramme((current) => featureJump(current, items.length, next));
       return true;
     });
     return clear;
   }, [active, items.length, setBaseIntentHandler]);
 
   useEffect(() => {
-    setIndex(0);
+    setProgramme(FEATURE_START);
   }, [items.length, items[0]?.slide.id]);
 
+  // The clock: the core decides that a held programme spends nothing and that
+  // a finished item wraps with its remainder. The ticks' fill is drawn from
+  // the same elapsed time, so pause, jump and the beat all agree.
   useEffect(() => {
-    if (!rotating || held || items.length < 2) {
+    if (!rotating || programme.held) {
       return;
     }
     const timer = window.setInterval(() => {
-      setIndex((current) => (current + 1) % items.length);
-    }, FEATURE_ROTATION_MS);
+      setProgramme((current) => featureElapse(current, items.length, FEATURE_CLOCK_MS));
+    }, FEATURE_CLOCK_MS);
     return () => window.clearInterval(timer);
-  }, [rotating, held, items.length, index]);
+  }, [rotating, programme.held, items.length]);
+
+  const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === "mouse" && event.button !== 0) {
+      return;
+    }
+    drag.current = { active: true, x: event.clientX, y: event.clientY, stepped: false };
+    setProgramme(featureHold);
+  };
+
+  // A drag steps once, when it has travelled far enough and travelled further
+  // across than down; a long drag does not run through the whole programme.
+  const onPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!drag.current.active || drag.current.stepped) {
+      return;
+    }
+    const dx = event.clientX - drag.current.x;
+    const dy = event.clientY - drag.current.y;
+    if (Math.abs(dx) < FEATURE_DRAG_PX || Math.abs(dx) <= Math.abs(dy)) {
+      return;
+    }
+    drag.current.stepped = true;
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    setProgramme((current) => featureStepThrough(current, items.length, dx < 0 ? 1 : -1));
+  };
+
+  const endDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!drag.current.active) {
+      return;
+    }
+    drag.current.active = false;
+    event.currentTarget.releasePointerCapture?.(event.pointerId);
+    release();
+  };
+
+  // The click a browser synthesises at the end of a drag is the drag's, not a
+  // press on the feature: it must not open the Title. A fresh pointerdown
+  // clears the flag, so a drag that never produced a click cannot eat the next.
+  const onClickCapture = (event: ReactMouseEvent<HTMLDivElement>) => {
+    if (!drag.current.stepped) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    drag.current.stepped = false;
+  };
 
   if (!item) {
     return null;
@@ -160,16 +251,21 @@ function Feature({
         role="button"
         tabIndex={0}
         data-focusable
-        data-held={held ? "true" : undefined}
+        data-held={programme.held ? "true" : undefined}
         aria-label={`Open the Title: ${name}`}
-        onFocus={() => setHeld(true)}
-        onBlur={() => setHeld(false)}
+        onFocus={hold}
+        onBlur={release}
         onKeyDown={(event) => {
           if (event.key === "Enter" || event.key === " ") {
             event.preventDefault();
             onOpen(item);
           }
         }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
+        onClickCapture={onClickCapture}
         onClick={() => onOpen(item)}
       >
         <span className="rep-feature-wash" aria-hidden="true" />
@@ -214,6 +310,33 @@ function Feature({
           Open the Title
         </span>
       </div>
+
+      {/* One tick per slide, pointer and touch furniture outside the frame's
+          own focus order: the arrows already step, and Enter opens. The current
+          tick fills with the programme's elapsed time; the others are the
+          programme's hairlines. A one-slide programme has nothing to choose
+          between, so it draws no ticks. */}
+      {items.length > 1 ? (
+        <div className="rep-feature-ticks" role="group" aria-label="Feature programme">
+          {items.map((tick, tickIndex) => (
+            <button
+              key={tick.slide.id}
+              type="button"
+              className="rep-feature-tick"
+              tabIndex={-1}
+              aria-label={`Show ${tick.slide.name}`}
+              aria-current={tickIndex === active ? "step" : undefined}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => setProgramme((current) => featureJump(current, items.length, tickIndex))}
+            >
+              <span
+                className="rep-feature-tick-fill"
+                style={{ transform: `scaleX(${tickIndex === active ? progress : 0})` }}
+              />
+            </button>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }

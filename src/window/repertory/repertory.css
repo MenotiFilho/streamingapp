@@ -725,6 +725,7 @@ body.picture-behind .shell-nav-slot {
  * -------------------------------------------------------------------------- */
 
 .rep-feature {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -743,6 +744,9 @@ body.picture-behind .shell-nav-slot {
   border-top: 1px solid var(--rep-hairline);
   border-bottom: 1px solid var(--rep-hairline);
   background: var(--rep-ink-raised);
+  /* A horizontal drag steps the programme instead of panning a page; a
+   * vertical drag still scrolls Home. */
+  touch-action: pan-y;
 }
 
 .rep-feature-slide {
@@ -771,6 +775,8 @@ body.picture-behind .shell-nav-slot {
   height: 100%;
   object-fit: cover;
   filter: saturate(0.92) brightness(0.78);
+  -webkit-user-drag: none;
+  user-select: none;
 }
 
 /* The plate is typographic and intentional: a missing backdrop never becomes a
@@ -970,6 +976,61 @@ body.picture-behind .shell-nav-slot {
   font-weight: 500;
   line-height: 1.2;
   pointer-events: none;
+}
+
+/*
+ * The programme's ticks: one hairline per slide at the feature's foot, the
+ * current one filling brass over the slide's 24 seconds (ADR-0036 §2). They are
+ * pointer and touch furniture, like a rail's arrows: outside the frame's focus
+ * order, and never a second way to open the Title.
+ */
+.rep-feature-ticks {
+  position: absolute;
+  right: var(--rep-space-6);
+  bottom: var(--rep-space-6);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: var(--rep-space-2);
+}
+
+.rep-feature-tick {
+  position: relative;
+  display: block;
+  width: max(28px, calc(var(--rep-stage) * 2));
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+}
+
+.rep-feature-tick::before,
+.rep-feature-tick-fill {
+  position: absolute;
+  top: calc(50% - 1px);
+  left: 0;
+  right: 0;
+  height: 2px;
+}
+
+.rep-feature-tick::before {
+  content: "";
+  background: var(--rep-hairline);
+}
+
+.rep-feature-tick:hover::before {
+  background: var(--rep-dim);
+}
+
+/* The fill is the one thing that keeps moving under reduced motion; it reads
+ * the programme's elapsed time and carries no transition of its own. */
+.rep-feature-tick-fill {
+  background: var(--rep-house);
+  transform-origin: left center;
+  transform: scaleX(0);
 }
 
 /* The feature is one card and one action: focus is the keyline plus the wash,
