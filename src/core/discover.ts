@@ -194,6 +194,23 @@ export type DiscoverPage = {
   genre: number | null;
 };
 
+/** Where a Discover feed is read: the Host's TMDB arm, or the plain-Vite preview. */
+export type DiscoverSource = "host" | "preview";
+
+/**
+ * A Discover feed's identity in the Session's feed store (#264): the source,
+ * the chosen chip by the name both clients print, and the kind. Changing the
+ * chip is a different question and therefore a different row; a return to the
+ * same chip finds the pages already read.
+ */
+export function discoverFeedKey(
+  source: DiscoverSource,
+  genre: string | null,
+  kind: DiscoverKind,
+): string {
+  return `discover/${source}/${genre ?? "all"}/${kind}`;
+}
+
 /**
  * The ask for one page: the week's trending feed where no genre is chosen,
  * and a `/discover` page where one is. The Host builds the URL and judges the

@@ -67,8 +67,9 @@ export function PagingControl({
 
 /**
  * The rail's last plate: one press opens the row as a whole, as a pushed grid
- * (#253, design system *Rail*). It asks for no page itself — the rail's head
- * action does that, and the grid is the cards read so far.
+ * (#253, #264, design system *Rail*). The grid draws the same row the rail
+ * draws and reads on by itself near its end; the rail's quiet head action
+ * still pages the rail in place.
  */
 export function MoreControl({
   label,

@@ -276,7 +276,7 @@ function gridPages(action: Action): Response {
 }
 
 describe("the Remote's grid level", () => {
-  test("More opens it, the rail's head pages the same row, and Back returns to the cards", async () => {
+  test("More opens it, the grid reads the next page by itself, and Back keeps the cards", async () => {
     const host = new FakeHost(GRID_SNAPSHOT, gridPages);
     const view = render(<RemoteApp link={host} />);
     try {
@@ -289,22 +289,28 @@ describe("the Remote's grid level", () => {
       expect(screen.getByTestId("grid-card-cinemeta-tt1")).toBeInTheDocument();
       expect(
         within(grid).queryByRole("button", { name: "Read on" }),
-        "the grid is static: paging is the rail's",
+        "the grid has no paging button; it reads on near its end",
       ).not.toBeInTheDocument();
+      expect(
+        await screen.findByTestId("grid-card-cinemeta-tt5"),
+        "the grid itself paged the row past its first four",
+      ).toBeInTheDocument();
+      expect(host.asked("browse_catalog")).toContainEqual({
+        type: "browse_catalog",
+        addon: "cinemeta",
+        catalog: { type: "movie", id: "top" },
+        extra: [{ name: "skip", value: "4" }],
+      });
 
       fireEvent.keyDown(window, { key: "Escape" });
       await waitFor(() =>
         expect(screen.queryByTestId("remote-grid")).not.toBeInTheDocument(),
       );
 
-      fireEvent.click(await screen.findByRole("button", { name: "Read on" }));
-      await waitFor(() => expect(screen.getByTestId("card-cinemeta-tt5")).toBeInTheDocument());
-      expect(host.asked("browse_catalog").at(-1)).toEqual({
-        type: "browse_catalog",
-        addon: "cinemeta",
-        catalog: { type: "movie", id: "top" },
-        extra: [{ name: "skip", value: "4" }],
-      });
+      expect(
+        await screen.findByTestId("card-cinemeta-tt5"),
+        "the page read in the grid is in the rail after Back",
+      ).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole("button", { name: "More Popular" }));
       expect(

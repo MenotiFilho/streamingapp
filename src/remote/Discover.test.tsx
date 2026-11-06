@@ -1,7 +1,9 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, test } from "vitest";
 
 import { explain } from "../core/errors";
+import { discoverFeedKey } from "../core/discover";
 import type { HostLink } from "../core/link";
 import { useSession } from "../core/react/useSession";
 import type { NewLevel } from "../core/navigation";
@@ -145,6 +147,39 @@ function Show({
   );
 }
 
+/**
+ * A Discover screen that leaves the tree when a card pushes a Title, as the
+ * Remote unmounts the destination under a level (#262, #264).
+ */
+function Room({
+  link,
+  pushes,
+}: {
+  link: HostLink;
+  pushes: NewLevel<RemotePayload>[];
+}) {
+  const { session, state } = useSession(link);
+  const [away, setAway] = useState(false);
+  if (away) {
+    return (
+      <button type="button" onClick={() => setAway(false)}>
+        Back from Title
+      </button>
+    );
+  }
+  return (
+    <Discover
+      session={session}
+      state={state}
+      push={(level) => {
+        pushes.push(level);
+        setAway(true);
+        return `level-${pushes.length}`;
+      }}
+    />
+  );
+}
+
 function mount({
   snapshot = KEYED,
   respond = pages,
@@ -229,7 +264,7 @@ describe("Discover over TMDB", () => {
     ).not.toBeInTheDocument();
   });
 
-  test("each row's More opens that row as a whole-row grid and asks no page itself", async () => {
+  test("each row's More opens that row as a whole-row grid without asking a page", async () => {
     const { host, pushes } = mount();
     await screen.findByTestId("discover-card-tmdb:s2");
     const asked = host.asked("discover").length;
@@ -244,13 +279,8 @@ describe("Discover over TMDB", () => {
         source: {
           kind: "discover",
           feedKind: "movie",
-          genre: null,
-          feed: {
-            page: 1,
-            items: [meta("tmdb:m1", "One"), meta("tmdb:m2", "Two")],
-            failure: null,
-            done: false,
-          },
+          genreKey: null,
+          feedKey: discoverFeedKey("host", null, "movie"),
         },
       }),
     );
@@ -259,7 +289,7 @@ describe("Discover over TMDB", () => {
     expect(pushes.at(-1)?.name).toBe("All of Series");
     expect(
       host.asked("discover"),
-      "the page is the grid's head action's, not the More card's",
+      "the grid being pushed asks nothing; rendering it is what reads on",
     ).toHaveLength(asked);
   });
 
@@ -286,6 +316,50 @@ describe("Discover over TMDB", () => {
       host.asked("discover").filter((action) => action.kind === "series"),
       "the other row was not paged",
     ).toHaveLength(1);
+  });
+
+  test("Back from a Title keeps the genre and the pages, and asks no page 1 again", async () => {
+    const host = new FakeHost(KEYED, pages);
+    const pushes: NewLevel<RemotePayload>[] = [];
+    const view = render(<Room link={host} pushes={pushes} />);
+    try {
+      await screen.findByTestId("discover-card-tmdb:m1");
+
+      fireEvent.click(screen.getByRole("button", { name: "Drama" }));
+      await waitFor(() =>
+        expect(host.asked("discover")).toContainEqual({
+          type: "discover",
+          kind: "movie",
+          page: 1,
+          genre: 18,
+        }),
+      );
+
+      const movies = screen.getByTestId("remote-discover-row-movie");
+      fireEvent.click(within(movies).getByRole("button", { name: "Read on" }));
+      await screen.findByTestId("discover-card-tmdb:m3");
+      const firstPages = host
+        .asked("discover")
+        .filter((action) => action.page === 1 && action.genre === 18).length;
+
+      fireEvent.click(screen.getByTestId("discover-card-tmdb:m3"));
+      expect(await screen.findByRole("button", { name: "Back from Title" })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Back from Title" }));
+
+      expect(
+        await screen.findByRole("button", { name: "Drama" }),
+      ).toHaveAttribute("aria-pressed", "true");
+      expect(
+        await screen.findByTestId("discover-card-tmdb:m3"),
+        "the page read before the Title is still there",
+      ).toBeInTheDocument();
+      expect(
+        host.asked("discover").filter((action) => action.page === 1 && action.genre === 18),
+        "the return does not ask page 1 again",
+      ).toHaveLength(firstPages);
+    } finally {
+      view.unmount();
+    }
   });
 
   test("a row that answered nothing draws its quiet line and offers no more", async () => {
@@ -397,7 +471,7 @@ describe("Discover with no TMDB Credential", () => {
     );
   });
 
-  test("a Catalog's More card opens its row as a grid, carrying what it read", async () => {
+  test("a Catalog's More card opens its row as the grid the rail shares", async () => {
     const { host, pushes } = mount({
       snapshot: UNKEYED,
       respond: (action) => {
@@ -425,23 +499,14 @@ describe("Discover with no TMDB Credential", () => {
         tag: "Cinemeta / 1 film",
         addon: "cinemeta",
         source: {
-          kind: "catalog",
-          row: {
-            addon: "cinemeta",
-            type: "movie",
-            id: "top",
-            name: "Popular",
-            metas: [meta("tt-top", "One")],
-            offset: 1,
-            failure: null,
-            done: false,
-          },
+          kind: "home",
+          rowKey: "cinemeta/movie/top",
         },
       }),
     ]);
     expect(
       host.asked("browse_catalog"),
-      "the grid asks the next page from its head, not from the More card",
+      "the grid being pushed asks nothing; rendering it is what reads on",
     ).toHaveLength(asked);
   });
 

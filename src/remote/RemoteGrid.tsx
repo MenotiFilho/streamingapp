@@ -1,9 +1,12 @@
 import { useSyncExternalStore } from "react";
 
+import { pageable } from "../core/browse";
+import { explain } from "../core/errors";
 import { continueArt } from "../core/home";
 import { cardName, cardNote, progressOf, resumable } from "../core/library";
 import type { NewLevel } from "../core/navigation";
 import type { Session, SessionState } from "../core/session";
+import { useGridEnd } from "../core/react/useGridEnd";
 import type { MetaPreview, ResumeEntry } from "../core/wire";
 import { Button } from "../kit/Button";
 import { ContinueWatchingCard } from "../kit/ContinueWatchingCard";
@@ -14,17 +17,16 @@ import {
   type RemoteGridSource,
 } from "./grid";
 import { titleLevel, titleLevelOf, type RemotePayload } from "./levels";
-import { RowNote } from "./RemoteRow";
 
 /**
- * One rail opened as a whole (#253, ADR-0036 §1, design system *Rail*).
+ * One rail opened as a whole (#253, #264, ADR-0036 §1, design system *Rail*).
  *
- * It draws the cards the rail has read so far, in a wrapping grid, with Back in
- * the head. The grid is static: it asks no page of its own, because paging
- * belongs to the rail's quiet head action (design system *Rail*). A Home row is
- * read from the Session's `HomeStore`, so a page the rail asks while the grid
- * is open lands in the same row and is drawn; Discover and Search carry their
- * feed into the level because those screens unmount under a pushed level.
+ * It draws the row the rail has read, and reads on by itself: when the last
+ * cards come near the viewport, or focus reaches them, it asks that row's next
+ * page into the same row the rail draws. A page that fails keeps the cards it
+ * had and offers Try again; a page in flight or a done row is never asked
+ * twice. Home and the keyless Discover row read the Session's `HomeStore`; a
+ * keyed Discover or Search row reads the Session's feed store.
  */
 export type RemoteGridProps = {
   grid: Grid;
@@ -35,12 +37,42 @@ export type RemoteGridProps = {
 };
 
 export function RemoteGrid({ grid, session, state, push, pop }: RemoteGridProps) {
-  const { rows } = useSyncExternalStore(session.home.subscribe, session.home.getSnapshot);
+  const home = useSyncExternalStore(session.home.subscribe, session.home.getSnapshot);
+  const feeds = useSyncExternalStore(session.feeds.subscribe, session.feeds.getSnapshot);
 
   const snapshot = state.snapshot;
   const source: RemoteGridSource = grid.source;
-  const view = gridView(grid, rows, snapshot);
-  const { addon, title, metas, entries, failure, couldPlay } = view;
+  const view = gridView(grid, home.rows, feeds.rows, snapshot);
+  const { addon, title, metas, entries, failure, couldPlay, row, feed } = view;
+
+  const key = "rowKey" in source ? source.rowKey : "feedKey" in source ? source.feedKey : null;
+  const reading =
+    source.kind === "home"
+      ? home.paging.has(source.rowKey)
+      : key !== null
+        ? feeds.reading.has(key)
+        : false;
+  const pageableNow =
+    source.kind === "home"
+      ? row !== null && pageable(snapshot, row) && !row.done
+      : feed !== null && !feed.done;
+  const retry = failure !== null && pageableNow && !reading;
+  const page = pageableNow ? { done: false, failure } : null;
+
+  const askMore = () => {
+    if (source.kind === "home") {
+      session.home.page(source.rowKey);
+    } else if (key !== null) {
+      session.feeds.more(key);
+    }
+  };
+
+  const root = useGridEnd({
+    count: metas.length,
+    page,
+    reading,
+    onReach: askMore,
+  });
 
   const openMeta = (meta: MetaPreview) => {
     push(titleLevelOf(addon, meta));
@@ -59,6 +91,7 @@ export function RemoteGrid({ grid, session, state, push, pop }: RemoteGridProps)
 
   return (
     <section
+      ref={root}
       className="remote-grid"
       aria-label={`All of ${title}`}
       data-testid="remote-grid"
@@ -80,6 +113,7 @@ export function RemoteGrid({ grid, session, state, push, pop }: RemoteGridProps)
             return (
               <ContinueWatchingCard
                 key={`${entry.title.type}/${entry.video.id}`}
+                data-grid-card
                 name={cardName(entry)}
                 note={cardNote(entry)}
                 art={continueArt(entry)}
@@ -96,6 +130,7 @@ export function RemoteGrid({ grid, session, state, push, pop }: RemoteGridProps)
           {metas.map((meta) => (
             <PosterCard
               key={meta.id}
+              data-grid-card
               name={meta.name}
               poster={meta.poster}
               rating={meta.imdbRating?.trim() || null}
@@ -108,7 +143,22 @@ export function RemoteGrid({ grid, session, state, push, pop }: RemoteGridProps)
         </div>
       )}
 
-      <RowNote failure={failure} quiet={null} />
+      {failure ? (
+        <p role="alert" className="remote-rail-failure">
+          {explain(failure)}
+        </p>
+      ) : null}
+      {retry ? (
+        <Button variant="ghost" onClick={askMore}>
+          Try again
+        </Button>
+      ) : null}
+      {reading ? <p role="status" className="remote-rail-quiet">Reading on…</p> : null}
+      {!entries && metas.length === 0 && !reading && !failure && feed?.done ? (
+        <p className="remote-rail-quiet">
+          The Addon answered with no Titles in this section.
+        </p>
+      ) : null}
     </section>
   );
 }
