@@ -6,7 +6,8 @@ import { useNavigation } from "../core/react/useNavigation";
 import { useSession } from "../core/react/useSession";
 import { TauriLink } from "./tauriLink";
 import type { Intent } from "../core/input";
-import { watching } from "../core/playback";
+import { closingAfter, pictureBehind, requestsStop, watching } from "../core/playback";
+import type { Action, Response } from "../core/wire";
 import { PlayerDock, dockedTransport } from "./PlayerDock";
 import { PlayerOverlay } from "./PlayerOverlay";
 import { RepertoryDestinationScreen } from "./repertory/RepertoryScreens";
@@ -37,8 +38,10 @@ export function Shell({ client }: { client?: HostLink }) {
   const link = useMemo(() => client ?? new TauriLink(), [client]);
   const { session, state } = useSession(link);
   const { snapshot, error, unplayable, pending } = state;
-  const { ask, take, markUnplayable, home } = session;
+  const { ask, take: takeAction, markUnplayable, home } = session;
   const nav = useNavigation<WindowPayload>();
+  // A Stop the person has asked for and the Host has not yet reported (#250).
+  const [closing, setClosing] = useState(false);
   const [chosenDestination, setChosenDestination] = useState(false);
   const levelsRef = useRef(nav.levels);
   levelsRef.current = nav.levels;
@@ -97,6 +100,28 @@ export function Shell({ client }: { client?: HostLink }) {
   }, [choose, nav.destination, pop, push]);
 
   const playback = snapshot?.playback ?? null;
+  // The Host tears mpv's window down before it reports `idle`: the shell takes
+  // its ink back the moment Stop is taken, and gives the picture back if the
+  // Host refuses it.
+  const take = useCallback(
+    async (action: Action): Promise<Response | null> => {
+      if (!requestsStop(action)) {
+        return takeAction(action);
+      }
+      setClosing(true);
+      const response = await takeAction(action);
+      if (response === null) {
+        setClosing(false);
+      }
+      return response;
+    },
+    [takeAction],
+  );
+  useEffect(() => {
+    if (closing && !closingAfter(closing, playback)) {
+      setClosing(false);
+    }
+  }, [closing, playback]);
   const playerActive =
     playback !== null && watching(playback.state) && playback.picture === "in_window";
   // Where the picture is elsewhere the transport is still the Host's: the
@@ -148,14 +173,15 @@ export function Shell({ client }: { client?: HostLink }) {
   // Where the picture is in this window, the page must stop painting its own
   // rectangle so mpv's child window shows through (ADR-0003), and the browsing
   // page underneath must stop offering a scrollbar the player does not need.
+  const behind = pictureBehind(playback, closing);
   useEffect(() => {
-    document.body.classList.toggle("picture-behind", playerActive);
-    document.documentElement.classList.toggle("picture-behind", playerActive);
+    document.body.classList.toggle("picture-behind", behind);
+    document.documentElement.classList.toggle("picture-behind", behind);
     return () => {
       document.body.classList.remove("picture-behind");
       document.documentElement.classList.remove("picture-behind");
     };
-  }, [playerActive]);
+  }, [behind]);
 
   const value = useMemo(
     () => ({
