@@ -122,15 +122,3 @@ export function discoverEmptyNote(genre: GenreChoice | null): string {
     ? `Nothing is screening under ${genre.name}. Choose another genre.`
     : "Nothing is screening in this feed.";
 }
-
-/**
- * The rows a keyless Search draws for one kind. The Host answers one row per
- * searchable Catalog, in its configured order; the repertory surface shows one
- * kind at a time while still asking both.
- */
-export function rowsForKind<T extends { type: string }>(
-  rows: readonly T[],
-  kind: DiscoverKind,
-): T[] {
-  return rows.filter((row) => row.type === kind);
-}

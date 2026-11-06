@@ -11,23 +11,20 @@ import {
   blankFeed,
   discoverPlayable,
   feedWith,
-  MOVIE,
   type DiscoverFeed,
 } from "../../core/discover";
 import type { CatalogRow, MetaPreview } from "../../core/wire";
 import { explain, type ActionError } from "../../core/errors";
 import { answeredCatalogs, answeredSearch } from "../../core/answers";
-import { SERIES } from "../../core/title";
 import { SEARCH_KINDS, searchAsk, type SearchKind } from "../../core/search";
 import { useShell } from "../context";
 import { addonLabel } from "../../core/home";
 import { useTitleOpener } from "../TitleScreen";
 import { usePreviewData } from "./context";
-import { feedMore, feedState, rowsForKind } from "./editorial";
+import { feedMore, feedState } from "./editorial";
 import { EditorialGrid } from "./EditorialGrid";
 import { EditorialRow, FeedPagingAction } from "./EditorialRow";
 import { Button } from "../../kit/Button";
-import { ChoiceChip } from "../../kit/Chip";
 import { Field } from "../../kit/Field";
 import { PosterCard } from "../../kit/PosterCard";
 import { ProgrammeLine } from "./ProgrammeLine";
@@ -55,18 +52,17 @@ const CATALOG_NOT_ASKED: CatalogAnswer = {
 
 /**
  * Search as an editorial feed: one submit-only query bar drawn as a
- * display-serif line, the two single-select kind chips, and one row per answer.
+ * display-serif line, and one row per answer.
  *
  * A query is asked both ways the Host offers, read from the Snapshot
  * (ADR-0010's amendment, ADR-0020): with a TMDB Credential it is asked once for
- * Movies and once for Series — both in flight, one shown at a time, so a chip
- * switch is instant — and each page keeps its cards and its own failure. The
- * map's #146 decision narrows the repertory surface to one kind at a time; the
- * Velvet surface keeps its two rows. With no key it is `search_catalogs`,
- * answered one row per searchable Catalog in the Host's order, and a Catalog
- * that failed stays in its own row (ADR-0010). That arm is one page: the Action
- * takes no page, so a keyless row has no paging to offer. The bar submits,
- * never asks per keystroke.
+ * Movies and once for Series — both in flight, both drawn, Movies then Series —
+ * and each row keeps its cards, its own failure and its own paging. There are
+ * no kind chips (ADR-0036 §1). With no key it is `search_catalogs`, answered one
+ * row per searchable Catalog in the Host's order, and a Catalog that failed
+ * stays in its own row (ADR-0010). That arm is one page: the Action takes no
+ * page, so a keyless row has no paging to offer. The bar submits, never asks
+ * per keystroke.
  *
  * The plain Vite preview has no Host and no TMDB network, so it always takes the
  * keyless arm even when the rehearsal Settings hold a key flag.
@@ -76,8 +72,6 @@ export function RepertorySearchScreen() {
   const { snapshot, ask, push, pop, unplayable } = useShell();
   const { openTitle, openDiscoveredTitle } = useTitleOpener();
   const [draft, setDraft] = useState("");
-  /** The kind the repertory feed shows; the query still asks both kinds. */
-  const [shownKind, setShownKind] = useState<SearchKind>(MOVIE);
   /** The query whose answers are on screen, or null before the first submit. */
   const [committed, setCommitted] = useState<string | null>(null);
   const [rows, setRows] = useState<KeyedFeeds>(blankKeyedFeeds);
@@ -101,11 +95,9 @@ export function RepertorySearchScreen() {
   }, []);
 
   // A credential added or cleared changes which arm a query takes. The rows of
-  // the old arm are not answers to the new one, so they go, and the feed starts
-  // on Movie again.
+  // the old arm are not answers to the new one, so they go.
   useEffect(() => {
     reset();
-    setShownKind(MOVIE);
   }, [keyed, reset]);
 
   /** Ask TMDB for one row's page and fold its answer into that row alone. */
@@ -179,24 +171,21 @@ export function RepertorySearchScreen() {
   };
 
   const canSubmit = draft.trim().length > 0;
-  // The keyless arm answers one row per Catalog; the repertory surface shows
-  // the kind a person chose.
-  const catalogRows =
-    catalogAnswer.rows === null
-      ? null
-      : rowsForKind(catalogAnswer.rows, shownKind);
-  const shownLabel =
-    SEARCH_KINDS.find(({ kind }) => kind === shownKind)?.label ?? "Movies";
-  const shownLower = shownLabel.toLowerCase();
 
-  const rowNote = (feed: DiscoverFeed, loading: boolean, query: string) => {
+  const rowNote = (
+    feed: DiscoverFeed,
+    loading: boolean,
+    kind: SearchKind,
+    query: string,
+  ) => {
+    const lower = kind === "movie" ? "movies" : "series";
     switch (feedState(feed, loading)) {
       case "reading":
-        return `Looking for ${shownLower}…`;
+        return `Looking for ${lower}…`;
       case "reading-more":
-        return `Looking for more ${shownLower}…`;
+        return `Looking for more ${lower}…`;
       case "empty":
-        return `No ${shownLower} matched \u201c${query}\u201d.`;
+        return `No ${lower} matched \u201c${query}\u201d.`;
       default:
         return null;
     }
@@ -215,42 +204,44 @@ export function RepertorySearchScreen() {
     return null;
   };
 
-  const shownFeed = rows[shownKind];
-  const shownLoading = paging.includes(shownKind);
-  const couldPlay =
-    snapshot === null ? false : discoverPlayable(snapshot.addons, shownKind);
-  const keyedTag = rowTagOf("TMDB", shownKind, shownFeed.items.length);
-  const keyedNote = rowNote(shownFeed, shownLoading, committed ?? "");
+  /** Whether a Title of one kind can be opened against the configured Addons. */
+  const couldPlay = (kind: SearchKind) =>
+    snapshot === null ? false : discoverPlayable(snapshot.addons, kind);
 
-  const keyedCard = (meta: MetaPreview, testId: string) => (
+  const keyedCard = (meta: MetaPreview, testId: string, playable: boolean) => (
     <PosterCard
       key={meta.id}
       name={meta.name}
       poster={meta.poster}
       rating={meta.imdbRating?.trim() || null}
       subtitle={yearOf(meta)}
-      unplayable={!couldPlay || unplayable.has(meta.id)}
+      unplayable={!playable || unplayable.has(meta.id)}
       testId={testId}
       onClick={() => void openDiscoveredTitle(meta)}
     />
   );
 
-  const openKeyedGrid = () => {
+  const openKeyedGrid = (kind: SearchKind, label: string) => {
+    const feed = rows[kind];
     push({
-      name: `All of ${shownLabel}`,
+      name: `All of ${label}`,
       kind: "overlay",
       payload: {
         render: () => (
           <EditorialGrid
-            title={shownLabel}
-            tag={keyedTag}
-            failure={shownFeed.failure}
-            note={keyedNote}
+            title={label}
+            tag={rowTagOf("TMDB", kind, feed.items.length)}
+            failure={feed.failure}
+            note={rowNote(feed, paging.includes(kind), kind, committed ?? "")}
             onClose={pop}
             testId="search-grid"
           >
-            {shownFeed.items.map((meta) =>
-              keyedCard(meta, `search-grid-card-${shownKind}-${meta.id}`),
+            {feed.items.map((meta) =>
+              keyedCard(
+                meta,
+                `search-grid-card-${kind}-${meta.id}`,
+                couldPlay(kind),
+              ),
             )}
           </EditorialGrid>
         ),
@@ -258,14 +249,17 @@ export function RepertorySearchScreen() {
     });
   };
 
-  const keyedAction = (
-    <FeedPagingAction
-      failure={shownFeed.failure}
-      more={feedMore(shownFeed)}
-      loading={shownLoading}
-      onMore={() => more(shownKind)}
-    />
-  );
+  const keyedAction = (kind: SearchKind) => {
+    const feed = rows[kind];
+    return (
+      <FeedPagingAction
+        failure={feed.failure}
+        more={feedMore(feed)}
+        loading={paging.includes(kind)}
+        onMore={() => more(kind)}
+      />
+    );
+  };
 
   const catalogCard = (row: CatalogRow, meta: MetaPreview, testId: string) => (
     <PosterCard
@@ -351,46 +345,36 @@ export function RepertorySearchScreen() {
             />
           </form>
 
-          <div
-            className="rep-kind-filter"
-            data-region="search-kinds"
-            data-kind="row"
-            data-label="Kind"
-          >
-            <ChoiceChip
-              pressed={shownKind === MOVIE}
-              data-testid="search-kind-movie"
-              onClick={() => setShownKind(MOVIE)}
-            >
-              Movie
-            </ChoiceChip>
-            <ChoiceChip
-              pressed={shownKind === SERIES}
-              data-testid="search-kind-series"
-              onClick={() => setShownKind(SERIES)}
-            >
-              Series
-            </ChoiceChip>
-          </div>
-
           {keyed && committed !== null ? (
             <div className="rep-search-results" data-testid="search-results">
-              <EditorialRow
-                title={shownLabel}
-                tag={keyedTag}
-                action={keyedAction}
-                failure={shownFeed.failure}
-                note={keyedNote}
-                region={`search-row:${shownKind}`}
-                onOpenRow={
-                  shownFeed.items.length > 0 ? openKeyedGrid : undefined
-                }
-                testId={`search-row-${shownKind}`}
-              >
-                {shownFeed.items.map((meta) =>
-                  keyedCard(meta, `search-card-${shownKind}-${meta.id}`),
-                )}
-              </EditorialRow>
+              {SEARCH_KINDS.map(({ kind, label }) => {
+                const feed = rows[kind];
+                return (
+                  <EditorialRow
+                    key={kind}
+                    title={label}
+                    tag={rowTagOf("TMDB", kind, feed.items.length)}
+                    action={keyedAction(kind)}
+                    failure={feed.failure}
+                    note={rowNote(feed, paging.includes(kind), kind, committed)}
+                    region={`search-row:${kind}`}
+                    onOpenRow={
+                      feed.items.length > 0
+                        ? () => openKeyedGrid(kind, label)
+                        : undefined
+                    }
+                    testId={`search-row-${kind}`}
+                  >
+                    {feed.items.map((meta) =>
+                      keyedCard(
+                        meta,
+                        `search-card-${kind}-${meta.id}`,
+                        couldPlay(kind),
+                      ),
+                    )}
+                  </EditorialRow>
+                );
+              })}
             </div>
           ) : null}
 
@@ -416,7 +400,7 @@ export function RepertorySearchScreen() {
                 </p>
               ) : null}
 
-              {catalogRows?.map((row) => (
+              {catalogAnswer.rows?.map((row) => (
                 <EditorialRow
                   key={keyOf(row)}
                   title={row.name}
@@ -451,16 +435,6 @@ export function RepertorySearchScreen() {
                 </p>
               ) : null}
 
-              {!catalogAnswer.loading &&
-              !catalogAnswer.failure &&
-              catalogRows?.length === 0 &&
-              (catalogAnswer.rows?.length ?? 0) > 0 ? (
-                <p className="rep-feed-note" data-testid="search-kind-empty">
-                  {`No ${
-                    shownKind === MOVIE ? "Movie" : "Series"
-                  } Catalog answered \u201c${committed}\u201d.`}
-                </p>
-              ) : null}
             </div>
           ) : null}
         </>

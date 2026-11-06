@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, test } from "vitest";
 
 import { explain } from "../core/errors";
@@ -26,8 +26,8 @@ import { NO_SEARCHABLE_CATALOGS } from "./searchScreen";
  * Search over a fake HostLink (#207, ADR-0032, docs/agents/testing.md).
  *
  * The screen is the harness; every assertion is a decision at the boundary:
- * what a mount and a submit send, which kind a press pages, the answer a person
- * left, the row that keeps its own failure, and the level a press
+ * what a mount and a submit send, which kind either row's More opens, the answer
+ * a person left, the row that keeps its own failure, and the level a press
  * pushes. Nothing here reads a class or a nesting, and the one line of copy a
  * case reads is the empty state's, taken from the seam that chooses it
  * (docs/agents/testing.md §4).
@@ -190,20 +190,24 @@ describe("Search over TMDB", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
-  test("one kind is shown at a time, and More opens that kind's grid", async () => {
+  test("one query draws both rows, each with its own More, and there is no kind chip", async () => {
     const { host, pushes } = mount();
     await search("dune");
     await screen.findByTestId("search-card-movie-tmdb:1");
 
     expect(
-      screen.queryByTestId("search-card-series-tmdb:s1"),
-      "the row a person is not looking at is held, not drawn",
+      await screen.findByTestId("search-card-series-tmdb:s1"),
+      "Movies and Series stand side by side",
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("group", { name: "Kind" }),
+      "the kinds are two rows now, not a choice",
     ).not.toBeInTheDocument();
 
     const asked = host.asked("search").length;
     fireEvent.click(screen.getByRole("button", { name: "More Movies" }));
 
-    expect(pushes).toEqual([
+    expect(pushes[0]).toEqual(
       gridLevel({
         title: "Movies",
         index: "01",
@@ -221,30 +225,41 @@ describe("Search over TMDB", () => {
           },
         },
       }),
-    ]);
+    );
     expect(
       host.asked("search"),
       "the grid asks no page of its own",
     ).toHaveLength(asked);
 
-    fireEvent.click(screen.getByRole("button", { name: "Series" }));
-    expect(await screen.findByTestId("search-card-series-tmdb:s1")).toBeInTheDocument();
-    expect(screen.queryByTestId("search-card-movie-tmdb:1")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Movies" }));
-    expect(await screen.findByTestId("search-card-movie-tmdb:1")).toBeInTheDocument();
-    expect(
-      screen.queryByTestId("search-card-series-tmdb:s1"),
-      "the two rows were held separately, never mixed",
-    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "More Series" }));
+    expect(pushes[1]).toEqual(
+      gridLevel({
+        title: "Series",
+        index: "01",
+        tag: rowTagOf("TMDB", "series", 1),
+        addon: null,
+        source: {
+          kind: "search",
+          feedKind: "series",
+          query: "dune",
+          feed: {
+            page: 1,
+            items: [meta("tmdb:s1", "series", "A Show")],
+            failure: null,
+            done: false,
+          },
+        },
+      }),
+    );
   });
 
-  test("the rail's head action pages the shown kind alone", async () => {
+  test("each rail's head action pages its own kind alone", async () => {
     const { host } = mount();
     await search("dune");
     await screen.findByTestId("search-card-movie-tmdb:1");
 
-    fireEvent.click(screen.getByRole("button", { name: "Read on" }));
+    const movies = screen.getByTestId("remote-search-row-movie");
+    fireEvent.click(within(movies).getByRole("button", { name: "Read on" }));
 
     await waitFor(() =>
       expect(host.asked("search").at(-1)).toEqual({
@@ -257,7 +272,7 @@ describe("Search over TMDB", () => {
     expect(await screen.findByTestId("search-card-movie-tmdb:3")).toBeInTheDocument();
     expect(
       host.asked("search").filter((action) => action.kind === "series"),
-      "the kind a person is not looking at was not paged",
+      "the other row was not paged",
     ).toHaveLength(1);
   });
 
@@ -270,13 +285,15 @@ describe("Search over TMDB", () => {
     });
     await search("dune");
 
-    expect(await screen.findByRole("alert")).toHaveTextContent(
+    const failed = await screen.findByTestId("remote-search-row-movie");
+    expect(await within(failed).findByRole("alert")).toHaveTextContent(
       explain({ kind: "tmdb", detail: "TMDB answered with status 429" }),
     );
-
-    fireEvent.click(screen.getByRole("button", { name: "Series" }));
     expect(await screen.findByTestId("search-card-series-tmdb:s1")).toBeInTheDocument();
-    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("remote-search-row-series")).queryByRole("alert"),
+      "the failure stays under the row that lost its page",
+    ).not.toBeInTheDocument();
     expect(host.asked("search").map((action) => action.kind)).toEqual([
       "movie",
       "series",
@@ -365,7 +382,7 @@ describe("Search over TMDB", () => {
 });
 
 describe("Search with no TMDB Credential", () => {
-  test("a submit asks the Catalogs once, and the chosen kind narrows the answer", async () => {
+  test("a submit asks the Catalogs once, and every answering row is drawn", async () => {
     const { host, pushes } = mount({
       snapshot: UNKEYED,
       respond: () => ({
@@ -386,10 +403,11 @@ describe("Search with no TMDB Credential", () => {
       ]),
     );
     expect(await screen.findByTestId("search-card-cinemeta-tt1")).toBeInTheDocument();
-    expect(screen.queryByTestId("search-card-shows-tt2")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Series" }));
-    expect(await screen.findByTestId("search-card-shows-tt2")).toBeInTheDocument();
+    expect(
+      await screen.findByTestId("search-card-shows-tt2"),
+      "one row per answering Catalog, in the Host's order",
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Kind" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("search-card-shows-tt2"));
     expect(pushes).toEqual([

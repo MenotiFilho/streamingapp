@@ -10,7 +10,6 @@ import {
   feedState,
   genresFor,
   previewDiscoverAsk,
-  rowsForKind,
 } from "./editorial";
 
 const ACTION = { key: "28", name: "Action", value: 28 };
@@ -115,22 +114,6 @@ describe("the editorial row's bookkeeping", () => {
     expect(discoverEmptyNote(ACTION)).toBe(
       "Nothing is screening under Action. Choose another genre.",
     );
-  });
-});
-
-describe("a keyless Search's rows", () => {
-  test("only the chosen kind's answering Catalogs are drawn, in the Host's order", () => {
-    const rows = [
-      { type: "movie", name: "Popular" },
-      { type: "series", name: "Popular Series" },
-      { type: "movie", name: "Top Rated" },
-    ];
-
-    expect(rowsForKind(rows, MOVIE).map((row) => row.name)).toEqual([
-      "Popular",
-      "Top Rated",
-    ]);
-    expect(rowsForKind(rows, SERIES).map((row) => row.name)).toEqual(["Popular Series"]);
   });
 });
 

@@ -3,11 +3,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { answeredCatalogs, answeredSearch } from "../core/answers";
 import type { ActionOutcome } from "../core/answers";
 import { keyOf } from "../core/browse";
-import {
-  discoverPlayable,
-  MOVIE,
-  type DiscoverFeed,
-} from "../core/discover";
+import { discoverPlayable, type DiscoverFeed } from "../core/discover";
 import { explain, type ActionError } from "../core/errors";
 import { addonLabel } from "../core/home";
 import { programIndex, rowTagOf } from "../core/homeProgramme";
@@ -16,7 +12,6 @@ import { SEARCH_KINDS, searchAsk, type SearchKind } from "../core/search";
 import type { Session, SessionState } from "../core/session";
 import type { CatalogRow, MetaPreview } from "../core/wire";
 import { Button } from "../kit/Button";
-import { ChoiceChip } from "../kit/Chip";
 import { Field } from "../kit/Field";
 import { PosterCard } from "../kit/PosterCard";
 import { RemoteRail } from "./RemoteRail";
@@ -28,11 +23,9 @@ import {
   CATALOGS_READING,
   NO_SEARCHABLE_CATALOGS,
   blankFeeds,
-  kindEmpty,
   kindLabel,
   queryOf,
   rowNote,
-  rowsForKind,
   searchNote,
   searchPlaceholder,
 } from "./searchScreen";
@@ -68,10 +61,11 @@ const CATALOG_NOT_ASKED: CatalogAnswer = {
  * The bar submits, never asks per keystroke, and an empty field is not a
  * question: it sends nothing. Which arm a query takes is the Host's fact, read
  * from the Snapshot — with a TMDB Credential both kinds are asked for page 1,
- * held separately and shown one at a time behind the two chips; without one, a
- * single `search_catalogs` ask answers the Addons' own rows and the chosen kind
- * narrows them. A credential gained or cleared is a new feed: the old arm's
- * rows are dropped rather than mixed with the new one's.
+ * held separately and drawn as Movies then Series, each with its own failure
+ * and paging; without one, a single `search_catalogs` ask answers one row per
+ * searchable Catalog. There are no kind chips (ADR-0036 §1). A credential
+ * gained or cleared is a new feed: the old arm's rows are dropped rather than
+ * mixed with the new one's.
  *
  * A press opens a Title and nothing more: a keyed hit is a Discovered Title
  * (TMDB named it, so it carries no Addon) and a keyless one carries the Addon
@@ -85,8 +79,6 @@ export function Search({ session, state, push }: SearchProps) {
   const keyed = credential ?? false;
 
   const [draft, setDraft] = useState("");
-  /** The kind the screen shows; a keyed query still asks both. */
-  const [shown, setShown] = useState<SearchKind>(MOVIE);
   /** The query whose answers are on screen, or null before the first submit. */
   const [committed, setCommitted] = useState<string | null>(null);
   const [feeds, setFeeds] = useState<Record<SearchKind, DiscoverFeed>>(blankFeeds);
@@ -108,11 +100,9 @@ export function Search({ session, state, push }: SearchProps) {
   }, []);
 
   // A credential added or cleared changes which arm a query takes. The rows of
-  // the old arm are not answers to the new one, so they go, and the screen
-  // starts on Movie again.
+  // the old arm are not answers to the new one, so they go.
   useEffect(() => {
     reset();
-    setShown(MOVIE);
   }, [credential, reset]);
 
   /** Ask TMDB for one row's page and fold its answer into that row alone. */
@@ -163,8 +153,8 @@ export function Search({ session, state, push }: SearchProps) {
     setCommitted(query);
     if (keyed) {
       // Both kinds are asked for one page each: not asking one of them would
-      // leave a row simply absent, and a chip switch is instant because both
-      // answers are held (ADR-0010's amendment).
+      // leave a row simply absent, and each row is held and paged alone
+      // (ADR-0010's amendment, ADR-0036 §1).
       for (const { kind } of SEARCH_KINDS) {
         void loadRow(query, kind, 1);
       }
@@ -173,7 +163,7 @@ export function Search({ session, state, push }: SearchProps) {
     }
   };
 
-  /** Open the shown kind's feed as a whole-row grid (#253). */
+  /** Open one kind's feed as a whole-row grid (#253). */
   const openGrid = (at: SearchKind) => {
     if (!committed || feeds[at].items.length === 0) {
       return;
@@ -199,12 +189,6 @@ export function Search({ session, state, push }: SearchProps) {
   };
 
   const query = committed ?? "";
-  const feed = feeds[shown];
-  const reading = paging.has(shown);
-  const phase = feedPhase(feed, reading);
-  const couldPlay = snapshot ? discoverPlayable(snapshot.addons, shown) : true;
-  const catalogRows =
-    catalogs.rows === null ? null : rowsForKind(catalogs.rows, shown);
 
   return (
     <section className="remote-search" data-testid="remote-search">
@@ -235,60 +219,55 @@ export function Search({ session, state, push }: SearchProps) {
             />
           </form>
 
-          <div className="remote-filters" role="group" aria-label="Kind">
-            {SEARCH_KINDS.map(({ kind, label }) => (
-              <ChoiceChip
-                key={kind}
-                pressed={shown === kind}
-                onClick={() => setShown(kind)}
-              >
-                {label}
-              </ChoiceChip>
-            ))}
-          </div>
-
           {keyed && committed !== null ? (
-            <RemoteRail
-              index={programIndex(1)}
-              title={kindLabel(shown)}
-              tag={rowTagOf("TMDB", shown, feed.items.length)}
-              testId={`remote-search-row-${shown}`}
-              note={
-                <RowNote
-                  failure={feed.failure}
-                  quiet={searchNote(phase, shown, query)}
-                />
-              }
-              action={
-                <PagingControl
-                  failure={feed.failure}
-                  more={feedMore(feed)}
-                  loading={paging.has(shown)}
-                  onMore={() => void loadRow(query, shown, pageToAsk(feed))}
-                />
-              }
-              more={
-                feed.items.length > 0 ? (
-                  <MoreControl
-                    label={kindLabel(shown)}
-                    onOpen={() => openGrid(shown)}
-                  />
-                ) : null
-              }
-            >
-              {feed.items.map((meta) => (
-                <PosterCard
-                  key={meta.id}
-                  name={meta.name}
-                  poster={meta.poster}
-                  rating={meta.imdbRating?.trim() || null}
-                  subtitle={meta.releaseInfo}
-                  unplayable={!couldPlay || state.unplayable.has(meta.id)}
-                  testId={`search-card-${shown}-${meta.id}`}
-                  onClick={() => open(null, meta)}
-                />
-              ))}
-            </RemoteRail>
+            SEARCH_KINDS.map(({ kind, label }, index) => {
+              const feed = feeds[kind];
+              const phase = feedPhase(feed, paging.has(kind));
+              const couldPlay = snapshot
+                ? discoverPlayable(snapshot.addons, kind)
+                : true;
+              return (
+                <RemoteRail
+                  key={kind}
+                  index={programIndex(index + 1)}
+                  title={label}
+                  tag={rowTagOf("TMDB", kind, feed.items.length)}
+                  testId={`remote-search-row-${kind}`}
+                  note={
+                    <RowNote
+                      failure={feed.failure}
+                      quiet={searchNote(phase, kind, query)}
+                    />
+                  }
+                  action={
+                    <PagingControl
+                      failure={feed.failure}
+                      more={feedMore(feed)}
+                      loading={paging.has(kind)}
+                      onMore={() => void loadRow(query, kind, pageToAsk(feed))}
+                    />
+                  }
+                  more={
+                    feed.items.length > 0 ? (
+                      <MoreControl label={label} onOpen={() => openGrid(kind)} />
+                    ) : null
+                  }
+                >
+                  {feed.items.map((meta) => (
+                    <PosterCard
+                      key={meta.id}
+                      name={meta.name}
+                      poster={meta.poster}
+                      rating={meta.imdbRating?.trim() || null}
+                      subtitle={meta.releaseInfo}
+                      unplayable={!couldPlay || state.unplayable.has(meta.id)}
+                      testId={`search-card-${kind}-${meta.id}`}
+                      onClick={() => open(null, meta)}
+                    />
+                  ))}
+                </RemoteRail>
+              );
+            })
           ) : null}
 
           {!keyed && committed !== null ? (
@@ -313,7 +292,7 @@ export function Search({ session, state, push }: SearchProps) {
                 </>
               ) : null}
 
-              {catalogRows?.map((row, index) => (
+              {catalogs.rows?.map((row, index) => (
                 <RemoteRail
                   key={keyOf(row)}
                   index={programIndex(index + 1)}
@@ -346,15 +325,6 @@ export function Search({ session, state, push }: SearchProps) {
               catalogs.rows?.length === 0 ? (
                 <p role="status" className="remote-quiet">
                   {NO_SEARCHABLE_CATALOGS}
-                </p>
-              ) : null}
-
-              {!catalogs.loading &&
-              !catalogs.failure &&
-              catalogRows?.length === 0 &&
-              (catalogs.rows?.length ?? 0) > 0 ? (
-                <p role="status" className="remote-quiet">
-                  {kindEmpty(shown, query)}
                 </p>
               ) : null}
             </div>
