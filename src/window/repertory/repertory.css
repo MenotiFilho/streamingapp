@@ -1707,20 +1707,16 @@ body.picture-behind .shell-nav-slot {
   background: var(--rep-house-deep);
 }
 
-/* Seasons are one horizontal rail: a season never wraps onto a second line. */
+/* Seasons are the same rail as Discover's genre chips and the poster rows:
+ * `RowTrack` supplies the arrows, paging, drag and focus reveal. The row keeps
+ * its own height in the programme column and its tighter chip gap. */
 .rep-title-seasons {
-  display: flex;
   flex: none;
-  flex-wrap: nowrap;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 4px;
-  scrollbar-color: var(--rep-hairline) transparent;
-  scrollbar-width: thin;
+  min-width: 0;
 }
 
-.rep-title-seasons .rep-season {
-  flex: none;
+.rep-title-seasons .rep-kit-row-track {
+  gap: 8px;
 }
 
 /* A season is a chip like a control is: one press, one season. */
