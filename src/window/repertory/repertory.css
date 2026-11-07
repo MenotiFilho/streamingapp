@@ -561,6 +561,17 @@ body.picture-behind .shell-nav-slot {
   width: 100%;
 }
 
+/* A content-sized track — Discover's genre chips — keeps each item's own width
+ * instead of the equal share a poster rail gives its cards. The track measures
+ * those widths when it pages, so a press lands on a chip's leading edge. */
+.rep-kit-row-track--content .rep-kit-row-item {
+  flex: 0 0 auto;
+}
+
+.rep-kit-row-track--content .rep-kit-row-item > * {
+  width: auto;
+}
+
 .rep-kit-row-track img {
   -webkit-user-drag: none;
   user-select: none;
@@ -2214,28 +2225,16 @@ body.picture-behind .shell-nav-slot {
   min-width: 0;
 }
 
-/* One row of single-select chips: Movie / Series and the genre filters. */
+/* The genre row is a rail of chips without a head: `RowTrack` draws the same
+ * arrows, paging, drag and focus reveal as a poster row (ADR-0036 §1). This
+ * wrapper only carries the focus region; the chips keep their own width and
+ * their tighter gap. */
 .rep-kind-filter {
-  display: flex;
-  flex-wrap: nowrap;
-  gap: var(--rep-space-2);
   min-width: 0;
-  padding-bottom: var(--rep-space-1);
-  /* The genre row is one line that scrolls sideways, never a second line that
-   * eats the rails' height (#257). The Remote's row is the same. */
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  -webkit-overflow-scrolling: touch;
 }
 
-.rep-kind-filter::-webkit-scrollbar {
-  display: none;
-}
-
-.rep-kind-filter > * {
-  flex: none;
+.rep-kind-filter .rep-kit-row-track {
+  gap: var(--rep-space-2);
 }
 
 /* A fitted feed's cards are sized from the height the panel has left (#257):
@@ -2251,7 +2250,7 @@ body.picture-behind .shell-nav-slot {
   gap: var(--rep-space-3);
 }
 
-.rep-feed[data-page="fitted"] .rep-kit-row-item {
+.rep-feed[data-page="fitted"] .rep-feed-row .rep-kit-row-item {
   flex: 0 0 min(
     var(--rep-feed-card-width, 100%),
     calc((100% - var(--row-gap-count) * var(--rep-row-gap)) / var(--row-visible))
@@ -2279,9 +2278,8 @@ body.picture-behind .shell-nav-slot {
   font-size: var(--rep-text-badge);
 }
 
-.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-kind-filter {
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-kind-filter .rep-kit-row-track {
   gap: var(--rep-space-1);
-  padding-bottom: 0;
 }
 
 .rep-feed[data-page="fitted"][data-chrome="compact"] .rep-kind-filter .rep-kit-choice {

@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useCallback, useState, type ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MOVIE, discoverFeedKey, discoverNoCounterpart } from "../../core/discover";
 import type {
@@ -23,6 +23,10 @@ import { RepertoryDiscoverScreen } from "./RepertoryDiscover";
 import { RepertoryStreamsScreen } from "./RepertoryStreams";
 import { RepertoryTitleScreen } from "./RepertoryTitle";
 import { RepertorySearchScreen } from "./RepertorySearch";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 const CINEMETA: AddonManifest = {
   id: "com.linvo.cinemeta",
@@ -579,6 +583,57 @@ describe("the repertory Discover preview", () => {
       "aria-pressed",
       "false",
     );
+  });
+
+  it("draws the genre chips as a rail whose arrows page them", async () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => ({
+        matches: true,
+        media: "(prefers-reduced-motion: reduce)",
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      })),
+    );
+    const ask = vi.fn(async (action: Action): Promise<ActionOutcome> => ({
+      response: previewCatalogAnswer(action),
+      error: null,
+    }));
+    const { value } = harness({ ask });
+
+    render(withShell(value, <RepertoryDiscoverScreen />, true));
+    await screen.findByRole("button", { name: "All genres" });
+
+    const row = screen.getByRole("region", { name: "Genres" });
+    const track = within(row).getByRole("list");
+    Object.defineProperty(track, "clientWidth", { configurable: true, value: 300 });
+    Object.defineProperty(track, "scrollWidth", { configurable: true, value: 1_200 });
+    within(track)
+      .getAllByRole("listitem")
+      .forEach((item, index) => {
+        const left = index * 116;
+        vi.spyOn(item, "getBoundingClientRect").mockReturnValue({
+          x: left,
+          y: 0,
+          width: 100,
+          height: 40,
+          left,
+          top: 0,
+          right: left + 100,
+          bottom: 40,
+          toJSON: () => ({}),
+        } as DOMRect);
+      });
+    fireEvent.scroll(track);
+
+    const left = within(row).getByRole("button", { name: "Scroll Genres left" });
+    const right = within(row).getByRole("button", { name: "Scroll Genres right" });
+    expect(left).toBeDisabled();
+    expect(right).toBeEnabled();
+
+    fireEvent.click(right);
+    expect(track.scrollLeft, "the same whole-item page a poster rail takes").toBe(232);
+    expect(left).toBeEnabled();
   });
 
   it("a series-only genre leaves the Movies row empty with its line, and asks only Series", async () => {

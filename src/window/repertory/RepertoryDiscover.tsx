@@ -27,6 +27,7 @@ import {
 } from "./editorial";
 import { FeedGrid } from "./FeedGrid";
 import { EditorialRow, FeedPagingAction } from "./EditorialRow";
+import { RowTrack } from "../RowTrack";
 import { Button } from "../../kit/Button";
 import { ChoiceChip } from "../../kit/Chip";
 import { PosterCard } from "../../kit/PosterCard";
@@ -199,18 +200,23 @@ export function RepertoryDiscoverScreen() {
           data-kind="row"
           data-label="Genres"
         >
-          <ChoiceChip pressed={genre === null} onClick={() => chooseGenre(null)}>
-            All genres
-          </ChoiceChip>
-          {genres.map((held) => (
-            <ChoiceChip
-              key={held.name}
-              pressed={genre?.name === held.name}
-              onClick={() => chooseGenre(held)}
-            >
-              {held.name}
+          {/* The chips are a rail without a head: the same track draws them,
+              so the arrows, paging, drag and focus reveal are the poster
+              rows' own (ADR-0036 §1). */}
+          <RowTrack label="Genres" itemLayout="content">
+            <ChoiceChip pressed={genre === null} onClick={() => chooseGenre(null)}>
+              All genres
             </ChoiceChip>
-          ))}
+            {genres.map((held) => (
+              <ChoiceChip
+                key={held.name}
+                pressed={genre?.name === held.name}
+                onClick={() => chooseGenre(held)}
+              >
+                {held.name}
+              </ChoiceChip>
+            ))}
+          </RowTrack>
         </div>
       ) : null}
 

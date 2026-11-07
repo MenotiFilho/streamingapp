@@ -386,7 +386,9 @@ the phone's emoji font is not the design system.
   genre row is **All genres** first, then the union of TMDB's film and series
   genres — one list filtering both the Movies and the Series row, never a
   curated second one, on one line that scrolls sideways rather than wrapping
-  (ADR-0036). Search and Discover have no kind chips.
+  (ADR-0036). That line is a rail without a head: the same `<`/`>` arrows,
+  paging, drag and focus reveal as a poster row (owner's by-hand review,
+  2026-11-06). Search and Discover have no kind chips.
 - **Button**: a line of type with a rule under it; the one primary action is a
   **brass fill carrying ink** (never ivory, 8.43:1), a quiet action is brass ink
   with a rule, and destructive is red ink and always asks first.
