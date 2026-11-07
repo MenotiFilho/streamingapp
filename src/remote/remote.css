@@ -1678,6 +1678,14 @@ body {
   white-space: nowrap;
 }
 
+/* An announced episode says the day it airs and stays playable (#269). */
+.remote-episode-airs {
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-remote-text-mono);
+  letter-spacing: var(--rep-tracking-caps);
+}
+
 /* --------------------------------------------------------------------------
  * Streams: a screening list, one block per Addon
  * -------------------------------------------------------------------------- */

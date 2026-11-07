@@ -831,6 +831,10 @@ pub fn read_season(body: &str, id: TmdbId, season: u32) -> Result<Vec<Video>, Tm
                 season: Some(season),
                 episode: Some(number),
                 thumbnail: still(episode),
+                air_date: episode
+                    .get("air_date")
+                    .and_then(Value::as_str)
+                    .and_then(crate::meta::calendar_day),
             })
         })
         .collect();
@@ -1425,6 +1429,38 @@ mod tests {
     }
 
     #[test]
+    fn a_seasons_episodes_carry_their_air_date_and_absence_is_none() {
+        let videos = read_season(SEASON_1, TmdbId(1396), 1).expect("a season answer");
+
+        assert_eq!(
+            videos[0].air_date.as_deref(),
+            Some("2008-01-20"),
+            "TMDB's calendar day is the day the episode aired"
+        );
+        assert_eq!(videos[1].air_date.as_deref(), Some("2008-01-27"));
+
+        let videos = read_season(
+            r#"{"episodes":[
+                {"episode_number":1,"air_date":""},
+                {"episode_number":2,"air_date":null},
+                {"episode_number":3},
+                {"episode_number":4,"air_date":"not a date"}
+            ]}"#,
+            TmdbId(1396),
+            1,
+        )
+        .expect("a season answer");
+
+        for (index, video) in videos.iter().enumerate() {
+            assert_eq!(
+                video.air_date, None,
+                "an empty string, null, an absent field and a malformed date are all no date (episode {})",
+                index + 1
+            );
+        }
+    }
+
+    #[test]
     fn specials_are_a_season_like_any_other_with_nothing_to_draw() {
         let videos = read_season(SEASON_0, TmdbId(1396), 0).expect("a season answer");
 
@@ -1582,6 +1618,7 @@ mod tests {
                 season: None,
                 episode: None,
                 thumbnail: None,
+                air_date: None,
             }]))
             .onto(&mut title);
         assert_eq!(

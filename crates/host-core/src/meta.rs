@@ -33,10 +33,12 @@
 //! key is held, ADR-0020 gives TMDB's record the last word on this art as well
 //! (#76). A meta response carries far more — Cinemeta's `cast`, `director`,
 //! `trailers`, `links`, `slug`, `popularities`, `imdb_id`, and a Video's
-//! `overview`, `rating`, `firstAired` and `tvdb_id` — and all of it is ignored
-//! rather than refused, because reading a field nothing acts on is a promise
-//! this Host would not be keeping (ADR-0009). It arrives when a ticket that
-//! acts on it does.
+//! `overview`, `rating` and `tvdb_id` — and all of it is ignored rather than
+//! refused, because reading a field nothing acts on is a promise this Host would
+//! not be keeping (ADR-0009). It arrives when a ticket that acts on it does. A
+//! Video's air date is one of those: the protocol's `released` and Cinemeta's
+//! `firstAired` are read because a Title screen marks an announced episode with
+//! it (#269).
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -133,6 +135,10 @@ pub struct Video {
     /// The episode's still, where the Addon gave one: the 16:9 art a series'
     /// episode row is drawn from (#62).
     pub thumbnail: Option<String>,
+    /// The day the episode aired, as `YYYY-MM-DD`, where the Addon gave one —
+    /// an announced episode's date is in the future, and a client marks it
+    /// "Airs <date>" while leaving it playable (#269).
+    pub air_date: Option<String>,
 }
 
 impl Video {
@@ -153,6 +159,7 @@ impl Video {
             season,
             episode,
             thumbnail: None,
+            air_date: None,
         }
     }
 }
@@ -311,7 +318,45 @@ fn video(value: &Value) -> Option<Video> {
         // read first because it is the one that names what the number is.
         episode: number(object, "episode").or_else(|| number(object, "number")),
         thumbnail: field(object, "thumbnail"),
+        // The protocol spells an episode's release `released`, and Cinemeta
+        // repeats it as `firstAired`; both are an ISO 8601 instant, and the
+        // Video carries the calendar day.
+        air_date: air_date(object, "released").or_else(|| air_date(object, "firstAired")),
     })
+}
+
+/// An episode's air date, as the calendar day it names.
+///
+/// An Addon spells the date as an ISO 8601 instant (`2008-01-21T05:00:00.000Z`)
+/// and the day is what a Video carries. An absent field, `null`, an empty
+/// string and a value of the wrong shape are all "no date".
+fn air_date(object: &Map<String, Value>, name: &str) -> Option<String> {
+    calendar_day(object.get(name)?.as_str()?)
+}
+
+/// The calendar day an ISO 8601 date or instant names, as `YYYY-MM-DD`.
+///
+/// A TMDB episode gives `2008-01-20` and an Addon may give
+/// `2008-01-21T05:00:00.000Z`; both carry the day in their first ten bytes. An
+/// empty string, an instant with no date shape and a month or day out of range
+/// are all "no date".
+pub(crate) fn calendar_day(text: &str) -> Option<String> {
+    let date = text.get(..10)?;
+    let bytes = date.as_bytes();
+    let shaped = bytes.len() == 10
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit());
+    if !shaped {
+        return None;
+    }
+    let month: u32 = date.get(5..7)?.parse().ok()?;
+    let day: u32 = date.get(8..10)?.parse().ok()?;
+
+    ((1..=12).contains(&month) && (1..=31).contains(&day)).then(|| date.to_owned())
 }
 
 /// An item's genres, where the Addon spelled them as a list of strings.
@@ -594,6 +639,38 @@ mod tests {
     }
 
     #[test]
+    fn a_video_carries_the_air_date_the_addon_gives_and_none_where_it_gives_none() {
+        // Cinemeta sends the date twice — the protocol's `released` and its own
+        // `firstAired` — and the SDK's type spells it `released`. Both are an
+        // ISO 8601 instant; a Video carries the calendar day.
+        let title = parsed(
+            r#"{"meta":{"id":"tt1","type":"series","name":"One","videos":[
+                {"id":"tt1:1:1","released":"2026-11-12T05:00:00.000Z"},
+                {"id":"tt1:1:2","firstAired":"2026-11-19T05:00:00.000Z"},
+                {"id":"tt1:1:3","released":"","firstAired":null},
+                {"id":"tt1:1:4","released":null,"firstAired":""},
+                {"id":"tt1:1:5","released":"not a date"},
+                {"id":"tt1:1:6"}
+            ]}}"#,
+            &asked("series", "tt1"),
+        );
+
+        assert_eq!(title.videos[0].air_date.as_deref(), Some("2026-11-12"));
+        assert_eq!(
+            title.videos[1].air_date.as_deref(),
+            Some("2026-11-19"),
+            "Cinemeta's own spelling is the same date"
+        );
+        assert_eq!(title.videos[2].air_date, None, "an empty string is no date");
+        assert_eq!(title.videos[3].air_date, None, "null is no date");
+        assert_eq!(
+            title.videos[4].air_date, None,
+            "a date of the wrong shape is none"
+        );
+        assert_eq!(title.videos[5].air_date, None, "an absent field is no date");
+    }
+
+    #[test]
     fn a_video_is_named_by_either_name_the_protocol_spells_a_title_by() {
         // Cinemeta calls an episode's title `name`; the SDK's own type calls it
         // `title`.
@@ -634,8 +711,8 @@ mod tests {
     fn fields_this_host_has_no_use_for_are_ignored_rather_than_refused() {
         // Cinemeta's meta carries `cast`, `director`, `trailers`, `links`,
         // `slug`, `popularities`, `imdb_id`, `moviedb_id` and a Video's
-        // `overview`, `rating`, `firstAired` and `tvdb_id` beside the fields the
-        // Host reads, and a Title that knows more than the Host does still opens.
+        // `overview`, `rating` and `tvdb_id` beside the fields the Host reads,
+        // and a Title that knows more than the Host does still opens.
         let title = parsed(SERIES, &asked("series", "tt0903747"));
 
         assert_eq!(title.imdb_rating.as_deref(), Some("9.5"));

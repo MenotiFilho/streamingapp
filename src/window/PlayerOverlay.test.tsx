@@ -281,6 +281,7 @@ function resumeEntry(overrides: Partial<ResumeEntry> = {}): ResumeEntry {
       season: 1,
       episode: 1,
       thumbnail: "https://images.test/episode-one.jpg",
+      airDate: null,
     },
     title: {
       addon: "community.aiostreams",
@@ -331,9 +332,9 @@ const EPISODES_TITLE: Title = {
   imdbRating: null,
   genres: [],
   videos: [
-    { id: "tt7777777:1:1", name: "Episode One", season: 1, episode: 1, thumbnail: null },
-    { id: "tt7777777:1:2", name: "Episode Two", season: 1, episode: 2, thumbnail: null },
-    { id: "tt7777777:2:1", name: "Season Two, One", season: 2, episode: 1, thumbnail: null },
+    { id: "tt7777777:1:1", name: "Episode One", season: 1, episode: 1, thumbnail: null, airDate: null },
+    { id: "tt7777777:1:2", name: "Episode Two", season: 1, episode: 2, thumbnail: null, airDate: null },
+    { id: "tt7777777:2:1", name: "Season Two, One", season: 2, episode: 1, thumbnail: null, airDate: null },
   ],
 };
 

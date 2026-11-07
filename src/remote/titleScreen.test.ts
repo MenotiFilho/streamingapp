@@ -54,6 +54,7 @@ const VIDEO: Video = {
   season: null,
   episode: null,
   thumbnail: null,
+  airDate: null,
 };
 
 describe("what a card asks the Host", () => {

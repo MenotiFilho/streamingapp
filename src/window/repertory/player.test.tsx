@@ -13,6 +13,7 @@ const ENTRY: ResumeEntry = {
     season: 1,
     episode: 2,
     thumbnail: "https://images.test/episode-two.jpg",
+    airDate: null,
   },
   title: {
     addon: "cinemeta",

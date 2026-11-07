@@ -8,6 +8,7 @@ import type { NewLevel } from "../core/navigation";
 import type { Session, SessionState } from "../core/session";
 import { theFilm } from "../core/stream";
 import {
+  airsNote,
   labelOf,
   nameOf,
   seasonName,
@@ -301,6 +302,8 @@ function SeriesProgram({
   );
   const shown =
     seasons.find((held) => held.season === season) ?? seasons[0];
+  // The machine's own day; `airsNote` is the pure decision (#269).
+  const today = new Date();
 
   const chooseSeason = (next: number | null) => {
     setSeason(next);
@@ -328,6 +331,7 @@ function SeriesProgram({
       <div className="remote-title-episodes">
         {shown?.videos.map((video) => {
           const label = labelOf(video);
+          const airs = airsNote(video, today);
           return (
             <button
               key={video.id}
@@ -362,6 +366,11 @@ function SeriesProgram({
                 <span className="remote-episode-name">
                   {video.name ?? video.id}
                 </span>
+                {airs ? (
+                  <span className="remote-episode-airs" data-testid="episode-airs">
+                    {airs}
+                  </span>
+                ) : null}
               </span>
             </button>
           );

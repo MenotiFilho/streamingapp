@@ -79,10 +79,10 @@ describe("what the Title page offers next", () => {
     const series = title({
       type: "series",
       videos: [
-        { id: "tt0:0:1", name: "Special", season: 0, episode: 1, thumbnail: null },
-        { id: "tt0:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
-        { id: "tt0:1:2", name: "Second", season: 1, episode: 2, thumbnail: null },
-        { id: "tt0:2:1", name: "Third", season: 2, episode: 1, thumbnail: null },
+        { id: "tt0:0:1", name: "Special", season: 0, episode: 1, thumbnail: null, airDate: null },
+        { id: "tt0:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },
+        { id: "tt0:1:2", name: "Second", season: 1, episode: 2, thumbnail: null, airDate: null },
+        { id: "tt0:2:1", name: "Third", season: 2, episode: 1, thumbnail: null, airDate: null },
       ],
     });
 

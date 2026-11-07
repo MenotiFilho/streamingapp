@@ -102,6 +102,7 @@ const SERIES: Title = {
       season: 1,
       episode: 1,
       thumbnail: null,
+      airDate: null,
     },
   ],
 };

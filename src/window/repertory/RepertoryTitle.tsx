@@ -3,6 +3,7 @@ import { useCallback, useState } from "react";
 import type { Title, Video } from "../../core/wire";
 import { theFilm } from "../../core/stream";
 import {
+  airsNote,
   labelOf,
   nameOf,
   seasonName,
@@ -48,6 +49,9 @@ export function RepertoryTitleScreen({
   const art = titleArtOf(title, preview);
   const shown = seasons.find((season) => season.season === shownSeason) ?? seasons[0];
   const suppliedBy = title.addon ? addonLabel(snapshot, title.addon) : null;
+  // The day the Airs mark is judged against is the machine's own; the decision
+  // itself is pure (#269).
+  const today = new Date();
 
   const play = useCallback(
     (video: Video) => {
@@ -181,6 +185,7 @@ export function RepertoryTitleScreen({
                 >
                   {shown?.videos.map((video) => {
                     const label = labelOf(video);
+                    const airs = airsNote(video, today);
                     return (
                       <button
                         key={video.id}
@@ -212,6 +217,11 @@ export function RepertoryTitleScreen({
                             <span className="rep-episode-label">{label ?? "Video"}</span>
                           ) : null}
                           <span className="rep-episode-name">{video.name ?? video.id}</span>
+                          {airs ? (
+                            <span className="rep-episode-airs" data-testid="episode-airs">
+                              {airs}
+                            </span>
+                          ) : null}
                         </span>
                         <span className="rep-episode-mark">Streams</span>
                       </button>

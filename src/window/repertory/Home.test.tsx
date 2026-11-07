@@ -130,7 +130,7 @@ const completePage = vi.fn(async (action: Action) => {
 
 function resumeEntry(overrides: Partial<ResumeEntry> = {}): ResumeEntry {
   return {
-    video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
+    video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },
     title: {
       addon: "cinemeta",
       id: "tt1",

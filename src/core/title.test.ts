@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
-import type { MetaPreview, Title } from "./wire";
-import { discoveredKeyOf, titleArtOf, titleStubOf } from "./title";
+import type { MetaPreview, Title, Video } from "./wire";
+import { airsNote, discoveredKeyOf, titleArtOf, titleStubOf } from "./title";
 
 function title(overrides: Partial<Title> = {}): Title {
   return {
@@ -35,6 +35,18 @@ function preview(overrides: Partial<MetaPreview> = {}): MetaPreview {
     imdbRating: null,
     genres: [],
     description: null,
+    ...overrides,
+  };
+}
+
+function video(overrides: Partial<Video> = {}): Video {
+  return {
+    id: "tt0903747:1:1",
+    name: "Pilot",
+    season: 1,
+    episode: 1,
+    thumbnail: null,
+    airDate: null,
     ...overrides,
   };
 }
@@ -118,4 +130,28 @@ describe("a Discovered Title's key", () => {
       expect(discoveredKeyOf(id)).toBeNull();
     },
   );
+});
+
+describe("the air date an announced episode carries", () => {
+  // Saturday 7 November 2026, in the machine's own zone: the day the decision
+  // compares against is injected, so the test never reads the wall clock.
+  const today = new Date(2026, 10, 7, 9, 30);
+
+  test("a day after today is printed as the programme prints a date", () => {
+    expect(airsNote(video({ airDate: "2026-11-12" }), today)).toBe("Airs 12 Nov");
+    expect(airsNote(video({ airDate: "2027-01-03" }), today)).toBe("Airs 3 Jan");
+  });
+
+  test("today, a past day and no day are not announced", () => {
+    expect(airsNote(video({ airDate: "2026-11-07" }), today)).toBeNull();
+    expect(airsNote(video({ airDate: "2026-11-06" }), today)).toBeNull();
+    expect(airsNote(video({ airDate: null }), today)).toBeNull();
+    expect(airsNote(video({ airDate: "" }), today)).toBeNull();
+  });
+
+  test("a day the calendar does not have is no day", () => {
+    for (const airDate of ["2026-13-01", "2026-02-30", "2026-1-2", "soon"]) {
+      expect(airsNote(video({ airDate }), today)).toBeNull();
+    }
+  });
 });
