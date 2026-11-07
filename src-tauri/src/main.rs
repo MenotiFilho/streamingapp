@@ -193,17 +193,26 @@ fn main() {
             // The Host's background queue. A stale Title answers its cached
             // copy at once and is refreshed here, outside the change lock; a
             // refresh that changed the Title reaches the client that asked
-            // (ADR-0038 §2). `host-core` holds no threads, so the shell drains
-            // it, the way it samples the Player.
+            // (ADR-0038 §2). A read-ahead that changed Continue watching
+            // publishes the Snapshot that moves the card on (#277).
+            // `host-core` holds no threads, so the shell drains it, the way it
+            // samples the Player.
             let background = handle.clone();
             std::thread::spawn(move || loop {
                 std::thread::sleep(BACKGROUND);
                 loop {
-                    let ran = background.state::<ipc::HostHandle>().drain();
-                    if ran == 0 {
+                    let drained = background.state::<ipc::HostHandle>().drain();
+                    if let Some(snapshot) = drained.snapshot {
+                        tracing::debug!(
+                            revision = snapshot.revision,
+                            "a background read moved Continue watching"
+                        );
+                        ipc::publish(&background, &[snapshot]);
+                    }
+                    if drained.ran == 0 {
                         break;
                     }
-                    tracing::debug!(jobs = ran, "the background queue ran");
+                    tracing::debug!(jobs = drained.ran, "the background queue ran");
                 }
             });
 

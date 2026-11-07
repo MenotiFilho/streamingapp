@@ -24,7 +24,7 @@ use crate::action::{Action, ActionError};
 use crate::addon::AddonId;
 use crate::background::RevisionSink;
 use crate::device::{DeviceSummary, DeviceToken};
-use crate::host::Host;
+use crate::host::{Drained, Host};
 use crate::log::millis;
 use crate::response::Response;
 use crate::snapshot::Snapshot;
@@ -117,22 +117,29 @@ impl HostDoor {
         }
     }
 
-    /// Run the background queue, a bounded fan-out at a time, and answer how
-    /// many jobs ran.
+    /// Run the background queue, a bounded fan-out at a time, and answer what a
+    /// client is owed.
     ///
     /// The jobs are taken and the view cloned under the lock, and then every
     /// fetch runs with it released: a refresh is not a change, and a slow
     /// source must not keep every client waiting (ADR-0022, ADR-0038 §3). The
-    /// shell drains this on a worker thread; a test drains it inline.
-    pub fn drain(&self) -> usize {
+    /// shell drains this on a worker thread; a test drains it inline. A cache
+    /// write that moved Continue watching publishes one Snapshot, under the
+    /// lock again — the fetch itself never held it (#277).
+    pub fn drain(&self) -> Drained {
         let (jobs, view) = {
             let host = self.host.lock().expect(POISONED);
             (host.take_jobs(), host.view())
         };
         if jobs.is_empty() {
-            return 0;
+            return Drained {
+                ran: 0,
+                snapshot: None,
+            };
         }
-        view.drain(jobs)
+        let (ran, changed) = view.drain(jobs);
+        let snapshot = changed.then(|| self.host.lock().expect(POISONED).cache_changed());
+        Drained { ran, snapshot }
     }
 
     /// The state as it stands — what a client that has just connected, or just

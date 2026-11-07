@@ -3,7 +3,7 @@
 //! seam, so nothing here names a table or a column.
 
 use host_core::{
-    AddonId, CachedTitle, SeriesStatus, Store, Title, TitleKey, TitleRef, TitleSource,
+    AddonId, CachedTitle, NextEpisode, SeriesStatus, Store, Title, TitleKey, TitleRef, TitleSource,
 };
 use host_sqlite::SqliteStore;
 
@@ -24,6 +24,7 @@ fn kept(read_at: i64) -> CachedTitle {
         read_at,
         source: TitleSource::Addon,
         status: None,
+        next_episode: None,
     }
 }
 
@@ -34,6 +35,10 @@ fn a_kept_title_round_trips_with_its_moment_source_and_series_status() {
     written.title.key = TitleKey::Tmdb { id: 1396 };
     written.source = TitleSource::Both;
     written.status = Some(SeriesStatus::Running);
+    written.next_episode = Some(NextEpisode {
+        season: 2,
+        episode: 7,
+    });
 
     store
         .write_title(&written)

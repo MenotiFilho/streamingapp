@@ -51,8 +51,9 @@ impl HostHandle {
         self.0.dispatch_asking(action, revisions)
     }
 
-    /// Run what the background queue is holding, a bounded fan-out at a time.
-    pub fn drain(&self) -> usize {
+    /// Run what the background queue is holding, a bounded fan-out at a time,
+    /// answering what ran and the Snapshot a cache write owes (#277).
+    pub fn drain(&self) -> host_core::Drained {
         self.0.drain()
     }
 

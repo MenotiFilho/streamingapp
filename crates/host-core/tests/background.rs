@@ -162,7 +162,11 @@ fn a_stale_title_opens_at_once_and_two_opens_queue_one_refresh() {
     assert_eq!(again, first);
     assert_eq!(fetcher.asked().len(), asked);
 
-    assert_eq!(host.drain(), 1, "two opens of one stale Title are one job");
+    assert_eq!(
+        host.drain().ran,
+        1,
+        "two opens of one stale Title are one job"
+    );
     assert_eq!(
         fetcher.asked().len(),
         asked + 1,
@@ -202,7 +206,7 @@ fn a_stale_discovered_title_opens_at_once_and_refreshes_behind() {
         "and reached nothing before it"
     );
 
-    assert_eq!(host.drain(), 1);
+    assert_eq!(host.drain().ran, 1);
     let revised = revised_titles(&staged);
     assert_eq!(revised.len(), 1);
     assert_eq!(revised[0].name, "Still Making More");
@@ -234,7 +238,7 @@ fn a_refresh_that_changed_the_title_answers_only_the_client_that_asked() {
     );
     assert_eq!(stale, cached);
 
-    assert_eq!(host.drain(), 1);
+    assert_eq!(host.drain().ran, 1);
 
     let revised = revised_titles(&asker);
     assert_eq!(revised.len(), 1, "the asking client is told once");
@@ -272,7 +276,7 @@ fn a_refresh_that_changed_nothing_delivers_nothing() {
     );
     assert_eq!(stale, cached);
 
-    assert_eq!(host.drain(), 1);
+    assert_eq!(host.drain().ran, 1);
     assert!(
         asker.revised().is_empty(),
         "an unchanged refresh is not an Answer"
@@ -306,7 +310,7 @@ fn a_refresh_that_failed_with_429_keeps_the_copy_and_delivers_nothing() {
     );
     assert_eq!(stale, cached);
 
-    assert_eq!(host.drain(), 1);
+    assert_eq!(host.drain().ran, 1);
     assert_eq!(
         fetcher.asked().len(),
         asked + 1,
