@@ -20,7 +20,13 @@ describe("the page rule", () => {
   test("Discover, Search, Title and the player fit; Home and the register scroll", () => {
     expect(pageFit("discover").panel, "Discover fits head, genre row and rows").toBe("rows");
     expect(pageFit("search").panel, "Search fits its bar and rows").toBe("rows");
-    expect(pageFit("title").panel, "the Title is one screen").toBe("episodes");
+    expect(pageFit("title").panel, "the window's Title scrolls its episode rail").toBe(
+      "episodes",
+    );
+    expect(
+      pageFit("title-body").panel,
+      "the Remote's Title scrolls its whole body under the fixed Back",
+    ).toBe("body");
     expect(pageFit("player").panel, "the Remote's player card is one screen").toBe("card");
 
     expect(pageFit("home").panel, "Home keeps its scrolling programme").toBeNull();
@@ -44,6 +50,10 @@ describe("the page rule", () => {
     expect(pageAttrs("title")).toEqual({
       "data-page": "fitted",
       "data-panel": "episodes",
+    });
+    expect(pageAttrs("title-body")).toEqual({
+      "data-page": "fitted",
+      "data-panel": "body",
     });
     expect(pageAttrs("player")).toEqual({ "data-page": "fitted", "data-panel": "card" });
 

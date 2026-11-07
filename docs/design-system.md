@@ -535,6 +535,16 @@ horizontal swipe, a tick jump, a hold, and a restart on any of them — and the
 kicker and `01 / 04` position are gone, because the ticks say where the
 programme is (ADR-0036 §2; owner's by-hand review on PR #261).
 
+**Title / Remote Title.** The Remote's Title is one page under the fixed Back:
+a phone cannot hold the copy and the episode list side by side, so the whole
+body — the wordmark or name, the facts, the description, the attribution, the
+seasons, the episodes and **Find Streams** — is the one scrollport. The seasons
+stay a single row that slides sideways and never gives up its height; the
+episode list is normal flow, never a second scrollport, so every episode and
+Find Streams are reached by scrolling the body. The window's Title keeps its
+fitted two-column page, with the episode rail as its panel (ADR-0036 §3,
+amended 2026-11-07; owner's report on the served Remote).
+
 Ink, ivory, brass, hairlines and the same display/interface/mono roles. Touch
 first: 44px targets (40px chips), safe-area insets, never hover as the only cue;
 keyboard focus keeps the ivory keyline for a Remote driven by a keyboard, and a

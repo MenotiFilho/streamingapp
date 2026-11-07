@@ -5,9 +5,10 @@
  * Most screens let a short window scroll the page rather than clip the copy. A
  * fitted screen does not: the page itself never scrolls vertically, and anything
  * longer than the window scrolls inside the screen's own panel. Discover and
- * Search fit their head, genre row and rows; the Title fits with its episode
- * list scrolling inside its rail; the Remote's player card is one screen, with
- * every control fitting.
+ * Search fit their head, genre row and rows; the window's Title fits with its
+ * episode list scrolling inside its rail; the Remote's Title fits with its whole
+ * body scrolling under the fixed Back; the Remote's player card is one screen,
+ * with every control fitting.
  *
  * The decision lives here because both clients obey it (ADR-0035 §1), and no
  * client should have to rediscover it from a CSS rule (ADR-0032). The fitted
@@ -20,17 +21,29 @@ import type { Destination } from "./destinations";
 
 /**
  * Every surface either client can show, for the purpose of the page rule: the
- * six destinations, the Title, any other pushed level, and the Remote's player
- * card. A level that is not named keeps the old rule — the page scrolls.
+ * six destinations, the window's Title, the Remote's Title body, any other
+ * pushed level, and the Remote's player card. A level that is not named keeps
+ * the old rule — the page scrolls.
+ *
+ * The two Titles are separate surfaces because a phone cannot hold the copy and
+ * the episode list side by side: the window keeps its fitted Title with the
+ * episode list as the panel, and the Remote scrolls the Title's whole body under
+ * the fixed Back (ADR-0036 §3, 2026-11-07).
  */
-export type PageSurface = Destination | "title" | "overlay" | "player";
+export type PageSurface =
+  | Destination
+  | "title"
+  | "title-body"
+  | "overlay"
+  | "player";
 
 /**
  * The panel a fitted page scrolls its overflow inside. `rows` is Discover's and
- * Search's feed; `episodes` is the Title's rail; `card` is the Remote's player
- * card, which scrolls only where a viewport is shorter than every control.
+ * Search's feed; `episodes` is the window Title's rail; `body` is the Remote
+ * Title's copy, seasons, episodes and Play as one panel; `card` is the Remote's
+ * player card, which scrolls only where a viewport is shorter than every control.
  */
-export type PagePanel = "rows" | "episodes" | "card";
+export type PagePanel = "rows" | "episodes" | "body" | "card";
 
 /** One surface's answer to the page rule. */
 export type PageFit = {
@@ -49,6 +62,7 @@ const PAGE_FITS: Record<PageSurface, PageFit> = {
   addons: { panel: null },
   settings: { panel: null },
   title: { panel: "episodes" },
+  "title-body": { panel: "body" },
   overlay: { panel: null },
   player: { panel: "card" },
 };

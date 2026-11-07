@@ -17,9 +17,9 @@ describe("the Remote's page surface", () => {
     expect(pageSurface("settings", null)).toBe("settings");
   });
 
-  test("a Title level is the Title page", () => {
-    expect(pageSurface("discover", "title")).toBe("title");
-    expect(pageSurface("search", "title")).toBe("title");
+  test("a Title level is the Remote's Title body, which scrolls as one panel", () => {
+    expect(pageSurface("discover", "title")).toBe("title-body");
+    expect(pageSurface("search", "title")).toBe("title-body");
   });
 
   test("the player card and its sheets are the player screen", () => {

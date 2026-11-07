@@ -69,7 +69,9 @@ it fits the window (or the phone's viewport), and anything longer scrolls
 **inside its own panel** or pages horizontally:
 
 - **Discover** and **Search** — the head, the chips and two rows fit.
-- **Title** — the episode list scrolls inside its panel; the page does not.
+- **Title** — the window's episode list scrolls inside its panel; on the Remote
+  the whole Title body scrolls under the fixed Back (amended 2026-11-07, below);
+  the page does not.
 - **The Remote's player screen** (the Cast Remote) — every control fits.
 
 Home and the utility register (Addons, Settings, Library) keep the old rule: a
@@ -85,6 +87,19 @@ credit, whose words and mark stay. Where both rails still cannot hold the floor,
 panel** scrolls under the fixed screen head, genre row or search bar — the page
 itself still never scrolls. A reveal into a rail keeps that rail's head in
 view with the card. Discover and Search share the same two-row rule.
+
+(Amended 2026-11-07, the owner's report: on a phone the Remote's Title showed
+only a sliver of the seasons row and no episode list, and nothing scrolled.) A
+phone cannot hold the copy — the name or logo, the facts, up to eight lines of
+description and the attribution — and the episode list side by side, so on the
+**Remote** the Title body is the one scrollport: the copy, the seasons, the
+episodes and **Find Streams** scroll together under the fixed Back and the
+bottom index, and the episode list is normal flow rather than a nested scroll.
+The seasons row never shrinks vertically and still slides sideways. Find Streams
+and every episode are reachable by scrolling, for a series and for a film with a
+long description and a logo. The **window's** Title is unchanged: it keeps the
+fitted two-column page with the episode list as its panel. The two answers are
+the page seam's (`pageFit` and `pageSurface`), not a CSS accident.
 
 ## 4. The Remote's playing bar steps aside on the player screen
 

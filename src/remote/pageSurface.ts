@@ -2,10 +2,12 @@
  * Which surface the Remote's page rule asks about.
  *
  * The room draws either a destination or the top level of its stack, and the
- * frame (header, main, index) is the same for both. A Title is the Title page,
- * and the player card and the sheets above it are the player screen; every
- * other level — Streams, a Settings leaf, a grid, a confirmation — is an overlay
- * that keeps the old rule and scrolls as a page.
+ * frame (header, main, index) is the same for both. A Title is the Remote's
+ * Title body: a phone cannot hold the copy and the episode list side by side, so
+ * its whole body scrolls under the fixed Back (ADR-0036 §3, 2026-11-07). The
+ * player card and the sheets above it are the player screen; every other level
+ * — Streams, a Settings leaf, a grid, a confirmation — is an overlay that keeps
+ * the old rule and scrolls as a page.
  */
 
 import type { Destination } from "../core/destinations";
@@ -24,7 +26,7 @@ export function pageSurface(
     case null:
       return destination;
     case "title":
-      return "title";
+      return "title-body";
     case "player":
     case "sheet":
       return "player";

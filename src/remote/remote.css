@@ -139,45 +139,30 @@ body {
   scrollbar-width: thin;
 }
 
-/* The Title is one page: the episode list scrolls inside its own panel. */
+/* The Title is one page, and on the Remote its body is the one scrollport. A
+ * phone cannot hold the copy and the episode list side by side, so everything
+ * under the fixed Back — the copy, the seasons, the episodes and Find Streams —
+ * scrolls together; the episode list is normal flow here, not a nested
+ * scrollport (ADR-0036 §3, amended 2026-11-07, owner's report). */
 .remote-ui[data-page="fitted"] .remote-level-page {
   overflow: hidden;
 }
 
-.remote-ui[data-page="fitted"][data-panel="episodes"] .remote-title-level {
+.remote-ui[data-page="fitted"][data-panel="body"] .remote-title-level {
   display: flex;
   flex: 1;
   flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-}
-
-.remote-ui[data-page="fitted"][data-panel="episodes"] .remote-title {
-  flex: 1;
-  min-height: 0;
-}
-
-.remote-ui[data-page="fitted"][data-panel="episodes"] .remote-title-copy {
-  flex: none;
-}
-
-.remote-ui[data-page="fitted"][data-panel="episodes"] .remote-title-side {
-  flex: 1;
-  min-height: 0;
-}
-
-.remote-ui[data-page="fitted"][data-panel="episodes"] .remote-title-program {
-  flex: 1;
-  min-height: 0;
-}
-
-.remote-ui[data-page="fitted"][data-panel="episodes"] .remote-title-episodes {
-  flex: 1;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
   scrollbar-width: thin;
+}
+
+/* The Title is sized by its content inside the body's scrollport, so no part of
+ * it is asked to share a height the phone does not have. */
+.remote-ui[data-page="fitted"][data-panel="body"] .remote-title {
+  flex: none;
 }
 
 /* The player card is one screen: the controls are laid out to fit, and only a
@@ -1595,9 +1580,11 @@ body {
   min-width: 0;
 }
 
-/* The seasons slide under the finger in one line, like the filters. */
+/* The seasons slide under the finger in one line, like the filters, and never
+ * give up their height to the body that scrolls under them. */
 .remote-title-seasons {
   display: flex;
+  flex: none;
   gap: var(--rep-space-2);
   min-width: 0;
   padding-bottom: var(--rep-space-1);
@@ -1906,13 +1893,6 @@ body {
   .remote-title-side {
     border-top: 0;
     padding-top: 0;
-  }
-
-  /* A fitted Title's two columns share the page's height, so the episode rail
-   * has a panel to scroll inside rather than its content height. */
-  .remote-ui[data-page="fitted"][data-panel="episodes"] .remote-title {
-    align-items: stretch;
-    grid-template-rows: minmax(0, 1fr);
   }
 }
 
