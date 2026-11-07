@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 
 import { keyOf, pageable } from "../../core/browse";
-import type { MetaPreview, ResumeEntry } from "../../core/wire";
+import type { ContinueEntry, MetaPreview } from "../../core/wire";
 import { explain } from "../../core/errors";
 import { gridPaging } from "../../core/gridPaging";
 import { cardName, cardNote, progressOf, resumable } from "../../core/library";
@@ -33,7 +33,7 @@ export type RailGridProps = {
   index?: string;
   /** A card opens its Title through the Addon that answered the row. */
   onOpenMeta: (addon: string, meta: MetaPreview) => void;
-  onOpenEntry: (entry: ResumeEntry) => void;
+  onOpenEntry: (entry: ContinueEntry) => void;
   onClose: () => void;
 };
 
@@ -69,7 +69,7 @@ export function RailGrid({
   const name = row?.name ?? title;
   const tag =
     source.kind === "continue"
-      ? continueTag(snapshot?.watchProgress.length ?? 0)
+      ? continueTag(snapshot?.continueWatching.length ?? 0)
       : row
         ? rowTag(snapshot, row)
         : null;
@@ -81,7 +81,7 @@ export function RailGrid({
     failure,
     pageable: source.kind === "home" && row !== null && pageable(snapshot, row),
     reading,
-    count: source.kind === "continue" ? (snapshot?.watchProgress.length ?? 0) : metas.length,
+    count: source.kind === "continue" ? (snapshot?.continueWatching.length ?? 0) : metas.length,
   });
 
   const askMore = () => {
@@ -110,7 +110,7 @@ export function RailGrid({
 
       {source.kind === "continue" ? (
         <div className="rep-rail-grid-cards" data-rail="continue">
-          {(snapshot?.watchProgress ?? []).map((entry) => {
+          {(snapshot?.continueWatching ?? []).map((entry) => {
             const playable = resumable(entry);
             return (
               <ContinueWatchingCard

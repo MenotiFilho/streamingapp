@@ -16,9 +16,9 @@ import type {
   AddonCatalog,
   AddonManifest,
   CatalogRow,
+  ContinueEntry,
   MetaPreview,
   Response,
-  ResumeEntry,
   Snapshot,
 } from "../core/wire";
 import { Home } from "./Home";
@@ -718,7 +718,7 @@ describe("Home's presses", () => {
   });
 
   test("a Continue watching card pushes the Title, and an entry with no Addon does not", async () => {
-    const entry: ResumeEntry = {
+    const entry: ContinueEntry = {
       video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
       title: {
         addon: "cinemeta",
@@ -740,7 +740,7 @@ describe("Home's presses", () => {
       unplayable: { reason: "addon_removed", addon: "cinemeta" } as const,
     };
     const { pushes } = mount({
-      snapshot: { ...SNAPSHOT, watchProgress: [entry, gone] },
+      snapshot: { ...SNAPSHOT, continueWatching: [entry, gone] },
     });
 
     const pressable = await screen.findByTestId("resume-tt1:1:1");
@@ -750,6 +750,60 @@ describe("Home's presses", () => {
     ]);
 
     expect(screen.getByTestId("resume-tt2:1:1")).toBeDisabled();
+  });
+
+  test("the Continue watching rail is one card per Host entry, not per Video's progress", async () => {
+    const entry: ContinueEntry = {
+      video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
+      title: {
+        addon: "cinemeta",
+        id: "tt1",
+        type: "series",
+        name: "One",
+        poster: null,
+        background: null,
+      },
+      position: 300,
+      duration: 600,
+      watched: false,
+      unplayable: null,
+    };
+    mount({
+      snapshot: {
+        ...SNAPSHOT,
+        continueWatching: [entry],
+        watchProgress: [
+          entry,
+          { ...entry, video: { ...entry.video, id: "tt1:1:2", name: "Second", episode: 2 } },
+        ],
+      },
+    });
+
+    await screen.findByTestId("resume-tt1:1:1");
+    expect(screen.queryByTestId("resume-tt1:1:2")).toBeNull();
+    expect(screen.queryByTestId("resume-tt1:1:2-progress")).toBeNull();
+  });
+
+  test("per-Video Watch progress alone draws no Continue watching rail", async () => {
+    const entry: ContinueEntry = {
+      video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
+      title: {
+        addon: "cinemeta",
+        id: "tt1",
+        type: "series",
+        name: "One",
+        poster: null,
+        background: null,
+      },
+      position: 300,
+      duration: 600,
+      watched: false,
+      unplayable: null,
+    };
+    mount({ snapshot: { ...SNAPSHOT, continueWatching: [], watchProgress: [entry] } });
+
+    await waitFor(() => expect(screen.getByTestId("remote-home")).toBeInTheDocument());
+    expect(screen.queryByTestId("remote-continue")).toBeNull();
   });
 
   test("More opens the row as a whole-row grid and asks no page itself", async () => {
@@ -796,7 +850,7 @@ describe("Home's presses", () => {
   });
 
   test("the Continue watching rail's More card opens its whole row", async () => {
-    const entry: ResumeEntry = {
+    const entry: ContinueEntry = {
       video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
       title: {
         addon: "cinemeta",
@@ -812,7 +866,7 @@ describe("Home's presses", () => {
       unplayable: null,
     };
     const { pushes } = mount({
-      snapshot: { ...SNAPSHOT, watchProgress: [entry] },
+      snapshot: { ...SNAPSHOT, continueWatching: [entry] },
     });
     await waitFor(() => expect(screen.getByTestId("resume-tt1:1:1")).toBeInTheDocument());
 

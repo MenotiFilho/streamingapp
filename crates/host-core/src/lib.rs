@@ -107,8 +107,8 @@ pub use preview::{
     PREVIEW_BITRATE_GRACE_MS, PREVIEW_BUCKET_SECONDS, PREVIEW_CACHE_FRAMES, PREVIEW_CEILING_BPS,
 };
 pub use progress::{
-    ResumeEntry, TitleCard, TitleStub, UnplayableEntry, UnplayableReason, WatchProgress,
-    FINISHED_TAIL, PROGRESS_EVERY,
+    continue_watching, ContinueEntry, ResumeEntry, TitleCard, TitleStub, UnplayableEntry,
+    UnplayableReason, WatchProgress, FINISHED_TAIL, PROGRESS_EVERY,
 };
 pub use provider::{AddonProvider, FixtureProvider, Provider};
 pub use request::{

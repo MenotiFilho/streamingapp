@@ -471,6 +471,7 @@ fn the_snapshot_declares_only_fields_it_can_safely_carry() {
             "addons": [],
             "featuredCatalog": serde_json::Value::Null,
             "protection": { "backend": "keyring", "tmdbHeld": false, "stremioHeld": false },
+            "continueWatching": [],
             "watchProgress": [],
             // A freshly opened Host has no devices but the one it has always had
             // — nobody — and the code it is showing. The code is drawn, so it is
