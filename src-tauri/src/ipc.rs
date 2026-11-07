@@ -41,14 +41,8 @@ impl HostHandle {
         Self(HostDoor::new(host))
     }
 
-    /// Take an Action, without publishing what came of it: the callers differ in
-    /// where they publish, and there is one place for each of them.
-    pub fn dispatch(&self, action: Action) -> Result<Response, ActionError> {
-        self.0.dispatch(action)
-    }
-
-    /// The same, saying where a revised Answer goes when the Action was a stale
-    /// Title's open (ADR-0038 §2).
+    /// Take an Action, saying where a revised Answer goes when the Action was a
+    /// stale Title's open (ADR-0038 §2).
     pub fn dispatch_asking(
         &self,
         action: Action,

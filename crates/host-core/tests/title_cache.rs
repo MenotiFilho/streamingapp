@@ -6,10 +6,10 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, AddonId, AddonProvider, Answer, FixtureClock, FixtureFetcher,
-    FixturePlayer, FixtureStremio, Host, InMemorySecretStore, InMemoryStore, Provider,
-    SecretBackend, Store, Title, TitleCard, TitleKey, TitleStub, VideoRef, WatchProgress,
-    ACTION_VERSION, MAX_CACHED_TITLES,
+    Action, AddonId, AddonProvider, Answer, FixtureClock, FixtureFetcher, FixturePlayer,
+    FixtureStremio, Host, InMemorySecretStore, InMemoryStore, Provider, SecretBackend, Store,
+    Title, TitleCard, TitleKey, TitleStub, VideoRef, WatchProgress, ACTION_VERSION,
+    MAX_CACHED_TITLES,
 };
 use serde_json::{json, Value};
 

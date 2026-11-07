@@ -66,10 +66,7 @@ pub(crate) enum Work {
     /// A Title opened through an Addon: ask the Addon, and TMDB where it meets
     /// — or TMDB alone once the Addon is gone and the copy is keyed by a
     /// record (ADR-0038 §2).
-    Addon {
-        addon: AddonId,
-        asked: TitleRef,
-    },
+    Addon { addon: AddonId, asked: TitleRef },
     /// A Discovered Title: TMDB's record is the whole of it.
     Discovered { id: TmdbId, kind: Kind },
 }
@@ -145,12 +142,22 @@ mod tests {
     #[test]
     fn two_jobs_for_one_title_are_one_job_with_both_askers() {
         let mut queue = BackgroundQueue::default();
-        queue.enqueue(job(TitleKey::Tmdb { id: 1 }, Arc::new(FixtureRevisions::new())));
-        queue.enqueue(job(TitleKey::Tmdb { id: 1 }, Arc::new(FixtureRevisions::new())));
+        queue.enqueue(job(
+            TitleKey::Tmdb { id: 1 },
+            Arc::new(FixtureRevisions::new()),
+        ));
+        queue.enqueue(job(
+            TitleKey::Tmdb { id: 1 },
+            Arc::new(FixtureRevisions::new()),
+        ));
 
         let jobs = queue.take();
         assert_eq!(jobs.len(), 1, "one Title is one job");
-        assert_eq!(jobs[0].askers.len(), 2, "and both clients are owed an answer");
+        assert_eq!(
+            jobs[0].askers.len(),
+            2,
+            "and both clients are owed an answer"
+        );
         assert!(queue.take().is_empty(), "taking the queue empties it");
     }
 }

@@ -18,8 +18,14 @@ const CINEMETA: &str = "https://v3-cinemeta.strem.io/manifest.json";
 const CINEMETA_MOVIE: &str = "https://v3-cinemeta.strem.io/meta/movie/tt0133093.json";
 
 const TMDB_KEY: &str = "0123456789abcdef0123456789abcdef";
-const TMDB_TV_200001: &str =
-    "https://api.themoviedb.org/3/tv/200001?api_key=0123456789abcdef0123456789abcdef";
+/// The one request a series' details and its Videos are read with (#270).
+const TMDB_TV_200001: &str = concat!(
+    "https://api.themoviedb.org/3/tv/200001?append_to_response=",
+    "season/0,season/1,season/2,season/3,season/4,season/5,season/6,season/7,",
+    "season/8,season/9,season/10,season/11,season/12,season/13,season/14,season/15,",
+    "season/16,season/17,season/18,season/19",
+    "&api_key=0123456789abcdef0123456789abcdef",
+);
 
 const CINEMETA_MANIFEST: &str = include_str!("fixtures/cinemeta-manifest.json");
 const MOVIE_BODY: &str = include_str!("fixtures/cinemeta-meta-movie.json");
@@ -132,7 +138,12 @@ fn revised_titles(revisions: &FixtureRevisions) -> Vec<Title> {
 fn a_stale_title_opens_at_once_and_two_opens_queue_one_refresh() {
     let fetcher = addon_fetcher();
     let clock = clock();
-    let mut host = host_over(Arc::new(InMemoryStore::new()), fetcher.clone(), clock.clone(), false);
+    let mut host = host_over(
+        Arc::new(InMemoryStore::new()),
+        fetcher.clone(),
+        clock.clone(),
+        false,
+    );
 
     let first = opened(&mut host, open("com.linvo.cinemeta", "movie", "tt0133093"));
     let asked = fetcher.asked().len();
@@ -168,7 +179,12 @@ fn a_stale_discovered_title_opens_at_once_and_refreshes_behind() {
             .serving(TMDB_TV_200001, TMDB_TV_DETAILS_MAKING),
     );
     let clock = clock();
-    let mut host = host_over(Arc::new(InMemoryStore::new()), fetcher.clone(), clock.clone(), true);
+    let mut host = host_over(
+        Arc::new(InMemoryStore::new()),
+        fetcher.clone(),
+        clock.clone(),
+        true,
+    );
     let staged = Arc::new(FixtureRevisions::new());
 
     let cached = opened(&mut host, open_discovered(200001, "series"));
@@ -180,7 +196,11 @@ fn a_stale_discovered_title_opens_at_once_and_refreshes_behind() {
 
     let stale = opened_asking(&mut host, open_discovered(200001, "series"), &staged);
     assert_eq!(stale, cached, "the stale open is answered from the cache");
-    assert_eq!(fetcher.asked().len(), asked, "and reached nothing before it");
+    assert_eq!(
+        fetcher.asked().len(),
+        asked,
+        "and reached nothing before it"
+    );
 
     assert_eq!(host.drain(), 1);
     let revised = revised_titles(&staged);
@@ -194,7 +214,12 @@ fn a_stale_discovered_title_opens_at_once_and_refreshes_behind() {
 fn a_refresh_that_changed_the_title_answers_only_the_client_that_asked() {
     let fetcher = addon_fetcher();
     let clock = clock();
-    let mut host = host_over(Arc::new(InMemoryStore::new()), fetcher.clone(), clock.clone(), false);
+    let mut host = host_over(
+        Arc::new(InMemoryStore::new()),
+        fetcher.clone(),
+        clock.clone(),
+        false,
+    );
     let asker = Arc::new(FixtureRevisions::new());
     let bystander = Arc::new(FixtureRevisions::new());
 
@@ -220,14 +245,22 @@ fn a_refresh_that_changed_the_title_answers_only_the_client_that_asked() {
     );
 
     let after = opened(&mut host, open("com.linvo.cinemeta", "movie", "tt0133093"));
-    assert_eq!(after, revised[0], "the refreshed copy is what the cache keeps");
+    assert_eq!(
+        after, revised[0],
+        "the refreshed copy is what the cache keeps"
+    );
 }
 
 #[test]
 fn a_refresh_that_changed_nothing_delivers_nothing() {
     let fetcher = addon_fetcher();
     let clock = clock();
-    let mut host = host_over(Arc::new(InMemoryStore::new()), fetcher.clone(), clock.clone(), false);
+    let mut host = host_over(
+        Arc::new(InMemoryStore::new()),
+        fetcher.clone(),
+        clock.clone(),
+        false,
+    );
     let asker = Arc::new(FixtureRevisions::new());
 
     let cached = opened(&mut host, open("com.linvo.cinemeta", "movie", "tt0133093"));
@@ -253,7 +286,12 @@ fn a_refresh_that_changed_nothing_delivers_nothing() {
 fn a_refresh_that_failed_with_429_keeps_the_copy_and_delivers_nothing() {
     let fetcher = addon_fetcher();
     let clock = clock();
-    let mut host = host_over(Arc::new(InMemoryStore::new()), fetcher.clone(), clock.clone(), false);
+    let mut host = host_over(
+        Arc::new(InMemoryStore::new()),
+        fetcher.clone(),
+        clock.clone(),
+        false,
+    );
     let asker = Arc::new(FixtureRevisions::new());
 
     let cached = opened(&mut host, open("com.linvo.cinemeta", "movie", "tt0133093"));
@@ -269,7 +307,11 @@ fn a_refresh_that_failed_with_429_keeps_the_copy_and_delivers_nothing() {
     assert_eq!(stale, cached);
 
     assert_eq!(host.drain(), 1);
-    assert_eq!(fetcher.asked().len(), asked + 1, "the refresh was attempted");
+    assert_eq!(
+        fetcher.asked().len(),
+        asked + 1,
+        "the refresh was attempted"
+    );
     assert!(
         asker.revised().is_empty(),
         "a failed refresh changes nothing a client sees"

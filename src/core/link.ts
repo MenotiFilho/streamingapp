@@ -28,11 +28,11 @@ export type LinkState =
  * failure to explain. `snapshot()` resolves the state a client that has just
  * arrived is owed: once per `ready`, and never for a link that has not paired.
  *
- * `onSnapshot` and `onState` both return a synchronous unsubscribe, because a
- * client unsubscribes while it unmounts and cannot wait for a promise to settle.
- * A caller reads `state()` first; `onState` reports transitions after that.
- * `close()` moves the link to `closed`, tells the state handlers, and silences
- * both kinds of subscription.
+ * `onSnapshot`, `onRevision` and `onState` all return a synchronous unsubscribe,
+ * because a client unsubscribes while it unmounts and cannot wait for a promise
+ * to settle. A caller reads `state()` first; `onState` reports transitions after
+ * that. `close()` moves the link to `closed`, tells the state handlers, and
+ * silences every subscription.
  */
 export type HostLink = {
   /** The state as it stands — what a client that has just arrived is owed. */

@@ -492,7 +492,7 @@ mod tests {
         );
         assert_eq!(
             ServerFrame::Revision(Box::new(answer)).to_value(),
-            json!({ "version": WIRE_VERSION, "revision": spelled["revision"] }),
+            json!({ "version": WIRE_VERSION, "revision": spelled }),
             "and the frame carries it whole, with no id to correlate"
         );
     }

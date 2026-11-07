@@ -32,7 +32,7 @@ use std::time::{Duration, Instant};
 
 use host_core::{
     Action, ActionError, Answer, ClientFrame, DeviceId, DeviceSummary, DeviceToken, Response,
-    ServerFrame, Snapshot, RevisionSink,
+    RevisionSink, ServerFrame, Snapshot,
 };
 use tungstenite::protocol::{Message, Role, WebSocket};
 
@@ -552,7 +552,10 @@ impl RevisionSink for ConnectionRevisions {
 }
 
 /// Write every revised Answer that has arrived for this connection.
-fn send_revisions(revisions: &Receiver<Answer>, socket: &mut WebSocket<TcpStream>) -> io::Result<()> {
+fn send_revisions(
+    revisions: &Receiver<Answer>,
+    socket: &mut WebSocket<TcpStream>,
+) -> io::Result<()> {
     while let Ok(answer) = revisions.try_recv() {
         send(socket, &ServerFrame::Revision(Box::new(answer)))?;
     }

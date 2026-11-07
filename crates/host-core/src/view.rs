@@ -296,7 +296,10 @@ impl HostView {
                     // Stale, the same as an Addon's Title: answer the cached
                     // copy and read it again behind the client (ADR-0038 §2).
                     self.queue_refresh(
-                        Work::Discovered { id: *id, kind: *kind },
+                        Work::Discovered {
+                            id: *id,
+                            kind: *kind,
+                        },
                         cached,
                         revisions,
                     );
@@ -648,9 +651,7 @@ impl HostView {
         let now = self.clock.now_millis();
         let replacing = job.answered.key.clone();
         let read = match &job.work {
-            Work::Addon { addon, asked } => {
-                self.read_title(addon, asked, Some(&job.answered))
-            }
+            Work::Addon { addon, asked } => self.read_title(addon, asked, Some(&job.answered)),
             Work::Discovered { id, kind } => self.read_discovered(*id, *kind),
         };
         let Ok((title, source, status)) = read else {
@@ -683,11 +684,7 @@ impl HostView {
         asked: &TitleRef,
         cached: Option<&Title>,
     ) -> Result<(Title, TitleSource, Option<tmdb::SeriesStatus>), ActionError> {
-        let configured = self
-            .addons
-            .iter()
-            .find(|held| held.id() == addon)
-            .cloned();
+        let configured = self.addons.iter().find(|held| held.id() == addon).cloned();
 
         let (mut title, source, status) = match configured {
             Some(configured) => {
