@@ -150,6 +150,7 @@ function harness(
     back: vi.fn(),
     ask,
     take: vi.fn(async (_action: Action) => null),
+    hint: vi.fn(),
     home: new HomeStore(ask),
     setIntentHandler: vi.fn(),
     setBaseIntentHandler: vi.fn(() => () => {}),

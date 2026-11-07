@@ -167,13 +167,59 @@ fn a_database_at_the_sixth_schema_gains_the_title_cache_with_its_rows_intact() {
 }
 
 #[test]
-fn a_database_at_the_seventh_schema_gains_the_stream_continuity_columns_with_its_rows_intact() {
-    // The seventh schema is the Title cache; the step after it adds the Addon
-    // and `bingeGroup` a Video's Stream came from, which Playing its Up next
-    // continues (#276). An owner who ran the Host before this keeps every
-    // Watch progress entry, gaining two null columns.
+fn a_database_at_the_seventh_schema_gains_the_caught_up_hint_with_its_titles_intact() {
+    // #277 adds the announced next episode to a kept Title. An owner who ran the
+    // Host before it keeps every cached Title, and the hint is null for the rows
+    // written before this step — a copy with no hint, not a broken one.
     let mut connection = connection();
     migrate(&mut connection, &MIGRATIONS[..7]).expect("the seventh schema applies");
+    connection
+        .execute(
+            "INSERT INTO titles (key, title, source, status, read_at)
+             VALUES (?1, ?2, 'both', 'running', 1000)",
+            rusqlite::params![
+                r#"{"kind":"tmdb","id":1396}"#,
+                r#"{"addon":null,"id":"tmdb:1396","key":{"kind":"tmdb","id":1396},"type":"series","name":"Breaking Bad","poster":null,"background":null,"logo":null,"description":null,"releaseInfo":null,"runtime":null,"imdbRating":null,"genres":[],"videos":[]}"#
+            ],
+        )
+        .expect("the seventh schema takes a Title");
+    assert_eq!(schema_version(&connection), Ok(7));
+
+    let version = migrate(&mut connection, MIGRATIONS).expect("the database upgrades");
+
+    assert_eq!(version, latest_version(MIGRATIONS));
+    let (name, next_season, next_episode): (String, Option<i64>, Option<i64>) = connection
+        .query_row(
+            "SELECT title, next_season, next_episode FROM titles",
+            [],
+            |row| {
+                let title: String = row.get(0)?;
+                let name: String = serde_json::from_str::<serde_json::Value>(&title)
+                    .expect("the kept Title is a document")
+                    .get("name")
+                    .and_then(|name| name.as_str())
+                    .expect("the kept Title has a name")
+                    .to_owned();
+                Ok((name, row.get(1)?, row.get(2)?))
+            },
+        )
+        .expect("the Title written before the upgrade is still there");
+    assert_eq!(name, "Breaking Bad");
+    assert_eq!(
+        (next_season, next_episode),
+        (None, None),
+        "a copy written before the hint existed has none"
+    );
+}
+
+#[test]
+fn a_database_at_the_eighth_schema_gains_the_stream_continuity_columns_with_its_rows_intact() {
+    // The eighth schema is the caught-up hint (#277); the step after it adds the
+    // Addon and `bingeGroup` a Video's Stream came from, which Playing its Up
+    // next continues (#276). An owner who ran the Host before this keeps every
+    // Watch progress entry, gaining two null columns.
+    let mut connection = connection();
+    migrate(&mut connection, &MIGRATIONS[..8]).expect("the eighth schema applies");
     connection
         .execute(
             "INSERT INTO watch_progress
@@ -183,8 +229,8 @@ fn a_database_at_the_seventh_schema_gains_the_stream_continuity_columns_with_its
                      'Breaking Bad', NULL, NULL, 402.0, 2820.0, 0, 1000)",
             [],
         )
-        .expect("the seventh schema takes a progress entry");
-    assert_eq!(schema_version(&connection), Ok(7));
+        .expect("the eighth schema takes a progress entry");
+    assert_eq!(schema_version(&connection), Ok(8));
 
     let version = migrate(&mut connection, MIGRATIONS).expect("the database upgrades");
 

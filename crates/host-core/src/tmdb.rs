@@ -683,6 +683,19 @@ impl SeriesStatus {
     }
 }
 
+/// The episode TMDB says comes next for a series, as the caught-up rule reads it
+/// (ADR-0038 §5).
+///
+/// It is a hint about when to read the list of Videos, never the list itself: an
+/// episode is on the row once it is in a season's episodes, whether it has aired
+/// or not. The season is kept because the announced episode names which season
+/// to re-read, including one the cached copy has never held.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NextEpisode {
+    pub season: u32,
+    pub episode: u32,
+}
+
 /// One TMDB record's metadata, read leniently from its details.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TmdbDetails {
@@ -718,6 +731,10 @@ pub struct TmdbDetails {
     /// the Title cache's freshness window turns on (ADR-0038 §2). `None` for a
     /// film, a record that sent no status, and a status the Host does not know.
     pub status: Option<SeriesStatus>,
+    /// The episode TMDB says comes next, where it names one. A hint about when
+    /// the newest season is worth re-reading, never a Video of its own: the
+    /// list of Videos is the truth (ADR-0038 §5).
+    pub next_episode: Option<NextEpisode>,
     /// The record's Videos, where they were read: a series' seasons and
     /// episodes, keyed `tmdb:<id>:<season>:<episode>`. `None` is "not read" —
     /// a film's list, or a series whose season answers were not read — and
@@ -853,6 +870,10 @@ pub fn read_details(body: &str, kind: Kind) -> Result<TmdbDetails, TmdbError> {
                 .and_then(Value::as_str)
                 .and_then(SeriesStatus::parse),
             // A film's `status` says "Released", which is not a series' run.
+            Kind::Movie => None,
+        },
+        next_episode: match kind {
+            Kind::Tv => record.next_episode(),
             Kind::Movie => None,
         },
         videos: None,
@@ -1136,6 +1157,21 @@ impl Record<'_> {
     fn image(&self, field: &str, root: &str) -> Option<String> {
         image_at(self.object, field, root)
     }
+    /// The episode the record says comes next, where it names one and both its
+    /// numbers are there. TMDB leaves `next_episode_to_air` null for a running
+    /// series too, so `None` is "nothing is announced", not "nothing is left"
+    /// (research note §2.3).
+    fn next_episode(&self) -> Option<NextEpisode> {
+        let episode = self
+            .object
+            .get("next_episode_to_air")
+            .and_then(Value::as_object)?;
+        Some(NextEpisode {
+            season: unsigned(episode, "season_number")?,
+            episode: unsigned(episode, "episode_number")?,
+        })
+    }
+
     /// The season numbers the record lists, ascending and each once. `0` is a
     /// series' specials, which are episodes like any others; a film lists no
     /// seasons, whatever a body pretending to be its record carries.
@@ -1922,6 +1958,48 @@ mod tests {
             details.release_info.as_deref(),
             Some("2020-"),
             "the years TMDB expects more of are the years so far"
+        );
+    }
+
+    #[test]
+    fn a_series_record_names_the_episode_it_says_comes_next() {
+        // The hint the caught-up rule turns on: null is normal for a running
+        // series, so an absent field proves nothing; a set one names the season
+        // whose list is worth re-reading (ADR-0038 §5, research note §2).
+        assert_eq!(
+            read_details(TV_DETAILS_MAKING, Kind::Tv)
+                .expect("a details answer")
+                .next_episode,
+            None,
+            "no announcement is no hint, not an ended series"
+        );
+        let announced = r#"{"id":300001,"status":"Returning Series",
+            "next_episode_to_air":{"season_number":2,"episode_number":7}}"#;
+        assert_eq!(
+            read_details(announced, Kind::Tv)
+                .expect("a details answer")
+                .next_episode,
+            Some(NextEpisode {
+                season: 2,
+                episode: 7
+            })
+        );
+        assert_eq!(
+            read_details(
+                r#"{"id":300001,"next_episode_to_air":{"season_number":2}}"#,
+                Kind::Tv
+            )
+            .expect("a details answer")
+            .next_episode,
+            None,
+            "an episode with no number is not one the Host can name"
+        );
+        assert_eq!(
+            read_details(MOVIE_DETAILS, Kind::Movie)
+                .expect("a details answer")
+                .next_episode,
+            None,
+            "a film has no next episode whatever a body carries"
         );
     }
 

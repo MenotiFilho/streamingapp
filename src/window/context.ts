@@ -74,6 +74,12 @@ export type ShellContextValue = {
   /** Take an Action through the Host's one door. */
   take: (action: Action) => Promise<Response | null>;
   /**
+   * Take a fire-and-forget Action — the look hint a card sends once it has been
+   * rested on (#278, ADR-0038 §3). Nothing is awaited or kept, and a refusal is
+   * not raised as the window's alert.
+   */
+  hint: (action: Action) => void;
+  /**
    * Home's session browse: the rows this client has read, their pages, and the
    * asks still in flight. It lives above the screen so leaving Home does not
    * throw the rows away (#112); what one client is looking at stays its own

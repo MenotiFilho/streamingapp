@@ -59,6 +59,14 @@ fn open_discovered(id: u32, kind: &str) -> Action {
     }))
 }
 
+fn look_hint(addon: Option<&str>, r#type: &str, id: &str) -> Action {
+    action(&json!({
+        "type": "look_hint",
+        "addon": addon,
+        "title": { "type": r#type, "id": id },
+    }))
+}
+
 fn title(response: &host_core::Response) -> &Title {
     response
         .title()
@@ -162,7 +170,11 @@ fn a_stale_title_opens_at_once_and_two_opens_queue_one_refresh() {
     assert_eq!(again, first);
     assert_eq!(fetcher.asked().len(), asked);
 
-    assert_eq!(host.drain(), 1, "two opens of one stale Title are one job");
+    assert_eq!(
+        host.drain().ran,
+        1,
+        "two opens of one stale Title are one job"
+    );
     assert_eq!(
         fetcher.asked().len(),
         asked + 1,
@@ -202,7 +214,7 @@ fn a_stale_discovered_title_opens_at_once_and_refreshes_behind() {
         "and reached nothing before it"
     );
 
-    assert_eq!(host.drain(), 1);
+    assert_eq!(host.drain().ran, 1);
     let revised = revised_titles(&staged);
     assert_eq!(revised.len(), 1);
     assert_eq!(revised[0].name, "Still Making More");
@@ -234,7 +246,7 @@ fn a_refresh_that_changed_the_title_answers_only_the_client_that_asked() {
     );
     assert_eq!(stale, cached);
 
-    assert_eq!(host.drain(), 1);
+    assert_eq!(host.drain().ran, 1);
 
     let revised = revised_titles(&asker);
     assert_eq!(revised.len(), 1, "the asking client is told once");
@@ -272,7 +284,7 @@ fn a_refresh_that_changed_nothing_delivers_nothing() {
     );
     assert_eq!(stale, cached);
 
-    assert_eq!(host.drain(), 1);
+    assert_eq!(host.drain().ran, 1);
     assert!(
         asker.revised().is_empty(),
         "an unchanged refresh is not an Answer"
@@ -306,7 +318,7 @@ fn a_refresh_that_failed_with_429_keeps_the_copy_and_delivers_nothing() {
     );
     assert_eq!(stale, cached);
 
-    assert_eq!(host.drain(), 1);
+    assert_eq!(host.drain().ran, 1);
     assert_eq!(
         fetcher.asked().len(),
         asked + 1,
@@ -319,4 +331,144 @@ fn a_refresh_that_failed_with_429_keeps_the_copy_and_delivers_nothing() {
 
     let kept = opened(&mut host, open("com.linvo.cinemeta", "movie", "tt0133093"));
     assert_eq!(kept, cached, "the cached copy is what opens");
+}
+
+// --- A look hint reads a Title ahead, with no answer at all -------------------
+
+#[test]
+fn a_look_hint_reads_an_uncached_title_ahead_and_the_next_open_fetches_nothing() {
+    let fetcher = addon_fetcher();
+    let mut host = host_over(
+        Arc::new(InMemoryStore::new()),
+        fetcher.clone(),
+        clock(),
+        false,
+    );
+    let before = host.snapshot().revision;
+    let asked_before = fetcher.asked().len();
+
+    let hinted = host
+        .dispatch(look_hint(Some("com.linvo.cinemeta"), "movie", "tt0133093"))
+        .expect("a look hint is taken");
+    assert!(hinted.answer.is_none(), "a hint answers nothing");
+    assert!(hinted.snapshots.is_empty(), "a hint publishes no Snapshot");
+    assert_eq!(host.snapshot().revision, before, "a hint moves no revision");
+    assert_eq!(
+        fetcher.asked().len(),
+        asked_before,
+        "the hint queued the read rather than making it"
+    );
+
+    assert_eq!(host.drain().ran, 1, "the read-ahead is one job");
+    let asked = fetcher.asked().len();
+    assert!(asked > 0, "draining read the Title");
+
+    let opened = opened(&mut host, open("com.linvo.cinemeta", "movie", "tt0133093"));
+    assert_eq!(opened.name, "The Matrix");
+    assert_eq!(
+        fetcher.asked().len(),
+        asked,
+        "the next open is answered from the read-ahead: {:?}",
+        fetcher.asked()
+    );
+}
+
+#[test]
+fn a_look_hint_for_a_discovered_title_reads_it_ahead_too() {
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(TMDB_TV_200001, TMDB_TV_DETAILS_MAKING),
+    );
+    let mut host = host_over(
+        Arc::new(InMemoryStore::new()),
+        fetcher.clone(),
+        clock(),
+        true,
+    );
+
+    host.dispatch(look_hint(None, "series", "tmdb:200001"))
+        .expect("a look hint is taken");
+    assert_eq!(host.drain().ran, 1);
+    let asked = fetcher.asked().len();
+
+    let opened = opened(&mut host, open_discovered(200001, "series"));
+    assert_eq!(opened.name, "Still Making");
+    assert_eq!(
+        fetcher.asked().len(),
+        asked,
+        "the next open is answered from the read-ahead: {:?}",
+        fetcher.asked()
+    );
+}
+
+#[test]
+fn repeated_look_hints_for_one_title_queue_one_job() {
+    let fetcher = addon_fetcher();
+    let mut host = host_over(
+        Arc::new(InMemoryStore::new()),
+        fetcher.clone(),
+        clock(),
+        false,
+    );
+
+    for _ in 0..2 {
+        host.dispatch(look_hint(Some("com.linvo.cinemeta"), "movie", "tt0133093"))
+            .expect("a look hint is taken");
+    }
+
+    assert_eq!(host.drain().ran, 1, "one Title is one read-ahead");
+    assert_eq!(
+        fetcher
+            .asked()
+            .iter()
+            .filter(|url| *url == CINEMETA_MOVIE)
+            .count(),
+        1,
+        "the Title was read once: {:?}",
+        fetcher.asked()
+    );
+}
+
+#[test]
+fn a_look_hint_for_a_fresh_title_queues_nothing() {
+    let fetcher = addon_fetcher();
+    let mut host = host_over(
+        Arc::new(InMemoryStore::new()),
+        fetcher.clone(),
+        clock(),
+        false,
+    );
+    opened(&mut host, open("com.linvo.cinemeta", "movie", "tt0133093"));
+    let asked = fetcher.asked().len();
+
+    host.dispatch(look_hint(Some("com.linvo.cinemeta"), "movie", "tt0133093"))
+        .expect("a look hint is taken");
+
+    assert_eq!(host.drain().ran, 0, "a fresh Title is not read again");
+    assert_eq!(fetcher.asked().len(), asked, "and nothing was fetched");
+}
+
+#[test]
+fn a_look_hint_for_a_stale_title_refreshes_it_without_asking_anyone() {
+    let fetcher = addon_fetcher();
+    let clock = clock();
+    let mut host = host_over(
+        Arc::new(InMemoryStore::new()),
+        fetcher.clone(),
+        clock.clone(),
+        false,
+    );
+
+    let cached = opened(&mut host, open("com.linvo.cinemeta", "movie", "tt0133093"));
+    clock.tick(30 * DAY + 1);
+    fetcher.update(CINEMETA_MOVIE, Ok(MOVIE_CHANGED.to_owned()));
+
+    host.dispatch(look_hint(Some("com.linvo.cinemeta"), "movie", "tt0133093"))
+        .expect("a look hint is taken");
+    assert_eq!(host.drain().ran, 1);
+
+    let refreshed = opened(&mut host, open("com.linvo.cinemeta", "movie", "tt0133093"));
+    assert_eq!(refreshed.name, "The Matrix Resurrections");
+    assert_ne!(refreshed, cached, "the read-ahead replaced the stale copy");
 }

@@ -32,6 +32,7 @@ import { PosterCard } from "../../kit/PosterCard";
 import { ProgrammeLine } from "./ProgrammeLine";
 import { rowTagOf, yearOf } from "./program";
 import { useFeedCards } from "./useFeedCards";
+import { lookHintHandlers, useLookHints } from "./lookHint";
 import "./repertory.css";
 
 /**
@@ -60,6 +61,7 @@ export function RepertorySearchScreen() {
   const preview = usePreviewData();
   const { snapshot, session, push, pop, unplayable } = useShell();
   const { openTitle, openDiscoveredTitle } = useTitleOpener();
+  const look = useLookHints();
   const view = useSyncExternalStore(
     session.searchView.subscribe,
     session.searchView.get,
@@ -167,6 +169,7 @@ export function RepertorySearchScreen() {
   const keyedCard = (meta: MetaPreview, testId: string, playable: boolean) => (
     <PosterCard
       key={meta.id}
+      {...lookHintHandlers(look, { addon: null, type: meta.type, id: meta.id })}
       data-grid-card
       name={meta.name}
       poster={meta.poster}
@@ -224,6 +227,7 @@ export function RepertorySearchScreen() {
   const catalogCard = (row: CatalogRow, meta: MetaPreview, testId: string) => (
     <PosterCard
       key={meta.id}
+      {...lookHintHandlers(look, { addon: row.addon, type: meta.type, id: meta.id })}
       data-grid-card
       name={meta.name}
       poster={meta.poster}

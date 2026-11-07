@@ -71,6 +71,8 @@ import { ProgrammeLine } from "./ProgrammeLine";
 import { RailGrid } from "./RailGrid";
 import { RailMoreCard } from "./RailMoreCard";
 import { programIndex, yearOf } from "./program";
+import { lookHintHandlers, useLookHints } from "./lookHint";
+import type { LookHintTarget } from "../../core/lookHint";
 import "./repertory.css";
 
 /** Re-exported for a screen test that wants the beat without the component. */
@@ -538,6 +540,7 @@ function FeaturePlaceholder() {
 export function RepertoryHome() {
   const { snapshot, chosenDestination, choose, home, push, pop } = useShell();
   const { openTitle, openDiscoveredTitle } = useTitleOpener();
+  const look = useLookHints();
   const preview = usePreviewData();
   const { rows, answered } = useSyncExternalStore(home.subscribe, home.getSnapshot);
   const root = useRef<HTMLElement | null>(null);
@@ -595,6 +598,13 @@ export function RepertoryHome() {
     },
     [openDiscoveredTitle, openTitle],
   );
+
+  /**
+   * The dwell handlers a card hands back: focus and the pointer each rest on
+   * the Title the card names, and either one leaving lets that rest go. The
+   * decision of when the rest has lasted long enough is the core's (#278).
+   */
+  const lookAt = (target: LookHintTarget) => lookHintHandlers(look, target);
 
   /**
    * A rail's More card opens the whole row as a pushed level. The level reads
@@ -731,6 +741,11 @@ export function RepertoryHome() {
               return (
                 <ContinueWatchingCard
                   key={`${entry.title.type}/${entry.video.id}`}
+                  {...lookAt({
+                    addon: entry.title.addon,
+                    type: entry.title.type,
+                    id: entry.title.id,
+                  })}
                   name={cardName(entry)}
                   note={cardNote(entry)}
                   art={continueArt(entry)}
@@ -785,6 +800,7 @@ export function RepertoryHome() {
               {row.metas.slice(0, HOME_RAIL_ITEMS).map((meta) => (
                 <PosterCard
                   key={meta.id}
+                  {...lookAt({ addon: row.addon, type: meta.type, id: meta.id })}
                   name={meta.name}
                   poster={meta.poster}
                   rating={meta.imdbRating?.trim() || null}

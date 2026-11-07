@@ -136,6 +136,16 @@ pub const MIGRATIONS: &[Migration] = &[
              CREATE INDEX titles_read_at ON titles (read_at);",
     },
     Migration {
+        // The episode TMDB said comes next when a Title was read (#277): the
+        // hint the caught-up rule reads to know which season is worth reading
+        // again. Nullable because a film and a series with nothing announced
+        // have none, and the list of Videos stays the truth either way
+        // (ADR-0038 §5).
+        version: 8,
+        sql: "ALTER TABLE titles ADD COLUMN next_season INTEGER;
+              ALTER TABLE titles ADD COLUMN next_episode INTEGER;",
+    },
+    Migration {
         // The Stream a Video was played from, for Playing its Title's Up next
         // (#276): the Addon that answered the `stream` request and the
         // `bingeGroup` it grouped the release by. Playing Up next continues
@@ -143,7 +153,7 @@ pub const MIGRATIONS: &[Migration] = &[
         // (ADR-0012, ADR-0014). Both are null for a row written before this
         // step and for a position merged from the Stremio account, neither of
         // which saw a Stream; Playing such an Up next refuses for the picker.
-        version: 8,
+        version: 9,
         sql: "ALTER TABLE watch_progress ADD COLUMN stream_addon TEXT;
               ALTER TABLE watch_progress ADD COLUMN binge_group TEXT;",
     },

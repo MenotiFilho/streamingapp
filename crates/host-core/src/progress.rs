@@ -296,6 +296,27 @@ pub fn finished(position: f64, duration: f64) -> bool {
     duration > 0.0 && position + FINISHED_TAIL >= duration
 }
 
+/// Whether a Title's card has left the row because there is nothing after the
+/// Video played last: a caught-up series, watched by its TMDB record from now on
+/// (ADR-0038 §5, #277).
+///
+/// A cached list that does not hold the finished Video proves nothing, so it is
+/// not caught-up: the finished Video still stands as the card until the Title is
+/// read (#274).
+pub(crate) fn caught_up(progress: &[WatchProgress], cached: &[CachedTitle]) -> bool {
+    let Some(card) = progress.iter().max_by_key(|entry| entry.updated_at) else {
+        return false;
+    };
+    if !card.watched || card.title.r#type() != "series" {
+        return false;
+    }
+    let Some(videos) = cached_videos(cached, card) else {
+        return false;
+    };
+
+    next_video(videos, &card.video.id).is_none()
+}
+
 /// One Video with Watch progress, as every client is told it: a card's worth of
 /// the Video and its Title, where it was left, and whether it can be played now.
 ///
@@ -1028,7 +1049,38 @@ mod tests {
             read_at: 0,
             source: TitleSource::Both,
             status: None,
+            next_episode: None,
         }
+    }
+
+    #[test]
+    fn a_caught_up_series_is_the_one_with_nothing_after_its_card() {
+        let cached = cached_under_tmdb("tt0903747");
+        let card = |video: &str| WatchProgress {
+            title: TitleStub::parse(&TitleCard {
+                addon: None,
+                id: "tmdb:1396".to_owned(),
+                r#type: "series".to_owned(),
+                name: "Breaking Bad".to_owned(),
+                poster: None,
+                background: None,
+            })
+            .expect("a Discovered Title is one the Host will key"),
+            ..episode(video, 2_820.0, 1_000, true)
+        };
+
+        assert!(
+            caught_up(&[card("tmdb:1396:1:2")], std::slice::from_ref(&cached)),
+            "the last Video the cached list holds is caught up"
+        );
+        assert!(
+            !caught_up(&[card("tmdb:1396:1:1")], &[cached]),
+            "a Video with one after it is not caught up"
+        );
+        assert!(
+            !caught_up(&[card("tmdb:1396:1:2")], &[]),
+            "no cached list proves nothing, so the finished Video is still the card"
+        );
     }
 
     #[test]

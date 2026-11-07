@@ -11,9 +11,9 @@ use std::sync::Mutex;
 
 use host_core::{
     Addon, AddonId, CachedTitle, CatalogRef, Device, DeviceId, DeviceName, FeaturedCatalog,
-    InvalidUpNextPlayback, Manifest, ManifestUrl, Preferences, SeriesStatus, Store, StoreError,
-    StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale, Title, TitleCard, TitleKey,
-    TitleSource, TitleStub, TokenDigest, UpNextPlayback, VideoRef, WatchProgress,
+    InvalidUpNextPlayback, Manifest, ManifestUrl, NextEpisode, Preferences, SeriesStatus, Store,
+    StoreError, StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale, Title, TitleCard,
+    TitleKey, TitleSource, TitleStub, TokenDigest, UpNextPlayback, VideoRef, WatchProgress,
 };
 use rusqlite::{params, Connection, Transaction};
 
@@ -462,7 +462,10 @@ impl Store for SqliteStore {
     fn read_titles(&self) -> Result<Vec<CachedTitle>, StoreError> {
         let connection = self.locked()?;
         let mut statement = connection
-            .prepare("SELECT key, title, source, status, read_at FROM titles ORDER BY read_at, key")
+            .prepare(
+                "SELECT key, title, source, status, read_at, next_season, next_episode
+                 FROM titles ORDER BY read_at, key",
+            )
             .map_err(StoreError::read)?;
         let rows = statement
             .query_map([], |row| {
@@ -472,6 +475,8 @@ impl Store for SqliteStore {
                     row.get::<_, String>(2)?,
                     row.get::<_, Option<String>>(3)?,
                     row.get::<_, i64>(4)?,
+                    row.get::<_, Option<u32>>(5)?,
+                    row.get::<_, Option<u32>>(6)?,
                 ))
             })
             .map_err(StoreError::read)?;
@@ -480,7 +485,8 @@ impl Store for SqliteStore {
         for row in rows {
             // Nothing here is named in the message: a Title's id is the owner's
             // browsing, and a read failure ends up in a log or a client's error.
-            let (key, title, source, status, read_at) = row.map_err(StoreError::read)?;
+            let (key, title, source, status, read_at, next_season, next_episode) =
+                row.map_err(StoreError::read)?;
 
             let key: TitleKey = serde_json::from_str(&key).map_err(|error| StoreError::Read {
                 detail: format!("a kept Title's key is unusable: {error}"),
@@ -504,12 +510,22 @@ impl Store for SqliteStore {
                     })
                 })
                 .transpose()?;
+            let next_episode = match (next_season, next_episode) {
+                (Some(season), Some(episode)) => Some(NextEpisode { season, episode }),
+                (None, None) => None,
+                _ => {
+                    return Err(StoreError::Read {
+                        detail: "a kept Title's next episode is incomplete".to_owned(),
+                    })
+                }
+            };
 
             titles.push(CachedTitle {
                 title,
                 read_at,
                 source,
                 status,
+                next_episode,
             });
         }
 
@@ -520,22 +536,28 @@ impl Store for SqliteStore {
         let connection = self.locked()?;
         let key = serde_json::to_string(&cached.title.key).map_err(StoreError::write)?;
         let title = serde_json::to_string(&cached.title).map_err(StoreError::write)?;
+        let next_season = cached.next_episode.map(|next| next.season);
+        let next_episode = cached.next_episode.map(|next| next.episode);
 
         connection
             .execute(
-                "INSERT INTO titles (key, title, source, status, read_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5)
+                "INSERT INTO titles (key, title, source, status, read_at, next_season, next_episode)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
                  ON CONFLICT(key) DO UPDATE SET
-                     title   = excluded.title,
-                     source  = excluded.source,
-                     status  = excluded.status,
-                     read_at = excluded.read_at",
+                     title        = excluded.title,
+                     source       = excluded.source,
+                     status       = excluded.status,
+                     read_at      = excluded.read_at,
+                     next_season  = excluded.next_season,
+                     next_episode = excluded.next_episode",
                 params![
                     key,
                     title,
                     cached.source.as_str(),
                     cached.status.map(SeriesStatus::as_str),
                     cached.read_at,
+                    next_season,
+                    next_episode,
                 ],
             )
             .map_err(StoreError::write)?;
