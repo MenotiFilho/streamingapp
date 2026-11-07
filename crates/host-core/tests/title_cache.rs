@@ -349,14 +349,14 @@ fn an_ended_series_is_fresh_for_thirty_days_and_refetched_after_them() {
     clock.tick(2);
     opened(&mut host, open_discovered(1396, "series"));
     assert_eq!(
-        asked_for(&fetcher, TMDB_TV_1396),
+        asked_for(&fetcher, TMDB_TV_1396) + asked_for(&fetcher, TMDB_TV_1396_KNOWN),
         season_reads,
         "the stale open is answered from the cache"
     );
     assert_eq!(host.drain().ran, 1);
     assert_eq!(
-        asked_for(&fetcher, TMDB_TV_1396),
-        season_reads + 1,
+        asked_for(&fetcher, TMDB_TV_1396_KNOWN),
+        1,
         "past the month draining reads its details and Videos again (#272)"
     );
 }

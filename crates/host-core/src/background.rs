@@ -84,6 +84,18 @@ pub(crate) enum Work {
     },
 }
 
+impl Work {
+    /// Whether this reads the whole Title rather than the one season a
+    /// caught-up check asked about.
+    ///
+    /// A stale open is the whole Title's business — its metadata as well as its
+    /// Videos — and when it meets a queued caught-up check for the same Title,
+    /// the full read is the one that runs (#266).
+    fn whole(&self) -> bool {
+        !matches!(self, Self::CatchUp { .. })
+    }
+}
+
 /// One Title to read again, the copy it was answered with, and who asked.
 pub(crate) struct Job {
     /// The Title as the cache keys it: what a duplicate job collapses on.
@@ -119,6 +131,15 @@ impl BackgroundQueue {
             // is never replaced by a later hint's.
             if held.answered.is_none() {
                 held.answered = job.answered;
+            } else if !held.work.whole() && job.work.whole() {
+                // The stale open's copy is what its revision is judged against,
+                // and it is the same one the queued check read. A full read
+                // meeting a one-season check replaces the check's work rather
+                // than collapsing into it (#266).
+                held.answered = job.answered;
+            }
+            if job.work.whole() && !held.work.whole() {
+                held.work = job.work;
             }
             return;
         }
@@ -208,5 +229,33 @@ mod tests {
             1,
             "only the client that opened it is owed an answer"
         );
+    }
+
+    #[test]
+    fn a_stale_open_that_meets_a_queued_caught_up_reads_the_whole_title() {
+        // A queued caught-up check asks TMDB for one season; a stale open of the
+        // same Title asks for the whole Title. Collapsing them into the check
+        // would refresh the season and leave the metadata as it was.
+        let mut queue = BackgroundQueue::default();
+        let mut check = job(TitleKey::Tmdb { id: 1 }, Arc::new(FixtureRevisions::new()));
+        check.work = Work::CatchUp {
+            id: TmdbId(1),
+            season: 2,
+            source: TitleSource::Both,
+        };
+        check.askers.clear();
+        queue.enqueue(check);
+        queue.enqueue(job(
+            TitleKey::Tmdb { id: 1 },
+            Arc::new(FixtureRevisions::new()),
+        ));
+
+        let jobs = queue.take();
+        assert_eq!(jobs.len(), 1, "one Title is one job");
+        assert!(
+            matches!(jobs[0].work, Work::Discovered { .. }),
+            "the open's whole read is the one that runs"
+        );
+        assert_eq!(jobs[0].askers.len(), 1, "and the client is owed its answer");
     }
 }

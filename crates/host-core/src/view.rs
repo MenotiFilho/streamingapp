@@ -16,6 +16,7 @@
 //! `find_streams` — fan their asks out inside the question, under a bound, and
 //! still answer in configured order (ADR-0023).
 
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -31,6 +32,7 @@ use crate::library::{Library, LibraryCache};
 use crate::log::millis;
 use crate::meta::{self, Title, TitleKey, Video};
 use crate::preview::{PreviewCeiling, Previewer};
+use crate::progress::WatchProgress;
 use crate::provider::Provider;
 use crate::request::{
     CatalogRef, Extra, ResourceRequest, TitleRef, VideoRef, CATALOG, META, STREAM,
@@ -63,9 +65,11 @@ pub(crate) struct HostViewShared {
     /// queue (ADR-0038 §2).
     pub(crate) background: Arc<Mutex<BackgroundQueue>>,
     pub(crate) clock: Arc<dyn Clock>,
-    /// The Titles behind Watch progress when this view was frozen. A cache
-    /// write must never evict one of them (ADR-0038 §1).
-    pub(crate) protected: Vec<TitleProbe>,
+    /// The Watch progress when this view was frozen: the entries Continue
+    /// watching is drawn from. A Title those entries name must never be
+    /// evicted (ADR-0038 §1), and a cache write that moves one of their cards
+    /// is a Snapshot even though a question made it (#274, #277).
+    pub(crate) watch: Vec<WatchProgress>,
 }
 
 pub struct HostView {
@@ -107,9 +111,16 @@ pub struct HostView {
     background: Arc<Mutex<BackgroundQueue>>,
     /// The Host's clock, so that "fresh" is a fact a test decides.
     clock: Arc<dyn Clock>,
-    /// The Titles behind Watch progress when this view was frozen. A cache
-    /// write must never evict one of them (ADR-0038 §1).
-    protected: Vec<TitleProbe>,
+    /// The Watch progress when this view was frozen: what Continue watching is
+    /// drawn from. A Title those entries name must never be evicted, and a
+    /// cache write that moves one of their cards publishes a Snapshot
+    /// (ADR-0038 §1, #274, #277).
+    watch: Vec<WatchProgress>,
+    /// Whether keeping a Title in this view's one question moved the Continue
+    /// watching row. Set by [`HostView::keep_title`] and read once after the
+    /// question resolves, because the question is the only thing that knows
+    /// what its cache write did (#274, #277).
+    moved: AtomicBool,
 }
 
 /// What a TMDB refinement read, and what it said about a series' run.
@@ -149,6 +160,18 @@ struct KeptTitle {
     next_episode: Option<tmdb::NextEpisode>,
 }
 
+/// What a question answered, and whether keeping the Title it read moved
+/// Continue watching.
+///
+/// The Answer still goes only to the client that asked (ADR-0005); `moved` is
+/// the separate fact that the cache write changed a row every client draws, so
+/// the door publishes the Snapshot it owes (#274, #277).
+#[derive(Debug, Clone)]
+pub(crate) struct Answered {
+    pub(crate) answer: Answer,
+    pub(crate) moved: bool,
+}
+
 impl HostView {
     pub(crate) fn new(
         addons: Vec<Addon>,
@@ -172,7 +195,8 @@ impl HostView {
             titles: shared.titles,
             background: shared.background,
             clock: shared.clock,
-            protected: shared.protected,
+            watch: shared.watch,
+            moved: AtomicBool::new(false),
         }
     }
 
@@ -193,12 +217,12 @@ impl HostView {
     /// client whose open queued a background refresh, and nobody else. A
     /// question dispatched without one still refreshes; it just has nobody to
     /// tell (ADR-0038 §2).
-    pub fn ask(
+    pub(crate) fn ask(
         &self,
         validated: ValidatedAction,
         revisions: Option<&Arc<dyn RevisionSink>>,
-    ) -> Result<Answer, ActionError> {
-        Ok(match &validated {
+    ) -> Result<Answered, ActionError> {
+        let answer = match &validated {
             ValidatedAction::BrowseCatalog {
                 addon,
                 catalog,
@@ -286,7 +310,7 @@ impl HostView {
                 let cached = self.cached_for_addon(addon, title, now);
                 if let Some(cached) = &cached {
                     if cached.is_fresh(now) {
-                        return Ok(Answer::Title(Box::new(cached.title.clone())));
+                        return Ok(self.answered(Answer::Title(Box::new(cached.title.clone()))));
                     }
                     // Stale: the cached copy is the whole Answer, and the
                     // refresh happens behind the client (ADR-0038 §2). A
@@ -300,7 +324,7 @@ impl HostView {
                         cached,
                         revisions,
                     );
-                    return Ok(Answer::Title(Box::new(cached.title.clone())));
+                    return Ok(self.answered(Answer::Title(Box::new(cached.title.clone()))));
                 }
 
                 // Absent: fetched, kept and answered as before.
@@ -313,7 +337,7 @@ impl HostView {
                 let cached = self.cached_for_tmdb(*id, *kind, now);
                 if let Some(cached) = &cached {
                     if cached.is_fresh(now) {
-                        return Ok(Answer::Title(Box::new(cached.title.clone())));
+                        return Ok(self.answered(Answer::Title(Box::new(cached.title.clone()))));
                     }
                     // Stale, the same as an Addon's Title: answer the cached
                     // copy and read it again behind the client (ADR-0038 §2).
@@ -325,10 +349,10 @@ impl HostView {
                         cached,
                         revisions,
                     );
-                    return Ok(Answer::Title(Box::new(cached.title.clone())));
+                    return Ok(self.answered(Answer::Title(Box::new(cached.title.clone()))));
                 }
 
-                let read = self.read_discovered(*id, *kind)?;
+                let read = self.read_discovered(*id, *kind, None)?;
                 self.keep_title(&read, None, now);
                 Answer::Title(Box::new(read.title))
             }
@@ -458,7 +482,17 @@ impl HostView {
                     detail: "a change is not a question".to_owned(),
                 })
             }
-        })
+        };
+
+        Ok(self.answered(answer))
+    }
+
+    /// One Answer, with whether this question's cache write moved the row.
+    fn answered(&self, answer: Answer) -> Answered {
+        Answered {
+            answer,
+            moved: self.moved.swap(false, Ordering::Relaxed),
+        }
     }
 
     /// One configured Addon in this view, or the refusal that names it.
@@ -598,28 +632,43 @@ impl HostView {
             .for_tmdb(id, kind, now)
     }
 
-    /// Keep a Title this view just read, answering whether the cache now holds
-    /// something a Snapshot would draw differently.
+    /// Keep a Title this view just read, answering whether the Continue
+    /// watching row now draws something different.
+    ///
+    /// A cache write is not by itself a change a client sees: a look hint on a
+    /// Discover card keeps a Title no card is drawn from, and publishing a
+    /// Snapshot for it would move a revision for nothing (#278). What matters
+    /// is the row: the same Title may have gained the Video that follows a
+    /// finished card, or the list a card was waiting on. That is compared
+    /// before and after the write, so a new episode nobody's card names does
+    /// not publish either.
     ///
     /// A failed write is not a failed open: the answer is already in hand, and
     /// the cache is the part that outlives it (ADR-0038 §1).
     fn keep_title(&self, read: &KeptTitle, replacing: Option<TitleKey>, now: i64) -> bool {
         let protection = self.protection();
-        self.titles
-            .lock()
-            .expect("the Title cache is not poisoned")
-            .keep(
-                CachedTitle {
-                    title: read.title.clone(),
-                    read_at: now,
-                    source: read.source,
-                    status: read.status,
-                    next_episode: read.next_episode,
-                },
-                replacing,
-                &protection,
-                now,
-            )
+        let addon_held = |addon: &AddonId| self.addons.iter().any(|held| held.id() == addon);
+        let mut cache = self.titles.lock().expect("the Title cache is not poisoned");
+        let before = crate::progress::continue_watching(&self.watch, cache.cached(), addon_held);
+        let changed = cache.keep(
+            CachedTitle {
+                title: read.title.clone(),
+                read_at: now,
+                source: read.source,
+                status: read.status,
+                next_episode: read.next_episode,
+            },
+            replacing,
+            &protection,
+            now,
+        );
+        let after = crate::progress::continue_watching(&self.watch, cache.cached(), addon_held);
+
+        let moved = changed && before != after;
+        if moved {
+            self.moved.store(true, Ordering::Relaxed);
+        }
+        moved
     }
 
     /// Queue the refresh a stale open owes, addressed to the client that asked.
@@ -746,21 +795,29 @@ impl HostView {
         let replacing = job.key.clone();
         let read = match &job.work {
             Work::Addon { addon, asked } => self.read_title(addon, asked, job.answered.as_ref()),
-            Work::Discovered { id, kind } => self.read_discovered(*id, *kind),
+            Work::Discovered { id, kind } => {
+                self.read_discovered(*id, *kind, job.answered.as_ref())
+            }
             Work::CatchUp { id, season, source } => {
-                self.read_caught_up(*id, *season, *source, job.answered.as_ref())
+                // A caught-up check is only ever queued for a copy it re-reads;
+                // a job that collapsed into one without it is not a check.
+                let Some(answered) = job.answered.as_ref() else {
+                    return false;
+                };
+                self.read_caught_up(*id, *season, *source, answered)
             }
         };
         let Ok(read) = read else {
             return false;
         };
 
-        let changed = self.keep_title(&read, Some(replacing), now);
+        let moved = self.keep_title(&read, Some(replacing), now);
 
-        // A read-ahead answers nobody: keep the copy and let the drain decide
-        // whether it changed something a Snapshot draws (#277, #278).
+        // A read-ahead answers nobody; a refresh with askers sends the revised
+        // Answer only to them (ADR-0005). Either way, a cache write that moved
+        // Continue watching is a Snapshot every client is owed (#274, #277).
         if job.askers.is_empty() {
-            return changed;
+            return moved;
         }
 
         let news = job
@@ -774,10 +831,7 @@ impl HostView {
             }
         }
 
-        // A Title an open asked for is that client's business: the revised
-        // Answer above is how it hears, and never a Snapshot (ADR-0005,
-        // ADR-0038 §2).
-        false
+        moved
     }
 
     /// Read a Title the way an open does: the Addon that supplied it, and
@@ -849,12 +903,20 @@ impl HostView {
 
     /// Read a Discovered Title: TMDB's record is the whole of it, in the one
     /// order the Title answer publishes (ADR-0020, ADR-0039 §1).
+    ///
+    /// `cached` is the copy a stale open answered from, where it did: its
+    /// Videos already carry the record's season numbering, so the first batch
+    /// is built from them rather than the protocol's guess (#270).
     fn read_discovered(
         &self,
         id: tmdb::TmdbId,
         kind: tmdb::Kind,
+        cached: Option<&Title>,
     ) -> Result<KeptTitle, ActionError> {
-        let opened = self.open_discovered(id, kind)?;
+        let hint = cached
+            .map(|title| seasons_of(&title.videos))
+            .unwrap_or_default();
+        let opened = self.open_discovered(id, kind, &hint)?;
         let mut title = opened.title;
         title.videos = meta::ordered_videos(&title.videos);
         Ok(KeptTitle {
@@ -878,11 +940,8 @@ impl HostView {
         id: tmdb::TmdbId,
         season: u32,
         source: TitleSource,
-        cached: Option<&Title>,
+        cached: &Title,
     ) -> Result<KeptTitle, ActionError> {
-        let cached = cached.ok_or_else(|| ActionError::Malformed {
-            detail: "a caught-up read needs the copy it is re-reading".to_owned(),
-        })?;
         let key = self
             .tmdb_credential()
             .ok_or(ActionError::NoTmdbCredential)?;
@@ -972,9 +1031,9 @@ impl HostView {
             .expect("the Library cache is not poisoned")
             .entries();
         let probes = self
-            .protected
+            .watch
             .iter()
-            .cloned()
+            .map(|progress| TitleProbe::from_stub(&progress.title))
             .chain(
                 library
                     .into_iter()
@@ -1025,11 +1084,12 @@ impl HostView {
         &self,
         id: tmdb::TmdbId,
         kind: tmdb::Kind,
+        seasons: &[u32],
     ) -> Result<OpenedTitle, ActionError> {
         let key = self
             .tmdb_credential()
             .ok_or(ActionError::NoTmdbCredential)?;
-        let read = self.tmdb_details(kind, id, &key, &[])?;
+        let read = self.tmdb_details(kind, id, &key, seasons)?;
         let videos = self.tmdb_videos(&read, id, &key);
         let details = read.details;
         let status = details.status;

@@ -389,7 +389,12 @@ fn a_look_hint_for_a_discovered_title_reads_it_ahead_too() {
 
     host.dispatch(look_hint(None, "series", "tmdb:200001"))
         .expect("a look hint is taken");
-    assert_eq!(host.drain().ran, 1);
+    let drained = host.drain();
+    assert_eq!(drained.ran, 1);
+    assert!(
+        drained.snapshot.is_none(),
+        "a Title no Continue watching card is drawn from moves nothing a client sees"
+    );
     let asked = fetcher.asked().len();
 
     let opened = opened(&mut host, open_discovered(200001, "series"));

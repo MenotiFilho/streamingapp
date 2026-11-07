@@ -343,15 +343,11 @@ impl Host {
                 titles: self.titles.clone(),
                 background: self.background.clone(),
                 clock: self.clock.clone(),
-                // The Titles behind Watch progress, frozen with the rest of
-                // the view: a cache write from this question must not evict one
-                // of them (ADR-0038 §1).
-                protected: self
-                    .state
-                    .watch()
-                    .iter()
-                    .map(|progress| TitleProbe::from_stub(&progress.title))
-                    .collect(),
+                // The Watch progress frozen with the rest of the view: a cache
+                // write must not evict a Title behind one of its cards, and a
+                // write that moves a card publishes a Snapshot (ADR-0038 §1,
+                // #274, #277).
+                watch: self.state.watch().to_vec(),
             },
         )
     }
@@ -600,10 +596,15 @@ impl Host {
     ) -> Result<Response, ActionError> {
         let validated = action.validate()?;
         if validated.is_question() {
-            // A question changed nothing anyone else can see, so there is no
-            // Snapshot to publish and the revision does not move.
-            let answer = self.view().ask(validated, revisions.as_ref())?;
-            Ok(Response::answered(answer))
+            // A question publishes no Snapshot unless keeping the Title it read
+            // moved Continue watching: the Answer is the asker's own business,
+            // but a row every client draws is not (#274, #277).
+            let answered = self.view().ask(validated, revisions.as_ref())?;
+            let mut response = Response::answered(answered.answer);
+            if answered.moved {
+                response.snapshots.push(self.cache_changed());
+            }
+            Ok(response)
         } else {
             self.apply(validated)
         }
