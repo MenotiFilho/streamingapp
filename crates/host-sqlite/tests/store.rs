@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use host_core::{
     Addon, AddonId, CatalogRef, FeaturedCatalog, Manifest, ManifestUrl, Preferences, Store,
-    StoreError, StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale,
+    StoreError, StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale, UpNextPlayback,
 };
 use host_sqlite::SqliteStore;
 use rusqlite::Connection;
@@ -75,6 +75,34 @@ fn a_preference_that_was_never_written_reads_back_as_no_preference() {
     let store = store();
 
     assert_eq!(store.read_preferences(), Ok(Preferences::new()));
+}
+
+#[test]
+fn the_up_next_playback_preference_round_trips_and_defaults_to_direct() {
+    // #276: direct until the owner chooses the picker, and a row of the
+    // preferences table either way.
+    let store = store();
+    assert_eq!(
+        store
+            .read_preferences()
+            .expect("the store reads back")
+            .up_next_playback(),
+        UpNextPlayback::Direct
+    );
+
+    let mut written = Preferences::new();
+    written.set_up_next_playback(UpNextPlayback::Picker);
+    store
+        .write_preferences(&written)
+        .expect("the store takes the preference");
+
+    assert_eq!(
+        store
+            .read_preferences()
+            .expect("the store reads back")
+            .up_next_playback(),
+        UpNextPlayback::Picker
+    );
 }
 
 #[test]

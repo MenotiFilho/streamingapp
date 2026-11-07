@@ -16,6 +16,7 @@ import {
   STREAM_BUFFER_SECONDS,
   SUBTITLE_COLORS,
   SUBTITLE_SCALES,
+  UP_NEXT_PLAYBACK_CHOICES,
   bufferMegabytesPreset,
   bufferSecondsPreset,
   colorSelected,
@@ -338,10 +339,12 @@ function PreferencesScreen() {
   const [languageError, setLanguageError] = useState<ActionError | null>(null);
   const [appearanceError, setAppearanceError] = useState<ActionError | null>(null);
   const [bufferError, setBufferError] = useState<ActionError | null>(null);
+  const [upNextError, setUpNextError] = useState<ActionError | null>(null);
   const [featuredError, setFeaturedError] = useState<ActionError | null>(null);
 
   const known = SUBTITLE_LANGUAGES.some((language) => language.tag === heldLanguage);
   const otherColor = unknownColorLabel(heldColor);
+  const heldUpNext = snapshot?.preferences.upNextPlayback ?? "direct";
   const catalogs = declaredCatalogs(snapshot);
   const featured = snapshot?.featuredCatalog ?? null;
   const featuredKey = featured
@@ -388,8 +391,15 @@ function PreferencesScreen() {
     }
   };
 
-  const pickFeatured = async (choice: DeclaredCatalog | null) => {
-    setFeaturedError(null);
+  const pickUpNext = async (playback: "direct" | "picker") => {
+    setUpNextError(null);
+    const outcome = await ask({ type: "set_up_next_playback", playback });
+    if (outcome.error) {
+      setUpNextError(outcome.error);
+    }
+  };
+
+  const pickFeatured = async (choice: DeclaredCatalog | null) => {    setFeaturedError(null);
     const outcome = await ask(
       choice === null
         ? { type: "clear_featured_catalog" }
@@ -573,6 +583,27 @@ function PreferencesScreen() {
           </div>
         </div>
         <Refusal error={bufferError} testId="stream-buffer-error" />
+      </LogGroup>
+
+      <LogGroup id="settings-up-next" title="Up next">
+        <div
+          className="rep-log-chips"
+          data-region="settings-up-next"
+          data-kind="row"
+          data-label="Play an Up next"
+        >
+          {UP_NEXT_PLAYBACK_CHOICES.map((choice) => (
+            <ChoiceChip
+              key={choice.playback}
+              pressed={heldUpNext === choice.playback}
+              data-testid={`up-next-${choice.playback}`}
+              onClick={() => void pickUpNext(choice.playback)}
+            >
+              {choice.label}
+            </ChoiceChip>
+          ))}
+        </div>
+        <Refusal error={upNextError} testId="up-next-error" />
       </LogGroup>
 
       <LogGroup id="settings-featured-catalog" title="Featured catalog">

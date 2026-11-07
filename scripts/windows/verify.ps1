@@ -105,6 +105,7 @@ $Steps = @(
     [pscustomobject]@{ Id = 33; Title = 'fullscreen: F11, the OSD''s copy, and the chrome that outlives Stop'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it plays an episode, and walks the window''s control on Home, a pushed Title, Settings and a confirm dialog, plus F11 with the OSD visible and hidden)' }
     [pscustomobject]@{ Id = 34; Title = 'Settings > Preferences: the subtitle appearance goes through the Action surface, and survives a restart'; Ground = 'fresh'; After = @(); Need = 'a Host (the appearance needs no Addon)' }
     [pscustomobject]@{ Id = 35; Title = 'subtitles on a real picture: colour on the SRT, the authored colour on the ASS at 100% and 125%, and the size from the OSD'; Ground = 'addon'; After = @(); Need = 'the fixture Addon with the fixture video (two SRT tracks and one ASS track); it chooses the colour, plays, steps the size in the OSD, and checks Settings and the next Stream' }
+    [pscustomobject]@{ Id = 36; Title = 'an Up next plays directly: Play from the finished episode''s card, with no Streams list in between'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it plays S1E1 to its end, opens the Up next card and presses Play)' }
 )
 
 # The discovery path and the cheap syntax check: print the checklist and what
@@ -731,6 +732,16 @@ function Continue-Cards($app) {
     @(Buttons $app | Where-Object {
         ($_.Current.Name -notlike 'Scroll *') -and
         ($_.Current.Name -match '\d+:\d+ left')
+    })
+}
+
+# The Up next cards: an episode already finished has no progress of its own, so
+# its note is `Up next · S1E2` rather than a time left (#274). The row's own
+# scroll arrows are not cards.
+function Up-Next-Cards($app) {
+    @(Buttons $app | Where-Object {
+        ($_.Current.Name -notlike 'Scroll *') -and
+        ($_.Current.Name -like '*Up next*')
     })
 }
 
@@ -3423,6 +3434,87 @@ function Step-35($ctx) {
     Wake-Osd $app
     Press-Button $app 'Stop'
     Wait-Text $app 'Streams ' 20 | Out-Null
+}
+
+function Step-36($ctx) {
+    '--- 36. an Up next plays directly: Play from the finished episode''s card'
+    $app = $ctx.App
+    # Finish S1E1 on the fixture's own video. The video is five minutes long and
+    # the last thirty seconds already count as watched, so the position slider is
+    # the quickest way to reach the end without watching it.
+    if (-not (Open-Series $app)) {
+        Skip 'an Up next plays directly' 'the fixture Addon drew no series row'
+        return
+    }
+    if (-not (Open-Streams $app 'S1E1')) {
+        Skip 'an Up next plays directly' 'the series Title offers no first episode'
+        return
+    }
+    $kind = Choose-Candidate $app
+    if ($kind -ne 'playable') {
+        Skip 'an Up next plays directly' "the Addon answered no playable candidate ($kind)"
+        return
+    }
+    if (-not (Wait-Shows $app 'Pause' 45)) {
+        Skip 'an Up next plays directly' 'the first episode never started playing'
+        return
+    }
+    Start-Sleep -Seconds 2
+    Wake-Osd $app
+    $slider = Find-Element (Window-Root $app) 'Position' ([Windows.Automation.ControlType]::Slider) 3
+    if (-not $slider) {
+        Skip 'an Up next plays directly' 'the OSD showed no position slider to seek by'
+        return
+    }
+    Click-Fraction $app $slider 0.995
+    Start-Sleep -Seconds 4
+
+    # Leave the player for the Title, then the Title for Home. A Stream that has
+    # ended still has a Stop; if the window went back on its own, one Back is
+    # already enough.
+    Wake-Osd $app
+    if (Button-Named $app 'Stop' 3) { Press-Button $app 'Stop' }
+    Start-Sleep -Seconds 2
+    if (-not (Shows $app 'Continue watching' 2)) { Press-Keys $app '{ESC}' }
+    $text = Wait-Text $app 'Continue watching' 30
+    Check 'finishing the episode leaves its Title on Continue watching' (
+        $text -match 'Continue watching') "showed: $text"
+
+    # The card moved on to the next episode, and has no progress of its own:
+    # `Up next · S1E2` rather than `m:ss left`.
+    $cards = Up-Next-Cards $app
+    if ($cards.Count -eq 0) {
+        Skip 'an Up next plays directly' "the row drew no Up next card: showed $text"
+        return
+    }
+    Shot $app '36-up-next.png'
+    Check 'the card reads Up next and names the episode after the finished one' (
+        $cards[0].Current.Name -match 'Up next') "the card reads '$($cards[0].Current.Name)'"
+    Press-Element $app $cards[0]
+
+    # A card opens its Title, anchored on the Up next, whose main control is Play
+    # rather than Resume (#275, #276).
+    $text = Wait-Text $app 'Play S1E2' 30
+    Shot $app '36-title-play.png'
+    Check 'the card opens its Title, and the main control reads Play S1E2' (
+        $text -match 'Play S1E2') "showed: $text"
+
+    $play = Button-Named $app 'Play S1E2' 10
+    if (-not $play) {
+        Skip 'an Up next plays directly' "the Title offered no Play control: $(Page-Text $app)"
+        return
+    }
+    Press-Element $app $play
+    $playing = Wait-Shows $app 'Pause' 45
+    Shot $app '36-playing.png'
+    Check 'Play opens the Up next directly, with no Streams list in between' (
+        $playing -and -not (Shows $app 'Streams ' 1)) "showed: $(Page-Text $app)"
+    if ($playing) {
+        Wake-Osd $app
+        Check 'and the episode playing is S1E2, the Release of S1E1 continuing' (
+            (Episode-Number $app) -eq 2) "the OSD reads S1E$(Episode-Number $app)"
+        Press-Button $app 'Stop'
+    }
 }
 
 # --- the dispatcher -----------------------------------------------------------

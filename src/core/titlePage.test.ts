@@ -194,7 +194,8 @@ describe("the Title's anchor", () => {
 
 describe("the Title's main action", () => {
   test("a partly watched episode resumes it, naming the episode and the time left", () => {
-    expect(titleMainAction(SERIES, [entry()])).toEqual({
+    expect(titleMainAction(SERIES, [entry()], "direct")).toEqual({
+      kind: "resume",
       label: "Resume S1E2 · 5 min left",
       action: { type: "resume", video: { type: "series", id: "tt0:1:2" } },
     });
@@ -209,23 +210,93 @@ describe("the Title's main action", () => {
       duration: 4_800,
     });
 
-    expect(titleMainAction(film, [watched])).toEqual({
+    expect(titleMainAction(film, [watched], "direct")).toEqual({
+      kind: "resume",
       label: "Resume · 40 min left",
       action: { type: "resume", video: { type: "movie", id: "tt0133093" } },
     });
   });
 
-  test("a finished or unstarted Video has no main action until Play lands", () => {
-    expect(titleMainAction(SERIES, [entry({ watched: true })])).toBeNull();
-    expect(titleMainAction(SERIES, [entry({ position: null })])).toBeNull();
+  test("an Up next with no position is Play, and Play names the episode", () => {
+    const upNext = entry({
+      video: {
+        id: "tt0:1:4",
+        name: "Fourth",
+        season: 1,
+        episode: 4,
+        thumbnail: null,
+        airDate: null,
+      },
+      position: null,
+      duration: null,
+      upNext: true,
+    });
+
+    expect(titleMainAction(SERIES, [upNext], "direct")).toEqual({
+      kind: "play",
+      label: "Play S1E4",
+      video: upNext.video,
+      action: { type: "play_up_next", title: { type: "series", id: "tt0" } },
+    });
+  });
+
+  test("the preference makes Play open the picker instead, without changing its words", () => {
+    const upNext = entry({
+      video: {
+        id: "tt0:1:4",
+        name: "Fourth",
+        season: 1,
+        episode: 4,
+        thumbnail: null,
+        airDate: null,
+      },
+      position: null,
+      duration: null,
+      upNext: true,
+    });
+
+    expect(titleMainAction(SERIES, [upNext], "picker")).toEqual({
+      kind: "play",
+      label: "Play S1E4",
+      video: upNext.video,
+      action: null,
+    });
+  });
+
+  test("the preference never reaches Resume: a partly watched Video still resumes directly", () => {
+    expect(titleMainAction(SERIES, [entry()], "picker")).toEqual({
+      kind: "resume",
+      label: "Resume S1E2 · 5 min left",
+      action: { type: "resume", video: { type: "series", id: "tt0:1:2" } },
+    });
+  });
+
+  test("a partly watched Up next resumes, even when Play would open the picker", () => {
+    const partly = entry({
+      upNext: true,
+      position: 120,
+      duration: 600,
+    });
+
+    expect(titleMainAction(SERIES, [partly], "picker")).toEqual({
+      kind: "resume",
+      label: "Resume S1E2 · 8 min left",
+      action: { type: "resume", video: { type: "series", id: "tt0:1:2" } },
+    });
+  });
+
+  test("a finished or unstarted Video with no Up next has no main action", () => {
+    expect(titleMainAction(SERIES, [entry({ watched: true })], "direct")).toBeNull();
+    expect(titleMainAction(SERIES, [entry({ position: null })], "direct")).toBeNull();
   });
 
   test("a Title with no entry has no main action", () => {
-    expect(titleMainAction(SERIES, [])).toBeNull();
+    expect(titleMainAction(SERIES, [], "direct")).toBeNull();
   });
 
   test("a partly watched Video with no length resumes without claiming a time left", () => {
-    expect(titleMainAction(SERIES, [entry({ duration: null })])).toEqual({
+    expect(titleMainAction(SERIES, [entry({ duration: null })], "direct")).toEqual({
+      kind: "resume",
       label: "Resume S1E2",
       action: { type: "resume", video: { type: "series", id: "tt0:1:2" } },
     });

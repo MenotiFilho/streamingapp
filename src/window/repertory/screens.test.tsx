@@ -85,6 +85,7 @@ const SNAPSHOT: Snapshot = {
     subtitleColor: "#FFFFFF",
     subtitleScale: 1,
     streamBuffer: { seconds: 300, megabytes: 512 },
+    upNextPlayback: "direct",
   },
   addons: [CINEMETA, TORRENTIO, AIOSTREAMS],
   featuredCatalog: null,
@@ -354,7 +355,7 @@ describe("the repertory Title page", () => {
     });
     render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
 
-    const resume = screen.getByTestId("title-resume");
+    const resume = screen.getByTestId("title-main");
     expect(resume).toHaveTextContent("Resume S1E2 · 5 min left");
 
     fireEvent.click(resume);
@@ -365,11 +366,75 @@ describe("the repertory Title page", () => {
     });
   });
 
+  it("offers Play for an Up next with no position and sends the Host its Title", () => {
+    const { value, ask } = harness({
+      snapshot: {
+        ...SNAPSHOT,
+        continueWatching: [continueEntry({ position: null, duration: null, upNext: true })],
+      },
+    });
+    render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
+
+    const play = screen.getByTestId("title-main");
+    expect(play).toHaveTextContent("Play S1E2");
+
+    fireEvent.click(play);
+
+    expect(actions(ask)).toContainEqual({
+      type: "play_up_next",
+      title: { type: "series", id: "tt0903747" },
+    });
+  });
+
+  it("opens the Streams for the Up next when the preference says picker", () => {
+    const { value, pushed, take } = harness({
+      snapshot: {
+        ...SNAPSHOT,
+        preferences: { ...SNAPSHOT.preferences, upNextPlayback: "picker" },
+        continueWatching: [continueEntry({ position: null, duration: null, upNext: true })],
+      },
+    });
+    render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
+
+    const play = screen.getByTestId("title-main");
+    expect(play).toHaveTextContent("Play S1E2");
+
+    fireEvent.click(play);
+
+    expect(take).not.toHaveBeenCalled();
+    expect(pushed).toHaveLength(1);
+    expect(pushed[0]?.name).toBe("Streams");
+  });
+
+  it("opens the Streams for the Up next when the Host finds no Stream by continuity", async () => {
+    const ask = vi.fn(async (action: Action): Promise<ActionOutcome> =>
+      action.type === "play_up_next"
+        ? {
+            response: null,
+            error: { kind: "no_up_next_stream", detail: "nothing playable" },
+          }
+        : { response: null, error: null },
+    ) as AskSpy;
+    const { value, pushed } = harness({
+      ask,
+      snapshot: {
+        ...SNAPSHOT,
+        continueWatching: [continueEntry({ position: null, duration: null, upNext: true })],
+      },
+    });
+    render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
+
+    fireEvent.click(screen.getByTestId("title-main"));
+
+    await waitFor(() => expect(pushed).toHaveLength(1));
+    expect(pushed[0]?.name).toBe("Streams");
+  });
+
   it("keeps a Title with no entry at its beginning, with no main control", () => {
     const { value } = harness();
     render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
 
-    expect(screen.queryByTestId("title-resume")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("title-main")).not.toBeInTheDocument();
     expect(screen.getByTestId("season-1")).toHaveAttribute("aria-pressed", "true");
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Back" }));
   });

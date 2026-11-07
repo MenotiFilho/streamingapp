@@ -36,6 +36,7 @@ function nothing(revision: number, address: string | null = null): Snapshot {
       subtitleColor: "#FFFFFF",
       subtitleScale: 1,
       streamBuffer: { seconds: 300, megabytes: 512 },
+      upNextPlayback: "direct",
     },
     addons: [],
     featuredCatalog: null,
@@ -247,6 +248,20 @@ describe("the Session", () => {
       snapshots: [],
       answer: null,
     });
+    expect(session.getState().error).toBeNull();
+  });
+
+  test("report raises the same one alert for a refusal read through ask", () => {
+    // A screen that handles a refusal itself — Play opening the Streams picker
+    // for an Up next (#276) — reports only what it did not act on.
+    const refusal: ActionError = { kind: "no_up_next_stream", detail: "nothing playable" };
+    const host = fakeHost();
+    const session = new Session(host.link);
+
+    session.report(refusal);
+    expect(session.getState().error).toEqual(refusal);
+
+    session.report(null);
     expect(session.getState().error).toBeNull();
   });
 

@@ -568,4 +568,82 @@ describe("a series' Play", () => {
     act(() => host.publish(playing));
     expect(await screen.findByTestId("remote-player-card")).toBeInTheDocument();
   });
+
+  test("Play sends the Host the Title whose Up next it reads", async () => {
+    const upNext = continueEntry({
+      position: null,
+      duration: null,
+      upNext: true,
+    });
+    const { host } = mountStack(
+      answering(SERIES),
+      titleLevel({ addon: "cinemeta", id: "tt1", type: "series", name: "One" }),
+      { ...SNAPSHOT, continueWatching: [upNext] },
+    );
+    await screen.findByTestId("remote-title-page");
+
+    fireEvent.click(screen.getByRole("button", { name: "Play S1E2" }));
+
+    await waitFor(() =>
+      expect(host.asked("play_up_next")).toEqual([
+        {
+          type: "play_up_next",
+          title: { type: "series", id: "tt1" },
+        },
+      ]),
+    );
+  });
+
+  test("the picker preference opens the Streams for the Up next instead", async () => {
+    const upNext = continueEntry({
+      position: null,
+      duration: null,
+      upNext: true,
+    });
+    const { host } = mountStack(
+      answering(SERIES),
+      titleLevel({ addon: "cinemeta", id: "tt1", type: "series", name: "One" }),
+      {
+        ...SNAPSHOT,
+        preferences: { ...SNAPSHOT.preferences, upNextPlayback: "picker" },
+        continueWatching: [upNext],
+      },
+    );
+    await screen.findByTestId("remote-title-page");
+
+    fireEvent.click(screen.getByRole("button", { name: "Play S1E2" }));
+
+    // The picker is the client's own: no play_up_next leaves, and the Streams
+    // for the anchored Video are asked for the way an episode press asks.
+    expect(await screen.findByTestId("remote-streams")).toBeInTheDocument();
+    expect(host.asked("play_up_next")).toEqual([]);
+    expect(host.asked("find_streams")).toEqual([
+      { type: "find_streams", video: { type: "series", id: "tt1:1:2" } },
+    ]);
+  });
+
+  test("a continuity refusal opens the Streams for the Up next instead of alerting", async () => {
+    const upNext = continueEntry({
+      position: null,
+      duration: null,
+      upNext: true,
+    });
+    const respond: Respond = (action) =>
+      action.type === "play_up_next"
+        ? { kind: "no_up_next_stream", detail: "nothing playable" }
+        : answering(SERIES)(action);
+    const { host } = mountStack(
+      respond,
+      titleLevel({ addon: "cinemeta", id: "tt1", type: "series", name: "One" }),
+      { ...SNAPSHOT, continueWatching: [upNext] },
+    );
+    await screen.findByTestId("remote-title-page");
+
+    fireEvent.click(screen.getByRole("button", { name: "Play S1E2" }));
+
+    expect(await screen.findByTestId("remote-streams")).toBeInTheDocument();
+    expect(host.asked("find_streams")).toEqual([
+      { type: "find_streams", video: { type: "series", id: "tt1:1:2" } },
+    ]);
+  });
 });

@@ -237,14 +237,52 @@ function TitlePage({
   const suppliedBy = title.addon ? addonLabel(state.snapshot, title.addon) : null;
   const continueWatching = state.snapshot?.continueWatching ?? [];
   const anchor = titleAnchor(title, continueWatching);
-  const main = titleMainAction(title, continueWatching);
-  const [resuming, setResuming] = useState(false);
+  const main = titleMainAction(
+    title,
+    continueWatching,
+    state.snapshot?.preferences.upNextPlayback ?? "direct",
+  );
+  const [taking, setTaking] = useState(false);
 
-  const resume = async () => {
-    if (main === null || resuming) {
+  /**
+   * The one main control: Resume takes the Host's own `resume` and opens the
+   * player card; Play takes the Host's `play_up_next`, which continues the
+   * release of the episode before; and a picker Play pushes the Streams for the
+   * Up next Video itself (#276).
+   */
+  const takeMain = async () => {
+    if (main === null || taking) {
       return;
     }
-    setResuming(true);
+    if (main.kind === "play") {
+      if (main.action === null) {
+        push(streamsLevelFor(title, main.video));
+        return;
+      }
+      setTaking(true);
+      try {
+        // Play is the Host's own continuity choice. When no Stream continues
+        // the release, the client opens the picker for the Up next instead
+        // (#276); any other refusal is the Remote's one alert.
+        const { response, error } = await session.ask(main.action);
+        if (error?.kind === "no_up_next_stream") {
+          push(streamsLevelFor(title, main.video));
+          return;
+        }
+        if (error) {
+          session.report(error);
+          return;
+        }
+        if (response) {
+          push(playerLevel(title));
+        }
+      } finally {
+        setTaking(false);
+      }
+      return;
+    }
+
+    setTaking(true);
     try {
       // Resume is a Change like any other: the Host starts the Stream at its
       // saved position, and the card is where the playing Stream is driven.
@@ -252,7 +290,7 @@ function TitlePage({
         push(playerLevel(title));
       }
     } finally {
-      setResuming(false);
+      setTaking(false);
     }
   };
 
@@ -314,9 +352,9 @@ function TitlePage({
             <Button
               variant="primary"
               className="remote-play remote-title-main"
-              data-testid="title-resume"
-              pending={resuming}
-              onClick={() => void resume()}
+              data-testid="title-main"
+              pending={taking}
+              onClick={() => void takeMain()}
             >
               <Icon name="play" className="remote-play-mark" />
               <span>{main.label}</span>

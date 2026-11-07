@@ -18,7 +18,7 @@ use crate::preferences::FeaturedCatalog;
 use crate::preview::{
     preview_ceiling, NoPreviewer, PreviewCeiling, Previewer, PREVIEW_BITRATE_GRACE_MS,
 };
-use crate::progress::TitleStub;
+use crate::progress::{ContinueEntry, TitleStub, WatchProgress};
 use crate::provider::Provider;
 use crate::request::{ResourceRequest, TitleRef, VideoRef, META, STREAM, SUBTITLES};
 use crate::response::{Answer, Response};
@@ -807,6 +807,12 @@ impl Host {
                 let _ = self.player.tell(Telling::StreamBuffer(buffer));
                 Resolved::Change(Change::SetStreamBuffer(buffer))
             }
+            ValidatedAction::SetUpNextPlayback(playback) => {
+                // A preference and nothing else: the Player is not told, because
+                // what Play does is decided by the client that presses it from
+                // the Snapshot (#276).
+                Resolved::Change(Change::SetUpNextPlayback(playback))
+            }
             ValidatedAction::AddAddon(url) => {
                 let body =
                     self.fetcher
@@ -999,6 +1005,21 @@ impl Host {
                     chosen: Box::new(chosen),
                     title: Some(Box::new(title)),
                     start,
+                })
+            }
+            ValidatedAction::PlayUpNext { title } => {
+                let (entry, previous) = self.up_next(&title)?;
+                let chosen = self.up_next_stream(&entry, &previous)?;
+                self.player
+                    .open(&chosen.url, None)
+                    .map_err(|error| ActionError::Playback {
+                        detail: error.to_string(),
+                    })?;
+                self.arm_preview(&chosen.url);
+                Resolved::Change(Change::Play {
+                    chosen: Box::new(chosen),
+                    title: Some(Box::new(entry.title)),
+                    start: None,
                 })
             }
             ValidatedAction::SetPaused { paused } => {
@@ -1333,6 +1354,112 @@ impl Host {
 
         let id = tmdb::video_spelling(video.id, Some(at));
         step.neighbour(&videos, &id).map(|video| video.id.clone())
+    }
+
+    /// The Title's Up next and the finished Video whose Stream it continues, or
+    /// why the Title has no Up next to play.
+    ///
+    /// Which Video is the Up next is the Host's own Continue watching decision
+    /// (#274): the newest Watch progress entry of the Title, moved on to the
+    /// Video after it once it is finished. The entry named by the Action is
+    /// matched by type and id, the identity the row groups by.
+    fn up_next(&self, title: &TitleRef) -> Result<(ContinueEntry, WatchProgress), ActionError> {
+        let cards = {
+            let titles = self.titles.lock().expect("the Title cache is not poisoned");
+            crate::progress::continue_watching(self.state.watch(), titles.cached(), |addon| {
+                self.state.has_addon(addon)
+            })
+        };
+
+        let entry = cards
+            .into_iter()
+            .find(|entry| entry.title.r#type() == title.r#type && entry.title.id() == title.id)
+            .ok_or_else(|| ActionError::NoUpNext {
+                detail: format!("{title} is not on Continue watching, so it has no Up next"),
+            })?;
+        if !entry.up_next {
+            return Err(ActionError::NoUpNext {
+                detail: format!("{title} has no Up next: its card is not one"),
+            });
+        }
+
+        // The Video before the Up next is the Title's newest entry: the card an
+        // Up next was moved on from. Its Stream's Addon and release are what the
+        // play continues.
+        let up_next_id = entry.video.id.clone();
+        let previous = self
+            .state
+            .watch()
+            .iter()
+            .filter(|held| held.title.r#type() == title.r#type && held.title.id() == title.id)
+            .max_by_key(|held| held.updated_at)
+            .cloned()
+            .filter(|held| held.watched && held.video.id != up_next_id)
+            .ok_or_else(|| ActionError::NoUpNext {
+                detail: format!("{title} has no finished Video to continue"),
+            })?;
+
+        Ok((entry, previous))
+    }
+
+    /// The Stream to play for an Up next: the Addon that streamed the Video
+    /// before it, and the same `bingeGroup` where that Addon still offers one,
+    /// and otherwise that Addon's first playable candidate (ADR-0012,
+    /// ADR-0014).
+    ///
+    /// A different Addon is not a substitute: the Up next is the release the
+    /// previous Video came from, which is continuity rather than a second
+    /// ranking. Where continuity has nothing, the refusal is the one the client
+    /// opens the Streams picker for (#276).
+    fn up_next_stream(
+        &self,
+        entry: &ContinueEntry,
+        previous: &WatchProgress,
+    ) -> Result<ChosenStream, ActionError> {
+        let refused = |detail: String| ActionError::NoUpNextStream { detail };
+        let video = VideoRef::parse(entry.title.r#type(), &entry.video.id)
+            .map_err(|error| refused(error.to_string()))?;
+        let Some(stream_addon) = previous.stream_addon.as_ref() else {
+            return Err(refused(format!(
+                "the Host does not know which Addon streamed {}/{}",
+                previous.video.r#type, previous.video.id
+            )));
+        };
+        let Some(addon) = self.state.addon(stream_addon).cloned() else {
+            return Err(refused(format!(
+                "the Addon {stream_addon} that streamed {}/{} is no longer configured",
+                previous.video.r#type, previous.video.id
+            )));
+        };
+        let Some(requested) = self.view().ask_of(&addon, STREAM, &video) else {
+            return Err(refused(format!("{stream_addon} has nothing for {video}")));
+        };
+        let streams = self
+            .provider
+            .streams(&addon, &requested)
+            .map_err(|error| refused(error.to_string()))?;
+
+        let same_release = previous
+            .binge_group
+            .as_ref()
+            .and_then(|group| {
+                streams
+                    .iter()
+                    .find(|stream| stream.binge_group.as_ref() == Some(group))
+            })
+            .and_then(|stream| playable(&video, stream_addon, stream));
+
+        same_release
+            .or_else(|| {
+                streams
+                    .iter()
+                    .find_map(|stream| playable(&video, stream_addon, stream))
+            })
+            .ok_or_else(|| {
+                refused(format!(
+                    "no candidate for {video} is one this Host can play"
+                ))
+            })
     }
 
     /// The Stream a resume plays and where in it to start, or why the Host will

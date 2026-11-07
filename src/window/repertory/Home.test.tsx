@@ -61,6 +61,7 @@ const BASE_SNAPSHOT: Snapshot = {
     subtitleColor: "#FFFFFF",
     subtitleScale: 1,
     streamBuffer: { seconds: 300, megabytes: 512 },
+    upNextPlayback: "direct",
   },
   addons: [CINEMETA],
   featuredCatalog: { addon: "cinemeta", catalog: { type: "movie", id: "top" } },

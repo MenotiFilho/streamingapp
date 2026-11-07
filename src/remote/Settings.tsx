@@ -9,6 +9,7 @@ import {
   STREAM_BUFFER_SECONDS,
   SUBTITLE_COLORS,
   SUBTITLE_SCALES,
+  UP_NEXT_PLAYBACK_CHOICES,
   bufferMegabytesPreset,
   bufferSecondsPreset,
   colorSelected,
@@ -52,8 +53,7 @@ import {
   STREAM_BUFFER_HEAD,
   STREAM_BUFFER_MEGABYTES_HEAD,
   STREAM_BUFFER_SECONDS_HEAD,
-  STREMIO_EMAIL_LABEL,
-  STREMIO_EMAIL_PLACEHOLDER,
+  STREMIO_EMAIL_LABEL,  STREMIO_EMAIL_PLACEHOLDER,
   STREMIO_PASSWORD_LABEL,
   STREMIO_PASSWORD_PLACEHOLDER,
   STREMIO_SIGN_IN,
@@ -66,6 +66,7 @@ import {
   TMDB_FIELD_PLACEHOLDER,
   TMDB_MARK,
   TMDB_SAVE,
+  UP_NEXT_PLAYBACK_HEAD,
   VERSION_TERM,
   bufferAfter,
   bufferRequest,
@@ -81,6 +82,7 @@ import {
   signInRequest,
   signOutLevel,
   tmdbKeyRequest,
+  upNextPlaybackRequest,
   type StreamBuffer,
 } from "./settingsScreen";
 
@@ -401,12 +403,14 @@ function PreferencesLeaf({ category, session, state }: LeafProps) {
   const [colorError, setColorError] = useState<ActionError | null>(null);
   const [scaleError, setScaleError] = useState<ActionError | null>(null);
   const [bufferError, setBufferError] = useState<ActionError | null>(null);
+  const [upNextError, setUpNextError] = useState<ActionError | null>(null);
   const [featuredError, setFeaturedError] = useState<ActionError | null>(null);
 
   const known = SUBTITLE_LANGUAGES.some(
     (language) => language.tag === heldLanguage,
   );
   const otherColor = unknownColorLabel(heldColor);
+  const heldUpNext = snapshot?.preferences.upNextPlayback ?? "direct";
   const catalogs = declaredCatalogs(snapshot);
   const featured = snapshot?.featuredCatalog ?? null;
   const featuredKey = featured
@@ -567,6 +571,27 @@ function PreferencesLeaf({ category, session, state }: LeafProps) {
           ) : null}
         </div>
         <Refusal error={bufferError} />
+      </section>
+
+      <section className="remote-settings-group">
+        <h2 className="remote-settings-label">{UP_NEXT_PLAYBACK_HEAD}</h2>
+        <div className="remote-settings-chips">
+          {UP_NEXT_PLAYBACK_CHOICES.map((choice) => (
+            <ChoiceChip
+              key={choice.playback}
+              pressed={heldUpNext === choice.playback}
+              onClick={() =>
+                void take(
+                  upNextPlaybackRequest(choice.playback),
+                  setUpNextError,
+                )
+              }
+            >
+              {choice.label}
+            </ChoiceChip>
+          ))}
+        </div>
+        <Refusal error={upNextError} />
       </section>
 
       <section className="remote-settings-group">

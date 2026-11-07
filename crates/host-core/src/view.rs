@@ -399,6 +399,7 @@ impl HostView {
             | ValidatedAction::SetSubtitleColor(_)
             | ValidatedAction::SetSubtitleScale(_)
             | ValidatedAction::SetStreamBuffer(_)
+            | ValidatedAction::SetUpNextPlayback(_)
             | ValidatedAction::SetFeaturedCatalog { .. }
             | ValidatedAction::ClearFeaturedCatalog
             | ValidatedAction::AddAddon(_)
@@ -412,6 +413,7 @@ impl HostView {
             | ValidatedAction::RevokeDevice(_)
             | ValidatedAction::PlayStream { .. }
             | ValidatedAction::Resume { .. }
+            | ValidatedAction::PlayUpNext { .. }
             | ValidatedAction::SetPaused { .. }
             | ValidatedAction::Seek { .. }
             | ValidatedAction::SetAudioTrack { .. }

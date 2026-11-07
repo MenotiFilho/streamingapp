@@ -103,8 +103,8 @@ pub use playback::{
 };
 pub use preferences::{
     FeaturedCatalog, InvalidStreamBuffer, InvalidSubtitleColor, InvalidSubtitleLanguage,
-    InvalidSubtitleScale, Preferences, StreamBuffer, SubtitleColor, SubtitleLanguage,
-    SubtitleScale,
+    InvalidSubtitleScale, InvalidUpNextPlayback, Preferences, StreamBuffer, SubtitleColor,
+    SubtitleLanguage, SubtitleScale, UpNextPlayback,
 };
 pub use preview::{
     bucket_of, bucket_start, checked_preview_at, preview_ceiling, FixturePreviewer, Frame,

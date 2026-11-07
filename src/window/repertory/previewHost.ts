@@ -427,6 +427,7 @@ async function buildSnapshot(): Promise<Snapshot> {
       subtitleColor: "#FFFFFF",
       subtitleScale: 1,
       streamBuffer: { seconds: 300, megabytes: 512 },
+      upNextPlayback: "direct",
     },
     addons: [
       {
@@ -862,6 +863,10 @@ async function dispatch(action: Action): Promise<Response> {
         },
       }));
     }
+    case "set_up_next_playback":
+      return change((state) => ({
+        preferences: { ...state.preferences, upNextPlayback: action.playback },
+      }));
     case "set_featured_catalog":
       return setFeatured(action);
     case "clear_featured_catalog":

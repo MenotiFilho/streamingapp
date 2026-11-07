@@ -11,9 +11,9 @@ use std::sync::Mutex;
 
 use host_core::{
     Addon, AddonId, CachedTitle, CatalogRef, Device, DeviceId, DeviceName, FeaturedCatalog,
-    Manifest, ManifestUrl, Preferences, SeriesStatus, Store, StoreError, StreamBuffer,
-    SubtitleColor, SubtitleLanguage, SubtitleScale, Title, TitleCard, TitleKey, TitleSource,
-    TitleStub, TokenDigest, VideoRef, WatchProgress,
+    InvalidUpNextPlayback, Manifest, ManifestUrl, Preferences, SeriesStatus, Store, StoreError,
+    StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale, Title, TitleCard, TitleKey,
+    TitleSource, TitleStub, TokenDigest, UpNextPlayback, VideoRef, WatchProgress,
 };
 use rusqlite::{params, Connection, Transaction};
 
@@ -30,6 +30,9 @@ const SUBTITLE_SCALE: &str = "subtitle_scale";
 
 /// The key the Stream buffer preference is stored under.
 const STREAM_BUFFER: &str = "stream_buffer";
+
+/// The key the Up next playback preference is stored under.
+const UP_NEXT_PLAYBACK: &str = "up_next_playback";
 
 /// The key the Featured catalog preference is stored under.
 const FEATURED_CATALOG: &str = "featured_catalog";
@@ -116,6 +119,7 @@ impl Store for SqliteStore {
         let mut subtitle_color = SubtitleColor::default();
         let mut subtitle_scale = SubtitleScale::default();
         let mut stream_buffer = StreamBuffer::default();
+        let mut up_next_playback = UpNextPlayback::default();
         let mut featured_catalog = None;
         for row in rows {
             let (key, value) = row.map_err(StoreError::read)?;
@@ -170,6 +174,17 @@ impl Store for SqliteStore {
                     stream_buffer = StreamBuffer::parse(stored.seconds(), stored.megabytes())
                         .map_err(|error| unusable(error.to_string()))?;
                 }
+                UP_NEXT_PLAYBACK => {
+                    // One word from a closed set, judged as it was written: a
+                    // row that drifted is a read failure, never a choice no
+                    // client offered (#276).
+                    up_next_playback =
+                        value
+                            .parse()
+                            .map_err(|error: InvalidUpNextPlayback| StoreError::Read {
+                                detail: format!("the stored Up next playback is unusable: {error}"),
+                            })?;
+                }
                 // A preference written by a newer Host than this one: leaving it
                 // alone keeps it for the Host that understands it.
                 _ => continue,
@@ -181,6 +196,7 @@ impl Store for SqliteStore {
             subtitle_color,
             subtitle_scale,
             stream_buffer,
+            up_next_playback,
             featured_catalog,
         ))
     }
@@ -212,6 +228,13 @@ impl Store for SqliteStore {
         let buffer =
             serde_json::to_string(&preferences.stream_buffer()).map_err(StoreError::write)?;
         put_preference(&transaction, STREAM_BUFFER, Some(&buffer))?;
+        // One word from a closed set, written with every preference write like
+        // the appearance and the buffer (#276).
+        put_preference(
+            &transaction,
+            UP_NEXT_PLAYBACK,
+            Some(preferences.up_next_playback().as_str()),
+        )?;
         // The whole pair as one document: an id is only half of what an Addon's
         // Catalog is, and two rows could disagree.
         let featured = match preferences.featured_catalog() {
@@ -286,7 +309,8 @@ impl Store for SqliteStore {
         let mut statement = connection
             .prepare(
                 "SELECT video_type, video_id, title_addon, title_id, title_type, title_name,
-                        title_poster, title_background, position, duration, watched, updated_at
+                        title_poster, title_background, position, duration, watched, updated_at,
+                        stream_addon, binge_group
                  FROM watch_progress ORDER BY updated_at DESC",
             )
             .map_err(StoreError::read)?;
@@ -305,6 +329,8 @@ impl Store for SqliteStore {
                     row.get::<_, Option<f64>>(9)?,
                     row.get::<_, i64>(10)?,
                     row.get::<_, i64>(11)?,
+                    row.get::<_, Option<String>>(12)?,
+                    row.get::<_, Option<String>>(13)?,
                 ))
             })
             .map_err(StoreError::read)?;
@@ -327,6 +353,8 @@ impl Store for SqliteStore {
                 duration,
                 watched,
                 updated_at,
+                stream_addon,
+                binge_group,
             ) = row.map_err(StoreError::read)?;
 
             let video = VideoRef::parse(&video_type, &video_id).map_err(|_| StoreError::Read {
@@ -357,12 +385,26 @@ impl Store for SqliteStore {
                 detail: "a stored Watch progress entry names no Title".to_owned(),
             })?;
 
+            // The Stream's Addon is judged as an Addon id, and a row written
+            // before this field existed simply has none — the continuity of an
+            // Up next is then unknown, and Playing it refuses for the picker.
+            let stream_addon = stream_addon
+                .as_deref()
+                .map(|addon| {
+                    AddonId::parse(addon).map_err(|_| StoreError::Read {
+                        detail: "a stored Watch progress entry names no Stream Addon".to_owned(),
+                    })
+                })
+                .transpose()?;
+
             watch.push(WatchProgress {
                 video,
                 title,
                 position,
                 duration,
                 watched: watched != 0,
+                stream_addon,
+                binge_group,
                 updated_at,
             });
         }
@@ -378,8 +420,9 @@ impl Store for SqliteStore {
             .execute(
                 "INSERT INTO watch_progress
                      (video_id, video_type, title_addon, title_id, title_type, title_name,
-                      title_poster, title_background, position, duration, watched, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+                      title_poster, title_background, position, duration, watched, updated_at,
+                      stream_addon, binge_group)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
                  ON CONFLICT(video_id) DO UPDATE SET
                      video_type       = excluded.video_type,
                      title_addon      = excluded.title_addon,
@@ -391,7 +434,9 @@ impl Store for SqliteStore {
                      position         = excluded.position,
                      duration         = excluded.duration,
                      watched          = excluded.watched,
-                     updated_at       = excluded.updated_at",
+                     updated_at       = excluded.updated_at,
+                     stream_addon     = excluded.stream_addon,
+                     binge_group      = excluded.binge_group",
                 params![
                     progress.video.id,
                     progress.video.r#type,
@@ -405,6 +450,8 @@ impl Store for SqliteStore {
                     progress.duration,
                     i64::from(progress.watched),
                     progress.updated_at,
+                    progress.stream_addon.as_ref().map(AddonId::as_str),
+                    progress.binge_group,
                 ],
             )
             .map_err(StoreError::write)?;

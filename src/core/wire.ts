@@ -47,6 +47,13 @@ export type Snapshot = {
      * ADR-0026).
      */
     streamBuffer: { seconds: number; megabytes: number };
+    /**
+     * What Play does for a Title's Up next: play it directly from the release
+     * of the Video before it, or open the Streams picker so the owner picks
+     * (#276). Always a value — direct is the default — and it governs only Up
+     * next, never Resume.
+     */
+    upNextPlayback: "direct" | "picker";
   };
   addons: AddonManifest[];
   /**
@@ -640,6 +647,11 @@ export type Action =
   // the memory it may take. One Action carries the pair, so the two limits
   // cannot be half-applied.
   | { type: "set_stream_buffer"; seconds: number; megabytes: number }
+  // What Play does for a Title's Up next (#276): a preference of the Host's,
+  // stored beside the Stream buffer and published in every Snapshot. It
+  // switches Play between playing the next episode directly and opening the
+  // Streams picker; it never affects Resume.
+  | { type: "set_up_next_playback"; playback: "direct" | "picker" }
   // The Featured catalog (#74): a preference of the Host's rather than this
   // client's, so marking one changes what *every* client's Home is drawn from.
   | {
@@ -711,6 +723,11 @@ export type Action =
       title: TitleStub;
     }
   | { type: "resume"; video: { type: string; id: string } }
+  // Play a Title's Up next (#276): the Host reads which Video that is from its
+  // own Continue watching entry and continues the Addon and release of the
+  // Video before it. A refusal to find a Stream is the client's cue to open the
+  // Streams picker for the Up next.
+  | { type: "play_up_next"; title: { type: string; id: string } }
   | { type: "set_paused"; paused: boolean }
   | { type: "seek"; target: SeekTarget }
   | { type: "stop_playback" }

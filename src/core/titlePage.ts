@@ -144,13 +144,27 @@ export function titleAnchor(
   return { season: video.season ?? null, video };
 }
 
-/** A Title's one main control: today the Resume a partly watched Video earns. */
-export type TitleMainAction = {
-  /** The words on the control: `Resume S1E3 · 12 min left`, or `Resume`. */
-  label: string;
-  /** The Action the control takes: the Host's own `resume`, as today. */
-  action: Extract<Action, { type: "resume" }>;
-};
+/** What the Title's main control is: the Resume it has today, or Play. */
+export type TitleMainAction =
+  | {
+      kind: "resume";
+      /** The words on the control: `Resume S1E3 · 12 min left`, or `Resume`. */
+      label: string;
+      /** The Action the control takes: the Host's own `resume`. */
+      action: Extract<Action, { type: "resume" }>;
+    }
+  | {
+      kind: "play";
+      /** The words on the control: `Play S1E4`. */
+      label: string;
+      /** The Up next Video, which is also what a picker Play opens. */
+      video: Video;
+      /**
+       * The Action a direct Play sends, or null where the preference makes
+       * this a picker Play and the client opens the Streams for `video` itself.
+       */
+      action: Extract<Action, { type: "play_up_next" }> | null;
+    };
 
 /**
  * How much of a partly watched Video is left, in whole minutes, where the Host
@@ -171,29 +185,53 @@ function timeLeftOf(entry: ContinueEntry): string | null {
 }
 
 /**
- * The Title's main control, or null where there is none yet.
+ * The Title's main control, or null where there is none.
  *
- * A partly watched Video resumes at the Host's saved position. A finished Video
- * has nothing left to resume, and an Up next that has no position is the Play
- * case #276 brings; until then both show no main control. A Title with no
- * Continue watching entry has no main control either, because there is no
- * progress to continue.
+ * A partly watched Video resumes at the Host's saved position, and the
+ * preference never reaches it: resuming stays one press. An Up next with no
+ * position is Play: the Host reads which Video that is and continues the
+ * release of the Video before it, unless the Up next preference makes the
+ * owner choose — then the control still says Play, and the client opens the
+ * Streams picker for that Video itself (#276). A finished Video, an unstarted
+ * Video that is not an Up next, and a Title with no entry have no control.
  */
 export function titleMainAction(
   title: Title,
   continueWatching: readonly ContinueEntry[],
+  upNextPlayback: "direct" | "picker" = "direct",
 ): TitleMainAction | null {
   const entry = continueEntryOf(title, continueWatching);
-  if (entry === null || entry.watched || entry.position === null) {
+  if (entry === null) {
     return null;
   }
 
   const video = title.videos.find((held) => held.id === entry.video.id) ?? entry.video;
+
+  // An Up next never started is Play, whatever the preference: the choice is
+  // whether the Host plays it directly or the client opens the picker.
+  if (entry.upNext && entry.position === null) {
+    const episode = labelOf(video);
+    return {
+      kind: "play",
+      label: episode ? `Play ${episode}` : "Play",
+      video,
+      action:
+        upNextPlayback === "picker"
+          ? null
+          : { type: "play_up_next", title: { type: title.type, id: title.id } },
+    };
+  }
+
+  if (entry.watched || entry.position === null) {
+    return null;
+  }
+
   const episode = labelOf(video);
   const left = timeLeftOf(entry);
   const base = episode ? `Resume ${episode}` : "Resume";
 
   return {
+    kind: "resume",
     label: left ? `${base} · ${left}` : base,
     action: {
       type: "resume",

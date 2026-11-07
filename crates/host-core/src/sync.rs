@@ -675,6 +675,8 @@ mod tests {
             position: Some(position),
             duration: Some(2820.0),
             watched,
+            stream_addon: None,
+            binge_group: None,
             updated_at: at,
         }
     }
@@ -970,6 +972,8 @@ mod tests {
             position: Some(8000.0),
             duration: Some(8160.0),
             watched,
+            stream_addon: None,
+            binge_group: None,
             updated_at: at,
         };
         let held = |times: u64| {
