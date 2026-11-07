@@ -850,7 +850,7 @@ impl Host {
             })
             .collect();
 
-        let probes: Vec<TitleProbe> = self
+        let watch: Vec<TitleProbe> = self
             .state
             .watch()
             .iter()
@@ -858,7 +858,7 @@ impl Host {
             .collect();
         let mut cache = self.titles.lock().expect("the Title cache is not poisoned");
         cache.protect_library(library);
-        cache.settle(now, &TitleProtection::holding(probes));
+        cache.settle(now, &TitleProtection::holding(watch));
     }
 
     /// The Host is going away: write down where the Stream got to, and tell the
