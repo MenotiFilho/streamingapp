@@ -1695,6 +1695,14 @@ body.picture-behind .shell-nav-slot {
   box-sizing: border-box;
 }
 
+/* A Title with Resume already carries its one brass fill: finding a Stream by
+ * hand stays available beside it, in the quiet brass-ink treatment. */
+.rep-play[data-secondary="true"] {
+  border-color: var(--rep-house);
+  background: transparent;
+  color: var(--rep-house);
+}
+
 .rep-play-mark {
   flex: none;
   width: 1em;
@@ -1847,6 +1855,14 @@ body.picture-behind .shell-nav-slot {
   line-height: 1.25;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+}
+
+/* An announced episode says the day it airs and stays playable (#269). */
+.rep-episode-airs {
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  letter-spacing: var(--rep-tracking-caps);
 }
 
 :where(html[data-input="navigation"]) .rep-episode:focus .rep-episode-name,

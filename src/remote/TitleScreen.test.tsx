@@ -12,6 +12,7 @@ import type {
   AddonCatalog,
   AddonManifest,
   CatalogRow,
+  ContinueEntry,
   MetaPreview,
   Response,
   Snapshot,
@@ -98,16 +99,25 @@ const SERIES: Title = {
   ...FILM,
   type: "series",
   videos: [
-    { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
+    { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },
     {
       id: "tt1:1:2",
       name: "Cat's in the Bag...",
       season: 1,
       episode: 2,
       thumbnail: "https://images.test/s1e2.jpg",
+      airDate: null,
     },
-    { id: "tt1:2:1", name: "Seven Thirty-Seven", season: 2, episode: 1, thumbnail: null },
+    { id: "tt1:2:1", name: "Seven Thirty-Seven", season: 2, episode: 1, thumbnail: null, airDate: null },
   ],
+};
+
+/** The same series with an announced second episode, which must stay playable. */
+const UNAIRED: Title = {
+  ...SERIES,
+  videos: SERIES.videos.map((video) =>
+    video.id === "tt1:1:2" ? { ...video, airDate: "2999-01-02" } : video,
+  ),
 };
 
 /** The Host the room walks: one card, one Title, and Streams for whatever it is asked. */
@@ -139,6 +149,7 @@ function doorOf(host: FakeHost): HostLink {
     snapshot: () => host.snapshot(),
     dispatch: (action) => host.dispatch(action),
     onSnapshot: (handler) => host.onSnapshot(handler),
+    onRevision: (handler) => host.onRevision(handler),
     state: () => state,
     onState: (handler) => host.onState(handler),
     close: () => host.close(),
@@ -188,12 +199,65 @@ function Stack({ session, level }: { session: Session; level: NewLevel<RemotePay
   ) : null;
 }
 
-function mountStack(respond: Respond, level = titleLevel({ addon: "cinemeta", id: "tt1", type: "movie", name: "One" })) {
-  const host = new FakeHost(SNAPSHOT, respond);
+function mountStack(
+  respond: Respond,
+  level = titleLevel({ addon: "cinemeta", id: "tt1", type: "movie", name: "One" }),
+  snapshot: Snapshot = SNAPSHOT,
+) {
+  const host = new FakeHost(snapshot, respond);
   const session = new Session(host);
+  // The room the Remote draws always follows a started Session; the anchor reads
+  // the Continue watching list from the Snapshot that start reads.
+  session.start();
   const view = render(<Stack session={session} level={level} />);
   return { host, session, view };
 }
+
+function continueEntry(overrides: Partial<ContinueEntry> = {}): ContinueEntry {
+  return {
+    video: { id: "tt1:1:2", name: null, season: 1, episode: 2, thumbnail: null, airDate: null },
+    title: {
+      addon: "cinemeta",
+      id: "tt1",
+      type: "series",
+      name: "One",
+      poster: null,
+      background: null,
+    },
+    position: 300,
+    duration: 600,
+    watched: false,
+    upNext: false,
+    unplayable: null,
+    ...overrides,
+  };
+}
+
+describe("a Continue watching card on the Remote", () => {
+  test("opens its Title on the card's season and episode", async () => {
+    const host = new FakeHost(
+      {
+        ...SNAPSHOT,
+        continueWatching: [
+          continueEntry({
+            video: { id: "tt1:2:1", name: null, season: 2, episode: 1, thumbnail: null, airDate: null },
+          }),
+        ],
+      },
+      answering(SERIES),
+    );
+    render(<RemoteApp link={doorOf(host)} />);
+
+    fireEvent.click(await screen.findByTestId("resume-tt1:2:1"));
+    await screen.findByTestId("remote-title-page");
+
+    expect(screen.getByRole("button", { name: /Season 2/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("episode-tt1:2:1")).toHaveAttribute("aria-pressed", "true");
+  });
+});
 
 describe("the Title level's one question", () => {
   test("an Addon's card asks open_title on the first mount, and only once", async () => {
@@ -395,6 +459,17 @@ describe("a series' Play", () => {
     ]);
   });
 
+  test("an announced episode stays playable: its press opens its Streams", async () => {
+    const { host } = mountStack(answering(UNAIRED), titleLevel({ addon: "cinemeta", id: "tt1", type: "series", name: "One" }));
+    await screen.findByTestId("remote-title-page");
+
+    fireEvent.click(screen.getByTestId("episode-tt1:1:2"));
+    await screen.findByTestId("remote-streams");
+    expect(host.asked("find_streams")).toEqual([
+      { type: "find_streams", video: { type: "series", id: "tt1:1:2" } },
+    ]);
+  });
+
   test("a season's first episode is chosen when its chip is pressed", async () => {
     const { host } = mountStack(answering(SERIES), titleLevel({ addon: "cinemeta", id: "tt1", type: "series", name: "One" }));
     await screen.findByTestId("remote-title-page");
@@ -405,6 +480,184 @@ describe("a series' Play", () => {
     await screen.findByTestId("remote-streams");
     expect(host.asked("find_streams")).toEqual([
       { type: "find_streams", video: { type: "series", id: "tt1:2:1" } },
+    ]);
+  });
+
+  test("opens on the season of the Continue watching Video, with that episode chosen", async () => {
+    mountStack(
+      answering(SERIES),
+      titleLevel({ addon: "cinemeta", id: "tt1", type: "series", name: "One" }),
+      {
+        ...SNAPSHOT,
+        continueWatching: [
+          continueEntry({
+            video: { id: "tt1:2:1", name: null, season: 2, episode: 1, thumbnail: null, airDate: null },
+          }),
+        ],
+      },
+    );
+    await screen.findByTestId("remote-title-page");
+
+    expect(screen.getByRole("button", { name: /Season 2/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("episode-tt1:2:1")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  test("Resume plays the anchored Video from the Host and opens the player card", async () => {
+    const playing: Snapshot = {
+      ...SNAPSHOT,
+      revision: 2,
+      playback: {
+        ...SNAPSHOT.playback,
+        state: "playing",
+        nowPlaying: {
+          video: { type: "series", id: "tt1:1:2" },
+          addon: "cinemeta",
+          name: null,
+          description: null,
+          filename: null,
+          bingeGroup: null,
+        },
+        position: 300,
+        duration: 600,
+      },
+    };
+    const { host } = mountStack(
+      answering(SERIES),
+      titleLevel({ addon: "cinemeta", id: "tt1", type: "series", name: "One" }),
+      { ...SNAPSHOT, continueWatching: [continueEntry()] },
+    );
+    await screen.findByTestId("remote-title-page");
+
+    fireEvent.click(screen.getByTestId("title-main"));
+
+    await waitFor(() =>
+      expect(host.asked("resume")).toEqual([
+        { type: "resume", video: { type: "series", id: "tt1:1:2" } },
+      ]),
+    );
+    // The Host reports the Stream it took on its next Snapshot; the card is
+    // drawn over the Title from there.
+    act(() => host.publish(playing));
+    expect(await screen.findByTestId("remote-player-card")).toBeInTheDocument();
+  });
+
+  test("Play sends the Host the Title whose Up next it reads", async () => {
+    const upNext = continueEntry({
+      position: null,
+      duration: null,
+      upNext: true,
+    });
+    const { host } = mountStack(
+      answering(SERIES),
+      titleLevel({ addon: "cinemeta", id: "tt1", type: "series", name: "One" }),
+      { ...SNAPSHOT, continueWatching: [upNext] },
+    );
+    await screen.findByTestId("remote-title-page");
+
+    fireEvent.click(screen.getByTestId("title-main"));
+
+    await waitFor(() =>
+      expect(host.asked("play_up_next")).toEqual([
+        {
+          type: "play_up_next",
+          title: { type: "series", id: "tt1" },
+        },
+      ]),
+    );
+  });
+
+  test("the picker preference opens the Streams for the Up next instead", async () => {
+    const upNext = continueEntry({
+      position: null,
+      duration: null,
+      upNext: true,
+    });
+    const { host } = mountStack(
+      answering(SERIES),
+      titleLevel({ addon: "cinemeta", id: "tt1", type: "series", name: "One" }),
+      {
+        ...SNAPSHOT,
+        preferences: { ...SNAPSHOT.preferences, upNextPlayback: "picker" },
+        continueWatching: [upNext],
+      },
+    );
+    await screen.findByTestId("remote-title-page");
+
+    fireEvent.click(screen.getByTestId("title-main"));
+
+    // The picker is the client's own: no play_up_next leaves, and the Streams
+    // for the anchored Video are asked for the way an episode press asks.
+    expect(await screen.findByTestId("remote-streams")).toBeInTheDocument();
+    expect(host.asked("play_up_next")).toEqual([]);
+    expect(host.asked("find_streams")).toEqual([
+      { type: "find_streams", video: { type: "series", id: "tt1:1:2" } },
+    ]);
+  });
+
+  test("the main control waits on its own Action key and drops a second press", async () => {
+    const upNext = continueEntry({
+      position: null,
+      duration: null,
+      upNext: true,
+    });
+    let release!: (answer: Response) => void;
+    const held = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    const respond: Respond = (action) =>
+      action.type === "play_up_next" ? held : answering(SERIES)(action);
+    const { host } = mountStack(
+      respond,
+      titleLevel({ addon: "cinemeta", id: "tt1", type: "series", name: "One" }),
+      { ...SNAPSHOT, continueWatching: [upNext] },
+    );
+    await screen.findByTestId("remote-title-page");
+
+    fireEvent.click(screen.getByTestId("title-main"));
+    const main = screen.getByTestId("title-main");
+    await waitFor(() => expect(main).toBeDisabled());
+    expect(main).toHaveAttribute("aria-busy", "true");
+
+    // A second press before the answer is the same Action: the Session joins
+    // it, and one play_up_next leaves.
+    fireEvent.click(main);
+    expect(host.asked("play_up_next")).toHaveLength(1);
+
+    await act(async () => {
+      release({ snapshots: [], answer: null });
+      await held;
+    });
+    await waitFor(() => expect(main).toBeEnabled());
+  });
+
+  test("a continuity refusal opens the Streams for the Up next instead of alerting", async () => {
+    const upNext = continueEntry({
+      position: null,
+      duration: null,
+      upNext: true,
+    });
+    const respond: Respond = (action) =>
+      action.type === "play_up_next"
+        ? { kind: "no_up_next_stream", detail: "nothing playable" }
+        : answering(SERIES)(action);
+    const { host } = mountStack(
+      respond,
+      titleLevel({ addon: "cinemeta", id: "tt1", type: "series", name: "One" }),
+      { ...SNAPSHOT, continueWatching: [upNext] },
+    );
+    await screen.findByTestId("remote-title-page");
+
+    fireEvent.click(screen.getByTestId("title-main"));
+
+    expect(await screen.findByTestId("remote-streams")).toBeInTheDocument();
+    expect(host.asked("find_streams")).toEqual([
+      { type: "find_streams", video: { type: "series", id: "tt1:1:2" } },
     ]);
   });
 });

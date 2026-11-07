@@ -42,10 +42,12 @@ function snapshot(entries: ResumeEntry[]): Snapshot {
       subtitleColor: "#FFFFFF",
       subtitleScale: 1,
       streamBuffer: { seconds: 300, megabytes: 512 },
+      upNextPlayback: "direct",
     },
     addons: [],
     featuredCatalog: null,
     protection: { backend: "file", tmdbHeld: false, stremioHeld: false },
+    continueWatching: [],
     watchProgress: entries,
     devices: [],
     pairingCode: "4K7Q2M",
@@ -73,6 +75,7 @@ function entry(overrides: Partial<ResumeEntry> = {}): ResumeEntry {
       season: 1,
       episode: 1,
       thumbnail: null,
+      airDate: null,
     },
     title: {
       addon: "cinemeta",
@@ -97,6 +100,7 @@ function video(overrides: Partial<Video> = {}): Video {
     season: 1,
     episode: 1,
     thumbnail: null,
+    airDate: null,
     ...overrides,
   };
 }
@@ -234,22 +238,22 @@ describe("the question an Episodes menu asks about its series", () => {
 });
 
 describe("the episodes of a Title", () => {
-  test("are grouped into seasons in the Addon's own order, Videos kept in order", () => {
+  test("are grouped into seasons in the Host's order, Videos kept in order", () => {
     const seasons = episodesOf(
       title({
         videos: [
-          video({ id: "tt1:2:1", season: 2, episode: 1 }),
           video({ id: "tt1:1:1", season: 1, episode: 1 }),
           video({ id: "tt1:1:2", season: 1, episode: 2 }),
+          video({ id: "tt1:2:1", season: 2, episode: 1 }),
           video({ id: "tt1:0:1", season: 0, episode: 1 }),
         ],
       }),
     );
 
-    expect(seasons.map((season) => season.season)).toEqual([2, 1, 0]);
+    expect(seasons.map((season) => season.season)).toEqual([1, 2, 0]);
     expect(seasons.map((season) => season.videos.map((held) => held.id))).toEqual([
-      ["tt1:2:1"],
       ["tt1:1:1", "tt1:1:2"],
+      ["tt1:2:1"],
       ["tt1:0:1"],
     ]);
   });

@@ -16,6 +16,21 @@ export const ACTION_VERSION = 1;
  */
 export const SNAPSHOT_EVENT = "host://snapshot";
 
+/**
+ * What Play does for a Title's Up next (#276): play it directly from the
+ * release the Video before it came from, or open the Streams picker so the
+ * owner chooses. A preference of the Host's, published in every Snapshot.
+ */
+export type UpNextPlayback = "direct" | "picker";
+
+/**
+ * The event the Host delivers a revised Answer on: a stale Title's background
+ * refresh landed and differs (ADR-0038 §2). Mirrors `REVISION_EVENT` in
+ * `src-tauri/src/ipc.rs`. It goes to the window that asked, and is never a
+ * Snapshot: the window swaps it in only while that Title is open.
+ */
+export const REVISION_EVENT = "host://revision";
+
 /** The Host's state as it travels outward. Mirrors `Snapshot` in `host-core`. */
 export type Snapshot = {
   revision: number;
@@ -39,6 +54,13 @@ export type Snapshot = {
      * ADR-0026).
      */
     streamBuffer: { seconds: number; megabytes: number };
+    /**
+     * What Play does for a Title's Up next: play it directly from the release
+     * of the Video before it, or open the Streams picker so the owner picks
+     * (#276). Always a value — direct is the default — and it governs only Up
+     * next, never Resume.
+     */
+    upNextPlayback: UpNextPlayback;
   };
   addons: AddonManifest[];
   /**
@@ -51,9 +73,17 @@ export type Snapshot = {
   featuredCatalog: FeaturedCatalog | null;
   protection: Protection;
   /**
-   * The library: one entry per Video the Host has Watch progress in, most
-   * recently played first — the Continue watching row reads it (#29). An entry
-   * whose Addon is gone stays listed, marked unplayable, rather than vanishing.
+   * Continue watching: one entry per Title the Host has Watch progress in, the
+   * Title's card — the Video it played last, or that Video's Up next once it is
+   * finished — most recently played first, the row every client draws (#273,
+   * #274). An entry whose Addon is gone stays listed, marked unplayable, rather
+   * than vanishing.
+   */
+  continueWatching: ContinueEntry[];
+  /**
+   * Watch progress, one entry per Video: where each Video was left. The playback
+   * view and the episode lookup read it; the Continue watching row is drawn from
+   * `continueWatching` above, not from this list (#273).
    */
   watchProgress: ResumeEntry[];
   /**
@@ -428,6 +458,12 @@ export type Video = {
   episode: number | null;
   /** The episode's 16:9 still, where it has one. */
   thumbnail: string | null;
+  /**
+   * The calendar day the episode aired, as `YYYY-MM-DD`, where the Host knows
+   * one. An announced episode's day is in the future, and a Title screen marks
+   * it "Airs 12 Nov" without making it unplayable (#269).
+   */
+  airDate: string | null;
 };
 
 /**
@@ -495,7 +531,8 @@ export type UnplayableEntry = {
 /**
  * One Video with Watch progress, as every client is told it (#29). Mirrors
  * `ResumeEntry` in `host-core`: the Video, enough of its Title to draw a card,
- * where it was left, and whether it can be played now.
+ * where it was left, and whether it can be played now. One entry per Video; the
+ * Continue watching row is `ContinueEntry` below.
  */
 export type ResumeEntry = {
   video: Video;
@@ -503,6 +540,29 @@ export type ResumeEntry = {
   position: number | null;
   duration: number | null;
   watched: boolean;
+  unplayable: UnplayableEntry | null;
+};
+
+/**
+ * One Title on Continue watching, as every client is told it (#273, #274).
+ * Mirrors `ContinueEntry` in `host-core`: one entry per Title, carrying the
+ * Title's card — the Video it played last, or that Video's Up next once it is
+ * finished — where that Video was left, and whether it can be played now. The
+ * clients draw this list and never derive cards from per-Video Watch progress
+ * themselves.
+ */
+export type ContinueEntry = {
+  video: Video;
+  title: TitleStub;
+  position: number | null;
+  duration: number | null;
+  watched: boolean;
+  /**
+   * Whether the card's Video is the Title's Up next rather than the Video it
+   * played last. An Up next has no progress unless it was already partly
+   * watched, and it is the Video a Title opened from this card is anchored on.
+   */
+  upNext: boolean;
   unplayable: UnplayableEntry | null;
 };
 
@@ -573,6 +633,11 @@ export type Response = {
     // core sees the Device and no credential.
     | { paired: { device: DeviceSummary } }
     | { library: Library }
+    // The same Title answered again, after a background refresh (ADR-0038 §2).
+    // It never rides a Response: it reaches the client after the Reply that
+    // opened the Title, on its own event or frame, and is marked here so both
+    // clients read one Answer shape.
+    | { revision: Title }
     | null;
 };
 
@@ -589,6 +654,11 @@ export type Action =
   // the memory it may take. One Action carries the pair, so the two limits
   // cannot be half-applied.
   | { type: "set_stream_buffer"; seconds: number; megabytes: number }
+  // What Play does for a Title's Up next (#276): a preference of the Host's,
+  // stored beside the Stream buffer and published in every Snapshot. It
+  // switches Play between playing the Up next directly and opening the
+  // Streams picker; it never affects Resume.
+  | { type: "set_up_next_playback"; playback: UpNextPlayback }
   // The Featured catalog (#74): a preference of the Host's rather than this
   // client's, so marking one changes what *every* client's Home is drawn from.
   | {
@@ -660,6 +730,11 @@ export type Action =
       title: TitleStub;
     }
   | { type: "resume"; video: { type: string; id: string } }
+  // Play a Title's Up next (#276): the Host reads which Video that is from its
+  // own Continue watching entry and continues the Addon and release of the
+  // Video before it. A refusal to find a Stream is the client's cue to open the
+  // Streams picker for the Up next.
+  | { type: "play_up_next"; title: { type: string; id: string } }
   | { type: "set_paused"; paused: boolean }
   | { type: "seek"; target: SeekTarget }
   | { type: "stop_playback" }
@@ -684,6 +759,11 @@ export type Action =
   | { type: "next_episode" }
   // The same step back, decided by the Host the same way (ADR-0021).
   | { type: "previous_episode" }
+  // A Title a card is looking at, read ahead before it is pressed (#278,
+  // ADR-0038 §3). Fire-and-forget: it answers nothing and publishes no
+  // Snapshot. The Addon is the one that supplied the card, or null for a
+  // Discovered Title.
+  | { type: "look_hint"; addon: string | null; title: { type: string; id: string } }
   // Pairing and devices (#31). `pair_device` is the one Action an unpaired
   // connection may take; this window is the Host's own and is already in, so what
   // it sends is the revoke: one device's token is taken away and every other

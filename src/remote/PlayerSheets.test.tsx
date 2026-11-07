@@ -148,9 +148,9 @@ const SERIES: Title = {
   imdbRating: null,
   genres: [],
   videos: [
-    { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
-    { id: "tt1:1:2", name: "The Choice", season: 1, episode: 2, thumbnail: null },
-    { id: "tt1:2:1", name: "Seven Thirty-Seven", season: 2, episode: 1, thumbnail: null },
+    { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },
+    { id: "tt1:1:2", name: "The Choice", season: 1, episode: 2, thumbnail: null, airDate: null },
+    { id: "tt1:2:1", name: "Seven Thirty-Seven", season: 2, episode: 1, thumbnail: null, airDate: null },
   ],
 };
 
@@ -249,6 +249,7 @@ function mountRoom(respond?: Respond) {
     snapshot: () => host.snapshot(),
     dispatch: (action) => host.dispatch(action),
     onSnapshot: (handler) => host.onSnapshot(handler),
+    onRevision: (handler) => host.onRevision(handler),
     state: () => state,
     onState: (handler) => host.onState(handler),
     close: () => host.close(),

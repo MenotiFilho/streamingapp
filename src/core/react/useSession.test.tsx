@@ -35,10 +35,12 @@ function nothing(revision: number): Snapshot {
       subtitleColor: "#FFFFFF",
       subtitleScale: 1,
       streamBuffer: { seconds: 300, megabytes: 512 },
+      upNextPlayback: "direct",
     },
     addons: [],
     featuredCatalog: null,
     protection: { backend: "file", tmdbHeld: false, stremioHeld: false },
+    continueWatching: [],
     watchProgress: [],
     devices: [],
     pairingCode: "4K7Q2M",
@@ -81,6 +83,7 @@ function fakeHost(answer: () => Promise<Response> = async () => ({ snapshots: []
         snapshots.delete(handler);
       };
     },
+    onRevision: () => () => {},
     state: () => state,
     onState: (handler) => {
       order.push("onState");

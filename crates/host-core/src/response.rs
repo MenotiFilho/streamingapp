@@ -51,6 +51,16 @@ impl Response {
         }
     }
 
+    /// The response to an Action that neither changed nor answered anything: a
+    /// fire-and-forget hint only queues a read-ahead, and the Host owes the
+    /// client that sent it nothing at all (ADR-0038 §3, #278).
+    pub(crate) fn silent() -> Self {
+        Self {
+            snapshots: Vec::new(),
+            answer: None,
+        }
+    }
+
     /// The catalog rows a client asked to see, when that is what it asked.
     pub fn catalogs(&self) -> Option<&[CatalogRow]> {
         match &self.answer {
@@ -130,6 +140,12 @@ pub enum Answer {
     /// The Title a client asked to open, with the Videos it can be watched as.
     /// Boxed because a Title is many fields and a `Vec` of rows is three words.
     Title(Box<Title>),
+    /// The same Title answered again, after the background refresh of a stale
+    /// copy landed and differs (ADR-0038 §2). It follows the Response that
+    /// opened the Title, goes only to the client that asked, and is never a
+    /// Snapshot (ADR-0005): a client swaps it in if that Title is still open and
+    /// ignores it otherwise.
+    Revision(Box<Title>),
     /// The Streams a Video can be played as: one group per Addon that answered
     /// the `stream` request, in the configured order.
     Streams(Vec<AddonStreams>),

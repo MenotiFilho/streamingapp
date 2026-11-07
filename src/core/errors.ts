@@ -44,6 +44,8 @@ export const HOST_ERROR_KINDS = [
   "nothing_playing",
   "no_next_episode",
   "no_previous_episode",
+  "no_up_next",
+  "no_up_next_stream",
   "no_progress",
   "playback",
   "store",
@@ -244,6 +246,12 @@ export function explain(error: ActionError): string {
       return `The Host could not move to the next episode${error.detail ? `: ${error.detail}` : ""}.`;
     case "no_previous_episode":
       return `The Host could not move to the previous episode${error.detail ? `: ${error.detail}` : ""}.`;
+    case "no_up_next":
+      return `The Host has no Up next to play${error.detail ? `: ${error.detail}` : ""}.`;
+    case "no_up_next_stream":
+      // The client opens the Streams picker for that Video: the Host found no
+      // Stream that continues the release, which is not a reason to stop.
+      return `The Host found no Stream for the Up next${error.detail ? `: ${error.detail}` : ""}.`;
     case "no_progress":
       return `The Host has no Watch progress for ${error.video?.type ?? "?"}/${error.video?.id ?? "?"}, so there is nothing to resume.`;
     case "playback":

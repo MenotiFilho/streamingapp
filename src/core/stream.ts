@@ -35,7 +35,7 @@ import {
  */
 export function theFilm(title: Title): Video {
   const id = title.key.kind === "tmdb" ? tmdbFilmId(title.key.id) : title.id;
-  return { id, name: null, season: null, episode: null, thumbnail: null };
+  return { id, name: null, season: null, episode: null, thumbnail: null, airDate: null };
 }
 
 /**

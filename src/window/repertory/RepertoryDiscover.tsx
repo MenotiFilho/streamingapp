@@ -36,6 +36,7 @@ import { ProgrammeLine } from "./ProgrammeLine";
 import { programIndex, rowTagOf, yearOf } from "./program";
 import { repertoryCredentialsLevel } from "./RepertorySettings";
 import { useFeedCards } from "./useFeedCards";
+import { lookHintHandlers, useLookHints } from "./lookHint";
 import "./repertory.css";
 
 /** The two rows Discover draws, Movies then Series, each asked and paged alone. */
@@ -64,6 +65,7 @@ export function RepertoryDiscoverScreen() {
   const preview = usePreviewData();
   const { snapshot, session, push, pop, unplayable } = useShell();
   const { openTitle, openDiscoveredTitle } = useTitleOpener();
+  const look = useLookHints();
   const genreKey = useSyncExternalStore(
     session.discoverGenre.subscribe,
     session.discoverGenre.get,
@@ -130,6 +132,11 @@ export function RepertoryDiscoverScreen() {
   const posterCard = (meta: MetaPreview, kind: DiscoverKind, testId: string) => (
     <PosterCard
       key={meta.id}
+      {...lookHintHandlers(look, {
+        addon: source === "preview" ? PREVIEW_ADDON : null,
+        type: meta.type,
+        id: meta.id,
+      })}
       data-grid-card
       name={meta.name}
       poster={meta.poster}

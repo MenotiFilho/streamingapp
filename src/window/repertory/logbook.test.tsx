@@ -100,10 +100,12 @@ const SNAPSHOT: Snapshot = {
     subtitleColor: "#FFFFFF",
     subtitleScale: 1,
     streamBuffer: { seconds: 300, megabytes: 512 },
+    upNextPlayback: "direct",
   },
   addons: [CINEMETA, TORRENTIO],
   featuredCatalog: null,
   protection: { backend: "file", tmdbHeld: true, stremioHeld: false },
+  continueWatching: [],
   watchProgress: [],
   devices: [LIVING_ROOM, OFFICE],
   pairingCode: "4K7Q2M",
@@ -148,6 +150,7 @@ function harness(
     back: vi.fn(),
     ask,
     take: vi.fn(async (_action: Action) => null),
+    hint: vi.fn(),
     home: new HomeStore(ask),
     setIntentHandler: vi.fn(),
     setBaseIntentHandler: vi.fn(() => () => {}),
@@ -533,6 +536,15 @@ describe("the repertory Settings register", () => {
         type: "set_featured_catalog",
         addon: CINEMETA.id,
         catalog: { type: "movie", id: "top" },
+      }),
+    );
+
+    // #276: what Play does with a Title's Up next is the Host's preference too.
+    fireEvent.click(screen.getByTestId("up-next-picker"));
+    await waitFor(() =>
+      expect(actions(ask)).toContainEqual({
+        type: "set_up_next_playback",
+        playback: "picker",
       }),
     );
   });

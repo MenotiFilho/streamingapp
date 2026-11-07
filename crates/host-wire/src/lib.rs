@@ -11,14 +11,18 @@
 //! ```
 //! use std::net::SocketAddr;
 //!
-//! use host_core::{Action, DeviceToken, Response, Snapshot};
+//! use host_core::{Action, DeviceToken, Response, RevisionSink, Snapshot};
 //! use host_wire::{Broadcast, Server, Surface};
 //!
 //! // The app shell's implementation; a test's is the same three methods over a
 //! // real `Host`.
 //! struct Echo;
 //! impl Surface for Echo {
-//!     fn dispatch(&self, _action: Action) -> Result<Response, host_core::ActionError> {
+//!     fn dispatch(
+//!         &self,
+//!         _action: Action,
+//!         _revisions: std::sync::Arc<dyn RevisionSink>,
+//!     ) -> Result<Response, host_core::ActionError> {
 //!         unimplemented!("the shell's implementation drives the Host")
 //!     }
 //!     fn device(&self, _token: &DeviceToken) -> Option<host_core::DeviceSummary> { None }

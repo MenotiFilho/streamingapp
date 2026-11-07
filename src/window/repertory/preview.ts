@@ -211,7 +211,7 @@ export function sampleResumeEntries(
     }
     const position = Math.round(duration * SAMPLE_POSITIONS[entries.length % SAMPLE_POSITIONS.length]!);
     entries.push({
-      video: { id: preview.id, name: null, season: null, episode: null, thumbnail: preview.background ?? null },
+      video: { id: preview.id, name: null, season: null, episode: null, thumbnail: preview.background ?? null, airDate: null },
       title: {
         addon: "cinemeta",
         id: preview.id,

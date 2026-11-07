@@ -5,12 +5,13 @@ import type {
   Action,
   AddonManifest,
   CatalogRow,
+  ContinueEntry,
   MetaPreview,
-  ResumeEntry,
   Snapshot,
 } from "../../core/wire";
 import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContextValue } from "../context";
 import { HomeStore } from "../../core/homeStore";
+import { LOOK_HINT_DWELL_MS } from "../../core/lookHint";
 import { FEATURE_ROTATION_MS } from "./homeProgramme";
 import { RepertoryHome } from "./RepertoryHome";
 import { quietSession } from "../session.testing";
@@ -61,10 +62,12 @@ const BASE_SNAPSHOT: Snapshot = {
     subtitleColor: "#FFFFFF",
     subtitleScale: 1,
     streamBuffer: { seconds: 300, megabytes: 512 },
+    upNextPlayback: "direct",
   },
   addons: [CINEMETA],
   featuredCatalog: { addon: "cinemeta", catalog: { type: "movie", id: "top" } },
   protection: { backend: "file", tmdbHeld: false, stremioHeld: false },
+  continueWatching: [],
   watchProgress: [],
   devices: [],
   pairingCode: "----",
@@ -128,9 +131,9 @@ const completePage = vi.fn(async (action: Action) => {
   return answer([catalogRow(FOUR, 0)]);
 });
 
-function resumeEntry(overrides: Partial<ResumeEntry> = {}): ResumeEntry {
+function resumeEntry(overrides: Partial<ContinueEntry> = {}): ContinueEntry {
   return {
-    video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
+    video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },
     title: {
       addon: "cinemeta",
       id: "tt1",
@@ -142,6 +145,7 @@ function resumeEntry(overrides: Partial<ResumeEntry> = {}): ResumeEntry {
     position: 300,
     duration: 600,
     watched: false,
+    upNext: false,
     unplayable: null,
     ...overrides,
   };
@@ -158,6 +162,7 @@ function renderHome({
 } = {}) {
   const pushed: NewShellLevel[] = [];
   const take = vi.fn(async (_action: Action) => null);
+  const hint = vi.fn();
   const choose = vi.fn();
   const value: ShellContextValue = {
     session: quietSession(),
@@ -180,6 +185,7 @@ function renderHome({
     back: vi.fn(),
     ask,
     take,
+    hint,
     home: new HomeStore(ask),
     setIntentHandler: vi.fn(),
     setBaseIntentHandler: vi.fn(() => () => {}),
@@ -191,7 +197,7 @@ function renderHome({
     </ShellContext.Provider>,
   );
 
-  return { pushed, take, choose, ask, value };
+  return { pushed, take, hint, choose, ask, value };
 }
 
 /** Draw a level the Home harness recorded, as the frame would above the base. */
@@ -614,9 +620,9 @@ describe("Home's feature presentation", () => {
 });
 
 describe("Home's Continue watching", () => {
-  it("draws the kit card and resumes the Video the Host recorded", async () => {
+  it("draws the kit card and opens the Title the Host recorded", async () => {
     const { take } = renderHome({
-      snapshot: { ...BASE_SNAPSHOT, watchProgress: [resumeEntry()] },
+      snapshot: { ...BASE_SNAPSHOT, continueWatching: [resumeEntry()] },
     });
     await flush();
 
@@ -625,8 +631,39 @@ describe("Home's Continue watching", () => {
     fireEvent.click(card);
 
     expect(take).toHaveBeenCalledWith({
-      type: "resume",
-      video: { type: "series", id: "tt1:1:1" },
+      type: "open_title",
+      addon: "cinemeta",
+      title: { type: "series", id: "tt1" },
+    });
+  });
+
+  it("opens a card whose stub names no Addon through TMDB", async () => {
+    const { take } = renderHome({
+      snapshot: {
+        ...BASE_SNAPSHOT,
+        continueWatching: [
+          resumeEntry({
+            video: { id: "tmdb:603:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },
+            title: {
+              addon: null,
+              id: "tmdb:603",
+              type: "series",
+              name: "The Matrix",
+              poster: null,
+              background: null,
+            },
+          }),
+        ],
+      },
+    });
+    await flush();
+
+    fireEvent.click(screen.getByTestId("resume-tmdb:603:1:1"));
+
+    expect(take).toHaveBeenCalledWith({
+      type: "open_discovered_title",
+      key: { kind: "tmdb", id: 603 },
+      kind: "series",
     });
   });
 
@@ -634,7 +671,7 @@ describe("Home's Continue watching", () => {
     const { take } = renderHome({
       snapshot: {
         ...BASE_SNAPSHOT,
-        watchProgress: [
+        continueWatching: [
           resumeEntry({ unplayable: { reason: "addon_removed", addon: "cinemeta" } }),
         ],
       },
@@ -647,9 +684,43 @@ describe("Home's Continue watching", () => {
     expect(take).not.toHaveBeenCalled();
   });
 
-  it("opens the whole row and resumes the Video from a card there", async () => {
+  it("draws one card per Continue watching entry, not one per Video's progress", async () => {
+    const card = resumeEntry();
+    renderHome({
+      snapshot: {
+        ...BASE_SNAPSHOT,
+        continueWatching: [card],
+        watchProgress: [
+          card,
+          resumeEntry({
+            video: { ...card.video, id: "tt1:1:2", name: "Second", episode: 2 },
+            position: 120,
+          }),
+        ],
+      },
+    });
+    await flush();
+
+    expect(screen.getByTestId("resume-tt1:1:1")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("resume-tt1:1:2"),
+      "a per-Video Watch progress entry is not a card of its own",
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("resume-tt1:1:2-progress")).not.toBeInTheDocument();
+  });
+
+  it("draws no Continue watching row from per-Video Watch progress alone", async () => {
+    renderHome({
+      snapshot: { ...BASE_SNAPSHOT, continueWatching: [], watchProgress: [resumeEntry()] },
+    });
+    await flush();
+
+    expect(screen.queryByTestId("home-continue")).not.toBeInTheDocument();
+  });
+
+  it("opens the whole row and opens the Title from a card there", async () => {
     const { pushed, take, value } = renderHome({
-      snapshot: { ...BASE_SNAPSHOT, watchProgress: [resumeEntry()] },
+      snapshot: { ...BASE_SNAPSHOT, continueWatching: [resumeEntry()] },
     });
     await flush();
 
@@ -662,8 +733,103 @@ describe("Home's Continue watching", () => {
     fireEvent.click(card);
 
     expect(take).toHaveBeenCalledWith({
-      type: "resume",
-      video: { type: "series", id: "tt1:1:1" },
+      type: "open_title",
+      addon: "cinemeta",
+      title: { type: "series", id: "tt1" },
+    });
+  });
+});
+
+describe("Home's look hints", () => {
+  function cardTimers() {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  }
+
+  it("reads a Title ahead once a card has been focused for the dwell", async () => {
+    const { hint } = renderHome({
+      snapshot: { ...BASE_SNAPSHOT, continueWatching: [resumeEntry()] },
+    });
+    await flush();
+    cardTimers();
+
+    const card = screen.getByTestId("resume-tt1:1:1");
+    act(() => card.focus());
+    act(() => vi.advanceTimersByTime(LOOK_HINT_DWELL_MS - 1));
+    expect(hint, "a card focused only in passing is not read ahead").not.toHaveBeenCalled();
+
+    act(() => vi.advanceTimersByTime(1));
+    expect(hint).toHaveBeenCalledWith({
+      type: "look_hint",
+      addon: "cinemeta",
+      title: { type: "series", id: "tt1" },
+    });
+  });
+
+  it("does not read ahead a card focus has already left", async () => {
+    const { hint } = renderHome({
+      snapshot: { ...BASE_SNAPSHOT, continueWatching: [resumeEntry()] },
+    });
+    await flush();
+    cardTimers();
+
+    const card = screen.getByTestId("resume-tt1:1:1");
+    act(() => card.focus());
+    act(() => vi.advanceTimersByTime(LOOK_HINT_DWELL_MS - 1));
+    act(() => card.blur());
+    act(() => vi.advanceTimersByTime(LOOK_HINT_DWELL_MS));
+
+    expect(hint).not.toHaveBeenCalled();
+  });
+
+  it("reads ahead a poster the pointer rests on, and not one it passes over", async () => {
+    const { hint } = renderHome();
+    await flush();
+    cardTimers();
+
+    const card = screen.getByTestId("card-cinemeta-tt1");
+    fireEvent.pointerEnter(card);
+    act(() => vi.advanceTimersByTime(LOOK_HINT_DWELL_MS - 1));
+    fireEvent.pointerLeave(card);
+    act(() => vi.advanceTimersByTime(LOOK_HINT_DWELL_MS));
+    expect(hint, "the pointer did not rest").not.toHaveBeenCalled();
+
+    fireEvent.pointerEnter(card);
+    act(() => vi.advanceTimersByTime(LOOK_HINT_DWELL_MS));
+    expect(hint).toHaveBeenCalledWith({
+      type: "look_hint",
+      addon: "cinemeta",
+      title: { type: "movie", id: "tt1" },
+    });
+  });
+
+  it("names a Discovered card's Title with no Addon", async () => {
+    const { hint } = renderHome({
+      snapshot: {
+        ...BASE_SNAPSHOT,
+        continueWatching: [
+          resumeEntry({
+            title: {
+              addon: null,
+              id: "tmdb:603",
+              type: "series",
+              name: "The Matrix",
+              poster: null,
+              background: null,
+            },
+          }),
+        ],
+      },
+    });
+    await flush();
+    cardTimers();
+
+    act(() => screen.getByTestId("resume-tt1:1:1").focus());
+    act(() => vi.advanceTimersByTime(LOOK_HINT_DWELL_MS));
+
+    expect(hint).toHaveBeenCalledWith({
+      type: "look_hint",
+      addon: null,
+      title: { type: "series", id: "tmdb:603" },
     });
   });
 });

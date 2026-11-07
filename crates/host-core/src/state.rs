@@ -6,6 +6,7 @@ use crate::playback::{
 };
 use crate::preferences::{
     FeaturedCatalog, Preferences, StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale,
+    UpNextPlayback,
 };
 use crate::progress::{TitleStub, WatchProgress};
 use crate::request::VideoRef;
@@ -32,10 +33,10 @@ pub(crate) struct State {
     /// playback does not survive a restart (#29's Watch progress is the part
     /// that does).
     playback: PlaybackSession,
-    /// The Continue watching row's entries: one per Video the Host has Watch
-    /// progress in, most recently written first. Loaded from the store at
-    /// startup, so a Host that was killed mid-Stream comes back knowing where it
-    /// was.
+    /// Watch progress, one entry per Video, most recently written first. Loaded
+    /// from the store at startup, so a Host that was killed mid-Stream comes back
+    /// knowing where it was. Continue watching is built from this list, one card
+    /// per Title (#273).
     watch: Vec<WatchProgress>,
     /// The devices the Host has paired, in the order they paired. The tokens
     /// themselves are not here — a [`Device`] holds a digest — so a Snapshot can
@@ -189,6 +190,10 @@ impl State {
                 self.preferences.set_stream_buffer(buffer);
                 Persist::Preferences
             }
+            Change::SetUpNextPlayback(playback) => {
+                self.preferences.set_up_next_playback(playback);
+                Persist::Preferences
+            }
             // The Featured catalog is a preference of the Host's, and it is
             // taken as given: whether the Addon it names is configured, and
             // whether the Addon offers the Catalog, was judged where the state
@@ -292,11 +297,17 @@ impl State {
                 start,
             } => {
                 let video = chosen.now_playing.video.clone();
+                // The Stream the play came from is what Playing Up next
+                // continues (#276): its Addon and release are read before the
+                // PlaybackSession takes the candidate.
+                let stream_addon = chosen.now_playing.addon.clone();
+                let binge_group = chosen.now_playing.binge_group.clone();
                 self.playback = PlaybackSession::opening(*chosen);
 
                 match title {
                     Some(title) => {
-                        let mut entry = WatchProgress::starting(video.clone(), *title, start, now);
+                        let mut entry = WatchProgress::starting(video.clone(), *title, start, now)
+                            .streamed_by(stream_addon, binge_group);
                         // A Stream replayed or resumed has the length it had: the
                         // Player has not reported the new one yet, and a Host
                         // killed before it does should not forget how long the
@@ -479,6 +490,9 @@ pub(crate) enum Change {
     /// The look-ahead and memory ceiling the Player is told, judged together
     /// before either reaches it (ADR-0026).
     SetStreamBuffer(StreamBuffer),
+    /// What Play does for a Title's Up next: play it directly, or open the
+    /// Streams picker (#276).
+    SetUpNextPlayback(UpNextPlayback),
     /// The one Catalog marked as the Host's featured feed, resolved against the
     /// Addon that offers it (#74).
     SetFeaturedCatalog(FeaturedCatalog),

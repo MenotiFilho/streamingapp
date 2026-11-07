@@ -65,6 +65,7 @@ const VIDEO: Video = {
   season: null,
   episode: null,
   thumbnail: null,
+  airDate: null,
 };
 
 const DIRECT: Stream = {

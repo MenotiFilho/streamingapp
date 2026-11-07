@@ -36,10 +36,12 @@ function nothing(revision: number, address: string | null = null): Snapshot {
       subtitleColor: "#FFFFFF",
       subtitleScale: 1,
       streamBuffer: { seconds: 300, megabytes: 512 },
+      upNextPlayback: "direct",
     },
     addons: [],
     featuredCatalog: null,
     protection: { backend: "file", tmdbHeld: false, stremioHeld: false },
+    continueWatching: [],
     watchProgress: [],
     devices: [],
     pairingCode: "4K7Q2M",
@@ -96,6 +98,7 @@ function fakeHost(
         snapshots.delete(handler);
       };
     },
+    onRevision: () => () => {},
     state: () => state,
     onState: (handler) => {
       order.push("onState");
@@ -245,6 +248,53 @@ describe("the Session", () => {
       snapshots: [],
       answer: null,
     });
+    expect(session.getState().error).toBeNull();
+  });
+
+  test("report raises the same one alert for a refusal read through ask", () => {
+    // A screen that handles a refusal itself — Play opening the Streams picker
+    // for an Up next (#276) — reports only what it did not act on.
+    const refusal: ActionError = { kind: "no_up_next_stream", detail: "nothing playable" };
+    const host = fakeHost();
+    const session = new Session(host.link);
+
+    session.report(refusal);
+    expect(session.getState().error).toEqual(refusal);
+
+    session.report(null);
+    expect(session.getState().error).toBeNull();
+  });
+
+  test("hint is fire-and-forget: no wait, no answer, and a refusal is not an alert", async () => {
+    const refusal: ActionError = { kind: "malformed", detail: "not a hint" };
+    let refuses = true;
+    const host = fakeHost({
+      answer: () => {
+        if (refuses) {
+          throw refusal;
+        }
+        return { snapshots: [], answer: null };
+      },
+    });
+    const session = new Session(host.link);
+    const hint: Action = {
+      type: "look_hint",
+      addon: "cinemeta",
+      title: { type: "movie", id: "tt1" },
+    };
+
+    session.hint(hint);
+    await flush();
+
+    expect(host.actions, "the hint reaches the one door").toEqual([hint]);
+    expect(session.getState().pending.size, "nothing is waiting on an answer").toBe(0);
+    expect(session.getState().error, "resting is not asking").toBeNull();
+
+    refuses = false;
+    session.hint({ ...hint, addon: null });
+    await flush();
+
+    expect(host.actions).toHaveLength(2);
     expect(session.getState().error).toBeNull();
   });
 

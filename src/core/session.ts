@@ -7,7 +7,7 @@ import { HomeStore } from "./homeStore";
 import { InFlight } from "./inFlight";
 import type { HostLink, LinkState } from "./link";
 import { Selection } from "./selection";
-import type { Action, Response, Snapshot } from "./wire";
+import type { Action, Response, Snapshot, Title } from "./wire";
 
 /**
  * What one client holds about the Host (ADR-0035 §1).
@@ -66,6 +66,8 @@ export class Session {
     pending: new Set(),
   };
   private readonly listeners = new Set<() => void>();
+  /** The screens following revised Titles the Host sends after a Reply. */
+  private readonly revisionHandlers = new Set<(title: Title) => void>();
   private readonly inFlight = new InFlight<ActionOutcome>();
   /** How many callers hold the subscriptions, so StrictMode's mount/unmount shares them. */
   private holders = 0;
@@ -117,6 +119,7 @@ export class Session {
     if (this.holders === 1) {
       this.stops = [
         this.link.onSnapshot((snapshot) => this.accept(snapshot)),
+        this.link.onRevision((title) => this.revised(title)),
         this.link.onState((state) => this.follow(state)),
       ];
       this.follow(this.link.state());
@@ -143,6 +146,21 @@ export class Session {
     this.listeners.add(handler);
     return () => {
       this.listeners.delete(handler);
+    };
+  };
+
+  /**
+   * Follow the revised Titles the Host sends this client after a Reply.
+   *
+   * A revision is the Host's second Answer to a Title this client opened and
+   * the background refresh found different (ADR-0038 §2). It is not state and
+   * does not enter the Snapshot: the screen that is showing that Title replaces
+   * it, and a screen showing another Title ignores it (`decideRevision`).
+   */
+  onRevision = (handler: (title: Title) => void): (() => void) => {
+    this.revisionHandlers.add(handler);
+    return () => {
+      this.revisionHandlers.delete(handler);
     };
   };
 
@@ -188,6 +206,31 @@ export class Session {
   };
 
   /**
+   * Raise the window's one alert for a refusal the caller read through `ask`.
+   *
+   * A screen that decides something on a refusal — Play opening the Streams
+   * picker for an Up next the Host found no Stream for (#276) — takes the
+   * Action with `ask`, acts on the kind, and reports anything it did not act
+   * on here. It is the same alert `take` raises.
+   */
+  report = (error: ActionError | null): void => {
+    this.setError(error);
+  };
+
+  /**
+   * Take a fire-and-forget Action: a card a person only looked at.
+   *
+   * A look hint has no answer and publishes no Snapshot, so there is nothing to
+   * keep and nothing to wait for (#278, ADR-0038 §3). A refusal is swallowed
+   * rather than raised as the window's alert: resting on a card is not asking
+   * for anything, and a Host too old to know the hint is not an error a person
+   * can act on.
+   */
+  hint = (action: Action): void => {
+    void this.link.dispatch(action).catch(() => undefined);
+  };
+
+  /**
    * Remember what this client learned about a Title's playability. The set is
    * only copied when a mark actually changes, so a screen reading it re-renders
    * only for a fact that moved.
@@ -214,6 +257,13 @@ export class Session {
       return;
     }
     this.publish({ ...this.current, snapshot, receivedAt: this.now() });
+  }
+
+  /** One revised Title, on its way to whatever screen is showing it. */
+  private revised(title: Title): void {
+    for (const handler of [...this.revisionHandlers]) {
+      handler(title);
+    }
   }
 
   /** A ready link owes one Snapshot; the next ready state asks again. */

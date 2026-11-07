@@ -124,16 +124,17 @@ describe("an episode's row name", () => {
         season: 1,
         episode: 2,
         thumbnail: null,
+        airDate: null,
       }),
     ).toBe("S1E2 · Cat's in the Bag...");
   });
 
   test("falls back to the name, then the id, where the Addon gave no number", () => {
     expect(
-      episodeLabel({ id: "tt1", name: "One", season: null, episode: null, thumbnail: null }),
+      episodeLabel({ id: "tt1", name: "One", season: null, episode: null, thumbnail: null, airDate: null }),
     ).toBe("One");
     expect(
-      episodeLabel({ id: "tt1", name: null, season: null, episode: null, thumbnail: null }),
+      episodeLabel({ id: "tt1", name: null, season: null, episode: null, thumbnail: null, airDate: null }),
     ).toBe("tt1");
   });
 });

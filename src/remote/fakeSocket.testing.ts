@@ -1,6 +1,6 @@
 import type { ActionError } from "../core/errors";
 import { ACTION_VERSION } from "../core/wire";
-import type { Action, DeviceSummary, Response, Snapshot } from "../core/wire";
+import type { Action, DeviceSummary, Response, Snapshot, Title } from "../core/wire";
 import type { TokenStore } from "./tokenStore";
 import { WebSocketLink } from "./websocketLink";
 import type { Schedule, SocketFactory, SocketLike } from "./websocketLink";
@@ -59,10 +59,12 @@ export const NOTHING: Snapshot = {
     subtitleColor: "#FFFFFF",
     subtitleScale: 1,
     streamBuffer: { seconds: 300, megabytes: 512 },
+    upNextPlayback: "direct",
   },
   addons: [],
   featuredCatalog: null,
   protection: { backend: "file", tmdbHeld: false, stremioHeld: false },
+  continueWatching: [],
   watchProgress: [],
   devices: [],
   pairingCode: PAIRING_CODE,
@@ -221,6 +223,14 @@ export class FakeHost {
     this.held = { ...this.held, revision: this.held.revision + 1 };
     this.socket()?.deliver({ version: ACTION_VERSION, snapshot: this.held });
     return this.held;
+  }
+
+  /** Send one revised Answer to the newest socket, as a background refresh does. */
+  revise(title: Title): void {
+    this.socket()?.deliver({
+      version: ACTION_VERSION,
+      revision: { revision: title },
+    });
   }
 
   /** Take this client's pairing away, the way a revoke does: refuse, then hang up. */

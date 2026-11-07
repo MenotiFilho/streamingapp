@@ -7,15 +7,18 @@ import type {
   Action,
   AddonManifest,
   CatalogRow,
+  ContinueEntry,
   Snapshot,
   Stream,
   Title,
 } from "../../core/wire";
 import { actionKey } from "../../core/actionKey";
 import { searchFeedKey } from "../../core/search";
+import { installPointerPress } from "../../core/react/pointerPress";
 import { TauriLink, type Transport } from "../tauriLink";
 import { Shell } from "../Shell";
 import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContextValue } from "../context";
+import { focusAndReveal } from "../reveal";
 import { quietSession } from "../session.testing";
 import { HomeStore } from "../../core/homeStore";
 import { PreviewDataProvider } from "./context";
@@ -84,10 +87,12 @@ const SNAPSHOT: Snapshot = {
     subtitleColor: "#FFFFFF",
     subtitleScale: 1,
     streamBuffer: { seconds: 300, megabytes: 512 },
+    upNextPlayback: "direct",
   },
   addons: [CINEMETA, TORRENTIO, AIOSTREAMS],
   featuredCatalog: null,
   protection: { backend: "file", tmdbHeld: false, stremioHeld: false },
+  continueWatching: [],
   watchProgress: [],
   devices: [],
   pairingCode: "----",
@@ -115,6 +120,7 @@ const SERIES: Title = {
       season: 1,
       episode: 1,
       thumbnail: "https://images.test/bb-s1e1.jpg",
+      airDate: null,
     },
     {
       id: "tt0903747:1:2",
@@ -122,6 +128,7 @@ const SERIES: Title = {
       season: 1,
       episode: 2,
       thumbnail: null,
+      airDate: null,
     },
   ],
 };
@@ -140,6 +147,19 @@ const FILM: Title = {
   videos: [],
 };
 
+/**
+ * The same series with its second episode announced: an air date in the future
+ * marks it "Airs" but must not take the press away (#269).
+ */
+const UNAIRED: Title = {
+  ...SERIES,
+  videos: SERIES.videos.map((video) =>
+    video.id === "tt0903747:1:2"
+      ? { ...video, airDate: "2999-01-02" }
+      : video,
+  ),
+};
+
 /** A series with enough seasons for its chip rail to overflow a narrow view. */
 const MANY_SEASONS: Title = {
   ...SERIES,
@@ -151,8 +171,29 @@ const MANY_SEASONS: Title = {
     season,
     episode: 1,
     thumbnail: null,
+    airDate: null,
   })),
 };
+
+function continueEntry(overrides: Partial<ContinueEntry> = {}): ContinueEntry {
+  return {
+    video: { id: "tt0903747:1:2", name: null, season: 1, episode: 2, thumbnail: null, airDate: null },
+    title: {
+      addon: "com.linvo.cinemeta",
+      id: "tt0903747",
+      type: "series",
+      name: "Breaking Bad",
+      poster: null,
+      background: null,
+    },
+    position: 300,
+    duration: 600,
+    watched: false,
+    upNext: false,
+    unplayable: null,
+    ...overrides,
+  };
+}
 
 const UNPLAYABLE: Stream = {
   name: "Torrentio\n4k HDR",
@@ -206,6 +247,7 @@ function harness(overrides: Partial<ShellContextValue> = {}) {
     back: vi.fn(),
     ask,
     take,
+    hint: vi.fn(),
     home: new HomeStore(ask),
     setIntentHandler: vi.fn(),
     setBaseIntentHandler: vi.fn(() => () => {}),
@@ -254,12 +296,115 @@ function PendingStreams({ gate }: { gate: Promise<null> }) {
   );
 }
 
+/** A DOMRect-shaped box, as the page's own geometry reads it. */
+function box(left: number, top: number, right: number, bottom: number): DOMRect {
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    width: right - left,
+    height: bottom - top,
+    x: left,
+    y: top,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
+
+/**
+ * The episode list as Chromium measured it at 1536x864 and a 1.25 device scale
+ * (#275). The list is the scrollport: its client box is the whole pixels
+ * 725x683, and its rows fill it with their exact width of 725.375, so every
+ * row overhangs the snapped box by 0.375px. jsdom lays nothing out, so the
+ * page's numbers are the harness's input; what a press does with them is the
+ * assertion.
+ */
+function layOutEpisodeList(list: HTMLElement, rows: readonly HTMLElement[]): () => void {
+  const page = document.documentElement;
+  list.style.overflowY = "auto";
+  list.getBoundingClientRect = () => box(776.0625, 151.875, 1511.4375, 836.359375);
+  Object.defineProperty(list, "clientWidth", { configurable: true, value: 725 });
+  Object.defineProperty(list, "clientHeight", { configurable: true, value: 683 });
+  Object.defineProperty(list, "clientTop", { configurable: true, value: 1 });
+  rows.forEach((row, index) => {
+    const top = 152.875 + index * 119.796875;
+    row.getBoundingClientRect = () => box(776.0625, top, 1501.4375, top + 117.796875);
+  });
+  Object.defineProperty(page, "clientWidth", { configurable: true, value: 1536 });
+  Object.defineProperty(page, "clientHeight", { configurable: true, value: 864 });
+  return () => {
+    Object.defineProperty(page, "clientWidth", { configurable: true, value: 0 });
+    Object.defineProperty(page, "clientHeight", { configurable: true, value: 0 });
+  };
+}
+
+/** The window's cut-off pointer rule, installed the way `main.tsx` installs it. */
+function installCutOffRule(): () => void {
+  return installPointerPress(document.documentElement, {
+    focusAndReveal: (control) => focusAndReveal(control, { mode: "nearest", force: true }),
+  });
+}
+
 describe("the repertory Title page", () => {
   it("pushes the Streams level for the episode that was pressed", () => {
     const { value, pushed } = harness();
     render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
 
     fireEvent.click(screen.getByTestId("episode-tt0903747:1:1"));
+
+    expect(pushed).toHaveLength(1);
+    expect(pushed[0]?.name).toBe("Streams");
+  });
+
+  it("opens the Streams on the first pointer press of an episode in view", () => {
+    const { value, pushed } = harness();
+    render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
+    const stop = installCutOffRule();
+    const restore = layOutEpisodeList(screen.getByTestId("title-episodes"), [
+      screen.getByTestId("episode-tt0903747:1:1"),
+      screen.getByTestId("episode-tt0903747:1:2"),
+    ]);
+
+    try {
+      const episode = screen.getByTestId("episode-tt0903747:1:1");
+      fireEvent.pointerDown(episode);
+      fireEvent.click(episode);
+
+      expect(pushed, "the first press is the one that was aimed at").toHaveLength(1);
+      expect(pushed[0]?.name).toBe("Streams");
+    } finally {
+      stop();
+      restore();
+    }
+  });
+
+  it("takes the main button's first press even where the page cuts it off: it is not a row's item", () => {
+    const { value, take } = harness({
+      snapshot: { ...SNAPSHOT, continueWatching: [continueEntry()] },
+    });
+    render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
+    const stop = installCutOffRule();
+
+    try {
+      const main = screen.getByTestId("title-main");
+      main.getBoundingClientRect = () => box(-500, -500, -100, -400);
+      fireEvent.pointerDown(main);
+      fireEvent.click(main);
+
+      expect(take).toHaveBeenCalledWith({
+        type: "resume",
+        video: { type: "series", id: "tt0903747:1:2" },
+      });
+    } finally {
+      stop();
+    }
+  });
+
+  it("keeps an announced episode playable: its press pushes Streams", () => {
+    const { value, pushed } = harness();
+    render(withShell(value, <RepertoryTitleScreen title={UNAIRED} />));
+
+    fireEvent.click(screen.getByTestId("episode-tt0903747:1:2"));
 
     expect(pushed).toHaveLength(1);
     expect(pushed[0]?.name).toBe("Streams");
@@ -273,6 +418,132 @@ describe("the repertory Title page", () => {
 
     expect(pushed).toHaveLength(1);
     expect(pushed[0]?.name).toBe("Streams");
+  });
+
+  it("opens on the season of the Continue watching Video and focuses that episode", () => {
+    const { value } = harness({
+      snapshot: {
+        ...SNAPSHOT,
+        continueWatching: [
+          continueEntry({
+            video: { id: "tt-seasons:4:1", name: null, season: 4, episode: 1, thumbnail: null, airDate: null },
+            title: {
+              addon: "com.linvo.cinemeta",
+              id: "tt-seasons",
+              type: "series",
+              name: "Many Seasons",
+              poster: null,
+              background: null,
+            },
+          }),
+        ],
+      },
+    });
+    render(withShell(value, <RepertoryTitleScreen title={MANY_SEASONS} />));
+
+    expect(screen.getByTestId("season-4")).toHaveAttribute("aria-pressed", "true");
+    expect(document.activeElement).toBe(screen.getByTestId("episode-tt-seasons:4:1"));
+  });
+
+  it("offers Resume and takes today's resume Action", () => {
+    const { value, take } = harness({
+      snapshot: { ...SNAPSHOT, continueWatching: [continueEntry()] },
+    });
+    render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
+
+    fireEvent.click(screen.getByTestId("title-main"));
+
+    expect(take).toHaveBeenCalledWith({
+      type: "resume",
+      video: { type: "series", id: "tt0903747:1:2" },
+    });
+  });
+
+  it("draws the wait on the main control and drops a second press while its Action is pending", () => {
+    const resume: Action = {
+      type: "resume",
+      video: { type: "series", id: "tt0903747:1:2" },
+    };
+    const { value, take } = harness({
+      snapshot: { ...SNAPSHOT, continueWatching: [continueEntry()] },
+      pending: new Set([actionKey(resume)]),
+    });
+    render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
+
+    const main = screen.getByTestId("title-main");
+    expect(main).toBeDisabled();
+    expect(main).toHaveAttribute("aria-busy", "true");
+    expect(within(main).getByTestId("pending-spinner")).toBeInTheDocument();
+
+    fireEvent.click(main);
+    expect(take).not.toHaveBeenCalled();
+  });
+
+  it("offers Play for an Up next with no position and sends the Host its Title", () => {
+    const { value, ask } = harness({
+      snapshot: {
+        ...SNAPSHOT,
+        continueWatching: [continueEntry({ position: null, duration: null, upNext: true })],
+      },
+    });
+    render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
+
+    fireEvent.click(screen.getByTestId("title-main"));
+
+    expect(actions(ask)).toContainEqual({
+      type: "play_up_next",
+      title: { type: "series", id: "tt0903747" },
+    });
+  });
+
+  it("opens the Streams for the Up next when the preference says picker", () => {
+    const { value, pushed, take } = harness({
+      snapshot: {
+        ...SNAPSHOT,
+        preferences: { ...SNAPSHOT.preferences, upNextPlayback: "picker" },
+        continueWatching: [continueEntry({ position: null, duration: null, upNext: true })],
+      },
+    });
+    render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
+
+    fireEvent.click(screen.getByTestId("title-main"));
+
+    expect(take).not.toHaveBeenCalled();
+    expect(pushed).toHaveLength(1);
+    expect(pushed[0]?.name).toBe("Streams");
+  });
+
+  it("opens the Streams for the Up next when the Host finds no Stream by continuity", async () => {
+    const ask = vi.fn(async (action: Action): Promise<ActionOutcome> =>
+      action.type === "play_up_next"
+        ? {
+            response: null,
+            error: { kind: "no_up_next_stream", detail: "nothing playable" },
+          }
+        : { response: null, error: null },
+    ) as AskSpy;
+    const { value, pushed } = harness({
+      ask,
+      snapshot: {
+        ...SNAPSHOT,
+        continueWatching: [continueEntry({ position: null, duration: null, upNext: true })],
+      },
+    });
+    render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
+
+    fireEvent.click(screen.getByTestId("title-main"));
+
+    await waitFor(() => expect(pushed).toHaveLength(1));
+    expect(pushed[0]?.name).toBe("Streams");
+  });
+
+  it("keeps a Title with no entry at its beginning, with no main control", () => {
+    const { value } = harness();
+    render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
+
+    expect(screen.queryByTestId("title-main")).not.toBeInTheDocument();
+    expect(screen.getByTestId("season-1")).toHaveAttribute("aria-pressed", "true");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Back" }));
   });
 
   it("draws the season chips as a rail whose arrows page them", () => {

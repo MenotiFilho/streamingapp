@@ -2,12 +2,13 @@ use std::sync::{Arc, Mutex};
 
 use crate::action::{Action, ActionError, ValidatedAction};
 use crate::addon::{Addon, AddonId, Manifest};
+use crate::background::{BackgroundQueue, Job, RevisionSink, Work};
 use crate::cache::CatalogCache;
 use crate::clock::Clock;
 use crate::device::{Device, DeviceSummary, DeviceToken};
 use crate::fetcher::Fetcher;
 use crate::library::LibraryCache;
-use crate::meta::{self, Video};
+use crate::meta::{self, Title, TitleKey, Video};
 use crate::pairing::PairingCode;
 use crate::playback::{
     ChapterStep, ChosenStream, Control, Observation, Picture, PlaybackState, Player, StreamUrl,
@@ -17,7 +18,7 @@ use crate::preferences::FeaturedCatalog;
 use crate::preview::{
     preview_ceiling, NoPreviewer, PreviewCeiling, Previewer, PREVIEW_BITRATE_GRACE_MS,
 };
-use crate::progress::TitleStub;
+use crate::progress::{ContinueEntry, TitleStub, WatchProgress};
 use crate::provider::Provider;
 use crate::request::{ResourceRequest, TitleRef, VideoRef, META, STREAM, SUBTITLES};
 use crate::response::{Answer, Response};
@@ -29,8 +30,17 @@ use crate::stream::Stream;
 use crate::stremio::StremioApi;
 use crate::subtitles::MAX_FALLBACK_SUBTITLES;
 use crate::sync::{merge, Merged, RemoteItem};
+use crate::title_cache::{
+    CachedTitle, TitleCache, TitleProbe, TitleProtection, MAX_CACHED_TITLES, RUNNING_FRESH_MILLIS,
+};
 use crate::tmdb;
 use crate::view::{HostView, HostViewShared};
+
+/// How often the Host looks for a caught-up Title whose record is now due: a
+/// day, the shortest rhythm any caught-up check runs at. It is the scan that
+/// makes a week pass while the Host stays open, and it is why a failing source
+/// is not asked again on every tick (#277, ADR-0038 §5).
+const READ_AHEAD_SCAN_MILLIS: i64 = RUNNING_FRESH_MILLIS;
 
 /// The Host: its state, and the surface over it.
 ///
@@ -95,6 +105,52 @@ pub struct Host {
     /// The raw account Library documents, shared with every view as a memo.
     /// Never state, never a Snapshot; cleared when the account changes.
     library_cache: Arc<Mutex<LibraryCache>>,
+    /// The Titles the Host has read, kept in memory and written through the
+    /// store (ADR-0038). Shared with every view: a question reads it before it
+    /// fetches, and keeps what it fetches.
+    titles: Arc<Mutex<TitleCache>>,
+    /// The work waiting to run outside the change lock: a stale Title's
+    /// refresh, and a read-ahead of a Title the row or the Library holds.
+    /// Shared with every view, because a stale open is resolved by one and
+    /// queued here (ADR-0038 §2, §3).
+    background: Arc<Mutex<BackgroundQueue>>,
+    /// When a caught-up Title was last looked for, so the scan that lets a week
+    /// pass on an open Host runs at most once a day (#277).
+    read_ahead_scanned_at: Option<i64>,
+}
+
+/// What one look at the background queue did.
+///
+/// A background read that changes a kept Title moves Continue watching — a card
+/// that was a finished Video becomes its Up next, or gains one — and every
+/// client is owed a Snapshot for it. A read that changed nothing a client can
+/// see publishes nothing (#277, #274).
+#[derive(Debug, Clone)]
+pub struct Drained {
+    /// How many jobs ran.
+    pub ran: usize,
+    /// The Snapshot to publish, where a cache write changed what one carries.
+    pub snapshot: Option<Snapshot>,
+}
+
+impl Drained {
+    pub(crate) fn nothing() -> Self {
+        Self {
+            ran: 0,
+            snapshot: None,
+        }
+    }
+}
+
+/// The cache key a read's work will be kept under, where the work names one.
+fn key_of(work: &Work) -> Option<TitleKey> {
+    match work {
+        Work::Addon { addon, asked } => Some(TitleKey::Addon {
+            addon: addon.clone(),
+            id: asked.id.clone(),
+        }),
+        Work::Discovered { id, .. } | Work::CatchUp { id, .. } => Some(TitleKey::Tmdb { id: id.0 }),
+    }
 }
 
 impl Host {
@@ -121,6 +177,19 @@ impl Host {
         // the Host opens knowing no key is held, and finds out when one is
         // asked for.
         let held = |kind| matches!(secrets.read(kind), Ok(Some(_)));
+        let watch = store.read_watch_progress()?;
+        // The Titles the last run kept, loaded before any question can ask: the
+        // Titles behind Watch progress are what the row and Up next are drawn
+        // from, and they must open on a Host that started with no network
+        // (ADR-0038 §1). Loading drops TMDB copies past the terms ceiling but
+        // does not trim to the bound: the account's Library is read after this,
+        // and a Library Title must not be evicted before it is known. The first
+        // Library read settles the bound (ADR-0038 §1).
+        let titles = Arc::new(Mutex::new(TitleCache::load(
+            store.clone(),
+            MAX_CACHED_TITLES,
+            clock.now_millis(),
+        )?));
         let state = State::holding(
             store.read_preferences()?,
             store.read_addons()?,
@@ -129,7 +198,7 @@ impl Host {
                 tmdb_held: held(CredentialKind::TmdbKey),
                 stremio_held: held(CredentialKind::StremioAuthKey),
             },
-            store.read_watch_progress()?,
+            watch,
             store.read_devices()?,
             // A fresh code every run: a code is worth one pairing, and a Host
             // that was restarted is a Host whose screen nobody was reading.
@@ -156,7 +225,7 @@ impl Host {
         // the Player's own defaults and only reach the owner's on the next one
         // (ADR-0026).
         let _ = player.tell(Telling::StreamBuffer(state.preferences().stream_buffer()));
-        Ok(Self {
+        let mut host = Self {
             store,
             fetcher,
             secrets,
@@ -173,7 +242,17 @@ impl Host {
             cache: Arc::new(Mutex::new(CatalogCache::default())),
             stremio: None,
             library_cache: Arc::new(Mutex::new(LibraryCache::default())),
-        })
+            titles,
+            background: Arc::new(Mutex::new(BackgroundQueue::default())),
+            read_ahead_scanned_at: None,
+        };
+        // The Titles behind Continue watching are known here, and they are the
+        // ones the owner is most likely to open and the ones Up next is drawn
+        // from: the queue is filled before any client asks (ADR-0038 §3, #277).
+        let now = host.clock.now_millis();
+        host.queue_watch_read_ahead(false, now);
+        host.read_ahead_scanned_at = Some(now);
+        Ok(host)
     }
 
     /// The same Host, able to take a still of a moment of the Stream playing
@@ -219,8 +298,10 @@ impl Host {
     /// The state as it stands — what a client that has just connected, or just
     /// reconnected, is owed.
     pub fn snapshot(&self) -> Snapshot {
+        let titles = self.titles.lock().expect("the Title cache is not poisoned");
         Snapshot::build(
             &self.state,
+            titles.cached(),
             self.revision,
             self.picture,
             self.serving.as_deref(),
@@ -256,8 +337,234 @@ impl Host {
                 cache: self.cache.clone(),
                 library_cache: self.library_cache.clone(),
                 stremio: self.stremio.clone(),
+                titles: self.titles.clone(),
+                background: self.background.clone(),
+                clock: self.clock.clone(),
+                // The Watch progress frozen with the rest of the view: a cache
+                // write must not evict a Title behind one of its cards, and a
+                // write that moves a card publishes a Snapshot (ADR-0038 §1,
+                // #274, #277).
+                watch: self.state.watch().to_vec(),
             },
         )
+    }
+
+    /// Fill the queue with the Titles behind Continue watching that a read
+    /// ahead is owed (#277).
+    ///
+    /// At startup every one that is not fresh is queued: the Titles behind the
+    /// row are the ones most likely to be opened, and Up next is drawn from
+    /// them (ADR-0038 §3). Once the Host is running, only a caught-up Title is
+    /// looked for again, and only when its record has come due, so a week can
+    /// pass with the Host open (ADR-0038 §5).
+    fn queue_watch_read_ahead(&mut self, only_caught_up: bool, now: i64) {
+        let mut groups: Vec<Vec<crate::progress::WatchProgress>> = Vec::new();
+        for entry in self.state.watch() {
+            match groups
+                .iter_mut()
+                .find(|group| crate::progress::same_title(&group[0], entry))
+            {
+                Some(group) => group.push(entry.clone()),
+                None => groups.push(vec![entry.clone()]),
+            }
+        }
+
+        for group in groups {
+            let latest = group
+                .iter()
+                .max_by_key(|entry| entry.updated_at)
+                .expect("a Title's progress is not empty");
+            let probe = TitleProbe::from_stub(&latest.title);
+            let (cached, caught_up) = {
+                let cache = self.titles.lock().expect("the Title cache is not poisoned");
+                let cached = crate::title_cache::newest_matching(cache.cached(), &probe).cloned();
+                let caught_up = crate::progress::caught_up(&group, cache.cached());
+                (cached, caught_up)
+            };
+
+            // An Unmapped Title has no TMDB record, so it is checked weekly
+            // whether or not it is caught up; a mapped Title that is not caught
+            // up is not periodically prefetched (ADR-0038 §3, §5, #277).
+            let unmapped = cached
+                .as_ref()
+                .is_some_and(|held| matches!(held.title.key, TitleKey::Addon { .. }));
+            if only_caught_up && !caught_up && !unmapped {
+                continue;
+            }
+            let due = cached
+                .as_ref()
+                .is_none_or(|held| held.read_ahead_due(caught_up, now));
+            if !due {
+                continue;
+            }
+            if let Some((key, work, answered)) = self.read_ahead_job(&probe, cached, caught_up) {
+                self.enqueue_read_ahead(key, work, answered);
+            }
+        }
+    }
+
+    /// Fill the queue with the Library Titles a read ahead is owed (#277).
+    ///
+    /// The account's Library is read at startup, so its Titles are queued then
+    /// and only then: a Library Title with no Watch progress behind it has no
+    /// caught-up check to run later. One already behind Continue watching is the
+    /// same Title and the same job, collapsed by its key.
+    fn queue_library_read_ahead(&mut self, items: &[serde_json::Value], now: i64) {
+        for raw in items {
+            let Ok(item) = RemoteItem::parse(raw.clone()) else {
+                continue;
+            };
+            if item.removed() {
+                continue;
+            }
+            let Some(r#type) = item.r#type() else {
+                continue;
+            };
+            if tmdb::Kind::parse(r#type).is_none() {
+                continue;
+            }
+            let probe = TitleProbe::new(None, r#type, item.id());
+            let cached = {
+                let cache = self.titles.lock().expect("the Title cache is not poisoned");
+                crate::title_cache::newest_matching(cache.cached(), &probe).cloned()
+            };
+            let due = cached
+                .as_ref()
+                .is_none_or(|held| held.read_ahead_due(false, now));
+            if !due {
+                continue;
+            }
+            if let Some((key, work, answered)) = self.read_ahead_job(&probe, cached, false) {
+                self.enqueue_read_ahead(key, work, answered);
+            }
+        }
+    }
+
+    /// What one read-ahead job for a Title is, where the Title can be read at
+    /// all: its key, the work, and the copy a client was answered with where one
+    /// exists.
+    fn read_ahead_job(
+        &self,
+        probe: &TitleProbe,
+        cached: Option<CachedTitle>,
+        caught_up: bool,
+    ) -> Option<(TitleKey, Work, Option<Title>)> {
+        match cached {
+            None => {
+                let work = self.whole_read_work(probe, None)?;
+                Some((key_of(&work)?, work, None))
+            }
+            Some(held) => {
+                // A caught-up series is watched by its TMDB record: the season
+                // it announces, or the newest one the cached list holds, and
+                // nothing else (ADR-0038 §5).
+                let season = if caught_up {
+                    match held.title.key {
+                        TitleKey::Tmdb { .. } => held
+                            .next_episode
+                            .map(|next| next.season)
+                            .or_else(|| held.newest_season()),
+                        TitleKey::Addon { .. } => None,
+                    }
+                } else {
+                    None
+                };
+                let work = match season {
+                    Some(season) => match held.title.key {
+                        TitleKey::Tmdb { id } => Work::CatchUp {
+                            id: tmdb::TmdbId(id),
+                            season,
+                            source: held.source,
+                        },
+                        // A caught-up Unmapped Title re-reads its Addon's meta
+                        // whole, because it has no record of seasons.
+                        TitleKey::Addon { .. } => self.whole_read_work(probe, Some(&held))?,
+                    },
+                    None => self.whole_read_work(probe, Some(&held))?,
+                };
+                Some((held.title.key.clone(), work, Some(held.title)))
+            }
+        }
+    }
+
+    /// The whole-Title read a Title is owed: its Addon's `meta` where an Addon
+    /// can answer, TMDB's record where it cannot and the Title is TMDB's.
+    fn whole_read_work(&self, probe: &TitleProbe, cached: Option<&CachedTitle>) -> Option<Work> {
+        // The Addon that supplied the Title is the one to ask, where it is still
+        // configured: it answers the same Title the client would open.
+        if let Some(addon) = &probe.addon {
+            if self.state.has_addon(addon) {
+                return Some(Work::Addon {
+                    addon: addon.clone(),
+                    asked: TitleRef {
+                        r#type: probe.r#type.clone(),
+                        id: probe.id.clone(),
+                    },
+                });
+            }
+        }
+
+        if let Some(cached) = cached {
+            match cached.title.key.clone() {
+                TitleKey::Tmdb { id } => {
+                    return tmdb::Kind::parse(&cached.title.r#type).map(|kind| Work::Discovered {
+                        id: tmdb::TmdbId(id),
+                        kind,
+                    })
+                }
+                TitleKey::Addon { addon, id } => {
+                    return TitleRef::parse(&cached.title.r#type, &id)
+                        .ok()
+                        .map(|asked| Work::Addon { addon, asked })
+                }
+            }
+        }
+
+        if let (Some(tmdb::ExternalId::Tmdb(id)), Some(kind)) = (
+            tmdb::ExternalId::parse(&probe.r#type, &probe.id),
+            tmdb::Kind::parse(&probe.r#type),
+        ) {
+            return Some(Work::Discovered { id, kind });
+        }
+        if let Some(addon) = &probe.addon {
+            return TitleRef::parse(&probe.r#type, &probe.id)
+                .ok()
+                .map(|asked| Work::Addon {
+                    addon: addon.clone(),
+                    asked,
+                });
+        }
+
+        // A Library entry names no Addon: the first configured one that offers
+        // the Title's `meta` is the one that can read it.
+        let requested = ResourceRequest::new(META, &probe.r#type, &probe.id);
+        self.state
+            .addons()
+            .iter()
+            .find(|addon| addon.manifest().answers(&requested))
+            .and_then(|addon| {
+                TitleRef::parse(&probe.r#type, &probe.id)
+                    .ok()
+                    .map(|asked| Work::Addon {
+                        addon: addon.id().clone(),
+                        asked,
+                    })
+            })
+    }
+
+    /// Queue one read-ahead. It has no askers: nobody is waiting for it, and a
+    /// refresh that changes something publishes a Snapshot rather than an
+    /// Answer (#277).
+    fn enqueue_read_ahead(&mut self, key: TitleKey, work: Work, answered: Option<Title>) {
+        self.background
+            .lock()
+            .expect("the background queue is not poisoned")
+            .enqueue(Job {
+                key,
+                answered,
+                work,
+                askers: Vec::new(),
+            });
     }
 
     /// Take an Action, and publish or answer what came of it.
@@ -271,15 +578,101 @@ impl Host {
     /// same two halves through [`crate::HostDoor`], which holds the change lock
     /// around a change; a direct caller here is serialized by `&mut self`.
     pub fn dispatch(&mut self, action: Action) -> Result<Response, ActionError> {
+        self.dispatch_asking(action, None)
+    }
+
+    /// The same dispatch, saying where an Answer that follows the Response goes.
+    ///
+    /// A stale Title's open queues a refresh and answers the cached copy; when
+    /// the refresh lands and differs, `revisions` receives the revised Answer
+    /// (ADR-0038 §2). A caller with nobody to tell — every test that does not
+    /// care about the revision — uses [`Host::dispatch`].
+    pub fn dispatch_asking(
+        &mut self,
+        action: Action,
+        revisions: Option<Arc<dyn RevisionSink>>,
+    ) -> Result<Response, ActionError> {
         let validated = action.validate()?;
         if validated.is_question() {
-            // A question changed nothing anyone else can see, so there is no
-            // Snapshot to publish and the revision does not move.
-            let answer = self.view().ask(validated)?;
-            Ok(Response::answered(answer))
+            // A question publishes no Snapshot unless keeping the Title it read
+            // moved Continue watching: the Answer is the asker's own business,
+            // but a row every client draws is not (#274, #277).
+            let answered = self.view().ask(validated, revisions.as_ref())?;
+            let mut response = Response::answered(answered.answer);
+            if answered.moved {
+                response.snapshots.push(self.cache_changed());
+            }
+            Ok(response)
         } else {
             self.apply(validated)
         }
+    }
+
+    /// Take every background job waiting, so the caller can run it with the
+    /// Host's change lock released.
+    pub(crate) fn take_jobs(&self) -> Vec<Job> {
+        self.background
+            .lock()
+            .expect("the background queue is not poisoned")
+            .take()
+    }
+
+    /// Prepare one drain: fill the queue with what has come due, and take the
+    /// jobs and the view they resolve over.
+    ///
+    /// This is the *one* place the daily caught-up scan is taken, so that every
+    /// adapter that drains runs the same policy (ADR-0022's "one policy"): the
+    /// shell drains through [`crate::HostDoor::drain`], and a test drains
+    /// through [`Host::drain`], and neither can leave a check behind the other
+    /// would run. A caught-up Title is checked when its record has come due, so
+    /// a week can pass while the Host stays open; the scan itself is daily,
+    /// which is the shortest rhythm any check runs at (ADR-0038 §5).
+    ///
+    /// The jobs are taken under the change lock and run outside it: the caller
+    /// resolves them with the returned view and no lock held (ADR-0022).
+    pub(crate) fn begin_drain(&mut self) -> (Vec<Job>, HostView) {
+        let now = self.clock.now_millis();
+        if self
+            .read_ahead_scanned_at
+            .is_none_or(|scanned| now.saturating_sub(scanned) >= READ_AHEAD_SCAN_MILLIS)
+        {
+            self.queue_watch_read_ahead(true, now);
+            self.read_ahead_scanned_at = Some(now);
+        }
+
+        (self.take_jobs(), self.view())
+    }
+
+    /// Run every background job waiting, a bounded fan-out at a time, and
+    /// answer what a client is owed.
+    ///
+    /// The shell's worker thread drains through [`crate::HostDoor::drain`],
+    /// which takes its jobs from [`Host::begin_drain`] and runs them with the
+    /// change lock released; this inline form exists for tests and for a caller
+    /// that already owns the Host. A read that changed a kept Title publishes
+    /// the Snapshot that moves Continue watching, once for the whole drain
+    /// (#277, ADR-0038 §3).
+    pub fn drain(&mut self) -> Drained {
+        let (jobs, view) = self.begin_drain();
+        if jobs.is_empty() {
+            return Drained::nothing();
+        }
+        let (ran, changed) = view.drain(jobs);
+        Drained {
+            ran,
+            snapshot: changed.then(|| self.cache_changed()),
+        }
+    }
+
+    /// Bump the revision and build the Snapshot a background cache write owes.
+    ///
+    /// Under the change lock, like every publication: a Snapshot is built from
+    /// the whole state, and a half-applied change is not a state any client may
+    /// see. The queue's fetch runs outside this lock, so the door calls this
+    /// once the drain has finished (ADR-0022).
+    pub(crate) fn cache_changed(&mut self) -> Snapshot {
+        self.revision += 1;
+        self.snapshot()
     }
 
     /// Apply one change, publishing the Snapshot it owes and answering where it
@@ -297,6 +690,9 @@ impl Host {
             // asked: pairing, where the token goes to the device and the device
             // joining the list goes to every client (#31).
             Resolved::Changed { change, answer } => (change, Some(answer)),
+            // A fire-and-forget hint queued its read-ahead and owes nobody a
+            // Snapshot or an Answer (ADR-0038 §3, #278).
+            Resolved::Silent => return Ok(Response::silent()),
         };
 
         // The Title a pause or a stop leaves is the one the account is owed: the
@@ -308,6 +704,7 @@ impl Host {
             _ => None,
         };
         let signing_in = matches!(change, Change::SignInStremio { .. });
+        let signing_out = matches!(change, Change::SignOutStremio);
         let account_changed = matches!(
             change,
             Change::SignInStremio { .. } | Change::SignOutStremio
@@ -351,6 +748,14 @@ impl Host {
                 .expect("the Library cache is not poisoned")
                 .clear();
         }
+        if signing_out {
+            // The signed-out account's Library is not this Host's to protect:
+            // its Titles compete for the bound like any other.
+            self.titles
+                .lock()
+                .expect("the Title cache is not poisoned")
+                .protect_library(Vec::new());
+        }
 
         // The account, last, and only when there is one: a sync that fails is
         // not an Action that fails — the change above is made and kept either
@@ -377,12 +782,23 @@ impl Host {
     /// With no account signed in it asks nothing, and a Stremio that cannot
     /// answer leaves the Host's Watch progress as it was.
     pub fn pull_remote(&mut self) -> Option<Snapshot> {
-        let (stremio, key) = self.account()?;
-        let items = stremio.library(&key, None).ok()?;
+        let now = self.clock.now_millis();
+        let account = self.account();
+        let items = account
+            .as_ref()
+            .and_then(|(stremio, key)| stremio.library(key, None).ok());
+
+        // With no account there is no Library to read: the cache's bound can be
+        // settled now, with nothing more to protect than Watch progress.
+        if account.is_none() {
+            self.settle_titles(&[], now);
+            return None;
+        }
+        let items = items?;
 
         let mut moved = false;
-        for raw in items {
-            let Ok(item) = RemoteItem::parse(raw) else {
+        for raw in &items {
+            let Ok(item) = RemoteItem::parse(raw.clone()) else {
                 continue;
             };
             let known = self
@@ -397,11 +813,52 @@ impl Host {
             moved |= self.adopt(merged.local);
         }
 
+        // The Library is read after the Title cache, so this is the one moment
+        // the bound can tell a Library-only Title from a cache entry nobody
+        // protects — now including the progress this pull just merged
+        // (ADR-0038 §1). A Library that could not be read settles nothing:
+        // evicting a Title the row needs is the worse error.
+        self.settle_titles(&items, now);
+
+        // The Library is read at startup, so its Titles are read ahead here.
+        // Remote progress that arrived with it joins the row, and any Title it
+        // named that the Host had not seen is read ahead too (#277).
+        self.queue_library_read_ahead(&items, now);
+        self.queue_watch_read_ahead(false, now);
+
         if !moved {
             return None;
         }
         self.revision += 1;
         Some(self.snapshot())
+    }
+
+    /// Settle the cache's bound with the Titles the Library holds, and leave the
+    /// cache holding their probes for the writes that follow.
+    ///
+    /// The account's Library is read after the Host starts, so a cache loaded
+    /// before it must not trim to the bound on its own: this is where the bound
+    /// is applied with every Library Title protected (ADR-0038 §1).
+    fn settle_titles(&mut self, items: &[serde_json::Value], now: i64) {
+        let library: Vec<TitleProbe> = items
+            .iter()
+            .filter_map(|raw| RemoteItem::parse(raw.clone()).ok())
+            .filter(|item| !item.removed())
+            .filter_map(|item| {
+                let r#type = item.r#type()?;
+                Some(TitleProbe::new(None, r#type, item.id()))
+            })
+            .collect();
+
+        let watch: Vec<TitleProbe> = self
+            .state
+            .watch()
+            .iter()
+            .map(|progress| TitleProbe::from_stub(&progress.title))
+            .collect();
+        let mut cache = self.titles.lock().expect("the Title cache is not poisoned");
+        cache.protect_library(library);
+        cache.settle(now, &TitleProtection::holding(watch));
     }
 
     /// The Host is going away: write down where the Stream got to, and tell the
@@ -727,6 +1184,12 @@ impl Host {
                 let _ = self.player.tell(Telling::StreamBuffer(buffer));
                 Resolved::Change(Change::SetStreamBuffer(buffer))
             }
+            ValidatedAction::SetUpNextPlayback(playback) => {
+                // A preference and nothing else: the Player is not told, because
+                // what Play does is decided by the client that presses it from
+                // the Snapshot (#276).
+                Resolved::Change(Change::SetUpNextPlayback(playback))
+            }
             ValidatedAction::AddAddon(url) => {
                 let body =
                     self.fetcher
@@ -921,6 +1384,21 @@ impl Host {
                     start,
                 })
             }
+            ValidatedAction::PlayUpNext { title } => {
+                let (entry, previous) = self.up_next(&title)?;
+                let chosen = self.up_next_stream(&entry, &previous)?;
+                self.player
+                    .open(&chosen.url, None)
+                    .map_err(|error| ActionError::Playback {
+                        detail: error.to_string(),
+                    })?;
+                self.arm_preview(&chosen.url);
+                Resolved::Change(Change::Play {
+                    chosen: Box::new(chosen),
+                    title: Some(Box::new(entry.title)),
+                    start: None,
+                })
+            }
             ValidatedAction::SetPaused { paused } => {
                 self.playing(Control::Pause)?;
                 self.told(Telling::Pause(paused))?;
@@ -1022,6 +1500,12 @@ impl Host {
                 // was only lent (ADR-0028).
                 self.disarm_preview();
                 Resolved::Change(Change::Stop)
+            }
+            ValidatedAction::LookHint { addon, title } => {
+                // Fire-and-forget: the queue holds the read, and nothing state
+                // publishes is touched (ADR-0038 §3, #278).
+                self.view().look_hint(addon, title);
+                Resolved::Silent
             }
         })
     }
@@ -1129,16 +1613,19 @@ impl Host {
     /// own shape, never of the Title's `type`. Where the Video is an Addon's,
     /// the Host asks the Addons that answer `meta` for its Title, in the order
     /// they were configured, for the list that still holds the Video playing,
-    /// and the Video standing beside it in that Addon's own order is the one
+    /// and the Video standing beside it in the Host's series order is the one
     /// that plays; where the Video is TMDB's — a TMDB-first series' episode —
     /// the list is TMDB's own, the one the client is looking at, whose
-    /// numbering the Addons may not share (ADR-0020's known hazard). Either way
-    /// the neighbour plays from the Addon already playing, in the spelling that
-    /// Addon declares, so continuity is kept: the same `bingeGroup` where that
-    /// Addon offers one, and otherwise its first playable candidate. Nothing
-    /// here invents an id by arithmetic and nothing re-ranks the candidates:
-    /// the neighbour is the source's own, and continuing the release is
-    /// continuity rather than a score (ADR-0012, ADR-0014).
+    /// numbering the Addons may not share (ADR-0020's known hazard). That order
+    /// is numbered seasons ascending, episodes within each season, then the
+    /// specials, and no step crosses between the numbered seasons and the
+    /// specials (ADR-0039). Either way the neighbour plays from the Addon
+    /// already playing, in the spelling that Addon declares, so continuity is
+    /// kept: the same `bingeGroup` where that Addon offers one, and otherwise
+    /// its first playable candidate. Nothing here invents an id by arithmetic
+    /// and nothing re-ranks the candidates: the neighbour is the source's own,
+    /// and continuing the release is continuity rather than a score (ADR-0012,
+    /// ADR-0014).
     fn adjacent_episode(&self, step: EpisodeStep) -> Result<ChosenStream, ActionError> {
         let Some(playing) = self.state.playback().chosen() else {
             // Behind `playing(Control::…)` this cannot happen, and it is a
@@ -1178,15 +1665,14 @@ impl Host {
                     let Ok(title) = view.fetch_title(addon, &asked, &requested_meta) else {
                         continue;
                     };
-                    let Some(index) = title
-                        .videos
-                        .iter()
-                        .position(|video| video.id == now.video.id)
-                    else {
+                    // Only the list that still holds the Video playing is known
+                    // to put the right one beside it; a list that does not hold
+                    // it has nothing to say about it.
+                    if !title.videos.iter().any(|video| video.id == now.video.id) {
                         continue;
-                    };
+                    }
                     neighbour_id = step
-                        .neighbour(&title.videos, index)
+                        .neighbour(&title.videos, &now.video.id)
                         .map(|video| video.id.clone());
                     break;
                 }
@@ -1238,20 +1724,125 @@ impl Host {
             })
     }
 
-    /// The Video standing beside what is playing in TMDB's own episode list, in
-    /// the direction `step` names — or nothing where TMDB lists none, the Video
-    /// is a film, or this Host cannot read the list (ADR-0020).
+    /// The Video standing beside what is playing in TMDB's own episodes, in the
+    /// direction `step` names — or nothing where TMDB lists none, the Video is
+    /// a film, this Host cannot read the list, or the step would cross into the
+    /// specials (ADR-0020, ADR-0039 §2).
     fn tmdb_adjacent_episode(&self, step: EpisodeStep, video: tmdb::TmdbVideo) -> Option<String> {
         let at = video.at?;
         let view = self.view();
         let key = view.tmdb_credential()?;
-        let details = view.tmdb_details(video.kind, video.id, &key).ok()?;
-        let videos = view.tmdb_videos(&details, video.id, &key)?;
+        let read = view.tmdb_details(video.kind, video.id, &key, &[]).ok()?;
+        let videos = view.tmdb_videos(&read, video.id, &key)?;
 
-        let index = videos
+        let id = tmdb::video_spelling(video.id, Some(at));
+        step.neighbour(&videos, &id).map(|video| video.id.clone())
+    }
+
+    /// The Title's Up next and the finished Video whose Stream it continues, or
+    /// why the Title has no Up next to play.
+    ///
+    /// Which Video is the Up next is the Host's own Continue watching decision
+    /// (#274): the newest Watch progress entry of the Title, moved on to the
+    /// Video after it once it is finished. The entry named by the Action is
+    /// matched by type and id, the identity the row groups by.
+    fn up_next(&self, title: &TitleRef) -> Result<(ContinueEntry, WatchProgress), ActionError> {
+        let cards = {
+            let titles = self.titles.lock().expect("the Title cache is not poisoned");
+            crate::progress::continue_watching(self.state.watch(), titles.cached(), |addon| {
+                self.state.has_addon(addon)
+            })
+        };
+
+        let entry = cards
+            .into_iter()
+            .find(|entry| crate::progress::names(&entry.title, &title.r#type, &title.id))
+            .ok_or_else(|| ActionError::NoUpNext {
+                detail: format!("{title} is not on Continue watching, so it has no Up next"),
+            })?;
+        if !entry.up_next {
+            return Err(ActionError::NoUpNext {
+                detail: format!("{title} has no Up next: its card is not one"),
+            });
+        }
+
+        // The Video before the Up next is the Title's newest entry: the card an
+        // Up next was moved on from. Its Stream's Addon and release are what the
+        // play continues.
+        let up_next_id = entry.video.id.clone();
+        let previous = self
+            .state
+            .watch()
             .iter()
-            .position(|held| (held.season, held.episode) == (Some(at.0), Some(at.1)))?;
-        step.neighbour(&videos, index).map(|video| video.id.clone())
+            .filter(|held| crate::progress::names(&held.title, &title.r#type, &title.id))
+            .max_by_key(|held| held.updated_at)
+            .cloned()
+            .filter(|held| held.watched && held.video.id != up_next_id)
+            .ok_or_else(|| ActionError::NoUpNext {
+                detail: format!("{title} has no finished Video to continue"),
+            })?;
+
+        Ok((entry, previous))
+    }
+
+    /// The Stream to play for an Up next: the Addon that streamed the Video
+    /// before it, and the same `bingeGroup` where that Addon still offers one,
+    /// and otherwise that Addon's first playable candidate (ADR-0012,
+    /// ADR-0014).
+    ///
+    /// A different Addon is not a substitute: the Up next is the release the
+    /// previous Video came from, which is continuity rather than a second
+    /// ranking. Where continuity has nothing, the refusal is the one the client
+    /// opens the Streams picker for (#276).
+    fn up_next_stream(
+        &self,
+        entry: &ContinueEntry,
+        previous: &WatchProgress,
+    ) -> Result<ChosenStream, ActionError> {
+        let refused = |detail: String| ActionError::NoUpNextStream { detail };
+        let video = VideoRef::parse(entry.title.r#type(), &entry.video.id)
+            .map_err(|error| refused(error.to_string()))?;
+        let Some(stream_addon) = previous.stream_addon.as_ref() else {
+            return Err(refused(format!(
+                "the Host does not know which Addon streamed {}/{}",
+                previous.video.r#type, previous.video.id
+            )));
+        };
+        let Some(addon) = self.state.addon(stream_addon).cloned() else {
+            return Err(refused(format!(
+                "the Addon {stream_addon} that streamed {}/{} is no longer configured",
+                previous.video.r#type, previous.video.id
+            )));
+        };
+        let Some(requested) = self.view().ask_of(&addon, STREAM, &video) else {
+            return Err(refused(format!("{stream_addon} has nothing for {video}")));
+        };
+        let streams = self
+            .provider
+            .streams(&addon, &requested)
+            .map_err(|error| refused(error.to_string()))?;
+
+        let same_release = previous
+            .binge_group
+            .as_ref()
+            .and_then(|group| {
+                streams
+                    .iter()
+                    .find(|stream| stream.binge_group.as_ref() == Some(group))
+            })
+            .and_then(|stream| playable(&video, stream_addon, stream));
+
+        same_release
+            .or_else(|| {
+                streams
+                    .iter()
+                    .find_map(|stream| playable(&video, stream_addon, stream))
+            })
+            .ok_or_else(|| {
+                refused(format!(
+                    "no candidate for {video} is one this Host can play"
+                ))
+            })
     }
 
     /// The Stream a resume plays and where in it to start, or why the Host will
@@ -1355,6 +1946,10 @@ enum Resolved {
         change: Change,
         answer: Answer,
     },
+    /// A fire-and-forget Action that neither changes state nor answers anybody:
+    /// the look hint only queues the read-ahead of the Title a card named
+    /// (ADR-0038 §3, #278).
+    Silent,
 }
 
 /// A candidate for the next episode, judged: the Stream to play, or nothing
@@ -1369,9 +1964,10 @@ fn playable(video: &VideoRef, addon: &AddonId, stream: &Stream) -> Option<Chosen
 /// The one reading of the protocol's episode-id shape is [`meta::episode_of`],
 /// which a Continue watching card goes through too, so the two cannot disagree
 /// about what an episode is. The season and the episode numbers are deliberately
-/// not returned: the neighbouring Video comes from the Addon's own list — the
-/// path this is asked for, a TMDB-keyed Video stepping through TMDB's list
-/// instead — and inventing an id by arithmetic is exactly what ADR-0014 forbids.
+/// not returned: the neighbouring Video comes from the source's own list, walked
+/// in the Host's series order — the path this is asked for, a TMDB-keyed Video
+/// stepping through TMDB's list instead — and inventing an id by arithmetic is
+/// exactly what ADR-0014 forbids.
 fn episode_title(step: EpisodeStep, video: &VideoRef) -> Result<String, ActionError> {
     meta::episode_of(&video.id)
         .map(|(title, _, _)| title.to_owned())
@@ -1383,11 +1979,11 @@ fn episode_title(step: EpisodeStep, video: &VideoRef) -> Result<String, ActionEr
 }
 
 /// Which way a step from the Video playing goes: to the one after it in its
-/// Title's order, or the one before (ADR-0014, ADR-0021).
+/// Title's order, or the one before (ADR-0014, ADR-0021, ADR-0039).
 ///
 /// The two directions are one rule read the other way, so the refusal they name
-/// and the Video they take from the Addon's list are decided here once rather
-/// than copied per direction.
+/// and the Video they take from the Host's series order are decided here once
+/// rather than copied per direction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EpisodeStep {
     Next,
@@ -1395,13 +1991,13 @@ enum EpisodeStep {
 }
 
 impl EpisodeStep {
-    /// The Video standing beside `index` in the Addon's own whole-list order,
-    /// in this direction: the next one after it, or the one before — `None` at
-    /// either end, which is how "the list begins here" refuses the step.
-    fn neighbour(self, videos: &[Video], index: usize) -> Option<&Video> {
+    /// The Video standing beside `id` in the Host's series order, in this
+    /// direction — `None` at either end of the run, and never across the line
+    /// between the numbered seasons and the specials (ADR-0039 §2).
+    fn neighbour<'a>(self, videos: &'a [Video], id: &str) -> Option<&'a Video> {
         match self {
-            Self::Next => videos.get(index + 1),
-            Self::Previous => index.checked_sub(1).and_then(|before| videos.get(before)),
+            Self::Next => meta::next_video(videos, id),
+            Self::Previous => meta::previous_video(videos, id),
         }
     }
 

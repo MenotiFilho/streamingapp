@@ -135,6 +135,121 @@ fn a_database_at_the_first_schema_upgrades_without_losing_what_it_held() {
 }
 
 #[test]
+fn a_database_at_the_sixth_schema_gains_the_title_cache_with_its_rows_intact() {
+    // The Title cache is the seventh schema (ADR-0038). An owner who ran the
+    // Host before this ticket keeps every Addon, preference and Watch progress
+    // entry they had, and gains an empty cache rather than a broken one.
+    let mut connection = connection();
+    migrate(&mut connection, &MIGRATIONS[..6]).expect("the sixth schema applies");
+    connection
+        .execute(
+            "INSERT INTO watch_progress
+                 (video_id, video_type, title_addon, title_id, title_type, title_name,
+                  title_poster, title_background, position, duration, watched, updated_at)
+             VALUES ('tt0903747:1:2', 'series', 'com.linvo.cinemeta', 'tt0903747', 'series',
+                     'Breaking Bad', NULL, NULL, 402.0, 2820.0, 0, 1000)",
+            [],
+        )
+        .expect("the sixth schema takes a progress entry");
+    assert_eq!(schema_version(&connection), Ok(6));
+
+    let version = migrate(&mut connection, MIGRATIONS).expect("the database upgrades");
+
+    assert_eq!(version, latest_version(MIGRATIONS));
+    let kept: String = connection
+        .query_row("SELECT video_id FROM watch_progress", [], |row| row.get(0))
+        .expect("the entry written before the upgrade is still there");
+    assert_eq!(kept, "tt0903747:1:2");
+    let titles: i64 = connection
+        .query_row("SELECT count(*) FROM titles", [], |row| row.get(0))
+        .expect("the table the upgrade added is there");
+    assert_eq!(titles, 0, "an upgraded Host starts with an empty cache");
+}
+
+#[test]
+fn a_database_at_the_seventh_schema_gains_the_caught_up_hint_with_its_titles_intact() {
+    // #277 adds the announced next episode to a kept Title. An owner who ran the
+    // Host before it keeps every cached Title, and the hint is null for the rows
+    // written before this step — a copy with no hint, not a broken one.
+    let mut connection = connection();
+    migrate(&mut connection, &MIGRATIONS[..7]).expect("the seventh schema applies");
+    connection
+        .execute(
+            "INSERT INTO titles (key, title, source, status, read_at)
+             VALUES (?1, ?2, 'both', 'running', 1000)",
+            rusqlite::params![
+                r#"{"kind":"tmdb","id":1396}"#,
+                r#"{"addon":null,"id":"tmdb:1396","key":{"kind":"tmdb","id":1396},"type":"series","name":"Breaking Bad","poster":null,"background":null,"logo":null,"description":null,"releaseInfo":null,"runtime":null,"imdbRating":null,"genres":[],"videos":[]}"#
+            ],
+        )
+        .expect("the seventh schema takes a Title");
+    assert_eq!(schema_version(&connection), Ok(7));
+
+    let version = migrate(&mut connection, MIGRATIONS).expect("the database upgrades");
+
+    assert_eq!(version, latest_version(MIGRATIONS));
+    let (name, next_season, next_episode): (String, Option<i64>, Option<i64>) = connection
+        .query_row(
+            "SELECT title, next_season, next_episode FROM titles",
+            [],
+            |row| {
+                let title: String = row.get(0)?;
+                let name: String = serde_json::from_str::<serde_json::Value>(&title)
+                    .expect("the kept Title is a document")
+                    .get("name")
+                    .and_then(|name| name.as_str())
+                    .expect("the kept Title has a name")
+                    .to_owned();
+                Ok((name, row.get(1)?, row.get(2)?))
+            },
+        )
+        .expect("the Title written before the upgrade is still there");
+    assert_eq!(name, "Breaking Bad");
+    assert_eq!(
+        (next_season, next_episode),
+        (None, None),
+        "a copy written before the hint existed has none"
+    );
+}
+
+#[test]
+fn a_database_at_the_eighth_schema_gains_the_stream_continuity_columns_with_its_rows_intact() {
+    // The eighth schema is the caught-up hint (#277); the step after it adds the
+    // Addon and `bingeGroup` a Video's Stream came from, which Playing its Up
+    // next continues (#276). An owner who ran the Host before this keeps every
+    // Watch progress entry, gaining two null columns.
+    let mut connection = connection();
+    migrate(&mut connection, &MIGRATIONS[..8]).expect("the eighth schema applies");
+    connection
+        .execute(
+            "INSERT INTO watch_progress
+                 (video_id, video_type, title_addon, title_id, title_type, title_name,
+                  title_poster, title_background, position, duration, watched, updated_at)
+             VALUES ('tt0903747:1:2', 'series', 'com.linvo.cinemeta', 'tt0903747', 'series',
+                     'Breaking Bad', NULL, NULL, 402.0, 2820.0, 0, 1000)",
+            [],
+        )
+        .expect("the eighth schema takes a progress entry");
+    assert_eq!(schema_version(&connection), Ok(8));
+
+    let version = migrate(&mut connection, MIGRATIONS).expect("the database upgrades");
+
+    assert_eq!(version, latest_version(MIGRATIONS));
+    let kept: (String, Option<String>, Option<String>) = connection
+        .query_row(
+            "SELECT video_id, stream_addon, binge_group FROM watch_progress",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .expect("the entry written before the upgrade is still there");
+    assert_eq!(
+        kept,
+        ("tt0903747:1:2".to_owned(), None, None),
+        "the columns are null for a row written before a Stream was recorded"
+    );
+}
+
+#[test]
 fn a_library_written_before_the_addon_became_optional_upgrades_with_its_rows_intact() {
     // The fifth schema is the one that lets a Watch progress entry name no
     // Addon, because a Discovered Title has none (ADR-0020). A row written

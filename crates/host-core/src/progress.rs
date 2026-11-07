@@ -1,6 +1,4 @@
-//! Watch progress, and the Continue watching row every client reads it from.
-//!
-//! Two things live here, and they are two halves of one feature (#29).
+//! Watch progress, and the Continue watching row built from it.
 //!
 //! **Watch progress** is where the Host is in a Video: the position it last
 //! wrote down, how long the Stream was, whether the Video counts as watched, and
@@ -10,13 +8,13 @@
 //! was. Playback itself is not stored (ADR-0013): what survives is the progress,
 //! not the Stream.
 //!
-//! **Continue watching** is what a client sees of it: a [`ResumeEntry`] per
-//! Video, carrying the Video and enough of its Title to draw a card without
-//! opening it. The card is what the client was reading when it pressed play — a
-//! Title is a client's own business (ADR-0005), so the Host is *told* which
-//! Title a Video belongs to rather than working it out from an Addon — and the
-//! Addon that supplied it is what a removed Addon is judged against: an entry
-//! whose Addon is gone stays listed, marked unplayable, rather than vanishing.
+//! **Continue watching** is what a client sees of it: one [`ContinueEntry`] per
+//! Title, carrying the Video that Title played last — the card — and enough of
+//! its Title to draw it without opening anything (#273). A Title is a client's
+//! own business (ADR-0005), so the Host is *told* which Title a Video belongs to
+//! rather than working it out from an Addon — and the Addon that supplied it is
+//! what a removed Addon is judged against: an entry whose Addon is gone stays
+//! listed, marked unplayable, rather than vanishing.
 //!
 //! ## Finished is a moment, not a state
 //!
@@ -30,8 +28,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::addon::{AddonId, MAX_STRING_LEN};
-use crate::meta::Video;
+use crate::meta::{next_video, Video};
 use crate::request::{TitleRef, VideoRef};
+use crate::title_cache::{CachedTitle, TitleProbe};
 
 /// How near a Stream's end counts as having watched it, in seconds.
 ///
@@ -150,10 +149,10 @@ impl TitleStub {
 /// One Video's Watch progress, as the Host stores it.
 ///
 /// Keyed by the Video — one entry per Video, and the unit the spec names for it
-/// — and carrying the Title it belongs to so Continue watching can draw a card
-/// without opening anything. `updated_at` is not published: it is what orders
-/// the entry and what #30's merge resolves two writes by, not something a client
-/// reads.
+/// — and carrying the Title it belongs to so Continue watching can draw the
+/// Title's card without opening anything. `updated_at` is not published: it is
+/// what orders the card that Title shows and what #30's merge resolves two
+/// writes by, not something a client reads.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct WatchProgress {
@@ -168,6 +167,17 @@ pub struct WatchProgress {
     /// Whether the Video counts as watched: at its end, or within
     /// [`FINISHED_TAIL`] of it.
     pub watched: bool,
+    /// The Addon whose Stream was playing this Video, where one played it.
+    ///
+    /// Read back by Playing Up next, which continues the release: the Addon and
+    /// the `bingeGroup` are what make the Up next the same release rather than
+    /// an unrelated candidate (ADR-0012, ADR-0014). `None` for an entry written
+    /// before this field existed and for a position merged in from the Stremio
+    /// account, neither of which saw a Stream.
+    pub stream_addon: Option<AddonId>,
+    /// The release the Stream was binge-grouped by, where its Addon said — the
+    /// other half of the continuity Playing Up next continues.
+    pub binge_group: Option<String>,
     /// When this was last written, in milliseconds since the Unix epoch.
     pub updated_at: i64,
 }
@@ -183,8 +193,19 @@ impl WatchProgress {
             position,
             duration: None,
             watched: false,
+            stream_addon: None,
+            binge_group: None,
             updated_at: at,
         }
+    }
+
+    /// The same entry, with the Stream it is playing chosen from `addon` and
+    /// binge-grouped as `binge_group`: what Playing Up next continues from.
+    #[must_use]
+    pub fn streamed_by(mut self, addon: AddonId, binge_group: Option<String>) -> Self {
+        self.stream_addon = Some(addon);
+        self.binge_group = binge_group;
+        self
     }
 
     /// The same entry with where playback is now, as the Host's own record has
@@ -204,6 +225,8 @@ impl WatchProgress {
             position,
             duration,
             watched,
+            stream_addon: self.stream_addon.clone(),
+            binge_group: self.binge_group.clone(),
             updated_at: at,
         }
     }
@@ -237,15 +260,34 @@ impl WatchProgress {
             position: self.position,
             duration: self.duration,
             watched: self.watched,
-            unplayable: self
-                .title
-                .addon()
-                .filter(|_| !addon_held)
-                .map(|addon| UnplayableEntry {
-                    reason: UnplayableReason::AddonRemoved,
-                    addon: addon.clone(),
-                }),
+            unplayable: self.unplayable(addon_held),
         }
+    }
+
+    /// The Title's Continue watching card, where this entry is the Video the
+    /// Title played last. The same judgement of a removed Addon as
+    /// [`WatchProgress::resume_entry`].
+    pub fn continue_entry(&self, addon_held: bool) -> ContinueEntry {
+        ContinueEntry {
+            video: Video::keyed(&self.video.id),
+            title: self.title.clone(),
+            position: self.position,
+            duration: self.duration,
+            watched: self.watched,
+            up_next: false,
+            unplayable: self.unplayable(addon_held),
+        }
+    }
+
+    /// Why this entry cannot be played now, or `None` when it can.
+    fn unplayable(&self, addon_held: bool) -> Option<UnplayableEntry> {
+        self.title
+            .addon()
+            .filter(|_| !addon_held)
+            .map(|addon| UnplayableEntry {
+                reason: UnplayableReason::AddonRemoved,
+                addon: addon.clone(),
+            })
     }
 }
 
@@ -254,8 +296,33 @@ pub fn finished(position: f64, duration: f64) -> bool {
     duration > 0.0 && position + FINISHED_TAIL >= duration
 }
 
+/// Whether a Title's card has left the row because there is nothing after the
+/// Video played last: a caught-up series, watched by its TMDB record from now on
+/// (ADR-0038 §5, #277).
+///
+/// A cached list that does not hold the finished Video proves nothing, so it is
+/// not caught-up: the finished Video still stands as the card until the Title is
+/// read (#274).
+pub(crate) fn caught_up(progress: &[WatchProgress], cached: &[CachedTitle]) -> bool {
+    let Some(card) = progress.iter().max_by_key(|entry| entry.updated_at) else {
+        return false;
+    };
+    if !card.watched || card.title.r#type() != "series" {
+        return false;
+    }
+    let Some(videos) = cached_videos(cached, card) else {
+        return false;
+    };
+
+    next_video(videos, &card.video.id).is_none()
+}
+
 /// One Video with Watch progress, as every client is told it: a card's worth of
 /// the Video and its Title, where it was left, and whether it can be played now.
+///
+/// One per Video, which is the unit Watch progress is kept in. The Continue
+/// watching row is not this list: it is one card per Title, drawn by
+/// [`continue_watching`] below (#273).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ResumeEntry {
@@ -274,6 +341,170 @@ pub struct ResumeEntry {
     pub watched: bool,
     /// Why this entry cannot be played now, or `None` when it can.
     pub unplayable: Option<UnplayableEntry>,
+}
+
+/// One Title on Continue watching, as every client is told it: the Title's card
+/// — the Video it played last, or that Video's Up next once it is finished —
+/// with the Title it belongs to, where the card's Video was left, and whether it
+/// can be played now.
+///
+/// One per Title, never one per Video: watching six episodes of a series is six
+/// Watch progress entries and one card (#273). Which Video is the card, and
+/// whether the Title is on the row at all, is [`continue_watching`]'s decision.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ContinueEntry {
+    /// The card's Video — the one the Title played last, or its Up next — named
+    /// as every Video is.
+    pub video: Video,
+    /// The Title it belongs to, enough to draw a card without opening it.
+    pub title: TitleStub,
+    /// Where the card's Video was left, in seconds from the Stream's start, or
+    /// `None` where playback never got far enough to say.
+    pub position: Option<f64>,
+    /// How long the card's Video is, where it said.
+    pub duration: Option<f64>,
+    /// Whether the card's Video counts as watched: at its end, or within
+    /// [`FINISHED_TAIL`] of it.
+    pub watched: bool,
+    /// Whether the card's Video is the Title's Up next rather than the Video it
+    /// played last. An Up next has no progress of its own unless it was already
+    /// partly watched, and it is the Video a Title opened from this card is
+    /// anchored on (#274, #275).
+    pub up_next: bool,
+    /// Why this card cannot be played now, or `None` when it can.
+    pub unplayable: Option<UnplayableEntry>,
+}
+
+/// The Continue watching row: one [`ContinueEntry`] per Title, the Title's card
+/// being the Video it played last, or that Video's Up next once it is finished,
+/// most recently played first.
+///
+/// Titles are grouped by type plus id, the way the Title stub carries them; the
+/// same series reached under two keys is two Titles and therefore two cards,
+/// which is accepted (ADR-0020's hazard).
+///
+/// `cached` is the Host's cached Titles, and their lists of Videos are what Up
+/// next is worked out from — so the row is right offline and after a restart
+/// (#274, ADR-0038). A finished Video whose Title is not cached stays on the row
+/// marked watched; once the Title is cached the next Snapshot moves it on.
+///
+/// `addon_held` judges a card's Addon the way the Snapshot does: a card whose
+/// Addon is gone stays listed, marked unplayable.
+///
+/// A card leaves the row when there is nothing left to continue: a finished
+/// film; a series whose finished Video is the last of its numbered episodes or
+/// has nothing listed after it; a finished special with no special after it.
+/// Watch progress itself is always kept.
+pub fn continue_watching(
+    progress: &[WatchProgress],
+    cached: &[CachedTitle],
+    addon_held: impl Fn(&AddonId) -> bool,
+) -> Vec<ContinueEntry> {
+    let mut cards: Vec<&WatchProgress> = Vec::new();
+    for entry in progress {
+        match cards.iter_mut().find(|card| same_title(card, entry)) {
+            // The latest write is the Title's card. A tie keeps the entry held
+            // first, and the list the Host holds is already newest first.
+            Some(card) if entry.updated_at > card.updated_at => *card = entry,
+            Some(_) => {}
+            None => cards.push(entry),
+        }
+    }
+
+    cards.sort_by_key(|card| std::cmp::Reverse(card.updated_at));
+
+    let mut entries = Vec::new();
+    for card in cards {
+        if is_finished_film(card) {
+            continue;
+        }
+        let addon_held = card.title.addon().is_none_or(&addon_held);
+
+        // A Video still being watched is the card, whatever comes after it.
+        if !card.watched {
+            entries.push(card.continue_entry(addon_held));
+            continue;
+        }
+
+        // A finished Video moves the card on to its Up next in the Title's own
+        // cached list (ADR-0039). No cached list is "not known yet", so the
+        // finished Video stays; a cached list with nothing after it is a series
+        // with nothing left to continue, and the card leaves the row.
+        let Some(videos) = cached_videos(cached, card) else {
+            entries.push(card.continue_entry(addon_held));
+            continue;
+        };
+        let Some(next) = next_video(videos, &card.video.id) else {
+            continue;
+        };
+        entries.push(up_next_entry(card, next, progress, addon_held));
+    }
+    entries
+}
+
+/// The Videos of the cached Title a card names, where the cache holds one that
+/// lists the card's own Video.
+///
+/// The newest matching copy is the truth where the cache holds the same Title
+/// under two keys. A copy that does not list the Video cannot say what follows
+/// it, so it is not used and the card falls back to the finished Video as
+/// watched — an answer that is never wrong, only briefly behind (#274).
+fn cached_videos<'a>(cached: &'a [CachedTitle], card: &WatchProgress) -> Option<&'a [Video]> {
+    let probe = TitleProbe::from_stub(&card.title);
+    cached
+        .iter()
+        .filter(|held| held.names(&probe))
+        .filter(|held| {
+            held.title
+                .videos
+                .iter()
+                .any(|video| video.id == card.video.id)
+        })
+        .max_by_key(|held| held.read_at)
+        .map(|held| held.title.videos.as_slice())
+}
+
+/// The card a finished Video moves on to: its Up next, carrying that Video's own
+/// Watch progress where it was already partly watched (#274).
+fn up_next_entry(
+    card: &WatchProgress,
+    video: &Video,
+    progress: &[WatchProgress],
+    addon_held: bool,
+) -> ContinueEntry {
+    let watched = progress
+        .iter()
+        .find(|entry| entry.video.id == video.id && entry.video.r#type == card.video.r#type);
+
+    ContinueEntry {
+        video: video.clone(),
+        title: card.title.clone(),
+        position: watched.and_then(|entry| entry.position),
+        duration: watched.and_then(|entry| entry.duration),
+        watched: watched.is_some_and(|entry| entry.watched),
+        up_next: true,
+        unplayable: card.unplayable(addon_held),
+    }
+}
+
+/// Whether two entries name the same Title: type plus id, as the stub carries
+/// the identity a row groups by.
+pub(crate) fn same_title(one: &WatchProgress, other: &WatchProgress) -> bool {
+    one.title.r#type() == other.title.r#type() && one.title.id() == other.title.id()
+}
+
+/// Whether a title stub names the type and id a reference names — the same
+/// identity [`same_title`] groups by, for a caller holding a reference rather
+/// than a second stub.
+pub(crate) fn names(title: &TitleStub, r#type: &str, id: &str) -> bool {
+    title.r#type() == r#type && title.id() == id
+}
+
+/// Whether this entry is a film that has been watched through: nothing is left
+/// to continue, so it leaves the row while its Watch progress stays (#273).
+fn is_finished_film(entry: &WatchProgress) -> bool {
+    entry.watched && entry.title.r#type() == "movie"
 }
 
 /// Why a Continue watching entry is not one the Host will play.
@@ -306,6 +537,8 @@ fn held(word: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::meta::{Title, TitleKey};
+    use crate::title_cache::TitleSource;
 
     fn addon() -> AddonId {
         AddonId::parse("com.linvo.cinemeta").expect("an Addon id")
@@ -337,8 +570,48 @@ mod tests {
             position: Some(402.0),
             duration: Some(2820.0),
             watched: false,
+            stream_addon: None,
+            binge_group: None,
             updated_at: 1_000,
         }
+    }
+
+    fn episode(id: &str, position: f64, at: i64, watched: bool) -> WatchProgress {
+        WatchProgress {
+            video: video("series", id),
+            title: stub(),
+            position: Some(position),
+            duration: Some(2820.0),
+            watched,
+            stream_addon: None,
+            binge_group: None,
+            updated_at: at,
+        }
+    }
+
+    fn film(at: i64, watched: bool) -> WatchProgress {
+        WatchProgress {
+            video: video("movie", "tt0133093"),
+            title: TitleStub::parse(&TitleCard {
+                addon: Some(addon()),
+                id: "tt0133093".to_owned(),
+                r#type: "movie".to_owned(),
+                name: "The Matrix".to_owned(),
+                poster: None,
+                background: None,
+            })
+            .expect("a film the Host will keep"),
+            position: Some(8_000.0),
+            duration: Some(8_160.0),
+            watched,
+            stream_addon: None,
+            binge_group: None,
+            updated_at: at,
+        }
+    }
+
+    fn cards(entries: &[WatchProgress]) -> Vec<ContinueEntry> {
+        continue_watching(entries, &[], |_| true)
     }
 
     #[test]
@@ -382,6 +655,8 @@ mod tests {
             position: Some(120.0),
             duration: Some(2820.0),
             watched: false,
+            stream_addon: None,
+            binge_group: None,
             updated_at: 1_000,
         };
         assert_eq!(
@@ -457,6 +732,7 @@ mod tests {
                 season: Some(1),
                 episode: Some(2),
                 thumbnail: None,
+                air_date: None,
             }
         );
         assert_eq!(
@@ -467,6 +743,7 @@ mod tests {
                 season: Some(0),
                 episode: Some(1),
                 thumbnail: None,
+                air_date: None,
             },
             "a title id is not always one part, so the numbers read from the right"
         );
@@ -478,6 +755,7 @@ mod tests {
                 season: None,
                 episode: None,
                 thumbnail: None,
+                air_date: None,
             },
             "a film is one Video and carries no episode numbers"
         );
@@ -489,6 +767,7 @@ mod tests {
                 season: None,
                 episode: None,
                 thumbnail: None,
+                air_date: None,
             },
             "two numbers are what an episode is; one is not one"
         );
@@ -627,5 +906,231 @@ mod tests {
             serde_json::Value::Null,
             "when it was written is the Host's own bookkeeping and never travels"
         );
+    }
+
+    #[test]
+    fn six_episodes_of_one_series_are_one_card_led_by_the_last_played() {
+        let played: Vec<WatchProgress> = (1..=6)
+            .map(|n| {
+                episode(
+                    &format!("tt0903747:1:{n}"),
+                    100.0 * f64::from(n),
+                    i64::from(n) * 1_000,
+                    false,
+                )
+            })
+            .collect();
+
+        let cards = cards(&played);
+
+        assert_eq!(cards.len(), 1, "a series is one card, not six: {cards:?}");
+        assert_eq!(cards[0].video.id, "tt0903747:1:6");
+        assert_eq!(
+            cards[0].position,
+            Some(600.0),
+            "the card carries the position of the Video played last"
+        );
+        assert_eq!(cards[0].duration, Some(2820.0));
+    }
+
+    #[test]
+    fn rewatching_an_earlier_episode_makes_it_the_card() {
+        // Watched 1:1, then 1:2, then went back to 1:1: the card follows what
+        // was played last, not what is furthest along.
+        let cards = cards(&[
+            episode("tt0903747:1:1", 100.0, 1_000, false),
+            episode("tt0903747:1:2", 200.0, 2_000, false),
+            episode("tt0903747:1:1", 300.0, 3_000, false),
+        ]);
+
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].video.id, "tt0903747:1:1");
+        assert_eq!(cards[0].position, Some(300.0));
+    }
+
+    #[test]
+    fn two_titles_are_ordered_by_the_latest_play_of_each() {
+        let cards = cards(&[
+            episode("tt0903747:1:2", 100.0, 3_000, false),
+            film(2_000, false),
+            episode("tt0903747:1:1", 100.0, 1_000, false),
+        ]);
+
+        assert_eq!(
+            cards
+                .iter()
+                .map(|card| card.video.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["tt0903747:1:2", "tt0133093"],
+            "the series was played after the film, and its old episode does not order it"
+        );
+    }
+
+    #[test]
+    fn a_finished_film_leaves_the_row_and_a_part_watched_one_stays() {
+        assert!(
+            cards(&[film(1_000, true)]).is_empty(),
+            "a finished film has nothing to continue"
+        );
+        assert_eq!(
+            cards(&[film(1_000, false)]).len(),
+            1,
+            "a film left part-watched is still a card"
+        );
+    }
+
+    #[test]
+    fn a_finished_episode_whose_title_is_not_cached_stays_as_watched() {
+        let cards = cards(&[episode("tt0903747:1:1", 2_820.0, 1_000, true)]);
+
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].video.id, "tt0903747:1:1");
+        assert!(
+            cards[0].watched,
+            "with no cached list there is no Up next, so the finished Video stays"
+        );
+        assert!(!cards[0].up_next);
+    }
+
+    #[test]
+    fn titles_are_grouped_by_type_and_id_together() {
+        let same_id_as_a_film = WatchProgress {
+            video: video("movie", "tt0903747"),
+            title: TitleStub::parse(&TitleCard {
+                addon: Some(addon()),
+                id: "tt0903747".to_owned(),
+                r#type: "movie".to_owned(),
+                name: "A film that shares an id".to_owned(),
+                poster: None,
+                background: None,
+            })
+            .expect("a film the Host will keep"),
+            ..episode("tt0903747:1:1", 100.0, 1_000, false)
+        };
+
+        let cards = cards(&[
+            episode("tt0903747:1:2", 100.0, 2_000, false),
+            same_id_as_a_film,
+        ]);
+
+        assert_eq!(
+            cards.len(),
+            2,
+            "the same id under two types is two Titles: {cards:?}"
+        );
+    }
+
+    #[test]
+    fn a_card_whose_addon_is_gone_is_listed_and_marked_unplayable() {
+        let cards = continue_watching(
+            &[episode("tt0903747:1:2", 100.0, 1_000, false)],
+            &[],
+            |_| false,
+        );
+
+        assert_eq!(
+            cards[0].unplayable,
+            Some(UnplayableEntry {
+                reason: UnplayableReason::AddonRemoved,
+                addon: addon(),
+            })
+        );
+    }
+
+    /// A cached copy of the series the fixture's episodes belong to: opened
+    /// through its Addon, met by TMDB (so keyed by TMDB's id, with TMDB's Videos).
+    fn cached_under_tmdb(title_id: &str) -> CachedTitle {
+        let mut title = Title::parse(
+            r#"{"meta":{"id":"tt0903747","type":"series","name":"Breaking Bad","videos":[
+                {"id":"tmdb:1396:1:1","season":1,"episode":1},
+                {"id":"tmdb:1396:1:2","season":1,"episode":2}
+            ]}}"#,
+            addon(),
+            &TitleRef::parse("series", title_id).expect("a Title"),
+        )
+        .expect("a Title parses");
+        title.key = TitleKey::Tmdb { id: 1396 };
+
+        CachedTitle {
+            title,
+            read_at: 0,
+            source: TitleSource::Both,
+            status: None,
+            next_episode: None,
+        }
+    }
+
+    #[test]
+    fn a_caught_up_series_is_the_one_with_nothing_after_its_card() {
+        let cached = cached_under_tmdb("tt0903747");
+        let card = |video: &str| WatchProgress {
+            title: TitleStub::parse(&TitleCard {
+                addon: None,
+                id: "tmdb:1396".to_owned(),
+                r#type: "series".to_owned(),
+                name: "Breaking Bad".to_owned(),
+                poster: None,
+                background: None,
+            })
+            .expect("a Discovered Title is one the Host will key"),
+            ..episode(video, 2_820.0, 1_000, true)
+        };
+
+        assert!(
+            caught_up(&[card("tmdb:1396:1:2")], std::slice::from_ref(&cached)),
+            "the last Video the cached list holds is caught up"
+        );
+        assert!(
+            !caught_up(&[card("tmdb:1396:1:1")], &[cached]),
+            "a Video with one after it is not caught up"
+        );
+        assert!(
+            !caught_up(&[card("tmdb:1396:1:2")], &[]),
+            "no cached list proves nothing, so the finished Video is still the card"
+        );
+    }
+
+    #[test]
+    fn up_next_is_found_where_the_card_and_the_cached_copy_spell_the_title_differently() {
+        // A card played from a Discover search names `tmdb:1396`; the cache met
+        // the same series through its Addon and holds it keyed by TMDB's id.
+        // Both spellings are the one Title, and its Videos are the list Up next
+        // reads (#271).
+        let cached = cached_under_tmdb("tt0903747");
+        let card = WatchProgress {
+            title: TitleStub::parse(&TitleCard {
+                addon: None,
+                id: "tmdb:1396".to_owned(),
+                r#type: "series".to_owned(),
+                name: "Breaking Bad".to_owned(),
+                poster: None,
+                background: None,
+            })
+            .expect("a Discovered Title is one the Host will key"),
+            ..episode("tmdb:1396:1:1", 2_820.0, 1_000, true)
+        };
+
+        let cards = continue_watching(&[card], &[cached], |_| true);
+
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].video.id, "tmdb:1396:1:2");
+        assert!(cards[0].up_next);
+    }
+
+    #[test]
+    fn a_cached_copy_that_does_not_list_the_finished_video_answers_no_up_next() {
+        // The copy cannot say what follows a Video it does not hold, so the card
+        // stays the finished Video as watched rather than guessing (#274).
+        let cached = cached_under_tmdb("tt0903747");
+        let cards = continue_watching(
+            &[episode("tt0903747:1:9", 2_820.0, 1_000, true)],
+            &[cached],
+            |_| true,
+        );
+
+        assert_eq!(cards.len(), 1);
+        assert_eq!(cards[0].video.id, "tt0903747:1:9");
+        assert!(cards[0].watched);
+        assert!(!cards[0].up_next);
     }
 }

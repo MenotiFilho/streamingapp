@@ -11,7 +11,7 @@ use crate::playback::{
 };
 use crate::preferences::{
     InvalidStreamBuffer, InvalidSubtitleColor, InvalidSubtitleLanguage, InvalidSubtitleScale,
-    StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale,
+    StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale, UpNextPlayback,
 };
 use crate::preview::checked_preview_at;
 use crate::progress::{TitleCard, TitleStub};
@@ -70,6 +70,13 @@ pub enum Action {
     /// One Action carries the pair so that a client cannot set one without the
     /// other.
     SetStreamBuffer { seconds: u64, megabytes: u64 },
+    /// What Play does for a Title's Up next: play it directly, from the release
+    /// of the Video before it, or open the Streams picker so the owner picks.
+    ///
+    /// A preference of the Host's, like the Stream buffer: it persists, every
+    /// client is told of it, and it governs only Up next — Resume always plays
+    /// directly (#276, ADR-0026).
+    SetUpNextPlayback { playback: UpNextPlayback },
     /// Mark the Addon's Catalog as the Host's featured feed.
     ///
     /// A preference of the Host's rather than a client's: every client's Home
@@ -275,6 +282,16 @@ pub enum Action {
     /// the Video and decides nothing else — where to resume from is the Host's
     /// own record.
     Resume { video: VideoRef },
+    /// Play a Title's Up next: the Video after the one played last, read from
+    /// the Host's own Continue watching entry.
+    ///
+    /// A change, like `Resume`: the Host reads which Video is the Title's Up
+    /// next, asks the Addon that streamed the Video before it, and plays the
+    /// candidate from the same release where there is one and that Addon's first
+    /// playable candidate otherwise (ADR-0012, ADR-0014, ADR-0039). No candidate
+    /// is a refusal with its own kind, and the client opens the Streams picker
+    /// for that Video (#276).
+    PlayUpNext { title: TitleRef },
     /// Hold the picture where it is, or let it run.
     SetPaused { paused: bool },
     /// Move within the Stream being played.
@@ -313,24 +330,43 @@ pub enum Action {
     Autocrop,
     /// Override the shape the picture is drawn at.
     SetAspect { aspect: Aspect },
-    /// Play the Video after the one playing, in its Title: the Addon's own next
-    /// episode, and the release the one playing came from (ADR-0014).
+    /// Play the Video after the one playing, in its Title: the next episode in
+    /// the Host's series order, and the release the one playing came from
+    /// (ADR-0014, ADR-0039).
     ///
     /// A change rather than a control like most of the rest — one of the two
     /// that legitimately open a Stream, the other being `Resume` — so the Host
     /// asks the Addons what comes next and plays it, and every client is told of
     /// the new Now playing.
     NextEpisode,
-    /// Play the Video *before* the one playing, in its Title: the Addon's own
-    /// previous episode, and the release the one playing came from (ADR-0021).
+    /// Play the Video *before* the one playing, in its Title: the previous
+    /// episode in the Host's series order, and the release the one playing came
+    /// from (ADR-0021, ADR-0039).
     ///
     /// The mirror of [`Action::NextEpisode`], and a change for the same reason:
-    /// the Host asks the Addons what the Addon's own order puts before what is
+    /// the Host asks the Addons what the Host's series order puts before what is
     /// playing and opens it, and every client is told of the new Now playing.
     PreviousEpisode,
     /// Stop playing: nothing is playing afterwards, and the client is back to
     /// whatever it was reading.
     StopPlayback,
+    /// Read a Title ahead because a client says it is looking at it.
+    ///
+    /// A fire-and-forget Action: it answers nothing, publishes no Snapshot and
+    /// moves no revision, and the Host only queues a read-ahead of the Title the
+    /// card names (ADR-0038 §3, #278). The desktop window sends it once focus or
+    /// the pointer has rested on a card; the remote never does, because a touch
+    /// screen has no hover. The Title is named the way a card names it — the
+    /// Addon that supplied it, or none for a Discovered Title, its type and its
+    /// id — and a Title already held and fresh is not read again.
+    LookHint {
+        /// The Addon the card came from, or `None` for a Discovered Title, which
+        /// no Addon supplied (ADR-0020).
+        #[serde(default)]
+        addon: Option<String>,
+        /// The Title to read ahead, by the type and id the card carries.
+        title: TitleRef,
+    },
 }
 
 /// The Action surface written down once: every variant's own `type` tag, and the
@@ -367,6 +403,7 @@ action_spellings! {
     Action::SetSubtitleColor { .. } => "set_subtitle_color",
     Action::SetSubtitleScale { .. } => "set_subtitle_scale",
     Action::SetStreamBuffer { .. } => "set_stream_buffer",
+    Action::SetUpNextPlayback { .. } => "set_up_next_playback",
     Action::SetFeaturedCatalog { .. } => "set_featured_catalog",
     Action::ClearFeaturedCatalog => "clear_featured_catalog",
     Action::AddAddon { .. } => "add_addon",
@@ -389,6 +426,7 @@ action_spellings! {
     Action::Library => "library",
     Action::PlayStream { .. } => "play_stream",
     Action::Resume { .. } => "resume",
+    Action::PlayUpNext { .. } => "play_up_next",
     Action::SetPaused { .. } => "set_paused",
     Action::Seek { .. } => "seek",
     Action::SetAudioTrack { .. } => "set_audio_track",
@@ -406,6 +444,7 @@ action_spellings! {
     Action::NextEpisode => "next_episode",
     Action::PreviousEpisode => "previous_episode",
     Action::StopPlayback => "stop_playback",
+    Action::LookHint { .. } => "look_hint",
 }
 
 impl Action {
@@ -468,6 +507,9 @@ impl Action {
             Action::SetStreamBuffer { seconds, megabytes } => {
                 let buffer = StreamBuffer::parse(seconds, megabytes)?;
                 Ok(ValidatedAction::SetStreamBuffer(buffer))
+            }
+            Action::SetUpNextPlayback { playback } => {
+                Ok(ValidatedAction::SetUpNextPlayback(playback))
             }
             Action::SetFeaturedCatalog { addon, catalog } => {
                 let addon = AddonId::parse(&addon)?;
@@ -597,6 +639,10 @@ impl Action {
                 let video = VideoRef::parse(&video.r#type, &video.id)?;
                 Ok(ValidatedAction::Resume { video })
             }
+            Action::PlayUpNext { title } => {
+                let title = TitleRef::parse(&title.r#type, &title.id)?;
+                Ok(ValidatedAction::PlayUpNext { title })
+            }
             // A seek that is not a number of seconds is refused before a Player
             // hears of it, the way a Video that is not one is refused before an
             // Addon does.
@@ -640,6 +686,11 @@ impl Action {
             Action::PreviousEpisode => Ok(ValidatedAction::PreviousEpisode),
             Action::SetPaused { paused } => Ok(ValidatedAction::SetPaused { paused }),
             Action::StopPlayback => Ok(ValidatedAction::StopPlayback),
+            Action::LookHint { addon, title } => {
+                let addon = addon.map(|addon| AddonId::parse(&addon)).transpose()?;
+                let title = TitleRef::parse(&title.r#type, &title.id)?;
+                Ok(ValidatedAction::LookHint { addon, title })
+            }
         }
     }
 }
@@ -707,6 +758,8 @@ pub enum ValidatedAction {
     /// The look-ahead the Player aims for and the memory it may take, judged
     /// together so the pair cannot be half-applied (ADR-0026).
     SetStreamBuffer(StreamBuffer),
+    /// What Play does for a Title's Up next, judged by the type's own wire form.
+    SetUpNextPlayback(UpNextPlayback),
     /// A Catalog the owner marked as the featured one, with both halves judged
     /// before either is looked up: a marked Catalog exists.
     SetFeaturedCatalog {
@@ -787,6 +840,11 @@ pub enum ValidatedAction {
     Resume {
         video: VideoRef,
     },
+    /// A Title whose Up next to play, where its Continue watching entry says
+    /// which Video that is (#276).
+    PlayUpNext {
+        title: TitleRef,
+    },
     SetPaused {
         paused: bool,
     },
@@ -833,6 +891,13 @@ pub enum ValidatedAction {
     /// played — the mirror of `NextEpisode` (ADR-0021).
     PreviousEpisode,
     StopPlayback,
+    /// A Title a client is looking at, to be read ahead with no answer. The
+    /// Addon is judged, where a card names one, so the queue is never handed an
+    /// id no configured Addon could have (ADR-0038 §3).
+    LookHint {
+        addon: Option<AddonId>,
+        title: TitleRef,
+    },
 }
 
 impl ValidatedAction {
@@ -881,6 +946,7 @@ impl ValidatedAction {
             | Self::SetSubtitleColor(_)
             | Self::SetSubtitleScale(_)
             | Self::SetStreamBuffer(_)
+            | Self::SetUpNextPlayback(_)
             | Self::SetFeaturedCatalog { .. }
             | Self::ClearFeaturedCatalog
             | Self::AddAddon(_)
@@ -894,6 +960,7 @@ impl ValidatedAction {
             | Self::RevokeDevice(_)
             | Self::PlayStream { .. }
             | Self::Resume { .. }
+            | Self::PlayUpNext { .. }
             | Self::SetPaused { .. }
             | Self::Seek { .. }
             | Self::SetAudioTrack { .. }
@@ -910,7 +977,8 @@ impl ValidatedAction {
             | Self::SetAspect { .. }
             | Self::NextEpisode
             | Self::PreviousEpisode
-            | Self::StopPlayback => None,
+            | Self::StopPlayback
+            | Self::LookHint { .. } => None,
         }
     }
 }
@@ -1026,17 +1094,31 @@ pub enum ActionError {
         count: usize,
     },
     /// There is no next episode to play: what is playing is not an episode of a
-    /// series, no Addon offers a Video after it, or none of an Addon's
-    /// candidates for that Video is one this Host can play. The Host says so
-    /// rather than playing something else, which is what ADR-0014 asks of it.
+    /// series, nothing stands after it in the Host's series order (the last
+    /// numbered episode has no next, and the specials stand apart), or none of
+    /// an Addon's candidates for the Video beside it is one this Host can play.
+    /// The Host says so rather than playing something else, which is what
+    /// ADR-0014 asks of it.
     #[error("{detail}")]
     NoNextEpisode { detail: String },
     /// There is no previous episode to play: the mirror of
     /// [`Self::NoNextEpisode`] — what is playing is not an episode of a series,
-    /// the Addon's own order begins at it, or none of an Addon's candidates for
-    /// the Video before it is one this Host can play (ADR-0021).
+    /// it is the first Video of its part of the Host's series order, or none of
+    /// an Addon's candidates for the Video before it is one this Host can play
+    /// (ADR-0021, ADR-0039).
     #[error("{detail}")]
     NoPreviousEpisode { detail: String },
+    /// There is no Up next to play: the Title has no Continue watching entry,
+    /// its card is the Video still being watched rather than an Up next, or the
+    /// finished Video is the last one its Title has left to continue (#276).
+    #[error("{detail}")]
+    NoUpNext { detail: String },
+    /// The Title has an Up next, but continuity found no Stream this Host can
+    /// play: the Addon that streamed the Video before it is gone, or nothing it
+    /// answers is playable. The client opens the Streams picker for the Up next
+    /// on this refusal (#276).
+    #[error("{detail}")]
+    NoUpNextStream { detail: String },
     /// A resume named a Video the Host has no Watch progress for: there is
     /// nothing to resume from, and playing it from the start would not be the
     /// thing the client asked for.
@@ -1156,6 +1238,8 @@ impl ActionError {
             Self::InvalidPosition { .. } => "invalid_position",
             Self::NoNextEpisode { .. } => "no_next_episode",
             Self::NoPreviousEpisode { .. } => "no_previous_episode",
+            Self::NoUpNext { .. } => "no_up_next",
+            Self::NoUpNextStream { .. } => "no_up_next_stream",
             Self::NoProgress { .. } => "no_progress",
             Self::Extra { .. } => "extra",
             Self::Query { .. } => "query",
@@ -2066,6 +2150,57 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_look_hint_names_a_title_the_way_a_card_does_and_may_name_no_addon() {
+        let with_addon = format!(
+            r#"{{"version":{ACTION_VERSION},"action":{{"type":"look_hint","addon":"community.example","title":{{"type":"movie","id":"tt0133093"}}}}}}"#
+        );
+        let addon = AddonId::parse("community.example").expect("an Addon id");
+        let title = TitleRef::parse("movie", "tt0133093").expect("a Title");
+        assert_eq!(
+            Action::parse(&with_addon),
+            Ok(Action::LookHint {
+                addon: Some("community.example".to_owned()),
+                title: title.clone(),
+            })
+        );
+        assert_eq!(
+            Action::parse(&with_addon)
+                .expect("a look hint parses")
+                .validate(),
+            Ok(ValidatedAction::LookHint {
+                addon: Some(addon),
+                title,
+            })
+        );
+
+        let discovered = format!(
+            r#"{{"version":{ACTION_VERSION},"action":{{"type":"look_hint","addon":null,"title":{{"type":"series","id":"tmdb:1396"}}}}}}"#
+        );
+        assert_eq!(
+            Action::parse(&discovered)
+                .expect("a Discovered look hint parses")
+                .validate(),
+            Ok(ValidatedAction::LookHint {
+                addon: None,
+                title: TitleRef::parse("series", "tmdb:1396").expect("a Title"),
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(Action::LookHint {
+                addon: None,
+                title: TitleRef::parse("series", "tmdb:1396").expect("a Title"),
+            })
+            .expect("an Action serializes"),
+            serde_json::json!({
+                "type": "look_hint",
+                "addon": null,
+                "title": { "type": "series", "id": "tmdb:1396" },
+            }),
+            "none is an Addon a card does not name, written down rather than left out"
+        );
+    }
+
     /// One hand-written envelope per Action, so that "every Action" is a list a
     /// person can read. Completeness is the macro's job (the generated match is
     /// exhaustive); what this list proves is that every spelling [`Action::SPELLINGS`]
@@ -2077,6 +2212,7 @@ mod tests {
         r##"{"type":"set_subtitle_color","color":"#ffcc00"}"##,
         r#"{"type":"set_subtitle_scale","scale":1.25}"#,
         r#"{"type":"set_stream_buffer","seconds":300,"megabytes":512}"#,
+        r#"{"type":"set_up_next_playback","playback":"picker"}"#,
         r#"{"type":"set_featured_catalog","addon":"community.example","catalog":{"type":"movie","id":"top"}}"#,
         r#"{"type":"clear_featured_catalog"}"#,
         r#"{"type":"add_addon","url":"https://example.com/manifest.json"}"#,
@@ -2099,6 +2235,7 @@ mod tests {
         r#"{"type":"library"}"#,
         r#"{"type":"play_stream","video":{"type":"movie","id":"tt0133093"},"addon":"community.example","title":{"addon":"community.example","id":"tt0133093","type":"movie","name":"The Matrix","poster":null},"stream":{"name":null,"description":null,"playback":{"kind":"direct","url":"https://stream.example.org/x.mkv"},"warnings":[],"filename":null,"bingeGroup":null}}"#,
         r#"{"type":"resume","video":{"type":"movie","id":"tt0133093"}}"#,
+        r#"{"type":"play_up_next","title":{"type":"series","id":"tt0903747"}}"#,
         r#"{"type":"set_paused","paused":true}"#,
         r#"{"type":"seek","target":{"kind":"to","seconds":1.0}}"#,
         r#"{"type":"set_audio_track","track":1}"#,
@@ -2116,6 +2253,7 @@ mod tests {
         r#"{"type":"next_episode"}"#,
         r#"{"type":"previous_episode"}"#,
         r#"{"type":"stop_playback"}"#,
+        r#"{"type":"look_hint","addon":"community.example","title":{"type":"movie","id":"tt0133093"}}"#,
     ];
 
     #[test]
@@ -2303,6 +2441,12 @@ mod tests {
             },
             ActionError::NoPreviousEpisode {
                 detail: "the first episode".to_owned(),
+            },
+            ActionError::NoUpNext {
+                detail: "the last episode".to_owned(),
+            },
+            ActionError::NoUpNextStream {
+                detail: "nothing playable".to_owned(),
             },
             ActionError::NoProgress {
                 video: VideoRef::parse("movie", "tt0133093").expect("a Video"),

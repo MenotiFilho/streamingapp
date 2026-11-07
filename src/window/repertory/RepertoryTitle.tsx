@@ -1,23 +1,35 @@
 import { useCallback, useState } from "react";
 
 import type { Title, Video } from "../../core/wire";
+import { actionKey } from "../../core/actionKey";
 import { theFilm } from "../../core/stream";
 import {
+  airsNote,
   labelOf,
   nameOf,
   seasonName,
   titleArtOf,
   type OpenablePreview,
 } from "../../core/title";
+import { useRevisedTitle } from "../../core/react/useRevisedTitle";
 import { useShell } from "../context";
 import { addonLabel } from "../../core/home";
 import { Icon } from "../../kit/icons";
+import { PendingSpinner } from "../../kit/PendingSpinner";
 import { ChoiceChip } from "../../kit/Chip";
 import { RowTrack } from "../RowTrack";
 import { StreamsLoader } from "../StreamsScreen";
 import { pageAttrs } from "../../core/pageLayout";
 import { programIndex } from "./program";
-import { titleFacts, titleSide, unmappedOf } from "../../core/titlePage";
+import {
+  titleAnchor,
+  titleFacts,
+  titleMainAction,
+  titleMainPress,
+  titlePlayOutcome,
+  titleSide,
+  unmappedOf,
+} from "../../core/titlePage";
 
 /**
  * One Title as a single-screen programme page: the backdrop stays the page,
@@ -28,26 +40,54 @@ import { titleFacts, titleSide, unmappedOf } from "../../core/titlePage";
  *
  * The Title is still the client's own (ADR-0005). Opening a Video asks the Host
  * for its Streams and pushes the list as another level, leaving this page and
- * the chosen episode exactly where they were.
+ * the chosen episode exactly where they were. A Title with a Continue watching
+ * entry opens on that entry's Video, and its Resume takes the Host's own
+ * position (#275).
  */
 export function RepertoryTitleScreen({
-  title,
+  title: answered,
   preview,
 }: {
   title: Title;
   preview?: OpenablePreview | null;
 }) {
-  const { snapshot, pop, push } = useShell();
+  const { snapshot, pop, push, session, take, pending } = useShell();
+  // A background refresh may answer this Title again while the page is open
+  // (ADR-0038 §2). The revision replaces what this page holds only while it is
+  // still this Title; the decision and the subscription are the core's.
+  const title = useRevisedTitle(answered, session);
+
+  const continueWatching = snapshot?.continueWatching ?? [];
+  const anchor = titleAnchor(title, continueWatching);
+  const anchorVideoId = anchor.video?.id ?? null;
+  const main = titleMainAction(
+    title,
+    continueWatching,
+    snapshot?.preferences.upNextPlayback ?? "direct",
+  );
+  const press = titleMainPress(main);
+  // The wait is the Session's pending key for the one Action this control
+  // would send (ADR-0027): a picker Play asks nothing, so it never waits.
+  const waiting =
+    press !== null && press.kind !== "picker" && pending.has(actionKey(press.action));
   const side = titleSide(title);
   const seasons = side.kind === "series" ? side.seasons : [];
-  const [shownSeason, setShownSeason] = useState<number | null>(seasons[0]?.season ?? null);
-  const [selected, setSelected] = useState<Video | null>(null);
+  const [shownSeason, setShownSeason] = useState<number | null>(anchor.season);
+  const [selected, setSelected] = useState<Video | null>(anchor.video);
 
   const name = nameOf(title, preview);
   const facts = titleFacts(title, preview);
   const art = titleArtOf(title, preview);
   const shown = seasons.find((season) => season.season === shownSeason) ?? seasons[0];
   const suppliedBy = title.addon ? addonLabel(snapshot, title.addon) : null;
+  // The day the Airs mark is judged against is the machine's own; the decision
+  // itself is pure (#269).
+  const today = new Date();
+  const anchoredVideo =
+    anchorVideoId === null
+      ? null
+      : (seasons.flatMap((season) => season.videos).find((video) => video.id === anchorVideoId) ??
+        null);
 
   const play = useCallback(
     (video: Video) => {
@@ -64,6 +104,39 @@ export function RepertoryTitleScreen({
     },
     [preview, push, title],
   );
+
+  /**
+   * The one main control: Resume plays the Host's own position, Play sends the
+   * Host the Title whose Up next it reads, and a picker Play pushes the
+   * Streams for the Up next Video here (#276). The ladder is the core's, so
+   * the window and the Remote cannot take different presses.
+   */
+  const takeMain = async () => {
+    if (press === null) {
+      return;
+    }
+    if (press.kind === "resume") {
+      await take(press.action);
+      return;
+    }
+    if (press.kind === "picker") {
+      play(press.video);
+      return;
+    }
+
+    // The Host may find no Stream that continues the release. That is not the
+    // end of the press: the picker for the Up next is what the refusal asks
+    // for (#276). Any other refusal is the window's one alert.
+    const { error } = await session.ask(press.action);
+    const outcome = titlePlayOutcome(error);
+    if (outcome === "picker") {
+      play(press.video);
+      return;
+    }
+    if (outcome === "report") {
+      session.report(error);
+    }
+  };
 
   return (
     <div
@@ -88,7 +161,7 @@ export function RepertoryTitleScreen({
             type="button"
             className="rep-button rep-title-back"
             data-focusable
-            autoFocus
+            autoFocus={anchorVideoId === null}
             onClick={pop}
           >
             Back
@@ -145,6 +218,26 @@ export function RepertoryTitleScreen({
             data-testid="title-side"
             data-kind={side.kind === "series" ? "series" : "film"}
           >
+            {main ? (
+              <button
+                type="button"
+                className="rep-play rep-title-main"
+                data-focusable
+                data-testid="title-main"
+                autoFocus={anchoredVideo === null}
+                aria-busy={waiting || undefined}
+                disabled={waiting}
+                onClick={() => void takeMain()}
+              >
+                {waiting ? (
+                  <PendingSpinner />
+                ) : (
+                  <Icon name="play" className="rep-play-mark" />
+                )}
+                <span>{main.label}</span>
+              </button>
+            ) : null}
+
             {side.kind === "series" ? (
               <section
                 className="rep-title-program"
@@ -181,6 +274,7 @@ export function RepertoryTitleScreen({
                 >
                   {shown?.videos.map((video) => {
                     const label = labelOf(video);
+                    const airs = airsNote(video, today);
                     return (
                       <button
                         key={video.id}
@@ -188,6 +282,7 @@ export function RepertoryTitleScreen({
                         className="rep-episode"
                         data-focusable
                         data-testid={`episode-${video.id}`}
+                        autoFocus={anchoredVideo?.id === video.id}
                         aria-pressed={selected?.id === video.id}
                         onClick={() => play(video)}
                       >
@@ -212,6 +307,11 @@ export function RepertoryTitleScreen({
                             <span className="rep-episode-label">{label ?? "Video"}</span>
                           ) : null}
                           <span className="rep-episode-name">{video.name ?? video.id}</span>
+                          {airs ? (
+                            <span className="rep-episode-airs" data-testid="episode-airs">
+                              {airs}
+                            </span>
+                          ) : null}
                         </span>
                         <span className="rep-episode-mark">Streams</span>
                       </button>
@@ -234,6 +334,7 @@ export function RepertoryTitleScreen({
                     className="rep-play"
                     data-focusable
                     data-testid="play-film"
+                    data-secondary={main ? "true" : undefined}
                     onClick={() => play(theFilm(title))}
                   >
                     <Icon name="play" className="rep-play-mark" />

@@ -33,10 +33,12 @@
 //! key is held, ADR-0020 gives TMDB's record the last word on this art as well
 //! (#76). A meta response carries far more — Cinemeta's `cast`, `director`,
 //! `trailers`, `links`, `slug`, `popularities`, `imdb_id`, and a Video's
-//! `overview`, `rating`, `firstAired` and `tvdb_id` — and all of it is ignored
-//! rather than refused, because reading a field nothing acts on is a promise
-//! this Host would not be keeping (ADR-0009). It arrives when a ticket that
-//! acts on it does.
+//! `overview`, `rating` and `tvdb_id` — and all of it is ignored rather than
+//! refused, because reading a field nothing acts on is a promise this Host would
+//! not be keeping (ADR-0009). It arrives when a ticket that acts on it does. A
+//! Video's air date is one of those: the protocol's `released` and Cinemeta's
+//! `firstAired` are read because a Title screen marks an announced episode with
+//! it (#269).
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -92,8 +94,10 @@ pub struct Title {
     pub runtime: Option<String>,
     pub imdb_rating: Option<String>,
     pub genres: Vec<String>,
-    /// The Title's Videos, in the Addon's own order: empty for a film, and a
-    /// season's episodes, plus any specials, for a series.
+    /// The Title's Videos, in the order their source gave them: empty for a
+    /// film, and a season's episodes plus any specials for a series. The Title
+    /// answer reorders them with [`ordered_videos`] before it is published
+    /// (ADR-0039).
     pub videos: Vec<Video>,
 }
 
@@ -133,6 +137,10 @@ pub struct Video {
     /// The episode's still, where the Addon gave one: the 16:9 art a series'
     /// episode row is drawn from (#62).
     pub thumbnail: Option<String>,
+    /// The day the episode aired, as `YYYY-MM-DD`, where the Addon gave one —
+    /// an announced episode's date is in the future, and a client marks it
+    /// "Airs <date>" while leaving it playable (#269).
+    pub air_date: Option<String>,
 }
 
 impl Video {
@@ -153,8 +161,94 @@ impl Video {
             season,
             episode,
             thumbnail: None,
+            air_date: None,
         }
     }
+}
+
+/// A series' Videos in the order the Host lists and steps through them
+/// (ADR-0039 §1): the numbered seasons ascending, each season's Videos by
+/// episode number, then the specials (season 0) in their own order.
+///
+/// The order is one function because three readers must agree with it: the
+/// Title answer publishes it, `next_episode` and `previous_episode` step
+/// through it, and Continue watching's Up next reads it (#268, #274). Videos
+/// the source placed in no season stand after the numbered seasons and before
+/// the specials, in their own order, so that the Specials are last without a
+/// client sorting anything. A Video in a numbered season the source did not
+/// number stands after that season's numbered Videos; a special is not sorted
+/// by episode because the specials are one run whose own order is the truth.
+pub fn ordered_videos(videos: &[Video]) -> Vec<Video> {
+    ordered_refs(videos).into_iter().cloned().collect()
+}
+
+/// The Video after `id` in [`ordered_videos`], where both stand in the same
+/// part of that order — the numbered seasons, the unnumbered Videos, or the
+/// specials. A step never crosses between the numbered seasons and the
+/// specials (ADR-0039 §2).
+pub fn next_video<'a>(videos: &'a [Video], id: &str) -> Option<&'a Video> {
+    adjacent_video(videos, id, Ward::Later)
+}
+
+/// The mirror of [`next_video`]: the Video before `id`, inside the same part
+/// of the order.
+pub fn previous_video<'a>(videos: &'a [Video], id: &str) -> Option<&'a Video> {
+    adjacent_video(videos, id, Ward::Earlier)
+}
+
+/// The part of a series' order a Video stands in. The numbered seasons are one
+/// part — a season's finale and the next season's first episode stand together
+/// — while the specials and the unnumbered Videos stand apart from them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Part {
+    Numbered,
+    Unnumbered,
+    Specials,
+}
+
+fn part_of(video: &Video) -> Part {
+    match video.season {
+        Some(0) => Part::Specials,
+        Some(_) => Part::Numbered,
+        None => Part::Unnumbered,
+    }
+}
+
+/// Which way a step goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ward {
+    Later,
+    Earlier,
+}
+
+/// A series' Videos in the Host's order, borrowed: the shape [`ordered_videos`]
+/// clones and the neighbours read.
+///
+/// The key is `(part, season, episode)`: the numbered seasons sort by season and
+/// then by the episode number within it, while the unnumbered Videos and the
+/// specials all share one key so their source order stands — the specials are a
+/// run of their own, not a season to sort (ADR-0039 §1). A numbered Video the
+/// source did not number sorts after the numbered ones in its season.
+fn ordered_refs(videos: &[Video]) -> Vec<&Video> {
+    let mut ordered: Vec<&Video> = videos.iter().collect();
+    ordered.sort_by_key(|video| match video.season {
+        Some(0) => (2, 0, 0),
+        Some(season) => (0, season, video.episode.unwrap_or(u32::MAX)),
+        None => (1, 0, 0),
+    });
+    ordered
+}
+
+fn adjacent_video<'a>(videos: &'a [Video], id: &str, ward: Ward) -> Option<&'a Video> {
+    let ordered = ordered_refs(videos);
+    let index = ordered.iter().position(|video| video.id == id)?;
+    let here = ordered[index];
+    let beside = match ward {
+        Ward::Later => ordered.get(index + 1),
+        Ward::Earlier => index.checked_sub(1).and_then(|before| ordered.get(before)),
+    }?;
+
+    (part_of(here) == part_of(beside)).then_some(*beside)
 }
 
 /// One title's id, and the season and episode of it a Video id indexes, where
@@ -311,7 +405,45 @@ fn video(value: &Value) -> Option<Video> {
         // read first because it is the one that names what the number is.
         episode: number(object, "episode").or_else(|| number(object, "number")),
         thumbnail: field(object, "thumbnail"),
+        // The protocol spells an episode's release `released`, and Cinemeta
+        // repeats it as `firstAired`; both are an ISO 8601 instant, and the
+        // Video carries the calendar day.
+        air_date: air_date(object, "released").or_else(|| air_date(object, "firstAired")),
     })
+}
+
+/// An episode's air date, as the calendar day it names.
+///
+/// An Addon spells the date as an ISO 8601 instant (`2008-01-21T05:00:00.000Z`)
+/// and the day is what a Video carries. An absent field, `null`, an empty
+/// string and a value of the wrong shape are all "no date".
+fn air_date(object: &Map<String, Value>, name: &str) -> Option<String> {
+    calendar_day(object.get(name)?.as_str()?)
+}
+
+/// The calendar day an ISO 8601 date or instant names, as `YYYY-MM-DD`.
+///
+/// A TMDB episode gives `2008-01-20` and an Addon may give
+/// `2008-01-21T05:00:00.000Z`; both carry the day in their first ten bytes. An
+/// empty string, an instant with no date shape and a month or day out of range
+/// are all "no date".
+pub(crate) fn calendar_day(text: &str) -> Option<String> {
+    let date = text.get(..10)?;
+    let bytes = date.as_bytes();
+    let shaped = bytes.len() == 10
+        && bytes[4] == b'-'
+        && bytes[7] == b'-'
+        && bytes
+            .iter()
+            .enumerate()
+            .all(|(index, byte)| index == 4 || index == 7 || byte.is_ascii_digit());
+    if !shaped {
+        return None;
+    }
+    let month: u32 = date.get(5..7)?.parse().ok()?;
+    let day: u32 = date.get(8..10)?.parse().ok()?;
+
+    ((1..=12).contains(&month) && (1..=31).contains(&day)).then(|| date.to_owned())
 }
 
 /// An item's genres, where the Addon spelled them as a list of strings.
@@ -594,6 +726,38 @@ mod tests {
     }
 
     #[test]
+    fn a_video_carries_the_air_date_the_addon_gives_and_none_where_it_gives_none() {
+        // Cinemeta sends the date twice — the protocol's `released` and its own
+        // `firstAired` — and the SDK's type spells it `released`. Both are an
+        // ISO 8601 instant; a Video carries the calendar day.
+        let title = parsed(
+            r#"{"meta":{"id":"tt1","type":"series","name":"One","videos":[
+                {"id":"tt1:1:1","released":"2026-11-12T05:00:00.000Z"},
+                {"id":"tt1:1:2","firstAired":"2026-11-19T05:00:00.000Z"},
+                {"id":"tt1:1:3","released":"","firstAired":null},
+                {"id":"tt1:1:4","released":null,"firstAired":""},
+                {"id":"tt1:1:5","released":"not a date"},
+                {"id":"tt1:1:6"}
+            ]}}"#,
+            &asked("series", "tt1"),
+        );
+
+        assert_eq!(title.videos[0].air_date.as_deref(), Some("2026-11-12"));
+        assert_eq!(
+            title.videos[1].air_date.as_deref(),
+            Some("2026-11-19"),
+            "Cinemeta's own spelling is the same date"
+        );
+        assert_eq!(title.videos[2].air_date, None, "an empty string is no date");
+        assert_eq!(title.videos[3].air_date, None, "null is no date");
+        assert_eq!(
+            title.videos[4].air_date, None,
+            "a date of the wrong shape is none"
+        );
+        assert_eq!(title.videos[5].air_date, None, "an absent field is no date");
+    }
+
+    #[test]
     fn a_video_is_named_by_either_name_the_protocol_spells_a_title_by() {
         // Cinemeta calls an episode's title `name`; the SDK's own type calls it
         // `title`.
@@ -634,8 +798,8 @@ mod tests {
     fn fields_this_host_has_no_use_for_are_ignored_rather_than_refused() {
         // Cinemeta's meta carries `cast`, `director`, `trailers`, `links`,
         // `slug`, `popularities`, `imdb_id`, `moviedb_id` and a Video's
-        // `overview`, `rating`, `firstAired` and `tvdb_id` beside the fields the
-        // Host reads, and a Title that knows more than the Host does still opens.
+        // `overview`, `rating` and `tvdb_id` beside the fields the Host reads,
+        // and a Title that knows more than the Host does still opens.
         let title = parsed(SERIES, &asked("series", "tt0903747"));
 
         assert_eq!(title.imdb_rating.as_deref(), Some("9.5"));
@@ -754,6 +918,99 @@ mod tests {
                 limit: MAX_META_BYTES,
             }
         );
+    }
+
+    #[test]
+    fn the_order_puts_the_numbered_seasons_ascending_and_the_specials_last() {
+        let videos = vec![
+            video_at("tt1:0:1", Some(0), Some(1)),
+            video_at("tt1:2:1", Some(2), Some(1)),
+            video_at("tt1:1:2", Some(1), Some(2)),
+            video_at("tt1:1:1", Some(1), Some(1)),
+            video_at("tt1:0:2", Some(0), Some(2)),
+        ];
+
+        assert_eq!(
+            ordered_videos(&videos)
+                .iter()
+                .map(|video| video.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["tt1:1:1", "tt1:1:2", "tt1:2:1", "tt1:0:1", "tt1:0:2"],
+            "numbered seasons ascending, their episodes by number, then the specials (ADR-0039 §1)"
+        );
+    }
+
+    #[test]
+    fn a_seasons_episodes_are_ordered_by_number_and_the_specials_keep_their_own_order() {
+        // ADR-0039 §1: "then by episode within each season" for the numbered
+        // seasons; the specials are "in their own order" — one run whose source
+        // order is the truth, not a season to re-sort.
+        let videos = vec![
+            video_at("tt1:2:2", Some(2), Some(2)),
+            video_at("tt1:1:3", Some(1), Some(3)),
+            video_at("tt1:2:1", Some(2), Some(1)),
+            video_at("tt1:1:1", Some(1), Some(1)),
+            video_at("tt1:1:2", Some(1), Some(2)),
+            video_at("tt1:0:2", Some(0), Some(2)),
+            video_at("tt1:0:1", Some(0), Some(1)),
+        ];
+
+        assert_eq!(
+            ordered_videos(&videos)
+                .iter()
+                .map(|video| video.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["tt1:1:1", "tt1:1:2", "tt1:1:3", "tt1:2:1", "tt1:2:2", "tt1:0:2", "tt1:0:1",],
+            "E2 before E1 from the source is put right; the specials stay as they came"
+        );
+    }
+
+    #[test]
+    fn a_step_walks_the_numbered_run_and_never_crosses_into_the_specials() {
+        let videos = vec![
+            video_at("tt1:0:1", Some(0), Some(1)),
+            video_at("tt1:2:1", Some(2), Some(1)),
+            video_at("tt1:1:1", Some(1), Some(1)),
+            video_at("tt1:0:2", Some(0), Some(2)),
+        ];
+
+        assert_eq!(
+            next_video(&videos, "tt1:1:1").map(|video| video.id.as_str()),
+            Some("tt1:2:1"),
+            "the numbered seasons are one run"
+        );
+        assert_eq!(
+            next_video(&videos, "tt1:2:1"),
+            None,
+            "the last numbered episode does not fall into the specials"
+        );
+        assert_eq!(
+            previous_video(&videos, "tt1:1:1"),
+            None,
+            "the first numbered episode does not step back into the specials"
+        );
+        assert_eq!(
+            next_video(&videos, "tt1:0:1").map(|video| video.id.as_str()),
+            Some("tt1:0:2"),
+            "inside the specials, next is the next special"
+        );
+        assert_eq!(next_video(&videos, "tt1:0:2"), None);
+        assert_eq!(previous_video(&videos, "tt1:0:1"), None);
+        assert_eq!(
+            previous_video(&videos, "tt1:0:2").map(|video| video.id.as_str()),
+            Some("tt1:0:1")
+        );
+    }
+
+    fn video_at(id: &str, season: Option<u32>, episode: Option<u32>) -> Video {
+        Video {
+            id: id.to_owned(),
+            name: None,
+            season,
+            episode,
+            thumbnail: None,
+            air_date: None,
+        }
     }
 
     #[test]

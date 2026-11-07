@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use host_core::{
     Action, ActionError, AddonProvider, DeviceSummary, DeviceToken, FixtureClock, FixtureFetcher,
-    FixturePlayer, Host, HostDoor, InMemorySecretStore, InMemoryStore, Response, Snapshot,
-    WIRE_VERSION,
+    FixturePlayer, Host, HostDoor, InMemorySecretStore, InMemoryStore, Response, RevisionSink,
+    Snapshot, WIRE_VERSION,
 };
 use host_wire::{Broadcast, Server, Surface};
 use serde_json::{json, Value};
@@ -25,12 +25,14 @@ use tungstenite::{connect, Message, WebSocket};
 struct Fixture {
     door: HostDoor,
     broadcast: Broadcast,
+    clock: Arc<FixtureClock>,
 }
 
 impl Fixture {
-    fn new() -> Arc<Self> {
+    /// A Host over the fixtures a test recorded, with a clock it can move.
+    fn over(fetcher: Arc<FixtureFetcher>) -> Arc<Self> {
         let store = Arc::new(InMemoryStore::new());
-        let fetcher = Arc::new(FixtureFetcher::new());
+        let clock = Arc::new(FixtureClock::new());
         let provider = Arc::new(AddonProvider::new(fetcher.clone()));
         let host = Host::new(
             store,
@@ -38,13 +40,14 @@ impl Fixture {
             Arc::new(InMemorySecretStore::new()),
             provider,
             Arc::new(FixturePlayer::new()),
-            Arc::new(FixtureClock::new()),
+            clock.clone(),
         )
         .expect("a Host over in-memory seams starts");
 
         Arc::new(Self {
             door: HostDoor::new(host),
             broadcast: Broadcast::new(),
+            clock,
         })
     }
 
@@ -56,13 +59,25 @@ impl Fixture {
     /// A change the Host made on its own — a clock tick, or another client:
     /// publishing it is what the shell's `publish` does beside emitting it.
     fn publish_change(&self, action: Action) -> Response {
-        self.dispatch(action).expect("the Host takes this change")
+        self.dispatch(action, Arc::new(Unrevised))
+            .expect("the Host takes this change")
     }
 }
 
+/// A sink no test expects a revision on: a change never revises anything.
+struct Unrevised;
+
+impl RevisionSink for Unrevised {
+    fn revise(&self, _answer: host_core::Answer) {}
+}
+
 impl Surface for Fixture {
-    fn dispatch(&self, action: Action) -> Result<Response, ActionError> {
-        let response = self.door.dispatch(action)?;
+    fn dispatch(
+        &self,
+        action: Action,
+        revisions: Arc<dyn RevisionSink>,
+    ) -> Result<Response, ActionError> {
+        let response = self.door.dispatch_asking(action, Some(revisions))?;
         for snapshot in &response.snapshots {
             self.broadcast.publish(snapshot);
         }
@@ -79,7 +94,11 @@ impl Surface for Fixture {
 }
 
 fn server() -> (Arc<Fixture>, Server) {
-    let fixture = Fixture::new();
+    server_over(Arc::new(FixtureFetcher::new()))
+}
+
+fn server_over(fetcher: Arc<FixtureFetcher>) -> (Arc<Fixture>, Server) {
+    let fixture = Fixture::over(fetcher);
     let server = Server::start(
         fixture.clone(),
         fixture.broadcast.clone(),
@@ -92,6 +111,25 @@ fn server() -> (Arc<Fixture>, Server) {
 fn action(body: &str) -> Action {
     let envelope = format!(r#"{{"version":{WIRE_VERSION},"action":{body}}}"#);
     Action::parse(&envelope).unwrap_or_else(|error| panic!("{envelope} should parse: {error}"))
+}
+
+/// A stale Title's refresh test: an Addon that answers one film, and a copy of
+/// it that is later read again with a changed name.
+const MANIFEST_URL: &str = "https://v3-cinemeta.strem.io/manifest.json";
+const MOVIE_URL: &str = "https://v3-cinemeta.strem.io/meta/movie/tt0133093.json";
+const MANIFEST: &str = r#"{"id":"com.linvo.cinemeta","version":"3.0.14","name":"Cinemeta","resources":["meta"],"types":["movie"],"catalogs":[],"idPrefixes":["tt"]}"#;
+const MOVIE: &str = r#"{"meta":{"id":"tt0133093","type":"movie","name":"The Matrix"}}"#;
+const MOVIE_CHANGED: &str =
+    r#"{"meta":{"id":"tt0133093","type":"movie","name":"The Matrix Resurrections"}}"#;
+/// Past a film's thirty days of freshness.
+const STALE_AFTER: i64 = 30 * 24 * 60 * 60 * 1000 + 1;
+
+fn open_movie() -> Value {
+    json!({
+        "type": "open_title",
+        "addon": "com.linvo.cinemeta",
+        "title": { "type": "movie", "id": "tt0133093" },
+    })
 }
 
 /// One plain GET over a real socket, split into its head and its body.
@@ -203,6 +241,48 @@ impl Client {
             }
         }
         panic!("no Snapshot the test was waiting for arrived");
+    }
+    /// The next revised Answer pushed to this connection, skipping anything
+    /// else the Host sent in between.
+    fn next_revision(&mut self) -> Value {
+        for _ in 0..20 {
+            let frame = self.next();
+            if frame.get("revision").is_some() {
+                return frame;
+            }
+        }
+        panic!("no revised Answer arrived");
+    }
+
+    /// Whether no frame arrives within `wait`.
+    ///
+    /// The socket is read with that timeout and a timeout is the only quiet
+    /// answer: a frame, or a close, is not quiet.
+    fn quiet(&mut self, wait: Duration) -> bool {
+        let MaybeTlsStream::Plain(stream) = self.socket.get_ref() else {
+            return false;
+        };
+        let stream = stream.try_clone().expect("the socket can be measured");
+        let held = stream
+            .read_timeout()
+            .expect("the socket has a read timeout");
+        stream
+            .set_read_timeout(Some(wait))
+            .expect("the socket can be given a short wait");
+
+        let quiet = matches!(
+            self.socket.read(),
+            Err(tungstenite::Error::Io(error))
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                )
+        );
+
+        stream
+            .set_read_timeout(held)
+            .expect("the socket leaves with the timeout it had");
+        quiet
     }
 }
 
@@ -471,6 +551,131 @@ fn a_paired_client_sees_state_change_without_asking_for_it() {
     assert_eq!(
         pushed["snapshot"]["preferences"]["subtitleLanguage"], "pt-BR",
         "state arrives pushed, not polled: {pushed}"
+    );
+}
+
+#[test]
+fn a_look_hint_is_a_fire_and_forget_command_that_reads_ahead() {
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(MANIFEST_URL, MANIFEST)
+            .serving(MOVIE_URL, MOVIE),
+    );
+    let (fixture, server) = server_over(fetcher.clone());
+    fixture.publish_change(action(&format!(
+        r#"{{"type":"add_addon","url":"{MANIFEST_URL}"}}"#
+    )));
+
+    let mut client = Client::connect(&server);
+    client.hello(None);
+    pair(&mut client, &fixture, "Phone");
+    let revision = fixture.door.snapshot().revision;
+
+    let reply = client.command(
+        3,
+        json!({
+            "type": "look_hint",
+            "addon": "com.linvo.cinemeta",
+            "title": { "type": "movie", "id": "tt0133093" },
+        }),
+    );
+    assert_eq!(
+        reply["response"]["snapshots"],
+        json!([]),
+        "a hint publishes no Snapshot: {reply}"
+    );
+    assert!(
+        reply["response"]["answer"].is_null(),
+        "a hint answers nothing: {reply}"
+    );
+    assert_eq!(
+        fixture.door.snapshot().revision,
+        revision,
+        "a hint moves no revision"
+    );
+    assert_eq!(
+        fetcher
+            .asked()
+            .iter()
+            .filter(|url| *url == MOVIE_URL)
+            .count(),
+        0,
+        "the hint queued the read rather than making it"
+    );
+
+    assert_eq!(fixture.door.drain().ran, 1);
+    let opened = client.command(4, open_movie());
+    assert_eq!(
+        opened["response"]["answer"]["title"]["name"], "The Matrix",
+        "the Title the hint read ahead opens: {opened}"
+    );
+    assert_eq!(
+        fetcher
+            .asked()
+            .iter()
+            .filter(|url| *url == MOVIE_URL)
+            .count(),
+        1,
+        "the open after the read-ahead fetched nothing: {:?}",
+        fetcher.asked()
+    );
+}
+
+#[test]
+fn a_revised_title_goes_to_the_asking_device_and_no_other() {
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(MANIFEST_URL, MANIFEST)
+            .serving(MOVIE_URL, MOVIE),
+    );
+    let (fixture, server) = server_over(fetcher.clone());
+
+    // The Addon is configured before the second device connects, so the only
+    // Snapshot that device is owed is the state its own pairing publishes.
+    let mut asker = Client::connect(&server);
+    asker.hello(None);
+    pair(&mut asker, &fixture, "Phone");
+    asker.command(3, json!({ "type": "add_addon", "url": MANIFEST_URL }));
+
+    let mut bystander = Client::connect(&server);
+    bystander.hello(None);
+    pair(&mut bystander, &fixture, "Tablet");
+    let _joined = bystander.next_snapshot();
+
+    let first = asker.command(4, open_movie());
+    assert_eq!(
+        first["response"]["answer"]["title"]["name"], "The Matrix",
+        "the first open answers the source's copy"
+    );
+
+    fixture.clock.tick(STALE_AFTER);
+    fetcher.update(MOVIE_URL, Ok(MOVIE_CHANGED.to_owned()));
+
+    let stale = asker.command(5, open_movie());
+    assert_eq!(
+        stale["response"]["answer"]["title"]["name"], "The Matrix",
+        "a stale Title is answered from the cache at once"
+    );
+    assert_eq!(
+        fetcher
+            .asked()
+            .iter()
+            .filter(|url| *url == MOVIE_URL)
+            .count(),
+        1,
+        "and the wire client waited on no fetch"
+    );
+
+    assert_eq!(fixture.door.drain().ran, 1);
+
+    let revision = asker.next_revision();
+    assert_eq!(
+        revision["revision"]["revision"]["name"], "The Matrix Resurrections",
+        "the revised Answer arrives on the asking device's socket: {revision}"
+    );
+    assert!(
+        bystander.quiet(Duration::from_millis(300)),
+        "a device that did not ask hears nothing"
     );
 }
 

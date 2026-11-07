@@ -21,7 +21,7 @@ import {
   type DeclaredCatalog,
   type Row,
 } from "../../core/browse";
-import type { MetaPreview, ResumeEntry } from "../../core/wire";
+import type { ContinueEntry, MetaPreview } from "../../core/wire";
 import { explain } from "../../core/errors";
 import { cardName, cardNote, progressOf, resumable } from "../../core/library";
 import { useShell } from "../context";
@@ -71,6 +71,8 @@ import { ProgrammeLine } from "./ProgrammeLine";
 import { RailGrid } from "./RailGrid";
 import { RailMoreCard } from "./RailMoreCard";
 import { programIndex, yearOf } from "./program";
+import { lookHintHandlers, useLookHints } from "./lookHint";
+import type { LookHintTarget } from "../../core/lookHint";
 import "./repertory.css";
 
 /** Re-exported for a screen test that wants the beat without the component. */
@@ -530,14 +532,15 @@ function FeaturePlaceholder() {
  * and one section per declared Catalog.
  *
  * The data is exactly what Home always reads — the Featured catalog's own row
- * and the Host's Watch progress — so this screen is the same client under a
- * different frame, not a second one. The surface is repertory; the Actions are
- * untouched. Every card opens the real Title page over Home, and Continue
- * watching resumes the Host's own Video where there is a Host to ask.
+ * and the Host's Continue watching list — so this screen is the same client
+ * under a different frame, not a second one. The surface is repertory; the
+ * Actions are untouched. Every card opens the real Title page over Home, and
+ * Continue watching opens the Title anchored on the card's Video (#275).
  */
 export function RepertoryHome() {
-  const { snapshot, chosenDestination, choose, take, home, push, pop } = useShell();
-  const { openTitle } = useTitleOpener();
+  const { snapshot, chosenDestination, choose, home, push, pop } = useShell();
+  const { openTitle, openDiscoveredTitle } = useTitleOpener();
+  const look = useLookHints();
   const preview = usePreviewData();
   const { rows, answered } = useSyncExternalStore(home.subscribe, home.getSnapshot);
   const root = useRef<HTMLElement | null>(null);
@@ -575,23 +578,33 @@ export function RepertoryHome() {
   }, [home, catalogFingerprint, featuredKey]);
 
   const openEntry = useCallback(
-    (entry: ResumeEntry) => {
-      // A plain Vite window has no Host to resume from, so the Title page is the
-      // preview's honest next step. The Tauri window resumes the Host's Video.
-      if (preview && entry.title.addon) {
-        openTitle(entry.title.addon, {
-          id: entry.title.id,
-          type: entry.title.type,
-          name: entry.title.name,
-          poster: entry.title.poster,
-          background: entry.title.background,
-        });
+    (entry: ContinueEntry) => {
+      // A card opens its Title, never its Stream: the Title screen anchors on
+      // the card's Video and offers Resume there (#275). A stub with no Addon
+      // behind it is a Discovered Title, opened through TMDB (ADR-0020).
+      const previewOfCard = {
+        id: entry.title.id,
+        type: entry.title.type,
+        name: entry.title.name,
+        poster: entry.title.poster,
+        background: entry.title.background,
+      };
+
+      if (entry.title.addon) {
+        openTitle(entry.title.addon, previewOfCard);
         return;
       }
-      void take({ type: "resume", video: { type: entry.title.type, id: entry.video.id } });
+      void openDiscoveredTitle(previewOfCard);
     },
-    [openTitle, preview, take],
+    [openDiscoveredTitle, openTitle],
   );
+
+  /**
+   * The dwell handlers a card hands back: focus and the pointer each rest on
+   * the Title the card names, and either one leaving lets that rest go. The
+   * decision of when the rest has lasted long enough is the core's (#278).
+   */
+  const lookAt = (target: LookHintTarget) => lookHintHandlers(look, target);
 
   /**
    * A rail's More card opens the whole row as a pushed level. The level reads
@@ -646,7 +659,7 @@ export function RepertoryHome() {
     const meta = featureMetas.find((held) => held.id === slide.id);
     return meta ? [{ slide, meta }] : [];
   });
-  const continueWatching = snapshot?.watchProgress ?? [];
+  const continueWatching = snapshot?.continueWatching ?? [];
   const empty = homeEmptyState(snapshot, catalogs.length);
   const featuredDeclared =
     featuredKey !== null && catalogs.some((catalog) => catalogKey(catalog) === featuredKey);
@@ -728,6 +741,11 @@ export function RepertoryHome() {
               return (
                 <ContinueWatchingCard
                   key={`${entry.title.type}/${entry.video.id}`}
+                  {...lookAt({
+                    addon: entry.title.addon,
+                    type: entry.title.type,
+                    id: entry.title.id,
+                  })}
                   name={cardName(entry)}
                   note={cardNote(entry)}
                   art={continueArt(entry)}
@@ -782,6 +800,7 @@ export function RepertoryHome() {
               {row.metas.slice(0, HOME_RAIL_ITEMS).map((meta) => (
                 <PosterCard
                   key={meta.id}
+                  {...lookAt({ addon: row.addon, type: meta.type, id: meta.id })}
                   name={meta.name}
                   poster={meta.poster}
                   rating={meta.imdbRating?.trim() || null}

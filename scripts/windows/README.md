@@ -99,7 +99,7 @@ the three seconds out.
 
 ## Walking part of the checklist
 
-The whole checklist is 35 steps and takes minutes. To iterate on one step, run
+The whole checklist is 37 steps and takes minutes. To iterate on one step, run
 just that one: the runner builds the ground the step declares first — an empty
 data directory, one Host on `-Monitor`, the fixture Addon configured by manifest
 URL, its first Catalog featured, at Home — and reuses it when several selected
@@ -378,6 +378,16 @@ or started).
   ASS track is chosen. If step 35 skips, the configured Addon served a Stream
   without the fixture's tracks (or no playable candidate), and the reason is
   printed.
+- **An Up next needs a finished episode.** Step 36 seeks the fixture video to
+  its last seconds, stops, and presses the row's `Up next` card; the Title's
+  main control must read `Play S1E2`, and Play must open S1E2 with no Streams
+  list in between (#276). If no Up next card appears, the fixture Addon's meta
+  answer listed no episode after the one that finished.
+- **A second open is the cache's.** Step 37 opens a series Title, backs out and
+  opens the same Title again, timing the press; under three seconds with the
+  Title's seasons drawn is the cache answering (#266, ADR-0038 §1). The first
+  open filled it, so a second open that is slow is the Host reading the Addon
+  again.
 - **The OSD is not always there.** It hides itself after three idle seconds and
   comes back on any key or pointer movement. A step that reads the transport or
   an icon after a wait moves the pointer first (the same motion a person makes),

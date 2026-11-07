@@ -271,6 +271,21 @@ export function speedSelected(rate: number | null, choice: number): boolean {
   return rate !== null && Math.abs(rate - choice) < 1e-6;
 }
 
+/**
+ * One choice for what Play does with a Title's Up next (#276): the Host's
+ * preference, shared by the window and the served Remote so both say the same
+ * words for the same two behaviours.
+ */
+export type UpNextPlaybackChoice = {
+  playback: "direct" | "picker";
+  label: string;
+};
+
+export const UP_NEXT_PLAYBACK_CHOICES: ReadonlyArray<UpNextPlaybackChoice> = [
+  { playback: "direct", label: "Play directly" },
+  { playback: "picker", label: "Open the Streams picker" },
+];
+
 /** The Player's loudest level: above 100 is a boost, not a second scale. */
 export const VOLUME_MAX = 130;
 

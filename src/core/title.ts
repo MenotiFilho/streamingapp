@@ -31,7 +31,7 @@ export type OpenablePreview = TitlePreview &
   Pick<MetaPreview, "id" | "type"> &
   Partial<Pick<MetaPreview, "releaseInfo">>;
 
-/** One season's Videos, in the order the Addon listed them. */
+/** One season's Videos, in the order the Host listed them. */
 export type Season = {
   /** The season number, or `null` for Videos the Addon placed in no season. */
   season: number | null;
@@ -47,11 +47,12 @@ export function isSeries(title: Title): boolean {
 }
 
 /**
- * A Title's Videos, grouped into seasons, in the order the Addon listed them.
+ * A Title's Videos, grouped into seasons, in the order the Host listed them.
  *
- * The Addon's order is the order (the spec's Stream rule generalised): the first
- * season to appear is the first group. A Video the Addon placed in no season is a
- * group of its own, where it first appears, rather than dropped.
+ * The Host's order is the order (ADR-0039): the first season to appear is the
+ * first group, so the specials — which the Host publishes last — draw their chip
+ * last. A Video the Addon placed in no season is a group of its own, where it
+ * first appears, rather than dropped.
  */
 export function seasonsOf(title: Title): Season[] {
   const seasons = new Map<number | null, Video[]>();
@@ -92,6 +93,66 @@ export function labelOf(video: Video): string | null {
   const season = video.season === null ? "" : `S${video.season}`;
   const episode = video.episode === null ? "" : `E${video.episode}`;
   return `${season}${episode}`;
+}
+
+/** The months as the programme prints them, the way en-GB abbreviates them. */
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+/** The calendar day a clock reads, in this machine's own zone, as `YYYY-MM-DD`. */
+function calendarDay(now: Date): string {
+  const year = String(now.getFullYear()).padStart(4, "0");
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * The "Airs 12 Nov" mark an announced episode carries, or null where there is
+ * nothing to announce.
+ *
+ * An air date is a calendar day, so the comparison is between days and not
+ * instants: an episode that airs later today is not announced. A date that is
+ * today or past is not "Airs", and neither is a day the calendar does not have
+ * — an air date of the wrong shape is the same as none (#269, ADR-0038's
+ * consequence). `today` is injected so the decision stays pure; the caller
+ * hands in the machine's own clock.
+ */
+export function airsNote(video: Video, today: Date): string | null {
+  const date = video.airDate;
+  if (date === null || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return null;
+  }
+
+  const [year, month, day] = date.split("-").map(Number);
+  if (year === undefined || month === undefined || day === undefined) {
+    return null;
+  }
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  if (date <= calendarDay(today)) {
+    return null;
+  }
+
+  return `Airs ${day} ${MONTHS[month - 1]}`;
 }
 
 /**

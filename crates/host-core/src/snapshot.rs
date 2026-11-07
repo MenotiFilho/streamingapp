@@ -5,11 +5,12 @@ use crate::device::DeviceSummary;
 use crate::pairing::PairingCode;
 use crate::playback::{Picture, PlaybackSnapshot};
 use crate::preferences::{
-    FeaturedCatalog, StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale,
+    FeaturedCatalog, StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale, UpNextPlayback,
 };
-use crate::progress::ResumeEntry;
+use crate::progress::{ContinueEntry, ResumeEntry};
 use crate::secret::SecretBackend;
 use crate::state::State;
+use crate::title_cache::CachedTitle;
 
 /// The Host's state as it travels outward: the only shape state leaves in.
 ///
@@ -48,11 +49,15 @@ pub struct Snapshot {
     /// thing about credentials that is not itself one, and is what the interface
     /// shows when it says how exposed they are.
     pub protection: ProtectionSnapshot,
-    /// Continue watching: one entry per Video the Host has Watch progress in,
-    /// most recently played first. This is the shared state the spec names beside
-    /// playback — which Videos are on the row, and where in each one the owner
-    /// got to — so it travels as a Snapshot rather than as an answer, and every
-    /// client sees the same row (#29).
+    /// Continue watching: one entry per Title the Host has Watch progress in,
+    /// the Title's card — the Video it played last, or that Video's Up next once
+    /// it is finished — most recently played first, the row every client draws.
+    /// This is the shared state the spec names beside playback, so it travels as
+    /// a Snapshot rather than as an answer (#273, #274).
+    pub continue_watching: Vec<ContinueEntry>,
+    /// The Watch progress itself, one entry per Video: where each Video was
+    /// left, which the playback view and the episode lookup still read. It is
+    /// not the Continue watching row — that is one card per Title, above.
     pub watch_progress: Vec<ResumeEntry>,
     /// The devices the Host has paired, in the order they paired. Enough to list
     /// them and to name one when revoking; what a device *holds* is not here, and
@@ -90,6 +95,10 @@ pub struct PreferencesSnapshot {
     /// and the memory that look-ahead may take. Always values — a Host that has
     /// never been told keeps the default pair (ADR-0026).
     pub stream_buffer: StreamBuffer,
+    /// What Play does for a Title's Up next: play it directly, or open the
+    /// Streams picker. Always a value — direct is the default, and the choice
+    /// governs only Up next, never Resume (#276).
+    pub up_next_playback: UpNextPlayback,
 }
 
 /// Where the Host's credentials are held, as the secret store reports itself.
@@ -107,14 +116,19 @@ pub struct ProtectionSnapshot {
 }
 
 impl Snapshot {
-    /// Build the Snapshot for a state. Pure: the same state, revision and
-    /// picture always build the same Snapshot.
+    /// Build the Snapshot for a state. Pure: the same state, cached Titles,
+    /// revision and picture always build the same Snapshot.
+    ///
+    /// `cached` is the Host's cached Titles, which is where Continue watching's
+    /// Up next is read from; it is not state, so a cached Title gaining episodes
+    /// moves the row without an Action (#274, ADR-0038).
     ///
     /// `picture` is the Player's answer to where it draws: a fact about the
     /// machine the Host was built on, like which backend holds a credential, and
     /// not something any Action changes.
     pub(crate) fn build(
         state: &State,
+        cached: &[CachedTitle],
         revision: u64,
         picture: Picture,
         address: Option<&str>,
@@ -127,6 +141,7 @@ impl Snapshot {
                 subtitle_color: state.preferences().subtitle_color().clone(),
                 subtitle_scale: state.preferences().subtitle_scale(),
                 stream_buffer: state.preferences().stream_buffer(),
+                up_next_playback: state.preferences().up_next_playback(),
             },
             addons: state
                 .addons()
@@ -139,6 +154,9 @@ impl Snapshot {
                 tmdb_held: state.protection().tmdb_held,
                 stremio_held: state.protection().stremio_held,
             },
+            continue_watching: crate::progress::continue_watching(state.watch(), cached, |addon| {
+                state.has_addon(addon)
+            }),
             watch_progress: state
                 .watch()
                 .iter()

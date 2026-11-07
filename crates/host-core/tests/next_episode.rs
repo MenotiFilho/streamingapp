@@ -1,7 +1,9 @@
 //! Next episode, driven the way a client drives it: an Action in, published
 //! Snapshots out, and the URL the Player was asked to open. The next Video is
-//! the Addon's own, not an id the Host works out by arithmetic, and the release
-//! the one playing came from is preferred (ADR-0014). Nothing below the Action
+//! the source's own, walked in the Host's series order — numbered seasons
+//! ascending, specials last, and never a step across the line between them
+//! (ADR-0039) — not an id the Host works out by arithmetic, and the release the
+//! one playing came from is preferred (ADR-0014). Nothing below the Action
 //! surface is named here, and no test reaches the network.
 
 use std::sync::Arc;
@@ -310,6 +312,201 @@ fn when_the_release_is_gone_the_same_addons_first_playable_candidate_plays() {
 }
 
 #[test]
+fn a_seasons_finale_steps_into_the_next_seasons_first_episode() {
+    let player = Arc::new(FixturePlayer::new());
+    let provider = Arc::new(FixtureProvider::new().offering(
+        SERIES_ID,
+        vec![candidate(
+            "1080p",
+            "https://stream.example.org/v/tt0903747-2-1.mkv",
+            Some("the-release"),
+        )],
+    ));
+    let mut host = host_with(
+        player.clone(),
+        provider,
+        &[
+            Configured::answering(SERIES, SERIES_ID, r#""meta","stream""#)
+                .with_meta(META_URL, SERIES_META),
+        ],
+    );
+
+    play(
+        &mut host,
+        SERIES_ID,
+        "series",
+        "tt0903747:1:3",
+        "https://stream.example.org/v/tt0903747-1-3.mkv",
+        Some("the-release"),
+    );
+    let published = host
+        .dispatch(next_episode())
+        .expect("a season finale is followed by the next season's first episode");
+
+    assert_eq!(
+        published.snapshots[0]
+            .playback
+            .now_playing
+            .as_ref()
+            .map(|now| now.video.id.as_str()),
+        Some("tt0903747:2:1"),
+        "the numbered seasons are one run, walked in ascending order"
+    );
+}
+
+#[test]
+fn the_series_last_numbered_episode_has_no_next_and_the_stream_keeps_playing() {
+    let player = Arc::new(FixturePlayer::new());
+    let provider = Arc::new(FixtureProvider::new().offering(
+        SERIES_ID,
+        vec![candidate(
+            "1080p",
+            "https://stream.example.org/v/tt0903747-0-1.mkv",
+            Some("the-release"),
+        )],
+    ));
+    let mut host = host_with(
+        player.clone(),
+        provider.clone(),
+        &[
+            Configured::answering(SERIES, SERIES_ID, r#""meta","stream""#)
+                .with_meta(META_URL, SERIES_META),
+        ],
+    );
+
+    // The last numbered Video. The Addon's list carries a special too, and the
+    // step must not cross into it (ADR-0039 §2).
+    play(
+        &mut host,
+        SERIES_ID,
+        "series",
+        "tt0903747:2:1",
+        PLAYING,
+        Some("the-release"),
+    );
+    player.now_reporting(Observation::playing(30.0, 2820.0));
+    host.sample()
+        .expect("the Player reporting where it is is a change");
+
+    assert!(
+        matches!(
+            host.dispatch(next_episode()),
+            Err(ActionError::NoNextEpisode { .. })
+        ),
+        "the series' last numbered episode has no next, and the Host will not step into the specials"
+    );
+    assert_eq!(
+        player.opened(),
+        vec![PLAYING.to_owned()],
+        "a refusal opens nothing"
+    );
+    assert_eq!(player.stopped(), 0, "a refusal stops nothing");
+    assert_eq!(
+        host.snapshot().playback.state,
+        PlaybackState::Playing,
+        "the Stream that was playing keeps playing"
+    );
+    assert_eq!(
+        host.snapshot().playback.position,
+        Some(30.0),
+        "the Stream that was playing is still where it was"
+    );
+    assert!(provider.asked().is_empty(), "no candidate is asked for");
+}
+
+/// A series whose Addon lists the specials first, then one numbered season:
+/// the order ADR-0039 exists for.
+const SPECIALS_META: &str = r#"{"meta":{"id":"tt0903747","type":"series","name":"Breaking Bad",
+    "videos":[
+        {"id":"tt0903747:0:1","name":"Special One","season":0,"episode":1},
+        {"id":"tt0903747:0:2","name":"Special Two","season":0,"episode":2},
+        {"id":"tt0903747:1:1","name":"Pilot","season":1,"episode":1}
+    ]}}"#;
+
+const SPECIAL_ONE: &str = "https://stream.example.org/v/tt0903747-0-1.mkv";
+const SPECIAL_TWO: &str = "https://stream.example.org/v/tt0903747-0-2.mkv";
+
+#[test]
+fn inside_the_specials_next_steps_from_special_to_special_and_stops_at_their_end() {
+    let player = Arc::new(FixturePlayer::new());
+    let provider = Arc::new(FixtureProvider::new().offering(
+        SERIES_ID,
+        vec![candidate("1080p", SPECIAL_TWO, Some("the-release"))],
+    ));
+    let mut host = host_with(
+        player.clone(),
+        provider.clone(),
+        &[
+            Configured::answering(SERIES, SERIES_ID, r#""meta","stream""#)
+                .with_meta(META_URL, SPECIALS_META),
+        ],
+    );
+
+    play(
+        &mut host,
+        SERIES_ID,
+        "series",
+        "tt0903747:0:1",
+        SPECIAL_ONE,
+        Some("the-release"),
+    );
+    host.dispatch(next_episode())
+        .expect("the first special is followed by the second");
+    assert_eq!(
+        player.opened(),
+        vec![SPECIAL_ONE.to_owned(), SPECIAL_TWO.to_owned()]
+    );
+
+    assert!(
+        matches!(
+            host.dispatch(next_episode()),
+            Err(ActionError::NoNextEpisode { .. })
+        ),
+        "the specials' last Video has no next"
+    );
+    assert_eq!(
+        player.opened(),
+        vec![SPECIAL_ONE.to_owned(), SPECIAL_TWO.to_owned()],
+        "a refusal at the specials' end opens nothing"
+    );
+}
+
+#[test]
+fn the_numbered_seasons_never_step_into_the_specials() {
+    let player = Arc::new(FixturePlayer::new());
+    let provider = Arc::new(FixtureProvider::new());
+    let mut host = host_with(
+        player.clone(),
+        provider.clone(),
+        &[
+            Configured::answering(SERIES, SERIES_ID, r#""meta","stream""#)
+                .with_meta(META_URL, SPECIALS_META),
+        ],
+    );
+
+    // The Addon listed the specials first; the Host's order puts this Video as
+    // the last numbered one, and the special after it is not a next episode.
+    play(
+        &mut host,
+        SERIES_ID,
+        "series",
+        "tt0903747:1:1",
+        PLAYING,
+        Some("the-release"),
+    );
+
+    assert!(
+        matches!(
+            host.dispatch(next_episode()),
+            Err(ActionError::NoNextEpisode { .. })
+        ),
+        "a finale of the numbered seasons is refused rather than dropped into extras"
+    );
+    assert_eq!(player.opened(), vec![PLAYING.to_owned()]);
+    assert!(provider.asked().is_empty());
+}
+
+#[test]
 fn a_film_is_refused_because_it_has_no_next_episode() {
     let player = Arc::new(FixturePlayer::new());
     let provider = Arc::new(FixtureProvider::new());
@@ -341,7 +538,7 @@ fn a_film_is_refused_because_it_has_no_next_episode() {
 }
 
 #[test]
-fn a_series_with_no_next_video_is_refused() {
+fn a_series_last_numbered_episode_is_refused() {
     let player = Arc::new(FixturePlayer::new());
     let provider = Arc::new(FixtureProvider::new());
     let mut host = host_with(
@@ -353,7 +550,8 @@ fn a_series_with_no_next_video_is_refused() {
         ],
     );
 
-    // The recorded series' last Video, so the Addon's own order has no next.
+    // The recorded series' last numbered Video; the special the Addon also
+    // lists stands apart, so the step is refused rather than crossing into it.
     play(
         &mut host,
         SERIES_ID,
@@ -368,7 +566,7 @@ fn a_series_with_no_next_video_is_refused() {
             host.dispatch(next_episode()),
             Err(ActionError::NoNextEpisode { .. })
         ),
-        "the Addon's order has nothing after the last episode, and the Host invents nothing"
+        "the last numbered episode has no next, and the Host invents nothing"
     );
 }
 
@@ -566,23 +764,23 @@ const TMDB_STREAM_ADDON_MANIFEST: &str = r#"{
 const NEXT_EPISODE_STREAM: &str =
     "https://mediafusion.example.com/stream/series/tt0903747%3A1%3A2.json";
 const NEXT_EPISODE_NEXT: &str = "https://stream.example.org/v/tt0903747-1-2-1080p.mkv";
+const SEASON_TWO_STREAM: &str =
+    "https://mediafusion.example.com/stream/series/tt0903747%3A2%3A1.json";
+const SEASON_TWO_OPENING: &str = "https://stream.example.org/v/tt0903747-2-1-1080p.mkv";
 
 const TMDB_KEY: &str = "0123456789abcdef0123456789abcdef";
-const TMDB_TV_1396: &str =
-    "https://api.themoviedb.org/3/tv/1396?api_key=0123456789abcdef0123456789abcdef";
-const TMDB_TV_1396_SEASON_0: &str =
-    "https://api.themoviedb.org/3/tv/1396/season/0?api_key=0123456789abcdef0123456789abcdef";
-const TMDB_TV_1396_SEASON_1: &str =
-    "https://api.themoviedb.org/3/tv/1396/season/1?api_key=0123456789abcdef0123456789abcdef";
-const TMDB_TV_1396_SEASON_2: &str =
-    "https://api.themoviedb.org/3/tv/1396/season/2?api_key=0123456789abcdef0123456789abcdef";
+/// The one request a series' details and its Videos are read with.
+const TMDB_TV_1396: &str = concat!(
+    "https://api.themoviedb.org/3/tv/1396?append_to_response=",
+    "season/0,season/1,season/2,season/3,season/4,season/5,season/6,season/7,",
+    "season/8,season/9,season/10,season/11,season/12,season/13,season/14,season/15,",
+    "season/16,season/17,season/18,season/19",
+    "&api_key=0123456789abcdef0123456789abcdef",
+);
 const TMDB_EXTERNAL_IDS_BB: &str =
     "https://api.themoviedb.org/3/tv/1396/external_ids?api_key=0123456789abcdef0123456789abcdef";
 
-const TMDB_TV_DETAILS: &str = include_str!("fixtures/tmdb-tv-details.json");
-const TMDB_TV_SEASON_0: &str = include_str!("fixtures/tmdb-tv-season-0.json");
-const TMDB_TV_SEASON_1: &str = include_str!("fixtures/tmdb-tv-season-1.json");
-const TMDB_TV_SEASON_2: &str = include_str!("fixtures/tmdb-tv-season-2.json");
+const TMDB_TV_DETAILS_APPENDED: &str = include_str!("fixtures/tmdb-tv-details-appended.json");
 const TMDB_EXTERNAL_BB: &str = include_str!("fixtures/tmdb-external-ids-bb.json");
 
 #[test]
@@ -599,10 +797,7 @@ fn a_tmdb_keyed_episode_steps_to_tmdbs_own_next_and_is_asked_in_the_playing_addo
                 NEXT_EPISODE_STREAM,
                 format!(r#"{{"streams":[{{"name":"1080p","url":"{NEXT_EPISODE_NEXT}"}}]}}"#),
             )
-            .serving(TMDB_TV_1396, TMDB_TV_DETAILS)
-            .serving(TMDB_TV_1396_SEASON_0, TMDB_TV_SEASON_0)
-            .serving(TMDB_TV_1396_SEASON_1, TMDB_TV_SEASON_1)
-            .serving(TMDB_TV_1396_SEASON_2, TMDB_TV_SEASON_2)
+            .serving(TMDB_TV_1396, TMDB_TV_DETAILS_APPENDED)
             .serving(TMDB_EXTERNAL_IDS_BB, TMDB_EXTERNAL_BB),
     );
     let mut host = Host::new(
@@ -654,6 +849,73 @@ fn a_tmdb_keyed_episode_steps_to_tmdbs_own_next_and_is_asked_in_the_playing_addo
         fetcher.asked().contains(&NEXT_EPISODE_STREAM.to_owned()),
         "the playing Addon was asked in the `tt` spelling it declares, resolved from TMDB: {:?}",
         fetcher.asked()
+    );
+    let asked = fetcher.asked();
+    assert_eq!(
+        asked
+            .iter()
+            .filter(|url| url.starts_with("https://api.themoviedb.org/3/tv/1396?"))
+            .count(),
+        1,
+        "the step reads TMDB's list with the same batched details request, not one ask per season: {asked:?}"
+    );
+}
+
+#[test]
+fn a_tmdb_keyed_series_walks_its_numbered_seasons_and_stops_before_the_specials() {
+    let player = Arc::new(FixturePlayer::new());
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(TMDB_STREAM_ADDON, TMDB_STREAM_ADDON_MANIFEST)
+            .serving(
+                SEASON_TWO_STREAM,
+                format!(r#"{{"streams":[{{"name":"1080p","url":"{SEASON_TWO_OPENING}"}}]}}"#),
+            )
+            .serving(TMDB_TV_1396, TMDB_TV_DETAILS_APPENDED)
+            .serving(TMDB_EXTERNAL_IDS_BB, TMDB_EXTERNAL_BB),
+    );
+    let mut host = Host::new(
+        Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
+        fetcher.clone(),
+        Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
+        Arc::new(host_core::AddonProvider::new(fetcher.clone())),
+        player.clone(),
+        Arc::new(FixtureClock::new()),
+    )
+    .expect("a Host over a store starts");
+    host.dispatch(action(&serde_json::json!({
+        "type": "add_addon",
+        "url": TMDB_STREAM_ADDON,
+    })))
+    .expect("the Addon's manifest is recorded");
+    set_key(&mut host, TMDB_KEY);
+    play(
+        &mut host,
+        TMDB_STREAM_ADDON_ID,
+        "series",
+        "tmdb:1396:1:3",
+        PLAYING,
+        Some("the-release"),
+    );
+
+    host.dispatch(next_episode())
+        .expect("TMDB's first season is followed by its second");
+    assert_eq!(
+        player.opened(),
+        vec![PLAYING.to_owned(), SEASON_TWO_OPENING.to_owned()]
+    );
+
+    assert!(
+        matches!(
+            host.dispatch(next_episode()),
+            Err(ActionError::NoNextEpisode { .. })
+        ),
+        "TMDB lists a special after the last numbered episode, and the step does not take it"
+    );
+    assert_eq!(
+        player.opened(),
+        vec![PLAYING.to_owned(), SEASON_TWO_OPENING.to_owned()],
+        "the refusal opens nothing"
     );
 }
 

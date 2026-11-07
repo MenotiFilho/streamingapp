@@ -9,10 +9,10 @@ import type {
   AddonCatalog,
   AddonManifest,
   CatalogRow,
+  ContinueEntry,
   DiscoverRow,
   MetaPreview,
   Response,
-  ResumeEntry,
   Snapshot,
 } from "../core/wire";
 import { RemoteGrid } from "./RemoteGrid";
@@ -52,9 +52,8 @@ const CINEMETA: AddonManifest = {
 
 const SNAPSHOT: Snapshot = { ...NOTHING, addons: [CINEMETA] };
 
-const RESUME: ResumeEntry = {
-  video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
-  title: {
+const RESUME: ContinueEntry = {
+  video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },  title: {
     addon: "cinemeta",
     id: "tt1",
     type: "series",
@@ -65,6 +64,7 @@ const RESUME: ResumeEntry = {
   position: 300,
   duration: 600,
   watched: false,
+  upNext: false,
   unplayable: null,
 };
 
@@ -380,7 +380,7 @@ describe("the whole-row grid", () => {
   test("a Continue watching grid draws the Host's entries and pages nothing", async () => {
     const { host, view, stop } = mount({
       grid: CONTINUE_GRID,
-      snapshot: { ...SNAPSHOT, watchProgress: [RESUME] },
+      snapshot: { ...SNAPSHOT, continueWatching: [RESUME] },
     });
     try {
       expect(await screen.findByTestId("grid-resume-tt1:1:1")).toBeInTheDocument();

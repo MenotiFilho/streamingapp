@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import type { MetaPreview, ResumeEntry, Snapshot } from "./wire";
+import type { ContinueEntry, MetaPreview, Snapshot } from "./wire";
 import { addonLabel, continueArt, featuredRow, heroSlides } from "./home";
 
 function meta(overrides: Partial<MetaPreview> = {}): MetaPreview {
@@ -19,9 +19,9 @@ function meta(overrides: Partial<MetaPreview> = {}): MetaPreview {
   };
 }
 
-function entry(overrides: Partial<ResumeEntry> = {}): ResumeEntry {
+function entry(overrides: Partial<ContinueEntry> = {}): ContinueEntry {
   return {
-    video: { id: "tt0133093", name: null, season: null, episode: null, thumbnail: null },
+    video: { id: "tt0133093", name: null, season: null, episode: null, thumbnail: null, airDate: null },
     title: {
       addon: "com.linvo.cinemeta",
       id: "tt0133093",
@@ -33,6 +33,7 @@ function entry(overrides: Partial<ResumeEntry> = {}): ResumeEntry {
     position: 1284,
     duration: 8160,
     watched: false,
+    upNext: false,
     unplayable: null,
     ...overrides,
   };
@@ -61,10 +62,17 @@ const EMPTY: Snapshot = {
     resolution: null,
     statistics: null,
   },
-  preferences: { subtitleLanguage: null, subtitleColor: "#FFFFFF", subtitleScale: 1, streamBuffer: { seconds: 300, megabytes: 512 } },
+  preferences: {
+    subtitleLanguage: null,
+    subtitleColor: "#FFFFFF",
+    subtitleScale: 1,
+    streamBuffer: { seconds: 300, megabytes: 512 },
+    upNextPlayback: "direct",
+  },
   addons: [],
   featuredCatalog: null,
   protection: { backend: "keyring", tmdbHeld: false, stremioHeld: false },
+  continueWatching: [],
   watchProgress: [],
   devices: [],
   pairingCode: "4K7Q2M",

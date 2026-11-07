@@ -67,13 +67,19 @@ fn fixture() -> Fixture {
 }
 
 fn fixture_over(store: Arc<InMemoryStore>) -> Fixture {
+    fixture_over_serving(store, SERIES_META)
+}
+
+/// A Host whose one series answers with `meta`: a test that needs a list of
+/// Videos other than the recorded one serves its own body.
+fn fixture_over_serving(store: Arc<InMemoryStore>, meta: &str) -> Fixture {
     let player = Arc::new(FixturePlayer::new());
     let provider = Arc::new(
         FixtureProvider::new().offering(SERIES_ID, vec![candidate(EPISODE), candidate(FILM)]),
     );
     let fetcher = FixtureFetcher::new()
         .serving(SERIES, manifest())
-        .serving(META_URL, SERIES_META);
+        .serving(META_URL, meta);
     let clock = Arc::new(FixtureClock::new().at(1_000));
 
     let mut host = Host::new(
@@ -98,6 +104,20 @@ fn fixture_over(store: Arc<InMemoryStore>) -> Fixture {
         store,
         clock,
     }
+}
+
+/// A Host restarted over the same store with nothing reachable: what an offline
+/// start is, with no Addon asked anything.
+fn restarted_without_network(store: Arc<InMemoryStore>) -> Host {
+    Host::new(
+        store as Arc<dyn Store>,
+        Arc::new(FixtureFetcher::new()),
+        Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
+        Arc::new(FixtureProvider::new()),
+        Arc::new(FixturePlayer::new()),
+        Arc::new(FixtureClock::new().at(1_000)),
+    )
+    .expect("a Host over a store starts")
 }
 
 /// Choose a candidate for a Video of the configured Addon, with the Title card
@@ -145,9 +165,14 @@ fn watching(fixture: &mut Fixture, position: f64, duration: f64, at: i64) {
         .expect("the Player says something new about what is playing");
 }
 
-/// Continue watching, as every client is told it.
-fn continue_watching(fixture: &Host) -> Vec<host_core::ResumeEntry> {
+/// Watch progress, per Video, as every client is told it.
+fn watch_progress(fixture: &Host) -> Vec<host_core::ResumeEntry> {
     fixture.snapshot().watch_progress
+}
+
+/// Continue watching, one card per Title, as every client is told it.
+fn continue_watching(fixture: &Host) -> Vec<host_core::ContinueEntry> {
+    fixture.snapshot().continue_watching
 }
 
 #[test]
@@ -156,12 +181,12 @@ fn playing_a_video_records_where_it_got_to_and_the_snapshot_carries_it() {
 
     play(&mut fixture, "series", "tt0903747:1:2");
     assert!(
-        continue_watching(&fixture.host).len() == 1,
+        watch_progress(&fixture.host).len() == 1,
         "a play is a library entry from the moment it is chosen"
     );
     watching(&mut fixture, 402.0, 2820.0, 10_000);
 
-    let entry = &continue_watching(&fixture.host)[0];
+    let entry = &watch_progress(&fixture.host)[0];
     assert_eq!(entry.video.id, "tt0903747:1:2");
     assert_eq!(entry.video.season, Some(1));
     assert_eq!(entry.video.episode, Some(2));
@@ -173,7 +198,7 @@ fn playing_a_video_records_where_it_got_to_and_the_snapshot_carries_it() {
 }
 
 #[test]
-fn the_card_a_client_hands_back_carries_its_backdrop_into_continue_watching() {
+fn the_card_a_client_hands_back_carries_its_backdrop_into_watch_progress() {
     // Continue watching draws 16:9 art (#62), and the client has the backdrop
     // in hand — so the card it sends on `play_stream` is where the Host gets
     // it, and the Snapshot is where every client gets it back.
@@ -181,7 +206,7 @@ fn the_card_a_client_hands_back_carries_its_backdrop_into_continue_watching() {
     play(&mut fixture, "series", "tt0903747:1:2");
     watching(&mut fixture, 402.0, 2820.0, 10_000);
 
-    let entry = &continue_watching(&fixture.host)[0];
+    let entry = &watch_progress(&fixture.host)[0];
     assert_eq!(
         entry.title.background(),
         Some("https://images.example.org/bb-backdrop.jpg")
@@ -202,7 +227,7 @@ fn the_card_a_client_hands_back_carries_its_backdrop_into_continue_watching() {
     // And the Host that comes back over the same store finds it again.
     let restarted = fixture_over(fixture.store.clone());
     assert_eq!(
-        continue_watching(&restarted.host)[0].title.background(),
+        watch_progress(&restarted.host)[0].title.background(),
         Some("https://images.example.org/bb-backdrop.jpg"),
         "the backdrop survives a Host that was killed without a stop"
     );
@@ -218,7 +243,7 @@ fn watch_progress_survives_a_host_that_was_killed_without_a_stop() {
 
     let restarted = fixture_over(fixture.store.clone());
 
-    let entry = &continue_watching(&restarted.host)[0];
+    let entry = &watch_progress(&restarted.host)[0];
     assert_eq!(entry.video.id, "tt0903747:1:2");
     assert_eq!(
         entry.position,
@@ -241,7 +266,7 @@ fn every_episode_of_a_series_keeps_its_own_progress() {
     play(&mut fixture, "series", "tt0903747:1:4");
     watching(&mut fixture, 200.0, 2820.0, 20_000);
 
-    let mut held: Vec<(String, Option<f64>)> = continue_watching(&fixture.host)
+    let mut held: Vec<(String, Option<f64>)> = watch_progress(&fixture.host)
         .iter()
         .map(|entry| (entry.video.id.clone(), entry.position))
         .collect();
@@ -258,7 +283,7 @@ fn every_episode_of_a_series_keeps_its_own_progress() {
 }
 
 #[test]
-fn the_library_comes_back_most_recently_played_first() {
+fn watch_progress_comes_back_most_recently_played_first() {
     let mut fixture = fixture();
 
     play(&mut fixture, "series", "tt0903747:1:1");
@@ -267,7 +292,7 @@ fn the_library_comes_back_most_recently_played_first() {
     watching(&mut fixture, 200.0, 2820.0, 20_000);
 
     assert_eq!(
-        continue_watching(&fixture.host)
+        watch_progress(&fixture.host)
             .iter()
             .map(|entry| entry.video.id.as_str())
             .collect::<Vec<_>>(),
@@ -282,7 +307,7 @@ fn a_video_that_finishes_or_stops_within_its_last_moments_is_marked_watched() {
     watching(&mut fixture, 2800.0, 2820.0, 10_000);
 
     assert!(
-        continue_watching(&fixture.host)[0].watched,
+        watch_progress(&fixture.host)[0].watched,
         "the last thirty seconds of a Stream are the end of it"
     );
 }
@@ -293,7 +318,7 @@ fn a_video_that_reaches_its_end_is_watched_and_paused_in_the_wrong_place_is_not(
     play(&mut fixture, "series", "tt0903747:1:1");
     watching(&mut fixture, 600.0, 2820.0, 10_000);
     assert!(
-        !continue_watching(&fixture.host)[0].watched,
+        !watch_progress(&fixture.host)[0].watched,
         "ten minutes into a forty-seven minute episode is not watched"
     );
 
@@ -306,7 +331,7 @@ fn a_video_that_reaches_its_end_is_watched_and_paused_in_the_wrong_place_is_not(
     fixture.clock.set(20_000);
     fixture.host.sample().expect("reaching the end is a change");
 
-    assert!(continue_watching(&fixture.host)[0].watched);
+    assert!(watch_progress(&fixture.host)[0].watched);
 }
 
 #[test]
@@ -321,7 +346,7 @@ fn the_next_episode_is_a_new_entry_under_the_same_title_and_the_one_watched_stay
         .dispatch(action(&serde_json::json!({ "type": "next_episode" })))
         .expect("the next episode of a series plays");
 
-    let held = continue_watching(&fixture.host);
+    let held = watch_progress(&fixture.host);
     assert_eq!(held.len(), 2);
     assert_eq!(held[0].video.id, "tt0903747:1:2", "the new episode leads");
     assert_eq!(
@@ -352,7 +377,7 @@ fn the_previous_episode_is_a_new_entry_and_the_one_left_carries_on() {
         .dispatch(action(&serde_json::json!({ "type": "previous_episode" })))
         .expect("the previous episode of a series plays");
 
-    let held = continue_watching(&fixture.host);
+    let held = watch_progress(&fixture.host);
     assert_eq!(held.len(), 2);
     assert_eq!(
         held[0].video.id, "tt0903747:1:1",
@@ -402,6 +427,16 @@ fn removing_the_addon_that_supplied_a_title_leaves_a_stub_that_is_still_listed()
         .expect("the entry stays, marked unplayable");
     assert_eq!(unplayable.reason, UnplayableReason::AddonRemoved);
     assert_eq!(unplayable.addon.as_str(), SERIES_ID);
+
+    let card = &published.continue_watching[0];
+    assert_eq!(card.video.id, "tt0903747:1:2");
+    assert_eq!(
+        card.unplayable
+            .as_ref()
+            .expect("the card stays, marked unplayable")
+            .reason,
+        UnplayableReason::AddonRemoved
+    );
 }
 
 #[test]
@@ -513,22 +548,17 @@ fn resuming_asks_the_addons_that_answer_for_the_videos_streams() {
 const TMDB_KEY: &str = "0123456789abcdef0123456789abcdef";
 const TMDB_FIND_SERIES: &str =
     "https://api.themoviedb.org/3/find/tt0903747?external_source=imdb_id&api_key=0123456789abcdef0123456789abcdef";
-const TMDB_TV_1396: &str =
-    "https://api.themoviedb.org/3/tv/1396?api_key=0123456789abcdef0123456789abcdef";
-const TMDB_TV_1396_SEASON_0: &str =
-    "https://api.themoviedb.org/3/tv/1396/season/0?api_key=0123456789abcdef0123456789abcdef";
-const TMDB_TV_1396_SEASON_1: &str =
-    "https://api.themoviedb.org/3/tv/1396/season/1?api_key=0123456789abcdef0123456789abcdef";
-const TMDB_TV_1396_SEASON_2: &str =
-    "https://api.themoviedb.org/3/tv/1396/season/2?api_key=0123456789abcdef0123456789abcdef";
+/// The one request a series' details and its Videos are read with: the
+/// Addon's episode list names seasons 0, 1 and 2, so those are appended (#270).
+const TMDB_TV_1396: &str = concat!(
+    "https://api.themoviedb.org/3/tv/1396?append_to_response=season/0,season/1,season/2",
+    "&api_key=0123456789abcdef0123456789abcdef",
+);
 const TMDB_EXTERNAL_IDS_BB: &str =
     "https://api.themoviedb.org/3/tv/1396/external_ids?api_key=0123456789abcdef0123456789abcdef";
 
 const TMDB_FIND_SERIES_BODY: &str = include_str!("fixtures/tmdb-find-bb.json");
-const TMDB_TV_DETAILS: &str = include_str!("fixtures/tmdb-tv-details.json");
-const TMDB_TV_SEASON_0: &str = include_str!("fixtures/tmdb-tv-season-0.json");
-const TMDB_TV_SEASON_1: &str = include_str!("fixtures/tmdb-tv-season-1.json");
-const TMDB_TV_SEASON_2: &str = include_str!("fixtures/tmdb-tv-season-2.json");
+const TMDB_TV_DETAILS_APPENDED: &str = include_str!("fixtures/tmdb-tv-details-appended.json");
 const TMDB_EXTERNAL_BB: &str = include_str!("fixtures/tmdb-external-ids-bb.json");
 
 /// The same Addon, declaring the one id namespace a TMDB-keyed Video reaches it
@@ -552,10 +582,7 @@ fn tmdb_fixture() -> Fixture {
         .serving(SERIES, manifest_declaring_tt())
         .serving(META_URL, SERIES_META)
         .serving(TMDB_FIND_SERIES, TMDB_FIND_SERIES_BODY)
-        .serving(TMDB_TV_1396, TMDB_TV_DETAILS)
-        .serving(TMDB_TV_1396_SEASON_0, TMDB_TV_SEASON_0)
-        .serving(TMDB_TV_1396_SEASON_1, TMDB_TV_SEASON_1)
-        .serving(TMDB_TV_1396_SEASON_2, TMDB_TV_SEASON_2)
+        .serving(TMDB_TV_1396, TMDB_TV_DETAILS_APPENDED)
         .serving(TMDB_EXTERNAL_IDS_BB, TMDB_EXTERNAL_BB);
     let store = Arc::new(InMemoryStore::new());
     let clock = Arc::new(FixtureClock::new().at(1_000));
@@ -774,4 +801,373 @@ fn a_discovered_titles_entry_never_wears_the_addon_removed_mark() {
         ),
         "an entry whose Addon is gone is still marked: {marked:?}"
     );
+}
+
+// --- Continue watching: one card per Title -----------------------------------
+
+#[test]
+fn six_episodes_of_one_series_are_one_continue_watching_entry() {
+    let mut fixture = fixture();
+
+    for n in 1..=6 {
+        fixture.clock.set(10_000 * i64::from(n));
+        play(&mut fixture, "series", &format!("tt0903747:1:{n}"));
+        watching(
+            &mut fixture,
+            100.0 * f64::from(n),
+            2820.0,
+            10_000 * i64::from(n),
+        );
+    }
+
+    let snapshot = fixture.host.snapshot();
+    assert_eq!(
+        snapshot.continue_watching.len(),
+        1,
+        "a series is one card, not six: {:?}",
+        snapshot.continue_watching
+    );
+    let card = &snapshot.continue_watching[0];
+    assert_eq!(
+        card.video.id, "tt0903747:1:6",
+        "the card is the last one played"
+    );
+    assert_eq!(card.video.season, Some(1));
+    assert_eq!(card.video.episode, Some(6));
+    assert_eq!(card.title.name(), "Breaking Bad");
+    assert_eq!(card.position, Some(600.0));
+    assert_eq!(card.duration, Some(2820.0));
+    assert_eq!(card.unplayable, None);
+    assert_eq!(
+        snapshot.watch_progress.len(),
+        6,
+        "the per-Video Watch progress the playback view and episode lookup read is unchanged"
+    );
+}
+
+#[test]
+fn rewatching_an_earlier_episode_makes_it_the_continue_watching_card() {
+    let mut fixture = fixture();
+
+    fixture.clock.set(10_000);
+    play(&mut fixture, "series", "tt0903747:1:1");
+    watching(&mut fixture, 300.0, 2820.0, 10_000);
+    fixture.clock.set(20_000);
+    play(&mut fixture, "series", "tt0903747:1:2");
+    watching(&mut fixture, 500.0, 2820.0, 20_000);
+    fixture.clock.set(30_000);
+    play(&mut fixture, "series", "tt0903747:1:1");
+    watching(&mut fixture, 700.0, 2820.0, 30_000);
+
+    let snapshot = fixture.host.snapshot();
+    assert_eq!(
+        snapshot
+            .continue_watching
+            .iter()
+            .map(|card| card.video.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["tt0903747:1:1"],
+        "the card follows what was played last, not what is furthest along"
+    );
+    assert_eq!(snapshot.continue_watching[0].position, Some(700.0));
+    assert_eq!(
+        snapshot.watch_progress.len(),
+        2,
+        "both episodes keep their progress"
+    );
+}
+
+#[test]
+fn two_titles_are_ordered_by_the_latest_play_of_each() {
+    let mut fixture = fixture();
+
+    fixture.clock.set(10_000);
+    play(&mut fixture, "series", "tt0903747:1:2");
+    watching(&mut fixture, 100.0, 2820.0, 10_000);
+    fixture.clock.set(20_000);
+    play(&mut fixture, "movie", "tt0133093");
+    watching(&mut fixture, 400.0, 8160.0, 20_000);
+
+    let snapshot = fixture.host.snapshot();
+    assert_eq!(
+        snapshot
+            .continue_watching
+            .iter()
+            .map(|card| (card.title.r#type(), card.video.id.as_str()))
+            .collect::<Vec<_>>(),
+        vec![("movie", "tt0133093"), ("series", "tt0903747:1:2")],
+        "the Title played last leads the row"
+    );
+}
+
+#[test]
+fn a_finished_film_leaves_continue_watching_and_its_watch_progress_is_kept() {
+    let mut fixture = fixture();
+    play(&mut fixture, "movie", "tt0133093");
+    watching(&mut fixture, 8160.0, 8160.0, 10_000);
+
+    let snapshot = fixture.host.snapshot();
+    assert!(
+        snapshot.continue_watching.is_empty(),
+        "a finished film has nothing to continue: {:?}",
+        snapshot.continue_watching
+    );
+    assert_eq!(snapshot.watch_progress.len(), 1);
+    assert!(
+        snapshot.watch_progress[0].watched,
+        "the progress survives the card leaving the row"
+    );
+}
+
+#[test]
+fn a_finished_episode_whose_title_is_not_cached_stays_watched() {
+    let mut fixture = fixture();
+    play(&mut fixture, "series", "tt0903747:1:1");
+    watching(&mut fixture, 2820.0, 2820.0, 10_000);
+
+    let cards = continue_watching(&fixture.host);
+    assert_eq!(cards.len(), 1);
+    assert_eq!(cards[0].video.id, "tt0903747:1:1");
+    assert!(
+        cards[0].watched,
+        "with no cached Title there is no Up next to move to, so the finished Video stays"
+    );
+    assert!(!cards[0].up_next);
+}
+
+/// Open a Title the way a client does, so the Host caches its Videos: Up next
+/// is worked out from the cache (ADR-0038).
+fn open_series(fixture: &mut Fixture) {
+    fixture
+        .host
+        .dispatch(action(&serde_json::json!({
+            "type": "open_title",
+            "addon": SERIES_ID,
+            "title": { "type": "series", "id": "tt0903747" },
+        })))
+        .expect("the recorded series opens");
+}
+
+#[test]
+fn finishing_an_episode_moves_the_card_to_its_up_next() {
+    let mut fixture = fixture();
+    open_series(&mut fixture);
+    play(&mut fixture, "series", "tt0903747:1:1");
+    watching(&mut fixture, 2820.0, 2820.0, 10_000);
+
+    let cards = continue_watching(&fixture.host);
+    assert_eq!(cards.len(), 1, "the series keeps its one card: {cards:?}");
+    let card = &cards[0];
+    assert_eq!(card.video.id, "tt0903747:1:2");
+    assert_eq!(card.video.season, Some(1));
+    assert_eq!(card.video.episode, Some(2));
+    assert!(card.up_next, "the card says its Video is the Up next");
+    assert_eq!(card.position, None, "an Up next with no progress has none");
+    assert_eq!(card.duration, None);
+    assert!(!card.watched);
+    assert_eq!(card.unplayable, None);
+}
+
+#[test]
+fn a_partly_watched_up_next_keeps_its_own_progress() {
+    let mut fixture = fixture();
+    open_series(&mut fixture);
+
+    fixture.clock.set(10_000);
+    play(&mut fixture, "series", "tt0903747:1:3");
+    watching(&mut fixture, 300.0, 2820.0, 10_000);
+
+    fixture.clock.set(20_000);
+    play(&mut fixture, "series", "tt0903747:1:2");
+    watching(&mut fixture, 2820.0, 2820.0, 20_000);
+
+    let cards = continue_watching(&fixture.host);
+    assert_eq!(cards.len(), 1);
+    let card = &cards[0];
+    assert_eq!(
+        card.video.id, "tt0903747:1:3",
+        "the card is the Up next of the Video that finished"
+    );
+    assert!(card.up_next);
+    assert_eq!(
+        card.position,
+        Some(300.0),
+        "an Up next already started resumes where it was left"
+    );
+    assert_eq!(card.duration, Some(2820.0));
+    assert!(!card.watched);
+}
+
+#[test]
+fn the_card_follows_the_video_played_last_not_the_furthest_one() {
+    // At S1E3 with progress, went back and rewatched S1E1: the card is S1E1's
+    // Up next, and the progress in S1E3 is kept for whenever it is resumed.
+    let mut fixture = fixture();
+    open_series(&mut fixture);
+
+    fixture.clock.set(10_000);
+    play(&mut fixture, "series", "tt0903747:1:3");
+    watching(&mut fixture, 300.0, 2820.0, 10_000);
+
+    fixture.clock.set(20_000);
+    play(&mut fixture, "series", "tt0903747:1:1");
+    watching(&mut fixture, 2820.0, 2820.0, 20_000);
+
+    let snapshot = fixture.host.snapshot();
+    assert_eq!(
+        snapshot
+            .continue_watching
+            .iter()
+            .map(|card| card.video.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["tt0903747:1:2"],
+        "the card follows what was played last, not what is furthest along"
+    );
+    assert_eq!(snapshot.continue_watching[0].position, None);
+    assert!(
+        snapshot
+            .watch_progress
+            .iter()
+            .any(|entry| entry.video.id == "tt0903747:1:3" && entry.position == Some(300.0)),
+        "the earlier episode keeps its own progress"
+    );
+}
+
+#[test]
+fn a_season_finale_leads_into_the_next_seasons_first_episode() {
+    let mut fixture = fixture();
+    open_series(&mut fixture);
+    play(&mut fixture, "series", "tt0903747:1:3");
+    watching(&mut fixture, 2820.0, 2820.0, 10_000);
+
+    let cards = continue_watching(&fixture.host);
+    assert_eq!(cards.len(), 1);
+    assert_eq!(cards[0].video.id, "tt0903747:2:1");
+    assert!(cards[0].up_next);
+    assert_eq!(cards[0].position, None);
+}
+
+#[test]
+fn the_last_numbered_episode_leaves_the_row_and_keeps_the_progress() {
+    let mut fixture = fixture();
+    open_series(&mut fixture);
+    play(&mut fixture, "series", "tt0903747:2:1");
+    watching(&mut fixture, 2820.0, 2820.0, 10_000);
+
+    let snapshot = fixture.host.snapshot();
+    assert!(
+        snapshot.continue_watching.is_empty(),
+        "the last numbered episode has no Up next, and the specials are apart: {:?}",
+        snapshot.continue_watching
+    );
+    assert_eq!(snapshot.watch_progress.len(), 1);
+    assert!(
+        snapshot.watch_progress[0].watched,
+        "Watch progress is kept when the card leaves the row"
+    );
+}
+
+#[test]
+fn a_finished_episode_moves_to_its_up_next_once_the_title_is_cached() {
+    let mut fixture = fixture();
+    play(&mut fixture, "series", "tt0903747:1:1");
+    watching(&mut fixture, 2820.0, 2820.0, 10_000);
+    assert!(
+        continue_watching(&fixture.host)[0].watched,
+        "with no cached Title the card is the finished Video"
+    );
+
+    open_series(&mut fixture);
+
+    let cards = continue_watching(&fixture.host);
+    assert_eq!(
+        cards[0].video.id, "tt0903747:1:2",
+        "the next Snapshot moves the card to Up next once the Title is cached"
+    );
+    assert!(cards[0].up_next);
+}
+
+#[test]
+fn a_host_restarted_with_no_network_publishes_the_same_up_next() {
+    let mut fixture = fixture();
+    open_series(&mut fixture);
+    play(&mut fixture, "series", "tt0903747:1:1");
+    watching(&mut fixture, 2820.0, 2820.0, 10_000);
+
+    let restarted = restarted_without_network(fixture.store.clone());
+
+    let cards = &restarted.snapshot().continue_watching;
+    assert_eq!(cards.len(), 1);
+    assert_eq!(
+        cards[0].video.id, "tt0903747:1:2",
+        "the cached Title answers Up next on a Host that cannot reach anything"
+    );
+    assert!(cards[0].up_next);
+}
+
+/// A series whose only Videos are two specials: Up next steps from special to
+/// special, and never out of them.
+const SPECIALS_META: &str = r#"{"meta":{"id":"tt0903747","type":"series","name":"Breaking Bad","videos":[
+    {"id":"tt0903747:0:1","season":0,"episode":1,"name":"A special"},
+    {"id":"tt0903747:0:2","season":0,"episode":2,"name":"Another special"}
+]}}"#;
+
+#[test]
+fn inside_the_specials_up_next_is_the_next_special() {
+    let mut fixture = fixture_over_serving(Arc::new(InMemoryStore::new()), SPECIALS_META);
+    open_series(&mut fixture);
+    play(&mut fixture, "series", "tt0903747:0:1");
+    watching(&mut fixture, 2820.0, 2820.0, 10_000);
+
+    let cards = continue_watching(&fixture.host);
+    assert_eq!(cards.len(), 1);
+    assert_eq!(cards[0].video.id, "tt0903747:0:2");
+    assert!(cards[0].up_next);
+}
+
+#[test]
+fn the_continue_watching_codec_round_trips_beside_watch_progress() {
+    let mut fixture = fixture();
+    fixture.clock.set(10_000);
+    play(&mut fixture, "series", "tt0903747:1:1");
+    watching(&mut fixture, 100.0, 2820.0, 10_000);
+    fixture.clock.set(20_000);
+    play(&mut fixture, "series", "tt0903747:1:2");
+    watching(&mut fixture, 200.0, 2820.0, 20_000);
+
+    let snapshot = fixture.host.snapshot();
+    let json = serde_json::to_string(&snapshot).expect("a Snapshot serializes");
+    let back: host_core::Snapshot = serde_json::from_str(&json).expect("the Snapshot round-trips");
+
+    assert_eq!(back, snapshot);
+    assert_eq!(back.continue_watching.len(), 1);
+    assert_eq!(back.continue_watching[0].video.id, "tt0903747:1:2");
+    assert_eq!(back.continue_watching[0].position, Some(200.0));
+    assert_eq!(
+        back.watch_progress.len(),
+        2,
+        "the per-Video list round-trips unchanged beside the row"
+    );
+}
+
+#[test]
+fn an_up_next_entry_round_trips_with_its_marker() {
+    let mut fixture = fixture();
+    open_series(&mut fixture);
+    play(&mut fixture, "series", "tt0903747:1:1");
+    watching(&mut fixture, 2820.0, 2820.0, 10_000);
+
+    let snapshot = fixture.host.snapshot();
+    let json = serde_json::to_string(&snapshot).expect("a Snapshot serializes");
+    let published: serde_json::Value =
+        serde_json::from_str(&json).expect("a Snapshot is a JSON object");
+    assert_eq!(
+        published["continueWatching"][0]["upNext"],
+        serde_json::json!(true),
+        "the Up next marker is published, camelCased for a JavaScript client"
+    );
+
+    let back: host_core::Snapshot = serde_json::from_str(&json).expect("the Snapshot round-trips");
+    assert_eq!(back, snapshot);
+    assert!(back.continue_watching[0].up_next);
 }

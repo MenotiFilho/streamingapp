@@ -1,7 +1,15 @@
 import { describe, expect, test } from "vitest";
 
-import type { MetaPreview, Title } from "./wire";
-import { titleFacts, titleSide, unmappedOf } from "./titlePage";
+import type { ContinueEntry, MetaPreview, Title } from "./wire";
+import {
+  titleAnchor,
+  titleFacts,
+  titleMainAction,
+  titleMainPress,
+  titlePlayOutcome,
+  titleSide,
+  unmappedOf,
+} from "./titlePage";
 
 function title(overrides: Partial<Title> = {}): Title {
   return {
@@ -35,6 +43,37 @@ function card(overrides: Partial<MetaPreview> = {}): MetaPreview {
     imdbRating: null,
     genres: [],
     description: null,
+    ...overrides,
+  };
+}
+
+const SERIES: Title = title({
+  id: "tt0",
+  key: { kind: "addon", addon: "community.stremboxd", id: "tt0" },
+  type: "series",
+  videos: [
+    { id: "tt0:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },
+    { id: "tt0:1:2", name: "Second", season: 1, episode: 2, thumbnail: null, airDate: null },
+    { id: "tt0:2:1", name: "Third", season: 2, episode: 1, thumbnail: null, airDate: null },
+  ],
+});
+
+function entry(overrides: Partial<ContinueEntry> = {}): ContinueEntry {
+  return {
+    video: { id: "tt0:1:2", name: null, season: 1, episode: 2, thumbnail: null, airDate: null },
+    title: {
+      addon: "community.stremboxd",
+      id: "tt0",
+      type: "series",
+      name: "A series",
+      poster: null,
+      background: null,
+    },
+    position: 300,
+    duration: 600,
+    watched: false,
+    upNext: false,
+    unplayable: null,
     ...overrides,
   };
 }
@@ -75,21 +114,21 @@ describe("what the Title page offers next", () => {
     expect(titleSide(title())).toEqual({ kind: "film" });
   });
 
-  test("a series keeps its seasons in the order the Addon listed them", () => {
+  test("a series keeps the seasons in the Host's order, whose Specials are last", () => {
     const series = title({
       type: "series",
       videos: [
-        { id: "tt0:0:1", name: "Special", season: 0, episode: 1, thumbnail: null },
-        { id: "tt0:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
-        { id: "tt0:1:2", name: "Second", season: 1, episode: 2, thumbnail: null },
-        { id: "tt0:2:1", name: "Third", season: 2, episode: 1, thumbnail: null },
+        { id: "tt0:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },
+        { id: "tt0:1:2", name: "Second", season: 1, episode: 2, thumbnail: null, airDate: null },
+        { id: "tt0:2:1", name: "Third", season: 2, episode: 1, thumbnail: null, airDate: null },
+        { id: "tt0:0:1", name: "Special", season: 0, episode: 1, thumbnail: null, airDate: null },
       ],
     });
 
     expect(titleSide(series).kind).toBe("series");
     const side = titleSide(series);
     expect(side.kind === "series" ? side.seasons.map((season) => season.season) : []).toEqual([
-      0, 1, 2,
+      1, 2, 0,
     ]);
   });
 
@@ -99,5 +138,225 @@ describe("what the Title page offers next", () => {
       kicker: "A series with no episodes",
       note: "This series' Addon listed no episodes, so there is nothing to ask Streams of.",
     });
+  });
+});
+
+describe("the Title's anchor", () => {
+  test("opens on the Continue watching entry's Video and its season", () => {
+    expect(titleAnchor(SERIES, [entry()])).toEqual({
+      season: 1,
+      video: SERIES.videos[1],
+    });
+
+    expect(
+      titleAnchor(SERIES, [
+        entry({
+          video: { id: "tt0:2:1", name: null, season: 2, episode: 1, thumbnail: null, airDate: null },
+        }),
+      ]),
+    ).toEqual({ season: 2, video: SERIES.videos[2] });
+  });
+
+  test("opens at the beginning with no Video focused when the Title has no entry", () => {
+    expect(titleAnchor(SERIES, [])).toEqual({ season: 1, video: null });
+  });
+
+  test("an entry for another Title does not anchor this one", () => {
+    expect(
+      titleAnchor(SERIES, [entry({ title: { ...entry().title, id: "tt9" } })]),
+    ).toEqual({ season: 1, video: null });
+  });
+
+  test("anchors wherever the Title was opened from: identity is type and id, not the door", () => {
+    // The same Title reached through another Addon, or through a Discover or
+    // Library row, still carries the identity the Host groups its card by.
+    const fromAnotherDoor = entry({
+      title: { ...entry().title, addon: "another.addon" },
+    });
+
+    expect(titleAnchor(SERIES, [fromAnotherDoor])).toEqual({
+      season: 1,
+      video: SERIES.videos[1],
+    });
+  });
+
+  test("a film anchors on the Video the Host recorded for it", () => {
+    const film = title({ id: "tt0133093", type: "movie" });
+    const watched = entry({
+      video: { id: "tt0133093", name: null, season: null, episode: null, thumbnail: null, airDate: null },
+      title: { ...entry().title, id: "tt0133093", type: "movie", name: "The Matrix" },
+    });
+
+    expect(titleAnchor(film, [watched])).toEqual({
+      season: null,
+      video: watched.video,
+    });
+  });
+});
+
+describe("the Title's main action", () => {
+  test("a partly watched episode resumes it, naming the episode and the time left", () => {
+    expect(titleMainAction(SERIES, [entry()], "direct")).toEqual({
+      kind: "resume",
+      label: "Resume S1E2 · 5 min left",
+      action: { type: "resume", video: { type: "series", id: "tt0:1:2" } },
+    });
+  });
+
+  test("a partly watched film resumes without an episode label", () => {
+    const film = title({ id: "tt0133093", type: "movie" });
+    const watched = entry({
+      video: { id: "tt0133093", name: null, season: null, episode: null, thumbnail: null, airDate: null },
+      title: { ...entry().title, id: "tt0133093", type: "movie", name: "The Matrix" },
+      position: 2_400,
+      duration: 4_800,
+    });
+
+    expect(titleMainAction(film, [watched], "direct")).toEqual({
+      kind: "resume",
+      label: "Resume · 40 min left",
+      action: { type: "resume", video: { type: "movie", id: "tt0133093" } },
+    });
+  });
+
+  test("an Up next with no position is Play, and Play names the episode", () => {
+    const upNext = entry({
+      video: {
+        id: "tt0:1:4",
+        name: "Fourth",
+        season: 1,
+        episode: 4,
+        thumbnail: null,
+        airDate: null,
+      },
+      position: null,
+      duration: null,
+      upNext: true,
+    });
+
+    expect(titleMainAction(SERIES, [upNext], "direct")).toEqual({
+      kind: "play",
+      label: "Play S1E4",
+      video: upNext.video,
+      action: { type: "play_up_next", title: { type: "series", id: "tt0" } },
+    });
+  });
+
+  test("the preference makes Play open the picker instead, without changing its words", () => {
+    const upNext = entry({
+      video: {
+        id: "tt0:1:4",
+        name: "Fourth",
+        season: 1,
+        episode: 4,
+        thumbnail: null,
+        airDate: null,
+      },
+      position: null,
+      duration: null,
+      upNext: true,
+    });
+
+    expect(titleMainAction(SERIES, [upNext], "picker")).toEqual({
+      kind: "play",
+      label: "Play S1E4",
+      video: upNext.video,
+      action: null,
+    });
+  });
+
+  test("the preference never reaches Resume: a partly watched Video still resumes directly", () => {
+    expect(titleMainAction(SERIES, [entry()], "picker")).toEqual({
+      kind: "resume",
+      label: "Resume S1E2 · 5 min left",
+      action: { type: "resume", video: { type: "series", id: "tt0:1:2" } },
+    });
+  });
+
+  test("a partly watched Up next resumes, even when Play would open the picker", () => {
+    const partly = entry({
+      upNext: true,
+      position: 120,
+      duration: 600,
+    });
+
+    expect(titleMainAction(SERIES, [partly], "picker")).toEqual({
+      kind: "resume",
+      label: "Resume S1E2 · 8 min left",
+      action: { type: "resume", video: { type: "series", id: "tt0:1:2" } },
+    });
+  });
+
+  test("a finished or unstarted Video with no Up next has no main action", () => {
+    expect(titleMainAction(SERIES, [entry({ watched: true })], "direct")).toBeNull();
+    expect(titleMainAction(SERIES, [entry({ position: null })], "direct")).toBeNull();
+  });
+
+  test("a Title with no entry has no main action", () => {
+    expect(titleMainAction(SERIES, [], "direct")).toBeNull();
+  });
+
+  test("a partly watched Video with no length resumes without claiming a time left", () => {
+    expect(titleMainAction(SERIES, [entry({ duration: null })], "direct")).toEqual({
+      kind: "resume",
+      label: "Resume S1E2",
+      action: { type: "resume", video: { type: "series", id: "tt0:1:2" } },
+    });
+  });
+});
+
+describe("pressing the Title's main control", () => {
+  const upNext = entry({
+    video: {
+      id: "tt0:1:4",
+      name: "Fourth",
+      season: 1,
+      episode: 4,
+      thumbnail: null,
+      airDate: null,
+    },
+    position: null,
+    duration: null,
+    upNext: true,
+  });
+
+  test("Resume takes the Host's own resume", () => {
+    const press = titleMainPress(titleMainAction(SERIES, [entry()], "direct"));
+
+    expect(press).toEqual({
+      kind: "resume",
+      action: { type: "resume", video: { type: "series", id: "tt0:1:2" } },
+    });
+  });
+
+  test("a direct Play takes play_up_next for the Title whose Up next it reads", () => {
+    const press = titleMainPress(titleMainAction(SERIES, [upNext], "direct"));
+
+    expect(press).toMatchObject({
+      kind: "play",
+      video: upNext.video,
+      action: { type: "play_up_next", title: { type: "series", id: "tt0" } },
+    });
+  });
+
+  test("a picker Play opens the picker for the Up next and asks nothing", () => {
+    expect(titleMainPress(titleMainAction(SERIES, [upNext], "picker"))).toEqual({
+      kind: "picker",
+      video: upNext.video,
+    });
+  });
+
+  test("no main control is no press", () => {
+    expect(titleMainPress(null)).toBeNull();
+  });
+
+  test("a continuity refusal means the picker; anything else is the one alert", () => {
+    expect(titlePlayOutcome(null)).toBe("played");
+    expect(
+      titlePlayOutcome({ kind: "no_up_next_stream", detail: "nothing playable" }),
+    ).toBe("picker");
+    expect(titlePlayOutcome({ kind: "fetch", detail: "the Addon timed out" })).toBe(
+      "report",
+    );
   });
 });

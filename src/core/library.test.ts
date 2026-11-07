@@ -1,11 +1,11 @@
 import { expect, test } from "vitest";
 
 import { cardName, cardNote, progressOf, resumable } from "./library";
-import type { ResumeEntry } from "./wire";
+import type { ContinueEntry } from "./wire";
 
-function entry(overrides: Partial<ResumeEntry> = {}): ResumeEntry {
+function entry(overrides: Partial<ContinueEntry> = {}): ContinueEntry {
   return {
-    video: { id: "tt0133093", name: null, season: null, episode: null, thumbnail: null },
+    video: { id: "tt0133093", name: null, season: null, episode: null, thumbnail: null, airDate: null },
     title: {
       addon: "com.linvo.cinemeta",
       id: "tt0133093",
@@ -16,6 +16,7 @@ function entry(overrides: Partial<ResumeEntry> = {}): ResumeEntry {
     position: 1284,
     duration: 8160,
     watched: false,
+    upNext: false,
     unplayable: null,
     ...overrides,
   };
@@ -52,7 +53,7 @@ test("a card is named by its Title, and by the episode where the Video is one", 
   expect(
     cardName(
       entry({
-        video: { id: "tt0903747:1:2", name: "Cat's in the Bag...", season: 1, episode: 2, thumbnail: null },
+        video: { id: "tt0903747:1:2", name: "Cat's in the Bag...", season: 1, episode: 2, thumbnail: null, airDate: null },
         title: {
           addon: "com.linvo.cinemeta",
           id: "tt0903747",
@@ -77,4 +78,46 @@ test("a card says how much is left, or that it is done, or why it cannot be play
     cardNote(entry({ unplayable: { reason: "addon_removed", addon: "community.gone" } })),
     "the reason a stub is unplayable is what its card has to say",
   ).toBe("Unplayable — the Addon community.gone that supplied this Title is gone.");
+});
+
+test("an Up next with no progress says what it is, with no progress bar", () => {
+  const next = entry({
+    video: { id: "tt0903747:1:4", name: null, season: 1, episode: 4, thumbnail: null, airDate: null },
+    title: {
+      addon: "com.linvo.cinemeta",
+      id: "tt0903747",
+      type: "series",
+      name: "Breaking Bad",
+      poster: null,
+    },
+    position: null,
+    duration: null,
+    watched: false,
+    upNext: true,
+  });
+
+  expect(cardNote(next)).toBe("Up next · S1E4");
+  expect(
+    progressOf(next),
+    "an Up next that was never started has no progress bar",
+  ).toBeNull();
+});
+
+test("an Up next already partly watched reads like any other card", () => {
+  const started = entry({
+    video: { id: "tt0903747:1:4", name: null, season: 1, episode: 4, thumbnail: null, airDate: null },
+    title: {
+      addon: "com.linvo.cinemeta",
+      id: "tt0903747",
+      type: "series",
+      name: "Breaking Bad",
+      poster: null,
+    },
+    position: 600,
+    duration: 2820,
+    upNext: true,
+  });
+
+  expect(cardNote(started)).toBe("37:00 left");
+  expect(progressOf(started)).toBeCloseTo(600 / 2820);
 });

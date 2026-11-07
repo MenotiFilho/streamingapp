@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 
 import { keyOf, pageable } from "../../core/browse";
-import type { MetaPreview, ResumeEntry } from "../../core/wire";
+import type { ContinueEntry, MetaPreview } from "../../core/wire";
 import { explain } from "../../core/errors";
 import { gridPaging } from "../../core/gridPaging";
 import { cardName, cardNote, progressOf, resumable } from "../../core/library";
@@ -14,6 +14,8 @@ import { Button } from "../../kit/Button";
 import { useGridEnd } from "../../core/react/useGridEnd";
 import { yearOf } from "./program";
 import { RailGridHead } from "./RailGridHead";
+import { useLookHints, lookHintHandlers } from "./lookHint";
+import type { LookHintTarget } from "../../core/lookHint";
 
 /** Where a Home whole-row grid's cards come from. */
 export type RailGridSource =
@@ -33,7 +35,7 @@ export type RailGridProps = {
   index?: string;
   /** A card opens its Title through the Addon that answered the row. */
   onOpenMeta: (addon: string, meta: MetaPreview) => void;
-  onOpenEntry: (entry: ResumeEntry) => void;
+  onOpenEntry: (entry: ContinueEntry) => void;
   onClose: () => void;
 };
 
@@ -60,6 +62,7 @@ export function RailGrid({
   onClose,
 }: RailGridProps) {
   const { home, snapshot } = useShell();
+  const look = useLookHints();
   const { rows, paging } = useSyncExternalStore(home.subscribe, home.getSnapshot);
 
   const row =
@@ -69,19 +72,20 @@ export function RailGrid({
   const name = row?.name ?? title;
   const tag =
     source.kind === "continue"
-      ? continueTag(snapshot?.watchProgress.length ?? 0)
+      ? continueTag(snapshot?.continueWatching.length ?? 0)
       : row
         ? rowTag(snapshot, row)
         : null;
   const metas = row?.metas ?? [];
   const failure = row?.failure ?? null;
   const reading = source.kind === "home" ? paging.has(source.rowKey) : false;
+  const lookAt = (target: LookHintTarget) => lookHintHandlers(look, target);
   const pagingView = gridPaging({
     done: source.kind === "home" ? (row?.done ?? false) : false,
     failure,
     pageable: source.kind === "home" && row !== null && pageable(snapshot, row),
     reading,
-    count: source.kind === "continue" ? (snapshot?.watchProgress.length ?? 0) : metas.length,
+    count: source.kind === "continue" ? (snapshot?.continueWatching.length ?? 0) : metas.length,
   });
 
   const askMore = () => {
@@ -110,11 +114,16 @@ export function RailGrid({
 
       {source.kind === "continue" ? (
         <div className="rep-rail-grid-cards" data-rail="continue">
-          {(snapshot?.watchProgress ?? []).map((entry) => {
+          {(snapshot?.continueWatching ?? []).map((entry) => {
             const playable = resumable(entry);
             return (
               <ContinueWatchingCard
                 key={`${entry.title.type}/${entry.video.id}`}
+                {...lookAt({
+                  addon: entry.title.addon,
+                  type: entry.title.type,
+                  id: entry.title.id,
+                })}
                 data-grid-card
                 name={cardName(entry)}
                 note={cardNote(entry)}
@@ -132,6 +141,7 @@ export function RailGrid({
           {metas.map((meta) => (
             <PosterCard
               key={meta.id}
+              {...lookAt({ addon: row?.addon ?? null, type: meta.type, id: meta.id })}
               data-grid-card
               name={meta.name}
               poster={meta.poster}

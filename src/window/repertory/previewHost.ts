@@ -323,6 +323,8 @@ function videosOf(raw: { videos?: unknown }): Video[] {
       season?: number;
       episode?: number;
       thumbnail?: string;
+      released?: string;
+      firstAired?: string;
     };
     if (!held.id) {
       return [];
@@ -334,9 +336,20 @@ function videosOf(raw: { videos?: unknown }): Video[] {
         season: typeof held.season === "number" ? held.season : null,
         episode: typeof held.episode === "number" ? held.episode : null,
         thumbnail: held.thumbnail ?? null,
+        // The Host reads the protocol's `released` and Cinemeta's `firstAired`;
+        // the preview mirrors it so an announced episode is drawn as one.
+        airDate: airDateOf(held.released ?? held.firstAired),
       },
     ];
   });
+}
+
+/** The calendar day an ISO 8601 date or instant names, or none. */
+function airDateOf(text: string | undefined): string | null {
+  if (!text || !/^\d{4}-\d{2}-\d{2}/.test(text)) {
+    return null;
+  }
+  return text.slice(0, 10);
 }
 
 async function answerOpenTitle(
@@ -414,6 +427,7 @@ async function buildSnapshot(): Promise<Snapshot> {
       subtitleColor: "#FFFFFF",
       subtitleScale: 1,
       streamBuffer: { seconds: 300, megabytes: 512 },
+      upNextPlayback: "direct",
     },
     addons: [
       {
@@ -433,6 +447,10 @@ async function buildSnapshot(): Promise<Snapshot> {
     ],
     featuredCatalog: { addon: ADDON, catalog: { type: "movie", id: "top" } },
     protection: { backend: "file", tmdbHeld: false, stremioHeld: false },
+    // The preview's sample progress is one Video per Title, so the per-Video
+    // list and the per-Title row hold the same cards here, with no Up next to
+    // move on to.
+    continueWatching: watchProgress.map((entry) => ({ ...entry, upNext: false })),
     watchProgress,
     devices: PREVIEW_DEVICES.map((device) => ({ ...device })),
     pairingCode: PREVIEW_PAIRING_CODE,
@@ -845,6 +863,10 @@ async function dispatch(action: Action): Promise<Response> {
         },
       }));
     }
+    case "set_up_next_playback":
+      return change((state) => ({
+        preferences: { ...state.preferences, upNextPlayback: action.playback },
+      }));
     case "set_featured_catalog":
       return setFeatured(action);
     case "clear_featured_catalog":

@@ -13,6 +13,7 @@ const ENTRY: ResumeEntry = {
     season: 1,
     episode: 2,
     thumbnail: "https://images.test/episode-two.jpg",
+    airDate: null,
   },
   title: {
     addon: "cinemeta",
@@ -112,10 +113,12 @@ const PLAYING: Snapshot = {
     subtitleColor: "#FFFFFF",
     subtitleScale: 1.25,
     streamBuffer: { seconds: 300, megabytes: 512 },
+    upNextPlayback: "direct",
   },
   addons: [],
   featuredCatalog: null,
   protection: { backend: "file", tmdbHeld: false, stremioHeld: false },
+  continueWatching: [],
   watchProgress: [ENTRY],
   devices: [],
   pairingCode: "4K7Q2M",
@@ -126,7 +129,7 @@ type Hold = { type: Action["type"]; gate: Promise<void> };
 
 function fakeHost(initial: Snapshot, hold?: Hold) {
   const invocations: Array<{ command: string; args?: Record<string, unknown> }> = [];
-  let listener: ((event: { payload: Snapshot }) => void) | undefined;
+  const listeners = new Map<string, (event: { payload: Snapshot }) => void>();
 
   const transport: Transport = {
     invoke: async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
@@ -140,11 +143,12 @@ function fakeHost(initial: Snapshot, hold?: Hold) {
       }
       return { snapshots: [], answer: null } as T;
     },
-    listen: async <T,>(_event: string, handler: (event: { payload: T }) => void) => {
-      listener = handler as (event: { payload: Snapshot }) => void;
+    listen: async <T,>(event: string, handler: (event: { payload: T }) => void) => {
+      const listener = handler as (event: { payload: Snapshot }) => void;
+      listeners.set(event, listener);
       return () => {
-        if (listener === handler) {
-          listener = undefined;
+        if (listeners.get(event) === listener) {
+          listeners.delete(event);
         }
       };
     },

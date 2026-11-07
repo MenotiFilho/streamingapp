@@ -71,10 +71,12 @@ const SNAPSHOT: Snapshot = {
     subtitleColor: "#FFFFFF",
     subtitleScale: 1,
     streamBuffer: { seconds: 300, megabytes: 512 },
+    upNextPlayback: "direct",
   },
   addons: [CINEMETA, TORRENTIO],
   featuredCatalog: { addon: "cinemeta", catalog: { type: "series", id: "top" } },
   protection: { backend: "file", tmdbHeld: false, stremioHeld: false },
+  continueWatching: [],
   watchProgress: [],
   devices: [],
   pairingCode: "----",
@@ -102,6 +104,7 @@ const SERIES: Title = {
       season: 1,
       episode: 1,
       thumbnail: null,
+      airDate: null,
     },
   ],
 };
@@ -117,7 +120,7 @@ const STREAM: Stream = {
 
 function fakeHost() {
   const invocations: Array<{ command: string; args?: Record<string, unknown> }> = [];
-  let listener: ((event: { payload: Snapshot }) => void) | undefined;
+  const listeners = new Map<string, (event: { payload: Snapshot }) => void>();
 
   const transport: Transport = {
     invoke: async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
@@ -168,11 +171,14 @@ function fakeHost() {
           return { snapshots: [], answer: null } as T;
       }
     },
-    listen: async <T,>(_event: string, handler: (event: { payload: T }) => void) => {
-      listener = handler as (event: { payload: Snapshot }) => void;
+    listen: async <T,>(event: string, handler: (event: { payload: T }) => void) => {
+      const listener = handler as (event: { payload: Snapshot }) => void;
+      listeners.set(event, listener);
       listener({ payload: SNAPSHOT });
       return () => {
-        listener = undefined;
+        if (listeners.get(event) === listener) {
+          listeners.delete(event);
+        }
       };
     },
   };

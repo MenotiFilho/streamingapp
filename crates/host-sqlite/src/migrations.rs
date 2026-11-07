@@ -117,6 +117,46 @@ pub const MIGRATIONS: &[Migration] = &[
                   FROM watch_progress_v5;
               DROP TABLE watch_progress_v5;",
     },
+    Migration {
+        // The Titles the Host has read (ADR-0038): the Title itself as it was
+        // answered — its metadata, Videos and key — with the moment it was
+        // read, where the copy came from, and what TMDB said about a series'
+        // run. `key` is the Title's identity written as JSON, because a Title
+        // is keyed by a TMDB id or by an Addon's pair and SQL should not learn
+        // a second spelling of it. `title` is a document for the same reason an
+        // Addon's manifest is: nothing here queries inside one.
+        version: 7,
+        sql: "CREATE TABLE titles (
+                 key      TEXT PRIMARY KEY NOT NULL,
+                 title    TEXT NOT NULL,
+                 source   TEXT NOT NULL,
+                 status   TEXT,
+                 read_at  INTEGER NOT NULL
+             );
+             CREATE INDEX titles_read_at ON titles (read_at);",
+    },
+    Migration {
+        // The episode TMDB said comes next when a Title was read (#277): the
+        // hint the caught-up rule reads to know which season is worth reading
+        // again. Nullable because a film and a series with nothing announced
+        // have none, and the list of Videos stays the truth either way
+        // (ADR-0038 §5).
+        version: 8,
+        sql: "ALTER TABLE titles ADD COLUMN next_season INTEGER;
+              ALTER TABLE titles ADD COLUMN next_episode INTEGER;",
+    },
+    Migration {
+        // The Stream a Video was played from, for Playing its Title's Up next
+        // (#276): the Addon that answered the `stream` request and the
+        // `bingeGroup` it grouped the release by. Playing Up next continues
+        // that Addon and release rather than picking an unrelated candidate
+        // (ADR-0012, ADR-0014). Both are null for a row written before this
+        // step and for a position merged from the Stremio account, neither of
+        // which saw a Stream; Playing such an Up next refuses for the picker.
+        version: 9,
+        sql: "ALTER TABLE watch_progress ADD COLUMN stream_addon TEXT;
+              ALTER TABLE watch_progress ADD COLUMN binge_group TEXT;",
+    },
 ];
 
 /// The version a database is at once every migration in `migrations` has run.
