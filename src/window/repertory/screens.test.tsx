@@ -243,6 +243,7 @@ function harness(overrides: Partial<ShellContextValue> = {}) {
     back: vi.fn(),
     ask,
     take,
+    hint: vi.fn(),
     home: new HomeStore(ask),
     setIntentHandler: vi.fn(),
     setBaseIntentHandler: vi.fn(() => () => {}),

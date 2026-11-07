@@ -555,6 +555,73 @@ fn a_paired_client_sees_state_change_without_asking_for_it() {
 }
 
 #[test]
+fn a_look_hint_is_a_fire_and_forget_command_that_reads_ahead() {
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(MANIFEST_URL, MANIFEST)
+            .serving(MOVIE_URL, MOVIE),
+    );
+    let (fixture, server) = server_over(fetcher.clone());
+    fixture.publish_change(action(&format!(
+        r#"{{"type":"add_addon","url":"{MANIFEST_URL}"}}"#
+    )));
+
+    let mut client = Client::connect(&server);
+    client.hello(None);
+    pair(&mut client, &fixture, "Phone");
+    let revision = fixture.door.snapshot().revision;
+
+    let reply = client.command(
+        3,
+        json!({
+            "type": "look_hint",
+            "addon": "com.linvo.cinemeta",
+            "title": { "type": "movie", "id": "tt0133093" },
+        }),
+    );
+    assert_eq!(
+        reply["response"]["snapshots"],
+        json!([]),
+        "a hint publishes no Snapshot: {reply}"
+    );
+    assert!(
+        reply["response"]["answer"].is_null(),
+        "a hint answers nothing: {reply}"
+    );
+    assert_eq!(
+        fixture.door.snapshot().revision,
+        revision,
+        "a hint moves no revision"
+    );
+    assert_eq!(
+        fetcher
+            .asked()
+            .iter()
+            .filter(|url| *url == MOVIE_URL)
+            .count(),
+        0,
+        "the hint queued the read rather than making it"
+    );
+
+    assert_eq!(fixture.door.drain(), 1);
+    let opened = client.command(4, open_movie());
+    assert_eq!(
+        opened["response"]["answer"]["title"]["name"], "The Matrix",
+        "the Title the hint read ahead opens: {opened}"
+    );
+    assert_eq!(
+        fetcher
+            .asked()
+            .iter()
+            .filter(|url| *url == MOVIE_URL)
+            .count(),
+        1,
+        "the open after the read-ahead fetched nothing: {:?}",
+        fetcher.asked()
+    );
+}
+
+#[test]
 fn a_revised_title_goes_to_the_asking_device_and_no_other() {
     let fetcher = Arc::new(
         FixtureFetcher::new()

@@ -250,6 +250,39 @@ describe("the Session", () => {
     expect(session.getState().error).toBeNull();
   });
 
+  test("hint is fire-and-forget: no wait, no answer, and a refusal is not an alert", async () => {
+    const refusal: ActionError = { kind: "malformed", detail: "not a hint" };
+    let refuses = true;
+    const host = fakeHost({
+      answer: () => {
+        if (refuses) {
+          throw refusal;
+        }
+        return { snapshots: [], answer: null };
+      },
+    });
+    const session = new Session(host.link);
+    const hint: Action = {
+      type: "look_hint",
+      addon: "cinemeta",
+      title: { type: "movie", id: "tt1" },
+    };
+
+    session.hint(hint);
+    await flush();
+
+    expect(host.actions, "the hint reaches the one door").toEqual([hint]);
+    expect(session.getState().pending.size, "nothing is waiting on an answer").toBe(0);
+    expect(session.getState().error, "resting is not asking").toBeNull();
+
+    refuses = false;
+    session.hint({ ...hint, addon: null });
+    await flush();
+
+    expect(host.actions).toHaveLength(2);
+    expect(session.getState().error).toBeNull();
+  });
+
   test("one dispatch per key, and a joined caller sees the same answer", async () => {
     const gates: Array<Deferred<Response>> = [];
     const host = fakeHost({

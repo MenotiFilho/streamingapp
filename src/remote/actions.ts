@@ -60,6 +60,7 @@ export const REMOTE_ACTIONS = [
   "next_episode",
   "previous_episode",
   "stop_playback",
+  "look_hint",
 ] as const satisfies readonly Action["type"][];
 
 /**

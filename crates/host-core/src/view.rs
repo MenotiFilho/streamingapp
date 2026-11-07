@@ -428,7 +428,8 @@ impl HostView {
             | ValidatedAction::SetAspect { .. }
             | ValidatedAction::NextEpisode
             | ValidatedAction::PreviousEpisode
-            | ValidatedAction::StopPlayback => {
+            | ValidatedAction::StopPlayback
+            | ValidatedAction::LookHint { .. } => {
                 return Err(ActionError::Malformed {
                     detail: "a change is not a question".to_owned(),
                 })
@@ -614,13 +615,84 @@ impl HostView {
     ) {
         let mut job = Job {
             key: cached.title.key.clone(),
-            answered: cached.title.clone(),
+            answered: Some(cached.title.clone()),
             work,
             askers: Vec::new(),
         };
         if let Some(sink) = revisions {
             job.askers.push(sink.clone());
         }
+        self.background
+            .lock()
+            .expect("the background queue is not poisoned")
+            .enqueue(job);
+    }
+
+    /// Queue the read-ahead a card's look hint asks for (ADR-0038 §3, #278).
+    ///
+    /// A fresh copy is not read again. A stale copy is refreshed with no asker:
+    /// a hint answers nobody, so nothing is revised when the read lands. An
+    /// uncached Title is read and kept, which is what makes the next open
+    /// instant. A hint for something no source here could answer — an Addon no
+    /// longer configured, or an id that is not TMDB's — queues nothing: it is
+    /// fire-and-forget, and there would be nobody to tell that it bought
+    /// nothing.
+    pub(crate) fn look_hint(&self, addon: Option<AddonId>, title: TitleRef) {
+        let now = self.clock.now_millis();
+        let (key, cached, work) = match addon {
+            Some(addon) => {
+                let cached = self.cached_for_addon(&addon, &title, now);
+                if cached.as_ref().is_some_and(|cached| cached.is_fresh(now)) {
+                    return;
+                }
+                let key = match &cached {
+                    Some(cached) => cached.title.key.clone(),
+                    None => {
+                        if !self.addons.iter().any(|held| held.id() == &addon) {
+                            return;
+                        }
+                        TitleKey::Addon {
+                            addon: addon.clone(),
+                            id: title.id.clone(),
+                        }
+                    }
+                };
+                (
+                    key,
+                    cached,
+                    Work::Addon {
+                        addon,
+                        asked: title,
+                    },
+                )
+            }
+            None => {
+                // A card that names no Addon is a Discovered Title, whose id is
+                // TMDB's own `tmdb:<id>` spelling (ADR-0020).
+                let Some(kind) = tmdb::Kind::parse(&title.r#type) else {
+                    return;
+                };
+                let Some(id) = title.id.strip_prefix("tmdb:").and_then(tmdb::TmdbId::parse) else {
+                    return;
+                };
+                let cached = self.cached_for_tmdb(id, kind, now);
+                if cached.as_ref().is_some_and(|cached| cached.is_fresh(now)) {
+                    return;
+                }
+                let key = match &cached {
+                    Some(cached) => cached.title.key.clone(),
+                    None => TitleKey::Tmdb { id: id.0 },
+                };
+                (key, cached, Work::Discovered { id, kind })
+            }
+        };
+
+        let job = Job {
+            key,
+            answered: cached.map(|cached| cached.title),
+            work,
+            askers: Vec::new(),
+        };
         self.background
             .lock()
             .expect("the background queue is not poisoned")
@@ -649,18 +721,23 @@ impl HostView {
     /// cached copy stands, and nobody is told (ADR-0038 §2).
     fn refresh(&self, job: &Job) {
         let now = self.clock.now_millis();
-        let replacing = job.answered.key.clone();
+        let replacing = job.answered.as_ref().map(|title| title.key.clone());
         let read = match &job.work {
-            Work::Addon { addon, asked } => self.read_title(addon, asked, Some(&job.answered)),
+            Work::Addon { addon, asked } => self.read_title(addon, asked, job.answered.as_ref()),
             Work::Discovered { id, kind } => self.read_discovered(*id, *kind),
         };
         let Ok((title, source, status)) = read else {
             return;
         };
 
-        self.keep_title(&title, source, status, Some(replacing), now);
+        self.keep_title(&title, source, status, replacing, now);
 
-        if title == job.answered {
+        // A read-ahead answers nobody: keep the copy and stop before an Answer
+        // is built for a job no client asked for (ADR-0038 §3).
+        if job.askers.is_empty() {
+            return;
+        }
+        if job.answered.as_ref() == Some(&title) {
             return;
         }
         let answer = Answer::Revision(Box::new(title));

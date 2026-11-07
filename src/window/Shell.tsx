@@ -38,7 +38,7 @@ export function Shell({ client }: { client?: HostLink }) {
   const link = useMemo(() => client ?? new TauriLink(), [client]);
   const { session, state } = useSession(link);
   const { snapshot, error, unplayable, pending } = state;
-  const { ask, take: takeAction, markUnplayable, home } = session;
+  const { ask, take: takeAction, markUnplayable, home, hint } = session;
   const nav = useNavigation<WindowPayload>();
   // A Stop the person has asked for and the Host has not yet reported (#250).
   const [closing, setClosing] = useState(false);
@@ -204,6 +204,7 @@ export function Shell({ client }: { client?: HostLink }) {
       back,
       ask,
       take: takeWithStop,
+      hint,
       markUnplayable,
       home,
       setIntentHandler,
@@ -226,6 +227,7 @@ export function Shell({ client }: { client?: HostLink }) {
       back,
       ask,
       takeWithStop,
+      hint,
       markUnplayable,
       home,
       setIntentHandler,
