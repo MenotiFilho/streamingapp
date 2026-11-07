@@ -40,6 +40,7 @@ function nothing(revision: number, address: string | null = null): Snapshot {
     addons: [],
     featuredCatalog: null,
     protection: { backend: "file", tmdbHeld: false, stremioHeld: false },
+    continueWatching: [],
     watchProgress: [],
     devices: [],
     pairingCode: "4K7Q2M",

@@ -104,6 +104,7 @@ const SNAPSHOT: Snapshot = {
   addons: [CINEMETA, TORRENTIO],
   featuredCatalog: null,
   protection: { backend: "file", tmdbHeld: true, stremioHeld: false },
+  continueWatching: [],
   watchProgress: [],
   devices: [LIVING_ROOM, OFFICE],
   pairingCode: "4K7Q2M",

@@ -5,11 +5,11 @@
  * Home is drawn from two places, and neither is a new Host call: the Host's
  * `featuredCatalog` preference names one configured Catalog, and Home reads the
  * first items of that Catalog's ordinary `browse_catalog` answer; Continue
- * watching is the Host's Watch progress directly on the Snapshot. The decisions
- * here are pure so the fallbacks are tested without a page.
+ * watching is the Host's own one-card-per-Title list on the Snapshot. The
+ * decisions here are pure so the fallbacks are tested without a page.
  */
 
-import type { MetaPreview, ResumeEntry, Snapshot } from "./wire";
+import type { ContinueEntry, MetaPreview, Snapshot } from "./wire";
 import type { Row } from "./browse";
 import type { OpenablePreview } from "./title";
 
@@ -93,7 +93,7 @@ export function featuredRow(snapshot: Snapshot | null, rows: readonly Row[]): Ro
 }
 
 /** A Continue watching card's 16:9 art: the card's backdrop, else its poster. */
-export function continueArt(entry: ResumeEntry): string | null {
+export function continueArt(entry: ContinueEntry): string | null {
   return entry.title.background ?? entry.title.poster ?? null;
 }
 

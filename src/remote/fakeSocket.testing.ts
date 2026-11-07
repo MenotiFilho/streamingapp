@@ -63,6 +63,7 @@ export const NOTHING: Snapshot = {
   addons: [],
   featuredCatalog: null,
   protection: { backend: "file", tmdbHeld: false, stremioHeld: false },
+  continueWatching: [],
   watchProgress: [],
   devices: [],
   pairingCode: PAIRING_CODE,

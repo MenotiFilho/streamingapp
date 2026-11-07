@@ -75,6 +75,7 @@ const SNAPSHOT: Snapshot = {
   addons: [CINEMETA, TORRENTIO],
   featuredCatalog: { addon: "cinemeta", catalog: { type: "series", id: "top" } },
   protection: { backend: "file", tmdbHeld: false, stremioHeld: false },
+  continueWatching: [],
   watchProgress: [],
   devices: [],
   pairingCode: "----",

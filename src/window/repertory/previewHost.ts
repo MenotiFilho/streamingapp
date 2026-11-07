@@ -433,6 +433,9 @@ async function buildSnapshot(): Promise<Snapshot> {
     ],
     featuredCatalog: { addon: ADDON, catalog: { type: "movie", id: "top" } },
     protection: { backend: "file", tmdbHeld: false, stremioHeld: false },
+    // The preview's sample progress is one Video per Title, so the per-Video
+    // list and the per-Title row hold the same cards here.
+    continueWatching: watchProgress,
     watchProgress,
     devices: PREVIEW_DEVICES.map((device) => ({ ...device })),
     pairingCode: PREVIEW_PAIRING_CODE,

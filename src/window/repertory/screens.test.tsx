@@ -88,6 +88,7 @@ const SNAPSHOT: Snapshot = {
   addons: [CINEMETA, TORRENTIO, AIOSTREAMS],
   featuredCatalog: null,
   protection: { backend: "file", tmdbHeld: false, stremioHeld: false },
+  continueWatching: [],
   watchProgress: [],
   devices: [],
   pairingCode: "----",
