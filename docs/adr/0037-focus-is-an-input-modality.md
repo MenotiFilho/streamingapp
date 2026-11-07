@@ -88,6 +88,17 @@ pocket (ADR-0035 §1). The record is made at `pointerdown` capture, before the
 browser's native focus scroll, then read at `click` capture. A control outside a
 row is direct manipulation and always activates.
 
+"Fully visible" means within a pixel. The test sets the control's exact border
+box against each scrollport's client box, and the browser snaps that client box
+to whole pixels while the control's rect keeps the fraction. A control that
+fills its port — the Title's episode rows fill their list's width — therefore
+overhangs the snapped box by the remainder and so reads as cut off, at every
+window width where the snap rounds down: the first press only focused the row
+and the second one opened it. It was found on the Windows build while #275 was
+verified, and `main` had it all along. `insidePort` admits less than a whole
+pixel past an edge, which is the snap's whole error; a pixel or more is still a
+cut-off, and the row at a list's bottom edge keeps the two-press rule.
+
 The window reveals through `focusAndReveal(control, { mode: "nearest", force:
 true })`; the Remote calls `focus({ preventScroll: true })` and
 `scrollIntoView({ block: "nearest", inline: "nearest" })`. Both are the minimal
@@ -98,7 +109,15 @@ Rejected, with reasons: **activating on the first press and letting the browser
 scroll** (the activation is a different control from the one the person aimed
 at); **always focusing first** (a fully visible control would need two clicks
 for no reason); **a timer or a double-click window** (the browser already says
-which control was pressed; a clock would make the rule depend on speed).
+which control was pressed; a clock would make the rule depend on speed);
+**comparing the exact boxes with no tolerance** (the snapped client box is the
+only port the DOM offers, so every control that fills its port reads as cut off
+at some window widths); **rebuilding the port's exact content box from computed
+style** (the used size depends on `box-sizing`, the scrollbar and the zoom: more
+machinery to reproduce a number the tolerance already bounds); **taking the
+episode list out of the rule** (the row that really is cut off at its bottom
+would lose the rule, and every other full-width list would stay a window width
+away from the same bug).
 
 ## 5. The Remote shares the rule
 
@@ -135,12 +154,14 @@ would still activate the wrong one); **a second pointer plan in the template**
   hover and an arrow walk; a pointer press on the same item leaves it compact.
   The open/compact width, the label fade and the panel spring are unchanged.
 - Tests: `inputModality.test.ts` (keydown, pointerdown, the attribute, install
-  and teardown), `pointerPress.test.ts` (the four plans and the rect ports),
-  `src/core/react/pointerPress.test.ts` (the fixed-panel visibility walk),
+  and teardown), `pointerPress.test.ts` (the four plans, the rect ports and the
+  one-pixel slack), `src/core/react/pointerPress.test.ts` (the fixed-panel
+  visibility walk, and a row that fills its snapped port),
   `reveal.test.ts` (the axis, the unchanged nearest, the pointer skip and the
   one forced reveal), `useSpatialFocus.test.tsx` (pointer moves without
-  revealing, navigation reveals, the two-press cut-off) and `frame.test.ts`
-  (`spineOpensOn`). No CSS is read as text; the two presentation locks are
-  unchanged (ADR-0032).
+  revealing, navigation reveals, the two-press cut-off), `screens.test.tsx`
+  (the Title's first press on an episode, and the main button outside any row)
+  and `frame.test.ts` (`spineOpensOn`). No CSS is read as text; the two
+  presentation locks are unchanged (ADR-0032).
 - `docs/design-system.md` §5 is the drawing's home: the keyline, the ink and
   the wash are navigation's, and a pointer focus draws none of them.

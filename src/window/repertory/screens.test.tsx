@@ -14,9 +14,11 @@ import type {
 } from "../../core/wire";
 import { actionKey } from "../../core/actionKey";
 import { searchFeedKey } from "../../core/search";
+import { installPointerPress } from "../../core/react/pointerPress";
 import { TauriLink, type Transport } from "../tauriLink";
 import { Shell } from "../Shell";
 import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContextValue } from "../context";
+import { focusAndReveal } from "../reveal";
 import { quietSession } from "../session.testing";
 import { HomeStore } from "../../core/homeStore";
 import { PreviewDataProvider } from "./context";
@@ -294,6 +296,55 @@ function PendingStreams({ gate }: { gate: Promise<null> }) {
   );
 }
 
+/** A DOMRect-shaped box, as the page's own geometry reads it. */
+function box(left: number, top: number, right: number, bottom: number): DOMRect {
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    width: right - left,
+    height: bottom - top,
+    x: left,
+    y: top,
+    toJSON: () => ({}),
+  } as DOMRect;
+}
+
+/**
+ * The episode list as Chromium measured it at 1536x864 and a 1.25 device scale
+ * (#275). The list is the scrollport: its client box is the whole pixels
+ * 725x683, and its rows fill it with their exact width of 725.375, so every
+ * row overhangs the snapped box by 0.375px. jsdom lays nothing out, so the
+ * page's numbers are the harness's input; what a press does with them is the
+ * assertion.
+ */
+function layOutEpisodeList(list: HTMLElement, rows: readonly HTMLElement[]): () => void {
+  const page = document.documentElement;
+  list.style.overflowY = "auto";
+  list.getBoundingClientRect = () => box(776.0625, 151.875, 1511.4375, 836.359375);
+  Object.defineProperty(list, "clientWidth", { configurable: true, value: 725 });
+  Object.defineProperty(list, "clientHeight", { configurable: true, value: 683 });
+  Object.defineProperty(list, "clientTop", { configurable: true, value: 1 });
+  rows.forEach((row, index) => {
+    const top = 152.875 + index * 119.796875;
+    row.getBoundingClientRect = () => box(776.0625, top, 1501.4375, top + 117.796875);
+  });
+  Object.defineProperty(page, "clientWidth", { configurable: true, value: 1536 });
+  Object.defineProperty(page, "clientHeight", { configurable: true, value: 864 });
+  return () => {
+    Object.defineProperty(page, "clientWidth", { configurable: true, value: 0 });
+    Object.defineProperty(page, "clientHeight", { configurable: true, value: 0 });
+  };
+}
+
+/** The window's cut-off pointer rule, installed the way `main.tsx` installs it. */
+function installCutOffRule(): () => void {
+  return installPointerPress(document.documentElement, {
+    focusAndReveal: (control) => focusAndReveal(control, { mode: "nearest", force: true }),
+  });
+}
+
 describe("the repertory Title page", () => {
   it("pushes the Streams level for the episode that was pressed", () => {
     const { value, pushed } = harness();
@@ -303,6 +354,50 @@ describe("the repertory Title page", () => {
 
     expect(pushed).toHaveLength(1);
     expect(pushed[0]?.name).toBe("Streams");
+  });
+
+  it("opens the Streams on the first pointer press of an episode in view", () => {
+    const { value, pushed } = harness();
+    render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
+    const stop = installCutOffRule();
+    const restore = layOutEpisodeList(screen.getByTestId("title-episodes"), [
+      screen.getByTestId("episode-tt0903747:1:1"),
+      screen.getByTestId("episode-tt0903747:1:2"),
+    ]);
+
+    try {
+      const episode = screen.getByTestId("episode-tt0903747:1:1");
+      fireEvent.pointerDown(episode);
+      fireEvent.click(episode);
+
+      expect(pushed, "the first press is the one that was aimed at").toHaveLength(1);
+      expect(pushed[0]?.name).toBe("Streams");
+    } finally {
+      stop();
+      restore();
+    }
+  });
+
+  it("takes the main button's first press even where the page cuts it off: it is not a row's item", () => {
+    const { value, take } = harness({
+      snapshot: { ...SNAPSHOT, continueWatching: [continueEntry()] },
+    });
+    render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
+    const stop = installCutOffRule();
+
+    try {
+      const main = screen.getByTestId("title-main");
+      main.getBoundingClientRect = () => box(-500, -500, -100, -400);
+      fireEvent.pointerDown(main);
+      fireEvent.click(main);
+
+      expect(take).toHaveBeenCalledWith({
+        type: "resume",
+        video: { type: "series", id: "tt0903747:1:2" },
+      });
+    } finally {
+      stop();
+    }
   });
 
   it("keeps an announced episode playable: its press pushes Streams", () => {
