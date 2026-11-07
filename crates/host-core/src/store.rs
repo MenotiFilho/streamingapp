@@ -3,15 +3,19 @@ use std::sync::Mutex;
 
 use crate::addon::Addon;
 use crate::device::{Device, DeviceId};
+use crate::meta::TitleKey;
 use crate::preferences::Preferences;
 use crate::progress::WatchProgress;
+use crate::title_cache::CachedTitle;
 
 /// Where the Host's non-secret state lives between runs.
 ///
 /// Domain operations only: no SQL, no schema and no file layout show up above this
 /// seam, and the same trait is implemented in memory for tests and over SQLite for
-/// real. The Host reads once at startup and writes once per Action, so an
-/// implementation may assume the calls are rare and not concurrent with each other.
+/// real. State is read once at startup and written once per change; the Title
+/// cache is also written from questions, so a question may keep a Title while
+/// another reads one. An implementation serializes its own access rather than
+/// relying on the Host's change lock for that.
 pub trait Store: Send + Sync + 'static {
     /// The preferences that were persisted, or the defaults when nothing has ever
     /// been written.
@@ -40,6 +44,20 @@ pub trait Store: Send + Sync + 'static {
     /// One entry at a time because this is the write the Host makes while it
     /// plays: playback moves, and the position written down moves with it (#29).
     fn write_watch_progress(&self, progress: &WatchProgress) -> Result<(), StoreError>;
+
+    /// The Titles the Host has read, oldest read first.
+    ///
+    /// Read once at startup, like Watch progress: the Host holds the cache in
+    /// memory and consults it on every open (ADR-0038). A Title is written from
+    /// a question as well as a change, so a question may write one while
+    /// another reads another; implementations serialize their own access.
+    fn read_titles(&self) -> Result<Vec<CachedTitle>, StoreError>;
+
+    /// Keep one Title, replacing whatever was held for its identity.
+    fn write_title(&self, title: &CachedTitle) -> Result<(), StoreError>;
+
+    /// Drop one Title by its identity, as the bound or TMDB's terms require.
+    fn remove_title(&self, key: &TitleKey) -> Result<(), StoreError>;
 
     /// The devices the Host has paired, in the order they paired.
     ///
@@ -96,6 +114,7 @@ pub struct InMemoryStore {
     preferences: Mutex<Preferences>,
     addons: Mutex<Vec<Addon>>,
     watch: Mutex<Vec<WatchProgress>>,
+    titles: Mutex<Vec<CachedTitle>>,
     devices: Mutex<Vec<Device>>,
     failing_writes: AtomicBool,
 }
@@ -111,6 +130,7 @@ impl InMemoryStore {
             preferences: Mutex::new(preferences),
             addons: Mutex::new(Vec::new()),
             watch: Mutex::new(Vec::new()),
+            titles: Mutex::new(Vec::new()),
             devices: Mutex::new(Vec::new()),
             failing_writes: AtomicBool::new(false),
         }
@@ -131,6 +151,15 @@ impl InMemoryStore {
             .watch
             .lock()
             .expect("the in-memory store is not poisoned") = watch;
+        self
+    }
+
+    /// The same, with the Titles a previous run kept.
+    pub fn holding_titles(self, titles: Vec<CachedTitle>) -> Self {
+        *self
+            .titles
+            .lock()
+            .expect("the in-memory store is not poisoned") = titles;
         self
     }
 
@@ -172,6 +201,17 @@ impl InMemoryStore {
             .lock()
             .expect("the in-memory store is not poisoned")
             .clone()
+    }
+
+    /// The same look, at the kept Titles, oldest read first.
+    pub fn persisted_titles(&self) -> Vec<CachedTitle> {
+        let mut titles = self
+            .titles
+            .lock()
+            .expect("the in-memory store is not poisoned")
+            .clone();
+        titles.sort_by_key(|title| title.read_at);
+        titles
     }
 
     /// The same look, at the paired devices.
@@ -241,6 +281,40 @@ impl Store for InMemoryStore {
         // entry it replaces goes wherever it was, and the new one leads.
         held.retain(|entry| entry.video != progress.video);
         held.insert(0, progress.clone());
+        Ok(())
+    }
+
+    fn read_titles(&self) -> Result<Vec<CachedTitle>, StoreError> {
+        Ok(self.persisted_titles())
+    }
+
+    fn write_title(&self, title: &CachedTitle) -> Result<(), StoreError> {
+        if self.failing_writes.load(Ordering::SeqCst) {
+            return Err(StoreError::Write {
+                detail: "the store is failing every write".to_owned(),
+            });
+        }
+
+        let mut held = self
+            .titles
+            .lock()
+            .expect("the in-memory store is not poisoned");
+        held.retain(|existing| existing.title.key != title.title.key);
+        held.push(title.clone());
+        Ok(())
+    }
+
+    fn remove_title(&self, key: &TitleKey) -> Result<(), StoreError> {
+        if self.failing_writes.load(Ordering::SeqCst) {
+            return Err(StoreError::Write {
+                detail: "the store is failing every write".to_owned(),
+            });
+        }
+
+        self.titles
+            .lock()
+            .expect("the in-memory store is not poisoned")
+            .retain(|title| &title.title.key != key);
         Ok(())
     }
 
