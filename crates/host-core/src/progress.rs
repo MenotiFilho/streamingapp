@@ -170,10 +170,10 @@ pub struct WatchProgress {
     /// The Addon whose Stream was playing this Video, where one played it.
     ///
     /// Read back by Playing Up next, which continues the release: the Addon and
-    /// the `bingeGroup` are what make the next episode the same release rather
-    /// than an unrelated candidate (ADR-0012, ADR-0014). `None` for an entry
-    /// written before this field existed and for a position merged in from the
-    /// Stremio account, neither of which saw a Stream.
+    /// the `bingeGroup` are what make the Up next the same release rather than
+    /// an unrelated candidate (ADR-0012, ADR-0014). `None` for an entry written
+    /// before this field existed and for a position merged in from the Stremio
+    /// account, neither of which saw a Stream.
     pub stream_addon: Option<AddonId>,
     /// The release the Stream was binge-grouped by, where its Addon said — the
     /// other half of the continuity Playing Up next continues.

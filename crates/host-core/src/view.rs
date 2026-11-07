@@ -744,11 +744,12 @@ impl HostView {
             }
             None => {
                 // A card that names no Addon is a Discovered Title, whose id is
-                // TMDB's own `tmdb:<id>` spelling (ADR-0020).
-                let Some(kind) = tmdb::Kind::parse(&title.r#type) else {
-                    return;
-                };
-                let Some(id) = title.id.strip_prefix("tmdb:").and_then(tmdb::TmdbId::parse) else {
+                // TMDB's own `tmdb:<id>` spelling (ADR-0020). An IMDb id with no
+                // Addon behind it is not one this Host can read ahead.
+                let (Some(tmdb::ExternalId::Tmdb(id)), Some(kind)) = (
+                    tmdb::ExternalId::parse(&title.r#type, &title.id),
+                    tmdb::Kind::parse(&title.r#type),
+                ) else {
                     return;
                 };
                 let cached = self.cached_for_tmdb(id, kind, now);

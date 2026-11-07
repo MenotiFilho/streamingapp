@@ -4,9 +4,9 @@
 //! one the Continue watching row and Up next are answered from. So the Host
 //! keeps every Title it reads — its metadata and its Videos — with the moment
 //! it was read, where it came from, and what TMDB says about a series' run. A
-//! fresh copy opens without touching the network; a stale one is read again
-//! before it answers (#271); from #272 it will answer at once and refresh
-//! behind.
+//! fresh copy opens without touching the network; a stale one is answered at
+//! once from the store and read again behind the client, whose revised Answer
+//! is the second one (#271, #272, ADR-0038 §2).
 //!
 //! ## Freshness and the terms
 //!
@@ -316,31 +316,24 @@ impl TitleCache {
         asked: &TitleRef,
         now: i64,
     ) -> Option<CachedTitle> {
-        let index = self.entries.iter().position(|cached| {
-            let title = &cached.title;
-            (title.addon.as_ref() == Some(addon)
-                && title.r#type == asked.r#type
-                && title.id == asked.id)
-                || matches!(
-                    &title.key,
-                    TitleKey::Tmdb { id }
-                        if title.r#type == asked.r#type
-                            && asked
-                                .id
-                                .strip_prefix("tmdb:")
-                                .and_then(tmdb::TmdbId::parse)
-                                .is_some_and(|asked| asked.0 == *id)
-                )
-        })?;
+        let probe = TitleProbe::new(Some(addon.clone()), &asked.r#type, &asked.id);
+        let index = self
+            .entries
+            .iter()
+            .position(|cached| cached.names(&probe))?;
         self.take(index, now)
     }
 
     /// The cached copy for a Discovered Title, where one is held and still
     /// within TMDB's terms.
+    ///
+    /// Stricter than [`CachedTitle::names`] alone: the copy must be keyed by
+    /// the record, because a Title an Addon happened to key `tmdb:<id>` is not
+    /// TMDB's record of it.
     pub(crate) fn for_tmdb(&mut self, id: TmdbId, kind: Kind, now: i64) -> Option<CachedTitle> {
+        let probe = TitleProbe::new(None, kind.as_protocol(), &tmdb::video_spelling(id, None));
         let index = self.entries.iter().position(|cached| {
-            cached.title.key == TitleKey::Tmdb { id: id.0 }
-                && cached.title.r#type == kind.as_protocol()
+            cached.title.key == TitleKey::Tmdb { id: id.0 } && cached.names(&probe)
         })?;
         self.take(index, now)
     }

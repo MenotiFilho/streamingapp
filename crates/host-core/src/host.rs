@@ -529,10 +529,11 @@ impl Host {
             }
         }
 
-        if let Some(id) = probe.id.strip_prefix("tmdb:").and_then(tmdb::TmdbId::parse) {
-            if let Some(kind) = tmdb::Kind::parse(&probe.r#type) {
-                return Some(Work::Discovered { id, kind });
-            }
+        if let (Some(tmdb::ExternalId::Tmdb(id)), Some(kind)) = (
+            tmdb::ExternalId::parse(&probe.r#type, &probe.id),
+            tmdb::Kind::parse(&probe.r#type),
+        ) {
+            return Some(Work::Discovered { id, kind });
         }
         if let Some(addon) = &probe.addon {
             return TitleRef::parse(&probe.r#type, &probe.id)
