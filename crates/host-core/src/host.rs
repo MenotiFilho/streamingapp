@@ -794,16 +794,14 @@ impl Host {
             .as_ref()
             .and_then(|(stremio, key)| stremio.library(key, None).ok());
 
-        // The Library is read after the Title cache is loaded, so this is the
-        // one moment the bound can tell a Library-only Title from a cache entry
-        // nobody protects. A Library that could not be read settles nothing:
-        // evicting a Title the row needs is the worse error (ADR-0038 §1).
-        match (&account, &items) {
-            (Some(_), None) => {}
-            _ => self.settle_titles(items.as_deref().unwrap_or(&[]), now),
+        // With no account there is no Library to read: the cache's bound can be
+        // settled now, with nothing more to protect than Watch progress.
+        if account.is_none() {
+            self.settle_titles(&[], now);
+            return None;
         }
-
         let items = items?;
+
         let mut moved = false;
         for raw in &items {
             let Ok(item) = RemoteItem::parse(raw.clone()) else {
@@ -820,6 +818,13 @@ impl Host {
             let merged = self.merged_title(item.id(), Some(&item));
             moved |= self.adopt(merged.local);
         }
+
+        // The Library is read after the Title cache, so this is the one moment
+        // the bound can tell a Library-only Title from a cache entry nobody
+        // protects — now including the progress this pull just merged
+        // (ADR-0038 §1). A Library that could not be read settles nothing:
+        // evicting a Title the row needs is the worse error.
+        self.settle_titles(&items, now);
 
         // The Library is read at startup, so its Titles are read ahead here.
         // Remote progress that arrived with it joins the row, and any Title it
