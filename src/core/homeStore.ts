@@ -28,6 +28,7 @@ import type { Action, Extra, Response } from "./wire";
 import { asActionError, type ActionError } from "./errors";
 import { answeredCatalogs } from "./answers";
 import type { ActionOutcome } from "./answers";
+import { SnapshotStore, sameSet, type Ask } from "./store";
 
 /**
  * How many `browse_catalog` asks Home has in flight at once, `More` included.
@@ -57,9 +58,6 @@ export type HomeSnapshot = {
 };
 
 /** The Shell's one door, as the store needs it. */
-type Ask = (action: Action) => Promise<ActionOutcome>;
-
-/** Whether an ask is a catalog's first page or a page on from where it read. */
 type AskKind = "first" | "page";
 
 type PendingAsk = {
@@ -80,7 +78,7 @@ type PendingAsk = {
  * wide. A method mutates, then publishes one new snapshot; a subscriber reading
  * `getSnapshot` between changes always gets the same object.
  */
-export class HomeStore {
+export class HomeStore extends SnapshotStore<HomeSnapshot> {
   private rows = new Map<string, Row>();
   /** Keys whose first answer landed, whether it made a row or not. */
   private answeredKeys = new Set<string>();
@@ -108,14 +106,10 @@ export class HomeStore {
   private queue: string[] = [];
   private pending = new Map<string, PendingAsk>();
   private running = 0;
-  private snapshot: HomeSnapshot = {
-    rows: [],
-    answered: new Set(),
-    paging: new Set(),
-  };
-  private listeners = new Set<() => void>();
 
-  constructor(private readonly ask: Ask) {}
+  constructor(private readonly ask: Ask) {
+    super({ rows: [], answered: new Set(), paging: new Set() });
+  }
 
   /**
    * Follow the Catalog fingerprint. A surviving key keeps its row untouched —
@@ -218,15 +212,6 @@ export class HomeStore {
     this.enqueue(key, "page", [{ name: SKIP, value: String(row.offset) }]);
     this.publish();
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
-
-  getSnapshot = (): HomeSnapshot => this.snapshot;
 
   private enqueue(key: string, kind: AskKind, extra: Extra[]): void {
     const held = this.pending.get(key);
@@ -371,38 +356,15 @@ export class HomeStore {
       .filter((row): row is Row => row !== undefined);
     const answered = new Set(this.answeredKeys);
     const paging = new Set(this.pending.keys());
-
-    const previous = this.snapshot;
-    if (
+    this.publishSnapshot({ rows, answered, paging }, (previous) =>
       rows.length === previous.rows.length &&
       rows.every((row, index) => row === previous.rows[index]) &&
       sameSet(previous.answered, answered) &&
-      sameSet(previous.paging, paging)
-    ) {
-      return;
-    }
-
-    this.snapshot = { rows, answered, paging };
-    for (const listener of this.listeners) {
-      listener();
-    }
+      sameSet(previous.paging, paging));
   }
 }
 
 /** The values a browse ask carried, which a failed row repeats on a return. */
 function extraOf(action: Action): Extra[] {
   return action.type === "browse_catalog" ? action.extra : [];
-}
-
-/** Whether two sets hold the same members — what `publish` compares cheaply. */
-function sameSet(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
-  if (left.size !== right.size) {
-    return false;
-  }
-  for (const member of left) {
-    if (!right.has(member)) {
-      return false;
-    }
-  }
-  return true;
 }

@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 
 import type { Row } from "../core/browse";
 import { blankFeed } from "../core/discover";
+import type { FeedRow } from "../core/feedStore";
 import type {
   AddonManifest,
   MetaPreview,
@@ -10,6 +11,8 @@ import type {
 } from "../core/wire";
 import {
   gridCouldPlay,
+  gridEmptyNote,
+  gridFeed,
   gridLevel,
   gridView,
   type RemoteGrid,
@@ -17,13 +20,13 @@ import {
 } from "./grid";
 
 /**
- * The whole-row grid's decisions (#253, ADR-0036 §1, design system *Rail*).
+ * The whole-row grid's decisions (#253, #264, ADR-0036 §1, design system
+ * *Rail*).
  *
- * The grid is the cards the rail has read: paging belongs to the rail's quiet
- * head action, so the grid decides only what it draws — the row it shares with
- * the store, the Continue watching record, the tag the rail printed, and
- * whether a Discovered Title can play. Its paging rules live with their own
- * seams (`feed.ts`, `discoverScreen.ts`).
+ * The grid is the row the rail has read and shares with it: Home and the
+ * keyless Discover arm read the Session's Home store, a keyed Discover or
+ * Search row the Session's feed store. A grid therefore copies no row into the
+ * level; it decides what to draw from the store and how its page is read.
  */
 
 function meta(id: string, name: string): MetaPreview {
@@ -69,6 +72,13 @@ const CATALOG_ROW: Row = {
   done: false,
 };
 
+const FEED: FeedRow = {
+  ...blankFeed(),
+  page: 1,
+  items: [meta("tmdb:1", "One")],
+  offset: 1,
+};
+
 const CONTINUE: ResumeEntry = {
   video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
   title: {
@@ -93,7 +103,7 @@ describe("a whole-row grid", () => {
         index: "02",
         tag: "Cinemeta / 1 film",
         addon: "cinemeta",
-        source: { kind: "catalog", row: CATALOG_ROW },
+        source: { kind: "home", rowKey: "cinemeta/movie/top" },
       }),
     ).toEqual({
       name: "All of Popular",
@@ -105,7 +115,7 @@ describe("a whole-row grid", () => {
           index: "02",
           tag: "Cinemeta / 1 film",
           addon: "cinemeta",
-          source: { kind: "catalog", row: CATALOG_ROW },
+          source: { kind: "home", rowKey: "cinemeta/movie/top" },
         },
       },
     });
@@ -121,6 +131,7 @@ describe("what a grid draws", () => {
     const view = gridView(
       grid({ kind: "home", rowKey: "cinemeta/movie/top" }),
       [CATALOG_ROW],
+      new Map(),
       SNAPSHOT,
     );
 
@@ -134,6 +145,7 @@ describe("what a grid draws", () => {
     const view = gridView(
       grid({ kind: "home", rowKey: "cinemeta/movie/top" }),
       [],
+      new Map(),
       SNAPSHOT,
     );
 
@@ -142,9 +154,33 @@ describe("what a grid draws", () => {
     expect(view.addon).toBe("cinemeta");
   });
 
+  test("a keyed Discover or Search grid reads the feed the rail drew", () => {
+    const source: RemoteGridSource = {
+      kind: "discover",
+      feedKind: "movie",
+      genreKey: "Drama",
+      feedKey: "discover/host/Drama/movie",
+    };
+    const view = gridView(
+      grid(source),
+      [],
+      new Map([["discover/host/Drama/movie", FEED]]),
+      SNAPSHOT,
+    );
+
+    expect(view.feed).toBe(FEED);
+    expect(view.metas).toEqual(FEED.items);
+    expect(gridFeed(source, new Map([[source.feedKey, FEED]]))).toBe(FEED);
+  });
+
   test("Continue watching is its own source, carrying the Host's entries", () => {
     const snapshot = { ...SNAPSHOT, watchProgress: [CONTINUE] } as Snapshot;
-    const view = gridView(grid({ kind: "continue" }, "1 in progress"), [], snapshot);
+    const view = gridView(
+      grid({ kind: "continue" }, "1 in progress"),
+      [],
+      new Map(),
+      snapshot,
+    );
 
     expect(view.entries).toEqual([CONTINUE]);
     expect(view.metas).toEqual([]);
@@ -155,8 +191,8 @@ describe("what a grid draws", () => {
     const discover: RemoteGridSource = {
       kind: "discover",
       feedKind: "movie",
-      genre: null,
-      feed: { ...blankFeed(), page: 1, items: [meta("tmdb:1", "One")] },
+      genreKey: null,
+      feedKey: "discover/host/all/movie",
     };
     expect(gridCouldPlay(discover, SNAPSHOT)).toBe(true);
     expect(
@@ -168,20 +204,60 @@ describe("what a grid draws", () => {
       "no Addon can play the kind",
     ).toBe(false);
     expect(
-      gridCouldPlay({ kind: "catalog", row: CATALOG_ROW }, { ...SNAPSHOT, addons: [] }),
+      gridCouldPlay({ kind: "home", rowKey: "cinemeta/movie/top" }, { ...SNAPSHOT, addons: [] }),
       "a Catalog card has its own Addon",
     ).toBe(true);
   });
 
-  test("the tag is the string the rail printed, not a second decision", () => {
+  test("the tag is read live from the row, not frozen when the grid was pushed", () => {
+    const source: RemoteGridSource = { kind: "home", rowKey: "cinemeta/movie/top" };
+    const stale: RemoteGrid = {
+      title: "Popular",
+      index: "02",
+      tag: "Cinemeta / 20 films",
+      addon: "cinemeta",
+      source,
+    };
+    const view = gridView(stale, [CATALOG_ROW], new Map(), SNAPSHOT);
+
+    expect(view.tag, "the row has read one, whatever the level was pushed with").toBe(
+      "Cinemeta / 1 film",
+    );
+  });
+
+  test("a keyed feed's tag is live too, and names its genre and count", () => {
+    const source: RemoteGridSource = {
+      kind: "discover",
+      feedKind: "movie",
+      genreKey: "Drama",
+      feedKey: "discover/host/Drama/movie",
+    };
     const view = gridView(
-      grid({ kind: "catalog", row: CATALOG_ROW }, "Cinemeta / 1 film"),
+      {
+        title: "Movies",
+        index: "01",
+        tag: "Drama / 20 films",
+        addon: null,
+        source,
+      },
       [],
+      new Map([[source.feedKey, FEED]]),
       SNAPSHOT,
     );
-    expect(view.metas).toEqual(CATALOG_ROW.metas);
-    expect(grid({ kind: "catalog", row: CATALOG_ROW }, "Cinemeta / 1 film").tag).toBe(
-      "Cinemeta / 1 film",
+
+    expect(view.tag).toBe("Drama / 1 film");
+  });
+
+  test("a grid that ended before reading a card says what its source is", () => {
+    expect(gridEmptyNote({ kind: "discover", feedKind: "movie", genreKey: null, feedKey: "x" })).toBe(
+      "Nothing is screening in this feed.",
+    );
+    expect(
+      gridEmptyNote({ kind: "search", feedKind: "movie", query: "dune", feedKey: "x" }),
+      "Discover and Search are not an Addon's rows",
+    ).toBe("No Titles matched the query.");
+    expect(gridEmptyNote({ kind: "home", rowKey: "cinemeta/movie/top" })).toBe(
+      "The Addon answered with no Titles in this section.",
     );
   });
 });

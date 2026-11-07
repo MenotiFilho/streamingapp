@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useCallback, useState, type ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { MOVIE, discoverFeedKey, discoverNoCounterpart } from "../../core/discover";
 import type {
   Action,
   AddonManifest,
@@ -11,6 +12,7 @@ import type {
   Title,
 } from "../../core/wire";
 import { actionKey } from "../../core/actionKey";
+import { searchFeedKey } from "../../core/search";
 import { TauriLink, type Transport } from "../tauriLink";
 import { Shell } from "../Shell";
 import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContextValue } from "../context";
@@ -21,6 +23,10 @@ import { RepertoryDiscoverScreen } from "./RepertoryDiscover";
 import { RepertoryStreamsScreen } from "./RepertoryStreams";
 import { RepertoryTitleScreen } from "./RepertoryTitle";
 import { RepertorySearchScreen } from "./RepertorySearch";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 const CINEMETA: AddonManifest = {
   id: "com.linvo.cinemeta",
@@ -134,6 +140,20 @@ const FILM: Title = {
   videos: [],
 };
 
+/** A series with enough seasons for its chip rail to overflow a narrow view. */
+const MANY_SEASONS: Title = {
+  ...SERIES,
+  id: "tt-seasons",
+  key: { kind: "addon", addon: "com.linvo.cinemeta", id: "tt-seasons" },
+  videos: [1, 2, 3, 4, 5, 6].map((season) => ({
+    id: `tt-seasons:${season}:1`,
+    name: `Season ${season}`,
+    season,
+    episode: 1,
+    thumbnail: null,
+  })),
+};
+
 const UNPLAYABLE: Stream = {
   name: "Torrentio\n4k HDR",
   description: "Breaking Bad S01E01 2160p BluRay\n👤 106 💾 9.53 GB",
@@ -163,9 +183,10 @@ const SECOND_PLAYABLE: Stream = {
 function harness(overrides: Partial<ShellContextValue> = {}) {
   const pushed: NewShellLevel[] = [];
   const take = vi.fn(async (_action: Action) => null);
-  const ask = vi.fn(async (_action: Action) => ({ response: null, error: null }));
+  const ask = (overrides.ask ??
+    vi.fn(async (_action: Action) => ({ response: null, error: null }))) as AskSpy;
   const value: ShellContextValue = {
-    session: quietSession(),
+    session: quietSession(ask),
     snapshot: SNAPSHOT,
     error: null,
     destination: "home",
@@ -252,6 +273,51 @@ describe("the repertory Title page", () => {
 
     expect(pushed).toHaveLength(1);
     expect(pushed[0]?.name).toBe("Streams");
+  });
+
+  it("draws the season chips as a rail whose arrows page them", () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => ({
+        matches: true,
+        media: "(prefers-reduced-motion: reduce)",
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      })),
+    );
+    const { value } = harness();
+    render(withShell(value, <RepertoryTitleScreen title={MANY_SEASONS} />));
+
+    const row = screen.getByRole("region", { name: "Seasons" });
+    const track = within(row).getByRole("list");
+    Object.defineProperty(track, "clientWidth", { configurable: true, value: 300 });
+    Object.defineProperty(track, "scrollWidth", { configurable: true, value: 1_200 });
+    within(track)
+      .getAllByRole("listitem")
+      .forEach((item, index) => {
+        const left = index * 116;
+        vi.spyOn(item, "getBoundingClientRect").mockReturnValue({
+          x: left,
+          y: 0,
+          width: 100,
+          height: 40,
+          left,
+          top: 0,
+          right: left + 100,
+          bottom: 40,
+          toJSON: () => ({}),
+        } as DOMRect);
+      });
+    fireEvent.scroll(track);
+
+    const left = within(row).getByRole("button", { name: "Scroll Seasons left" });
+    const right = within(row).getByRole("button", { name: "Scroll Seasons right" });
+    expect(left).toBeDisabled();
+    expect(right).toBeEnabled();
+
+    fireEvent.click(right);
+    expect(track.scrollLeft, "the same whole-item page a poster rail takes").toBe(232);
+    expect(left).toBeEnabled();
   });
 });
 
@@ -516,7 +582,7 @@ describe("the repertory Discover preview", () => {
     );
   });
 
-  it("defaults to Movie and switches to Series without keeping both selected", async () => {
+  it("shows the Movies and Series rows together, with no kind chips", async () => {
     const ask = vi.fn(async (action: Action): Promise<ActionOutcome> => ({
       response: previewCatalogAnswer(action),
       error: null,
@@ -525,30 +591,25 @@ describe("the repertory Discover preview", () => {
 
     render(withShell(value, <RepertoryDiscoverScreen />, true));
 
-    expect(await screen.findByTestId("discover-kind-movie")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
-    expect(screen.getByTestId("discover-kind-series")).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
-
-    fireEvent.click(screen.getByTestId("discover-kind-series"));
-
+    expect(await screen.findByTestId("discover-card-tt0133093")).toBeInTheDocument();
     expect(await screen.findByTestId("discover-card-tt0903747")).toBeInTheDocument();
-    expect(screen.queryByTestId("discover-card-tt0133093")).not.toBeInTheDocument();
-    expect(screen.getByTestId("discover-kind-movie")).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
-    expect(screen.getByTestId("discover-kind-series")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    expect(actions(ask)).toContainEqual({
+      type: "browse_catalog",
+      addon: "cinemeta",
+      catalog: { type: "movie", id: "top" },
+      extra: [],
+    });
+    expect(actions(ask)).toContainEqual({
+      type: "browse_catalog",
+      addon: "cinemeta",
+      catalog: { type: "series", id: "top" },
+      extra: [],
+    });
+    expect(screen.queryByTestId("discover-kind-movie")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("discover-kind-series")).not.toBeInTheDocument();
   });
 
-  it("narrows the feed with one genre chip at a time", async () => {
+  it("one genre chip asks both rows by Cinemeta's own name", async () => {
     const ask = vi.fn(async (action: Action): Promise<ActionOutcome> => ({
       response: previewCatalogAnswer(action),
       error: null,
@@ -561,26 +622,121 @@ describe("the repertory Discover preview", () => {
       "aria-pressed",
       "true",
     );
-    fireEvent.click(screen.getByRole("button", { name: "Action" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Action" }));
 
-    await waitFor(() => {
-      const browse = ask.mock.calls
-        .map(([action]) => action)
-        .filter((action): action is Extract<Action, { type: "browse_catalog" }> =>
-          action.type === "browse_catalog",
-        )
-        .at(-1);
-      expect(browse?.extra).toContainEqual({ name: "genre", value: "Action" });
+    await waitFor(() =>
+      expect(actions(ask)).toContainEqual({
+        type: "browse_catalog",
+        addon: "cinemeta",
+        catalog: { type: "movie", id: "top" },
+        extra: [{ name: "genre", value: "Action" }],
+      }),
+    );
+    expect(actions(ask)).toContainEqual({
+      type: "browse_catalog",
+      addon: "cinemeta",
+      catalog: { type: "series", id: "top" },
+      extra: [{ name: "genre", value: "Action" }],
     });
     expect(screen.getByRole("button", { name: "All genres" })).toHaveAttribute(
       "aria-pressed",
       "false",
     );
   });
+
+  it("draws the genre chips as a rail whose arrows page them", async () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => ({
+        matches: true,
+        media: "(prefers-reduced-motion: reduce)",
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      })),
+    );
+    const ask = vi.fn(async (action: Action): Promise<ActionOutcome> => ({
+      response: previewCatalogAnswer(action),
+      error: null,
+    }));
+    const { value } = harness({ ask });
+
+    render(withShell(value, <RepertoryDiscoverScreen />, true));
+    await screen.findByRole("button", { name: "All genres" });
+
+    const row = screen.getByRole("region", { name: "Genres" });
+    const track = within(row).getByRole("list");
+    Object.defineProperty(track, "clientWidth", { configurable: true, value: 300 });
+    Object.defineProperty(track, "scrollWidth", { configurable: true, value: 1_200 });
+    within(track)
+      .getAllByRole("listitem")
+      .forEach((item, index) => {
+        const left = index * 116;
+        vi.spyOn(item, "getBoundingClientRect").mockReturnValue({
+          x: left,
+          y: 0,
+          width: 100,
+          height: 40,
+          left,
+          top: 0,
+          right: left + 100,
+          bottom: 40,
+          toJSON: () => ({}),
+        } as DOMRect);
+      });
+    fireEvent.scroll(track);
+
+    const left = within(row).getByRole("button", { name: "Scroll Genres left" });
+    const right = within(row).getByRole("button", { name: "Scroll Genres right" });
+    expect(left).toBeDisabled();
+    expect(right).toBeEnabled();
+
+    fireEvent.click(right);
+    expect(track.scrollLeft, "the same whole-item page a poster rail takes").toBe(232);
+    expect(left).toBeEnabled();
+  });
+
+  it("a series-only genre leaves the Movies row empty with its line, and asks only Series", async () => {
+    const ask = vi.fn(async (action: Action): Promise<ActionOutcome> => ({
+      response: previewCatalogAnswer(action),
+      error: null,
+    }));
+    const { value } = harness({ ask });
+
+    render(withShell(value, <RepertoryDiscoverScreen />, true));
+    await screen.findByTestId("discover-card-tt0133093");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Reality-TV" }));
+
+    await waitFor(() =>
+      expect(actions(ask)).toContainEqual({
+        type: "browse_catalog",
+        addon: "cinemeta",
+        catalog: { type: "series", id: "top" },
+        extra: [{ name: "genre", value: "Reality-TV" }],
+      }),
+    );
+    expect(
+      actions(ask).some(
+        (action) =>
+          action.type === "browse_catalog" &&
+          action.catalog.type === "movie" &&
+          action.extra.some((extra) => extra.name === "genre"),
+      ),
+      "an ask without the genre would answer the unfiltered feed",
+    ).toBe(false);
+
+    const movies = screen.getByTestId("discover-section-movie");
+    expect(
+      within(movies).getByText(discoverNoCounterpart(MOVIE, "Reality-TV")),
+    ).toBeInTheDocument();
+    expect(
+      within(movies).queryByTestId("discover-card-tt0133093"),
+    ).not.toBeInTheDocument();
+  });
 });
 
 describe("the repertory Search feed", () => {
-  it("defaults to Movie, switches to Series, and shows one kind's rows", async () => {
+  it("a keyless query draws every answering Catalog's row, and has no kind chips", async () => {
     const ask = vi.fn(async (action: Action): Promise<ActionOutcome> => ({
       response:
         action.type === "search_catalogs"
@@ -592,10 +748,9 @@ describe("the repertory Search feed", () => {
 
     render(withShell(value, <RepertorySearchScreen />, true));
 
-    expect(screen.getByTestId("search-kind-movie")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    expect(screen.queryByTestId("search-kind-movie")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("search-kind-series")).not.toBeInTheDocument();
+
     fireEvent.change(screen.getByLabelText("Search for a Title"), {
       target: { value: "the" },
     });
@@ -605,25 +760,8 @@ describe("the repertory Search feed", () => {
       await screen.findByTestId("search-row-cinemeta/movie/top"),
     ).toBeInTheDocument();
     expect(
-      screen.queryByTestId("search-row-cinemeta/series/top"),
-    ).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByTestId("search-kind-series"));
-
-    expect(
       await screen.findByTestId("search-row-cinemeta/series/top"),
     ).toBeInTheDocument();
-    expect(
-      screen.queryByTestId("search-row-cinemeta/movie/top"),
-    ).not.toBeInTheDocument();
-    expect(screen.getByTestId("search-kind-movie")).toHaveAttribute(
-      "aria-pressed",
-      "false",
-    );
-    expect(screen.getByTestId("search-kind-series")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
   });
 });
 
@@ -635,7 +773,9 @@ const KEYED: Snapshot = {
 const MATRIX_META = MATRIX_ROW.metas[0]!;
 const BREAKING_BAD_META = BREAKING_BAD_ROW.metas[0]!;
 
-type AskSpy = { mock: { calls: [Action][] } };
+type AskSpy = ((action: Action) => Promise<ActionOutcome>) & {
+  mock: { calls: [Action][] };
+};
 
 function actions(ask: AskSpy): Action[] {
   return ask.mock.calls.map(([action]) => action);
@@ -662,7 +802,7 @@ function discoverAnswer(kind: string, page: number) {
 }
 
 describe("the repertory Discover feed against the Host", () => {
-  it("asks the Host for Movie on landing, Series on its chip, and the genre by TMDB id", async () => {
+  it("asks both kinds' first pages on landing, and a genre by each kind's own id", async () => {
     const ask = vi.fn(async (action: Action): Promise<ActionOutcome> => ({
       response:
         action.type === "discover"
@@ -675,13 +815,12 @@ describe("the repertory Discover feed against the Host", () => {
     render(withShell(value, <RepertoryDiscoverScreen />));
 
     expect(await screen.findByTestId("discover-card-tmdb:603")).toBeInTheDocument();
-    expect(actions(ask)).toContainEqual({ type: "discover", kind: "movie", page: 1 });
-
-    fireEvent.click(screen.getByTestId("discover-kind-series"));
     expect(await screen.findByTestId("discover-card-tmdb:1396")).toBeInTheDocument();
+    expect(actions(ask)).toContainEqual({ type: "discover", kind: "movie", page: 1 });
     expect(actions(ask)).toContainEqual({ type: "discover", kind: "series", page: 1 });
+    expect(screen.queryByTestId("discover-kind-movie")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("discover-kind-series")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId("discover-kind-movie"));
     fireEvent.click(await screen.findByRole("button", { name: "Action" }));
 
     await waitFor(() =>
@@ -692,9 +831,15 @@ describe("the repertory Discover feed against the Host", () => {
         genre: 28,
       }),
     );
+    expect(actions(ask)).toContainEqual({
+      type: "discover",
+      kind: "series",
+      page: 1,
+      genre: 10759,
+    });
   });
 
-  it("asks the next page from the row's More, and keeps the cards already read", async () => {
+  it("asks the next page from a row's own More, and keeps the cards already read", async () => {
     const ask = vi.fn(async (action: Action): Promise<ActionOutcome> => ({
       response:
         action.type === "discover"
@@ -713,9 +858,55 @@ describe("the repertory Discover feed against the Host", () => {
     expect(await screen.findByTestId("discover-card-tmdb:604")).toBeInTheDocument();
     expect(screen.getByTestId("discover-card-tmdb:603")).toBeInTheDocument();
     expect(actions(ask)).toContainEqual({ type: "discover", kind: "movie", page: 2 });
+    expect(
+      actions(ask),
+      "the other row is not paged by this row's More",
+    ).not.toContainEqual({ type: "discover", kind: "series", page: 2 });
   });
 
-  it("opens the loaded row as a grid from its More card, and Back returns", async () => {
+  it("a film-only genre leaves the Series row empty with its line, and asks only Movies", async () => {
+    const ask = vi.fn(async (action: Action): Promise<ActionOutcome> => ({
+      response:
+        action.type === "discover"
+          ? discoverAnswer(action.kind, action.page)
+          : null,
+      error: null,
+    }));
+    const { value } = harness({ ask, snapshot: KEYED });
+
+    render(withShell(value, <RepertoryDiscoverScreen />));
+    await screen.findByTestId("discover-card-tmdb:1396");
+    const seriesAsks = actions(ask).filter(
+      (action) => action.type === "discover" && action.kind === "series",
+    ).length;
+
+    fireEvent.click(await screen.findByRole("button", { name: "TV Movie" }));
+
+    await waitFor(() =>
+      expect(actions(ask)).toContainEqual({
+        type: "discover",
+        kind: "movie",
+        page: 1,
+        genre: 10770,
+      }),
+    );
+    expect(
+      actions(ask).filter(
+        (action) => action.type === "discover" && action.kind === "series",
+      ),
+      "series have no TV Movie: asking unfiltered would show the whole feed",
+    ).toHaveLength(seriesAsks);
+
+    const series = screen.getByTestId("discover-section-series");
+    expect(
+      within(series).getByText(discoverNoCounterpart("series", "TV Movie")),
+    ).toBeInTheDocument();
+    expect(
+      within(series).queryByTestId("discover-card-tmdb:1396"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("opens each row's loaded cards as its own grid from its More card", async () => {
     const ask = vi.fn(async (action: Action): Promise<ActionOutcome> => ({
       response:
         action.type === "discover"
@@ -727,28 +918,42 @@ describe("the repertory Discover feed against the Host", () => {
 
     render(withShell(value, <RepertoryDiscoverScreen />));
     await screen.findByTestId("discover-card-tmdb:603");
+    await screen.findByTestId("discover-card-tmdb:1396");
 
     fireEvent.click(screen.getByTestId("more-discover:movie"));
     const grid = pushed.at(-1);
-    expect(grid?.name).toBe("All of Films");
+    expect(grid?.name).toBe("All of Movies");
 
     const view = render(withShell(value, grid!.payload.render()));
     expect(
       within(view.container).getByTestId("discover-grid-card-tmdb:603"),
     ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        value.session.feeds.feed(discoverFeedKey("host", null, "movie")).done,
+        "the grid's own page settles before the test leaves it",
+      ).toBe(true),
+    );
 
     fireEvent.click(within(view.container).getByRole("button", { name: "Back" }));
     expect(value.pop).toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId("more-discover:series"));
+    expect(pushed.at(-1)?.name).toBe("All of Series");
+    view.unmount();
   });
 
   it("keeps a failed page in its own row and offers that page again", async () => {
-    let calls = 0;
+    let movieCalls = 0;
     const ask = vi.fn(async (action: Action): Promise<ActionOutcome> => {
       if (action.type !== "discover") {
         return { response: null, error: null };
       }
-      calls += 1;
-      if (calls === 1) {
+      if (action.kind === "series") {
+        return { response: discoverAnswer("series", action.page), error: null };
+      }
+      movieCalls += 1;
+      if (movieCalls === 1) {
         return {
           response: {
             snapshots: [],
@@ -772,10 +977,14 @@ describe("the repertory Discover feed against the Host", () => {
 
     render(withShell(value, <RepertoryDiscoverScreen />));
 
-    const section = screen.getByTestId("discover-section-movie");
-    expect(await within(section).findByRole("alert")).toHaveTextContent("status 503");
+    const movie = screen.getByTestId("discover-section-movie");
+    expect(await within(movie).findByRole("alert")).toHaveTextContent("status 503");
+    expect(
+      await screen.findByTestId("discover-card-tmdb:1396"),
+      "the other row is not emptied by this row's failure",
+    ).toBeInTheDocument();
 
-    fireEvent.click(within(section).getByRole("button", { name: "Try again" }));
+    fireEvent.click(within(movie).getByRole("button", { name: "Try again" }));
 
     expect(await screen.findByTestId("discover-card-tmdb:603")).toBeInTheDocument();
     expect(actions(ask)).toContainEqual({ type: "discover", kind: "movie", page: 1 });
@@ -815,7 +1024,7 @@ describe("the repertory Search feed against the Host", () => {
     };
   }
 
-  it("asks both kinds on submit and switches between their rows", async () => {
+  it("asks both kinds on submit, draws Movies then Series, and has no kind chips", async () => {
     const ask = vi.fn(async (action: Action): Promise<ActionOutcome> => ({
       response:
         action.type === "search"
@@ -826,12 +1035,17 @@ describe("the repertory Search feed against the Host", () => {
     const { value } = harness({ ask, snapshot: KEYED });
 
     render(withShell(value, <RepertorySearchScreen />));
+
+    expect(screen.queryByTestId("search-kind-movie")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("search-kind-series")).not.toBeInTheDocument();
+
     fireEvent.change(screen.getByLabelText("Search for a Title"), {
       target: { value: "the" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Search" }));
 
     expect(await screen.findByTestId("search-card-movie-tmdb:603")).toBeInTheDocument();
+    expect(await screen.findByTestId("search-card-series-tmdb:1396")).toBeInTheDocument();
     expect(actions(ask)).toContainEqual({
       type: "search",
       query: "the",
@@ -844,17 +1058,17 @@ describe("the repertory Search feed against the Host", () => {
       kind: "series",
       page: 1,
     });
-    expect(screen.queryByTestId("search-card-series-tmdb:1396")).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId("search-kind-series"));
-
-    expect(
-      await screen.findByTestId("search-card-series-tmdb:1396"),
-    ).toBeInTheDocument();
-    expect(screen.queryByTestId("search-card-movie-tmdb:603")).not.toBeInTheDocument();
+    const rows = screen.getAllByTestId(/^search-row-(movie|series)$/);
+    expect(rows.map((row) => row.getAttribute("data-testid"))).toEqual([
+      "search-row-movie",
+      "search-row-series",
+    ]);
+    expect(screen.getByTestId("more-search-row:movie")).toBeInTheDocument();
+    expect(screen.getByTestId("more-search-row:series")).toBeInTheDocument();
   });
 
-  it("pages one row by its own More, asking that kind's next page", async () => {
+  it("pages one row from its own More, leaving the other row where it read to", async () => {
     const ask = vi.fn(async (action: Action): Promise<ActionOutcome> => ({
       response:
         action.type === "search"
@@ -879,21 +1093,27 @@ describe("the repertory Search feed against the Host", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Search" }));
     await screen.findByTestId("search-card-movie-tmdb:603");
+    await screen.findByTestId("search-card-series-tmdb:1396");
 
-    fireEvent.click(screen.getByTestId("search-kind-series"));
-    const row = await screen.findByTestId("search-row-series");
-    fireEvent.click(within(row).getByRole("button", { name: "Read on" }));
+    const series = screen.getByTestId("search-row-series");
+    fireEvent.click(within(series).getByRole("button", { name: "Read on" }));
 
     expect(await screen.findByTestId("search-card-series-tmdb:1397")).toBeInTheDocument();
+    expect(screen.getByTestId("search-card-movie-tmdb:603")).toBeInTheDocument();
     expect(actions(ask)).toContainEqual({
       type: "search",
       query: "the",
       kind: "series",
       page: 2,
     });
+    expect(
+      actions(ask).filter(
+        (action) => action.type === "search" && action.kind === "movie" && action.page === 2,
+      ),
+    ).toEqual([]);
   });
 
-  it("opens one kind's row as a grid from its More card", async () => {
+  it("opens each kind's row as a grid from its own More card", async () => {
     const ask = vi.fn(async (action: Action): Promise<ActionOutcome> => ({
       response:
         action.type === "search" ? keyedSearchAnswer(action.kind) : null,
@@ -907,15 +1127,36 @@ describe("the repertory Search feed against the Host", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Search" }));
     await screen.findByTestId("search-card-movie-tmdb:603");
+    await screen.findByTestId("search-card-series-tmdb:1396");
 
     fireEvent.click(screen.getByTestId("more-search-row:movie"));
-    const grid = pushed.at(-1);
-    expect(grid?.name).toBe("All of Movies");
+    const movieGrid = pushed.at(-1);
+    expect(movieGrid?.name).toBe("All of Movies");
 
-    const view = render(withShell(value, grid!.payload.render()));
+    const movieView = render(withShell(value, movieGrid!.payload.render()));
     expect(
-      within(view.container).getByTestId("search-grid-card-movie-tmdb:603"),
+      within(movieView.container).getByTestId("search-grid-card-movie-tmdb:603"),
     ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        value.session.feeds.feed(searchFeedKey("the", "movie")).done,
+        "the grid's own page settles before the test leaves it",
+      ).toBe(true),
+    );
+
+    fireEvent.click(screen.getByTestId("more-search-row:series"));
+    const seriesGrid = pushed.at(-1);
+    expect(seriesGrid?.name).toBe("All of Series");
+
+    const seriesView = render(withShell(value, seriesGrid!.payload.render()));
+    expect(
+      within(seriesView.container).getByTestId("search-grid-card-series-tmdb:1396"),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(value.session.feeds.feed(searchFeedKey("the", "series")).done).toBe(true),
+    );
+    movieView.unmount();
+    seriesView.unmount();
   });
 
   it("a failed row keeps its own failure and the other kind's row still stands", async () => {
@@ -941,12 +1182,12 @@ describe("the repertory Search feed against the Host", () => {
     fireEvent.click(screen.getByRole("button", { name: "Search" }));
 
     expect(await screen.findByTestId("search-card-movie-tmdb:603")).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("search-kind-series"));
 
     const row = await screen.findByTestId("search-row-series");
     expect(within(row).getByRole("alert")).toHaveTextContent("status 429");
     expect(within(row).getByRole("button", { name: "Try again" })).toBeEnabled();
-    expect(screen.queryByTestId("search-card-movie-tmdb:603")).not.toBeInTheDocument();
+    expect(screen.getByTestId("search-card-movie-tmdb:603")).toBeInTheDocument();
+    expect(screen.queryByTestId("search-card-series-tmdb:1396")).not.toBeInTheDocument();
   });
 
   it("a failing Catalog keeps its own row on the keyless arm", async () => {
@@ -979,9 +1220,9 @@ describe("the repertory Search feed against the Host", () => {
     expect(await screen.findByTestId("search-row-cinemeta/movie/top")).toBeInTheDocument();
     expect(screen.getByTestId("search-card-cinemeta-tt0133093")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId("search-kind-series"));
     const series = await screen.findByTestId("search-row-cinemeta/series/top");
     expect(within(series).getByRole("alert")).toHaveTextContent("status 503");
+    expect(screen.getByTestId("search-row-cinemeta/movie/top")).toBeInTheDocument();
 
     fireEvent.click(within(series).getByRole("button", { name: "Search again" }));
     await waitFor(() =>
@@ -1073,5 +1314,212 @@ describe("the repertory editorial grid's backward path", () => {
       expect(screen.queryByTestId("discover-grid")).not.toBeInTheDocument(),
     );
     expect(document.activeElement, "the More card the grid was opened from").toBe(more);
+  });
+});
+
+/**
+ * The window's grids through the real Shell (#264, #248 P1): the grid is a
+ * pushed level over the live screen, so Back is the shell's Escape and the rail
+ * underneath must show what the grid read. jsdom has no layout, so the grid's
+ * own end trigger sees the cards at 0 and reads on — the decision under test is
+ * the shared Session row, not a rendered rectangle.
+ */
+describe("the window's editorial grids share the rail's rows", () => {
+  function transport(respond: (action: Action) => unknown): Transport {
+    return {
+      invoke: async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+        if (command === "snapshot") {
+          return KEYED as T;
+        }
+        if (command === "dispatch") {
+          const action = (args?.envelope as { action: Action }).action;
+          return (respond(action) ?? { snapshots: [], answer: null }) as T;
+        }
+        return { snapshots: [], answer: null } as T;
+      },
+      listen: async <T,>(_event: string, handler: (event: { payload: T }) => void) => {
+        handler({ payload: KEYED as T });
+        return () => undefined;
+      },
+    };
+  }
+
+  const searchAnswer = (kind: string, page: number) => ({
+    snapshots: [],
+    answer: {
+      search: {
+        type: kind,
+        sent: 1,
+        metas: [
+          kind === "series"
+            ? { ...BREAKING_BAD_META, id: page === 1 ? "tmdb:1396" : "tmdb:1397" }
+            : { ...MATRIX_META, id: `tmdb:${page === 1 ? 603 : 604}` },
+        ],
+        failure: null,
+      },
+    },
+  });
+
+  it("a page the Discover grid reads is in the rail after Back, with the genre kept", async () => {
+    const link = new TauriLink(
+      transport((action) =>
+        action.type === "discover" ? discoverAnswer(action.kind, action.page) : null,
+      ),
+    );
+    render(<Shell client={link} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Discover" }));
+    await screen.findByTestId("discover-card-tmdb:603");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Drama" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Drama" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      ),
+    );
+    await screen.findByTestId("discover-card-tmdb:603");
+
+    fireEvent.click(screen.getByTestId("more-discover:movie"));
+    expect(
+      await screen.findByTestId("discover-grid-card-tmdb:604"),
+      "the grid reads on by itself",
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("discover-grid")).getByText("Drama / 2 films"),
+      "the head's tag is read live from the row it drew",
+    ).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByTestId("discover-grid")).not.toBeInTheDocument(),
+    );
+    expect(
+      await screen.findByTestId("discover-card-tmdb:604"),
+      "the page the grid read is in the rail after Back",
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("discover-section-series"),
+      "both rows come back",
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Drama" }),
+      "the genre comes back",
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("a page the Discover rail read is in the grid, and no page 1 is asked again", async () => {
+    const asks: Action[] = [];
+    const link = new TauriLink(
+      transport((action) => {
+        asks.push(action);
+        return action.type === "discover" ? discoverAnswer(action.kind, action.page) : null;
+      }),
+    );
+    render(<Shell client={link} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Discover" }));
+    await screen.findByTestId("discover-card-tmdb:603");
+
+    const movie = screen.getByTestId("discover-section-movie");
+    fireEvent.click(within(movie).getByRole("button", { name: "Read on" }));
+    await screen.findByTestId("discover-card-tmdb:604");
+    const firstPages = asks.filter(
+      (action) => action.type === "discover" && action.kind === "movie" && action.page === 1,
+    ).length;
+
+    fireEvent.click(screen.getByTestId("more-discover:movie"));
+    expect(
+      await screen.findByTestId("discover-grid-card-tmdb:604"),
+      "the page the rail read is in the grid",
+    ).toBeInTheDocument();
+    expect(
+      asks.filter(
+        (action) =>
+          action.type === "discover" && action.kind === "movie" && action.page === 1,
+      ),
+      "opening the grid asks no page 1 again",
+    ).toHaveLength(firstPages);
+  });
+
+  it("a page the Search grid reads is in the rail after Back, with the query kept", async () => {
+    const link = new TauriLink(
+      transport((action) =>
+        action.type === "search" ? searchAnswer(action.kind, action.page) : null,
+      ),
+    );
+    render(<Shell client={link} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Search" }));
+    fireEvent.change(await screen.findByLabelText("Search for a Title"), {
+      target: { value: "the" },
+    });
+    fireEvent.click(
+      within(screen.getByRole("search")).getByRole("button", { name: "Search" }),
+    );
+    await screen.findByTestId("search-card-movie-tmdb:603");
+
+    fireEvent.click(screen.getByTestId("more-search-row:movie"));
+    expect(
+      await screen.findByTestId("search-grid-card-movie-tmdb:604"),
+      "the grid reads on by itself",
+    ).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByTestId("search-grid")).not.toBeInTheDocument(),
+    );
+    expect(
+      await screen.findByTestId("search-card-movie-tmdb:604"),
+      "the page the grid read is in the rail after Back",
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("search-card-series-tmdb:1396"),
+      "the other kind's row comes back",
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Search for a Title"),
+      "the query comes back with the rows",
+    ).toHaveValue("the");
+  });
+
+  it("a page the Search rail read is in the grid, and no page 1 is asked again", async () => {
+    const asks: Action[] = [];
+    const link = new TauriLink(
+      transport((action) => {
+        asks.push(action);
+        return action.type === "search" ? searchAnswer(action.kind, action.page) : null;
+      }),
+    );
+    render(<Shell client={link} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Search" }));
+    fireEvent.change(await screen.findByLabelText("Search for a Title"), {
+      target: { value: "the" },
+    });
+    fireEvent.click(
+      within(screen.getByRole("search")).getByRole("button", { name: "Search" }),
+    );
+    await screen.findByTestId("search-card-movie-tmdb:603");
+
+    const series = screen.getByTestId("search-row-series");
+    fireEvent.click(within(series).getByRole("button", { name: "Read on" }));
+    await screen.findByTestId("search-card-series-tmdb:1397");
+    const firstPages = asks.filter(
+      (action) => action.type === "search" && action.kind === "series" && action.page === 1,
+    ).length;
+
+    fireEvent.click(screen.getByTestId("more-search-row:series"));
+    expect(
+      await screen.findByTestId("search-grid-card-series-tmdb:1397"),
+      "the page the rail read is in the grid",
+    ).toBeInTheDocument();
+    expect(
+      asks.filter(
+        (action) =>
+          action.type === "search" && action.kind === "series" && action.page === 1,
+      ),
+      "opening the grid asks no page 1 again",
+    ).toHaveLength(firstPages);
   });
 });

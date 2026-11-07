@@ -1,104 +1,176 @@
 import { describe, expect, test } from "vitest";
 
-import { blankFeed, feedWith, MOVIE, type DiscoverFeed } from "../../core/discover";
+import {
+  DISCOVER_GENRES,
+  MOVIE,
+  blankFeed,
+  discoverNoCounterpart,
+  type DiscoverFeed,
+} from "../../core/discover";
 import { SERIES } from "../../core/title";
+import type { MetaPreview } from "../../core/wire";
 import {
   discoverEmptyNote,
   discoverNoKey,
-  discoverTag,
-  feedMore,
-  feedState,
+  discoverPageAsk,
+  discoverRowNote,
+  discoverRowTag,
   genresFor,
-  previewDiscoverAsk,
-  rowsForKind,
 } from "./editorial";
 
-const ACTION = { key: "28", name: "Action", value: 28 };
+/**
+ * The window's half of Discover and Search (ADR-0032, ADR-0035 §1): the
+ * preview's own genres and asks, a row's bookkeeping and the copy it prints.
+ * The genre filter, the kinds, the feed state and the "no counterpart" line are
+ * the core's and are tested there.
+ */
+
+const ACTION = DISCOVER_GENRES.find((genre) => genre.name === "Action")!;
+const TV_MOVIE = DISCOVER_GENRES.find((genre) => genre.name === "TV Movie")!;
 
 function feed(overrides: Partial<DiscoverFeed> = {}): DiscoverFeed {
   return { ...blankFeed(), ...overrides };
 }
 
 describe("Discover's genres", () => {
-  test("the Host is asked by TMDB's own id for the kind", () => {
-    const films = genresFor("host", MOVIE);
-    const series = genresFor("host", SERIES);
+  test("one row: the union of both kinds, each chip carrying the id each kind is asked by", () => {
+    const genres = genresFor("host");
 
-    expect(films[0]).toEqual(ACTION);
-    expect(series[0]).toEqual({ key: "10759", name: "Action & Adventure", value: 10759 });
-    expect(films.map((genre) => genre.name)).not.toEqual(
-      series.map((genre) => genre.name),
-    );
+    expect(genres[0]).toEqual(ACTION);
+    expect(genres).toContainEqual(TV_MOVIE);
+    expect(genres).toContainEqual({
+      name: "Kids",
+      movie: null,
+      series: 10762,
+      all: false,
+    });
+    expect(
+      genres.some((genre) => genre.name === "All genres"),
+      "All genres is the chip that clears the filter, not one of the union",
+    ).toBe(false);
+    expect(
+      genres.map((genre) => genre.name),
+      "a combined series genre is reached through its film parts",
+    ).not.toContain("Action & Adventure");
   });
 
-  test("the preview is asked by Cinemeta's own genre name", () => {
-    expect(genresFor("preview", MOVIE)[0]).toEqual({
-      key: "Action",
+  test("the preview's row is Cinemeta's own union, asked by its genre name", () => {
+    const genres = genresFor("preview");
+
+    expect(genres[0]).toEqual({
       name: "Action",
-      value: "Action",
+      movie: "Action",
+      series: "Action",
+      all: false,
     });
-    expect(genresFor("preview", SERIES).map((genre) => genre.name)).toContain(
-      "Sci-Fi",
-    );
+    expect(genres).toContainEqual({
+      name: "Reality-TV",
+      movie: null,
+      series: "Reality-TV",
+      all: false,
+    });
   });
 });
 
-describe("the preview's Discover ask", () => {
-  test("with no genre the first page is Cinemeta's Popular catalogue", () => {
-    expect(previewDiscoverAsk(MOVIE, null, 0)).toEqual({
+describe("a page is asked by the filter the core decided", () => {
+  test("the Host is asked by the per-kind id, and not at all where there is no counterpart", () => {
+    expect(
+      discoverPageAsk({
+        source: "host",
+        kind: MOVIE,
+        filter: { kind: "id", id: 28 },
+        page: 3,
+        skip: 0,
+      }),
+    ).toEqual({ type: "discover", kind: "movie", page: 3, genre: 28 });
+    expect(
+      discoverPageAsk({
+        source: "host",
+        kind: SERIES,
+        filter: { kind: "id", id: 10759 },
+        page: 3,
+        skip: 0,
+      }),
+    ).toEqual({ type: "discover", kind: "series", page: 3, genre: 10759 });
+    expect(
+      discoverPageAsk({
+        source: "host",
+        kind: SERIES,
+        filter: { kind: "none" },
+        page: 3,
+        skip: 0,
+      }),
+      "the row is drawn empty rather than asking the unfiltered feed",
+    ).toBeNull();
+    expect(
+      discoverPageAsk({
+        source: "host",
+        kind: MOVIE,
+        filter: { kind: "all" },
+        page: 3,
+        skip: 0,
+      }),
+    ).toEqual({ type: "discover", kind: "movie", page: 3 });
+  });
+
+  test("the preview asks Cinemeta by its name, both kinds or neither", () => {
+    expect(
+      discoverPageAsk({
+        source: "preview",
+        kind: MOVIE,
+        filter: { kind: "id", id: "Action" },
+        page: 1,
+        skip: 40,
+      }),
+    ).toEqual({
       type: "browse_catalog",
       addon: "cinemeta",
       catalog: { type: "movie", id: "top" },
-      extra: [],
-    });
-  });
-
-  test("a genre travels by the Addon's own name and the page by skip", () => {
-    expect(previewDiscoverAsk(SERIES, genresFor("preview", SERIES)[0]!, 40)).toEqual({
-      type: "browse_catalog",
-      addon: "cinemeta",
-      catalog: { type: "series", id: "top" },
       extra: [
         { name: "genre", value: "Action" },
         { name: "skip", value: "40" },
       ],
     });
-  });
-});
-
-describe("a feed's paging and state", () => {
-  test("More is offered only after a first page, or to retry a failed one", () => {
-    expect(feedMore(feed())).toBe(false);
-    expect(feedMore(feed({ failure: { kind: "fetch", detail: "down" } }))).toBe(true);
-    expect(feedMore(feed({ page: 1 }))).toBe(true);
-    expect(feedMore(feed({ page: 1, done: true }))).toBe(false);
-  });
-
-  test("a first page reads, a later page reads on, and a failed page is a failure", () => {
-    expect(feedState(feed(), true)).toBe("reading");
-    expect(feedState(feed({ page: 1 }), true)).toBe("reading-more");
-    expect(feedState(feed({ failure: { kind: "fetch", detail: "down" } }), false)).toBe(
-      "failed",
-    );
-  });
-
-  test("an empty feed is only empty after the Addon answered nothing", () => {
-    expect(feedState(feed(), false)).toBe("ready");
-    expect(feedState(feed({ done: true }), false)).toBe("empty");
     expect(
-      feedState(
-        feed({ items: [{ ...meta(), id: "tt1" }] }),
-        false,
-      ),
-    ).toBe("ready");
+      discoverPageAsk({
+        source: "preview",
+        kind: MOVIE,
+        filter: { kind: "none" },
+        page: 1,
+        skip: 0,
+      }),
+    ).toBeNull();
   });
 });
 
 describe("the editorial row's bookkeeping", () => {
-  test("the tag names the filter or Trending, and the count the kind prints", () => {
-    expect(discoverTag(MOVIE, null, 20)).toBe("Trending / 20 films");
-    expect(discoverTag(SERIES, null, 1)).toBe("Trending / 1 series");
-    expect(discoverTag(MOVIE, ACTION, 3)).toBe("Action / 3 films");
+  test("a row with no counterpart carries no tag, because it has no feed", () => {
+    expect(discoverRowTag(feed(), SERIES, TV_MOVIE, { kind: "none" })).toBeNull();
+  });
+
+  test("a row says Reading before its first answer, then its filter and count", () => {
+    expect(discoverRowTag(feed(), MOVIE, null, { kind: "all" })).toBe("Reading");
+    expect(
+      discoverRowTag(feed({ page: 1, items: [meta()] }), SERIES, ACTION, {
+        kind: "id",
+        id: 10759,
+      }),
+    ).toBe("Action / 1 series");
+  });
+
+  test("a row with no counterpart says why, instead of an empty-feed line", () => {
+    expect(discoverNoCounterpart(SERIES, "TV Movie")).toBe(
+      "Nothing is screening here: TV Movie is not a series genre.",
+    );
+    expect(
+      discoverRowNote("ready", SERIES, TV_MOVIE, { kind: "none" }),
+    ).toBe(discoverNoCounterpart(SERIES, "TV Movie"));
+    expect(discoverRowNote("empty", MOVIE, ACTION, { kind: "id", id: 28 })).toBe(
+      discoverEmptyNote(ACTION),
+    );
+    expect(discoverRowNote("reading", MOVIE, null, { kind: "all" })).toBe(
+      "Reading the programme…",
+    );
   });
 
   test("the no-key state names what powers Discover and where the key goes", () => {
@@ -118,40 +190,9 @@ describe("the editorial row's bookkeeping", () => {
   });
 });
 
-describe("a keyless Search's rows", () => {
-  test("only the chosen kind's answering Catalogs are drawn, in the Host's order", () => {
-    const rows = [
-      { type: "movie", name: "Popular" },
-      { type: "series", name: "Popular Series" },
-      { type: "movie", name: "Top Rated" },
-    ];
-
-    expect(rowsForKind(rows, MOVIE).map((row) => row.name)).toEqual([
-      "Popular",
-      "Top Rated",
-    ]);
-    expect(rowsForKind(rows, SERIES).map((row) => row.name)).toEqual(["Popular Series"]);
-  });
-});
-
-describe("a page folded into a feed", () => {
-  test("a successful page advances the feed and the next More asks the next one", () => {
-    const once = feedWith(feed(), {
-      type: MOVIE,
-      sent: 2,
-      metas: [meta("tt1"), meta("tt2")],
-      failure: null,
-    });
-
-    expect(once.page).toBe(1);
-    expect(once.items).toHaveLength(2);
-    expect(feedMore(once)).toBe(true);
-  });
-});
-
-function meta(id = "tt0133093") {
+function meta(): MetaPreview {
   return {
-    id,
+    id: "tt0133093",
     type: MOVIE,
     name: "The Matrix",
     poster: null,

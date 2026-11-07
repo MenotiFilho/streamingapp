@@ -86,11 +86,12 @@ export type Control =
   | "previous_episode";
 
 /**
- * Why an Action was not taken, in the Host's own vocabulary, plus `unreachable`
- * for the failures that happen before the Host ever hears about it.
+ * Why an Action was not taken, in the Host's own vocabulary, plus the client's
+ * own failures (`CLIENT_ERROR_KINDS`): a transport that never reached the Host,
+ * and an answer that carried no page for the question asked.
  */
 export type ActionError = {
-  kind: (typeof HOST_ERROR_KINDS)[number] | "unreachable";
+  kind: (typeof HOST_ERROR_KINDS)[number] | (typeof CLIENT_ERROR_KINDS)[number];
   detail?: string;
   got?: number;
   supported?: number;
@@ -128,6 +129,14 @@ export type ActionError = {
   /** The device name a refusal names, where the refusal is about one. */
   name?: string;
 };
+
+/**
+ * The failures a client names itself. They happen before the Host could refuse
+ * anything — a transport that never reached it, or an answer missing the page
+ * its Action asked for — so they are not part of the Host's vocabulary and
+ * carry the client's own words (ADR-0020's failure rule, kept honest).
+ */
+export const CLIENT_ERROR_KINDS = ["unreachable", "answer"] as const;
 
 /** Whatever a failed call threw, as something the window can explain. */
 export function asActionError(caught: unknown): ActionError {
@@ -271,6 +280,8 @@ export function explain(error: ActionError): string {
       return "This connection has already paired; a device pairs by being unpaired.";
     case "unreachable":
       return `The window could not reach the Host${error.detail ? `: ${error.detail}` : ""}.`;
+    case "answer":
+      return `The Host answered without the page that was asked for${error.detail ? `: ${error.detail}` : ""}.`;
   }
 }
 

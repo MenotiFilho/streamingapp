@@ -1,11 +1,16 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
+import { markNavigation, markPointer } from "../core/inputModality";
+import { ChoiceChip } from "../kit/Chip";
 import { PosterCard } from "../kit/PosterCard";
 import { readLevel } from "./layout";
+import { focusAndReveal } from "./reveal";
 import { RowTrack } from "./RowTrack";
 
 afterEach(() => {
+  markPointer();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -26,6 +31,55 @@ function layOutPitch(track: HTMLElement, pitch: number) {
       toJSON: () => ({}),
     } as DOMRect);
   });
+}
+
+/** Give a content track's chips their own widths, one gap apart. */
+function layOutContent(track: HTMLElement, widths: readonly number[], gap = 16) {
+  const items = track.querySelectorAll<HTMLElement>(".rep-kit-row-item");
+  let left = 0;
+  items.forEach((item, index) => {
+    const width = widths[index] ?? 0;
+    const box = {
+      x: left,
+      y: 0,
+      width,
+      height: 40,
+      left,
+      top: 0,
+      right: left + width,
+      bottom: 40,
+      toJSON: () => ({}),
+    } as DOMRect;
+    vi.spyOn(item, "getBoundingClientRect").mockReturnValue(box);
+    const chip = item.firstElementChild;
+    if (chip instanceof HTMLElement) {
+      vi.spyOn(chip, "getBoundingClientRect").mockReturnValue(box);
+    }
+    left += width + gap;
+  });
+}
+
+/** A chip whose client box follows the track's scroll, as a real browser's does. */
+function layOutChipAt(
+  track: HTMLElement,
+  chip: HTMLElement,
+  left: number,
+  width = 100,
+) {
+  vi.spyOn(chip, "getBoundingClientRect").mockImplementation(
+    () =>
+      ({
+        x: left - track.scrollLeft,
+        y: 100,
+        width,
+        height: 40,
+        left: left - track.scrollLeft,
+        top: 100,
+        right: left - track.scrollLeft + width,
+        bottom: 140,
+        toJSON: () => ({}),
+      }) as DOMRect,
+  );
 }
 
 /** Ask the window for reduced motion so a page jump settles synchronously. */
@@ -155,5 +209,95 @@ describe("the repertory row track", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "A" }));
     expect(onOpen, "a drag is not a press on the card it ended over").not.toHaveBeenCalled();
+  });
+});
+
+describe("the row track over items of varying width", () => {
+  const chips = ["All genres", "Drama", "Comedy", "Horror", "Action", "Science Fiction"];
+
+  test("pages a content rail by the chips one view holds, from start to end", () => {
+    reduceMotion();
+    render(
+      <RowTrack label="Genres" itemLayout="content">
+        {chips.map((name) => (
+          <ChoiceChip key={name} pressed={name === "All genres"}>
+            {name}
+          </ChoiceChip>
+        ))}
+      </RowTrack>,
+    );
+
+    const track = screen.getByRole("list");
+    Object.defineProperty(track, "clientWidth", { configurable: true, value: 300 });
+    Object.defineProperty(track, "scrollWidth", { configurable: true, value: 900 });
+    layOutContent(track, [90, 70, 110, 80, 100, 120]);
+    fireEvent.scroll(track);
+
+    const left = screen.getByRole("button", { name: "Scroll Genres left" });
+    const right = screen.getByRole("button", { name: "Scroll Genres right" });
+    expect(left, "the first chip is already at the leading edge").toBeDisabled();
+    expect(right).toBeEnabled();
+
+    fireEvent.click(right);
+    expect(track.scrollLeft, "the two whole chips in this view, not a fixed pitch").toBe(192);
+    expect(left, "a page on is no longer the start").toBeEnabled();
+    expect(right, "and it has not reached the end").toBeEnabled();
+
+    track.scrollLeft = 600;
+    fireEvent.scroll(track);
+    expect(left).toBeEnabled();
+    expect(right, "the last chips are in view").toBeDisabled();
+
+    fireEvent.click(left);
+    expect(track.scrollLeft, "a page back lands on the chip before the view").toBe(414);
+  });
+
+  test("a drag across the chips swallows the press it ends over", () => {
+    const onChoose = vi.fn();
+    render(
+      <RowTrack label="Genres" itemLayout="content">
+        <ChoiceChip pressed={false} onClick={onChoose}>
+          Drama
+        </ChoiceChip>
+      </RowTrack>,
+    );
+
+    const track = screen.getByRole("list");
+    fireEvent.pointerDown(track, { pointerId: 1, pointerType: "mouse", clientX: 200 });
+    fireEvent.pointerMove(track, { pointerId: 1, clientX: 100 });
+    expect(track.scrollLeft).toBe(100);
+    fireEvent.pointerUp(track, { pointerId: 1, clientX: 100 });
+
+    fireEvent.click(screen.getByRole("button", { name: "Drama" }));
+    expect(onChoose, "a drag is not a press on the chip it ended over").not.toHaveBeenCalled();
+  });
+
+  test("moving focus along the chips brings the focused one into view", () => {
+    markNavigation();
+    render(
+      <div data-region="discover-genres" data-kind="row" data-label="Genres">
+        <RowTrack label="Genres" itemLayout="content">
+          {chips.map((name) => (
+            <ChoiceChip key={name} pressed={false}>
+              {name}
+            </ChoiceChip>
+          ))}
+        </RowTrack>
+      </div>,
+    );
+
+    const track = screen.getByRole("list");
+    track.style.overflowX = "auto";
+    Object.defineProperty(track, "clientWidth", { configurable: true, value: 300 });
+    Object.defineProperty(track, "clientHeight", { configurable: true, value: 56 });
+    Object.defineProperty(track, "scrollWidth", { configurable: true, value: 900 });
+
+    const horror = screen.getByRole("button", { name: "Horror" });
+    layOutChipAt(track, horror, 400, 110);
+
+    focusAndReveal(horror);
+
+    expect(document.activeElement).toBe(horror);
+    expect(track.scrollLeft, "the chip clears the 24px margin at the row's right").toBe(234);
   });
 });

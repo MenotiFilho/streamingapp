@@ -122,6 +122,67 @@ body.picture-behind .shell-nav-slot {
   max-width: none;
 }
 
+/* --------------------------------------------------------------------------
+ * The page rule (ADR-0036 §3)
+ * -------------------------------------------------------------------------- */
+
+/*
+ * A fitted screen is sized to the stage's content box and never scrolls
+ * vertically. The panel its screen names is the one scrollport, so Discover's
+ * and Search's head, chips and bar stay where a person left them while the feed
+ * moves beneath. Home and the utility register keep the page rule: they grow,
+ * and a short window scrolls them.
+ */
+.rep-feed[data-page="fitted"] {
+  height: calc(100vh - var(--rep-stage-top) - var(--rep-stage-bottom));
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rep-page-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-6);
+  min-width: 0;
+}
+
+.rep-feed[data-page="fitted"][data-panel="rows"] > .rep-page-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-color: var(--rep-hairline) transparent;
+  scrollbar-width: thin;
+}
+
+/* The credit is the feed's foot, not a second row: on a fitted page it keeps
+ * the attribution on screen without taking the room a row needs. It reads on
+ * one line where the window allows it, never a second row that eats a rail. */
+.rep-feed[data-page="fitted"] .rep-credit {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--rep-space-4);
+  max-width: none;
+  padding: var(--rep-space-1) 0;
+}
+
+.rep-feed[data-page="fitted"] .rep-credit-logo {
+  width: max(72px, calc(var(--rep-stage) * 4.4));
+}
+
+.rep-feed[data-page="fitted"] .rep-credit-notice {
+  max-width: none;
+  line-height: var(--rep-leading-caption);
+}
+
+/* The Title is one page: its backdrop is the page, and the episode rail is the
+ * only scrollport (ADR-0036 §3). The frame's level already owns the screen, so
+ * this page never asks the window to scroll it. */
+.rep-title-level[data-page="fitted"] {
+  height: 100%;
+  min-height: 0;
+}
+
 /* A heading the page needs and the screen does not draw. */
 .shell-visually-hidden {
   position: absolute;
@@ -498,6 +559,17 @@ body.picture-behind .shell-nav-slot {
 
 .rep-kit-row-item > * {
   width: 100%;
+}
+
+/* A content-sized track — Discover's genre chips — keeps each item's own width
+ * instead of the equal share a poster rail gives its cards. The track measures
+ * those widths when it pages, so a press lands on a chip's leading edge. */
+.rep-kit-row-track--content .rep-kit-row-item {
+  flex: 0 0 auto;
+}
+
+.rep-kit-row-track--content .rep-kit-row-item > * {
+  width: auto;
 }
 
 .rep-kit-row-track img {
@@ -1374,6 +1446,7 @@ body.picture-behind .shell-nav-slot {
  */
 .shell-level:has(.rep-title-level) {
   padding-top: 0;
+  overflow: hidden;
   background: var(--rep-ink);
 }
 
@@ -1460,6 +1533,11 @@ body.picture-behind .shell-nav-slot {
   justify-content: flex-end;
   gap: max(12px, calc(var(--rep-stage) * 0.9));
   min-width: 0;
+  /* The grid's one row is the screen; a copy taller than it is clipped rather
+   * than growing the page, because the page does not scroll (ADR-0036 §3). The
+   * description's own clamp is what keeps it short. */
+  min-height: 0;
+  overflow: hidden;
   max-width: 54rem;
   padding-bottom: max(12px, calc(var(--rep-stage) * 1.2));
 }
@@ -1629,20 +1707,16 @@ body.picture-behind .shell-nav-slot {
   background: var(--rep-house-deep);
 }
 
-/* Seasons are one horizontal rail: a season never wraps onto a second line. */
+/* Seasons are the same rail as Discover's genre chips and the poster rows:
+ * `RowTrack` supplies the arrows, paging, drag and focus reveal. The row keeps
+ * its own height in the programme column and its tighter chip gap. */
 .rep-title-seasons {
-  display: flex;
   flex: none;
-  flex-wrap: nowrap;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 4px;
-  scrollbar-color: var(--rep-hairline) transparent;
-  scrollbar-width: thin;
+  min-width: 0;
 }
 
-.rep-title-seasons .rep-season {
-  flex: none;
+.rep-title-seasons .rep-kit-row-track {
+  gap: 8px;
 }
 
 /* A season is a chip like a control is: one press, one season. */
@@ -1792,45 +1866,12 @@ body.picture-behind .shell-nav-slot {
   grid-template-columns: minmax(0, 1fr);
 }
 
-/* A window too short for the ten-foot canvas falls back to a scrolling page. */
-@media (max-height: 760px) {
-  .rep-title-level {
-    overflow: auto;
-  }
-
-  .rep-title {
-    height: auto;
-    min-height: 100%;
-    overflow: visible;
-  }
-
-  .rep-title-top {
-    position: relative;
-  }
-
-  .rep-title-grid {
-    grid-template-rows: auto;
-  }
-
-  .rep-title-side {
-    padding-top: max(24px, calc(var(--rep-stage) * 2));
-  }
-
-  .rep-title-episodes {
-    overflow: visible;
-  }
-}
-
-/* A desk window narrow enough for one column stacks the rail under the copy. */
+/* The Title is fitted at every width (ADR-0036 §3, #257): a narrow window
+ * stacks the rail under the copy, and the episode list is still the only
+ * scrollport. The page itself never scrolls. */
 @media (max-width: 1100px) {
-  .rep-title-level {
-    overflow: auto;
-  }
-
-  .rep-title {
-    height: auto;
-    min-height: 100%;
-    overflow: visible;
+  .rep-title-copy {
+    min-height: 0;
   }
 
   .rep-title-top {
@@ -1839,7 +1880,9 @@ body.picture-behind .shell-nav-slot {
 
   .rep-title-grid {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto;
+    /* The copy takes what it needs; the side takes the rest and scrolls its
+     * episode list inside itself. */
+    grid-template-rows: auto minmax(0, 1fr);
     padding: 0 var(--rep-gutter) max(20px, calc(var(--rep-stage) * 1.8));
   }
 
@@ -1847,10 +1890,6 @@ body.picture-behind .shell-nav-slot {
     padding-top: max(24px, calc(var(--rep-stage) * 2));
     border-top: 1px solid var(--rep-hairline);
     border-left: 0;
-  }
-
-  .rep-title-episodes {
-    overflow: visible;
   }
 }
 
@@ -2182,12 +2221,101 @@ body.picture-behind .shell-nav-slot {
   min-width: 0;
 }
 
-/* One row of single-select chips: Movie / Series and the genre filters. */
+/* The genre row is a rail of chips without a head: `RowTrack` draws the same
+ * arrows, paging, drag and focus reveal as a poster row (ADR-0036 §1). This
+ * wrapper only carries the focus region; the chips keep their own width and
+ * their tighter gap. */
 .rep-kind-filter {
-  display: flex;
-  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.rep-kind-filter .rep-kit-row-track {
   gap: var(--rep-space-2);
 }
+
+/* A fitted feed's cards are sized from the height the panel has left (#257):
+ * the `useFeedCards` hook writes --rep-feed-card-width from the room after each
+ * row's head, real caption and track. The readable floor wins over fitting and
+ * the panel scrolls when it cannot hold both rails (PR #263). The width share
+ * still caps it, so a phone gets the width-based card it had. */
+.rep-feed[data-page="fitted"] .rep-page-panel {
+  gap: var(--rep-space-4);
+}
+
+.rep-feed[data-page="fitted"] .rep-feed-row .rep-kit-row {
+  gap: var(--rep-space-3);
+}
+
+.rep-feed[data-page="fitted"] .rep-feed-row .rep-kit-row-item {
+  flex: 0 0 min(
+    var(--rep-feed-card-width, 100%),
+    calc((100% - var(--row-gap-count) * var(--rep-row-gap)) / var(--row-visible))
+  );
+}
+
+/* A fitted feed's caption is the one line its card's height reserves (#257): a
+ * second line would push the lower rail's cards out of the panel. */
+.rep-feed[data-page="fitted"] .rep-kit-poster-name {
+  -webkit-line-clamp: 1;
+}
+
+/* A short fitted feed spends its height on posters (PR #263): the programme
+ * line, genre row and TMDB credit slim down, and each row's head and track
+ * tighten. `fittedChrome` decides when; this only draws that decision. */
+.rep-feed[data-page="fitted"][data-chrome="compact"] {
+  gap: var(--rep-space-4);
+}
+
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-programme-line {
+  padding-bottom: var(--rep-space-2);
+}
+
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-programme-line-name {
+  font-size: var(--rep-text-badge);
+}
+
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-kind-filter .rep-kit-row-track {
+  gap: var(--rep-space-1);
+}
+
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-kind-filter .rep-kit-choice {
+  padding: var(--rep-space-1) var(--rep-space-2);
+  font-size: var(--rep-text-caption);
+}
+
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-page-panel {
+  gap: var(--rep-space-3);
+}
+
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-feed-row .rep-kit-row {
+  gap: var(--rep-space-2);
+}
+
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-kit-row-head {
+  padding-bottom: var(--rep-space-2);
+}
+
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-kit-row-title {
+  font-size: var(--rep-text-body);
+}
+
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-kit-row-track {
+  padding-top: 4px;
+  padding-bottom: 6px;
+}
+
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-credit {
+  gap: var(--rep-space-3);
+}
+
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-credit-logo {
+  width: max(64px, calc(var(--rep-stage) * 3.6));
+}
+
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-credit-notice {
+  font-size: var(--rep-text-badge);
+}
+
 
 /* The account Library's shelf shares the whole-row poster grid's measure. */
 

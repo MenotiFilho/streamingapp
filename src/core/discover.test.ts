@@ -1,16 +1,20 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 
 import type { AddonManifest, DiscoverRow, MetaPreview } from "./wire";
 import {
   ALL_GENRES,
   blankFeed,
   DISCOVER_GENRES,
+  DISCOVER_ROWS,
   discoverAsk,
+  discoverNoCounterpart,
   discoverPlayable,
+  discoverReads,
   feedWith,
-  genreIdFor,
+  genreFilterFor,
   genresOf,
   MOVIE,
+  type DiscoverKind,
 } from "./discover";
 import { SERIES } from "./title";
 
@@ -115,28 +119,44 @@ describe("Discover's one genre row", () => {
     expect(names).not.toContain("Action & Adventure");
     expect(names).not.toContain("Sci-Fi & Fantasy");
     expect(names).not.toContain("War & Politics");
-    expect(genreIdFor(genreNamed("Action"), SERIES)).toBe(10759);
-    expect(genreIdFor(genreNamed("Adventure"), SERIES)).toBe(10759);
-    expect(genreIdFor(genreNamed("Science Fiction"), SERIES)).toBe(10765);
-    expect(genreIdFor(genreNamed("Fantasy"), SERIES)).toBe(10765);
-    expect(genreIdFor(genreNamed("War"), SERIES)).toBe(10768);
+    expect(genreFilterFor(genreNamed("Action"), SERIES)).toEqual({ kind: "id", id: 10759 });
+    expect(genreFilterFor(genreNamed("Adventure"), SERIES)).toEqual({
+      kind: "id",
+      id: 10759,
+    });
+    expect(genreFilterFor(genreNamed("Science Fiction"), SERIES)).toEqual({
+      kind: "id",
+      id: 10765,
+    });
+    expect(genreFilterFor(genreNamed("Fantasy"), SERIES)).toEqual({ kind: "id", id: 10765 });
+    expect(genreFilterFor(genreNamed("War"), SERIES)).toEqual({ kind: "id", id: 10768 });
   });
 
   test("All genres filters neither kind, unlike a genre with no counterpart in one", () => {
     expect(DISCOVER_GENRES[0]).toBe(ALL_GENRES);
     expect(ALL_GENRES.all).toBe(true);
-    expect(genreIdFor(ALL_GENRES, MOVIE)).toBeNull();
-    expect(genreIdFor(ALL_GENRES, SERIES)).toBeNull();
+    expect(
+      genreFilterFor(ALL_GENRES, MOVIE),
+      "All genres is not a genre id and not a missing one: it filters nothing",
+    ).toEqual({ kind: "all" });
+    expect(genreFilterFor(ALL_GENRES, SERIES)).toEqual({ kind: "all" });
+    expect(
+      genreFilterFor(null, MOVIE),
+      "no chip held asks the same unfiltered feed as the All genres chip",
+    ).toEqual({ kind: "all" });
 
     const filmOnly = genreNamed("TV Movie");
     expect(filmOnly.all).toBe(false);
-    expect(genreIdFor(filmOnly, MOVIE)).toBe(10770);
-    expect(genreIdFor(filmOnly, SERIES)).toBeNull();
+    expect(genreFilterFor(filmOnly, MOVIE)).toEqual({ kind: "id", id: 10770 });
+    expect(
+      genreFilterFor(filmOnly, SERIES),
+      "series have no TV Movie: the row is drawn empty, not asked unfiltered",
+    ).toEqual({ kind: "none" });
 
     const seriesOnly = genreNamed("Kids");
     expect(seriesOnly.all).toBe(false);
-    expect(genreIdFor(seriesOnly, MOVIE)).toBeNull();
-    expect(genreIdFor(seriesOnly, SERIES)).toBe(10762);
+    expect(genreFilterFor(seriesOnly, MOVIE)).toEqual({ kind: "none" });
+    expect(genreFilterFor(seriesOnly, SERIES)).toEqual({ kind: "id", id: 10762 });
   });
 });
 
@@ -156,6 +176,79 @@ describe("the Discover ask", () => {
       page: 3,
       genre: 10765,
     });
+  });
+});
+
+/**
+ * The one decision both Discover screens read (#248, S1): two rows, in the same
+ * order, each asked page 1 under its own genre counterpart.
+ */
+describe("what a Discover screen reads", () => {
+  const ask = vi.fn(
+    (
+      kind: DiscoverKind,
+      page: number,
+      filter: { kind: string; id?: number },
+      skip: number,
+    ) => ({
+      type: "discover" as const,
+      kind,
+      page,
+      ...(filter.kind === "id" ? { genre: filter.id } : {}),
+      ...(skip === 0 ? {} : { skip }),
+    }),
+  );
+
+  test("both kinds, Movies then Series, under the source's feed keys", () => {
+    const [movies, series] = discoverReads("host", null, ask);
+
+    expect(DISCOVER_ROWS.map(({ kind }) => kind)).toEqual(["movie", "series"]);
+    expect(movies).toMatchObject({
+      kind: "movie",
+      key: "discover/host/all/movie",
+      first: { type: "discover", kind: "movie", page: 1 },
+    });
+    expect(series?.key).toBe("discover/host/all/series");
+    expect(series?.first).toEqual({ type: "discover", kind: "series", page: 1 });
+    expect(movies?.next({ page: 1, offset: 20 })).toEqual({
+      type: "discover",
+      kind: "movie",
+      page: 2,
+      skip: 20,
+    });
+  });
+
+  test("a genre asks each kind by its own counterpart and keys the feed by its name", () => {
+    const action = DISCOVER_GENRES.find((choice) => choice.name === "Action");
+    if (!action) {
+      throw new Error("Discover has no Action chip");
+    }
+
+    const reads = discoverReads("host", action, ask);
+
+    expect(reads.map((read) => read.key)).toEqual([
+      "discover/host/Action/movie",
+      "discover/host/Action/series",
+    ]);
+    expect(reads[0]?.first).toMatchObject({ kind: "movie", genre: 28 });
+    expect(reads[1]?.first).toMatchObject({ kind: "series", genre: 10759 });
+  });
+
+  test("a kind with no counterpart gets no row to read at all", () => {
+    const filmOnly = DISCOVER_GENRES.find((choice) => choice.name === "TV Movie");
+    if (!filmOnly) {
+      throw new Error("Discover has no TV Movie chip");
+    }
+
+    expect(discoverReads("host", filmOnly, ask).map((read) => read.kind)).toEqual([
+      "movie",
+    ]);
+  });
+
+  test("a row says why a kind has no counterpart, in one copy", () => {
+    expect(discoverNoCounterpart(SERIES, "TV Movie")).toBe(
+      "Nothing is screening here: TV Movie is not a series genre.",
+    );
   });
 });
 

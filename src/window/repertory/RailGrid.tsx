@@ -1,24 +1,32 @@
-import { useEffect, useSyncExternalStore } from "react";
+import { useSyncExternalStore } from "react";
 
 import { keyOf, pageable } from "../../core/browse";
 import type { MetaPreview, ResumeEntry } from "../../core/wire";
 import { explain } from "../../core/errors";
+import { gridPaging } from "../../core/gridPaging";
 import { cardName, cardNote, progressOf, resumable } from "../../core/library";
 import { useShell } from "../context";
 import { continueArt } from "../../core/home";
 import { continueTag, rowTag } from "./homeProgramme";
 import { ContinueWatchingCard } from "../../kit/ContinueWatchingCard";
 import { PosterCard } from "../../kit/PosterCard";
+import { Button } from "../../kit/Button";
+import { useGridEnd } from "../../core/react/useGridEnd";
 import { yearOf } from "./program";
 import { RailGridHead } from "./RailGridHead";
 
+/** Where a Home whole-row grid's cards come from. */
+export type RailGridSource =
+  | { kind: "home"; rowKey: string }
+  | { kind: "continue" };
+
 export type RailGridProps = {
   /**
-   * The catalog row to draw as a grid, or null for Continue watching. The row
-   * is read from the Home store on every render, so pages that land while the
-   * grid is open are drawn as they arrive.
+   * The row to draw as a grid: a Home Catalog row by the key its store holds,
+   * or Continue watching. The row is read from the Home store on every render,
+   * so pages that land while the grid is open are drawn as they arrive.
    */
-  rowKey: string | null;
+  source: RailGridSource;
   /** The row's name while the store has no row object yet. */
   title: string;
   /** The programme's numbered section head, as the rail printed it. */
@@ -30,20 +38,21 @@ export type RailGridProps = {
 };
 
 /**
- * One rail opened as a whole: every item a Catalog has answered, or every
+ * One Home rail opened as a whole: every item a Catalog has answered, or every
  * entry in Continue watching, in a responsive grid rather than one line of
  * five-and-a-half.
  *
  * It is a pushed level, so Back pops it to the More card that opened it and the
- * frame restores that card's focus. A catalog row is paged on through the same
- * `home.page` the Home rail used to call from its header; the load stops at the
- * row's `done`, at a failure (which is drawn), and at a Catalog that declares no
- * `skip`. Continue watching is the snapshot's own record and has no more pages.
- * A card opens through the same Title opener Home uses, so the whole row and
- * the rail reach the same programme page.
+ * frame restores that card's focus. The grid reads on by itself (#264): when
+ * the last cards come near the viewport, or focus reaches them, it asks the
+ * row's next page into the same accumulated row the Home rail draws. A page in
+ * flight is never asked twice, a done row has no more, and a page that failed
+ * keeps its cards and offers Try again. Continue watching is the snapshot's own
+ * record and has no more pages. A card opens through the same Title opener Home
+ * uses, so the whole row and the rail reach the same programme page.
  */
 export function RailGrid({
-  rowKey,
+  source,
   title,
   index,
   onOpenMeta,
@@ -51,32 +60,46 @@ export function RailGrid({
   onClose,
 }: RailGridProps) {
   const { home, snapshot } = useShell();
-  const { rows } = useSyncExternalStore(home.subscribe, home.getSnapshot);
-  const row = rowKey ? (rows.find((held) => keyOf(held) === rowKey) ?? null) : null;
+  const { rows, paging } = useSyncExternalStore(home.subscribe, home.getSnapshot);
+
+  const row =
+    source.kind === "home"
+      ? (rows.find((held) => keyOf(held) === source.rowKey) ?? null)
+      : null;
   const name = row?.name ?? title;
   const tag =
-    rowKey === null
+    source.kind === "continue"
       ? continueTag(snapshot?.watchProgress.length ?? 0)
       : row
         ? rowTag(snapshot, row)
         : null;
-  const canLoadMore =
-    row !== null && pageable(snapshot, row) && !row.done && row.failure === null;
-  const loading = canLoadMore;
+  const metas = row?.metas ?? [];
+  const failure = row?.failure ?? null;
+  const reading = source.kind === "home" ? paging.has(source.rowKey) : false;
+  const pagingView = gridPaging({
+    done: source.kind === "home" ? (row?.done ?? false) : false,
+    failure,
+    pageable: source.kind === "home" && row !== null && pageable(snapshot, row),
+    reading,
+    count: source.kind === "continue" ? (snapshot?.watchProgress.length ?? 0) : metas.length,
+  });
 
-  // The grid is the whole row, so it reads on until the Addon stops answering.
-  // A page in flight is already in the store's queue; the guard in `page` keeps
-  // this from becoming a second ask, and a failure stops the run so a down
-  // Addon is not hammered. `row` is a dependency because the store keeps the
-  // same object until a page lands: without it the grid would stop after one.
-  useEffect(() => {
-    if (rowKey && canLoadMore) {
-      home.page(rowKey);
+  const askMore = () => {
+    if (source.kind === "home") {
+      home.page(source.rowKey);
     }
-  }, [home, rowKey, row, canLoadMore]);
+  };
+
+  const root = useGridEnd({
+    count: metas.length,
+    page: pagingView.page,
+    reading: pagingView.reading,
+    onReach: askMore,
+  });
 
   return (
     <section
+      ref={root}
       className="rep-rail-grid"
       data-region="rail-grid"
       data-kind="branch"
@@ -85,13 +108,14 @@ export function RailGrid({
     >
       <RailGridHead title={name} index={index} tag={tag} onClose={onClose} />
 
-      {rowKey === null ? (
+      {source.kind === "continue" ? (
         <div className="rep-rail-grid-cards" data-rail="continue">
           {(snapshot?.watchProgress ?? []).map((entry) => {
             const playable = resumable(entry);
             return (
               <ContinueWatchingCard
                 key={`${entry.title.type}/${entry.video.id}`}
+                data-grid-card
                 name={cardName(entry)}
                 note={cardNote(entry)}
                 art={continueArt(entry)}
@@ -103,35 +127,41 @@ export function RailGrid({
             );
           })}
         </div>
-      ) : row ? (
-        <>
-          <div className="rep-rail-grid-cards" data-rail="poster">
-            {row.metas.map((meta) => (
-              <PosterCard
-                key={meta.id}
-                name={meta.name}
-                poster={meta.poster}
-                rating={meta.imdbRating?.trim() || null}
-                subtitle={yearOf(meta)}
-                testId={`grid-card-${row.addon}-${meta.id}`}
-                onClick={() => onOpenMeta(row.addon, meta)}
-              />
-            ))}
-          </div>
-          {row.metas.length === 0 && !loading && !row.failure ? (
-            <p className="rep-rail-grid-note">
-              The Addon answered with no Titles in this section.
-            </p>
-          ) : null}
-        </>
-      ) : null}
+      ) : (
+        <div className="rep-rail-grid-cards" data-rail="poster">
+          {metas.map((meta) => (
+            <PosterCard
+              key={meta.id}
+              data-grid-card
+              name={meta.name}
+              poster={meta.poster}
+              rating={meta.imdbRating?.trim() || null}
+              subtitle={yearOf(meta)}
+              testId={`grid-card-${row?.addon ?? ""}-${meta.id}`}
+              onClick={() => onOpenMeta(row?.addon ?? "", meta)}
+            />
+          ))}
+        </div>
+      )}
 
-      {row?.failure ? (
+      {failure ? (
         <p role="alert" className="rep-rail-grid-note rep-rail-grid-note--failure">
-          {explain(row.failure)}
+          {explain(failure)}
         </p>
       ) : null}
-      {loading ? <p className="rep-rail-grid-note">Reading the programme…</p> : null}
+      {pagingView.retry ? (
+        <Button variant="ghost" onClick={askMore}>
+          Try again
+        </Button>
+      ) : null}
+      {pagingView.reading ? (
+        <p className="rep-rail-grid-note">Reading the programme…</p>
+      ) : null}
+      {pagingView.empty ? (
+        <p className="rep-rail-grid-note">
+          The Addon answered with no Titles in this section.
+        </p>
+      ) : null}
     </section>
   );
 }

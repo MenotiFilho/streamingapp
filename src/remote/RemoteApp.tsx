@@ -6,6 +6,7 @@ import { explain } from "../core/errors";
 import type { ActionError } from "../core/errors";
 import { isTypingTarget, keyIntent } from "../core/input";
 import type { HostLink } from "../core/link";
+import { pageAttrs } from "../core/pageLayout";
 import { watching } from "../core/playback";
 import { useNavigation, type NavigationReads } from "../core/react/useNavigation";
 import { useSession } from "../core/react/useSession";
@@ -20,6 +21,7 @@ import { Library } from "./Library";
 import { Search } from "./Search";
 import { armSentinel, decideHistory } from "./history";
 import { heldTitle, RemoteLevel, type RemotePayload } from "./levels";
+import { pageSurface } from "./pageSurface";
 import { PlayerStrip } from "./Player";
 import { playerLevelStale, stripDrawn } from "./playerScreen";
 import { Settings } from "./Settings";
@@ -235,6 +237,11 @@ function RemoteRoom({
   const sheetOpen = level?.payload.kind === "sheet";
   const under = sheetOpen ? (drawn[drawn.length - 2] ?? null) : null;
 
+  // The page rule (ADR-0036 §3): Discover, Search, the Title and the player card
+  // fit the phone's viewport; Home and the utility register keep a scrolling
+  // page. The frame and the screen root read this one decision.
+  const surface = pageSurface(nav.destination, level?.payload.kind ?? null);
+
   // The Snapshot is the truth: when it says the Stream is gone, the player and
   // every plate above it leave the stack, whatever closed it — Stop, the
   // Host's own end, or another client's Stop.
@@ -262,7 +269,10 @@ function RemoteRoom({
   }, [nav, playback]);
 
   return (
-    <div className="remote-ui">
+    <div
+      className="remote-ui"
+      {...pageAttrs(surface)}
+    >
       <header className="remote-status">
         <span className="remote-device">{device ? device.name : "This device"}</span>
         {reconnecting ? (
