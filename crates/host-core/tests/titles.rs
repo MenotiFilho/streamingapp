@@ -219,6 +219,20 @@ fn opening_a_series_answers_with_its_numbered_seasons_then_the_specials() {
         "the 16:9 still a series' episode row draws rides the Addon's answer"
     );
     assert_eq!(
+        pilot.air_date.as_deref(),
+        Some("2008-01-21"),
+        "the Addon's date is the calendar day, though it sends an instant"
+    );
+    assert_eq!(
+        title
+            .videos
+            .iter()
+            .find(|video| video.id == "tt0903747:0:1")
+            .and_then(|special| special.air_date.as_deref()),
+        Some("2009-02-18"),
+        "a special's date is read like any episode's"
+    );
+    assert_eq!(
         fetcher.asked().last().map(String::as_str),
         Some(CINEMETA_SERIES)
     );
@@ -383,6 +397,29 @@ fn the_answer_is_the_declared_wire_shape() {
     assert_eq!(
         title["videos"][4]["id"], "tt0903747:0:1",
         "the specials are the answer's last Videos, so a client draws their chip last"
+    );
+}
+
+#[test]
+fn the_title_answer_codec_round_trips_an_episodes_air_date() {
+    let (mut host, _fetcher) = host_with_recorded_addons();
+
+    let response = host
+        .dispatch(open("com.linvo.cinemeta", "series", "tt0903747"))
+        .expect("opening the recorded series should work");
+    let published = serde_json::to_value(&response).expect("a Response serializes");
+    let answered = &published["answer"]["title"];
+
+    assert_eq!(
+        answered["videos"][0]["airDate"], "2008-01-21",
+        "the date travels camelCased, as every field of a Video does"
+    );
+    let reread: Title =
+        serde_json::from_value(answered.clone()).expect("a Title reads back from its answer");
+    assert_eq!(
+        reread,
+        title(&response).clone(),
+        "the answer round-trips whole, air date included"
     );
 }
 
@@ -740,6 +777,11 @@ fn a_series_maps_to_tmdb_and_its_record_supplies_its_videos() {
         title.videos[0].thumbnail.as_deref(),
         Some("https://image.tmdb.org/t/p/w300/still-1396-1-1.jpg"),
         "an episode row draws TMDB's 16:9 still"
+    );
+    assert_eq!(
+        title.videos[0].air_date.as_deref(),
+        Some("2008-01-20"),
+        "a mapped Title carries TMDB's air date, not the Addon's next-day instant"
     );
     assert_eq!(
         title.videos[4].thumbnail, None,

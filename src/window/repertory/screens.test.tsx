@@ -116,6 +116,7 @@ const SERIES: Title = {
       season: 1,
       episode: 1,
       thumbnail: "https://images.test/bb-s1e1.jpg",
+      airDate: null,
     },
     {
       id: "tt0903747:1:2",
@@ -123,6 +124,7 @@ const SERIES: Title = {
       season: 1,
       episode: 2,
       thumbnail: null,
+      airDate: null,
     },
   ],
 };
@@ -141,6 +143,19 @@ const FILM: Title = {
   videos: [],
 };
 
+/**
+ * The same series with its second episode announced: an air date in the future
+ * marks it "Airs" but must not take the press away (#269).
+ */
+const UNAIRED: Title = {
+  ...SERIES,
+  videos: SERIES.videos.map((video) =>
+    video.id === "tt0903747:1:2"
+      ? { ...video, airDate: "2999-01-02" }
+      : video,
+  ),
+};
+
 /** A series with enough seasons for its chip rail to overflow a narrow view. */
 const MANY_SEASONS: Title = {
   ...SERIES,
@@ -152,6 +167,7 @@ const MANY_SEASONS: Title = {
     season,
     episode: 1,
     thumbnail: null,
+    airDate: null,
   })),
 };
 
@@ -266,6 +282,16 @@ describe("the repertory Title page", () => {
     expect(pushed[0]?.name).toBe("Streams");
   });
 
+  it("keeps an announced episode playable: its press pushes Streams", () => {
+    const { value, pushed } = harness();
+    render(withShell(value, <RepertoryTitleScreen title={UNAIRED} />));
+
+    fireEvent.click(screen.getByTestId("episode-tt0903747:1:2"));
+
+    expect(pushed).toHaveLength(1);
+    expect(pushed[0]?.name).toBe("Streams");
+  });
+
   it("gives a film one Find Streams control that pushes the Streams level", () => {
     const { value, pushed } = harness();
     render(withShell(value, <RepertoryTitleScreen title={FILM} />));
@@ -287,6 +313,7 @@ describe("the repertory Title page", () => {
           season: 1,
           episode: 1,
           thumbnail: null,
+          airDate: null,
         },
         {
           id: "tt0903747:2:1",
@@ -294,6 +321,7 @@ describe("the repertory Title page", () => {
           season: 2,
           episode: 1,
           thumbnail: null,
+          airDate: null,
         },
         {
           id: "tt0903747:0:1",
@@ -301,6 +329,7 @@ describe("the repertory Title page", () => {
           season: 0,
           episode: 1,
           thumbnail: null,
+          airDate: null,
         },
       ],
     };

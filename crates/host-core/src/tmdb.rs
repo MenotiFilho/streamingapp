@@ -919,6 +919,10 @@ fn read_episodes(
                 season: Some(season),
                 episode: Some(number),
                 thumbnail: still(episode),
+                air_date: episode
+                    .get("air_date")
+                    .and_then(Value::as_str)
+                    .and_then(crate::meta::calendar_day),
             })
         })
         .collect();
@@ -1665,6 +1669,38 @@ mod tests {
     }
 
     #[test]
+    fn a_batch_carries_each_episodes_air_date_and_absence_is_none() {
+        let body = appended(1, SEASON_1);
+        let batch = read_season_batch(&body, TmdbId(1396), &[1]).expect("a batch answer");
+
+        assert_eq!(
+            batch.videos[0].air_date.as_deref(),
+            Some("2008-01-20"),
+            "TMDB's calendar day is the day the episode aired"
+        );
+        assert_eq!(batch.videos[1].air_date.as_deref(), Some("2008-01-27"));
+
+        let body = appended(
+            1,
+            r#"{"episodes":[
+                {"episode_number":1,"air_date":""},
+                {"episode_number":2,"air_date":null},
+                {"episode_number":3},
+                {"episode_number":4,"air_date":"not a date"}
+            ]}"#,
+        );
+        let batch = read_season_batch(&body, TmdbId(1396), &[1]).expect("a batch answer");
+
+        for (index, video) in batch.videos.iter().enumerate() {
+            assert_eq!(
+                video.air_date, None,
+                "an empty string, null, an absent field and a malformed date are all no date (episode {})",
+                index + 1
+            );
+        }
+    }
+
+    #[test]
     fn specials_are_a_season_like_any_other_with_nothing_to_draw() {
         let body = appended(0, SEASON_0);
         let batch = read_season_batch(&body, TmdbId(1396), &[0]).expect("a batch answer");
@@ -1849,6 +1885,7 @@ mod tests {
                 season: None,
                 episode: None,
                 thumbnail: None,
+                air_date: None,
             }]))
             .onto(&mut title);
         assert_eq!(

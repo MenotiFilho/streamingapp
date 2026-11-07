@@ -98,16 +98,25 @@ const SERIES: Title = {
   ...FILM,
   type: "series",
   videos: [
-    { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
+    { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },
     {
       id: "tt1:1:2",
       name: "Cat's in the Bag...",
       season: 1,
       episode: 2,
       thumbnail: "https://images.test/s1e2.jpg",
+      airDate: null,
     },
-    { id: "tt1:2:1", name: "Seven Thirty-Seven", season: 2, episode: 1, thumbnail: null },
+    { id: "tt1:2:1", name: "Seven Thirty-Seven", season: 2, episode: 1, thumbnail: null, airDate: null },
   ],
+};
+
+/** The same series with an announced second episode, which must stay playable. */
+const UNAIRED: Title = {
+  ...SERIES,
+  videos: SERIES.videos.map((video) =>
+    video.id === "tt1:1:2" ? { ...video, airDate: "2999-01-02" } : video,
+  ),
 };
 
 /** The Host the room walks: one card, one Title, and Streams for whatever it is asked. */
@@ -374,9 +383,9 @@ describe("a series' season chips", () => {
     const withSpecials: Title = {
       ...SERIES,
       videos: [
-        { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
-        { id: "tt1:2:1", name: "Seven Thirty-Seven", season: 2, episode: 1, thumbnail: null },
-        { id: "tt1:0:1", name: "Special", season: 0, episode: 1, thumbnail: null },
+        { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },
+        { id: "tt1:2:1", name: "Seven Thirty-Seven", season: 2, episode: 1, thumbnail: null, airDate: null },
+        { id: "tt1:0:1", name: "Special", season: 0, episode: 1, thumbnail: null, airDate: null },
       ],
     };
     mountStack(
@@ -410,6 +419,17 @@ describe("a series' Play", () => {
 
     // The press is the play: an episode opens the list for that Video, as the
     // window's Title does (#215).
+    fireEvent.click(screen.getByTestId("episode-tt1:1:2"));
+    await screen.findByTestId("remote-streams");
+    expect(host.asked("find_streams")).toEqual([
+      { type: "find_streams", video: { type: "series", id: "tt1:1:2" } },
+    ]);
+  });
+
+  test("an announced episode stays playable: its press opens its Streams", async () => {
+    const { host } = mountStack(answering(UNAIRED), titleLevel({ addon: "cinemeta", id: "tt1", type: "series", name: "One" }));
+    await screen.findByTestId("remote-title-page");
+
     fireEvent.click(screen.getByTestId("episode-tt1:1:2"));
     await screen.findByTestId("remote-streams");
     expect(host.asked("find_streams")).toEqual([

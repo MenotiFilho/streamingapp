@@ -26,6 +26,7 @@ const EPISODE: ResumeEntry = {
     season: 1,
     episode: 2,
     thumbnail: null,
+    airDate: null,
   },
   title: {
     addon: "torrentio",

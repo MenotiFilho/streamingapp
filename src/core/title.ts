@@ -95,6 +95,66 @@ export function labelOf(video: Video): string | null {
   return `${season}${episode}`;
 }
 
+/** The months as the programme prints them, the way en-GB abbreviates them. */
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+/** The calendar day a clock reads, in this machine's own zone, as `YYYY-MM-DD`. */
+function calendarDay(now: Date): string {
+  const year = String(now.getFullYear()).padStart(4, "0");
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * The "Airs 12 Nov" mark an announced episode carries, or null where there is
+ * nothing to announce.
+ *
+ * An air date is a calendar day, so the comparison is between days and not
+ * instants: an episode that airs later today is not announced. A date that is
+ * today or past is not "Airs", and neither is a day the calendar does not have
+ * — an air date of the wrong shape is the same as none (#269, ADR-0038's
+ * consequence). `today` is injected so the decision stays pure; the caller
+ * hands in the machine's own clock.
+ */
+export function airsNote(video: Video, today: Date): string | null {
+  const date = video.airDate;
+  if (date === null || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return null;
+  }
+
+  const [year, month, day] = date.split("-").map(Number);
+  if (year === undefined || month === undefined || day === undefined) {
+    return null;
+  }
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (
+    parsed.getUTCFullYear() !== year ||
+    parsed.getUTCMonth() !== month - 1 ||
+    parsed.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  if (date <= calendarDay(today)) {
+    return null;
+  }
+
+  return `Airs ${day} ${MONTHS[month - 1]}`;
+}
+
 /**
  * What to call an opened Title.
  *
