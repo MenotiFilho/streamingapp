@@ -48,13 +48,30 @@ export type PressBox = {
   bottom: number;
 };
 
-/** Whether `target` lies fully inside `port`, edges included. */
+/**
+ * How far past a port's edge a control may lie and still count as inside it.
+ *
+ * Layout is exact and a scrollport's client box is not: the browser snaps
+ * `clientWidth`, `clientHeight`, `clientLeft` and `clientTop` to whole pixels,
+ * while a control's `getBoundingClientRect()` keeps the fraction. A control
+ * that fills its port — an episode row fills its list's width — overhangs the
+ * snapped box by the remainder, under a pixel, and so read as cut off: its
+ * first press only focused it and the second one opened it. The snap's error is
+ * below one pixel and a person cannot see less than that missing, so anything
+ * under a whole pixel is inside, and a whole pixel or more is a cut-off.
+ */
+const SNAP_SLACK = 1;
+
+/**
+ * Whether `target` lies fully inside `port`: edges included, and short of a
+ * whole pixel past them, which is the snap's remainder and not a cut-off.
+ */
 export function insidePort(target: PressBox, port: PressBox): boolean {
   return (
-    target.left >= port.left &&
-    target.top >= port.top &&
-    target.right <= port.right &&
-    target.bottom <= port.bottom
+    target.left > port.left - SNAP_SLACK &&
+    target.top > port.top - SNAP_SLACK &&
+    target.right < port.right + SNAP_SLACK &&
+    target.bottom < port.bottom + SNAP_SLACK
   );
 }
 
