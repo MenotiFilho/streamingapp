@@ -11,6 +11,7 @@ import type {
 } from "../core/wire";
 import {
   gridCouldPlay,
+  gridEmptyNote,
   gridFeed,
   gridLevel,
   gridView,
@@ -208,10 +209,55 @@ describe("what a grid draws", () => {
     ).toBe(true);
   });
 
-  test("the tag is the string the rail printed, not a second decision", () => {
+  test("the tag is read live from the row, not frozen when the grid was pushed", () => {
     const source: RemoteGridSource = { kind: "home", rowKey: "cinemeta/movie/top" };
-    const view = gridView(grid(source, "Cinemeta / 1 film"), [CATALOG_ROW], new Map(), SNAPSHOT);
-    expect(view.metas).toEqual(CATALOG_ROW.metas);
-    expect(grid(source, "Cinemeta / 1 film").tag).toBe("Cinemeta / 1 film");
+    const stale: RemoteGrid = {
+      title: "Popular",
+      index: "02",
+      tag: "Cinemeta / 20 films",
+      addon: "cinemeta",
+      source,
+    };
+    const view = gridView(stale, [CATALOG_ROW], new Map(), SNAPSHOT);
+
+    expect(view.tag, "the row has read one, whatever the level was pushed with").toBe(
+      "Cinemeta / 1 film",
+    );
+  });
+
+  test("a keyed feed's tag is live too, and names its genre and count", () => {
+    const source: RemoteGridSource = {
+      kind: "discover",
+      feedKind: "movie",
+      genreKey: "Drama",
+      feedKey: "discover/host/Drama/movie",
+    };
+    const view = gridView(
+      {
+        title: "Movies",
+        index: "01",
+        tag: "Drama / 20 films",
+        addon: null,
+        source,
+      },
+      [],
+      new Map([[source.feedKey, FEED]]),
+      SNAPSHOT,
+    );
+
+    expect(view.tag).toBe("Drama / 1 film");
+  });
+
+  test("a grid that ended before reading a card says what its source is", () => {
+    expect(gridEmptyNote({ kind: "discover", feedKind: "movie", genreKey: null, feedKey: "x" })).toBe(
+      "Nothing is screening in this feed.",
+    );
+    expect(
+      gridEmptyNote({ kind: "search", feedKind: "movie", query: "dune", feedKey: "x" }),
+      "Discover and Search are not an Addon's rows",
+    ).toBe("No Titles matched the query.");
+    expect(gridEmptyNote({ kind: "home", rowKey: "cinemeta/movie/top" })).toBe(
+      "The Addon answered with no Titles in this section.",
+    );
   });
 });

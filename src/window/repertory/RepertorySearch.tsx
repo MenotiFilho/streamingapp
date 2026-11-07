@@ -9,11 +9,12 @@ import { keyOf } from "../../core/browse";
 import { blankFeed, discoverPlayable, type DiscoverFeed } from "../../core/discover";
 import type { CatalogRow, MetaPreview } from "../../core/wire";
 import { explain } from "../../core/errors";
-import { pageFit } from "../../core/pageLayout";
+import { pageAttrs } from "../../core/pageLayout";
 import {
   SEARCH_KINDS,
-  searchAsk,
+  queryOf,
   searchFeedKey,
+  searchReads,
   type SearchKind,
 } from "../../core/search";
 import { EMPTY_SEARCH_VIEW } from "../../core/session";
@@ -21,7 +22,7 @@ import { useShell } from "../context";
 import { addonLabel } from "../../core/home";
 import { useTitleOpener } from "../TitleScreen";
 import { usePreviewData } from "./context";
-import { feedMore, feedState } from "./editorial";
+import { feedMore, feedState } from "../../core/discover";
 import { FeedGrid } from "./FeedGrid";
 import { EditorialGrid } from "./EditorialGrid";
 import { EditorialRow, FeedPagingAction } from "./EditorialRow";
@@ -30,6 +31,7 @@ import { Field } from "../../kit/Field";
 import { PosterCard } from "../../kit/PosterCard";
 import { ProgrammeLine } from "./ProgrammeLine";
 import { rowTagOf, yearOf } from "./program";
+import { useFeedCards } from "./useFeedCards";
 import "./repertory.css";
 
 /**
@@ -70,6 +72,7 @@ export function RepertorySearchScreen() {
   const { draft, query: committed } = view;
 
   const keyed = !preview && (snapshot?.protection.tmdbHeld ?? false);
+  const { panel, style } = useFeedCards(keyed ? SEARCH_KINDS.length : 0);
 
   // A credential added or cleared changes which arm a query takes. The rows of
   // the old arm are not answers to the new one, so they go.
@@ -82,6 +85,8 @@ export function RepertorySearchScreen() {
   }, [keyed, session]);
 
   // A mount joins the Session's rows; only a query with no answer asks page 1.
+  // Which asks a query makes is the core's one decision (`searchReads`), shared
+  // with the Remote.
   useEffect(() => {
     if (committed === null) {
       return;
@@ -91,17 +96,13 @@ export function RepertorySearchScreen() {
     if (session.searchView.get().query !== committed) {
       return;
     }
-    if (keyed) {
-      for (const { kind } of SEARCH_KINDS) {
-        const key = searchFeedKey(committed, kind);
-        session.feeds.read(
-          key,
-          searchAsk({ query: committed, kind, page: 1 }),
-          (row) => searchAsk({ query: committed, kind, page: row.page + 1 }),
-        );
-      }
-    } else {
-      session.searchCatalogs.search(committed);
+    const read = searchReads(keyed, committed);
+    if (read.arm === "catalogs") {
+      session.searchCatalogs.search(read.query);
+      return;
+    }
+    for (const feed of read.feeds) {
+      session.feeds.read(feed.key, feed.first, feed.next);
     }
   }, [committed, keyed, session]);
 
@@ -110,8 +111,8 @@ export function RepertorySearchScreen() {
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const query = draft.trim();
-    if (!query) {
+    const query = queryOf(draft);
+    if (query === null) {
       return;
     }
     session.searchView.set({ draft, query });
@@ -125,8 +126,7 @@ export function RepertorySearchScreen() {
     session.feeds.more(searchFeedKey(committed, kind));
   };
 
-  const canSubmit = draft.trim().length > 0;
-  const fit = pageFit("search");
+  const canSubmit = queryOf(draft) !== null;
 
   const rowNote = (
     feed: DiscoverFeed,
@@ -183,7 +183,6 @@ export function RepertorySearchScreen() {
       return;
     }
     const key = searchFeedKey(committed, kind);
-    const feed = feeds.rows.get(key) ?? blankFeed();
     push({
       name: `All of ${label}`,
       kind: "overlay",
@@ -192,7 +191,7 @@ export function RepertorySearchScreen() {
           <FeedGrid
             feedKey={key}
             title={label}
-            tag={rowTagOf("TMDB", kind, feed.items.length)}
+            tag={(feed) => rowTagOf("TMDB", kind, feed.items.length)}
             renderCard={(meta) =>
               keyedCard(
                 meta,
@@ -274,8 +273,7 @@ export function RepertorySearchScreen() {
       data-region="search-screen"
       data-kind="branch"
       data-label="Search"
-      data-page={fit.fitted ? "fitted" : undefined}
-      data-panel={fit.panel ?? undefined}
+      {...pageAttrs("search")}
     >
       <ProgrammeLine name="Search" testId="search-programme-line" />
 
@@ -314,7 +312,7 @@ export function RepertorySearchScreen() {
             />
           </form>
 
-          <div className="rep-page-panel">
+          <div className="rep-page-panel" ref={panel} style={style}>
             {keyed && committed !== null ? (
               <div className="rep-search-results" data-testid="search-results">
                 {SEARCH_KINDS.map(({ kind, label }) => {

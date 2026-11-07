@@ -3,6 +3,7 @@ import { useSyncExternalStore } from "react";
 import { keyOf, pageable } from "../../core/browse";
 import type { MetaPreview, ResumeEntry } from "../../core/wire";
 import { explain } from "../../core/errors";
+import { gridPaging } from "../../core/gridPaging";
 import { cardName, cardNote, progressOf, resumable } from "../../core/library";
 import { useShell } from "../context";
 import { continueArt } from "../../core/home";
@@ -75,9 +76,13 @@ export function RailGrid({
   const metas = row?.metas ?? [];
   const failure = row?.failure ?? null;
   const reading = source.kind === "home" ? paging.has(source.rowKey) : false;
-  const pageableNow =
-    source.kind === "home" && row !== null && pageable(snapshot, row) && !row.done;
-  const page = pageableNow ? { done: false, failure } : null;
+  const pagingView = gridPaging({
+    done: source.kind === "home" ? (row?.done ?? false) : false,
+    failure,
+    pageable: source.kind === "home" && row !== null && pageable(snapshot, row),
+    reading,
+    count: source.kind === "continue" ? (snapshot?.watchProgress.length ?? 0) : metas.length,
+  });
 
   const askMore = () => {
     if (source.kind === "home") {
@@ -87,8 +92,8 @@ export function RailGrid({
 
   const root = useGridEnd({
     count: metas.length,
-    page,
-    reading,
+    page: pagingView.page,
+    reading: pagingView.reading,
     onReach: askMore,
   });
 
@@ -144,13 +149,15 @@ export function RailGrid({
           {explain(failure)}
         </p>
       ) : null}
-      {failure && pageableNow && !reading ? (
+      {pagingView.retry ? (
         <Button variant="ghost" onClick={askMore}>
           Try again
         </Button>
       ) : null}
-      {reading ? <p className="rep-rail-grid-note">Reading the programme…</p> : null}
-      {source.kind !== "continue" && metas.length === 0 && !reading && !failure ? (
+      {pagingView.reading ? (
+        <p className="rep-rail-grid-note">Reading the programme…</p>
+      ) : null}
+      {pagingView.empty ? (
         <p className="rep-rail-grid-note">
           The Addon answered with no Titles in this section.
         </p>

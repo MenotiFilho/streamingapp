@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { pageFit, scrollsAsPage, type PageSurface } from "./pageLayout";
+import { fittedCardSize, pageAttrs, pageFit, type PageSurface } from "./pageLayout";
 
 /**
  * The page rule ADR-0036 §3 records: a fitted screen never scrolls the page
@@ -9,48 +9,70 @@ import { pageFit, scrollsAsPage, type PageSurface } from "./pageLayout";
  */
 describe("the page rule", () => {
   test("Discover, Search, Title and the player fit; Home and the register scroll", () => {
-    expect(pageFit("discover").fitted, "Discover fits head, chips and rows").toBe(true);
-    expect(pageFit("search").fitted, "Search fits its bar and rows").toBe(true);
-    expect(pageFit("title").fitted, "the Title is one screen").toBe(true);
-    expect(pageFit("player").fitted, "the Remote's player card is one screen").toBe(true);
+    expect(pageFit("discover").panel, "Discover fits head, genre row and rows").toBe("rows");
+    expect(pageFit("search").panel, "Search fits its bar and rows").toBe("rows");
+    expect(pageFit("title").panel, "the Title is one screen").toBe("episodes");
+    expect(pageFit("player").panel, "the Remote's player card is one screen").toBe("card");
 
-    expect(pageFit("home").fitted, "Home keeps its scrolling programme").toBe(false);
-    expect(pageFit("library").fitted, "the utility register scrolls").toBe(false);
-    expect(pageFit("addons").fitted, "the utility register scrolls").toBe(false);
-    expect(pageFit("settings").fitted, "the utility register scrolls").toBe(false);
+    expect(pageFit("home").panel, "Home keeps its scrolling programme").toBeNull();
+    expect(pageFit("library").panel, "the utility register scrolls").toBeNull();
+    expect(pageFit("addons").panel, "the utility register scrolls").toBeNull();
+    expect(pageFit("settings").panel, "the utility register scrolls").toBeNull();
     expect(
-      pageFit("overlay").fitted,
+      pageFit("overlay").panel,
       "a level ADR-0036 §3 does not name keeps the page rule",
-    ).toBe(false);
+    ).toBeNull();
   });
 
-  test("a fitted page names the panel its own overflow scrolls inside", () => {
-    expect(pageFit("discover").panel).toBe("rows");
-    expect(pageFit("search").panel).toBe("rows");
-    expect(pageFit("title").panel).toBe("episodes");
-    expect(pageFit("player").panel).toBe("card");
-  });
+  test("the screen root's attributes are one helper's answer", () => {
+    expect(pageAttrs("discover")).toEqual({ "data-page": "fitted", "data-panel": "rows" });
+    expect(pageAttrs("search")).toEqual({ "data-page": "fitted", "data-panel": "rows" });
+    expect(pageAttrs("title")).toEqual({
+      "data-page": "fitted",
+      "data-panel": "episodes",
+    });
+    expect(pageAttrs("player")).toEqual({ "data-page": "fitted", "data-panel": "card" });
 
-  test("a page that scrolls has no panel of its own", () => {
     const scrolling: PageSurface[] = ["home", "library", "addons", "settings", "overlay"];
     for (const surface of scrolling) {
-      expect(pageFit(surface).panel, surface).toBeNull();
+      expect(pageAttrs(surface), surface).toEqual({});
     }
   });
+});
 
-  test("scrolling as a page is exactly the fitted answer, inverted", () => {
-    for (const surface of [
-      "home",
-      "discover",
-      "search",
-      "library",
-      "addons",
-      "settings",
-      "title",
-      "overlay",
-      "player",
-    ] as const) {
-      expect(scrollsAsPage(surface), surface).toBe(!pageFit(surface).fitted);
-    }
+/**
+ * H1 (#257): on a fitted feed the cards take their size from the height the
+ * panel has left, so both rails and their captions fit; a floor keeps a picture
+ * a picture where a very short window would ask for a sliver.
+ */
+describe("a fitted feed's card size", () => {
+  const room = { available: 496, rows: 2, chrome: 156, gap: 16, floor: 64 };
+
+  test("the panel's room, less each row's chrome and the gap, split across the rows", () => {
+    // (496 - 2 * 156 - 16) / 2 = 84.
+    expect(fittedCardSize(room)).toEqual({ artHeight: 84, width: 56 });
+  });
+
+  test("a 2:3 poster's width follows its height", () => {
+    expect(fittedCardSize({ ...room, available: 700 })).toEqual({
+      // (700 - 312 - 16) / 2 = 186, and two thirds of 186 is 124.
+      artHeight: 186,
+      width: 124,
+    });
+  });
+
+  test("a short window stops at the floor rather than shrinking to a sliver", () => {
+    // (200 - 312 - 16) / 2 is negative; the floor is the answer.
+    expect(fittedCardSize({ ...room, available: 200 })).toEqual({
+      artHeight: 64,
+      width: 42,
+    });
+  });
+
+  test("one row takes the whole panel", () => {
+    expect(fittedCardSize({ ...room, rows: 1, available: 300 })).toEqual({
+      artHeight: 144,
+      width: 96,
+    });
   });
 });

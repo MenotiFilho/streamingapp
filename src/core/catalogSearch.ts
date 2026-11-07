@@ -11,10 +11,8 @@
 
 import { answeredCatalogs, type ActionOutcome } from "./answers";
 import { asActionError, type ActionError } from "./errors";
-import type { Action, CatalogRow } from "./wire";
-
-/** The Shell's one door, as the store needs it. */
-type Ask = (action: Action) => Promise<ActionOutcome>;
+import { SnapshotStore, sameSet, type Ask } from "./store";
+import type { CatalogRow } from "./wire";
 
 /** What one keyless query has answered so far. */
 export type CatalogAnswer = {
@@ -31,16 +29,13 @@ export type CatalogSearchSnapshot = {
 
 const BLANK: CatalogAnswer = { rows: null, failure: null };
 
-export class CatalogSearchStore {
+export class CatalogSearchStore extends SnapshotStore<CatalogSearchSnapshot> {
   private answers = new Map<string, CatalogAnswer>();
   private running = new Set<string>();
-  private snapshot: CatalogSearchSnapshot = {
-    answers: new Map(),
-    reading: new Set(),
-  };
-  private listeners = new Set<() => void>();
 
-  constructor(private readonly ask: Ask) {}
+  constructor(private readonly ask: Ask) {
+    super({ answers: new Map(), reading: new Set() });
+  }
 
   /** What a query answered, or a shared blank before it was asked. */
   answer = (query: string): CatalogAnswer => this.answers.get(query) ?? BLANK;
@@ -65,15 +60,6 @@ export class CatalogSearchStore {
     this.answers.delete(query);
     this.send(query);
   }
-
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
-
-  getSnapshot = (): CatalogSearchSnapshot => this.snapshot;
 
   private send(query: string): void {
     this.running.add(query);
@@ -100,30 +86,9 @@ export class CatalogSearchStore {
 
   private publish(): void {
     const reading = new Set(this.running);
-    const previous = this.snapshot;
-    if (
+    this.publishSnapshot({ answers: new Map(this.answers), reading }, (previous) =>
       previous.answers.size === this.answers.size &&
       [...this.answers].every(([query, answer]) => previous.answers.get(query) === answer) &&
-      sameSet(previous.reading, reading)
-    ) {
-      return;
-    }
-    this.snapshot = { answers: new Map(this.answers), reading };
-    for (const listener of this.listeners) {
-      listener();
-    }
+      sameSet(previous.reading, reading));
   }
-}
-
-/** Whether two sets hold the same members — what `publish` compares cheaply. */
-function sameSet(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
-  if (left.size !== right.size) {
-    return false;
-  }
-  for (const member of left) {
-    if (!right.has(member)) {
-      return false;
-    }
-  }
-  return true;
 }

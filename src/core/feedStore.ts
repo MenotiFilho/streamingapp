@@ -19,10 +19,8 @@ import {
 } from "./answers";
 import { blankFeed, feedWith, type DiscoverFeed } from "./discover";
 import { asActionError } from "./errors";
+import { SnapshotStore, sameSet, type Ask } from "./store";
 import type { Action, Response } from "./wire";
-
-/** The Shell's one door, as the store needs it. */
-type Ask = (action: Action) => Promise<ActionOutcome>;
 
 /** One feed as this client has read it: the page, the items and the skip it read to. */
 export type FeedRow = DiscoverFeed & {
@@ -50,16 +48,16 @@ const BLANK: FeedRow = { ...blankFeed(), offset: 0 };
  * query and kind, a preview's source — so a different question is a different
  * row and an old answer cannot land in it.
  */
-export class FeedStore {
+export class FeedStore extends SnapshotStore<FeedSnapshot> {
   private rows = new Map<string, FeedRow>();
   /** Keys whose first ask was already sent. A return joins it; it is not a retry. */
   private started = new Set<string>();
   private running = new Map<string, Action>();
   private nextAsks = new Map<string, NextAsk>();
-  private snapshot: FeedSnapshot = { rows: new Map(), reading: new Set() };
-  private listeners = new Set<() => void>();
 
-  constructor(private readonly ask: Ask) {}
+  constructor(private readonly ask: Ask) {
+    super({ rows: new Map(), reading: new Set() });
+  }
 
   /** The row under a key, or a shared blank before its first ask. */
   feed = (key: string): FeedRow => this.rows.get(key) ?? BLANK;
@@ -99,15 +97,6 @@ export class FeedStore {
     this.send(key, action);
   }
 
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  };
-
-  getSnapshot = (): FeedSnapshot => this.snapshot;
-
   private send(key: string, action: Action): void {
     this.running.set(key, action);
     this.publish();
@@ -133,18 +122,10 @@ export class FeedStore {
 
   private publish(): void {
     const reading = new Set(this.running.keys());
-    const previous = this.snapshot;
-    if (
+    this.publishSnapshot({ rows: new Map(this.rows), reading }, (previous) =>
       previous.rows.size === this.rows.size &&
       [...this.rows].every(([key, row]) => previous.rows.get(key) === row) &&
-      sameSet(previous.reading, reading)
-    ) {
-      return;
-    }
-    this.snapshot = { rows: new Map(this.rows), reading };
-    for (const listener of this.listeners) {
-      listener();
-    }
+      sameSet(previous.reading, reading));
   }
 }
 
@@ -152,6 +133,11 @@ export class FeedStore {
  * One answer folded into the row it asked for. `feedWith` keeps every card a
  * failed page did not replace and only moves the page on a page that answered;
  * the offset moves by what the source sent, unreadable items included.
+ *
+ * A page that carries nothing new — every item a repeat — ends the row even
+ * where the source counted items: a live feed that repeats itself must not be
+ * asked forever. A failure is not the end: it keeps its cards and its way to
+ * ask that page again (ADR-0020).
  */
 function settled(row: FeedRow, action: Action, outcome: ActionOutcome): FeedRow {
   if (outcome.error) {
@@ -159,20 +145,31 @@ function settled(row: FeedRow, action: Action, outcome: ActionOutcome): FeedRow 
   }
   const answer = answerOf(action, outcome.response);
   if (!answer) {
-    return { ...row, done: true };
+    // An answer of the wrong shape is not the end of the row: under ADR-0020 it
+    // is a failure the row shows, with Try again, exactly as a page that could
+    // not be read. Ending here would hide a Host or transport fault as "no more
+    // pages".
+    return { ...row, failure: WRONG_ANSWER };
   }
   const next = feedWith(row, answer);
   return {
     ...next,
     offset: row.offset + (answer.failure ? 0 : answer.sent),
-    // A page with nothing new is the end even where the source counted items:
-    // a live feed that repeats itself must not be asked forever. A failure is
-    // not the end: it keeps its cards and its way to ask that page again.
     done:
       next.done ||
       (!answer.failure && answer.sent > 0 && next.items.length === row.items.length),
   };
 }
+
+/**
+ * The client's own words for an answer that carried no page at all. It is not a
+ * Host refusal — the Host never sent one — so it is named outside the Host's
+ * vocabulary, the way `unreachable` is.
+ */
+const WRONG_ANSWER = {
+  kind: "answer",
+  detail: "the Host's answer carried no page",
+} as const;
 
 /** The page an answer carries, read by the arm of the Action that asked. */
 function answerOf(action: Action, response: Response | null) {
@@ -186,17 +183,4 @@ function answerOf(action: Action, response: Response | null) {
     default:
       return null;
   }
-}
-
-/** Whether two sets hold the same members — what `publish` compares cheaply. */
-function sameSet(left: ReadonlySet<string>, right: ReadonlySet<string>): boolean {
-  if (left.size !== right.size) {
-    return false;
-  }
-  for (const member of left) {
-    if (!right.has(member)) {
-      return false;
-    }
-  }
-  return true;
 }

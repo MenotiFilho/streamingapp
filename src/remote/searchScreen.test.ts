@@ -9,7 +9,6 @@ import {
   blankFeeds,
   kindLabel,
   noMatches,
-  queryOf,
   rowNote,
   searchNote,
   searchPlaceholder,
@@ -36,17 +35,6 @@ function row(overrides: Partial<CatalogRow> = {}): CatalogRow {
 }
 
 describe("the query a submit asks", () => {
-  test("an empty or blank field is not a question and sends nothing", () => {
-    expect(queryOf("")).toBeNull();
-    expect(queryOf("   ")).toBeNull();
-    expect(queryOf("\n\t ")).toBeNull();
-  });
-
-  test("a query is trimmed, and its inside spaces are the person's", () => {
-    expect(queryOf("  dune  ")).toBe("dune");
-    expect(queryOf("blood & guts")).toBe("blood & guts");
-  });
-
   test("the two keyed rows start blank, one per kind", () => {
     const feeds = blankFeeds();
     expect(Object.keys(feeds).sort()).toEqual(["movie", "series"]);

@@ -1,8 +1,10 @@
 import { useSyncExternalStore, type ReactNode } from "react";
 
-import { useShell } from "../context";
+import { gridPaging } from "../../core/gridPaging";
+import type { FeedRow } from "../../core/feedStore";
 import { useGridEnd } from "../../core/react/useGridEnd";
 import type { MetaPreview } from "../../core/wire";
+import { useShell } from "../context";
 import { EditorialGrid } from "./EditorialGrid";
 
 export type FeedGridProps = {
@@ -10,7 +12,8 @@ export type FeedGridProps = {
   feedKey: string;
   title: string;
   index?: string;
-  tag?: string | null;
+  /** The bookkeeping the head prints, read from the row on every render. */
+  tag?: (feed: FeedRow) => string | null;
   /** Draw one card; the caller owns the test id and what a press opens. */
   renderCard: (meta: MetaPreview) => ReactNode;
   onClose: () => void;
@@ -22,7 +25,8 @@ export type FeedGridProps = {
  * row — the same one the rail draws — so a page read here is in the rail after
  * Back and a page the rail asked is in the grid. Reaching the last cards asks
  * the next page with no control; a failed page keeps its cards and offers the
- * one Try again the person pressed for.
+ * one Try again the person pressed for. What the grid shows for that page is
+ * `gridPaging`'s decision, shared with every other grid.
  */
 export function FeedGrid({
   feedKey,
@@ -40,13 +44,18 @@ export function FeedGrid({
   );
   const feed = rows.get(feedKey);
   const loading = reading.has(feedKey);
-  const failure = feed?.failure ?? null;
-  const page = feed && !feed.done ? { done: false, failure } : null;
+  const paging = gridPaging({
+    done: feed?.done ?? false,
+    failure: feed?.failure ?? null,
+    pageable: feed !== undefined,
+    reading: loading,
+    count: feed?.items.length ?? 0,
+  });
 
   const root = useGridEnd({
     count: feed?.items.length ?? 0,
-    page,
-    reading: loading,
+    page: paging.page,
+    reading: paging.reading,
     onReach: () => session.feeds.more(feedKey),
   });
 
@@ -54,11 +63,12 @@ export function FeedGrid({
     <EditorialGrid
       title={title}
       index={index}
-      tag={tag}
-      failure={failure}
-      note={loading ? "Reading the programme…" : null}
-      onClose={onClose}
+      tag={feed ? (tag?.(feed) ?? null) : null}
+      failure={feed?.failure ?? null}
+      note={paging.reading ? "Reading the programme…" : null}
+      retry={paging.retry}
       onRetry={() => session.feeds.more(feedKey)}
+      onClose={onClose}
       testId={testId}
       containerRef={root}
     >

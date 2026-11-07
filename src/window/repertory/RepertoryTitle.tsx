@@ -14,7 +14,7 @@ import { addonLabel } from "../../core/home";
 import { Icon } from "../../kit/icons";
 import { ChoiceChip } from "../../kit/Chip";
 import { StreamsLoader } from "../StreamsScreen";
-import { pageFit } from "../../core/pageLayout";
+import { pageAttrs } from "../../core/pageLayout";
 import { programIndex } from "./program";
 import { titleFacts, titleSide, unmappedOf } from "../../core/titlePage";
 
@@ -47,7 +47,6 @@ export function RepertoryTitleScreen({
   const art = titleArtOf(title, preview);
   const shown = seasons.find((season) => season.season === shownSeason) ?? seasons[0];
   const suppliedBy = title.addon ? addonLabel(snapshot, title.addon) : null;
-  const fit = pageFit("title");
 
   const play = useCallback(
     (video: Video) => {
@@ -68,8 +67,7 @@ export function RepertoryTitleScreen({
   return (
     <div
       className="rep-title-level"
-      data-page={fit.fitted ? "fitted" : undefined}
-      data-panel={fit.panel ?? undefined}
+      {...pageAttrs("title")}
     >
       <article
         className="rep-title"
@@ -249,13 +247,11 @@ export function RepertoryTitleScreen({
 export function RepertoryTitleLoading({ preview }: { preview: OpenablePreview }) {
   const { pop } = useShell();
   const art = preview.background ?? preview.poster ?? null;
-  const fit = pageFit("title");
 
   return (
     <div
       className="rep-title-level"
-      data-page={fit.fitted ? "fitted" : undefined}
-      data-panel={fit.panel ?? undefined}
+      {...pageAttrs("title")}
     >
       <section
         className="rep-title rep-title-loading"

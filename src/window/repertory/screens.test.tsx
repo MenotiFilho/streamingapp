@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { useCallback, useState, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import { MOVIE, discoverFeedKey } from "../../core/discover";
+import { MOVIE, discoverFeedKey, discoverNoCounterpart } from "../../core/discover";
 import type {
   Action,
   AddonManifest,
@@ -19,7 +19,6 @@ import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContext
 import { quietSession } from "../session.testing";
 import { HomeStore } from "../../core/homeStore";
 import { PreviewDataProvider } from "./context";
-import { discoverNoCounterpart } from "./editorial";
 import { RepertoryDiscoverScreen } from "./RepertoryDiscover";
 import { RepertoryStreamsScreen } from "./RepertoryStreams";
 import { RepertoryTitleScreen } from "./RepertoryTitle";
@@ -1201,5 +1200,212 @@ describe("the repertory editorial grid's backward path", () => {
       expect(screen.queryByTestId("discover-grid")).not.toBeInTheDocument(),
     );
     expect(document.activeElement, "the More card the grid was opened from").toBe(more);
+  });
+});
+
+/**
+ * The window's grids through the real Shell (#264, #248 P1): the grid is a
+ * pushed level over the live screen, so Back is the shell's Escape and the rail
+ * underneath must show what the grid read. jsdom has no layout, so the grid's
+ * own end trigger sees the cards at 0 and reads on — the decision under test is
+ * the shared Session row, not a rendered rectangle.
+ */
+describe("the window's editorial grids share the rail's rows", () => {
+  function transport(respond: (action: Action) => unknown): Transport {
+    return {
+      invoke: async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+        if (command === "snapshot") {
+          return KEYED as T;
+        }
+        if (command === "dispatch") {
+          const action = (args?.envelope as { action: Action }).action;
+          return (respond(action) ?? { snapshots: [], answer: null }) as T;
+        }
+        return { snapshots: [], answer: null } as T;
+      },
+      listen: async <T,>(_event: string, handler: (event: { payload: T }) => void) => {
+        handler({ payload: KEYED as T });
+        return () => undefined;
+      },
+    };
+  }
+
+  const searchAnswer = (kind: string, page: number) => ({
+    snapshots: [],
+    answer: {
+      search: {
+        type: kind,
+        sent: 1,
+        metas: [
+          kind === "series"
+            ? { ...BREAKING_BAD_META, id: page === 1 ? "tmdb:1396" : "tmdb:1397" }
+            : { ...MATRIX_META, id: `tmdb:${page === 1 ? 603 : 604}` },
+        ],
+        failure: null,
+      },
+    },
+  });
+
+  it("a page the Discover grid reads is in the rail after Back, with the genre kept", async () => {
+    const link = new TauriLink(
+      transport((action) =>
+        action.type === "discover" ? discoverAnswer(action.kind, action.page) : null,
+      ),
+    );
+    render(<Shell client={link} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Discover" }));
+    await screen.findByTestId("discover-card-tmdb:603");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Drama" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Drama" })).toHaveAttribute(
+        "aria-pressed",
+        "true",
+      ),
+    );
+    await screen.findByTestId("discover-card-tmdb:603");
+
+    fireEvent.click(screen.getByTestId("more-discover:movie"));
+    expect(
+      await screen.findByTestId("discover-grid-card-tmdb:604"),
+      "the grid reads on by itself",
+    ).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("discover-grid")).getByText("Drama / 2 films"),
+      "the head's tag is read live from the row it drew",
+    ).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByTestId("discover-grid")).not.toBeInTheDocument(),
+    );
+    expect(
+      await screen.findByTestId("discover-card-tmdb:604"),
+      "the page the grid read is in the rail after Back",
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("discover-section-series"),
+      "both rows come back",
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Drama" }),
+      "the genre comes back",
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("a page the Discover rail read is in the grid, and no page 1 is asked again", async () => {
+    const asks: Action[] = [];
+    const link = new TauriLink(
+      transport((action) => {
+        asks.push(action);
+        return action.type === "discover" ? discoverAnswer(action.kind, action.page) : null;
+      }),
+    );
+    render(<Shell client={link} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Discover" }));
+    await screen.findByTestId("discover-card-tmdb:603");
+
+    const movie = screen.getByTestId("discover-section-movie");
+    fireEvent.click(within(movie).getByRole("button", { name: "Read on" }));
+    await screen.findByTestId("discover-card-tmdb:604");
+    const firstPages = asks.filter(
+      (action) => action.type === "discover" && action.kind === "movie" && action.page === 1,
+    ).length;
+
+    fireEvent.click(screen.getByTestId("more-discover:movie"));
+    expect(
+      await screen.findByTestId("discover-grid-card-tmdb:604"),
+      "the page the rail read is in the grid",
+    ).toBeInTheDocument();
+    expect(
+      asks.filter(
+        (action) =>
+          action.type === "discover" && action.kind === "movie" && action.page === 1,
+      ),
+      "opening the grid asks no page 1 again",
+    ).toHaveLength(firstPages);
+  });
+
+  it("a page the Search grid reads is in the rail after Back, with the query kept", async () => {
+    const link = new TauriLink(
+      transport((action) =>
+        action.type === "search" ? searchAnswer(action.kind, action.page) : null,
+      ),
+    );
+    render(<Shell client={link} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Search" }));
+    fireEvent.change(await screen.findByLabelText("Search for a Title"), {
+      target: { value: "the" },
+    });
+    fireEvent.click(
+      within(screen.getByRole("search")).getByRole("button", { name: "Search" }),
+    );
+    await screen.findByTestId("search-card-movie-tmdb:603");
+
+    fireEvent.click(screen.getByTestId("more-search-row:movie"));
+    expect(
+      await screen.findByTestId("search-grid-card-movie-tmdb:604"),
+      "the grid reads on by itself",
+    ).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByTestId("search-grid")).not.toBeInTheDocument(),
+    );
+    expect(
+      await screen.findByTestId("search-card-movie-tmdb:604"),
+      "the page the grid read is in the rail after Back",
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("search-card-series-tmdb:1396"),
+      "the other kind's row comes back",
+    ).toBeInTheDocument();
+    expect(
+      screen.getByLabelText("Search for a Title"),
+      "the query comes back with the rows",
+    ).toHaveValue("the");
+  });
+
+  it("a page the Search rail read is in the grid, and no page 1 is asked again", async () => {
+    const asks: Action[] = [];
+    const link = new TauriLink(
+      transport((action) => {
+        asks.push(action);
+        return action.type === "search" ? searchAnswer(action.kind, action.page) : null;
+      }),
+    );
+    render(<Shell client={link} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Search" }));
+    fireEvent.change(await screen.findByLabelText("Search for a Title"), {
+      target: { value: "the" },
+    });
+    fireEvent.click(
+      within(screen.getByRole("search")).getByRole("button", { name: "Search" }),
+    );
+    await screen.findByTestId("search-card-movie-tmdb:603");
+
+    const series = screen.getByTestId("search-row-series");
+    fireEvent.click(within(series).getByRole("button", { name: "Read on" }));
+    await screen.findByTestId("search-card-series-tmdb:1397");
+    const firstPages = asks.filter(
+      (action) => action.type === "search" && action.kind === "series" && action.page === 1,
+    ).length;
+
+    fireEvent.click(screen.getByTestId("more-search-row:series"));
+    expect(
+      await screen.findByTestId("search-grid-card-series-tmdb:1397"),
+      "the page the rail read is in the grid",
+    ).toBeInTheDocument();
+    expect(
+      asks.filter(
+        (action) =>
+          action.type === "search" && action.kind === "series" && action.page === 1,
+      ),
+      "opening the grid asks no page 1 again",
+    ).toHaveLength(firstPages);
   });
 });

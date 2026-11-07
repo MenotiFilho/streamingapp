@@ -3,7 +3,7 @@ import { useState } from "react";
 import { describe, expect, test } from "vitest";
 
 import { explain } from "../core/errors";
-import { discoverFeedKey } from "../core/discover";
+import { discoverFeedKey, discoverNoCounterpart } from "../core/discover";
 import type { HostLink } from "../core/link";
 import { useSession } from "../core/react/useSession";
 import type { NewLevel } from "../core/navigation";
@@ -16,10 +16,10 @@ import type {
   Snapshot,
 } from "../core/wire";
 import { Discover } from "./Discover";
+import { RemoteApp } from "./RemoteApp";
 import { FakeHost, type Respond } from "./fakeHost.testing";
 import { NOTHING } from "./fakeSocket.testing";
 import {
-  discoverNoCounterpart,
   discoverNote,
   discoverTag,
 } from "./discoverScreen";
@@ -570,5 +570,148 @@ describe("Discover with no TMDB Credential", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(explain({ kind: "fetch", detail: "timed out" }));
     expect(await screen.findByTestId("discover-card-tt-new")).toBeInTheDocument();
+  });
+});
+
+/**
+ * The whole Remote over Discover (#264, #248 P1): the grid is a pushed level,
+ * and Back is the app's own navigation. The page a grid reads must be in the
+ * rail after Back, the genre must survive, and a page the rail read must be in
+ * the grid — not merely in the store.
+ */
+describe("Discover and its grid, through the Remote's level stack", () => {
+  test("a page the grid reads is in the rail after Back, with the genre kept", async () => {
+    const host = new FakeHost(KEYED, pages);
+    const view = render(<RemoteApp link={host} />);
+    try {
+      fireEvent.click(await screen.findByRole("button", { name: "Discover" }));
+      await screen.findByTestId("discover-card-tmdb:m1");
+
+      fireEvent.click(screen.getByRole("button", { name: "Drama" }));
+      await waitFor(() =>
+        expect(host.asked("discover")).toContainEqual({
+          type: "discover",
+          kind: "movie",
+          page: 1,
+          genre: 18,
+        }),
+      );
+      await screen.findByTestId("discover-card-tmdb:m1");
+
+      const pageTwos = host
+        .asked("discover")
+        .filter((action) => action.kind === "movie" && action.page === 2).length;
+
+      fireEvent.click(screen.getByRole("button", { name: "More Movies" }));
+      expect(
+        await screen.findByTestId("discover-grid-card-tmdb:m3"),
+        "the grid reads on by itself near its end",
+      ).toBeInTheDocument();
+      expect(
+        within(screen.getByTestId("remote-grid")).getByText("Drama / 3 films"),
+        "the head's tag is read live from the row it drew",
+      ).toBeInTheDocument();
+      expect(
+        host
+          .asked("discover")
+          .filter((action) => action.kind === "movie" && action.page === 2),
+        "one page 2, read by the grid",
+      ).toHaveLength(pageTwos + 1);
+
+      fireEvent.click(screen.getByRole("button", { name: "Back" }));
+
+      expect(
+        await screen.findByTestId("discover-card-tmdb:m3"),
+        "the page the grid read is in the rail after Back",
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Drama" }),
+        "the chosen genre comes back with the rows",
+      ).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByTestId("remote-discover-row-series")).toBeInTheDocument();
+    } finally {
+      view.unmount();
+    }
+  });
+
+  test("a page the rail read is in the grid, and Back asks no page 1 again", async () => {
+    const host = new FakeHost(KEYED, pages);
+    const view = render(<RemoteApp link={host} />);
+    try {
+      fireEvent.click(await screen.findByRole("button", { name: "Discover" }));
+      await screen.findByTestId("discover-card-tmdb:m1");
+
+      const movies = screen.getByTestId("remote-discover-row-movie");
+      fireEvent.click(within(movies).getByRole("button", { name: "Read on" }));
+      await screen.findByTestId("discover-card-tmdb:m3");
+      const firstPages = host
+        .asked("discover")
+        .filter((action) => action.kind === "movie" && action.page === 1).length;
+
+      fireEvent.click(screen.getByRole("button", { name: "More Movies" }));
+      expect(
+        await screen.findByTestId("discover-grid-card-tmdb:m3"),
+        "the page the rail read is drawn by the grid",
+      ).toBeInTheDocument();
+      expect(
+        host
+          .asked("discover")
+          .filter((action) => action.kind === "movie" && action.page === 1),
+        "the return and the grid ask no page 1 again",
+      ).toHaveLength(firstPages);
+
+      fireEvent.click(screen.getByRole("button", { name: "Back" }));
+      expect(await screen.findByTestId("discover-card-tmdb:m3")).toBeInTheDocument();
+    } finally {
+      view.unmount();
+    }
+  });
+});
+
+/**
+ * #248 P5: the keyless arm reads Home's shared rows but is its own destination.
+ * A row that failed is re-asked when a person returns, exactly as Home does it;
+ * keeping the rows must not mean keeping a dead one until the Host restarts.
+ */
+describe("the keyless Discover arm and a failed row", () => {
+  test("a return to Discover re-asks a row that failed", async () => {
+    let calls = 0;
+    const host = new FakeHost(UNKEYED, (action) => {
+      if (action.type !== "browse_catalog") {
+        return { snapshots: [], answer: null };
+      }
+      calls += 1;
+      if (calls === 1) {
+        return { kind: "fetch", detail: "timed out" };
+      }
+      return catalogAnswer(
+        "cinemeta",
+        action.catalog.type,
+        action.catalog.id,
+        [meta(`tt-${action.catalog.id}`, "One")],
+      );
+    });
+    const view = render(<RemoteApp link={host} />);
+    try {
+      fireEvent.click(await screen.findByRole("button", { name: "Discover" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        explain({ kind: "fetch", detail: "timed out" }),
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Library" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Discover" }));
+
+      expect(
+        await screen.findByTestId("discover-card-tt-top"),
+        "the failed row answered on the return",
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(
+        host.asked("browse_catalog").filter((action) => action.catalog.id === "top"),
+        "the failed first page was asked again, and only once more",
+      ).toHaveLength(2);
+    } finally {
+      view.unmount();
+    }
   });
 });

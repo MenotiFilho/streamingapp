@@ -1,17 +1,19 @@
 import { describe, expect, test } from "vitest";
 
-import { MOVIE } from "../core/discover";
+import {
+  DISCOVER_ROWS,
+  MOVIE,
+  discoverNoCounterpart,
+} from "../core/discover";
 import { SERIES } from "../core/title";
 import type { AddonCatalog, AddonManifest, Snapshot } from "../core/wire";
 import { NOTHING } from "./fakeSocket.testing";
 import {
-  DISCOVER_ROWS,
   catalogAsk,
   catalogMore,
   catalogNote,
   catalogPageAsk,
   catalogsOf,
-  discoverNoCounterpart,
   discoverNote,
   discoverTag,
   feedTitle,

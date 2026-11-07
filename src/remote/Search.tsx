@@ -8,8 +8,9 @@ import { programIndex, rowTagOf } from "../core/homeProgramme";
 import type { NewLevel } from "../core/navigation";
 import {
   SEARCH_KINDS,
-  searchAsk,
+  queryOf,
   searchFeedKey,
+  searchReads,
   type SearchKind,
 } from "../core/search";
 import { EMPTY_SEARCH_VIEW, type Session, type SessionState } from "../core/session";
@@ -26,7 +27,6 @@ import {
   CATALOGS_READING,
   NO_SEARCHABLE_CATALOGS,
   kindLabel,
-  queryOf,
   rowNote,
   searchNote,
   searchPlaceholder,
@@ -95,7 +95,9 @@ export function Search({ session, state, push }: SearchProps) {
   }, [credential, session]);
 
   // The rows live outside this screen: a mount joins what the Session already
-  // holds, and only a query with no answer asks the Host again.
+  // holds, and only a query with no answer asks the Host again. Which asks a
+  // query makes is the core's one decision (`searchReads`), shared with the
+  // window.
   useEffect(() => {
     if (query === null) {
       return;
@@ -105,17 +107,13 @@ export function Search({ session, state, push }: SearchProps) {
     if (session.searchView.get().query !== query) {
       return;
     }
-    if (keyed) {
-      for (const { kind } of SEARCH_KINDS) {
-        const key = searchFeedKey(query, kind);
-        session.feeds.read(
-          key,
-          searchAsk({ query, kind, page: 1 }),
-          (row) => searchAsk({ query, kind, page: row.page + 1 }),
-        );
-      }
-    } else {
-      session.searchCatalogs.search(query);
+    const read = searchReads(keyed, query);
+    if (read.arm === "catalogs") {
+      session.searchCatalogs.search(read.query);
+      return;
+    }
+    for (const feed of read.feeds) {
+      session.feeds.read(feed.key, feed.first, feed.next);
     }
   }, [keyed, query, session]);
 
@@ -128,7 +126,7 @@ export function Search({ session, state, push }: SearchProps) {
     session.searchView.set({ draft, query: next });
   };
 
-  const openGrid = (at: SearchKind) => {
+  const openGrid = (at: SearchKind, index: string) => {
     if (query === null) {
       return;
     }
@@ -140,7 +138,7 @@ export function Search({ session, state, push }: SearchProps) {
     push(
       gridLevel({
         title: kindLabel(at),
-        index: programIndex(1),
+        index,
         tag: rowTagOf("TMDB", at, feed.items.length),
         addon: null,
         source: {
@@ -219,7 +217,7 @@ function KeyedRows({
   state: SessionState;
   query: string;
   open: (addon: string | null, meta: MetaPreview) => void;
-  openGrid: (at: SearchKind) => void;
+  openGrid: (at: SearchKind, index: string) => void;
 }) {
   const snapshot = state.snapshot;
   const feeds = useSyncExternalStore(session.feeds.subscribe, session.feeds.getSnapshot);
@@ -255,7 +253,10 @@ function KeyedRows({
             }
             more={
               feed.items.length > 0 ? (
-                <MoreControl label={label} onOpen={() => openGrid(kind)} />
+                <MoreControl
+                  label={label}
+                  onOpen={() => openGrid(kind, programIndex(index + 1))}
+                />
               ) : null
             }
           >
