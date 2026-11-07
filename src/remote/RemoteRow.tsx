@@ -40,26 +40,50 @@ export function RowNote({
 }
 
 /**
- * The rail's last plate: one press asks the row for its next page. It is
- * disabled while that ask is queued or running, and the screen draws it only
- * where the feed has a page to ask for.
+ * The rail's quiet head action: the next page when there is one, or the failed
+ * page again (design system *Rail*). It is disabled while that ask is in
+ * flight, and it is drawn only where the source has a page to ask for.
+ */
+export function PagingControl({
+  failure,
+  more,
+  loading,
+  onMore,
+}: {
+  failure: ActionError | null;
+  more: boolean;
+  loading: boolean;
+  onMore: () => void;
+}) {
+  if (!failure && !more) {
+    return null;
+  }
+  return (
+    <Button variant="ghost" disabled={loading} onClick={onMore}>
+      {failure ? "Try again" : "Read on"}
+    </Button>
+  );
+}
+
+/**
+ * The rail's last plate: one press opens the row as a whole, as a pushed grid
+ * (#253, #264, design system *Rail*). The grid draws the same row the rail
+ * draws and reads on by itself near its end; the rail's quiet head action
+ * still pages the rail in place.
  */
 export function MoreControl({
   label,
-  paging,
-  onPage,
+  onOpen,
 }: {
   label: string;
-  paging: boolean;
-  onPage: () => void;
+  onOpen: () => void;
 }) {
   return (
     <Button
       variant="ghost"
       className="remote-more"
       aria-label={`More ${label}`}
-      pending={paging}
-      onClick={onPage}
+      onClick={onOpen}
     >
       More
     </Button>

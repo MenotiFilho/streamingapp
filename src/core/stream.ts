@@ -99,6 +99,38 @@ export function playStreamAction(
 }
 
 /**
+ * The longest URL the Host will take from a Stream: the same `MAX_STRING_LEN`
+ * bound `StreamUrl::parse` applies. A debrid URL carries the owner's
+ * configuration and runs past 2 KiB, so the bound is the Stream's own words,
+ * not a manifest's (#249).
+ */
+const MAX_STREAM_URL_LEN = 4096;
+
+/**
+ * Whether a direct Stream's URL is one the Host will open: `StreamUrl::parse`
+ * accepts only `http` and `https` addresses with a host, within the length
+ * bound and free of control characters. The list marks a candidate this says no
+ * to before the press, rather than letting the Host refuse it after (ADR-0009,
+ * #249).
+ */
+function playableDirectUrl(raw: string): boolean {
+  // The Host's bound is in bytes (Rust's `str::len`), not UTF-16 units.
+  const bytes = new TextEncoder().encode(raw).length;
+  if (bytes === 0 || bytes > MAX_STREAM_URL_LEN) {
+    return false;
+  }
+  if (/[\u0000-\u001f\u007f-\u009f]/.test(raw)) {
+    return false;
+  }
+  try {
+    const url = new URL(raw);
+    return (url.protocol === "http:" || url.protocol === "https:") && url.host.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * What the list says about playing a candidate: nothing for a URL the Host can
  * open, and the reason for one it cannot. A candidate is never hidden for being
  * unplayable — it is listed and marked, and pressing it says so rather than
@@ -107,7 +139,9 @@ export function playStreamAction(
 export function playabilityNote(playback: Playback): string | null {
   switch (playback.kind) {
     case "direct":
-      return null;
+      return playableDirectUrl(playback.url)
+        ? null
+        : "Not playable — a direct Stream must be an http(s) address.";
     case "info_hash":
       return "Not playable yet — a torrent this Host cannot fetch.";
   }

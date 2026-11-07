@@ -8,7 +8,7 @@
  * taken (ADR-0002, ADR-0013).
  */
 
-import type { NowPlaying, Picture, PlaybackState } from "./wire";
+import type { Action, NowPlaying, Picture, PlaybackState } from "./wire";
 import { badgeLines } from "./stream";
 
 /**
@@ -18,6 +18,38 @@ import { badgeLines } from "./stream";
  */
 export function watching(state: PlaybackState): boolean {
   return state !== "idle";
+}
+
+/** The part of a playback report the shell reads to decide where the picture is. */
+type PictureFacts = { state: PlaybackState; picture: Picture };
+
+/**
+ * Whether the picture is behind the shell: mpv's child window shows through the
+ * page, so the page paints nothing over it (ADR-0003).
+ *
+ * A requested Stop gives the ink back at once. The Host destroys mpv's window
+ * before it publishes `idle`, and until the shell paints its own backdrop the
+ * hole shows the desktop (#250), so the shell paints first and the picture goes
+ * second.
+ */
+export function pictureBehind(playback: PictureFacts | null, closing: boolean): boolean {
+  return (
+    !closing && playback !== null && watching(playback.state) && playback.picture === "in_window"
+  );
+}
+
+/** Whether an Action closes the Stream the window is playing. */
+export function requestsStop(action: Action): boolean {
+  return action.type === "stop_playback";
+}
+
+/**
+ * Whether a requested Stop is still being held. It lasts only while the Host
+ * still reports a Stream: once nothing is playing the next Stream opens with a
+ * picture behind the shell again.
+ */
+export function closingAfter(closing: boolean, playback: PictureFacts | null): boolean {
+  return closing && playback !== null && watching(playback.state);
 }
 
 /**

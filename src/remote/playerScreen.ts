@@ -1,5 +1,5 @@
 import { VOLUME_MAX } from "../core/controls";
-import type { NewLevel } from "../core/navigation";
+import type { Level, NewLevel } from "../core/navigation";
 import { watching } from "../core/playback";
 import type { PlaybackView } from "../core/playbackView";
 import {
@@ -72,9 +72,10 @@ export function chapterName(chapter: { index: number; title: string | null }): s
  * so the core's Back pops it, and the destination underneath does not move;
  * Back closes the card and sends nothing, because Stop is its own control.
  *
- * It carries the one id a client can push twice: the strip stays drawn under
- * the card, so a second press replaces the card rather than stacking a second
- * one that one Back cannot close.
+ * It carries the one id a client can push twice: changing an episode from the
+ * card's Episodes plate opens a Streams list above the card, and the Stream a
+ * person picks there pushes the player again. The id replaces the card rather
+ * than stacking a second one that one Back cannot close.
  */
 export function playerLevel(title: Title | null = null): NewLevel<RemotePlayer> {
   return {
@@ -96,6 +97,25 @@ export function playerLevelStale(
   playback: PlaybackState,
 ): boolean {
   return payload.kind === "player" && !watching(playback);
+}
+
+/**
+ * Whether the docked strip is drawn over the stack as it stands (#258,
+ * ADR-0036 §4).
+ *
+ * The strip says what is playing from the screen under it; on the player's own
+ * screen it would point at the screen a person is already on, so it steps
+ * aside. A sheet is furniture above that screen — the person is still on the
+ * card — while a Streams list opened from the Episodes plate is a screen again
+ * and the strip returns.
+ */
+export function stripDrawn(
+  levels: ReadonlyArray<Level<RemotePayload>>,
+): boolean {
+  const screen = [...levels]
+    .reverse()
+    .find((held) => held.payload.kind !== "sheet");
+  return screen?.payload.kind !== "player";
 }
 
 /**

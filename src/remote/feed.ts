@@ -1,40 +1,21 @@
-import type { DiscoverFeed } from "../core/discover";
+import type { DiscoverFeed, FeedState } from "../core/discover";
 import { feedWith } from "../core/discover";
 import type { DiscoverRow } from "../core/wire";
 
 /**
- * A feed's own decisions, for whichever screen is drawing one (#207).
+ * A feed's own paging decisions, for whichever screen is drawing one (#207).
  *
- * A search page is a `DiscoverRow` by the core's own type, so the paging rule
- * `feedWith` implies is one rule for both screens and not a copy per screen:
- * Discover asks TMDB's page and Search asks one kind's page, and both fold,
- * page and end the same way. The copy stays with the screen that says it.
+ * The state a feed draws and whether it has another page are the core's
+ * (`discover.ts`, `feedState` and `feedMore`) so the window's rail, the
+ * Remote's rail and both grids read one rule. What is here is the page-to-ask
+ * arithmetic the Remote's own controls still name, and the fold with no answer
+ * at all.
  */
 
 /** What a feed is doing, for the line its row prints under the cards. */
-export type FeedPhase = "reading" | "reading-more" | "empty" | "failed" | "ready";
+export type FeedPhase = FeedState;
 
-export function feedPhase(feed: DiscoverFeed, reading: boolean): FeedPhase {
-  if (reading) {
-    return feed.page === 0 ? "reading" : "reading-more";
-  }
-  if (feed.failure) {
-    return "failed";
-  }
-  if (feed.done && feed.items.length === 0) {
-    return "empty";
-  }
-  return "ready";
-}
-
-/**
- * Whether the feed has a page to ask for: the next one, or the page that
- * failed. `feedWith` never moves `page` on a failure, so the same press is
- * both "page on" and "ask that page again" (ADR-0020).
- */
-export function feedMore(feed: DiscoverFeed): boolean {
-  return !feed.done && (feed.page > 0 || feed.failure !== null);
-}
+export { feedMore, feedState as feedPhase } from "../core/discover";
 
 /**
  * The page a press asks: one on from what was read, or the page that failed.

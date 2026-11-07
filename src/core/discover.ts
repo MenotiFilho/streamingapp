@@ -10,8 +10,11 @@
  *
  * The genre lists are TMDB's, captured from `/genre/movie/list` and
  * `/genre/tv/list` as the #48 research note records them. The two lists are not
- * the same set, which is why a filter belongs to the kind it was chosen in;
- * the Host judges the ids against the same split (research note §3, ADR-0020).
+ * the same set. Discover draws one genre row, their union by name with **All
+ * genres** first, and a chip carries the id each kind is asked by; a kind with
+ * no counterpart answers `none` so its row can say so rather than hiding it
+ * (ADR-0036 §1). The Host judges the ids against the same split (research note
+ * §3, ADR-0020).
  */
 
 import type { Action, AddonManifest, DiscoverRow, MetaPreview } from "./wire";
@@ -22,6 +25,16 @@ export const MOVIE = "movie";
 
 /** The two kinds Discover can ask TMDB for. */
 export type DiscoverKind = typeof MOVIE | typeof SERIES;
+
+/**
+ * The two kinds both clients draw, in the order they draw them, with the label
+ * a rail prints. Discover, Search and their whole-row grids all read this one
+ * list rather than each spelling Movies and Series again.
+ */
+export const DISCOVER_ROWS: ReadonlyArray<{ kind: DiscoverKind; label: string }> = [
+  { kind: MOVIE, label: "Movies" },
+  { kind: SERIES, label: "Series" },
+];
 
 /** One genre a kind can be filtered by: TMDB's stable id and the name it reads by. */
 export type DiscoverGenre = { id: number; name: string };
@@ -78,12 +91,152 @@ export function genresOf(kind: DiscoverKind): readonly DiscoverGenre[] {
   return kind === SERIES ? SERIES_GENRES : MOVIE_GENRES;
 }
 
+/**
+ * One chip of Discover's one genre row: the name a person reads, the id each
+ * kind is asked by, and whether the chip filters at all. `Id` is TMDB's numeric
+ * id where the Host answers, and the preview transport's own genre name where
+ * the plain Vite window reads Cinemeta — one shape, two vocabularies.
+ */
+export type DiscoverGenreChoice<Id = number> = {
+  /** The chip's text: TMDB's film name for a genre, or All genres. */
+  name: string;
+  /** The id films are asked by, or `null` where films have no such genre. */
+  movie: Id | null;
+  /** The id series are asked by, or `null` where series have no such genre. */
+  series: Id | null;
+  /**
+   * Whether the choice filters nothing. All genres is the row's first chip; a
+   * genre that answers `null` for a kind is instead "no counterpart", and that
+   * kind's row is drawn empty with a line saying so (`genreFilterFor`).
+   */
+  all: boolean;
+};
+
+/** The chip that clears the genre filter: TMDB's whole weekly feed. */
+export const ALL_GENRES: DiscoverGenreChoice = {
+  name: "All genres",
+  movie: null,
+  series: null,
+  all: true,
+};
+
+/**
+ * The series genre TMDB folds a film genre into where the two lists name it
+ * differently: Action and Adventure are *Action & Adventure*, Science Fiction
+ * and Fantasy are *Sci-Fi & Fantasy*, War is *War & Politics* (ADR-0036 §1).
+ */
+const SERIES_FOLD: Readonly<Record<number, number>> = {
+  28: 10759,
+  12: 10759,
+  14: 10765,
+  878: 10765,
+  10752: 10768,
+};
+
+/** The series genres reached through a film genre, so never chips of their own. */
+const SERIES_FOLDED: ReadonlySet<number> = new Set(Object.values(SERIES_FOLD));
+
+/** The series id a film genre is asked by, or `null` where series have no counterpart. */
+function seriesIdFor(film: DiscoverGenre): number | null {
+  const folded = SERIES_FOLD[film.id];
+  if (folded !== undefined) {
+    return folded;
+  }
+  return SERIES_GENRES.find((genre) => genre.name === film.name)?.id ?? null;
+}
+
+/**
+ * Discover's one genre row: All genres, TMDB's film list in its own order,
+ * then the series-only names. The combined series genres are not chips of
+ * their own — they are reached through the film parts that fold into them
+ * (ADR-0036 §1).
+ */
+export const DISCOVER_GENRES: readonly DiscoverGenreChoice[] = [
+  ALL_GENRES,
+  ...MOVIE_GENRES.map((film) => ({
+    name: film.name,
+    movie: film.id,
+    series: seriesIdFor(film),
+    all: false,
+  })),
+  ...SERIES_GENRES.filter(
+    (genre) =>
+      !SERIES_FOLDED.has(genre.id) &&
+      !MOVIE_GENRES.some((film) => film.name === genre.name),
+  ).map((genre) => ({
+    name: genre.name,
+    movie: null,
+    series: genre.id,
+    all: false,
+  })),
+];
+
+/**
+ * How a chosen genre filters one kind: nothing at all, nothing at all *for that
+ * kind* because TMDB lists no counterpart, or TMDB's own id (ADR-0036 §1).
+ *
+ * The two "nothing"s are different answers and a caller must not read them as
+ * one: All genres asks the whole weekly feed, while a kind with no counterpart
+ * draws its row empty with a line saying why.
+ */
+export type GenreFilter<Id = number> =
+  | { kind: "all" }
+  | { kind: "none" }
+  | { kind: "id"; id: Id };
+
+/**
+ * How a chosen genre filters one kind: `all` for All genres (or no chip at
+ * all), `none` where that kind has no counterpart, and the id for the kind
+ * where it has one.
+ *
+ * The All-genres arm lives here rather than in each screen: a screen with no
+ * chip held, and a screen whose All genres chip is pressed, ask the same thing.
+ */
+export function genreFilterFor<Id>(
+  choice: DiscoverGenreChoice<Id> | null,
+  kind: DiscoverKind,
+): GenreFilter<Id> {
+  if (choice === null || choice.all) {
+    return { kind: "all" };
+  }
+  const id = kind === MOVIE ? choice.movie : choice.series;
+  return id === null ? { kind: "none" } : { kind: "id", id };
+}
+
 /** One page a client is asking for: the kind, the page, and the genre filter. */
 export type DiscoverPage = {
   kind: DiscoverKind;
   page: number;
   genre: number | null;
 };
+
+/**
+ * Why a row is drawn empty: the chosen genre is one TMDB does not list for that
+ * kind, and the row says so instead of hiding (ADR-0036 §1). One copy, because
+ * the window and the Remote say the same sentence.
+ */
+export function discoverNoCounterpart(kind: DiscoverKind, genre: string): string {
+  return `Nothing is screening here: ${genre} is not a ${
+    kind === MOVIE ? "film" : "series"
+  } genre.`;
+}
+
+/** Where a Discover feed is read: the Host's TMDB arm, or the plain-Vite preview. */
+export type DiscoverSource = "host" | "preview";
+
+/**
+ * A Discover feed's identity in the Session's feed store (#264): the source,
+ * the chosen chip by the name both clients print, and the kind. Changing the
+ * chip is a different question and therefore a different row; a return to the
+ * same chip finds the pages already read.
+ */
+export function discoverFeedKey(
+  source: DiscoverSource,
+  genre: string | null,
+  kind: DiscoverKind,
+): string {
+  return `discover/${source}/${genre ?? "all"}/${kind}`;
+}
 
 /**
  * The ask for one page: the week's trending feed where no genre is chosen,
@@ -100,6 +253,51 @@ export function discoverAsk({ kind, page, genre }: DiscoverPage): Action {
   };
 }
 
+/**
+ * One row a Discover screen reads: the Session feed key it lives under, the
+ * first page with no skip, and the page after what the row has read.
+ */
+export type DiscoverRead = {
+  kind: DiscoverKind;
+  key: string;
+  first: Action;
+  next: (row: { page: number; offset: number }) => Action | null;
+};
+
+/**
+ * The asks that fill a Discover screen: page 1 of each kind the chosen genre has
+ * a counterpart in, under the source's own vocabulary.
+ *
+ * Both clients mount, return and change a genre through this one decision, so a
+ * screen cannot ask a kind with no counterpart or forget one of the two rows.
+ * The ask itself stays with the caller — the Host's `discover` Action or the
+ * preview's `browse_catalog`.
+ */
+export function discoverReads<Id>(
+  source: DiscoverSource,
+  genre: DiscoverGenreChoice<Id> | null,
+  ask: (kind: DiscoverKind, page: number, filter: GenreFilter<Id>, skip: number) => Action | null,
+): DiscoverRead[] {
+  const reads: DiscoverRead[] = [];
+  for (const { kind } of DISCOVER_ROWS) {
+    const filter = genreFilterFor(genre, kind);
+    if (filter.kind === "none") {
+      continue;
+    }
+    const first = ask(kind, 1, filter, 0);
+    if (!first) {
+      continue;
+    }
+    reads.push({
+      kind,
+      key: discoverFeedKey(source, genre?.name ?? null, kind),
+      first,
+      next: (row) => ask(kind, row.page + 1, filter, row.offset),
+    });
+  }
+  return reads;
+}
+
 /** One Discover feed as this client has read it so far. */
 export type DiscoverFeed = {
   /** The last page answered, or 0 before one was. A failed page is asked again. */
@@ -114,6 +312,36 @@ export type DiscoverFeed = {
 /** A feed with nothing read yet: where a kind or a genre change starts. */
 export function blankFeed(): DiscoverFeed {
   return { page: 0, items: [], failure: null, done: false };
+}
+
+/** What a feed is doing, for the line its row prints under the cards. */
+export type FeedState = "reading" | "reading-more" | "empty" | "ready" | "failed";
+
+/**
+ * A feed's state, from what it has read and whether a page is in flight. One
+ * decision for both clients: the window's rail and the Remote's draw the same
+ * line for the same row.
+ */
+export function feedState(feed: DiscoverFeed, reading: boolean): FeedState {
+  if (reading) {
+    return feed.page === 0 ? "reading" : "reading-more";
+  }
+  if (feed.failure) {
+    return "failed";
+  }
+  if (feed.done && feed.items.length === 0) {
+    return "empty";
+  }
+  return "ready";
+}
+
+/**
+ * Whether the feed has a page to ask for: the next one, or the page that
+ * failed. `feedWith` never moves `page` on a failure, so the same press is both
+ * "page on" and "ask that page again" (ADR-0020).
+ */
+export function feedMore(feed: DiscoverFeed): boolean {
+  return !feed.done && (feed.page > 0 || feed.failure !== null);
 }
 
 /**

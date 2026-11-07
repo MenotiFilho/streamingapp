@@ -1,7 +1,9 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, test } from "vitest";
 
 import { explain } from "../core/errors";
+import { discoverFeedKey, discoverNoCounterpart } from "../core/discover";
 import type { HostLink } from "../core/link";
 import { useSession } from "../core/react/useSession";
 import type { NewLevel } from "../core/navigation";
@@ -14,19 +16,23 @@ import type {
   Snapshot,
 } from "../core/wire";
 import { Discover } from "./Discover";
+import { RemoteApp } from "./RemoteApp";
 import { FakeHost, type Respond } from "./fakeHost.testing";
 import { NOTHING } from "./fakeSocket.testing";
-import { discoverNote } from "./discoverScreen";
+import {
+  discoverNote,
+  discoverTag,
+} from "./discoverScreen";
+import { gridLevel } from "./grid";
 import { titleLevel, type RemotePayload } from "./levels";
 
 /**
  * Discover over a fake HostLink (#207, ADR-0032, docs/agents/testing.md).
  *
  * The screen is the harness; every assertion is a decision at the boundary: the
- * Action a mount, a chip or a press sends, the cards a page keeps, one failure
+ * Actions a mount, a chip or a press sends, the cards a page keeps, one failure
  * path, and the level a press pushes. Nothing here reads a class or a nesting,
- * and the one line of copy a case reads is the empty state's, taken from the
- * seam that chooses it (docs/agents/testing.md §4).
+ * and the lines of copy a case reads are the ones the seam chooses.
  */
 
 const SKIP = { name: "skip", isRequired: false, options: [], optionsLimit: 0 };
@@ -104,16 +110,19 @@ function catalogAnswer(
   };
 }
 
-/** TMDB's first page at hand, and one more at every page after it. */
+/** TMDB's first page of each kind at hand, and one more at page 2. */
 function pages(action: Parameters<Respond>[0]): ReturnType<Respond> {
   if (action.type !== "discover") {
     return { snapshots: [], answer: null };
   }
+  const at = action.kind === "series" ? "s" : "m";
   if (action.page === 1) {
-    return discoverAnswer(row([meta("tmdb:1", "One"), meta("tmdb:2", "Two")]));
+    return discoverAnswer(
+      row([meta(`tmdb:${at}1`, "One"), meta(`tmdb:${at}2`, "Two")]),
+    );
   }
   if (action.page === 2) {
-    return discoverAnswer(row([meta("tmdb:3", "Three")]));
+    return discoverAnswer(row([meta(`tmdb:${at}3`, "Three")]));
   }
   return discoverAnswer(row([]));
 }
@@ -138,6 +147,39 @@ function Show({
   );
 }
 
+/**
+ * A Discover screen that leaves the tree when a card pushes a Title, as the
+ * Remote unmounts the destination under a level (#262, #264).
+ */
+function Room({
+  link,
+  pushes,
+}: {
+  link: HostLink;
+  pushes: NewLevel<RemotePayload>[];
+}) {
+  const { session, state } = useSession(link);
+  const [away, setAway] = useState(false);
+  if (away) {
+    return (
+      <button type="button" onClick={() => setAway(false)}>
+        Back from Title
+      </button>
+    );
+  }
+  return (
+    <Discover
+      session={session}
+      state={state}
+      push={(level) => {
+        pushes.push(level);
+        setAway(true);
+        return `level-${pushes.length}`;
+      }}
+    />
+  );
+}
+
 function mount({
   snapshot = KEYED,
   respond = pages,
@@ -152,65 +194,111 @@ function mount({
 }
 
 describe("Discover over TMDB", () => {
-  test("the first mount asks the landing kind's first page and nothing else", async () => {
+  test("the first mount asks both kinds' first pages, and draws both rows", async () => {
     const { host } = mount();
 
-    await waitFor(() => expect(host.asked("discover")).toHaveLength(1));
-    expect(host.asked("discover")[0]).toEqual({
-      type: "discover",
-      kind: "movie",
-      page: 1,
-    });
-    expect(host.actions).toHaveLength(1);
+    await waitFor(() => expect(host.asked("discover")).toHaveLength(2));
+    expect(host.asked("discover")).toEqual([
+      { type: "discover", kind: "movie", page: 1 },
+      { type: "discover", kind: "series", page: 1 },
+    ]);
+    expect(host.actions).toHaveLength(2);
+    expect(await screen.findByTestId("remote-discover-row-movie")).toBeInTheDocument();
+    expect(await screen.findByTestId("remote-discover-row-series")).toBeInTheDocument();
   });
 
-  test("a chosen genre starts the feed over and asks by TMDB's numeric id", async () => {
+  test("a chosen genre asks both kinds by their own id", async () => {
     const { host } = mount();
-    await screen.findByTestId("discover-card-tmdb:1");
+    await screen.findByTestId("discover-card-tmdb:m1");
 
     fireEvent.click(screen.getByRole("button", { name: "Science Fiction" }));
 
     await waitFor(() =>
-      expect(host.asked("discover").at(-1)).toEqual({
+      expect(host.asked("discover")).toContainEqual({
         type: "discover",
         kind: "movie",
         page: 1,
         genre: 878,
       }),
     );
+    expect(host.asked("discover")).toContainEqual({
+      type: "discover",
+      kind: "series",
+      page: 1,
+      genre: 10765,
+    });
+    expect(
+      screen.queryByRole("button", { name: "Movie" }),
+      "Discover has no kind chips",
+    ).not.toBeInTheDocument();
   });
 
-  test("a kind change asks the other kind's first page and drops the genre", async () => {
+  test("a film-only genre empties the Series row with its line, and asks only Movies", async () => {
     const { host } = mount();
-    await screen.findByTestId("discover-card-tmdb:1");
-    fireEvent.click(screen.getByRole("button", { name: "Action" }));
-    await waitFor(() =>
-      expect(host.asked("discover").at(-1)).toMatchObject({ genre: 28 }),
-    );
+    await screen.findByTestId("discover-card-tmdb:s1");
+    const seriesAsked = host
+      .asked("discover")
+      .filter((action) => action.kind === "series").length;
 
-    fireEvent.click(screen.getByRole("button", { name: "Series" }));
+    fireEvent.click(screen.getByRole("button", { name: "TV Movie" }));
 
     await waitFor(() =>
-      expect(host.asked("discover").at(-1)).toEqual({
+      expect(host.asked("discover")).toContainEqual({
         type: "discover",
-        kind: "series",
+        kind: "movie",
         page: 1,
+        genre: 10770,
       }),
     );
     expect(
-      screen.queryByRole("button", { name: "Action" }),
-      "a film's genre is not a series' filter: the series rail is TMDB's own",
-    ).not.toBeInTheDocument();
+      host.asked("discover").filter((action) => action.kind === "series"),
+      "an ask without the genre would answer the unfiltered feed",
+    ).toHaveLength(seriesAsked);
+
+    const series = screen.getByTestId("remote-discover-row-series");
     expect(
-      screen.getByRole("button", { name: "Action & Adventure" }),
+      within(series).getByText(discoverNoCounterpart("series", "TV Movie")),
     ).toBeInTheDocument();
+    expect(
+      within(series).queryByTestId("discover-card-tmdb:s1"),
+    ).not.toBeInTheDocument();
   });
 
-  test("More asks the next page and keeps the cards already read", async () => {
-    const { host } = mount();
-    await screen.findByTestId("discover-card-tmdb:2");
+  test("each row's More opens that row as a whole-row grid without asking a page", async () => {
+    const { host, pushes } = mount();
+    await screen.findByTestId("discover-card-tmdb:s2");
+    const asked = host.asked("discover").length;
 
     fireEvent.click(screen.getByRole("button", { name: "More Movies" }));
+    expect(pushes.at(-1)).toEqual(
+      gridLevel({
+        title: "Movies",
+        index: "01",
+        tag: discoverTag("movie", null, 2),
+        addon: null,
+        source: {
+          kind: "discover",
+          feedKind: "movie",
+          genreKey: null,
+          feedKey: discoverFeedKey("host", null, "movie"),
+        },
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "More Series" }));
+    expect(pushes.at(-1)?.name).toBe("All of Series");
+    expect(
+      host.asked("discover"),
+      "the grid being pushed asks nothing; rendering it is what reads on",
+    ).toHaveLength(asked);
+  });
+
+  test("each rail's head action asks its own kind's next page into the same cards", async () => {
+    const { host } = mount();
+    await screen.findByTestId("discover-card-tmdb:m2");
+
+    const movies = screen.getByTestId("remote-discover-row-movie");
+    fireEvent.click(within(movies).getByRole("button", { name: "Read on" }));
 
     await waitFor(() =>
       expect(host.asked("discover").at(-1)).toEqual({
@@ -219,54 +307,94 @@ describe("Discover over TMDB", () => {
         page: 2,
       }),
     );
-    await screen.findByTestId("discover-card-tmdb:3");
-    expect(screen.getByTestId("discover-card-tmdb:1")).toBeInTheDocument();
+    expect(await screen.findByTestId("discover-card-tmdb:m3")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("discover-card-tmdb:m1"),
+      "the cards already read keep their place",
+    ).toBeInTheDocument();
+    expect(
+      host.asked("discover").filter((action) => action.kind === "series"),
+      "the other row was not paged",
+    ).toHaveLength(1);
   });
 
-  test("a failed page keeps its cards and the same press asks that page again", async () => {
-    let failed = false;
-    const { host } = mount({
+  test("Back from a Title keeps the genre and the pages, and asks no page 1 again", async () => {
+    const host = new FakeHost(KEYED, pages);
+    const pushes: NewLevel<RemotePayload>[] = [];
+    const view = render(<Room link={host} pushes={pushes} />);
+    try {
+      await screen.findByTestId("discover-card-tmdb:m1");
+
+      fireEvent.click(screen.getByRole("button", { name: "Drama" }));
+      await waitFor(() =>
+        expect(host.asked("discover")).toContainEqual({
+          type: "discover",
+          kind: "movie",
+          page: 1,
+          genre: 18,
+        }),
+      );
+
+      const movies = screen.getByTestId("remote-discover-row-movie");
+      fireEvent.click(within(movies).getByRole("button", { name: "Read on" }));
+      await screen.findByTestId("discover-card-tmdb:m3");
+      const firstPages = host
+        .asked("discover")
+        .filter((action) => action.page === 1 && action.genre === 18).length;
+
+      fireEvent.click(screen.getByTestId("discover-card-tmdb:m3"));
+      expect(await screen.findByRole("button", { name: "Back from Title" })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Back from Title" }));
+
+      expect(
+        await screen.findByRole("button", { name: "Drama" }),
+      ).toHaveAttribute("aria-pressed", "true");
+      expect(
+        await screen.findByTestId("discover-card-tmdb:m3"),
+        "the page read before the Title is still there",
+      ).toBeInTheDocument();
+      expect(
+        host.asked("discover").filter((action) => action.page === 1 && action.genre === 18),
+        "the return does not ask page 1 again",
+      ).toHaveLength(firstPages);
+    } finally {
+      view.unmount();
+    }
+  });
+
+  test("a row that answered nothing draws its quiet line and offers no more", async () => {
+    mount({
       respond: (action) => {
-        if (action.type === "discover" && action.page === 2 && !failed) {
-          failed = true;
-          return { kind: "tmdb", detail: "TMDB answered with status 429" };
+        if (action.type !== "discover") {
+          return { snapshots: [], answer: null };
         }
-        return pages(action);
+        return action.kind === "movie"
+          ? discoverAnswer(row([]))
+          : discoverAnswer(row([meta("tmdb:s1", "One")]));
       },
     });
-    await screen.findByTestId("discover-card-tmdb:1");
 
-    fireEvent.click(screen.getByRole("button", { name: "More Movies" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      explain({ kind: "tmdb", detail: "TMDB answered with status 429" }),
-    );
+    const movies = await screen.findByTestId("remote-discover-row-movie");
     expect(
-      screen.getByTestId("discover-card-tmdb:1"),
-      "the page that failed did not wipe what was read",
+      within(movies).getByText(discoverNote("empty", null) ?? ""),
     ).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "More Movies" }));
-    await screen.findByTestId("discover-card-tmdb:3");
-    expect(host.asked("discover").map((action) => action.page)).toEqual([1, 2, 2]);
-  });
-
-  test("a feed that answered nothing draws its quiet line and offers no more", async () => {
-    mount({ respond: () => discoverAnswer(row([])) });
-
     expect(
-      await screen.findByText(discoverNote("empty", null) ?? ""),
+      within(movies).queryByRole("button", { name: "More Movies" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "More Series" }),
+      "the other row keeps its own way on",
     ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "More Movies" })).not.toBeInTheDocument();
   });
 
   test("a press pushes the Discovered Title level and asks the Host nothing more", async () => {
     const { host, pushes } = mount();
-    const card = await screen.findByTestId("discover-card-tmdb:1");
+    const card = await screen.findByTestId("discover-card-tmdb:m1");
 
     fireEvent.click(card);
 
     expect(pushes).toEqual([
-      titleLevel({ addon: null, id: "tmdb:1", type: "movie", name: "One" }),
+      titleLevel({ addon: null, id: "tmdb:m1", type: "movie", name: "One" }),
     ]);
     expect(
       host.actions.some(
@@ -279,16 +407,22 @@ describe("Discover over TMDB", () => {
 });
 
 describe("Discover with no TMDB Credential", () => {
-  test("the first mount asks every Catalog of the kind, in the Addons' order", async () => {
+  test("the first mount asks every Catalog of both kinds, in the Addons' order", async () => {
     const { host } = mount({
       snapshot: UNKEYED,
-      respond: () => catalogAnswer("cinemeta", "movie", "top", [meta("tt1", "One")]),
+      respond: (action) =>
+        action.type === "browse_catalog"
+          ? catalogAnswer("cinemeta", action.catalog.type, action.catalog.id, [
+              meta(`tt-${action.catalog.id}`, "One"),
+            ])
+          : { snapshots: [], answer: null },
     });
 
-    await waitFor(() => expect(host.asked("browse_catalog")).toHaveLength(2));
+    await waitFor(() => expect(host.asked("browse_catalog")).toHaveLength(3));
     expect(host.asked("browse_catalog").map((action) => action.catalog.id)).toEqual([
       "top",
       "new",
+      "shows",
     ]);
     expect(host.asked("browse_catalog")[0]).toEqual({
       type: "browse_catalog",
@@ -300,58 +434,35 @@ describe("Discover with no TMDB Credential", () => {
       host.asked("discover"),
       "with no credential there is no TMDB feed to ask for",
     ).toEqual([]);
+    expect(
+      screen.queryByRole("button", { name: "Movie" }),
+      "the keyless arm has no kind chips either",
+    ).not.toBeInTheDocument();
   });
 
-  test("a kind change asks the other kind's Catalogs", async () => {
-    const { host } = mount({
-      snapshot: UNKEYED,
-      respond: (action) =>
-        catalogAnswer(
-          "cinemeta",
-          action.type === "browse_catalog" ? action.catalog.type : "",
-          action.type === "browse_catalog" ? action.catalog.id : "",
-          [meta("tt-s", "A Show")],
-        ),
-    });
-    await waitFor(() => expect(host.asked("browse_catalog")).toHaveLength(2));
-
-    fireEvent.click(screen.getByRole("button", { name: "Series" }));
-
-    await waitFor(() =>
-      expect(host.asked("browse_catalog").at(-1)).toEqual({
-        type: "browse_catalog",
-        addon: "cinemeta",
-        catalog: { type: "series", id: "shows" },
-        extra: [],
-      }),
-    );
-  });
-
-  test("a Catalog's row pages on by the skip it has read to", async () => {
+  test("a Catalog row's head action asks the page after what it read", async () => {
     const { host } = mount({
       snapshot: UNKEYED,
       respond: (action) => {
         if (action.type !== "browse_catalog") {
           return { snapshots: [], answer: null };
         }
-        const skip = action.extra.find((extra) => extra.name === "skip")?.value;
         return catalogAnswer(
           "cinemeta",
           action.catalog.type,
           action.catalog.id,
-          skip
-            ? [meta(`tt-${action.catalog.id}-more`, "More")]
-            : [meta(`tt-${action.catalog.id}`, "One")],
+          [meta(`tt-${action.catalog.id}`, "One")],
           action.catalog.id === "top" ? "Popular" : "New",
         );
       },
     });
-    await waitFor(() => expect(host.asked("browse_catalog")).toHaveLength(2));
+    const rail = await screen.findByTestId("discover-row-cinemeta/movie/top");
+    await waitFor(() => expect(within(rail).getByTestId("discover-card-tt-top")).toBeInTheDocument());
 
-    fireEvent.click(screen.getByRole("button", { name: "More Popular" }));
+    fireEvent.click(within(rail).getByRole("button", { name: "Read on" }));
 
     await waitFor(() =>
-      expect(host.asked("browse_catalog")).toContainEqual({
+      expect(host.asked("browse_catalog").at(-1)).toEqual({
         type: "browse_catalog",
         addon: "cinemeta",
         catalog: { type: "movie", id: "top" },
@@ -360,21 +471,54 @@ describe("Discover with no TMDB Credential", () => {
     );
   });
 
+  test("a Catalog's More card opens its row as the grid the rail shares", async () => {
+    const { host, pushes } = mount({
+      snapshot: UNKEYED,
+      respond: (action) => {
+        if (action.type !== "browse_catalog") {
+          return { snapshots: [], answer: null };
+        }
+        return catalogAnswer(
+          "cinemeta",
+          action.catalog.type,
+          action.catalog.id,
+          [meta(`tt-${action.catalog.id}`, "One")],
+          action.catalog.id === "top" ? "Popular" : "New",
+        );
+      },
+    });
+    await waitFor(() => expect(host.asked("browse_catalog")).toHaveLength(3));
+    const asked = host.asked("browse_catalog").length;
+
+    fireEvent.click(screen.getByRole("button", { name: "More Popular" }));
+
+    expect(pushes).toEqual([
+      gridLevel({
+        title: "Popular",
+        index: "01",
+        tag: "Cinemeta / 1 film",
+        addon: "cinemeta",
+        source: {
+          kind: "home",
+          rowKey: "cinemeta/movie/top",
+        },
+      }),
+    ]);
+    expect(
+      host.asked("browse_catalog"),
+      "the grid being pushed asks nothing; rendering it is what reads on",
+    ).toHaveLength(asked);
+  });
+
   test("a press carries the Addon whose Catalog answered", async () => {
     const { pushes } = mount({
       snapshot: UNKEYED,
       respond: (action) =>
-        catalogAnswer(
-          "cinemeta",
-          "movie",
-          action.type === "browse_catalog" ? action.catalog.id : "top",
-          [
-            meta(
-              `tt-${action.type === "browse_catalog" ? action.catalog.id : "top"}`,
-              "One",
-            ),
-          ],
-        ),
+        action.type === "browse_catalog"
+          ? catalogAnswer("cinemeta", action.catalog.type, action.catalog.id, [
+              meta(`tt-${action.catalog.id}`, "One"),
+            ])
+          : { snapshots: [], answer: null },
     });
 
     fireEvent.click(await screen.findByTestId("discover-card-tt-top"));
@@ -384,13 +528,9 @@ describe("Discover with no TMDB Credential", () => {
     ]);
   });
 
-  test("a credential cleared starts the new arm on Movie, without asking the kind left behind", async () => {
+  test("a credential cleared draws the Catalogs of both kinds instead of the TMDB rows", async () => {
     const { host } = mount();
-    await screen.findByTestId("discover-card-tmdb:1");
-    fireEvent.click(screen.getByRole("button", { name: "Series" }));
-    await waitFor(() =>
-      expect(host.asked("discover").at(-1)).toMatchObject({ kind: "series" }),
-    );
+    await screen.findByTestId("discover-card-tmdb:s1");
 
     act(() => {
       host.publish({
@@ -400,24 +540,178 @@ describe("Discover with no TMDB Credential", () => {
       });
     });
 
-    await waitFor(() => expect(host.asked("browse_catalog").length).toBe(2));
+    await waitFor(() => expect(host.asked("browse_catalog").length).toBe(3));
     expect(
       host.asked("browse_catalog").map((action) => action.catalog.type),
-      "the new arm mounts on the landing kind, not on the one the old arm was left on",
-    ).toEqual(["movie", "movie"]);
+      "the new arm draws every Catalog, not just the kind the old one showed",
+    ).toEqual(["movie", "movie", "series"]);
+    expect(
+      screen.queryByRole("button", { name: "All genres" }),
+      "the genre row is TMDB's and steps aside with the credential",
+    ).not.toBeInTheDocument();
   });
 
   test("a Catalog the Host refused draws the Host's words", async () => {
     mount({
       snapshot: UNKEYED,
-      respond: (action) =>
-        action.type === "browse_catalog" && action.catalog.id === "top"
-          ? { kind: "fetch", detail: "timed out" }
-          : catalogAnswer("cinemeta", "movie", "new", [meta("tt2", "Two")]),
+      respond: (action) => {
+        if (action.type !== "browse_catalog") {
+          return { snapshots: [], answer: null };
+        }
+        if (action.catalog.id === "top") {
+          return { kind: "fetch", detail: "timed out" };
+        }
+        return catalogAnswer("cinemeta", action.catalog.type, action.catalog.id, [
+          meta(`tt-${action.catalog.id}`, "One"),
+        ]);
+      },
     });
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(explain({ kind: "fetch", detail: "timed out" }));
-    expect(await screen.findByTestId("discover-card-tt2")).toBeInTheDocument();
+    expect(await screen.findByTestId("discover-card-tt-new")).toBeInTheDocument();
+  });
+});
+
+/**
+ * The whole Remote over Discover (#264, #248 P1): the grid is a pushed level,
+ * and Back is the app's own navigation. The page a grid reads must be in the
+ * rail after Back, the genre must survive, and a page the rail read must be in
+ * the grid — not merely in the store.
+ */
+describe("Discover and its grid, through the Remote's level stack", () => {
+  test("a page the grid reads is in the rail after Back, with the genre kept", async () => {
+    const host = new FakeHost(KEYED, pages);
+    const view = render(<RemoteApp link={host} />);
+    try {
+      fireEvent.click(await screen.findByRole("button", { name: "Discover" }));
+      await screen.findByTestId("discover-card-tmdb:m1");
+
+      fireEvent.click(screen.getByRole("button", { name: "Drama" }));
+      await waitFor(() =>
+        expect(host.asked("discover")).toContainEqual({
+          type: "discover",
+          kind: "movie",
+          page: 1,
+          genre: 18,
+        }),
+      );
+      await screen.findByTestId("discover-card-tmdb:m1");
+
+      const pageTwos = host
+        .asked("discover")
+        .filter((action) => action.kind === "movie" && action.page === 2).length;
+
+      fireEvent.click(screen.getByRole("button", { name: "More Movies" }));
+      expect(
+        await screen.findByTestId("discover-grid-card-tmdb:m3"),
+        "the grid reads on by itself near its end",
+      ).toBeInTheDocument();
+      expect(
+        within(screen.getByTestId("remote-grid")).getByText("Drama / 3 films"),
+        "the head's tag is read live from the row it drew",
+      ).toBeInTheDocument();
+      expect(
+        host
+          .asked("discover")
+          .filter((action) => action.kind === "movie" && action.page === 2),
+        "one page 2, read by the grid",
+      ).toHaveLength(pageTwos + 1);
+
+      fireEvent.click(screen.getByRole("button", { name: "Back" }));
+
+      expect(
+        await screen.findByTestId("discover-card-tmdb:m3"),
+        "the page the grid read is in the rail after Back",
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole("button", { name: "Drama" }),
+        "the chosen genre comes back with the rows",
+      ).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByTestId("remote-discover-row-series")).toBeInTheDocument();
+    } finally {
+      view.unmount();
+    }
+  });
+
+  test("a page the rail read is in the grid, and Back asks no page 1 again", async () => {
+    const host = new FakeHost(KEYED, pages);
+    const view = render(<RemoteApp link={host} />);
+    try {
+      fireEvent.click(await screen.findByRole("button", { name: "Discover" }));
+      await screen.findByTestId("discover-card-tmdb:m1");
+
+      const movies = screen.getByTestId("remote-discover-row-movie");
+      fireEvent.click(within(movies).getByRole("button", { name: "Read on" }));
+      await screen.findByTestId("discover-card-tmdb:m3");
+      const firstPages = host
+        .asked("discover")
+        .filter((action) => action.kind === "movie" && action.page === 1).length;
+
+      fireEvent.click(screen.getByRole("button", { name: "More Movies" }));
+      expect(
+        await screen.findByTestId("discover-grid-card-tmdb:m3"),
+        "the page the rail read is drawn by the grid",
+      ).toBeInTheDocument();
+      expect(
+        host
+          .asked("discover")
+          .filter((action) => action.kind === "movie" && action.page === 1),
+        "the return and the grid ask no page 1 again",
+      ).toHaveLength(firstPages);
+
+      fireEvent.click(screen.getByRole("button", { name: "Back" }));
+      expect(await screen.findByTestId("discover-card-tmdb:m3")).toBeInTheDocument();
+    } finally {
+      view.unmount();
+    }
+  });
+});
+
+/**
+ * #248 P5: the keyless arm reads Home's shared rows but is its own destination.
+ * A row that failed is re-asked when a person returns, exactly as Home does it;
+ * keeping the rows must not mean keeping a dead one until the Host restarts.
+ */
+describe("the keyless Discover arm and a failed row", () => {
+  test("a return to Discover re-asks a row that failed", async () => {
+    let calls = 0;
+    const host = new FakeHost(UNKEYED, (action) => {
+      if (action.type !== "browse_catalog") {
+        return { snapshots: [], answer: null };
+      }
+      calls += 1;
+      if (calls === 1) {
+        return { kind: "fetch", detail: "timed out" };
+      }
+      return catalogAnswer(
+        "cinemeta",
+        action.catalog.type,
+        action.catalog.id,
+        [meta(`tt-${action.catalog.id}`, "One")],
+      );
+    });
+    const view = render(<RemoteApp link={host} />);
+    try {
+      fireEvent.click(await screen.findByRole("button", { name: "Discover" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        explain({ kind: "fetch", detail: "timed out" }),
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Library" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Discover" }));
+
+      expect(
+        await screen.findByTestId("discover-card-tt-top"),
+        "the failed row answered on the return",
+      ).toBeInTheDocument();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(
+        host.asked("browse_catalog").filter((action) => action.catalog.id === "top"),
+        "the failed first page was asked again, and only once more",
+      ).toHaveLength(2);
+    } finally {
+      view.unmount();
+    }
   });
 });

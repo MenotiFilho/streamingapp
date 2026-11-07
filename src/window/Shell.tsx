@@ -6,7 +6,8 @@ import { useNavigation } from "../core/react/useNavigation";
 import { useSession } from "../core/react/useSession";
 import { TauriLink } from "./tauriLink";
 import type { Intent } from "../core/input";
-import { watching } from "../core/playback";
+import { closingAfter, pictureBehind, requestsStop } from "../core/playback";
+import type { Action, Response } from "../core/wire";
 import { PlayerDock, dockedTransport } from "./PlayerDock";
 import { PlayerOverlay } from "./PlayerOverlay";
 import { RepertoryDestinationScreen } from "./repertory/RepertoryScreens";
@@ -37,8 +38,10 @@ export function Shell({ client }: { client?: HostLink }) {
   const link = useMemo(() => client ?? new TauriLink(), [client]);
   const { session, state } = useSession(link);
   const { snapshot, error, unplayable, pending } = state;
-  const { ask, take, markUnplayable, home } = session;
+  const { ask, take: takeAction, markUnplayable, home } = session;
   const nav = useNavigation<WindowPayload>();
+  // A Stop the person has asked for and the Host has not yet reported (#250).
+  const [closing, setClosing] = useState(false);
   const [chosenDestination, setChosenDestination] = useState(false);
   const levelsRef = useRef(nav.levels);
   levelsRef.current = nav.levels;
@@ -97,8 +100,33 @@ export function Shell({ client }: { client?: HostLink }) {
   }, [choose, nav.destination, pop, push]);
 
   const playback = snapshot?.playback ?? null;
-  const playerActive =
-    playback !== null && watching(playback.state) && playback.picture === "in_window";
+  // The Host tears mpv's window down before it reports `idle`: the shell takes
+  // its ink back the moment Stop is taken, and gives the picture back if the
+  // Host refuses it. The wrapper is named for the Stop it holds, so it never
+  // shadows the Session's own `take`.
+  const takeWithStop = useCallback(
+    async (action: Action): Promise<Response | null> => {
+      if (!requestsStop(action)) {
+        return takeAction(action);
+      }
+      setClosing(true);
+      const response = await takeAction(action);
+      if (response === null) {
+        setClosing(false);
+      }
+      return response;
+    },
+    [takeAction],
+  );
+  useEffect(() => {
+    if (closing && !closingAfter(closing, playback)) {
+      setClosing(false);
+    }
+  }, [closing, playback]);
+  // The player level exists exactly where the picture is behind the shell: the
+  // same seam the page's ink follows, without the Stop hold (a Stop already
+  // taken still has its OSD until the Host reports the Stream gone).
+  const playerActive = pictureBehind(playback, false);
   // Where the picture is elsewhere the transport is still the Host's: the
   // window draws it as a docked band rather than an OSD over a picture it does
   // not have (#194).
@@ -116,11 +144,11 @@ export function Shell({ client }: { client?: HostLink }) {
     if (top?.kind === "player") {
       // Back in the player is Stop: the OSD's own popovers have already had
       // their chance through `onBack`, and the stack below is left untouched.
-      void take({ type: "stop_playback" });
+      void takeWithStop({ type: "stop_playback" });
       return;
     }
     backStack();
-  }, [nav.levels, backStack, take]);
+  }, [nav.levels, backStack, takeWithStop]);
 
   // The player takes over the window only where the picture is in this window:
   // mpv's own window is not something this page can draw over, and nowhere is
@@ -148,14 +176,15 @@ export function Shell({ client }: { client?: HostLink }) {
   // Where the picture is in this window, the page must stop painting its own
   // rectangle so mpv's child window shows through (ADR-0003), and the browsing
   // page underneath must stop offering a scrollbar the player does not need.
+  const behind = pictureBehind(playback, closing);
   useEffect(() => {
-    document.body.classList.toggle("picture-behind", playerActive);
-    document.documentElement.classList.toggle("picture-behind", playerActive);
+    document.body.classList.toggle("picture-behind", behind);
+    document.documentElement.classList.toggle("picture-behind", behind);
     return () => {
       document.body.classList.remove("picture-behind");
       document.documentElement.classList.remove("picture-behind");
     };
-  }, [playerActive]);
+  }, [behind]);
 
   const value = useMemo(
     () => ({
@@ -174,7 +203,7 @@ export function Shell({ client }: { client?: HostLink }) {
       pop,
       back,
       ask,
-      take,
+      take: takeWithStop,
       markUnplayable,
       home,
       setIntentHandler,
@@ -196,7 +225,7 @@ export function Shell({ client }: { client?: HostLink }) {
       pop,
       back,
       ask,
-      take,
+      takeWithStop,
       markUnplayable,
       home,
       setIntentHandler,

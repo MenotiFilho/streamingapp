@@ -88,6 +88,94 @@ body {
   padding: var(--rep-space-5) var(--rep-remote-gutter);
 }
 
+/* --------------------------------------------------------------------------
+ * The page rule (ADR-0036 §3): a fitted screen fills the phone's viewport and
+ * never scrolls it. The screen's own panel is the one scrollport; Home and the
+ * utility register keep a scrolling page.
+ * -------------------------------------------------------------------------- */
+
+.remote-ui[data-page="fitted"] {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.remote-ui[data-page="fitted"] .remote-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.remote-ui[data-page="fitted"] .remote-main > .remote-discover,
+.remote-ui[data-page="fitted"] .remote-main > .remote-search,
+.remote-ui[data-page="fitted"] .remote-main > .remote-level-page {
+  flex: 1;
+  min-height: 0;
+}
+
+.remote-ui[data-page="fitted"] .remote-discover,
+.remote-ui[data-page="fitted"] .remote-search {
+  overflow: hidden;
+}
+
+.remote-page-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-5);
+  min-width: 0;
+}
+
+/* The feed's own panel: Discover's and Search's rows move under a fixed head
+ * and chips, and the page does not. */
+.remote-ui[data-page="fitted"][data-panel="rows"] .remote-discover > .remote-page-panel,
+.remote-ui[data-page="fitted"][data-panel="rows"] .remote-search > .remote-page-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+/* The Title is one page, and on the Remote its body is the one scrollport. A
+ * phone cannot hold the copy and the episode list side by side, so everything
+ * under the fixed Back — the copy, the seasons, the episodes and Find Streams —
+ * scrolls together; the episode list is normal flow here, not a nested
+ * scrollport (ADR-0036 §3, amended 2026-11-07, owner's report). */
+.remote-ui[data-page="fitted"] .remote-level-page {
+  overflow: hidden;
+}
+
+.remote-ui[data-page="fitted"][data-panel="body"] .remote-title-level {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
+/* The Title is sized by its content inside the body's scrollport, so no part of
+ * it is asked to share a height the phone does not have. */
+.remote-ui[data-page="fitted"][data-panel="body"] .remote-title {
+  flex: none;
+}
+
+/* The player card is one screen: the controls are laid out to fit, and only a
+ * viewport shorter than the card scrolls the card itself. */
+.remote-ui[data-page="fitted"][data-panel="card"] .remote-level-page > .remote-player-card {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+
 .remote-destination-title {
   margin: 0 0 var(--rep-space-3);
   font-family: var(--rep-display);
@@ -245,9 +333,19 @@ body {
   background: var(--rep-hairline);
 }
 
-/* The feature: the 16:9 art between two hairlines, the copy over its scrim. It
- * is one press, so it is one button and the copy is its label. */
+/* The feature: the 16:9 art between two hairlines, the copy over its scrim. One
+ * size for every slide — the art covers the frame, and long copy is clamped
+ * rather than growing it. The frame is one press, so it is one button and the
+ * copy is its label; the ticks are the programme's furniture under it, not
+ * inside it. */
 .remote-feature {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
+.remote-feature-frame {
   position: relative;
   display: block;
   width: 100%;
@@ -264,6 +362,37 @@ body {
   font: inherit;
   text-align: left;
   cursor: pointer;
+  /* A horizontal swipe steps the programme instead of panning a page; a
+   * vertical drag still scrolls Home. */
+  touch-action: pan-y;
+}
+
+/* The slide's own change is a fade (ADR-0036 §2); the keyed layer is replaced
+ * when the programme steps, so the new item fades in without moving the page. */
+@keyframes remote-feature-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.remote-feature-slide {
+  position: absolute;
+  inset: 0;
+  display: block;
+  animation: remote-feature-fade var(--rep-motion-fade) var(--rep-ease) both;
+}
+
+/* A slide that is part of a gesture is already on screen: no entrance fade.
+ * A released gesture travels the rest of the way with the panel's duration. */
+.remote-feature-slide[data-tracking] {
+  animation: none;
+}
+
+.remote-feature-slide[data-settling] {
+  transition: transform var(--rep-motion-panel) var(--rep-ease);
 }
 
 .remote-feature-art {
@@ -322,6 +451,8 @@ body {
   pointer-events: none;
 }
 
+/* The copy is anchored to the foot of the fixed 16:9 frame. The action is one
+ * of its items, below the description, so it can never cover the copy. */
 .remote-feature-copy {
   position: absolute;
   right: 0;
@@ -331,35 +462,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: var(--rep-space-2);
-  padding: var(--rep-space-4);
+  padding: var(--rep-space-3) var(--rep-space-4);
   min-width: 0;
-}
-
-.remote-feature-kicker {
-  display: flex;
-  align-items: center;
-  gap: var(--rep-space-3);
-  color: var(--rep-dim);
-  font-family: var(--rep-mono);
-  font-size: var(--rep-remote-text-mono);
-  letter-spacing: var(--rep-tracking-caps);
-  line-height: 1.2;
-  text-transform: uppercase;
-}
-
-.remote-feature-kicker > span:first-child {
-  color: var(--rep-house);
-  white-space: nowrap;
-}
-
-.remote-feature-kicker > span:last-child {
-  white-space: nowrap;
-}
-
-.remote-feature-rule {
-  flex: 1;
-  height: 1px;
-  background: var(--rep-hairline);
 }
 
 .remote-feature-name {
@@ -375,6 +479,33 @@ body {
   -webkit-line-clamp: 2;
 }
 
+/* A long name steps down through the same two densities the window uses, rather
+ * than wrapping the fixed frame taller. */
+.remote-feature-name[data-density="long"] {
+  font-size: calc(var(--rep-remote-text-hero) * 0.72);
+}
+
+.remote-feature-name[data-density="very-long"] {
+  font-size: calc(var(--rep-remote-text-hero) * 0.55);
+}
+
+.remote-feature-meta {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: var(--rep-space-2);
+  overflow: hidden;
+  color: var(--rep-dim);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-remote-text-mono);
+  line-height: 1.35;
+  white-space: nowrap;
+}
+
+.remote-feature-meta > span + span {
+  padding-left: var(--rep-space-2);
+  border-left: 1px solid var(--rep-hairline);
+}
+
 .remote-feature-description {
   display: -webkit-box;
   overflow: hidden;
@@ -383,7 +514,119 @@ body {
   font-size: var(--rep-remote-text-caption);
   line-height: var(--rep-leading-caption);
   -webkit-box-orient: vertical;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
+}
+
+/* The frame's one action, in the copy's flow below the description: a brass
+ * plate at the foot's left, with the ticks to its right on the frame. */
+.remote-feature-action {
+  align-self: flex-start;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--rep-space-1) var(--rep-space-3);
+  background: var(--rep-house);
+  color: var(--rep-ink);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-remote-text-control);
+  font-weight: 500;
+  line-height: 1.2;
+  pointer-events: none;
+}
+
+/* A phone too narrow for a two-line name and a two-line description holds one
+ * line of each: the 16:9 frame is fixed, and the copy may not grow past it. */
+@media (max-width: 22.4rem) {
+  .remote-feature-name,
+  .remote-feature-description {
+    -webkit-line-clamp: 1;
+  }
+}
+
+/* Previous and next on the hero: a tap target at each side, drawn over the art
+ * as pointer furniture. They sit outside the frame's press, so pressing one
+ * steps the programme and never opens the Title. */
+.remote-feature-arrow {
+  position: absolute;
+  top: 50%;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: var(--rep-remote-touch);
+  height: var(--rep-remote-touch);
+  padding: 0;
+  border: 1px solid var(--rep-hairline);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--rep-ink) 62%, transparent);
+  color: var(--rep-ivory);
+  cursor: pointer;
+  transform: translateY(-50%);
+}
+
+.remote-feature-arrow svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+
+.remote-feature-arrow:hover {
+  border-color: var(--rep-house-deep);
+}
+
+.remote-feature-arrow--previous {
+  left: var(--rep-space-2);
+}
+
+.remote-feature-arrow--next {
+  right: var(--rep-space-2);
+}
+
+/* One tick per slide under the frame: the current one fills over the item's 15
+ * seconds, the others are hairlines. A tick is a tap target; it is outside the
+ * frame's own press so a tap on it never opens the Title. */
+.remote-feature-ticks {
+  position: absolute;
+  right: var(--rep-gutter);
+  bottom: var(--rep-space-3);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: var(--rep-space-2);
+}
+
+.remote-feature-tick {
+  position: relative;
+  display: block;
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  cursor: pointer;
+  appearance: none;
+}
+
+.remote-feature-tick::before,
+.remote-feature-tick-fill {
+  position: absolute;
+  top: calc(50% - 1px);
+  right: 0;
+  left: 0;
+  height: 2px;
+}
+
+.remote-feature-tick::before {
+  content: "";
+  background: color-mix(in srgb, var(--rep-ivory) 38%, transparent);
+}
+
+/* The fill is the one thing that keeps moving under reduced motion; it reads
+ * the programme's elapsed time and carries no transition of its own. */
+.remote-feature-tick-fill {
+  background: var(--rep-house);
+  transform-origin: left center;
+  transform: scaleX(0);
 }
 
 /* A row: the head, then the touch rail. */
@@ -447,6 +690,11 @@ body {
   white-space: nowrap;
 }
 
+/* The rail's quiet head action: the next page, or the page that failed. */
+.remote-rail-action {
+  flex: none;
+}
+
 .remote-rail-note {
   margin: 0;
 }
@@ -507,8 +755,8 @@ body {
   width: clamp(7rem, 34vw, 9.5rem);
 }
 
-/* The More card: the rail's last plate, the one control that asks the store
- * for the row's next page. */
+/* The More card: the rail's last plate, the one control that opens the whole
+ * row as a grid. */
 .remote-more {
   display: flex;
   align-items: center;
@@ -538,6 +786,44 @@ body {
   border-color: var(--rep-hairline);
   color: var(--rep-muted);
   opacity: 0.5;
+}
+
+/* A rail opened as a whole (#253): the cards the row has read, wrapping under
+ * the same head the rail draws, with Back in it. The grid is static — the
+ * rail's quiet head action is the one that pages. */
+.remote-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--rep-space-4);
+  min-width: 0;
+}
+
+.remote-grid-head {
+  flex-wrap: wrap;
+}
+
+.remote-grid-head .rep-kit-button {
+  min-height: var(--rep-remote-touch);
+  padding: var(--rep-space-2) var(--rep-space-3);
+}
+
+.remote-grid-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(6.75rem, 1fr));
+  gap: var(--rep-space-5) var(--rep-space-4);
+  min-width: 0;
+}
+
+.remote-grid-cards .rep-kit-poster {
+  width: 100%;
+}
+
+.remote-grid-continue {
+  grid-template-columns: repeat(auto-fill, minmax(12.5rem, 1fr));
+}
+
+.remote-grid-continue .rep-kit-continue {
+  width: 100%;
 }
 
 /* The empty programme: one title, one line, one way out. */
@@ -1294,9 +1580,11 @@ body {
   min-width: 0;
 }
 
-/* The seasons slide under the finger in one line, like the filters. */
+/* The seasons slide under the finger in one line, like the filters, and never
+ * give up their height to the body that scrolls under them. */
 .remote-title-seasons {
   display: flex;
+  flex: none;
   gap: var(--rep-space-2);
   min-width: 0;
   padding-bottom: var(--rep-space-1);

@@ -3,12 +3,12 @@ import { RAIL_PAGE, RAIL_VISIBLE } from "./rail";
 /**
  * Home's ten-foot rail, and the shared programme decisions it re-exports.
  *
- * The beat, the feature's position, the section numbering, a row's tag and the
- * empty programme's words are the client core's now: both clients decide them
- * the same way, so the ticket that drew the Remote's Home moved them rather
- * than copying them (ADR-0035 §1). What stays here is how many cards a ten-foot
- * view holds and how far an arrow page moves, because that is this window's
- * layout and not a decision the Remote shares.
+ * The beat, the feature's programme and drag, the section numbering, a row's tag
+ * and the empty programme's words are the client core's now: both clients
+ * decide them the same way, so the ticket that drew the Remote's Home moved them
+ * rather than copying them (ADR-0035 §1). What stays here is how many cards a
+ * ten-foot view holds and how far an arrow page moves, because that is this
+ * window's layout and not a decision the Remote shares.
  */
 
 /**
@@ -33,11 +33,33 @@ export const HOME_RAIL_PAGE = RAIL_PAGE;
 export const HOME_RAIL_ITEMS = 20;
 
 export {
+  FEATURE_CLOCK_MS,
+  FEATURE_COMMIT_SHARE,
+  FEATURE_DRAG_IDLE,
+  FEATURE_DRAG_SLOP_PX,
+  FEATURE_FLICK_PX_PER_MS,
+  FEATURE_FLICK_WINDOW_MS,
   FEATURE_ROTATION_MS,
-  featurePosition,
+  FEATURE_START,
+  captionParts,
+  clampItem,
+  continueTag,
+  featureDragBegin,
+  featureDragClick,
+  featureDragEnd,
+  featureDragMove,
+  featureElapse,
+  featureHold,
+  featureJump,
+  featureNeighbour,
+  featureProgress,
+  featureRelease,
+  featureRotates,
   featureStep,
+  featureStepThrough,
+  featureTitleDensity,
   homeEmptyState,
   homeSectionIndex,
   rowTag,
 } from "../../core/homeProgramme";
-export type { HomeEmptyState } from "../../core/homeProgramme";
+export type { FeatureDrag, FeatureProgramme, HomeEmptyState } from "../../core/homeProgramme";

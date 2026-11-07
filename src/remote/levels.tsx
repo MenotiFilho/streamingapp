@@ -7,6 +7,8 @@ import type { SettingsCategoryId } from "../core/settingsRegister";
 import type { Action, MetaPreview, Title, Video } from "../core/wire";
 import { Button } from "../kit/Button";
 import { ConfirmDialog } from "../kit/ConfirmDialog";
+import type { GridPayload } from "./grid";
+import { RemoteGrid } from "./RemoteGrid";
 import { PlayerCard } from "./Player";
 import { PlayerSheets } from "./PlayerSheets";
 import type { RemoteSheet } from "./playerSheets";
@@ -74,6 +76,7 @@ export type RemotePayload =
   | { kind: "streams"; title: Title; video: Video }
   | { kind: "settings"; category: SettingsCategoryId }
   | { kind: "confirm"; confirm: RemoteConfirm }
+  | GridPayload
   | RemotePlayer
   | RemoteSheet;
 
@@ -195,6 +198,16 @@ export function RemoteLevel({
         </LevelPage>
       );
     }
+    case "grid":
+      return (
+        <RemoteGrid
+          grid={level.payload.grid}
+          session={session}
+          state={state}
+          push={push}
+          pop={pop}
+        />
+      );
     case "settings":
       return (
         <LevelPage onBack={pop}>

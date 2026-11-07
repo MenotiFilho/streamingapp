@@ -1,12 +1,14 @@
 import { describe, expect, test } from "vitest";
 
-import { MOVIE } from "../core/discover";
+import {
+  DISCOVER_ROWS,
+  MOVIE,
+  discoverNoCounterpart,
+} from "../core/discover";
 import { SERIES } from "../core/title";
 import type { AddonCatalog, AddonManifest, Snapshot } from "../core/wire";
 import { NOTHING } from "./fakeSocket.testing";
 import {
-  ALL_GENRES,
-  DISCOVER_KINDS,
   catalogAsk,
   catalogMore,
   catalogNote,
@@ -15,6 +17,7 @@ import {
   discoverNote,
   discoverTag,
   feedTitle,
+  noCatalogState,
 } from "./discoverScreen";
 
 /**
@@ -22,7 +25,8 @@ import {
  *
  * The genres and the ask are the core's and are tested there, and the feed's
  * paging is `feed.ts`'s; what is asked here is what this screen decides: the
- * chips, the words it prints, and the Catalog rows the no-credential arm draws.
+ * rows it draws, the words it prints, and the Catalog rows the no-credential
+ * arm draws.
  */
 
 const SKIP = { name: "skip", isRequired: false, options: [], optionsLimit: 0 };
@@ -52,14 +56,13 @@ function addon(overrides: Partial<AddonManifest> = {}): AddonManifest {
 
 const SNAPSHOT: Snapshot = { ...NOTHING, addons: [addon()] };
 
-describe("Discover's chips", () => {
-  test("are Movie then Series, and Movie is where a person lands", () => {
-    expect(DISCOVER_KINDS).toEqual([
-      { kind: MOVIE, label: "Movie" },
+describe("Discover's rows", () => {
+  test("are Movies then Series, and the genre row comes before them", () => {
+    expect(DISCOVER_ROWS).toEqual([
+      { kind: MOVIE, label: "Movies" },
       { kind: SERIES, label: "Series" },
     ]);
-    expect(DISCOVER_KINDS[0]?.kind).toBe(MOVIE);
-    expect(ALL_GENRES).toBe("All genres");
+    expect(DISCOVER_ROWS[0]?.kind).toBe(MOVIE);
   });
 
   test("a feed is headed by its kind in the plural", () => {
@@ -83,6 +86,15 @@ describe("what a feed prints", () => {
     expect(discoverNote("failed", "Action")).toBeNull();
   });
 
+  test("a row with no counterpart says why it is empty", () => {
+    expect(discoverNoCounterpart(SERIES, "TV Movie")).toBe(
+      "Nothing is screening here: TV Movie is not a series genre.",
+    );
+    expect(discoverNoCounterpart(MOVIE, "Kids")).toBe(
+      "Nothing is screening here: Kids is not a film genre.",
+    );
+  });
+
   test("the tag names the filter or Trending, and the count the kind prints", () => {
     expect(discoverTag(MOVIE, null, 20)).toBe("Trending / 20 films");
     expect(discoverTag(SERIES, null, 1)).toBe("Trending / 1 series");
@@ -91,14 +103,19 @@ describe("what a feed prints", () => {
 });
 
 describe("the Catalogs the no-credential arm draws", () => {
-  test("only the chosen kind's, in the Addons' own order", () => {
-    expect(catalogsOf(SNAPSHOT, MOVIE).map(({ catalog }) => catalog.id)).toEqual([
+  test("every declared Catalog of both kinds, in the Addons' own order", () => {
+    expect(catalogsOf(SNAPSHOT).map(({ catalog }) => catalog.id)).toEqual([
       "top",
-    ]);
-    expect(catalogsOf(SNAPSHOT, SERIES).map(({ catalog }) => catalog.id)).toEqual([
       "shows",
     ]);
-    expect(catalogsOf(null, MOVIE)).toEqual([]);
+    expect(catalogsOf(null)).toEqual([]);
+  });
+
+  test("with no Catalog at all, says what a person can do", () => {
+    expect(noCatalogState()).toEqual({
+      title: "Nothing is screening.",
+      body: "No configured Addon offers a Catalog. Add one in Addons.",
+    });
   });
 
   test("the first page carries no values and the row is asked as it was declared", () => {

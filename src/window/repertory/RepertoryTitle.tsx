@@ -13,7 +13,9 @@ import { useShell } from "../context";
 import { addonLabel } from "../../core/home";
 import { Icon } from "../../kit/icons";
 import { ChoiceChip } from "../../kit/Chip";
+import { RowTrack } from "../RowTrack";
 import { StreamsLoader } from "../StreamsScreen";
+import { pageAttrs } from "../../core/pageLayout";
 import { programIndex } from "./program";
 import { titleFacts, titleSide, unmappedOf } from "../../core/titlePage";
 
@@ -64,7 +66,10 @@ export function RepertoryTitleScreen({
   );
 
   return (
-    <div className="rep-title-level">
+    <div
+      className="rep-title-level"
+      {...pageAttrs("title")}
+    >
       <article
         className="rep-title"
         data-testid={`title-${title.id}`}
@@ -147,7 +152,12 @@ export function RepertoryTitleScreen({
                 data-kind="row"
                 data-label="Seasons"
               >
-                <div className="rep-title-seasons" data-testid="title-seasons">
+                <RowTrack
+                  label="Seasons"
+                  itemLayout="content"
+                  className="rep-title-seasons"
+                  testId="title-seasons"
+                >
                   {seasons.map(({ season }, index) => (
                     <ChoiceChip
                       key={season ?? "unnumbered"}
@@ -160,7 +170,7 @@ export function RepertoryTitleScreen({
                       <span>{seasonName(season)}</span>
                     </ChoiceChip>
                   ))}
-                </div>
+                </RowTrack>
 
                 <div
                   className="rep-title-episodes"
@@ -245,7 +255,10 @@ export function RepertoryTitleLoading({ preview }: { preview: OpenablePreview })
   const art = preview.background ?? preview.poster ?? null;
 
   return (
-    <div className="rep-title-level">
+    <div
+      className="rep-title-level"
+      {...pageAttrs("title")}
+    >
       <section
         className="rep-title rep-title-loading"
         data-testid="title-loading"

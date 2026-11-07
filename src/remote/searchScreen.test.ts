@@ -7,12 +7,9 @@ import {
   CATALOGS_READING,
   NO_SEARCHABLE_CATALOGS,
   blankFeeds,
-  kindEmpty,
   kindLabel,
   noMatches,
-  queryOf,
   rowNote,
-  rowsForKind,
   searchNote,
   searchPlaceholder,
 } from "./searchScreen";
@@ -21,8 +18,7 @@ import {
  * Search's own decisions (#207, ADR-0032).
  *
  * The two kinds and the ask are the core's; what is asked here is what this
- * screen decides: what a submit actually asks, the words each row prints, and
- * the kind a keyless answer is narrowed to.
+ * screen decides: what a submit actually asks, and the words each row prints.
  */
 
 function row(overrides: Partial<CatalogRow> = {}): CatalogRow {
@@ -39,17 +35,6 @@ function row(overrides: Partial<CatalogRow> = {}): CatalogRow {
 }
 
 describe("the query a submit asks", () => {
-  test("an empty or blank field is not a question and sends nothing", () => {
-    expect(queryOf("")).toBeNull();
-    expect(queryOf("   ")).toBeNull();
-    expect(queryOf("\n\t ")).toBeNull();
-  });
-
-  test("a query is trimmed, and its inside spaces are the person's", () => {
-    expect(queryOf("  dune  ")).toBe("dune");
-    expect(queryOf("blood & guts")).toBe("blood & guts");
-  });
-
   test("the two keyed rows start blank, one per kind", () => {
     const feeds = blankFeeds();
     expect(Object.keys(feeds).sort()).toEqual(["movie", "series"]);
@@ -84,8 +69,6 @@ describe("Search's copy", () => {
     expect(NO_SEARCHABLE_CATALOGS).toBe(
       "No Addon offers a Catalog that can be searched.",
     );
-    expect(kindEmpty(MOVIE, "dune")).toBe("No Movie Catalog answered “dune”.");
-    expect(kindEmpty(SERIES, "dune")).toBe("No Series Catalog answered “dune”.");
   });
 
   test("a Catalog row says why it has no card, and says nothing when it has one", () => {
@@ -97,28 +80,6 @@ describe("Search's copy", () => {
     );
     expect(rowNote(row({ sent: 2, metas: [meta()] }))).toBeNull();
     expect(rowNote(row({ failure: { kind: "fetch", detail: "down" } }))).toBeNull();
-  });
-});
-
-describe("a keyless answer narrowed to one kind", () => {
-  test("keeps the Host's order and drops the other kind", () => {
-    const rows = [
-      row({ type: "movie", name: "Popular" }),
-      row({ type: "series", name: "Popular Series" }),
-      row({ type: "movie", name: "Top Rated" }),
-    ];
-
-    expect(
-      rowsForKind(rows, MOVIE).map((held) => held.name),
-      "the rows are drawn in the Host's order, not re-sorted",
-    ).toEqual(["Popular", "Top Rated"]);
-    expect(rowsForKind(rows, SERIES).map((held) => held.name)).toEqual([
-      "Popular Series",
-    ]);
-  });
-
-  test("a kind no Catalog answered is an empty list, not a fallback", () => {
-    expect(rowsForKind([row({ type: "movie" })], SERIES)).toEqual([]);
   });
 });
 

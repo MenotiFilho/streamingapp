@@ -2081,6 +2081,16 @@ function Step-16($ctx) {
         ($text -notmatch 'The Addon answered with no Titles in this section')) "showed: $text"
     Check 'the row that answered nothing new stopped reading on' (
         $text -notmatch 'Reading the programme') "showed: $text"
+    # The whole-row grid reads on into the same row: its head's tag is the row's
+    # live count, so a grid that has read past its first twenty says so.
+    $count = [regex]::Match($text, [regex]::Escape($AddonName) + ' / (\d+) films?')
+    if ($count.Success) {
+        Check 'the whole-row grid read past its first twenty' (
+            [int]$count.Groups[1].Value -gt 20) "showed: $text"
+    } else {
+        Skip 'a grid past its first twenty' (
+            "the $AddonCatalog row's head printed no film count to read: $text")
+    }
     Check 'paging is a question, not a change: no Snapshot went out' (
         (Snapshot-Baseline) -eq $published) "the log went from $published to $(Published-Snapshots)"
     Press-Keys $app '{ESC}'
@@ -2088,7 +2098,7 @@ function Step-16($ctx) {
 }
 
 function Step-17($ctx) {
-    '--- 17. Search: the query bar and the answer its arm gives'
+    '--- 17. Search: the query bar and the two rows its arm gives'
     $app = $ctx.App
     $published = Snapshot-Baseline
     Open-Destination $app 'Search'
@@ -2099,7 +2109,8 @@ function Step-17($ctx) {
     Check 'the Search destination draws its query bar' (
         (Shows $app 'Search for a Title' 5) -and
         ((Page-Text $app) -match 'SEARCH FOR A TITLE')) (Page-Text $app)
-    $keyed = (Page-Text $app) -match 'TMDB searches its Movies and Series together'
+    Check 'Search has no kind chips: the kinds are two rows, not a choice' (
+        -not (Shows $app 'Kind' 1)) (Page-Text $app)
 
     Type-With-Keys $app 'Search for a Title' $SearchQuery
     Check 'typing a query enables the submit control' (
@@ -2108,25 +2119,31 @@ function Step-17($ctx) {
     # and Escape in Chromium, so a key sent into the field never reaches the
     # form. It is the last Search control in the tree, after the rail's.
     Press-Last $app 'Search'
-    if ($keyed) {
-        Wait-No-Text $app 'Looking for (movies|series)' 30 | Out-Null
-        $text = Wait-Text $app 'Movies' 30
-        Shot $app '17-search-tmdb.png'
-        Check 'with a key held, Search asks TMDB and draws both kinds' (
+    # Which arm answered is read from what the rows print: a keyed answer draws
+    # a Movies and a Series rail tagged `TMDB / N films`; a refused key says so
+    # inline; the keyless arm draws the Addons' rows or the no-Catalog line.
+    $text = Wait-Text $app ('TMDB / \d+ (film|films|series)|No Addon offers a Catalog that can be searched|TMDB did not answer|' + [regex]::Escape($AddonName)) 30
+    Shot $app '17-search.png'
+    if ($text -match 'TMDB did not answer') {
+        Check 'a key TMDB refuses is said inline, and the search surface stays' (
+            $text -match 'TMDB did not answer') "showed: $text"
+    } elseif ($text -match 'TMDB / \d+ (film|films|series)') {
+        Check 'with a key held, Search asks TMDB and draws both rows' (
             ($text -match 'Movies') -and ($text -match 'Series')) "showed: $text"
+        Check 'and each row carries the TMDB tag the keyed arm prints' (
+            ($text -match 'TMDB / \d+ (film|films)') -and
+            ($text -match 'TMDB / \d+ series')) "showed: $text"
     } else {
         # Every Catalog that declares `search` answers in one Action. The
         # fixture's Catalog declares none, so the empty arm is the one it walks;
         # an Addon that does declares search fills rows instead.
-        $text = Wait-Text $app ('No Addon offers a Catalog that can be searched|' + [regex]::Escape($AddonName)) 30
-        Shot $app '17-search.png'
         Check 'without a key, Search asks the Addons and says what answered' (
             ($text -match 'No Addon offers a Catalog that can be searched') -or
             ($text -match [regex]::Escape($AddonName))) "showed: $text"
     }
     Check 'the search did not move a Snapshot' (
         (Snapshot-Baseline) -eq $published) "the log went from $published to $(Published-Snapshots)"
-    'review 17-search.png: the results should be a row of posters, or a clear "no Addon answered"'
+    'review 17-search.png: the answer should be two poster rails (keyed), the Addons'' rows, or a clear "no Addon answered"'
 }
 
 function Step-18($ctx) {
@@ -2566,13 +2583,14 @@ function Step-26($ctx) {
     ''
     'WALK THE CAST REMOTE (BROWSE) NOW. The bottom index is Home · Discover ·'
     'Search · Library · Addons · Settings, with the active one keylined:'
-    '  - Home draws the Featured catalog as a feature that holds for 24 seconds,'
+    '  - Home draws the Featured catalog as a feature that holds for 15 seconds,'
     '    a 16:9 Continue watching row, and one touch rail per Catalog in the'
     '    Addons order, each with More where the Catalog pages;'
-    '  - Discover is TMDB weekly Trending with Movie/Series and a genre filter, or'
-    '    says where a TMDB key goes when none is held;'
-    '  - Search asks TMDB Movies and Series with a key, or every searchable Addon'
-    '    Catalog without one;'
+    '  - Discover is TMDB weekly Trending: one genre row that scrolls sideways,'
+    '    then a Movies and a Series rail, or says where a TMDB key goes when none'
+    '    is held;'
+    '  - Search asks TMDB Movies and Series as two rails with a key, or every'
+    '    searchable Addon Catalog without one;'
     '  - Library shows the shared Stremio sign-in gate, or the signed-in list;'
     '  - Addons adds by manifest URL, expands a row in place, and offers'
     '    Move up · Move down · Remove (Remove asks for confirmation);'
@@ -2738,48 +2756,76 @@ function Step-27($ctx) {
 }
 
 function Step-28($ctx) {
-    '--- 28. the hero: rotation while unfocused, and its text fallback'
-    $app = $ctx.App
-    Open-Home $app
+    "--- 28. the hero: the screen's seat does not hold it, a person's focus does, and its text fallback"
+    # The bug this step guards is a *launch* one: the ground already has the
+    # Addon configured and its Catalog featured, so restarting here puts the
+    # Host back on Home with the hero arriving from the Host's Snapshot before
+    # anyone has touched the screen.
+    Stop-Host $ctx.App
+    $app = Start-Host
+    $ctx.App = $app
+    Focus $app | Out-Null
+    Wait-Text $app 'Feature presentation' 45 | Out-Null
     Start-Sleep -Seconds 2
     $hero = @(Buttons-Matching $app 'Open the Title: ')[0]
     if (-not $hero) {
         Skip 'the hero rotation' 'Home drew no Featured hero here, so there is no slide to rotate'
         return
     }
-
-    # The beat is one decision in the window: the feature holds its slide while
-    # its action has the focus, and steps it every 24 seconds while it does not.
-    # Neither the hold nor the beat prints a word, so both are read off the
-    # control's own name - `Open the Title: <slide>` - either side of one beat.
-    if ((Page-Text $app) -match 'One showing') {
+    # The programme's ticks are the new Feature's pointer furniture: one per
+    # slide, named `Show <slide>`. A one-slide programme draws none, so there is
+    # nothing to rotate and no tick to read.
+    $ticks = @(Buttons-Matching $app 'Show ')
+    if ($ticks.Count -lt 2) {
         Skip 'the hero rotation' (
-            'the Featured Catalog answered one Title, so there is no second slide to rotate to: run with an Addon whose Featured Catalog lists more')
+            "the Featured Catalog drew $($ticks.Count) tick(s), so there is no second slide to rotate to: run with an Addon whose Featured Catalog lists more")
         return
     }
+    Check 'the hero draws a tick for every slide' ($ticks.Count -ge 2) (
+        "found $($ticks.Count) ticks")
 
+    # Home has mounted and the screen has seated focus on the hero (#248). The
+    # beat must already be running; a slide that never moves here is the bug the
+    # review found. Neither state prints a word, so both are read off the
+    # control's own name - `Open the Title: <slide>` - either side of one beat,
+    # which is 15 s (FEATURE_ROTATION_MS).
+    $seated = Hero-Title $app
+    $after = $seated
+    $deadline = (Get-Date).AddSeconds(20)
+    while (($after -eq $seated) -and ((Get-Date) -lt $deadline)) {
+        Start-Sleep -Milliseconds 500
+        $after = Hero-Title $app
+    }
+    Shot $app '28-hero-launched.png'
+    Check 'the screen seating focus does not stop the beat on launch' (
+        ($seated -ne '') -and ($seated -ne $after)) "the slide stayed '$seated' for a whole beat"
+
+    # A person's focus holds it: leave the hero, then come back to it.
+    Focus-On $app 'Home' ([Windows.Automation.ControlType]::Button)
+    Start-Sleep -Seconds 1
+    $hero = @(Buttons-Matching $app 'Open the Title: ')[0]
     $hero.SetFocus()
     Start-Sleep -Seconds 1
     $before = Hero-Title $app
-    # One beat is 24 s (FEATURE_ROTATION_MS); a beat and a settle outlasts it.
-    Start-Sleep -Seconds 27
+    # A beat and a settle outlast it.
+    Start-Sleep -Seconds 18
     $after = Hero-Title $app
     Shot $app '28-hero-focused.png'
-    Check 'focusing the hero holds its rotation' (
+    Check 'a person focusing the hero holds its rotation' (
         ($before -ne '') -and ($after -eq $before)) "the slide went '$before' to '$after' over one beat"
 
-    # Unfocused, it steps on its own every 24 seconds.
+    # Unfocused again, it steps on its own every 15 seconds.
     Focus-On $app 'Home' ([Windows.Automation.ControlType]::Button)
     Start-Sleep -Seconds 1
     $before = Hero-Title $app
     $after = $before
-    $deadline = (Get-Date).AddSeconds(32)
+    $deadline = (Get-Date).AddSeconds(20)
     while (($after -eq $before) -and ((Get-Date) -lt $deadline)) {
         Start-Sleep -Milliseconds 500
         $after = Hero-Title $app
     }
     Shot $app '28-hero-rotated.png'
-    Check 'and it steps to another slide on its own' (
+    Check 'and it steps to another slide on its own again' (
         ($before -ne '') -and ($before -ne $after)) "the slide stayed '$before' for a whole beat"
 
     # The fixture carries portrait posters and no billboard art, so the hero has
@@ -2853,15 +2899,21 @@ function Step-30($ctx) {
     Wait-Text $app 'The Host holds the TMDB key.' 20 | Out-Null
 
     Open-Destination $app 'Discover'
-    # The keyed feed's row head prints where the row came from: TMDB's weekly
-    # Trending, narrowed by the kind the chips hold.
+    # The keyed feed's row heads print where the rows came from: TMDB's weekly
+    # Trending, one rail per kind under the one genre row (ADR-0036 §1).
     $text = Wait-Text $app 'Trending' 20
     Shot $app '30-discover-keyed.png'
     Check 'with a key, Discover draws the feed it is named for' (
         $text -match 'Trending') "showed: $text"
-    Check 'and the kind and genre filters' (
-        (Shows $app 'Movie') -and (Shows $app 'Series') -and (Shows $app 'All genres')) (
-        "showed: $text")
+    Check 'one genre row and two rails, Movies then Series' (
+        (Shows $app 'All genres') -and
+        (Shows $app 'Movies') -and
+        (Shows $app 'Series')) ("showed: $text")
+    Check 'and no kind chips, because the kinds are the two rails' (
+        -not (Shows $app 'Movie' 1)) ("showed: $text")
+    Check 'and each rail carries its own count and its Read on' (
+        ($text -match 'Trending / \d+ (film|films)') -and
+        ($text -match 'Trending / \d+ series')) ("showed: $text")
     $text = Wait-Text $app 'TMDB did not answer' 30
     Check 'a key TMDB refuses is said inline, not hidden' (
         $text -match 'TMDB did not answer') "showed: $text"

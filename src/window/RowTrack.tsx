@@ -18,11 +18,13 @@ import { useReducedMotion } from "../core/react/useReducedMotion";
 import { Icon } from "../kit/icons";
 import { panel } from "../core/react/motion";
 import { cx } from "../kit/cx";
-import { pagedOffset } from "./rowPaging";
+import { itemsPerView, pagedOffset, type ItemSpan } from "./rowPaging";
 
 export type RowTrackProps = {
   /** The row's heading: a Catalog's name, or `Continue watching`. */
-  title: string;
+  title?: string;
+  /** The row's accessible name where it has no heading, as the genre row does. */
+  label?: string;
   /** The programme's numbered section head, where the row has one. */
   index?: string;
   /** The Addon attribution beside the heading, where the row has one. */
@@ -34,6 +36,7 @@ export type RowTrackProps = {
   /**
    * How many cards one view holds; a half shows that the rail goes on. The
    * cards share the width equally and the half card is the last one clipped.
+   * Ignored when `itemLayout` is `content`.
    */
   columns?: number;
   /**
@@ -41,6 +44,11 @@ export type RowTrackProps = {
    * down, so a five-and-a-half-card rail pages five cards at a time.
    */
   page?: number;
+  /**
+   * Whether the items share the view equally, as posters do, or take their own
+   * content width, as chips do. A content track pages by its measured items.
+   */
+  itemLayout?: "columns" | "content";
   className?: string;
   /** A stable id for a screen's tests. */
   testId?: string;
@@ -71,13 +79,28 @@ function cardPitch(node: HTMLUListElement): number {
   return Math.max(0, start.width + (Number.isFinite(gap) ? gap : 0));
 }
 
+/** Each item's leading edge and width, relative to the first item. */
+function itemSpans(node: HTMLUListElement): ItemSpan[] {
+  const items = node.querySelectorAll<HTMLElement>(".rep-kit-row-item");
+  const first = items[0]?.getBoundingClientRect();
+  if (!first) {
+    return [];
+  }
+  return Array.from(items, (item) => {
+    const box = item.getBoundingClientRect();
+    return { start: box.left - first.left, width: box.width };
+  });
+}
+
 /**
  * One horizontal row track: a numbered section head over a rail of cards.
  *
  * A view holds `columns` cards, each taking an equal share of the width; a
- * fractional count leaves a deliberate half card at the trailing edge. The
- * track has no scrollbar and no snapping: a mouse drag moves it directly, and
- * the two edge buttons page it by whole cards (`page`, the view rounded down by
+ * fractional count leaves a deliberate half card at the trailing edge. A row
+ * with no heading — Discover's genre chips — draws the same track without the
+ * head, and a content-sized row lets each item keep its own width. The track
+ * has no scrollbar and no snapping: a mouse drag moves it directly, and the
+ * two edge buttons page it by whole items (`page`, the view rounded down by
  * default). Paging runs Motion's `animate()` on the track's scroll offset with
  * the panel preset, so a second press redirects the rail mid-flight; a
  * reduced-motion window jumps instead. The block padding leaves the focus
@@ -85,23 +108,27 @@ function cardPitch(node: HTMLUListElement): number {
  */
 export function RowTrack({
   title,
+  label,
   index,
   tag,
   action,
   children,
   columns = 7,
   page,
+  itemLayout = "columns",
   className,
   testId,
 }: RowTrackProps) {
   const headingId = useId();
   const items = Children.toArray(children);
+  const content = itemLayout === "content";
   const track = useRef<HTMLUListElement | null>(null);
   const drag = useRef({ active: false, moved: false, startX: 0, startLeft: 0 });
   const paging = useRef<Playback | null>(null);
   const pagingRun = useRef(0);
   const reducedMotion = useReducedMotion();
   const [edges, setEdges] = useState({ start: true, end: true });
+  const name = title ?? label ?? "row";
 
   const measure = useCallback(() => {
     const node = track.current;
@@ -119,7 +146,7 @@ export function RowTrack({
 
   useEffect(() => {
     measure();
-  }, [measure, items.length, columns]);
+  }, [measure, items.length, columns, itemLayout]);
 
   useEffect(() => {
     const onResize = () => measure();
@@ -143,19 +170,23 @@ export function RowTrack({
     pagingRun.current += 1;
   };
 
-  const cardsPerPage = page ?? Math.max(1, Math.floor(columns));
-
   const scrollView = (direction: -1 | 1) => {
     const node = track.current;
     if (!node) {
       return;
     }
     const furthest = Math.max(0, node.scrollWidth - node.clientWidth);
+    const spans = content ? itemSpans(node) : null;
+    const cards =
+      page ??
+      (spans
+        ? itemsPerView(spans, node.scrollLeft, node.clientWidth)
+        : Math.max(1, Math.floor(columns)));
     const target = pagedOffset(
       node.scrollLeft,
       furthest,
-      cardPitch(node),
-      cardsPerPage,
+      spans ?? cardPitch(node),
+      cards,
       direction,
     );
 
@@ -240,16 +271,26 @@ export function RowTrack({
   } as CSSProperties;
 
   return (
-    <section className={cx("rep-kit-row", className)} aria-labelledby={headingId} data-testid={testId}>
-      <header className="rep-kit-row-head">
-        {index ? <span className="rep-kit-row-index">{index}</span> : null}
-        <h2 id={headingId} className="rep-kit-row-title">
-          {title}
-        </h2>
-        <span className="rep-kit-row-rule" aria-hidden="true" />
-        {tag ? <span className="rep-kit-row-tag">{tag}</span> : null}
-        {action ? <div className="rep-kit-row-action">{action}</div> : null}
-      </header>
+    <section
+      className={cx("rep-kit-row", className)}
+      {...(title
+        ? { "aria-labelledby": headingId }
+        : label
+          ? { "aria-label": label }
+          : {})}
+      data-testid={testId}
+    >
+      {title ? (
+        <header className="rep-kit-row-head">
+          {index ? <span className="rep-kit-row-index">{index}</span> : null}
+          <h2 id={headingId} className="rep-kit-row-title">
+            {title}
+          </h2>
+          <span className="rep-kit-row-rule" aria-hidden="true" />
+          {tag ? <span className="rep-kit-row-tag">{tag}</span> : null}
+          {action ? <div className="rep-kit-row-action">{action}</div> : null}
+        </header>
+      ) : null}
 
       <div className="rep-kit-row-viewport">
         {/* The cards are the row's focus targets. The two arrows are pointer
@@ -258,7 +299,10 @@ export function RowTrack({
             by one. */}
         <ul
           ref={track}
-          className="rep-kit-row-track"
+          className={cx(
+            "rep-kit-row-track",
+            content && "rep-kit-row-track--content",
+          )}
           style={style}
           onScroll={measure}
           onPointerDown={onPointerDown}
@@ -281,7 +325,7 @@ export function RowTrack({
           type="button"
           className="rep-kit-row-arrow rep-kit-row-arrow-left"
           tabIndex={-1}
-          aria-label={`Scroll ${title} left`}
+          aria-label={`Scroll ${name} left`}
           disabled={edges.start}
           onClick={() => scrollView(-1)}
         >
@@ -292,7 +336,7 @@ export function RowTrack({
           type="button"
           className="rep-kit-row-arrow rep-kit-row-arrow-right"
           tabIndex={-1}
-          aria-label={`Scroll ${title} right`}
+          aria-label={`Scroll ${name} right`}
           disabled={edges.end}
           onClick={() => scrollView(1)}
         >

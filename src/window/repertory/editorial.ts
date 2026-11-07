@@ -1,8 +1,13 @@
 import {
-  genresOf,
-  MOVIE,
+  DISCOVER_GENRES,
+  discoverAsk,
+  discoverNoCounterpart,
+  type DiscoverGenreChoice,
   type DiscoverFeed,
   type DiscoverKind,
+  type DiscoverSource,
+  type FeedState,
+  type GenreFilter,
 } from "../../core/discover";
 import type { Action } from "../../core/wire";
 import { CINEMETA_MOVIE_GENRES, CINEMETA_SERIES_GENRES, PREVIEW_ADDON } from "./preview";
@@ -11,36 +16,35 @@ import { rowTagOf } from "./program";
 /**
  * The editorial feed's decisions, kept out of the drawing (ADR-0032).
  *
- * Discover and Search draw one row per feed with Home's rail anatomy. These
- * helpers say which genres a surface offers, how the preview's stand-in is
- * asked, when a row can page on, what a row's bookkeeping prints, and the words
- * an empty feed uses. The asks themselves stay in `discover.ts` and `search.ts`.
+ * Discover and Search draw one row per feed with Home's rail anatomy. What lives
+ * here is what only the window says — the preview's stand-in genres and asks,
+ * what a row's bookkeeping prints, and the words an empty feed uses. The kinds,
+ * the genre filter, the feed key, the pages a screen reads and the feed's state
+ * are the core's (`discover.ts`, `search.ts`), shared with the Remote.
  */
-
-/** Where a feed's items come from: the Host's TMDB Actions, or the plain Vite preview. */
-export type FeedSource = "host" | "preview";
 
 /**
- * One filter a row can be narrowed by. `key` is the chip's identity, `value` is
- * what travels: TMDB's genre id where the Host answers, Cinemeta's own name in
- * the preview, whose catalogue takes the word rather than the id.
+ * Discover's one genre row in the window's own vocabulary: TMDB's union where
+ * the Host answers, Cinemeta's own names in the preview. All genres is the chip
+ * that clears the filter and is drawn apart, so it is not one of these.
  */
-export type GenreChoice = {
-  key: string;
-  name: string;
-  value: number | string;
-};
-
-/** The genre row for the kind a person is looking at, in the source's own order. */
-export function genresFor(source: FeedSource, kind: DiscoverKind): GenreChoice[] {
+export function genresFor(
+  source: DiscoverSource,
+): DiscoverGenreChoice<number | string>[] {
   if (source === "preview") {
-    const names = kind === MOVIE ? CINEMETA_MOVIE_GENRES : CINEMETA_SERIES_GENRES;
-    return names.map((name) => ({ key: name, name, value: name }));
+    const films: ReadonlySet<string> = new Set(CINEMETA_MOVIE_GENRES);
+    return CINEMETA_SERIES_GENRES.map((name) => ({
+      name,
+      movie: films.has(name) ? name : null,
+      series: name,
+      all: false,
+    }));
   }
-  return genresOf(kind).map((genre) => ({
-    key: String(genre.id),
+  return DISCOVER_GENRES.filter((genre) => !genre.all).map((genre) => ({
     name: genre.name,
-    value: genre.id,
+    movie: genre.movie,
+    series: genre.series,
+    all: false,
   }));
 }
 
@@ -52,7 +56,7 @@ export function genresFor(source: FeedSource, kind: DiscoverKind): GenreChoice[]
  */
 export function previewDiscoverAsk(
   kind: DiscoverKind,
-  genre: GenreChoice | null,
+  genre: string | null,
   skip: number,
 ): Action {
   return {
@@ -60,40 +64,86 @@ export function previewDiscoverAsk(
     addon: PREVIEW_ADDON,
     catalog: { type: kind, id: "top" },
     extra: [
-      ...(genre ? [{ name: "genre", value: String(genre.value) }] : []),
+      ...(genre === null ? [] : [{ name: "genre", value: genre }]),
       ...(skip > 0 ? [{ name: "skip", value: String(skip) }] : []),
     ],
   };
 }
 
-/** Whether a feed has a page to ask for: the next one, or the failed one again. */
-export function feedMore(feed: DiscoverFeed): boolean {
-  return !feed.done && (feed.page > 0 || feed.failure !== null);
+/** One page a Discover row is asked for, under the genre the person chose. */
+export type DiscoverPageAsk = {
+  source: DiscoverSource;
+  kind: DiscoverKind;
+  filter: GenreFilter<number | string>;
+  page: number;
+  skip: number;
+};
+
+/**
+ * The Action that asks one row's page, or null where the chosen genre has no
+ * counterpart in that kind: such a row is drawn empty and asks nothing, because
+ * an ask without the genre would answer the unfiltered feed instead.
+ */
+export function discoverPageAsk(page: DiscoverPageAsk): Action | null {
+  if (page.filter.kind === "none") {
+    return null;
+  }
+  const value = page.filter.kind === "id" ? page.filter.id : null;
+  return page.source === "preview"
+    ? previewDiscoverAsk(
+        page.kind,
+        typeof value === "string" ? value : null,
+        page.skip,
+      )
+    : discoverAsk({
+        kind: page.kind,
+        page: page.page,
+        genre: typeof value === "number" ? value : null,
+      });
 }
 
-/** What a feed is doing, for the line a row prints under its cards. */
-export type FeedState = "reading" | "reading-more" | "empty" | "ready" | "failed";
-
-export function feedState(feed: DiscoverFeed, loading: boolean): FeedState {
-  if (loading) {
-    return feed.page === 0 ? "reading" : "reading-more";
-  }
-  if (feed.failure) {
-    return "failed";
-  }
-  if (feed.done && feed.items.length === 0) {
-    return "empty";
-  }
-  return "ready";
-}
-
-/** A Discover feed's bookkeeping: the filter that made it, or Trending, and the count. */
-export function discoverTag(
+/**
+ * A row's bookkeeping as it is drawn: Reading before its first answer, then its
+ * filter and count. A row with no counterpart has no feed and so no tag.
+ */
+export function discoverRowTag(
+  feed: DiscoverFeed,
   kind: DiscoverKind,
-  genre: GenreChoice | null,
-  count: number,
-): string {
-  return rowTagOf(genre?.name ?? "Trending", kind, count);
+  genre: DiscoverGenreChoice<number | string> | null,
+  filter: GenreFilter<number | string>,
+): string | null {
+  if (filter.kind === "none") {
+    return null;
+  }
+  if (feed.page === 0 && !feed.failure) {
+    return "Reading";
+  }
+  return rowTagOf(genre?.name ?? "Trending", kind, feed.items.length);
+}
+
+/**
+ * What a row prints under its cards: why it cannot have any, or its state's
+ * line. A failure is the Host's own words through `explain`, so it is not here.
+ */
+export function discoverRowNote(
+  state: FeedState,
+  kind: DiscoverKind,
+  genre: DiscoverGenreChoice<number | string> | null,
+  filter: GenreFilter<number | string>,
+): string | null {
+  if (filter.kind === "none" && genre !== null) {
+    return discoverNoCounterpart(kind, genre.name);
+  }
+  switch (state) {
+    case "reading":
+      return "Reading the programme…";
+    case "reading-more":
+      return "Reading on…";
+    case "empty":
+      return discoverEmptyNote(genre);
+    default:
+      return null;
+  }
 }
 
 /**
@@ -117,20 +167,10 @@ export function discoverNoKey(): DiscoverNoKey {
 }
 
 /** The one line an empty Discover feed prints: what happened, and the way on. */
-export function discoverEmptyNote(genre: GenreChoice | null): string {
+export function discoverEmptyNote(
+  genre: DiscoverGenreChoice<number | string> | null,
+): string {
   return genre
     ? `Nothing is screening under ${genre.name}. Choose another genre.`
     : "Nothing is screening in this feed.";
-}
-
-/**
- * The rows a keyless Search draws for one kind. The Host answers one row per
- * searchable Catalog, in its configured order; the repertory surface shows one
- * kind at a time while still asking both.
- */
-export function rowsForKind<T extends { type: string }>(
-  rows: readonly T[],
-  kind: DiscoverKind,
-): T[] {
-  return rows.filter((row) => row.type === kind);
 }

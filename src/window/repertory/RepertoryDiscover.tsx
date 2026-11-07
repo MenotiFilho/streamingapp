@@ -1,162 +1,123 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
 import {
+  DISCOVER_ROWS,
   blankFeed,
-  discoverAsk,
+  discoverFeedKey,
   discoverPlayable,
-  feedWith,
-  MOVIE,
-  type DiscoverFeed,
+  discoverReads,
+  feedMore,
+  feedState,
+  genreFilterFor,
+  type DiscoverGenreChoice,
   type DiscoverKind,
 } from "../../core/discover";
 import type { MetaPreview } from "../../core/wire";
-import { answeredCatalogs, answeredDiscover } from "../../core/answers";
-import { SERIES } from "../../core/title";
+import { pageAttrs } from "../../core/pageLayout";
 import tmdbLogo from "../../assets/tmdb-logo.svg";
 import { useShell } from "../context";
 import { useTitleOpener } from "../TitleScreen";
 import { usePreviewData } from "./context";
 import {
-  discoverEmptyNote,
   discoverNoKey,
-  discoverTag,
-  feedMore,
-  feedState,
+  discoverPageAsk,
+  discoverRowNote,
+  discoverRowTag,
   genresFor,
-  previewDiscoverAsk,
-  type GenreChoice,
 } from "./editorial";
-import { EditorialGrid } from "./EditorialGrid";
+import { FeedGrid } from "./FeedGrid";
 import { EditorialRow, FeedPagingAction } from "./EditorialRow";
+import { RowTrack } from "../RowTrack";
 import { Button } from "../../kit/Button";
 import { ChoiceChip } from "../../kit/Chip";
 import { PosterCard } from "../../kit/PosterCard";
 import { PREVIEW_ADDON } from "./preview";
 import { ProgrammeLine } from "./ProgrammeLine";
-import { programIndex, yearOf } from "./program";
+import { programIndex, rowTagOf, yearOf } from "./program";
 import { repertoryCredentialsLevel } from "./RepertorySettings";
+import { useFeedCards } from "./useFeedCards";
 import "./repertory.css";
 
+/** The two rows Discover draws, Movies then Series, each asked and paged alone. */
 /**
- * Discover as an editorial feed (design record §8): one programme line, the
- * two single-select kind chips with Movie where a person lands, the genre rail
- * for that kind, and one row of unframed posters.
+ * Discover as an editorial feed (design record §8, ADR-0036 §1): one programme
+ * line, one genre row — the union of TMDB's film and series lists — then two
+ * rows, Movies and Series. A genre chip filters both rows with the id each kind
+ * is asked by; a kind with no counterpart keeps its row, drawn empty with a line
+ * saying why, and asks nothing.
  *
  * With a TMDB Credential the Host answers `discover`, and a page is asked
  * fresh: this client keeps only what it has read (ADR-0005). Without a key the
  * screen says what powers it and where the key goes rather than disappearing
- * (ADR-0020); in the plain Vite window there is no Host, so the same feed is
- * read from Cinemeta's Popular catalogue as a live stand-in.
+ * (ADR-0020); in the plain Vite window there is no Host, so the same two rows
+ * are read from Cinemeta's Popular catalogue as a live stand-in.
  *
- * A page that fails is printed under this row and keeps the cards already read;
- * `More` asks that page again. A Title no configured Addon could play keeps its
- * Unplayable stamp and still opens (ADR-0020).
+ * The rows and the chosen genre live in the Session (#264), so a whole-row grid
+ * pages the same row the rail draws and Back keeps the cards. Each row pages and
+ * fails on its own: a page that fails prints under its own row and keeps the
+ * cards already read, and `Read on` asks that row's next page. Each row's More
+ * card opens the cards read so far as a pushed grid, which reads on by itself
+ * near its end. A Title no configured Addon could play keeps its Unplayable
+ * stamp and still opens (ADR-0020).
  */
 export function RepertoryDiscoverScreen() {
   const preview = usePreviewData();
-  const { snapshot, ask, push, pop, unplayable } = useShell();
+  const { snapshot, session, push, pop, unplayable } = useShell();
   const { openTitle, openDiscoveredTitle } = useTitleOpener();
-  const [kind, setKind] = useState<DiscoverKind>(MOVIE);
-  const [genre, setGenre] = useState<GenreChoice | null>(null);
-  const [feed, setFeed] = useState<DiscoverFeed>(blankFeed);
-  const [offset, setOffset] = useState(0);
-  const [loading, setLoading] = useState(false);
-  // Which ask owns the feed: an answer for a kind or genre a person has left
-  // must not land in the one they are looking at.
-  const serial = useRef(0);
+  const genreKey = useSyncExternalStore(
+    session.discoverGenre.subscribe,
+    session.discoverGenre.get,
+  );
+  const feeds = useSyncExternalStore(session.feeds.subscribe, session.feeds.getSnapshot);
 
   const keyed = snapshot?.protection.tmdbHeld ?? false;
   const source = preview ? "preview" : "host";
   const active = preview || keyed;
+  const genres = useMemo(() => genresFor(source), [source]);
+  const { panel, style, chrome } = useFeedCards(active ? DISCOVER_ROWS.length : 0);
+  const genre = genreKey === null
+    ? null
+    : (genres.find((held) => held.name === genreKey) ?? null);
 
-  const load = useCallback(
-    async (page: number, skip: number) => {
-      const token = (serial.current += 1);
-      setLoading(true);
-      const outcome = await ask(
-        source === "preview"
-          ? previewDiscoverAsk(kind, genre, skip)
-          : discoverAsk({
-              kind,
-              page,
-              genre: typeof genre?.value === "number" ? genre.value : null,
-            }),
-      );
-      if (token !== serial.current) {
-        return;
-      }
-      setLoading(false);
-      if (outcome.error) {
-        setFeed((held) => ({ ...held, failure: outcome.error }));
-        return;
-      }
-      const answer =
-        source === "preview"
-          ? (answeredCatalogs(outcome.response)[0] ?? null)
-          : (answeredDiscover(outcome.response)[0] ?? null);
-      if (!answer) {
-        setFeed((held) => ({ ...held, done: true }));
-        return;
-      }
-      if (source === "preview" && !answer.failure) {
-        setOffset((held) => held + answer.sent);
-      }
-      setFeed((held) => feedWith(held, answer));
-    },
-    [ask, genre, kind, source],
-  );
-
-  // A key, a kind, a genre, or the surface itself is a new feed: the page a
-  // person read for the last one is not a page of this one.
+  // The arm or the source changed: the chips of the last feed are not chips of
+  // this one, and the old genre's pages are not its pages.
+  const previous = useRef({ active, source });
   useEffect(() => {
-    serial.current += 1;
-    setFeed(blankFeed());
-    setOffset(0);
+    if (previous.current.active !== active || previous.current.source !== source) {
+      session.discoverGenre.set(null);
+    }
+    previous.current = { active, source };
+  }, [active, source, session]);
+
+  // A key, a genre, or the surface itself is a different pair of feeds. The
+  // Session store joins a page already in flight and never asks an answered row
+  // again, so mounting after a Title or a grid is free (#264). Which rows to read
+  // is the core's one decision (`discoverReads`), shared with the Remote.
+  useEffect(() => {
     if (!active) {
-      setLoading(false);
       return;
     }
-    void load(1, 0);
-    return () => {
-      serial.current += 1;
-    };
-  }, [active, kind, genre, load]);
-
-  const chooseKind = (next: DiscoverKind) => {
-    if (next === kind) {
+    // The arm or the source changed in the effect above; this render's closure
+    // still holds the chip of the old feed, and it must not ask it again.
+    if (session.discoverGenre.get() !== (genre?.name ?? null)) {
       return;
     }
-    setKind(next);
-    // TMDB's two genre lists are not the same set, so a film's genre is not a
-    // series' filter. A kind change starts from the whole new feed.
-    setGenre(null);
-  };
-
-  const chooseGenre = (next: GenreChoice | null) => {
-    const key = next?.key ?? null;
-    if ((genre?.key ?? null) !== key) {
-      setGenre(next);
+    const reads = discoverReads(source, genre, (kind, page, filter, skip) =>
+      discoverPageAsk({ source, kind, filter, page, skip }),
+    );
+    for (const read of reads) {
+      session.feeds.read(read.key, read.first, read.next);
     }
+  }, [active, genre, session, source]);
+
+  const chooseGenre = (next: DiscoverGenreChoice<number | string> | null) => {
+    session.discoverGenre.set(next?.name ?? null);
   };
 
-  const genres = genresFor(source, kind);
-  const label = kind === MOVIE ? "Films" : "Series";
-  const noKey = discoverNoKey();
-  const state = feedState(feed, loading);
-  const couldPlay = snapshot === null ? true : discoverPlayable(snapshot.addons, kind);
-  const tag =
-    feed.page === 0 && !feed.failure
-      ? "Reading"
-      : discoverTag(kind, genre, feed.items.length);
-
-  const note =
-    state === "reading"
-      ? "Reading the programme…"
-      : state === "reading-more"
-        ? "Reading on…"
-        : state === "empty"
-          ? discoverEmptyNote(genre)
-          : null;
+  const retry = (kind: DiscoverKind) => {
+    const key = discoverFeedKey(source, genre?.name ?? null, kind);
+    session.feeds.more(key);
+  };
 
   const open = (meta: MetaPreview) => {
     if (source === "preview") {
@@ -166,47 +127,55 @@ export function RepertoryDiscoverScreen() {
     void openDiscoveredTitle(meta);
   };
 
-  const card = (meta: MetaPreview, testId: string) => (
+  const posterCard = (meta: MetaPreview, kind: DiscoverKind, testId: string) => (
     <PosterCard
       key={meta.id}
+      data-grid-card
       name={meta.name}
       poster={meta.poster}
       rating={meta.imdbRating?.trim() || null}
       subtitle={yearOf(meta)}
-      unplayable={!couldPlay || unplayable.has(meta.id)}
+      unplayable={
+        (snapshot === null ? false : !discoverPlayable(snapshot.addons, kind)) ||
+        unplayable.has(meta.id)
+      }
       testId={testId}
       onClick={() => open(meta)}
     />
   );
 
+  const noKey = discoverNoKey();
+
   /**
-   * The rail's More card opens the loaded row as a pushed grid. It is the same
-   * cards, captured at the press; Back returns to the More card (design record
-   * §8). The rail's quiet action is what asks the feed's next page.
+   * The rail's More card opens that row as a pushed grid. The grid reads the
+   * same Session row on every render, so a page it asks is in the rail after
+   * Back and a page the rail asked is in the grid (#264). Back returns to the
+   * More card (design record §8).
    */
-  const openGrid = () => {
+  const openGrid = (kind: DiscoverKind, label: string, index: string) => {
+    const key = discoverFeedKey(source, genre?.name ?? null, kind);
     push({
       name: `All of ${label}`,
       kind: "overlay",
       payload: {
         render: () => (
-          <EditorialGrid
+          <FeedGrid
+            feedKey={key}
             title={label}
-            index={programIndex(1)}
-            tag={tag}
-            failure={feed.failure}
-            note={note}
+            index={index}
+            tag={(feed) =>
+              rowTagOf(genre?.name ?? "Trending", kind, feed.items.length)
+            }
+            renderCard={(meta) =>
+              posterCard(meta, kind, `discover-grid-card-${meta.id}`)
+            }
             onClose={pop}
             testId="discover-grid"
-          >
-            {feed.items.map((meta) => card(meta, `discover-grid-card-${meta.id}`))}
-          </EditorialGrid>
+          />
         ),
       },
     });
   };
-
-  const retry = () => void load(feed.page + 1, offset);
 
   return (
     <section
@@ -215,6 +184,8 @@ export function RepertoryDiscoverScreen() {
       data-region="discover"
       data-kind="branch"
       data-label="Discover"
+      data-chrome={chrome}
+      {...pageAttrs("discover")}
     >
       <ProgrammeLine name="Discover" testId="discover-programme-line" />
 
@@ -222,82 +193,86 @@ export function RepertoryDiscoverScreen() {
         <p className="rep-home-waiting">Waiting for the Host…</p>
       ) : null}
 
-      {snapshot !== null && !preview && !keyed ? (
-        <section className="rep-feed-empty" data-testid="discover-no-key">
-          <h2 className="rep-feed-empty-title">{noKey.title}</h2>
-          <p className="rep-feed-empty-body">{noKey.body}</p>
-          <Button variant="primary" onClick={() => push(repertoryCredentialsLevel())}>
-            {noKey.action}
-          </Button>
-        </section>
-      ) : null}
-
       {active ? (
-        <>
-          <div
-            className="rep-kind-filter"
-            data-region="discover-kinds"
-            data-kind="row"
-            data-label="Kind"
-          >
-            <ChoiceChip
-              pressed={kind === MOVIE}
-              data-testid="discover-kind-movie"
-              onClick={() => chooseKind(MOVIE)}
-            >
-              Movie
-            </ChoiceChip>
-            <ChoiceChip
-              pressed={kind === SERIES}
-              data-testid="discover-kind-series"
-              onClick={() => chooseKind(SERIES)}
-            >
-              Series
-            </ChoiceChip>
-          </div>
-
-          <div
-            className="rep-kind-filter"
-            data-region="discover-genres"
-            data-kind="row"
-            data-label="Genres"
-          >
+        <div
+          className="rep-kind-filter"
+          data-region="discover-genres"
+          data-kind="row"
+          data-label="Genres"
+        >
+          {/* The chips are a rail without a head: the same track draws them,
+              so the arrows, paging, drag and focus reveal are the poster
+              rows' own (ADR-0036 §1). */}
+          <RowTrack label="Genres" itemLayout="content">
             <ChoiceChip pressed={genre === null} onClick={() => chooseGenre(null)}>
               All genres
             </ChoiceChip>
             {genres.map((held) => (
               <ChoiceChip
-                key={held.key}
-                pressed={genre?.key === held.key}
+                key={held.name}
+                pressed={genre?.name === held.name}
                 onClick={() => chooseGenre(held)}
               >
                 {held.name}
               </ChoiceChip>
             ))}
-          </div>
-
-          <EditorialRow
-            title={label}
-            index={programIndex(1)}
-            tag={tag}
-            action={
-              <FeedPagingAction
-                failure={feed.failure}
-                more={feedMore(feed)}
-                loading={loading}
-                onMore={retry}
-              />
-            }
-            failure={feed.failure}
-            note={note}
-            region={`discover:${kind}`}
-            onOpenRow={feed.items.length > 0 ? openGrid : undefined}
-            testId={`discover-section-${kind}`}
-          >
-            {feed.items.map((meta) => card(meta, `discover-card-${meta.id}`))}
-          </EditorialRow>
-        </>
+          </RowTrack>
+        </div>
       ) : null}
+
+      <div className="rep-page-panel" ref={panel} style={style}>
+        {snapshot !== null && !preview && !keyed ? (
+          <section className="rep-feed-empty" data-testid="discover-no-key">
+            <h2 className="rep-feed-empty-title">{noKey.title}</h2>
+            <p className="rep-feed-empty-body">{noKey.body}</p>
+            <Button variant="primary" onClick={() => push(repertoryCredentialsLevel())}>
+              {noKey.action}
+            </Button>
+          </section>
+        ) : null}
+
+        {active
+          ? DISCOVER_ROWS.map(({ kind, label }, at) => {
+              const key = discoverFeedKey(source, genre?.name ?? null, kind);
+              const feed = feeds.rows.get(key) ?? blankFeed();
+              const loading = feeds.reading.has(key);
+              const filter = genreFilterFor(genre, kind);
+              const state = feedState(feed, loading);
+              const tag = discoverRowTag(feed, kind, genre, filter);
+              const note = discoverRowNote(state, kind, genre, filter);
+              const index = programIndex(at + 1);
+              return (
+                <EditorialRow
+                  key={kind}
+                  title={label}
+                  index={index}
+                  tag={tag}
+                  action={
+                    <FeedPagingAction
+                      failure={feed.failure}
+                      more={feedMore(feed)}
+                      loading={loading}
+                      onMore={() => retry(kind)}
+                    />
+                  }
+                  failure={feed.failure}
+                  note={note}
+                  region={`discover:${kind}`}
+                  onOpenRow={
+                    feed.items.length > 0
+                      ? () => openGrid(kind, label, index)
+                      : undefined
+                  }
+                  testId={`discover-section-${kind}`}
+                >
+                  {feed.items.map((meta) =>
+                    posterCard(meta, kind, `discover-card-${meta.id}`),
+                  )}
+                </EditorialRow>
+              );
+            })
+          : null}
+      </div>
 
       {preview ? (
         <p className="rep-preview-note">

@@ -4,8 +4,9 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { explain } from "../core/errors";
 import type { ActionError } from "../core/errors";
+import type { Row } from "../core/browse";
 import type { Destination } from "../core/destinations";
-import { FEATURE_ROTATION_MS } from "../core/homeProgramme";
+import { FEATURE_ROTATION_MS, continueTag, rowTag } from "../core/homeProgramme";
 import type { HostLink, LinkState } from "../core/link";
 import type { NewLevel } from "../core/navigation";
 import { useSession } from "../core/react/useSession";
@@ -22,6 +23,7 @@ import type {
 } from "../core/wire";
 import { Home } from "./Home";
 import { NOTHING } from "./fakeSocket.testing";
+import { gridLevel } from "./grid";
 import { titleLevel, type RemotePayload } from "./levels";
 
 /**
@@ -72,6 +74,20 @@ function meta(id: string, name: string): MetaPreview {
 }
 
 const FOUR = [meta("tt1", "One"), meta("tt2", "Two"), meta("tt3", "Three"), meta("tt4", "Four")];
+
+/** The row the Session's store holds after a first page. */
+function homeRow(metas: MetaPreview[]): Row {
+  return {
+    addon: "cinemeta",
+    type: "movie",
+    id: "top",
+    name: "Popular",
+    metas,
+    offset: metas.length,
+    failure: null,
+    done: false,
+  };
+}
 
 /** A Catalog's name as its Addon declared it, which is what a row's head prints. */
 const NAMES: Record<string, string> = { top: "Popular", new: "New", other: "Other" };
@@ -228,6 +244,47 @@ async function flush() {
   });
 }
 
+/** The feature's beat without a real clock: only the interval is faked. */
+function onlyIntervals() {
+  vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+}
+
+/** The system asking for motion to be left out. */
+function reduceMotion() {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn(() => ({
+      matches: true,
+      media: "(prefers-reduced-motion: reduce)",
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })),
+  );
+}
+
+/** The item the feature is showing, as the screen's own contract states it. */
+function activeSlide(): string | null {
+  return screen.getByTestId("remote-feature").getAttribute("data-active-slide");
+}
+
+/**
+ * jsdom has no layout, and the gesture's distance is a share of the frame's
+ * width: the test hands the screen the width a phone would give it.
+ */
+function withWidth(element: HTMLElement, width: number) {
+  vi.spyOn(element, "getBoundingClientRect").mockReturnValue({
+    x: 0,
+    y: 0,
+    width,
+    height: (width * 9) / 16,
+    top: 0,
+    right: width,
+    bottom: (width * 9) / 16,
+    left: 0,
+    toJSON: () => ({}),
+  } as DOMRect);
+}
+
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -292,16 +349,25 @@ describe("Home's rows", () => {
     expect(within(row).getByRole("status")).toBeInTheDocument();
   });
 
-  test("a Catalog that declares no skip has no next page to offer", async () => {
-    mount({
-      snapshot: {
-        ...SNAPSHOT,
-        addons: [{ ...CINEMETA, catalogs: [{ ...POPULAR, extra: [] }] }],
-      },
-    });
+  test("a Catalog that declares no skip still opens its whole row, with no page to ask", async () => {
+    const snapshot: Snapshot = {
+      ...SNAPSHOT,
+      addons: [{ ...CINEMETA, catalogs: [{ ...POPULAR, extra: [] }] }],
+    };
+    const { pushes } = mount({ snapshot });
 
     await waitFor(() => expect(screen.getByTestId("card-cinemeta-tt1")).toBeInTheDocument());
-    expect(screen.queryByRole("button", { name: "More Popular" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "More Popular" }));
+
+    expect(pushes).toEqual([
+      gridLevel({
+        title: "Popular",
+        index: "01",
+        tag: rowTag(snapshot, homeRow(FOUR)),
+        addon: "cinemeta",
+        source: { kind: "home", rowKey: "cinemeta/movie/top" },
+      }),
+    ]);
   });
 
   test("a row the Host could not fetch draws the core's explanation in place of its cards", async () => {
@@ -320,21 +386,318 @@ describe("Home's rows", () => {
 });
 
 describe("Home's feature", () => {
-  test("advances on the core's 24 second beat and starts the programme over at its end", async () => {
-    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+  test("advances on the core's 15 second beat and starts the programme over at its end", async () => {
+    onlyIntervals();
     mount();
 
     const feature = await screen.findByTestId("remote-feature");
     expect(feature.getAttribute("data-active-slide")).toBe("tt1");
 
     act(() => vi.advanceTimersByTime(FEATURE_ROTATION_MS));
-    expect(screen.getByTestId("remote-feature").getAttribute("data-active-slide")).toBe("tt2");
+    expect(activeSlide()).toBe("tt2");
 
     act(() => vi.advanceTimersByTime(FEATURE_ROTATION_MS * 3));
     expect(
-      screen.getByTestId("remote-feature").getAttribute("data-active-slide"),
+      activeSlide(),
       "the beat wraps where a Left/Right press would stop",
     ).toBe("tt1");
+  });
+
+  test("steps with Left and Right, restarting the item's time", async () => {
+    onlyIntervals();
+    mount();
+
+    await screen.findByTestId("remote-feature");
+    expect(activeSlide()).toBe("tt1");
+
+    act(() => vi.advanceTimersByTime(12_000));
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(activeSlide()).toBe("tt2");
+
+    act(() => vi.advanceTimersByTime(12_000));
+    expect(activeSlide(), "the press restarted Two's time").toBe("tt2");
+    act(() => vi.advanceTimersByTime(12_000));
+    expect(activeSlide()).toBe("tt3");
+
+    fireEvent.keyDown(window, { key: "ArrowLeft" });
+    expect(activeSlide()).toBe("tt2");
+  });
+
+  test("leaves a step at either end alone rather than wrapping the programme", async () => {
+    onlyIntervals();
+    mount();
+
+    await screen.findByTestId("remote-feature");
+
+    fireEvent.keyDown(window, { key: "ArrowLeft" });
+    expect(activeSlide()).toBe("tt1");
+
+    for (let step = 0; step < 3; step += 1) {
+      fireEvent.keyDown(window, { key: "ArrowRight" });
+    }
+    expect(activeSlide()).toBe("tt4");
+
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(activeSlide()).toBe("tt4");
+  });
+
+  test("keeps the beat under reduced motion", async () => {
+    reduceMotion();
+    onlyIntervals();
+    mount();
+
+    await screen.findByTestId("remote-feature");
+    expect(activeSlide()).toBe("tt1");
+
+    act(() => vi.advanceTimersByTime(FEATURE_ROTATION_MS));
+    expect(
+      activeSlide(),
+      "ADR-0036 §2 supersedes the design record's 'reduced motion stops it'",
+    ).toBe("tt2");
+  });
+
+  test("leaves the arrows to a rail card, a text field, or a key with a modifier", async () => {
+    onlyIntervals();
+    mount();
+
+    await screen.findByTestId("remote-feature");
+
+    const card = await screen.findByTestId("card-cinemeta-tt1");
+    act(() => card.focus());
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(activeSlide(), "a rail card keeps its own arrows").toBe("tt1");
+
+    act(() => card.blur());
+    fireEvent.keyDown(window, { key: "ArrowRight", altKey: true });
+    expect(activeSlide(), "Alt+Left/Right is the browser's Back/Forward").toBe("tt1");
+
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    expect(activeSlide(), "from nowhere the feature takes the arrow").toBe("tt2");
+  });
+
+  test("holds the fill while a finger is down and resumes where it stopped", async () => {
+    onlyIntervals();
+    mount();
+
+    const feature = await screen.findByTestId("remote-feature");
+    const frame = within(feature).getByRole("button", { name: /Open the Title/ });
+
+    act(() => vi.advanceTimersByTime(12_000));
+    fireEvent.pointerDown(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 300,
+      clientY: 200,
+    });
+
+    act(() => vi.advanceTimersByTime(FEATURE_ROTATION_MS * 2));
+    expect(activeSlide(), "a held finger pauses the fill").toBe("tt1");
+
+    fireEvent.pointerUp(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 300,
+      clientY: 200,
+    });
+    act(() => vi.advanceTimersByTime(12_000));
+    expect(activeSlide(), "the fill carries on from where it stopped").toBe("tt2");
+  });
+});
+
+/**
+ * The page smoke the ticket asks for (ADR-0032, docs/agents/testing.md): a
+ * swipe and a tick are driven through the screen, and the assertion is the
+ * programme's item — the decision the shared seam states — never the drawing.
+ */
+describe("Home's feature, driven as a page", () => {
+  test("a swipe across the hero steps the programme and does not open the Title", async () => {
+    onlyIntervals();
+    const { pushes } = mount();
+
+    const feature = await screen.findByTestId("remote-feature");
+    const frame = within(feature).getByRole("button", { name: /Open the Title/ });
+    withWidth(frame, 400);
+    expect(activeSlide()).toBe("tt1");
+
+    fireEvent.pointerDown(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 320,
+      clientY: 200,
+    });
+    fireEvent.pointerMove(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 200,
+      clientY: 204,
+    });
+    fireEvent.pointerUp(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 200,
+      clientY: 204,
+    });
+    fireEvent.click(frame, { detail: 1 });
+    await waitFor(() => expect(activeSlide(), "120 of 400 crosses the share").toBe("tt2"));
+    expect(pushes, "the swipe's click is not a press on the feature").toHaveLength(0);
+  });
+
+  test("a swipe that comes back under the share snaps back", async () => {
+    onlyIntervals();
+    mount();
+
+    const feature = await screen.findByTestId("remote-feature");
+    const frame = within(feature).getByRole("button", { name: /Open the Title/ });
+    withWidth(frame, 400);
+
+    fireEvent.pointerDown(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 300,
+      clientY: 200,
+    });
+    fireEvent.pointerMove(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 180,
+      clientY: 204,
+    });
+    fireEvent.pointerMove(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 270,
+      clientY: 204,
+    });
+    fireEvent.pointerUp(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 270,
+      clientY: 204,
+    });
+
+    await waitFor(() => expect(activeSlide(), "30 of 400 is under the share").toBe("tt1"));
+  });
+
+  test("a vertical drag is the page's, not the programme's", async () => {
+    onlyIntervals();
+    mount();
+
+    const feature = await screen.findByTestId("remote-feature");
+    const frame = within(feature).getByRole("button", { name: /Open the Title/ });
+    withWidth(frame, 400);
+
+    fireEvent.pointerDown(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 300,
+      clientY: 200,
+    });
+    fireEvent.pointerMove(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 302,
+      clientY: 280,
+    });
+    fireEvent.pointerUp(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 302,
+      clientY: 280,
+    });
+
+    expect(activeSlide(), "a vertical drag scrolls the page").toBe("tt1");
+  });
+
+  test("a tap on the hero still opens the Title", async () => {
+    onlyIntervals();
+    const { pushes } = mount();
+
+    const feature = await screen.findByTestId("remote-feature");
+    const frame = within(feature).getByRole("button", { name: /Open the Title/ });
+    fireEvent.click(frame, { detail: 1 });
+
+    expect(pushes).toHaveLength(1);
+  });
+
+  test("the arrows step and wrap like a swipe, and are not a press on the Title", async () => {
+    onlyIntervals();
+    const { pushes } = mount();
+
+    await screen.findByTestId("remote-feature");
+    expect(activeSlide()).toBe("tt1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous feature" }));
+    expect(activeSlide(), "the previous arrow wraps to the last item").toBe("tt4");
+
+    fireEvent.click(screen.getByRole("button", { name: "Next feature" }));
+    expect(activeSlide(), "the next arrow wraps to the first").toBe("tt1");
+
+    expect(pushes, "arrows are furniture, not the Title").toHaveLength(0);
+  });
+
+  test("an arrow restarts the item's time, as a step does", async () => {
+    onlyIntervals();
+    mount();
+
+    await screen.findByTestId("remote-feature");
+    act(() => vi.advanceTimersByTime(12_000));
+    fireEvent.click(screen.getByRole("button", { name: "Next feature" }));
+    expect(activeSlide()).toBe("tt2");
+
+    act(() => vi.advanceTimersByTime(12_000));
+    expect(activeSlide(), "the arrow restarted Two's time").toBe("tt2");
+  });
+
+  test("reduced motion commits a swipe without tracking it", async () => {
+    reduceMotion();
+    onlyIntervals();
+    mount();
+
+    const feature = await screen.findByTestId("remote-feature");
+    const frame = within(feature).getByRole("button", { name: /Open the Title/ });
+    withWidth(frame, 400);
+
+    fireEvent.pointerDown(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 320,
+      clientY: 200,
+    });
+    fireEvent.pointerMove(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 200,
+      clientY: 204,
+    });
+    fireEvent.pointerUp(frame, {
+      pointerId: 1,
+      pointerType: "touch",
+      clientX: 200,
+      clientY: 204,
+    });
+
+    expect(activeSlide(), "reduced motion steps at once, as a fade").toBe("tt2");
+  });
+
+  test("a tap on a tick jumps to that item and restarts its time", async () => {
+    onlyIntervals();
+    mount();
+
+    await screen.findByTestId("remote-feature");
+    act(() => vi.advanceTimersByTime(12_000));
+    expect(activeSlide()).toBe("tt1");
+
+    fireEvent.click(screen.getByRole("button", { name: "Show Three" }));
+    expect(activeSlide()).toBe("tt3");
+    expect(screen.getByRole("button", { name: "Show Three" })).toHaveAttribute(
+      "aria-current",
+      "step",
+    );
+
+    act(() => vi.advanceTimersByTime(12_000));
+    expect(activeSlide(), "the jump restarted Three's time").toBe("tt3");
+    act(() => vi.advanceTimersByTime(12_000));
+    expect(activeSlide()).toBe("tt4");
   });
 });
 
@@ -389,40 +752,81 @@ describe("Home's presses", () => {
     expect(screen.getByTestId("resume-tt2:1:1")).toBeDisabled();
   });
 
-  test("More asks the store for the next page and keeps the cards already drawn", async () => {
-    const { host } = mount();
+  test("More opens the row as a whole-row grid and asks no page itself", async () => {
+    const { host, pushes } = mount();
     await waitFor(() => expect(screen.getByTestId("card-cinemeta-tt4")).toBeInTheDocument());
+    const asked = asks(host).length;
 
     fireEvent.click(screen.getByRole("button", { name: "More Popular" }));
 
-    await waitFor(() =>
-      expect(asks(host)).toContainEqual({
-        type: "browse_catalog",
+    expect(pushes).toEqual([
+      gridLevel({
+        title: "Popular",
+        index: "01",
+        tag: rowTag(SNAPSHOT, homeRow(FOUR)),
         addon: "cinemeta",
-        catalog: { type: "movie", id: "top" },
-        extra: [{ name: "skip", value: "4" }],
+        source: { kind: "home", rowKey: "cinemeta/movie/top" },
       }),
-    );
-    await waitFor(() => expect(screen.getByTestId("card-cinemeta-tt5")).toBeInTheDocument());
+    ]);
     expect(
-      screen.getByTestId("card-cinemeta-tt1"),
-      "the first page is still drawn",
-    ).toBeInTheDocument();
+      asks(host),
+      "the grid asks the row's next page from its own head, not on opening",
+    ).toHaveLength(asked);
+  });
 
-    // A page that brings nothing new is what ends a row, and the only thing
-    // that takes the control away.
-    fireEvent.click(screen.getByRole("button", { name: "More Popular" }));
+  test("the rail's head action asks the next page into the row the rail draws", async () => {
+    const { host } = mount();
+    const row = await screen.findByTestId("remote-row-cinemeta/movie/top");
+    await waitFor(() => expect(within(row).getByTestId("card-cinemeta-tt4")).toBeInTheDocument());
+    const asked = asks(host).length;
+
+    fireEvent.click(within(row).getByRole("button", { name: "Read on" }));
+
     await waitFor(() =>
-      expect(asks(host)).toContainEqual({
-        type: "browse_catalog",
+      expect(asks(host).slice(asked)).toEqual([
+        {
+          type: "browse_catalog",
+          addon: "cinemeta",
+          catalog: { type: "movie", id: "top" },
+          extra: [{ name: "skip", value: "4" }],
+        },
+      ]),
+    );
+    expect(await within(row).findByTestId("card-cinemeta-tt5")).toBeInTheDocument();
+  });
+
+  test("the Continue watching rail's More card opens its whole row", async () => {
+    const entry: ResumeEntry = {
+      video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
+      title: {
         addon: "cinemeta",
-        catalog: { type: "movie", id: "top" },
-        extra: [{ name: "skip", value: "5" }],
+        id: "tt1",
+        type: "series",
+        name: "One",
+        poster: null,
+        background: null,
+      },
+      position: 300,
+      duration: 600,
+      watched: false,
+      unplayable: null,
+    };
+    const { pushes } = mount({
+      snapshot: { ...SNAPSHOT, watchProgress: [entry] },
+    });
+    await waitFor(() => expect(screen.getByTestId("resume-tt1:1:1")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "More Continue watching" }));
+
+    expect(pushes).toEqual([
+      gridLevel({
+        title: "Continue watching",
+        index: "01",
+        tag: continueTag(1),
+        addon: null,
+        source: { kind: "continue" },
       }),
-    );
-    await waitFor(() =>
-      expect(screen.queryByRole("button", { name: "More Popular" })).not.toBeInTheDocument(),
-    );
+    ]);
   });
 
   test("the empty programme offers the one way out the core names", async () => {

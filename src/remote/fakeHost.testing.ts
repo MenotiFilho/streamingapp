@@ -19,6 +19,8 @@ export class FakeHost implements HostLink {
   private held: Snapshot;
   private readonly snapshotHandlers = new Set<(snapshot: Snapshot) => void>();
   private readonly stateHandlers = new Set<(state: LinkState) => void>();
+  /** One identity for the ready link, as a real link's state is cached. */
+  private readonly linkState: LinkState = { kind: "ready", device: null };
 
   constructor(
     snapshot: Snapshot,
@@ -48,7 +50,7 @@ export class FakeHost implements HostLink {
   }
 
   state(): LinkState {
-    return { kind: "ready", device: null };
+    return this.linkState;
   }
 
   onState(handler: (state: LinkState) => void): () => void {

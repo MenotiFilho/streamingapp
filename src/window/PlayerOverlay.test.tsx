@@ -1400,6 +1400,51 @@ describe("the player OSD", () => {
     expect(fakeWindowState().calls).toEqual([true, false]);
   });
 
+  test("Stop is sent while the Host still reports the Stream (#250)", async () => {
+    // The Host tears mpv's window down before it publishes `idle`. The shell's
+    // ink decision (`pictureBehind(playback, closing)`) is covered in
+    // `core/playback.test.ts`; here the boundary says the Stop leaves at once,
+    // before any Snapshot says the Stream is gone.
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const host = await renderPlayer({}, undefined, [], { type: "stop_playback", gate });
+
+    fireEvent.click(screen.getByTestId("stop"));
+    await waitFor(() =>
+      expect(actions(host.invocations)).toContainEqual({ type: "stop_playback" }),
+    );
+    expect(
+      screen.getByTestId("shell-player"),
+      "the Host has not answered yet: the player is still the reported Stream",
+    ).toBeInTheDocument();
+
+    release();
+    await act(async () => {
+      host.publish({ ...NOTHING_SAID, revision: 10 });
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(screen.queryByTestId("shell-player")).not.toBeInTheDocument());
+  });
+
+  test("a Stop the Host refuses leaves the player where it was", async () => {
+    const host = await renderPlayer({}, {
+      type: "stop_playback",
+      error: { kind: "internal", detail: "the player did not answer" },
+    });
+
+    fireEvent.click(screen.getByTestId("stop"));
+    await waitFor(() =>
+      expect(actions(host.invocations)).toContainEqual({ type: "stop_playback" }),
+    );
+
+    expect(
+      screen.getByTestId("shell-player"),
+      "a refused Stop is not a closed Stream",
+    ).toBeInTheDocument();
+  });
+
   test("without a Tauri window the OSD draws no fullscreen control", async () => {
     removeTauriRuntime();
     await renderPlayer();

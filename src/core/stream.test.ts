@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import type { Stream, Title, Video } from "./wire";
-import { playStreamAction, streamsSubject, theFilm } from "./stream";
+import { playStreamAction, playabilityNote, streamsSubject, theFilm } from "./stream";
 import { titleStubOf } from "./title";
 
 function film(overrides: Partial<Title> = {}): Title {
@@ -135,5 +135,57 @@ describe("the Action a chosen Stream is", () => {
     });
 
     expect(action.title).not.toHaveProperty("background");
+  });
+});
+
+/**
+ * What the Streams list marks before a press (#249). The Host's `StreamUrl::parse`
+ * opens only http(s) addresses of a file; a direct URL outside that rule is
+ * listed unplayable rather than refused after the press.
+ */
+describe("which direct Streams the list marks unplayable", () => {
+  test("http and https addresses are playable", () => {
+    expect(playabilityNote({ kind: "direct", url: "https://example.test/film.mkv" })).toBeNull();
+    expect(playabilityNote({ kind: "direct", url: "http://example.test/a" })).toBeNull();
+    expect(
+      playabilityNote({ kind: "direct", url: "HTTPS://EXAMPLE.TEST/film.mkv" }),
+      "the scheme is not case-sensitive",
+    ).toBeNull();
+  });
+
+  test("a scheme the Host never opens is marked before the press", () => {
+    for (const url of [
+      "magnet:?xt=urn:btih:0123456789abcdef",
+      "stremio://example.test/film.mkv",
+      "ftp://example.test/film.mkv",
+      "file:///films/a.mkv",
+    ]) {
+      expect(playabilityNote({ kind: "direct", url }), url).not.toBeNull();
+    }
+  });
+
+  test("a relative address or an empty one is not a URL the Host opens", () => {
+    for (const url of ["a/film.mkv", "", "https://"]) {
+      expect(playabilityNote({ kind: "direct", url }), url).not.toBeNull();
+    }
+  });
+
+  test("a URL longer than the Stream bound, or carrying a control character, is marked", () => {
+    const long = `https://example.test/${"a".repeat(4096)}`;
+    expect(playabilityNote({ kind: "direct", url: long })).not.toBeNull();
+    expect(
+      playabilityNote({ kind: "direct", url: "https://example.test/a\u0000b.mkv" }),
+    ).not.toBeNull();
+  });
+
+  test("the Stream bound counts bytes, as the Host does, not characters", () => {
+    // 2,100 two-byte characters: under 4,096 characters, over 4,096 bytes.
+    const wide = `https://example.test/${"é".repeat(2100)}`;
+    expect(wide.length).toBeLessThan(4096);
+    expect(playabilityNote({ kind: "direct", url: wide })).not.toBeNull();
+  });
+
+  test("a torrent is still marked and is not a URL question", () => {
+    expect(playabilityNote({ kind: "info_hash", infoHash: "abc" })).toContain("torrent");
   });
 });

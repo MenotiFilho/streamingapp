@@ -229,8 +229,8 @@ stagger on a screen's content — a level arrives as one thing.
 - A **rail** scrolls with `animate()` on its scroll offset, so a second press
   redirects it mid-flight; the focus reveal uses the same path. No snapping and
   no inertia.
-- The **feature** cross-fades between slides on its 24s beat, replacing the
-  earlier no-cross-fade rule; focus still holds it.
+- The **feature** cross-fades between slides on its 15s beat, replacing the
+  earlier no-cross-fade rule; a person's focus still holds it.
 - The **spine's** width and its label reveal use the panel spring.
 - An **Addon row's inline expansion** uses `layout`, so the register moves
   under the focus and the focused row stays where it was.
@@ -248,7 +248,9 @@ calls — the rail scroll and the focus reveal — check `useReducedMotion()` an
 jump instead of animating. The served Remote reads the same hook from
 `src/core/react`. Under the same media query
 the CSS transform transitions are disabled and the width fills snap; only opacity
-and colour still fade. The feature stops rotating. This **replaces** the earlier
+and colour still fade. The feature is the exception: its beat keeps turning and
+its tick's fill is the one movement left, while the slide change is a fade
+(ADR-0036 §2). This **replaces** the earlier
 0ms rule: with reduced motion the room keeps its fades and loses its movement.
 The OSD's auto-hide clock, the focus rules and every Action are untouched.
 
@@ -295,7 +297,20 @@ the phone's emoji font is not the design system.
   the measure, not the window. Discover, Search, Title and the Remote's player
   screen never scroll vertically: they fit the window, and anything longer
   scrolls inside its own panel (ADR-0036). Elsewhere a short window scrolls the
-  page rather than clipping the copy.
+  page rather than clipping the copy. On a fitted Discover or Search the cards
+  are sized from the height the panel has left after the screen's head, genre
+  row and TMDB credit — the height, less each rail's head, its real one-line
+  caption and the track's padding, split across its two rows, with a readable
+  floor of 180px of art height (about 120px wide at 2:3). A short page (below
+  900px of fitted height) draws compact chrome — a smaller programme line, a
+  tighter one-line genre row and a slimmer TMDB credit, whose words and mark
+  stay — so the posters keep that floor. Where both rails still
+  cannot fit, the rows panel scrolls under the fixed head; the page itself still
+  never scrolls. The 2:3 poster follows its height for width, and the row's
+  width share still caps it, so a phone viewport keeps the width-sized cards. A
+  fitted feed's caption is one line, because a second would push the lower rail
+  out of the panel. The Title is fitted at every width the window takes
+  (ADR-0036 §3, amended 2026-11-06, PR #263).
 - **Utility register** (Addons, Settings, Library): the same one line at the
   top, then hairline rows with a 2px step, names in display serif, bookkeeping
   in mono, and no index numbers. Addons is two columns — the form on the left,
@@ -322,21 +337,47 @@ the phone's emoji font is not the design system.
   page exactly five cards when clicked or tapped, and are not in the Tab or
   D-pad order. The D-pad walks the cards one by one. The last card is a **More**
   card that opens the whole row as a grid. Entering a rail from outside a rail
-  starts at its first card; moving between rails keeps the nearest card. A feed
-  row is its own source: its quiet head action asks the Host's next page, and
-  its More card opens the cards read so far; the grid does not ask a page of
-  its own.
+  starts at its first card; moving between rails keeps the nearest card; a
+  reveal into a rail keeps that rail's head, tag and quiet action in view with
+  the card. A feed row is its own source: its quiet head action asks the Host's
+  next page, and its More card opens the whole row as a grid. The grid reads on
+  by itself near its end — scrolling or moving focus toward the last cards asks
+  that row's next page into the same accumulated row the rail draws, so Back
+  keeps those cards and a page the rail asked is in the grid. The grid's head
+  prints the row's bookkeeping live: the count is what the row has read, not
+  what it held when the grid opened. A page that fails leaves the cards it had
+  and offers Try again; the rail keeps its quiet **Read on** (ADR-0036,
+  amended 2026-11-06, #264).
 - **Feature**: the backdrop between two hairlines, a two-gradient ink scrim, the
-  Title in display serif over it, the kicker in mono (`Feature presentation` and
-  the programme's position), one line of facts, the description, and one
-  action — **Open the Title**. One tick per item shows the programme, the
-  current tick filling over the item's 24s; a tick jumps to its item. Left/Right
-  and a horizontal drag step it; focus or a held finger pauses it; any of these
-  restarts the item's time. Reduced motion keeps the rotation and turns the slide
-  into a fade (ADR-0036).
+  Title in display serif over it, one line of facts, the description clamped to
+  two lines, and one action — **Open the Title** — *below* the description, in
+  the copy's flow, with the copy's own spacing; it never overlays the copy. The
+  Title is one line and steps down through the two densities for a long name;
+  it ellipsises rather than growing the copy. The frame is one fixed size for
+  every item: the art covers it (crop, never letterbox or stretch), and long
+  copy is clamped rather than growing the frame. One tick per item sits under
+  the frame, the current tick filling over the item's 15s; a tick jumps to its
+  item. Left/Right step it; a horizontal drag carries the slides with the hand
+  and commits to the neighbour past a share of the frame or on a fast flick,
+  and a short or slow release snaps back. A person's focus or a held finger
+  pauses it; the focus the screen seats on launch does not hold the beat, and
+  the fill starts on launch. Any step, drag, tick or arrow restarts the item's
+  time. A pointer that lets go releases the fill even where the press focused
+  the frame; keyboard and D-pad focus still hold it. Reduced motion keeps the
+  rotation, drops the tracking, and turns a committed swipe into a fade
+  (ADR-0036 §2). The kicker and the `01 / 04` position are gone: the ticks are
+  where the programme is (ADR-0036 §2, owner's by-hand review on PR #261).
+
+  The Remote's hero is the same anatomy at hand scale: the same clamps and the
+  action below the description, **previous/next arrows** at the sides that step
+  and wrap like a swipe, and the ticks under the frame. The arrows and the ticks
+  are pointer furniture: they never open the Title. The window's feature has no
+  arrows — its D-pad walk, Left/Right and the ticks already step it, and a
+  10-foot hero does not need a second pair of pointer marks.
 - **Episode row**: 16:9 still (or a typographic plate), `S#E#` and the name, a
-  **Streams** mark. The season rail is single-select chips in one scrolling
-  line; the episode list scrolls under it.
+  **Streams** mark. The season rail is single-select chips on the same headless
+  `RowTrack` as Discover's genre row — the same arrows, paging, drag and focus
+  reveal — and the episode list scrolls under it.
 
 ### Controls
 
@@ -345,7 +386,10 @@ the phone's emoji font is not the design system.
   by an **Other** chip rather than leaving every chip unpressed. Discover's
   genre row is **All genres** first, then the union of TMDB's film and series
   genres — one list filtering both the Movies and the Series row, never a
-  curated second one (ADR-0036). Search and Discover have no kind chips.
+  curated second one, on one line that scrolls sideways rather than wrapping
+  (ADR-0036). That line is a rail without a head: the same `<`/`>` arrows,
+  paging, drag and focus reveal as a poster row (owner's by-hand review,
+  2026-11-06). Search and Discover have no kind chips.
 - **Button**: a line of type with a rule under it; the one primary action is a
   **brass fill carrying ink** (never ivory, 8.43:1), a quiet action is brass ink
   with a rule, and destructive is red ink and always asks first.
@@ -482,17 +526,37 @@ icons and marks, with its own **hand scale**.
 | `--rep-remote-strip` | 4.5rem | the docked strip |
 | `--rep-remote-gutter` | 1.125rem | the page gutter |
 
+**Feature / Remote hero.** The Remote's Feature is the window's, at hand scale:
+the same 16:9 frame (one size for every slide, the art cropped to cover it), the
+two-gradient scrim, the display-serif Title, one line of facts, the clamped
+description, the **Open the Title** action, and the programme's ticks under the
+frame. Its steering is the one core seam the window reads — Left/Right, a
+horizontal swipe, a tick jump, a hold, and a restart on any of them — and the
+kicker and `01 / 04` position are gone, because the ticks say where the
+programme is (ADR-0036 §2; owner's by-hand review on PR #261).
+
+**Title / Remote Title.** The Remote's Title is one page under the fixed Back:
+a phone cannot hold the copy and the episode list side by side, so the whole
+body — the wordmark or name, the facts, the description, the attribution, the
+seasons, the episodes and **Find Streams** — is the one scrollport. The seasons
+stay a single row that slides sideways and never gives up its height; the
+episode list is normal flow, never a second scrollport, so every episode and
+Find Streams are reached by scrolling the body. The window's Title keeps its
+fitted two-column page, with the episode rail as its panel (ADR-0036 §3,
+amended 2026-11-07; owner's report on the served Remote).
+
 Ink, ivory, brass, hairlines and the same display/interface/mono roles. Touch
 first: 44px targets (40px chips), safe-area insets, never hover as the only cue;
 keyboard focus keeps the ivory keyline for a Remote driven by a keyboard, and a
 finger gets the pressed ink step. The bottom index is the six destinations with
 a 2px brass keyline on the active one. The docked strip is a full-width band
 above the index (still, Title/episode, progress hairline, −10s, play/pause) and
-reserves its height. The expanded card is the programme card: the backdrop
-between hairlines, the Title, the timeline, the six-cell transport, the
-always-visible volume box, and the five-menu row (Audio, Episodes, Speed,
-Chapters, Picture) opening one shared drawer. **Remote devices is a Settings
-leaf**, not a seventh destination.
+reserves its height; on the player screen itself it steps aside, and the card
+and the index are the whole dock (ADR-0036 §4). The expanded card is the
+programme card: the backdrop between hairlines, the Title, the timeline, the
+six-cell transport, the always-visible volume box, and the five-menu row (Audio,
+Episodes, Speed, Chapters, Picture) opening one shared drawer. **Remote devices
+is a Settings leaf**, not a seventh destination.
 
 The hand scale is locked as measured; one tuning pass on a real handset is
 allowed in the Remote's build ticket (#159), and it changes values, not roles.
