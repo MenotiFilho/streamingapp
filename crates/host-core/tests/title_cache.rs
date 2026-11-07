@@ -283,7 +283,7 @@ fn a_running_series_is_fresh_for_a_day_and_refetched_after_it() {
         1,
         "a stale open answers the cached copy before it reaches anything"
     );
-    assert_eq!(host.drain(), 1);
+    assert_eq!(host.drain().ran, 1);
     assert_eq!(
         asked_for(&fetcher, TMDB_TV_200001),
         2,
@@ -314,7 +314,7 @@ fn a_film_is_fresh_for_thirty_days_and_refetched_after_them() {
         1,
         "the stale open is answered from the cache"
     );
-    assert_eq!(host.drain(), 1);
+    assert_eq!(host.drain().ran, 1);
     assert_eq!(
         asked_for(&fetcher, TMDB_MOVIE_603),
         2,
@@ -346,7 +346,7 @@ fn an_ended_series_is_fresh_for_thirty_days_and_refetched_after_them() {
         season_reads,
         "the stale open is answered from the cache"
     );
-    assert_eq!(host.drain(), 1);
+    assert_eq!(host.drain().ran, 1);
     assert_eq!(
         asked_for(&fetcher, TMDB_TV_1396),
         season_reads + 1,
@@ -373,7 +373,7 @@ fn an_addons_title_is_fresh_for_thirty_days_and_refetched_after_them() {
         1,
         "the stale open is answered from the cache"
     );
-    assert_eq!(host.drain(), 1);
+    assert_eq!(host.drain().ran, 1);
     assert_eq!(
         asked_for(&fetcher, CINEMETA_MOVIE),
         2,
@@ -407,7 +407,7 @@ fn removing_a_titles_addon_keeps_its_copy_until_it_goes_stale() {
         stale.name, "The Matrix",
         "a stale copy is still served: the refresh cannot better it"
     );
-    assert_eq!(host.drain(), 1);
+    assert_eq!(host.drain().ran, 1);
     assert_eq!(
         fetcher.asked().len(),
         asked,
@@ -444,7 +444,7 @@ fn removing_the_tmdb_key_keeps_a_discovered_title_until_it_goes_stale() {
         stale.name, "The Matrix",
         "a stale Discovered Title is still served"
     );
-    assert_eq!(host.drain(), 1);
+    assert_eq!(host.drain().ran, 1);
     assert_eq!(
         fetcher.asked().len(),
         asked,
@@ -471,7 +471,7 @@ fn a_stale_title_whose_addon_is_gone_is_refetched_from_tmdb() {
         "the stale copy still opens"
     );
 
-    assert_eq!(host.drain(), 1);
+    assert_eq!(host.drain().ran, 1);
     let refreshed = opened(&mut host, open("com.linvo.cinemeta", "series", "tt0903747"));
 
     assert_eq!(refreshed.key, TitleKey::Tmdb { id: 1396 });

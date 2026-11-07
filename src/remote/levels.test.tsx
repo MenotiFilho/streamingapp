@@ -58,6 +58,7 @@ const RESUME: ContinueEntry = {
   position: 300,
   duration: 600,
   watched: false,
+  upNext: false,
   unplayable: null,
 };
 

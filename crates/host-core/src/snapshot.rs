@@ -10,6 +10,7 @@ use crate::preferences::{
 use crate::progress::{ContinueEntry, ResumeEntry};
 use crate::secret::SecretBackend;
 use crate::state::State;
+use crate::title_cache::CachedTitle;
 
 /// The Host's state as it travels outward: the only shape state leaves in.
 ///
@@ -49,9 +50,10 @@ pub struct Snapshot {
     /// shows when it says how exposed they are.
     pub protection: ProtectionSnapshot,
     /// Continue watching: one entry per Title the Host has Watch progress in,
-    /// the Video that Title played last, most recently played first — the row
-    /// every client draws. This is the shared state the spec names beside
-    /// playback, so it travels as a Snapshot rather than as an answer (#273).
+    /// the Title's card — the Video it played last, or that Video's Up next once
+    /// it is finished — most recently played first, the row every client draws.
+    /// This is the shared state the spec names beside playback, so it travels as
+    /// a Snapshot rather than as an answer (#273, #274).
     pub continue_watching: Vec<ContinueEntry>,
     /// The Watch progress itself, one entry per Video: where each Video was
     /// left, which the playback view and the episode lookup still read. It is
@@ -110,14 +112,19 @@ pub struct ProtectionSnapshot {
 }
 
 impl Snapshot {
-    /// Build the Snapshot for a state. Pure: the same state, revision and
-    /// picture always build the same Snapshot.
+    /// Build the Snapshot for a state. Pure: the same state, cached Titles,
+    /// revision and picture always build the same Snapshot.
+    ///
+    /// `cached` is the Host's cached Titles, which is where Continue watching's
+    /// Up next is read from; it is not state, so a cached Title gaining episodes
+    /// moves the row without an Action (#274, ADR-0038).
     ///
     /// `picture` is the Player's answer to where it draws: a fact about the
     /// machine the Host was built on, like which backend holds a credential, and
     /// not something any Action changes.
     pub(crate) fn build(
         state: &State,
+        cached: &[CachedTitle],
         revision: u64,
         picture: Picture,
         address: Option<&str>,
@@ -142,7 +149,7 @@ impl Snapshot {
                 tmdb_held: state.protection().tmdb_held,
                 stremio_held: state.protection().stremio_held,
             },
-            continue_watching: crate::progress::continue_watching(state.watch(), |addon| {
+            continue_watching: crate::progress::continue_watching(state.watch(), cached, |addon| {
                 state.has_addon(addon)
             }),
             watch_progress: state

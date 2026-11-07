@@ -2,13 +2,13 @@ use std::sync::{Arc, Mutex};
 
 use crate::action::{Action, ActionError, ValidatedAction};
 use crate::addon::{Addon, AddonId, Manifest};
-use crate::background::{BackgroundQueue, Job, RevisionSink};
+use crate::background::{BackgroundQueue, Job, RevisionSink, Work};
 use crate::cache::CatalogCache;
 use crate::clock::Clock;
 use crate::device::{Device, DeviceSummary, DeviceToken};
 use crate::fetcher::Fetcher;
 use crate::library::LibraryCache;
-use crate::meta::{self, Video};
+use crate::meta::{self, Title, TitleKey, Video};
 use crate::pairing::PairingCode;
 use crate::playback::{
     ChapterStep, ChosenStream, Control, Observation, Picture, PlaybackState, Player, StreamUrl,
@@ -30,9 +30,17 @@ use crate::stream::Stream;
 use crate::stremio::StremioApi;
 use crate::subtitles::MAX_FALLBACK_SUBTITLES;
 use crate::sync::{merge, Merged, RemoteItem};
-use crate::title_cache::{TitleCache, TitleProbe, TitleProtection, MAX_CACHED_TITLES};
+use crate::title_cache::{
+    CachedTitle, TitleCache, TitleProbe, TitleProtection, MAX_CACHED_TITLES, RUNNING_FRESH_MILLIS,
+};
 use crate::tmdb;
 use crate::view::{HostView, HostViewShared};
+
+/// How often the Host looks for a caught-up Title whose record is now due: a
+/// day, the shortest rhythm any caught-up check runs at. It is the scan that
+/// makes a week pass while the Host stays open, and it is why a failing source
+/// is not asked again on every tick (#277, ADR-0038 §5).
+const READ_AHEAD_SCAN_MILLIS: i64 = RUNNING_FRESH_MILLIS;
 
 /// The Host: its state, and the surface over it.
 ///
@@ -102,10 +110,47 @@ pub struct Host {
     /// fetches, and keeps what it fetches.
     titles: Arc<Mutex<TitleCache>>,
     /// The work waiting to run outside the change lock: a stale Title's
-    /// refresh, and — as later tickets add them — a read-ahead. Shared with
-    /// every view, because a stale open is resolved by one and queued here
-    /// (ADR-0038 §2).
+    /// refresh, and a read-ahead of a Title the row or the Library holds.
+    /// Shared with every view, because a stale open is resolved by one and
+    /// queued here (ADR-0038 §2, §3).
     background: Arc<Mutex<BackgroundQueue>>,
+    /// When a caught-up Title was last looked for, so the scan that lets a week
+    /// pass on an open Host runs at most once a day (#277).
+    read_ahead_scanned_at: Option<i64>,
+}
+
+/// What one look at the background queue did.
+///
+/// A background read that changes a kept Title moves Continue watching — a card
+/// that was a finished Video becomes its Up next, or gains one — and every
+/// client is owed a Snapshot for it. A read that changed nothing a client can
+/// see publishes nothing (#277, #274).
+#[derive(Debug, Clone)]
+pub struct Drained {
+    /// How many jobs ran.
+    pub ran: usize,
+    /// The Snapshot to publish, where a cache write changed what one carries.
+    pub snapshot: Option<Snapshot>,
+}
+
+impl Drained {
+    fn nothing() -> Self {
+        Self {
+            ran: 0,
+            snapshot: None,
+        }
+    }
+}
+
+/// The cache key a read's work will be kept under, where the work names one.
+fn key_of(work: &Work) -> Option<TitleKey> {
+    match work {
+        Work::Addon { addon, asked } => Some(TitleKey::Addon {
+            addon: addon.clone(),
+            id: asked.id.clone(),
+        }),
+        Work::Discovered { id, .. } | Work::CatchUp { id, .. } => Some(TitleKey::Tmdb { id: id.0 }),
+    }
 }
 
 impl Host {
@@ -183,7 +228,7 @@ impl Host {
         // the Player's own defaults and only reach the owner's on the next one
         // (ADR-0026).
         let _ = player.tell(Telling::StreamBuffer(state.preferences().stream_buffer()));
-        Ok(Self {
+        let mut host = Self {
             store,
             fetcher,
             secrets,
@@ -202,7 +247,15 @@ impl Host {
             library_cache: Arc::new(Mutex::new(LibraryCache::default())),
             titles,
             background: Arc::new(Mutex::new(BackgroundQueue::default())),
-        })
+            read_ahead_scanned_at: None,
+        };
+        // The Titles behind Continue watching are known here, and they are the
+        // ones the owner is most likely to open and the ones Up next is drawn
+        // from: the queue is filled before any client asks (ADR-0038 §3, #277).
+        let now = host.clock.now_millis();
+        host.queue_watch_read_ahead(false, now);
+        host.read_ahead_scanned_at = Some(now);
+        Ok(host)
     }
 
     /// The same Host, able to take a still of a moment of the Stream playing
@@ -248,8 +301,10 @@ impl Host {
     /// The state as it stands — what a client that has just connected, or just
     /// reconnected, is owed.
     pub fn snapshot(&self) -> Snapshot {
+        let titles = self.titles.lock().expect("the Title cache is not poisoned");
         Snapshot::build(
             &self.state,
+            titles.cached(),
             self.revision,
             self.picture,
             self.serving.as_deref(),
@@ -301,6 +356,227 @@ impl Host {
         )
     }
 
+    /// Fill the queue with the Titles behind Continue watching that a read
+    /// ahead is owed (#277).
+    ///
+    /// At startup every one that is not fresh is queued: the Titles behind the
+    /// row are the ones most likely to be opened, and Up next is drawn from
+    /// them (ADR-0038 §3). Once the Host is running, only a caught-up Title is
+    /// looked for again, and only when its record has come due, so a week can
+    /// pass with the Host open (ADR-0038 §5).
+    fn queue_watch_read_ahead(&mut self, only_caught_up: bool, now: i64) {
+        let mut groups: Vec<Vec<crate::progress::WatchProgress>> = Vec::new();
+        for entry in self.state.watch() {
+            match groups.iter_mut().find(|group| {
+                group[0].title.r#type() == entry.title.r#type()
+                    && group[0].title.id() == entry.title.id()
+            }) {
+                Some(group) => group.push(entry.clone()),
+                None => groups.push(vec![entry.clone()]),
+            }
+        }
+
+        for group in groups {
+            let latest = group
+                .iter()
+                .max_by_key(|entry| entry.updated_at)
+                .expect("a Title's progress is not empty");
+            let probe = TitleProbe::from_stub(&latest.title);
+            let (cached, caught_up) = {
+                let cache = self.titles.lock().expect("the Title cache is not poisoned");
+                let cached = cache
+                    .cached()
+                    .iter()
+                    .filter(|held| held.names(&probe))
+                    .max_by_key(|held| held.read_at)
+                    .cloned();
+                let caught_up = crate::progress::caught_up(&group, cache.cached());
+                (cached, caught_up)
+            };
+
+            if only_caught_up && !caught_up {
+                continue;
+            }
+            let due = cached
+                .as_ref()
+                .is_none_or(|held| held.read_ahead_due(caught_up, now));
+            if !due {
+                continue;
+            }
+            if let Some((key, work, answered)) = self.read_ahead_job(&probe, cached, caught_up) {
+                self.enqueue_read_ahead(key, work, answered);
+            }
+        }
+    }
+
+    /// Fill the queue with the Library Titles a read ahead is owed (#277).
+    ///
+    /// The account's Library is read at startup, so its Titles are queued then
+    /// and only then: a Library Title with no Watch progress behind it has no
+    /// caught-up check to run later. One already behind Continue watching is the
+    /// same Title and the same job, collapsed by its key.
+    fn queue_library_read_ahead(&mut self, items: &[serde_json::Value], now: i64) {
+        for raw in items {
+            let Ok(item) = RemoteItem::parse(raw.clone()) else {
+                continue;
+            };
+            if item.removed() {
+                continue;
+            }
+            let Some(r#type) = item.r#type() else {
+                continue;
+            };
+            if tmdb::Kind::parse(r#type).is_none() {
+                continue;
+            }
+            let probe = TitleProbe::new(None, r#type, item.id());
+            let cached = {
+                let cache = self.titles.lock().expect("the Title cache is not poisoned");
+                cache
+                    .cached()
+                    .iter()
+                    .filter(|held| held.names(&probe))
+                    .max_by_key(|held| held.read_at)
+                    .cloned()
+            };
+            let due = cached
+                .as_ref()
+                .is_none_or(|held| held.read_ahead_due(false, now));
+            if !due {
+                continue;
+            }
+            if let Some((key, work, answered)) = self.read_ahead_job(&probe, cached, false) {
+                self.enqueue_read_ahead(key, work, answered);
+            }
+        }
+    }
+
+    /// What one read-ahead job for a Title is, where the Title can be read at
+    /// all: its key, the work, and the copy a client was answered with where one
+    /// exists.
+    fn read_ahead_job(
+        &self,
+        probe: &TitleProbe,
+        cached: Option<CachedTitle>,
+        caught_up: bool,
+    ) -> Option<(TitleKey, Work, Option<Title>)> {
+        match cached {
+            None => {
+                let work = self.whole_read_work(probe, None)?;
+                Some((key_of(&work)?, work, None))
+            }
+            Some(held) => {
+                // A caught-up series is watched by its TMDB record: the season
+                // it announces, or the newest one the cached list holds, and
+                // nothing else (ADR-0038 §5).
+                let season = if caught_up {
+                    match held.title.key {
+                        TitleKey::Tmdb { .. } => held
+                            .next_episode
+                            .map(|next| next.season)
+                            .or_else(|| held.newest_season()),
+                        TitleKey::Addon { .. } => None,
+                    }
+                } else {
+                    None
+                };
+                let work = match season {
+                    Some(season) => match held.title.key {
+                        TitleKey::Tmdb { id } => Work::CatchUp {
+                            id: tmdb::TmdbId(id),
+                            season,
+                            source: held.source,
+                        },
+                        // A caught-up Unmapped Title re-reads its Addon's meta
+                        // whole, because it has no record of seasons.
+                        TitleKey::Addon { .. } => self.whole_read_work(probe, Some(&held))?,
+                    },
+                    None => self.whole_read_work(probe, Some(&held))?,
+                };
+                Some((held.title.key.clone(), work, Some(held.title)))
+            }
+        }
+    }
+
+    /// The whole-Title read a Title is owed: its Addon's `meta` where an Addon
+    /// can answer, TMDB's record where it cannot and the Title is TMDB's.
+    fn whole_read_work(&self, probe: &TitleProbe, cached: Option<&CachedTitle>) -> Option<Work> {
+        // The Addon that supplied the Title is the one to ask, where it is still
+        // configured: it answers the same Title the client would open.
+        if let Some(addon) = &probe.addon {
+            if self.state.has_addon(addon) {
+                return Some(Work::Addon {
+                    addon: addon.clone(),
+                    asked: TitleRef {
+                        r#type: probe.r#type.clone(),
+                        id: probe.id.clone(),
+                    },
+                });
+            }
+        }
+
+        if let Some(cached) = cached {
+            match cached.title.key.clone() {
+                TitleKey::Tmdb { id } => {
+                    return tmdb::Kind::parse(&cached.title.r#type).map(|kind| Work::Discovered {
+                        id: tmdb::TmdbId(id),
+                        kind,
+                    })
+                }
+                TitleKey::Addon { addon, id } => {
+                    return TitleRef::parse(&cached.title.r#type, &id)
+                        .ok()
+                        .map(|asked| Work::Addon { addon, asked })
+                }
+            }
+        }
+
+        if let Some(id) = probe.id.strip_prefix("tmdb:").and_then(tmdb::TmdbId::parse) {
+            if let Some(kind) = tmdb::Kind::parse(&probe.r#type) {
+                return Some(Work::Discovered { id, kind });
+            }
+        }
+        if let Some(addon) = &probe.addon {
+            return TitleRef::parse(&probe.r#type, &probe.id)
+                .ok()
+                .map(|asked| Work::Addon {
+                    addon: addon.clone(),
+                    asked,
+                });
+        }
+
+        // A Library entry names no Addon: the first configured one that offers
+        // the Title's `meta` is the one that can read it.
+        let requested = ResourceRequest::new(META, &probe.r#type, &probe.id);
+        self.state
+            .addons()
+            .iter()
+            .find(|addon| addon.manifest().answers(&requested))
+            .and_then(|addon| {
+                TitleRef::parse(&probe.r#type, &probe.id)
+                    .ok()
+                    .map(|asked| Work::Addon {
+                        addon: addon.id().clone(),
+                        asked,
+                    })
+            })
+    }
+
+    /// Queue one read-ahead. It has no askers: nobody is waiting for it, and a
+    /// refresh that changes something publishes a Snapshot rather than an
+    /// Answer (#277).
+    fn enqueue_read_ahead(&mut self, key: TitleKey, work: Work, answered: Option<Title>) {
+        self.background
+            .lock()
+            .expect("the background queue is not poisoned")
+            .enqueue(Job {
+                key,
+                answered,
+                work,
+                askers: Vec::new(),
+            });
+    }
+
     /// Take an Action, and publish or answer what came of it.
     ///
     /// Validation is pure and comes first. A question then resolves from a view
@@ -347,17 +623,47 @@ impl Host {
     }
 
     /// Run every background job waiting, a bounded fan-out at a time, and
-    /// answer how many ran.
+    /// answer what a client is owed.
     ///
     /// The shell calls this from its worker thread; tests call it inline. The
     /// fetches happen on a view of their own with no lock across them, the way
-    /// a question's fetches do (ADR-0022, ADR-0023, ADR-0038 §3).
-    pub fn drain(&mut self) -> usize {
+    /// a question's fetches do (ADR-0022, ADR-0023, ADR-0038 §3). A read that
+    /// changed a kept Title publishes the Snapshot that moves Continue
+    /// watching, once for the whole drain (#277).
+    ///
+    /// A caught-up Title is checked here when its record has come due, so a
+    /// week can pass while the Host stays open: the scan itself is daily, which
+    /// is the shortest rhythm any check runs at (ADR-0038 §5).
+    pub fn drain(&mut self) -> Drained {
+        let now = self.clock.now_millis();
+        if self
+            .read_ahead_scanned_at
+            .is_none_or(|scanned| now.saturating_sub(scanned) >= READ_AHEAD_SCAN_MILLIS)
+        {
+            self.queue_watch_read_ahead(true, now);
+            self.read_ahead_scanned_at = Some(now);
+        }
+
         let jobs = self.take_jobs();
         if jobs.is_empty() {
-            return 0;
+            return Drained::nothing();
         }
-        self.view().drain(jobs)
+        let (ran, changed) = self.view().drain(jobs);
+        Drained {
+            ran,
+            snapshot: changed.then(|| self.cache_changed()),
+        }
+    }
+
+    /// Bump the revision and build the Snapshot a background cache write owes.
+    ///
+    /// Under the change lock, like every publication: a Snapshot is built from
+    /// the whole state, and a half-applied change is not a state any client may
+    /// see. The queue's fetch runs outside this lock, so the door calls this
+    /// once the drain has finished (ADR-0022).
+    pub(crate) fn cache_changed(&mut self) -> Snapshot {
+        self.revision += 1;
+        self.snapshot()
     }
 
     /// Apply one change, publishing the Snapshot it owes and answering where it
@@ -462,8 +768,8 @@ impl Host {
         let items = stremio.library(&key, None).ok()?;
 
         let mut moved = false;
-        for raw in items {
-            let Ok(item) = RemoteItem::parse(raw) else {
+        for raw in &items {
+            let Ok(item) = RemoteItem::parse(raw.clone()) else {
                 continue;
             };
             let known = self
@@ -477,6 +783,13 @@ impl Host {
             let merged = self.merged_title(item.id(), Some(&item));
             moved |= self.adopt(merged.local);
         }
+
+        // The Library is read at startup, so its Titles are read ahead here.
+        // Remote progress that arrived with it joins the row, and any Title it
+        // named that the Host had not seen is read ahead too (#277).
+        let now = self.clock.now_millis();
+        self.queue_library_read_ahead(&items, now);
+        self.queue_watch_read_ahead(false, now);
 
         if !moved {
             return None;

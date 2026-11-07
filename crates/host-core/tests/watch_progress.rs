@@ -67,13 +67,19 @@ fn fixture() -> Fixture {
 }
 
 fn fixture_over(store: Arc<InMemoryStore>) -> Fixture {
+    fixture_over_serving(store, SERIES_META)
+}
+
+/// A Host whose one series answers with `meta`: a test that needs a list of
+/// Videos other than the recorded one serves its own body.
+fn fixture_over_serving(store: Arc<InMemoryStore>, meta: &str) -> Fixture {
     let player = Arc::new(FixturePlayer::new());
     let provider = Arc::new(
         FixtureProvider::new().offering(SERIES_ID, vec![candidate(EPISODE), candidate(FILM)]),
     );
     let fetcher = FixtureFetcher::new()
         .serving(SERIES, manifest())
-        .serving(META_URL, SERIES_META);
+        .serving(META_URL, meta);
     let clock = Arc::new(FixtureClock::new().at(1_000));
 
     let mut host = Host::new(
@@ -98,6 +104,20 @@ fn fixture_over(store: Arc<InMemoryStore>) -> Fixture {
         store,
         clock,
     }
+}
+
+/// A Host restarted over the same store with nothing reachable: what an offline
+/// start is, with no Addon asked anything.
+fn restarted_without_network(store: Arc<InMemoryStore>) -> Host {
+    Host::new(
+        store as Arc<dyn Store>,
+        Arc::new(FixtureFetcher::new()),
+        Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
+        Arc::new(FixtureProvider::new()),
+        Arc::new(FixturePlayer::new()),
+        Arc::new(FixtureClock::new().at(1_000)),
+    )
+    .expect("a Host over a store starts")
 }
 
 /// Choose a candidate for a Video of the configured Addon, with the Title card
@@ -902,7 +922,7 @@ fn a_finished_film_leaves_continue_watching_and_its_watch_progress_is_kept() {
 }
 
 #[test]
-fn a_finished_episode_stays_on_continue_watching_as_watched() {
+fn a_finished_episode_whose_title_is_not_cached_stays_watched() {
     let mut fixture = fixture();
     play(&mut fixture, "series", "tt0903747:1:1");
     watching(&mut fixture, 2820.0, 2820.0, 10_000);
@@ -912,8 +932,199 @@ fn a_finished_episode_stays_on_continue_watching_as_watched() {
     assert_eq!(cards[0].video.id, "tt0903747:1:1");
     assert!(
         cards[0].watched,
-        "until Up next lands (#274), a finished episode stays on the row as watched"
+        "with no cached Title there is no Up next to move to, so the finished Video stays"
     );
+    assert!(!cards[0].up_next);
+}
+
+/// Open a Title the way a client does, so the Host caches its Videos: Up next
+/// is worked out from the cache (ADR-0038).
+fn open_series(fixture: &mut Fixture) {
+    fixture
+        .host
+        .dispatch(action(&serde_json::json!({
+            "type": "open_title",
+            "addon": SERIES_ID,
+            "title": { "type": "series", "id": "tt0903747" },
+        })))
+        .expect("the recorded series opens");
+}
+
+#[test]
+fn finishing_an_episode_moves_the_card_to_its_up_next() {
+    let mut fixture = fixture();
+    open_series(&mut fixture);
+    play(&mut fixture, "series", "tt0903747:1:1");
+    watching(&mut fixture, 2820.0, 2820.0, 10_000);
+
+    let cards = continue_watching(&fixture.host);
+    assert_eq!(cards.len(), 1, "the series keeps its one card: {cards:?}");
+    let card = &cards[0];
+    assert_eq!(card.video.id, "tt0903747:1:2");
+    assert_eq!(card.video.season, Some(1));
+    assert_eq!(card.video.episode, Some(2));
+    assert!(card.up_next, "the card says its Video is the Up next");
+    assert_eq!(card.position, None, "an Up next with no progress has none");
+    assert_eq!(card.duration, None);
+    assert!(!card.watched);
+    assert_eq!(card.unplayable, None);
+}
+
+#[test]
+fn a_partly_watched_up_next_keeps_its_own_progress() {
+    let mut fixture = fixture();
+    open_series(&mut fixture);
+
+    fixture.clock.set(10_000);
+    play(&mut fixture, "series", "tt0903747:1:3");
+    watching(&mut fixture, 300.0, 2820.0, 10_000);
+
+    fixture.clock.set(20_000);
+    play(&mut fixture, "series", "tt0903747:1:2");
+    watching(&mut fixture, 2820.0, 2820.0, 20_000);
+
+    let cards = continue_watching(&fixture.host);
+    assert_eq!(cards.len(), 1);
+    let card = &cards[0];
+    assert_eq!(
+        card.video.id, "tt0903747:1:3",
+        "the card is the Up next of the Video that finished"
+    );
+    assert!(card.up_next);
+    assert_eq!(
+        card.position,
+        Some(300.0),
+        "an Up next already started resumes where it was left"
+    );
+    assert_eq!(card.duration, Some(2820.0));
+    assert!(!card.watched);
+}
+
+#[test]
+fn the_card_follows_the_video_played_last_not_the_furthest_one() {
+    // At S1E3 with progress, went back and rewatched S1E1: the card is S1E1's
+    // Up next, and the progress in S1E3 is kept for whenever it is resumed.
+    let mut fixture = fixture();
+    open_series(&mut fixture);
+
+    fixture.clock.set(10_000);
+    play(&mut fixture, "series", "tt0903747:1:3");
+    watching(&mut fixture, 300.0, 2820.0, 10_000);
+
+    fixture.clock.set(20_000);
+    play(&mut fixture, "series", "tt0903747:1:1");
+    watching(&mut fixture, 2820.0, 2820.0, 20_000);
+
+    let snapshot = fixture.host.snapshot();
+    assert_eq!(
+        snapshot
+            .continue_watching
+            .iter()
+            .map(|card| card.video.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["tt0903747:1:2"],
+        "the card follows what was played last, not what is furthest along"
+    );
+    assert_eq!(snapshot.continue_watching[0].position, None);
+    assert!(
+        snapshot
+            .watch_progress
+            .iter()
+            .any(|entry| entry.video.id == "tt0903747:1:3" && entry.position == Some(300.0)),
+        "the earlier episode keeps its own progress"
+    );
+}
+
+#[test]
+fn a_season_finale_leads_into_the_next_seasons_first_episode() {
+    let mut fixture = fixture();
+    open_series(&mut fixture);
+    play(&mut fixture, "series", "tt0903747:1:3");
+    watching(&mut fixture, 2820.0, 2820.0, 10_000);
+
+    let cards = continue_watching(&fixture.host);
+    assert_eq!(cards.len(), 1);
+    assert_eq!(cards[0].video.id, "tt0903747:2:1");
+    assert!(cards[0].up_next);
+    assert_eq!(cards[0].position, None);
+}
+
+#[test]
+fn the_last_numbered_episode_leaves_the_row_and_keeps_the_progress() {
+    let mut fixture = fixture();
+    open_series(&mut fixture);
+    play(&mut fixture, "series", "tt0903747:2:1");
+    watching(&mut fixture, 2820.0, 2820.0, 10_000);
+
+    let snapshot = fixture.host.snapshot();
+    assert!(
+        snapshot.continue_watching.is_empty(),
+        "the last numbered episode has no Up next, and the specials are apart: {:?}",
+        snapshot.continue_watching
+    );
+    assert_eq!(snapshot.watch_progress.len(), 1);
+    assert!(
+        snapshot.watch_progress[0].watched,
+        "Watch progress is kept when the card leaves the row"
+    );
+}
+
+#[test]
+fn a_finished_episode_moves_to_its_up_next_once_the_title_is_cached() {
+    let mut fixture = fixture();
+    play(&mut fixture, "series", "tt0903747:1:1");
+    watching(&mut fixture, 2820.0, 2820.0, 10_000);
+    assert!(
+        continue_watching(&fixture.host)[0].watched,
+        "with no cached Title the card is the finished Video"
+    );
+
+    open_series(&mut fixture);
+
+    let cards = continue_watching(&fixture.host);
+    assert_eq!(
+        cards[0].video.id, "tt0903747:1:2",
+        "the next Snapshot moves the card to Up next once the Title is cached"
+    );
+    assert!(cards[0].up_next);
+}
+
+#[test]
+fn a_host_restarted_with_no_network_publishes_the_same_up_next() {
+    let mut fixture = fixture();
+    open_series(&mut fixture);
+    play(&mut fixture, "series", "tt0903747:1:1");
+    watching(&mut fixture, 2820.0, 2820.0, 10_000);
+
+    let restarted = restarted_without_network(fixture.store.clone());
+
+    let cards = &restarted.snapshot().continue_watching;
+    assert_eq!(cards.len(), 1);
+    assert_eq!(
+        cards[0].video.id, "tt0903747:1:2",
+        "the cached Title answers Up next on a Host that cannot reach anything"
+    );
+    assert!(cards[0].up_next);
+}
+
+/// A series whose only Videos are two specials: Up next steps from special to
+/// special, and never out of them.
+const SPECIALS_META: &str = r#"{"meta":{"id":"tt0903747","type":"series","name":"Breaking Bad","videos":[
+    {"id":"tt0903747:0:1","season":0,"episode":1,"name":"A special"},
+    {"id":"tt0903747:0:2","season":0,"episode":2,"name":"Another special"}
+]}}"#;
+
+#[test]
+fn inside_the_specials_up_next_is_the_next_special() {
+    let mut fixture = fixture_over_serving(Arc::new(InMemoryStore::new()), SPECIALS_META);
+    open_series(&mut fixture);
+    play(&mut fixture, "series", "tt0903747:0:1");
+    watching(&mut fixture, 2820.0, 2820.0, 10_000);
+
+    let cards = continue_watching(&fixture.host);
+    assert_eq!(cards.len(), 1);
+    assert_eq!(cards[0].video.id, "tt0903747:0:2");
+    assert!(cards[0].up_next);
 }
 
 #[test]
@@ -939,4 +1150,26 @@ fn the_continue_watching_codec_round_trips_beside_watch_progress() {
         2,
         "the per-Video list round-trips unchanged beside the row"
     );
+}
+
+#[test]
+fn an_up_next_entry_round_trips_with_its_marker() {
+    let mut fixture = fixture();
+    open_series(&mut fixture);
+    play(&mut fixture, "series", "tt0903747:1:1");
+    watching(&mut fixture, 2820.0, 2820.0, 10_000);
+
+    let snapshot = fixture.host.snapshot();
+    let json = serde_json::to_string(&snapshot).expect("a Snapshot serializes");
+    let published: serde_json::Value =
+        serde_json::from_str(&json).expect("a Snapshot is a JSON object");
+    assert_eq!(
+        published["continueWatching"][0]["upNext"],
+        serde_json::json!(true),
+        "the Up next marker is published, camelCased for a JavaScript client"
+    );
+
+    let back: host_core::Snapshot = serde_json::from_str(&json).expect("the Snapshot round-trips");
+    assert_eq!(back, snapshot);
+    assert!(back.continue_watching[0].up_next);
 }

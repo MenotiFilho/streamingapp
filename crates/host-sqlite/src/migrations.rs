@@ -135,6 +135,16 @@ pub const MIGRATIONS: &[Migration] = &[
              );
              CREATE INDEX titles_read_at ON titles (read_at);",
     },
+    Migration {
+        // The episode TMDB said comes next when a Title was read (#277): the
+        // hint the caught-up rule reads to know which season is worth reading
+        // again. Nullable because a film and a series with nothing announced
+        // have none, and the list of Videos stays the truth either way
+        // (ADR-0038 §5).
+        version: 8,
+        sql: "ALTER TABLE titles ADD COLUMN next_season INTEGER;
+              ALTER TABLE titles ADD COLUMN next_episode INTEGER;",
+    },
 ];
 
 /// The version a database is at once every migration in `migrations` has run.

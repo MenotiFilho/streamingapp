@@ -603,7 +603,7 @@ fn a_look_hint_is_a_fire_and_forget_command_that_reads_ahead() {
         "the hint queued the read rather than making it"
     );
 
-    assert_eq!(fixture.door.drain(), 1);
+    assert_eq!(fixture.door.drain().ran, 1);
     let opened = client.command(4, open_movie());
     assert_eq!(
         opened["response"]["answer"]["title"]["name"], "The Matrix",
@@ -666,7 +666,7 @@ fn a_revised_title_goes_to_the_asking_device_and_no_other() {
         "and the wire client waited on no fetch"
     );
 
-    assert_eq!(fixture.door.drain(), 1);
+    assert_eq!(fixture.door.drain().ran, 1);
 
     let revision = asker.next_revision();
     assert_eq!(

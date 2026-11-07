@@ -21,6 +21,7 @@ use crate::addon::AddonId;
 use crate::meta::{Title, TitleKey};
 use crate::request::TitleRef;
 use crate::response::Answer;
+use crate::title_cache::TitleSource;
 use crate::tmdb::{Kind, TmdbId};
 
 /// Where a revised Answer goes: the client whose open queued the refresh, and
@@ -72,6 +73,15 @@ pub(crate) enum Work {
     Addon { addon: AddonId, asked: TitleRef },
     /// A Discovered Title: TMDB's record is the whole of it.
     Discovered { id: TmdbId, kind: Kind },
+    /// A caught-up series: TMDB's record with one season appended, because the
+    /// record's hint says which season is worth reading and the rest are not
+    /// (ADR-0038 §5, #277). `source` is the cached copy's own source, kept
+    /// because the record describes that copy rather than replacing it whole.
+    CatchUp {
+        id: TmdbId,
+        season: u32,
+        source: TitleSource,
+    },
 }
 
 /// One Title to read again, the copy it was answered with, and who asked.

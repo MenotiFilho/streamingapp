@@ -170,7 +170,11 @@ fn a_stale_title_opens_at_once_and_two_opens_queue_one_refresh() {
     assert_eq!(again, first);
     assert_eq!(fetcher.asked().len(), asked);
 
-    assert_eq!(host.drain(), 1, "two opens of one stale Title are one job");
+    assert_eq!(
+        host.drain().ran,
+        1,
+        "two opens of one stale Title are one job"
+    );
     assert_eq!(
         fetcher.asked().len(),
         asked + 1,
@@ -210,7 +214,7 @@ fn a_stale_discovered_title_opens_at_once_and_refreshes_behind() {
         "and reached nothing before it"
     );
 
-    assert_eq!(host.drain(), 1);
+    assert_eq!(host.drain().ran, 1);
     let revised = revised_titles(&staged);
     assert_eq!(revised.len(), 1);
     assert_eq!(revised[0].name, "Still Making More");
@@ -242,7 +246,7 @@ fn a_refresh_that_changed_the_title_answers_only_the_client_that_asked() {
     );
     assert_eq!(stale, cached);
 
-    assert_eq!(host.drain(), 1);
+    assert_eq!(host.drain().ran, 1);
 
     let revised = revised_titles(&asker);
     assert_eq!(revised.len(), 1, "the asking client is told once");
@@ -280,7 +284,7 @@ fn a_refresh_that_changed_nothing_delivers_nothing() {
     );
     assert_eq!(stale, cached);
 
-    assert_eq!(host.drain(), 1);
+    assert_eq!(host.drain().ran, 1);
     assert!(
         asker.revised().is_empty(),
         "an unchanged refresh is not an Answer"
@@ -314,7 +318,7 @@ fn a_refresh_that_failed_with_429_keeps_the_copy_and_delivers_nothing() {
     );
     assert_eq!(stale, cached);
 
-    assert_eq!(host.drain(), 1);
+    assert_eq!(host.drain().ran, 1);
     assert_eq!(
         fetcher.asked().len(),
         asked + 1,
@@ -355,7 +359,7 @@ fn a_look_hint_reads_an_uncached_title_ahead_and_the_next_open_fetches_nothing()
         "the hint queued the read rather than making it"
     );
 
-    assert_eq!(host.drain(), 1, "the read-ahead is one job");
+    assert_eq!(host.drain().ran, 1, "the read-ahead is one job");
     let asked = fetcher.asked().len();
     assert!(asked > 0, "draining read the Title");
 
@@ -385,7 +389,7 @@ fn a_look_hint_for_a_discovered_title_reads_it_ahead_too() {
 
     host.dispatch(look_hint(None, "series", "tmdb:200001"))
         .expect("a look hint is taken");
-    assert_eq!(host.drain(), 1);
+    assert_eq!(host.drain().ran, 1);
     let asked = fetcher.asked().len();
 
     let opened = opened(&mut host, open_discovered(200001, "series"));
@@ -413,7 +417,7 @@ fn repeated_look_hints_for_one_title_queue_one_job() {
             .expect("a look hint is taken");
     }
 
-    assert_eq!(host.drain(), 1, "one Title is one read-ahead");
+    assert_eq!(host.drain().ran, 1, "one Title is one read-ahead");
     assert_eq!(
         fetcher
             .asked()
@@ -441,7 +445,7 @@ fn a_look_hint_for_a_fresh_title_queues_nothing() {
     host.dispatch(look_hint(Some("com.linvo.cinemeta"), "movie", "tt0133093"))
         .expect("a look hint is taken");
 
-    assert_eq!(host.drain(), 0, "a fresh Title is not read again");
+    assert_eq!(host.drain().ran, 0, "a fresh Title is not read again");
     assert_eq!(fetcher.asked().len(), asked, "and nothing was fetched");
 }
 
@@ -462,7 +466,7 @@ fn a_look_hint_for_a_stale_title_refreshes_it_without_asking_anyone() {
 
     host.dispatch(look_hint(Some("com.linvo.cinemeta"), "movie", "tt0133093"))
         .expect("a look hint is taken");
-    assert_eq!(host.drain(), 1);
+    assert_eq!(host.drain().ran, 1);
 
     let refreshed = opened(&mut host, open("com.linvo.cinemeta", "movie", "tt0133093"));
     assert_eq!(refreshed.name, "The Matrix Resurrections");

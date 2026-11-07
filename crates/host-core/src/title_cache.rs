@@ -33,7 +33,7 @@ use crate::meta::{Title, TitleKey};
 use crate::progress::TitleStub;
 use crate::request::TitleRef;
 use crate::store::{Store, StoreError};
-use crate::tmdb::{self, Kind, SeriesStatus, TmdbId};
+use crate::tmdb::{self, Kind, NextEpisode, SeriesStatus, TmdbId};
 
 /// The most Titles the cache holds at once, before protection.
 pub const MAX_CACHED_TITLES: usize = 512;
@@ -43,6 +43,10 @@ pub const RUNNING_FRESH_MILLIS: i64 = 24 * 60 * 60 * 1000;
 
 /// How long a film's or a stopped series' copy stays fresh.
 pub const OTHER_FRESH_MILLIS: i64 = 30 * 24 * 60 * 60 * 1000;
+
+/// How long a caught-up Title's record is trusted before it is read again:
+/// a week, which is how often a season gains an episode (ADR-0038 §5).
+pub const CAUGHT_UP_CHECK_MILLIS: i64 = 7 * 24 * 60 * 60 * 1000;
 
 /// The longest TMDB's API Terms allow its data to be held: six months.
 pub const TMDB_CACHE_CEILING_MILLIS: i64 = 180 * 24 * 60 * 60 * 1000;
@@ -97,9 +101,33 @@ pub struct CachedTitle {
     pub source: TitleSource,
     /// What TMDB says about the series' run, where TMDB answered about one.
     pub status: Option<SeriesStatus>,
+    /// The episode TMDB said comes next when this copy was read, where it named
+    /// one. A hint for when the newest season is worth re-reading, not a Video:
+    /// only the Title's list of Videos puts anything on the row (ADR-0038 §5).
+    pub next_episode: Option<NextEpisode>,
 }
 
 impl CachedTitle {
+    /// Whether this copy is the one a probe names: the same type and identity,
+    /// under either spelling the cache may hold a Title by.
+    ///
+    /// A cache row keyed by TMDB may have been opened through an Addon's id or
+    /// TMDB's, so both spellings match; a probe that names no Addon (`None`)
+    /// matches the id alone, which is how a Library entry reaches a Title.
+    pub(crate) fn names(&self, probe: &TitleProbe) -> bool {
+        let title = &self.title;
+        if probe.r#type != title.r#type {
+            return false;
+        }
+        if probe.id == title.id && (probe.addon.is_none() || probe.addon == title.addon) {
+            return true;
+        }
+        match &title.key {
+            TitleKey::Tmdb { id } => probe.id == format!("tmdb:{id}"),
+            TitleKey::Addon { addon, id } => probe.addon.as_ref() == Some(addon) && probe.id == *id,
+        }
+    }
+
     /// How long this copy stays fresh.
     pub fn fresh_for(&self) -> i64 {
         match self.status {
@@ -117,6 +145,52 @@ impl CachedTitle {
     /// TMDB's.
     pub fn is_expired(&self, now: i64) -> bool {
         self.source.holds_tmdb() && now.saturating_sub(self.read_at) >= TMDB_CACHE_CEILING_MILLIS
+    }
+
+    /// Whether a read-ahead is owed for this copy now (#277).
+    ///
+    /// A Title that is not caught up follows the ordinary window: a running
+    /// series after a day, a film or a stopped series after a month. A caught-up
+    /// series is watched by what TMDB says about it instead (ADR-0038 §5):
+    ///
+    /// - an Ended or Canceled series is never read ahead — opening it still
+    ///   refreshes it;
+    /// - an announced next episode is looked for after a day, the rhythm TMDB
+    ///   recomputes the field at;
+    /// - nothing announced on a running series is looked for after a week;
+    /// - an Unmapped Title has no record, so its Addon's `meta` is read weekly.
+    pub(crate) fn read_ahead_due(&self, caught_up: bool, now: i64) -> bool {
+        if !caught_up {
+            return !self.is_fresh(now);
+        }
+
+        let elapsed = now.saturating_sub(self.read_at);
+        match &self.title.key {
+            TitleKey::Addon { .. } => elapsed >= CAUGHT_UP_CHECK_MILLIS,
+            TitleKey::Tmdb { .. } => {
+                if matches!(
+                    self.status,
+                    Some(SeriesStatus::Ended | SeriesStatus::Cancelled)
+                ) {
+                    return false;
+                }
+                match self.next_episode {
+                    Some(_) => elapsed >= RUNNING_FRESH_MILLIS,
+                    None => elapsed >= CAUGHT_UP_CHECK_MILLIS,
+                }
+            }
+        }
+    }
+
+    /// The newest season the cached list holds, which is the one a caught-up
+    /// series with nothing announced reads again (#277). `None` for a film, and
+    /// for a copy whose Videos were never numbered.
+    pub(crate) fn newest_season(&self) -> Option<u32> {
+        self.title
+            .videos
+            .iter()
+            .filter_map(|video| video.season)
+            .max()
     }
 }
 
@@ -161,22 +235,7 @@ impl TitleProtection {
     /// been opened through an Addon's id or TMDB's, so both spellings match;
     /// a Library probe has no Addon and matches the id alone.
     fn protects(&self, cached: &CachedTitle) -> bool {
-        let title = &cached.title;
-
-        self.probes.iter().any(|probe| {
-            if probe.r#type != title.r#type {
-                return false;
-            }
-            if probe.id == title.id && (probe.addon.is_none() || probe.addon == title.addon) {
-                return true;
-            }
-            match &title.key {
-                TitleKey::Tmdb { id } => probe.id == format!("tmdb:{id}"),
-                TitleKey::Addon { addon, id } => {
-                    probe.addon.as_ref() == Some(addon) && probe.id == *id
-                }
-            }
-        })
+        self.probes.iter().any(|probe| cached.names(probe))
     }
 }
 
@@ -210,6 +269,12 @@ impl TitleCache {
         }
         cache.trim(now, protection);
         Ok(cache)
+    }
+
+    /// The Titles held, as a Snapshot's Continue watching row reads them: Up
+    /// next is worked out from these lists (#274).
+    pub(crate) fn cached(&self) -> &[CachedTitle] {
+        &self.entries
     }
 
     /// The cached copy for a Title opened through an Addon, where one is held
@@ -250,17 +315,31 @@ impl TitleCache {
     }
 
     /// Keep a Title just read, replacing the copy the open was answered from
-    /// where its identity moved, then evict what the bound says to.
+    /// where its identity moved, then evict what the bound says to. Answers
+    /// whether the cache now holds a Title a Snapshot would draw differently —
+    /// a new copy, or one whose content moved. Re-dating an equal copy is not a
+    /// change any client can see (#277).
     pub(crate) fn keep(
         &mut self,
         cached: CachedTitle,
         replacing: Option<TitleKey>,
         protection: &TitleProtection,
         now: i64,
-    ) {
+    ) -> bool {
         if cached.is_expired(now) {
-            return;
+            return false;
         }
+        let changed = match self
+            .entries
+            .iter()
+            .find(|held| held.title.key == cached.title.key)
+        {
+            Some(held) => held.title != cached.title,
+            None => true,
+        };
+        let moved = replacing.as_ref().is_some_and(|old| {
+            *old != cached.title.key && self.entries.iter().any(|held| &held.title.key == old)
+        });
         if let Some(replacing) = replacing {
             if replacing != cached.title.key {
                 self.forget(&replacing);
@@ -269,6 +348,7 @@ impl TitleCache {
         let _ = self.store.write_title(&cached);
         self.put(cached);
         self.trim(now, protection);
+        changed || moved
     }
 
     /// One entry by its index, dropping it where its terms have run out.
@@ -378,6 +458,7 @@ mod tests {
             read_at,
             source: TitleSource::Addon,
             status: None,
+            next_episode: None,
         }
     }
 
@@ -387,6 +468,61 @@ mod tests {
 
     fn unprotected() -> TitleProtection {
         TitleProtection::default()
+    }
+
+    #[test]
+    fn a_caught_up_series_is_checked_on_its_records_rhythm() {
+        let day = RUNNING_FRESH_MILLIS;
+        let week = CAUGHT_UP_CHECK_MILLIS;
+        let running = CachedTitle {
+            status: Some(SeriesStatus::Running),
+            ..cached(TitleKey::Tmdb { id: 1 }, None, 0)
+        };
+        let announced = CachedTitle {
+            next_episode: Some(NextEpisode {
+                season: 2,
+                episode: 1,
+            }),
+            ..running.clone()
+        };
+        let ended = CachedTitle {
+            status: Some(SeriesStatus::Ended),
+            ..running.clone()
+        };
+
+        assert!(
+            !announced.read_ahead_due(true, day - 1),
+            "TMDB recomputes the announced field about once a day"
+        );
+        assert!(announced.read_ahead_due(true, day));
+        assert!(
+            !running.read_ahead_due(true, week - 1),
+            "nothing announced is a week, not a day"
+        );
+        assert!(running.read_ahead_due(true, week));
+        assert!(
+            !ended.read_ahead_due(true, week * 100),
+            "an Ended series is not checked again; opening it still refreshes it"
+        );
+        assert!(
+            !ended.read_ahead_due(false, 30 * day - 1),
+            "a Title that is not caught up keeps the ordinary window"
+        );
+        assert!(ended.read_ahead_due(false, 30 * day));
+
+        let unmapped = cached(
+            TitleKey::Addon {
+                addon: addon(),
+                id: "tt0903747".to_owned(),
+            },
+            Some(addon()),
+            0,
+        );
+        assert!(!unmapped.read_ahead_due(true, week - 1));
+        assert!(
+            unmapped.read_ahead_due(true, week),
+            "an Unmapped Title reads its Addon weekly"
+        );
     }
 
     #[test]
