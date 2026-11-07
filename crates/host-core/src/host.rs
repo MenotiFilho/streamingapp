@@ -109,6 +109,10 @@ pub struct Host {
     /// store (ADR-0038). Shared with every view: a question reads it before it
     /// fetches, and keeps what it fetches.
     titles: Arc<Mutex<TitleCache>>,
+    /// The Titles the account's Library held when it was last read, as probes a
+    /// cache write must not evict. The Library is read after the cache is
+    /// loaded, so this is what lets the startup trim protect it (ADR-0038 §1).
+    library_probes: Vec<TitleProbe>,
     /// The work waiting to run outside the change lock: a stale Title's
     /// refresh, and a read-ahead of a Title the row or the Library holds.
     /// Shared with every view, because a stale open is resolved by one and
@@ -181,17 +185,14 @@ impl Host {
         // The Titles the last run kept, loaded before any question can ask: the
         // Titles behind Watch progress are what the row and Up next are drawn
         // from, and they must open on a Host that started with no network
-        // (ADR-0038 §1). Loading trims TMDB copies past the terms ceiling and
-        // the bound, and never evicts one behind Watch progress.
-        let protected = watch
-            .iter()
-            .map(|progress| TitleProbe::from_stub(&progress.title))
-            .collect();
+        // (ADR-0038 §1). Loading drops TMDB copies past the terms ceiling but
+        // does not trim to the bound: the account's Library is read after this,
+        // and a Library Title must not be evicted before it is known. The first
+        // Library read settles the bound (ADR-0038 §1).
         let titles = Arc::new(Mutex::new(TitleCache::load(
             store.clone(),
             MAX_CACHED_TITLES,
             clock.now_millis(),
-            &TitleProtection::holding(protected),
         )?));
         let state = State::holding(
             store.read_preferences()?,
@@ -245,6 +246,7 @@ impl Host {
             cache: Arc::new(Mutex::new(CatalogCache::default())),
             stremio: None,
             library_cache: Arc::new(Mutex::new(LibraryCache::default())),
+            library_probes: Vec::new(),
             titles,
             background: Arc::new(Mutex::new(BackgroundQueue::default())),
             read_ahead_scanned_at: None,
@@ -348,6 +350,10 @@ impl Host {
                 // write that moves a card publishes a Snapshot (ADR-0038 §1,
                 // #274, #277).
                 watch: self.state.watch().to_vec(),
+                // The Library's Titles, as the last read of it named them: a
+                // cache write from this question must not evict one of them
+                // either (ADR-0038 §1).
+                library: self.library_probes.clone(),
             },
         )
     }
@@ -706,6 +712,7 @@ impl Host {
             _ => None,
         };
         let signing_in = matches!(change, Change::SignInStremio { .. });
+        let signing_out = matches!(change, Change::SignOutStremio);
         let account_changed = matches!(
             change,
             Change::SignInStremio { .. } | Change::SignOutStremio
@@ -749,6 +756,11 @@ impl Host {
                 .expect("the Library cache is not poisoned")
                 .clear();
         }
+        if signing_out {
+            // The signed-out account's Library is not this Host's to protect:
+            // its Titles compete for the bound like any other.
+            self.library_probes.clear();
+        }
 
         // The account, last, and only when there is one: a sync that fails is
         // not an Action that fails — the change above is made and kept either
@@ -775,9 +787,22 @@ impl Host {
     /// With no account signed in it asks nothing, and a Stremio that cannot
     /// answer leaves the Host's Watch progress as it was.
     pub fn pull_remote(&mut self) -> Option<Snapshot> {
-        let (stremio, key) = self.account()?;
-        let items = stremio.library(&key, None).ok()?;
+        let now = self.clock.now_millis();
+        let account = self.account();
+        let items = account
+            .as_ref()
+            .and_then(|(stremio, key)| stremio.library(key, None).ok());
 
+        // The Library is read after the Title cache is loaded, so this is the
+        // one moment the bound can tell a Library-only Title from a cache entry
+        // nobody protects. A Library that could not be read settles nothing:
+        // evicting a Title the row needs is the worse error (ADR-0038 §1).
+        match (&account, &items) {
+            (Some(_), None) => {}
+            _ => self.settle_titles(items.as_deref().unwrap_or(&[]), now),
+        }
+
+        let items = items?;
         let mut moved = false;
         for raw in &items {
             let Ok(item) = RemoteItem::parse(raw.clone()) else {
@@ -798,7 +823,6 @@ impl Host {
         // The Library is read at startup, so its Titles are read ahead here.
         // Remote progress that arrived with it joins the row, and any Title it
         // named that the Host had not seen is read ahead too (#277).
-        let now = self.clock.now_millis();
         self.queue_library_read_ahead(&items, now);
         self.queue_watch_read_ahead(false, now);
 
@@ -807,6 +831,38 @@ impl Host {
         }
         self.revision += 1;
         Some(self.snapshot())
+    }
+
+    /// Settle the cache's bound with the Titles the Library holds, and keep
+    /// their probes for the writes that follow.
+    ///
+    /// The account's Library is read after the Host starts, so a cache loaded
+    /// before it must not trim to the bound on its own: this is where the bound
+    /// is applied with every Library Title protected (ADR-0038 §1).
+    fn settle_titles(&mut self, items: &[serde_json::Value], now: i64) {
+        let library: Vec<TitleProbe> = items
+            .iter()
+            .filter_map(|raw| RemoteItem::parse(raw.clone()).ok())
+            .filter(|item| !item.removed())
+            .filter_map(|item| {
+                let r#type = item.r#type()?;
+                Some(TitleProbe::new(None, r#type, item.id()))
+            })
+            .collect();
+
+        let mut probes: Vec<TitleProbe> = self
+            .state
+            .watch()
+            .iter()
+            .map(|progress| TitleProbe::from_stub(&progress.title))
+            .collect();
+        probes.extend(library.iter().cloned());
+        self.library_probes = library;
+
+        self.titles
+            .lock()
+            .expect("the Title cache is not poisoned")
+            .settle(now, &TitleProtection::holding(probes));
     }
 
     /// The Host is going away: write down where the Stream got to, and tell the

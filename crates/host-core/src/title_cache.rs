@@ -262,21 +262,25 @@ pub(crate) struct TitleCache {
     store: Arc<dyn Store>,
     bound: usize,
     entries: Vec<CachedTitle>,
+    /// Whether the bound is waiting for the Library to be read.
+    ///
+    /// The cache is loaded before the account's Library is, and a Title in the
+    /// Library must never be evicted (ADR-0038 §1). So the load keeps every
+    /// copy it read, and the trim waits until [`TitleCache::settle`] is handed
+    /// the Library's probes. Until then a write may hold more than the bound,
+    /// which is the lesser error.
+    deferred: bool,
 }
 
 impl TitleCache {
     /// Load the Titles a previous run kept, dropping TMDB copies past the terms
-    /// ceiling and trimming to the bound.
-    pub(crate) fn load(
-        store: Arc<dyn Store>,
-        bound: usize,
-        now: i64,
-        protection: &TitleProtection,
-    ) -> Result<Self, StoreError> {
+    /// ceiling. The bound is not applied here: the Library is not known yet.
+    pub(crate) fn load(store: Arc<dyn Store>, bound: usize, now: i64) -> Result<Self, StoreError> {
         let mut cache = Self {
             store,
             bound,
             entries: Vec::new(),
+            deferred: true,
         };
         for cached in cache.store.read_titles()? {
             if cached.is_expired(now) {
@@ -285,8 +289,17 @@ impl TitleCache {
             }
             cache.put(cached);
         }
-        cache.trim(now, protection);
         Ok(cache)
+    }
+
+    /// Apply the bound now that the Titles the Library holds are known.
+    ///
+    /// The account's Library is read after the Host starts, so this is the one
+    /// moment the trim can tell a Library-only Title from a cache entry nobody
+    /// protects (ADR-0038 §1).
+    pub(crate) fn settle(&mut self, now: i64, protection: &TitleProtection) {
+        self.deferred = false;
+        self.trim(now, protection);
     }
 
     /// The Titles held, as a Snapshot's Continue watching row reads them: Up
@@ -391,8 +404,13 @@ impl TitleCache {
     }
 
     /// Drop every copy past the terms ceiling, then the oldest read until the
-    /// bound holds — never a protected one.
+    /// bound holds — never a protected one. A cache still waiting for the
+    /// Library to be read keeps everything: the bound is the lesser rule.
     fn trim(&mut self, now: i64, protection: &TitleProtection) {
+        if self.deferred {
+            return;
+        }
+
         let expired: Vec<TitleKey> = self
             .entries
             .iter()
@@ -596,7 +614,7 @@ mod tests {
     #[test]
     fn the_cache_evicts_the_oldest_read_title_at_its_bound() {
         let store = store();
-        let mut cache = TitleCache::load(store, 2, 0, &unprotected()).expect("the cache loads");
+        let mut cache = TitleCache::load(store, 2, 0).expect("the cache loads");
 
         for id in 1..=3 {
             cache.keep(
@@ -606,6 +624,8 @@ mod tests {
                 0,
             );
         }
+
+        cache.settle(0, &unprotected());
 
         assert_eq!(cache.entries.len(), 2);
         assert!(
@@ -627,7 +647,7 @@ mod tests {
             &cache_entry.title.r#type,
             "tmdb:1",
         )]);
-        let mut cache = TitleCache::load(store, 2, 0, &protection).expect("the cache loads");
+        let mut cache = TitleCache::load(store, 2, 0).expect("the cache loads");
         cache.keep(cache_entry, None, &protection, 0);
 
         for id in 2..=4 {
@@ -639,6 +659,8 @@ mod tests {
             );
         }
 
+        cache.settle(0, &protection);
+
         assert!(
             cache.entries.iter().any(|held| held.title.key == watched),
             "the protected copy survives while unprotected ones go"
@@ -647,8 +669,42 @@ mod tests {
     }
 
     #[test]
+    fn the_bound_waits_for_the_library_which_is_read_after_the_cache() {
+        // Startup loads the cache before the account's Library is read. A trim
+        // there would evict a Library-only Title beyond the bound; the cache
+        // keeps every copy until it is told what the Library holds, then trims
+        // to the bound with those Titles protected (ADR-0038 §1).
+        let titles = (1..=3)
+            .map(|id| cached(TitleKey::Tmdb { id }, None, i64::from(id)))
+            .collect();
+        let mut cache = TitleCache::load(
+            Arc::new(crate::store::InMemoryStore::new().holding_titles(titles)),
+            2,
+            0,
+        )
+        .expect("the cache loads");
+        assert_eq!(
+            cache.entries.len(),
+            3,
+            "the bound is not applied before the Library is read"
+        );
+
+        let protection = TitleProtection::holding(vec![TitleProbe::new(None, "series", "tmdb:1")]);
+        cache.settle(0, &protection);
+
+        assert!(
+            cache
+                .entries
+                .iter()
+                .any(|held| held.title.key == TitleKey::Tmdb { id: 1 }),
+            "the Library's Title survives the trim"
+        );
+        assert_eq!(cache.entries.len(), 2, "and the bound holds after it");
+    }
+
+    #[test]
     fn a_title_is_found_by_the_addon_and_id_it_was_opened_by() {
-        let mut cache = TitleCache::load(store(), 4, 0, &unprotected()).expect("the cache loads");
+        let mut cache = TitleCache::load(store(), 4, 0).expect("the cache loads");
         let key = TitleKey::Addon {
             addon: addon(),
             id: "tt0903747".to_owned(),

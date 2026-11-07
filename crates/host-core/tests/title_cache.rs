@@ -6,10 +6,10 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, AddonId, AddonProvider, Answer, FixtureClock, FixtureFetcher, FixturePlayer,
-    FixtureStremio, Host, InMemorySecretStore, InMemoryStore, Provider, SecretBackend, Store,
-    Title, TitleCard, TitleKey, TitleStub, VideoRef, WatchProgress, ACTION_VERSION,
-    MAX_CACHED_TITLES,
+    Action, AddonId, AddonProvider, Answer, CachedTitle, FixtureClock, FixtureFetcher,
+    FixturePlayer, FixtureStremio, Host, InMemorySecretStore, InMemoryStore, Provider,
+    SecretBackend, Store, Title, TitleCard, TitleKey, TitleSource, TitleStub, VideoRef,
+    WatchProgress, ACTION_VERSION, MAX_CACHED_TITLES,
 };
 use serde_json::{json, Value};
 
@@ -565,6 +565,8 @@ fn the_cache_never_evicts_a_title_behind_watch_progress() {
     let fetcher = synthetic_fetcher(MAX_CACHED_TITLES + 1);
     let clock = clock();
     let mut host = host_over(store, fetcher.clone(), clock.clone(), false);
+    // The shell pulls at startup; with no account it still settles the bound.
+    host.pull_remote();
 
     opened(
         &mut host,
@@ -605,6 +607,87 @@ fn library_item(index: usize) -> Value {
         "name": "One",
         "type": "movie",
         "poster": "https://images.example.org/one.jpg",
+        "posterShape": "poster",
+        "removed": false,
+        "temp": false,
+        "_mtime": "2026-01-01T00:00:00.000Z",
+        "state": { "timeOffset": 0, "duration": 3_600_000 }
+    })
+}
+
+#[test]
+fn the_startup_trim_keeps_a_library_title_it_has_not_read_yet() {
+    // The cache is loaded before the account's Library is read. The oldest
+    // copy is in the Library; a trim at load would evict it before the pull
+    // that could protect it. The first pull settles the bound with the
+    // Library's Titles held (ADR-0038 §1).
+    let library = 0usize;
+    let titles: Vec<CachedTitle> = (0..=MAX_CACHED_TITLES).map(cached_movie).collect();
+    let store = Arc::new(InMemoryStore::new().holding_titles(titles));
+    let stremio = Arc::new(
+        FixtureStremio::new()
+            .with_account("me@example.org", "hunter2", "AUTHKEY")
+            .holding(vec![library_movie(library)]),
+    );
+    let fetcher = synthetic_fetcher(1);
+    let clock = clock();
+    let mut host = host_over(store.clone(), fetcher, clock, false).with_stremio(stremio);
+
+    sign_in(&mut host);
+
+    let persisted = store.persisted_titles();
+    assert_eq!(
+        persisted.len(),
+        MAX_CACHED_TITLES,
+        "the bound holds once the Library is known"
+    );
+    assert!(
+        persisted
+            .iter()
+            .any(|cached| cached.title.key == TitleKey::Tmdb { id: library as u32 }),
+        "the Library's Title, the oldest read, survived the trim"
+    );
+    assert!(
+        !persisted
+            .iter()
+            .any(|cached| cached.title.key == TitleKey::Tmdb { id: 1 }),
+        "and the oldest copy nothing protected is the one that went"
+    );
+}
+
+/// One cached film keyed by TMDB, for the bound tests that start from a store.
+fn cached_movie(index: usize) -> CachedTitle {
+    CachedTitle {
+        title: Title {
+            addon: None,
+            id: format!("tmdb:{index}"),
+            key: TitleKey::Tmdb { id: index as u32 },
+            r#type: "movie".to_owned(),
+            name: format!("Movie {index}"),
+            poster: None,
+            background: None,
+            logo: None,
+            description: None,
+            release_info: None,
+            runtime: None,
+            imdb_rating: None,
+            genres: Vec::new(),
+            videos: Vec::new(),
+        },
+        read_at: index as i64,
+        source: TitleSource::Addon,
+        status: None,
+        next_episode: None,
+    }
+}
+
+/// A Library item naming one of the cached films.
+fn library_movie(index: usize) -> Value {
+    json!({
+        "_id": format!("tmdb:{index}"),
+        "name": format!("Movie {index}"),
+        "type": "movie",
+        "poster": null,
         "posterShape": "poster",
         "removed": false,
         "temp": false,
@@ -702,6 +785,7 @@ fn a_tmdb_copy_past_six_months_is_dropped_even_behind_watch_progress() {
     );
     let clock = clock();
     let mut host = host_over(store.clone(), fetcher, clock.clone(), true);
+    host.pull_remote();
     opened(&mut host, open_discovered(603, "movie"));
     assert_eq!(store.persisted_titles().len(), 1);
 
