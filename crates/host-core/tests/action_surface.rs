@@ -585,6 +585,18 @@ impl Store for CountingStore {
         self.inner.write_watch_progress(progress)
     }
 
+    fn read_titles(&self) -> Result<Vec<host_core::CachedTitle>, StoreError> {
+        self.inner.read_titles()
+    }
+
+    fn write_title(&self, title: &host_core::CachedTitle) -> Result<(), StoreError> {
+        self.inner.write_title(title)
+    }
+
+    fn remove_title(&self, key: &host_core::TitleKey) -> Result<(), StoreError> {
+        self.inner.remove_title(key)
+    }
+
     fn read_devices(&self) -> Result<Vec<host_core::Device>, StoreError> {
         self.inner.read_devices()
     }

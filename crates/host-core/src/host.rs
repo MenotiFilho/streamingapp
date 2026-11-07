@@ -29,6 +29,7 @@ use crate::stream::Stream;
 use crate::stremio::StremioApi;
 use crate::subtitles::MAX_FALLBACK_SUBTITLES;
 use crate::sync::{merge, Merged, RemoteItem};
+use crate::title_cache::{TitleCache, TitleProbe, TitleProtection, MAX_CACHED_TITLES};
 use crate::tmdb;
 use crate::view::{HostView, HostViewShared};
 
@@ -95,6 +96,10 @@ pub struct Host {
     /// The raw account Library documents, shared with every view as a memo.
     /// Never state, never a Snapshot; cleared when the account changes.
     library_cache: Arc<Mutex<LibraryCache>>,
+    /// The Titles the Host has read, kept in memory and written through the
+    /// store (ADR-0038). Shared with every view: a question reads it before it
+    /// fetches, and keeps what it fetches.
+    titles: Arc<Mutex<TitleCache>>,
 }
 
 impl Host {
@@ -121,6 +126,22 @@ impl Host {
         // the Host opens knowing no key is held, and finds out when one is
         // asked for.
         let held = |kind| matches!(secrets.read(kind), Ok(Some(_)));
+        let watch = store.read_watch_progress()?;
+        // The Titles the last run kept, loaded before any question can ask: the
+        // Titles behind Watch progress are what the row and Up next are drawn
+        // from, and they must open on a Host that started with no network
+        // (ADR-0038 §1). Loading trims TMDB copies past the terms ceiling and
+        // the bound, and never evicts one behind Watch progress.
+        let protected = watch
+            .iter()
+            .map(|progress| TitleProbe::from_stub(&progress.title))
+            .collect();
+        let titles = Arc::new(Mutex::new(TitleCache::load(
+            store.clone(),
+            MAX_CACHED_TITLES,
+            clock.now_millis(),
+            &TitleProtection::holding(protected),
+        )?));
         let state = State::holding(
             store.read_preferences()?,
             store.read_addons()?,
@@ -129,7 +150,7 @@ impl Host {
                 tmdb_held: held(CredentialKind::TmdbKey),
                 stremio_held: held(CredentialKind::StremioAuthKey),
             },
-            store.read_watch_progress()?,
+            watch,
             store.read_devices()?,
             // A fresh code every run: a code is worth one pairing, and a Host
             // that was restarted is a Host whose screen nobody was reading.
@@ -173,6 +194,7 @@ impl Host {
             cache: Arc::new(Mutex::new(CatalogCache::default())),
             stremio: None,
             library_cache: Arc::new(Mutex::new(LibraryCache::default())),
+            titles,
         })
     }
 
@@ -256,6 +278,17 @@ impl Host {
                 cache: self.cache.clone(),
                 library_cache: self.library_cache.clone(),
                 stremio: self.stremio.clone(),
+                titles: self.titles.clone(),
+                clock: self.clock.clone(),
+                // The Titles behind Watch progress, frozen with the rest of
+                // the view: a cache write from this question must not evict one
+                // of them (ADR-0038 §1).
+                protected: self
+                    .state
+                    .watch()
+                    .iter()
+                    .map(|progress| TitleProbe::from_stub(&progress.title))
+                    .collect(),
             },
         )
     }

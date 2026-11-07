@@ -66,6 +66,7 @@ mod stream;
 mod stremio;
 mod subtitles;
 mod sync;
+mod title_cache;
 mod tmdb;
 mod view;
 mod wire;
@@ -128,10 +129,14 @@ pub use stream::{AddonStreams, Playback, Stream, StreamError, Warning, MAX_STREA
 pub use stremio::{FixtureStremio, LibraryMeta, StremioApi, SyncError};
 pub use subtitles::{Subtitle, SubtitleError, MAX_FALLBACK_SUBTITLES, MAX_SUBTITLES_BYTES};
 pub use sync::{merge, BitField, Merged, RemoteItem, WatchedField};
+pub use title_cache::{
+    CachedTitle, TitleSource, MAX_CACHED_TITLES, OTHER_FRESH_MILLIS, RUNNING_FRESH_MILLIS,
+    TMDB_CACHE_CEILING_MILLIS,
+};
 pub use tmdb::{
     video_id, video_spelling, Credential, DiscoverQuery, DiscoverQueryError, ExternalId, Kind,
-    SearchQuery, SearchQueryError, TmdbDetails, TmdbError, TmdbId, TmdbRequest, TmdbVideo,
-    IMAGE_ROOT, LOGO_ROOT, STILL_ROOT, TMDB_ROOT,
+    SearchQuery, SearchQueryError, SeriesStatus, TmdbDetails, TmdbError, TmdbId, TmdbRequest,
+    TmdbVideo, IMAGE_ROOT, LOGO_ROOT, STILL_ROOT, TMDB_ROOT,
 };
 pub use view::HostView;
 pub use wire::{permitted, ClientFrame, Refusal, ServerFrame, WIRE_VERSION};
