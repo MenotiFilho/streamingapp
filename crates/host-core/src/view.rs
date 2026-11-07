@@ -220,10 +220,17 @@ impl HostView {
                 // with: a second construction is a second thing that can drift.
                 let mut title = self.fetch_title(&configured, title, &requested)?;
                 self.tmdb_refine(&mut title);
+                // The one order the Title answer is published in: numbered
+                // seasons ascending, episodes within each season, then the
+                // specials, so both clients draw their chips without sorting
+                // (ADR-0039 §1).
+                title.videos = meta::ordered_videos(&title.videos);
                 Answer::Title(Box::new(title))
             }
             ValidatedAction::OpenDiscoveredTitle { id, kind } => {
-                Answer::Title(Box::new(self.open_discovered(*id, *kind)?))
+                let mut title = self.open_discovered(*id, *kind)?;
+                title.videos = meta::ordered_videos(&title.videos);
+                Answer::Title(Box::new(title))
             }
             ValidatedAction::FindStreams { video } => {
                 // Every configured Addon that answers for it, in the order

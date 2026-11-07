@@ -92,8 +92,10 @@ pub struct Title {
     pub runtime: Option<String>,
     pub imdb_rating: Option<String>,
     pub genres: Vec<String>,
-    /// The Title's Videos, in the Addon's own order: empty for a film, and a
-    /// season's episodes, plus any specials, for a series.
+    /// The Title's Videos, in the order their source gave them: empty for a
+    /// film, and a season's episodes plus any specials for a series. The Title
+    /// answer reorders them with [`ordered_videos`] before it is published
+    /// (ADR-0039).
     pub videos: Vec<Video>,
 }
 
@@ -155,6 +157,83 @@ impl Video {
             thumbnail: None,
         }
     }
+}
+
+/// A series' Videos in the order the Host lists and steps through them
+/// (ADR-0039): the numbered seasons ascending, each season's Videos in the
+/// order their source gave them, then the specials (season 0) in theirs.
+///
+/// The order is one function because three readers must agree with it: the
+/// Title answer publishes it, `next_episode` and `previous_episode` step
+/// through it, and Continue watching's Up next reads it (#268, #274). Videos
+/// the source placed in no season stand after the numbered seasons and before
+/// the specials, in their own order, so that the Specials are last without a
+/// client sorting anything.
+pub fn ordered_videos(videos: &[Video]) -> Vec<Video> {
+    ordered_refs(videos).into_iter().cloned().collect()
+}
+
+/// The Video after `id` in [`ordered_videos`], where both stand in the same
+/// part of that order — the numbered seasons, the unnumbered Videos, or the
+/// specials. A step never crosses between the numbered seasons and the
+/// specials (ADR-0039 §2).
+pub fn next_video<'a>(videos: &'a [Video], id: &str) -> Option<&'a Video> {
+    adjacent_video(videos, id, Ward::Later)
+}
+
+/// The mirror of [`next_video`]: the Video before `id`, inside the same part
+/// of the order.
+pub fn previous_video<'a>(videos: &'a [Video], id: &str) -> Option<&'a Video> {
+    adjacent_video(videos, id, Ward::Earlier)
+}
+
+/// The part of a series' order a Video stands in. The numbered seasons are one
+/// part — a season's finale and the next season's first episode stand together
+/// — while the specials and the unnumbered Videos stand apart from them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Part {
+    Numbered,
+    Unnumbered,
+    Specials,
+}
+
+fn part_of(video: &Video) -> Part {
+    match video.season {
+        Some(0) => Part::Specials,
+        Some(_) => Part::Numbered,
+        None => Part::Unnumbered,
+    }
+}
+
+/// Which way a step goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ward {
+    Later,
+    Earlier,
+}
+
+/// A series' Videos in the Host's order, borrowed: the shape [`ordered_videos`]
+/// clones and the neighbours read.
+fn ordered_refs(videos: &[Video]) -> Vec<&Video> {
+    let mut ordered: Vec<&Video> = videos.iter().collect();
+    ordered.sort_by_key(|video| match video.season {
+        Some(0) => (2, 0),
+        Some(season) => (0, season),
+        None => (1, 0),
+    });
+    ordered
+}
+
+fn adjacent_video<'a>(videos: &'a [Video], id: &str, ward: Ward) -> Option<&'a Video> {
+    let ordered = ordered_refs(videos);
+    let index = ordered.iter().position(|video| video.id == id)?;
+    let here = ordered[index];
+    let beside = match ward {
+        Ward::Later => ordered.get(index + 1),
+        Ward::Earlier => index.checked_sub(1).and_then(|before| ordered.get(before)),
+    }?;
+
+    (part_of(here) == part_of(beside)).then_some(*beside)
 }
 
 /// One title's id, and the season and episode of it a Video id indexes, where
@@ -754,6 +833,73 @@ mod tests {
                 limit: MAX_META_BYTES,
             }
         );
+    }
+
+    #[test]
+    fn the_order_puts_the_numbered_seasons_ascending_and_the_specials_last() {
+        let videos = vec![
+            video_at("tt1:0:1", Some(0), Some(1)),
+            video_at("tt1:2:1", Some(2), Some(1)),
+            video_at("tt1:1:1", Some(1), Some(1)),
+            video_at("tt1:1:2", Some(1), Some(2)),
+            video_at("tt1:0:2", Some(0), Some(2)),
+        ];
+
+        assert_eq!(
+            ordered_videos(&videos)
+                .iter()
+                .map(|video| video.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["tt1:1:1", "tt1:1:2", "tt1:2:1", "tt1:0:1", "tt1:0:2"],
+            "numbered seasons ascending and their own order kept, then the specials (ADR-0039 §1)"
+        );
+    }
+
+    #[test]
+    fn a_step_walks_the_numbered_run_and_never_crosses_into_the_specials() {
+        let videos = vec![
+            video_at("tt1:0:1", Some(0), Some(1)),
+            video_at("tt1:2:1", Some(2), Some(1)),
+            video_at("tt1:1:1", Some(1), Some(1)),
+            video_at("tt1:0:2", Some(0), Some(2)),
+        ];
+
+        assert_eq!(
+            next_video(&videos, "tt1:1:1").map(|video| video.id.as_str()),
+            Some("tt1:2:1"),
+            "the numbered seasons are one run"
+        );
+        assert_eq!(
+            next_video(&videos, "tt1:2:1"),
+            None,
+            "the last numbered episode does not fall into the specials"
+        );
+        assert_eq!(
+            previous_video(&videos, "tt1:1:1"),
+            None,
+            "the first numbered episode does not step back into the specials"
+        );
+        assert_eq!(
+            next_video(&videos, "tt1:0:1").map(|video| video.id.as_str()),
+            Some("tt1:0:2"),
+            "inside the specials, next is the next special"
+        );
+        assert_eq!(next_video(&videos, "tt1:0:2"), None);
+        assert_eq!(previous_video(&videos, "tt1:0:1"), None);
+        assert_eq!(
+            previous_video(&videos, "tt1:0:2").map(|video| video.id.as_str()),
+            Some("tt1:0:1")
+        );
+    }
+
+    fn video_at(id: &str, season: Option<u32>, episode: Option<u32>) -> Video {
+        Video {
+            id: id.to_owned(),
+            name: None,
+            season,
+            episode,
+            thumbnail: None,
+        }
     }
 
     #[test]

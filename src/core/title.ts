@@ -31,7 +31,7 @@ export type OpenablePreview = TitlePreview &
   Pick<MetaPreview, "id" | "type"> &
   Partial<Pick<MetaPreview, "releaseInfo">>;
 
-/** One season's Videos, in the order the Addon listed them. */
+/** One season's Videos, in the order the Host listed them. */
 export type Season = {
   /** The season number, or `null` for Videos the Addon placed in no season. */
   season: number | null;
@@ -47,11 +47,12 @@ export function isSeries(title: Title): boolean {
 }
 
 /**
- * A Title's Videos, grouped into seasons, in the order the Addon listed them.
+ * A Title's Videos, grouped into seasons, in the order the Host listed them.
  *
- * The Addon's order is the order (the spec's Stream rule generalised): the first
- * season to appear is the first group. A Video the Addon placed in no season is a
- * group of its own, where it first appears, rather than dropped.
+ * The Host's order is the order (ADR-0039): the first season to appear is the
+ * first group, so the specials — which the Host publishes last — draw their chip
+ * last. A Video the Addon placed in no season is a group of its own, where it
+ * first appears, rather than dropped.
  */
 export function seasonsOf(title: Title): Season[] {
   const seasons = new Map<number | null, Video[]>();
