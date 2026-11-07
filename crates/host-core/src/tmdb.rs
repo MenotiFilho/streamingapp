@@ -33,10 +33,12 @@
 //! protocol's `{title}:{season}:{episode}` rule applied to TMDB's id, and a
 //! per-Addon bridge ([`ExternalId`], [`video_id`]) rewrites one into the
 //! spelling each Addon declares at the moment Streams are asked for (ADR-0020).
-//! The season endpoints cost one ask per season, which is what the ADR left to
-//! the build to find out; the episodes of a season that could not be read are
-//! dropped rather than blanking the ones around them, and a Title's Videos are
-//! replaced only when *something* was read.
+//! A series' seasons ride on its details request through `append_to_response`,
+//! in batches of TMDB's twenty-item cap, so the seasons are read in one request
+//! where they fit and ceil(n/20) where they do not (ADR-0038 §4). The episodes
+//! of a season that could not be read are dropped rather than blanking the ones
+//! around them, and a Title's Videos are replaced only when *something* was
+//! read.
 //!
 //! ## The feed
 //!
@@ -58,6 +60,15 @@ use crate::meta::Video;
 
 /// Where TMDB answers questions at, in the version the marked one.
 pub const TMDB_ROOT: &str = "https://api.themoviedb.org/3";
+
+/// How many appended items one TMDB request may carry.
+///
+/// The `/tv/{series_id}` reference declares `append_to_response` as a "comma
+/// separated list of endpoints within this namespace, 20 items max"
+/// (research note §1.1). Seasons are appended one by one, so this is also the
+/// most seasons a single details request can carry; a series with more is read
+/// in further batches (ADR-0038 §4).
+pub const MAX_APPENDED_SEASONS: u32 = 20;
 
 /// Where TMDB takes a poster from, at the size a card is drawn at.
 ///
@@ -504,12 +515,18 @@ pub enum TmdbRequest {
     Find { kind: Kind, imdb: String },
     /// One record's metadata, by the id TMDB addresses it by.
     Details { kind: Kind, id: TmdbId },
+    /// One record's metadata with seasons appended in the same answer:
+    /// `append_to_response=season/N,…`. TMDB caps the appended items at
+    /// [`MAX_APPENDED_SEASONS`], so a series with more seasons is read in
+    /// further batches. Seasons are a series' shape only.
+    DetailsWithSeasons {
+        kind: Kind,
+        id: TmdbId,
+        seasons: Vec<u32>,
+    },
     /// The ids TMDB keeps for a record: which `tt…` string it answers to, one
     /// hop of the per-Addon bridge (ADR-0020).
     ExternalIds { kind: Kind, id: TmdbId },
-    /// One season's episodes, by the record and the season number TMDB gave it.
-    /// Seasons are a series' shape only.
-    Season { id: TmdbId, season: u32 },
     /// The week of what a kind has trending, at `page`.
     Trending { kind: Kind, page: u32 },
     /// A `/discover` page for a kind: the filters a [`DiscoverQuery`] judged.
@@ -528,6 +545,14 @@ pub enum TmdbRequest {
     },
 }
 
+/// The path a record's details live at: `/movie/{id}` or `/tv/{id}`.
+fn push_details(url: &mut String, kind: Kind, id: TmdbId) {
+    url.push('/');
+    url.push_str(kind.as_resource());
+    url.push('/');
+    url.push_str(&id.0.to_string());
+}
+
 impl TmdbRequest {
     /// The URL to ask at, with what the credential wants built onto it.
     pub fn url(&self, credential: &Credential) -> String {
@@ -539,11 +564,19 @@ impl TmdbRequest {
                 url.push_str(&encode(imdb));
                 url.push_str("?external_source=imdb_id");
             }
-            Self::Details { kind, id } => {
-                url.push('/');
-                url.push_str(kind.as_resource());
-                url.push('/');
-                url.push_str(&id.0.to_string());
+            Self::Details { kind, id } => push_details(&mut url, *kind, *id),
+            Self::DetailsWithSeasons { kind, id, seasons } => {
+                push_details(&mut url, *kind, *id);
+                if !seasons.is_empty() {
+                    url.push_str("?append_to_response=");
+                    for (index, season) in seasons.iter().enumerate() {
+                        if index > 0 {
+                            url.push(',');
+                        }
+                        url.push_str("season/");
+                        url.push_str(&season.to_string());
+                    }
+                }
             }
             Self::ExternalIds { kind, id } => {
                 url.push('/');
@@ -551,12 +584,6 @@ impl TmdbRequest {
                 url.push('/');
                 url.push_str(&id.0.to_string());
                 url.push_str("/external_ids");
-            }
-            Self::Season { id, season } => {
-                url.push_str("/tv/");
-                url.push_str(&id.0.to_string());
-                url.push_str("/season/");
-                url.push_str(&season.to_string());
             }
             Self::Trending { kind, page } => {
                 url.push_str("/trending/");
@@ -852,24 +879,21 @@ pub fn read_external_ids(body: &str) -> Result<Option<String>, TmdbError> {
     }))
 }
 
-/// One season's episodes, read into the Host's Videos.
+/// One season's episodes, read from the season object an answer carries.
 ///
-/// The episodes arrive at `/tv/{id}/season/{season}` as an `episodes` array,
-/// each carrying the `episode_number` TMDB numbered it by and, where there is
-/// one, the `still_path` of its 16:9 still. Each becomes a Video keyed
+/// The episodes arrive as an `episodes` array, each carrying the
+/// `episode_number` TMDB numbered it by and, where there is one, the
+/// `still_path` of its 16:9 still. Each becomes a Video keyed
 /// `tmdb:<id>:<season>:<episode>` — the id every Stream ask and every Watch
 /// progress entry is keyed by (ADR-0020). A record that cannot be read is
 /// dropped rather than blanking the season around it, the way one bad catalog
 /// item is dropped; an `episodes` that is not a list is a body that is not a
 /// season answer and is refused.
-pub fn read_season(body: &str, id: TmdbId, season: u32) -> Result<Vec<Video>, TmdbError> {
-    let value: Value = serde_json::from_str(body).map_err(|error| TmdbError::NotJson {
-        detail: error.to_string(),
-    })?;
-    let record = value.as_object().ok_or_else(|| TmdbError::NotJson {
-        detail: "a season answer is a JSON object".to_owned(),
-    })?;
-
+fn read_episodes(
+    record: &Map<String, Value>,
+    id: TmdbId,
+    season: u32,
+) -> Result<Vec<Video>, TmdbError> {
     let episodes = match record.get("episodes") {
         None | Some(Value::Null) => return Ok(Vec::new()),
         Some(value) => value.as_array().ok_or_else(|| TmdbError::NotJson {
@@ -901,6 +925,79 @@ pub fn read_season(body: &str, id: TmdbId, season: u32) -> Result<Vec<Video>, Tm
     videos.sort_by_key(|video| video.episode);
 
     Ok(videos)
+}
+
+/// One details answer read whole: its metadata, and the seasons it appended.
+///
+/// `append_to_response` answers each appended season under the literal root key
+/// `season/N` (research note §1.3). Only the seasons the record lists in
+/// `seasons[]` are read, so a key for a season TMDB does not list is not a
+/// Title's Video. `videos` stays `None` when the answer carried none of them,
+/// which leaves the Addon's own list standing (ADR-0011's amendment).
+pub fn read_details_with_seasons(
+    body: &str,
+    kind: Kind,
+    id: TmdbId,
+) -> Result<TmdbDetails, TmdbError> {
+    let mut details = read_details(body, kind)?;
+    if kind != Kind::Tv || details.seasons.is_empty() {
+        return Ok(details);
+    }
+
+    let batch = read_season_batch(body, id, &details.seasons)?;
+    if batch.seasons > 0 {
+        details.videos = Some(batch.videos);
+    }
+
+    Ok(details)
+}
+
+/// One batch of a series' appended seasons, read into the Host's Videos.
+///
+/// Each requested season comes back under its literal `season/N` root key. A
+/// season the answer did not carry — an absent or null key — is skipped, and so
+/// is one whose own record cannot be read; the seasons beside it stand, the way
+/// one bad catalog item is dropped (ADR-0038 §4). A body that is not a JSON
+/// object is a fact about TMDB rather than about one season, and is refused.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct SeasonBatch {
+    /// The Videos of every season the answer carried, in requested order.
+    pub videos: Vec<Video>,
+    /// How many of the requested seasons the answer carried at all. Zero is
+    /// "the seasons did not come back", which is not the same as an empty
+    /// season that did.
+    pub seasons: usize,
+}
+
+/// Read one batch of appended seasons, answering with what the body carried.
+pub fn read_season_batch(
+    body: &str,
+    id: TmdbId,
+    seasons: &[u32],
+) -> Result<SeasonBatch, TmdbError> {
+    let value: Value = serde_json::from_str(body).map_err(|error| TmdbError::NotJson {
+        detail: error.to_string(),
+    })?;
+    let record = value.as_object().ok_or_else(|| TmdbError::NotJson {
+        detail: "a details answer is a JSON object".to_owned(),
+    })?;
+
+    let mut batch = SeasonBatch::default();
+    for season in seasons {
+        let Some(appended) = record
+            .get(&format!("season/{season}"))
+            .and_then(Value::as_object)
+        else {
+            continue;
+        };
+        let Ok(episodes) = read_episodes(appended, id, *season) else {
+            continue;
+        };
+        batch.seasons += 1;
+        batch.videos.extend(episodes);
+    }
+
+    Ok(batch)
 }
 
 /// One page of TMDB records, read into the previews a row is drawn from.
@@ -1180,6 +1277,8 @@ mod tests {
     const FIND_MATRIX: &str = include_str!("../tests/fixtures/tmdb-find-matrix.json");
     const MOVIE_DETAILS: &str = include_str!("../tests/fixtures/tmdb-movie-details.json");
     const TV_DETAILS: &str = include_str!("../tests/fixtures/tmdb-tv-details.json");
+    const TV_DETAILS_APPENDED: &str =
+        include_str!("../tests/fixtures/tmdb-tv-details-appended.json");
     const TV_DETAILS_MAKING: &str = include_str!("../tests/fixtures/tmdb-tv-details-making.json");
     const SEASON_0: &str = include_str!("../tests/fixtures/tmdb-tv-season-0.json");
     const SEASON_1: &str = include_str!("../tests/fixtures/tmdb-tv-season-1.json");
@@ -1313,14 +1412,15 @@ mod tests {
             "the ids TMDB keeps are a record's own sub-resource"
         );
 
-        let season = TmdbRequest::Season {
+        let appended = TmdbRequest::DetailsWithSeasons {
+            kind: Kind::Tv,
             id: TmdbId(1396),
-            season: 0,
+            seasons: vec![0, 1, 2],
         };
         assert_eq!(
-            season.url(&token("a-key")),
-            "https://api.themoviedb.org/3/tv/1396/season/0?api_key=a-key",
-            "specials are season zero, which is a season number like any other"
+            appended.url(&token("a-key")),
+            "https://api.themoviedb.org/3/tv/1396?append_to_response=season/0,season/1,season/2&api_key=a-key",
+            "a season is appended to the details call under its literal `season/N` name, specials included"
         );
     }
 
@@ -1341,9 +1441,10 @@ mod tests {
                 kind: Kind::Tv,
                 id: TmdbId(1396),
             },
-            TmdbRequest::Season {
+            TmdbRequest::DetailsWithSeasons {
+                kind: Kind::Tv,
                 id: TmdbId(1396),
-                season: 1,
+                seasons: vec![0, 1],
             },
         ] {
             let built = request.url(&token(the_token));
@@ -1467,22 +1568,97 @@ mod tests {
         );
     }
 
+    /// A details body carrying one season body under its literal `season/N`
+    /// key, the way `append_to_response` answers it.
+    fn appended(season: u32, body: &str) -> String {
+        let record: Value = serde_json::from_str(body).expect("the season fixture is JSON");
+        serde_json::json!({ format!("season/{season}"): record }).to_string()
+    }
+
     #[test]
-    fn a_season_is_read_into_videos_keyed_by_tmdb_and_carrying_its_stills() {
-        let videos = read_season(SEASON_1, TmdbId(1396), 1).expect("a season answer");
+    fn a_details_answer_reads_the_seasons_appended_under_their_slash_keys() {
+        let details = read_details_with_seasons(TV_DETAILS_APPENDED, Kind::Tv, TmdbId(1396))
+            .expect("a details answer");
 
         assert_eq!(
-            videos
+            details.name.as_deref(),
+            Some("Breaking Bad"),
+            "the record is read beside its appended seasons"
+        );
+        assert_eq!(
+            details
+                .videos
+                .expect("the appended seasons were read")
+                .iter()
+                .map(|video| video.id.as_str())
+                .collect::<Vec<_>>(),
+            vec![
+                "tmdb:1396:0:1",
+                "tmdb:1396:1:1",
+                "tmdb:1396:1:2",
+                "tmdb:1396:1:3",
+                "tmdb:1396:2:1",
+            ],
+            "the body's `season/N` keys are the seasons, and no appended season's own `id` is needed"
+        );
+    }
+
+    #[test]
+    fn a_details_answer_without_appended_seasons_leaves_its_videos_unread() {
+        let details = read_details_with_seasons(TV_DETAILS, Kind::Tv, TmdbId(1396))
+            .expect("a details answer");
+
+        assert_eq!(
+            details.videos, None,
+            "a series whose seasons did not come back keeps the Addon's list rather than being blanked"
+        );
+    }
+
+    #[test]
+    fn an_appended_season_that_is_missing_leaves_the_others_standing() {
+        let mut body: Value =
+            serde_json::from_str(TV_DETAILS_APPENDED).expect("the appended fixture is JSON");
+        body.as_object_mut()
+            .expect("a details answer is an object")
+            .remove("season/1");
+
+        let details = read_details_with_seasons(&body.to_string(), Kind::Tv, TmdbId(1396))
+            .expect("a details answer");
+
+        assert_eq!(
+            details
+                .videos
+                .expect("the seasons that came back were read")
+                .iter()
+                .map(|video| video.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["tmdb:1396:0:1", "tmdb:1396:2:1"],
+            "the one the answer omitted is skipped, and the seasons around it stand"
+        );
+    }
+
+    #[test]
+    fn a_batch_is_read_into_videos_keyed_by_tmdb_and_carrying_its_stills() {
+        let body = appended(1, SEASON_1);
+        let batch = read_season_batch(&body, TmdbId(1396), &[1]).expect("a batch answer");
+
+        assert_eq!(batch.seasons, 1, "the one requested season came back");
+        assert_eq!(
+            batch
+                .videos
                 .iter()
                 .map(|video| video.id.as_str())
                 .collect::<Vec<_>>(),
             vec!["tmdb:1396:1:1", "tmdb:1396:1:2", "tmdb:1396:1:3",],
             "the protocol's `{{title}}:{{season}}:{{episode}}` rule over TMDB's id"
         );
-        assert_eq!(videos[0].name.as_deref(), Some("Pilot"));
-        assert_eq!((videos[0].season, videos[0].episode), (Some(1), Some(1)));
+        assert_eq!(batch.videos[0].name.as_deref(), Some("Pilot"));
         assert_eq!(
-            videos[1].thumbnail.as_deref(),
+            (batch.videos[0].season, batch.videos[0].episode),
+            (Some(1), Some(1))
+        );
+        assert_eq!(
+            batch.videos[1].thumbnail.as_deref(),
             Some("https://image.tmdb.org/t/p/w300/still-1396-1-2.jpg"),
             "an episode row draws the 16:9 still TMDB sent"
         );
@@ -1490,61 +1666,88 @@ mod tests {
 
     #[test]
     fn specials_are_a_season_like_any_other_with_nothing_to_draw() {
-        let videos = read_season(SEASON_0, TmdbId(1396), 0).expect("a season answer");
+        let body = appended(0, SEASON_0);
+        let batch = read_season_batch(&body, TmdbId(1396), &[0]).expect("a batch answer");
 
-        assert_eq!(videos.len(), 1);
-        assert_eq!(videos[0].id, "tmdb:1396:0:1");
+        assert_eq!(batch.videos.len(), 1);
+        assert_eq!(batch.videos[0].id, "tmdb:1396:0:1");
         assert_eq!(
-            (videos[0].season, videos[0].episode),
+            (batch.videos[0].season, batch.videos[0].episode),
             (Some(0), Some(1)),
             "season zero is how the protocol spells a special"
         );
         assert_eq!(
-            videos[0].thumbnail, None,
+            batch.videos[0].thumbnail, None,
             "a still TMDB did not send is absence, not a broken URL"
         );
     }
 
     #[test]
-    fn a_season_answer_that_is_not_one_is_refused_or_read_as_empty() {
+    fn a_batch_answer_that_is_not_one_is_refused() {
         for body in ["", "not json", "[]", "5", "\"a season\""] {
             assert!(
                 matches!(
-                    read_season(body, TmdbId(1396), 1),
+                    read_season_batch(body, TmdbId(1396), &[1]),
                     Err(TmdbError::NotJson { .. })
                 ),
-                "{body:?} is not a season answer"
+                "{body:?} is not a batch answer"
             );
         }
+    }
+
+    #[test]
+    fn a_season_whose_record_cannot_be_read_is_skipped_and_the_batch_stands() {
+        let body = serde_json::json!({
+            "season/1": { "episodes": 5 },
+            "season/2": { "episodes": [{ "episode_number": 1, "name": "One" }] },
+        })
+        .to_string();
+        let batch = read_season_batch(&body, TmdbId(1396), &[1, 2]).expect("a batch answer");
+
         assert_eq!(
-            read_season(r#"{"episodes":5}"#, TmdbId(1396), 1),
-            Err(TmdbError::NotJson {
-                detail: "a season's episodes should be an array".to_owned()
-            })
+            batch
+                .videos
+                .iter()
+                .map(|video| video.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["tmdb:1396:2:1"],
+            "the season that could not be read is skipped, not the seasons beside it"
         );
+        assert_eq!(batch.seasons, 1, "only the season that read is counted");
+    }
+
+    #[test]
+    fn requested_seasons_the_answer_did_not_carry_are_skipped() {
+        let body = appended(1, SEASON_1);
+        let batch = read_season_batch(&body, TmdbId(1396), &[0, 1, 2]).expect("a batch answer");
+
+        assert_eq!(batch.seasons, 1, "one of the three came back");
         assert_eq!(
-            read_season(r#"{"season_number":1}"#, TmdbId(1396), 1),
-            Ok(Vec::new()),
-            "a season with no episodes to read is a season with none"
+            batch
+                .videos
+                .iter()
+                .map(|video| video.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["tmdb:1396:1:1", "tmdb:1396:1:2", "tmdb:1396:1:3",]
         );
     }
 
     #[test]
     fn a_season_record_that_cannot_be_read_is_dropped_rather_than_blanking_the_season() {
-        let videos = read_season(
-            r#"{"episodes":[
+        let body = serde_json::json!({
+            "season/1": { "episodes": [
                 {"episode_number":1,"name":"One","still_path":"/one.jpg"},
                 {"name":"no number, so nobody can play it"},
                 "not an episode",
                 {"episode_number":3,"name":"Three"}
-            ]}"#,
-            TmdbId(1396),
-            1,
-        )
-        .expect("a season answer");
+            ]},
+        })
+        .to_string();
+        let batch = read_season_batch(&body, TmdbId(1396), &[1]).expect("a batch answer");
 
         assert_eq!(
-            videos
+            batch
+                .videos
                 .iter()
                 .map(|video| video.id.as_str())
                 .collect::<Vec<_>>(),
@@ -1552,7 +1755,7 @@ mod tests {
             "the two that read survive the two that do not"
         );
         assert_eq!(
-            videos[1].thumbnail, None,
+            batch.videos[1].thumbnail, None,
             "an episode with no still is one with no still"
         );
     }

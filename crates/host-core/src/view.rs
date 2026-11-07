@@ -722,23 +722,35 @@ impl HostView {
         Ok(OpenedTitle { title, status })
     }
 
-    /// One record's details, read — or why TMDB could not answer at all.
+    /// One record's details, read whole — or why TMDB could not answer at all.
+    ///
+    /// A series' first batch of seasons rides in the details answer itself,
+    /// through `append_to_response` (ADR-0038 §4), so a series of up to
+    /// [`tmdb::MAX_APPENDED_SEASONS`] seasons costs one request for its
+    /// metadata and its Videos together. A film has no seasons to append.
     pub(crate) fn tmdb_details(
         &self,
         kind: tmdb::Kind,
         id: tmdb::TmdbId,
         key: &tmdb::Credential,
     ) -> Result<tmdb::TmdbDetails, ActionError> {
-        let request = tmdb::TmdbRequest::Details { kind, id };
+        let request = details_request(kind, id);
         let body = self.fetch_tmdb(&request, key).map_err(tmdb_failure)?;
 
-        tmdb::read_details(&body, kind).map_err(|error| ActionError::Tmdb {
+        tmdb::read_details_with_seasons(&body, kind, id).map_err(|error| ActionError::Tmdb {
             detail: error.to_string(),
         })
     }
 
-    /// TMDB's Videos for a record: a series' seasons and episodes, read one
-    /// season at a time, or `None` where there were none to read.
+    /// TMDB's Videos for a record: a series' seasons and episodes, read with
+    /// the details answer and any further batches, or `None` where there were
+    /// none to read.
+    ///
+    /// The details answer carried the first [`tmdb::MAX_APPENDED_SEASONS`]
+    /// seasons' worth of appends. A series with more is read in further
+    /// batches, fanned out as a question's fetches are (ADR-0023), and only
+    /// then is anything appended: batches answer in the order they were built,
+    /// so completion order can never reorder a series.
     ///
     /// `None` is not "a film": it is "TMDB's Videos were not read" — a record
     /// that listed no seasons, or every season's answer failing — and it leaves
@@ -763,23 +775,39 @@ impl HostView {
             return None;
         }
 
-        let mut read_any = false;
-        let mut videos: Vec<Video> = Vec::new();
-        for season in &details.seasons {
-            if videos.len() >= MAX_ITEMS {
-                break;
-            }
-            let request = tmdb::TmdbRequest::Season {
+        // The first batch came back with the details answer, if any of its
+        // seasons did. Every season the record lists past that batch is asked
+        // for in one appended request per twenty.
+        let mut videos = details.videos.clone().unwrap_or_default();
+        let mut read_any = details.videos.is_some();
+
+        let remaining: Vec<u32> = details
+            .seasons
+            .iter()
+            .copied()
+            .filter(|season| *season >= tmdb::MAX_APPENDED_SEASONS)
+            .collect();
+        let batches: Vec<&[u32]> = remaining
+            .chunks(tmdb::MAX_APPENDED_SEASONS as usize)
+            .collect();
+        let answers = fan_out(&batches, |batch| {
+            let request = tmdb::TmdbRequest::DetailsWithSeasons {
+                kind: tmdb::Kind::Tv,
                 id,
-                season: *season,
+                seasons: batch.to_vec(),
             };
-            let Ok(body) = self.fetch_tmdb(&request, key) else {
+            self.fetch_tmdb(&request, key).ok()
+        });
+
+        for (batch, answer) in batches.iter().zip(answers) {
+            let Some(body) = answer else {
                 continue;
             };
-            if let Ok(episodes) = tmdb::read_season(&body, id, *season) {
-                read_any = true;
-                videos.extend(episodes);
-            }
+            let Ok(read) = tmdb::read_season_batch(&body, id, batch) else {
+                continue;
+            };
+            read_any |= read.seasons > 0;
+            videos.extend(read.videos);
         }
         videos.truncate(MAX_ITEMS);
 
@@ -848,13 +876,10 @@ impl HostView {
             Some(kind) => kind,
             None => return TmdbRead::default(),
         };
-        let Some(record) = self
-            .fetch_tmdb(&tmdb::TmdbRequest::Details { kind, id }, &key)
-            .ok()
-        else {
+        let Some(record) = self.fetch_tmdb(&details_request(kind, id), &key).ok() else {
             return TmdbRead::default();
         };
-        match tmdb::read_details(&record, kind) {
+        match tmdb::read_details_with_seasons(&record, kind, id) {
             Ok(details) => {
                 let status = details.status;
                 let videos = self.tmdb_videos(&details, id, &key);
@@ -1223,6 +1248,25 @@ fn tmdb_failure(error: FetchError) -> ActionError {
             FetchError::Body { detail } => {
                 format!("TMDB answered with something that is not text: {detail}")
             }
+        },
+    }
+}
+
+/// The request one record's metadata is read with.
+///
+/// A series' first batch of seasons is appended to its details answer, because
+/// the details call is the one request that can carry them (ADR-0038 §4). The
+/// batch starts at season 0, so a series' specials ride along with the
+/// numbered seasons; anything the record lists beyond it is read in further
+/// batches once the record has said what its seasons are. A film has no
+/// seasons to append.
+fn details_request(kind: tmdb::Kind, id: tmdb::TmdbId) -> tmdb::TmdbRequest {
+    match kind {
+        tmdb::Kind::Movie => tmdb::TmdbRequest::Details { kind, id },
+        tmdb::Kind::Tv => tmdb::TmdbRequest::DetailsWithSeasons {
+            kind,
+            id,
+            seasons: (0..tmdb::MAX_APPENDED_SEASONS).collect(),
         },
     }
 }

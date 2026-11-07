@@ -127,6 +127,14 @@ record at all.
   so the two sources can be compared episode for episode. The still paths are
   invented; season 0's is absent, which is the episode row that degrades to
   text.
+- `tmdb-tv-details-appended.json` — written by hand to the appended shape: the
+  `/tv/1396` details body above with the three seasons under the literal root
+  keys `season/0`, `season/1` and `season/2`, as `append_to_response` answers
+  them (research note §1.3–§1.4). The appended seasons carry `_id` and no `id`,
+  the omission a 2019 support report recorded, because the batched read must not
+  depend on the standalone season body's parity. The episodes are the ones the
+  three season fixtures carry, so a Title read in one batched request and one
+  read season by season are comparable.
 - `tmdb-page-movie.json` — a page of film results as `/trending/movie/week` and
   `/discover/movie` answer: two records with the ids, poster and backdrop paths,
   release dates, ratings and `genre_ids` TMDB sends, beside noise fields the Host
