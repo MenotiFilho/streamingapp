@@ -106,6 +106,7 @@ $Steps = @(
     [pscustomobject]@{ Id = 34; Title = 'Settings > Preferences: the subtitle appearance goes through the Action surface, and survives a restart'; Ground = 'fresh'; After = @(); Need = 'a Host (the appearance needs no Addon)' }
     [pscustomobject]@{ Id = 35; Title = 'subtitles on a real picture: colour on the SRT, the authored colour on the ASS at 100% and 125%, and the size from the OSD'; Ground = 'addon'; After = @(); Need = 'the fixture Addon with the fixture video (two SRT tracks and one ASS track); it chooses the colour, plays, steps the size in the OSD, and checks Settings and the next Stream' }
     [pscustomobject]@{ Id = 36; Title = 'an Up next plays directly: Play from the finished episode''s card, with no Streams list in between'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it plays S1E1 to its end, opens the Up next card and presses Play)' }
+    [pscustomobject]@{ Id = 37; Title = 'a second open of the same Title is instant: the Host answers it from the cache'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it opens a series Title, back, and opens the same Title again)' }
 )
 
 # The discovery path and the cheap syntax check: print the checklist and what
@@ -3515,6 +3516,41 @@ function Step-36($ctx) {
             (Episode-Number $app) -eq 2) "the OSD reads S1E$(Episode-Number $app)"
         Press-Button $app 'Stop'
     }
+}
+
+function Step-37($ctx) {
+    '--- 37. a second open of the same Title is instant: the Host answers it from the cache'
+    $app = $ctx.App
+    # The first open fills the Title cache (ADR-0038 §1). The second open must
+    # draw the same Title without going back to the Addon: the point of the
+    # cache is that the open after the first costs no round trip.
+    if (-not (Open-Series $app)) {
+        Skip 'a second open is instant' (
+            "this Addon drew no series row (rows seen: $(Rows-Seen $app)), so there is no Title to open twice: run with -AddonName Verify (or -Addon <a Series Addon>)")
+        return
+    }
+    Shot $app '37-first-open.png'
+    Press-Keys $app '{ESC}'
+    Start-Sleep -Milliseconds 500
+    Wait-Text $app 'Continue watching|Featured' 20 | Out-Null
+
+    $card = Series-Card $app
+    if (-not $card) {
+        Skip 'a second open is instant' "Home drew no series card to open again: $(Page-Text $app)"
+        return
+    }
+
+    # Time the press rather than the wait's own floor: a cache hit paints the
+    # Title with the loading surface never drawn.
+    $started = Get-Date
+    Press-Element $app $card
+    $text = Wait-Text $app 'Season \d+' 15
+    $elapsed = [int](((Get-Date) - $started).TotalMilliseconds)
+    Shot $app '37-second-open.png'
+    Check 'the same Title opens again and draws its seasons' (
+        $text -match 'Season \d+') "showed: $text"
+    Check 'and it is instant: the cached Title answered, under three seconds' (
+        $elapsed -lt 3000) "the second open took $elapsed ms"
 }
 
 # --- the dispatcher -----------------------------------------------------------

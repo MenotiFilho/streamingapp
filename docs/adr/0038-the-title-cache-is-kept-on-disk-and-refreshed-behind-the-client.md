@@ -29,11 +29,13 @@ something the owner came back to, and is held the way Watch progress is held.
 
 The cache is bounded by count, oldest read first. It never evicts a Title
 behind Watch progress or in the Library, because those are the Titles the row
-and Up next are drawn from. There is one ceiling over that: TMDB's API Terms
-forbid holding its data **longer than six months**, so a TMDB-sourced copy that
-has not been refreshed in six months is dropped whatever it is behind. A card
-whose Title was dropped shows its finished Video as Watched until the Title is
-read again.
+and Up next are drawn from. The Library is read after the cache is loaded, so a
+cache loaded from the store keeps every copy until that read has said which
+Titles to protect; the bound is applied then. There is one ceiling over that:
+TMDB's API Terms forbid holding its data **longer than six months**, so a
+TMDB-sourced copy that has not been refreshed in six months is dropped whatever
+it is behind. A card whose Title was dropped shows its finished Video as
+Watched until the Title is read again.
 
 Rejected, with reasons: **in memory only** (every restart starts cold, and Up
 next cannot be answered offline, which Continue watching's own definition
@@ -59,6 +61,12 @@ The second answer goes only to the asker, because a Title is a client's own
 business (ADR-0005): it is an Answer, not a Snapshot. That is new. Until now one
 Action produced one Response. The IPC bridge and the wire both gain a way to
 deliver an Answer to one client after the Response that opened it.
+
+The row Continue watching is drawn from is not a client's own business. A cache
+write — an open that fetched a Title, a refresh, a read-ahead — that changes the
+row publishes the Snapshot that carries it, without an Action having asked
+(#274, #277). A write that changes nothing a client draws (a look hint keeping a
+Discovered Title no card names) publishes nothing.
 
 When the source a Title came from goes away (its Addon removed, or the TMDB
 Credential removed), the cached copy is **kept** and served until it goes stale.
@@ -93,6 +101,11 @@ places only:
   cached at once, since the cache is the Host's and every client shares it;
 - **every Title opened** is kept, so the second open is instant.
 
+A look hint is a Change in ADR-0022's sense — it takes the Host's lock for the
+moment it queues the read — but it moves nothing a client can see: no Snapshot,
+no Answer, no revision. Only a cache write that changes a row every client draws
+publishes (§2).
+
 The background work runs outside the change lock and bounded, as a question's
 fetches already are (ADR-0022, ADR-0023).
 
@@ -105,8 +118,11 @@ watching Title would still be slow, and Up next would wait for it).
 
 The per-season loop is replaced by TMDB's `append_to_response` on the details
 request, which carries a series' seasons in the same response, up to TMDB's limit
-per request (twenty, documented in TMDB's OpenAPI text). A series with more seasons than
-that is asked in a second batch, and the batches run as a bounded fan-out
+per request (twenty, documented in TMDB's OpenAPI text). The batch is the first
+twenty of the record's own numbering where something already names it — the
+Addon's episode list, or the cached copy a refresh re-reads — and season 0 upward
+where nothing does (a cold Discovered open). A series with more seasons than that
+is asked in further batches, and the batches run as a bounded fan-out
 (ADR-0023), not one after another. A season that fails is still skipped rather
 than blanking the series around it, as today.
 
