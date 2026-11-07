@@ -671,3 +671,118 @@ fn the_reading_publishes_which_episode_is_playing_and_a_film_has_none() {
         "a film's id is not an episode's shape, so there is no position to publish"
     );
 }
+
+// --- stepping a TMDB-keyed Video ---------------------------------------------
+
+/// The Addon a TMDB-keyed episode is stepped and asked through. It answers
+/// `stream` only: it is not the source of the order, TMDB is.
+const TMDB_STREAM_ADDON: &str = "https://mediafusion.example.com/manifest.json";
+const TMDB_STREAM_ADDON_ID: &str = "community.mediafusion";
+const TMDB_STREAM_ADDON_MANIFEST: &str = r#"{
+    "id": "community.mediafusion",
+    "name": "MediaFusion",
+    "version": "4.0.0",
+    "resources": [
+        { "name": "stream", "types": ["movie", "series"], "idPrefixes": ["tt"] }
+    ],
+    "types": ["movie", "series"],
+    "catalogs": []
+}"#;
+
+/// The episode playing, the one before it, and the Addon's `tt` spelling the
+/// Stream ask is resolved to through TMDB.
+const PREVIOUS_EPISODE_STREAM: &str =
+    "https://mediafusion.example.com/stream/series/tt0903747%3A1%3A1.json";
+const PREVIOUS_EPISODE_PREV: &str = "https://stream.example.org/v/tt0903747-1-1-1080p.mkv";
+
+const TMDB_KEY: &str = "0123456789abcdef0123456789abcdef";
+/// The one request a series' details and its Videos are read with.
+const TMDB_TV_1396: &str = concat!(
+    "https://api.themoviedb.org/3/tv/1396?append_to_response=",
+    "season/0,season/1,season/2,season/3,season/4,season/5,season/6,season/7,",
+    "season/8,season/9,season/10,season/11,season/12,season/13,season/14,season/15,",
+    "season/16,season/17,season/18,season/19",
+    "&api_key=0123456789abcdef0123456789abcdef",
+);
+const TMDB_EXTERNAL_IDS_BB: &str =
+    "https://api.themoviedb.org/3/tv/1396/external_ids?api_key=0123456789abcdef0123456789abcdef";
+
+const TMDB_TV_DETAILS_APPENDED: &str = include_str!("fixtures/tmdb-tv-details-appended.json");
+const TMDB_EXTERNAL_BB: &str = include_str!("fixtures/tmdb-external-ids-bb.json");
+
+#[test]
+fn a_tmdb_keyed_episode_steps_to_tmdbs_own_previous_with_the_batched_read() {
+    // The Video is TMDB's, so the list is TMDB's: the Addon answers no `meta`
+    // at all, and the step still lands on the episode the client's own Title
+    // screen was showing. The list is read with the same batched details
+    // request the Title screen uses (ADR-0038 §4).
+    let player = Arc::new(FixturePlayer::new());
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(TMDB_STREAM_ADDON, TMDB_STREAM_ADDON_MANIFEST)
+            .serving(
+                PREVIOUS_EPISODE_STREAM,
+                format!(r#"{{"streams":[{{"name":"1080p","url":"{PREVIOUS_EPISODE_PREV}"}}]}}"#),
+            )
+            .serving(TMDB_TV_1396, TMDB_TV_DETAILS_APPENDED)
+            .serving(TMDB_EXTERNAL_IDS_BB, TMDB_EXTERNAL_BB),
+    );
+    let mut host = Host::new(
+        Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
+        fetcher.clone(),
+        Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
+        Arc::new(host_core::AddonProvider::new(fetcher.clone())),
+        player.clone(),
+        Arc::new(FixtureClock::new()),
+    )
+    .expect("a Host over a store starts");
+    host.dispatch(action(&serde_json::json!({
+        "type": "add_addon",
+        "url": TMDB_STREAM_ADDON,
+    })))
+    .expect("the Addon's manifest is recorded");
+    host.dispatch(action(
+        &serde_json::json!({ "type": "set_tmdb_key", "key": TMDB_KEY }),
+    ))
+    .expect("entering a TMDB key should work");
+    play(
+        &mut host,
+        TMDB_STREAM_ADDON_ID,
+        "series",
+        "tmdb:1396:1:2",
+        PLAYING,
+        Some("the-release"),
+    );
+
+    let published = host
+        .dispatch(previous_episode())
+        .expect("TMDB lists an episode before the one playing");
+
+    assert_eq!(
+        published.snapshots[0]
+            .playback
+            .now_playing
+            .as_ref()
+            .map(|now| now.video.id.as_str()),
+        Some("tmdb:1396:1:1"),
+        "the previous Video is TMDB's own, keyed the way the one playing was"
+    );
+    assert_eq!(
+        player.opened(),
+        vec![PLAYING.to_owned(), PREVIOUS_EPISODE_PREV.to_owned()],
+        "the release the one playing came from continues"
+    );
+    let asked = fetcher.asked();
+    assert!(
+        asked.contains(&PREVIOUS_EPISODE_STREAM.to_owned()),
+        "the playing Addon was asked in the `tt` spelling it declares, resolved from TMDB: {asked:?}"
+    );
+    assert_eq!(
+        asked
+            .iter()
+            .filter(|url| url.starts_with("https://api.themoviedb.org/3/tv/1396?"))
+            .count(),
+        1,
+        "the step reads TMDB's list with one batched details request: {asked:?}"
+    );
+}
