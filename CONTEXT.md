@@ -177,12 +177,27 @@ outlives a Host that was killed rather than stopped.
 _Avoid_: progress (unqualified), history
 
 **Continue watching**:
-The row a client draws from the Host's Watch progress — one card per Video, most
-recently played first — and the first row of a client's Home. It is drawn from
-the Host's own record, so every client shows the same row. Real and offline: it
+The row a client draws from the Host's Watch progress — one card per Title, most
+recently played first — and the first row of a client's Home. A series' card is
+the Video of it played last, or its Up next once that Video is finished; a Title
+whose card would be a finished Video with nothing after it leaves the row,
+though its Watch progress stays. A card opens its Title. It is drawn from the
+Host's own record, so every client shows the same row. Real and offline: it
 needs no account and no network, and an entry whose Addon is gone stays listed,
 marked unplayable.
 _Avoid_: library, history, watchlist, resume
+
+**Up next**:
+The Video a series' Continue watching card moves on to once the Video played
+last is finished: the one after it in the Title's own list of Videos, specials
+apart — a season's finale leads into the next season, the series' last
+numbered episode has no Up next, and a special's Up next is the special after
+it. An Up next already partly watched is resumed like any other
+card. A series caught up with nothing listed after its last Video leaves the row
+and comes back when its Up next is listed, aired or not. A Title opened anywhere
+is anchored on its card's Video — Up next included — and a Title with no card
+opens at its beginning.
+_Avoid_: next episode (that is the Action that steps playback)
 
 **Library**:
 The collection of Titles held in the owner's Stremio account. The room reads the
