@@ -82,7 +82,7 @@ test("a card says how much is left, or that it is done, or why it cannot be play
 
 test("an Up next with no progress says what it is, with no progress bar", () => {
   const next = entry({
-    video: { id: "tt0903747:1:4", name: null, season: 1, episode: 4, thumbnail: null },
+    video: { id: "tt0903747:1:4", name: null, season: 1, episode: 4, thumbnail: null, airDate: null },
     title: {
       addon: "com.linvo.cinemeta",
       id: "tt0903747",
@@ -105,7 +105,7 @@ test("an Up next with no progress says what it is, with no progress bar", () => 
 
 test("an Up next already partly watched reads like any other card", () => {
   const started = entry({
-    video: { id: "tt0903747:1:4", name: null, season: 1, episode: 4, thumbnail: null },
+    video: { id: "tt0903747:1:4", name: null, season: 1, episode: 4, thumbnail: null, airDate: null },
     title: {
       addon: "com.linvo.cinemeta",
       id: "tt0903747",
