@@ -140,6 +140,20 @@ const FILM: Title = {
   videos: [],
 };
 
+/** A series with enough seasons for its chip rail to overflow a narrow view. */
+const MANY_SEASONS: Title = {
+  ...SERIES,
+  id: "tt-seasons",
+  key: { kind: "addon", addon: "com.linvo.cinemeta", id: "tt-seasons" },
+  videos: [1, 2, 3, 4, 5, 6].map((season) => ({
+    id: `tt-seasons:${season}:1`,
+    name: `Season ${season}`,
+    season,
+    episode: 1,
+    thumbnail: null,
+  })),
+};
+
 const UNPLAYABLE: Stream = {
   name: "Torrentio\n4k HDR",
   description: "Breaking Bad S01E01 2160p BluRay\n👤 106 💾 9.53 GB",
@@ -259,6 +273,51 @@ describe("the repertory Title page", () => {
 
     expect(pushed).toHaveLength(1);
     expect(pushed[0]?.name).toBe("Streams");
+  });
+
+  it("draws the season chips as a rail whose arrows page them", () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => ({
+        matches: true,
+        media: "(prefers-reduced-motion: reduce)",
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      })),
+    );
+    const { value } = harness();
+    render(withShell(value, <RepertoryTitleScreen title={MANY_SEASONS} />));
+
+    const row = screen.getByRole("region", { name: "Seasons" });
+    const track = within(row).getByRole("list");
+    Object.defineProperty(track, "clientWidth", { configurable: true, value: 300 });
+    Object.defineProperty(track, "scrollWidth", { configurable: true, value: 1_200 });
+    within(track)
+      .getAllByRole("listitem")
+      .forEach((item, index) => {
+        const left = index * 116;
+        vi.spyOn(item, "getBoundingClientRect").mockReturnValue({
+          x: left,
+          y: 0,
+          width: 100,
+          height: 40,
+          left,
+          top: 0,
+          right: left + 100,
+          bottom: 40,
+          toJSON: () => ({}),
+        } as DOMRect);
+      });
+    fireEvent.scroll(track);
+
+    const left = within(row).getByRole("button", { name: "Scroll Seasons left" });
+    const right = within(row).getByRole("button", { name: "Scroll Seasons right" });
+    expect(left).toBeDisabled();
+    expect(right).toBeEnabled();
+
+    fireEvent.click(right);
+    expect(track.scrollLeft, "the same whole-item page a poster rail takes").toBe(232);
+    expect(left).toBeEnabled();
   });
 });
 

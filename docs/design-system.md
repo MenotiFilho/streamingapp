@@ -375,8 +375,9 @@ the phone's emoji font is not the design system.
   arrows — its D-pad walk, Left/Right and the ticks already step it, and a
   10-foot hero does not need a second pair of pointer marks.
 - **Episode row**: 16:9 still (or a typographic plate), `S#E#` and the name, a
-  **Streams** mark. The season rail is single-select chips in one scrolling
-  line; the episode list scrolls under it.
+  **Streams** mark. The season rail is single-select chips on the same headless
+  `RowTrack` as Discover's genre row — the same arrows, paging, drag and focus
+  reveal — and the episode list scrolls under it.
 
 ### Controls
 

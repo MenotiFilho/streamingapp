@@ -13,6 +13,7 @@ import { useShell } from "../context";
 import { addonLabel } from "../../core/home";
 import { Icon } from "../../kit/icons";
 import { ChoiceChip } from "../../kit/Chip";
+import { RowTrack } from "../RowTrack";
 import { StreamsLoader } from "../StreamsScreen";
 import { pageAttrs } from "../../core/pageLayout";
 import { programIndex } from "./program";
@@ -151,7 +152,12 @@ export function RepertoryTitleScreen({
                 data-kind="row"
                 data-label="Seasons"
               >
-                <div className="rep-title-seasons" data-testid="title-seasons">
+                <RowTrack
+                  label="Seasons"
+                  itemLayout="content"
+                  className="rep-title-seasons"
+                  testId="title-seasons"
+                >
                   {seasons.map(({ season }, index) => (
                     <ChoiceChip
                       key={season ?? "unnumbered"}
@@ -164,7 +170,7 @@ export function RepertoryTitleScreen({
                       <span>{seasonName(season)}</span>
                     </ChoiceChip>
                   ))}
-                </div>
+                </RowTrack>
 
                 <div
                   className="rep-title-episodes"
