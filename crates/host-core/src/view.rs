@@ -440,7 +440,8 @@ impl HostView {
             | ValidatedAction::SetAspect { .. }
             | ValidatedAction::NextEpisode
             | ValidatedAction::PreviousEpisode
-            | ValidatedAction::StopPlayback => {
+            | ValidatedAction::StopPlayback
+            | ValidatedAction::LookHint { .. } => {
                 return Err(ActionError::Malformed {
                     detail: "a change is not a question".to_owned(),
                 })
@@ -634,6 +635,77 @@ impl HostView {
             .enqueue(job);
     }
 
+    /// Queue the read-ahead a card's look hint asks for (ADR-0038 §3, #278).
+    ///
+    /// A fresh copy is not read again. A stale copy is refreshed with no asker:
+    /// a hint answers nobody, so nothing is revised when the read lands. An
+    /// uncached Title is read and kept, which is what makes the next open
+    /// instant. A hint for something no source here could answer — an Addon no
+    /// longer configured, or an id that is not TMDB's — queues nothing: it is
+    /// fire-and-forget, and there would be nobody to tell that it bought
+    /// nothing.
+    pub(crate) fn look_hint(&self, addon: Option<AddonId>, title: TitleRef) {
+        let now = self.clock.now_millis();
+        let (key, cached, work) = match addon {
+            Some(addon) => {
+                let cached = self.cached_for_addon(&addon, &title, now);
+                if cached.as_ref().is_some_and(|cached| cached.is_fresh(now)) {
+                    return;
+                }
+                let key = match &cached {
+                    Some(cached) => cached.title.key.clone(),
+                    None => {
+                        if !self.addons.iter().any(|held| held.id() == &addon) {
+                            return;
+                        }
+                        TitleKey::Addon {
+                            addon: addon.clone(),
+                            id: title.id.clone(),
+                        }
+                    }
+                };
+                (
+                    key,
+                    cached,
+                    Work::Addon {
+                        addon,
+                        asked: title,
+                    },
+                )
+            }
+            None => {
+                // A card that names no Addon is a Discovered Title, whose id is
+                // TMDB's own `tmdb:<id>` spelling (ADR-0020).
+                let Some(kind) = tmdb::Kind::parse(&title.r#type) else {
+                    return;
+                };
+                let Some(id) = title.id.strip_prefix("tmdb:").and_then(tmdb::TmdbId::parse) else {
+                    return;
+                };
+                let cached = self.cached_for_tmdb(id, kind, now);
+                if cached.as_ref().is_some_and(|cached| cached.is_fresh(now)) {
+                    return;
+                }
+                let key = match &cached {
+                    Some(cached) => cached.title.key.clone(),
+                    None => TitleKey::Tmdb { id: id.0 },
+                };
+                (key, cached, Work::Discovered { id, kind })
+            }
+        };
+
+        let job = Job {
+            key,
+            answered: cached.map(|cached| cached.title),
+            work,
+            askers: Vec::new(),
+        };
+        self.background
+            .lock()
+            .expect("the background queue is not poisoned")
+            .enqueue(job);
+    }
+
     /// Run every background job waiting, a bounded fan-out at a time, and answer
     /// how many ran and whether any of them changed a kept Title.
     ///
@@ -673,6 +745,12 @@ impl HostView {
 
         let changed = self.keep_title(&read, Some(replacing), now);
 
+        // A read-ahead answers nobody: keep the copy and let the drain decide
+        // whether it changed something a Snapshot draws (#277, #278).
+        if job.askers.is_empty() {
+            return changed;
+        }
+
         let news = job
             .answered
             .as_ref()
@@ -686,10 +764,8 @@ impl HostView {
 
         // A Title an open asked for is that client's business: the revised
         // Answer above is how it hears, and never a Snapshot (ADR-0005,
-        // ADR-0038 §2). A read-ahead that nobody asked for may have moved
-        // Continue watching, which is every client's business, so a change it
-        // made is what the drain publishes (#277).
-        changed && job.askers.is_empty()
+        // ADR-0038 §2).
+        false
     }
 
     /// Read a Title the way an open does: the Addon that supplied it, and

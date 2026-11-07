@@ -206,6 +206,19 @@ export class Session {
   };
 
   /**
+   * Take a fire-and-forget Action: a card a person only looked at.
+   *
+   * A look hint has no answer and publishes no Snapshot, so there is nothing to
+   * keep and nothing to wait for (#278, ADR-0038 §3). A refusal is swallowed
+   * rather than raised as the window's alert: resting on a card is not asking
+   * for anything, and a Host too old to know the hint is not an error a person
+   * can act on.
+   */
+  hint = (action: Action): void => {
+    void this.link.dispatch(action).catch(() => undefined);
+  };
+
+  /**
    * Remember what this client learned about a Title's playability. The set is
    * only copied when a mark actually changes, so a screen reading it re-renders
    * only for a fact that moved.

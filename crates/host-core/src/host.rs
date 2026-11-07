@@ -681,6 +681,9 @@ impl Host {
             // asked: pairing, where the token goes to the device and the device
             // joining the list goes to every client (#31).
             Resolved::Changed { change, answer } => (change, Some(answer)),
+            // A fire-and-forget hint queued its read-ahead and owes nobody a
+            // Snapshot or an Answer (ADR-0038 §3, #278).
+            Resolved::Silent => return Ok(Response::silent()),
         };
 
         // The Title a pause or a stop leaves is the one the account is owed: the
@@ -1414,6 +1417,12 @@ impl Host {
                 self.disarm_preview();
                 Resolved::Change(Change::Stop)
             }
+            ValidatedAction::LookHint { addon, title } => {
+                // Fire-and-forget: the queue holds the read, and nothing state
+                // publishes is touched (ADR-0038 §3, #278).
+                self.view().look_hint(addon, title);
+                Resolved::Silent
+            }
         })
     }
 
@@ -1747,6 +1756,10 @@ enum Resolved {
         change: Change,
         answer: Answer,
     },
+    /// A fire-and-forget Action that neither changes state nor answers anybody:
+    /// the look hint only queues the read-ahead of the Title a card named
+    /// (ADR-0038 §3, #278).
+    Silent,
 }
 
 /// A candidate for the next episode, judged: the Stream to play, or nothing

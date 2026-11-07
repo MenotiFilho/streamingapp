@@ -10,6 +10,7 @@ import { StremioAccount } from "../StremioAccount";
 import { useTitleOpener } from "../TitleScreen";
 import { libraryAddon, libraryExpired, libraryPreview } from "../../core/accountLibrary";
 import { LogEmpty, LogGroup, LogHead, LogNote, LogPreviewNote } from "./RepertoryLog";
+import { lookHintHandlers, useLookHints } from "./lookHint";
 
 /**
  * The Library as the owner's Stremio account collection (#165, ADR-0029).
@@ -76,6 +77,7 @@ export function RepertoryLibraryScreen() {
 function LibraryRoom() {
   const { snapshot, ask } = useShell();
   const { openTitle } = useTitleOpener();
+  const look = useLookHints();
   const [library, setLibrary] = useState<Library | null>(null);
   const [error, setError] = useState<ActionError | null>(null);
   const [loading, setLoading] = useState(true);
@@ -131,9 +133,15 @@ function LibraryRoom() {
       >
         {library.entries.map((entry) => {
           const addon = libraryAddon(snapshot?.addons ?? [], entry);
+          const preview = libraryPreview(entry);
           return (
             <PosterCard
               key={entry.id}
+              {...lookHintHandlers(look, {
+                addon: addon?.id ?? null,
+                type: preview.type,
+                id: preview.id,
+              })}
               name={entry.name}
               poster={entry.poster}
               continueWatching={entry.continueWatching}
@@ -142,7 +150,7 @@ function LibraryRoom() {
               testId={`library-card-${entry.id}`}
               onClick={
                 addon
-                  ? () => openTitle(addon.id, libraryPreview(entry))
+                  ? () => openTitle(addon.id, preview)
                   : undefined
               }
             />

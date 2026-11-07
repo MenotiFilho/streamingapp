@@ -333,6 +333,23 @@ pub enum Action {
     /// Stop playing: nothing is playing afterwards, and the client is back to
     /// whatever it was reading.
     StopPlayback,
+    /// Read a Title ahead because a client says it is looking at it.
+    ///
+    /// A fire-and-forget Action: it answers nothing, publishes no Snapshot and
+    /// moves no revision, and the Host only queues a read-ahead of the Title the
+    /// card names (ADR-0038 §3, #278). The desktop window sends it once focus or
+    /// the pointer has rested on a card; the remote never does, because a touch
+    /// screen has no hover. The Title is named the way a card names it — the
+    /// Addon that supplied it, or none for a Discovered Title, its type and its
+    /// id — and a Title already held and fresh is not read again.
+    LookHint {
+        /// The Addon the card came from, or `None` for a Discovered Title, which
+        /// no Addon supplied (ADR-0020).
+        #[serde(default)]
+        addon: Option<String>,
+        /// The Title to read ahead, by the type and id the card carries.
+        title: TitleRef,
+    },
 }
 
 /// The Action surface written down once: every variant's own `type` tag, and the
@@ -408,6 +425,7 @@ action_spellings! {
     Action::NextEpisode => "next_episode",
     Action::PreviousEpisode => "previous_episode",
     Action::StopPlayback => "stop_playback",
+    Action::LookHint { .. } => "look_hint",
 }
 
 impl Action {
@@ -642,6 +660,11 @@ impl Action {
             Action::PreviousEpisode => Ok(ValidatedAction::PreviousEpisode),
             Action::SetPaused { paused } => Ok(ValidatedAction::SetPaused { paused }),
             Action::StopPlayback => Ok(ValidatedAction::StopPlayback),
+            Action::LookHint { addon, title } => {
+                let addon = addon.map(|addon| AddonId::parse(&addon)).transpose()?;
+                let title = TitleRef::parse(&title.r#type, &title.id)?;
+                Ok(ValidatedAction::LookHint { addon, title })
+            }
         }
     }
 }
@@ -835,6 +858,13 @@ pub enum ValidatedAction {
     /// played — the mirror of `NextEpisode` (ADR-0021).
     PreviousEpisode,
     StopPlayback,
+    /// A Title a client is looking at, to be read ahead with no answer. The
+    /// Addon is judged, where a card names one, so the queue is never handed an
+    /// id no configured Addon could have (ADR-0038 §3).
+    LookHint {
+        addon: Option<AddonId>,
+        title: TitleRef,
+    },
 }
 
 impl ValidatedAction {
@@ -912,7 +942,8 @@ impl ValidatedAction {
             | Self::SetAspect { .. }
             | Self::NextEpisode
             | Self::PreviousEpisode
-            | Self::StopPlayback => None,
+            | Self::StopPlayback
+            | Self::LookHint { .. } => None,
         }
     }
 }
@@ -2071,6 +2102,57 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_look_hint_names_a_title_the_way_a_card_does_and_may_name_no_addon() {
+        let with_addon = format!(
+            r#"{{"version":{ACTION_VERSION},"action":{{"type":"look_hint","addon":"community.example","title":{{"type":"movie","id":"tt0133093"}}}}}}"#
+        );
+        let addon = AddonId::parse("community.example").expect("an Addon id");
+        let title = TitleRef::parse("movie", "tt0133093").expect("a Title");
+        assert_eq!(
+            Action::parse(&with_addon),
+            Ok(Action::LookHint {
+                addon: Some("community.example".to_owned()),
+                title: title.clone(),
+            })
+        );
+        assert_eq!(
+            Action::parse(&with_addon)
+                .expect("a look hint parses")
+                .validate(),
+            Ok(ValidatedAction::LookHint {
+                addon: Some(addon),
+                title,
+            })
+        );
+
+        let discovered = format!(
+            r#"{{"version":{ACTION_VERSION},"action":{{"type":"look_hint","addon":null,"title":{{"type":"series","id":"tmdb:1396"}}}}}}"#
+        );
+        assert_eq!(
+            Action::parse(&discovered)
+                .expect("a Discovered look hint parses")
+                .validate(),
+            Ok(ValidatedAction::LookHint {
+                addon: None,
+                title: TitleRef::parse("series", "tmdb:1396").expect("a Title"),
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(Action::LookHint {
+                addon: None,
+                title: TitleRef::parse("series", "tmdb:1396").expect("a Title"),
+            })
+            .expect("an Action serializes"),
+            serde_json::json!({
+                "type": "look_hint",
+                "addon": null,
+                "title": { "type": "series", "id": "tmdb:1396" },
+            }),
+            "none is an Addon a card does not name, written down rather than left out"
+        );
+    }
+
     /// One hand-written envelope per Action, so that "every Action" is a list a
     /// person can read. Completeness is the macro's job (the generated match is
     /// exhaustive); what this list proves is that every spelling [`Action::SPELLINGS`]
@@ -2121,6 +2203,7 @@ mod tests {
         r#"{"type":"next_episode"}"#,
         r#"{"type":"previous_episode"}"#,
         r#"{"type":"stop_playback"}"#,
+        r#"{"type":"look_hint","addon":"community.example","title":{"type":"movie","id":"tt0133093"}}"#,
     ];
 
     #[test]

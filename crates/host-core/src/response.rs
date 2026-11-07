@@ -51,6 +51,16 @@ impl Response {
         }
     }
 
+    /// The response to an Action that neither changed nor answered anything: a
+    /// fire-and-forget hint only queues a read-ahead, and the Host owes the
+    /// client that sent it nothing at all (ADR-0038 §3, #278).
+    pub(crate) fn silent() -> Self {
+        Self {
+            snapshots: Vec::new(),
+            answer: None,
+        }
+    }
+
     /// The catalog rows a client asked to see, when that is what it asked.
     pub fn catalogs(&self) -> Option<&[CatalogRow]> {
         match &self.answer {

@@ -44,6 +44,7 @@
     "set_aspect",
     "next_episode",
     "previous_episode",
-    "stop_playback"
+    "stop_playback",
+    "look_hint"
   ]
 }

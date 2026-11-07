@@ -735,6 +735,11 @@ export type Action =
   | { type: "next_episode" }
   // The same step back, decided by the Host the same way (ADR-0021).
   | { type: "previous_episode" }
+  // A Title a card is looking at, read ahead before it is pressed (#278,
+  // ADR-0038 §3). Fire-and-forget: it answers nothing and publishes no
+  // Snapshot. The Addon is the one that supplied the card, or null for a
+  // Discovered Title.
+  | { type: "look_hint"; addon: string | null; title: { type: string; id: string } }
   // Pairing and devices (#31). `pair_device` is the one Action an unpaired
   // connection may take; this window is the Host's own and is already in, so what
   // it sends is the revoke: one device's token is taken away and every other

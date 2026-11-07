@@ -8,9 +8,12 @@
 //! fetches have (ADR-0022, ADR-0023).
 //!
 //! A job is keyed by the Title the cache keys it by, so two opens of one stale
-//! Title collapse into one refresh. Each job carries the Answer it was answered
-//! with: a refresh that lands equal answers nobody, and one that differs sends
-//! a revised Answer to the clients that asked, never a Snapshot (ADR-0005).
+//! Title collapse into one refresh and two hints for one uncached Title collapse
+//! into one read-ahead. A refresh job carries the Answer it was answered with: a
+//! refresh that lands equal answers nobody, and one that differs sends a revised
+//! Answer to the clients that asked, never a Snapshot (ADR-0005). A read-ahead
+//! has no Answer to answer with and no askers, and only fills the cache
+//! (ADR-0038 §3, #278).
 
 use std::sync::{Arc, Mutex};
 
@@ -180,5 +183,30 @@ mod tests {
             "and both clients are owed an answer"
         );
         assert!(queue.take().is_empty(), "taking the queue empties it");
+    }
+
+    #[test]
+    fn a_read_ahead_and_a_stale_open_of_one_title_are_one_job() {
+        let mut queue = BackgroundQueue::default();
+        let mut ahead = job(TitleKey::Tmdb { id: 1 }, Arc::new(FixtureRevisions::new()));
+        ahead.answered = None;
+        ahead.askers.clear();
+        queue.enqueue(ahead);
+        queue.enqueue(job(
+            TitleKey::Tmdb { id: 1 },
+            Arc::new(FixtureRevisions::new()),
+        ));
+
+        let jobs = queue.take();
+        assert_eq!(jobs.len(), 1, "a hint and an open of one Title are one job");
+        assert!(
+            jobs[0].answered.is_some(),
+            "the copy a client was answered with is what a revision is judged against"
+        );
+        assert_eq!(
+            jobs[0].askers.len(),
+            1,
+            "only the client that opened it is owed an answer"
+        );
     }
 }

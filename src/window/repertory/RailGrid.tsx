@@ -14,6 +14,8 @@ import { Button } from "../../kit/Button";
 import { useGridEnd } from "../../core/react/useGridEnd";
 import { yearOf } from "./program";
 import { RailGridHead } from "./RailGridHead";
+import { useLookHints, lookHintHandlers } from "./lookHint";
+import type { LookHintTarget } from "../../core/lookHint";
 
 /** Where a Home whole-row grid's cards come from. */
 export type RailGridSource =
@@ -60,6 +62,7 @@ export function RailGrid({
   onClose,
 }: RailGridProps) {
   const { home, snapshot } = useShell();
+  const look = useLookHints();
   const { rows, paging } = useSyncExternalStore(home.subscribe, home.getSnapshot);
 
   const row =
@@ -76,6 +79,7 @@ export function RailGrid({
   const metas = row?.metas ?? [];
   const failure = row?.failure ?? null;
   const reading = source.kind === "home" ? paging.has(source.rowKey) : false;
+  const lookAt = (target: LookHintTarget) => lookHintHandlers(look, target);
   const pagingView = gridPaging({
     done: source.kind === "home" ? (row?.done ?? false) : false,
     failure,
@@ -115,6 +119,11 @@ export function RailGrid({
             return (
               <ContinueWatchingCard
                 key={`${entry.title.type}/${entry.video.id}`}
+                {...lookAt({
+                  addon: entry.title.addon,
+                  type: entry.title.type,
+                  id: entry.title.id,
+                })}
                 data-grid-card
                 name={cardName(entry)}
                 note={cardNote(entry)}
@@ -132,6 +141,7 @@ export function RailGrid({
           {metas.map((meta) => (
             <PosterCard
               key={meta.id}
+              {...lookAt({ addon: row?.addon ?? null, type: meta.type, id: meta.id })}
               data-grid-card
               name={meta.name}
               poster={meta.poster}

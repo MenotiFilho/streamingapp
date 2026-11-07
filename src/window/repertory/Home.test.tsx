@@ -11,6 +11,7 @@ import type {
 } from "../../core/wire";
 import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContextValue } from "../context";
 import { HomeStore } from "../../core/homeStore";
+import { LOOK_HINT_DWELL_MS } from "../../core/lookHint";
 import { FEATURE_ROTATION_MS } from "./homeProgramme";
 import { RepertoryHome } from "./RepertoryHome";
 import { quietSession } from "../session.testing";
@@ -160,6 +161,7 @@ function renderHome({
 } = {}) {
   const pushed: NewShellLevel[] = [];
   const take = vi.fn(async (_action: Action) => null);
+  const hint = vi.fn();
   const choose = vi.fn();
   const value: ShellContextValue = {
     session: quietSession(),
@@ -182,6 +184,7 @@ function renderHome({
     back: vi.fn(),
     ask,
     take,
+    hint,
     home: new HomeStore(ask),
     setIntentHandler: vi.fn(),
     setBaseIntentHandler: vi.fn(() => () => {}),
@@ -193,7 +196,7 @@ function renderHome({
     </ShellContext.Provider>,
   );
 
-  return { pushed, take, choose, ask, value };
+  return { pushed, take, hint, choose, ask, value };
 }
 
 /** Draw a level the Home harness recorded, as the frame would above the base. */
@@ -732,6 +735,100 @@ describe("Home's Continue watching", () => {
       type: "open_title",
       addon: "cinemeta",
       title: { type: "series", id: "tt1" },
+    });
+  });
+});
+
+describe("Home's look hints", () => {
+  function cardTimers() {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+  }
+
+  it("reads a Title ahead once a card has been focused for the dwell", async () => {
+    const { hint } = renderHome({
+      snapshot: { ...BASE_SNAPSHOT, continueWatching: [resumeEntry()] },
+    });
+    await flush();
+    cardTimers();
+
+    const card = screen.getByTestId("resume-tt1:1:1");
+    act(() => card.focus());
+    act(() => vi.advanceTimersByTime(LOOK_HINT_DWELL_MS - 1));
+    expect(hint, "a card focused only in passing is not read ahead").not.toHaveBeenCalled();
+
+    act(() => vi.advanceTimersByTime(1));
+    expect(hint).toHaveBeenCalledWith({
+      type: "look_hint",
+      addon: "cinemeta",
+      title: { type: "series", id: "tt1" },
+    });
+  });
+
+  it("does not read ahead a card focus has already left", async () => {
+    const { hint } = renderHome({
+      snapshot: { ...BASE_SNAPSHOT, continueWatching: [resumeEntry()] },
+    });
+    await flush();
+    cardTimers();
+
+    const card = screen.getByTestId("resume-tt1:1:1");
+    act(() => card.focus());
+    act(() => vi.advanceTimersByTime(LOOK_HINT_DWELL_MS - 1));
+    act(() => card.blur());
+    act(() => vi.advanceTimersByTime(LOOK_HINT_DWELL_MS));
+
+    expect(hint).not.toHaveBeenCalled();
+  });
+
+  it("reads ahead a poster the pointer rests on, and not one it passes over", async () => {
+    const { hint } = renderHome();
+    await flush();
+    cardTimers();
+
+    const card = screen.getByTestId("card-cinemeta-tt1");
+    fireEvent.pointerEnter(card);
+    act(() => vi.advanceTimersByTime(LOOK_HINT_DWELL_MS - 1));
+    fireEvent.pointerLeave(card);
+    act(() => vi.advanceTimersByTime(LOOK_HINT_DWELL_MS));
+    expect(hint, "the pointer did not rest").not.toHaveBeenCalled();
+
+    fireEvent.pointerEnter(card);
+    act(() => vi.advanceTimersByTime(LOOK_HINT_DWELL_MS));
+    expect(hint).toHaveBeenCalledWith({
+      type: "look_hint",
+      addon: "cinemeta",
+      title: { type: "movie", id: "tt1" },
+    });
+  });
+
+  it("names a Discovered card's Title with no Addon", async () => {
+    const { hint } = renderHome({
+      snapshot: {
+        ...BASE_SNAPSHOT,
+        continueWatching: [
+          resumeEntry({
+            title: {
+              addon: null,
+              id: "tmdb:603",
+              type: "series",
+              name: "The Matrix",
+              poster: null,
+              background: null,
+            },
+          }),
+        ],
+      },
+    });
+    await flush();
+    cardTimers();
+
+    act(() => screen.getByTestId("resume-tt1:1:1").focus());
+    act(() => vi.advanceTimersByTime(LOOK_HINT_DWELL_MS));
+
+    expect(hint).toHaveBeenCalledWith({
+      type: "look_hint",
+      addon: null,
+      title: { type: "series", id: "tmdb:603" },
     });
   });
 });
