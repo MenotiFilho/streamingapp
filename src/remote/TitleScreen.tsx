@@ -15,12 +15,20 @@ import {
   titleArtOf,
   type Season,
 } from "../core/title";
-import { titleFacts, titleSide, unmappedOf } from "../core/titlePage";
+import {
+  titleAnchor,
+  titleFacts,
+  titleMainAction,
+  titleSide,
+  unmappedOf,
+  type TitleAnchor,
+} from "../core/titlePage";
 import type { Title, Video } from "../core/wire";
 import { Button } from "../kit/Button";
 import { Chip, ChoiceChip } from "../kit/Chip";
 import { Icon } from "../kit/icons";
 import type { RemotePayload, RemoteTitle } from "./levels";
+import { playerLevel } from "./playerScreen";
 import {
   FIND_STREAMS,
   TITLE_LOOKING,
@@ -61,9 +69,10 @@ export type TitleScreenProps = {
  * loading level names the card it is opening.
  *
  * What the page is, once answered, is the core's (`titleFacts`, `titleSide`,
- * `unmappedOf`, `theFilm`); this file only draws it at hand scale. Nothing here
- * opens a player: a Play pushes the Streams list, and B8/B9 own the Remote's
- * player.
+ * `unmappedOf`, `theFilm`, `titleAnchor`, `titleMainAction`); this file only
+ * draws it at hand scale. A Play pushes the Streams list; the main Resume takes
+ * the Host's own `resume` and opens the player card on the Stream it starts
+ * (#275).
  */
 export function TitleScreen({
   levelId,
@@ -135,7 +144,13 @@ export function TitleScreen({
 
   if (answer !== null) {
     return (
-      <TitlePage card={card} title={answer} state={state} push={push} />
+      <TitlePage
+        card={card}
+        title={answer}
+        session={session}
+        state={state}
+        push={push}
+      />
     );
   }
 
@@ -185,11 +200,13 @@ export function TitleScreen({
 function TitlePage({
   card,
   title,
+  session,
   state,
   push,
 }: {
   card: RemoteTitle;
   title: Title;
+  session: Session;
   state: SessionState;
   push: (level: NewLevel<RemotePayload>) => string;
 }) {
@@ -199,6 +216,26 @@ function TitlePage({
   const facts = titleFacts(title, null);
   const side = titleSide(title);
   const suppliedBy = title.addon ? addonLabel(state.snapshot, title.addon) : null;
+  const continueWatching = state.snapshot?.continueWatching ?? [];
+  const anchor = titleAnchor(title, continueWatching);
+  const main = titleMainAction(title, continueWatching);
+  const [resuming, setResuming] = useState(false);
+
+  const resume = async () => {
+    if (main === null || resuming) {
+      return;
+    }
+    setResuming(true);
+    try {
+      // Resume is a Change like any other: the Host starts the Stream at its
+      // saved position, and the card is where the playing Stream is driven.
+      if (await session.take(main.action)) {
+        push(playerLevel(title));
+      }
+    } finally {
+      setResuming(false);
+    }
+  };
 
   return (
     <section
@@ -254,9 +291,22 @@ function TitlePage({
         </div>
 
         <aside className="remote-title-side" data-kind={side.kind}>
-          {side.kind === "film" ? (
+          {main ? (
             <Button
               variant="primary"
+              className="remote-play remote-title-main"
+              data-testid="title-resume"
+              pending={resuming}
+              onClick={() => void resume()}
+            >
+              <Icon name="play" className="remote-play-mark" />
+              <span>{main.label}</span>
+            </Button>
+          ) : null}
+
+          {side.kind === "film" ? (
+            <Button
+              variant={main ? "secondary" : "primary"}
               className="remote-play"
               onClick={() => push(streamsLevelFor(title, theFilm(title)))}
             >
@@ -272,6 +322,7 @@ function TitlePage({
             <SeriesProgram
               title={title}
               seasons={side.seasons}
+              anchor={anchor}
               push={push}
             />
           )}
@@ -290,20 +341,31 @@ function TitlePage({
 function SeriesProgram({
   title,
   seasons,
+  anchor,
   push,
 }: {
   title: Title;
   seasons: Season[];
+  /** The Continue watching Video the Title opened on, where it has one. */
+  anchor: TitleAnchor;
   push: (level: NewLevel<RemotePayload>) => string;
 }) {
-  const [season, setSeason] = useState<number | null>(seasons[0]?.season ?? null);
+  const [season, setSeason] = useState<number | null>(anchor.season);
   const [chosen, setChosen] = useState<Video | null>(
-    seasons[0]?.videos[0] ?? null,
+    anchor.video ?? seasons[0]?.videos[0] ?? null,
   );
+  const chosenRef = useRef<HTMLButtonElement | null>(null);
   const shown =
     seasons.find((held) => held.season === season) ?? seasons[0];
   // The machine's own day; `airsNote` is the pure decision (#269).
   const today = new Date();
+
+  // The anchored episode is shown and brought into view on the one scrollport
+  // the page has, so a person lands where the card left them (CONTEXT.md,
+  // *Up next*). jsdom and a browser without the method simply keep the scroll.
+  useEffect(() => {
+    chosenRef.current?.scrollIntoView?.({ block: "nearest" });
+  }, [anchor.video?.id]);
 
   const chooseSeason = (next: number | null) => {
     setSeason(next);
@@ -340,6 +402,7 @@ function SeriesProgram({
               className="remote-episode"
               data-focusable
               data-testid={`episode-${video.id}`}
+              ref={anchor.video?.id === video.id ? chosenRef : undefined}
               aria-pressed={chosen?.id === video.id}
               // An episode is a Video like any other: pressing it opens its
               // Streams, as the window does. Choosing it without opening it

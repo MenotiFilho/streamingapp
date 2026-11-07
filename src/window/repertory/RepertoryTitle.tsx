@@ -18,7 +18,13 @@ import { RowTrack } from "../RowTrack";
 import { StreamsLoader } from "../StreamsScreen";
 import { pageAttrs } from "../../core/pageLayout";
 import { programIndex } from "./program";
-import { titleFacts, titleSide, unmappedOf } from "../../core/titlePage";
+import {
+  titleAnchor,
+  titleFacts,
+  titleMainAction,
+  titleSide,
+  unmappedOf,
+} from "../../core/titlePage";
 
 /**
  * One Title as a single-screen programme page: the backdrop stays the page,
@@ -29,7 +35,9 @@ import { titleFacts, titleSide, unmappedOf } from "../../core/titlePage";
  *
  * The Title is still the client's own (ADR-0005). Opening a Video asks the Host
  * for its Streams and pushes the list as another level, leaving this page and
- * the chosen episode exactly where they were.
+ * the chosen episode exactly where they were. A Title with a Continue watching
+ * entry opens on that entry's Video, and its Resume takes the Host's own
+ * position (#275).
  */
 export function RepertoryTitleScreen({
   title,
@@ -38,11 +46,15 @@ export function RepertoryTitleScreen({
   title: Title;
   preview?: OpenablePreview | null;
 }) {
-  const { snapshot, pop, push } = useShell();
+  const { snapshot, pop, push, take } = useShell();
+  const continueWatching = snapshot?.continueWatching ?? [];
+  const anchor = titleAnchor(title, continueWatching);
+  const anchorVideoId = anchor.video?.id ?? null;
+  const main = titleMainAction(title, continueWatching);
   const side = titleSide(title);
   const seasons = side.kind === "series" ? side.seasons : [];
-  const [shownSeason, setShownSeason] = useState<number | null>(seasons[0]?.season ?? null);
-  const [selected, setSelected] = useState<Video | null>(null);
+  const [shownSeason, setShownSeason] = useState<number | null>(anchor.season);
+  const [selected, setSelected] = useState<Video | null>(anchor.video);
 
   const name = nameOf(title, preview);
   const facts = titleFacts(title, preview);
@@ -52,6 +64,11 @@ export function RepertoryTitleScreen({
   // The day the Airs mark is judged against is the machine's own; the decision
   // itself is pure (#269).
   const today = new Date();
+  const anchoredVideo =
+    anchorVideoId === null
+      ? null
+      : (seasons.flatMap((season) => season.videos).find((video) => video.id === anchorVideoId) ??
+        null);
 
   const play = useCallback(
     (video: Video) => {
@@ -92,7 +109,7 @@ export function RepertoryTitleScreen({
             type="button"
             className="rep-button rep-title-back"
             data-focusable
-            autoFocus
+            autoFocus={anchorVideoId === null}
             onClick={pop}
           >
             Back
@@ -149,6 +166,20 @@ export function RepertoryTitleScreen({
             data-testid="title-side"
             data-kind={side.kind === "series" ? "series" : "film"}
           >
+            {main ? (
+              <button
+                type="button"
+                className="rep-play rep-title-main"
+                data-focusable
+                data-testid="title-resume"
+                autoFocus={anchoredVideo === null}
+                onClick={() => void take(main.action)}
+              >
+                <Icon name="play" className="rep-play-mark" />
+                <span>{main.label}</span>
+              </button>
+            ) : null}
+
             {side.kind === "series" ? (
               <section
                 className="rep-title-program"
@@ -193,6 +224,7 @@ export function RepertoryTitleScreen({
                         className="rep-episode"
                         data-focusable
                         data-testid={`episode-${video.id}`}
+                        autoFocus={anchoredVideo?.id === video.id}
                         aria-pressed={selected?.id === video.id}
                         onClick={() => play(video)}
                       >
@@ -244,6 +276,7 @@ export function RepertoryTitleScreen({
                     className="rep-play"
                     data-focusable
                     data-testid="play-film"
+                    data-secondary={main ? "true" : undefined}
                     onClick={() => play(theFilm(title))}
                   >
                     <Icon name="play" className="rep-play-mark" />

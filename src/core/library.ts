@@ -4,8 +4,9 @@
  * The Host decides what is on the row — one entry per Title, the Video it played
  * last, where that was left, and whether the Addon that supplied its Title is
  * still configured — and this module only says how those facts read (ADR-0002).
- * A press is the `resume` Action today (#275 moves it to opening the Title), and
- * nothing here holds state: what a card shows is the Snapshot the Host published.
+ * A press opens the Title it names (#275); resuming is that screen's main
+ * control. Nothing here holds state: what a card shows is the Snapshot the Host
+ * published.
  */
 
 import type { ContinueEntry } from "./wire";
