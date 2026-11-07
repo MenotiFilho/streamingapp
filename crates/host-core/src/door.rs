@@ -17,11 +17,12 @@
 //! a URL, a query or an error's detail. A fan-out adds one line per Addon ask
 //! (ADR-0023); this one stays the Action's total.
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::action::{Action, ActionError};
 use crate::addon::AddonId;
+use crate::background::RevisionSink;
 use crate::device::{DeviceSummary, DeviceToken};
 use crate::host::Host;
 use crate::log::millis;
@@ -57,6 +58,20 @@ impl HostDoor {
     /// Take an Action: validate it, then resolve it as the question or the
     /// change its one classification says it is.
     pub fn dispatch(&self, action: Action) -> Result<Response, ActionError> {
+        self.dispatch_asking(action, None)
+    }
+
+    /// The same, saying where an Answer that arrives after the Response goes.
+    ///
+    /// The window's bridge and the wire pass the client that asked — one window,
+    /// or one device's socket — so a stale Title's background refresh can answer
+    /// that client alone (ADR-0038 §2). The client is a [`RevisionSink`] and not
+    /// a name `host-core` knows: the transport decides who it is.
+    pub fn dispatch_asking(
+        &self,
+        action: Action,
+        revisions: Option<Arc<dyn RevisionSink>>,
+    ) -> Result<Response, ActionError> {
         let started = Instant::now();
         let claimed = action.spelling();
 
@@ -84,7 +99,7 @@ impl HostDoor {
                 host.view()
             };
 
-            let result = view.ask(validated);
+            let result = view.ask(validated, revisions.as_ref());
             question_log(
                 claimed,
                 addon.as_ref(),
@@ -100,6 +115,24 @@ impl HostDoor {
             change_log(claimed, started.elapsed(), outcome(&result, "applied"));
             result
         }
+    }
+
+    /// Run the background queue, a bounded fan-out at a time, and answer how
+    /// many jobs ran.
+    ///
+    /// The jobs are taken and the view cloned under the lock, and then every
+    /// fetch runs with it released: a refresh is not a change, and a slow
+    /// source must not keep every client waiting (ADR-0022, ADR-0038 §3). The
+    /// shell drains this on a worker thread; a test drains it inline.
+    pub fn drain(&self) -> usize {
+        let (jobs, view) = {
+            let host = self.host.lock().expect(POISONED);
+            (host.take_jobs(), host.view())
+        };
+        if jobs.is_empty() {
+            return 0;
+        }
+        view.drain(jobs)
     }
 
     /// The state as it stands — what a client that has just connected, or just

@@ -6,10 +6,10 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, AddonId, AddonProvider, Answer, FixtureClock, FixtureFetcher,
-    FixturePlayer, FixtureStremio, Host, InMemorySecretStore, InMemoryStore, Provider,
-    SecretBackend, Store, Title, TitleCard, TitleKey, TitleStub, VideoRef, WatchProgress,
-    ACTION_VERSION, MAX_CACHED_TITLES,
+    Action, AddonId, AddonProvider, Answer, FixtureClock, FixtureFetcher, FixturePlayer,
+    FixtureStremio, Host, InMemorySecretStore, InMemoryStore, Provider, SecretBackend, Store,
+    Title, TitleCard, TitleKey, TitleStub, VideoRef, WatchProgress, ACTION_VERSION,
+    MAX_CACHED_TITLES,
 };
 use serde_json::{json, Value};
 
@@ -280,8 +280,14 @@ fn a_running_series_is_fresh_for_a_day_and_refetched_after_it() {
     opened(&mut host, open_discovered(200001, "series"));
     assert_eq!(
         asked_for(&fetcher, TMDB_TV_200001),
+        1,
+        "a stale open answers the cached copy before it reaches anything"
+    );
+    assert_eq!(host.drain(), 1);
+    assert_eq!(
+        asked_for(&fetcher, TMDB_TV_200001),
         2,
-        "past the day it is read again"
+        "past the day draining reads it again (#272)"
     );
 }
 
@@ -303,7 +309,17 @@ fn a_film_is_fresh_for_thirty_days_and_refetched_after_them() {
 
     clock.tick(2);
     opened(&mut host, open_discovered(603, "movie"));
-    assert_eq!(asked_for(&fetcher, TMDB_MOVIE_603), 2, "past the month");
+    assert_eq!(
+        asked_for(&fetcher, TMDB_MOVIE_603),
+        1,
+        "the stale open is answered from the cache"
+    );
+    assert_eq!(host.drain(), 1);
+    assert_eq!(
+        asked_for(&fetcher, TMDB_MOVIE_603),
+        2,
+        "past the month draining reads it again (#272)"
+    );
 }
 
 #[test]
@@ -327,8 +343,14 @@ fn an_ended_series_is_fresh_for_thirty_days_and_refetched_after_them() {
     opened(&mut host, open_discovered(1396, "series"));
     assert_eq!(
         asked_for(&fetcher, TMDB_TV_1396),
+        season_reads,
+        "the stale open is answered from the cache"
+    );
+    assert_eq!(host.drain(), 1);
+    assert_eq!(
+        asked_for(&fetcher, TMDB_TV_1396),
         season_reads + 1,
-        "past the month its details and Videos are read again"
+        "past the month draining reads its details and Videos again (#272)"
     );
 }
 
@@ -348,8 +370,14 @@ fn an_addons_title_is_fresh_for_thirty_days_and_refetched_after_them() {
     opened(&mut host, open("com.linvo.cinemeta", "movie", "tt0133093"));
     assert_eq!(
         asked_for(&fetcher, CINEMETA_MOVIE),
+        1,
+        "the stale open is answered from the cache"
+    );
+    assert_eq!(host.drain(), 1);
+    assert_eq!(
+        asked_for(&fetcher, CINEMETA_MOVIE),
         2,
-        "a stale Title is refetched before it answers (#271)"
+        "a stale Title is refetched behind its answer (#272)"
     );
 }
 
@@ -374,10 +402,16 @@ fn removing_a_titles_addon_keeps_its_copy_until_it_goes_stale() {
     assert_eq!(fetcher.asked().len(), asked, "and it asked nothing");
 
     clock.tick(30 * DAY + 1);
-    let stale = host.dispatch(open("com.linvo.cinemeta", "movie", "tt0133093"));
-    assert!(
-        matches!(stale, Err(ActionError::UnknownAddon { .. })),
-        "once stale, nothing answers for it: {stale:?}"
+    let stale = opened(&mut host, open("com.linvo.cinemeta", "movie", "tt0133093"));
+    assert_eq!(
+        stale.name, "The Matrix",
+        "a stale copy is still served: the refresh cannot better it"
+    );
+    assert_eq!(host.drain(), 1);
+    assert_eq!(
+        fetcher.asked().len(),
+        asked,
+        "the failed refresh asked nothing"
     );
     assert_eq!(
         store.persisted_titles().len(),
@@ -405,12 +439,12 @@ fn removing_the_tmdb_key_keeps_a_discovered_title_until_it_goes_stale() {
     assert_eq!(fetcher.asked().len(), asked, "no key, and no fetch either");
 
     clock.tick(30 * DAY + 1);
-    let stale = host.dispatch(open_discovered(603, "movie"));
+    let stale = opened(&mut host, open_discovered(603, "movie"));
     assert_eq!(
-        stale.err(),
-        Some(ActionError::NoTmdbCredential),
-        "a stale Discovered Title has nothing left to ask"
+        stale.name, "The Matrix",
+        "a stale Discovered Title is still served"
     );
+    assert_eq!(host.drain(), 1);
     assert_eq!(
         fetcher.asked().len(),
         asked,
@@ -430,17 +464,30 @@ fn a_stale_title_whose_addon_is_gone_is_refetched_from_tmdb() {
     clock.tick(30 * DAY + 1);
     let asked = fetcher.asked().len();
 
+    let stale = opened(&mut host, open("com.linvo.cinemeta", "series", "tt0903747"));
+    assert_eq!(
+        stale.key,
+        TitleKey::Tmdb { id: 1396 },
+        "the stale copy still opens"
+    );
+
+    assert_eq!(host.drain(), 1);
     let refreshed = opened(&mut host, open("com.linvo.cinemeta", "series", "tt0903747"));
 
     assert_eq!(refreshed.key, TitleKey::Tmdb { id: 1396 });
     assert_eq!(
-        refreshed.addon, None,
-        "TMDB is what still answers, so the answer is a Discovered Title's"
+        refreshed.addon,
+        Some(AddonId::parse("com.linvo.cinemeta").expect("an Addon id")),
+        "TMDB described it, but the Title is still the one the client opened"
+    );
+    assert_eq!(
+        refreshed.id, "tt0903747",
+        "an Addon's id, kept however the refreshed copy is described"
     );
     assert_eq!(
         fetcher.asked().len(),
         asked + 1,
-        "the record and its appended seasons are one request now: {:?}",
+        "draining read the record and its appended seasons in one request: {:?}",
         &fetcher.asked()[asked..]
     );
 }

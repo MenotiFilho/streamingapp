@@ -32,6 +32,12 @@ use tauri::Manager;
 /// picture itself never travels through this.
 const SAMPLE: Duration = Duration::from_millis(250);
 
+/// How often the background queue is looked at: a stale Title's refresh, and
+/// the read-aheads later tickets add. A refresh is not something a person
+/// waits for, so a beat this coarse is enough, and an idle queue costs one
+/// lock and nothing else (ADR-0038 §3).
+const BACKGROUND: Duration = Duration::from_millis(500);
+
 fn main() {
     tauri::Builder::default()
         // First, so that a second launch is turned away before it touches the
@@ -181,6 +187,23 @@ fn main() {
                 if let Some(snapshot) = sampled {
                     tracing::debug!(revision = snapshot.revision, "playback moved on");
                     ipc::publish(&clock, &[snapshot]);
+                }
+            });
+
+            // The Host's background queue. A stale Title answers its cached
+            // copy at once and is refreshed here, outside the change lock; a
+            // refresh that changed the Title reaches the client that asked
+            // (ADR-0038 §2). `host-core` holds no threads, so the shell drains
+            // it, the way it samples the Player.
+            let background = handle.clone();
+            std::thread::spawn(move || loop {
+                std::thread::sleep(BACKGROUND);
+                loop {
+                    let ran = background.state::<ipc::HostHandle>().drain();
+                    if ran == 0 {
+                        break;
+                    }
+                    tracing::debug!(jobs = ran, "the background queue ran");
                 }
             });
 

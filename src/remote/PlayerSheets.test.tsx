@@ -249,6 +249,7 @@ function mountRoom(respond?: Respond) {
     snapshot: () => host.snapshot(),
     dispatch: (action) => host.dispatch(action),
     onSnapshot: (handler) => host.onSnapshot(handler),
+    onRevision: (handler) => host.onRevision(handler),
     state: () => state,
     onState: (handler) => host.onState(handler),
     close: () => host.close(),

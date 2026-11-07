@@ -16,6 +16,14 @@ export const ACTION_VERSION = 1;
  */
 export const SNAPSHOT_EVENT = "host://snapshot";
 
+/**
+ * The event the Host delivers a revised Answer on: a stale Title's background
+ * refresh landed and differs (ADR-0038 §2). Mirrors `REVISION_EVENT` in
+ * `src-tauri/src/ipc.rs`. It goes to the window that asked, and is never a
+ * Snapshot: the window swaps it in only while that Title is open.
+ */
+export const REVISION_EVENT = "host://revision";
+
 /** The Host's state as it travels outward. Mirrors `Snapshot` in `host-core`. */
 export type Snapshot = {
   revision: number;
@@ -603,6 +611,11 @@ export type Response = {
     // core sees the Device and no credential.
     | { paired: { device: DeviceSummary } }
     | { library: Library }
+    // The same Title answered again, after a background refresh (ADR-0038 §2).
+    // It never rides a Response: it reaches the client after the Reply that
+    // opened the Title, on its own event or frame, and is marked here so both
+    // clients read one Answer shape.
+    | { revision: Title }
     | null;
 };
 

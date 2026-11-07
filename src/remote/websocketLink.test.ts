@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import type { ActionError } from "../core/errors";
 import type { LinkCapabilities, LinkContractFixture } from "../core/testing/linkContract";
 import { describeLinkContract } from "../core/testing/linkContract";
-import type { Action, Response } from "../core/wire";
+import type { Action, Response, Title } from "../core/wire";
 import {
   FakeHost,
   ISSUED_TOKEN,
@@ -143,6 +143,63 @@ describe("the Remote's link: pairing", () => {
       ).rejects.toEqual({ kind: "pairing" });
       expect(tokens.held()).toBeNull();
       expect(link.state().kind).toBe("unpaired");
+    } finally {
+      release();
+    }
+  });
+});
+
+describe("the Remote's link: a revised Title", () => {
+  const REVISED: Title = {
+    addon: "cinemeta",
+    id: "tt1",
+    key: { kind: "addon", addon: "cinemeta", id: "tt1" },
+    type: "movie",
+    name: "One, again",
+    poster: null,
+    background: null,
+    logo: null,
+    description: null,
+    releaseInfo: null,
+    runtime: null,
+    imdbRating: null,
+    genres: [],
+    videos: [],
+  };
+
+  test("a revision on this socket arrives as the Title it revises", async () => {
+    const { host, link, release } = fakeLink(
+      { known: { device: PHONE, token: ISSUED_TOKEN } },
+      ISSUED_TOKEN,
+    );
+    try {
+      await host.connect();
+      const seen: Title[] = [];
+      const stop = link.onRevision((title) => seen.push(title));
+
+      host.revise(REVISED);
+      expect(seen).toEqual([REVISED]);
+
+      stop();
+      host.revise(REVISED);
+      expect(seen, "an unsubscribed screen hears nothing more").toEqual([REVISED]);
+    } finally {
+      release();
+    }
+  });
+
+  test("a payload that is not a revision is ignored rather than guessed at", async () => {
+    const { host, link, release } = fakeLink(
+      { known: { device: PHONE, token: ISSUED_TOKEN } },
+      ISSUED_TOKEN,
+    );
+    try {
+      await host.connect();
+      const seen: Title[] = [];
+      link.onRevision((title) => seen.push(title));
+
+      host.socket()?.deliver({ version: 1, revision: { not: "a revision" } });
+      expect(seen).toEqual([]);
     } finally {
       release();
     }

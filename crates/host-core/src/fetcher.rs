@@ -73,6 +73,19 @@ impl FixtureFetcher {
         self.holding(url, Err(error))
     }
 
+    /// Replace what `url` answers from now on.
+    ///
+    /// The same URL read twice is how a background refresh is tested: the first
+    /// read is the copy a client was answered with, and the second is the news
+    /// the refresh brings. A `429` is served the same way, as the failure it is
+    /// (ADR-0038 §2).
+    pub fn update(&self, url: &str, response: Result<String, FetchError>) {
+        self.responses
+            .lock()
+            .expect("the fixture fetcher is not poisoned")
+            .insert(url.to_owned(), response);
+    }
+
     /// Every URL this fetcher was asked for, in the order the asks reached it.
     ///
     /// A fan-out does not promise that order (ADR-0023), so a test that goes

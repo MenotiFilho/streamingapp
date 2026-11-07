@@ -1,4 +1,4 @@
-import type { Action, DeviceSummary, Response, Snapshot } from "./wire";
+import type { Action, DeviceSummary, Response, Snapshot, Title } from "./wire";
 
 /**
  * Where a link to the Host stands (ADR-0035 §1).
@@ -28,11 +28,11 @@ export type LinkState =
  * failure to explain. `snapshot()` resolves the state a client that has just
  * arrived is owed: once per `ready`, and never for a link that has not paired.
  *
- * `onSnapshot` and `onState` both return a synchronous unsubscribe, because a
- * client unsubscribes while it unmounts and cannot wait for a promise to settle.
- * A caller reads `state()` first; `onState` reports transitions after that.
- * `close()` moves the link to `closed`, tells the state handlers, and silences
- * both kinds of subscription.
+ * `onSnapshot`, `onRevision` and `onState` all return a synchronous unsubscribe,
+ * because a client unsubscribes while it unmounts and cannot wait for a promise
+ * to settle. A caller reads `state()` first; `onState` reports transitions after
+ * that. `close()` moves the link to `closed`, tells the state handlers, and
+ * silences every subscription.
  */
 export type HostLink = {
   /** The state as it stands — what a client that has just arrived is owed. */
@@ -41,6 +41,12 @@ export type HostLink = {
   dispatch(action: Action): Promise<Response>;
   /** Follow the Snapshots the Host publishes. */
   onSnapshot(handler: (snapshot: Snapshot) => void): () => void;
+  /**
+   * Follow the revised Titles the Host sends after a Reply: a stale Title's
+   * background refresh landed and differs (ADR-0038 §2). Only the client that
+   * asked is sent one; a screen swaps it in only while that Title is open.
+   */
+  onRevision(handler: (title: Title) => void): () => void;
   /** Where the link stands now. */
   state(): LinkState;
   /** Follow where the link stands. */

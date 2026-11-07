@@ -29,7 +29,7 @@ use serde_json::{json, Value};
 
 use crate::action::{Action, ActionError, ACTION_VERSION};
 use crate::device::{DeviceSummary, DeviceToken};
-use crate::response::Response;
+use crate::response::{Answer, Response};
 use crate::snapshot::Snapshot;
 
 /// The version of the protocol, which is the version of the Action envelope.
@@ -62,6 +62,12 @@ pub enum ServerFrame {
     /// was unreadable enough that there was no id to correlate — a version
     /// mismatch, or a frame that was not a frame.
     Refusal { id: Option<u64>, error: ActionError },
+    /// An Answer the Host owes a client after the Reply that opened its Title:
+    /// the revised Title a background refresh landed with (ADR-0038 §2). No id,
+    /// because it answers no command; the Answer itself says which Title it is,
+    /// and a client swaps it in only while that Title is still open. It is never
+    /// a Snapshot (ADR-0005).
+    Revision(Box<Answer>),
     /// State, pushed to every paired client. Boxed because a Snapshot is the
     /// largest thing here by an order of magnitude and every other frame is a
     /// handful of words.
@@ -209,6 +215,10 @@ impl ServerFrame {
                 }
                 frame
             }
+            Self::Revision(answer) => json!({
+                "version": WIRE_VERSION,
+                "revision": serde_json::to_value(&**answer).expect("an Answer serializes"),
+            }),
             Self::Snapshot(snapshot) => json!({
                 "version": WIRE_VERSION,
                 "snapshot": serde_json::to_value(snapshot).expect("a Snapshot serializes"),
@@ -432,6 +442,58 @@ mod tests {
         assert_eq!(
             ClientFrame::parse(&hello.to_json()).expect("the frame it just wrote"),
             hello
+        );
+    }
+
+    #[test]
+    fn a_revised_answer_is_its_own_frame_and_names_itself() {
+        // A revision follows the Reply that opened its Title, so it carries no
+        // id: the Answer itself says it is a revision, and which Title it is.
+        let title = crate::meta::Title {
+            addon: None,
+            id: "tmdb:1396".to_owned(),
+            key: crate::meta::TitleKey::Tmdb { id: 1396 },
+            r#type: "series".to_owned(),
+            name: "One".to_owned(),
+            poster: None,
+            background: None,
+            logo: None,
+            description: None,
+            release_info: None,
+            runtime: None,
+            imdb_rating: None,
+            genres: Vec::new(),
+            videos: Vec::new(),
+        };
+        let answer = Answer::Revision(Box::new(title));
+        let spelled = json!({
+            "revision": {
+                "addon": null,
+                "id": "tmdb:1396",
+                "key": { "kind": "tmdb", "id": 1396 },
+                "type": "series",
+                "name": "One",
+                "poster": null,
+                "background": null,
+                "logo": null,
+                "description": null,
+                "releaseInfo": null,
+                "runtime": null,
+                "imdbRating": null,
+                "genres": [],
+                "videos": [],
+            }
+        });
+
+        assert_eq!(
+            serde_json::to_value(&answer).expect("a revised Answer serializes"),
+            spelled,
+            "the Answer is marked as a revision"
+        );
+        assert_eq!(
+            ServerFrame::Revision(Box::new(answer)).to_value(),
+            json!({ "version": WIRE_VERSION, "revision": spelled }),
+            "and the frame carries it whole, with no id to correlate"
         );
     }
 

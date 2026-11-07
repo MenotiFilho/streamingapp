@@ -130,6 +130,12 @@ pub enum Answer {
     /// The Title a client asked to open, with the Videos it can be watched as.
     /// Boxed because a Title is many fields and a `Vec` of rows is three words.
     Title(Box<Title>),
+    /// The same Title answered again, after the background refresh of a stale
+    /// copy landed and differs (ADR-0038 §2). It follows the Response that
+    /// opened the Title, goes only to the client that asked, and is never a
+    /// Snapshot (ADR-0005): a client swaps it in if that Title is still open and
+    /// ignores it otherwise.
+    Revision(Box<Title>),
     /// The Streams a Video can be played as: one group per Addon that answered
     /// the `stream` request, in the configured order.
     Streams(Vec<AddonStreams>),

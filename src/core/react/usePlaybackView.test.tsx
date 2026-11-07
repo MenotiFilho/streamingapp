@@ -63,6 +63,7 @@ function fakeLink(initial: Snapshot) {
       return held;
     },
     onSnapshot: () => () => {},
+    onRevision: () => () => {},
     state: () => state,
     onState: () => () => {},
     close: () => {},

@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { SNAPSHOT_EVENT } from "../core/wire";
 import type {
   Action,
   AddonStreams,
@@ -175,7 +176,7 @@ function fakeHost(
   respond?: Answering,
 ) {
   const invocations: Array<{ command: string; args?: Record<string, unknown> }> = [];
-  let listener: ((event: { payload: Snapshot }) => void) | undefined;
+  const listeners = new Map<string, (event: { payload: Snapshot }) => void>();
   let current = initial;
 
   const transport: Transport = {
@@ -207,10 +208,13 @@ function fakeHost(
       }
       return { snapshots: [], answer: null } as T;
     },
-    listen: async <T,>(_event: string, handler: (event: { payload: T }) => void) => {
-      listener = handler as (event: { payload: Snapshot }) => void;
+    listen: async <T,>(event: string, handler: (event: { payload: T }) => void) => {
+      const listener = handler as (event: { payload: Snapshot }) => void;
+      listeners.set(event, listener);
       return () => {
-        listener = undefined;
+        if (listeners.get(event) === listener) {
+          listeners.delete(event);
+        }
       };
     },
   };
@@ -220,7 +224,7 @@ function fakeHost(
     invocations,
     publish(next: Snapshot) {
       current = next;
-      listener?.({ payload: next });
+      listeners.get(SNAPSHOT_EVENT)?.({ payload: next });
     },
   };
 }
