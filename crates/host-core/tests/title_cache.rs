@@ -22,27 +22,29 @@ const TMDB_FIND_SERIES: &str =
     "https://api.themoviedb.org/3/find/tt0903747?external_source=imdb_id&api_key=0123456789abcdef0123456789abcdef";
 const TMDB_MOVIE_603: &str =
     "https://api.themoviedb.org/3/movie/603?api_key=0123456789abcdef0123456789abcdef";
-const TMDB_TV_1396: &str =
-    "https://api.themoviedb.org/3/tv/1396?api_key=0123456789abcdef0123456789abcdef";
-const TMDB_TV_1396_SEASON_0: &str =
-    "https://api.themoviedb.org/3/tv/1396/season/0?api_key=0123456789abcdef0123456789abcdef";
-const TMDB_TV_1396_SEASON_1: &str =
-    "https://api.themoviedb.org/3/tv/1396/season/1?api_key=0123456789abcdef0123456789abcdef";
-const TMDB_TV_1396_SEASON_2: &str =
-    "https://api.themoviedb.org/3/tv/1396/season/2?api_key=0123456789abcdef0123456789abcdef";
-const TMDB_TV_200001: &str =
-    "https://api.themoviedb.org/3/tv/200001?api_key=0123456789abcdef0123456789abcdef";
+/// The one request a series' details and its Videos are read with.
+const TMDB_TV_1396: &str = concat!(
+    "https://api.themoviedb.org/3/tv/1396?append_to_response=",
+    "season/0,season/1,season/2,season/3,season/4,season/5,season/6,season/7,",
+    "season/8,season/9,season/10,season/11,season/12,season/13,season/14,season/15,",
+    "season/16,season/17,season/18,season/19",
+    "&api_key=0123456789abcdef0123456789abcdef",
+);
+const TMDB_TV_200001: &str = concat!(
+    "https://api.themoviedb.org/3/tv/200001?append_to_response=",
+    "season/0,season/1,season/2,season/3,season/4,season/5,season/6,season/7,",
+    "season/8,season/9,season/10,season/11,season/12,season/13,season/14,season/15,",
+    "season/16,season/17,season/18,season/19",
+    "&api_key=0123456789abcdef0123456789abcdef",
+);
 
 const CINEMETA_MANIFEST: &str = include_str!("fixtures/cinemeta-manifest.json");
 const MOVIE_BODY: &str = include_str!("fixtures/cinemeta-meta-movie.json");
 const SERIES_BODY: &str = include_str!("fixtures/cinemeta-meta-series.json");
 const TMDB_FIND_SERIES_BODY: &str = include_str!("fixtures/tmdb-find-bb.json");
 const TMDB_MOVIE_DETAILS: &str = include_str!("fixtures/tmdb-movie-details.json");
-const TMDB_TV_DETAILS: &str = include_str!("fixtures/tmdb-tv-details.json");
+const TMDB_TV_DETAILS_APPENDED: &str = include_str!("fixtures/tmdb-tv-details-appended.json");
 const TMDB_TV_DETAILS_MAKING: &str = include_str!("fixtures/tmdb-tv-details-making.json");
-const TMDB_TV_SEASON_0: &str = include_str!("fixtures/tmdb-tv-season-0.json");
-const TMDB_TV_SEASON_1: &str = include_str!("fixtures/tmdb-tv-season-1.json");
-const TMDB_TV_SEASON_2: &str = include_str!("fixtures/tmdb-tv-season-2.json");
 
 const DAY: i64 = 24 * 60 * 60 * 1000;
 const SIX_MONTHS: i64 = 180 * DAY;
@@ -154,10 +156,7 @@ fn breaking_bad_fetcher() -> FixtureFetcher {
         .serving(CINEMETA, CINEMETA_MANIFEST)
         .serving(CINEMETA_SERIES, SERIES_BODY)
         .serving(TMDB_FIND_SERIES, TMDB_FIND_SERIES_BODY)
-        .serving(TMDB_TV_1396, TMDB_TV_DETAILS)
-        .serving(TMDB_TV_1396_SEASON_0, TMDB_TV_SEASON_0)
-        .serving(TMDB_TV_1396_SEASON_1, TMDB_TV_SEASON_1)
-        .serving(TMDB_TV_1396_SEASON_2, TMDB_TV_SEASON_2)
+        .serving(TMDB_TV_1396, TMDB_TV_DETAILS_APPENDED)
 }
 
 fn asked_for(fetcher: &FixtureFetcher, url: &str) -> usize {
@@ -315,11 +314,11 @@ fn an_ended_series_is_fresh_for_thirty_days_and_refetched_after_them() {
     let mut host = host_over(store, fetcher.clone(), clock.clone(), true);
 
     opened(&mut host, open_discovered(1396, "series"));
-    let season_reads = asked_for(&fetcher, TMDB_TV_1396_SEASON_1);
+    let season_reads = asked_for(&fetcher, TMDB_TV_1396);
     clock.tick(30 * DAY - 1);
     opened(&mut host, open_discovered(1396, "series"));
     assert_eq!(
-        asked_for(&fetcher, TMDB_TV_1396_SEASON_1),
+        asked_for(&fetcher, TMDB_TV_1396),
         season_reads,
         "a series TMDB says has ended is not read again inside the month"
     );
@@ -327,9 +326,9 @@ fn an_ended_series_is_fresh_for_thirty_days_and_refetched_after_them() {
     clock.tick(2);
     opened(&mut host, open_discovered(1396, "series"));
     assert_eq!(
-        asked_for(&fetcher, TMDB_TV_1396_SEASON_1),
+        asked_for(&fetcher, TMDB_TV_1396),
         season_reads + 1,
-        "past the month its Videos are read again"
+        "past the month its details and Videos are read again"
     );
 }
 
@@ -440,8 +439,8 @@ fn a_stale_title_whose_addon_is_gone_is_refetched_from_tmdb() {
     );
     assert_eq!(
         fetcher.asked().len(),
-        asked + 4,
-        "the record and its three seasons were read again: {:?}",
+        asked + 1,
+        "the record and its appended seasons are one request now: {:?}",
         &fetcher.asked()[asked..]
     );
 }

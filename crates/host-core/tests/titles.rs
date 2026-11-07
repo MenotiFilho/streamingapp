@@ -23,14 +23,15 @@ const TMDB_FIND_SERIES: &str =
     "https://api.themoviedb.org/3/find/tt0903747?external_source=imdb_id&api_key=0123456789abcdef0123456789abcdef";
 const TMDB_MOVIE_603: &str =
     "https://api.themoviedb.org/3/movie/603?api_key=0123456789abcdef0123456789abcdef";
-const TMDB_TV_1396: &str =
-    "https://api.themoviedb.org/3/tv/1396?api_key=0123456789abcdef0123456789abcdef";
-const TMDB_TV_1396_SEASON_0: &str =
-    "https://api.themoviedb.org/3/tv/1396/season/0?api_key=0123456789abcdef0123456789abcdef";
-const TMDB_TV_1396_SEASON_1: &str =
-    "https://api.themoviedb.org/3/tv/1396/season/1?api_key=0123456789abcdef0123456789abcdef";
-const TMDB_TV_1396_SEASON_2: &str =
-    "https://api.themoviedb.org/3/tv/1396/season/2?api_key=0123456789abcdef0123456789abcdef";
+/// The one request a series' details and its Videos are read with: TMDB's
+/// twenty-item `append_to_response` cap, spent on seasons 0 to 19.
+const TMDB_TV_1396: &str = concat!(
+    "https://api.themoviedb.org/3/tv/1396?append_to_response=",
+    "season/0,season/1,season/2,season/3,season/4,season/5,season/6,season/7,",
+    "season/8,season/9,season/10,season/11,season/12,season/13,season/14,season/15,",
+    "season/16,season/17,season/18,season/19",
+    "&api_key=0123456789abcdef0123456789abcdef",
+);
 
 const CINEMETA_MANIFEST: &str = include_str!("fixtures/cinemeta-manifest.json");
 const STREMBOXD_MANIFEST: &str = include_str!("fixtures/stremboxd-manifest.json");
@@ -43,9 +44,7 @@ const TMDB_FIND_MOVIE_BODY: &str = include_str!("fixtures/tmdb-find-matrix.json"
 const TMDB_FIND_SERIES_BODY: &str = include_str!("fixtures/tmdb-find-bb.json");
 const TMDB_MOVIE_DETAILS: &str = include_str!("fixtures/tmdb-movie-details.json");
 const TMDB_TV_DETAILS: &str = include_str!("fixtures/tmdb-tv-details.json");
-const TMDB_TV_SEASON_0: &str = include_str!("fixtures/tmdb-tv-season-0.json");
-const TMDB_TV_SEASON_1: &str = include_str!("fixtures/tmdb-tv-season-1.json");
-const TMDB_TV_SEASON_2: &str = include_str!("fixtures/tmdb-tv-season-2.json");
+const TMDB_TV_DETAILS_APPENDED: &str = include_str!("fixtures/tmdb-tv-details-appended.json");
 
 /// A Player a test drives by hand: nothing plays unless a test says so, and
 /// every telling is remembered.
@@ -480,10 +479,7 @@ fn breaking_bad_fetcher() -> Arc<FixtureFetcher> {
             .serving(CINEMETA, CINEMETA_MANIFEST)
             .serving(CINEMETA_SERIES, SERIES_BODY)
             .serving(TMDB_FIND_SERIES, TMDB_FIND_SERIES_BODY)
-            .serving(TMDB_TV_1396, TMDB_TV_DETAILS)
-            .serving(TMDB_TV_1396_SEASON_0, TMDB_TV_SEASON_0)
-            .serving(TMDB_TV_1396_SEASON_1, TMDB_TV_SEASON_1)
-            .serving(TMDB_TV_1396_SEASON_2, TMDB_TV_SEASON_2),
+            .serving(TMDB_TV_1396, TMDB_TV_DETAILS_APPENDED),
     )
 }
 
@@ -494,6 +490,51 @@ fn open_discovered(key: serde_json::Value, kind: &str) -> Action {
         "key": key,
         "kind": kind,
     }))
+}
+
+/// The URL one batch of seasons is appended to a details answer at.
+fn season_batch_url(id: u32, seasons: &[u32]) -> String {
+    let appended = seasons
+        .iter()
+        .map(|season| format!("season/{season}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    format!("https://api.themoviedb.org/3/tv/{id}?append_to_response={appended}&api_key={TMDB_KEY}")
+}
+
+/// A details answer whose record lists every season in `all`, carrying the
+/// seasons in `appended` under their literal `season/N` keys.
+fn appended_details_body(id: u32, all: &[u32], appended: &[u32]) -> String {
+    let seasons: Vec<serde_json::Value> = all
+        .iter()
+        .map(|season| {
+            serde_json::json!({
+                "season_number": season,
+                "name": format!("Season {season}"),
+                "episode_count": 1,
+            })
+        })
+        .collect();
+    let mut body = serde_json::json!({
+        "id": id,
+        "name": format!("Series {id}"),
+        "first_air_date": "2000-01-01",
+        "in_production": true,
+        "seasons": seasons,
+    });
+    let object = body.as_object_mut().expect("a details answer is an object");
+    for season in appended {
+        object.insert(
+            format!("season/{season}"),
+            serde_json::json!({
+                "season_number": season,
+                "name": format!("Season {season}"),
+                "episodes": [{ "episode_number": 1, "name": format!("S{season}E1") }],
+            }),
+        );
+    }
+
+    body.to_string()
 }
 
 /// Where `url` happened in the asks a fetcher recorded, or a complaint.
@@ -700,7 +741,8 @@ fn a_details_answer_that_was_not_one_keeps_the_key_and_the_addons_metadata() {
 
 #[test]
 fn a_series_maps_to_tmdb_and_its_record_supplies_its_videos() {
-    let mut host = host_over(breaking_bad_fetcher(), Some(TMDB_KEY));
+    let fetcher = breaking_bad_fetcher();
+    let mut host = host_over(fetcher.clone(), Some(TMDB_KEY));
 
     let title = opened(&mut host, open("com.linvo.cinemeta", "series", "tt0903747"));
 
@@ -757,22 +799,32 @@ fn a_series_maps_to_tmdb_and_its_record_supplies_its_videos() {
         "the art a Title hero draws is TMDB's: {:?}",
         (title.background.as_deref(), title.logo.as_deref())
     );
+    let asked = fetcher.asked();
+    assert_eq!(
+        asked
+            .iter()
+            .filter(|url| url.starts_with("https://api.themoviedb.org/3/tv/1396?"))
+            .count(),
+        1,
+        "the details and the seasons are one TMDB request: {asked:?}"
+    );
+    assert!(
+        !asked.iter().any(|url| url.contains("/season/")),
+        "no season is asked for on its own: {asked:?}"
+    );
 }
 
 #[test]
 fn a_series_whose_seasons_are_not_recorded_keeps_the_addons_episode_list() {
-    // The record answered, and its seasons did not: TMDB's Videos were not
-    // read, so the Addon's list stands rather than being replaced with the
-    // emptiness of an outage (ADR-0011's amendment).
+    // The record answered, and its appended seasons did not come back: TMDB's
+    // Videos were not read, so the Addon's list stands rather than being
+    // replaced with the emptiness of an outage (ADR-0011's amendment).
     let fetcher = Arc::new(
         FixtureFetcher::new()
             .serving(CINEMETA, CINEMETA_MANIFEST)
             .serving(CINEMETA_SERIES, SERIES_BODY)
             .serving(TMDB_FIND_SERIES, TMDB_FIND_SERIES_BODY)
-            .serving(TMDB_TV_1396, TMDB_TV_DETAILS)
-            .failing(TMDB_TV_1396_SEASON_0, FetchError::Status { status: 503 })
-            .failing(TMDB_TV_1396_SEASON_1, FetchError::Status { status: 503 })
-            .failing(TMDB_TV_1396_SEASON_2, FetchError::Status { status: 503 }),
+            .serving(TMDB_TV_1396, TMDB_TV_DETAILS),
     );
     let mut host = host_over(fetcher, Some(TMDB_KEY));
 
@@ -971,6 +1023,103 @@ fn a_discovered_series_opens_with_tmdbs_seasons_and_their_stills() {
             .any(|url| url.contains("cinemeta") && url.contains("/meta/")),
         "no Addon's metadata is asked: a Discovered Title is TMDB's"
     );
+    assert_eq!(
+        fetcher
+            .asked()
+            .iter()
+            .filter(|url| url.starts_with("https://api.themoviedb.org/3/tv/1396?"))
+            .count(),
+        1,
+        "the details and the seasons are one TMDB request: {:?}",
+        fetcher.asked()
+    );
+}
+
+#[test]
+fn a_batch_that_misses_one_appended_season_still_answers_with_the_others() {
+    // TMDB does not promise body parity, and a season in a batch can come back
+    // missing. The seasons beside it are still the Title's Videos.
+    let mut body: serde_json::Value =
+        serde_json::from_str(TMDB_TV_DETAILS_APPENDED).expect("the appended fixture is JSON");
+    body.as_object_mut()
+        .expect("a details answer is an object")
+        .remove("season/1");
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(TMDB_TV_1396, body.to_string()),
+    );
+    let mut host = host_over(fetcher, Some(TMDB_KEY));
+
+    let title = opened(
+        &mut host,
+        open_discovered(serde_json::json!({ "kind": "tmdb", "id": 1396 }), "series"),
+    );
+
+    assert_eq!(
+        title
+            .videos
+            .iter()
+            .map(|video| video.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["tmdb:1396:2:1", "tmdb:1396:0:1"],
+        "the missing season is skipped, and the ones around it are read"
+    );
+}
+
+#[test]
+fn a_series_with_more_than_twenty_seasons_is_read_in_batches_of_twenty() {
+    // A batch is the details request's twenty appends; every further batch is
+    // one more request, so the count is ceil(seasons / 20) however many there
+    // are (ADR-0038 §4, ADR-0023).
+    for total in [21u32, 40, 45] {
+        let all: Vec<u32> = (0..total).collect();
+        let (first, rest) = all.split_at(20);
+        let mut fetcher = FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(
+                &season_batch_url(5000, first),
+                appended_details_body(5000, &all, first),
+            );
+        for batch in rest.chunks(20) {
+            fetcher = fetcher.serving(
+                &season_batch_url(5000, batch),
+                appended_details_body(5000, &all, batch),
+            );
+        }
+        let fetcher = Arc::new(fetcher);
+        let mut host = host_over(fetcher.clone(), Some(TMDB_KEY));
+
+        let title = opened(
+            &mut host,
+            open_discovered(serde_json::json!({ "kind": "tmdb", "id": 5000 }), "series"),
+        );
+
+        let mut expected: Vec<String> = (1..total)
+            .map(|season| format!("tmdb:5000:{season}:1"))
+            .collect();
+        expected.push("tmdb:5000:0:1".to_owned());
+        assert_eq!(
+            title
+                .videos
+                .iter()
+                .map(|video| video.id.clone())
+                .collect::<Vec<String>>(),
+            expected,
+            "{total} seasons arrive in the record's order, specials last"
+        );
+        let asked = fetcher
+            .asked()
+            .iter()
+            .filter(|url| url.starts_with("https://api.themoviedb.org/3/tv/5000?"))
+            .count();
+        assert_eq!(
+            asked,
+            total.div_ceil(20) as usize,
+            "{total} seasons cost ceil({total}/20) batched requests, not one per season: {:?}",
+            fetcher.asked()
+        );
+    }
 }
 
 #[test]
