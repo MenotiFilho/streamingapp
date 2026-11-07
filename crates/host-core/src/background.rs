@@ -12,8 +12,9 @@
 //! into one read-ahead. A refresh job carries the Answer it was answered with: a
 //! refresh that lands equal answers nobody, and one that differs sends a revised
 //! Answer to the clients that asked, never a Snapshot (ADR-0005). A read-ahead
-//! has no Answer to answer with and no askers, and only fills the cache
-//! (ADR-0038 §3, #278).
+//! has no Answer to answer with and no askers, and fills the cache; either kind
+//! of read that moves Continue watching is the drain's Snapshot to publish
+//! (#274, #277, ADR-0038 §3).
 
 use std::sync::{Arc, Mutex};
 

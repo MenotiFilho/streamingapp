@@ -779,9 +779,11 @@ fn an_open_that_reads_the_list_a_finished_card_waited_on_publishes_the_row() {
             .serving(CINEMETA, CINEMETA_MANIFEST)
             .serving(CINEMETA_SERIES, SERIES_BODY),
     );
-    let mut host = host_over(store, fetcher, clock());
+    // The shell takes an open through the door, so the Snapshot is proved on
+    // that path and not only on the one-call form.
+    let door = HostDoor::new(host_over(store, fetcher, clock()));
 
-    let response = host
+    let response = door
         .dispatch(open("com.linvo.cinemeta", "series", "tt0903747"))
         .expect("opening the Title should work");
 

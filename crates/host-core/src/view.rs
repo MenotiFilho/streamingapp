@@ -777,7 +777,7 @@ impl HostView {
     }
 
     /// Run every background job waiting, a bounded fan-out at a time, and answer
-    /// how many ran and whether any of them changed a kept Title.
+    /// how many ran and whether any of them moved the Continue watching row.
     ///
     /// The queue's own lock is taken to take the jobs; nothing is held while a
     /// job fetches. The fan-out is ADR-0023's bound, reused so that a server
