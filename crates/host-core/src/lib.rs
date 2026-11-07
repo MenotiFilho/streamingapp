@@ -66,6 +66,7 @@ mod stream;
 mod stremio;
 mod subtitles;
 mod sync;
+mod title_cache;
 mod tmdb;
 mod view;
 mod wire;
@@ -87,7 +88,9 @@ pub use door::HostDoor;
 pub use fetcher::{FetchError, Fetcher, FixtureFetcher};
 pub use host::Host;
 pub use library::{Library, LibraryEntry};
-pub use meta::{MetaError, Title, TitleKey, Video, MAX_META_BYTES};
+pub use meta::{
+    next_video, ordered_videos, previous_video, MetaError, Title, TitleKey, Video, MAX_META_BYTES,
+};
 pub use pairing::{InvalidPairingCode, PairingCode, PAIRING_CODE_LEN};
 pub use playback::{
     Aspect, Buffered, Chapter, ChapterStep, ChosenStream, Control, Crop, CropRectangle, Episode,
@@ -107,8 +110,8 @@ pub use preview::{
     PREVIEW_BITRATE_GRACE_MS, PREVIEW_BUCKET_SECONDS, PREVIEW_CACHE_FRAMES, PREVIEW_CEILING_BPS,
 };
 pub use progress::{
-    ResumeEntry, TitleCard, TitleStub, UnplayableEntry, UnplayableReason, WatchProgress,
-    FINISHED_TAIL, PROGRESS_EVERY,
+    continue_watching, ContinueEntry, ResumeEntry, TitleCard, TitleStub, UnplayableEntry,
+    UnplayableReason, WatchProgress, FINISHED_TAIL, PROGRESS_EVERY,
 };
 pub use provider::{AddonProvider, FixtureProvider, Provider};
 pub use request::{
@@ -128,10 +131,14 @@ pub use stream::{AddonStreams, Playback, Stream, StreamError, Warning, MAX_STREA
 pub use stremio::{FixtureStremio, LibraryMeta, StremioApi, SyncError};
 pub use subtitles::{Subtitle, SubtitleError, MAX_FALLBACK_SUBTITLES, MAX_SUBTITLES_BYTES};
 pub use sync::{merge, BitField, Merged, RemoteItem, WatchedField};
+pub use title_cache::{
+    CachedTitle, TitleSource, MAX_CACHED_TITLES, OTHER_FRESH_MILLIS, RUNNING_FRESH_MILLIS,
+    TMDB_CACHE_CEILING_MILLIS,
+};
 pub use tmdb::{
     video_id, video_spelling, Credential, DiscoverQuery, DiscoverQueryError, ExternalId, Kind,
-    SearchQuery, SearchQueryError, TmdbDetails, TmdbError, TmdbId, TmdbRequest, TmdbVideo,
-    IMAGE_ROOT, LOGO_ROOT, STILL_ROOT, TMDB_ROOT,
+    SearchQuery, SearchQueryError, SeriesStatus, TmdbDetails, TmdbError, TmdbId, TmdbRequest,
+    TmdbVideo, IMAGE_ROOT, LOGO_ROOT, STILL_ROOT, TMDB_ROOT,
 };
 pub use view::HostView;
 pub use wire::{permitted, ClientFrame, Refusal, ServerFrame, WIRE_VERSION};

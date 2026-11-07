@@ -7,7 +7,7 @@ use crate::playback::{Picture, PlaybackSnapshot};
 use crate::preferences::{
     FeaturedCatalog, StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale,
 };
-use crate::progress::ResumeEntry;
+use crate::progress::{ContinueEntry, ResumeEntry};
 use crate::secret::SecretBackend;
 use crate::state::State;
 
@@ -48,11 +48,14 @@ pub struct Snapshot {
     /// thing about credentials that is not itself one, and is what the interface
     /// shows when it says how exposed they are.
     pub protection: ProtectionSnapshot,
-    /// Continue watching: one entry per Video the Host has Watch progress in,
-    /// most recently played first. This is the shared state the spec names beside
-    /// playback — which Videos are on the row, and where in each one the owner
-    /// got to — so it travels as a Snapshot rather than as an answer, and every
-    /// client sees the same row (#29).
+    /// Continue watching: one entry per Title the Host has Watch progress in,
+    /// the Video that Title played last, most recently played first — the row
+    /// every client draws. This is the shared state the spec names beside
+    /// playback, so it travels as a Snapshot rather than as an answer (#273).
+    pub continue_watching: Vec<ContinueEntry>,
+    /// The Watch progress itself, one entry per Video: where each Video was
+    /// left, which the playback view and the episode lookup still read. It is
+    /// not the Continue watching row — that is one card per Title, above.
     pub watch_progress: Vec<ResumeEntry>,
     /// The devices the Host has paired, in the order they paired. Enough to list
     /// them and to name one when revoking; what a device *holds* is not here, and
@@ -139,6 +142,9 @@ impl Snapshot {
                 tmdb_held: state.protection().tmdb_held,
                 stremio_held: state.protection().stremio_held,
             },
+            continue_watching: crate::progress::continue_watching(state.watch(), |addon| {
+                state.has_addon(addon)
+            }),
             watch_progress: state
                 .watch()
                 .iter()

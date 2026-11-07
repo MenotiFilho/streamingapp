@@ -313,19 +313,21 @@ pub enum Action {
     Autocrop,
     /// Override the shape the picture is drawn at.
     SetAspect { aspect: Aspect },
-    /// Play the Video after the one playing, in its Title: the Addon's own next
-    /// episode, and the release the one playing came from (ADR-0014).
+    /// Play the Video after the one playing, in its Title: the next episode in
+    /// the Host's series order, and the release the one playing came from
+    /// (ADR-0014, ADR-0039).
     ///
     /// A change rather than a control like most of the rest — one of the two
     /// that legitimately open a Stream, the other being `Resume` — so the Host
     /// asks the Addons what comes next and plays it, and every client is told of
     /// the new Now playing.
     NextEpisode,
-    /// Play the Video *before* the one playing, in its Title: the Addon's own
-    /// previous episode, and the release the one playing came from (ADR-0021).
+    /// Play the Video *before* the one playing, in its Title: the previous
+    /// episode in the Host's series order, and the release the one playing came
+    /// from (ADR-0021, ADR-0039).
     ///
     /// The mirror of [`Action::NextEpisode`], and a change for the same reason:
-    /// the Host asks the Addons what the Addon's own order puts before what is
+    /// the Host asks the Addons what the Host's series order puts before what is
     /// playing and opens it, and every client is told of the new Now playing.
     PreviousEpisode,
     /// Stop playing: nothing is playing afterwards, and the client is back to
@@ -1026,15 +1028,18 @@ pub enum ActionError {
         count: usize,
     },
     /// There is no next episode to play: what is playing is not an episode of a
-    /// series, no Addon offers a Video after it, or none of an Addon's
-    /// candidates for that Video is one this Host can play. The Host says so
-    /// rather than playing something else, which is what ADR-0014 asks of it.
+    /// series, nothing stands after it in the Host's series order (the last
+    /// numbered episode has no next, and the specials stand apart), or none of
+    /// an Addon's candidates for the Video beside it is one this Host can play.
+    /// The Host says so rather than playing something else, which is what
+    /// ADR-0014 asks of it.
     #[error("{detail}")]
     NoNextEpisode { detail: String },
     /// There is no previous episode to play: the mirror of
     /// [`Self::NoNextEpisode`] — what is playing is not an episode of a series,
-    /// the Addon's own order begins at it, or none of an Addon's candidates for
-    /// the Video before it is one this Host can play (ADR-0021).
+    /// it is the first Video of its part of the Host's series order, or none of
+    /// an Addon's candidates for the Video before it is one this Host can play
+    /// (ADR-0021, ADR-0039).
     #[error("{detail}")]
     NoPreviousEpisode { detail: String },
     /// A resume named a Video the Host has no Watch progress for: there is

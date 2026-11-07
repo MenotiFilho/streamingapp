@@ -1,10 +1,10 @@
 //! Previous episode, driven the way a client drives it: an Action in, published
 //! Snapshots out, and the URL the Player was asked to open. The previous Video
-//! is the Addon's own, not an id the Host works out by arithmetic — it stands
-//! before the one playing in the Addon's whole-list order, crossing a season
-//! boundary — and the release the one playing came from is preferred (ADR-0021).
-//! Nothing below the Action surface is named here, and no test reaches the
-//! network.
+//! is the source's own, walked in the Host's series order — numbered seasons
+//! ascending, specials last, and never a step across the line between them
+//! (ADR-0039 §2) — not an id the Host works out by arithmetic, and the release
+//! the one playing came from is preferred (ADR-0021). Nothing below the Action
+//! surface is named here, and no test reaches the network.
 
 use std::sync::Arc;
 
@@ -164,9 +164,9 @@ fn previous_episode() -> Action {
 
 #[test]
 fn the_previous_episode_plays_from_the_same_addon_and_release_across_a_season_boundary() {
-    // The Video before episode 1 of season 2 is the *last listed* episode of
-    // season 1: the Addon's whole list is what defines order, and a season
-    // boundary would be arithmetic the Addon never stated (ADR-0021).
+    // The Video before episode 1 of season 2 is the *last* episode of season
+    // 1: the numbered seasons are one run, ascending, with each season's own
+    // order kept (ADR-0039 §1).
     let player = Arc::new(FixturePlayer::new());
     let provider = Arc::new(FixtureProvider::new().offering(
         SERIES_ID,
@@ -224,11 +224,11 @@ fn the_previous_episode_plays_from_the_same_addon_and_release_across_a_season_bo
 /// The Addon's own list, which the fixture records, begins with a special:
 /// `tt0903747:0:1`, then season 1 from its first episode.
 #[test]
-fn the_addons_own_order_decides_what_precedes_even_where_the_numbers_do_not() {
-    // S1E1 reads as the series' first numbered episode, and the Addon's list
-    // still puts a special before it. The Host does not decide by the numbers —
-    // the list decides — which is exactly why the client's S1E1 rule is a greyed
-    // control and the press is what answers (ADR-0021).
+fn the_pilot_is_refused_although_the_addon_listed_a_special_before_it() {
+    // S1E1 is a series' first numbered episode, and the Addon's list puts a
+    // special before it. The Host's order moves the specials after the numbered
+    // seasons, and a step never crosses that line — the specials are entered
+    // only by pressing one (ADR-0039 §2).
     let specials = "https://stream.example.org/v/tt0903747-0-1.mkv";
     let player = Arc::new(FixturePlayer::new());
     let provider = Arc::new(
@@ -236,7 +236,7 @@ fn the_addons_own_order_decides_what_precedes_even_where_the_numbers_do_not() {
     );
     let mut host = host_with(
         player.clone(),
-        provider,
+        provider.clone(),
         &[
             Configured::answering(SERIES, SERIES_ID, r#""meta","stream""#)
                 .with_meta(META_URL, SERIES_META),
@@ -251,13 +251,88 @@ fn the_addons_own_order_decides_what_precedes_even_where_the_numbers_do_not() {
         PLAYING,
         None,
     );
-    host.dispatch(previous_episode())
-        .expect("the Addon's own list has a Video before its first numbered episode");
+    player.now_reporting(Observation::playing(30.0, 2820.0));
+    host.sample()
+        .expect("the Player reporting where it is is a change");
 
+    assert!(
+        matches!(
+            host.dispatch(previous_episode()),
+            Err(ActionError::NoPreviousEpisode { .. })
+        ),
+        "the first numbered episode has no previous, and the specials are not it"
+    );
     assert_eq!(
         player.opened(),
-        vec![PLAYING.to_owned(), specials.to_owned()],
-        "the order the Addon listed is the order the Host steps through"
+        vec![PLAYING.to_owned()],
+        "a refusal opens nothing"
+    );
+    assert_eq!(player.stopped(), 0, "a refusal stops nothing");
+    assert_eq!(
+        host.snapshot().playback.position,
+        Some(30.0),
+        "the Stream that was playing is still where it was"
+    );
+    assert!(
+        provider.asked().is_empty(),
+        "no candidate is asked for when the step is refused"
+    );
+}
+
+/// A series whose Addon lists the specials first, then one numbered season:
+/// the order ADR-0039 exists for.
+const SPECIALS_META: &str = r#"{"meta":{"id":"tt0903747","type":"series","name":"Breaking Bad",
+    "videos":[
+        {"id":"tt0903747:0:1","name":"Special One","season":0,"episode":1},
+        {"id":"tt0903747:0:2","name":"Special Two","season":0,"episode":2},
+        {"id":"tt0903747:1:1","name":"Pilot","season":1,"episode":1}
+    ]}}"#;
+
+const SPECIAL_ONE: &str = "https://stream.example.org/v/tt0903747-0-1.mkv";
+const SPECIAL_TWO: &str = "https://stream.example.org/v/tt0903747-0-2.mkv";
+
+#[test]
+fn inside_the_specials_previous_steps_from_special_to_special_and_stops_at_their_start() {
+    let player = Arc::new(FixturePlayer::new());
+    let provider = Arc::new(FixtureProvider::new().offering(
+        SERIES_ID,
+        vec![candidate("1080p", SPECIAL_ONE, Some("the-release"))],
+    ));
+    let mut host = host_with(
+        player.clone(),
+        provider.clone(),
+        &[
+            Configured::answering(SERIES, SERIES_ID, r#""meta","stream""#)
+                .with_meta(META_URL, SPECIALS_META),
+        ],
+    );
+
+    play(
+        &mut host,
+        SERIES_ID,
+        "series",
+        "tt0903747:0:2",
+        SPECIAL_TWO,
+        Some("the-release"),
+    );
+    host.dispatch(previous_episode())
+        .expect("the second special is preceded by the first");
+    assert_eq!(
+        player.opened(),
+        vec![SPECIAL_TWO.to_owned(), SPECIAL_ONE.to_owned()]
+    );
+
+    assert!(
+        matches!(
+            host.dispatch(previous_episode()),
+            Err(ActionError::NoPreviousEpisode { .. })
+        ),
+        "the specials' first Video has no previous"
+    );
+    assert_eq!(
+        player.opened(),
+        vec![SPECIAL_TWO.to_owned(), SPECIAL_ONE.to_owned()],
+        "a refusal at the specials' start opens nothing"
     );
 }
 
@@ -350,7 +425,7 @@ fn a_film_is_refused_because_it_has_no_previous_episode() {
 }
 
 #[test]
-fn the_first_listed_episode_is_refused_and_the_playing_stream_carries_on() {
+fn the_first_special_has_no_previous_because_specials_stand_apart() {
     let player = Arc::new(FixturePlayer::new());
     let provider = Arc::new(FixtureProvider::new());
     let mut host = host_with(
@@ -362,7 +437,8 @@ fn the_first_listed_episode_is_refused_and_the_playing_stream_carries_on() {
         ],
     );
 
-    // The Addon's own list begins with its special, so nothing precedes it.
+    // The fixture lists one special ahead of the numbered seasons; the Host's
+    // order puts it last, and it does not step back into the numbered run.
     play(
         &mut host,
         SERIES_ID,
@@ -382,7 +458,7 @@ fn the_first_listed_episode_is_refused_and_the_playing_stream_carries_on() {
             host.dispatch(previous_episode()),
             Err(ActionError::NoPreviousEpisode { .. })
         ),
-        "the Addon's order has nothing before the first episode, and the Host invents nothing"
+        "the specials' first Video has no previous, and the numbered seasons are not it"
     );
     assert_eq!(
         player.opened(),

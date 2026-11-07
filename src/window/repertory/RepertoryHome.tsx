@@ -21,7 +21,7 @@ import {
   type DeclaredCatalog,
   type Row,
 } from "../../core/browse";
-import type { MetaPreview, ResumeEntry } from "../../core/wire";
+import type { ContinueEntry, MetaPreview } from "../../core/wire";
 import { explain } from "../../core/errors";
 import { cardName, cardNote, progressOf, resumable } from "../../core/library";
 import { useShell } from "../context";
@@ -530,10 +530,10 @@ function FeaturePlaceholder() {
  * and one section per declared Catalog.
  *
  * The data is exactly what Home always reads — the Featured catalog's own row
- * and the Host's Watch progress — so this screen is the same client under a
- * different frame, not a second one. The surface is repertory; the Actions are
- * untouched. Every card opens the real Title page over Home, and Continue
- * watching resumes the Host's own Video where there is a Host to ask.
+ * and the Host's Continue watching list — so this screen is the same client
+ * under a different frame, not a second one. The surface is repertory; the
+ * Actions are untouched. Every card opens the real Title page over Home, and
+ * Continue watching resumes the Host's own Video where there is a Host to ask.
  */
 export function RepertoryHome() {
   const { snapshot, chosenDestination, choose, take, home, push, pop } = useShell();
@@ -575,7 +575,7 @@ export function RepertoryHome() {
   }, [home, catalogFingerprint, featuredKey]);
 
   const openEntry = useCallback(
-    (entry: ResumeEntry) => {
+    (entry: ContinueEntry) => {
       // A plain Vite window has no Host to resume from, so the Title page is the
       // preview's honest next step. The Tauri window resumes the Host's Video.
       if (preview && entry.title.addon) {
@@ -646,7 +646,7 @@ export function RepertoryHome() {
     const meta = featureMetas.find((held) => held.id === slide.id);
     return meta ? [{ slide, meta }] : [];
   });
-  const continueWatching = snapshot?.watchProgress ?? [];
+  const continueWatching = snapshot?.continueWatching ?? [];
   const empty = homeEmptyState(snapshot, catalogs.length);
   const featuredDeclared =
     featuredKey !== null && catalogs.some((catalog) => catalogKey(catalog) === featuredKey);

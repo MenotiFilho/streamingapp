@@ -632,6 +632,57 @@ impl TmdbRequest {
     }
 }
 
+/// What TMDB says about a series' run, in the three states the Title cache
+/// treats differently.
+///
+/// TMDB's `status` is a free string with six staff-confirmed values. Four of
+/// them (`Returning Series`, `In Production`, `Planned`, `Pilot`) say the
+/// series is still running; `Ended` and `Canceled` say it has stopped. A value
+/// the Host does not know is no answer rather than a guess (ADR-0038 §2).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SeriesStatus {
+    Running,
+    Ended,
+    Cancelled,
+}
+
+impl SeriesStatus {
+    /// Read TMDB's status string, where it is one the Host knows.
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "Returning Series" | "In Production" | "Planned" | "Pilot" => Some(Self::Running),
+            "Ended" => Some(Self::Ended),
+            "Canceled" => Some(Self::Cancelled),
+            _ => None,
+        }
+    }
+
+    /// The word the store keeps it under.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Running => "running",
+            Self::Ended => "ended",
+            Self::Cancelled => "cancelled",
+        }
+    }
+
+    /// Read the store's word back.
+    pub fn from_stored(raw: &str) -> Option<Self> {
+        match raw {
+            "running" => Some(Self::Running),
+            "ended" => Some(Self::Ended),
+            "cancelled" => Some(Self::Cancelled),
+            _ => None,
+        }
+    }
+
+    /// Whether the series is still gaining episodes, which is what makes its
+    /// cached copy worth re-reading after a day rather than a month.
+    pub fn is_running(self) -> bool {
+        matches!(self, Self::Running)
+    }
+}
+
 /// One TMDB record's metadata, read leniently from its details.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TmdbDetails {
@@ -663,6 +714,10 @@ pub struct TmdbDetails {
     /// Which seasons the record lists, ascending: each is asked for its
     /// episodes when a series' Videos are read. Empty for a film.
     pub seasons: Vec<u32>,
+    /// Whether TMDB says the series is running, ended or cancelled — the fact
+    /// the Title cache's freshness window turns on (ADR-0038 §2). `None` for a
+    /// film, a record that sent no status, and a status the Host does not know.
+    pub status: Option<SeriesStatus>,
     /// The record's Videos, where they were read: a series' seasons and
     /// episodes, keyed `tmdb:<id>:<season>:<episode>`. `None` is "not read" —
     /// a film's list, or a series whose season answers were not read — and
@@ -791,6 +846,15 @@ pub fn read_details(body: &str, kind: Kind) -> Result<TmdbDetails, TmdbError> {
         rating: rating(record.object),
         genres: record.genres(),
         seasons: record.seasons(),
+        status: match kind {
+            Kind::Tv => record
+                .object
+                .get("status")
+                .and_then(Value::as_str)
+                .and_then(SeriesStatus::parse),
+            // A film's `status` says "Released", which is not a series' run.
+            Kind::Movie => None,
+        },
         videos: None,
     })
 }
@@ -1821,6 +1885,57 @@ mod tests {
             details.release_info.as_deref(),
             Some("2020-"),
             "the years TMDB expects more of are the years so far"
+        );
+    }
+
+    #[test]
+    fn a_series_record_says_whether_it_is_running_ended_or_cancelled() {
+        // The stored freshness window turns on this: a running series is read
+        // again after a day, an ended or cancelled one after a month. TMDB
+        // spells the running states four ways, and its status is a free string,
+        // so anything else is no answer rather than a guess.
+        assert_eq!(
+            read_details(TV_DETAILS, Kind::Tv)
+                .expect("a details answer")
+                .status,
+            Some(SeriesStatus::Ended)
+        );
+        assert_eq!(
+            read_details(TV_DETAILS_MAKING, Kind::Tv)
+                .expect("a details answer")
+                .status,
+            Some(SeriesStatus::Running)
+        );
+        for running in ["Returning Series", "In Production", "Planned", "Pilot"] {
+            let body = format!(r#"{{"id":1396,"status":"{running}"}}"#);
+            assert_eq!(
+                read_details(&body, Kind::Tv)
+                    .expect("a details answer")
+                    .status,
+                Some(SeriesStatus::Running),
+                "{running} is still running"
+            );
+        }
+        assert_eq!(
+            read_details(r#"{"id":1396,"status":"Canceled"}"#, Kind::Tv)
+                .expect("a details answer")
+                .status,
+            Some(SeriesStatus::Cancelled),
+            "TMDB spells it with one l"
+        );
+        assert_eq!(
+            read_details(r#"{"id":1396,"status":"Something New"}"#, Kind::Tv)
+                .expect("a details answer")
+                .status,
+            None,
+            "a status the Host does not know is no answer rather than a guess"
+        );
+        assert_eq!(
+            read_details(MOVIE_DETAILS, Kind::Movie)
+                .expect("a details answer")
+                .status,
+            None,
+            "a film released is not a series still running"
         );
     }
 

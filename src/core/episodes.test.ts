@@ -46,6 +46,7 @@ function snapshot(entries: ResumeEntry[]): Snapshot {
     addons: [],
     featuredCatalog: null,
     protection: { backend: "file", tmdbHeld: false, stremioHeld: false },
+    continueWatching: [],
     watchProgress: entries,
     devices: [],
     pairingCode: "4K7Q2M",
@@ -234,22 +235,22 @@ describe("the question an Episodes menu asks about its series", () => {
 });
 
 describe("the episodes of a Title", () => {
-  test("are grouped into seasons in the Addon's own order, Videos kept in order", () => {
+  test("are grouped into seasons in the Host's order, Videos kept in order", () => {
     const seasons = episodesOf(
       title({
         videos: [
-          video({ id: "tt1:2:1", season: 2, episode: 1 }),
           video({ id: "tt1:1:1", season: 1, episode: 1 }),
           video({ id: "tt1:1:2", season: 1, episode: 2 }),
+          video({ id: "tt1:2:1", season: 2, episode: 1 }),
           video({ id: "tt1:0:1", season: 0, episode: 1 }),
         ],
       }),
     );
 
-    expect(seasons.map((season) => season.season)).toEqual([2, 1, 0]);
+    expect(seasons.map((season) => season.season)).toEqual([1, 2, 0]);
     expect(seasons.map((season) => season.videos.map((held) => held.id))).toEqual([
-      ["tt1:2:1"],
       ["tt1:1:1", "tt1:1:2"],
+      ["tt1:2:1"],
       ["tt1:0:1"],
     ]);
   });

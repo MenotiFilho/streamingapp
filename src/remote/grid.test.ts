@@ -5,8 +5,8 @@ import { blankFeed } from "../core/discover";
 import type { FeedRow } from "../core/feedStore";
 import type {
   AddonManifest,
+  ContinueEntry,
   MetaPreview,
-  ResumeEntry,
   Snapshot,
 } from "../core/wire";
 import {
@@ -58,6 +58,7 @@ const ADDON: AddonManifest = {
 const SNAPSHOT = {
   addons: [ADDON],
   featuredCatalog: null,
+  continueWatching: [],
   watchProgress: [],
 } as unknown as Snapshot;
 
@@ -79,7 +80,7 @@ const FEED: FeedRow = {
   offset: 1,
 };
 
-const CONTINUE: ResumeEntry = {
+const CONTINUE: ContinueEntry = {
   video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
   title: {
     addon: "cinemeta",
@@ -174,7 +175,7 @@ describe("what a grid draws", () => {
   });
 
   test("Continue watching is its own source, carrying the Host's entries", () => {
-    const snapshot = { ...SNAPSHOT, watchProgress: [CONTINUE] } as Snapshot;
+    const snapshot = { ...SNAPSHOT, continueWatching: [CONTINUE] } as Snapshot;
     const view = gridView(
       grid({ kind: "continue" }, "1 in progress"),
       [],

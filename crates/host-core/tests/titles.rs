@@ -176,7 +176,7 @@ fn opening_a_film_answers_with_its_metadata_and_no_videos() {
 }
 
 #[test]
-fn opening_a_series_answers_with_its_videos_in_the_addons_own_order() {
+fn opening_a_series_answers_with_its_numbered_seasons_then_the_specials() {
     let (mut host, fetcher) = host_with_recorded_addons();
 
     let title = opened(&mut host, open("com.linvo.cinemeta", "series", "tt0903747"));
@@ -190,13 +190,13 @@ fn opening_a_series_answers_with_its_videos_in_the_addons_own_order() {
             .map(|video| video.id.as_str())
             .collect::<Vec<_>>(),
         vec![
-            "tt0903747:0:1",
             "tt0903747:1:1",
             "tt0903747:1:2",
             "tt0903747:1:3",
             "tt0903747:2:1",
+            "tt0903747:0:1",
         ],
-        "every episode is a Video, carrying the id its Addon indexes it by"
+        "every episode is a Video, numbered seasons ascending and the specials last (ADR-0039)"
     );
     let last = title
         .videos
@@ -377,9 +377,13 @@ fn the_answer_is_the_declared_wire_shape() {
     assert_eq!(title["type"], "series");
     assert_eq!(title["name"], "Breaking Bad");
     assert_eq!(title["releaseInfo"], "2008–2013");
-    assert_eq!(title["videos"][0]["id"], "tt0903747:0:1");
-    assert_eq!(title["videos"][0]["season"], 0);
+    assert_eq!(title["videos"][0]["id"], "tt0903747:1:1");
+    assert_eq!(title["videos"][0]["season"], 1);
     assert_eq!(title["videos"][0]["episode"], 1);
+    assert_eq!(
+        title["videos"][4]["id"], "tt0903747:0:1",
+        "the specials are the answer's last Videos, so a client draws their chip last"
+    );
 }
 
 #[test]
@@ -724,21 +728,21 @@ fn a_series_maps_to_tmdb_and_its_record_supplies_its_videos() {
             .map(|video| video.id.as_str())
             .collect::<Vec<_>>(),
         vec![
-            "tmdb:1396:0:1",
             "tmdb:1396:1:1",
             "tmdb:1396:1:2",
             "tmdb:1396:1:3",
             "tmdb:1396:2:1",
+            "tmdb:1396:0:1",
         ],
-        "the Videos are TMDB's, in TMDB's order, and keyed the way Streams are asked for"
+        "the Videos are TMDB's, numbered seasons ascending with the specials last, keyed the way Streams are asked for"
     );
     assert_eq!(
-        title.videos[1].thumbnail.as_deref(),
+        title.videos[0].thumbnail.as_deref(),
         Some("https://image.tmdb.org/t/p/w300/still-1396-1-1.jpg"),
         "an episode row draws TMDB's 16:9 still"
     );
     assert_eq!(
-        title.videos[0].thumbnail, None,
+        title.videos[4].thumbnail, None,
         "a special TMDB kept no still for is one with none to draw"
     );
     assert!(
@@ -792,13 +796,13 @@ fn a_series_whose_seasons_are_not_recorded_keeps_the_addons_episode_list() {
             .map(|video| video.id.as_str())
             .collect::<Vec<_>>(),
         vec![
-            "tt0903747:0:1",
             "tt0903747:1:1",
             "tt0903747:1:2",
             "tt0903747:1:3",
             "tt0903747:2:1",
+            "tt0903747:0:1",
         ],
-        "the Addon's episodes stand where TMDB's could not be read"
+        "the Addon's episodes stand where TMDB's could not be read, in the Host's order"
     );
 }
 
@@ -950,16 +954,16 @@ fn a_discovered_series_opens_with_tmdbs_seasons_and_their_stills() {
             .map(|video| video.id.as_str())
             .collect::<Vec<_>>(),
         vec![
-            "tmdb:1396:0:1",
             "tmdb:1396:1:1",
             "tmdb:1396:1:2",
             "tmdb:1396:1:3",
             "tmdb:1396:2:1",
+            "tmdb:1396:0:1",
         ],
-        "TMDB's seasons, in TMDB's order, specials included"
+        "TMDB's seasons, numbered ascending and the specials last"
     );
     assert_eq!(
-        title.videos[2].thumbnail.as_deref(),
+        title.videos[1].thumbnail.as_deref(),
         Some("https://image.tmdb.org/t/p/w300/still-1396-1-2.jpg")
     );
     assert!(
@@ -1016,7 +1020,7 @@ fn a_batch_that_misses_one_appended_season_still_answers_with_the_others() {
             .iter()
             .map(|video| video.id.as_str())
             .collect::<Vec<_>>(),
-        vec!["tmdb:1396:0:1", "tmdb:1396:2:1"],
+        vec!["tmdb:1396:2:1", "tmdb:1396:0:1"],
         "the missing season is skipped, and the ones around it are read"
     );
 }
@@ -1049,16 +1053,18 @@ fn a_series_with_more_than_twenty_seasons_is_read_in_batches_of_twenty() {
             open_discovered(serde_json::json!({ "kind": "tmdb", "id": 5000 }), "series"),
         );
 
+        let mut expected: Vec<String> = (1..total)
+            .map(|season| format!("tmdb:5000:{season}:1"))
+            .collect();
+        expected.push("tmdb:5000:0:1".to_owned());
         assert_eq!(
             title
                 .videos
                 .iter()
                 .map(|video| video.id.clone())
                 .collect::<Vec<String>>(),
-            (0..total)
-                .map(|season| format!("tmdb:5000:{season}:1"))
-                .collect::<Vec<String>>(),
-            "{total} seasons arrive in the record's order"
+            expected,
+            "{total} seasons arrive in the record's order, specials last"
         );
         let asked = fetcher
             .asked()

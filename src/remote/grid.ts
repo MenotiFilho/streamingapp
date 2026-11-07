@@ -8,7 +8,7 @@ import type { FeedRow } from "../core/feedStore";
 import { continueTag, rowTag, rowTagOf } from "../core/homeProgramme";
 import type { NewLevel } from "../core/navigation";
 import type { SearchKind } from "../core/search";
-import type { MetaPreview, ResumeEntry, Snapshot } from "../core/wire";
+import type { ContinueEntry, MetaPreview, Snapshot } from "../core/wire";
 
 /**
  * One rail opened as a whole (#253, ADR-0036 §1, design system *Rail*).
@@ -100,8 +100,8 @@ export function gridFeed(
 export function gridEntries(
   source: RemoteGridSource,
   snapshot: Snapshot | null,
-): ResumeEntry[] | null {
-  return source.kind === "continue" ? (snapshot?.watchProgress ?? []) : null;
+): ContinueEntry[] | null {
+  return source.kind === "continue" ? (snapshot?.continueWatching ?? []) : null;
 }
 
 /**
@@ -123,7 +123,7 @@ export function gridCouldPlay(
 export type GridView = {
   row: Row | null;
   feed: FeedRow | null;
-  entries: ResumeEntry[] | null;
+  entries: ContinueEntry[] | null;
   metas: MetaPreview[];
   addon: string | null;
   title: string;
@@ -172,7 +172,7 @@ function gridTag(
     case "home":
       return row ? rowTag(snapshot, row) : grid.tag;
     case "continue":
-      return continueTag(snapshot?.watchProgress.length ?? 0);
+      return continueTag(snapshot?.continueWatching.length ?? 0);
     case "discover":
       return feed
         ? rowTagOf(source.genreKey ?? "Trending", source.feedKind, feed.items.length)

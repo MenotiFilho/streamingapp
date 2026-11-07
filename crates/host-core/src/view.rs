@@ -23,11 +23,12 @@ use crate::action::{ActionError, ValidatedAction};
 use crate::addon::{Addon, AddonId, Manifest, MAX_ITEMS};
 use crate::cache::CatalogCache;
 use crate::catalog::{CatalogRow, Page};
+use crate::clock::Clock;
 use crate::discover::DiscoverRow;
 use crate::fetcher::{FetchError, Fetcher};
 use crate::library::{Library, LibraryCache};
 use crate::log::millis;
-use crate::meta::{self, Title, Video};
+use crate::meta::{self, Title, TitleKey, Video};
 use crate::preview::{PreviewCeiling, Previewer};
 use crate::provider::Provider;
 use crate::request::{
@@ -37,6 +38,7 @@ use crate::response::Answer;
 use crate::secret::{CredentialKind, SecretStore};
 use crate::stream::AddonStreams;
 use crate::stremio::StremioApi;
+use crate::title_cache::{CachedTitle, TitleCache, TitleProbe, TitleProtection, TitleSource};
 use crate::tmdb;
 
 /// The Host as a question sees it: the Addon list frozen at dispatch, the seams
@@ -54,6 +56,11 @@ pub(crate) struct HostViewShared {
     pub(crate) cache: Arc<Mutex<CatalogCache>>,
     pub(crate) library_cache: Arc<Mutex<LibraryCache>>,
     pub(crate) stremio: Option<Arc<dyn StremioApi>>,
+    pub(crate) titles: Arc<Mutex<TitleCache>>,
+    pub(crate) clock: Arc<dyn Clock>,
+    /// The Titles behind Watch progress when this view was frozen. A cache
+    /// write must never evict one of them (ADR-0038 §1).
+    pub(crate) protected: Vec<TitleProbe>,
 }
 
 pub struct HostView {
@@ -85,6 +92,30 @@ pub struct HostView {
     /// `authKey` is a Host that does not read the room; the key itself is read
     /// from the secret store at the moment of the ask (ADR-0029).
     stremio: Option<Arc<dyn StremioApi>>,
+    /// The Titles the Host has read, shared with it and every other view. A
+    /// question takes the lock to read one before it fetches and to keep what
+    /// it fetched; the lock is never held across a fetch (ADR-0038).
+    titles: Arc<Mutex<TitleCache>>,
+    /// The Host's clock, so that "fresh" is a fact a test decides.
+    clock: Arc<dyn Clock>,
+    /// The Titles behind Watch progress when this view was frozen. A cache
+    /// write must never evict one of them (ADR-0038 §1).
+    protected: Vec<TitleProbe>,
+}
+
+/// What a TMDB refinement read, and what it said about a series' run.
+#[derive(Debug, Default)]
+struct TmdbRead {
+    /// Whether a details record was read at all. A `find` that mapped an
+    /// identity but whose record was not read leaves the Title an Addon's.
+    details: bool,
+    status: Option<tmdb::SeriesStatus>,
+}
+
+/// A Title opened from TMDB's own record, and the record's word on the series.
+struct OpenedTitle {
+    title: Title,
+    status: Option<tmdb::SeriesStatus>,
 }
 
 impl HostView {
@@ -107,6 +138,9 @@ impl HostView {
             cache: shared.cache,
             library_cache: shared.library_cache,
             stremio: shared.stremio,
+            titles: shared.titles,
+            clock: shared.clock,
+            protected: shared.protected,
         }
     }
 
@@ -207,23 +241,101 @@ impl HostView {
                 Answer::Search(row)
             }
             ValidatedAction::OpenTitle { addon, title } => {
-                let configured = self.addon(addon)?;
-                let requested = ResourceRequest::new(META, &title.r#type, &title.id);
-                if !configured.manifest().answers(&requested) {
-                    return Err(ActionError::UnknownTitle {
-                        addon: configured.id().clone(),
-                        title: title.clone(),
-                    });
+                let now = self.clock.now_millis();
+                let cached = self.cached_for_addon(addon, title, now);
+                if let Some(cached) = &cached {
+                    if cached.is_fresh(now) {
+                        return Ok(Answer::Title(Box::new(cached.title.clone())));
+                    }
                 }
+                let replacing = cached.as_ref().map(|cached| cached.title.key.clone());
 
-                // The request the Addon was judged on is the one it is asked
-                // with: a second construction is a second thing that can drift.
-                let mut title = self.fetch_title(&configured, title, &requested)?;
-                self.tmdb_refine(&mut title);
-                Answer::Title(Box::new(title))
+                // A Title whose Addon has gone is still cached, and its fresh
+                // copy has already been answered above; once stale, whatever
+                // still names it — TMDB, where the copy was keyed by TMDB's id
+                // — is asked instead (ADR-0038 §2).
+                let configured = self.addons.iter().find(|held| held.id() == addon).cloned();
+                let (mut fetched, word) = match configured {
+                    Some(configured) => {
+                        let requested = ResourceRequest::new(META, &title.r#type, &title.id);
+                        if !configured.manifest().answers(&requested) {
+                            return Err(ActionError::UnknownTitle {
+                                addon: configured.id().clone(),
+                                title: title.clone(),
+                            });
+                        }
+
+                        // The request the Addon was judged on is the one it is
+                        // asked with: a second construction is a second thing
+                        // that can drift.
+                        let mut fetched = self.fetch_title(&configured, title, &requested)?;
+                        let word = self.tmdb_refine(&mut fetched);
+                        (fetched, word)
+                    }
+                    None => {
+                        let id = replacing.as_ref().and_then(|key| match key {
+                            TitleKey::Tmdb { id } => Some(tmdb::TmdbId(*id)),
+                            TitleKey::Addon { .. } => None,
+                        });
+                        let kind = id.and_then(|_| tmdb::Kind::parse(&title.r#type));
+                        match (id, kind) {
+                            (Some(id), Some(kind)) => {
+                                let opened = self.open_discovered(id, kind)?;
+                                (
+                                    opened.title,
+                                    TmdbRead {
+                                        details: true,
+                                        status: opened.status,
+                                    },
+                                )
+                            }
+                            _ => {
+                                return Err(ActionError::UnknownAddon {
+                                    id: addon.as_str().to_owned(),
+                                })
+                            }
+                        }
+                    }
+                };
+
+                // The one order the Title answer is published in: numbered
+                // seasons ascending, episodes within each season, then the
+                // specials, so both clients draw their chips without sorting
+                // (ADR-0039 §1). The cached copy is stored in this order too,
+                // because a fresh copy is answered from the cache as it was
+                // read. `Host::videos_of` still reads the Addon's own order
+                // through `fetch_title`, which is what the watched bitfield
+                // needs.
+                fetched.videos = meta::ordered_videos(&fetched.videos);
+
+                let source = if word.details {
+                    TitleSource::Both
+                } else {
+                    TitleSource::Addon
+                };
+                self.keep_title(&fetched, source, word.status, replacing, now);
+                Answer::Title(Box::new(fetched))
             }
             ValidatedAction::OpenDiscoveredTitle { id, kind } => {
-                Answer::Title(Box::new(self.open_discovered(*id, *kind)?))
+                let now = self.clock.now_millis();
+                let cached = self.cached_for_tmdb(*id, *kind, now);
+                if let Some(cached) = &cached {
+                    if cached.is_fresh(now) {
+                        return Ok(Answer::Title(Box::new(cached.title.clone())));
+                    }
+                }
+                let replacing = cached.as_ref().map(|cached| cached.title.key.clone());
+
+                let mut opened = self.open_discovered(*id, *kind)?;
+                opened.title.videos = meta::ordered_videos(&opened.title.videos);
+                self.keep_title(
+                    &opened.title,
+                    TitleSource::Tmdb,
+                    opened.status,
+                    replacing,
+                    now,
+                );
+                Answer::Title(Box::new(opened.title))
             }
             ValidatedAction::FindStreams { video } => {
                 // Every configured Addon that answers for it, in the order
@@ -470,6 +582,75 @@ impl HostView {
         }
     }
 
+    /// The cached copy of a Title opened through an Addon, if one is held and
+    /// still within TMDB's terms.
+    fn cached_for_addon(&self, addon: &AddonId, asked: &TitleRef, now: i64) -> Option<CachedTitle> {
+        self.titles
+            .lock()
+            .expect("the Title cache is not poisoned")
+            .for_addon(addon, asked, now)
+    }
+
+    /// The cached copy of a Discovered Title, if one is held and still within
+    /// TMDB's terms.
+    fn cached_for_tmdb(&self, id: tmdb::TmdbId, kind: tmdb::Kind, now: i64) -> Option<CachedTitle> {
+        self.titles
+            .lock()
+            .expect("the Title cache is not poisoned")
+            .for_tmdb(id, kind, now)
+    }
+
+    /// Keep a Title this view just read.
+    ///
+    /// A failed write is not a failed open: the answer is already in hand, and
+    /// the cache is the part that outlives it (ADR-0038 §1).
+    fn keep_title(
+        &self,
+        title: &Title,
+        source: TitleSource,
+        status: Option<tmdb::SeriesStatus>,
+        replacing: Option<TitleKey>,
+        now: i64,
+    ) {
+        let protection = self.protection();
+        self.titles
+            .lock()
+            .expect("the Title cache is not poisoned")
+            .keep(
+                CachedTitle {
+                    title: title.clone(),
+                    read_at: now,
+                    source,
+                    status,
+                },
+                replacing,
+                &protection,
+                now,
+            );
+    }
+
+    /// The Titles behind Watch progress and in the Library, frozen with this
+    /// view and read from the shared Library memo at the moment of a write.
+    fn protection(&self) -> TitleProtection {
+        let library = self
+            .library_cache
+            .lock()
+            .expect("the Library cache is not poisoned")
+            .entries();
+        let probes = self
+            .protected
+            .iter()
+            .cloned()
+            .chain(
+                library
+                    .into_iter()
+                    .map(|entry| TitleProbe::new(None, &entry.r#type, &entry.id)),
+            )
+            .collect();
+
+        TitleProtection::holding(probes)
+    }
+
     /// Open one Title: what its Addon answers about the item the client asked for.
     ///
     /// A meta answer is not kept in the page cache: a Title is one item the owner
@@ -506,11 +687,16 @@ impl HostView {
     /// Discovered Title *is* its TMDB record, so a Host that holds no key has
     /// nothing to open it from, and a TMDB that cannot answer is the answer
     /// refused rather than degraded (ADR-0020).
-    fn open_discovered(&self, id: tmdb::TmdbId, kind: tmdb::Kind) -> Result<Title, ActionError> {
+    fn open_discovered(
+        &self,
+        id: tmdb::TmdbId,
+        kind: tmdb::Kind,
+    ) -> Result<OpenedTitle, ActionError> {
         let key = self
             .tmdb_credential()
             .ok_or(ActionError::NoTmdbCredential)?;
         let details = self.tmdb_details(kind, id, &key)?;
+        let status = details.status;
         let videos = self.tmdb_videos(&details, id, &key);
 
         // The record is the whole of it: no Addon answered, and every field
@@ -533,7 +719,7 @@ impl HostView {
         };
         details.with_videos(videos).onto(&mut title);
 
-        Ok(title)
+        Ok(OpenedTitle { title, status })
     }
 
     /// One record's details, read whole — or why TMDB could not answer at all.
@@ -649,9 +835,9 @@ impl HostView {
     /// What keying there is follows the identity and is not the credential's
     /// business: a `tmdb:` id is keyed by its record whether the owner gave a
     /// key or not, for the id is the record's own.
-    fn tmdb_refine(&self, title: &mut Title) {
+    fn tmdb_refine(&self, title: &mut Title) -> TmdbRead {
         let Some(external) = tmdb::ExternalId::parse(&title.r#type, &title.id) else {
-            return;
+            return TmdbRead::default();
         };
         let id = match &external {
             tmdb::ExternalId::Tmdb(id) => {
@@ -660,51 +846,57 @@ impl HostView {
             }
             tmdb::ExternalId::Imdb(imdb) => {
                 let Some(key) = self.tmdb_credential() else {
-                    return;
+                    return TmdbRead::default();
                 };
                 let kind = match tmdb::Kind::parse(&title.r#type) {
                     Some(kind) => kind,
-                    None => return,
+                    None => return TmdbRead::default(),
                 };
                 let request = tmdb::TmdbRequest::Find {
                     kind,
                     imdb: imdb.clone(),
                 };
                 let Some(answer) = self.fetch_tmdb(&request, &key).ok() else {
-                    return;
+                    return TmdbRead::default();
                 };
                 match tmdb::read_find(&answer, kind) {
                     Ok(Some(id)) => id,
                     // An answer that says nothing mapped is an answer: the
                     // Title stays the Addon's, visible and keyed by it.
-                    Ok(None) => return,
-                    Err(_) => return,
+                    Ok(None) => return TmdbRead::default(),
+                    Err(_) => return TmdbRead::default(),
                 }
             }
         };
 
         let Some(key) = self.tmdb_credential() else {
-            return;
+            return TmdbRead::default();
         };
         let kind = match tmdb::Kind::parse(&title.r#type) {
             Some(kind) => kind,
-            None => return,
+            None => return TmdbRead::default(),
         };
         let Some(record) = self.fetch_tmdb(&details_request(kind, id), &key).ok() else {
-            return;
+            return TmdbRead::default();
         };
         match tmdb::read_details_with_seasons(&record, kind, id) {
             Ok(details) => {
+                let status = details.status;
                 let videos = self.tmdb_videos(&details, id, &key);
                 details.with_videos(videos).onto(title);
                 title.key = meta::TitleKey::Tmdb { id: id.0 };
+                TmdbRead {
+                    details: true,
+                    status,
+                }
             }
             // A details answer that was not one: the id stood — the find said
             // so — and the metadata is the Addon's word.
             Err(_) if matches!(external, tmdb::ExternalId::Imdb(_)) => {
                 title.key = meta::TitleKey::Tmdb { id: id.0 };
+                TmdbRead::default()
             }
-            Err(_) => {}
+            Err(_) => TmdbRead::default(),
         }
     }
 

@@ -75,21 +75,21 @@ describe("what the Title page offers next", () => {
     expect(titleSide(title())).toEqual({ kind: "film" });
   });
 
-  test("a series keeps its seasons in the order the Addon listed them", () => {
+  test("a series keeps the seasons in the Host's order, whose Specials are last", () => {
     const series = title({
       type: "series",
       videos: [
-        { id: "tt0:0:1", name: "Special", season: 0, episode: 1, thumbnail: null },
         { id: "tt0:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
         { id: "tt0:1:2", name: "Second", season: 1, episode: 2, thumbnail: null },
         { id: "tt0:2:1", name: "Third", season: 2, episode: 1, thumbnail: null },
+        { id: "tt0:0:1", name: "Special", season: 0, episode: 1, thumbnail: null },
       ],
     });
 
     expect(titleSide(series).kind).toBe("series");
     const side = titleSide(series);
     expect(side.kind === "series" ? side.seasons.map((season) => season.season) : []).toEqual([
-      0, 1, 2,
+      1, 2, 0,
     ]);
   });
 

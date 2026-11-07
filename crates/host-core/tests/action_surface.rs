@@ -471,6 +471,7 @@ fn the_snapshot_declares_only_fields_it_can_safely_carry() {
             "addons": [],
             "featuredCatalog": serde_json::Value::Null,
             "protection": { "backend": "keyring", "tmdbHeld": false, "stremioHeld": false },
+            "continueWatching": [],
             "watchProgress": [],
             // A freshly opened Host has no devices but the one it has always had
             // — nobody — and the code it is showing. The code is drawn, so it is
@@ -583,6 +584,18 @@ impl Store for CountingStore {
     fn write_watch_progress(&self, progress: &host_core::WatchProgress) -> Result<(), StoreError> {
         self.writes.fetch_add(1, Ordering::SeqCst);
         self.inner.write_watch_progress(progress)
+    }
+
+    fn read_titles(&self) -> Result<Vec<host_core::CachedTitle>, StoreError> {
+        self.inner.read_titles()
+    }
+
+    fn write_title(&self, title: &host_core::CachedTitle) -> Result<(), StoreError> {
+        self.inner.write_title(title)
+    }
+
+    fn remove_title(&self, key: &host_core::TitleKey) -> Result<(), StoreError> {
+        self.inner.remove_title(key)
     }
 
     fn read_devices(&self) -> Result<Vec<host_core::Device>, StoreError> {
