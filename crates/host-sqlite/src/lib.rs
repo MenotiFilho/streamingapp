@@ -10,9 +10,10 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use host_core::{
-    Addon, AddonId, CatalogRef, Device, DeviceId, DeviceName, FeaturedCatalog, Manifest,
-    ManifestUrl, Preferences, Store, StoreError, StreamBuffer, SubtitleColor, SubtitleLanguage,
-    SubtitleScale, TitleCard, TitleStub, TokenDigest, VideoRef, WatchProgress,
+    Addon, AddonId, CachedTitle, CatalogRef, Device, DeviceId, DeviceName, FeaturedCatalog,
+    Manifest, ManifestUrl, Preferences, SeriesStatus, Store, StoreError, StreamBuffer,
+    SubtitleColor, SubtitleLanguage, SubtitleScale, Title, TitleCard, TitleKey, TitleSource,
+    TitleStub, TokenDigest, VideoRef, WatchProgress,
 };
 use rusqlite::{params, Connection, Transaction};
 
@@ -409,6 +410,101 @@ impl Store for SqliteStore {
             .map_err(StoreError::write)?;
 
         transaction.commit().map_err(StoreError::write)
+    }
+
+    fn read_titles(&self) -> Result<Vec<CachedTitle>, StoreError> {
+        let connection = self.locked()?;
+        let mut statement = connection
+            .prepare("SELECT key, title, source, status, read_at FROM titles ORDER BY read_at, key")
+            .map_err(StoreError::read)?;
+        let rows = statement
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, i64>(4)?,
+                ))
+            })
+            .map_err(StoreError::read)?;
+
+        let mut titles = Vec::new();
+        for row in rows {
+            // Nothing here is named in the message: a Title's id is the owner's
+            // browsing, and a read failure ends up in a log or a client's error.
+            let (key, title, source, status, read_at) = row.map_err(StoreError::read)?;
+
+            let key: TitleKey = serde_json::from_str(&key).map_err(|error| StoreError::Read {
+                detail: format!("a kept Title's key is unusable: {error}"),
+            })?;
+            let title: Title = serde_json::from_str(&title).map_err(|error| StoreError::Read {
+                detail: format!("a kept Title is unusable: {error}"),
+            })?;
+            if title.key != key {
+                return Err(StoreError::Read {
+                    detail: "a kept Title's key and title disagree".to_owned(),
+                });
+            }
+            let source = TitleSource::parse(&source).ok_or_else(|| StoreError::Read {
+                detail: "a kept Title's source is unusable".to_owned(),
+            })?;
+            let status = status
+                .as_deref()
+                .map(|status| {
+                    SeriesStatus::from_stored(status).ok_or_else(|| StoreError::Read {
+                        detail: "a kept Title's series status is unusable".to_owned(),
+                    })
+                })
+                .transpose()?;
+
+            titles.push(CachedTitle {
+                title,
+                read_at,
+                source,
+                status,
+            });
+        }
+
+        Ok(titles)
+    }
+
+    fn write_title(&self, cached: &CachedTitle) -> Result<(), StoreError> {
+        let connection = self.locked()?;
+        let key = serde_json::to_string(&cached.title.key).map_err(StoreError::write)?;
+        let title = serde_json::to_string(&cached.title).map_err(StoreError::write)?;
+
+        connection
+            .execute(
+                "INSERT INTO titles (key, title, source, status, read_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(key) DO UPDATE SET
+                     title   = excluded.title,
+                     source  = excluded.source,
+                     status  = excluded.status,
+                     read_at = excluded.read_at",
+                params![
+                    key,
+                    title,
+                    cached.source.as_str(),
+                    cached.status.map(SeriesStatus::as_str),
+                    cached.read_at,
+                ],
+            )
+            .map_err(StoreError::write)?;
+
+        Ok(())
+    }
+
+    fn remove_title(&self, key: &TitleKey) -> Result<(), StoreError> {
+        let connection = self.locked()?;
+        let key = serde_json::to_string(key).map_err(StoreError::write)?;
+
+        connection
+            .execute("DELETE FROM titles WHERE key = ?1", params![key])
+            .map_err(StoreError::write)?;
+
+        Ok(())
     }
 
     fn read_devices(&self) -> Result<Vec<Device>, StoreError> {

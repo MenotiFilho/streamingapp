@@ -378,6 +378,7 @@ function SeriesProgram({
           <ChoiceChip
             key={value ?? "unnumbered"}
             className="remote-season"
+            data-testid={`season-${value ?? "unnumbered"}`}
             pressed={shown?.season === value}
             onClick={() => chooseSeason(value)}
           >

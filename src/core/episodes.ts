@@ -115,8 +115,8 @@ export function seriesAction(ref: SeriesRef): Action {
 }
 
 /**
- * A Title's episodes, grouped into seasons in the Addon's own order: the same
- * rule the Title screen draws its season list from, not a second one.
+ * A Title's episodes, grouped into seasons in the Host's order: the same rule
+ * the Title screen draws its season list from, not a second one.
  */
 export function episodesOf(title: Title): Season[] {
   return seasonsOf(title);

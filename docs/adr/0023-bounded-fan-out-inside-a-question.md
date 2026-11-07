@@ -151,3 +151,12 @@ the Host can build: it was never asked.
   slow Addon is named with its own duration rather than inferred from a total.
 - No wire shape, Snapshot, or Action changes. `live_check` composes the Addon
   path directly and never builds a `Host`, so this decision does not reach it.
+
+## Amended by ADR-0038 §4
+
+The TMDB season loop named above as left alone no longer exists. A series'
+seasons are appended to its details request, and a series with more than twenty
+is read in further batches by this same fan-out: one question's fetches, eight at
+a time, with the answers placed in the order the batches were built. The failure
+semantics are the ones the loop kept: a batch that fails is skipped, and only the
+seasons it carried are the ones a Title goes without.

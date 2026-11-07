@@ -117,6 +117,24 @@ pub const MIGRATIONS: &[Migration] = &[
                   FROM watch_progress_v5;
               DROP TABLE watch_progress_v5;",
     },
+    Migration {
+        // The Titles the Host has read (ADR-0038): the Title itself as it was
+        // answered — its metadata, Videos and key — with the moment it was
+        // read, where the copy came from, and what TMDB said about a series'
+        // run. `key` is the Title's identity written as JSON, because a Title
+        // is keyed by a TMDB id or by an Addon's pair and SQL should not learn
+        // a second spelling of it. `title` is a document for the same reason an
+        // Addon's manifest is: nothing here queries inside one.
+        version: 7,
+        sql: "CREATE TABLE titles (
+                 key      TEXT PRIMARY KEY NOT NULL,
+                 title    TEXT NOT NULL,
+                 source   TEXT NOT NULL,
+                 status   TEXT,
+                 read_at  INTEGER NOT NULL
+             );
+             CREATE INDEX titles_read_at ON titles (read_at);",
+    },
 ];
 
 /// The version a database is at once every migration in `migrations` has run.
