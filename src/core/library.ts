@@ -45,15 +45,20 @@ export function cardName(entry: ContinueEntry): string {
 
 /**
  * How much of the Video is left, as a person reads it: `42:10 left`, or
- * `Watched`, or where the Video is with no length to measure against. The
- * unplayable case says why instead, because that is the fact that matters for
- * that card.
+ * `Watched`, or where the Video is with no length to measure against. An Up next
+ * that has not been started says what it is — `Up next · S1E4` — because there
+ * is no progress to report yet. The unplayable case says why instead, because
+ * that is the fact that matters for that card.
  */
 export function cardNote(entry: ContinueEntry): string {
   if (entry.unplayable) {
     return entry.unplayable.reason === "addon_removed"
       ? `Unplayable — the Addon ${entry.unplayable.addon} that supplied this Title is gone.`
       : "Unplayable.";
+  }
+  if (entry.upNext && entry.position === null) {
+    const label = labelOf(entry.video);
+    return label ? `Up next · ${label}` : "Up next";
   }
   if (entry.watched) {
     return "Watched";

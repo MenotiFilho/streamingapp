@@ -33,6 +33,7 @@ function entry(overrides: Partial<ContinueEntry> = {}): ContinueEntry {
     position: 1284,
     duration: 8160,
     watched: false,
+    upNext: false,
     unplayable: null,
     ...overrides,
   };
