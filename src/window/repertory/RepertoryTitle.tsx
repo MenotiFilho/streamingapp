@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 
 import type { Title, Video } from "../../core/wire";
+import { actionKey } from "../../core/actionKey";
 import { theFilm } from "../../core/stream";
-import { decideRevision } from "../../core/revision";
 import {
   airsNote,
   labelOf,
@@ -11,9 +11,11 @@ import {
   titleArtOf,
   type OpenablePreview,
 } from "../../core/title";
+import { useRevisedTitle } from "../../core/react/useRevisedTitle";
 import { useShell } from "../context";
 import { addonLabel } from "../../core/home";
 import { Icon } from "../../kit/icons";
+import { PendingSpinner } from "../../kit/PendingSpinner";
 import { ChoiceChip } from "../../kit/Chip";
 import { RowTrack } from "../RowTrack";
 import { StreamsLoader } from "../StreamsScreen";
@@ -23,6 +25,8 @@ import {
   titleAnchor,
   titleFacts,
   titleMainAction,
+  titleMainPress,
+  titlePlayOutcome,
   titleSide,
   unmappedOf,
 } from "../../core/titlePage";
@@ -47,24 +51,11 @@ export function RepertoryTitleScreen({
   title: Title;
   preview?: OpenablePreview | null;
 }) {
-  const { snapshot, pop, push, session, take } = useShell();
+  const { snapshot, pop, push, session, take, pending } = useShell();
   // A background refresh may answer this Title again while the page is open
   // (ADR-0038 §2). The revision replaces what this page holds only while it is
-  // still this Title; an answer for another one is ignored.
-  const [title, setTitle] = useState(answered);
-  useEffect(() => {
-    setTitle(answered);
-  }, [answered]);
-  useEffect(
-    () =>
-      session.onRevision((revision) => {
-        setTitle((open) => {
-          const decision = decideRevision(open, revision);
-          return decision.kind === "replace" ? decision.title : open;
-        });
-      }),
-    [session],
-  );
+  // still this Title; the decision and the subscription are the core's.
+  const title = useRevisedTitle(answered, session);
 
   const continueWatching = snapshot?.continueWatching ?? [];
   const anchor = titleAnchor(title, continueWatching);
@@ -74,6 +65,11 @@ export function RepertoryTitleScreen({
     continueWatching,
     snapshot?.preferences.upNextPlayback ?? "direct",
   );
+  const press = titleMainPress(main);
+  // The wait is the Session's pending key for the one Action this control
+  // would send (ADR-0027): a picker Play asks nothing, so it never waits.
+  const waiting =
+    press !== null && press.kind !== "picker" && pending.has(actionKey(press.action));
   const side = titleSide(title);
   const seasons = side.kind === "series" ? side.seasons : [];
   const [shownSeason, setShownSeason] = useState<number | null>(anchor.season);
@@ -112,30 +108,34 @@ export function RepertoryTitleScreen({
   /**
    * The one main control: Resume plays the Host's own position, Play sends the
    * Host the Title whose Up next it reads, and a picker Play pushes the
-   * Streams for the Up next Video here (#276).
+   * Streams for the Up next Video here (#276). The ladder is the core's, so
+   * the window and the Remote cannot take different presses.
    */
   const takeMain = async () => {
-    if (main === null) {
+    if (press === null) {
       return;
     }
-    if (main.kind === "resume") {
-      await take(main.action);
+    if (press.kind === "resume") {
+      await take(press.action);
       return;
     }
-    if (main.action === null) {
-      play(main.video);
+    if (press.kind === "picker") {
+      play(press.video);
       return;
     }
 
     // The Host may find no Stream that continues the release. That is not the
     // end of the press: the picker for the Up next is what the refusal asks
     // for (#276). Any other refusal is the window's one alert.
-    const { error } = await session.ask(main.action);
-    if (error?.kind === "no_up_next_stream") {
-      play(main.video);
+    const { error } = await session.ask(press.action);
+    const outcome = titlePlayOutcome(error);
+    if (outcome === "picker") {
+      play(press.video);
       return;
     }
-    session.report(error);
+    if (outcome === "report") {
+      session.report(error);
+    }
   };
 
   return (
@@ -225,9 +225,15 @@ export function RepertoryTitleScreen({
                 data-focusable
                 data-testid="title-main"
                 autoFocus={anchoredVideo === null}
+                aria-busy={waiting || undefined}
+                disabled={waiting}
                 onClick={() => void takeMain()}
               >
-                <Icon name="play" className="rep-play-mark" />
+                {waiting ? (
+                  <PendingSpinner />
+                ) : (
+                  <Icon name="play" className="rep-play-mark" />
+                )}
                 <span>{main.label}</span>
               </button>
             ) : null}

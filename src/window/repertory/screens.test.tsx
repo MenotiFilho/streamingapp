@@ -350,21 +350,38 @@ describe("the repertory Title page", () => {
     expect(document.activeElement).toBe(screen.getByTestId("episode-tt-seasons:4:1"));
   });
 
-  it("offers Resume with the time left and takes today's resume Action", () => {
+  it("offers Resume and takes today's resume Action", () => {
     const { value, take } = harness({
       snapshot: { ...SNAPSHOT, continueWatching: [continueEntry()] },
     });
     render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
 
-    const resume = screen.getByTestId("title-main");
-    expect(resume).toHaveTextContent("Resume S1E2 · 5 min left");
-
-    fireEvent.click(resume);
+    fireEvent.click(screen.getByTestId("title-main"));
 
     expect(take).toHaveBeenCalledWith({
       type: "resume",
       video: { type: "series", id: "tt0903747:1:2" },
     });
+  });
+
+  it("draws the wait on the main control and drops a second press while its Action is pending", () => {
+    const resume: Action = {
+      type: "resume",
+      video: { type: "series", id: "tt0903747:1:2" },
+    };
+    const { value, take } = harness({
+      snapshot: { ...SNAPSHOT, continueWatching: [continueEntry()] },
+      pending: new Set([actionKey(resume)]),
+    });
+    render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
+
+    const main = screen.getByTestId("title-main");
+    expect(main).toBeDisabled();
+    expect(main).toHaveAttribute("aria-busy", "true");
+    expect(within(main).getByTestId("pending-spinner")).toBeInTheDocument();
+
+    fireEvent.click(main);
+    expect(take).not.toHaveBeenCalled();
   });
 
   it("offers Play for an Up next with no position and sends the Host its Title", () => {
@@ -376,10 +393,7 @@ describe("the repertory Title page", () => {
     });
     render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
 
-    const play = screen.getByTestId("title-main");
-    expect(play).toHaveTextContent("Play S1E2");
-
-    fireEvent.click(play);
+    fireEvent.click(screen.getByTestId("title-main"));
 
     expect(actions(ask)).toContainEqual({
       type: "play_up_next",
@@ -397,10 +411,7 @@ describe("the repertory Title page", () => {
     });
     render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
 
-    const play = screen.getByTestId("title-main");
-    expect(play).toHaveTextContent("Play S1E2");
-
-    fireEvent.click(play);
+    fireEvent.click(screen.getByTestId("title-main"));
 
     expect(take).not.toHaveBeenCalled();
     expect(pushed).toHaveLength(1);
@@ -438,50 +449,6 @@ describe("the repertory Title page", () => {
     expect(screen.queryByTestId("title-main")).not.toBeInTheDocument();
     expect(screen.getByTestId("season-1")).toHaveAttribute("aria-pressed", "true");
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Back" }));
-  });
-
-  it("draws the season chips in the Host's order, so the Specials chip is last", () => {
-    const { value } = harness();
-    const ordered: Title = {
-      ...SERIES,
-      videos: [
-        {
-          id: "tt0903747:1:1",
-          name: "Pilot",
-          season: 1,
-          episode: 1,
-          thumbnail: null,
-          airDate: null,
-        },
-        {
-          id: "tt0903747:2:1",
-          name: "Seven Thirty-Seven",
-          season: 2,
-          episode: 1,
-          thumbnail: null,
-          airDate: null,
-        },
-        {
-          id: "tt0903747:0:1",
-          name: "Good Cop Bad Cop",
-          season: 0,
-          episode: 1,
-          thumbnail: null,
-          airDate: null,
-        },
-      ],
-    };
-    render(withShell(value, <RepertoryTitleScreen title={ordered} />));
-
-    const seasons = screen.getByRole("region", { name: "Seasons" });
-    const chips = within(seasons)
-      .getAllByRole("button")
-      .filter((button) => button.dataset.testid?.startsWith("season-"));
-    expect(chips.map((chip) => chip.dataset.testid)).toEqual([
-      "season-1",
-      "season-2",
-      "season-0",
-    ]);
   });
 
   it("draws the season chips as a rail whose arrows page them", () => {

@@ -1,4 +1,5 @@
-import type { Action, ContinueEntry, MetaPreview, Title, Video } from "./wire";
+import type { ActionError } from "./errors";
+import type { Action, ContinueEntry, MetaPreview, Title, UpNextPlayback, Video } from "./wire";
 import {
   isSeries,
   labelOf,
@@ -198,7 +199,7 @@ function timeLeftOf(entry: ContinueEntry): string | null {
 export function titleMainAction(
   title: Title,
   continueWatching: readonly ContinueEntry[],
-  upNextPlayback: "direct" | "picker" = "direct",
+  upNextPlayback: UpNextPlayback = "direct",
 ): TitleMainAction | null {
   const entry = continueEntryOf(title, continueWatching);
   if (entry === null) {
@@ -238,4 +239,50 @@ export function titleMainAction(
       video: { type: title.type, id: video.id },
     },
   };
+}
+
+/**
+ * What pressing the Title's main control asks this client to do.
+ *
+ * The ladder is the same on both clients: Resume takes the Host's own
+ * `resume`; a Play with continuity takes `play_up_next`; and a Play the
+ * preference made a picker opens the Streams for the Up next in the client's
+ * own stack. Keeping the choice here is what stops the window and the Remote
+ * from disagreeing about it (ADR-0032).
+ */
+export type TitleMainPress =
+  | { kind: "resume"; action: Extract<Action, { type: "resume" }> }
+  | {
+      kind: "play";
+      action: Extract<Action, { type: "play_up_next" }>;
+      video: Video;
+    }
+  | { kind: "picker"; video: Video };
+
+export function titleMainPress(main: TitleMainAction | null): TitleMainPress | null {
+  if (main === null) {
+    return null;
+  }
+  if (main.kind === "resume") {
+    return { kind: "resume", action: main.action };
+  }
+  if (main.action === null) {
+    return { kind: "picker", video: main.video };
+  }
+  return { kind: "play", action: main.action, video: main.video };
+}
+
+/**
+ * What a Play's answer came to: the player when the Host took it, the picker
+ * for the Up next when continuity found no Stream, and the client's one alert
+ * for anything else (#276). A Play that the preference already made a picker
+ * never reaches this — it asked nothing.
+ */
+export type TitlePlayOutcome = "played" | "picker" | "report";
+
+export function titlePlayOutcome(error: ActionError | null): TitlePlayOutcome {
+  if (error === null) {
+    return "played";
+  }
+  return error.kind === "no_up_next_stream" ? "picker" : "report";
 }

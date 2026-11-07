@@ -17,6 +17,13 @@ export const ACTION_VERSION = 1;
 export const SNAPSHOT_EVENT = "host://snapshot";
 
 /**
+ * What Play does for a Title's Up next (#276): play it directly from the
+ * release the Video before it came from, or open the Streams picker so the
+ * owner chooses. A preference of the Host's, published in every Snapshot.
+ */
+export type UpNextPlayback = "direct" | "picker";
+
+/**
  * The event the Host delivers a revised Answer on: a stale Title's background
  * refresh landed and differs (ADR-0038 §2). Mirrors `REVISION_EVENT` in
  * `src-tauri/src/ipc.rs`. It goes to the window that asked, and is never a
@@ -53,7 +60,7 @@ export type Snapshot = {
      * (#276). Always a value — direct is the default — and it governs only Up
      * next, never Resume.
      */
-    upNextPlayback: "direct" | "picker";
+    upNextPlayback: UpNextPlayback;
   };
   addons: AddonManifest[];
   /**
@@ -649,9 +656,9 @@ export type Action =
   | { type: "set_stream_buffer"; seconds: number; megabytes: number }
   // What Play does for a Title's Up next (#276): a preference of the Host's,
   // stored beside the Stream buffer and published in every Snapshot. It
-  // switches Play between playing the next episode directly and opening the
+  // switches Play between playing the Up next directly and opening the
   // Streams picker; it never affects Resume.
-  | { type: "set_up_next_playback"; playback: "direct" | "picker" }
+  | { type: "set_up_next_playback"; playback: UpNextPlayback }
   // The Featured catalog (#74): a preference of the Host's rather than this
   // client's, so marking one changes what *every* client's Home is drawn from.
   | {
