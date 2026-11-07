@@ -12,6 +12,7 @@ import type {
   AddonCatalog,
   AddonManifest,
   CatalogRow,
+  ContinueEntry,
   MetaPreview,
   Response,
   Snapshot,
@@ -188,12 +189,64 @@ function Stack({ session, level }: { session: Session; level: NewLevel<RemotePay
   ) : null;
 }
 
-function mountStack(respond: Respond, level = titleLevel({ addon: "cinemeta", id: "tt1", type: "movie", name: "One" })) {
-  const host = new FakeHost(SNAPSHOT, respond);
+function mountStack(
+  respond: Respond,
+  level = titleLevel({ addon: "cinemeta", id: "tt1", type: "movie", name: "One" }),
+  snapshot: Snapshot = SNAPSHOT,
+) {
+  const host = new FakeHost(snapshot, respond);
   const session = new Session(host);
+  // The room the Remote draws always follows a started Session; the anchor reads
+  // the Continue watching list from the Snapshot that start reads.
+  session.start();
   const view = render(<Stack session={session} level={level} />);
   return { host, session, view };
 }
+
+function continueEntry(overrides: Partial<ContinueEntry> = {}): ContinueEntry {
+  return {
+    video: { id: "tt1:1:2", name: null, season: 1, episode: 2, thumbnail: null },
+    title: {
+      addon: "cinemeta",
+      id: "tt1",
+      type: "series",
+      name: "One",
+      poster: null,
+      background: null,
+    },
+    position: 300,
+    duration: 600,
+    watched: false,
+    unplayable: null,
+    ...overrides,
+  };
+}
+
+describe("a Continue watching card on the Remote", () => {
+  test("opens its Title on the card's season and episode", async () => {
+    const host = new FakeHost(
+      {
+        ...SNAPSHOT,
+        continueWatching: [
+          continueEntry({
+            video: { id: "tt1:2:1", name: null, season: 2, episode: 1, thumbnail: null },
+          }),
+        ],
+      },
+      answering(SERIES),
+    );
+    render(<RemoteApp link={doorOf(host)} />);
+
+    fireEvent.click(await screen.findByTestId("resume-tt1:2:1"));
+    await screen.findByTestId("remote-title-page");
+
+    expect(screen.getByRole("button", { name: /Season 2/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("episode-tt1:2:1")).toHaveAttribute("aria-pressed", "true");
+  });
+});
 
 describe("the Title level's one question", () => {
   test("an Addon's card asks open_title on the first mount, and only once", async () => {
@@ -406,5 +459,69 @@ describe("a series' Play", () => {
     expect(host.asked("find_streams")).toEqual([
       { type: "find_streams", video: { type: "series", id: "tt1:2:1" } },
     ]);
+  });
+
+  test("opens on the season of the Continue watching Video, with that episode chosen", async () => {
+    mountStack(
+      answering(SERIES),
+      titleLevel({ addon: "cinemeta", id: "tt1", type: "series", name: "One" }),
+      {
+        ...SNAPSHOT,
+        continueWatching: [
+          continueEntry({
+            video: { id: "tt1:2:1", name: null, season: 2, episode: 1, thumbnail: null },
+          }),
+        ],
+      },
+    );
+    await screen.findByTestId("remote-title-page");
+
+    expect(screen.getByRole("button", { name: /Season 2/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("episode-tt1:2:1")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  test("Resume plays the anchored Video from the Host and opens the player card", async () => {
+    const playing: Snapshot = {
+      ...SNAPSHOT,
+      revision: 2,
+      playback: {
+        ...SNAPSHOT.playback,
+        state: "playing",
+        nowPlaying: {
+          video: { type: "series", id: "tt1:1:2" },
+          addon: "cinemeta",
+          name: null,
+          description: null,
+          filename: null,
+          bingeGroup: null,
+        },
+        position: 300,
+        duration: 600,
+      },
+    };
+    const { host } = mountStack(
+      answering(SERIES),
+      titleLevel({ addon: "cinemeta", id: "tt1", type: "series", name: "One" }),
+      { ...SNAPSHOT, continueWatching: [continueEntry()] },
+    );
+    await screen.findByTestId("remote-title-page");
+
+    fireEvent.click(screen.getByRole("button", { name: "Resume S1E2 · 5 min left" }));
+
+    await waitFor(() =>
+      expect(host.asked("resume")).toEqual([
+        { type: "resume", video: { type: "series", id: "tt1:1:2" } },
+      ]),
+    );
+    // The Host reports the Stream it took on its next Snapshot; the card is
+    // drawn over the Title from there.
+    act(() => host.publish(playing));
+    expect(await screen.findByTestId("remote-player-card")).toBeInTheDocument();
   });
 });

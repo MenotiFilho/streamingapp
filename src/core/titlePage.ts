@@ -1,5 +1,11 @@
-import type { MetaPreview, Title } from "./wire";
-import { isSeries, releaseOf, seasonsOf, type Season } from "./title";
+import type { Action, ContinueEntry, MetaPreview, Title, Video } from "./wire";
+import {
+  isSeries,
+  labelOf,
+  releaseOf,
+  seasonsOf,
+  type Season,
+} from "./title";
 
 /**
  * The Title page's programme decisions, kept out of the drawing (ADR-0032).
@@ -84,4 +90,114 @@ export function titleSide(title: Title): TitleSide {
   }
 
   return { kind: "series", seasons };
+}
+
+/**
+ * The Title's Continue watching card, matched the way the Host groups it: by
+ * the type and id the stub carries. The same series reached under two keys is
+ * two cards there, and a Title opened under one key does not anchor to the
+ * other (ADR-0020's hazard).
+ */
+function continueEntryOf(
+  title: Pick<Title, "type" | "id">,
+  continueWatching: readonly ContinueEntry[],
+): ContinueEntry | null {
+  return (
+    continueWatching.find(
+      (entry) => entry.title.type === title.type && entry.title.id === title.id,
+    ) ?? null
+  );
+}
+
+/**
+ * Where a Title opens: the Video its Continue watching entry names, and the
+ * season that Video is in, or the beginning when the Title has no entry.
+ *
+ * The entry is the Title's anchor wherever it was opened from — a card on
+ * Home, a Discover row, a Search hit, the Library — because the decision reads
+ * the Host's Continue watching list, not the card that was pressed (CONTEXT.md,
+ * *Up next*). With no entry, the first season is shown and `video` is null: the
+ * screen keeps the default focus it has today.
+ *
+ * The Video is the Title's own copy where the list holds it, so the name and
+ * still the Title page draws come with it; a stale Title that does not list the
+ * card's Video still anchors on the entry's own Video.
+ */
+export type TitleAnchor = {
+  /** The season the Title page shows: the entry Video's, else the first. */
+  season: number | null;
+  /** The Video the page focuses, or null for the screen's default focus. */
+  video: Video | null;
+};
+
+export function titleAnchor(
+  title: Title,
+  continueWatching: readonly ContinueEntry[],
+): TitleAnchor {
+  const entry = continueEntryOf(title, continueWatching);
+  if (entry === null) {
+    return { season: seasonsOf(title)[0]?.season ?? null, video: null };
+  }
+
+  const video =
+    title.videos.find((held) => held.id === entry.video.id) ?? entry.video;
+  return { season: video.season ?? null, video };
+}
+
+/** A Title's one main control: today the Resume a partly watched Video earns. */
+export type TitleMainAction = {
+  /** The words on the control: `Resume S1E3 · 12 min left`, or `Resume`. */
+  label: string;
+  /** The Action the control takes: the Host's own `resume`, as today. */
+  action: Extract<Action, { type: "resume" }>;
+};
+
+/**
+ * How much of a partly watched Video is left, in whole minutes, where the Host
+ * knows the Video's length: the Title's main control. A Video with no length is
+ * resumed without claiming a time nobody said.
+ */
+function timeLeftOf(entry: ContinueEntry): string | null {
+  if (
+    entry.position === null ||
+    entry.duration === null ||
+    entry.duration <= entry.position
+  ) {
+    return null;
+  }
+
+  const minutes = Math.max(1, Math.ceil((entry.duration - entry.position) / 60));
+  return `${minutes} min left`;
+}
+
+/**
+ * The Title's main control, or null where there is none yet.
+ *
+ * A partly watched Video resumes at the Host's saved position. A finished Video
+ * has nothing left to resume, and an Up next that has no position is the Play
+ * case #276 brings; until then both show no main control. A Title with no
+ * Continue watching entry has no main control either, because there is no
+ * progress to continue.
+ */
+export function titleMainAction(
+  title: Title,
+  continueWatching: readonly ContinueEntry[],
+): TitleMainAction | null {
+  const entry = continueEntryOf(title, continueWatching);
+  if (entry === null || entry.watched || entry.position === null) {
+    return null;
+  }
+
+  const video = title.videos.find((held) => held.id === entry.video.id) ?? entry.video;
+  const episode = labelOf(video);
+  const left = timeLeftOf(entry);
+  const base = episode ? `Resume ${episode}` : "Resume";
+
+  return {
+    label: left ? `${base} · ${left}` : base,
+    action: {
+      type: "resume",
+      video: { type: title.type, id: video.id },
+    },
+  };
 }

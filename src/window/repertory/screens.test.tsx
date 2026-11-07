@@ -7,6 +7,7 @@ import type {
   Action,
   AddonManifest,
   CatalogRow,
+  ContinueEntry,
   Snapshot,
   Stream,
   Title,
@@ -155,6 +156,25 @@ const MANY_SEASONS: Title = {
   })),
 };
 
+function continueEntry(overrides: Partial<ContinueEntry> = {}): ContinueEntry {
+  return {
+    video: { id: "tt0903747:1:2", name: null, season: 1, episode: 2, thumbnail: null },
+    title: {
+      addon: "com.linvo.cinemeta",
+      id: "tt0903747",
+      type: "series",
+      name: "Breaking Bad",
+      poster: null,
+      background: null,
+    },
+    position: 300,
+    duration: 600,
+    watched: false,
+    unplayable: null,
+    ...overrides,
+  };
+}
+
 const UNPLAYABLE: Stream = {
   name: "Torrentio\n4k HDR",
   description: "Breaking Bad S01E01 2160p BluRay\n👤 106 💾 9.53 GB",
@@ -274,6 +294,57 @@ describe("the repertory Title page", () => {
 
     expect(pushed).toHaveLength(1);
     expect(pushed[0]?.name).toBe("Streams");
+  });
+
+  it("opens on the season of the Continue watching Video and focuses that episode", () => {
+    const { value } = harness({
+      snapshot: {
+        ...SNAPSHOT,
+        continueWatching: [
+          continueEntry({
+            video: { id: "tt-seasons:4:1", name: null, season: 4, episode: 1, thumbnail: null },
+            title: {
+              addon: "com.linvo.cinemeta",
+              id: "tt-seasons",
+              type: "series",
+              name: "Many Seasons",
+              poster: null,
+              background: null,
+            },
+          }),
+        ],
+      },
+    });
+    render(withShell(value, <RepertoryTitleScreen title={MANY_SEASONS} />));
+
+    expect(screen.getByTestId("season-4")).toHaveAttribute("aria-pressed", "true");
+    expect(document.activeElement).toBe(screen.getByTestId("episode-tt-seasons:4:1"));
+  });
+
+  it("offers Resume with the time left and takes today's resume Action", () => {
+    const { value, take } = harness({
+      snapshot: { ...SNAPSHOT, continueWatching: [continueEntry()] },
+    });
+    render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
+
+    const resume = screen.getByTestId("title-resume");
+    expect(resume).toHaveTextContent("Resume S1E2 · 5 min left");
+
+    fireEvent.click(resume);
+
+    expect(take).toHaveBeenCalledWith({
+      type: "resume",
+      video: { type: "series", id: "tt0903747:1:2" },
+    });
+  });
+
+  it("keeps a Title with no entry at its beginning, with no main control", () => {
+    const { value } = harness();
+    render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
+
+    expect(screen.queryByTestId("title-resume")).not.toBeInTheDocument();
+    expect(screen.getByTestId("season-1")).toHaveAttribute("aria-pressed", "true");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Back" }));
   });
 
   it("draws the season chips as a rail whose arrows page them", () => {
