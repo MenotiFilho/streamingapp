@@ -1,6 +1,6 @@
 import type { ActionError } from "../core/errors";
 import type { HostLink, LinkState } from "../core/link";
-import type { Action, Response, Snapshot } from "../core/wire";
+import type { Action, Response, Snapshot, Title } from "../core/wire";
 
 /**
  * The Host's one door, faked for a screen's component test (ADR-0032).
@@ -18,6 +18,7 @@ export class FakeHost implements HostLink {
   readonly actions: Action[] = [];
   private held: Snapshot;
   private readonly snapshotHandlers = new Set<(snapshot: Snapshot) => void>();
+  private readonly revisionHandlers = new Set<(title: Title) => void>();
   private readonly stateHandlers = new Set<(state: LinkState) => void>();
   /** One identity for the ready link, as a real link's state is cached. */
   private readonly linkState: LinkState = { kind: "ready", device: null };
@@ -49,6 +50,13 @@ export class FakeHost implements HostLink {
     };
   }
 
+  onRevision(handler: (title: Title) => void): () => void {
+    this.revisionHandlers.add(handler);
+    return () => {
+      this.revisionHandlers.delete(handler);
+    };
+  }
+
   state(): LinkState {
     return this.linkState;
   }
@@ -62,6 +70,7 @@ export class FakeHost implements HostLink {
 
   close(): void {
     this.snapshotHandlers.clear();
+    this.revisionHandlers.clear();
     this.stateHandlers.clear();
   }
 
@@ -70,6 +79,13 @@ export class FakeHost implements HostLink {
     this.held = next;
     for (const handler of [...this.snapshotHandlers]) {
       handler(next);
+    }
+  }
+
+  /** Send one revised Title, as a background refresh does (ADR-0038 §2). */
+  revise(title: Title): void {
+    for (const handler of [...this.revisionHandlers]) {
+      handler(title);
     }
   }
 

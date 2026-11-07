@@ -27,6 +27,7 @@ function counting(link: HostLink): { link: HostLink; reads: () => number } {
     },
     dispatch: (action) => link.dispatch(action),
     onSnapshot: (handler) => link.onSnapshot(handler),
+    onRevision: (handler) => link.onRevision(handler),
     state: () => link.state(),
     onState: (handler) => link.onState(handler),
     close: () => link.close(),

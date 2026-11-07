@@ -1,0 +1,156 @@
+//! The Host's background queue: work that runs outside the change lock, and
+//! the revised Answer owed to the client whose open queued it (ADR-0038 §2).
+//!
+//! Opening a stale Title answers the cached copy at once and queues a refresh.
+//! The shell drains the queue on a worker thread, a bounded fan-out at a time;
+//! tests drain it inline. The queue takes its own lock for one push or one
+//! take, and a job's fetch runs with no lock held — the same scope a question's
+//! fetches have (ADR-0022, ADR-0023).
+//!
+//! A job is keyed by the Title the cache keys it by, so two opens of one stale
+//! Title collapse into one refresh. Each job carries the Answer it was answered
+//! with: a refresh that lands equal answers nobody, and one that differs sends
+//! a revised Answer to the clients that asked, never a Snapshot (ADR-0005).
+
+use std::sync::{Arc, Mutex};
+
+use crate::addon::AddonId;
+use crate::meta::{Title, TitleKey};
+use crate::request::TitleRef;
+use crate::response::Answer;
+use crate::tmdb::{Kind, TmdbId};
+
+/// Where a revised Answer goes: the client whose open queued the refresh, and
+/// nobody else.
+///
+/// The app shell's window emits it to its one window; the wire sends it on the
+/// asking device's socket; a test records it. `host-core` never names a
+/// transport, so this is the seam every adapter implements.
+pub trait RevisionSink: Send + Sync + 'static {
+    /// Deliver an Answer that follows the Response which opened its Title.
+    fn revise(&self, answer: Answer);
+}
+
+/// A [`RevisionSink`] that keeps what it was handed, for tests.
+#[derive(Debug, Default)]
+pub struct FixtureRevisions {
+    answers: Mutex<Vec<Answer>>,
+}
+
+impl FixtureRevisions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Every Answer the Host revised this sink with, in the order it did.
+    pub fn revised(&self) -> Vec<Answer> {
+        self.answers
+            .lock()
+            .expect("the fixture revisions are not poisoned")
+            .clone()
+    }
+}
+
+impl RevisionSink for FixtureRevisions {
+    fn revise(&self, answer: Answer) {
+        self.answers
+            .lock()
+            .expect("the fixture revisions are not poisoned")
+            .push(answer);
+    }
+}
+
+/// What one background job will read.
+#[derive(Debug, Clone)]
+pub(crate) enum Work {
+    /// A Title opened through an Addon: ask the Addon, and TMDB where it meets
+    /// — or TMDB alone once the Addon is gone and the copy is keyed by a
+    /// record (ADR-0038 §2).
+    Addon {
+        addon: AddonId,
+        asked: TitleRef,
+    },
+    /// A Discovered Title: TMDB's record is the whole of it.
+    Discovered { id: TmdbId, kind: Kind },
+}
+
+/// One Title to read again, the copy it was answered with, and who asked.
+pub(crate) struct Job {
+    /// The Title as the cache keys it: what a duplicate job collapses on.
+    pub(crate) key: TitleKey,
+    /// The Title the client was answered with. A refresh equal to this one is
+    /// no news and answers nobody.
+    pub(crate) answered: Title,
+    pub(crate) work: Work,
+    /// The clients whose opens queued this job, owed a revised Answer if the
+    /// refresh differs. Empty for a job no client asked for (a read-ahead).
+    pub(crate) askers: Vec<Arc<dyn RevisionSink>>,
+}
+
+/// The work waiting to run, oldest first. One Title is one job.
+#[derive(Default)]
+pub(crate) struct BackgroundQueue {
+    jobs: Vec<Job>,
+}
+
+impl BackgroundQueue {
+    /// Queue one job, collapsing it into the job already waiting for the same
+    /// Title: one stale Title is one refresh however many clients open it.
+    pub(crate) fn enqueue(&mut self, mut job: Job) {
+        if let Some(held) = self.jobs.iter_mut().find(|held| held.key == job.key) {
+            held.askers.append(&mut job.askers);
+            return;
+        }
+        self.jobs.push(job);
+    }
+
+    /// Take everything waiting, so the caller can run it with no queue lock
+    /// held.
+    pub(crate) fn take(&mut self) -> Vec<Job> {
+        std::mem::take(&mut self.jobs)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn job(key: TitleKey, asker: Arc<dyn RevisionSink>) -> Job {
+        Job {
+            key,
+            answered: Title {
+                addon: None,
+                id: "tmdb:1".to_owned(),
+                key: TitleKey::Tmdb { id: 1 },
+                r#type: "movie".to_owned(),
+                name: "One".to_owned(),
+                poster: None,
+                background: None,
+                logo: None,
+                description: None,
+                release_info: None,
+                runtime: None,
+                imdb_rating: None,
+                genres: Vec::new(),
+                videos: Vec::new(),
+            },
+            work: Work::Discovered {
+                id: TmdbId(1),
+                kind: Kind::Movie,
+            },
+            askers: vec![asker],
+        }
+    }
+
+    #[test]
+    fn two_jobs_for_one_title_are_one_job_with_both_askers() {
+        let mut queue = BackgroundQueue::default();
+        queue.enqueue(job(TitleKey::Tmdb { id: 1 }, Arc::new(FixtureRevisions::new())));
+        queue.enqueue(job(TitleKey::Tmdb { id: 1 }, Arc::new(FixtureRevisions::new())));
+
+        let jobs = queue.take();
+        assert_eq!(jobs.len(), 1, "one Title is one job");
+        assert_eq!(jobs[0].askers.len(), 2, "and both clients are owed an answer");
+        assert!(queue.take().is_empty(), "taking the queue empties it");
+    }
+}

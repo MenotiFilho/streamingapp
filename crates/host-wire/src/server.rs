@@ -32,7 +32,7 @@ use std::time::{Duration, Instant};
 
 use host_core::{
     Action, ActionError, Answer, ClientFrame, DeviceId, DeviceSummary, DeviceToken, Response,
-    ServerFrame, Snapshot,
+    ServerFrame, Snapshot, RevisionSink,
 };
 use tungstenite::protocol::{Message, Role, WebSocket};
 
@@ -76,8 +76,14 @@ pub const DEFAULT_PORT: u16 = 8090;
 /// [`host_core::Host`].
 pub trait Surface: Send + Sync + 'static {
     /// Take an Action through the one door. The shell's implementation publishes
-    /// what the Action published, exactly as the window's does.
-    fn dispatch(&self, action: Action) -> Result<Response, ActionError>;
+    /// what the Action published, exactly as the window's does, and hands back
+    /// any Answer that arrives after the Response to `revisions` — the client
+    /// whose connection asked (ADR-0038 §2).
+    fn dispatch(
+        &self,
+        action: Action,
+        revisions: Arc<dyn RevisionSink>,
+    ) -> Result<Response, ActionError>;
 
     /// The device a presented token belongs to, or nothing: a token this Host
     /// never issued, or one issued to a device that has been revoked. Asked at
@@ -223,6 +229,13 @@ fn connection(
     socket: &mut WebSocket<TcpStream>,
 ) -> io::Result<()> {
     let subscription = broadcast.subscribe();
+    // The Answers this connection is owed after their Response: a revised
+    // Title goes only to the client whose open queued the refresh, so the
+    // channel is per connection and not a broadcast (ADR-0038 §2).
+    let (revision_sender, revisions) = mpsc::channel();
+    let revision_sink: Arc<dyn RevisionSink> = Arc::new(ConnectionRevisions {
+        sender: revision_sender,
+    });
     let mut paired: Option<Paired> = None;
     let mut wrong_codes = 0u32;
     let mut last_seen = Instant::now();
@@ -234,6 +247,7 @@ fn connection(
                 last_seen = Instant::now();
                 let mut conversation = Conversation {
                     surface,
+                    revisions: &revision_sink,
                     paired: &mut paired,
                     wrong_codes: &mut wrong_codes,
                 };
@@ -268,6 +282,7 @@ fn connection(
         if !push(surface, &subscription, &paired, socket)? {
             return Ok(());
         }
+        send_revisions(&revisions, socket)?;
 
         match keepalive(Instant::now(), last_seen, last_ping) {
             Keepalive::Close => {
@@ -381,6 +396,7 @@ fn push(
 /// attempts it has spent.
 struct Conversation<'a> {
     surface: &'a Arc<dyn Surface>,
+    revisions: &'a Arc<dyn RevisionSink>,
     paired: &'a mut Option<Paired>,
     wrong_codes: &'a mut u32,
 }
@@ -453,7 +469,7 @@ impl Conversation<'_> {
                     return Ok(Outcome::Keep);
                 }
 
-                match self.surface.dispatch(action) {
+                match self.surface.dispatch(action, self.revisions.clone()) {
                     Ok(mut response) => {
                         // A pairing answers with the token this connection now
                         // holds; adopting it here is what makes the rest of the
@@ -518,6 +534,29 @@ impl Conversation<'_> {
         }
         Ok(())
     }
+}
+
+/// One connection's way to be told a revised Answer after its Reply.
+///
+/// The sender is kept in the background job a stale open queued; the connection
+/// thread reads the other end beside the Snapshots it pushes. A connection that
+/// has gone drops the receiver, and the send quietly fails.
+struct ConnectionRevisions {
+    sender: Sender<Answer>,
+}
+
+impl RevisionSink for ConnectionRevisions {
+    fn revise(&self, answer: Answer) {
+        let _ = self.sender.send(answer);
+    }
+}
+
+/// Write every revised Answer that has arrived for this connection.
+fn send_revisions(revisions: &Receiver<Answer>, socket: &mut WebSocket<TcpStream>) -> io::Result<()> {
+    while let Ok(answer) = revisions.try_recv() {
+        send(socket, &ServerFrame::Revision(Box::new(answer)))?;
+    }
+    Ok(())
 }
 
 fn send(socket: &mut WebSocket<TcpStream>, frame: &ServerFrame) -> io::Result<()> {

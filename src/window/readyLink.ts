@@ -1,8 +1,8 @@
-import { withoutToken } from "../core/answers";
+import { revisedTitleOf, withoutToken } from "../core/answers";
 import { asActionError } from "../core/errors";
 import type { HostLink, LinkState } from "../core/link";
-import { ACTION_VERSION, SNAPSHOT_EVENT } from "../core/wire";
-import type { Action, Response, Snapshot } from "../core/wire";
+import { ACTION_VERSION, REVISION_EVENT, SNAPSHOT_EVENT } from "../core/wire";
+import type { Action, Response, Snapshot, Title } from "../core/wire";
 import type { Transport } from "./transport";
 
 /**
@@ -47,8 +47,37 @@ export class ReadyLink implements HostLink {
 
   /** Follow the Snapshots the Host publishes. */
   onSnapshot(handler: (snapshot: Snapshot) => void): () => void {
-    // A closed link delivers nothing, including to a subscription made after
-    // it closed: `close()` has already cleared its set, and never runs again.
+    return this.follow(SNAPSHOT_EVENT, handler);
+  }
+
+  /**
+   * Follow the revised Titles the Host sends this window.
+   *
+   * The event's payload is an Answer marked as a revision (ADR-0038 §2); the
+   * link hands the Title on, so a screen never reads the wrapper. A payload
+   * that is not one is ignored rather than guessed at.
+   */
+  onRevision(handler: (title: Title) => void): () => void {
+    return this.follow<unknown>(REVISION_EVENT, (payload) => {
+      const title = revisedTitleOf(payload);
+      if (title) {
+        handler(title);
+      }
+    });
+  }
+
+  /**
+   * Listen to one Host event, and return the unsubscribe.
+   *
+   * A closed link delivers nothing, including to a subscription made after it
+   * closed: `close()` has already cleared its set, and never runs again. The
+   * listen may settle after the caller unsubscribed — a StrictMode
+   * mount/unmount is exactly that race — so the unlisten happens then.
+   */
+  private follow<T>(
+    event: string,
+    handler: (payload: T) => void,
+  ): () => void {
     if (this.current.kind === "closed") {
       return () => undefined;
     }
@@ -57,7 +86,7 @@ export class ReadyLink implements HostLink {
     let stop: (() => void) | undefined;
 
     void this.transport
-      .listen<Snapshot>(SNAPSHOT_EVENT, (event) => {
+      .listen<T>(event, (event) => {
         // A listener that settles after `close()` must not deliver anything:
         // the page may be gone, and the handler is the caller's business.
         if (!closed) {
@@ -65,8 +94,6 @@ export class ReadyLink implements HostLink {
         }
       })
       .then((unlisten) => {
-        // The listen may settle after the caller unsubscribed — a StrictMode
-        // mount/unmount is exactly that race — so the unlisten happens now.
         if (closed) {
           unlisten();
         } else {

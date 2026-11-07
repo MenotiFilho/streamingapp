@@ -1,7 +1,8 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import type { Title, Video } from "../../core/wire";
 import { theFilm } from "../../core/stream";
+import { decideRevision } from "../../core/revision";
 import {
   labelOf,
   nameOf,
@@ -31,13 +32,31 @@ import { titleFacts, titleSide, unmappedOf } from "../../core/titlePage";
  * the chosen episode exactly where they were.
  */
 export function RepertoryTitleScreen({
-  title,
+  title: answered,
   preview,
 }: {
   title: Title;
   preview?: OpenablePreview | null;
 }) {
-  const { snapshot, pop, push } = useShell();
+  const { snapshot, pop, push, session } = useShell();
+  // A background refresh may answer this Title again while the page is open
+  // (ADR-0038 §2). The revision replaces what this page holds only while it is
+  // still this Title; an answer for another one is ignored.
+  const [title, setTitle] = useState(answered);
+  useEffect(() => {
+    setTitle(answered);
+  }, [answered]);
+  useEffect(
+    () =>
+      session.onRevision((revision) => {
+        setTitle((open) => {
+          const decision = decideRevision(open, revision);
+          return decision.kind === "replace" ? decision.title : open;
+        });
+      }),
+    [session],
+  );
+
   const side = titleSide(title);
   const seasons = side.kind === "series" ? side.seasons : [];
   const [shownSeason, setShownSeason] = useState<number | null>(seasons[0]?.season ?? null);

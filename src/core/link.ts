@@ -1,4 +1,4 @@
-import type { Action, DeviceSummary, Response, Snapshot } from "./wire";
+import type { Action, DeviceSummary, Response, Snapshot, Title } from "./wire";
 
 /**
  * Where a link to the Host stands (ADR-0035 §1).
@@ -41,6 +41,12 @@ export type HostLink = {
   dispatch(action: Action): Promise<Response>;
   /** Follow the Snapshots the Host publishes. */
   onSnapshot(handler: (snapshot: Snapshot) => void): () => void;
+  /**
+   * Follow the revised Titles the Host sends after a Reply: a stale Title's
+   * background refresh landed and differs (ADR-0038 §2). Only the client that
+   * asked is sent one; a screen swaps it in only while that Title is open.
+   */
+  onRevision(handler: (title: Title) => void): () => void;
   /** Where the link stands now. */
   state(): LinkState;
   /** Follow where the link stands. */

@@ -20,6 +20,7 @@ import type {
   MetaPreview,
   Response,
   Snapshot,
+  Title,
 } from "../core/wire";
 import { Home } from "./Home";
 import { NOTHING } from "./fakeSocket.testing";
@@ -135,6 +136,7 @@ class FakeHost implements HostLink {
   readonly actions: Action[] = [];
   private held: Snapshot;
   private readonly snapshotHandlers = new Set<(snapshot: Snapshot) => void>();
+  private readonly revisionHandlers = new Set<(title: Title) => void>();
   private readonly stateHandlers = new Set<(state: LinkState) => void>();
 
   constructor(
@@ -164,6 +166,13 @@ class FakeHost implements HostLink {
     };
   }
 
+  onRevision(handler: (title: Title) => void): () => void {
+    this.revisionHandlers.add(handler);
+    return () => {
+      this.revisionHandlers.delete(handler);
+    };
+  }
+
   state(): LinkState {
     return { kind: "ready", device: null };
   }
@@ -177,6 +186,7 @@ class FakeHost implements HostLink {
 
   close(): void {
     this.snapshotHandlers.clear();
+    this.revisionHandlers.clear();
     this.stateHandlers.clear();
   }
 

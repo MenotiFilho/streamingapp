@@ -82,6 +82,7 @@ function fakeHost(answer: () => Promise<Response> = async () => ({ snapshots: []
         snapshots.delete(handler);
       };
     },
+    onRevision: () => () => {},
     state: () => state,
     onState: (handler) => {
       order.push("onState");

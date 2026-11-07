@@ -5,6 +5,7 @@ import { explain, type ActionError } from "../core/errors";
 import { addonLabel } from "../core/home";
 import { programIndex } from "../core/homeProgramme";
 import type { NewLevel } from "../core/navigation";
+import { decideRevision } from "../core/revision";
 import type { Session, SessionState } from "../core/session";
 import { theFilm } from "../core/stream";
 import {
@@ -134,7 +135,13 @@ export function TitleScreen({
 
   if (answer !== null) {
     return (
-      <TitlePage card={card} title={answer} state={state} push={push} />
+      <TitlePage
+        card={card}
+        title={answer}
+        state={state}
+        push={push}
+        session={session}
+      />
     );
   }
 
@@ -183,15 +190,35 @@ export function TitleScreen({
  */
 function TitlePage({
   card,
-  title,
+  title: answered,
   state,
   push,
+  session,
 }: {
   card: RemoteTitle;
   title: Title;
   state: SessionState;
   push: (level: NewLevel<RemotePayload>) => string;
+  session: Session;
 }) {
+  // A background refresh may answer this Title again while the level is open
+  // (ADR-0038 §2). The revision replaces what is drawn only while it is still
+  // this Title; one for a Title the person has left is ignored.
+  const [title, setTitle] = useState(answered);
+  useEffect(() => {
+    setTitle(answered);
+  }, [answered]);
+  useEffect(
+    () =>
+      session.onRevision((revision) => {
+        setTitle((open) => {
+          const decision = decideRevision(open, revision);
+          return decision.kind === "replace" ? decision.title : open;
+        });
+      }),
+    [session],
+  );
+
   const preview = cardPreviewOf(card);
   const name = nameOf(title, preview);
   const art = titleArtOf(title, preview);

@@ -37,6 +37,7 @@
 
 mod action;
 mod addon;
+mod background;
 mod cache;
 mod catalog;
 mod clock;
@@ -77,6 +78,7 @@ pub use addon::{
     Manifest, ManifestError, ManifestUrl, Resource, MAX_ITEMS, MAX_MANIFEST_BYTES, MAX_STRING_LEN,
     MAX_URL_LEN,
 };
+pub use background::{FixtureRevisions, RevisionSink};
 pub use catalog::{CacheHints, CatalogError, CatalogRow, MetaPreview, Page, MAX_CATALOG_BYTES};
 pub use clock::{Clock, FixtureClock, SystemClock};
 pub use device::{

@@ -97,6 +97,7 @@ function fakeHost(
         snapshots.delete(handler);
       };
     },
+    onRevision: () => () => {},
     state: () => state,
     onState: (handler) => {
       order.push("onState");
