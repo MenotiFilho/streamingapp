@@ -87,7 +87,9 @@ pub use door::HostDoor;
 pub use fetcher::{FetchError, Fetcher, FixtureFetcher};
 pub use host::Host;
 pub use library::{Library, LibraryEntry};
-pub use meta::{MetaError, Title, TitleKey, Video, MAX_META_BYTES};
+pub use meta::{
+    next_video, ordered_videos, previous_video, MetaError, Title, TitleKey, Video, MAX_META_BYTES,
+};
 pub use pairing::{InvalidPairingCode, PairingCode, PAIRING_CODE_LEN};
 pub use playback::{
     Aspect, Buffered, Chapter, ChapterStep, ChosenStream, Control, Crop, CropRectangle, Episode,
