@@ -1,14 +1,19 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
 import {
+  DISCOVER_ROWS,
   blankFeed,
   discoverFeedKey,
   discoverPlayable,
+  discoverReads,
+  feedMore,
+  feedState,
+  genreFilterFor,
+  type DiscoverGenreChoice,
   type DiscoverKind,
 } from "../../core/discover";
 import type { MetaPreview } from "../../core/wire";
-import { pageFit } from "../../core/pageLayout";
-import { SERIES } from "../../core/title";
+import { pageAttrs } from "../../core/pageLayout";
 import tmdbLogo from "../../assets/tmdb-logo.svg";
 import { useShell } from "../context";
 import { useTitleOpener } from "../TitleScreen";
@@ -18,12 +23,7 @@ import {
   discoverPageAsk,
   discoverRowNote,
   discoverRowTag,
-  discoverTag,
-  feedMore,
-  feedState,
-  genreAsk,
   genresFor,
-  type GenreChoice,
 } from "./editorial";
 import { FeedGrid } from "./FeedGrid";
 import { EditorialRow, FeedPagingAction } from "./EditorialRow";
@@ -32,16 +32,12 @@ import { ChoiceChip } from "../../kit/Chip";
 import { PosterCard } from "../../kit/PosterCard";
 import { PREVIEW_ADDON } from "./preview";
 import { ProgrammeLine } from "./ProgrammeLine";
-import { programIndex, yearOf } from "./program";
+import { programIndex, rowTagOf, yearOf } from "./program";
 import { repertoryCredentialsLevel } from "./RepertorySettings";
+import { useFeedCards } from "./useFeedCards";
 import "./repertory.css";
 
 /** The two rows Discover draws, Movies then Series, each asked and paged alone. */
-const ROWS: ReadonlyArray<{ kind: DiscoverKind; label: string }> = [
-  { kind: "movie", label: "Movies" },
-  { kind: SERIES, label: "Series" },
-];
-
 /**
  * Discover as an editorial feed (design record §8, ADR-0036 §1): one programme
  * line, one genre row — the union of TMDB's film and series lists — then two
@@ -77,9 +73,10 @@ export function RepertoryDiscoverScreen() {
   const source = preview ? "preview" : "host";
   const active = preview || keyed;
   const genres = useMemo(() => genresFor(source), [source]);
+  const { panel, style } = useFeedCards(active ? DISCOVER_ROWS.length : 0);
   const genre = genreKey === null
     ? null
-    : (genres.find((held) => held.key === genreKey) ?? null);
+    : (genres.find((held) => held.name === genreKey) ?? null);
 
   // The arm or the source changed: the chips of the last feed are not chips of
   // this one, and the old genre's pages are not its pages.
@@ -93,40 +90,31 @@ export function RepertoryDiscoverScreen() {
 
   // A key, a genre, or the surface itself is a different pair of feeds. The
   // Session store joins a page already in flight and never asks an answered row
-  // again, so mounting after a Title or a grid is free (#264).
+  // again, so mounting after a Title or a grid is free (#264). Which rows to read
+  // is the core's one decision (`discoverReads`), shared with the Remote.
   useEffect(() => {
     if (!active) {
       return;
     }
     // The arm or the source changed in the effect above; this render's closure
     // still holds the chip of the old feed, and it must not ask it again.
-    if (session.discoverGenre.get() !== (genre?.key ?? null)) {
+    if (session.discoverGenre.get() !== (genre?.name ?? null)) {
       return;
     }
-    for (const { kind } of ROWS) {
-      const first = discoverPageAsk({ source, kind, genre, page: 1, skip: 0 });
-      if (!first) {
-        continue;
-      }
-      const key = discoverFeedKey(source, genre?.key ?? null, kind);
-      session.feeds.read(key, first, (row) =>
-        discoverPageAsk({
-          source,
-          kind,
-          genre,
-          page: row.page + 1,
-          skip: row.offset,
-        }),
-      );
+    const reads = discoverReads(source, genre, (kind, page, filter, skip) =>
+      discoverPageAsk({ source, kind, filter, page, skip }),
+    );
+    for (const read of reads) {
+      session.feeds.read(read.key, read.first, read.next);
     }
   }, [active, genre, session, source]);
 
-  const chooseGenre = (next: GenreChoice | null) => {
-    session.discoverGenre.set(next?.key ?? null);
+  const chooseGenre = (next: DiscoverGenreChoice<number | string> | null) => {
+    session.discoverGenre.set(next?.name ?? null);
   };
 
   const retry = (kind: DiscoverKind) => {
-    const key = discoverFeedKey(source, genre?.key ?? null, kind);
+    const key = discoverFeedKey(source, genre?.name ?? null, kind);
     session.feeds.more(key);
   };
 
@@ -156,7 +144,6 @@ export function RepertoryDiscoverScreen() {
   );
 
   const noKey = discoverNoKey();
-  const fit = pageFit("discover");
 
   /**
    * The rail's More card opens that row as a pushed grid. The grid reads the
@@ -165,8 +152,7 @@ export function RepertoryDiscoverScreen() {
    * More card (design record §8).
    */
   const openGrid = (kind: DiscoverKind, label: string, index: string) => {
-    const key = discoverFeedKey(source, genre?.key ?? null, kind);
-    const feed = feeds.rows.get(key);
+    const key = discoverFeedKey(source, genre?.name ?? null, kind);
     push({
       name: `All of ${label}`,
       kind: "overlay",
@@ -176,7 +162,9 @@ export function RepertoryDiscoverScreen() {
             feedKey={key}
             title={label}
             index={index}
-            tag={discoverTag(kind, genre, feed?.items.length ?? 0)}
+            tag={(feed) =>
+              rowTagOf(genre?.name ?? "Trending", kind, feed.items.length)
+            }
             renderCard={(meta) =>
               posterCard(meta, kind, `discover-grid-card-${meta.id}`)
             }
@@ -195,8 +183,7 @@ export function RepertoryDiscoverScreen() {
       data-region="discover"
       data-kind="branch"
       data-label="Discover"
-      data-page={fit.fitted ? "fitted" : undefined}
-      data-panel={fit.panel ?? undefined}
+      {...pageAttrs("discover")}
     >
       <ProgrammeLine name="Discover" testId="discover-programme-line" />
 
@@ -216,8 +203,8 @@ export function RepertoryDiscoverScreen() {
           </ChoiceChip>
           {genres.map((held) => (
             <ChoiceChip
-              key={held.key}
-              pressed={genre?.key === held.key}
+              key={held.name}
+              pressed={genre?.name === held.name}
               onClick={() => chooseGenre(held)}
             >
               {held.name}
@@ -226,7 +213,7 @@ export function RepertoryDiscoverScreen() {
         </div>
       ) : null}
 
-      <div className="rep-page-panel">
+      <div className="rep-page-panel" ref={panel} style={style}>
         {snapshot !== null && !preview && !keyed ? (
           <section className="rep-feed-empty" data-testid="discover-no-key">
             <h2 className="rep-feed-empty-title">{noKey.title}</h2>
@@ -238,14 +225,14 @@ export function RepertoryDiscoverScreen() {
         ) : null}
 
         {active
-          ? ROWS.map(({ kind, label }, at) => {
-              const key = discoverFeedKey(source, genre?.key ?? null, kind);
+          ? DISCOVER_ROWS.map(({ kind, label }, at) => {
+              const key = discoverFeedKey(source, genre?.name ?? null, kind);
               const feed = feeds.rows.get(key) ?? blankFeed();
               const loading = feeds.reading.has(key);
-              const ask = genreAsk(genre, kind);
+              const filter = genreFilterFor(genre, kind);
               const state = feedState(feed, loading);
-              const tag = discoverRowTag(feed, kind, genre, ask);
-              const note = discoverRowNote(state, kind, genre, ask);
+              const tag = discoverRowTag(feed, kind, genre, filter);
+              const note = discoverRowNote(state, kind, genre, filter);
               const index = programIndex(at + 1);
               return (
                 <EditorialRow

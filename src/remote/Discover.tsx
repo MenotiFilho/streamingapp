@@ -3,10 +3,13 @@ import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { keyOf, pageable } from "../core/browse";
 import {
   DISCOVER_GENRES,
+  DISCOVER_ROWS,
   blankFeed,
   discoverAsk,
   discoverFeedKey,
+  discoverNoCounterpart,
   discoverPlayable,
+  discoverReads,
   genreFilterFor,
   type DiscoverGenreChoice,
   type DiscoverKind,
@@ -20,11 +23,9 @@ import { PosterCard } from "../kit/PosterCard";
 import { RemoteRail } from "./RemoteRail";
 import { MoreControl, PagingControl, RowNote } from "./RemoteRow";
 import {
-  DISCOVER_ROWS,
   NO_CREDENTIAL_NOTE,
   catalogNote,
   catalogsOf,
-  discoverNoCounterpart,
   discoverNote,
   discoverTag,
   feedTitle,
@@ -158,22 +159,19 @@ function KeyedDiscover({
   const feeds = useSyncExternalStore(session.feeds.subscribe, session.feeds.getSnapshot);
 
   // A genre asks page 1 of each kind with a counterpart; the Session store
-  // joins a page already in flight and never asks an answered row again.
+  // joins a page already in flight and never asks an answered row again. Which
+  // rows to read is the core's one decision (`discoverReads`), shared with the
+  // window; `genreFilterFor` itself decides what no chip means.
   useEffect(() => {
-    for (const { kind } of DISCOVER_ROWS) {
-      const filter =
-        genre === null ? { kind: "all" as const } : genreFilterFor(genre, kind);
-      if (filter.kind === "none") {
-        continue;
-      }
-      const key = discoverFeedKey("host", genreKey, kind);
-      const ask = (page: number) =>
-        discoverAsk({
-          kind,
-          page,
-          genre: filter.kind === "id" ? filter.id : null,
-        });
-      session.feeds.read(key, ask(1), (row) => ask(row.page + 1));
+    const reads = discoverReads("host", genre, (kind, page, filter) =>
+      discoverAsk({
+        kind,
+        page,
+        genre: filter.kind === "id" ? filter.id : null,
+      }),
+    );
+    for (const read of reads) {
+      session.feeds.read(read.key, read.first, read.next);
     }
   }, [genre, genreKey, session]);
 
@@ -221,8 +219,7 @@ function KeyedDiscover({
           const key = discoverFeedKey("host", genreKey, kind);
           const feed = feeds.rows.get(key) ?? blankFeed();
           const loading = feeds.reading.has(key);
-          const filter =
-            genre === null ? { kind: "all" as const } : genreFilterFor(genre, kind);
+          const filter = genreFilterFor(genre, kind);
           const none = filter.kind === "none";
           const phase = feedPhase(feed, loading);
           const couldPlay = snapshot ? discoverPlayable(snapshot.addons, kind) : true;
@@ -311,8 +308,12 @@ function CatalogDiscover({
 
   // The Catalogs are a new set of rows: the store asks page 1 of each in the
   // Addons' order, joining any ask already in flight. A return after a level
-  // paints what the Session already holds (#264). `sync` is idempotent: a
-  // Snapshot with the same declarations cannot ask an answered row again.
+  // paints what the Session already holds and re-asks the rows that failed,
+  // exactly as a return to Home does (#264, ADR-0020).
+  useEffect(() => {
+    session.home.enter();
+  }, [session]);
+
   useEffect(() => {
     session.home.sync(catalogs, featuredKey);
   }, [session, catalogs, featuredKey]);

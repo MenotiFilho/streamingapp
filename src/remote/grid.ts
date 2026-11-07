@@ -5,6 +5,7 @@ import {
 } from "../core/discover";
 import type { ActionError } from "../core/errors";
 import type { FeedRow } from "../core/feedStore";
+import { continueTag, rowTag, rowTagOf } from "../core/homeProgramme";
 import type { NewLevel } from "../core/navigation";
 import type { SearchKind } from "../core/search";
 import type { MetaPreview, ResumeEntry, Snapshot } from "../core/wire";
@@ -126,6 +127,8 @@ export type GridView = {
   metas: MetaPreview[];
   addon: string | null;
   title: string;
+  /** The bookkeeping beside the name, drawn live from the row (#264). */
+  tag: string | null;
   failure: ActionError | null;
   couldPlay: boolean;
 };
@@ -146,7 +149,52 @@ export function gridView(
     metas: row?.metas ?? feed?.items ?? [],
     addon: row?.addon ?? grid.addon,
     title: row?.name ?? grid.title,
+    tag: gridTag(grid, row, feed, snapshot),
     failure: row?.failure ?? feed?.failure ?? null,
     couldPlay: gridCouldPlay(source, snapshot),
   };
+}
+
+/**
+ * The bookkeeping beside the grid's name, read from the row where it is still
+ * held: a grid opened at twenty titles prints twenty, and sixty once the row
+ * has read on. The level's own string is only the fallback for a row that has
+ * gone since the grid was pushed.
+ */
+function gridTag(
+  grid: RemoteGrid,
+  row: Row | null,
+  feed: FeedRow | null,
+  snapshot: Snapshot | null,
+): string | null {
+  const { source } = grid;
+  switch (source.kind) {
+    case "home":
+      return row ? rowTag(snapshot, row) : grid.tag;
+    case "continue":
+      return continueTag(snapshot?.watchProgress.length ?? 0);
+    case "discover":
+      return feed
+        ? rowTagOf(source.genreKey ?? "Trending", source.feedKind, feed.items.length)
+        : grid.tag;
+    case "search":
+      return feed
+        ? rowTagOf("TMDB", source.feedKind, feed.items.length)
+        : grid.tag;
+  }
+}
+
+/**
+ * What a grid says where its row ended before it read a card. A TMDB row is not
+ * an Addon's (CONTEXT.md), so the Addon's words are only the Home grid's.
+ */
+export function gridEmptyNote(source: RemoteGridSource): string {
+  switch (source.kind) {
+    case "discover":
+      return "Nothing is screening in this feed.";
+    case "search":
+      return "No Titles matched the query.";
+    default:
+      return "The Addon answered with no Titles in this section.";
+  }
 }

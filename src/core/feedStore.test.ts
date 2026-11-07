@@ -207,6 +207,32 @@ describe("the feed store", () => {
     expect(host.calls, "a live feed that repeats itself is not asked forever").toHaveLength(2);
   });
 
+  test("an answer of the wrong shape is a failure the row shows, with the page to try again", async () => {
+    const host = fakeAsk();
+    const store = new FeedStore(host.ask);
+    store.read("discover/movie", FIRST, nextDiscover);
+    await settle(gateAt(host, 0), discoverAnswer([discoverRow([meta("tmdb:1")])]));
+
+    store.more("discover/movie");
+    // The Action asked for a Discover page and the Host answered with a Title:
+    // there is no page in it to fold (ADR-0020).
+    await settle(gateAt(host, 1), outcome({ title: null } as unknown as Response["answer"]));
+
+    expect(
+      store.feed("discover/movie").done,
+      "an unreadable answer is not the end of the row",
+    ).toBe(false);
+    expect(store.feed("discover/movie").failure).toMatchObject({ kind: "answer" });
+    expect(store.feed("discover/movie").items).toHaveLength(1);
+
+    store.more("discover/movie");
+    expect(host.calls.at(-1), "More asks the same page again").toEqual({
+      type: "discover",
+      kind: "movie",
+      page: 2,
+    });
+  });
+
   test("the answer is read from the Action's own arm: catalog and search rows fold the same way", async () => {
     const host = fakeAsk();
     const store = new FeedStore(host.ask);

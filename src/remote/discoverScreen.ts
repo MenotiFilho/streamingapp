@@ -5,32 +5,26 @@ import {
   type DeclaredCatalog,
   type Row,
 } from "../core/browse";
-import { MOVIE, type DiscoverKind } from "../core/discover";
+import { DISCOVER_ROWS, type DiscoverKind } from "../core/discover";
 import { rowTagOf } from "../core/homeProgramme";
-import { SERIES } from "../core/title";
 import type { Action, Snapshot } from "../core/wire";
 import type { FeedPhase } from "./feed";
 
 /**
  * Discover's own decisions and its own copy (#207, ADR-0036 §1).
  *
- * The genres, the ask and the feed are the core's (`discover.ts`); what lives
- * here is what only this screen says — the two rows it draws, the words a feed
- * prints while it reads, comes back empty, or has no counterpart in its kind,
- * the tag beside its head, and the Catalog rows the screen draws where no TMDB
- * Credential is held. The feed's own paging decisions are `feed.ts`'s, because
- * the search screen reads the same rule rather than growing a second copy of it.
+ * The genres, the ask, the kinds, the feed and the "no counterpart" line are
+ * the core's (`discover.ts`); what lives here is what only this screen says —
+ * the words a feed prints while it reads, comes back empty, or has no
+ * counterpart in its kind, the tag beside its head, and the Catalog rows the
+ * screen draws where no TMDB Credential is held. The feed's own paging decisions
+ * are `feed.ts`'s, because the search screen reads the same rule rather than
+ * growing a second copy of it.
  */
-
-/** The two rows Discover draws, Movies then Series (ADR-0036 §1). */
-export const DISCOVER_ROWS: ReadonlyArray<{ kind: DiscoverKind; label: string }> = [
-  { kind: MOVIE, label: "Movies" },
-  { kind: SERIES, label: "Series" },
-];
 
 /** A feed's head: the kind it holds, in the plural a rail prints. */
 export function feedTitle(kind: DiscoverKind): string {
-  return kind === MOVIE ? "Movies" : "Series";
+  return DISCOVER_ROWS.find((row) => row.kind === kind)?.label ?? "Movies";
 }
 
 /**
@@ -56,14 +50,9 @@ export function discoverNote(
 }
 
 /**
- * Why a row is drawn empty: the chosen genre is one TMDB does not list for that
- * kind, and the row says so instead of hiding (ADR-0036 §1).
+ * Why a row is drawn empty is the core's one sentence (`discover.ts`,
+ * `discoverNoCounterpart`); the screen only reads it.
  */
-export function discoverNoCounterpart(kind: DiscoverKind, genre: string): string {
-  return `Nothing is screening here: ${genre} is not a ${
-    kind === MOVIE ? "film" : "series"
-  } genre.`;
-}
 
 /** A feed's bookkeeping: the filter that made it, or Trending, and the count. */
 export function discoverTag(

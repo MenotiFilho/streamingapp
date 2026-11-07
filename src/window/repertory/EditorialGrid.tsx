@@ -20,6 +20,7 @@ export function EditorialGrid({
   tag,
   failure,
   note,
+  retry = false,
   onClose,
   onRetry,
   testId,
@@ -31,8 +32,10 @@ export function EditorialGrid({
   tag?: string | null;
   failure?: ActionError | null;
   note?: string | null;
+  /** Whether a failed page offers Try again — `gridPaging`'s decision. */
+  retry?: boolean;
   onClose: () => void;
-  /** Ask the failed page again; only a failure offers this. */
+  /** Ask the failed page again; only a retry offers this. */
   onRetry?: () => void;
   testId?: string;
   /** The grid's root, so a paging trigger can measure its last card. */
@@ -66,7 +69,7 @@ export function EditorialGrid({
           {explain(failure)}
         </p>
       ) : null}
-      {failure && onRetry ? (
+      {retry && onRetry ? (
         <Button variant="ghost" onClick={onRetry}>
           Try again
         </Button>

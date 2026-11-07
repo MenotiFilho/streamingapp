@@ -29,15 +29,9 @@ export function blankFeeds(): Record<SearchKind, DiscoverFeed> {
 }
 
 /**
- * The query a submit asks, or null when there is nothing to ask.
- *
- * The bar submits and never asks per keystroke, so an empty or blank field is
- * not a question about every Title in the world: it sends nothing at all.
+ * The query a submit asks is the core's (`search.ts`, `queryOf`), so both
+ * Search screens read the blank field the same way.
  */
-export function queryOf(draft: string): string | null {
-  const query = draft.trim();
-  return query.length === 0 ? null : query;
-}
 
 /** The field's hint, which differs by the arm the Host's credential picks. */
 export function searchPlaceholder(keyed: boolean): string {

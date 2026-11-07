@@ -1516,6 +1516,11 @@ body.picture-behind .shell-nav-slot {
   justify-content: flex-end;
   gap: max(12px, calc(var(--rep-stage) * 0.9));
   min-width: 0;
+  /* The grid's one row is the screen; a copy taller than it is clipped rather
+   * than growing the page, because the page does not scroll (ADR-0036 §3). The
+   * description's own clamp is what keeps it short. */
+  min-height: 0;
+  overflow: hidden;
   max-width: 54rem;
   padding-bottom: max(12px, calc(var(--rep-stage) * 1.2));
 }
@@ -1848,45 +1853,12 @@ body.picture-behind .shell-nav-slot {
   grid-template-columns: minmax(0, 1fr);
 }
 
-/* A window too short for the ten-foot canvas falls back to a scrolling page. */
-@media (max-height: 760px) {
-  .rep-title-level {
-    overflow: auto;
-  }
-
-  .rep-title {
-    height: auto;
-    min-height: 100%;
-    overflow: visible;
-  }
-
-  .rep-title-top {
-    position: relative;
-  }
-
-  .rep-title-grid {
-    grid-template-rows: auto;
-  }
-
-  .rep-title-side {
-    padding-top: max(24px, calc(var(--rep-stage) * 2));
-  }
-
-  .rep-title-episodes {
-    overflow: visible;
-  }
-}
-
-/* A desk window narrow enough for one column stacks the rail under the copy. */
+/* The Title is fitted at every width (ADR-0036 §3, #257): a narrow window
+ * stacks the rail under the copy, and the episode list is still the only
+ * scrollport. The page itself never scrolls. */
 @media (max-width: 1100px) {
-  .rep-title-level {
-    overflow: auto;
-  }
-
-  .rep-title {
-    height: auto;
-    min-height: 100%;
-    overflow: visible;
+  .rep-title-copy {
+    min-height: 0;
   }
 
   .rep-title-top {
@@ -1895,7 +1867,9 @@ body.picture-behind .shell-nav-slot {
 
   .rep-title-grid {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto;
+    /* The copy takes what it needs; the side takes the rest and scrolls its
+     * episode list inside itself. */
+    grid-template-rows: auto minmax(0, 1fr);
     padding: 0 var(--rep-gutter) max(20px, calc(var(--rep-stage) * 1.8));
   }
 
@@ -1903,10 +1877,6 @@ body.picture-behind .shell-nav-slot {
     padding-top: max(24px, calc(var(--rep-stage) * 2));
     border-top: 1px solid var(--rep-hairline);
     border-left: 0;
-  }
-
-  .rep-title-episodes {
-    overflow: visible;
   }
 }
 
@@ -2241,9 +2211,52 @@ body.picture-behind .shell-nav-slot {
 /* One row of single-select chips: Movie / Series and the genre filters. */
 .rep-kind-filter {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: var(--rep-space-2);
+  min-width: 0;
+  padding-bottom: var(--rep-space-1);
+  /* The genre row is one line that scrolls sideways, never a second line that
+   * eats the rails' height (#257). The Remote's row is the same. */
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  -webkit-overflow-scrolling: touch;
 }
+
+.rep-kind-filter::-webkit-scrollbar {
+  display: none;
+}
+
+.rep-kind-filter > * {
+  flex: none;
+}
+
+/* A fitted feed's cards are sized from the height the panel has left (#257):
+ * the `useFeedCards` hook writes --rep-feed-card-width from the room after each
+ * row's head and caption. The width share still caps it, so a phone gets the
+ * width-based card it had; the fitted gaps shrink so both rails fit. */
+.rep-feed[data-page="fitted"] .rep-page-panel {
+  gap: var(--rep-space-4);
+}
+
+.rep-feed[data-page="fitted"] .rep-feed-row .rep-kit-row {
+  gap: var(--rep-space-3);
+}
+
+.rep-feed[data-page="fitted"] .rep-kit-row-item {
+  flex: 0 0 min(
+    var(--rep-feed-card-width, 100%),
+    calc((100% - var(--row-gap-count) * var(--rep-row-gap)) / var(--row-visible))
+  );
+}
+
+/* A fitted feed's caption is the one line its card's height reserves (#257): a
+ * second line would push the lower rail's cards out of the panel. */
+.rep-feed[data-page="fitted"] .rep-kit-poster-name {
+  -webkit-line-clamp: 1;
+}
+
 
 /* The account Library's shelf shares the whole-row poster grid's measure. */
 

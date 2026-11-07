@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 
 import { pageable } from "../core/browse";
 import { explain } from "../core/errors";
+import { gridPaging } from "../core/gridPaging";
 import { continueArt } from "../core/home";
 import { cardName, cardNote, progressOf, resumable } from "../core/library";
 import type { NewLevel } from "../core/navigation";
@@ -12,6 +13,7 @@ import { Button } from "../kit/Button";
 import { ContinueWatchingCard } from "../kit/ContinueWatchingCard";
 import { PosterCard } from "../kit/PosterCard";
 import {
+  gridEmptyNote,
   gridView,
   type RemoteGrid as Grid,
   type RemoteGridSource,
@@ -43,7 +45,7 @@ export function RemoteGrid({ grid, session, state, push, pop }: RemoteGridProps)
   const snapshot = state.snapshot;
   const source: RemoteGridSource = grid.source;
   const view = gridView(grid, home.rows, feeds.rows, snapshot);
-  const { addon, title, metas, entries, failure, couldPlay, row, feed } = view;
+  const { addon, title, metas, entries, failure, couldPlay, row, feed, tag } = view;
 
   const key = "rowKey" in source ? source.rowKey : "feedKey" in source ? source.feedKey : null;
   const reading =
@@ -52,12 +54,16 @@ export function RemoteGrid({ grid, session, state, push, pop }: RemoteGridProps)
       : key !== null
         ? feeds.reading.has(key)
         : false;
-  const pageableNow =
-    source.kind === "home"
-      ? row !== null && pageable(snapshot, row) && !row.done
-      : feed !== null && !feed.done;
-  const retry = failure !== null && pageableNow && !reading;
-  const page = pageableNow ? { done: false, failure } : null;
+  const pagingView = gridPaging({
+    done: row?.done ?? feed?.done ?? false,
+    failure,
+    pageable:
+      source.kind === "home"
+        ? row !== null && pageable(snapshot, row)
+        : feed !== null,
+    reading,
+    count: entries ? entries.length : metas.length,
+  });
 
   const askMore = () => {
     if (source.kind === "home") {
@@ -69,8 +75,8 @@ export function RemoteGrid({ grid, session, state, push, pop }: RemoteGridProps)
 
   const root = useGridEnd({
     count: metas.length,
-    page,
-    reading,
+    page: pagingView.page,
+    reading: pagingView.reading,
     onReach: askMore,
   });
 
@@ -100,7 +106,7 @@ export function RemoteGrid({ grid, session, state, push, pop }: RemoteGridProps)
         {grid.index ? <span className="remote-rail-index">{grid.index}</span> : null}
         <h2 className="remote-rail-title">{title}</h2>
         <span className="remote-rail-rule" aria-hidden="true" />
-        {grid.tag ? <span className="remote-rail-tag">{grid.tag}</span> : null}
+        {tag ? <span className="remote-rail-tag">{tag}</span> : null}
         <Button variant="ghost" onClick={pop}>
           Back
         </Button>
@@ -148,16 +154,16 @@ export function RemoteGrid({ grid, session, state, push, pop }: RemoteGridProps)
           {explain(failure)}
         </p>
       ) : null}
-      {retry ? (
+      {pagingView.retry ? (
         <Button variant="ghost" onClick={askMore}>
           Try again
         </Button>
       ) : null}
-      {reading ? <p role="status" className="remote-rail-quiet">Reading on…</p> : null}
-      {!entries && metas.length === 0 && !reading && !failure && feed?.done ? (
-        <p className="remote-rail-quiet">
-          The Addon answered with no Titles in this section.
-        </p>
+      {pagingView.reading ? (
+        <p role="status" className="remote-rail-quiet">Reading on…</p>
+      ) : null}
+      {pagingView.empty ? (
+        <p className="remote-rail-quiet">{gridEmptyNote(source)}</p>
       ) : null}
     </section>
   );

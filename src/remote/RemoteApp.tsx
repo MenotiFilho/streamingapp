@@ -6,7 +6,7 @@ import { explain } from "../core/errors";
 import type { ActionError } from "../core/errors";
 import { isTypingTarget, keyIntent } from "../core/input";
 import type { HostLink } from "../core/link";
-import { pageFit } from "../core/pageLayout";
+import { pageAttrs } from "../core/pageLayout";
 import { watching } from "../core/playback";
 import { useNavigation, type NavigationReads } from "../core/react/useNavigation";
 import { useSession } from "../core/react/useSession";
@@ -241,7 +241,6 @@ function RemoteRoom({
   // fit the phone's viewport; Home and the utility register keep a scrolling
   // page. The frame and the screen root read this one decision.
   const surface = pageSurface(nav.destination, level?.payload.kind ?? null);
-  const fit = pageFit(surface);
 
   // The Snapshot is the truth: when it says the Stream is gone, the player and
   // every plate above it leave the stack, whatever closed it — Stop, the
@@ -272,8 +271,7 @@ function RemoteRoom({
   return (
     <div
       className="remote-ui"
-      data-page={fit.fitted ? "fitted" : undefined}
-      data-panel={fit.panel ?? undefined}
+      {...pageAttrs(surface)}
     >
       <header className="remote-status">
         <span className="remote-device">{device ? device.name : "This device"}</span>

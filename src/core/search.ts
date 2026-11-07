@@ -1,6 +1,6 @@
 /**
- * Search: the two kinds a query is asked by, and the pure ask the window draws
- * its keyed rows from.
+ * Search: the two kinds a query is asked by, and the pure asks the window and
+ * the Remote draw their keyed rows from.
  *
  * Search is key-gated (ADR-0010's amendment, ADR-0020). With a TMDB Credential
  * held it is TMDB's own two kinds — Movies and Series, always both, each paged
@@ -11,25 +11,24 @@
  * Nothing here decides which Catalogs can answer a keyless search: that rule is
  * the Host's, and a second copy of it in the window is how the two would drift
  * (ADR-0010, `src/browse.ts`). This module only names what a person asked of
- * TMDB, which is the question the Host judges and answers.
+ * TMDB, and what a Search screen reads for it — both clients read the same
+ * decision.
  */
 
-import { MOVIE, type DiscoverKind } from "./discover";
+import { DISCOVER_ROWS, type DiscoverKind } from "./discover";
 import type { Action } from "./wire";
-import { SERIES } from "./title";
 
 /** One of the two kinds TMDB's search is asked by, one row each. */
 export type SearchKind = DiscoverKind;
 
 /**
- * The two kinds the keyed arm asks, in the order it asks them. A query is
- * asked once per kind and both answers are held; every client draws both rows,
- * Movies then Series, with no kind chips (ADR-0010's amendment, ADR-0036 §1).
+ * The two kinds the keyed arm asks, in the order it asks them. A query is asked
+ * once per kind and both answers are held; every client draws both rows, Movies
+ * then Series, with no kind chips (ADR-0010's amendment, ADR-0036 §1). The list
+ * is Discover's, because a kind's label is the kind's, not the screen's.
  */
-export const SEARCH_KINDS: ReadonlyArray<{ kind: SearchKind; label: string }> = [
-  { kind: MOVIE, label: "Movies" },
-  { kind: SERIES, label: "Series" },
-];
+export const SEARCH_KINDS: ReadonlyArray<{ kind: SearchKind; label: string }> =
+  DISCOVER_ROWS;
 
 /** One page of one kind: the query, the kind, and the 1-based page. */
 export type SearchPage = {
@@ -53,4 +52,48 @@ export function searchFeedKey(query: string, kind: SearchKind): string {
  */
 export function searchAsk({ query, kind, page }: SearchPage): Action {
   return { type: "search", query, kind, page };
+}
+
+/**
+ * The query a submit asks, or null when there is nothing to ask.
+ *
+ * The bar submits and never asks per keystroke, so an empty or blank field is
+ * not a question about every Title in the world: it sends nothing at all. One
+ * copy for both clients, so the window's submit and the Remote's cannot drift.
+ */
+export function queryOf(draft: string): string | null {
+  const query = draft.trim();
+  return query.length === 0 ? null : query;
+}
+
+/** One keyed row a Search screen reads: its Session key and its first ask. */
+export type SearchFeedRead = {
+  kind: SearchKind;
+  key: string;
+  first: Action;
+  next: (row: { page: number }) => Action;
+};
+
+/**
+ * What a Search screen reads for a query: both TMDB kinds, or the one keyless
+ * `search_catalogs` ask. The arm is the Host's fact, passed in; what each arm
+ * reads is this decision, so the two Search screens cannot drift.
+ */
+export type SearchRead =
+  | { arm: "keyed"; feeds: SearchFeedRead[] }
+  | { arm: "catalogs"; query: string };
+
+export function searchReads(keyed: boolean, query: string): SearchRead {
+  if (!keyed) {
+    return { arm: "catalogs", query };
+  }
+  return {
+    arm: "keyed",
+    feeds: SEARCH_KINDS.map(({ kind }) => ({
+      kind,
+      key: searchFeedKey(query, kind),
+      first: searchAsk({ query, kind, page: 1 }),
+      next: (row) => searchAsk({ query, kind, page: row.page + 1 }),
+    })),
+  };
 }
