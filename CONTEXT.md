@@ -13,7 +13,9 @@ _Avoid_: server, core, daemon, backend, instance
 
 **Snapshot**:
 The Host's periodic state message pushed to clients, carrying now-playing and
-library state.
+library state. Most Snapshots are the state a Change made; a background cache
+write that moves **Continue watching** publishes one too, without an Action
+having asked, because the row every client draws is shared state (#274, #277).
 _Avoid_: state, payload, update
 
 **Action**:
@@ -34,7 +36,9 @@ An Action that mutates the Host's state — Addons, preferences, credentials,
 paired devices, playback — and is published as a Snapshot to every client. It
 holds the Host's one lock for the whole of its I/O (ADR-0022). Autocrop is a
 Change whose telling moves no Host state — the Player finds the rectangle and a
-later report carries it — and is published like any other. (The resolved state
+later report carries it — and is published like any other. A **look hint** is a
+Change whose only effect is the Host's own background queue: it answers nobody,
+publishes no Snapshot and moves no revision (#278). (The resolved state
 transition a Change makes inside the Host is also called a `Change` in code; this
 entry is the Action.)
 _Avoid_: mutation, command, update
@@ -117,6 +121,13 @@ A candidate a Provider returns for a Video: either a direct URL that can be
 played immediately, or an infoHash that something else must turn into bytes
 first.
 _Avoid_: source, link, result
+
+**Streams picker**:
+The list of Streams a Video can be played as — one group per Addon that answered,
+in the Host's order — which a client draws and a person chooses from. Pressing an
+episode opens it; **Play** opens it instead of playing directly when continuity
+finds no Stream or the owner's preference says so (#276).
+_Avoid_: stream list, source list, results
 
 ### Credentials
 

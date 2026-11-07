@@ -6,10 +6,10 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, AddonId, AddonProvider, Answer, FixtureClock, FixtureFetcher, FixturePlayer,
-    FixtureStremio, Host, InMemorySecretStore, InMemoryStore, Provider, SecretBackend, Store,
-    Title, TitleCard, TitleKey, TitleStub, VideoRef, WatchProgress, ACTION_VERSION,
-    MAX_CACHED_TITLES,
+    Action, AddonId, AddonProvider, Answer, CachedTitle, FixtureClock, FixtureFetcher,
+    FixturePlayer, FixtureStremio, Host, InMemorySecretStore, InMemoryStore, Provider,
+    SecretBackend, Store, Title, TitleCard, TitleKey, TitleSource, TitleStub, VideoRef,
+    WatchProgress, ACTION_VERSION, MAX_CACHED_TITLES,
 };
 use serde_json::{json, Value};
 
@@ -22,12 +22,18 @@ const TMDB_FIND_SERIES: &str =
     "https://api.themoviedb.org/3/find/tt0903747?external_source=imdb_id&api_key=0123456789abcdef0123456789abcdef";
 const TMDB_MOVIE_603: &str =
     "https://api.themoviedb.org/3/movie/603?api_key=0123456789abcdef0123456789abcdef";
-/// The one request a series' details and its Videos are read with.
+/// The one request a Discovered series' details and its Videos are read with.
 const TMDB_TV_1396: &str = concat!(
     "https://api.themoviedb.org/3/tv/1396?append_to_response=",
     "season/0,season/1,season/2,season/3,season/4,season/5,season/6,season/7,",
     "season/8,season/9,season/10,season/11,season/12,season/13,season/14,season/15,",
     "season/16,season/17,season/18,season/19",
+    "&api_key=0123456789abcdef0123456789abcdef",
+);
+/// The same request when the seasons are already known (the Addon's list, or
+/// the cached copy a refresh is re-reading): only those are appended (#270).
+const TMDB_TV_1396_KNOWN: &str = concat!(
+    "https://api.themoviedb.org/3/tv/1396?append_to_response=season/0,season/1,season/2",
     "&api_key=0123456789abcdef0123456789abcdef",
 );
 const TMDB_TV_200001: &str = concat!(
@@ -156,6 +162,7 @@ fn breaking_bad_fetcher() -> FixtureFetcher {
         .serving(CINEMETA, CINEMETA_MANIFEST)
         .serving(CINEMETA_SERIES, SERIES_BODY)
         .serving(TMDB_FIND_SERIES, TMDB_FIND_SERIES_BODY)
+        .serving(TMDB_TV_1396_KNOWN, TMDB_TV_DETAILS_APPENDED)
         .serving(TMDB_TV_1396, TMDB_TV_DETAILS_APPENDED)
 }
 
@@ -342,14 +349,14 @@ fn an_ended_series_is_fresh_for_thirty_days_and_refetched_after_them() {
     clock.tick(2);
     opened(&mut host, open_discovered(1396, "series"));
     assert_eq!(
-        asked_for(&fetcher, TMDB_TV_1396),
+        asked_for(&fetcher, TMDB_TV_1396) + asked_for(&fetcher, TMDB_TV_1396_KNOWN),
         season_reads,
         "the stale open is answered from the cache"
     );
     assert_eq!(host.drain().ran, 1);
     assert_eq!(
-        asked_for(&fetcher, TMDB_TV_1396),
-        season_reads + 1,
+        asked_for(&fetcher, TMDB_TV_1396_KNOWN),
+        1,
         "past the month draining reads its details and Videos again (#272)"
     );
 }
@@ -485,6 +492,21 @@ fn a_stale_title_whose_addon_is_gone_is_refetched_from_tmdb() {
         "an Addon's id, kept however the refreshed copy is described"
     );
     assert_eq!(
+        refreshed
+            .videos
+            .iter()
+            .map(|video| video.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "tmdb:1396:1:1",
+            "tmdb:1396:1:2",
+            "tmdb:1396:1:3",
+            "tmdb:1396:2:1",
+            "tmdb:1396:0:1",
+        ],
+        "a refresh from TMDB alone still publishes the Title answer's order: specials last"
+    );
+    assert_eq!(
         fetcher.asked().len(),
         asked + 1,
         "draining read the record and its appended seasons in one request: {:?}",
@@ -543,6 +565,8 @@ fn the_cache_never_evicts_a_title_behind_watch_progress() {
     let fetcher = synthetic_fetcher(MAX_CACHED_TITLES + 1);
     let clock = clock();
     let mut host = host_over(store, fetcher.clone(), clock.clone(), false);
+    // The shell pulls at startup; with no account it still settles the bound.
+    host.pull_remote();
 
     opened(
         &mut host,
@@ -583,6 +607,87 @@ fn library_item(index: usize) -> Value {
         "name": "One",
         "type": "movie",
         "poster": "https://images.example.org/one.jpg",
+        "posterShape": "poster",
+        "removed": false,
+        "temp": false,
+        "_mtime": "2026-01-01T00:00:00.000Z",
+        "state": { "timeOffset": 0, "duration": 3_600_000 }
+    })
+}
+
+#[test]
+fn the_startup_trim_keeps_a_library_title_it_has_not_read_yet() {
+    // The cache is loaded before the account's Library is read. The oldest
+    // copy is in the Library; a trim at load would evict it before the pull
+    // that could protect it. The first pull settles the bound with the
+    // Library's Titles held (ADR-0038 §1).
+    let library = 0usize;
+    let titles: Vec<CachedTitle> = (0..=MAX_CACHED_TITLES).map(cached_movie).collect();
+    let store = Arc::new(InMemoryStore::new().holding_titles(titles));
+    let stremio = Arc::new(
+        FixtureStremio::new()
+            .with_account("me@example.org", "hunter2", "AUTHKEY")
+            .holding(vec![library_movie(library)]),
+    );
+    let fetcher = synthetic_fetcher(1);
+    let clock = clock();
+    let mut host = host_over(store.clone(), fetcher, clock, false).with_stremio(stremio);
+
+    sign_in(&mut host);
+
+    let persisted = store.persisted_titles();
+    assert_eq!(
+        persisted.len(),
+        MAX_CACHED_TITLES,
+        "the bound holds once the Library is known"
+    );
+    assert!(
+        persisted
+            .iter()
+            .any(|cached| cached.title.key == TitleKey::Tmdb { id: library as u32 }),
+        "the Library's Title, the oldest read, survived the trim"
+    );
+    assert!(
+        !persisted
+            .iter()
+            .any(|cached| cached.title.key == TitleKey::Tmdb { id: 1 }),
+        "and the oldest copy nothing protected is the one that went"
+    );
+}
+
+/// One cached film keyed by TMDB, for the bound tests that start from a store.
+fn cached_movie(index: usize) -> CachedTitle {
+    CachedTitle {
+        title: Title {
+            addon: None,
+            id: format!("tmdb:{index}"),
+            key: TitleKey::Tmdb { id: index as u32 },
+            r#type: "movie".to_owned(),
+            name: format!("Movie {index}"),
+            poster: None,
+            background: None,
+            logo: None,
+            description: None,
+            release_info: None,
+            runtime: None,
+            imdb_rating: None,
+            genres: Vec::new(),
+            videos: Vec::new(),
+        },
+        read_at: index as i64,
+        source: TitleSource::Addon,
+        status: None,
+        next_episode: None,
+    }
+}
+
+/// A Library item naming one of the cached films.
+fn library_movie(index: usize) -> Value {
+    json!({
+        "_id": format!("tmdb:{index}"),
+        "name": format!("Movie {index}"),
+        "type": "movie",
+        "poster": null,
         "posterShape": "poster",
         "removed": false,
         "temp": false,
@@ -680,6 +785,7 @@ fn a_tmdb_copy_past_six_months_is_dropped_even_behind_watch_progress() {
     );
     let clock = clock();
     let mut host = host_over(store.clone(), fetcher, clock.clone(), true);
+    host.pull_remote();
     opened(&mut host, open_discovered(603, "movie"));
     assert_eq!(store.persisted_titles().len(), 1);
 

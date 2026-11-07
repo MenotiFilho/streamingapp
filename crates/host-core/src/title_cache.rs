@@ -4,9 +4,9 @@
 //! one the Continue watching row and Up next are answered from. So the Host
 //! keeps every Title it reads — its metadata and its Videos — with the moment
 //! it was read, where it came from, and what TMDB says about a series' run. A
-//! fresh copy opens without touching the network; a stale one is read again
-//! before it answers (#271); from #272 it will answer at once and refresh
-//! behind.
+//! fresh copy opens without touching the network; a stale one is answered at
+//! once from the store and read again behind the client, whose revised Answer
+//! is the second one (#271, #272, ADR-0038 §2).
 //!
 //! ## Freshness and the terms
 //!
@@ -158,27 +158,29 @@ impl CachedTitle {
     /// - an announced next episode is looked for after a day, the rhythm TMDB
     ///   recomputes the field at;
     /// - nothing announced on a running series is looked for after a week;
-    /// - an Unmapped Title has no record, so its Addon's `meta` is read weekly.
+    /// - an Unmapped Title has no record, so its Addon's `meta` is read weekly
+    ///   whether or not it is caught up: TMDB's caught-up rules are not a
+    ///   record's to make (ADR-0038 §5, #277).
     pub(crate) fn read_ahead_due(&self, caught_up: bool, now: i64) -> bool {
+        let elapsed = now.saturating_sub(self.read_at);
+
+        if matches!(self.title.key, TitleKey::Addon { .. }) {
+            return elapsed >= CAUGHT_UP_CHECK_MILLIS;
+        }
+
         if !caught_up {
             return !self.is_fresh(now);
         }
 
-        let elapsed = now.saturating_sub(self.read_at);
-        match &self.title.key {
-            TitleKey::Addon { .. } => elapsed >= CAUGHT_UP_CHECK_MILLIS,
-            TitleKey::Tmdb { .. } => {
-                if matches!(
-                    self.status,
-                    Some(SeriesStatus::Ended | SeriesStatus::Cancelled)
-                ) {
-                    return false;
-                }
-                match self.next_episode {
-                    Some(_) => elapsed >= RUNNING_FRESH_MILLIS,
-                    None => elapsed >= CAUGHT_UP_CHECK_MILLIS,
-                }
-            }
+        if matches!(
+            self.status,
+            Some(SeriesStatus::Ended | SeriesStatus::Cancelled)
+        ) {
+            return false;
+        }
+        match self.next_episode {
+            Some(_) => elapsed >= RUNNING_FRESH_MILLIS,
+            None => elapsed >= CAUGHT_UP_CHECK_MILLIS,
         }
     }
 
@@ -192,6 +194,22 @@ impl CachedTitle {
             .filter_map(|video| video.season)
             .max()
     }
+}
+
+/// The newest cached copy matching a probe, where the cache holds one.
+///
+/// "Newest" is the copy read most recently: the same Title may be held under an
+/// Addon's key and TMDB's, and the most recent read is the one that describes
+/// it now. A caller with an extra condition on the copy — the list must carry a
+/// particular Video — filters after this and would need its own scan.
+pub(crate) fn newest_matching<'a>(
+    cached: &'a [CachedTitle],
+    probe: &TitleProbe,
+) -> Option<&'a CachedTitle> {
+    cached
+        .iter()
+        .filter(|held| held.names(probe))
+        .max_by_key(|held| held.read_at)
 }
 
 /// One Title the cache must not evict: a card's, or the Library's.
@@ -244,21 +262,31 @@ pub(crate) struct TitleCache {
     store: Arc<dyn Store>,
     bound: usize,
     entries: Vec<CachedTitle>,
+    /// The Titles the account's Library held when it was last read. The Library
+    /// is read after the cache is loaded, so the cache keeps their probes itself
+    /// and every later trim protects them, whichever view does the write
+    /// (ADR-0038 §1).
+    library: Vec<TitleProbe>,
+    /// Whether the bound is waiting for the Library to be read.
+    ///
+    /// The cache is loaded before the account's Library is, and a Title in the
+    /// Library must never be evicted (ADR-0038 §1). So the load keeps every
+    /// copy it read, and the trim waits until [`TitleCache::settle`] is handed
+    /// the Library's probes. Until then a write may hold more than the bound,
+    /// which is the lesser error.
+    deferred: bool,
 }
 
 impl TitleCache {
     /// Load the Titles a previous run kept, dropping TMDB copies past the terms
-    /// ceiling and trimming to the bound.
-    pub(crate) fn load(
-        store: Arc<dyn Store>,
-        bound: usize,
-        now: i64,
-        protection: &TitleProtection,
-    ) -> Result<Self, StoreError> {
+    /// ceiling. The bound is not applied here: the Library is not known yet.
+    pub(crate) fn load(store: Arc<dyn Store>, bound: usize, now: i64) -> Result<Self, StoreError> {
         let mut cache = Self {
             store,
             bound,
             entries: Vec::new(),
+            library: Vec::new(),
+            deferred: true,
         };
         for cached in cache.store.read_titles()? {
             if cached.is_expired(now) {
@@ -267,8 +295,23 @@ impl TitleCache {
             }
             cache.put(cached);
         }
-        cache.trim(now, protection);
         Ok(cache)
+    }
+
+    /// Keep the Titles a Library read named from eviction, whichever view does
+    /// the next write.
+    pub(crate) fn protect_library(&mut self, probes: Vec<TitleProbe>) {
+        self.library = probes;
+    }
+
+    /// Apply the bound now that the Titles the Library holds are known.
+    ///
+    /// The account's Library is read after the Host starts, so this is the one
+    /// moment the trim can tell a Library-only Title from a cache entry nobody
+    /// protects (ADR-0038 §1).
+    pub(crate) fn settle(&mut self, now: i64, protection: &TitleProtection) {
+        self.deferred = false;
+        self.trim(now, protection);
     }
 
     /// The Titles held, as a Snapshot's Continue watching row reads them: Up
@@ -285,31 +328,24 @@ impl TitleCache {
         asked: &TitleRef,
         now: i64,
     ) -> Option<CachedTitle> {
-        let index = self.entries.iter().position(|cached| {
-            let title = &cached.title;
-            (title.addon.as_ref() == Some(addon)
-                && title.r#type == asked.r#type
-                && title.id == asked.id)
-                || matches!(
-                    &title.key,
-                    TitleKey::Tmdb { id }
-                        if title.r#type == asked.r#type
-                            && asked
-                                .id
-                                .strip_prefix("tmdb:")
-                                .and_then(tmdb::TmdbId::parse)
-                                .is_some_and(|asked| asked.0 == *id)
-                )
-        })?;
+        let probe = TitleProbe::new(Some(addon.clone()), &asked.r#type, &asked.id);
+        let index = self
+            .entries
+            .iter()
+            .position(|cached| cached.names(&probe))?;
         self.take(index, now)
     }
 
     /// The cached copy for a Discovered Title, where one is held and still
     /// within TMDB's terms.
+    ///
+    /// Stricter than [`CachedTitle::names`] alone: the copy must be keyed by
+    /// the record, because a Title an Addon happened to key `tmdb:<id>` is not
+    /// TMDB's record of it.
     pub(crate) fn for_tmdb(&mut self, id: TmdbId, kind: Kind, now: i64) -> Option<CachedTitle> {
+        let probe = TitleProbe::new(None, kind.as_protocol(), &tmdb::video_spelling(id, None));
         let index = self.entries.iter().position(|cached| {
-            cached.title.key == TitleKey::Tmdb { id: id.0 }
-                && cached.title.r#type == kind.as_protocol()
+            cached.title.key == TitleKey::Tmdb { id: id.0 } && cached.names(&probe)
         })?;
         self.take(index, now)
     }
@@ -373,8 +409,13 @@ impl TitleCache {
     }
 
     /// Drop every copy past the terms ceiling, then the oldest read until the
-    /// bound holds — never a protected one.
+    /// bound holds — never a protected one. A cache still waiting for the
+    /// Library to be read keeps everything: the bound is the lesser rule.
     fn trim(&mut self, now: i64, protection: &TitleProtection) {
+        if self.deferred {
+            return;
+        }
+
         let expired: Vec<TitleKey> = self
             .entries
             .iter()
@@ -389,7 +430,10 @@ impl TitleCache {
             let oldest = self
                 .entries
                 .iter()
-                .filter(|cached| !protection.protects(cached))
+                .filter(|cached| {
+                    !protection.protects(cached)
+                        && !self.library.iter().any(|probe| cached.names(probe))
+                })
                 .min_by(|one, other| {
                     one.read_at
                         .cmp(&other.read_at)
@@ -523,6 +567,14 @@ mod tests {
             unmapped.read_ahead_due(true, week),
             "an Unmapped Title reads its Addon weekly"
         );
+        assert!(
+            !unmapped.read_ahead_due(false, week - 1),
+            "and it does so even when it is not caught up: the caught-up rules are TMDB's"
+        );
+        assert!(
+            unmapped.read_ahead_due(false, week),
+            "mid-season or not, an Unmapped Title's meta is read weekly"
+        );
     }
 
     #[test]
@@ -570,7 +622,7 @@ mod tests {
     #[test]
     fn the_cache_evicts_the_oldest_read_title_at_its_bound() {
         let store = store();
-        let mut cache = TitleCache::load(store, 2, 0, &unprotected()).expect("the cache loads");
+        let mut cache = TitleCache::load(store, 2, 0).expect("the cache loads");
 
         for id in 1..=3 {
             cache.keep(
@@ -580,6 +632,8 @@ mod tests {
                 0,
             );
         }
+
+        cache.settle(0, &unprotected());
 
         assert_eq!(cache.entries.len(), 2);
         assert!(
@@ -601,7 +655,7 @@ mod tests {
             &cache_entry.title.r#type,
             "tmdb:1",
         )]);
-        let mut cache = TitleCache::load(store, 2, 0, &protection).expect("the cache loads");
+        let mut cache = TitleCache::load(store, 2, 0).expect("the cache loads");
         cache.keep(cache_entry, None, &protection, 0);
 
         for id in 2..=4 {
@@ -613,6 +667,8 @@ mod tests {
             );
         }
 
+        cache.settle(0, &protection);
+
         assert!(
             cache.entries.iter().any(|held| held.title.key == watched),
             "the protected copy survives while unprotected ones go"
@@ -621,8 +677,42 @@ mod tests {
     }
 
     #[test]
+    fn the_bound_waits_for_the_library_which_is_read_after_the_cache() {
+        // Startup loads the cache before the account's Library is read. A trim
+        // there would evict a Library-only Title beyond the bound; the cache
+        // keeps every copy until it is told what the Library holds, then trims
+        // to the bound with those Titles protected (ADR-0038 §1).
+        let titles = (1..=3)
+            .map(|id| cached(TitleKey::Tmdb { id }, None, i64::from(id)))
+            .collect();
+        let mut cache = TitleCache::load(
+            Arc::new(crate::store::InMemoryStore::new().holding_titles(titles)),
+            2,
+            0,
+        )
+        .expect("the cache loads");
+        assert_eq!(
+            cache.entries.len(),
+            3,
+            "the bound is not applied before the Library is read"
+        );
+
+        cache.protect_library(vec![TitleProbe::new(None, "series", "tmdb:1")]);
+        cache.settle(0, &unprotected());
+
+        assert!(
+            cache
+                .entries
+                .iter()
+                .any(|held| held.title.key == TitleKey::Tmdb { id: 1 }),
+            "the Library's Title survives the trim"
+        );
+        assert_eq!(cache.entries.len(), 2, "and the bound holds after it");
+    }
+
+    #[test]
     fn a_title_is_found_by_the_addon_and_id_it_was_opened_by() {
-        let mut cache = TitleCache::load(store(), 4, 0, &unprotected()).expect("the cache loads");
+        let mut cache = TitleCache::load(store(), 4, 0).expect("the cache loads");
         let key = TitleKey::Addon {
             addon: addon(),
             id: "tt0903747".to_owned(),

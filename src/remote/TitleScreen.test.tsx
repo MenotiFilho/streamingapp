@@ -433,28 +433,6 @@ describe("a film's Play", () => {
   });
 });
 
-describe("a series' season chips", () => {
-  test("follow the Host's order, so the Specials chip is last", async () => {
-    const withSpecials: Title = {
-      ...SERIES,
-      videos: [
-        { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },
-        { id: "tt1:2:1", name: "Seven Thirty-Seven", season: 2, episode: 1, thumbnail: null, airDate: null },
-        { id: "tt1:0:1", name: "Special", season: 0, episode: 1, thumbnail: null, airDate: null },
-      ],
-    };
-    mountStack(
-      answering(withSpecials),
-      titleLevel({ addon: "cinemeta", id: "tt1", type: "series", name: "One" }),
-    );
-    await screen.findByTestId("remote-title-page");
-
-    expect(
-      screen.getAllByTestId(/^season-/).map((chip) => chip.dataset.testid),
-    ).toEqual(["season-1", "season-2", "season-0"]);
-  });
-});
-
 describe("a series' Play", () => {
   test("opens Streams for the chosen episode, starting with the first of the first season", async () => {
     const { host } = mountStack(answering(SERIES), titleLevel({ addon: "cinemeta", id: "tt1", type: "series", name: "One" }));
@@ -556,7 +534,7 @@ describe("a series' Play", () => {
     );
     await screen.findByTestId("remote-title-page");
 
-    fireEvent.click(screen.getByRole("button", { name: "Resume S1E2 · 5 min left" }));
+    fireEvent.click(screen.getByTestId("title-main"));
 
     await waitFor(() =>
       expect(host.asked("resume")).toEqual([
@@ -582,7 +560,7 @@ describe("a series' Play", () => {
     );
     await screen.findByTestId("remote-title-page");
 
-    fireEvent.click(screen.getByRole("button", { name: "Play S1E2" }));
+    fireEvent.click(screen.getByTestId("title-main"));
 
     await waitFor(() =>
       expect(host.asked("play_up_next")).toEqual([
@@ -611,7 +589,7 @@ describe("a series' Play", () => {
     );
     await screen.findByTestId("remote-title-page");
 
-    fireEvent.click(screen.getByRole("button", { name: "Play S1E2" }));
+    fireEvent.click(screen.getByTestId("title-main"));
 
     // The picker is the client's own: no play_up_next leaves, and the Streams
     // for the anchored Video are asked for the way an episode press asks.
@@ -620,6 +598,42 @@ describe("a series' Play", () => {
     expect(host.asked("find_streams")).toEqual([
       { type: "find_streams", video: { type: "series", id: "tt1:1:2" } },
     ]);
+  });
+
+  test("the main control waits on its own Action key and drops a second press", async () => {
+    const upNext = continueEntry({
+      position: null,
+      duration: null,
+      upNext: true,
+    });
+    let release!: (answer: Response) => void;
+    const held = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    const respond: Respond = (action) =>
+      action.type === "play_up_next" ? held : answering(SERIES)(action);
+    const { host } = mountStack(
+      respond,
+      titleLevel({ addon: "cinemeta", id: "tt1", type: "series", name: "One" }),
+      { ...SNAPSHOT, continueWatching: [upNext] },
+    );
+    await screen.findByTestId("remote-title-page");
+
+    fireEvent.click(screen.getByTestId("title-main"));
+    const main = screen.getByTestId("title-main");
+    await waitFor(() => expect(main).toBeDisabled());
+    expect(main).toHaveAttribute("aria-busy", "true");
+
+    // A second press before the answer is the same Action: the Session joins
+    // it, and one play_up_next leaves.
+    fireEvent.click(main);
+    expect(host.asked("play_up_next")).toHaveLength(1);
+
+    await act(async () => {
+      release({ snapshots: [], answer: null });
+      await held;
+    });
+    await waitFor(() => expect(main).toBeEnabled());
   });
 
   test("a continuity refusal opens the Streams for the Up next instead of alerting", async () => {
@@ -639,7 +653,7 @@ describe("a series' Play", () => {
     );
     await screen.findByTestId("remote-title-page");
 
-    fireEvent.click(screen.getByRole("button", { name: "Play S1E2" }));
+    fireEvent.click(screen.getByTestId("title-main"));
 
     expect(await screen.findByTestId("remote-streams")).toBeInTheDocument();
     expect(host.asked("find_streams")).toEqual([

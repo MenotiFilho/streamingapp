@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { actionKey } from "../core/actionKey";
 import { answeredTitle } from "../core/answers";
 import { explain, type ActionError } from "../core/errors";
 import { addonLabel } from "../core/home";
 import { programIndex } from "../core/homeProgramme";
 import type { NewLevel } from "../core/navigation";
-import { decideRevision } from "../core/revision";
+import { useRevisedTitle } from "../core/react/useRevisedTitle";
 import type { Session, SessionState } from "../core/session";
 import { theFilm } from "../core/stream";
 import {
@@ -20,6 +21,8 @@ import {
   titleAnchor,
   titleFacts,
   titleMainAction,
+  titleMainPress,
+  titlePlayOutcome,
   titleSide,
   unmappedOf,
   type TitleAnchor,
@@ -213,21 +216,8 @@ function TitlePage({
 }) {
   // A background refresh may answer this Title again while the level is open
   // (ADR-0038 §2). The revision replaces what is drawn only while it is still
-  // this Title; one for a Title the person has left is ignored.
-  const [title, setTitle] = useState(answered);
-  useEffect(() => {
-    setTitle(answered);
-  }, [answered]);
-  useEffect(
-    () =>
-      session.onRevision((revision) => {
-        setTitle((open) => {
-          const decision = decideRevision(open, revision);
-          return decision.kind === "replace" ? decision.title : open;
-        });
-      }),
-    [session],
-  );
+  // this Title; the decision and the subscription are the core's.
+  const title = useRevisedTitle(answered, session);
 
   const preview = cardPreviewOf(card);
   const name = nameOf(title, preview);
@@ -242,55 +232,51 @@ function TitlePage({
     continueWatching,
     state.snapshot?.preferences.upNextPlayback ?? "direct",
   );
-  const [taking, setTaking] = useState(false);
+  const press = titleMainPress(main);
+  // The wait is the Session's pending key for the one Action this control
+  // would send (ADR-0027): a picker Play asks nothing, so it never waits.
+  const mainPending =
+    press !== null && press.kind !== "picker" && state.pending.has(actionKey(press.action));
 
   /**
    * The one main control: Resume takes the Host's own `resume` and opens the
    * player card; Play takes the Host's `play_up_next`, which continues the
-   * release of the episode before; and a picker Play pushes the Streams for the
-   * Up next Video itself (#276).
+   * release of the episode before; and a picker Play pushes the Streams for
+   * the Up next Video itself (#276). The ladder is the core's.
    */
   const takeMain = async () => {
-    if (main === null || taking) {
+    if (press === null) {
       return;
     }
-    if (main.kind === "play") {
-      if (main.action === null) {
-        push(streamsLevelFor(title, main.video));
-        return;
-      }
-      setTaking(true);
-      try {
-        // Play is the Host's own continuity choice. When no Stream continues
-        // the release, the client opens the picker for the Up next instead
-        // (#276); any other refusal is the Remote's one alert.
-        const { response, error } = await session.ask(main.action);
-        if (error?.kind === "no_up_next_stream") {
-          push(streamsLevelFor(title, main.video));
-          return;
-        }
-        if (error) {
-          session.report(error);
-          return;
-        }
-        if (response) {
-          push(playerLevel(title));
-        }
-      } finally {
-        setTaking(false);
+    if (press.kind === "picker") {
+      push(streamsLevelFor(title, press.video));
+      return;
+    }
+    if (press.kind === "resume") {
+      // Resume is a Change like any other: the Host starts the Stream at its
+      // saved position, and the card is where the playing Stream is driven.
+      if (await session.take(press.action)) {
+        push(playerLevel(title));
       }
       return;
     }
 
-    setTaking(true);
-    try {
-      // Resume is a Change like any other: the Host starts the Stream at its
-      // saved position, and the card is where the playing Stream is driven.
-      if (await session.take(main.action)) {
-        push(playerLevel(title));
-      }
-    } finally {
-      setTaking(false);
+    // Play is the Host's own continuity choice. When no Stream continues the
+    // release, the client opens the picker for the Up next instead (#276);
+    // any other refusal is the Remote's one alert.
+    const { response, error } = await session.ask(press.action);
+    switch (titlePlayOutcome(error)) {
+      case "picker":
+        push(streamsLevelFor(title, press.video));
+        return;
+      case "report":
+        session.report(error);
+        return;
+      case "played":
+        if (response) {
+          push(playerLevel(title));
+        }
+        return;
     }
   };
 
@@ -353,7 +339,7 @@ function TitlePage({
               variant="primary"
               className="remote-play remote-title-main"
               data-testid="title-main"
-              pending={taking}
+              pending={mainPending}
               onClick={() => void takeMain()}
             >
               <Icon name="play" className="remote-play-mark" />

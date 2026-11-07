@@ -5,6 +5,8 @@ import {
   titleAnchor,
   titleFacts,
   titleMainAction,
+  titleMainPress,
+  titlePlayOutcome,
   titleSide,
   unmappedOf,
 } from "./titlePage";
@@ -300,5 +302,61 @@ describe("the Title's main action", () => {
       label: "Resume S1E2",
       action: { type: "resume", video: { type: "series", id: "tt0:1:2" } },
     });
+  });
+});
+
+describe("pressing the Title's main control", () => {
+  const upNext = entry({
+    video: {
+      id: "tt0:1:4",
+      name: "Fourth",
+      season: 1,
+      episode: 4,
+      thumbnail: null,
+      airDate: null,
+    },
+    position: null,
+    duration: null,
+    upNext: true,
+  });
+
+  test("Resume takes the Host's own resume", () => {
+    const press = titleMainPress(titleMainAction(SERIES, [entry()], "direct"));
+
+    expect(press).toEqual({
+      kind: "resume",
+      action: { type: "resume", video: { type: "series", id: "tt0:1:2" } },
+    });
+  });
+
+  test("a direct Play takes play_up_next for the Title whose Up next it reads", () => {
+    const press = titleMainPress(titleMainAction(SERIES, [upNext], "direct"));
+
+    expect(press).toMatchObject({
+      kind: "play",
+      video: upNext.video,
+      action: { type: "play_up_next", title: { type: "series", id: "tt0" } },
+    });
+  });
+
+  test("a picker Play opens the picker for the Up next and asks nothing", () => {
+    expect(titleMainPress(titleMainAction(SERIES, [upNext], "picker"))).toEqual({
+      kind: "picker",
+      video: upNext.video,
+    });
+  });
+
+  test("no main control is no press", () => {
+    expect(titleMainPress(null)).toBeNull();
+  });
+
+  test("a continuity refusal means the picker; anything else is the one alert", () => {
+    expect(titlePlayOutcome(null)).toBe("played");
+    expect(
+      titlePlayOutcome({ kind: "no_up_next_stream", detail: "nothing playable" }),
+    ).toBe("picker");
+    expect(titlePlayOutcome({ kind: "fetch", detail: "the Addon timed out" })).toBe(
+      "report",
+    );
   });
 });

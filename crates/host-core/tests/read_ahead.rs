@@ -10,9 +10,9 @@ use std::sync::Arc;
 
 use host_core::{
     Addon, AddonId, AddonProvider, CachedTitle, FixtureClock, FixtureFetcher, FixturePlayer,
-    FixtureStremio, Host, InMemorySecretStore, InMemoryStore, Manifest, ManifestUrl, NextEpisode,
-    Provider, SecretBackend, SeriesStatus, Store, Title, TitleCard, TitleKey, TitleSource,
-    TitleStub, Video, VideoRef, WatchProgress,
+    FixtureRevisions, FixtureStremio, Host, HostDoor, InMemorySecretStore, InMemoryStore, Manifest,
+    ManifestUrl, NextEpisode, Provider, SecretBackend, SeriesStatus, Store, Title, TitleCard,
+    TitleKey, TitleSource, TitleStub, Video, VideoRef, WatchProgress,
 };
 use serde_json::{json, Value};
 
@@ -26,12 +26,14 @@ const TMDB_TV_300001_SEASON_2: &str = concat!(
     "https://api.themoviedb.org/3/tv/300001?append_to_response=season/2",
     "&api_key=0123456789abcdef0123456789abcdef",
 );
-/// The same record read whole, as an open reads it.
-const TMDB_TV_300001: &str = concat!(
-    "https://api.themoviedb.org/3/tv/300001?append_to_response=",
-    "season/0,season/1,season/2,season/3,season/4,season/5,season/6,season/7,",
-    "season/8,season/9,season/10,season/11,season/12,season/13,season/14,season/15,",
-    "season/16,season/17,season/18,season/19",
+/// A stale Discovered open's first batch, built from the cached copy's seasons.
+const TMDB_TV_300001_KNOWN: &str = concat!(
+    "https://api.themoviedb.org/3/tv/300001?append_to_response=season/1",
+    "&api_key=0123456789abcdef0123456789abcdef",
+);
+/// The seasons the record lists past that batch.
+const TMDB_TV_300001_REST: &str = concat!(
+    "https://api.themoviedb.org/3/tv/300001?append_to_response=season/0,season/2",
     "&api_key=0123456789abcdef0123456789abcdef",
 );
 
@@ -467,6 +469,45 @@ fn a_caught_up_series_with_an_announced_episode_returns_as_up_next_when_drained(
 }
 
 #[test]
+fn the_shells_door_runs_the_daily_caught_up_scan_too() {
+    // The app drains through `HostDoor::drain`, not `Host::drain`: a scan that
+    // lived only in the test path would never run on an open Host (ADR-0022's
+    // "one policy", ADR-0038 §5).
+    let store = caught_up_store(
+        Some(NextEpisode {
+            season: 2,
+            episode: 1,
+        }),
+        SeriesStatus::Running,
+        0,
+    );
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(TMDB_TV_300001_SEASON_2, ANNOUNCED_SEASON),
+    );
+    let clock = clock();
+    let mut host = host_over(store, fetcher.clone(), clock.clone());
+    set_tmdb_key(&mut host);
+    let door = HostDoor::new(host);
+
+    clock.tick(DAY);
+    let drained = door.drain();
+
+    assert_eq!(drained.ran, 1, "the door ran the announced record's check");
+    assert_eq!(
+        asked_for(&fetcher, TMDB_TV_300001_SEASON_2),
+        1,
+        "one request, one season appended: {:?}",
+        fetcher.asked()
+    );
+    let snapshot = drained
+        .snapshot
+        .expect("the card coming back is a Snapshot");
+    assert_eq!(snapshot.continue_watching[0].video.id, "tmdb:300001:2:1");
+}
+
+#[test]
 fn a_caught_up_running_series_is_checked_after_a_week_and_not_before() {
     // Nothing announced, and TMDB still says it is returning: the record is
     // read weekly, because a season break is months long (ADR-0038 §5).
@@ -542,7 +583,8 @@ fn an_ended_series_is_never_read_ahead_and_opening_it_still_refreshes_it() {
     let fetcher = Arc::new(
         FixtureFetcher::new()
             .serving(CINEMETA, CINEMETA_MANIFEST)
-            .serving(TMDB_TV_300001, WHOLE_SERIES),
+            .serving(TMDB_TV_300001_KNOWN, WHOLE_SERIES)
+            .serving(TMDB_TV_300001_REST, WHOLE_SERIES),
     );
     let clock = clock();
     let mut host = host_over(store, fetcher.clone(), clock.clone());
@@ -554,13 +596,28 @@ fn an_ended_series_is_never_read_ahead_and_opening_it_still_refreshes_it() {
         0,
         "an Ended series is not checked by the queue, however stale"
     );
-    assert_eq!(asked_for(&fetcher, TMDB_TV_300001), 0);
+    assert_eq!(
+        asked_for(&fetcher, TMDB_TV_300001_KNOWN),
+        0,
+        "and nothing was read"
+    );
 
     // Opening it is the owner looking, and that still refreshes a stale copy.
     let cached = opened(&mut host, open_discovered(300001));
     assert_eq!(cached.name, "Series 300001", "the stale copy answers first");
     assert_eq!(host.drain().ran, 1, "opening queued the refresh");
-    assert_eq!(asked_for(&fetcher, TMDB_TV_300001), 1);
+    assert_eq!(
+        asked_for(&fetcher, TMDB_TV_300001_KNOWN),
+        1,
+        "the cached list's season was the first batch: {:?}",
+        fetcher.asked()
+    );
+    assert_eq!(
+        asked_for(&fetcher, TMDB_TV_300001_REST),
+        1,
+        "and the record's other seasons the second: {:?}",
+        fetcher.asked()
+    );
 }
 
 #[test]
@@ -599,6 +656,206 @@ fn an_unmapped_title_is_read_ahead_from_its_addon_weekly() {
         .expect("the newly listed episode moves the card");
     assert_eq!(snapshot.continue_watching[0].video.id, "tt0903747:1:3");
     assert!(snapshot.continue_watching[0].up_next);
+}
+
+#[test]
+fn an_unmapped_title_is_read_weekly_even_when_it_is_not_caught_up() {
+    // The caught-up rules are TMDB's, and an Unmapped Title has no record to
+    // ask: its Addon's meta is re-read weekly whether or not the owner is at
+    // the end of its list (ADR-0038 §5, #277).
+    let store = Arc::new(
+        InMemoryStore::new()
+            .holding_addons(vec![cinemeta()])
+            .holding_titles(vec![addon_series(vec![
+                addon_episode("tt0903747", 1, 1),
+                addon_episode("tt0903747", 1, 2),
+                addon_episode("tt0903747", 1, 3),
+            ])])
+            .holding_watch(vec![finished_episode("tt0903747", "tt0903747:1:1", 500)]),
+    );
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(CINEMETA_SERIES, SERIES_BODY),
+    );
+    let clock = clock();
+    let mut host = host_over(store, fetcher.clone(), clock.clone());
+
+    assert!(
+        host.snapshot().continue_watching[0].up_next,
+        "the owner is mid-season, not caught up"
+    );
+    clock.tick(WEEK - 1);
+    assert_eq!(host.drain().ran, 0, "not before a week, caught up or not");
+
+    clock.tick(DAY);
+    assert_eq!(
+        host.drain().ran,
+        1,
+        "an Unmapped Title's Addon is read weekly however far in the owner is"
+    );
+    assert_eq!(asked_for(&fetcher, CINEMETA_SERIES), 1);
+}
+
+#[test]
+fn a_stale_open_that_meets_a_queued_caught_up_reads_the_whole_title() {
+    // A caught-up series with an announced episode is due, so starting the
+    // Host queues a one-season check. Opening the stale Title queues the whole
+    // read; the two collapse into one job, and the whole read must be the one
+    // that runs — otherwise the season is refreshed and the metadata is not.
+    let cached = discovered_series(
+        300001,
+        vec![episode(300001, 1, 1), episode(300001, 1, 2)],
+        SeriesStatus::Running,
+        Some(NextEpisode {
+            season: 2,
+            episode: 1,
+        }),
+        0,
+    );
+    let store = Arc::new(
+        InMemoryStore::new()
+            .holding_addons(vec![cinemeta()])
+            .holding_titles(vec![cached])
+            .holding_watch(vec![finished_episode(
+                "tmdb:300001",
+                "tmdb:300001:1:2",
+                500,
+            )]),
+    );
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(TMDB_TV_300001_KNOWN, WHOLE_SERIES)
+            .serving(TMDB_TV_300001_REST, WHOLE_SERIES),
+    );
+    let clock = clock();
+    // The announced check is due when the Host starts.
+    clock.tick(DAY);
+    let mut host = host_over(store, fetcher.clone(), clock);
+    set_tmdb_key(&mut host);
+
+    let stale = opened(&mut host, open_discovered(300001));
+    assert_eq!(
+        stale.name, "Series 300001",
+        "the stale copy answers at once"
+    );
+
+    let drained = host.drain();
+    assert_eq!(
+        drained.ran, 1,
+        "the open and the queued check are one job for one Title"
+    );
+    assert_eq!(
+        asked_for(&fetcher, TMDB_TV_300001_KNOWN),
+        1,
+        "the whole record was read, with the cached seasons appended: {:?}",
+        fetcher.asked()
+    );
+    assert_eq!(
+        asked_for(&fetcher, TMDB_TV_300001_REST),
+        1,
+        "and the rest of the record's seasons in a second batch: {:?}",
+        fetcher.asked()
+    );
+    let snapshot = drained
+        .snapshot
+        .expect("the record's new episode moves the card");
+    assert_eq!(snapshot.continue_watching[0].video.id, "tmdb:300001:2:1");
+}
+
+#[test]
+fn an_open_that_reads_the_list_a_finished_card_waited_on_publishes_the_row() {
+    // Story 18: the card is the finished Video until the Title behind it is
+    // read, and then it moves to Up next. The Answer is still the asker's own;
+    // the row is the Snapshot every client is owed (#274, #277).
+    let store = Arc::new(
+        InMemoryStore::new()
+            .holding_addons(vec![cinemeta()])
+            .holding_watch(vec![finished_episode("tt0903747", "tt0903747:1:3", 500)]),
+    );
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(CINEMETA_SERIES, SERIES_BODY),
+    );
+    // The shell takes an open through the door, so the Snapshot is proved on
+    // that path and not only on the one-call form.
+    let door = HostDoor::new(host_over(store, fetcher, clock()));
+
+    let response = door
+        .dispatch(open("com.linvo.cinemeta", "series", "tt0903747"))
+        .expect("opening the Title should work");
+
+    assert!(
+        response.title().is_some(),
+        "the read is still the asker's Answer"
+    );
+    assert_eq!(
+        response.snapshots.len(),
+        1,
+        "the open kept the list the card was waiting on, so the row moved"
+    );
+    let card = &response.snapshots[0].continue_watching[0];
+    assert!(card.up_next);
+    assert_eq!(card.video.id, "tt0903747:2:1");
+}
+
+#[test]
+fn a_refresh_with_an_asker_still_publishes_the_row_it_moved() {
+    // A stale Discovered Title answers the cached copy — the finished episode,
+    // because the cached list does not hold it — and queues its refresh. The
+    // revised Answer goes to the asker; the row the refresh moves is a
+    // Snapshot, and one is owed even though the open had an asker (#274).
+    let cached = discovered_series(
+        300001,
+        vec![episode(300001, 1, 1)],
+        SeriesStatus::Running,
+        None,
+        0,
+    );
+    let store = Arc::new(
+        InMemoryStore::new()
+            .holding_addons(vec![cinemeta()])
+            .holding_titles(vec![cached])
+            .holding_watch(vec![finished_episode(
+                "tmdb:300001",
+                "tmdb:300001:1:2",
+                500,
+            )]),
+    );
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(TMDB_TV_300001_KNOWN, WHOLE_SERIES)
+            .serving(TMDB_TV_300001_REST, WHOLE_SERIES),
+    );
+    let clock = clock();
+    clock.tick(DAY);
+    let mut host = host_over(store, fetcher, clock);
+    set_tmdb_key(&mut host);
+    let staged = Arc::new(FixtureRevisions::new());
+
+    let response = host
+        .dispatch_asking(open_discovered(300001), Some(staged.clone()))
+        .expect("opening the stale Title should work");
+    assert!(
+        response.snapshots.is_empty(),
+        "a stale answer keeps nothing and moves nothing yet"
+    );
+
+    let drained = host.drain();
+    assert_eq!(drained.ran, 1);
+    let snapshot = drained
+        .snapshot
+        .expect("the refresh found the episode and its Up next, so the row moved");
+    assert!(snapshot.continue_watching[0].up_next);
+    assert_eq!(snapshot.continue_watching[0].video.id, "tmdb:300001:2:1");
+    assert_eq!(
+        staged.revised().len(),
+        1,
+        "the asker is still told with a revised Answer, and nobody else"
+    );
 }
 
 #[test]

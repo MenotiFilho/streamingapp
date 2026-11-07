@@ -134,7 +134,7 @@ pub struct Drained {
 }
 
 impl Drained {
-    fn nothing() -> Self {
+    pub(crate) fn nothing() -> Self {
         Self {
             ran: 0,
             snapshot: None,
@@ -181,17 +181,14 @@ impl Host {
         // The Titles the last run kept, loaded before any question can ask: the
         // Titles behind Watch progress are what the row and Up next are drawn
         // from, and they must open on a Host that started with no network
-        // (ADR-0038 §1). Loading trims TMDB copies past the terms ceiling and
-        // the bound, and never evicts one behind Watch progress.
-        let protected = watch
-            .iter()
-            .map(|progress| TitleProbe::from_stub(&progress.title))
-            .collect();
+        // (ADR-0038 §1). Loading drops TMDB copies past the terms ceiling but
+        // does not trim to the bound: the account's Library is read after this,
+        // and a Library Title must not be evicted before it is known. The first
+        // Library read settles the bound (ADR-0038 §1).
         let titles = Arc::new(Mutex::new(TitleCache::load(
             store.clone(),
             MAX_CACHED_TITLES,
             clock.now_millis(),
-            &TitleProtection::holding(protected),
         )?));
         let state = State::holding(
             store.read_preferences()?,
@@ -343,15 +340,11 @@ impl Host {
                 titles: self.titles.clone(),
                 background: self.background.clone(),
                 clock: self.clock.clone(),
-                // The Titles behind Watch progress, frozen with the rest of
-                // the view: a cache write from this question must not evict one
-                // of them (ADR-0038 §1).
-                protected: self
-                    .state
-                    .watch()
-                    .iter()
-                    .map(|progress| TitleProbe::from_stub(&progress.title))
-                    .collect(),
+                // The Watch progress frozen with the rest of the view: a cache
+                // write must not evict a Title behind one of its cards, and a
+                // write that moves a card publishes a Snapshot (ADR-0038 §1,
+                // #274, #277).
+                watch: self.state.watch().to_vec(),
             },
         )
     }
@@ -367,10 +360,10 @@ impl Host {
     fn queue_watch_read_ahead(&mut self, only_caught_up: bool, now: i64) {
         let mut groups: Vec<Vec<crate::progress::WatchProgress>> = Vec::new();
         for entry in self.state.watch() {
-            match groups.iter_mut().find(|group| {
-                group[0].title.r#type() == entry.title.r#type()
-                    && group[0].title.id() == entry.title.id()
-            }) {
+            match groups
+                .iter_mut()
+                .find(|group| crate::progress::same_title(&group[0], entry))
+            {
                 Some(group) => group.push(entry.clone()),
                 None => groups.push(vec![entry.clone()]),
             }
@@ -384,17 +377,18 @@ impl Host {
             let probe = TitleProbe::from_stub(&latest.title);
             let (cached, caught_up) = {
                 let cache = self.titles.lock().expect("the Title cache is not poisoned");
-                let cached = cache
-                    .cached()
-                    .iter()
-                    .filter(|held| held.names(&probe))
-                    .max_by_key(|held| held.read_at)
-                    .cloned();
+                let cached = crate::title_cache::newest_matching(cache.cached(), &probe).cloned();
                 let caught_up = crate::progress::caught_up(&group, cache.cached());
                 (cached, caught_up)
             };
 
-            if only_caught_up && !caught_up {
+            // An Unmapped Title has no TMDB record, so it is checked weekly
+            // whether or not it is caught up; a mapped Title that is not caught
+            // up is not periodically prefetched (ADR-0038 §3, §5, #277).
+            let unmapped = cached
+                .as_ref()
+                .is_some_and(|held| matches!(held.title.key, TitleKey::Addon { .. }));
+            if only_caught_up && !caught_up && !unmapped {
                 continue;
             }
             let due = cached
@@ -432,12 +426,7 @@ impl Host {
             let probe = TitleProbe::new(None, r#type, item.id());
             let cached = {
                 let cache = self.titles.lock().expect("the Title cache is not poisoned");
-                cache
-                    .cached()
-                    .iter()
-                    .filter(|held| held.names(&probe))
-                    .max_by_key(|held| held.read_at)
-                    .cloned()
+                crate::title_cache::newest_matching(cache.cached(), &probe).cloned()
             };
             let due = cached
                 .as_ref()
@@ -531,10 +520,11 @@ impl Host {
             }
         }
 
-        if let Some(id) = probe.id.strip_prefix("tmdb:").and_then(tmdb::TmdbId::parse) {
-            if let Some(kind) = tmdb::Kind::parse(&probe.r#type) {
-                return Some(Work::Discovered { id, kind });
-            }
+        if let (Some(tmdb::ExternalId::Tmdb(id)), Some(kind)) = (
+            tmdb::ExternalId::parse(&probe.r#type, &probe.id),
+            tmdb::Kind::parse(&probe.r#type),
+        ) {
+            return Some(Work::Discovered { id, kind });
         }
         if let Some(addon) = &probe.addon {
             return TitleRef::parse(&probe.r#type, &probe.id)
@@ -604,10 +594,15 @@ impl Host {
     ) -> Result<Response, ActionError> {
         let validated = action.validate()?;
         if validated.is_question() {
-            // A question changed nothing anyone else can see, so there is no
-            // Snapshot to publish and the revision does not move.
-            let answer = self.view().ask(validated, revisions.as_ref())?;
-            Ok(Response::answered(answer))
+            // A question publishes no Snapshot unless keeping the Title it read
+            // moved Continue watching: the Answer is the asker's own business,
+            // but a row every client draws is not (#274, #277).
+            let answered = self.view().ask(validated, revisions.as_ref())?;
+            let mut response = Response::answered(answered.answer);
+            if answered.moved {
+                response.snapshots.push(self.cache_changed());
+            }
+            Ok(response)
         } else {
             self.apply(validated)
         }
@@ -622,19 +617,20 @@ impl Host {
             .take()
     }
 
-    /// Run every background job waiting, a bounded fan-out at a time, and
-    /// answer what a client is owed.
+    /// Prepare one drain: fill the queue with what has come due, and take the
+    /// jobs and the view they resolve over.
     ///
-    /// The shell calls this from its worker thread; tests call it inline. The
-    /// fetches happen on a view of their own with no lock across them, the way
-    /// a question's fetches do (ADR-0022, ADR-0023, ADR-0038 §3). A read that
-    /// changed a kept Title publishes the Snapshot that moves Continue
-    /// watching, once for the whole drain (#277).
+    /// This is the *one* place the daily caught-up scan is taken, so that every
+    /// adapter that drains runs the same policy (ADR-0022's "one policy"): the
+    /// shell drains through [`crate::HostDoor::drain`], and a test drains
+    /// through [`Host::drain`], and neither can leave a check behind the other
+    /// would run. A caught-up Title is checked when its record has come due, so
+    /// a week can pass while the Host stays open; the scan itself is daily,
+    /// which is the shortest rhythm any check runs at (ADR-0038 §5).
     ///
-    /// A caught-up Title is checked here when its record has come due, so a
-    /// week can pass while the Host stays open: the scan itself is daily, which
-    /// is the shortest rhythm any check runs at (ADR-0038 §5).
-    pub fn drain(&mut self) -> Drained {
+    /// The jobs are taken under the change lock and run outside it: the caller
+    /// resolves them with the returned view and no lock held (ADR-0022).
+    pub(crate) fn begin_drain(&mut self) -> (Vec<Job>, HostView) {
         let now = self.clock.now_millis();
         if self
             .read_ahead_scanned_at
@@ -644,11 +640,24 @@ impl Host {
             self.read_ahead_scanned_at = Some(now);
         }
 
-        let jobs = self.take_jobs();
+        (self.take_jobs(), self.view())
+    }
+
+    /// Run every background job waiting, a bounded fan-out at a time, and
+    /// answer what a client is owed.
+    ///
+    /// The shell's worker thread drains through [`crate::HostDoor::drain`],
+    /// which takes its jobs from [`Host::begin_drain`] and runs them with the
+    /// change lock released; this inline form exists for tests and for a caller
+    /// that already owns the Host. A read that changed a kept Title publishes
+    /// the Snapshot that moves Continue watching, once for the whole drain
+    /// (#277, ADR-0038 §3).
+    pub fn drain(&mut self) -> Drained {
+        let (jobs, view) = self.begin_drain();
         if jobs.is_empty() {
             return Drained::nothing();
         }
-        let (ran, changed) = self.view().drain(jobs);
+        let (ran, changed) = view.drain(jobs);
         Drained {
             ran,
             snapshot: changed.then(|| self.cache_changed()),
@@ -695,6 +704,7 @@ impl Host {
             _ => None,
         };
         let signing_in = matches!(change, Change::SignInStremio { .. });
+        let signing_out = matches!(change, Change::SignOutStremio);
         let account_changed = matches!(
             change,
             Change::SignInStremio { .. } | Change::SignOutStremio
@@ -738,6 +748,14 @@ impl Host {
                 .expect("the Library cache is not poisoned")
                 .clear();
         }
+        if signing_out {
+            // The signed-out account's Library is not this Host's to protect:
+            // its Titles compete for the bound like any other.
+            self.titles
+                .lock()
+                .expect("the Title cache is not poisoned")
+                .protect_library(Vec::new());
+        }
 
         // The account, last, and only when there is one: a sync that fails is
         // not an Action that fails — the change above is made and kept either
@@ -764,8 +782,19 @@ impl Host {
     /// With no account signed in it asks nothing, and a Stremio that cannot
     /// answer leaves the Host's Watch progress as it was.
     pub fn pull_remote(&mut self) -> Option<Snapshot> {
-        let (stremio, key) = self.account()?;
-        let items = stremio.library(&key, None).ok()?;
+        let now = self.clock.now_millis();
+        let account = self.account();
+        let items = account
+            .as_ref()
+            .and_then(|(stremio, key)| stremio.library(key, None).ok());
+
+        // With no account there is no Library to read: the cache's bound can be
+        // settled now, with nothing more to protect than Watch progress.
+        if account.is_none() {
+            self.settle_titles(&[], now);
+            return None;
+        }
+        let items = items?;
 
         let mut moved = false;
         for raw in &items {
@@ -784,10 +813,16 @@ impl Host {
             moved |= self.adopt(merged.local);
         }
 
+        // The Library is read after the Title cache, so this is the one moment
+        // the bound can tell a Library-only Title from a cache entry nobody
+        // protects — now including the progress this pull just merged
+        // (ADR-0038 §1). A Library that could not be read settles nothing:
+        // evicting a Title the row needs is the worse error.
+        self.settle_titles(&items, now);
+
         // The Library is read at startup, so its Titles are read ahead here.
         // Remote progress that arrived with it joins the row, and any Title it
         // named that the Host had not seen is read ahead too (#277).
-        let now = self.clock.now_millis();
         self.queue_library_read_ahead(&items, now);
         self.queue_watch_read_ahead(false, now);
 
@@ -796,6 +831,34 @@ impl Host {
         }
         self.revision += 1;
         Some(self.snapshot())
+    }
+
+    /// Settle the cache's bound with the Titles the Library holds, and leave the
+    /// cache holding their probes for the writes that follow.
+    ///
+    /// The account's Library is read after the Host starts, so a cache loaded
+    /// before it must not trim to the bound on its own: this is where the bound
+    /// is applied with every Library Title protected (ADR-0038 §1).
+    fn settle_titles(&mut self, items: &[serde_json::Value], now: i64) {
+        let library: Vec<TitleProbe> = items
+            .iter()
+            .filter_map(|raw| RemoteItem::parse(raw.clone()).ok())
+            .filter(|item| !item.removed())
+            .filter_map(|item| {
+                let r#type = item.r#type()?;
+                Some(TitleProbe::new(None, r#type, item.id()))
+            })
+            .collect();
+
+        let watch: Vec<TitleProbe> = self
+            .state
+            .watch()
+            .iter()
+            .map(|progress| TitleProbe::from_stub(&progress.title))
+            .collect();
+        let mut cache = self.titles.lock().expect("the Title cache is not poisoned");
+        cache.protect_library(library);
+        cache.settle(now, &TitleProtection::holding(watch));
     }
 
     /// The Host is going away: write down where the Stream got to, and tell the
@@ -1669,8 +1732,8 @@ impl Host {
         let at = video.at?;
         let view = self.view();
         let key = view.tmdb_credential()?;
-        let details = view.tmdb_details(video.kind, video.id, &key).ok()?;
-        let videos = view.tmdb_videos(&details, video.id, &key)?;
+        let read = view.tmdb_details(video.kind, video.id, &key, &[]).ok()?;
+        let videos = view.tmdb_videos(&read, video.id, &key)?;
 
         let id = tmdb::video_spelling(video.id, Some(at));
         step.neighbour(&videos, &id).map(|video| video.id.clone())
@@ -1693,7 +1756,7 @@ impl Host {
 
         let entry = cards
             .into_iter()
-            .find(|entry| entry.title.r#type() == title.r#type && entry.title.id() == title.id)
+            .find(|entry| crate::progress::names(&entry.title, &title.r#type, &title.id))
             .ok_or_else(|| ActionError::NoUpNext {
                 detail: format!("{title} is not on Continue watching, so it has no Up next"),
             })?;
@@ -1711,7 +1774,7 @@ impl Host {
             .state
             .watch()
             .iter()
-            .filter(|held| held.title.r#type() == title.r#type && held.title.id() == title.id)
+            .filter(|held| crate::progress::names(&held.title, &title.r#type, &title.id))
             .max_by_key(|held| held.updated_at)
             .cloned()
             .filter(|held| held.watched && held.video.id != up_next_id)

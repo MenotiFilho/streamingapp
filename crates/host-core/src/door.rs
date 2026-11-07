@@ -106,7 +106,22 @@ impl HostDoor {
                 started.elapsed(),
                 outcome(&result, "answered"),
             );
-            result.map(Response::answered)
+            match result {
+                Ok(answered) => {
+                    // A Title kept by the question can move a row every client
+                    // draws — an open that read the list a card was waiting on.
+                    // The Answer still goes only to the asker; the Snapshot is
+                    // the row (#274, #277, ADR-0005).
+                    let mut response = Response::answered(answered.answer);
+                    if answered.moved {
+                        response
+                            .snapshots
+                            .push(self.host.lock().expect(POISONED).cache_changed());
+                    }
+                    Ok(response)
+                }
+                Err(error) => Err(error),
+            }
         } else {
             // A change is serialized, I/O included. Two changes must not
             // interleave into a state neither client asked for, and a change
@@ -128,14 +143,11 @@ impl HostDoor {
     /// lock again — the fetch itself never held it (#277).
     pub fn drain(&self) -> Drained {
         let (jobs, view) = {
-            let host = self.host.lock().expect(POISONED);
-            (host.take_jobs(), host.view())
+            let mut host = self.host.lock().expect(POISONED);
+            host.begin_drain()
         };
         if jobs.is_empty() {
-            return Drained {
-                ran: 0,
-                snapshot: None,
-            };
+            return Drained::nothing();
         }
         let (ran, changed) = view.drain(jobs);
         let snapshot = changed.then(|| self.host.lock().expect(POISONED).cache_changed());

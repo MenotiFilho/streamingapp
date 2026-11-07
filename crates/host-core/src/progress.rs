@@ -170,10 +170,10 @@ pub struct WatchProgress {
     /// The Addon whose Stream was playing this Video, where one played it.
     ///
     /// Read back by Playing Up next, which continues the release: the Addon and
-    /// the `bingeGroup` are what make the next episode the same release rather
-    /// than an unrelated candidate (ADR-0012, ADR-0014). `None` for an entry
-    /// written before this field existed and for a position merged in from the
-    /// Stremio account, neither of which saw a Stream.
+    /// the `bingeGroup` are what make the Up next the same release rather than
+    /// an unrelated candidate (ADR-0012, ADR-0014). `None` for an entry written
+    /// before this field existed and for a position merged in from the Stremio
+    /// account, neither of which saw a Stream.
     pub stream_addon: Option<AddonId>,
     /// The release the Stream was binge-grouped by, where its Addon said — the
     /// other half of the continuity Playing Up next continues.
@@ -490,8 +490,15 @@ fn up_next_entry(
 
 /// Whether two entries name the same Title: type plus id, as the stub carries
 /// the identity a row groups by.
-fn same_title(one: &WatchProgress, other: &WatchProgress) -> bool {
+pub(crate) fn same_title(one: &WatchProgress, other: &WatchProgress) -> bool {
     one.title.r#type() == other.title.r#type() && one.title.id() == other.title.id()
+}
+
+/// Whether a title stub names the type and id a reference names — the same
+/// identity [`same_title`] groups by, for a caller holding a reference rather
+/// than a second stub.
+pub(crate) fn names(title: &TitleStub, r#type: &str, id: &str) -> bool {
+    title.r#type() == r#type && title.id() == id
 }
 
 /// Whether this entry is a film that has been watched through: nothing is left

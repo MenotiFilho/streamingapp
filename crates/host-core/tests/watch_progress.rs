@@ -548,12 +548,10 @@ fn resuming_asks_the_addons_that_answer_for_the_videos_streams() {
 const TMDB_KEY: &str = "0123456789abcdef0123456789abcdef";
 const TMDB_FIND_SERIES: &str =
     "https://api.themoviedb.org/3/find/tt0903747?external_source=imdb_id&api_key=0123456789abcdef0123456789abcdef";
-/// The one request a series' details and its Videos are read with.
+/// The one request a series' details and its Videos are read with: the
+/// Addon's episode list names seasons 0, 1 and 2, so those are appended (#270).
 const TMDB_TV_1396: &str = concat!(
-    "https://api.themoviedb.org/3/tv/1396?append_to_response=",
-    "season/0,season/1,season/2,season/3,season/4,season/5,season/6,season/7,",
-    "season/8,season/9,season/10,season/11,season/12,season/13,season/14,season/15,",
-    "season/16,season/17,season/18,season/19",
+    "https://api.themoviedb.org/3/tv/1396?append_to_response=season/0,season/1,season/2",
     "&api_key=0123456789abcdef0123456789abcdef",
 );
 const TMDB_EXTERNAL_IDS_BB: &str =

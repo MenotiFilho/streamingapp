@@ -167,15 +167,17 @@ impl Video {
 }
 
 /// A series' Videos in the order the Host lists and steps through them
-/// (ADR-0039): the numbered seasons ascending, each season's Videos in the
-/// order their source gave them, then the specials (season 0) in theirs.
+/// (ADR-0039 §1): the numbered seasons ascending, each season's Videos by
+/// episode number, then the specials (season 0) in their own order.
 ///
 /// The order is one function because three readers must agree with it: the
 /// Title answer publishes it, `next_episode` and `previous_episode` step
 /// through it, and Continue watching's Up next reads it (#268, #274). Videos
 /// the source placed in no season stand after the numbered seasons and before
 /// the specials, in their own order, so that the Specials are last without a
-/// client sorting anything.
+/// client sorting anything. A Video in a numbered season the source did not
+/// number stands after that season's numbered Videos; a special is not sorted
+/// by episode because the specials are one run whose own order is the truth.
 pub fn ordered_videos(videos: &[Video]) -> Vec<Video> {
     ordered_refs(videos).into_iter().cloned().collect()
 }
@@ -221,12 +223,18 @@ enum Ward {
 
 /// A series' Videos in the Host's order, borrowed: the shape [`ordered_videos`]
 /// clones and the neighbours read.
+///
+/// The key is `(part, season, episode)`: the numbered seasons sort by season and
+/// then by the episode number within it, while the unnumbered Videos and the
+/// specials all share one key so their source order stands — the specials are a
+/// run of their own, not a season to sort (ADR-0039 §1). A numbered Video the
+/// source did not number sorts after the numbered ones in its season.
 fn ordered_refs(videos: &[Video]) -> Vec<&Video> {
     let mut ordered: Vec<&Video> = videos.iter().collect();
     ordered.sort_by_key(|video| match video.season {
-        Some(0) => (2, 0),
-        Some(season) => (0, season),
-        None => (1, 0),
+        Some(0) => (2, 0, 0),
+        Some(season) => (0, season, video.episode.unwrap_or(u32::MAX)),
+        None => (1, 0, 0),
     });
     ordered
 }
@@ -917,8 +925,8 @@ mod tests {
         let videos = vec![
             video_at("tt1:0:1", Some(0), Some(1)),
             video_at("tt1:2:1", Some(2), Some(1)),
-            video_at("tt1:1:1", Some(1), Some(1)),
             video_at("tt1:1:2", Some(1), Some(2)),
+            video_at("tt1:1:1", Some(1), Some(1)),
             video_at("tt1:0:2", Some(0), Some(2)),
         ];
 
@@ -928,7 +936,32 @@ mod tests {
                 .map(|video| video.id.as_str())
                 .collect::<Vec<_>>(),
             vec!["tt1:1:1", "tt1:1:2", "tt1:2:1", "tt1:0:1", "tt1:0:2"],
-            "numbered seasons ascending and their own order kept, then the specials (ADR-0039 §1)"
+            "numbered seasons ascending, their episodes by number, then the specials (ADR-0039 §1)"
+        );
+    }
+
+    #[test]
+    fn a_seasons_episodes_are_ordered_by_number_and_the_specials_keep_their_own_order() {
+        // ADR-0039 §1: "then by episode within each season" for the numbered
+        // seasons; the specials are "in their own order" — one run whose source
+        // order is the truth, not a season to re-sort.
+        let videos = vec![
+            video_at("tt1:2:2", Some(2), Some(2)),
+            video_at("tt1:1:3", Some(1), Some(3)),
+            video_at("tt1:2:1", Some(2), Some(1)),
+            video_at("tt1:1:1", Some(1), Some(1)),
+            video_at("tt1:1:2", Some(1), Some(2)),
+            video_at("tt1:0:2", Some(0), Some(2)),
+            video_at("tt1:0:1", Some(0), Some(1)),
+        ];
+
+        assert_eq!(
+            ordered_videos(&videos)
+                .iter()
+                .map(|video| video.id.as_str())
+                .collect::<Vec<_>>(),
+            vec!["tt1:1:1", "tt1:1:2", "tt1:1:3", "tt1:2:1", "tt1:2:2", "tt1:0:2", "tt1:0:1",],
+            "E2 before E1 from the source is put right; the specials stay as they came"
         );
     }
 
