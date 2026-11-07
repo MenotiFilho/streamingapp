@@ -119,12 +119,24 @@ struct TmdbRead {
     /// identity but whose record was not read leaves the Title an Addon's.
     details: bool,
     status: Option<tmdb::SeriesStatus>,
+    /// The episode the record said comes next, where it named one.
+    next_episode: Option<tmdb::NextEpisode>,
 }
 
 /// A Title opened from TMDB's own record, and the record's word on the series.
 struct OpenedTitle {
     title: Title,
     status: Option<tmdb::SeriesStatus>,
+    next_episode: Option<tmdb::NextEpisode>,
+}
+
+/// One Title as a read produced it, with the facts the cache decides on: where
+/// it came from, what TMDB said about the series' run and what it announced.
+struct KeptTitle {
+    title: Title,
+    source: TitleSource,
+    status: Option<tmdb::SeriesStatus>,
+    next_episode: Option<tmdb::NextEpisode>,
 }
 
 impl HostView {
@@ -282,9 +294,9 @@ impl HostView {
                 }
 
                 // Absent: fetched, kept and answered as before.
-                let (title, source, status) = self.read_title(addon, title, None)?;
-                self.keep_title(&title, source, status, None, now);
-                Answer::Title(Box::new(title))
+                let read = self.read_title(addon, title, None)?;
+                self.keep_title(&read, None, now);
+                Answer::Title(Box::new(read.title))
             }
             ValidatedAction::OpenDiscoveredTitle { id, kind } => {
                 let now = self.clock.now_millis();
@@ -306,9 +318,9 @@ impl HostView {
                     return Ok(Answer::Title(Box::new(cached.title.clone())));
                 }
 
-                let (title, source, status) = self.read_discovered(*id, *kind)?;
-                self.keep_title(&title, source, status, None, now);
-                Answer::Title(Box::new(title))
+                let read = self.read_discovered(*id, *kind)?;
+                self.keep_title(&read, None, now);
+                Answer::Title(Box::new(read.title))
             }
             ValidatedAction::FindStreams { video } => {
                 // Every configured Addon that answers for it, in the order
@@ -573,33 +585,28 @@ impl HostView {
             .for_tmdb(id, kind, now)
     }
 
-    /// Keep a Title this view just read.
+    /// Keep a Title this view just read, answering whether the cache now holds
+    /// something a Snapshot would draw differently.
     ///
     /// A failed write is not a failed open: the answer is already in hand, and
     /// the cache is the part that outlives it (ADR-0038 §1).
-    fn keep_title(
-        &self,
-        title: &Title,
-        source: TitleSource,
-        status: Option<tmdb::SeriesStatus>,
-        replacing: Option<TitleKey>,
-        now: i64,
-    ) {
+    fn keep_title(&self, read: &KeptTitle, replacing: Option<TitleKey>, now: i64) -> bool {
         let protection = self.protection();
         self.titles
             .lock()
             .expect("the Title cache is not poisoned")
             .keep(
                 CachedTitle {
-                    title: title.clone(),
+                    title: read.title.clone(),
                     read_at: now,
-                    source,
-                    status,
+                    source: read.source,
+                    status: read.status,
+                    next_episode: read.next_episode,
                 },
                 replacing,
                 &protection,
                 now,
-            );
+            )
     }
 
     /// Queue the refresh a stale open owes, addressed to the client that asked.
@@ -614,7 +621,7 @@ impl HostView {
     ) {
         let mut job = Job {
             key: cached.title.key.clone(),
-            answered: cached.title.clone(),
+            answered: Some(cached.title.clone()),
             work,
             askers: Vec::new(),
         };
@@ -627,19 +634,22 @@ impl HostView {
             .enqueue(job);
     }
 
-    /// Run every background job waiting, a bounded fan-out at a time.
+    /// Run every background job waiting, a bounded fan-out at a time, and answer
+    /// how many ran and whether any of them changed a kept Title.
     ///
     /// The queue's own lock is taken to take the jobs; nothing is held while a
     /// job fetches. The fan-out is ADR-0023's bound, reused so that a server
     /// with several stale Titles waiting is read a handful at a time rather
     /// than one after another (ADR-0038 §3).
-    pub(crate) fn drain(&self, jobs: Vec<Job>) -> usize {
+    pub(crate) fn drain(&self, jobs: Vec<Job>) -> (usize, bool) {
         let count = jobs.len();
         if count == 0 {
-            return 0;
+            return (0, false);
         }
-        fan_out(&jobs, |job| self.refresh(job));
-        count
+        let changed = fan_out(&jobs, |job| self.refresh(job))
+            .into_iter()
+            .any(|moved| moved);
+        (count, changed)
     }
 
     /// Read one stale Title again, keep what came back, and answer the clients
@@ -647,26 +657,39 @@ impl HostView {
     ///
     /// A failed read — an Addon gone, TMDB down, a `429` — changes nothing: the
     /// cached copy stands, and nobody is told (ADR-0038 §2).
-    fn refresh(&self, job: &Job) {
+    fn refresh(&self, job: &Job) -> bool {
         let now = self.clock.now_millis();
-        let replacing = job.answered.key.clone();
+        let replacing = job.key.clone();
         let read = match &job.work {
-            Work::Addon { addon, asked } => self.read_title(addon, asked, Some(&job.answered)),
+            Work::Addon { addon, asked } => self.read_title(addon, asked, job.answered.as_ref()),
             Work::Discovered { id, kind } => self.read_discovered(*id, *kind),
+            Work::CatchUp { id, season, source } => {
+                self.read_caught_up(*id, *season, *source, job.answered.as_ref())
+            }
         };
-        let Ok((title, source, status)) = read else {
-            return;
+        let Ok(read) = read else {
+            return false;
         };
 
-        self.keep_title(&title, source, status, Some(replacing), now);
+        let changed = self.keep_title(&read, Some(replacing), now);
 
-        if title == job.answered {
-            return;
+        let news = job
+            .answered
+            .as_ref()
+            .is_none_or(|answered| read.title != *answered);
+        if news {
+            let answer = Answer::Revision(Box::new(read.title));
+            for asker in &job.askers {
+                asker.revise(answer.clone());
+            }
         }
-        let answer = Answer::Revision(Box::new(title));
-        for asker in &job.askers {
-            asker.revise(answer.clone());
-        }
+
+        // A Title an open asked for is that client's business: the revised
+        // Answer above is how it hears, and never a Snapshot (ADR-0005,
+        // ADR-0038 §2). A read-ahead that nobody asked for may have moved
+        // Continue watching, which is every client's business, so a change it
+        // made is what the drain publishes (#277).
+        changed && job.askers.is_empty()
     }
 
     /// Read a Title the way an open does: the Addon that supplied it, and
@@ -683,10 +706,10 @@ impl HostView {
         addon: &AddonId,
         asked: &TitleRef,
         cached: Option<&Title>,
-    ) -> Result<(Title, TitleSource, Option<tmdb::SeriesStatus>), ActionError> {
+    ) -> Result<KeptTitle, ActionError> {
         let configured = self.addons.iter().find(|held| held.id() == addon).cloned();
 
-        let (mut title, source, status) = match configured {
+        let (mut title, source, status, next_episode) = match configured {
             Some(configured) => {
                 let requested = ResourceRequest::new(META, &asked.r#type, &asked.id);
                 if !configured.manifest().answers(&requested) {
@@ -705,7 +728,7 @@ impl HostView {
                 } else {
                     TitleSource::Addon
                 };
-                (fetched, source, word.status)
+                (fetched, source, word.status, word.next_episode)
             }
             None => {
                 let id = cached.and_then(|title| match &title.key {
@@ -715,7 +738,8 @@ impl HostView {
                 let kind = id.and_then(|_| tmdb::Kind::parse(&asked.r#type));
                 match (id, kind, cached) {
                     (Some(id), Some(kind), Some(cached)) => {
-                        self.read_discovered_onto(cached, id, kind)?
+                        let read = self.read_discovered_onto(cached, id, kind)?;
+                        return Ok(read);
                     }
                     _ => {
                         return Err(ActionError::UnknownAddon {
@@ -727,7 +751,12 @@ impl HostView {
         };
 
         title.videos = meta::ordered_videos(&title.videos);
-        Ok((title, source, status))
+        Ok(KeptTitle {
+            title,
+            source,
+            status,
+            next_episode,
+        })
     }
 
     /// Read a Discovered Title: TMDB's record is the whole of it, in the one
@@ -736,11 +765,79 @@ impl HostView {
         &self,
         id: tmdb::TmdbId,
         kind: tmdb::Kind,
-    ) -> Result<(Title, TitleSource, Option<tmdb::SeriesStatus>), ActionError> {
+    ) -> Result<KeptTitle, ActionError> {
         let opened = self.open_discovered(id, kind)?;
         let mut title = opened.title;
         title.videos = meta::ordered_videos(&title.videos);
-        Ok((title, TitleSource::Tmdb, opened.status))
+        Ok(KeptTitle {
+            title,
+            source: TitleSource::Tmdb,
+            status: opened.status,
+            next_episode: opened.next_episode,
+        })
+    }
+
+    /// Read a caught-up series again from TMDB's record with one season
+    /// appended, and merge that season onto the cached copy (#277).
+    ///
+    /// The record's `next_episode_to_air` names the season when it is set; with
+    /// nothing announced, the newest season the cached list holds is read. Only
+    /// that season is asked for, because the rest are not what the hint is about
+    /// (ADR-0038 §4, §5). A season the answer did not carry leaves the cached
+    /// Videos standing, so a failed season changes nothing.
+    fn read_caught_up(
+        &self,
+        id: tmdb::TmdbId,
+        season: u32,
+        source: TitleSource,
+        cached: Option<&Title>,
+    ) -> Result<KeptTitle, ActionError> {
+        let cached = cached.ok_or_else(|| ActionError::Malformed {
+            detail: "a caught-up read needs the copy it is re-reading".to_owned(),
+        })?;
+        let key = self
+            .tmdb_credential()
+            .ok_or(ActionError::NoTmdbCredential)?;
+        let request = tmdb::TmdbRequest::DetailsWithSeasons {
+            kind: tmdb::Kind::Tv,
+            id,
+            seasons: vec![season],
+        };
+        let body = self.fetch_tmdb(&request, &key).map_err(tmdb_failure)?;
+        let details =
+            tmdb::read_details(&body, tmdb::Kind::Tv).map_err(|error| ActionError::Tmdb {
+                detail: error.to_string(),
+            })?;
+        let season_read =
+            tmdb::read_season_batch(&body, id, &[season]).map_err(|error| ActionError::Tmdb {
+                detail: error.to_string(),
+            })?;
+
+        let mut title = cached.clone();
+        title.key = TitleKey::Tmdb { id: id.0 };
+        let status = details.status;
+        let next_episode = details.next_episode;
+        details.with_videos(None).onto(&mut title);
+        if season_read.seasons > 0 {
+            title.videos.retain(|video| video.season != Some(season));
+            title.videos.extend(season_read.videos);
+        }
+        title.videos = meta::ordered_videos(&title.videos);
+
+        // The record answered, so the copy is at least partly TMDB's now, and
+        // TMDB's terms apply to it even where the cached copy was an Addon's.
+        let source = if source.holds_tmdb() {
+            source
+        } else {
+            TitleSource::Both
+        };
+
+        Ok(KeptTitle {
+            title,
+            source,
+            status,
+            next_episode,
+        })
     }
 
     /// Read a Title again from TMDB alone, keeping the identity the client
@@ -751,19 +848,25 @@ impl HostView {
         cached: &Title,
         id: tmdb::TmdbId,
         kind: tmdb::Kind,
-    ) -> Result<(Title, TitleSource, Option<tmdb::SeriesStatus>), ActionError> {
+    ) -> Result<KeptTitle, ActionError> {
         let key = self
             .tmdb_credential()
             .ok_or(ActionError::NoTmdbCredential)?;
         let details = self.tmdb_details(kind, id, &key)?;
         let status = details.status;
+        let next_episode = details.next_episode;
         let videos = self.tmdb_videos(&details, id, &key);
 
         let mut title = cached.clone();
         title.key = TitleKey::Tmdb { id: id.0 };
         details.with_videos(videos).onto(&mut title);
 
-        Ok((title, TitleSource::Tmdb, status))
+        Ok(KeptTitle {
+            title,
+            source: TitleSource::Tmdb,
+            status,
+            next_episode,
+        })
     }
 
     /// The Titles behind Watch progress and in the Library, frozen with this
@@ -834,6 +937,7 @@ impl HostView {
             .ok_or(ActionError::NoTmdbCredential)?;
         let details = self.tmdb_details(kind, id, &key)?;
         let status = details.status;
+        let next_episode = details.next_episode;
         let videos = self.tmdb_videos(&details, id, &key);
 
         // The record is the whole of it: no Addon answered, and every field
@@ -856,7 +960,11 @@ impl HostView {
         };
         details.with_videos(videos).onto(&mut title);
 
-        Ok(OpenedTitle { title, status })
+        Ok(OpenedTitle {
+            title,
+            status,
+            next_episode,
+        })
     }
 
     /// One record's details, read whole — or why TMDB could not answer at all.
@@ -1019,12 +1127,14 @@ impl HostView {
         match tmdb::read_details_with_seasons(&record, kind, id) {
             Ok(details) => {
                 let status = details.status;
+                let next_episode = details.next_episode;
                 let videos = self.tmdb_videos(&details, id, &key);
                 details.with_videos(videos).onto(title);
                 title.key = meta::TitleKey::Tmdb { id: id.0 };
                 TmdbRead {
                     details: true,
                     status,
+                    next_episode,
                 }
             }
             // A details answer that was not one: the id stood — the find said

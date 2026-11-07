@@ -18,6 +18,7 @@ use crate::addon::AddonId;
 use crate::meta::{Title, TitleKey};
 use crate::request::TitleRef;
 use crate::response::Answer;
+use crate::title_cache::TitleSource;
 use crate::tmdb::{Kind, TmdbId};
 
 /// Where a revised Answer goes: the client whose open queued the refresh, and
@@ -69,15 +70,26 @@ pub(crate) enum Work {
     Addon { addon: AddonId, asked: TitleRef },
     /// A Discovered Title: TMDB's record is the whole of it.
     Discovered { id: TmdbId, kind: Kind },
+    /// A caught-up series: TMDB's record with one season appended, because the
+    /// record's hint says which season is worth reading and the rest are not
+    /// (ADR-0038 §5, #277). `source` is the cached copy's own source, kept
+    /// because the record describes that copy rather than replacing it whole.
+    CatchUp {
+        id: TmdbId,
+        season: u32,
+        source: TitleSource,
+    },
 }
 
 /// One Title to read again, the copy it was answered with, and who asked.
 pub(crate) struct Job {
     /// The Title as the cache keys it: what a duplicate job collapses on.
     pub(crate) key: TitleKey,
-    /// The Title the client was answered with. A refresh equal to this one is
-    /// no news and answers nobody.
-    pub(crate) answered: Title,
+    /// The Title the client was answered with, where a client was answered with
+    /// one. A refresh equal to this one is no news and answers nobody; a
+    /// read-ahead queued for an uncached Title has no copy and no answer to
+    /// judge against.
+    pub(crate) answered: Option<Title>,
     pub(crate) work: Work,
     /// The clients whose opens queued this job, owed a revised Answer if the
     /// refresh differs. Empty for a job no client asked for (a read-ahead).
@@ -92,10 +104,19 @@ pub(crate) struct BackgroundQueue {
 
 impl BackgroundQueue {
     /// Queue one job, collapsing it into the job already waiting for the same
-    /// Title: one stale Title is one refresh however many clients open it.
+    /// Title: one stale Title is one refresh however many clients open it, and
+    /// one Title a person rests on is one read-ahead however many hints it
+    /// sends.
     pub(crate) fn enqueue(&mut self, mut job: Job) {
         if let Some(held) = self.jobs.iter_mut().find(|held| held.key == job.key) {
             held.askers.append(&mut job.askers);
+            // The copy a client was answered with is what a revision is judged
+            // against. A read-ahead queued before that open has none, so the
+            // later job's copy replaces the absence; an earlier answered copy
+            // is never replaced by a later hint's.
+            if held.answered.is_none() {
+                held.answered = job.answered;
+            }
             return;
         }
         self.jobs.push(job);
@@ -115,7 +136,7 @@ mod tests {
     fn job(key: TitleKey, asker: Arc<dyn RevisionSink>) -> Job {
         Job {
             key,
-            answered: Title {
+            answered: Some(Title {
                 addon: None,
                 id: "tmdb:1".to_owned(),
                 key: TitleKey::Tmdb { id: 1 },
@@ -130,7 +151,7 @@ mod tests {
                 imdb_rating: None,
                 genres: Vec::new(),
                 videos: Vec::new(),
-            },
+            }),
             work: Work::Discovered {
                 id: TmdbId(1),
                 kind: Kind::Movie,
