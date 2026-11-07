@@ -5,8 +5,8 @@ import type {
   Action,
   AddonManifest,
   CatalogRow,
+  ContinueEntry,
   MetaPreview,
-  ResumeEntry,
   Snapshot,
 } from "../../core/wire";
 import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContextValue } from "../context";
@@ -65,6 +65,7 @@ const BASE_SNAPSHOT: Snapshot = {
   addons: [CINEMETA],
   featuredCatalog: { addon: "cinemeta", catalog: { type: "movie", id: "top" } },
   protection: { backend: "file", tmdbHeld: false, stremioHeld: false },
+  continueWatching: [],
   watchProgress: [],
   devices: [],
   pairingCode: "----",
@@ -128,7 +129,7 @@ const completePage = vi.fn(async (action: Action) => {
   return answer([catalogRow(FOUR, 0)]);
 });
 
-function resumeEntry(overrides: Partial<ResumeEntry> = {}): ResumeEntry {
+function resumeEntry(overrides: Partial<ContinueEntry> = {}): ContinueEntry {
   return {
     video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },
     title: {
@@ -616,7 +617,7 @@ describe("Home's feature presentation", () => {
 describe("Home's Continue watching", () => {
   it("draws the kit card and resumes the Video the Host recorded", async () => {
     const { take } = renderHome({
-      snapshot: { ...BASE_SNAPSHOT, watchProgress: [resumeEntry()] },
+      snapshot: { ...BASE_SNAPSHOT, continueWatching: [resumeEntry()] },
     });
     await flush();
 
@@ -634,7 +635,7 @@ describe("Home's Continue watching", () => {
     const { take } = renderHome({
       snapshot: {
         ...BASE_SNAPSHOT,
-        watchProgress: [
+        continueWatching: [
           resumeEntry({ unplayable: { reason: "addon_removed", addon: "cinemeta" } }),
         ],
       },
@@ -647,9 +648,43 @@ describe("Home's Continue watching", () => {
     expect(take).not.toHaveBeenCalled();
   });
 
+  it("draws one card per Continue watching entry, not one per Video's progress", async () => {
+    const card = resumeEntry();
+    renderHome({
+      snapshot: {
+        ...BASE_SNAPSHOT,
+        continueWatching: [card],
+        watchProgress: [
+          card,
+          resumeEntry({
+            video: { ...card.video, id: "tt1:1:2", name: "Second", episode: 2 },
+            position: 120,
+          }),
+        ],
+      },
+    });
+    await flush();
+
+    expect(screen.getByTestId("resume-tt1:1:1")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("resume-tt1:1:2"),
+      "a per-Video Watch progress entry is not a card of its own",
+    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("resume-tt1:1:2-progress")).not.toBeInTheDocument();
+  });
+
+  it("draws no Continue watching row from per-Video Watch progress alone", async () => {
+    renderHome({
+      snapshot: { ...BASE_SNAPSHOT, continueWatching: [], watchProgress: [resumeEntry()] },
+    });
+    await flush();
+
+    expect(screen.queryByTestId("home-continue")).not.toBeInTheDocument();
+  });
+
   it("opens the whole row and resumes the Video from a card there", async () => {
     const { pushed, take, value } = renderHome({
-      snapshot: { ...BASE_SNAPSHOT, watchProgress: [resumeEntry()] },
+      snapshot: { ...BASE_SNAPSHOT, continueWatching: [resumeEntry()] },
     });
     await flush();
 

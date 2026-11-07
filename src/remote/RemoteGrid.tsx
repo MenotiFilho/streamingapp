@@ -8,7 +8,7 @@ import { cardName, cardNote, progressOf, resumable } from "../core/library";
 import type { NewLevel } from "../core/navigation";
 import type { Session, SessionState } from "../core/session";
 import { useGridEnd } from "../core/react/useGridEnd";
-import type { MetaPreview, ResumeEntry } from "../core/wire";
+import type { ContinueEntry, MetaPreview } from "../core/wire";
 import { Button } from "../kit/Button";
 import { ContinueWatchingCard } from "../kit/ContinueWatchingCard";
 import { PosterCard } from "../kit/PosterCard";
@@ -84,7 +84,7 @@ export function RemoteGrid({ grid, session, state, push, pop }: RemoteGridProps)
     push(titleLevelOf(addon, meta));
   };
 
-  const openEntry = (entry: ResumeEntry) => {
+  const openEntry = (entry: ContinueEntry) => {
     push(
       titleLevel({
         addon: entry.title.addon,

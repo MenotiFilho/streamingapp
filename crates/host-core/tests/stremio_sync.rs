@@ -297,6 +297,40 @@ fn on_open_remote_progress_newer_than_the_local_record_is_merged_in() {
 }
 
 #[test]
+fn synced_watch_progress_groups_into_continue_watching_like_local_progress() {
+    // The Host finished 1:1; the account played on to 1:2 afterwards. The pull
+    // makes 1:2 the Title's card exactly as a local play would (#273).
+    let mut f = fixture(
+        account().holding(vec![remote("tt0903747:1:2", 900_000, &[1])]),
+        OLDER,
+    );
+    play(&mut f, "tt0903747:1:1");
+    watching(&mut f, 2_810.0, OLDER + 10);
+    f.host
+        .dispatch(action(&json!({ "type": "stop_playback" })))
+        .expect("stopping");
+
+    sign_in(&mut f).expect("signing in pulls");
+
+    let snapshot = f.host.snapshot();
+    assert_eq!(
+        snapshot.continue_watching.len(),
+        1,
+        "synced progress is grouped by Title like local progress: {:?}",
+        snapshot.continue_watching
+    );
+    let card = &snapshot.continue_watching[0];
+    assert_eq!(card.video.id, "tt0903747:1:2");
+    assert_eq!(card.position, Some(900.0));
+    assert_eq!(card.duration, Some(2_820.0));
+    assert!(
+        snapshot.watch_progress.len() >= 2,
+        "both Videos keep their Watch progress: {:?}",
+        snapshot.watch_progress
+    );
+}
+
+#[test]
 fn on_open_remote_progress_older_than_the_local_record_is_not_taken() {
     let mut f = fixture(
         account().holding(vec![remote("tt0903747:1:2", 900_000, &[])]),

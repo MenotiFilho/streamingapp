@@ -62,6 +62,7 @@ const NOTHING_SAID: Snapshot = {
   addons: [],
   featuredCatalog: null,
   protection: { backend: "keyring", tmdbHeld: false, stremioHeld: false },
+  continueWatching: [],
   watchProgress: [],
   devices: [],
   pairingCode: "4K7Q2M",

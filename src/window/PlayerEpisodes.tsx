@@ -39,8 +39,8 @@ export function OsdEpisodesMenu({ playback }: { playback: PlaybackSnapshot }) {
   const { snapshot, ask, push, remove, pop } = useShell();
   const [lookup, setLookup] = useState<Lookup>({ kind: "waiting" });
   // Which season a person chose. `undefined` has not chosen one, so the first
-  // season the Addon listed is the one drawn; `null` is a real season (the
-  // Videos the Addon placed in none).
+  // season the Host listed is the one drawn (the numbered seasons come first,
+  // ADR-0039); `null` is a real season (the Videos the Addon placed in none).
   const [chosen, setChosen] = useState<number | null | undefined>(undefined);
 
   const nowPlaying = playback.nowPlaying;

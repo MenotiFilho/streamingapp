@@ -51,9 +51,16 @@ export type Snapshot = {
   featuredCatalog: FeaturedCatalog | null;
   protection: Protection;
   /**
-   * The library: one entry per Video the Host has Watch progress in, most
-   * recently played first — the Continue watching row reads it (#29). An entry
-   * whose Addon is gone stays listed, marked unplayable, rather than vanishing.
+   * Continue watching: one entry per Title the Host has Watch progress in, the
+   * Video that Title played last, most recently played first — the row every
+   * client draws (#273). An entry whose Addon is gone stays listed, marked
+   * unplayable, rather than vanishing.
+   */
+  continueWatching: ContinueEntry[];
+  /**
+   * Watch progress, one entry per Video: where each Video was left. The playback
+   * view and the episode lookup read it; the Continue watching row is drawn from
+   * `continueWatching` above, not from this list (#273).
    */
   watchProgress: ResumeEntry[];
   /**
@@ -501,9 +508,26 @@ export type UnplayableEntry = {
 /**
  * One Video with Watch progress, as every client is told it (#29). Mirrors
  * `ResumeEntry` in `host-core`: the Video, enough of its Title to draw a card,
- * where it was left, and whether it can be played now.
+ * where it was left, and whether it can be played now. One entry per Video; the
+ * Continue watching row is `ContinueEntry` below.
  */
 export type ResumeEntry = {
+  video: Video;
+  title: TitleStub;
+  position: number | null;
+  duration: number | null;
+  watched: boolean;
+  unplayable: UnplayableEntry | null;
+};
+
+/**
+ * One Title on Continue watching, as every client is told it (#273). Mirrors
+ * `ContinueEntry` in `host-core`: one entry per Title, carrying the Video it
+ * played last — the card — where that Video was left, and whether it can be
+ * played now. The clients draw this list and never derive cards from per-Video
+ * Watch progress themselves.
+ */
+export type ContinueEntry = {
   video: Video;
   title: TitleStub;
   position: number | null;

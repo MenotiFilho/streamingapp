@@ -378,6 +378,28 @@ describe("a film's Play", () => {
   });
 });
 
+describe("a series' season chips", () => {
+  test("follow the Host's order, so the Specials chip is last", async () => {
+    const withSpecials: Title = {
+      ...SERIES,
+      videos: [
+        { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },
+        { id: "tt1:2:1", name: "Seven Thirty-Seven", season: 2, episode: 1, thumbnail: null, airDate: null },
+        { id: "tt1:0:1", name: "Special", season: 0, episode: 1, thumbnail: null, airDate: null },
+      ],
+    };
+    mountStack(
+      answering(withSpecials),
+      titleLevel({ addon: "cinemeta", id: "tt1", type: "series", name: "One" }),
+    );
+    await screen.findByTestId("remote-title-page");
+
+    expect(
+      screen.getAllByTestId(/^season-/).map((chip) => chip.dataset.testid),
+    ).toEqual(["season-1", "season-2", "season-0"]);
+  });
+});
+
 describe("a series' Play", () => {
   test("opens Streams for the chosen episode, starting with the first of the first season", async () => {
     const { host } = mountStack(answering(SERIES), titleLevel({ addon: "cinemeta", id: "tt1", type: "series", name: "One" }));

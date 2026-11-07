@@ -1,9 +1,9 @@
 import { expect, test } from "vitest";
 
 import { cardName, cardNote, progressOf, resumable } from "./library";
-import type { ResumeEntry } from "./wire";
+import type { ContinueEntry } from "./wire";
 
-function entry(overrides: Partial<ResumeEntry> = {}): ResumeEntry {
+function entry(overrides: Partial<ContinueEntry> = {}): ContinueEntry {
   return {
     video: { id: "tt0133093", name: null, season: null, episode: null, thumbnail: null, airDate: null },
     title: {

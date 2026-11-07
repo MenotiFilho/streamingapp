@@ -49,7 +49,7 @@ import { isTypingTarget, keyIntent } from "../core/input";
 import { panel } from "../core/react/motion";
 import { useReducedMotion } from "../core/react/useReducedMotion";
 import type { Session, SessionState } from "../core/session";
-import type { MetaPreview, ResumeEntry } from "../core/wire";
+import type { ContinueEntry, MetaPreview } from "../core/wire";
 import { Button } from "../kit/Button";
 import { ContinueWatchingCard } from "../kit/ContinueWatchingCard";
 import { Icon } from "../kit/icons";
@@ -79,10 +79,10 @@ export type HomeProps = {
  *
  * The same decisions the window's Home takes, drawn for a phone: the Featured
  * catalog's first slides as one feature that holds for 15 seconds, Continue
- * watching from the Host's Watch progress, and one rail per declared Catalog in
- * the Addons' order. The rows and their pages are the Session's `HomeStore`, so
- * a Catalog change keeps every surviving row and a return to the destination
- * keeps what was read — nothing here wipes the page.
+ * watching from the Host's Continue watching list, and one rail per declared
+ * Catalog in the Addons' order. The rows and their pages are the Session's
+ * `HomeStore`, so a Catalog change keeps every surviving row and a return to the
+ * destination keeps what was read — nothing here wipes the page.
  *
  * A press opens a Title and nothing more: B2 has no Title screen, so a card
  * pushes the level its identity names and a placeholder says whose drawing it
@@ -132,7 +132,7 @@ export function Home({ session, state, push, choose }: HomeProps) {
     open({ addon, id: meta.id, type: meta.type, name: meta.name });
   };
 
-  const openEntry = (entry: ResumeEntry) => {
+  const openEntry = (entry: ContinueEntry) => {
     open({
       addon: entry.title.addon,
       id: entry.title.id,
@@ -168,7 +168,7 @@ export function Home({ session, state, push, choose }: HomeProps) {
         return meta ? [{ slide, meta }] : [];
       })
     : [];
-  const continueWatching = snapshot?.watchProgress ?? [];
+  const continueWatching = snapshot?.continueWatching ?? [];
   const empty = homeEmptyState(snapshot, catalogs.length);
   const hasContinue = continueWatching.length > 0;
 

@@ -88,6 +88,7 @@ const SNAPSHOT: Snapshot = {
   addons: [CINEMETA, TORRENTIO, AIOSTREAMS],
   featuredCatalog: null,
   protection: { backend: "file", tmdbHeld: false, stremioHeld: false },
+  continueWatching: [],
   watchProgress: [],
   devices: [],
   pairingCode: "----",
@@ -299,6 +300,50 @@ describe("the repertory Title page", () => {
 
     expect(pushed).toHaveLength(1);
     expect(pushed[0]?.name).toBe("Streams");
+  });
+
+  it("draws the season chips in the Host's order, so the Specials chip is last", () => {
+    const { value } = harness();
+    const ordered: Title = {
+      ...SERIES,
+      videos: [
+        {
+          id: "tt0903747:1:1",
+          name: "Pilot",
+          season: 1,
+          episode: 1,
+          thumbnail: null,
+          airDate: null,
+        },
+        {
+          id: "tt0903747:2:1",
+          name: "Seven Thirty-Seven",
+          season: 2,
+          episode: 1,
+          thumbnail: null,
+          airDate: null,
+        },
+        {
+          id: "tt0903747:0:1",
+          name: "Good Cop Bad Cop",
+          season: 0,
+          episode: 1,
+          thumbnail: null,
+          airDate: null,
+        },
+      ],
+    };
+    render(withShell(value, <RepertoryTitleScreen title={ordered} />));
+
+    const seasons = screen.getByRole("region", { name: "Seasons" });
+    const chips = within(seasons)
+      .getAllByRole("button")
+      .filter((button) => button.dataset.testid?.startsWith("season-"));
+    expect(chips.map((chip) => chip.dataset.testid)).toEqual([
+      "season-1",
+      "season-2",
+      "season-0",
+    ]);
   });
 
   it("draws the season chips as a rail whose arrows page them", () => {

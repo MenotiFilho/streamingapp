@@ -29,6 +29,7 @@ use crate::stream::Stream;
 use crate::stremio::StremioApi;
 use crate::subtitles::MAX_FALLBACK_SUBTITLES;
 use crate::sync::{merge, Merged, RemoteItem};
+use crate::title_cache::{TitleCache, TitleProbe, TitleProtection, MAX_CACHED_TITLES};
 use crate::tmdb;
 use crate::view::{HostView, HostViewShared};
 
@@ -95,6 +96,10 @@ pub struct Host {
     /// The raw account Library documents, shared with every view as a memo.
     /// Never state, never a Snapshot; cleared when the account changes.
     library_cache: Arc<Mutex<LibraryCache>>,
+    /// The Titles the Host has read, kept in memory and written through the
+    /// store (ADR-0038). Shared with every view: a question reads it before it
+    /// fetches, and keeps what it fetches.
+    titles: Arc<Mutex<TitleCache>>,
 }
 
 impl Host {
@@ -121,6 +126,22 @@ impl Host {
         // the Host opens knowing no key is held, and finds out when one is
         // asked for.
         let held = |kind| matches!(secrets.read(kind), Ok(Some(_)));
+        let watch = store.read_watch_progress()?;
+        // The Titles the last run kept, loaded before any question can ask: the
+        // Titles behind Watch progress are what the row and Up next are drawn
+        // from, and they must open on a Host that started with no network
+        // (ADR-0038 §1). Loading trims TMDB copies past the terms ceiling and
+        // the bound, and never evicts one behind Watch progress.
+        let protected = watch
+            .iter()
+            .map(|progress| TitleProbe::from_stub(&progress.title))
+            .collect();
+        let titles = Arc::new(Mutex::new(TitleCache::load(
+            store.clone(),
+            MAX_CACHED_TITLES,
+            clock.now_millis(),
+            &TitleProtection::holding(protected),
+        )?));
         let state = State::holding(
             store.read_preferences()?,
             store.read_addons()?,
@@ -129,7 +150,7 @@ impl Host {
                 tmdb_held: held(CredentialKind::TmdbKey),
                 stremio_held: held(CredentialKind::StremioAuthKey),
             },
-            store.read_watch_progress()?,
+            watch,
             store.read_devices()?,
             // A fresh code every run: a code is worth one pairing, and a Host
             // that was restarted is a Host whose screen nobody was reading.
@@ -173,6 +194,7 @@ impl Host {
             cache: Arc::new(Mutex::new(CatalogCache::default())),
             stremio: None,
             library_cache: Arc::new(Mutex::new(LibraryCache::default())),
+            titles,
         })
     }
 
@@ -256,6 +278,17 @@ impl Host {
                 cache: self.cache.clone(),
                 library_cache: self.library_cache.clone(),
                 stremio: self.stremio.clone(),
+                titles: self.titles.clone(),
+                clock: self.clock.clone(),
+                // The Titles behind Watch progress, frozen with the rest of
+                // the view: a cache write from this question must not evict one
+                // of them (ADR-0038 §1).
+                protected: self
+                    .state
+                    .watch()
+                    .iter()
+                    .map(|progress| TitleProbe::from_stub(&progress.title))
+                    .collect(),
             },
         )
     }
@@ -1129,16 +1162,19 @@ impl Host {
     /// own shape, never of the Title's `type`. Where the Video is an Addon's,
     /// the Host asks the Addons that answer `meta` for its Title, in the order
     /// they were configured, for the list that still holds the Video playing,
-    /// and the Video standing beside it in that Addon's own order is the one
+    /// and the Video standing beside it in the Host's series order is the one
     /// that plays; where the Video is TMDB's — a TMDB-first series' episode —
     /// the list is TMDB's own, the one the client is looking at, whose
-    /// numbering the Addons may not share (ADR-0020's known hazard). Either way
-    /// the neighbour plays from the Addon already playing, in the spelling that
-    /// Addon declares, so continuity is kept: the same `bingeGroup` where that
-    /// Addon offers one, and otherwise its first playable candidate. Nothing
-    /// here invents an id by arithmetic and nothing re-ranks the candidates:
-    /// the neighbour is the source's own, and continuing the release is
-    /// continuity rather than a score (ADR-0012, ADR-0014).
+    /// numbering the Addons may not share (ADR-0020's known hazard). That order
+    /// is numbered seasons ascending, episodes within each season, then the
+    /// specials, and no step crosses between the numbered seasons and the
+    /// specials (ADR-0039). Either way the neighbour plays from the Addon
+    /// already playing, in the spelling that Addon declares, so continuity is
+    /// kept: the same `bingeGroup` where that Addon offers one, and otherwise
+    /// its first playable candidate. Nothing here invents an id by arithmetic
+    /// and nothing re-ranks the candidates: the neighbour is the source's own,
+    /// and continuing the release is continuity rather than a score (ADR-0012,
+    /// ADR-0014).
     fn adjacent_episode(&self, step: EpisodeStep) -> Result<ChosenStream, ActionError> {
         let Some(playing) = self.state.playback().chosen() else {
             // Behind `playing(Control::…)` this cannot happen, and it is a
@@ -1178,15 +1214,14 @@ impl Host {
                     let Ok(title) = view.fetch_title(addon, &asked, &requested_meta) else {
                         continue;
                     };
-                    let Some(index) = title
-                        .videos
-                        .iter()
-                        .position(|video| video.id == now.video.id)
-                    else {
+                    // Only the list that still holds the Video playing is known
+                    // to put the right one beside it; a list that does not hold
+                    // it has nothing to say about it.
+                    if !title.videos.iter().any(|video| video.id == now.video.id) {
                         continue;
-                    };
+                    }
                     neighbour_id = step
-                        .neighbour(&title.videos, index)
+                        .neighbour(&title.videos, &now.video.id)
                         .map(|video| video.id.clone());
                     break;
                 }
@@ -1238,9 +1273,10 @@ impl Host {
             })
     }
 
-    /// The Video standing beside what is playing in TMDB's own episode list, in
-    /// the direction `step` names — or nothing where TMDB lists none, the Video
-    /// is a film, or this Host cannot read the list (ADR-0020).
+    /// The Video standing beside what is playing in TMDB's own episodes, in the
+    /// direction `step` names — or nothing where TMDB lists none, the Video is
+    /// a film, this Host cannot read the list, or the step would cross into the
+    /// specials (ADR-0020, ADR-0039 §2).
     fn tmdb_adjacent_episode(&self, step: EpisodeStep, video: tmdb::TmdbVideo) -> Option<String> {
         let at = video.at?;
         let view = self.view();
@@ -1248,10 +1284,8 @@ impl Host {
         let details = view.tmdb_details(video.kind, video.id, &key).ok()?;
         let videos = view.tmdb_videos(&details, video.id, &key)?;
 
-        let index = videos
-            .iter()
-            .position(|held| (held.season, held.episode) == (Some(at.0), Some(at.1)))?;
-        step.neighbour(&videos, index).map(|video| video.id.clone())
+        let id = tmdb::video_spelling(video.id, Some(at));
+        step.neighbour(&videos, &id).map(|video| video.id.clone())
     }
 
     /// The Stream a resume plays and where in it to start, or why the Host will
@@ -1369,9 +1403,10 @@ fn playable(video: &VideoRef, addon: &AddonId, stream: &Stream) -> Option<Chosen
 /// The one reading of the protocol's episode-id shape is [`meta::episode_of`],
 /// which a Continue watching card goes through too, so the two cannot disagree
 /// about what an episode is. The season and the episode numbers are deliberately
-/// not returned: the neighbouring Video comes from the Addon's own list — the
-/// path this is asked for, a TMDB-keyed Video stepping through TMDB's list
-/// instead — and inventing an id by arithmetic is exactly what ADR-0014 forbids.
+/// not returned: the neighbouring Video comes from the source's own list, walked
+/// in the Host's series order — the path this is asked for, a TMDB-keyed Video
+/// stepping through TMDB's list instead — and inventing an id by arithmetic is
+/// exactly what ADR-0014 forbids.
 fn episode_title(step: EpisodeStep, video: &VideoRef) -> Result<String, ActionError> {
     meta::episode_of(&video.id)
         .map(|(title, _, _)| title.to_owned())
@@ -1383,11 +1418,11 @@ fn episode_title(step: EpisodeStep, video: &VideoRef) -> Result<String, ActionEr
 }
 
 /// Which way a step from the Video playing goes: to the one after it in its
-/// Title's order, or the one before (ADR-0014, ADR-0021).
+/// Title's order, or the one before (ADR-0014, ADR-0021, ADR-0039).
 ///
 /// The two directions are one rule read the other way, so the refusal they name
-/// and the Video they take from the Addon's list are decided here once rather
-/// than copied per direction.
+/// and the Video they take from the Host's series order are decided here once
+/// rather than copied per direction.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EpisodeStep {
     Next,
@@ -1395,13 +1430,13 @@ enum EpisodeStep {
 }
 
 impl EpisodeStep {
-    /// The Video standing beside `index` in the Addon's own whole-list order,
-    /// in this direction: the next one after it, or the one before — `None` at
-    /// either end, which is how "the list begins here" refuses the step.
-    fn neighbour(self, videos: &[Video], index: usize) -> Option<&Video> {
+    /// The Video standing beside `id` in the Host's series order, in this
+    /// direction — `None` at either end of the run, and never across the line
+    /// between the numbered seasons and the specials (ADR-0039 §2).
+    fn neighbour<'a>(self, videos: &'a [Video], id: &str) -> Option<&'a Video> {
         match self {
-            Self::Next => videos.get(index + 1),
-            Self::Previous => index.checked_sub(1).and_then(|before| videos.get(before)),
+            Self::Next => meta::next_video(videos, id),
+            Self::Previous => meta::previous_video(videos, id),
         }
     }
 

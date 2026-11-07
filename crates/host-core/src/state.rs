@@ -32,10 +32,10 @@ pub(crate) struct State {
     /// playback does not survive a restart (#29's Watch progress is the part
     /// that does).
     playback: PlaybackSession,
-    /// The Continue watching row's entries: one per Video the Host has Watch
-    /// progress in, most recently written first. Loaded from the store at
-    /// startup, so a Host that was killed mid-Stream comes back knowing where it
-    /// was.
+    /// Watch progress, one entry per Video, most recently written first. Loaded
+    /// from the store at startup, so a Host that was killed mid-Stream comes back
+    /// knowing where it was. Continue watching is built from this list, one card
+    /// per Title (#273).
     watch: Vec<WatchProgress>,
     /// The devices the Host has paired, in the order they paired. The tokens
     /// themselves are not here — a [`Device`] holds a digest — so a Snapshot can

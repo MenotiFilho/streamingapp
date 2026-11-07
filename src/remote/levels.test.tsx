@@ -13,9 +13,9 @@ import type {
   AddonCatalog,
   AddonManifest,
   CatalogRow,
+  ContinueEntry,
   MetaPreview,
   Response,
-  ResumeEntry,
   Snapshot,
   Title,
   Video,
@@ -46,9 +46,8 @@ import { settingsLevel } from "./settingsScreen";
  * Addon did (#207).
  */
 
-const RESUME: ResumeEntry = {
-  video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },
-  title: {
+const RESUME: ContinueEntry = {
+  video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },  title: {
     addon: "cinemeta",
     id: "tt1",
     type: "series",
@@ -62,7 +61,7 @@ const RESUME: ResumeEntry = {
   unplayable: null,
 };
 
-const WITH_PROGRESS: Snapshot = { ...NOTHING, watchProgress: [RESUME] };
+const WITH_PROGRESS: Snapshot = { ...NOTHING, continueWatching: [RESUME] };
 
 describe("the Remote's Title level", () => {
   test("a press carries the card's identity in the stack's own shape", () => {
