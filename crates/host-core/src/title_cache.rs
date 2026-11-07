@@ -262,6 +262,11 @@ pub(crate) struct TitleCache {
     store: Arc<dyn Store>,
     bound: usize,
     entries: Vec<CachedTitle>,
+    /// The Titles the account's Library held when it was last read. The Library
+    /// is read after the cache is loaded, so the cache keeps their probes itself
+    /// and every later trim protects them, whichever view does the write
+    /// (ADR-0038 §1).
+    library: Vec<TitleProbe>,
     /// Whether the bound is waiting for the Library to be read.
     ///
     /// The cache is loaded before the account's Library is, and a Title in the
@@ -280,6 +285,7 @@ impl TitleCache {
             store,
             bound,
             entries: Vec::new(),
+            library: Vec::new(),
             deferred: true,
         };
         for cached in cache.store.read_titles()? {
@@ -290,6 +296,12 @@ impl TitleCache {
             cache.put(cached);
         }
         Ok(cache)
+    }
+
+    /// Keep the Titles a Library read named from eviction, whichever view does
+    /// the next write.
+    pub(crate) fn protect_library(&mut self, probes: Vec<TitleProbe>) {
+        self.library = probes;
     }
 
     /// Apply the bound now that the Titles the Library holds are known.
@@ -418,7 +430,10 @@ impl TitleCache {
             let oldest = self
                 .entries
                 .iter()
-                .filter(|cached| !protection.protects(cached))
+                .filter(|cached| {
+                    !protection.protects(cached)
+                        && !self.library.iter().any(|probe| cached.names(probe))
+                })
                 .min_by(|one, other| {
                     one.read_at
                         .cmp(&other.read_at)
@@ -682,8 +697,8 @@ mod tests {
             "the bound is not applied before the Library is read"
         );
 
-        let protection = TitleProtection::holding(vec![TitleProbe::new(None, "series", "tmdb:1")]);
-        cache.settle(0, &protection);
+        cache.protect_library(vec![TitleProbe::new(None, "series", "tmdb:1")]);
+        cache.settle(0, &unprotected());
 
         assert!(
             cache

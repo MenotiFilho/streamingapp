@@ -70,10 +70,6 @@ pub(crate) struct HostViewShared {
     /// evicted (ADR-0038 §1), and a cache write that moves one of their cards
     /// is a Snapshot even though a question made it (#274, #277).
     pub(crate) watch: Vec<WatchProgress>,
-    /// The Titles the account's Library held when it was last read. The
-    /// Library is read after the cache is loaded, so these probes are how a
-    /// later write keeps its Titles (ADR-0038 §1).
-    pub(crate) library: Vec<TitleProbe>,
 }
 
 pub struct HostView {
@@ -120,9 +116,6 @@ pub struct HostView {
     /// cache write that moves one of their cards publishes a Snapshot
     /// (ADR-0038 §1, #274, #277).
     watch: Vec<WatchProgress>,
-    /// The Titles the account's Library held when it was last read, frozen with
-    /// the rest of the view (ADR-0038 §1).
-    library: Vec<TitleProbe>,
     /// Whether keeping a Title in this view's one question moved the Continue
     /// watching row. Set by [`HostView::keep_title`] and read once after the
     /// question resolves, because the question is the only thing that knows
@@ -203,7 +196,6 @@ impl HostView {
             background: shared.background,
             clock: shared.clock,
             watch: shared.watch,
-            library: shared.library,
             moved: AtomicBool::new(false),
         }
     }
@@ -1043,7 +1035,6 @@ impl HostView {
             .watch
             .iter()
             .map(|progress| TitleProbe::from_stub(&progress.title))
-            .chain(self.library.iter().cloned())
             .chain(
                 library
                     .into_iter()

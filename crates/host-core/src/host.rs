@@ -109,10 +109,6 @@ pub struct Host {
     /// store (ADR-0038). Shared with every view: a question reads it before it
     /// fetches, and keeps what it fetches.
     titles: Arc<Mutex<TitleCache>>,
-    /// The Titles the account's Library held when it was last read, as probes a
-    /// cache write must not evict. The Library is read after the cache is
-    /// loaded, so this is what lets the startup trim protect it (ADR-0038 §1).
-    library_probes: Vec<TitleProbe>,
     /// The work waiting to run outside the change lock: a stale Title's
     /// refresh, and a read-ahead of a Title the row or the Library holds.
     /// Shared with every view, because a stale open is resolved by one and
@@ -246,7 +242,6 @@ impl Host {
             cache: Arc::new(Mutex::new(CatalogCache::default())),
             stremio: None,
             library_cache: Arc::new(Mutex::new(LibraryCache::default())),
-            library_probes: Vec::new(),
             titles,
             background: Arc::new(Mutex::new(BackgroundQueue::default())),
             read_ahead_scanned_at: None,
@@ -350,10 +345,6 @@ impl Host {
                 // write that moves a card publishes a Snapshot (ADR-0038 §1,
                 // #274, #277).
                 watch: self.state.watch().to_vec(),
-                // The Library's Titles, as the last read of it named them: a
-                // cache write from this question must not evict one of them
-                // either (ADR-0038 §1).
-                library: self.library_probes.clone(),
             },
         )
     }
@@ -760,7 +751,10 @@ impl Host {
         if signing_out {
             // The signed-out account's Library is not this Host's to protect:
             // its Titles compete for the bound like any other.
-            self.library_probes.clear();
+            self.titles
+                .lock()
+                .expect("the Title cache is not poisoned")
+                .protect_library(Vec::new());
         }
 
         // The account, last, and only when there is one: a sync that fails is
@@ -839,8 +833,8 @@ impl Host {
         Some(self.snapshot())
     }
 
-    /// Settle the cache's bound with the Titles the Library holds, and keep
-    /// their probes for the writes that follow.
+    /// Settle the cache's bound with the Titles the Library holds, and leave the
+    /// cache holding their probes for the writes that follow.
     ///
     /// The account's Library is read after the Host starts, so a cache loaded
     /// before it must not trim to the bound on its own: this is where the bound
@@ -856,19 +850,15 @@ impl Host {
             })
             .collect();
 
-        let mut probes: Vec<TitleProbe> = self
+        let probes: Vec<TitleProbe> = self
             .state
             .watch()
             .iter()
             .map(|progress| TitleProbe::from_stub(&progress.title))
             .collect();
-        probes.extend(library.iter().cloned());
-        self.library_probes = library;
-
-        self.titles
-            .lock()
-            .expect("the Title cache is not poisoned")
-            .settle(now, &TitleProtection::holding(probes));
+        let mut cache = self.titles.lock().expect("the Title cache is not poisoned");
+        cache.protect_library(library);
+        cache.settle(now, &TitleProtection::holding(probes));
     }
 
     /// The Host is going away: write down where the Stream got to, and tell the
