@@ -531,6 +531,8 @@ fn watched(index: usize) -> WatchProgress {
         position: Some(10.0),
         duration: Some(100.0),
         watched: false,
+        stream_addon: None,
+        binge_group: None,
         updated_at: 0,
     }
 }
@@ -666,6 +668,8 @@ fn a_tmdb_copy_past_six_months_is_dropped_even_behind_watch_progress() {
         position: Some(10.0),
         duration: Some(100.0),
         watched: false,
+        stream_addon: None,
+        binge_group: None,
         updated_at: 0,
     }]));
     let fetcher = Arc::new(

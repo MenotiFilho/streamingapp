@@ -41,6 +41,8 @@ fn entry(id: &str, position: f64, at: i64) -> WatchProgress {
         position: Some(position),
         duration: Some(2820.0),
         watched: false,
+        stream_addon: None,
+        binge_group: None,
         updated_at: at,
     }
 }
@@ -160,6 +162,28 @@ fn writing_the_same_video_again_replaces_the_entry_rather_than_adding_one() {
     assert_eq!(read.len(), 1, "there is one entry per Video");
     assert_eq!(read[0].position, Some(700.0));
     assert_eq!(read[0].updated_at, 2_000);
+}
+
+#[test]
+fn the_stream_a_video_was_played_from_round_trips_for_playing_its_up_next() {
+    // #276: an Up next continues the Addon and release of the Video before it,
+    // so both are part of what a restart over this store must find again.
+    let store = SqliteStore::open_in_memory().expect("an in-memory store opens");
+    let written = WatchProgress {
+        stream_addon: Some(AddonId::parse("org.example.streams").expect("an Addon id")),
+        binge_group: Some("the-release".to_owned()),
+        ..entry("tt0903747:1:2", 402.0, 1_000)
+    };
+
+    store
+        .write_watch_progress(&written)
+        .expect("the store takes a progress entry");
+
+    assert_eq!(
+        store.read_watch_progress().expect("the store reads back"),
+        vec![written],
+        "the Addon and the release round-trip beside the position"
+    );
 }
 
 #[test]

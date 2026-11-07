@@ -145,6 +145,18 @@ pub const MIGRATIONS: &[Migration] = &[
         sql: "ALTER TABLE titles ADD COLUMN next_season INTEGER;
               ALTER TABLE titles ADD COLUMN next_episode INTEGER;",
     },
+    Migration {
+        // The Stream a Video was played from, for Playing its Title's Up next
+        // (#276): the Addon that answered the `stream` request and the
+        // `bingeGroup` it grouped the release by. Playing Up next continues
+        // that Addon and release rather than picking an unrelated candidate
+        // (ADR-0012, ADR-0014). Both are null for a row written before this
+        // step and for a position merged from the Stremio account, neither of
+        // which saw a Stream; Playing such an Up next refuses for the picker.
+        version: 9,
+        sql: "ALTER TABLE watch_progress ADD COLUMN stream_addon TEXT;
+              ALTER TABLE watch_progress ADD COLUMN binge_group TEXT;",
+    },
 ];
 
 /// The version a database is at once every migration in `migrations` has run.

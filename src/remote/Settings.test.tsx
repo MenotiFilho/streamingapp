@@ -324,6 +324,7 @@ describe("the Preferences leaf", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: HOST_PICKS_PER_VIDEO }));
     fireEvent.click(screen.getByRole("button", { name: FEATURED_NONE }));
+    fireEvent.click(screen.getByRole("button", { name: "Open the Streams picker" }));
 
     await waitFor(() =>
       expect(host.asked("set_subtitle_language")).toEqual([
@@ -348,6 +349,11 @@ describe("the Preferences leaf", () => {
     await waitFor(() =>
       expect(host.asked("set_featured_catalog")).toEqual([
         featuredRequest({ addon: CINEMETA.id, catalog }),
+      ]),
+    );
+    await waitFor(() =>
+      expect(host.asked("set_up_next_playback")).toEqual([
+        { type: "set_up_next_playback", playback: "picker" },
       ]),
     );
     await waitFor(() =>

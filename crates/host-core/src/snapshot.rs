@@ -5,7 +5,7 @@ use crate::device::DeviceSummary;
 use crate::pairing::PairingCode;
 use crate::playback::{Picture, PlaybackSnapshot};
 use crate::preferences::{
-    FeaturedCatalog, StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale,
+    FeaturedCatalog, StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale, UpNextPlayback,
 };
 use crate::progress::{ContinueEntry, ResumeEntry};
 use crate::secret::SecretBackend;
@@ -95,6 +95,10 @@ pub struct PreferencesSnapshot {
     /// and the memory that look-ahead may take. Always values — a Host that has
     /// never been told keeps the default pair (ADR-0026).
     pub stream_buffer: StreamBuffer,
+    /// What Play does for a Title's Up next: play it directly, or open the
+    /// Streams picker. Always a value — direct is the default, and the choice
+    /// governs only Up next, never Resume (#276).
+    pub up_next_playback: UpNextPlayback,
 }
 
 /// Where the Host's credentials are held, as the secret store reports itself.
@@ -137,6 +141,7 @@ impl Snapshot {
                 subtitle_color: state.preferences().subtitle_color().clone(),
                 subtitle_scale: state.preferences().subtitle_scale(),
                 stream_buffer: state.preferences().stream_buffer(),
+                up_next_playback: state.preferences().up_next_playback(),
             },
             addons: state
                 .addons()

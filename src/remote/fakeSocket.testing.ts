@@ -59,6 +59,7 @@ export const NOTHING: Snapshot = {
     subtitleColor: "#FFFFFF",
     subtitleScale: 1,
     streamBuffer: { seconds: 300, megabytes: 512 },
+    upNextPlayback: "direct",
   },
   addons: [],
   featuredCatalog: null,

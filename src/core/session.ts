@@ -206,6 +206,18 @@ export class Session {
   };
 
   /**
+   * Raise the window's one alert for a refusal the caller read through `ask`.
+   *
+   * A screen that decides something on a refusal — Play opening the Streams
+   * picker for an Up next the Host found no Stream for (#276) — takes the
+   * Action with `ask`, acts on the kind, and reports anything it did not act
+   * on here. It is the same alert `take` raises.
+   */
+  report = (error: ActionError | null): void => {
+    this.setError(error);
+  };
+
+  /**
    * Take a fire-and-forget Action: a card a person only looked at.
    *
    * A look hint has no answer and publishes no Snapshot, so there is nothing to

@@ -167,6 +167,17 @@ pub struct WatchProgress {
     /// Whether the Video counts as watched: at its end, or within
     /// [`FINISHED_TAIL`] of it.
     pub watched: bool,
+    /// The Addon whose Stream was playing this Video, where one played it.
+    ///
+    /// Read back by Playing Up next, which continues the release: the Addon and
+    /// the `bingeGroup` are what make the next episode the same release rather
+    /// than an unrelated candidate (ADR-0012, ADR-0014). `None` for an entry
+    /// written before this field existed and for a position merged in from the
+    /// Stremio account, neither of which saw a Stream.
+    pub stream_addon: Option<AddonId>,
+    /// The release the Stream was binge-grouped by, where its Addon said — the
+    /// other half of the continuity Playing Up next continues.
+    pub binge_group: Option<String>,
     /// When this was last written, in milliseconds since the Unix epoch.
     pub updated_at: i64,
 }
@@ -182,8 +193,19 @@ impl WatchProgress {
             position,
             duration: None,
             watched: false,
+            stream_addon: None,
+            binge_group: None,
             updated_at: at,
         }
+    }
+
+    /// The same entry, with the Stream it is playing chosen from `addon` and
+    /// binge-grouped as `binge_group`: what Playing Up next continues from.
+    #[must_use]
+    pub fn streamed_by(mut self, addon: AddonId, binge_group: Option<String>) -> Self {
+        self.stream_addon = Some(addon);
+        self.binge_group = binge_group;
+        self
     }
 
     /// The same entry with where playback is now, as the Host's own record has
@@ -203,6 +225,8 @@ impl WatchProgress {
             position,
             duration,
             watched,
+            stream_addon: self.stream_addon.clone(),
+            binge_group: self.binge_group.clone(),
             updated_at: at,
         }
     }
@@ -539,6 +563,8 @@ mod tests {
             position: Some(402.0),
             duration: Some(2820.0),
             watched: false,
+            stream_addon: None,
+            binge_group: None,
             updated_at: 1_000,
         }
     }
@@ -550,6 +576,8 @@ mod tests {
             position: Some(position),
             duration: Some(2820.0),
             watched,
+            stream_addon: None,
+            binge_group: None,
             updated_at: at,
         }
     }
@@ -569,6 +597,8 @@ mod tests {
             position: Some(8_000.0),
             duration: Some(8_160.0),
             watched,
+            stream_addon: None,
+            binge_group: None,
             updated_at: at,
         }
     }
@@ -618,6 +648,8 @@ mod tests {
             position: Some(120.0),
             duration: Some(2820.0),
             watched: false,
+            stream_addon: None,
+            binge_group: None,
             updated_at: 1_000,
         };
         assert_eq!(

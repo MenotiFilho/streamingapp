@@ -280,6 +280,8 @@ fn finished_episode(title_id: &str, video_id: &str, at: i64) -> WatchProgress {
         position: Some(100.0),
         duration: Some(100.0),
         watched: true,
+        stream_addon: None,
+        binge_group: None,
         updated_at: at,
     }
 }

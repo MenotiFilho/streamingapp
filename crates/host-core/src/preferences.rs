@@ -14,6 +14,7 @@ pub struct Preferences {
     subtitle_color: SubtitleColor,
     subtitle_scale: SubtitleScale,
     stream_buffer: StreamBuffer,
+    up_next_playback: UpNextPlayback,
     featured_catalog: Option<FeaturedCatalog>,
 }
 
@@ -67,6 +68,17 @@ impl Preferences {
         self.stream_buffer = buffer;
     }
 
+    /// What Play does for a Title's Up next: play it straight away, or open the
+    /// Streams picker so the owner picks the Stream themselves.
+    pub fn up_next_playback(&self) -> UpNextPlayback {
+        self.up_next_playback
+    }
+
+    /// Set the Up next preference.
+    pub fn set_up_next_playback(&mut self, playback: UpNextPlayback) {
+        self.up_next_playback = playback;
+    }
+
     /// The one Catalog the owner has marked as the Host's featured feed, where
     /// one is marked: what a client's Home hero is drawn from.
     pub fn featured_catalog(&self) -> Option<&FeaturedCatalog> {
@@ -85,6 +97,7 @@ impl Preferences {
         subtitle_color: SubtitleColor,
         subtitle_scale: SubtitleScale,
         stream_buffer: StreamBuffer,
+        up_next_playback: UpNextPlayback,
         featured_catalog: Option<FeaturedCatalog>,
     ) -> Self {
         Self {
@@ -92,6 +105,7 @@ impl Preferences {
             subtitle_color,
             subtitle_scale,
             stream_buffer,
+            up_next_playback,
             featured_catalog,
         }
     }
@@ -104,6 +118,7 @@ impl Preferences {
             SubtitleColor::default(),
             SubtitleScale::default(),
             StreamBuffer::default(),
+            UpNextPlayback::default(),
             None,
         )
     }
@@ -392,6 +407,53 @@ impl Default for StreamBuffer {
 #[error("{detail}")]
 pub struct InvalidStreamBuffer {
     pub detail: String,
+}
+
+/// What Play does for a Title's Up next.
+///
+/// A preference of the Host's, not a client's: the choice is stored beside the
+/// subtitle appearance and the Stream buffer and published in every Snapshot, so
+/// the desktop and the remote Play the same way (ADR-0026's shape). It governs
+/// only Up next — Resume always plays directly, because resuming is one press.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UpNextPlayback {
+    /// Play the Up next straight away, from the release of the Video before it.
+    #[default]
+    Direct,
+    /// Open the Streams picker for the Up next so the owner picks the Stream.
+    Picker,
+}
+
+impl UpNextPlayback {
+    /// The preference's wire spelling, as the preferences table holds it.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Direct => "direct",
+            Self::Picker => "picker",
+        }
+    }
+}
+
+impl std::str::FromStr for UpNextPlayback {
+    type Err = InvalidUpNextPlayback;
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        match raw {
+            "direct" => Ok(Self::Direct),
+            "picker" => Ok(Self::Picker),
+            _ => Err(InvalidUpNextPlayback {
+                value: raw.to_owned(),
+            }),
+        }
+    }
+}
+
+/// A stored word that is not an Up next playback choice.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
+#[error("{value:?} is not an Up next playback choice")]
+pub struct InvalidUpNextPlayback {
+    pub value: String,
 }
 
 #[cfg(test)]

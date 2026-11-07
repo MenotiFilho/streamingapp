@@ -69,7 +69,11 @@ export function RepertoryTitleScreen({
   const continueWatching = snapshot?.continueWatching ?? [];
   const anchor = titleAnchor(title, continueWatching);
   const anchorVideoId = anchor.video?.id ?? null;
-  const main = titleMainAction(title, continueWatching);
+  const main = titleMainAction(
+    title,
+    continueWatching,
+    snapshot?.preferences.upNextPlayback ?? "direct",
+  );
   const side = titleSide(title);
   const seasons = side.kind === "series" ? side.seasons : [];
   const [shownSeason, setShownSeason] = useState<number | null>(anchor.season);
@@ -104,6 +108,35 @@ export function RepertoryTitleScreen({
     },
     [preview, push, title],
   );
+
+  /**
+   * The one main control: Resume plays the Host's own position, Play sends the
+   * Host the Title whose Up next it reads, and a picker Play pushes the
+   * Streams for the Up next Video here (#276).
+   */
+  const takeMain = async () => {
+    if (main === null) {
+      return;
+    }
+    if (main.kind === "resume") {
+      await take(main.action);
+      return;
+    }
+    if (main.action === null) {
+      play(main.video);
+      return;
+    }
+
+    // The Host may find no Stream that continues the release. That is not the
+    // end of the press: the picker for the Up next is what the refusal asks
+    // for (#276). Any other refusal is the window's one alert.
+    const { error } = await session.ask(main.action);
+    if (error?.kind === "no_up_next_stream") {
+      play(main.video);
+      return;
+    }
+    session.report(error);
+  };
 
   return (
     <div
@@ -190,9 +223,9 @@ export function RepertoryTitleScreen({
                 type="button"
                 className="rep-play rep-title-main"
                 data-focusable
-                data-testid="title-resume"
+                data-testid="title-main"
                 autoFocus={anchoredVideo === null}
-                onClick={() => void take(main.action)}
+                onClick={() => void takeMain()}
               >
                 <Icon name="play" className="rep-play-mark" />
                 <span>{main.label}</span>
