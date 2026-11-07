@@ -72,7 +72,7 @@ export function RepertorySearchScreen() {
   const { draft, query: committed } = view;
 
   const keyed = !preview && (snapshot?.protection.tmdbHeld ?? false);
-  const { panel, style } = useFeedCards(keyed ? SEARCH_KINDS.length : 0);
+  const { panel, style, chrome } = useFeedCards(keyed ? SEARCH_KINDS.length : 0);
 
   // A credential added or cleared changes which arm a query takes. The rows of
   // the old arm are not answers to the new one, so they go.
@@ -273,6 +273,7 @@ export function RepertorySearchScreen() {
       data-region="search-screen"
       data-kind="branch"
       data-label="Search"
+      data-chrome={chrome}
       {...pageAttrs("search")}
     >
       <ProgrammeLine name="Search" testId="search-programme-line" />

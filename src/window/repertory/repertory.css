@@ -156,17 +156,23 @@ body.picture-behind .shell-nav-slot {
 }
 
 /* The credit is the feed's foot, not a second row: on a fitted page it keeps
- * the attribution on screen without taking the room a row needs. */
+ * the attribution on screen without taking the room a row needs. It reads on
+ * one line where the window allows it, never a second row that eats a rail. */
 .rep-feed[data-page="fitted"] .rep-credit {
   flex-direction: row;
   align-items: center;
   gap: var(--rep-space-4);
   max-width: none;
-  padding: var(--rep-space-2) 0;
+  padding: var(--rep-space-1) 0;
 }
 
 .rep-feed[data-page="fitted"] .rep-credit-logo {
   width: max(72px, calc(var(--rep-stage) * 4.4));
+}
+
+.rep-feed[data-page="fitted"] .rep-credit-notice {
+  max-width: none;
+  line-height: var(--rep-leading-caption);
 }
 
 /* The Title is one page: its backdrop is the page, and the episode rail is the
@@ -2234,8 +2240,9 @@ body.picture-behind .shell-nav-slot {
 
 /* A fitted feed's cards are sized from the height the panel has left (#257):
  * the `useFeedCards` hook writes --rep-feed-card-width from the room after each
- * row's head and caption. The width share still caps it, so a phone gets the
- * width-based card it had; the fitted gaps shrink so both rails fit. */
+ * row's head, real caption and track. The readable floor wins over fitting and
+ * the panel scrolls when it cannot hold both rails (PR #263). The width share
+ * still caps it, so a phone gets the width-based card it had. */
 .rep-feed[data-page="fitted"] .rep-page-panel {
   gap: var(--rep-space-4);
 }
@@ -2255,6 +2262,64 @@ body.picture-behind .shell-nav-slot {
  * second line would push the lower rail's cards out of the panel. */
 .rep-feed[data-page="fitted"] .rep-kit-poster-name {
   -webkit-line-clamp: 1;
+}
+
+/* A short fitted feed spends its height on posters (PR #263): the programme
+ * line, genre row and TMDB credit slim down, and each row's head and track
+ * tighten. `fittedChrome` decides when; this only draws that decision. */
+.rep-feed[data-page="fitted"][data-chrome="compact"] {
+  gap: var(--rep-space-4);
+}
+
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-programme-line {
+  padding-bottom: var(--rep-space-2);
+}
+
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-programme-line-name {
+  font-size: var(--rep-text-badge);
+}
+
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-kind-filter {
+  gap: var(--rep-space-1);
+  padding-bottom: 0;
+}
+
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-kind-filter .rep-kit-choice {
+  padding: var(--rep-space-1) var(--rep-space-2);
+  font-size: var(--rep-text-caption);
+}
+
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-page-panel {
+  gap: var(--rep-space-3);
+}
+
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-feed-row .rep-kit-row {
+  gap: var(--rep-space-2);
+}
+
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-kit-row-head {
+  padding-bottom: var(--rep-space-2);
+}
+
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-kit-row-title {
+  font-size: var(--rep-text-body);
+}
+
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-kit-row-track {
+  padding-top: 4px;
+  padding-bottom: 6px;
+}
+
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-credit {
+  gap: var(--rep-space-3);
+}
+
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-credit-logo {
+  width: max(64px, calc(var(--rep-stage) * 3.6));
+}
+
+.rep-feed[data-page="fitted"][data-chrome="compact"] .rep-credit-notice {
+  font-size: var(--rep-text-badge);
 }
 
 

@@ -75,6 +75,17 @@ it fits the window (or the phone's viewport), and anything longer scrolls
 Home and the utility register (Addons, Settings, Library) keep the old rule: a
 programme of many rows still scrolls.
 
+(Amended 2026-11-06, sprint 248, PR #263, the owner's decision after the Windows
+look.) On a fitted feed a readable poster wins over fitting. A card is sized
+from a floor of 180px of art height — about 120px wide at 2:3 — and the title
+caption under it is counted at its real height, so it is never clipped. On a
+short page (below 900px of fitted height) the screen's own chrome turns compact:
+a smaller programme line, a tighter one-line genre row and a slimmer TMDB
+credit, whose words and mark stay. Where both rails still cannot hold the floor, the **rows
+panel** scrolls under the fixed screen head, genre row or search bar — the page
+itself still never scrolls. A reveal into a rail keeps that rail's head in
+view with the card. Discover and Search share the same two-row rule.
+
 ## 4. The Remote's playing bar steps aside on the player screen
 
 The floating *now playing* bar the Remote shows over every screen is hidden while

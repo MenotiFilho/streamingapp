@@ -12,7 +12,8 @@
  * The decision lives here because both clients obey it (ADR-0035 §1), and no
  * client should have to rediscover it from a CSS rule (ADR-0032). The fitted
  * feed's card size is here for the same reason: the room a fitted panel has
- * left, split across its rows, is a decision a test can ask.
+ * left, split across its rows with a readable floor, is a decision a test can
+ * ask; where the floor cannot fit, the panel scrolls.
  */
 
 import type { Destination } from "./destinations";
@@ -78,17 +79,22 @@ export function pageAttrs(surface: PageSurface): PageAttributes {
  * What a fitted feed's cards are sized from (H1, #257): the room the panel has
  * after the screen's head, genre row and credit, split across the rows.
  *
- * A poster is 2:3, so a height gives its width. The `floor` keeps a picture a
- * picture where a very short window would otherwise ask for a sliver; the panel
- * scrolls if the floor itself cannot fit.
+ * A poster is 2:3, so a height gives its width. The `floor` keeps a poster
+ * readable — the owner's decision after the Windows look at #263 — even where
+ * that means the rows panel has to scroll. The panel is the one overflow a
+ * fitted screen still allows.
  */
 export type FeedCardRoom = {
   /** The panel's height in px, already clear of the screen's head and credit. */
   available: number;
   /** How many rows share the panel — Discover and Search draw two. */
   rows: number;
-  /** What one row spends above and below its art: head, caption and track padding. */
-  chrome: number;
+  /** What one row's head spends: its line, its rule and the gap under it. */
+  head: number;
+  /** What one card's caption spends: the gap above it and its real line height. */
+  caption: number;
+  /** What one row's track spends above and below its cards. */
+  track: number;
   /** The gap between two rows, in px. */
   gap: number;
   /** The smallest art height a fitted card may take. */
@@ -96,20 +102,47 @@ export type FeedCardRoom = {
 };
 
 /** A fitted feed card's size, in px: its art's height and the width that follows. */
-export type FeedCardSize = { artHeight: number; width: number };
+export type FeedCardSize = {
+  artHeight: number;
+  width: number;
+  /** Whether the floor already overflows the panel, so the rows panel scrolls. */
+  scrolls: boolean;
+};
 
 /**
- * The smallest art height a fitted card may take: a poster stays a picture, not
- * a sliver. A panel too short even for this scrolls, the one overflow a fitted
- * screen still allows.
+ * The smallest art height a fitted card may take: about 120px wide at 2:3, so
+ * the title caption under it is readable and the rating stamp no longer covers
+ * the picture. A panel too short even for this scrolls — the one overflow a
+ * fitted screen still allows (PR #263).
  */
-export const FITTED_CARD_FLOOR = 64;
+export const FITTED_CARD_FLOOR = 180;
 
-/** What one card keeps of a fitted panel's room. */
+/** What one card keeps of a fitted panel's room. The floor is the first constraint. */
 export function fittedCardSize(room: FeedCardRoom): FeedCardSize {
   const rows = Math.max(1, room.rows);
+  const chrome = room.head + room.caption + room.track;
   const roomForArt =
-    (room.available - rows * room.chrome - (rows - 1) * room.gap) / rows;
+    (room.available - rows * chrome - (rows - 1) * room.gap) / rows;
   const artHeight = Math.max(room.floor, Math.floor(roomForArt));
-  return { artHeight, width: Math.floor((artHeight * 2) / 3) };
+  return {
+    artHeight,
+    width: Math.floor((artHeight * 2) / 3),
+    scrolls: Math.floor(roomForArt) < room.floor,
+  };
+}
+
+/**
+ * Where a fitted feed's own chrome turns compact, in page height (px). Below
+ * this the screen spends its height on posters instead of a full-size head,
+ * genre row and credit; the decision is here, not in a CSS media query
+ * (ADR-0032). A 768-tall window is short; a 1080-tall one is not.
+ */
+export const FITTED_COMPACT_BELOW = 900;
+
+/** Which chrome a fitted feed draws: compact on a short page, regular above it. */
+export type FittedChrome = "compact" | "regular";
+
+/** Which chrome a fitted feed draws at a page height. */
+export function fittedChrome(pageHeight: number): FittedChrome {
+  return pageHeight < FITTED_COMPACT_BELOW ? "compact" : "regular";
 }
