@@ -305,7 +305,7 @@ function TitlePage({
 
           {side.kind === "film" ? (
             <Button
-              variant="primary"
+              variant={main ? "secondary" : "primary"}
               className="remote-play"
               onClick={() => push(streamsLevelFor(title, theFilm(title)))}
             >

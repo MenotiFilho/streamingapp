@@ -11,10 +11,10 @@ import {
  * The Title page's programme decisions, kept out of the drawing (ADR-0032).
  *
  * A Title is one screen: the facts a person reads before deciding, the brass
- * Unmapped mark when no TMDB record met it, and what the right rail offers next
- * — a film's one action, or a series' seasons. What season is folded out and
- * which episode is chosen stay the client's own state; these helpers decide
- * what the page is, not what is open.
+ * Unmapped mark when no TMDB record met it, what the right rail offers next — a
+ * film's one action, or a series' seasons — and where a Continue watching Title
+ * opens. The anchor and the main Resume control are the same decisions on both
+ * clients; only the season a person folds out afterwards stays their own.
  */
 
 /** One piece of the page's bookkeeping, in the record's printed order. */
@@ -166,7 +166,7 @@ function timeLeftOf(entry: ContinueEntry): string | null {
     return null;
   }
 
-  const minutes = Math.max(1, Math.ceil((entry.duration - entry.position) / 60));
+  const minutes = Math.max(1, Math.round((entry.duration - entry.position) / 60));
   return `${minutes} min left`;
 }
 

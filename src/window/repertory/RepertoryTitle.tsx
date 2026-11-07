@@ -266,6 +266,7 @@ export function RepertoryTitleScreen({
                     className="rep-play"
                     data-focusable
                     data-testid="play-film"
+                    data-secondary={main ? "true" : undefined}
                     onClick={() => play(theFilm(title))}
                   >
                     <Icon name="play" className="rep-play-mark" />
