@@ -73,7 +73,7 @@ export function RepertoryDiscoverScreen() {
   const source = preview ? "preview" : "host";
   const active = preview || keyed;
   const genres = useMemo(() => genresFor(source), [source]);
-  const { panel, style } = useFeedCards(active ? DISCOVER_ROWS.length : 0);
+  const { panel, style, chrome } = useFeedCards(active ? DISCOVER_ROWS.length : 0);
   const genre = genreKey === null
     ? null
     : (genres.find((held) => held.name === genreKey) ?? null);
@@ -183,6 +183,7 @@ export function RepertoryDiscoverScreen() {
       data-region="discover"
       data-kind="branch"
       data-label="Discover"
+      data-chrome={chrome}
       {...pageAttrs("discover")}
     >
       <ProgrammeLine name="Discover" testId="discover-programme-line" />

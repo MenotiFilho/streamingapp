@@ -299,13 +299,18 @@ the phone's emoji font is not the design system.
   scrolls inside its own panel (ADR-0036). Elsewhere a short window scrolls the
   page rather than clipping the copy. On a fitted Discover or Search the cards
   are sized from the height the panel has left after the screen's head, genre
-  row and TMDB credit — the height, less each rail's head and caption, split
-  across its two rows, with a floor — so the head, both rails and their captions
-  fit without a panel scroll. The 2:3 poster follows its height for width, and
-  the row's width share still caps it, so a phone viewport keeps the width-sized
-  cards. A fitted feed's caption is one line, because a second would push the
-  lower rail out of the panel. The Title is fitted at every width the window
-  takes (ADR-0036 §3).
+  row and TMDB credit — the height, less each rail's head, its real one-line
+  caption and the track's padding, split across its two rows, with a readable
+  floor of 180px of art height (about 120px wide at 2:3). A short page (below
+  900px of fitted height) draws compact chrome — a smaller programme line, a
+  tighter one-line genre row and a slimmer TMDB credit, whose words and mark
+  stay — so the posters keep that floor. Where both rails still
+  cannot fit, the rows panel scrolls under the fixed head; the page itself still
+  never scrolls. The 2:3 poster follows its height for width, and the row's
+  width share still caps it, so a phone viewport keeps the width-sized cards. A
+  fitted feed's caption is one line, because a second would push the lower rail
+  out of the panel. The Title is fitted at every width the window takes
+  (ADR-0036 §3, amended 2026-11-06, PR #263).
 - **Utility register** (Addons, Settings, Library): the same one line at the
   top, then hairline rows with a 2px step, names in display serif, bookkeeping
   in mono, and no index numbers. Addons is two columns — the form on the left,
