@@ -100,6 +100,26 @@ pub struct CachedTitle {
 }
 
 impl CachedTitle {
+    /// Whether this copy is the one a probe names: the same type and identity,
+    /// under either spelling the cache may hold a Title by.
+    ///
+    /// A cache row keyed by TMDB may have been opened through an Addon's id or
+    /// TMDB's, so both spellings match; a probe that names no Addon (`None`)
+    /// matches the id alone, which is how a Library entry reaches a Title.
+    pub(crate) fn names(&self, probe: &TitleProbe) -> bool {
+        let title = &self.title;
+        if probe.r#type != title.r#type {
+            return false;
+        }
+        if probe.id == title.id && (probe.addon.is_none() || probe.addon == title.addon) {
+            return true;
+        }
+        match &title.key {
+            TitleKey::Tmdb { id } => probe.id == format!("tmdb:{id}"),
+            TitleKey::Addon { addon, id } => probe.addon.as_ref() == Some(addon) && probe.id == *id,
+        }
+    }
+
     /// How long this copy stays fresh.
     pub fn fresh_for(&self) -> i64 {
         match self.status {
@@ -161,22 +181,7 @@ impl TitleProtection {
     /// been opened through an Addon's id or TMDB's, so both spellings match;
     /// a Library probe has no Addon and matches the id alone.
     fn protects(&self, cached: &CachedTitle) -> bool {
-        let title = &cached.title;
-
-        self.probes.iter().any(|probe| {
-            if probe.r#type != title.r#type {
-                return false;
-            }
-            if probe.id == title.id && (probe.addon.is_none() || probe.addon == title.addon) {
-                return true;
-            }
-            match &title.key {
-                TitleKey::Tmdb { id } => probe.id == format!("tmdb:{id}"),
-                TitleKey::Addon { addon, id } => {
-                    probe.addon.as_ref() == Some(addon) && probe.id == *id
-                }
-            }
-        })
+        self.probes.iter().any(|probe| cached.names(probe))
     }
 }
 
@@ -210,6 +215,12 @@ impl TitleCache {
         }
         cache.trim(now, protection);
         Ok(cache)
+    }
+
+    /// The Titles held, as a Snapshot's Continue watching row reads them: Up
+    /// next is worked out from these lists (#274).
+    pub(crate) fn cached(&self) -> &[CachedTitle] {
+        &self.entries
     }
 
     /// The cached copy for a Title opened through an Addon, where one is held

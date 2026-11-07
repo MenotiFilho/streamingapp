@@ -52,9 +52,10 @@ export type Snapshot = {
   protection: Protection;
   /**
    * Continue watching: one entry per Title the Host has Watch progress in, the
-   * Video that Title played last, most recently played first — the row every
-   * client draws (#273). An entry whose Addon is gone stays listed, marked
-   * unplayable, rather than vanishing.
+   * Title's card — the Video it played last, or that Video's Up next once it is
+   * finished — most recently played first, the row every client draws (#273,
+   * #274). An entry whose Addon is gone stays listed, marked unplayable, rather
+   * than vanishing.
    */
   continueWatching: ContinueEntry[];
   /**
@@ -515,11 +516,12 @@ export type ResumeEntry = {
 };
 
 /**
- * One Title on Continue watching, as every client is told it (#273). Mirrors
- * `ContinueEntry` in `host-core`: one entry per Title, carrying the Video it
- * played last — the card — where that Video was left, and whether it can be
- * played now. The clients draw this list and never derive cards from per-Video
- * Watch progress themselves.
+ * One Title on Continue watching, as every client is told it (#273, #274).
+ * Mirrors `ContinueEntry` in `host-core`: one entry per Title, carrying the
+ * Title's card — the Video it played last, or that Video's Up next once it is
+ * finished — where that Video was left, and whether it can be played now. The
+ * clients draw this list and never derive cards from per-Video Watch progress
+ * themselves.
  */
 export type ContinueEntry = {
   video: Video;
@@ -527,6 +529,12 @@ export type ContinueEntry = {
   position: number | null;
   duration: number | null;
   watched: boolean;
+  /**
+   * Whether the card's Video is the Title's Up next rather than the Video it
+   * played last. An Up next has no progress unless it was already partly
+   * watched, and it is the Video a Title opened from this card is anchored on.
+   */
+  upNext: boolean;
   unplayable: UnplayableEntry | null;
 };
 

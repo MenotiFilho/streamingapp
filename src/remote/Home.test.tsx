@@ -731,6 +731,7 @@ describe("Home's presses", () => {
       position: 300,
       duration: 600,
       watched: false,
+      upNext: false,
       unplayable: null,
     };
     const gone = {
@@ -766,6 +767,7 @@ describe("Home's presses", () => {
       position: 300,
       duration: 600,
       watched: false,
+      upNext: false,
       unplayable: null,
     };
     mount({
@@ -798,6 +800,7 @@ describe("Home's presses", () => {
       position: 300,
       duration: 600,
       watched: false,
+      upNext: false,
       unplayable: null,
     };
     mount({ snapshot: { ...SNAPSHOT, continueWatching: [], watchProgress: [entry] } });
@@ -863,6 +866,7 @@ describe("Home's presses", () => {
       position: 300,
       duration: 600,
       watched: false,
+      upNext: false,
       unplayable: null,
     };
     const { pushes } = mount({

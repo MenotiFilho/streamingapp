@@ -241,8 +241,10 @@ impl Host {
     /// The state as it stands — what a client that has just connected, or just
     /// reconnected, is owed.
     pub fn snapshot(&self) -> Snapshot {
+        let titles = self.titles.lock().expect("the Title cache is not poisoned");
         Snapshot::build(
             &self.state,
+            titles.cached(),
             self.revision,
             self.picture,
             self.serving.as_deref(),
