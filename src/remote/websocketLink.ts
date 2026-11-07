@@ -1,8 +1,8 @@
-import { withoutToken } from "../core/answers";
+import { revisedTitleOf, withoutToken } from "../core/answers";
 import type { ActionError } from "../core/errors";
 import type { HostLink, LinkState } from "../core/link";
 import { ACTION_VERSION } from "../core/wire";
-import type { Action, DeviceSummary, Response, Snapshot } from "../core/wire";
+import type { Action, DeviceSummary, Response, Snapshot, Title } from "../core/wire";
 import type { TokenStore } from "./tokenStore";
 
 /**
@@ -110,6 +110,7 @@ export class WebSocketLink implements HostLink {
     reject: (error: ActionError) => void;
   }> = [];
   private readonly snapshotHandlers = new Set<(snapshot: Snapshot) => void>();
+  private readonly revisionHandlers = new Set<(title: Title) => void>();
   private readonly stateHandlers = new Set<(state: LinkState) => void>();
 
   constructor(private readonly options: WebSocketLinkOptions) {
@@ -180,6 +181,21 @@ export class WebSocketLink implements HostLink {
     this.snapshotHandlers.add(handler);
     return () => {
       this.snapshotHandlers.delete(handler);
+    };
+  }
+
+  /**
+   * Follow the revised Titles the Host sends this device after a Reply
+   * (ADR-0038 §2). A revision arrives on this socket alone; a device that did
+   * not ask is never sent one.
+   */
+  onRevision(handler: (title: Title) => void): () => void {
+    if (this.closed) {
+      return () => undefined;
+    }
+    this.revisionHandlers.add(handler);
+    return () => {
+      this.revisionHandlers.delete(handler);
     };
   }
 
@@ -317,6 +333,10 @@ export class WebSocketLink implements HostLink {
       this.onSnapshotFrame(frame.snapshot as Snapshot);
       return;
     }
+    if ("revision" in frame) {
+      this.onRevisionFrame(frame.revision);
+      return;
+    }
     if (typeof frame.id === "number" && "response" in frame) {
       this.onResponse(frame.id, frame.response as Response);
       return;
@@ -358,6 +378,17 @@ export class WebSocketLink implements HostLink {
     }
     for (const waiter of this.snapshotWaiters.splice(0)) {
       waiter.resolve(snapshot);
+    }
+  }
+
+  /** A revised Answer: the Title in it, if it is one, to this connection's handlers. */
+  private onRevisionFrame(answer: unknown): void {
+    const title = revisedTitleOf(answer);
+    if (!title) {
+      return;
+    }
+    for (const handler of [...this.revisionHandlers]) {
+      handler(title);
     }
   }
 
@@ -476,6 +507,7 @@ export class WebSocketLink implements HostLink {
     }
     this.stateHandlers.clear();
     this.snapshotHandlers.clear();
+    this.revisionHandlers.clear();
   }
 
   /**

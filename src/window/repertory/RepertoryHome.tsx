@@ -533,11 +533,11 @@ function FeaturePlaceholder() {
  * and the Host's Continue watching list — so this screen is the same client
  * under a different frame, not a second one. The surface is repertory; the
  * Actions are untouched. Every card opens the real Title page over Home, and
- * Continue watching resumes the Host's own Video where there is a Host to ask.
+ * Continue watching opens the Title anchored on the card's Video (#275).
  */
 export function RepertoryHome() {
-  const { snapshot, chosenDestination, choose, take, home, push, pop } = useShell();
-  const { openTitle } = useTitleOpener();
+  const { snapshot, chosenDestination, choose, home, push, pop } = useShell();
+  const { openTitle, openDiscoveredTitle } = useTitleOpener();
   const preview = usePreviewData();
   const { rows, answered } = useSyncExternalStore(home.subscribe, home.getSnapshot);
   const root = useRef<HTMLElement | null>(null);
@@ -576,21 +576,24 @@ export function RepertoryHome() {
 
   const openEntry = useCallback(
     (entry: ContinueEntry) => {
-      // A plain Vite window has no Host to resume from, so the Title page is the
-      // preview's honest next step. The Tauri window resumes the Host's Video.
-      if (preview && entry.title.addon) {
-        openTitle(entry.title.addon, {
-          id: entry.title.id,
-          type: entry.title.type,
-          name: entry.title.name,
-          poster: entry.title.poster,
-          background: entry.title.background,
-        });
+      // A card opens its Title, never its Stream: the Title screen anchors on
+      // the card's Video and offers Resume there (#275). A stub with no Addon
+      // behind it is a Discovered Title, opened through TMDB (ADR-0020).
+      const previewOfCard = {
+        id: entry.title.id,
+        type: entry.title.type,
+        name: entry.title.name,
+        poster: entry.title.poster,
+        background: entry.title.background,
+      };
+
+      if (entry.title.addon) {
+        openTitle(entry.title.addon, previewOfCard);
         return;
       }
-      void take({ type: "resume", video: { type: entry.title.type, id: entry.video.id } });
+      void openDiscoveredTitle(previewOfCard);
     },
-    [openTitle, preview, take],
+    [openDiscoveredTitle, openTitle],
   );
 
   /**

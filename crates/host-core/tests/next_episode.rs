@@ -769,21 +769,18 @@ const SEASON_TWO_STREAM: &str =
 const SEASON_TWO_OPENING: &str = "https://stream.example.org/v/tt0903747-2-1-1080p.mkv";
 
 const TMDB_KEY: &str = "0123456789abcdef0123456789abcdef";
-const TMDB_TV_1396: &str =
-    "https://api.themoviedb.org/3/tv/1396?api_key=0123456789abcdef0123456789abcdef";
-const TMDB_TV_1396_SEASON_0: &str =
-    "https://api.themoviedb.org/3/tv/1396/season/0?api_key=0123456789abcdef0123456789abcdef";
-const TMDB_TV_1396_SEASON_1: &str =
-    "https://api.themoviedb.org/3/tv/1396/season/1?api_key=0123456789abcdef0123456789abcdef";
-const TMDB_TV_1396_SEASON_2: &str =
-    "https://api.themoviedb.org/3/tv/1396/season/2?api_key=0123456789abcdef0123456789abcdef";
+/// The one request a series' details and its Videos are read with.
+const TMDB_TV_1396: &str = concat!(
+    "https://api.themoviedb.org/3/tv/1396?append_to_response=",
+    "season/0,season/1,season/2,season/3,season/4,season/5,season/6,season/7,",
+    "season/8,season/9,season/10,season/11,season/12,season/13,season/14,season/15,",
+    "season/16,season/17,season/18,season/19",
+    "&api_key=0123456789abcdef0123456789abcdef",
+);
 const TMDB_EXTERNAL_IDS_BB: &str =
     "https://api.themoviedb.org/3/tv/1396/external_ids?api_key=0123456789abcdef0123456789abcdef";
 
-const TMDB_TV_DETAILS: &str = include_str!("fixtures/tmdb-tv-details.json");
-const TMDB_TV_SEASON_0: &str = include_str!("fixtures/tmdb-tv-season-0.json");
-const TMDB_TV_SEASON_1: &str = include_str!("fixtures/tmdb-tv-season-1.json");
-const TMDB_TV_SEASON_2: &str = include_str!("fixtures/tmdb-tv-season-2.json");
+const TMDB_TV_DETAILS_APPENDED: &str = include_str!("fixtures/tmdb-tv-details-appended.json");
 const TMDB_EXTERNAL_BB: &str = include_str!("fixtures/tmdb-external-ids-bb.json");
 
 #[test]
@@ -800,10 +797,7 @@ fn a_tmdb_keyed_episode_steps_to_tmdbs_own_next_and_is_asked_in_the_playing_addo
                 NEXT_EPISODE_STREAM,
                 format!(r#"{{"streams":[{{"name":"1080p","url":"{NEXT_EPISODE_NEXT}"}}]}}"#),
             )
-            .serving(TMDB_TV_1396, TMDB_TV_DETAILS)
-            .serving(TMDB_TV_1396_SEASON_0, TMDB_TV_SEASON_0)
-            .serving(TMDB_TV_1396_SEASON_1, TMDB_TV_SEASON_1)
-            .serving(TMDB_TV_1396_SEASON_2, TMDB_TV_SEASON_2)
+            .serving(TMDB_TV_1396, TMDB_TV_DETAILS_APPENDED)
             .serving(TMDB_EXTERNAL_IDS_BB, TMDB_EXTERNAL_BB),
     );
     let mut host = Host::new(
@@ -856,6 +850,15 @@ fn a_tmdb_keyed_episode_steps_to_tmdbs_own_next_and_is_asked_in_the_playing_addo
         "the playing Addon was asked in the `tt` spelling it declares, resolved from TMDB: {:?}",
         fetcher.asked()
     );
+    let asked = fetcher.asked();
+    assert_eq!(
+        asked
+            .iter()
+            .filter(|url| url.starts_with("https://api.themoviedb.org/3/tv/1396?"))
+            .count(),
+        1,
+        "the step reads TMDB's list with the same batched details request, not one ask per season: {asked:?}"
+    );
 }
 
 #[test]
@@ -868,10 +871,7 @@ fn a_tmdb_keyed_series_walks_its_numbered_seasons_and_stops_before_the_specials(
                 SEASON_TWO_STREAM,
                 format!(r#"{{"streams":[{{"name":"1080p","url":"{SEASON_TWO_OPENING}"}}]}}"#),
             )
-            .serving(TMDB_TV_1396, TMDB_TV_DETAILS)
-            .serving(TMDB_TV_1396_SEASON_0, TMDB_TV_SEASON_0)
-            .serving(TMDB_TV_1396_SEASON_1, TMDB_TV_SEASON_1)
-            .serving(TMDB_TV_1396_SEASON_2, TMDB_TV_SEASON_2)
+            .serving(TMDB_TV_1396, TMDB_TV_DETAILS_APPENDED)
             .serving(TMDB_EXTERNAL_IDS_BB, TMDB_EXTERNAL_BB),
     );
     let mut host = Host::new(

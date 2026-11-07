@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::action::{Action, ActionError, ValidatedAction};
 use crate::addon::{Addon, AddonId, Manifest};
+use crate::background::{BackgroundQueue, Job, RevisionSink};
 use crate::cache::CatalogCache;
 use crate::clock::Clock;
 use crate::device::{Device, DeviceSummary, DeviceToken};
@@ -100,6 +101,11 @@ pub struct Host {
     /// store (ADR-0038). Shared with every view: a question reads it before it
     /// fetches, and keeps what it fetches.
     titles: Arc<Mutex<TitleCache>>,
+    /// The work waiting to run outside the change lock: a stale Title's
+    /// refresh, and — as later tickets add them — a read-ahead. Shared with
+    /// every view, because a stale open is resolved by one and queued here
+    /// (ADR-0038 §2).
+    background: Arc<Mutex<BackgroundQueue>>,
 }
 
 impl Host {
@@ -195,6 +201,7 @@ impl Host {
             stremio: None,
             library_cache: Arc::new(Mutex::new(LibraryCache::default())),
             titles,
+            background: Arc::new(Mutex::new(BackgroundQueue::default())),
         })
     }
 
@@ -281,6 +288,7 @@ impl Host {
                 library_cache: self.library_cache.clone(),
                 stremio: self.stremio.clone(),
                 titles: self.titles.clone(),
+                background: self.background.clone(),
                 clock: self.clock.clone(),
                 // The Titles behind Watch progress, frozen with the rest of
                 // the view: a cache write from this question must not evict one
@@ -306,15 +314,52 @@ impl Host {
     /// same two halves through [`crate::HostDoor`], which holds the change lock
     /// around a change; a direct caller here is serialized by `&mut self`.
     pub fn dispatch(&mut self, action: Action) -> Result<Response, ActionError> {
+        self.dispatch_asking(action, None)
+    }
+
+    /// The same dispatch, saying where an Answer that follows the Response goes.
+    ///
+    /// A stale Title's open queues a refresh and answers the cached copy; when
+    /// the refresh lands and differs, `revisions` receives the revised Answer
+    /// (ADR-0038 §2). A caller with nobody to tell — every test that does not
+    /// care about the revision — uses [`Host::dispatch`].
+    pub fn dispatch_asking(
+        &mut self,
+        action: Action,
+        revisions: Option<Arc<dyn RevisionSink>>,
+    ) -> Result<Response, ActionError> {
         let validated = action.validate()?;
         if validated.is_question() {
             // A question changed nothing anyone else can see, so there is no
             // Snapshot to publish and the revision does not move.
-            let answer = self.view().ask(validated)?;
+            let answer = self.view().ask(validated, revisions.as_ref())?;
             Ok(Response::answered(answer))
         } else {
             self.apply(validated)
         }
+    }
+
+    /// Take every background job waiting, so the caller can run it with the
+    /// Host's change lock released.
+    pub(crate) fn take_jobs(&self) -> Vec<Job> {
+        self.background
+            .lock()
+            .expect("the background queue is not poisoned")
+            .take()
+    }
+
+    /// Run every background job waiting, a bounded fan-out at a time, and
+    /// answer how many ran.
+    ///
+    /// The shell calls this from its worker thread; tests call it inline. The
+    /// fetches happen on a view of their own with no lock across them, the way
+    /// a question's fetches do (ADR-0022, ADR-0023, ADR-0038 §3).
+    pub fn drain(&mut self) -> usize {
+        let jobs = self.take_jobs();
+        if jobs.is_empty() {
+            return 0;
+        }
+        self.view().drain(jobs)
     }
 
     /// Apply one change, publishing the Snapshot it owes and answering where it

@@ -63,6 +63,31 @@ export function answeredTitle(response: Response | null): Title | null {
 }
 
 /**
+ * The Title a revised Answer carries, where the payload is one.
+ *
+ * A revision arrives after the Response that opened its Title, on its own event
+ * or frame (ADR-0038 §2). A link reads the payload it was handed and hands the
+ * Title on; anything that is not one is ignored rather than guessed at.
+ */
+export function revisedTitleOf(answer: unknown): Title | null {
+  if (typeof answer !== "object" || answer === null) {
+    return null;
+  }
+  const revision = (answer as { revision?: unknown }).revision;
+  if (typeof revision !== "object" || revision === null) {
+    return null;
+  }
+
+  const title = revision as Title;
+  return typeof title.id === "string" &&
+    typeof title.type === "string" &&
+    typeof title.name === "string" &&
+    Array.isArray(title.videos)
+    ? title
+    : null;
+}
+
+/**
  * The Stream groups an answer carries, when the Action was a `find_streams`:
  * one per Addon that answered, in the configured order.
  */

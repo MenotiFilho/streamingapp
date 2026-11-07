@@ -13,7 +13,8 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, DeviceSummary, DeviceToken, Host, HostDoor, Response, Snapshot,
+    Action, ActionError, Answer, DeviceSummary, DeviceToken, Host, HostDoor, Response,
+    RevisionSink, Snapshot,
 };
 use host_wire::{Broadcast, Surface};
 use serde_json::Value;
@@ -22,6 +23,11 @@ use tauri::{AppHandle, Emitter, Manager};
 /// The event the Host publishes Snapshots on. A client listens, and never polls
 /// for state it changed itself.
 pub const SNAPSHOT_EVENT: &str = "host://snapshot";
+
+/// The event the Host delivers a revised Answer on: a stale Title's background
+/// refresh landed and differs (ADR-0038 §2). It goes to the window that asked,
+/// and is not a Snapshot: the window swaps it in only while that Title is open.
+pub const REVISION_EVENT: &str = "host://revision";
 
 /// The Host, as the window's commands hold it.
 ///
@@ -35,10 +41,19 @@ impl HostHandle {
         Self(HostDoor::new(host))
     }
 
-    /// Take an Action, without publishing what came of it: the callers differ in
-    /// where they publish, and there is one place for each of them.
-    pub fn dispatch(&self, action: Action) -> Result<Response, ActionError> {
-        self.0.dispatch(action)
+    /// Take an Action, saying where a revised Answer goes when the Action was a
+    /// stale Title's open (ADR-0038 §2).
+    pub fn dispatch_asking(
+        &self,
+        action: Action,
+        revisions: Option<Arc<dyn RevisionSink>>,
+    ) -> Result<Response, ActionError> {
+        self.0.dispatch_asking(action, revisions)
+    }
+
+    /// Run what the background queue is holding, a bounded fan-out at a time.
+    pub fn drain(&self) -> usize {
+        self.0.drain()
     }
 
     /// Read the Player and fold what it reports into state, publishing a
@@ -103,11 +118,32 @@ pub fn snapshot(host: tauri::State<'_, HostHandle>) -> Snapshot {
 pub fn dispatch(app: AppHandle, envelope: Value) -> Result<Response, ActionError> {
     let action: Action = Action::parse_value(&envelope)?;
     let host = app.state::<HostHandle>();
-    let response = host.dispatch(action)?;
+    let revisions: Arc<dyn RevisionSink> = Arc::new(WindowRevisions { app: app.clone() });
+    let response = host.dispatch_asking(action, Some(revisions))?;
 
     publish(&app, &response.snapshots);
 
     Ok(response)
+}
+
+/// The window's way to be told a revised Answer after its Reply.
+///
+/// The Host's own window is one client, so "the client that asked" is always
+/// this window. A revision is an Answer and not a Snapshot (ADR-0038 §2,
+/// ADR-0005): it rides its own event, and the window ignores it unless that
+/// Title is still open.
+struct WindowRevisions {
+    app: AppHandle,
+}
+
+impl RevisionSink for WindowRevisions {
+    fn revise(&self, answer: Answer) {
+        if let Err(error) = self.app.emit(REVISION_EVENT, answer) {
+            // The window that asked may be closing or reloading. There is nobody
+            // left to tell, and nothing the Host should undo over it.
+            tracing::debug!(%error, "no window took the revised Answer");
+        }
+    }
 }
 
 /// Send Snapshots to every window that is listening, and to every paired remote
@@ -146,8 +182,15 @@ impl WireSurface {
 }
 
 impl Surface for WireSurface {
-    fn dispatch(&self, action: Action) -> Result<Response, ActionError> {
-        let response = self.app.state::<HostHandle>().dispatch(action)?;
+    fn dispatch(
+        &self,
+        action: Action,
+        revisions: Arc<dyn RevisionSink>,
+    ) -> Result<Response, ActionError> {
+        let response = self
+            .app
+            .state::<HostHandle>()
+            .dispatch_asking(action, Some(revisions))?;
         publish(&self.app, &response.snapshots);
         Ok(response)
     }

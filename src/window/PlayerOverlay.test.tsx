@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
+import { SNAPSHOT_EVENT } from "../core/wire";
 import type {
   Action,
   AddonStreams,
@@ -175,7 +176,7 @@ function fakeHost(
   respond?: Answering,
 ) {
   const invocations: Array<{ command: string; args?: Record<string, unknown> }> = [];
-  let listener: ((event: { payload: Snapshot }) => void) | undefined;
+  const listeners = new Map<string, (event: { payload: Snapshot }) => void>();
   let current = initial;
 
   const transport: Transport = {
@@ -207,10 +208,13 @@ function fakeHost(
       }
       return { snapshots: [], answer: null } as T;
     },
-    listen: async <T,>(_event: string, handler: (event: { payload: T }) => void) => {
-      listener = handler as (event: { payload: Snapshot }) => void;
+    listen: async <T,>(event: string, handler: (event: { payload: T }) => void) => {
+      const listener = handler as (event: { payload: Snapshot }) => void;
+      listeners.set(event, listener);
       return () => {
-        listener = undefined;
+        if (listeners.get(event) === listener) {
+          listeners.delete(event);
+        }
       };
     },
   };
@@ -220,7 +224,7 @@ function fakeHost(
     invocations,
     publish(next: Snapshot) {
       current = next;
-      listener?.({ payload: next });
+      listeners.get(SNAPSHOT_EVENT)?.({ payload: next });
     },
   };
 }
@@ -282,6 +286,7 @@ function resumeEntry(overrides: Partial<ResumeEntry> = {}): ResumeEntry {
       season: 1,
       episode: 1,
       thumbnail: "https://images.test/episode-one.jpg",
+      airDate: null,
     },
     title: {
       addon: "community.aiostreams",
@@ -332,9 +337,9 @@ const EPISODES_TITLE: Title = {
   imdbRating: null,
   genres: [],
   videos: [
-    { id: "tt7777777:1:1", name: "Episode One", season: 1, episode: 1, thumbnail: null },
-    { id: "tt7777777:1:2", name: "Episode Two", season: 1, episode: 2, thumbnail: null },
-    { id: "tt7777777:2:1", name: "Season Two, One", season: 2, episode: 1, thumbnail: null },
+    { id: "tt7777777:1:1", name: "Episode One", season: 1, episode: 1, thumbnail: null, airDate: null },
+    { id: "tt7777777:1:2", name: "Episode Two", season: 1, episode: 2, thumbnail: null, airDate: null },
+    { id: "tt7777777:2:1", name: "Season Two, One", season: 2, episode: 1, thumbnail: null, airDate: null },
   ],
 };
 

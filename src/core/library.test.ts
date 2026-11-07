@@ -5,7 +5,7 @@ import type { ContinueEntry } from "./wire";
 
 function entry(overrides: Partial<ContinueEntry> = {}): ContinueEntry {
   return {
-    video: { id: "tt0133093", name: null, season: null, episode: null, thumbnail: null },
+    video: { id: "tt0133093", name: null, season: null, episode: null, thumbnail: null, airDate: null },
     title: {
       addon: "com.linvo.cinemeta",
       id: "tt0133093",
@@ -53,7 +53,7 @@ test("a card is named by its Title, and by the episode where the Video is one", 
   expect(
     cardName(
       entry({
-        video: { id: "tt0903747:1:2", name: "Cat's in the Bag...", season: 1, episode: 2, thumbnail: null },
+        video: { id: "tt0903747:1:2", name: "Cat's in the Bag...", season: 1, episode: 2, thumbnail: null, airDate: null },
         title: {
           addon: "com.linvo.cinemeta",
           id: "tt0903747",

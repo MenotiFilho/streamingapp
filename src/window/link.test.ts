@@ -3,8 +3,8 @@ import { describe, expect, test, vi } from "vitest";
 import type { ActionError } from "../core/errors";
 import type { LinkCapabilities, LinkContractFixture } from "../core/testing/linkContract";
 import { describeLinkContract } from "../core/testing/linkContract";
-import { ACTION_VERSION, SNAPSHOT_EVENT } from "../core/wire";
-import type { Action, Response, Snapshot } from "../core/wire";
+import { ACTION_VERSION, REVISION_EVENT, SNAPSHOT_EVENT } from "../core/wire";
+import type { Action, Response, Snapshot, Title } from "../core/wire";
 import { PreviewLink } from "./previewLink";
 import { previewTransport } from "./repertory/previewHost";
 import { TauriLink } from "./tauriLink";
@@ -55,6 +55,24 @@ const ACCEPTED: Action = { type: "preview", at: 12 };
 const REFUSED: Action = { type: "set_volume", level: 999 };
 const REFUSAL: ActionError = { kind: "invalid_volume", level: "999" };
 
+/** A Title a background refresh answers again (ADR-0038 §2). */
+const REVISED: Title = {
+  addon: "cinemeta",
+  id: "tt1",
+  key: { kind: "addon", addon: "cinemeta", id: "tt1" },
+  type: "movie",
+  name: "One, again",
+  poster: null,
+  background: null,
+  logo: null,
+  description: null,
+  releaseInfo: null,
+  runtime: null,
+  imdbRating: null,
+  genres: [],
+  videos: [],
+};
+
 /**
  * The Tauri Host's transport as a test can hold it: what it holds, the calls it
  * read in order, the Snapshots it can publish, and the listeners it installed.
@@ -66,6 +84,7 @@ function fakeTauriHost(initial: Snapshot = NOTHING) {
   const actions: Action[] = [];
   const answers: Response[] = [];
   const listeners = new Set<(event: { payload: Snapshot }) => void>();
+  const revisionListeners = new Set<(event: { payload: unknown }) => void>();
   let unlistened = 0;
 
   const transport: Transport = {
@@ -94,6 +113,14 @@ function fakeTauriHost(initial: Snapshot = NOTHING) {
       return answer as T;
     },
     listen: async <T,>(event: string, handler: (event: { payload: T }) => void) => {
+      if (event === REVISION_EVENT) {
+        const listener = handler as (event: { payload: unknown }) => void;
+        revisionListeners.add(listener);
+        return () => {
+          unlistened += 1;
+          revisionListeners.delete(listener);
+        };
+      }
       if (event !== SNAPSHOT_EVENT) {
         return () => undefined;
       }
@@ -115,12 +142,19 @@ function fakeTauriHost(initial: Snapshot = NOTHING) {
     commands: (): readonly string[] => commands,
     unlistened: (): number => unlistened,
     listeners: (): number => listeners.size,
+    revisionListeners: (): number => revisionListeners.size,
     publish: async (): Promise<Snapshot> => {
       held = { ...held, revision: held.revision + 1 };
       for (const listener of [...listeners]) {
         listener({ payload: held });
       }
       return held;
+    },
+    /** Send one revised Answer, as a background refresh does (ADR-0038 §2). */
+    revise: (title: Title): void => {
+      for (const listener of [...revisionListeners]) {
+        listener({ payload: { revision: title } });
+      }
     },
   };
 }
@@ -329,6 +363,21 @@ describe("the Tauri link's adapter", () => {
 
     await vi.waitFor(() => expect(host.unlistened()).toBe(2));
     expect(host.listeners()).toBe(0);
+  });
+
+  test("a revised Title arrives as the Title it revises, and stops when unsubscribed", async () => {
+    const host = fakeTauriHost();
+    const link = new TauriLink(host.transport);
+    const seen: Title[] = [];
+    const stop = link.onRevision((title) => seen.push(title));
+
+    host.revise(REVISED);
+    expect(seen).toEqual([REVISED]);
+
+    stop();
+    host.revise(REVISED);
+    expect(seen, "an unsubscribed screen hears nothing more").toEqual([REVISED]);
+    await vi.waitFor(() => expect(host.revisionListeners()).toBe(0));
   });
 });
 

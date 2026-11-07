@@ -133,6 +133,7 @@ describe("the Player OSD rehearsal", () => {
       season: null,
       episode: null,
       thumbnail: "https://images.metahub.space/background/medium/tt14173636/img",
+      airDate: null,
     },
     title: {
       addon: "cinemeta",

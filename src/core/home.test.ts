@@ -21,7 +21,7 @@ function meta(overrides: Partial<MetaPreview> = {}): MetaPreview {
 
 function entry(overrides: Partial<ContinueEntry> = {}): ContinueEntry {
   return {
-    video: { id: "tt0133093", name: null, season: null, episode: null, thumbnail: null },
+    video: { id: "tt0133093", name: null, season: null, episode: null, thumbnail: null, airDate: null },
     title: {
       addon: "com.linvo.cinemeta",
       id: "tt0133093",

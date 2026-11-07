@@ -92,7 +92,7 @@ $Steps = @(
     [pscustomobject]@{ Id = 20; Title = 'removing the Addon'; Ground = 'rows'; After = @(); Need = 'the fixture Addon configured, at Home (it removes it)' }
     [pscustomobject]@{ Id = 21; Title = 'the manifest URL and the TMDB key never reach the log'; Ground = ''; After = @(19, 20); Need = 'steps 19 and 20: the log they wrote, the TMDB key and the removed Addon' }
     [pscustomobject]@{ Id = 22; Title = 'the data directory'; Ground = 'data'; After = @(); Need = 'the data directory (made if a Host has not)' }
-    [pscustomobject]@{ Id = 23; Title = 'Watch progress outlives a Host that was killed, and the row resumes it'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it plays an episode, kills the Host, starts it again, and resumes)' }
+    [pscustomobject]@{ Id = 23; Title = 'Watch progress outlives a killed Host; the card opens its anchored Title, and Resume resumes it'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it plays an episode, kills the Host, starts it again, opens the card''s Title and presses Resume)' }
     [pscustomobject]@{ Id = 24; Title = 'Settings > Credentials: signing in to Stremio, and out again'; Ground = 'addon'; After = @(); Need = 'a real Stremio account: it waits while you sign in by hand in the window, then checks and signs out again' }
     [pscustomobject]@{ Id = 25; Title = 'Settings > Remote devices: pairing a phone browser and revoking it'; Ground = 'addon'; After = @(); Need = 'a second device on the same network: it waits while you pair by hand in a browser, then revokes' }
     [pscustomobject]@{ Id = 26; Title = 'the full remote: browse, play and control from another device'; Ground = 'addon'; After = @(); Need = 'a playable Stream and a second device: it waits while you browse, play, pause and seek from a browser on that device' }
@@ -2283,7 +2283,7 @@ function Step-22($ctx) {
 }
 
 function Step-23($ctx) {
-    '--- 23. Watch progress outlives a Host that was killed, and the row resumes it'
+    '--- 23. Watch progress outlives a killed Host; the card opens its anchored Title, and Resume resumes it'
     $app = $ctx.App
     # An episode of the fixture's series is what is watched, because Watch
     # progress is per Video (#29): the fixture's two episodes are separate
@@ -2342,14 +2342,32 @@ function Step-23($ctx) {
     # row without spelling the whole accessible name.
     $cards = Continue-Cards $app
     if ($cards.Count -eq 0) {
-        Skip 'resuming from the Continue watching row' (
+        Skip 'opening the Title from the Continue watching row' (
             "the row drew no partly-watched card: showed $text")
         return
     }
     Press-Element $app $cards[0]
+
+    # A card opens its Title, not its Stream (#275). The Title opens anchored on
+    # the card's Video: the card's episode is the one focused, and the main
+    # control is Resume with what is left.
+    $text = Wait-Text $app 'Resume S1E1' 30
+    $focused = Focused-Name
+    Shot $app '23-anchored-title.png'
+    Check 'pressing the card opens the Title rather than resuming the Stream' (
+        $text -match 'Resume S1E1') "showed: $text"
+    Check 'and the Title is anchored on the card''s episode, with focus on it' (
+        $focused -match 'S1E1') "focus is on '$focused'"
+
+    $resume = @(Buttons-Matching $app 'Resume S1E1')[0]
+    if (-not $resume) {
+        Skip 'the Title''s Resume button' "the Title offered no Resume control: $(Page-Text $app)"
+        return
+    }
+    Press-Element $app $resume
     $playing = Wait-Shows $app 'Pause' 45
     Shot $app '23-resumed.png'
-    Check 'pressing the card plays the Video again' $playing "showed: $(Page-Text $app)"
+    Check 'Resume plays the Video again' $playing "showed: $(Page-Text $app)"
     if ($playing) {
         Wake-Osd $app
         $resumed = Position-Seconds $app
@@ -2357,10 +2375,9 @@ function Step-23($ctx) {
             ($resumed -ge 0) -and ($resumed -ge ($watched - 15))) (
             "it was left at $watched s and resumed at $resumed s")
         Press-Button $app 'Stop'
-        # Stop returns to the Streams level; Home is two Backs away.
+        # Stop returns to the Title it was resumed from; Home is one Back away.
         Press-Keys $app '{ESC}'
         Start-Sleep -Milliseconds 500
-        Press-Keys $app '{ESC}'
         Wait-Text $app 'Continue watching' 20 | Out-Null
     }
 }

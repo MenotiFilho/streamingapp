@@ -131,7 +131,7 @@ const completePage = vi.fn(async (action: Action) => {
 
 function resumeEntry(overrides: Partial<ContinueEntry> = {}): ContinueEntry {
   return {
-    video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
+    video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },
     title: {
       addon: "cinemeta",
       id: "tt1",
@@ -616,7 +616,7 @@ describe("Home's feature presentation", () => {
 });
 
 describe("Home's Continue watching", () => {
-  it("draws the kit card and resumes the Video the Host recorded", async () => {
+  it("draws the kit card and opens the Title the Host recorded", async () => {
     const { take } = renderHome({
       snapshot: { ...BASE_SNAPSHOT, continueWatching: [resumeEntry()] },
     });
@@ -627,8 +627,39 @@ describe("Home's Continue watching", () => {
     fireEvent.click(card);
 
     expect(take).toHaveBeenCalledWith({
-      type: "resume",
-      video: { type: "series", id: "tt1:1:1" },
+      type: "open_title",
+      addon: "cinemeta",
+      title: { type: "series", id: "tt1" },
+    });
+  });
+
+  it("opens a card whose stub names no Addon through TMDB", async () => {
+    const { take } = renderHome({
+      snapshot: {
+        ...BASE_SNAPSHOT,
+        continueWatching: [
+          resumeEntry({
+            video: { id: "tmdb:603:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },
+            title: {
+              addon: null,
+              id: "tmdb:603",
+              type: "series",
+              name: "The Matrix",
+              poster: null,
+              background: null,
+            },
+          }),
+        ],
+      },
+    });
+    await flush();
+
+    fireEvent.click(screen.getByTestId("resume-tmdb:603:1:1"));
+
+    expect(take).toHaveBeenCalledWith({
+      type: "open_discovered_title",
+      key: { kind: "tmdb", id: 603 },
+      kind: "series",
     });
   });
 
@@ -683,7 +714,7 @@ describe("Home's Continue watching", () => {
     expect(screen.queryByTestId("home-continue")).not.toBeInTheDocument();
   });
 
-  it("opens the whole row and resumes the Video from a card there", async () => {
+  it("opens the whole row and opens the Title from a card there", async () => {
     const { pushed, take, value } = renderHome({
       snapshot: { ...BASE_SNAPSHOT, continueWatching: [resumeEntry()] },
     });
@@ -698,8 +729,9 @@ describe("Home's Continue watching", () => {
     fireEvent.click(card);
 
     expect(take).toHaveBeenCalledWith({
-      type: "resume",
-      video: { type: "series", id: "tt1:1:1" },
+      type: "open_title",
+      addon: "cinemeta",
+      title: { type: "series", id: "tt1" },
     });
   });
 });

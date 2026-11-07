@@ -27,6 +27,7 @@ export function quietSession(
       return outcome.response ?? { snapshots: [], answer: null };
     },
     onSnapshot: () => () => {},
+    onRevision: () => () => {},
     state: () => ({ kind: "ready", device: null }),
     onState: () => () => {},
     close: () => {},

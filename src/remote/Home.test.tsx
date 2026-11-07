@@ -20,6 +20,7 @@ import type {
   MetaPreview,
   Response,
   Snapshot,
+  Title,
 } from "../core/wire";
 import { Home } from "./Home";
 import { NOTHING } from "./fakeSocket.testing";
@@ -135,6 +136,7 @@ class FakeHost implements HostLink {
   readonly actions: Action[] = [];
   private held: Snapshot;
   private readonly snapshotHandlers = new Set<(snapshot: Snapshot) => void>();
+  private readonly revisionHandlers = new Set<(title: Title) => void>();
   private readonly stateHandlers = new Set<(state: LinkState) => void>();
 
   constructor(
@@ -164,6 +166,13 @@ class FakeHost implements HostLink {
     };
   }
 
+  onRevision(handler: (title: Title) => void): () => void {
+    this.revisionHandlers.add(handler);
+    return () => {
+      this.revisionHandlers.delete(handler);
+    };
+  }
+
   state(): LinkState {
     return { kind: "ready", device: null };
   }
@@ -177,6 +186,7 @@ class FakeHost implements HostLink {
 
   close(): void {
     this.snapshotHandlers.clear();
+    this.revisionHandlers.clear();
     this.stateHandlers.clear();
   }
 
@@ -719,8 +729,7 @@ describe("Home's presses", () => {
 
   test("a Continue watching card pushes the Title, and an entry with no Addon does not", async () => {
     const entry: ContinueEntry = {
-      video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
-      title: {
+      video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },      title: {
         addon: "cinemeta",
         id: "tt1",
         type: "series",
@@ -755,7 +764,7 @@ describe("Home's presses", () => {
 
   test("the Continue watching rail is one card per Host entry, not per Video's progress", async () => {
     const entry: ContinueEntry = {
-      video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
+      video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },
       title: {
         addon: "cinemeta",
         id: "tt1",
@@ -788,7 +797,7 @@ describe("Home's presses", () => {
 
   test("per-Video Watch progress alone draws no Continue watching rail", async () => {
     const entry: ContinueEntry = {
-      video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
+      video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },
       title: {
         addon: "cinemeta",
         id: "tt1",
@@ -854,8 +863,7 @@ describe("Home's presses", () => {
 
   test("the Continue watching rail's More card opens its whole row", async () => {
     const entry: ContinueEntry = {
-      video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
-      title: {
+      video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },      title: {
         addon: "cinemeta",
         id: "tt1",
         type: "series",

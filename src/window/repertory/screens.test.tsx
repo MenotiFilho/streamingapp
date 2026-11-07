@@ -7,6 +7,7 @@ import type {
   Action,
   AddonManifest,
   CatalogRow,
+  ContinueEntry,
   Snapshot,
   Stream,
   Title,
@@ -116,6 +117,7 @@ const SERIES: Title = {
       season: 1,
       episode: 1,
       thumbnail: "https://images.test/bb-s1e1.jpg",
+      airDate: null,
     },
     {
       id: "tt0903747:1:2",
@@ -123,6 +125,7 @@ const SERIES: Title = {
       season: 1,
       episode: 2,
       thumbnail: null,
+      airDate: null,
     },
   ],
 };
@@ -141,6 +144,19 @@ const FILM: Title = {
   videos: [],
 };
 
+/**
+ * The same series with its second episode announced: an air date in the future
+ * marks it "Airs" but must not take the press away (#269).
+ */
+const UNAIRED: Title = {
+  ...SERIES,
+  videos: SERIES.videos.map((video) =>
+    video.id === "tt0903747:1:2"
+      ? { ...video, airDate: "2999-01-02" }
+      : video,
+  ),
+};
+
 /** A series with enough seasons for its chip rail to overflow a narrow view. */
 const MANY_SEASONS: Title = {
   ...SERIES,
@@ -152,8 +168,28 @@ const MANY_SEASONS: Title = {
     season,
     episode: 1,
     thumbnail: null,
+    airDate: null,
   })),
 };
+
+function continueEntry(overrides: Partial<ContinueEntry> = {}): ContinueEntry {
+  return {
+    video: { id: "tt0903747:1:2", name: null, season: 1, episode: 2, thumbnail: null, airDate: null },
+    title: {
+      addon: "com.linvo.cinemeta",
+      id: "tt0903747",
+      type: "series",
+      name: "Breaking Bad",
+      poster: null,
+      background: null,
+    },
+    position: 300,
+    duration: 600,
+    watched: false,
+    unplayable: null,
+    ...overrides,
+  };
+}
 
 const UNPLAYABLE: Stream = {
   name: "Torrentio\n4k HDR",
@@ -266,6 +302,16 @@ describe("the repertory Title page", () => {
     expect(pushed[0]?.name).toBe("Streams");
   });
 
+  it("keeps an announced episode playable: its press pushes Streams", () => {
+    const { value, pushed } = harness();
+    render(withShell(value, <RepertoryTitleScreen title={UNAIRED} />));
+
+    fireEvent.click(screen.getByTestId("episode-tt0903747:1:2"));
+
+    expect(pushed).toHaveLength(1);
+    expect(pushed[0]?.name).toBe("Streams");
+  });
+
   it("gives a film one Find Streams control that pushes the Streams level", () => {
     const { value, pushed } = harness();
     render(withShell(value, <RepertoryTitleScreen title={FILM} />));
@@ -274,6 +320,57 @@ describe("the repertory Title page", () => {
 
     expect(pushed).toHaveLength(1);
     expect(pushed[0]?.name).toBe("Streams");
+  });
+
+  it("opens on the season of the Continue watching Video and focuses that episode", () => {
+    const { value } = harness({
+      snapshot: {
+        ...SNAPSHOT,
+        continueWatching: [
+          continueEntry({
+            video: { id: "tt-seasons:4:1", name: null, season: 4, episode: 1, thumbnail: null, airDate: null },
+            title: {
+              addon: "com.linvo.cinemeta",
+              id: "tt-seasons",
+              type: "series",
+              name: "Many Seasons",
+              poster: null,
+              background: null,
+            },
+          }),
+        ],
+      },
+    });
+    render(withShell(value, <RepertoryTitleScreen title={MANY_SEASONS} />));
+
+    expect(screen.getByTestId("season-4")).toHaveAttribute("aria-pressed", "true");
+    expect(document.activeElement).toBe(screen.getByTestId("episode-tt-seasons:4:1"));
+  });
+
+  it("offers Resume with the time left and takes today's resume Action", () => {
+    const { value, take } = harness({
+      snapshot: { ...SNAPSHOT, continueWatching: [continueEntry()] },
+    });
+    render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
+
+    const resume = screen.getByTestId("title-resume");
+    expect(resume).toHaveTextContent("Resume S1E2 · 5 min left");
+
+    fireEvent.click(resume);
+
+    expect(take).toHaveBeenCalledWith({
+      type: "resume",
+      video: { type: "series", id: "tt0903747:1:2" },
+    });
+  });
+
+  it("keeps a Title with no entry at its beginning, with no main control", () => {
+    const { value } = harness();
+    render(withShell(value, <RepertoryTitleScreen title={SERIES} />));
+
+    expect(screen.queryByTestId("title-resume")).not.toBeInTheDocument();
+    expect(screen.getByTestId("season-1")).toHaveAttribute("aria-pressed", "true");
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Back" }));
   });
 
   it("draws the season chips in the Host's order, so the Specials chip is last", () => {
@@ -287,6 +384,7 @@ describe("the repertory Title page", () => {
           season: 1,
           episode: 1,
           thumbnail: null,
+          airDate: null,
         },
         {
           id: "tt0903747:2:1",
@@ -294,6 +392,7 @@ describe("the repertory Title page", () => {
           season: 2,
           episode: 1,
           thumbnail: null,
+          airDate: null,
         },
         {
           id: "tt0903747:0:1",
@@ -301,6 +400,7 @@ describe("the repertory Title page", () => {
           season: 0,
           episode: 1,
           thumbnail: null,
+          airDate: null,
         },
       ],
     };
