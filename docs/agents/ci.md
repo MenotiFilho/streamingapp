@@ -16,6 +16,11 @@ It checks the pull request's head out into a throwaway worktree, so nothing
 uncommitted in your checkout reaches the result, and posts the outcome as a
 commit status named `verify` on the head commit.
 
+It needs only `gh` to be logged in: the script fetches the base and the head
+over HTTPS with `gh`'s credential, not through `origin`'s SSH URL, so it works
+without an SSH key or agent. It writes the same `origin/*` refs a plain fetch
+would and changes no git config.
+
 ## Why not GitHub's runners
 
 The repository is private on the free plan: GitHub's hosted runners stopped

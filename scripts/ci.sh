@@ -40,7 +40,14 @@ status() {
     -f state="$1" -f context=verify -f description="$2" --silent
 }
 
-git -C "$root" fetch --quiet --no-tags origin "$base_ref" "$head_ref"
+# Fetched over HTTPS with gh's own credential rather than through `origin`,
+# whose SSH URL needs a loaded key and an agent that does not always answer. The
+# refspecs write the same `origin/*` refs a plain fetch would, so everything
+# below reads them unchanged; nothing in the git config is touched.
+git -C "$root" -c credential.helper= -c 'credential.helper=!gh auth git-credential' \
+  fetch --quiet --no-tags "https://github.com/$repo.git" \
+  "+refs/heads/${base_ref}:refs/remotes/origin/${base_ref}" \
+  "+refs/heads/${head_ref}:refs/remotes/origin/${head_ref}"
 if [[ "$(git -C "$root" rev-parse "origin/$head_ref")" != "$head_sha" ]]; then
   echo "origin/$head_ref is not the PR's head $head_sha; fetch again." >&2
   exit 1
