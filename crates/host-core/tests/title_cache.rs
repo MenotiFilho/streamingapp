@@ -22,12 +22,18 @@ const TMDB_FIND_SERIES: &str =
     "https://api.themoviedb.org/3/find/tt0903747?external_source=imdb_id&api_key=0123456789abcdef0123456789abcdef";
 const TMDB_MOVIE_603: &str =
     "https://api.themoviedb.org/3/movie/603?api_key=0123456789abcdef0123456789abcdef";
-/// The one request a series' details and its Videos are read with.
+/// The one request a Discovered series' details and its Videos are read with.
 const TMDB_TV_1396: &str = concat!(
     "https://api.themoviedb.org/3/tv/1396?append_to_response=",
     "season/0,season/1,season/2,season/3,season/4,season/5,season/6,season/7,",
     "season/8,season/9,season/10,season/11,season/12,season/13,season/14,season/15,",
     "season/16,season/17,season/18,season/19",
+    "&api_key=0123456789abcdef0123456789abcdef",
+);
+/// The same request when the seasons are already known (the Addon's list, or
+/// the cached copy a refresh is re-reading): only those are appended (#270).
+const TMDB_TV_1396_KNOWN: &str = concat!(
+    "https://api.themoviedb.org/3/tv/1396?append_to_response=season/0,season/1,season/2",
     "&api_key=0123456789abcdef0123456789abcdef",
 );
 const TMDB_TV_200001: &str = concat!(
@@ -156,6 +162,7 @@ fn breaking_bad_fetcher() -> FixtureFetcher {
         .serving(CINEMETA, CINEMETA_MANIFEST)
         .serving(CINEMETA_SERIES, SERIES_BODY)
         .serving(TMDB_FIND_SERIES, TMDB_FIND_SERIES_BODY)
+        .serving(TMDB_TV_1396_KNOWN, TMDB_TV_DETAILS_APPENDED)
         .serving(TMDB_TV_1396, TMDB_TV_DETAILS_APPENDED)
 }
 
@@ -483,6 +490,21 @@ fn a_stale_title_whose_addon_is_gone_is_refetched_from_tmdb() {
     assert_eq!(
         refreshed.id, "tt0903747",
         "an Addon's id, kept however the refreshed copy is described"
+    );
+    assert_eq!(
+        refreshed
+            .videos
+            .iter()
+            .map(|video| video.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "tmdb:1396:1:1",
+            "tmdb:1396:1:2",
+            "tmdb:1396:1:3",
+            "tmdb:1396:2:1",
+            "tmdb:1396:0:1",
+        ],
+        "a refresh from TMDB alone still publishes the Title answer's order: specials last"
     );
     assert_eq!(
         fetcher.asked().len(),

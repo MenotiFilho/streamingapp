@@ -23,13 +23,21 @@ const TMDB_FIND_SERIES: &str =
     "https://api.themoviedb.org/3/find/tt0903747?external_source=imdb_id&api_key=0123456789abcdef0123456789abcdef";
 const TMDB_MOVIE_603: &str =
     "https://api.themoviedb.org/3/movie/603?api_key=0123456789abcdef0123456789abcdef";
-/// The one request a series' details and its Videos are read with: TMDB's
-/// twenty-item `append_to_response` cap, spent on seasons 0 to 19.
+/// The one request a Discovered series' details and its Videos are read with:
+/// TMDB's twenty-item `append_to_response` cap, spent on seasons 0 to 19.
 const TMDB_TV_1396: &str = concat!(
     "https://api.themoviedb.org/3/tv/1396?append_to_response=",
     "season/0,season/1,season/2,season/3,season/4,season/5,season/6,season/7,",
     "season/8,season/9,season/10,season/11,season/12,season/13,season/14,season/15,",
     "season/16,season/17,season/18,season/19",
+    "&api_key=0123456789abcdef0123456789abcdef",
+);
+
+/// The same record read through an Addon: the Addon's own episode list names
+/// its seasons (0, 1 and 2 here), so the details request appends exactly those
+/// (#270, ADR-0038 §4).
+const TMDB_TV_1396_ADDON: &str = concat!(
+    "https://api.themoviedb.org/3/tv/1396?append_to_response=season/0,season/1,season/2",
     "&api_key=0123456789abcdef0123456789abcdef",
 );
 
@@ -479,6 +487,7 @@ fn breaking_bad_fetcher() -> Arc<FixtureFetcher> {
             .serving(CINEMETA, CINEMETA_MANIFEST)
             .serving(CINEMETA_SERIES, SERIES_BODY)
             .serving(TMDB_FIND_SERIES, TMDB_FIND_SERIES_BODY)
+            .serving(TMDB_TV_1396_ADDON, TMDB_TV_DETAILS_APPENDED)
             .serving(TMDB_TV_1396, TMDB_TV_DETAILS_APPENDED),
     )
 }
@@ -535,6 +544,32 @@ fn appended_details_body(id: u32, all: &[u32], appended: &[u32]) -> String {
     }
 
     body.to_string()
+}
+
+/// An Addon's meta answer listing one episode in each season, so a Title's own
+/// season numbering is what the first TMDB batch is built from.
+fn series_body_with_seasons(seasons: &[u32]) -> String {
+    let videos: Vec<serde_json::Value> = seasons
+        .iter()
+        .map(|season| {
+            serde_json::json!({
+                "id": format!("tt0903747:{season}:1"),
+                "name": format!("Season {season}"),
+                "season": season,
+                "episode": 1,
+            })
+        })
+        .collect();
+
+    serde_json::json!({
+        "meta": {
+            "id": "tt0903747",
+            "type": "series",
+            "name": "Breaking Bad",
+            "videos": videos,
+        },
+    })
+    .to_string()
 }
 
 /// Where `url` happened in the asks a fetcher recorded, or a complaint.
@@ -815,6 +850,104 @@ fn a_series_maps_to_tmdb_and_its_record_supplies_its_videos() {
 }
 
 #[test]
+fn a_series_numbered_one_to_twenty_is_one_tmdb_request() {
+    // #270's acceptance criterion, for a series whose seasons do not start at
+    // the protocol's own specials number: the Addon's list names 1 to 20, so
+    // that is the one batch the details request carries.
+    let seasons: Vec<u32> = (1..=20).collect();
+    let url = season_batch_url(1396, &seasons);
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(CINEMETA_SERIES, series_body_with_seasons(&seasons))
+            .serving(TMDB_FIND_SERIES, TMDB_FIND_SERIES_BODY)
+            .serving(&url, appended_details_body(1396, &seasons, &seasons)),
+    );
+    let mut host = host_over(fetcher.clone(), Some(TMDB_KEY));
+
+    let title = opened(&mut host, open("com.linvo.cinemeta", "series", "tt0903747"));
+
+    let asked = fetcher.asked();
+    let reads: Vec<&String> = asked
+        .iter()
+        .filter(|url| url.starts_with("https://api.themoviedb.org/3/tv/1396?"))
+        .collect();
+    assert_eq!(
+        reads,
+        vec![&url],
+        "the record's own first twenty seasons ride the one request: {:?}",
+        fetcher.asked()
+    );
+    assert_eq!(title.videos.len(), 20, "and every season came back");
+}
+
+#[test]
+fn a_series_numbered_one_to_forty_is_two_tmdb_requests() {
+    let seasons: Vec<u32> = (1..=40).collect();
+    let first: Vec<u32> = (1..=20).collect();
+    let second: Vec<u32> = (21..=40).collect();
+    let first_url = season_batch_url(1396, &first);
+    let second_url = season_batch_url(1396, &second);
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(CINEMETA_SERIES, series_body_with_seasons(&seasons))
+            .serving(TMDB_FIND_SERIES, TMDB_FIND_SERIES_BODY)
+            .serving(&first_url, appended_details_body(1396, &seasons, &first))
+            .serving(&second_url, appended_details_body(1396, &seasons, &second)),
+    );
+    let mut host = host_over(fetcher.clone(), Some(TMDB_KEY));
+
+    let title = opened(&mut host, open("com.linvo.cinemeta", "series", "tt0903747"));
+
+    let asked = fetcher.asked();
+    let reads: Vec<&String> = asked
+        .iter()
+        .filter(|url| url.starts_with("https://api.themoviedb.org/3/tv/1396?"))
+        .collect();
+    assert_eq!(
+        reads.len(),
+        2,
+        "ceil(40/20) requests, not three: {:?}",
+        fetcher.asked()
+    );
+    assert_eq!(reads[0], &first_url, "the first batch is the first twenty");
+    assert_eq!(reads[1], &second_url, "and the second the rest");
+    assert_eq!(title.videos.len(), 40);
+}
+
+#[test]
+fn a_series_numbered_by_year_is_one_tmdb_request() {
+    // Some records number their seasons by year (2005 to 2024). The Addon's
+    // list names them too, so no batch is spent on 0 to 19.
+    let seasons: Vec<u32> = (2005..=2024).collect();
+    let url = season_batch_url(1396, &seasons);
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(CINEMETA_SERIES, series_body_with_seasons(&seasons))
+            .serving(TMDB_FIND_SERIES, TMDB_FIND_SERIES_BODY)
+            .serving(&url, appended_details_body(1396, &seasons, &seasons)),
+    );
+    let mut host = host_over(fetcher.clone(), Some(TMDB_KEY));
+
+    let title = opened(&mut host, open("com.linvo.cinemeta", "series", "tt0903747"));
+
+    let asked = fetcher.asked();
+    let reads: Vec<&String> = asked
+        .iter()
+        .filter(|url| url.starts_with("https://api.themoviedb.org/3/tv/1396?"))
+        .collect();
+    assert_eq!(
+        reads,
+        vec![&url],
+        "the year-numbered seasons are the batch: {:?}",
+        fetcher.asked()
+    );
+    assert_eq!(title.videos.len(), 20);
+}
+
+#[test]
 fn a_series_whose_seasons_are_not_recorded_keeps_the_addons_episode_list() {
     // The record answered, and its appended seasons did not come back: TMDB's
     // Videos were not read, so the Addon's list stands rather than being
@@ -824,7 +957,7 @@ fn a_series_whose_seasons_are_not_recorded_keeps_the_addons_episode_list() {
             .serving(CINEMETA, CINEMETA_MANIFEST)
             .serving(CINEMETA_SERIES, SERIES_BODY)
             .serving(TMDB_FIND_SERIES, TMDB_FIND_SERIES_BODY)
-            .serving(TMDB_TV_1396, TMDB_TV_DETAILS),
+            .serving(TMDB_TV_1396_ADDON, TMDB_TV_DETAILS),
     );
     let mut host = host_over(fetcher, Some(TMDB_KEY));
 

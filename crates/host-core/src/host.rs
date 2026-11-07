@@ -1679,8 +1679,8 @@ impl Host {
         let at = video.at?;
         let view = self.view();
         let key = view.tmdb_credential()?;
-        let details = view.tmdb_details(video.kind, video.id, &key).ok()?;
-        let videos = view.tmdb_videos(&details, video.id, &key)?;
+        let read = view.tmdb_details(video.kind, video.id, &key, &[]).ok()?;
+        let videos = view.tmdb_videos(&read, video.id, &key)?;
 
         let id = tmdb::video_spelling(video.id, Some(at));
         step.neighbour(&videos, &id).map(|video| video.id.clone())

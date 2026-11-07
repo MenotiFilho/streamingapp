@@ -123,6 +123,16 @@ struct TmdbRead {
     next_episode: Option<tmdb::NextEpisode>,
 }
 
+/// One record read from TMDB: its details, and the seasons the one details
+/// request carried.
+#[derive(Debug)]
+pub(crate) struct RecordRead {
+    pub(crate) details: tmdb::TmdbDetails,
+    /// The seasons the answer was asked to append, ascending. Every season the
+    /// record lists that is not here is read in a further batch.
+    appended: Vec<u32>,
+}
+
 /// A Title opened from TMDB's own record, and the record's word on the series.
 struct OpenedTitle {
     title: Title,
@@ -930,14 +940,20 @@ impl HostView {
         let key = self
             .tmdb_credential()
             .ok_or(ActionError::NoTmdbCredential)?;
-        let details = self.tmdb_details(kind, id, &key)?;
+        let seasons = seasons_of(&cached.videos);
+        let read = self.tmdb_details(kind, id, &key, &seasons)?;
+        let videos = self.tmdb_videos(&read, id, &key);
+        let details = read.details;
         let status = details.status;
         let next_episode = details.next_episode;
-        let videos = self.tmdb_videos(&details, id, &key);
 
         let mut title = cached.clone();
         title.key = TitleKey::Tmdb { id: id.0 };
         details.with_videos(videos).onto(&mut title);
+        // The Title answer publishes the Host's order whether the Addon is gone
+        // or not: a refresh from TMDB alone must not put the specials first
+        // (ADR-0039 §1).
+        title.videos = meta::ordered_videos(&title.videos);
 
         Ok(KeptTitle {
             title,
@@ -1013,10 +1029,11 @@ impl HostView {
         let key = self
             .tmdb_credential()
             .ok_or(ActionError::NoTmdbCredential)?;
-        let details = self.tmdb_details(kind, id, &key)?;
+        let read = self.tmdb_details(kind, id, &key, &[])?;
+        let videos = self.tmdb_videos(&read, id, &key);
+        let details = read.details;
         let status = details.status;
         let next_episode = details.next_episode;
-        let videos = self.tmdb_videos(&details, id, &key);
 
         // The record is the whole of it: no Addon answered, and every field
         // TMDB did not give stays empty rather than being invented.
@@ -1048,32 +1065,43 @@ impl HostView {
     /// One record's details, read whole — or why TMDB could not answer at all.
     ///
     /// A series' first batch of seasons rides in the details answer itself,
-    /// through `append_to_response` (ADR-0038 §4), so a series of up to
-    /// [`tmdb::MAX_APPENDED_SEASONS`] seasons costs one request for its
-    /// metadata and its Videos together. A film has no seasons to append.
+    /// through `append_to_response` (ADR-0038 §4), so a series with up to
+    /// [`tmdb::MAX_APPENDED_SEASONS`] seasons costs one request for its metadata
+    /// and its Videos together. `seasons` is what the caller already knows about
+    /// the record's numbering — the Addon's own episode list, or the cached
+    /// copy — and the batch is the first twenty of it; a cold Discovered open
+    /// knows none and starts at season 0, the protocol's own specials number. A
+    /// film has no seasons to append.
     pub(crate) fn tmdb_details(
         &self,
         kind: tmdb::Kind,
         id: tmdb::TmdbId,
         key: &tmdb::Credential,
-    ) -> Result<tmdb::TmdbDetails, ActionError> {
-        let request = details_request(kind, id);
+        seasons: &[u32],
+    ) -> Result<RecordRead, ActionError> {
+        let appended = first_seasons(seasons);
+        let request = details_request(kind, id, &appended);
         let body = self.fetch_tmdb(&request, key).map_err(tmdb_failure)?;
 
-        tmdb::read_details_with_seasons(&body, kind, id).map_err(|error| ActionError::Tmdb {
-            detail: error.to_string(),
-        })
+        let details = tmdb::read_details_with_seasons(&body, kind, id).map_err(|error| {
+            ActionError::Tmdb {
+                detail: error.to_string(),
+            }
+        })?;
+
+        Ok(RecordRead { details, appended })
     }
 
     /// TMDB's Videos for a record: a series' seasons and episodes, read with
     /// the details answer and any further batches, or `None` where there were
     /// none to read.
     ///
-    /// The details answer carried the first [`tmdb::MAX_APPENDED_SEASONS`]
-    /// seasons' worth of appends. A series with more is read in further
-    /// batches, fanned out as a question's fetches are (ADR-0023), and only
-    /// then is anything appended: batches answer in the order they were built,
-    /// so completion order can never reorder a series.
+    /// The details answer carried [`RecordRead::appended`] — the first
+    /// [`tmdb::MAX_APPENDED_SEASONS`] seasons the caller knew or the record's
+    /// own numbering from zero. Every season the record lists that is not among
+    /// them is read in further batches, fanned out as a question's fetches are
+    /// (ADR-0023), and only then is anything appended: batches answer in the
+    /// order they were built, so completion order can never reorder a series.
     ///
     /// `None` is not "a film": it is "TMDB's Videos were not read" — a record
     /// that listed no seasons, or every season's answer failing — and it leaves
@@ -1090,10 +1118,11 @@ impl HostView {
     /// named, because the id is what its Streams were found by (ADR-0011).
     pub(crate) fn tmdb_videos(
         &self,
-        details: &tmdb::TmdbDetails,
+        read: &RecordRead,
         id: tmdb::TmdbId,
         key: &tmdb::Credential,
     ) -> Option<Vec<Video>> {
+        let details = &read.details;
         if details.seasons.is_empty() {
             return None;
         }
@@ -1108,7 +1137,7 @@ impl HostView {
             .seasons
             .iter()
             .copied()
-            .filter(|season| *season >= tmdb::MAX_APPENDED_SEASONS)
+            .filter(|season| !read.appended.contains(season))
             .collect();
         let batches: Vec<&[u32]> = remaining
             .chunks(tmdb::MAX_APPENDED_SEASONS as usize)
@@ -1199,29 +1228,32 @@ impl HostView {
             Some(kind) => kind,
             None => return TmdbRead::default(),
         };
-        let Some(record) = self.fetch_tmdb(&details_request(kind, id), &key).ok() else {
-            return TmdbRead::default();
-        };
-        match tmdb::read_details_with_seasons(&record, kind, id) {
-            Ok(details) => {
-                let status = details.status;
-                let next_episode = details.next_episode;
-                let videos = self.tmdb_videos(&details, id, &key);
-                details.with_videos(videos).onto(title);
-                title.key = meta::TitleKey::Tmdb { id: id.0 };
-                TmdbRead {
-                    details: true,
-                    status,
-                    next_episode,
+        // The Addon's own episode list is what is known about the record's
+        // numbering before the record answers, and it is what the first batch
+        // of seasons is built from (#270, ADR-0038 §4).
+        let seasons = seasons_of(&title.videos);
+        let read = match self.tmdb_details(kind, id, &key, &seasons) {
+            Ok(read) => read,
+            Err(_) => {
+                // The find stood: the id is TMDB's. What failed is the reading
+                // of one answer, so the metadata stays the Addon's word and the
+                // identity does not fall back with it.
+                if matches!(&external, tmdb::ExternalId::Imdb(_)) {
+                    title.key = meta::TitleKey::Tmdb { id: id.0 };
                 }
+                return TmdbRead::default();
             }
-            // A details answer that was not one: the id stood — the find said
-            // so — and the metadata is the Addon's word.
-            Err(_) if matches!(external, tmdb::ExternalId::Imdb(_)) => {
-                title.key = meta::TitleKey::Tmdb { id: id.0 };
-                TmdbRead::default()
-            }
-            Err(_) => TmdbRead::default(),
+        };
+        let videos = self.tmdb_videos(&read, id, &key);
+        let details = read.details;
+        let status = details.status;
+        let next_episode = details.next_episode;
+        details.with_videos(videos).onto(title);
+        title.key = meta::TitleKey::Tmdb { id: id.0 };
+        TmdbRead {
+            details: true,
+            status,
+            next_episode,
         }
     }
 
@@ -1580,20 +1612,51 @@ fn tmdb_failure(error: FetchError) -> ActionError {
 /// The request one record's metadata is read with.
 ///
 /// A series' first batch of seasons is appended to its details answer, because
-/// the details call is the one request that can carry them (ADR-0038 §4). The
-/// batch starts at season 0, so a series' specials ride along with the
-/// numbered seasons; anything the record lists beyond it is read in further
-/// batches once the record has said what its seasons are. A film has no
-/// seasons to append.
-fn details_request(kind: tmdb::Kind, id: tmdb::TmdbId) -> tmdb::TmdbRequest {
+/// the details call is the one request that can carry them (ADR-0038 §4).
+/// `seasons` is the batch [`first_seasons`] chose: the record's own first
+/// twenty where its numbering is already known, or the protocol's own numbering
+/// from season 0 when it is not. A film has no seasons to append.
+fn details_request(kind: tmdb::Kind, id: tmdb::TmdbId, seasons: &[u32]) -> tmdb::TmdbRequest {
     match kind {
         tmdb::Kind::Movie => tmdb::TmdbRequest::Details { kind, id },
         tmdb::Kind::Tv => tmdb::TmdbRequest::DetailsWithSeasons {
             kind,
             id,
-            seasons: (0..tmdb::MAX_APPENDED_SEASONS).collect(),
+            seasons: seasons.to_vec(),
         },
     }
+}
+
+/// The seasons a details request appends: the first
+/// [`tmdb::MAX_APPENDED_SEASONS`] of what is known, or the protocol's own
+/// numbering from season 0 where nothing is.
+///
+/// The record's season numbers cannot be known before the record answers unless
+/// a copy is in hand, so `known` is the Addon's episode list or the cached
+/// Title. It is sorted and deduplicated because the request's order is not an
+/// order a client sees; the answer's keys are `season/N` whichever order they
+/// were asked in.
+fn first_seasons(known: &[u32]) -> Vec<u32> {
+    let mut seasons: Vec<u32> = if known.is_empty() {
+        (0..tmdb::MAX_APPENDED_SEASONS).collect()
+    } else {
+        known.to_vec()
+    };
+    seasons.sort_unstable();
+    seasons.dedup();
+    seasons.truncate(tmdb::MAX_APPENDED_SEASONS as usize);
+    seasons
+}
+
+/// The seasons a list of Videos is numbered in, in the order they first appear.
+fn seasons_of(videos: &[Video]) -> Vec<u32> {
+    let mut seasons = Vec::new();
+    for season in videos.iter().filter_map(|video| video.season) {
+        if !seasons.contains(&season) {
+            seasons.push(season);
+        }
+    }
+    seasons
 }
 
 /// The values a catalog requires, filled in from what it offers when the client
