@@ -53,8 +53,7 @@ const CINEMETA: AddonManifest = {
 const SNAPSHOT: Snapshot = { ...NOTHING, addons: [CINEMETA] };
 
 const RESUME: ContinueEntry = {
-  video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
-  title: {
+  video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },  title: {
     addon: "cinemeta",
     id: "tt1",
     type: "series",

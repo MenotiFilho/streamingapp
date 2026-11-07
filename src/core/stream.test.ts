@@ -47,6 +47,7 @@ describe("what the Streams are Streams of", () => {
     season: 1,
     episode: 2,
     thumbnail: null,
+    airDate: null,
   };
   const series = film({ id: "tt0903747", type: "series", name: "Breaking Bad" });
 
@@ -67,6 +68,7 @@ describe("what the Streams are Streams of", () => {
           season: null,
           episode: null,
           thumbnail: null,
+          airDate: null,
         },
       ),
     ).toBe("The Matrix");
@@ -89,6 +91,7 @@ describe("the Action a chosen Stream is", () => {
     season: null,
     episode: null,
     thumbnail: null,
+    airDate: null,
   };
   const stream: Stream = {
     name: "4k DV\nHDR",

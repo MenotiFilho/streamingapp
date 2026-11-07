@@ -586,6 +586,7 @@ mod tests {
                 season: Some(1),
                 episode: Some(2),
                 thumbnail: None,
+                air_date: None,
             }
         );
         assert_eq!(
@@ -596,6 +597,7 @@ mod tests {
                 season: Some(0),
                 episode: Some(1),
                 thumbnail: None,
+                air_date: None,
             },
             "a title id is not always one part, so the numbers read from the right"
         );
@@ -607,6 +609,7 @@ mod tests {
                 season: None,
                 episode: None,
                 thumbnail: None,
+                air_date: None,
             },
             "a film is one Video and carries no episode numbers"
         );
@@ -618,6 +621,7 @@ mod tests {
                 season: None,
                 episode: None,
                 thumbnail: None,
+                air_date: None,
             },
             "two numbers are what an episode is; one is not one"
         );

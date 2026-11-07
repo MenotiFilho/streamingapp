@@ -443,6 +443,12 @@ export type Video = {
   episode: number | null;
   /** The episode's 16:9 still, where it has one. */
   thumbnail: string | null;
+  /**
+   * The calendar day the episode aired, as `YYYY-MM-DD`, where the Host knows
+   * one. An announced episode's day is in the future, and a Title screen marks
+   * it "Airs 12 Nov" without making it unplayable (#269).
+   */
+  airDate: string | null;
 };
 
 /**

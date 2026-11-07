@@ -46,6 +46,7 @@ function video(overrides: Partial<Video> = {}): Video {
     season: 1,
     episode: 2,
     thumbnail: null,
+    airDate: null,
     ...overrides,
   };
 }

@@ -323,6 +323,8 @@ function videosOf(raw: { videos?: unknown }): Video[] {
       season?: number;
       episode?: number;
       thumbnail?: string;
+      released?: string;
+      firstAired?: string;
     };
     if (!held.id) {
       return [];
@@ -334,9 +336,20 @@ function videosOf(raw: { videos?: unknown }): Video[] {
         season: typeof held.season === "number" ? held.season : null,
         episode: typeof held.episode === "number" ? held.episode : null,
         thumbnail: held.thumbnail ?? null,
+        // The Host reads the protocol's `released` and Cinemeta's `firstAired`;
+        // the preview mirrors it so an announced episode is drawn as one.
+        airDate: airDateOf(held.released ?? held.firstAired),
       },
     ];
   });
+}
+
+/** The calendar day an ISO 8601 date or instant names, or none. */
+function airDateOf(text: string | undefined): string | null {
+  if (!text || !/^\d{4}-\d{2}-\d{2}/.test(text)) {
+    return null;
+  }
+  return text.slice(0, 10);
 }
 
 async function answerOpenTitle(

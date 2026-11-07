@@ -729,8 +729,7 @@ describe("Home's presses", () => {
 
   test("a Continue watching card pushes the Title, and an entry with no Addon does not", async () => {
     const entry: ContinueEntry = {
-      video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
-      title: {
+      video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },      title: {
         addon: "cinemeta",
         id: "tt1",
         type: "series",
@@ -764,7 +763,7 @@ describe("Home's presses", () => {
 
   test("the Continue watching rail is one card per Host entry, not per Video's progress", async () => {
     const entry: ContinueEntry = {
-      video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
+      video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },
       title: {
         addon: "cinemeta",
         id: "tt1",
@@ -796,7 +795,7 @@ describe("Home's presses", () => {
 
   test("per-Video Watch progress alone draws no Continue watching rail", async () => {
     const entry: ContinueEntry = {
-      video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
+      video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },
       title: {
         addon: "cinemeta",
         id: "tt1",
@@ -861,8 +860,7 @@ describe("Home's presses", () => {
 
   test("the Continue watching rail's More card opens its whole row", async () => {
     const entry: ContinueEntry = {
-      video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
-      title: {
+      video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },      title: {
         addon: "cinemeta",
         id: "tt1",
         type: "series",

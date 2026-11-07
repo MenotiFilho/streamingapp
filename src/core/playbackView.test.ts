@@ -66,6 +66,7 @@ function entry(overrides: Partial<ResumeEntry> = {}): ResumeEntry {
       season: 1,
       episode: 1,
       thumbnail: "https://images.test/episode-one.jpg",
+      airDate: null,
     },
     title: {
       addon: "community.aiostreams",
@@ -376,7 +377,7 @@ describe("the programme note", () => {
 
   test("a film's Watch-progress entry is a Feature, with its art and no episode label", () => {
     const film = entry({
-      video: { id: "tt0133093", name: "The Matrix", season: null, episode: null, thumbnail: null },
+      video: { id: "tt0133093", name: "The Matrix", season: null, episode: null, thumbnail: null, airDate: null },
       title: {
         addon: "cinemeta",
         id: "tt0133093",

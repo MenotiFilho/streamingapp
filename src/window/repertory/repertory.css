@@ -1849,6 +1849,14 @@ body.picture-behind .shell-nav-slot {
   -webkit-line-clamp: 2;
 }
 
+/* An announced episode says the day it airs and stays playable (#269). */
+.rep-episode-airs {
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+  letter-spacing: var(--rep-tracking-caps);
+}
+
 :where(html[data-input="navigation"]) .rep-episode:focus .rep-episode-name,
 .rep-episode[aria-pressed="true"] .rep-episode-name {
   color: var(--rep-ivory);

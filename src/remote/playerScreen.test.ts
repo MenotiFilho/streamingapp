@@ -171,7 +171,7 @@ describe("the docked strip's place", () => {
         genres: [],
         videos: [],
       },
-      video: { id: "tt1", name: null, season: null, episode: null, thumbnail: null },
+      video: { id: "tt1", name: null, season: null, episode: null, thumbnail: null, airDate: null },
     },
   };
 
