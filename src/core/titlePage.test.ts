@@ -50,15 +50,15 @@ const SERIES: Title = title({
   key: { kind: "addon", addon: "community.stremboxd", id: "tt0" },
   type: "series",
   videos: [
-    { id: "tt0:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
-    { id: "tt0:1:2", name: "Second", season: 1, episode: 2, thumbnail: null },
-    { id: "tt0:2:1", name: "Third", season: 2, episode: 1, thumbnail: null },
+    { id: "tt0:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },
+    { id: "tt0:1:2", name: "Second", season: 1, episode: 2, thumbnail: null, airDate: null },
+    { id: "tt0:2:1", name: "Third", season: 2, episode: 1, thumbnail: null, airDate: null },
   ],
 });
 
 function entry(overrides: Partial<ContinueEntry> = {}): ContinueEntry {
   return {
-    video: { id: "tt0:1:2", name: null, season: 1, episode: 2, thumbnail: null },
+    video: { id: "tt0:1:2", name: null, season: 1, episode: 2, thumbnail: null, airDate: null },
     title: {
       addon: "community.stremboxd",
       id: "tt0",
@@ -148,7 +148,7 @@ describe("the Title's anchor", () => {
     expect(
       titleAnchor(SERIES, [
         entry({
-          video: { id: "tt0:2:1", name: null, season: 2, episode: 1, thumbnail: null },
+          video: { id: "tt0:2:1", name: null, season: 2, episode: 1, thumbnail: null, airDate: null },
         }),
       ]),
     ).toEqual({ season: 2, video: SERIES.videos[2] });
@@ -180,7 +180,7 @@ describe("the Title's anchor", () => {
   test("a film anchors on the Video the Host recorded for it", () => {
     const film = title({ id: "tt0133093", type: "movie" });
     const watched = entry({
-      video: { id: "tt0133093", name: null, season: null, episode: null, thumbnail: null },
+      video: { id: "tt0133093", name: null, season: null, episode: null, thumbnail: null, airDate: null },
       title: { ...entry().title, id: "tt0133093", type: "movie", name: "The Matrix" },
     });
 
@@ -202,7 +202,7 @@ describe("the Title's main action", () => {
   test("a partly watched film resumes without an episode label", () => {
     const film = title({ id: "tt0133093", type: "movie" });
     const watched = entry({
-      video: { id: "tt0133093", name: null, season: null, episode: null, thumbnail: null },
+      video: { id: "tt0133093", name: null, season: null, episode: null, thumbnail: null, airDate: null },
       title: { ...entry().title, id: "tt0133093", type: "movie", name: "The Matrix" },
       position: 2_400,
       duration: 4_800,

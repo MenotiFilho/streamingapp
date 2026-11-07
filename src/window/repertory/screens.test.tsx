@@ -174,7 +174,7 @@ const MANY_SEASONS: Title = {
 
 function continueEntry(overrides: Partial<ContinueEntry> = {}): ContinueEntry {
   return {
-    video: { id: "tt0903747:1:2", name: null, season: 1, episode: 2, thumbnail: null },
+    video: { id: "tt0903747:1:2", name: null, season: 1, episode: 2, thumbnail: null, airDate: null },
     title: {
       addon: "com.linvo.cinemeta",
       id: "tt0903747",
@@ -328,7 +328,7 @@ describe("the repertory Title page", () => {
         ...SNAPSHOT,
         continueWatching: [
           continueEntry({
-            video: { id: "tt-seasons:4:1", name: null, season: 4, episode: 1, thumbnail: null },
+            video: { id: "tt-seasons:4:1", name: null, season: 4, episode: 1, thumbnail: null, airDate: null },
             title: {
               addon: "com.linvo.cinemeta",
               id: "tt-seasons",

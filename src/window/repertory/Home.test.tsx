@@ -638,7 +638,7 @@ describe("Home's Continue watching", () => {
         ...BASE_SNAPSHOT,
         continueWatching: [
           resumeEntry({
-            video: { id: "tmdb:603:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null },
+            video: { id: "tmdb:603:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },
             title: {
               addon: null,
               id: "tmdb:603",
