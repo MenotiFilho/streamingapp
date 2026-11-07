@@ -158,27 +158,29 @@ impl CachedTitle {
     /// - an announced next episode is looked for after a day, the rhythm TMDB
     ///   recomputes the field at;
     /// - nothing announced on a running series is looked for after a week;
-    /// - an Unmapped Title has no record, so its Addon's `meta` is read weekly.
+    /// - an Unmapped Title has no record, so its Addon's `meta` is read weekly
+    ///   whether or not it is caught up: TMDB's caught-up rules are not a
+    ///   record's to make (ADR-0038 §5, #277).
     pub(crate) fn read_ahead_due(&self, caught_up: bool, now: i64) -> bool {
+        let elapsed = now.saturating_sub(self.read_at);
+
+        if matches!(self.title.key, TitleKey::Addon { .. }) {
+            return elapsed >= CAUGHT_UP_CHECK_MILLIS;
+        }
+
         if !caught_up {
             return !self.is_fresh(now);
         }
 
-        let elapsed = now.saturating_sub(self.read_at);
-        match &self.title.key {
-            TitleKey::Addon { .. } => elapsed >= CAUGHT_UP_CHECK_MILLIS,
-            TitleKey::Tmdb { .. } => {
-                if matches!(
-                    self.status,
-                    Some(SeriesStatus::Ended | SeriesStatus::Cancelled)
-                ) {
-                    return false;
-                }
-                match self.next_episode {
-                    Some(_) => elapsed >= RUNNING_FRESH_MILLIS,
-                    None => elapsed >= CAUGHT_UP_CHECK_MILLIS,
-                }
-            }
+        if matches!(
+            self.status,
+            Some(SeriesStatus::Ended | SeriesStatus::Cancelled)
+        ) {
+            return false;
+        }
+        match self.next_episode {
+            Some(_) => elapsed >= RUNNING_FRESH_MILLIS,
+            None => elapsed >= CAUGHT_UP_CHECK_MILLIS,
         }
     }
 
@@ -192,6 +194,22 @@ impl CachedTitle {
             .filter_map(|video| video.season)
             .max()
     }
+}
+
+/// The newest cached copy matching a probe, where the cache holds one.
+///
+/// "Newest" is the copy read most recently: the same Title may be held under an
+/// Addon's key and TMDB's, and the most recent read is the one that describes
+/// it now. A caller with an extra condition on the copy — the list must carry a
+/// particular Video — filters after this and would need its own scan.
+pub(crate) fn newest_matching<'a>(
+    cached: &'a [CachedTitle],
+    probe: &TitleProbe,
+) -> Option<&'a CachedTitle> {
+    cached
+        .iter()
+        .filter(|held| held.names(probe))
+        .max_by_key(|held| held.read_at)
 }
 
 /// One Title the cache must not evict: a card's, or the Library's.
@@ -522,6 +540,14 @@ mod tests {
         assert!(
             unmapped.read_ahead_due(true, week),
             "an Unmapped Title reads its Addon weekly"
+        );
+        assert!(
+            !unmapped.read_ahead_due(false, week - 1),
+            "and it does so even when it is not caught up: the caught-up rules are TMDB's"
+        );
+        assert!(
+            unmapped.read_ahead_due(false, week),
+            "mid-season or not, an Unmapped Title's meta is read weekly"
         );
     }
 

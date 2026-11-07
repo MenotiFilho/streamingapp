@@ -134,7 +134,7 @@ pub struct Drained {
 }
 
 impl Drained {
-    fn nothing() -> Self {
+    pub(crate) fn nothing() -> Self {
         Self {
             ran: 0,
             snapshot: None,
@@ -367,10 +367,10 @@ impl Host {
     fn queue_watch_read_ahead(&mut self, only_caught_up: bool, now: i64) {
         let mut groups: Vec<Vec<crate::progress::WatchProgress>> = Vec::new();
         for entry in self.state.watch() {
-            match groups.iter_mut().find(|group| {
-                group[0].title.r#type() == entry.title.r#type()
-                    && group[0].title.id() == entry.title.id()
-            }) {
+            match groups
+                .iter_mut()
+                .find(|group| crate::progress::same_title(&group[0], entry))
+            {
                 Some(group) => group.push(entry.clone()),
                 None => groups.push(vec![entry.clone()]),
             }
@@ -384,17 +384,18 @@ impl Host {
             let probe = TitleProbe::from_stub(&latest.title);
             let (cached, caught_up) = {
                 let cache = self.titles.lock().expect("the Title cache is not poisoned");
-                let cached = cache
-                    .cached()
-                    .iter()
-                    .filter(|held| held.names(&probe))
-                    .max_by_key(|held| held.read_at)
-                    .cloned();
+                let cached = crate::title_cache::newest_matching(cache.cached(), &probe).cloned();
                 let caught_up = crate::progress::caught_up(&group, cache.cached());
                 (cached, caught_up)
             };
 
-            if only_caught_up && !caught_up {
+            // An Unmapped Title has no TMDB record, so it is checked weekly
+            // whether or not it is caught up; a mapped Title that is not caught
+            // up is not periodically prefetched (ADR-0038 §3, §5, #277).
+            let unmapped = cached
+                .as_ref()
+                .is_some_and(|held| matches!(held.title.key, TitleKey::Addon { .. }));
+            if only_caught_up && !caught_up && !unmapped {
                 continue;
             }
             let due = cached
@@ -432,12 +433,7 @@ impl Host {
             let probe = TitleProbe::new(None, r#type, item.id());
             let cached = {
                 let cache = self.titles.lock().expect("the Title cache is not poisoned");
-                cache
-                    .cached()
-                    .iter()
-                    .filter(|held| held.names(&probe))
-                    .max_by_key(|held| held.read_at)
-                    .cloned()
+                crate::title_cache::newest_matching(cache.cached(), &probe).cloned()
             };
             let due = cached
                 .as_ref()
@@ -622,19 +618,20 @@ impl Host {
             .take()
     }
 
-    /// Run every background job waiting, a bounded fan-out at a time, and
-    /// answer what a client is owed.
+    /// Prepare one drain: fill the queue with what has come due, and take the
+    /// jobs and the view they resolve over.
     ///
-    /// The shell calls this from its worker thread; tests call it inline. The
-    /// fetches happen on a view of their own with no lock across them, the way
-    /// a question's fetches do (ADR-0022, ADR-0023, ADR-0038 §3). A read that
-    /// changed a kept Title publishes the Snapshot that moves Continue
-    /// watching, once for the whole drain (#277).
+    /// This is the *one* place the daily caught-up scan is taken, so that every
+    /// adapter that drains runs the same policy (ADR-0022's "one policy"): the
+    /// shell drains through [`crate::HostDoor::drain`], and a test drains
+    /// through [`Host::drain`], and neither can leave a check behind the other
+    /// would run. A caught-up Title is checked when its record has come due, so
+    /// a week can pass while the Host stays open; the scan itself is daily,
+    /// which is the shortest rhythm any check runs at (ADR-0038 §5).
     ///
-    /// A caught-up Title is checked here when its record has come due, so a
-    /// week can pass while the Host stays open: the scan itself is daily, which
-    /// is the shortest rhythm any check runs at (ADR-0038 §5).
-    pub fn drain(&mut self) -> Drained {
+    /// The jobs are taken under the change lock and run outside it: the caller
+    /// resolves them with the returned view and no lock held (ADR-0022).
+    pub(crate) fn begin_drain(&mut self) -> (Vec<Job>, HostView) {
         let now = self.clock.now_millis();
         if self
             .read_ahead_scanned_at
@@ -644,11 +641,24 @@ impl Host {
             self.read_ahead_scanned_at = Some(now);
         }
 
-        let jobs = self.take_jobs();
+        (self.take_jobs(), self.view())
+    }
+
+    /// Run every background job waiting, a bounded fan-out at a time, and
+    /// answer what a client is owed.
+    ///
+    /// The shell's worker thread drains through [`crate::HostDoor::drain`],
+    /// which takes its jobs from [`Host::begin_drain`] and runs them with the
+    /// change lock released; this inline form exists for tests and for a caller
+    /// that already owns the Host. A read that changed a kept Title publishes
+    /// the Snapshot that moves Continue watching, once for the whole drain
+    /// (#277, ADR-0038 §3).
+    pub fn drain(&mut self) -> Drained {
+        let (jobs, view) = self.begin_drain();
         if jobs.is_empty() {
             return Drained::nothing();
         }
-        let (ran, changed) = self.view().drain(jobs);
+        let (ran, changed) = view.drain(jobs);
         Drained {
             ran,
             snapshot: changed.then(|| self.cache_changed()),
@@ -1693,7 +1703,7 @@ impl Host {
 
         let entry = cards
             .into_iter()
-            .find(|entry| entry.title.r#type() == title.r#type && entry.title.id() == title.id)
+            .find(|entry| crate::progress::names(&entry.title, &title.r#type, &title.id))
             .ok_or_else(|| ActionError::NoUpNext {
                 detail: format!("{title} is not on Continue watching, so it has no Up next"),
             })?;
@@ -1711,7 +1721,7 @@ impl Host {
             .state
             .watch()
             .iter()
-            .filter(|held| held.title.r#type() == title.r#type && held.title.id() == title.id)
+            .filter(|held| crate::progress::names(&held.title, &title.r#type, &title.id))
             .max_by_key(|held| held.updated_at)
             .cloned()
             .filter(|held| held.watched && held.video.id != up_next_id)

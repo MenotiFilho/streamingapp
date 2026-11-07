@@ -490,8 +490,15 @@ fn up_next_entry(
 
 /// Whether two entries name the same Title: type plus id, as the stub carries
 /// the identity a row groups by.
-fn same_title(one: &WatchProgress, other: &WatchProgress) -> bool {
+pub(crate) fn same_title(one: &WatchProgress, other: &WatchProgress) -> bool {
     one.title.r#type() == other.title.r#type() && one.title.id() == other.title.id()
+}
+
+/// Whether a title stub names the type and id a reference names — the same
+/// identity [`same_title`] groups by, for a caller holding a reference rather
+/// than a second stub.
+pub(crate) fn names(title: &TitleStub, r#type: &str, id: &str) -> bool {
+    title.r#type() == r#type && title.id() == id
 }
 
 /// Whether this entry is a film that has been watched through: nothing is left

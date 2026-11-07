@@ -10,9 +10,9 @@ use std::sync::Arc;
 
 use host_core::{
     Addon, AddonId, AddonProvider, CachedTitle, FixtureClock, FixtureFetcher, FixturePlayer,
-    FixtureStremio, Host, InMemorySecretStore, InMemoryStore, Manifest, ManifestUrl, NextEpisode,
-    Provider, SecretBackend, SeriesStatus, Store, Title, TitleCard, TitleKey, TitleSource,
-    TitleStub, Video, VideoRef, WatchProgress,
+    FixtureStremio, Host, HostDoor, InMemorySecretStore, InMemoryStore, Manifest, ManifestUrl,
+    NextEpisode, Provider, SecretBackend, SeriesStatus, Store, Title, TitleCard, TitleKey,
+    TitleSource, TitleStub, Video, VideoRef, WatchProgress,
 };
 use serde_json::{json, Value};
 
@@ -467,6 +467,45 @@ fn a_caught_up_series_with_an_announced_episode_returns_as_up_next_when_drained(
 }
 
 #[test]
+fn the_shells_door_runs_the_daily_caught_up_scan_too() {
+    // The app drains through `HostDoor::drain`, not `Host::drain`: a scan that
+    // lived only in the test path would never run on an open Host (ADR-0022's
+    // "one policy", ADR-0038 §5).
+    let store = caught_up_store(
+        Some(NextEpisode {
+            season: 2,
+            episode: 1,
+        }),
+        SeriesStatus::Running,
+        0,
+    );
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(TMDB_TV_300001_SEASON_2, ANNOUNCED_SEASON),
+    );
+    let clock = clock();
+    let mut host = host_over(store, fetcher.clone(), clock.clone());
+    set_tmdb_key(&mut host);
+    let door = HostDoor::new(host);
+
+    clock.tick(DAY);
+    let drained = door.drain();
+
+    assert_eq!(drained.ran, 1, "the door ran the announced record's check");
+    assert_eq!(
+        asked_for(&fetcher, TMDB_TV_300001_SEASON_2),
+        1,
+        "one request, one season appended: {:?}",
+        fetcher.asked()
+    );
+    let snapshot = drained
+        .snapshot
+        .expect("the card coming back is a Snapshot");
+    assert_eq!(snapshot.continue_watching[0].video.id, "tmdb:300001:2:1");
+}
+
+#[test]
 fn a_caught_up_running_series_is_checked_after_a_week_and_not_before() {
     // Nothing announced, and TMDB still says it is returning: the record is
     // read weekly, because a season break is months long (ADR-0038 §5).
@@ -599,6 +638,45 @@ fn an_unmapped_title_is_read_ahead_from_its_addon_weekly() {
         .expect("the newly listed episode moves the card");
     assert_eq!(snapshot.continue_watching[0].video.id, "tt0903747:1:3");
     assert!(snapshot.continue_watching[0].up_next);
+}
+
+#[test]
+fn an_unmapped_title_is_read_weekly_even_when_it_is_not_caught_up() {
+    // The caught-up rules are TMDB's, and an Unmapped Title has no record to
+    // ask: its Addon's meta is re-read weekly whether or not the owner is at
+    // the end of its list (ADR-0038 §5, #277).
+    let store = Arc::new(
+        InMemoryStore::new()
+            .holding_addons(vec![cinemeta()])
+            .holding_titles(vec![addon_series(vec![
+                addon_episode("tt0903747", 1, 1),
+                addon_episode("tt0903747", 1, 2),
+                addon_episode("tt0903747", 1, 3),
+            ])])
+            .holding_watch(vec![finished_episode("tt0903747", "tt0903747:1:1", 500)]),
+    );
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(CINEMETA, CINEMETA_MANIFEST)
+            .serving(CINEMETA_SERIES, SERIES_BODY),
+    );
+    let clock = clock();
+    let mut host = host_over(store, fetcher.clone(), clock.clone());
+
+    assert!(
+        host.snapshot().continue_watching[0].up_next,
+        "the owner is mid-season, not caught up"
+    );
+    clock.tick(WEEK - 1);
+    assert_eq!(host.drain().ran, 0, "not before a week, caught up or not");
+
+    clock.tick(DAY);
+    assert_eq!(
+        host.drain().ran,
+        1,
+        "an Unmapped Title's Addon is read weekly however far in the owner is"
+    );
+    assert_eq!(asked_for(&fetcher, CINEMETA_SERIES), 1);
 }
 
 #[test]
