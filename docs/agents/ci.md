@@ -51,13 +51,46 @@ posts `verify` green. Any other change runs the full list.
    trail is complete.
 6. Run `scripts/ci.sh <pr>` from any checkout. It verifies the head, posts
    `verify`, and — only with the label — merges with a merge commit, pinned to
-   the head it verified (`--match-head-commit`). `--no-merge` verifies only.
-   Fix a failure on the branch, push, and run it again.
+   the head it verified (`--match-head-commit`), then runs `scripts/cd.sh` to
+   build and publish the Windows installer release when the PR touched code.
+   `--no-merge` verifies only. Fix a failure on the branch, push, and run it
+   again.
 7. Fetch, and confirm the merged tree is the one verified:
    `git diff origin/main <branch>` must be empty.
 
+## CD: the Windows installer release (`scripts/cd.sh`)
+
+Every code-changing pull request that merges through `scripts/ci.sh` continues
+into `scripts/cd.sh` on this machine (docs-only merges skip it). `scripts/cd.sh`
+can also be run directly when a release needs to be published or retried on its
+own:
+
+```sh
+scripts/cd.sh                    # build and publish origin/main
+scripts/cd.sh <ref>              # build and publish a specific commit/ref
+scripts/cd.sh [ref] --dry-run    # build the installer and checksum without publishing
+```
+
+What `scripts/cd.sh` does:
+
+1. Computes the release version `0.1.<N>` (and tag `v0.1.<N>`) from the base
+   `<major>.<minor>` in `src-tauri/tauri.conf.json` and `git rev-list --count`
+   on the target commit, so releases advance automatically without version-bump
+   commits. If the tag is already published at that commit, it exits cleanly.
+2. Checks the target commit out into a throwaway worktree (`cd-worktree`) and
+   builds `dist/` inside the `streamingapp-dev:ci` container.
+3. Stages the committed tree and built `dist/` into a clean temporary Windows
+   directory under `%LOCALAPPDATA%\Temp\streamingapp-cd-…`, wiped on exit.
+4. Calls `scripts/windows/build.ps1 -Bundle -Version <version> -CacheDir …` on
+   Windows to build the unsigned per-user (`currentUser`) NSIS setup `.exe`
+   (`streamingapp_<version>_x64-setup.exe`) with `libmpv-2.dll` bundled beside
+   `streamingapp.exe`. `libmpv`, `cargo-tauri` and Cargo's `target/` live in
+   `%LOCALAPPDATA%\streamingapp-cd-cache` so builds stay incremental and never
+   touch `streamingapp-verify` or stop a running Host window.
+5. Writes a `.sha256` checksum file alongside the installer and publishes both
+   to GitHub Releases as the latest release with `--generate-notes`.
+
 ## What this is not
 
-There is no deploy stage. The Host is a desktop application, not a service; a
-release build and its signing/packaging are separate work, and the Windows
-walkthrough still belongs to `scripts/windows/`.
+The Windows walkthrough (`scripts/windows/verify.ps1`) is still a by-hand check,
+never run in CI or CD, and installers are published unsigned for now.

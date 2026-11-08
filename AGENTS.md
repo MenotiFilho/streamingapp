@@ -38,11 +38,14 @@ never push to `main` and never merge by hand (`gh pr merge`, the web button).
 4. Bring the branch current: `git fetch origin && git merge origin/main`, then
    push. The script refuses a branch that is behind its base.
 5. Add the label: `gh pr edit <pr> --add-label automerge`.
-6. Run the CI, which verifies, posts the `verify` status and merges:
+6. Run the CI, which verifies, posts the `verify` status, merges, and — for a
+   code-changing PR — runs `scripts/cd.sh` to build the Windows NSIS installer
+   and publish it to GitHub Releases:
 
 ```sh
-scripts/ci.sh <pr>             # verify, post `verify`, merge if labelled
+scripts/ci.sh <pr>             # verify, post `verify`, merge + release if labelled
 scripts/ci.sh <pr> --no-merge  # verify and post only
+scripts/cd.sh                  # build and publish origin/main directly
 ```
 
 7. Fetch and confirm the merged tree is the verified one:
@@ -51,11 +54,16 @@ scripts/ci.sh <pr> --no-merge  # verify and post only
 What the script does: checks the PR's head out into a throwaway worktree (your
 uncommitted files never reach the result), runs the same suites as
 `.github/workflows/ci.yml` in the dev image through `.github/scripts/dev-run.sh`,
-and merges with a merge commit pinned to the head it verified. A docs-only PR
-(every path `*.md` or under `docs/`) skips the suites. The image layers and the
-cargo, `node_modules` and pnpm-store volumes are kept between runs, so only the
-first run downloads everything. A failure posts `verify` red: fix it on the
-branch, push, and run it again. Details: `docs/agents/ci.md`.
+merges with a merge commit pinned to the head it verified, and invokes
+`scripts/cd.sh` to stage the merged commit to a temporary Windows directory,
+build the NSIS installer (`streamingapp_<version>_x64-setup.exe` with
+`libmpv-2.dll` bundled), and publish the GitHub Release (`v0.1.<N>`). A
+docs-only PR (every path `*.md` or under `docs/`) skips the suites and the
+release build. The image layers, the cargo/`node_modules`/pnpm-store volumes,
+and the Windows `%LOCALAPPDATA%\streamingapp-cd-cache` directory are kept
+between runs, so only the first run downloads everything. A failure posts
+`verify` red: fix it on the branch, push, and run it again. Details:
+`docs/agents/ci.md`.
 
 ## Verifying the window (Windows, from WSL)
 
