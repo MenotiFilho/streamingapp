@@ -13,5 +13,12 @@
         "transparent": true
       }
     ]
+  },
+  "bundle": {
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
   }
 }

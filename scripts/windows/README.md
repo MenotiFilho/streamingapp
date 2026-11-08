@@ -6,7 +6,8 @@ run the same way twice:
 
 - `stage.sh` — run in WSL: copies the tree to a Windows path, with the built frontend.
 - `build.ps1` — run on Windows: fetches libmpv, makes it linkable, and does a
-  release build of the app shell.
+  release build of the app shell (or builds the NSIS installer with `-Bundle`,
+  which `scripts/cd.sh` drives for GitHub Releases; see `docs/agents/ci.md`).
 - `verify.ps1` — run on Windows: walks the window's manual checklist, asserting
   through UI Automation and screenshots each step into `evidence\`. Any subset of
   it can be walked on its own (`-Only`, `-From`, `-List`) — see "Walking part of

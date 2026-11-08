@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Run `verify` on this machine for a pull request, record it on GitHub, and land
-# the pull request when it carries the `automerge` label.
+# Run `verify` on this machine for a pull request, record it on GitHub, and —
+# when it carries the `automerge` label — land the pull request and publish the
+# Windows installer release through `scripts/cd.sh`.
 #
-#   scripts/ci.sh <pr-number>        verify, report, merge if labelled
+#   scripts/ci.sh <pr-number>        verify, report, merge + release if labelled
 #   scripts/ci.sh <pr-number> --no-merge
 #
 # GitHub's runners are not used: the suites are the ones `.github/workflows/ci.yml`
@@ -139,6 +140,14 @@ echo "verify: passed for $head_sha."
 
 if [[ "$merge" == true && ",$labels," == *",automerge,"* ]]; then
   gh pr merge "$pr" --merge --match-head-commit "$head_sha"
+  if [[ "$code" == true ]]; then
+    "$root/scripts/cd.sh" "origin/$base_ref" || {
+      echo "ci: PR #$pr merged, but the release build failed; re-run 'scripts/cd.sh' to publish it." >&2
+      exit 1
+    }
+  else
+    echo "Docs only: skipping release build."
+  fi
 elif [[ "$merge" == true ]]; then
   echo "PR #$pr has no automerge label; not merging."
 fi

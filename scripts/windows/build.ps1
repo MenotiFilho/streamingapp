@@ -1,6 +1,8 @@
-# Builds the Host on the Windows side, where a window can actually be opened.
+# Builds the Host on the Windows side, where a window can actually be opened,
+# or bundles it into the NSIS Windows installer (`-Bundle`) for a release.
 #
 #   powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -Tree C:\Users\<you>\streamingapp-verify
+#   powershell -NoProfile -ExecutionPolicy Bypass -File build.ps1 -Tree C:\...\stage -CacheDir C:\...\cache -Bundle -Version 0.1.142
 #
 # `--features custom-protocol` is load-bearing: without it Tauri takes its dev
 # path and the window loads `devUrl` (localhost:1420) instead of the frontend in
@@ -13,9 +15,14 @@
 #
 # `-LibmpvBundle` overrides which dev bundle is fetched; by default it is the
 # newest `mpv-dev-x86_64-v3` release of shinchiro/mpv-winbuild-cmake.
+# `-CacheDir` moves `libmpv`, `tauri-cli` and Cargo's `target` out of `-Tree` so
+# a clean staging tree that is wiped after the build still reuses them.
 param(
     [Parameter(Mandatory)][string] $Tree,
-    [string] $LibmpvBundle = ''
+    [string] $LibmpvBundle = '',
+    [switch] $Bundle,
+    [string] $Version = '',
+    [string] $CacheDir = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -31,14 +38,23 @@ if (-not (Test-Path (Join-Path $Tree 'dist\index.html'))) {
     throw "no frontend in $Tree\dist - build it in the container with 'pnpm build' and stage it again"
 }
 
+if ($CacheDir) {
+    New-Item -ItemType Directory -Force $CacheDir | Out-Null
+    $CacheDir = (Resolve-Path $CacheDir).Path
+}
+
 # A Host still running from an earlier walkthrough holds its own executable open,
 # and cargo then fails to replace it with `failed to remove file ... Access is
-# denied` — which reads like a permissions problem and is not one.
-$running = Get-Process streamingapp -ErrorAction SilentlyContinue
-if ($running) {
-    "stopping a Host left running from an earlier run: pid $($running.Id -join ', ')"
-    $running | Stop-Process -Force
-    Start-Sleep -Seconds 2
+# denied` — which reads like a permissions problem and is not one. A `-Bundle`
+# build compiles into its own cache and never launches or overwrites a running
+# Host, so it leaves any open window alone.
+if (-not $Bundle -and -not $CacheDir) {
+    $running = Get-Process streamingapp -ErrorAction SilentlyContinue
+    if ($running) {
+        "stopping a Host left running from an earlier run: pid $($running.Id -join ', ')"
+        $running | Stop-Process -Force
+        Start-Sleep -Seconds 2
+    }
 }
 
 # --- the libmpv half ----------------------------------------------------------
@@ -48,10 +64,11 @@ if ($running) {
 # `mpv.lib` import library beside `libmpv-2.dll`, because MSVC's `link.exe` reads
 # MSVC import libraries and the dev bundle ships only a MinGW `libmpv.dll.a`.
 #
-# So, once per tree: fetch the nightly dev bundle, generate `mpv.lib` from the
-# DLL's own exports (`dumpbin` → `.def` → `lib`), and leave `libmpv-2.dll` where
-# the built executable can find it. A tree that already has `mpv.lib` is left
-# alone, so a rebuild does not touch the network.
+# So, once per tree (or cache): fetch the nightly dev bundle, generate `mpv.lib`
+# from the DLL's own exports (`dumpbin` → `.def` → `lib`), and leave
+# `libmpv-2.dll` where the built executable or bundler can find it. A directory
+# that already has `mpv.lib` is left alone, so a rebuild does not touch the
+# network.
 
 function Vc-Tools {
     # `dumpbin.exe` and `lib.exe` are not on `PATH`; they live under the Visual
@@ -70,7 +87,8 @@ function Vc-Tools {
     return (Join-Path $versions[0].FullName 'bin\Hostx64\x64')
 }
 
-$libmpv = Join-Path $Tree 'libmpv'
+$storeRoot = if ($CacheDir) { $CacheDir } else { $Tree }
+$libmpv = Join-Path $storeRoot 'libmpv'
 $dll = Join-Path $libmpv 'libmpv-2.dll'
 $lib = Join-Path $libmpv 'mpv.lib'
 
@@ -134,9 +152,98 @@ if (-not (Test-Path $lib)) {
 # inherited, which is how a crate that only says `link-lib=mpv` finds it.
 $env:LIB = "$libmpv;$env:LIB"
 
+$targetDir = if ($CacheDir) { Join-Path $CacheDir 'target' } else { Join-Path $Tree 'target' }
+if ($CacheDir) {
+    $env:CARGO_TARGET_DIR = $targetDir
+}
+
 $buildLog = Join-Path $Tree 'build.log'
 Remove-Item $buildLog -ErrorAction SilentlyContinue
 Set-Location $Tree
+
+if ($Bundle) {
+    # --- the NSIS installer half ----------------------------------------------
+    #
+    # `cargo-tauri.exe` (v2) drives the release build and the NSIS bundler,
+    # fetching NSIS itself into `%LOCALAPPDATA%\tauri\NSIS` on first run. We
+    # fetch the prebuilt `cargo-tauri` binary once into the store directory so
+    # Windows does not spend minutes compiling `tauri-cli` from source.
+    $tauriCliDir = Join-Path $storeRoot 'tauri-cli'
+    $cargoTauri = Join-Path $tauriCliDir 'cargo-tauri.exe'
+    if (-not (Test-Path $cargoTauri)) {
+        New-Item -ItemType Directory -Force $tauriCliDir | Out-Null
+        '--- finding the newest cargo-tauri v2 binary'
+        $releases = Invoke-RestMethod -Headers @{ 'User-Agent' = 'streamingapp-build' } `
+            'https://api.github.com/repos/tauri-apps/tauri/releases?per_page=30'
+        $cliRelease = $releases | Where-Object { $_.tag_name -like 'tauri-cli-v2.*' } |
+            Select-Object -First 1
+        if (-not $cliRelease) { throw 'no tauri-cli-v2.* release found on tauri-apps/tauri' }
+        $cliAsset = $cliRelease.assets |
+            Where-Object { $_.name -eq 'cargo-tauri-x86_64-pc-windows-msvc.zip' } |
+            Select-Object -First 1
+        if (-not $cliAsset) {
+            throw "the release $($cliRelease.tag_name) carries no cargo-tauri-x86_64-pc-windows-msvc.zip"
+        }
+        "--- fetching $($cliAsset.browser_download_url)"
+        $cliZip = Join-Path $tauriCliDir 'cargo-tauri.zip'
+        Invoke-WebRequest -Uri $cliAsset.browser_download_url -OutFile $cliZip
+        tar.exe -xf $cliZip -C $tauriCliDir
+        if ($LASTEXITCODE -ne 0) { throw "tar could not extract $cliZip" }
+        Remove-Item $cliZip
+        if (-not (Test-Path $cargoTauri)) { throw "extracted archive carries no $cargoTauri" }
+    }
+
+    # Override config passed by file path so PowerShell 5.1 does not strip quotes
+    # from inline JSON arguments:
+    # - `beforeBuildCommand` is cleared because `dist\` was already built in the
+    #   Linux dev container and staged (Windows has no `pnpm`).
+    # - `libmpv-2.dll` is bundled alongside `streamingapp.exe` so the installed
+    #   Host has a working Player.
+    # - `version` is overridden when `-Version` is given so every release tag gets
+    #   its own installer version without a version-bump commit in git.
+    $overridePath = Join-Path $Tree 'src-tauri\tauri.bundle.conf.json'
+    $override = @{
+        build = @{
+            beforeBuildCommand = ''
+        }
+        bundle = @{
+            resources = @{
+                $dll = 'libmpv-2.dll'
+            }
+        }
+    }
+    if ($Version) {
+        $override['version'] = $Version
+    }
+    $overrideJson = $override | ConvertTo-Json -Depth 5
+    [System.IO.File]::WriteAllText($overridePath, $overrideJson, (New-Object System.Text.UTF8Encoding($false)))
+
+    '--- cargo-tauri tauri build --bundles nsis'
+    $ErrorActionPreference = 'Continue'
+    & $cargoTauri tauri build --bundles nsis --config $overridePath *>&1 |
+        ForEach-Object { $_ | Out-File -FilePath $buildLog -Append -Encoding utf8; "$_" }
+    $code = $LASTEXITCODE
+    $ErrorActionPreference = 'Stop'
+    Remove-Item $overridePath -ErrorAction SilentlyContinue
+
+    if ($code -ne 0) {
+        Get-Content $buildLog -Tail 40
+        throw "cargo-tauri build failed with $code (full log: $buildLog)"
+    }
+
+    $nsisDir = Join-Path $targetDir 'release\bundle\nsis'
+    $pattern = if ($Version) { "streamingapp_${Version}_*-setup.exe" } else { 'streamingapp_*-setup.exe' }
+    $installer = Get-ChildItem -Path $nsisDir -Filter $pattern -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
+    if (-not $installer) {
+        throw "bundled, but no NSIS installer matching $pattern under $nsisDir"
+    }
+    "installer: $($installer.FullName)  ($($installer.Length) bytes)"
+    Get-Content $buildLog -Tail 5
+    exit 0
+}
+
 '--- cargo build --release -p streamingapp --features custom-protocol'
 
 # cargo writes its progress to stderr, which PowerShell 5.1 treats as a
@@ -154,7 +261,7 @@ if ($code -ne 0) {
     throw "cargo build failed with $code (full log: $buildLog)"
 }
 
-$exe = Join-Path $Tree 'target\release\streamingapp.exe'
+$exe = Join-Path $targetDir 'release\streamingapp.exe'
 if (-not (Test-Path $exe)) { throw "built, but no executable at $exe" }
 
 # libmpv is loaded from beside the executable, so it goes there every build: a
