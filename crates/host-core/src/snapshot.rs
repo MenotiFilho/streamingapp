@@ -99,6 +99,10 @@ pub struct PreferencesSnapshot {
     /// Streams picker. Always a value — direct is the default, and the choice
     /// governs only Up next, never Resume (#276).
     pub up_next_playback: UpNextPlayback,
+    /// Whether the Host advances on its own to a Title's Up next after a short
+    /// countdown when an episode's Stream ends, or waits until someone asks.
+    /// Always a value — on is the default (#302, #314).
+    pub autoplay: bool,
 }
 
 /// Where the Host's credentials are held, as the secret store reports itself.
@@ -142,6 +146,7 @@ impl Snapshot {
                 subtitle_scale: state.preferences().subtitle_scale(),
                 stream_buffer: state.preferences().stream_buffer(),
                 up_next_playback: state.preferences().up_next_playback(),
+                autoplay: state.preferences().autoplay(),
             },
             addons: state
                 .addons()

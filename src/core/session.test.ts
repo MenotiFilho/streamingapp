@@ -37,6 +37,7 @@ function nothing(revision: number, address: string | null = null): Snapshot {
       subtitleScale: 1,
       streamBuffer: { seconds: 300, megabytes: 512 },
       upNextPlayback: "direct",
+      autoplay: true,
     },
     addons: [],
     featuredCatalog: null,

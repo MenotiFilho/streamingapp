@@ -22,6 +22,7 @@ export const REMOTE_ACTIONS = [
   "set_subtitle_scale",
   "set_stream_buffer",
   "set_up_next_playback",
+  "set_autoplay",
   "set_featured_catalog",
   "clear_featured_catalog",
   "add_addon",

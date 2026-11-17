@@ -762,6 +762,25 @@ fn a_paired_client_sets_the_stream_buffer_and_sees_it_pushed() {
 }
 
 #[test]
+fn a_paired_client_sets_autoplay_and_sees_it_pushed() {
+    let (fixture, server) = server();
+    let mut client = Client::connect(&server);
+    client.hello(None);
+    pair(&mut client, &fixture, "Test phone");
+
+    let set = client.command(3, json!({ "type": "set_autoplay", "autoplay": false }));
+    assert!(
+        set.get("response").is_some(),
+        "the Remote can change Autoplay: {set}"
+    );
+    let pushed = client.snapshot_where(|snapshot| snapshot["preferences"]["autoplay"] == false);
+    assert_eq!(
+        pushed["snapshot"]["preferences"]["autoplay"], false,
+        "the updated Autoplay preference arrives in the pushed Snapshot: {pushed}"
+    );
+}
+
+#[test]
 fn a_client_that_reconnects_is_told_the_state_as_it_stands() {
     let (fixture, server) = server();
     let mut first = Client::connect(&server);

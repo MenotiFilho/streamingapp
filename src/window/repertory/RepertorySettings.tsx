@@ -10,6 +10,8 @@ import {
 import { version as appVersion } from "../../../package.json";
 import { catalogKey, declaredCatalogs, keyOf, type DeclaredCatalog } from "../../core/browse";
 import {
+  AUTOPLAY_CHOICES,
+  AUTOPLAY_SETTING_LABEL,
   STREAM_BUFFER_DEFAULT_MEGABYTES,
   STREAM_BUFFER_DEFAULT_SECONDS,
   STREAM_BUFFER_MEGABYTES,
@@ -17,6 +19,7 @@ import {
   SUBTITLE_COLORS,
   SUBTITLE_SCALES,
   UP_NEXT_PLAYBACK_CHOICES,
+  UP_NEXT_PLAYBACK_SETTING_LABEL,
   bufferMegabytesPreset,
   bufferSecondsPreset,
   colorSelected,
@@ -345,6 +348,7 @@ function PreferencesScreen() {
   const known = SUBTITLE_LANGUAGES.some((language) => language.tag === heldLanguage);
   const otherColor = unknownColorLabel(heldColor);
   const heldUpNext = snapshot?.preferences.upNextPlayback ?? "direct";
+  const heldAutoplay = snapshot?.preferences.autoplay ?? true;
   const catalogs = declaredCatalogs(snapshot);
   const featured = snapshot?.featuredCatalog ?? null;
   const featuredKey = featured
@@ -388,6 +392,14 @@ function PreferencesScreen() {
     if (outcome.error) {
       setBufferError(outcome.error);
       setBufferDraft(publishedBuffer);
+    }
+  };
+
+  const pickAutoplay = async (autoplay: boolean) => {
+    setUpNextError(null);
+    const outcome = await ask({ type: "set_autoplay", autoplay });
+    if (outcome.error) {
+      setUpNextError(outcome.error);
     }
   };
 
@@ -586,22 +598,45 @@ function PreferencesScreen() {
       </LogGroup>
 
       <LogGroup id="settings-up-next" title="Up next">
-        <div
-          className="rep-log-chips"
-          data-region="settings-up-next"
-          data-kind="row"
-          data-label="Play an Up next"
-        >
-          {UP_NEXT_PLAYBACK_CHOICES.map((choice) => (
-            <ChoiceChip
-              key={choice.playback}
-              pressed={heldUpNext === choice.playback}
-              data-testid={`up-next-${choice.playback}`}
-              onClick={() => void pickUpNext(choice.playback)}
-            >
-              {choice.label}
-            </ChoiceChip>
-          ))}
+        <div className="rep-log-choice-group">
+          <p className="rep-log-choice-label">{AUTOPLAY_SETTING_LABEL}</p>
+          <div
+            className="rep-log-chips"
+            data-region="settings-up-next-autoplay"
+            data-kind="row"
+            data-label={AUTOPLAY_SETTING_LABEL}
+          >
+            {AUTOPLAY_CHOICES.map((choice) => (
+              <ChoiceChip
+                key={String(choice.autoplay)}
+                pressed={heldAutoplay === choice.autoplay}
+                data-testid={`up-next-autoplay-${choice.autoplay}`}
+                onClick={() => void pickAutoplay(choice.autoplay)}
+              >
+                {choice.label}
+              </ChoiceChip>
+            ))}
+          </div>
+        </div>
+        <div className="rep-log-choice-group">
+          <p className="rep-log-choice-label">{UP_NEXT_PLAYBACK_SETTING_LABEL}</p>
+          <div
+            className="rep-log-chips"
+            data-region="settings-up-next-playback"
+            data-kind="row"
+            data-label={UP_NEXT_PLAYBACK_SETTING_LABEL}
+          >
+            {UP_NEXT_PLAYBACK_CHOICES.map((choice) => (
+              <ChoiceChip
+                key={choice.playback}
+                pressed={heldUpNext === choice.playback}
+                data-testid={`up-next-${choice.playback}`}
+                onClick={() => void pickUpNext(choice.playback)}
+              >
+                {choice.label}
+              </ChoiceChip>
+            ))}
+          </div>
         </div>
         <Refusal error={upNextError} testId="up-next-error" />
       </LogGroup>

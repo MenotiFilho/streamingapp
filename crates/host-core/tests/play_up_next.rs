@@ -468,6 +468,42 @@ fn the_up_next_preference_is_published_and_survives_a_restart() {
 }
 
 #[test]
+fn the_autoplay_preference_defaults_to_on_is_published_and_survives_a_restart() {
+    let store = Arc::new(InMemoryStore::new());
+    let mut fixture = fixture_over(store.clone(), Vec::new());
+
+    assert!(
+        fixture.host.snapshot().preferences.autoplay,
+        "Autoplay is on until the owner turns it off"
+    );
+
+    let published = fixture
+        .host
+        .dispatch(action(&serde_json::json!({
+            "type": "set_autoplay",
+            "autoplay": false,
+        })))
+        .expect("setting Autoplay off should work");
+    assert!(!published.snapshots[0].preferences.autoplay);
+    assert!(!fixture.host.snapshot().preferences.autoplay);
+
+    let mut after = restarted(store);
+    assert!(
+        !after.host.snapshot().preferences.autoplay,
+        "the preference survives a Host restart"
+    );
+
+    let republished = after
+        .host
+        .dispatch(action(&serde_json::json!({
+            "type": "set_autoplay",
+            "autoplay": true,
+        })))
+        .expect("the preference can be turned back on");
+    assert!(republished.snapshots[0].preferences.autoplay);
+}
+
+#[test]
 fn the_up_next_actions_and_refusals_round_trip_the_wire_codec() {
     let set = action(&serde_json::json!({
         "type": "set_up_next_playback",
@@ -480,6 +516,18 @@ fn the_up_next_actions_and_refusals_round_trip_the_wire_codec() {
     );
     let back: Action = serde_json::from_value(json).expect("an Action round-trips");
     assert_eq!(back, set);
+
+    let set_autoplay = action(&serde_json::json!({
+        "type": "set_autoplay",
+        "autoplay": false,
+    }));
+    let json = serde_json::to_value(&set_autoplay).expect("an Action serializes");
+    assert_eq!(
+        json,
+        serde_json::json!({ "type": "set_autoplay", "autoplay": false })
+    );
+    let back: Action = serde_json::from_value(json).expect("an Action round-trips");
+    assert_eq!(back, set_autoplay);
 
     let play = play_up_next();
     let json = serde_json::to_value(&play).expect("an Action serializes");

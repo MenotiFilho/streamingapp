@@ -428,6 +428,7 @@ async function buildSnapshot(): Promise<Snapshot> {
       subtitleScale: 1,
       streamBuffer: { seconds: 300, megabytes: 512 },
       upNextPlayback: "direct",
+      autoplay: true,
     },
     addons: [
       {
@@ -866,6 +867,10 @@ async function dispatch(action: Action): Promise<Response> {
     case "set_up_next_playback":
       return change((state) => ({
         preferences: { ...state.preferences, upNextPlayback: action.playback },
+      }));
+    case "set_autoplay":
+      return change((state) => ({
+        preferences: { ...state.preferences, autoplay: action.autoplay },
       }));
     case "set_featured_catalog":
       return setFeatured(action);
