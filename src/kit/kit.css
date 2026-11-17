@@ -938,3 +938,76 @@
   padding-top: var(--rep-space-3);
   border-top: 1px solid var(--rep-hairline);
 }
+
+/* --------------------------------------------------------------------------
+ * Switch — a labelled on/off the Host owns
+ * -------------------------------------------------------------------------- */
+
+.rep-kit-switch {
+  display: flex;
+  align-items: center;
+  gap: var(--rep-space-3);
+  width: 100%;
+  padding: var(--rep-space-3) var(--rep-space-4);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--rep-ivory);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-caption);
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rep-kit-switch:hover:not(:disabled) {
+  background: var(--rep-ink-elevated);
+}
+
+.rep-kit-switch:disabled {
+  cursor: default;
+}
+
+.rep-kit-switch-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.rep-kit-switch-state {
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-badge);
+  letter-spacing: var(--rep-tracking-caps);
+  text-transform: uppercase;
+}
+
+.rep-kit-switch[aria-checked="true"] .rep-kit-switch-state {
+  color: var(--rep-house);
+}
+
+.rep-kit-switch-track {
+  position: relative;
+  flex: none;
+  width: 2.6em;
+  height: 1.3em;
+  border: 1px solid var(--rep-hairline);
+}
+
+.rep-kit-switch-thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc(50% - 3px);
+  background: var(--rep-muted);
+  transition: left var(--rep-motion-quick) var(--rep-ease);
+}
+
+.rep-kit-switch[aria-checked="true"] .rep-kit-switch-track {
+  border-color: var(--rep-house);
+}
+
+.rep-kit-switch[aria-checked="true"] .rep-kit-switch-thumb {
+  left: calc(50% + 1px);
+  background: var(--rep-house);
+}

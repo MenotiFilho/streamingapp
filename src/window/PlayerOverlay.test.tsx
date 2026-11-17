@@ -6,6 +6,7 @@ import { SNAPSHOT_EVENT } from "../core/wire";
 import type {
   Action,
   AddonStreams,
+  AutoplaySnapshot,
   PlaybackSnapshot,
   Response,
   ResumeEntry,
@@ -2295,5 +2296,240 @@ describe("the pad in the player", () => {
     ).toEqual([]);
 
     vi.useRealTimers();
+  });
+});
+
+/** The Host's countdown to S1E4, as a Snapshot built `remaining` seconds from the end of it. */
+function countdown(remaining = 5): AutoplaySnapshot {
+  return {
+    next: {
+      title: { type: "series", id: "tt7777777" },
+      video: { type: "series", id: "tt7777777:1:4" },
+      episode: { season: 1, episode: 4 },
+      name: "Cancer Man",
+      still: "https://images.test/cancer-man.jpg",
+    },
+    phase: "countdown",
+    remaining,
+    duration: 5,
+  };
+}
+
+/** An episode at its end, with the Host's Autoplay preference as given. */
+async function renderEnded(
+  overrides: Partial<PlaybackSnapshot> = {},
+  autoplayPreference = true,
+) {
+  const host = fakeHost({
+    ...NOTHING_SAID,
+    revision: 9,
+    playback: playback({
+      ...SERIES_PLAYING,
+      state: "ended",
+      episode: { season: 1, episode: 3 },
+      position: 3600,
+      ...overrides,
+    }),
+    preferences: { ...NOTHING_SAID.preferences, autoplay: autoplayPreference },
+  });
+  render(<Shell client={host.client} />);
+  await screen.findByTestId("shell-player");
+  await act(async () => {});
+  return host;
+}
+
+describe("Autoplay in the player", () => {
+  describe("the countdown's corner card", () => {
+    test("appears with focus on Cancel, so one press stops it and doing nothing lets it play", async () => {
+      const host = await renderEnded({ autoplay: countdown() });
+
+      expect(screen.getByTestId("autoplay-card")).toBeInTheDocument();
+      expect(screen.getByTestId("autoplay-cancel")).toHaveFocus();
+      expect(actions(host.invocations)).toEqual([]);
+    });
+
+    test("Play now takes next_episode and Cancel takes cancel_autoplay", async () => {
+      const host = await renderEnded({ autoplay: countdown() });
+
+      fireEvent.click(screen.getByTestId("autoplay-play-now"));
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "next_episode" }),
+      );
+
+      fireEvent.click(screen.getByTestId("autoplay-cancel"));
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "cancel_autoplay" }),
+      );
+    });
+
+    test("replaces the centred end note and the plain prompt while it is up", async () => {
+      await renderEnded({ autoplay: countdown() });
+
+      expect(screen.queryByTestId("stream-ended")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("next-episode-after-end")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("autoplay-switch")).not.toBeInTheDocument();
+    });
+
+    test("leaves the focus alone when a menu or a list above the player holds it", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const host = fakeHost({
+        ...NOTHING_SAID,
+        revision: 9,
+        playback: playback({ ...SERIES_PLAYING, state: "playing", episode: { season: 1, episode: 3 } }),
+      });
+      render(<Shell client={host.client} />);
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("osd-chapters"));
+        await Promise.resolve();
+      });
+      const inMenu = document.activeElement;
+      expect(screen.getByTestId("popover-chapters")).toBeInTheDocument();
+
+      await act(async () => {
+        host.publish({
+          ...NOTHING_SAID,
+          revision: 10,
+          playback: playback({
+            ...SERIES_PLAYING,
+            state: "ended",
+            episode: { season: 1, episode: 3 },
+            autoplay: countdown(),
+          }),
+        });
+        await Promise.resolve();
+      });
+
+      expect(screen.getByTestId("autoplay-card")).toBeInTheDocument();
+      expect(screen.getByTestId("autoplay-cancel")).not.toHaveFocus();
+      expect(document.activeElement).toBe(inMenu);
+      vi.useRealTimers();
+    });
+
+    test("keeps the OSD and the cursor up past the idle clock", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const host = fakeHost({
+        ...NOTHING_SAID,
+        revision: 9,
+        playback: playback({
+          ...SERIES_PLAYING,
+          state: "ended",
+          episode: { season: 1, episode: 3 },
+          autoplay: countdown(),
+        }),
+      });
+      render(<Shell client={host.client} />);
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      act(() => vi.advanceTimersByTime(OSD_IDLE_MS * 3));
+
+      expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
+      expect(screen.getByTestId("shell-player")).toHaveAttribute("data-cursor", "visible");
+      expect(screen.getByTestId("autoplay-card")).toBeInTheDocument();
+      vi.useRealTimers();
+    });
+
+    test("is not drawn for an episode with nothing pending", async () => {
+      await renderEnded({ autoplay: null });
+
+      expect(screen.queryByTestId("autoplay-card")).not.toBeInTheDocument();
+      expect(screen.getByTestId("stream-ended")).toBeInTheDocument();
+    });
+  });
+
+  describe("the ended state with nothing pending", () => {
+    test("draws the switch beside Next episode, and turning it on takes set_autoplay: true", async () => {
+      const host = await renderEnded({ autoplay: null }, false);
+
+      const prompt = screen.getByTestId("next-episode-after-end");
+      const toggle = screen.getByTestId("autoplay-switch");
+      expect(prompt.parentElement).toBe(toggle.parentElement);
+      expect(toggle).toHaveAttribute("aria-checked", "false");
+
+      fireEvent.click(toggle);
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "set_autoplay", autoplay: true }),
+      );
+    });
+
+    test("turning it off, with Autoplay on and nothing pending, takes set_autoplay: false", async () => {
+      const host = await renderEnded({ autoplay: null }, true);
+
+      const toggle = screen.getByTestId("autoplay-switch");
+      expect(toggle).toHaveAttribute("aria-checked", "true");
+
+      fireEvent.click(toggle);
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "set_autoplay", autoplay: false }),
+      );
+    });
+
+    test("a film's end draws no switch", async () => {
+      await renderEnded({ autoplay: null, episode: null, nowPlaying: playback().nowPlaying });
+
+      expect(screen.queryByTestId("autoplay-switch")).not.toBeInTheDocument();
+    });
+
+    test("a Stream that is still playing draws no switch on the strip", async () => {
+      await renderEpisodesPlayer();
+
+      expect(screen.queryByTestId("autoplay-switch")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("the Episodes popover's switch", () => {
+    test("heads the popover, and pressing it takes set_autoplay", async () => {
+      const host = await renderEpisodesPlayer();
+      fireEvent.click(screen.getByTestId("osd-episodes"));
+      const toggle = await screen.findByTestId("autoplay-switch");
+
+      expect(toggle).toHaveAttribute("aria-checked", "true");
+      const seasons = await screen.findByTestId("osd-seasons");
+      expect(
+        toggle.compareDocumentPosition(seasons) & Node.DOCUMENT_POSITION_FOLLOWING,
+        "the switch is above the season chips",
+      ).toBeTruthy();
+
+      fireEvent.click(toggle);
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "set_autoplay", autoplay: false }),
+      );
+    });
+
+    test("a film has no Episodes menu, so no switch", async () => {
+      await renderPlayer();
+
+      expect(screen.queryByTestId("osd-episodes")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("autoplay-switch")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("the docked band", () => {
+    test("during a countdown it names the episode that is coming and offers Cancel", async () => {
+      const host = await renderDock("own_window", {
+        ...SERIES_PLAYING,
+        state: "ended",
+        autoplay: countdown(),
+      });
+
+      expect(screen.getByTestId("player-dock-episode")).toHaveTextContent("Up next in 5 · S1E4");
+      fireEvent.click(screen.getByTestId("dock-autoplay-cancel"));
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "cancel_autoplay" }),
+      );
+    });
+
+    test("with nothing pending it names the episode playing and has no Cancel", async () => {
+      await renderDock("own_window", { ...SERIES_PLAYING, state: "ended", autoplay: null });
+
+      expect(screen.getByTestId("player-dock-episode")).toHaveTextContent("S1E1");
+      expect(screen.queryByTestId("dock-autoplay-cancel")).not.toBeInTheDocument();
+    });
   });
 });

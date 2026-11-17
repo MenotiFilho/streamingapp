@@ -8,6 +8,7 @@ import type { PlaybackSnapshot, Title, Video } from "../core/wire";
 import { ChoiceChip } from "../kit/Chip";
 import { MenuGroup, MenuRow } from "../kit/Menu";
 import { StreamsLoader } from "./StreamsScreen";
+import { AutoplaySwitch } from "./AutoplaySwitch";
 import { useShell } from "./context";
 import {
   EPISODES_EMPTY,
@@ -24,8 +25,10 @@ type Lookup =
   | { kind: "answered"; title: Title };
 
 /**
- * The Episodes plate: the playing series' seasons as single-select chips, the
- * chosen season's Videos as menu rows, and the episode playing now marked.
+ * The Episodes plate: the Autoplay switch at its head, the playing series'
+ * seasons as single-select chips, the chosen season's Videos as menu rows, and
+ * the episode playing now marked. The plate opens only where the Stream has an
+ * Episodes menu, so a film never draws the switch (#302).
  *
  * The series is the core's `seriesRef` — the Watch-progress Title's Addon, the
  * TMDB key, or the Stream's Addon — and the question is the core's
@@ -36,6 +39,17 @@ type Lookup =
  * again.
  */
 export function OsdEpisodesMenu({ playback }: { playback: PlaybackSnapshot }) {
+  return (
+    <>
+      <div className="shell-osd-episodes-head">
+        <AutoplaySwitch />
+      </div>
+      <EpisodesPlate playback={playback} />
+    </>
+  );
+}
+
+function EpisodesPlate({ playback }: { playback: PlaybackSnapshot }) {
   const { snapshot, ask, push, remove, pop } = useShell();
   const [lookup, setLookup] = useState<Lookup>({ kind: "waiting" });
   // Which season a person chose. `undefined` has not chosen one, so the first

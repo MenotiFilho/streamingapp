@@ -409,6 +409,22 @@ the phone's emoji font is not the design system.
   level beneath.
 - **Dialog**: one question, the consequence in the Host's words, Cancel focused
   first; the confirming side is the only red fill.
+- **Switch** (#317): a labelled on/off the Host owns, drawn square and hairline —
+  the label, a mono caps `On` / `Off`, and a track whose thumb is muted when off
+  and **brass** when on. It never flips by itself: the state is the Host's, so a
+  press sends the Action and the Snapshot moves the thumb. It is one press from
+  the ended prompt (beside **Next episode**) and the head of the Episodes plate
+  (above the seasons).
+- **Autoplay card** (#317, ADR-0040): the Host's countdown, drawn on the Picture
+  and not on the OSD, so the OSD's idle clock never takes it. Bottom right, above
+  the timeline: an `ink-raised` plate with a 2px brass top rule, the next
+  episode's still with the digit over it in display serif, the brass kicker
+  `Up next ———— S1E4`, the episode's name in display serif, **Play now** (the
+  primary) and **Cancel** (ghost), and a 2px brass line draining along the foot.
+  Focus lands on **Cancel**, so one press stops it and doing nothing lets it
+  play. While it is up the centred `The Stream reached its end.` note and the
+  plain ended prompt are not drawn, and the OSD and the cursor stay up. Reduced
+  motion drops the line's smoothing, not the countdown.
 - **OSD**: a programme note printed over the film, in translucent ink plates and
   hairlines. Top left: the brass `Now playing` kicker, the episode or `Feature`,
   the Title in display serif, a brass quality stamp, and the Addon/codec/bitrate
@@ -437,7 +453,9 @@ the phone's emoji font is not the design system.
   the page draws a band at its foot instead of an OSD over a hole: now playing,
   the Title, the picture fact, the seek timeline, play/pause, volume and Stop.
   It keeps the page's own focus root and has no OSD ladder, idle clock or
-  popovers, because there is no picture to print them over.
+  popovers, because there is no picture to print them over. During an Autoplay
+  countdown its episode label reads `Up next in 4 · S1E4` and a **Cancel** sits
+  beside the volume.
 - **Pairing call board**: **Address** in mono, **Pairing code** in large brass
   mono with the label `Pairing code · single use`, then the paired-device ledger
   (name in display serif, paired stamp in mono, **Revoke** in red). Revoke asks
