@@ -105,8 +105,9 @@ $Steps = @(
     [pscustomobject]@{ Id = 33; Title = 'fullscreen: F11, the OSD''s copy, and the chrome that outlives Stop'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it plays an episode, and walks the window''s control on Home, a pushed Title, Settings and a confirm dialog, plus F11 with the OSD visible and hidden)' }
     [pscustomobject]@{ Id = 34; Title = 'Settings > Preferences: the subtitle appearance goes through the Action surface, and survives a restart'; Ground = 'fresh'; After = @(); Need = 'a Host (the appearance needs no Addon)' }
     [pscustomobject]@{ Id = 35; Title = 'subtitles on a real picture: colour on the SRT, the authored colour on the ASS at 100% and 125%, and the size from the OSD'; Ground = 'addon'; After = @(); Need = 'the fixture Addon with the fixture video (two SRT tracks and one ASS track); it chooses the colour, plays, steps the size in the OSD, and checks Settings and the next Stream' }
-    [pscustomobject]@{ Id = 36; Title = 'an Up next plays directly: Play from the finished episode''s card, with no Streams list in between'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it plays S1E1 to its end, opens the Up next card and presses Play)' }
+    [pscustomobject]@{ Id = 36; Title = 'an Up next plays directly: Play from the finished episode''s card, with no Streams list in between'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it sets "When an episode ends" to Wait in Settings, plays S1E1 to its end, opens the Up next card and presses Play)' }
     [pscustomobject]@{ Id = 37; Title = 'a second open of the same Title is instant: the Host answers it from the cache'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it opens a series Title, back, and opens the same Title again)' }
+    [pscustomobject]@{ Id = 38; Title = 'autoplay: the countdown, its Cancel, and the next episode on its own'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it sets "When an episode ends" to "Play it after 5 seconds" in Settings, plays S1E1 to its end, cancels the countdown, switches Autoplay off and on again beside Next episode, and lets the new countdown play S1E2)' }
 )
 
 # The discovery path and the cheap syntax check: print the checklist and what
@@ -1053,6 +1054,91 @@ function Read-Pairing($app) {
         if ($name -match '^[A-HJ-NP-Z2-9]{6}$') { $code = $name }
     }
     return @{ Text = $text; Address = $address; Code = $code }
+}
+
+# --- Autoplay (#302) ----------------------------------------------------------
+#
+# Settings > Preferences > Up next carries "When an episode ends" as two choices,
+# `Play it after 5 seconds` and `Wait`, each pressed or not (`aria-pressed`, a
+# Toggle pattern). The player carries the same preference as a switch labelled
+# `Autoplay the next episode` (`role="switch"`, `aria-checked`): inside the
+# Episodes popover, and beside Next episode on an ended episode. The Host's
+# countdown is the corner card, a group named `Up next - S1E2` (the middle dot
+# is built from its code point), holding `Play now` and `Cancel`; Cancel takes
+# the keyboard focus when the card appears.
+
+# Choose one of the "When an episode ends" choices through Settings, the way a
+# person does. Returns what the run needs to say whether it took: the pressed
+# element (or $null) and whether a Snapshot went out when a press was needed.
+function Choose-Autoplay($app, $label) {
+    Open-Settings-Category $app 'Preferences' 'When an episode ends'
+    $choice = Button-Named $app $label 10
+    if (-not $choice) { throw "the Preferences screen shows no '$label' choice for When an episode ends" }
+    $published = $true
+    if (-not (Toggled $choice)) {
+        $before = Snapshot-Baseline
+        Press-Element $app $choice
+        $published = (Wait-Published $before 20) -gt $before
+    }
+    [pscustomobject]@{ Pressed = (Wait-Toggled $app $label 10); Published = $published }
+}
+
+# The corner card the Host's countdown is drawn in, by its accessible name
+# (`Up next - S1E2`), or $null once it is not there within `$seconds`.
+function Autoplay-Card($app, $episode = 'S1E2', $seconds = 1) {
+    Find-Element (Window-Root $app) ('Up next ' + $dot + ' ' + $episode) $null $seconds
+}
+
+# Wait for the card to be drawn, polling quickly: the countdown is five seconds
+# long, so every second spent finding the card is a second off the Cancel press.
+function Wait-Autoplay-Card($app, $episode = 'S1E2', $seconds = 10) {
+    $deadline = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $deadline) {
+        $card = Autoplay-Card $app $episode 1
+        if ($card) { return $card }
+    }
+    return $null
+}
+
+# Wait for the card to be gone: the countdown was cancelled, switched off, or ran out.
+function Wait-No-Autoplay-Card($app, $episode = 'S1E2', $seconds = 10) {
+    $deadline = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $deadline) {
+        if (-not (Autoplay-Card $app $episode 1)) { return $true }
+        Start-Sleep -Milliseconds 300
+    }
+    return $false
+}
+
+# The Autoplay switch, with the OSD woken first: it is drawn on the ended
+# episode's prompt, which is part of the OSD, and the OSD puts itself away after
+# three idle seconds.
+function Autoplay-Switch($app, $seconds = 10) {
+    Wake-Osd $app
+    Find-Element (Window-Root $app) 'Autoplay the next episode' $null $seconds
+}
+
+# Whether the switch is on, read off its Toggle pattern: $true, $false, or $null
+# when the accessibility tree does not carry a toggle state for it.
+function Switch-State($element) {
+    if (-not $element) { return $null }
+    $pattern = $null
+    if ($element.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern, [ref]$pattern)) {
+        return ($pattern.Current.ToggleState -eq [Windows.Automation.ToggleState]::On)
+    }
+    return $null
+}
+
+# Press the switch with the keyboard and return at once: the countdown it may
+# start is five seconds long, and `Press-Element` spends two of them waiting.
+function Press-Switch($app) {
+    $switch = Autoplay-Switch $app
+    if (-not $switch) { throw 'the ended episode shows no Autoplay switch' }
+    $switch.SetFocus()
+    Start-Sleep -Milliseconds 300
+    if (-not (Focus $app)) { throw 'pressing the switch needs the Host in the foreground' }
+    [Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    Start-Sleep -Milliseconds 500
 }
 
 # --- the fixtures the later steps stand on ------------------------------------
@@ -3440,6 +3526,16 @@ function Step-35($ctx) {
 function Step-36($ctx) {
     '--- 36. an Up next plays directly: Play from the finished episode''s card'
     $app = $ctx.App
+    # Autoplay is on by default, and a finished episode would then count down and
+    # play S1E2 under this step, which walks the Up next card of an episode that
+    # stays finished. So the step first sets "When an episode ends" to Wait, in
+    # Settings, the way a person does. Step 38 sets it back.
+    $wait = Choose-Autoplay $app 'Wait'
+    Shot $app '36-autoplay-wait.png'
+    Check 'Settings holds "When an episode ends" on Wait before the walk begins' (
+        $wait.Pressed -and -not (Toggled (Button-Named $app 'Play it after 5 seconds' 2))) (
+        "showed: $(Page-Text $app)")
+    Check 'choosing Wait published a Snapshot' $wait.Published 'the log shows no new Snapshot after the press'
     # Finish S1E1 on the fixture's own video. The video is five minutes long and
     # the last thirty seconds already count as watched, so the position slider is
     # the quickest way to reach the end without watching it.
@@ -3469,6 +3565,13 @@ function Step-36($ctx) {
     }
     Click-Fraction $app $slider 0.995
     Start-Sleep -Seconds 4
+    # With Wait chosen the episode sits on its ended state: no countdown card,
+    # and nothing plays by itself.
+    Wake-Osd $app
+    $text = Wait-Text $app 'The Stream reached its end' 5
+    Check 'with Wait chosen the finished episode stays ended, with no countdown card' (
+        ($text -match 'The Stream reached its end') -and -not (Autoplay-Card $app 'S1E2' 1)) "showed: $text"
+    Shot $app '36-ended-wait.png'
 
     # Leave the player for the Title, then the Title for Home. A Stream that has
     # ended still has a Stop; if the window went back on its own, one Back is
@@ -3551,6 +3654,135 @@ function Step-37($ctx) {
         $text -match 'Season \d+') "showed: $text"
     Check 'and it is instant: the cached Title answered, under three seconds' (
         $elapsed -lt 3000) "the second open took $elapsed ms"
+}
+
+function Step-38($ctx) {
+    '--- 38. autoplay: the countdown, its Cancel, and the next episode on its own'
+    $app = $ctx.App
+    $card = 'Up next ' + $dot + ' S1E2'
+    # Step 36 leaves "When an episode ends" on Wait, and a run of this step alone
+    # starts from the default: either way the step sets what it stands on.
+    $on = Choose-Autoplay $app 'Play it after 5 seconds'
+    Shot $app '38-autoplay-on.png'
+    Check 'Settings holds "When an episode ends" on Play it after 5 seconds before the walk begins' (
+        $on.Pressed -and -not (Toggled (Button-Named $app 'Wait' 2))) "showed: $(Page-Text $app)"
+
+    # Play S1E1 and seek to its last second, as step 36 does.
+    if (-not (Open-Series $app)) {
+        Skip 'autoplay' 'the fixture Addon drew no series row'
+        return
+    }
+    if (-not (Open-Streams $app 'S1E1')) {
+        Skip 'autoplay' 'the series Title offers no first episode'
+        return
+    }
+    $kind = Choose-Candidate $app
+    if ($kind -ne 'playable') {
+        Skip 'autoplay' "the Addon answered no playable candidate ($kind)"
+        return
+    }
+    if (-not (Wait-Shows $app 'Pause' 45)) {
+        Skip 'autoplay' 'the first episode never started playing'
+        return
+    }
+    Start-Sleep -Seconds 2
+    Wake-Osd $app
+    $slider = Find-Element (Window-Root $app) 'Position' ([Windows.Automation.ControlType]::Slider) 3
+    if (-not $slider) {
+        Skip 'autoplay' 'the OSD showed no position slider to seek by'
+        return
+    }
+    Click-Fraction $app $slider 0.995
+
+    # 1. The episode ends, and the Host's five-second countdown is drawn as the
+    # corner card, with the keyboard focus on Cancel. Nothing below presses
+    # anything but the keys a remote would send, and the checks are made at once:
+    # the countdown does not wait for the script.
+    $shown = Wait-Autoplay-Card $app 'S1E2' 10
+    $focused = Focused-Name
+    Shot $app '38-countdown-card.png'
+    Check 'the ended episode draws the corner card naming the episode that comes next' (
+        $shown -ne $null) "showed: $(Page-Text $app)"
+    if (-not $shown) {
+        Skip 'autoplay' 'no countdown card appeared, so there is nothing to cancel: the finished episode has an Up next only where the Addon lists the episode after it'
+        return
+    }
+    Check 'the card offers Play now and Cancel' (
+        ((Button-Named $app 'Play now' 1) -ne $null) -and ((Button-Named $app 'Cancel' 1) -ne $null)) (
+        "showed: $(Page-Text $app)")
+    Check 'the keyboard focus is on Cancel when the card appears' (
+        $focused -eq 'Cancel') "focus is on '$focused'"
+
+    # 2. One press of Cancel stops this countdown, and the episode stays ended:
+    # the plain prompt, with the switch beside Next episode. The wait outlasts
+    # the five seconds, so an episode that still sits there was not advanced.
+    Press-Keys $app '{ENTER}'
+    $gone = Wait-No-Autoplay-Card $app 'S1E2' 5
+    Check 'Cancel takes the corner card away' $gone "the card '$card' is still drawn"
+    Start-Sleep -Seconds 6
+    Wake-Osd $app
+    $text = Wait-Text $app 'The Stream reached its end' 8
+    Check 'and the episode stays on its ended prompt past the five seconds: nothing played by itself' (
+        ($text -match 'The Stream reached its end') -and -not (Autoplay-Card $app 'S1E2' 1)) "showed: $text"
+    $switch = Autoplay-Switch $app 10
+    Check 'the ended prompt draws the Autoplay switch' ($switch -ne $null) "showed: $(Page-Text $app)"
+    if (-not $switch) { return }
+    $next = @(Buttons-Named $app 'Next episode')
+    $switchRect = $switch.Current.BoundingRectangle
+    $beside = @($next | Where-Object {
+        $rect = $_.Current.BoundingRectangle
+        (-not $rect.IsEmpty) -and ($rect.Top -lt $switchRect.Bottom) -and ($rect.Bottom -gt $switchRect.Top)
+    })
+    Check 'the switch sits beside a Next episode button' ($beside.Count -gt 0) (
+        "switch at top=$($switchRect.Top) bottom=$($switchRect.Bottom); Next episode buttons: $($next.Count)")
+    Shot $app '38-cancelled.png'
+
+    # Cancel keeps the preference, so the switch still reads On here. Turning it
+    # on starts the countdown, which is what the Host does for set_autoplay true
+    # on an ended episode - so the preference is turned off first, and the press
+    # that turns it on again is the one that starts the countdown (ADR-0040 4).
+    $state = Switch-State $switch
+    if ($state -eq $null) {
+        Skip 'autoplay: Cancel keeps the preference' 'the accessibility tree carries no toggle state for the switch'
+    } else {
+        Check 'Cancel keeps Autoplay on: the switch still reads On' $state 'the switch reads Off after Cancel'
+    }
+    if ($state -ne $false) {
+        Press-Switch $app
+        Start-Sleep -Seconds 2
+        $off = Switch-State (Autoplay-Switch $app 10)
+        if ($off -ne $null) {
+            Check 'pressing the switch turns Autoplay off' (-not $off) 'the switch still reads On'
+        }
+        Check 'and turning it off starts no countdown' (
+            -not (Autoplay-Card $app 'S1E2' 2)) "showed: $(Page-Text $app)"
+    }
+
+    # 3. Turning the switch on again starts the countdown: the card is back, with
+    # the focus on Cancel again, and it is counting rather than already over.
+    Press-Switch $app
+    $again = Wait-Autoplay-Card $app 'S1E2' 6
+    $focused = Focused-Name
+    Shot $app '38-rearmed.png'
+    Check 'turning the switch on starts the countdown again: the card is back' (
+        $again -ne $null) "showed: $(Page-Text $app)"
+    if (-not $again) { return }
+    Check 'and the keyboard focus is on Cancel again' ($focused -eq 'Cancel') "focus is on '$focused'"
+
+    # 4. Nobody presses anything now: the countdown runs out and S1E2 plays by
+    # itself, with no Streams list in between.
+    $gone = Wait-No-Autoplay-Card $app 'S1E2' 15
+    $playing = Wait-Shows $app 'Pause' 45
+    Wake-Osd $app
+    Shot $app '38-s1e2-playing.png'
+    Check 'letting the countdown run out takes the card away' $gone "the card '$card' is still drawn"
+    Check 'and the next episode starts playing on its own, with no Streams list in between' (
+        $playing -and -not (Shows $app 'Streams ' 1)) "showed: $(Page-Text $app)"
+    if ($playing) {
+        Check 'and the episode playing is S1E2' (
+            (Episode-Number $app) -eq 2) "the OSD reads S1E$(Episode-Number $app)"
+        Press-Button $app 'Stop'
+    }
 }
 
 # --- the dispatcher -----------------------------------------------------------
