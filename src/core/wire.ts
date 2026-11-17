@@ -216,13 +216,15 @@ export type UpNextEpisode = {
  * nested under it. `remaining` and `duration` are relative seconds as of the
  * Snapshot, so a client projects the digit on its own monotonic clock from the
  * Snapshot's arrival and never compares wall clocks with the Host (ADR-0033,
- * ADR-0040). Mirrors `AutoplayPhase` in `host-core`; the missing-Stream phase
- * arrives with the Host rule that publishes it. `unattended_limit` is the hold
- * on "Still watching?": no countdown, so no `remaining` and no `duration`.
+ * ADR-0040). Mirrors `AutoplayPhase` in `host-core`. `unattended_limit` is the
+ * hold on "Still watching?": no countdown, so no `remaining` and no `duration`.
+ * `no_stream` is the countdown that ran out with no Stream found by continuity
+ * for `next`: the Host stays on the ended state and `detail` says why.
  */
 export type AutoplayPhase =
   | { phase: "countdown"; remaining: number; duration: number }
-  | { phase: "unattended_limit" };
+  | { phase: "unattended_limit" }
+  | { phase: "no_stream"; detail: string };
 
 /**
  * What Autoplay is doing about the episode that ended: the next episode and

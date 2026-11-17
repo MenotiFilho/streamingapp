@@ -8,9 +8,9 @@
  * (ADR-0033, ADR-0040). The window's corner card and docked band and the
  * Remote's banner and strip are drawings of this one view.
  *
- * Two phases are drawn: the countdown, and the hold on "Still watching?" the
- * Host publishes after three episodes nobody touched, which has no countdown to
- * project. The missing-Stream phase arrives with the Host rule that publishes it.
+ * Three phases are drawn: the countdown, the hold on "Still watching?" the Host
+ * publishes after three episodes nobody touched (no countdown to project), and
+ * the missing Stream (no countdown either; the Streams picker is what is pushed).
  */
 
 import type { PlaybackSnapshot, UpNextEpisode } from "./wire";
@@ -54,6 +54,13 @@ export type AutoplayView =
       title: string;
       /** The docked strip's text: "Still watching? · S1E4". */
       strip: string;
+    }
+  | {
+      kind: "no_stream";
+      /** The episode continuity found no Stream for: the Streams picker opens on it. */
+      next: AutoplayNext;
+      /** Why, as the Host said it. */
+      detail: string;
     };
 
 /** What the kicker leads with. */
@@ -93,6 +100,10 @@ export function autoplayView(
     };
   }
 
+  if (held.phase === "no_stream") {
+    return { kind: "no_stream", next, detail: held.detail };
+  }
+
   const gone = Number.isFinite(sinceSnapshotMs) ? Math.max(0, sinceSnapshotMs) / 1000 : 0;
   const left = Math.max(0, held.remaining - gone);
   const digit = Math.max(1, Math.ceil(left));
@@ -116,4 +127,34 @@ export function autoplayView(
  */
 export function autoplayStrip(view: AutoplayView): string | null {
   return view.kind === "countdown" || view.kind === "still_watching" ? view.strip : null;
+}
+
+/**
+ * Whether a client opens the Streams picker now: once per missing-Stream target.
+ *
+ * `previous` is what the client last drew and `next` what it draws now. It is
+ * true when `next` is a missing Stream for a Video `previous` was not already
+ * about, so a repeated Snapshot for the same Video opens nothing more and a
+ * different Video opens it again. Where a client is allowed to open it — the
+ * window on its player level, the Remote on its expanded player card — is the
+ * client's own rule.
+ */
+export function opensPicker(previous: AutoplayView, next: AutoplayView): boolean {
+  if (next.kind !== "no_stream") {
+    return false;
+  }
+  return (
+    previous.kind !== "no_stream" ||
+    previous.next.video.type !== next.next.video.type ||
+    previous.next.video.id !== next.next.video.id
+  );
+}
+
+/**
+ * Whether the ended state is drawn as it always was — its note and **Next
+ * episode** — because no card is up over it. A missing Stream is no card: the
+ * Host stays on the ended state, and the picker is what is pushed for it.
+ */
+export function plainEnd(view: AutoplayView): boolean {
+  return view.kind === "none" || view.kind === "no_stream";
 }

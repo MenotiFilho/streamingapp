@@ -59,8 +59,12 @@ struct Fixture {
 }
 
 fn fixture_offering(candidates: Vec<Stream>) -> Fixture {
+    fixture_over(FixtureProvider::new().offering(SERIES_ID, candidates))
+}
+
+fn fixture_over(provider: FixtureProvider) -> Fixture {
     let player = Arc::new(FixturePlayer::new());
-    let provider = Arc::new(FixtureProvider::new().offering(SERIES_ID, candidates));
+    let provider = Arc::new(provider);
     let clock = Arc::new(FixtureClock::new().at(NOW));
     let store = Arc::new(InMemoryStore::new());
     let fetcher = FixtureFetcher::new()
@@ -177,6 +181,17 @@ fn countdown(snapshot: &Snapshot) -> Option<(String, f64, f64)> {
         };
         Some((autoplay.next.video.id.clone(), remaining, duration))
     })
+}
+
+/// What a `no_stream` Snapshot says: the Video it is about, and why.
+fn no_stream(snapshot: &Snapshot) -> Option<(String, String)> {
+    let autoplay = snapshot.playback.autoplay.as_ref()?;
+    match &autoplay.phase {
+        AutoplayPhase::NoStream { detail } => {
+            Some((autoplay.next.video.id.clone(), detail.clone()))
+        }
+        _ => None,
+    }
 }
 
 #[test]
@@ -324,7 +339,7 @@ fn when_the_release_is_gone_the_addons_first_playable_candidate_plays() {
 }
 
 #[test]
-fn when_continuity_finds_nothing_the_host_stays_on_the_ended_state() {
+fn when_continuity_finds_nothing_the_host_stays_on_the_ended_state_and_says_so() {
     let mut fixture = fixture_offering(vec![torrent(
         "a torrent",
         "61065ea115b7cc3e8db9fb5ab1f6f327f08bd1c9",
@@ -336,16 +351,89 @@ fn when_continuity_finds_nothing_the_host_stays_on_the_ended_state() {
     let published = fixture
         .host
         .sample()
-        .expect("clearing the countdown is published");
+        .expect("the missing Stream is published");
 
-    assert_eq!(fixture.player.opened(), vec![PLAYING.to_owned()]);
+    assert_eq!(
+        fixture.player.opened(),
+        vec![PLAYING.to_owned()],
+        "nothing is opened"
+    );
     assert_eq!(published.playback.state, PlaybackState::Ended);
-    assert!(published.playback.autoplay.is_none());
+    let (video, detail) = no_stream(&published).expect("the Host says there is no Stream");
+    assert_eq!(video, "tt0903747:1:2", "about the episode that was due");
+    assert!(!detail.is_empty(), "with the reason");
     assert_eq!(
         fixture.host.sample(),
         None,
         "and nothing arms again on the next tick"
     );
+    assert_eq!(
+        no_stream(&fixture.host.snapshot()),
+        no_stream(&published),
+        "a client that connects afterwards is told the same"
+    );
+}
+
+#[test]
+fn an_addon_that_errors_at_expiry_is_a_missing_stream_too() {
+    let mut fixture = fixture_over(FixtureProvider::new().failing(
+        SERIES_ID,
+        host_core::ActionError::Fetch {
+            detail: "the Addon is down".to_owned(),
+        },
+    ));
+    first_episode_ended(&mut fixture);
+
+    fixture.clock.tick(5_000);
+    let published = fixture.host.sample().expect("published");
+
+    assert!(fixture.player.opened() == vec![PLAYING.to_owned()]);
+    assert!(no_stream(&published).is_some());
+}
+
+#[test]
+fn an_addon_that_is_gone_at_expiry_is_a_missing_stream_too() {
+    let mut fixture = a_host();
+    first_episode_ended(&mut fixture);
+    dispatch(
+        &mut fixture,
+        serde_json::json!({ "type": "remove_addon", "id": SERIES_ID }),
+    );
+
+    fixture.clock.tick(5_000);
+    let published = fixture
+        .host
+        .sample()
+        .expect("the missing Stream is published");
+
+    assert_eq!(fixture.player.opened(), vec![PLAYING.to_owned()]);
+    let (video, _) = no_stream(&published).expect("no_stream");
+    assert_eq!(video, "tt0903747:1:2");
+}
+
+#[test]
+fn a_missing_stream_is_dismissed_like_a_countdown() {
+    let mut fixture = fixture_offering(Vec::new());
+    first_episode_ended(&mut fixture);
+    fixture.clock.tick(5_000);
+    fixture.host.sample().expect("no_stream is published");
+
+    let cancelled = dispatch(
+        &mut fixture,
+        serde_json::json!({ "type": "cancel_autoplay" }),
+    );
+    assert!(cancelled.snapshots[0].playback.autoplay.is_none());
+}
+
+#[test]
+fn a_missing_stream_is_left_by_playing_something_else() {
+    let mut fixture = fixture_offering(Vec::new());
+    first_episode_ended(&mut fixture);
+    fixture.clock.tick(5_000);
+    fixture.host.sample().expect("no_stream is published");
+
+    dispatch(&mut fixture, serde_json::json!({ "type": "stop_playback" }));
+    assert!(fixture.host.snapshot().playback.autoplay.is_none());
 }
 
 #[test]

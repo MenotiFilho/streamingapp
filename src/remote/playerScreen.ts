@@ -1,5 +1,5 @@
 import { actionKey } from "../core/actionKey";
-import { autoplayStrip, type AutoplayView } from "../core/autoplay";
+import { autoplayStrip, opensPicker, plainEnd, type AutoplayView } from "../core/autoplay";
 import { AUTOPLAY_SWITCH_LABEL, VOLUME_MAX } from "../core/controls";
 import type { Level, NewLevel } from "../core/navigation";
 import { playingName, watching } from "../core/playback";
@@ -76,10 +76,25 @@ export function cardStateNote(
   if (view.state === "opening") {
     return openingNote(playingName(view.nowPlaying));
   }
-  if (view.state === "ended" && view.autoplay.kind === "none") {
+  if (view.state === "ended" && plainEnd(view.autoplay)) {
     return ENDED_NOTE;
   }
   return null;
+}
+
+/**
+ * Whether the Remote pushes the Streams picker for a missing Stream now: once
+ * per target (the core's `opensPicker`), and only while it is on its expanded
+ * player card. A Remote on a browse or Settings screen, on a plate over the
+ * card, or on a list it already has open is not interrupted (#320, #302).
+ * `levelKind` is the kind of the level on show, `null` for a destination.
+ */
+export function pushesPicker(
+  previous: AutoplayView,
+  view: AutoplayView,
+  levelKind: string | null,
+): boolean {
+  return levelKind === "player" && opensPicker(previous, view);
 }
 
 /**

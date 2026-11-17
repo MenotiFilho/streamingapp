@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { actionKey } from "../core/actionKey";
+import { autoplayView } from "../core/autoplay";
 import type { Level } from "../core/navigation";
 import { playbackView } from "../core/playbackView";
 import type { PlaybackSnapshot, Title } from "../core/wire";
@@ -12,6 +13,7 @@ import {
   CARD_NAME,
   ENDED_NOTE,
   openingNote,
+  pushesPicker,
   playerLevel,
   playerLevelStale,
   seekTo,
@@ -341,6 +343,12 @@ describe("the Remote's Autoplay drawings", () => {
     duration: 5,
   };
 
+  const MISSING: PlaybackSnapshot["autoplay"] = {
+    next: COUNTDOWN!.next,
+    phase: "no_stream",
+    detail: "No Stream continues the release",
+  };
+
   function view(
     overrides: Partial<PlaybackSnapshot> = {},
     pending: ReadonlySet<string> = new Set(),
@@ -456,6 +464,26 @@ describe("the Remote's Autoplay drawings", () => {
     expect(cardStateNote(view({ state: "opening", nowPlaying: null }))).toBe(
       openingNote("a Stream"),
     );
+  });
+
+  test("a missing Stream leaves the ended note, because the Host stays on the ended state", () => {
+    expect(cardStateNote(view({ autoplay: MISSING }))).toBe(ENDED_NOTE);
+    expect(autoplayBanner(view({ autoplay: MISSING }))).toBeNull();
+    expect(stripEpisode(view({ autoplay: MISSING }))).toBe("S1E3");
+  });
+
+  test("the Streams picker is pushed only while the Remote is on its expanded card", () => {
+    const none = autoplayView({ autoplay: null }, 0);
+    const missing = autoplayView({ autoplay: MISSING }, 0);
+
+    expect(pushesPicker(none, missing, "player")).toBe(true);
+    expect(pushesPicker(none, missing, null), "the Home screen").toBe(false);
+    expect(pushesPicker(none, missing, "title"), "a Title").toBe(false);
+    expect(pushesPicker(none, missing, "grid"), "a browse grid").toBe(false);
+    expect(pushesPicker(none, missing, "settings"), "Settings").toBe(false);
+    expect(pushesPicker(none, missing, "sheet"), "a plate over the card").toBe(false);
+    expect(pushesPicker(none, missing, "streams"), "a list already open").toBe(false);
+    expect(pushesPicker(missing, missing, "player"), "once per target").toBe(false);
   });
 
   test("the strip's label is the countdown's text, else the episode's own", () => {

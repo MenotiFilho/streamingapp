@@ -75,6 +75,11 @@ pub enum AutoplayPhase {
     /// anything and holds on "Still watching?": there is no countdown, and only
     /// a play moves on.
     UnattendedLimit {},
+    /// The countdown ran out and continuity found no Stream for `next`: the
+    /// Addon is gone, it errored, or it has no playable candidate. The Host
+    /// stays on the ended state, and clients offer the Streams picker for the
+    /// episode. `detail` is the reason, as the refusal reported it.
+    NoStream { detail: String },
 }
 
 /// What Autoplay is waiting on: a countdown the Host is running, or the hold at
@@ -90,8 +95,20 @@ pub enum AutoplayPhase {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Pending {
     next: UpNextEpisode,
-    /// When the countdown started, or `None` for the hold, which has none.
-    started_at: Option<i64>,
+    stage: Stage,
+}
+
+/// What a [`Pending`] is waiting on.
+#[derive(Debug, Clone, PartialEq)]
+enum Stage {
+    /// Counting down, since this moment on the Host's `Clock`.
+    Counting { started_at: i64 },
+    /// The unattended limit: nothing runs, and the Host holds on "Still
+    /// watching?" until a play, a cancel, a stop or switching Autoplay off.
+    Holding,
+    /// The countdown ran out and no Stream was found: nothing runs any more,
+    /// and the Host holds the fact until something ends it.
+    NoStream { detail: String },
 }
 
 impl Pending {
@@ -99,7 +116,7 @@ impl Pending {
     pub(crate) fn starting(next: UpNextEpisode, now: i64) -> Self {
         Self {
             next,
-            started_at: Some(now),
+            stage: Stage::Counting { started_at: now },
         }
     }
 
@@ -107,18 +124,29 @@ impl Pending {
     pub(crate) fn holding(next: UpNextEpisode) -> Self {
         Self {
             next,
-            started_at: None,
+            stage: Stage::Holding,
         }
     }
 
-    /// Whether the countdown has run out at `now`. A hold never does: only a
-    /// play, a cancel, a stop or switching Autoplay off ends it.
-    pub(crate) fn expired(&self, now: i64) -> bool {
-        self.started_at
-            .is_some_and(|started| Self::remaining_millis(started, now) == 0)
+    /// The same episode, after continuity found no Stream for it.
+    pub(crate) fn without_stream(self, detail: String) -> Self {
+        Self {
+            next: self.next,
+            stage: Stage::NoStream { detail },
+        }
     }
 
-    fn remaining_millis(started_at: i64, now: i64) -> i64 {
+    /// Whether the countdown has run out at `now`. A hold, or a countdown that
+    /// already ended in a missing Stream, does not run out: only a play, a
+    /// cancel, a stop or switching Autoplay off ends them.
+    pub(crate) fn expired(&self, now: i64) -> bool {
+        matches!(self.stage, Stage::Counting { .. }) && self.remaining_millis(now) == 0
+    }
+
+    fn remaining_millis(&self, now: i64) -> i64 {
+        let Stage::Counting { started_at } = self.stage else {
+            return 0;
+        };
         let elapsed = now.saturating_sub(started_at).max(0);
         AUTOPLAY_COUNTDOWN_MS.saturating_sub(elapsed).max(0)
     }
@@ -126,16 +154,18 @@ impl Pending {
     /// What a Snapshot built at `now` says: the time left is the one true at
     /// this moment, so a client that connects mid-countdown draws the right digit.
     pub(crate) fn snapshot(&self, now: i64) -> AutoplaySnapshot {
-        let phase = match self.started_at {
-            Some(started) => AutoplayPhase::Countdown {
-                remaining: Self::remaining_millis(started, now) as f64 / 1_000.0,
-                duration: AUTOPLAY_COUNTDOWN_MS as f64 / 1_000.0,
-            },
-            None => AutoplayPhase::UnattendedLimit {},
-        };
         AutoplaySnapshot {
             next: self.next.clone(),
-            phase,
+            phase: match &self.stage {
+                Stage::Counting { .. } => AutoplayPhase::Countdown {
+                    remaining: self.remaining_millis(now) as f64 / 1_000.0,
+                    duration: AUTOPLAY_COUNTDOWN_MS as f64 / 1_000.0,
+                },
+                Stage::Holding => AutoplayPhase::UnattendedLimit {},
+                Stage::NoStream { detail } => AutoplayPhase::NoStream {
+                    detail: detail.clone(),
+                },
+            },
         }
     }
 }
@@ -315,6 +345,25 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<AutoplaySnapshot>(&wire).expect("and reads back"),
             snapshot
+        );
+    }
+
+    #[test]
+    fn a_missing_stream_is_flat_on_the_wire_and_never_runs_out_again() {
+        let pending = Pending::starting(episode(), 0).without_stream("no Stream".to_owned());
+        let wire = serde_json::to_value(pending.snapshot(60_000)).expect("a Snapshot serializes");
+
+        assert_eq!(wire["phase"], "no_stream");
+        assert_eq!(wire["detail"], "no Stream");
+        assert_eq!(wire["next"]["video"]["id"], "tt1:1:4");
+        assert!(wire.get("remaining").is_none());
+        assert!(
+            !pending.expired(60_000),
+            "there is nothing left to wait for"
+        );
+        assert_eq!(
+            serde_json::from_value::<AutoplaySnapshot>(wire).expect("and reads back"),
+            pending.snapshot(60_000)
         );
     }
 

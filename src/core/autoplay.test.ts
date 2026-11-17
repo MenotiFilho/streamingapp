@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { autoplayStrip, autoplayView } from "./autoplay";
+import { autoplayStrip, autoplayView, opensPicker, plainEnd } from "./autoplay";
 import type { AutoplaySnapshot } from "./wire";
 
 const NEXT = {
@@ -11,14 +11,16 @@ const NEXT = {
   still: "https://images.test/cancer-man.jpg",
 };
 
-function autoplay(remaining: number, overrides: Partial<AutoplaySnapshot> = {}): AutoplaySnapshot {
+type Counting = Extract<AutoplaySnapshot, { phase: "countdown" }>;
+
+function autoplay(remaining: number, overrides: Partial<Counting> = {}): Counting {
   return {
     next: NEXT,
     phase: "countdown",
     remaining,
     duration: 5,
     ...overrides,
-  } as AutoplaySnapshot;
+  };
 }
 
 /** What the Host publishes at the unattended limit: no countdown, only where it leads. */
@@ -140,5 +142,83 @@ describe("the autoplay view", () => {
       expect(at(0)).toEqual(at(60_000));
       expect(at(Number.NaN)).toEqual(at(0));
     });
+  });
+});
+
+function noStream(videoId: string, detail = "No addon has a Stream for it"): AutoplaySnapshot {
+  return {
+    next: {
+      title: { type: "series", id: "tt0903747" },
+      video: { type: "series", id: videoId },
+      episode: { season: 1, episode: 4 },
+      name: "Cancer Man",
+      still: null,
+    },
+    phase: "no_stream",
+    detail,
+  };
+}
+
+describe("the missing Stream view", () => {
+  test("no_stream carries the next episode and the Host's reason", () => {
+    const view = autoplayView({ autoplay: noStream("tt0903747:1:4", "The Addon is down") }, 9_000);
+
+    expect(view.kind).toBe("no_stream");
+    if (view.kind !== "no_stream") {
+      return;
+    }
+    expect(view.detail).toBe("The Addon is down");
+    expect(view.next).toMatchObject({
+      title: { type: "series", id: "tt0903747" },
+      video: { type: "series", id: "tt0903747:1:4" },
+      label: "S1E4",
+      name: "Cancer Man",
+    });
+  });
+});
+
+describe("opening the Streams picker for a missing Stream", () => {
+  const view = (videoId: string | null) =>
+    autoplayView({ autoplay: videoId === null ? null : noStream(videoId) }, 0);
+  const counting = autoplayView({ autoplay: autoplay(5) }, 0);
+
+  test("it opens when a missing Stream first appears", () => {
+    expect(opensPicker(view(null), view("tt0903747:1:4"))).toBe(true);
+    expect(opensPicker(counting, view("tt0903747:1:4"))).toBe(true);
+  });
+
+  test("a repeated Snapshot for the same target opens nothing more", () => {
+    expect(opensPicker(view("tt0903747:1:4"), view("tt0903747:1:4"))).toBe(false);
+  });
+
+  test("a different target opens it again", () => {
+    expect(opensPicker(view("tt0903747:1:4"), view("tt0903747:1:5"))).toBe(true);
+  });
+
+  test("nothing else opens it", () => {
+    expect(opensPicker(view(null), view(null))).toBe(false);
+    expect(opensPicker(view("tt0903747:1:4"), view(null))).toBe(false);
+    expect(opensPicker(view(null), counting)).toBe(false);
+    expect(opensPicker(view("tt0903747:1:4"), autoplayView({ autoplay: held() }, 0))).toBe(false);
+    expect(opensPicker(autoplayView({ autoplay: held() }, 0), view(null))).toBe(false);
+  });
+
+  test("the same target after it was dismissed opens it once more", () => {
+    expect(opensPicker(view(null), view("tt0903747:1:4"))).toBe(true);
+  });
+});
+
+describe("the plain ended state", () => {
+  test("is what an ended Stream shows unless a card is up", () => {
+    expect(plainEnd(autoplayView({ autoplay: null }, 0))).toBe(true);
+    expect(
+      plainEnd(autoplayView({ autoplay: noStream("tt0903747:1:4") }, 0)),
+      "a missing Stream leaves the ended state as it is",
+    ).toBe(true);
+    expect(plainEnd(autoplayView({ autoplay: autoplay(5) }, 0))).toBe(false);
+    expect(
+      plainEnd(autoplayView({ autoplay: held() }, 0)),
+      "the hold is a card, and a missing Stream is not",
+    ).toBe(false);
   });
 });

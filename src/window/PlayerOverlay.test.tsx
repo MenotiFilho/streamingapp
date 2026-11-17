@@ -2343,6 +2343,21 @@ async function renderEnded(
   return host;
 }
 
+/** The Host's countdown ran out and continuity found no Stream for `videoId`. */
+function missingStream(videoId: string): AutoplaySnapshot {
+  return {
+    next: {
+      title: { type: "series", id: "tt7777777" },
+      video: { type: "series", id: videoId },
+      episode: { season: 1, episode: 2 },
+      name: "Episode Two",
+      still: null,
+    },
+    phase: "no_stream",
+    detail: "No Stream continues the release",
+  };
+}
+
 describe("Autoplay in the player", () => {
   describe("the countdown's corner card", () => {
     test("appears with focus on Cancel, so one press stops it and doing nothing lets it play", async () => {
@@ -2617,6 +2632,77 @@ describe("Autoplay in the player", () => {
 
       expect(screen.getByTestId("player-dock-episode")).toHaveTextContent("S1E1");
       expect(screen.queryByTestId("dock-autoplay-cancel")).not.toBeInTheDocument();
+    });
+  });
+  describe("a missing Stream", () => {
+    const endedWith = (autoplay: AutoplaySnapshot | null, revision: number): Snapshot => ({
+      ...NOTHING_SAID,
+      revision,
+      playback: playback({
+        ...SERIES_PLAYING,
+        state: "ended",
+        episode: { season: 1, episode: 1 },
+        autoplay,
+      }),
+      watchProgress: [seriesEntry()],
+    });
+
+    test("opens the Streams picker for the next episode once, and a repeated Snapshot opens nothing more", async () => {
+      const host = await renderEpisodesPlayer(episodesAnswer, {
+        state: "ended",
+        episode: { season: 1, episode: 1 },
+      });
+
+      await act(async () => {
+        host.publish(endedWith(missingStream("tt7777777:1:2"), 10));
+        await Promise.resolve();
+      });
+      await screen.findByTestId("streams");
+
+      expect(actions(host.invocations)).toContainEqual({
+        type: "find_streams",
+        video: { type: "series", id: "tt7777777:1:2" },
+      });
+
+      await act(async () => {
+        host.publish(endedWith(missingStream("tt7777777:1:2"), 11));
+        await Promise.resolve();
+      });
+      expect(
+        actions(host.invocations).filter((action) => action.type === "find_streams"),
+      ).toHaveLength(1);
+      expect(screen.getAllByTestId("streams")).toHaveLength(1);
+    });
+
+    test("does not open over a surface that is already above the player", async () => {
+      const host = await renderEpisodesPlayer(episodesAnswer, {
+        state: "ended",
+        episode: { season: 1, episode: 1 },
+      });
+      await act(async () => {
+        host.publish(endedWith(missingStream("tt7777777:1:2"), 10));
+        await Promise.resolve();
+      });
+      await screen.findByTestId("streams");
+
+      // The Streams list is on top; a missing Stream for another target is not
+      // an interruption of it.
+      await act(async () => {
+        host.publish(endedWith(missingStream("tt7777777:2:1"), 11));
+        await Promise.resolve();
+      });
+
+      expect(
+        actions(host.invocations).filter((action) => action.type === "find_streams"),
+      ).toHaveLength(1);
+    });
+
+    test("keeps the plain ended state, with its note and Next episode", async () => {
+      await renderEnded({ autoplay: missingStream("tt7777777:1:4") });
+
+      expect(screen.getByTestId("stream-ended")).toBeInTheDocument();
+      expect(screen.getByTestId("next-episode-after-end")).toBeInTheDocument();
+      expect(screen.queryByTestId("autoplay-card")).not.toBeInTheDocument();
     });
   });
 });
