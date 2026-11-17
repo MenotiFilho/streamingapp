@@ -11,6 +11,7 @@ function nothing(revision: number): Snapshot {
     revision,
     playback: {
       state: "idle",
+      autoplay: null,
       picture: "in_window",
       failure: null,
       nowPlaying: null,

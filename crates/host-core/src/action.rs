@@ -82,6 +82,12 @@ pub enum Action {
     ///
     /// A preference of the Host's, shared by every client (#302, #314).
     SetAutoplay { autoplay: bool },
+    /// Stop the countdown Autoplay is running, and nothing else: the preference
+    /// stays as it is, and the Host stays on the ended state.
+    ///
+    /// With no countdown running it changes nothing and publishes nothing, so
+    /// two clients pressing Cancel together is harmless (#302, #316).
+    CancelAutoplay,
     /// Mark the Addon's Catalog as the Host's featured feed.
     ///
     /// A preference of the Host's rather than a client's: every client's Home
@@ -410,6 +416,7 @@ action_spellings! {
     Action::SetStreamBuffer { .. } => "set_stream_buffer",
     Action::SetUpNextPlayback { .. } => "set_up_next_playback",
     Action::SetAutoplay { .. } => "set_autoplay",
+    Action::CancelAutoplay => "cancel_autoplay",
     Action::SetFeaturedCatalog { .. } => "set_featured_catalog",
     Action::ClearFeaturedCatalog => "clear_featured_catalog",
     Action::AddAddon { .. } => "add_addon",
@@ -518,6 +525,7 @@ impl Action {
                 Ok(ValidatedAction::SetUpNextPlayback(playback))
             }
             Action::SetAutoplay { autoplay } => Ok(ValidatedAction::SetAutoplay(autoplay)),
+            Action::CancelAutoplay => Ok(ValidatedAction::CancelAutoplay),
             Action::SetFeaturedCatalog { addon, catalog } => {
                 let addon = AddonId::parse(&addon)?;
                 let catalog = CatalogRef::parse(&catalog.r#type, &catalog.id)?;
@@ -769,6 +777,8 @@ pub enum ValidatedAction {
     SetUpNextPlayback(UpNextPlayback),
     /// Whether the Host advances on its own when an episode's Stream ends.
     SetAutoplay(bool),
+    /// Stop the running Autoplay countdown, keeping the preference.
+    CancelAutoplay,
     /// A Catalog the owner marked as the featured one, with both halves judged
     /// before either is looked up: a marked Catalog exists.
     SetFeaturedCatalog {
@@ -957,6 +967,7 @@ impl ValidatedAction {
             | Self::SetStreamBuffer(_)
             | Self::SetUpNextPlayback(_)
             | Self::SetAutoplay(_)
+            | Self::CancelAutoplay
             | Self::SetFeaturedCatalog { .. }
             | Self::ClearFeaturedCatalog
             | Self::AddAddon(_)
@@ -2224,6 +2235,7 @@ mod tests {
         r#"{"type":"set_stream_buffer","seconds":300,"megabytes":512}"#,
         r#"{"type":"set_up_next_playback","playback":"picker"}"#,
         r#"{"type":"set_autoplay","autoplay":false}"#,
+        r#"{"type":"cancel_autoplay"}"#,
         r#"{"type":"set_featured_catalog","addon":"community.example","catalog":{"type":"movie","id":"top"}}"#,
         r#"{"type":"clear_featured_catalog"}"#,
         r#"{"type":"add_addon","url":"https://example.com/manifest.json"}"#,

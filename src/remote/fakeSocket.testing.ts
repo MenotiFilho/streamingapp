@@ -35,6 +35,7 @@ export const NOTHING: Snapshot = {
   revision: 1,
   playback: {
     state: "idle",
+    autoplay: null,
     picture: "in_window",
     failure: null,
     nowPlaying: null,

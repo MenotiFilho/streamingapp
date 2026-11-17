@@ -388,6 +388,7 @@ async function answerOpenTitle(
 function idlePlayback(): PlaybackSnapshot {
   return {
     state: "idle",
+    autoplay: null,
     picture: "in_window",
     failure: null,
     nowPlaying: null,

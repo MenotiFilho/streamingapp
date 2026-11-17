@@ -12,6 +12,7 @@ function snapshot(overrides: Partial<Snapshot["playback"]> = {}): Snapshot {
     revision: 3,
     playback: {
       state: "playing",
+      autoplay: null,
       picture: "in_window",
       failure: null,
       nowPlaying: null,

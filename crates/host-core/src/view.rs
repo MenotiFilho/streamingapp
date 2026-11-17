@@ -447,6 +447,7 @@ impl HostView {
             | ValidatedAction::SetStreamBuffer(_)
             | ValidatedAction::SetUpNextPlayback(_)
             | ValidatedAction::SetAutoplay(_)
+            | ValidatedAction::CancelAutoplay
             | ValidatedAction::SetFeaturedCatalog { .. }
             | ValidatedAction::ClearFeaturedCatalog
             | ValidatedAction::AddAddon(_)

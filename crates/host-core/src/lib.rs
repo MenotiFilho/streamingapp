@@ -37,6 +37,7 @@
 
 mod action;
 mod addon;
+mod autoplay;
 mod background;
 mod cache;
 mod catalog;
@@ -78,6 +79,7 @@ pub use addon::{
     Manifest, ManifestError, ManifestUrl, Resource, MAX_ITEMS, MAX_MANIFEST_BYTES, MAX_STRING_LEN,
     MAX_URL_LEN,
 };
+pub use autoplay::{AutoplayPhase, AutoplaySnapshot, UpNextEpisode, AUTOPLAY_COUNTDOWN_MS};
 pub use background::{FixtureRevisions, RevisionSink};
 pub use catalog::{CacheHints, CatalogError, CatalogRow, MetaPreview, Page, MAX_CATALOG_BYTES};
 pub use clock::{Clock, FixtureClock, SystemClock};

@@ -461,6 +461,7 @@ fn the_snapshot_declares_only_fields_it_can_safely_carry() {
                 "aspect": serde_json::Value::Null,
                 "resolution": serde_json::Value::Null,
                 "statistics": serde_json::Value::Null,
+                "autoplay": serde_json::Value::Null,
             },
             "preferences": {
                 "subtitleLanguage": "pt-BR",

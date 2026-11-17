@@ -36,6 +36,7 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::addon::{AddonId, MAX_STRING_LEN};
+use crate::autoplay::AutoplaySnapshot;
 use crate::preferences::{StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale};
 use crate::request::VideoRef;
 use crate::stream::{holdable, Playback, Stream};
@@ -1001,6 +1002,9 @@ impl PlaybackSession {
             aspect: self.aspect,
             resolution: self.resolution,
             statistics: self.statistics.clone(),
+            // The countdown is the Host's own record, not the session's: the
+            // Snapshot that carries it is built where the clock is read.
+            autoplay: None,
         }
     }
 
@@ -1320,6 +1324,10 @@ pub struct PlaybackSnapshot {
     pub resolution: Option<VideoSize>,
     /// What the Player says about how the Stream is playing.
     pub statistics: Option<Statistics>,
+    /// What Autoplay is doing about the episode that ended: the next episode
+    /// and the countdown to it, with the time left as of this Snapshot. Null
+    /// whenever nothing is pending, which is nearly always (ADR-0040).
+    pub autoplay: Option<AutoplaySnapshot>,
 }
 
 /// A [`Player`] a test drives by hand: it records every telling, and reports
@@ -1888,6 +1896,7 @@ mod tests {
                 aspect: None,
                 resolution: None,
                 statistics: None,
+                autoplay: None,
             },
             "the client that pressed play is told which candidate did not open"
         );
@@ -2047,6 +2056,7 @@ mod tests {
                 "aspect": null,
                 "resolution": null,
                 "statistics": null,
+                "autoplay": null,
             }),
             "the window reads this by hand, so the shape it declares is the shape that arrives"
         );
@@ -2427,7 +2437,8 @@ mod tests {
                 "crop": { "width": 96, "height": 72, "x": 16, "y": 0 },
                 "aspect": { "kind": "source" },
                 "resolution": { "width": 128, "height": 72 },
-                "statistics": { "bitrate": null, "droppedFrames": 0, "hardwareDecode": "no" }
+                "statistics": { "bitrate": null, "droppedFrames": 0, "hardwareDecode": "no" },
+                "autoplay": null
             }),
             "the whole playback object the window reads is the frozen one"
         );

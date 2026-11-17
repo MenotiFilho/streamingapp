@@ -8,6 +8,7 @@
     "set_stream_buffer",
     "set_up_next_playback",
     "set_autoplay",
+    "cancel_autoplay",
     "set_featured_catalog",
     "clear_featured_catalog",
     "add_addon",

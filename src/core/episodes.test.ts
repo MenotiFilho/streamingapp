@@ -13,6 +13,7 @@ import type {
 
 const EMPTY_PLAYBACK: PlaybackSnapshot = {
   state: "idle",
+  autoplay: null,
   picture: "in_window",
   failure: null,
   nowPlaying: null,

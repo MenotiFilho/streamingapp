@@ -40,6 +40,7 @@ const NOTHING_SAID: Snapshot = {
   revision: 0,
   playback: {
     state: "idle",
+    autoplay: null,
     picture: "in_window",
     failure: null,
     nowPlaying: null,
@@ -80,6 +81,7 @@ const NOTHING_SAID: Snapshot = {
 function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
   return {
     state: "playing",
+    autoplay: null,
     picture: "in_window",
     failure: null,
     nowPlaying: {

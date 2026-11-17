@@ -196,6 +196,38 @@ export type Episode = {
 };
 
 /**
+ * The episode Autoplay is about to play, as every client is told it. Mirrors
+ * `UpNextEpisode` in `host-core`.
+ */
+export type UpNextEpisode = {
+  /** The Title the episode belongs to. */
+  title: { type: string; id: string };
+  /** The episode's Video, by the type its Title carries and its own id. */
+  video: { type: string; id: string };
+  episode: Episode;
+  /** The episode's name and still, where the source gave them. */
+  name: string | null;
+  still: string | null;
+};
+
+/**
+ * Where Autoplay stands: tagged `phase`. `remaining` and `duration` are
+ * relative seconds as of the Snapshot, so a client projects the digit on its own
+ * monotonic clock from the Snapshot's arrival and never compares wall clocks
+ * with the Host (ADR-0033, ADR-0040). Mirrors `AutoplayPhase` in `host-core`.
+ */
+export type AutoplayPhase = { phase: "countdown"; remaining: number; duration: number };
+
+/**
+ * What Autoplay is doing about the episode that ended: the next episode and the
+ * countdown to it. Mirrors `AutoplaySnapshot` in `host-core`.
+ */
+export type AutoplaySnapshot = {
+  next: UpNextEpisode;
+  phase: AutoplayPhase;
+};
+
+/**
  * Where the Player's picture is drawn — a fact about the machine, not a setting.
  * Mirrors `Picture` in `host-core`; a client sharing the Host's window leaves
  * the picture's rectangle unpainted where it is in the same window.
@@ -328,6 +360,11 @@ export type PlaybackSnapshot = {
   aspect: Aspect | null;
   resolution: VideoSize | null;
   statistics: Statistics | null;
+  /**
+   * The countdown to the next episode the Host is running, or null — nearly
+   * always. Published when it starts and when it ends, not per tick (ADR-0040).
+   */
+  autoplay: AutoplaySnapshot | null;
 };
 
 /**
@@ -669,6 +706,10 @@ export type Action =
   // countdown when an episode's Stream ends, or waits until someone asks
   // (#302, #314).
   | { type: "set_autoplay"; autoplay: boolean }
+  // Stop the countdown Autoplay is running and nothing else: the preference
+  // stays, and the Host stays on the ended state. A silent no-op when there is
+  // no countdown (#316).
+  | { type: "cancel_autoplay" }
   // The Featured catalog (#74): a preference of the Host's rather than this
   // client's, so marking one changes what *every* client's Home is drawn from.
   | {

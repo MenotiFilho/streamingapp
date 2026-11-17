@@ -43,6 +43,7 @@ const TITLE: Title = {
 
 const PLAYBACK: PlaybackSnapshot = {
   state: "playing",
+  autoplay: null,
   picture: "in_window",
   failure: null,
   nowPlaying: null,

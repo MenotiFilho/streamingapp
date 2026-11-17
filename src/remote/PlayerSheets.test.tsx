@@ -103,6 +103,7 @@ const TRACKS: Track[] = [
 
 const PLAYBACK: PlaybackSnapshot = {
   state: "playing",
+  autoplay: null,
   picture: "in_window",
   failure: null,
   nowPlaying: {

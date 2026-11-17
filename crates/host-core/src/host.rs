@@ -2,6 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::action::{Action, ActionError, ValidatedAction};
 use crate::addon::{Addon, AddonId, Manifest};
+use crate::autoplay::{self, Outcome, Pending, UpNextEpisode};
 use crate::background::{BackgroundQueue, Job, RevisionSink, Work};
 use crate::cache::CatalogCache;
 use crate::clock::Clock;
@@ -11,8 +12,8 @@ use crate::library::LibraryCache;
 use crate::meta::{self, Title, TitleKey, Video};
 use crate::pairing::PairingCode;
 use crate::playback::{
-    ChapterStep, ChosenStream, Control, Observation, Picture, PlaybackState, Player, StreamUrl,
-    Telling, TrackId, TrackKind, Unplayable,
+    ChapterStep, ChosenStream, Control, Episode, Observation, Picture, PlaybackState, Player,
+    StreamUrl, Telling, TrackId, TrackKind, Unplayable,
 };
 use crate::preferences::FeaturedCatalog;
 use crate::preview::{
@@ -117,6 +118,11 @@ pub struct Host {
     /// When a caught-up Title was last looked for, so the scan that lets a week
     /// pass on an open Host runs at most once a day (#277).
     read_ahead_scanned_at: Option<i64>,
+    /// The countdown Autoplay is running, or `None` — nearly always. The Host's
+    /// own record beside the state: published in the playback Snapshot with the
+    /// time left read off the clock, and never stored, so a restarted Host comes
+    /// back with none (ADR-0040).
+    autoplay: Option<Pending>,
 }
 
 /// What one look at the background queue did.
@@ -245,6 +251,7 @@ impl Host {
             titles,
             background: Arc::new(Mutex::new(BackgroundQueue::default())),
             read_ahead_scanned_at: None,
+            autoplay: None,
         };
         // The Titles behind Continue watching are known here, and they are the
         // ones the owner is most likely to open and the ones Up next is drawn
@@ -305,6 +312,9 @@ impl Host {
             self.revision,
             self.picture,
             self.serving.as_deref(),
+            self.autoplay
+                .as_ref()
+                .map(|pending| pending.snapshot(self.clock.now_millis())),
         )
     }
 
@@ -695,6 +705,28 @@ impl Host {
             Resolved::Silent => return Ok(Response::silent()),
         };
 
+        self.commit(change, answer)
+    }
+
+    /// Fold one resolved change into the state, keep what it left behind, and
+    /// publish the Snapshot it owes.
+    ///
+    /// The tail of [`Host::apply`], and what the Host's own countdown plays
+    /// through when it runs out: a next episode started by Autoplay is the same
+    /// change `next_episode` makes, taken the same way (ADR-0040).
+    fn commit(&mut self, change: Change, answer: Option<Answer>) -> Result<Response, ActionError> {
+        // What the change does to the countdown: a play replaces it, a stop, a
+        // cancel and switching Autoplay off end it, and switching Autoplay on
+        // starts one where the Host is sitting on an ended episode.
+        let countdown = match &change {
+            Change::Play { .. }
+            | Change::Stop
+            | Change::SetAutoplay(false)
+            | Change::CancelAutoplay => Countdown::End,
+            Change::SetAutoplay(true) => Countdown::Arm,
+            _ => Countdown::Keep,
+        };
+
         // The Title a pause or a stop leaves is the one the account is owed: the
         // Stream is still the Host's here, and after a stop it is not.
         let leaving = match &change {
@@ -742,6 +774,15 @@ impl Host {
 
         self.state = next;
         self.revision += 1;
+        match countdown {
+            Countdown::Keep => {}
+            Countdown::End => self.autoplay = None,
+            Countdown::Arm => {
+                if self.autoplay.is_none() {
+                    self.autoplay = self.countdown_to_next();
+                }
+            }
+        }
         if account_changed {
             self.library_cache
                 .lock()
@@ -999,6 +1040,24 @@ impl Host {
     pub fn sample(&mut self) -> Option<Snapshot> {
         let observation = self.player.observe();
 
+        // The Host's own countdown is checked against its clock *before* an
+        // unchanged report returns early below: nothing about a Stream that
+        // sits on its last frame changes, and the countdown must still run out.
+        // A report that says the Stream is no longer ended — a Stream that
+        // came back to life — ends the countdown instead (ADR-0040).
+        let mut countdown_ended = false;
+        if let Some(pending) = &self.autoplay {
+            if observation.state != PlaybackState::Ended {
+                self.autoplay = None;
+                countdown_ended = true;
+            } else if pending.expired(self.clock.now_millis()) {
+                // What the report said is about the Stream that ended, and the
+                // play that follows has replaced it: folding the stale report
+                // in would end the new Stream before it began.
+                return self.autoplay_expired();
+            }
+        }
+
         // The first report of a Stream is where the Seek preview's ceiling is
         // decided: a Stream too dear to ask twice, or one that will not say what
         // it costs, is never previewed, and the worker is let go of here rather
@@ -1038,10 +1097,25 @@ impl Host {
         }
 
         let was_ended = self.state.playback().has_ended();
-        let next = self.state.playback().advanced(&observation)?;
+        let Some(next) = self.state.playback().advanced(&observation) else {
+            // Nothing the Player said moved; only the countdown ending can.
+            if countdown_ended {
+                self.revision += 1;
+                return Some(self.snapshot());
+            }
+            return None;
+        };
         let published = next.differs_publicly_from(self.state.playback());
+        let reached_the_end = next.has_ended() && !was_ended;
 
         self.state.set_playback(next);
+
+        // The tick where an episode's Stream becomes `Ended` is the one that
+        // starts the countdown, if one is owed. It is published with the
+        // Snapshot the end itself owes, and not again until it ends.
+        if reached_the_end {
+            self.autoplay = self.countdown_to_next();
+        }
 
         // Where playback has got to is Watch progress the moment it is worth
         // writing — a position that moved a few seconds, a Video that finished,
@@ -1067,7 +1141,7 @@ impl Host {
             }
         }
 
-        if !published && !corrected {
+        if !published && !corrected && !countdown_ended {
             return None;
         }
 
@@ -1201,9 +1275,19 @@ impl Host {
                 Resolved::Change(Change::SetUpNextPlayback(playback))
             }
             ValidatedAction::SetAutoplay(autoplay) => {
-                // A preference and nothing else in #314; countdown arming at
-                // Ended arrives in #316.
+                // A preference, and where it is switched on while the Host sits
+                // on an ended episode, the countdown it was waiting for
+                // ([`Host::commit`]).
                 Resolved::Change(Change::SetAutoplay(autoplay))
+            }
+            ValidatedAction::CancelAutoplay => {
+                // With nothing counting down there is nothing to say: two
+                // clients pressing Cancel together is harmless.
+                if self.autoplay.is_none() {
+                    Resolved::Silent
+                } else {
+                    Resolved::Change(Change::CancelAutoplay)
+                }
             }
             ValidatedAction::AddAddon(url) => {
                 let body =
@@ -1601,6 +1685,50 @@ impl Host {
         })
     }
 
+    /// The countdown owed to the episode that has just ended, or nothing.
+    ///
+    /// Only an episode of a series arms one (a film's Video is not an episode),
+    /// only with Autoplay on, and only where the Title's own list has a Video
+    /// after it that has aired ([`autoplay::on_ended`]). The list is the one
+    /// `next_episode` reads, so what counts down is what the Next episode button
+    /// would play (ADR-0040). Asking for it is Addon I/O, like the subtitle
+    /// fallback in the same tick (ADR-0014).
+    fn countdown_to_next(&self) -> Option<Pending> {
+        if !self.state.preferences().autoplay() || !self.state.playback().has_ended() {
+            return None;
+        }
+        let finished = &self.state.playback().chosen()?.now_playing.video;
+        meta::episode_of(&finished.id)?;
+
+        let now = self.clock.now_millis();
+        let neighbour = self.neighbour_video(EpisodeStep::Next, finished).ok();
+        match autoplay::on_ended(neighbour, now) {
+            Outcome::Start(video) => {
+                let next = up_next_episode(&finished.r#type, &video)?;
+                Some(Pending::starting(next, now))
+            }
+            Outcome::None => None,
+        }
+    }
+
+    /// The countdown has run out: play the next episode as `next_episode` would,
+    /// or — where continuity finds no Stream — stay on the ended state with the
+    /// countdown cleared. Either way every client is owed a Snapshot.
+    fn autoplay_expired(&mut self) -> Option<Snapshot> {
+        self.autoplay = None;
+        let played = match self.stepped(EpisodeStep::Next) {
+            Ok(Resolved::Change(change)) => self.commit(change, None).ok(),
+            _ => None,
+        };
+        match played {
+            Some(mut response) => response.snapshots.pop(),
+            None => {
+                self.revision += 1;
+                Some(self.snapshot())
+            }
+        }
+    }
+
     /// Take one episode step: the neighbouring Stream chosen and opened, and
     /// the change every client is told.
     ///
@@ -1929,6 +2057,33 @@ impl Host {
                 id: id.as_str().to_owned(),
             })
     }
+}
+
+/// What a change does to the Autoplay countdown.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Countdown {
+    /// Nothing: the countdown, if there is one, runs on.
+    Keep,
+    /// It is over: replaced by a play, or stopped by the owner.
+    End,
+    /// Start one, if the Host is sitting on an ended episode that has a next.
+    Arm,
+}
+
+/// The episode `video` is, as Autoplay tells every client of it: its Title is
+/// the one its id carries, of the type the finished episode's Title had.
+fn up_next_episode(r#type: &str, video: &Video) -> Option<UpNextEpisode> {
+    let (title, season, episode) = meta::episode_of(&video.id)?;
+    Some(UpNextEpisode {
+        title: TitleRef::parse(r#type, title).ok()?,
+        video: VideoRef::parse(r#type, &video.id).ok()?,
+        episode: Episode {
+            season: video.season.unwrap_or(season),
+            episode: video.episode.unwrap_or(episode),
+        },
+        name: video.name.clone(),
+        still: video.thumbnail.clone(),
+    })
 }
 
 /// An Action with everything it needed already resolved.
