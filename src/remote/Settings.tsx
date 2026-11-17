@@ -3,6 +3,8 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { version as appVersion } from "../../package.json";
 import { catalogKey, declaredCatalogs, keyOf } from "../core/browse";
 import {
+  AUTOPLAY_CHOICES,
+  AUTOPLAY_SETTING_LABEL,
   STREAM_BUFFER_DEFAULT_MEGABYTES,
   STREAM_BUFFER_DEFAULT_SECONDS,
   STREAM_BUFFER_MEGABYTES,
@@ -10,6 +12,7 @@ import {
   SUBTITLE_COLORS,
   SUBTITLE_SCALES,
   UP_NEXT_PLAYBACK_CHOICES,
+  UP_NEXT_PLAYBACK_SETTING_LABEL,
   bufferMegabytesPreset,
   bufferSecondsPreset,
   colorSelected,
@@ -53,7 +56,8 @@ import {
   STREAM_BUFFER_HEAD,
   STREAM_BUFFER_MEGABYTES_HEAD,
   STREAM_BUFFER_SECONDS_HEAD,
-  STREMIO_EMAIL_LABEL,  STREMIO_EMAIL_PLACEHOLDER,
+  STREMIO_EMAIL_LABEL,
+  STREMIO_EMAIL_PLACEHOLDER,
   STREMIO_PASSWORD_LABEL,
   STREMIO_PASSWORD_PLACEHOLDER,
   STREMIO_SIGN_IN,
@@ -68,6 +72,7 @@ import {
   TMDB_SAVE,
   UP_NEXT_PLAYBACK_HEAD,
   VERSION_TERM,
+  autoplayRequest,
   bufferAfter,
   bufferRequest,
   clearTmdbLevel,
@@ -411,6 +416,7 @@ function PreferencesLeaf({ category, session, state }: LeafProps) {
   );
   const otherColor = unknownColorLabel(heldColor);
   const heldUpNext = snapshot?.preferences.upNextPlayback ?? "direct";
+  const heldAutoplay = snapshot?.preferences.autoplay ?? true;
   const catalogs = declaredCatalogs(snapshot);
   const featured = snapshot?.featuredCatalog ?? null;
   const featuredKey = featured
@@ -575,6 +581,21 @@ function PreferencesLeaf({ category, session, state }: LeafProps) {
 
       <section className="remote-settings-group">
         <h2 className="remote-settings-label">{UP_NEXT_PLAYBACK_HEAD}</h2>
+        <p className="remote-settings-sub">{AUTOPLAY_SETTING_LABEL}</p>
+        <div className="remote-settings-chips">
+          {AUTOPLAY_CHOICES.map((choice) => (
+            <ChoiceChip
+              key={String(choice.autoplay)}
+              pressed={heldAutoplay === choice.autoplay}
+              onClick={() =>
+                void take(autoplayRequest(choice.autoplay), setUpNextError)
+              }
+            >
+              {choice.label}
+            </ChoiceChip>
+          ))}
+        </div>
+        <p className="remote-settings-sub">{UP_NEXT_PLAYBACK_SETTING_LABEL}</p>
         <div className="remote-settings-chips">
           {UP_NEXT_PLAYBACK_CHOICES.map((choice) => (
             <ChoiceChip

@@ -8,14 +8,29 @@ use crate::request::CatalogRef;
 /// Only preferences a client is allowed to see live here — and everything in
 /// here is published in every [`crate::Snapshot`], so nothing secret may be added
 /// to it (ADR-0002, and the spec's "Credentials and secrets").
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Preferences {
     subtitle_language: Option<SubtitleLanguage>,
     subtitle_color: SubtitleColor,
     subtitle_scale: SubtitleScale,
     stream_buffer: StreamBuffer,
     up_next_playback: UpNextPlayback,
+    autoplay: bool,
     featured_catalog: Option<FeaturedCatalog>,
+}
+
+impl Default for Preferences {
+    fn default() -> Self {
+        Self {
+            subtitle_language: None,
+            subtitle_color: SubtitleColor::default(),
+            subtitle_scale: SubtitleScale::default(),
+            stream_buffer: StreamBuffer::default(),
+            up_next_playback: UpNextPlayback::default(),
+            autoplay: true,
+            featured_catalog: None,
+        }
+    }
 }
 
 impl Preferences {
@@ -79,6 +94,17 @@ impl Preferences {
         self.up_next_playback = playback;
     }
 
+    /// Whether the Host advances on its own to a Title's Up next after a short
+    /// countdown when an episode's Stream ends, or waits until someone asks.
+    pub fn autoplay(&self) -> bool {
+        self.autoplay
+    }
+
+    /// Set the Autoplay preference.
+    pub fn set_autoplay(&mut self, autoplay: bool) {
+        self.autoplay = autoplay;
+    }
+
     /// The one Catalog the owner has marked as the Host's featured feed, where
     /// one is marked: what a client's Home hero is drawn from.
     pub fn featured_catalog(&self) -> Option<&FeaturedCatalog> {
@@ -98,6 +124,7 @@ impl Preferences {
         subtitle_scale: SubtitleScale,
         stream_buffer: StreamBuffer,
         up_next_playback: UpNextPlayback,
+        autoplay: bool,
         featured_catalog: Option<FeaturedCatalog>,
     ) -> Self {
         Self {
@@ -106,6 +133,7 @@ impl Preferences {
             subtitle_scale,
             stream_buffer,
             up_next_playback,
+            autoplay,
             featured_catalog,
         }
     }
@@ -119,6 +147,7 @@ impl Preferences {
             SubtitleScale::default(),
             StreamBuffer::default(),
             UpNextPlayback::default(),
+            true,
             None,
         )
     }
@@ -615,5 +644,11 @@ mod tests {
             serde_json::json!({"seconds": 300, "megabytes": 512}),
             "the wire carries the pair as two camelCase numbers"
         );
+    }
+
+    #[test]
+    fn the_default_autoplay_is_on() {
+        assert!(Preferences::default().autoplay());
+        assert!(Preferences::new().autoplay());
     }
 }

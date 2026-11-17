@@ -34,6 +34,9 @@ const STREAM_BUFFER: &str = "stream_buffer";
 /// The key the Up next playback preference is stored under.
 const UP_NEXT_PLAYBACK: &str = "up_next_playback";
 
+/// The key the Autoplay preference is stored under.
+const AUTOPLAY: &str = "autoplay";
+
 /// The key the Featured catalog preference is stored under.
 const FEATURED_CATALOG: &str = "featured_catalog";
 
@@ -120,6 +123,7 @@ impl Store for SqliteStore {
         let mut subtitle_scale = SubtitleScale::default();
         let mut stream_buffer = StreamBuffer::default();
         let mut up_next_playback = UpNextPlayback::default();
+        let mut autoplay = true;
         let mut featured_catalog = None;
         for row in rows {
             let (key, value) = row.map_err(StoreError::read)?;
@@ -185,6 +189,11 @@ impl Store for SqliteStore {
                                 detail: format!("the stored Up next playback is unusable: {error}"),
                             })?;
                 }
+                AUTOPLAY => {
+                    autoplay = value.parse::<bool>().map_err(|error| StoreError::Read {
+                        detail: format!("the stored Autoplay is unusable: {error}"),
+                    })?;
+                }
                 // A preference written by a newer Host than this one: leaving it
                 // alone keeps it for the Host that understands it.
                 _ => continue,
@@ -197,6 +206,7 @@ impl Store for SqliteStore {
             subtitle_scale,
             stream_buffer,
             up_next_playback,
+            autoplay,
             featured_catalog,
         ))
     }
@@ -235,6 +245,12 @@ impl Store for SqliteStore {
             UP_NEXT_PLAYBACK,
             Some(preferences.up_next_playback().as_str()),
         )?;
+        let autoplay = if preferences.autoplay() {
+            "true"
+        } else {
+            "false"
+        };
+        put_preference(&transaction, AUTOPLAY, Some(autoplay))?;
         // The whole pair as one document: an id is only half of what an Addon's
         // Catalog is, and two rows could disagree.
         let featured = match preferences.featured_catalog() {

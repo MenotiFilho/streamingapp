@@ -468,6 +468,7 @@ fn the_snapshot_declares_only_fields_it_can_safely_carry() {
                 "subtitleScale": 1.0,
                 "streamBuffer": { "seconds": 300, "megabytes": 512 },
                 "upNextPlayback": "direct",
+                "autoplay": true,
             },
             "addons": [],
             "featuredCatalog": serde_json::Value::Null,

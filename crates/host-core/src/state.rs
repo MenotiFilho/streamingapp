@@ -194,6 +194,10 @@ impl State {
                 self.preferences.set_up_next_playback(playback);
                 Persist::Preferences
             }
+            Change::SetAutoplay(autoplay) => {
+                self.preferences.set_autoplay(autoplay);
+                Persist::Preferences
+            }
             // The Featured catalog is a preference of the Host's, and it is
             // taken as given: whether the Addon it names is configured, and
             // whether the Addon offers the Catalog, was judged where the state
@@ -493,6 +497,9 @@ pub(crate) enum Change {
     /// What Play does for a Title's Up next: play it directly, or open the
     /// Streams picker (#276).
     SetUpNextPlayback(UpNextPlayback),
+    /// Whether the Host advances on its own when an episode's Stream ends
+    /// (#302, #314).
+    SetAutoplay(bool),
     /// The one Catalog marked as the Host's featured feed, resolved against the
     /// Addon that offers it (#74).
     SetFeaturedCatalog(FeaturedCatalog),

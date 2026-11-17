@@ -210,6 +210,20 @@ is anchored on its card's Video — Up next included — and a Title with no car
 opens at its beginning.
 _Avoid_: next episode (that is the Action that steps playback)
 
+**Up next playback**:
+Whether pressing **Play** on a Title's Up next opens its Stream straight away by
+continuity or opens the Streams picker first: a preference of the Host's, shared
+by every client (#276). Orthogonal to **Autoplay** — it governs only Play on
+an Up next card, never what happens when an episode ends or Resume.
+
+**Autoplay**:
+Whether the Host advances on its own to a Title's Up next after a short
+countdown when an episode's Stream ends, or waits on the ended state until
+someone asks: a preference of the Host's, shown in Settings and in the player on
+every client (#302, #314). Orthogonal to **Up next playback** — Autoplay
+advances by `next_episode`'s continuity and never opens the picker because of Up
+next playback; the picker opens only when continuity finds no Stream.
+
 **Library**:
 The collection of Titles held in the owner's Stremio account. The room reads the
 account's collection and is read-only: its *membership* — what is saved to the

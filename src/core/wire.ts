@@ -61,6 +61,12 @@ export type Snapshot = {
      * next, never Resume.
      */
     upNextPlayback: UpNextPlayback;
+    /**
+     * Whether the Host advances on its own to a Title's Up next after a short
+     * countdown when an episode's Stream ends, or waits until someone asks
+     * (#302, #314). Always a value — on (`true`) is the default.
+     */
+    autoplay: boolean;
   };
   addons: AddonManifest[];
   /**
@@ -659,6 +665,10 @@ export type Action =
   // switches Play between playing the Up next directly and opening the
   // Streams picker; it never affects Resume.
   | { type: "set_up_next_playback"; playback: UpNextPlayback }
+  // Whether the Host advances on its own to a Title's Up next after a short
+  // countdown when an episode's Stream ends, or waits until someone asks
+  // (#302, #314).
+  | { type: "set_autoplay"; autoplay: boolean }
   // The Featured catalog (#74): a preference of the Host's rather than this
   // client's, so marking one changes what *every* client's Home is drawn from.
   | {

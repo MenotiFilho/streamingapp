@@ -106,6 +106,70 @@ fn the_up_next_playback_preference_round_trips_and_defaults_to_direct() {
 }
 
 #[test]
+fn the_autoplay_preference_round_trips_and_defaults_to_on() {
+    let (_directory, path) = store_on_disk();
+    let store = SqliteStore::open(&path).expect("the store opens");
+    assert!(
+        store
+            .read_preferences()
+            .expect("the store reads back")
+            .autoplay(),
+        "an empty store starts with Autoplay on"
+    );
+
+    let mut written = Preferences::new();
+    written.set_autoplay(false);
+    store
+        .write_preferences(&written)
+        .expect("the store takes the preference");
+
+    assert_eq!(
+        stored_rows(&path, "autoplay"),
+        1,
+        "autoplay is a row in the preferences table"
+    );
+    assert!(
+        !store
+            .read_preferences()
+            .expect("the store reads back")
+            .autoplay(),
+        "turning Autoplay off survives reading back"
+    );
+
+    written.set_autoplay(true);
+    store
+        .write_preferences(&written)
+        .expect("the store takes the preference back");
+    assert!(store
+        .read_preferences()
+        .expect("the store reads back")
+        .autoplay());
+}
+
+#[test]
+fn a_stored_autoplay_that_is_not_a_boolean_is_reported_and_not_a_panic() {
+    let (_directory, path) = store_on_disk();
+    let store = SqliteStore::open(&path).expect("the store opens");
+    store
+        .write_preferences(&Preferences::new())
+        .expect("the store takes a preference");
+    Connection::open(&path)
+        .expect("the database opens")
+        .execute(
+            "UPDATE preferences SET value = 'maybe' WHERE key = 'autoplay'",
+            [],
+        )
+        .expect("the stored autoplay is made unusable");
+
+    let read = store.read_preferences();
+
+    assert!(
+        matches!(read, Err(StoreError::Read { .. })),
+        "an unusable stored autoplay is a read failure, not a crash: {read:?}"
+    );
+}
+
+#[test]
 fn a_subtitle_language_round_trips() {
     let store = store();
     let written = Preferences::with_subtitle_language(Some(language("pt-BR")));

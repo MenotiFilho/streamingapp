@@ -177,6 +177,11 @@ export function upNextPlaybackRequest(
   return { type: "set_up_next_playback", playback };
 }
 
+/** Whether the Host advances on its own when an episode's Stream ends (#302, #314). */
+export function autoplayRequest(autoplay: boolean): Action {
+  return { type: "set_autoplay", autoplay };
+}
+
 /**
  * The Featured catalog choice: one Catalog an Addon declared, or none at all.
  * The Addon travels beside the Catalog because a catalog id is only unique

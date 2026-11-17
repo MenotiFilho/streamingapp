@@ -77,6 +77,11 @@ pub enum Action {
     /// client is told of it, and it governs only Up next — Resume always plays
     /// directly (#276, ADR-0026).
     SetUpNextPlayback { playback: UpNextPlayback },
+    /// Whether the Host advances on its own to a Title's Up next after a short
+    /// countdown when an episode's Stream ends, or waits until someone asks.
+    ///
+    /// A preference of the Host's, shared by every client (#302, #314).
+    SetAutoplay { autoplay: bool },
     /// Mark the Addon's Catalog as the Host's featured feed.
     ///
     /// A preference of the Host's rather than a client's: every client's Home
@@ -404,6 +409,7 @@ action_spellings! {
     Action::SetSubtitleScale { .. } => "set_subtitle_scale",
     Action::SetStreamBuffer { .. } => "set_stream_buffer",
     Action::SetUpNextPlayback { .. } => "set_up_next_playback",
+    Action::SetAutoplay { .. } => "set_autoplay",
     Action::SetFeaturedCatalog { .. } => "set_featured_catalog",
     Action::ClearFeaturedCatalog => "clear_featured_catalog",
     Action::AddAddon { .. } => "add_addon",
@@ -511,6 +517,7 @@ impl Action {
             Action::SetUpNextPlayback { playback } => {
                 Ok(ValidatedAction::SetUpNextPlayback(playback))
             }
+            Action::SetAutoplay { autoplay } => Ok(ValidatedAction::SetAutoplay(autoplay)),
             Action::SetFeaturedCatalog { addon, catalog } => {
                 let addon = AddonId::parse(&addon)?;
                 let catalog = CatalogRef::parse(&catalog.r#type, &catalog.id)?;
@@ -760,6 +767,8 @@ pub enum ValidatedAction {
     SetStreamBuffer(StreamBuffer),
     /// What Play does for a Title's Up next, judged by the type's own wire form.
     SetUpNextPlayback(UpNextPlayback),
+    /// Whether the Host advances on its own when an episode's Stream ends.
+    SetAutoplay(bool),
     /// A Catalog the owner marked as the featured one, with both halves judged
     /// before either is looked up: a marked Catalog exists.
     SetFeaturedCatalog {
@@ -947,6 +956,7 @@ impl ValidatedAction {
             | Self::SetSubtitleScale(_)
             | Self::SetStreamBuffer(_)
             | Self::SetUpNextPlayback(_)
+            | Self::SetAutoplay(_)
             | Self::SetFeaturedCatalog { .. }
             | Self::ClearFeaturedCatalog
             | Self::AddAddon(_)
@@ -2213,6 +2223,7 @@ mod tests {
         r#"{"type":"set_subtitle_scale","scale":1.25}"#,
         r#"{"type":"set_stream_buffer","seconds":300,"megabytes":512}"#,
         r#"{"type":"set_up_next_playback","playback":"picker"}"#,
+        r#"{"type":"set_autoplay","autoplay":false}"#,
         r#"{"type":"set_featured_catalog","addon":"community.example","catalog":{"type":"movie","id":"top"}}"#,
         r#"{"type":"clear_featured_catalog"}"#,
         r#"{"type":"add_addon","url":"https://example.com/manifest.json"}"#,

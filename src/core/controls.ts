@@ -286,6 +286,27 @@ export const UP_NEXT_PLAYBACK_CHOICES: ReadonlyArray<UpNextPlaybackChoice> = [
   { playback: "picker", label: "Open the Streams picker" },
 ];
 
+/**
+ * One choice for what happens when an episode's Stream ends (#302, #314): the
+ * Host's Autoplay preference, shared by the window and the served Remote.
+ */
+export type AutoplayChoice = {
+  autoplay: boolean;
+  label: string;
+};
+
+export const AUTOPLAY_CHOICES: ReadonlyArray<AutoplayChoice> = [
+  { autoplay: true, label: "Play it after 5 seconds" },
+  { autoplay: false, label: "Wait" },
+];
+
+/** The Up next group's two row labels in Settings (#302, #314). */
+export const AUTOPLAY_SETTING_LABEL = "When an episode ends";
+export const UP_NEXT_PLAYBACK_SETTING_LABEL = "When Play is pressed on it";
+
+/** The player's Autoplay switch label, shared across both clients (#302, #314). */
+export const AUTOPLAY_SWITCH_LABEL = "Autoplay the next episode";
+
 /** The Player's loudest level: above 100 is a boost, not a second scale. */
 export const VOLUME_MAX = 130;
 

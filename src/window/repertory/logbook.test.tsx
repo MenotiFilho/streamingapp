@@ -21,6 +21,7 @@ import { RepertoryAddonsScreen } from "./RepertoryAddons";
 import { RepertoryLibraryScreen } from "./RepertoryLibrary";
 import { RepertorySettingsScreen } from "./RepertorySettings";
 import { SETTINGS_CATEGORIES } from "../../core/settingsRegister";
+import { readLevel } from "../layout";
 
 const CINEMETA: AddonManifest = {
   id: "com.linvo.cinemeta",
@@ -101,6 +102,7 @@ const SNAPSHOT: Snapshot = {
     subtitleScale: 1,
     streamBuffer: { seconds: 300, megabytes: 512 },
     upNextPlayback: "direct",
+    autoplay: true,
   },
   addons: [CINEMETA, TORRENTIO],
   featuredCatalog: null,
@@ -539,14 +541,46 @@ describe("the repertory Settings register", () => {
       }),
     );
 
-    // #276: what Play does with a Title's Up next is the Host's preference too.
-    fireEvent.click(screen.getByTestId("up-next-picker"));
+    // #276, #314: both Up next preferences take their own Actions.
+    fireEvent.click(screen.getByRole("button", { name: "Wait" }));
+    await waitFor(() =>
+      expect(actions(ask)).toContainEqual({
+        type: "set_autoplay",
+        autoplay: false,
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Play it after 5 seconds" }));
+    await waitFor(() =>
+      expect(actions(ask)).toContainEqual({
+        type: "set_autoplay",
+        autoplay: true,
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open the Streams picker" }));
     await waitFor(() =>
       expect(actions(ask)).toContainEqual({
         type: "set_up_next_playback",
         playback: "picker",
       }),
     );
+  });
+
+  test("Preferences gives every focus region a distinct id so reading the focus layout does not recurse", () => {
+    const { value, pushed } = harness();
+    show(value, <RepertorySettingsScreen />);
+    fireEvent.click(screen.getByTestId("settings-category-preferences"));
+    const rendered = showLevel(categoryLevel(pushed, "preferences"), value);
+
+    const regionIds = Array.from(
+      rendered.container.querySelectorAll("[data-region]"),
+      (element) => element.getAttribute("data-region"),
+    );
+    expect(new Set(regionIds).size).toBe(regionIds.length);
+
+    const { layout } = readLevel(rendered.container, {});
+    expect(layout.regions["settings-up-next"]).toBeDefined();
   });
 
   test("values outside the presets are one Other chip, still selected", () => {

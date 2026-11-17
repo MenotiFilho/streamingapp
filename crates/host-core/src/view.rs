@@ -446,6 +446,7 @@ impl HostView {
             | ValidatedAction::SetSubtitleScale(_)
             | ValidatedAction::SetStreamBuffer(_)
             | ValidatedAction::SetUpNextPlayback(_)
+            | ValidatedAction::SetAutoplay(_)
             | ValidatedAction::SetFeaturedCatalog { .. }
             | ValidatedAction::ClearFeaturedCatalog
             | ValidatedAction::AddAddon(_)

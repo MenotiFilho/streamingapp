@@ -1190,6 +1190,11 @@ impl Host {
                 // the Snapshot (#276).
                 Resolved::Change(Change::SetUpNextPlayback(playback))
             }
+            ValidatedAction::SetAutoplay(autoplay) => {
+                // A preference and nothing else in #314; countdown arming at
+                // Ended arrives in #316.
+                Resolved::Change(Change::SetAutoplay(autoplay))
+            }
             ValidatedAction::AddAddon(url) => {
                 let body =
                     self.fetcher

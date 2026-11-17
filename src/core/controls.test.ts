@@ -2,6 +2,9 @@ import { describe, expect, test } from "vitest";
 
 import {
   ASPECTS,
+  AUTOPLAY_CHOICES,
+  AUTOPLAY_SETTING_LABEL,
+  AUTOPLAY_SWITCH_LABEL,
   CROP_RATIOS,
   DELAY_STEP,
   SPEEDS,
@@ -9,6 +12,8 @@ import {
   SUBTITLE_SCALE_MAX,
   SUBTITLE_SCALE_MIN,
   SUBTITLE_SCALES,
+  UP_NEXT_PLAYBACK_CHOICES,
+  UP_NEXT_PLAYBACK_SETTING_LABEL,
   VOLUME_MAX,
   aspectSelected,
   centredCrop,
@@ -379,5 +384,24 @@ describe("the subtitle appearance a person picks", () => {
     expect(colorSelected("#FFFF00", "#FFFF00")).toBe(true);
     expect(colorSelected("#ffcc00", "#FFCC00")).toBe(true);
     expect(colorSelected("#FFFFFF", "#FFFF00")).toBe(false);
+  });
+});
+
+describe("Up next and Autoplay", () => {
+  test("Settings offers both Up next rows and their choices", () => {
+    expect(AUTOPLAY_SETTING_LABEL).toBe("When an episode ends");
+    expect(AUTOPLAY_CHOICES).toEqual([
+      { autoplay: true, label: "Play it after 5 seconds" },
+      { autoplay: false, label: "Wait" },
+    ]);
+    expect(UP_NEXT_PLAYBACK_SETTING_LABEL).toBe("When Play is pressed on it");
+    expect(UP_NEXT_PLAYBACK_CHOICES).toEqual([
+      { playback: "direct", label: "Play directly" },
+      { playback: "picker", label: "Open the Streams picker" },
+    ]);
+  });
+
+  test("the player switch carries the shared Autoplay label", () => {
+    expect(AUTOPLAY_SWITCH_LABEL).toBe("Autoplay the next episode");
   });
 });
