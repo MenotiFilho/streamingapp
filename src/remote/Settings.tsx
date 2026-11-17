@@ -1,3 +1,4 @@
+import { PROTO, ProtoBar, ProtoLanguages } from "../prototype/languages300";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 
 import { version as appVersion } from "../../package.json";
@@ -449,6 +450,10 @@ function PreferencesLeaf({ category, session, state }: LeafProps) {
 
   return (
     <LeafFrame category={category}>
+      {PROTO ? <ProtoBar surface="remote" /> : null}
+      {PROTO ? (
+        <ProtoLanguages surface="remote" at="before" Group={RemoteGroup} />
+      ) : (
       <section className="remote-settings-group">
         <h2 className="remote-settings-label">{SUBTITLE_LANGUAGE_HEAD}</h2>
         <div className="remote-settings-chips">
@@ -478,6 +483,7 @@ function PreferencesLeaf({ category, session, state }: LeafProps) {
         </div>
         <Refusal error={languageError} />
       </section>
+      )}
 
       <section className="remote-settings-group">
         <h2 className="remote-settings-label">{SUBTITLE_COLOUR_HEAD}</h2>
@@ -526,6 +532,7 @@ function PreferencesLeaf({ category, session, state }: LeafProps) {
         </div>
         <Refusal error={scaleError} />
       </section>
+      {PROTO ? <ProtoLanguages surface="remote" at="after" Group={RemoteGroup} /> : null}
 
       <section className="remote-settings-group">
         <h2 className="remote-settings-label">{STREAM_BUFFER_HEAD}</h2>
@@ -764,4 +771,14 @@ function Refusal({ error }: { error: ActionError | null }) {
       {explain(error)}
     </p>
   ) : null;
+}
+
+// PROTOTYPE (#300): the Remote's section frame, handed to the prototype.
+function RemoteGroup({ title, children }: { id: string; title: string; children: ReactNode }) {
+  return (
+    <section className="remote-settings-group">
+      <h2 className="remote-settings-label">{title}</h2>
+      {children}
+    </section>
+  );
 }

@@ -1,3 +1,4 @@
+import { PROTO, ProtoBar, ProtoLanguages } from "../../prototype/languages300";
 import {
   useEffect,
   useRef,
@@ -416,6 +417,10 @@ function PreferencesScreen() {
 
   return (
     <SettingsLevel id="preferences" title="Preferences">
+      {PROTO ? <ProtoBar surface="window" /> : null}
+      {PROTO ? (
+        <ProtoLanguages surface="window" at="before" Group={LogGroup} />
+      ) : (
       <LogGroup id="settings-subtitle-language" title="Subtitle language">
         <div
           className="rep-log-chips"
@@ -452,6 +457,7 @@ function PreferencesScreen() {
         </div>
         <Refusal error={languageError} testId="subtitle-language-error" />
       </LogGroup>
+      )}
 
       <LogGroup id="settings-subtitle-appearance" title="Subtitle appearance">
         <div className="rep-log-choice-group">
@@ -522,6 +528,7 @@ function PreferencesScreen() {
         </div>
         <Refusal error={appearanceError} testId="subtitle-appearance-error" />
       </LogGroup>
+      {PROTO ? <ProtoLanguages surface="window" at="after" Group={LogGroup} /> : null}
 
       <LogGroup id="settings-stream-buffer" title="Stream buffer">
         <div className="rep-log-choice-group">
@@ -588,7 +595,7 @@ function PreferencesScreen() {
       <LogGroup id="settings-up-next" title="Up next">
         <div
           className="rep-log-chips"
-          data-region="settings-up-next"
+          data-region="settings-up-next-chips"
           data-kind="row"
           data-label="Play an Up next"
         >
