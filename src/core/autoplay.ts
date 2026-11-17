@@ -13,12 +13,14 @@
  * the missing Stream (no countdown either; the Streams picker is what is pushed).
  */
 
-import type { PlaybackSnapshot, UpNextEpisode } from "./wire";
+import type { Episode, PlaybackSnapshot, Title, UpNextEpisode, Video } from "./wire";
 
 /** The episode Autoplay is about to play, ready to draw. */
 export type AutoplayNext = {
   title: UpNextEpisode["title"];
   video: UpNextEpisode["video"];
+  /** Which episode, as the Host numbered it. */
+  episode: Episode;
   /** `S1E4`. */
   label: string;
   name: string | null;
@@ -86,6 +88,7 @@ export function autoplayView(
   const next: AutoplayNext = {
     title: held.next.title,
     video: held.next.video,
+    episode: held.next.episode,
     label,
     name: held.next.name,
     still: held.next.still,
@@ -140,13 +143,38 @@ export function autoplayStrip(view: AutoplayView): string | null {
  * client's own rule.
  */
 export function opensPicker(previous: AutoplayView, next: AutoplayView): boolean {
-  if (next.kind !== "no_stream") {
-    return false;
-  }
+  const target = pickerTarget(next);
+  return target !== null && target !== pickerTarget(previous);
+}
+
+/**
+ * What a missing Stream is about, as one key: the Video continuity found no
+ * Stream for, or `null` where Autoplay is not at a missing Stream. A client
+ * asks again only when this changes.
+ */
+export function pickerTarget(view: AutoplayView): string | null {
+  return view.kind === "no_stream" ? `${view.next.video.type}|${view.next.video.id}` : null;
+}
+
+/**
+ * The Video the Streams picker opens on for a missing Stream: the Title's own
+ * entry for it, or — where its list does not hold the episode — one built from
+ * what Autoplay named. The Video's id is opaque (ADR-0012): the season and
+ * episode come from the Host's `episode`, never from parsing the id.
+ */
+export function missingStreamVideo(
+  title: Pick<Title, "videos">,
+  next: Pick<AutoplayNext, "video" | "episode" | "name" | "still">,
+): Video {
   return (
-    previous.kind !== "no_stream" ||
-    previous.next.video.type !== next.next.video.type ||
-    previous.next.video.id !== next.next.video.id
+    title.videos.find((video) => video.id === next.video.id) ?? {
+      id: next.video.id,
+      name: next.name,
+      season: next.episode.season,
+      episode: next.episode.episode,
+      thumbnail: next.still,
+      airDate: null,
+    }
   );
 }
 

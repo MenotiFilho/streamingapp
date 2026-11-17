@@ -289,6 +289,7 @@ describe("what pins the OSD", () => {
     next: {
       title: { type: "series", id: "tt1" },
       video: { type: "series", id: "tt1:1:4" },
+      episode: { season: 1, episode: 4 },
       label: "S1E4",
       name: null,
       still: null,
@@ -318,6 +319,7 @@ describe("what pins the OSD: the hold on Still watching?", () => {
     next: {
       title: { type: "series", id: "tt1" },
       video: { type: "series", id: "tt1:1:4" },
+      episode: { season: 1, episode: 4 },
       label: "S1E4",
       name: null,
       still: null,

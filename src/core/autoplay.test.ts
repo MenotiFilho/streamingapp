@@ -1,7 +1,14 @@
 import { describe, expect, test } from "vitest";
 
-import { autoplayStrip, autoplayView, opensPicker, plainEnd } from "./autoplay";
-import type { AutoplaySnapshot } from "./wire";
+import {
+  autoplayStrip,
+  autoplayView,
+  missingStreamVideo,
+  opensPicker,
+  pickerTarget,
+  plainEnd,
+} from "./autoplay";
+import type { AutoplaySnapshot, Video } from "./wire";
 
 const NEXT = {
   title: { type: "series", id: "tt0903747" },
@@ -44,6 +51,7 @@ describe("the autoplay view", () => {
     expect(view.next).toEqual({
       title: { type: "series", id: "tt0903747" },
       video: { type: "series", id: "tt0903747:1:4" },
+      episode: { season: 1, episode: 4 },
       label: "S1E4",
       name: "Cancer Man",
       still: "https://images.test/cancer-man.jpg",
@@ -122,6 +130,7 @@ describe("the autoplay view", () => {
         next: {
           title: { type: "series", id: "tt0903747" },
           video: { type: "series", id: "tt0903747:1:4" },
+          episode: { season: 1, episode: 4 },
           label: "S1E4",
           name: "Cancer Man",
           still: "https://images.test/cancer-man.jpg",
@@ -220,5 +229,75 @@ describe("the plain ended state", () => {
       plainEnd(autoplayView({ autoplay: held() }, 0)),
       "the hold is a card, and a missing Stream is not",
     ).toBe(false);
+  });
+});
+
+describe("the picker's target", () => {
+  const missing = (id: string) =>
+    autoplayView(
+      {
+        autoplay: {
+          next: { ...NEXT, video: { type: "series", id } },
+          phase: "no_stream",
+          detail: "none",
+        },
+      },
+      0,
+    );
+
+  test("is the Video a missing Stream is about, and nothing else has one", () => {
+    expect(pickerTarget(missing("tt0903747:1:4"))).toBe("series|tt0903747:1:4");
+    expect(pickerTarget(missing("tt0903747:1:5"))).not.toBe(pickerTarget(missing("tt0903747:1:4")));
+    expect(pickerTarget({ kind: "none" })).toBeNull();
+    expect(pickerTarget(autoplayView({ autoplay: autoplay(5) }, 0))).toBeNull();
+    expect(pickerTarget(autoplayView({ autoplay: held() }, 0))).toBeNull();
+  });
+
+  test("the episode is the Host's, so the view carries it", () => {
+    const view = autoplayView({ autoplay: held() }, 0);
+    expect(view.kind === "still_watching" ? view.next.episode : null).toEqual({
+      season: 1,
+      episode: 4,
+    });
+  });
+});
+
+describe("the Video the picker opens on", () => {
+  const listed: Video = {
+    id: "tt0903747:1:4",
+    name: "Cancer Man (listed)",
+    season: 1,
+    episode: 4,
+    thumbnail: null,
+    airDate: "2008-02-17",
+  };
+
+  function next(id: string) {
+    const view = autoplayView(
+      { autoplay: { next: { ...NEXT, video: { type: "series", id } }, phase: "unattended_limit" } },
+      0,
+    );
+    if (view.kind !== "still_watching") {
+      throw new Error("expected a view with a next episode");
+    }
+    return view.next;
+  }
+
+  test("is the Title's own entry where its list holds the episode", () => {
+    expect(missingStreamVideo({ videos: [listed] }, next("tt0903747:1:4"))).toBe(listed);
+  });
+
+  test("is built from what Autoplay named where the list does not, with no parsing of the id", () => {
+    // An id shape ADR-0012 does not rule out: nothing in it says season or episode.
+    const video = missingStreamVideo({ videos: [listed] }, next("kitsu:44:opaque"));
+
+    expect(video).toEqual({
+      id: "kitsu:44:opaque",
+      name: "Cancer Man",
+      season: 1,
+      episode: 4,
+      thumbnail: "https://images.test/cancer-man.jpg",
+      airDate: null,
+    });
   });
 });

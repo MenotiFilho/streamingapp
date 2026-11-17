@@ -1,11 +1,12 @@
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 
 import { answeredTitle } from "../core/answers";
-import { autoplayView, type AutoplayView } from "../core/autoplay";
+import { autoplayView, missingStreamVideo } from "../core/autoplay";
 import { seriesAction, seriesRef } from "../core/episodes";
 import type { NewLevel } from "../core/navigation";
 import type { Session, SessionState } from "../core/session";
-import type { Title, Video } from "../core/wire";
+import { useMissingStream } from "../core/react/useMissingStream";
+import type { Title } from "../core/wire";
 import type { RemotePayload } from "./levels";
 import { pushesPicker } from "./playerScreen";
 import { streamsLevelFor } from "./titleScreen";
@@ -39,59 +40,35 @@ export function useMissingStreamPicker({
   push: (level: NewLevel<RemotePayload>) => string;
 }): void {
   const view = autoplayView({ autoplay: state.snapshot?.playback?.autoplay ?? null }, 0);
-  const previous = useRef<AutoplayView>({ kind: "none" });
   const latest = useRef({ state, levelKind, cardTitle, push });
   latest.current = { state, levelKind, cardTitle, push };
 
-  const target = view.kind === "no_stream" ? `${view.next.video.type}|${view.next.video.id}` : null;
+  useMissingStream(
+    view,
+    (previous, now) => pushesPicker(previous, now, latest.current.levelKind),
+    ({ next }) => {
+      const held = latest.current.cardTitle;
+      const listed = held?.videos.find((video) => video.id === next.video.id) ?? null;
+      if (held && listed) {
+        latest.current.push(streamsLevelFor(held, listed));
+        return;
+      }
 
-  useEffect(() => {
-    const opens = pushesPicker(previous.current, view, latest.current.levelKind);
-    previous.current = view;
-    if (!opens || view.kind !== "no_stream") {
-      return;
-    }
-
-    const { next } = view;
-    const held = latest.current.cardTitle;
-    const listed = held?.videos.find((video) => video.id === next.video.id) ?? null;
-    if (held && listed) {
-      latest.current.push(streamsLevelFor(held, listed));
-      return;
-    }
-
-    const nowPlaying = latest.current.state.snapshot?.playback?.nowPlaying ?? null;
-    if (nowPlaying === null) {
-      return;
-    }
-    void session
-      .ask(seriesAction(seriesRef(latest.current.state.snapshot, nowPlaying)))
-      .then(({ response, error }) => {
-        const title = error ? null : answeredTitle(response);
-        // The answer may land after the person left the card: they are not interrupted.
-        if (title === null || latest.current.levelKind !== "player") {
-          return;
-        }
-        latest.current.push(streamsLevelFor(title, videoOf(title, next)));
-      });
-    // Only a new target is a new question; the view's other fields move every tick.
-  }, [target]);
-}
-
-/** The episode as its Title lists it, or as Autoplay named it where the list does not hold it. */
-function videoOf(
-  title: Title,
-  next: Extract<AutoplayView, { kind: "no_stream" }>["next"],
-): Video {
-  return (
-    title.videos.find((video) => video.id === next.video.id) ?? {
-      id: next.video.id,
-      name: next.name,
-      season: Number(/^.+:(\d+):\d+$/.exec(next.video.id)?.[1] ?? 0),
-      episode: Number(/^.+:\d+:(\d+)$/.exec(next.video.id)?.[1] ?? 0),
-      thumbnail: next.still,
-      airDate: null,
-    }
+      const nowPlaying = latest.current.state.snapshot?.playback?.nowPlaying ?? null;
+      if (nowPlaying === null) {
+        return;
+      }
+      void session
+        .ask(seriesAction(seriesRef(latest.current.state.snapshot, nowPlaying)))
+        .then(({ response, error }) => {
+          const title = error ? null : answeredTitle(response);
+          // The answer may land after the person left the card: they are not interrupted.
+          if (title === null || latest.current.levelKind !== "player") {
+            return;
+          }
+          latest.current.push(streamsLevelFor(title, missingStreamVideo(title, next)));
+        });
+    },
   );
 }
 

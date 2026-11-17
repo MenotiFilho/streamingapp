@@ -1,9 +1,9 @@
-import { useEffect, useRef, type RefObject } from "react";
+import { useRef, type RefObject } from "react";
 
 import { answeredTitle } from "../core/answers";
-import { opensPicker, type AutoplayView } from "../core/autoplay";
+import { missingStreamVideo, opensPicker, type AutoplayView } from "../core/autoplay";
 import { seriesAction, seriesRef } from "../core/episodes";
-import type { Title, Video } from "../core/wire";
+import { useMissingStream } from "../core/react/useMissingStream";
 import { useShell } from "./context";
 import { StreamsLoader } from "./StreamsScreen";
 
@@ -23,72 +23,48 @@ export function useMissingStreamPicker(
   view: AutoplayView,
 ): void {
   const { snapshot, ask, push, remove, popover } = useShell();
-  const previous = useRef<AutoplayView>({ kind: "none" });
   const latest = useRef({ snapshot, popover });
   latest.current = { snapshot, popover };
 
-  const target = view.kind === "no_stream" ? `${view.next.video.type}|${view.next.video.id}` : null;
+  const onPlayerLevel = () =>
+    root.current !== null &&
+    root.current.isConnected &&
+    !root.current.closest("[inert]") &&
+    latest.current.popover === null;
 
-  useEffect(() => {
-    const opens = opensPicker(previous.current, view);
-    previous.current = view;
-    if (!opens || view.kind !== "no_stream") {
-      return;
-    }
+  useMissingStream(
+    view,
+    (previous, now) => opensPicker(previous, now) && onPlayerLevel(),
+    ({ next }) => {
+      const nowPlaying = latest.current.snapshot?.playback.nowPlaying ?? null;
+      if (nowPlaying === null) {
+        return;
+      }
 
-    const onPlayerLevel = () =>
-      root.current !== null &&
-      root.current.isConnected &&
-      !root.current.closest("[inert]") &&
-      latest.current.popover === null;
-    const nowPlaying = latest.current.snapshot?.playback.nowPlaying ?? null;
-    if (!onPlayerLevel() || nowPlaying === null) {
-      return;
-    }
-
-    const { next } = view;
-    void ask(seriesAction(seriesRef(latest.current.snapshot, nowPlaying))).then(
-      ({ response, error }) => {
-        const title = error ? null : answeredTitle(response);
-        // The answer may land after a person moved on: the level above counts.
-        if (title === null || !onPlayerLevel()) {
-          return;
-        }
-        const id = push({
-          name: "Streams",
-          kind: "overlay",
-          payload: {
-            render: () =>
-              (
+      void ask(seriesAction(seriesRef(latest.current.snapshot, nowPlaying))).then(
+        ({ response, error }) => {
+          const title = error ? null : answeredTitle(response);
+          // The answer may land after a person moved on: the level above counts.
+          if (title === null || !onPlayerLevel()) {
+            return;
+          }
+          const id = push({
+            name: "Streams",
+            kind: "overlay",
+            payload: {
+              render: () => (
                 <StreamsLoader
                   title={title}
-                  video={videoOf(title, next)}
+                  video={missingStreamVideo(title, next)}
                   // The list is spent once the Host has the Stream; removing it
                   // by id is a no-op if a person backed out first.
                   onOpened={() => remove(id)}
                 />
               ),
-          },
-        });
-      },
-    );
-    // Only a new target is a new question; the view's other fields move every tick.
-  }, [target]);
-}
-
-/** The episode as its Title lists it, or as Autoplay named it where the list does not hold it. */
-function videoOf(
-  title: Title,
-  next: Extract<AutoplayView, { kind: "no_stream" }>["next"],
-): Video {
-  return (
-    title.videos.find((video) => video.id === next.video.id) ?? {
-      id: next.video.id,
-      name: next.name,
-      season: Number(/^.+:(\d+):\d+$/.exec(next.video.id)?.[1] ?? 0),
-      episode: Number(/^.+:\d+:(\d+)$/.exec(next.video.id)?.[1] ?? 0),
-      thumbnail: next.still,
-      airDate: null,
-    }
+            },
+          });
+        },
+      );
+    },
   );
 }
