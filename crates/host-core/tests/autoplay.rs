@@ -211,6 +211,25 @@ fn an_episode_that_ends_publishes_a_countdown_to_the_next_one() {
 }
 
 #[test]
+fn the_published_countdown_is_flat_on_the_wire() {
+    let mut fixture = a_host();
+
+    let published = first_episode_ended(&mut fixture);
+
+    let wire = serde_json::to_value(&published.playback.autoplay).expect("a Snapshot serializes");
+    assert_eq!(
+        (&wire["phase"], &wire["remaining"], &wire["duration"]),
+        (
+            &serde_json::json!("countdown"),
+            &serde_json::json!(5.0),
+            &serde_json::json!(5.0)
+        ),
+        "a client switches on one `phase` tag: {wire}"
+    );
+    assert_eq!(wire["next"]["video"]["id"], "tt0903747:1:2");
+}
+
+#[test]
 fn a_snapshot_built_mid_countdown_carries_the_time_that_is_left() {
     let mut fixture = a_host();
     first_episode_ended(&mut fixture);

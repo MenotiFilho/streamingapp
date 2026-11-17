@@ -38,11 +38,21 @@ pub struct UpNextEpisode {
 }
 
 /// What Autoplay is doing about the episode that ended, as a Snapshot says it.
+///
+/// The phase is flattened onto the Snapshot, so the wire reads
+/// `{ next, phase: "countdown", remaining, duration }` and a client switches on
+/// one `phase` tag instead of unwrapping a nested object.
+///
+/// serde cannot combine `deny_unknown_fields` with `flatten` on one struct, so
+/// this struct does not carry it. Unknown fields are still refused: whatever
+/// `next` does not take is handed to [`AutoplayPhase`], and that enum denies
+/// unknown fields itself.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct AutoplaySnapshot {
     /// The episode Autoplay is about to play.
     pub next: UpNextEpisode,
+    #[serde(flatten)]
     pub phase: AutoplayPhase,
 }
 
@@ -219,14 +229,31 @@ mod tests {
             .expect("a Snapshot serializes");
 
         assert_eq!(
-            wire["phase"],
-            serde_json::json!({ "phase": "countdown", "remaining": 3.0, "duration": 5.0 })
+            (&wire["phase"], &wire["remaining"], &wire["duration"]),
+            (
+                &serde_json::json!("countdown"),
+                &serde_json::json!(3.0),
+                &serde_json::json!(5.0)
+            ),
+            "the phase is flat on the Snapshot, tagged `phase`, not a nested object"
         );
         assert_eq!(
             wire["next"]["episode"],
             serde_json::json!({ "season": 1, "episode": 4 })
         );
         assert_eq!(wire["next"]["video"]["id"], "tt1:1:4");
+    }
+
+    #[test]
+    fn a_snapshot_with_a_field_nobody_declared_is_refused() {
+        let mut wire = serde_json::to_value(Pending::starting(episode(), 0).snapshot(1_000))
+            .expect("a Snapshot serializes");
+        wire["surprise"] = serde_json::json!(true);
+
+        assert!(
+            serde_json::from_value::<AutoplaySnapshot>(wire).is_err(),
+            "flattening the phase must not open the Snapshot to unknown fields"
+        );
     }
 
     #[test]

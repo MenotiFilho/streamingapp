@@ -211,21 +211,21 @@ export type UpNextEpisode = {
 };
 
 /**
- * Where Autoplay stands: tagged `phase`. `remaining` and `duration` are
- * relative seconds as of the Snapshot, so a client projects the digit on its own
- * monotonic clock from the Snapshot's arrival and never compares wall clocks
- * with the Host (ADR-0033, ADR-0040). Mirrors `AutoplayPhase` in `host-core`.
+ * Where Autoplay stands: a discriminated union on `phase`, flattened onto the
+ * Snapshot (`{ next, phase: "countdown", remaining, duration }`) rather than
+ * nested under it. `remaining` and `duration` are relative seconds as of the
+ * Snapshot, so a client projects the digit on its own monotonic clock from the
+ * Snapshot's arrival and never compares wall clocks with the Host (ADR-0033,
+ * ADR-0040). Mirrors `AutoplayPhase` in `host-core`; the other phases arrive
+ * with the Host rules that publish them.
  */
 export type AutoplayPhase = { phase: "countdown"; remaining: number; duration: number };
 
 /**
- * What Autoplay is doing about the episode that ended: the next episode and the
- * countdown to it. Mirrors `AutoplaySnapshot` in `host-core`.
+ * What Autoplay is doing about the episode that ended: the next episode and
+ * where Autoplay stands on it. Mirrors `AutoplaySnapshot` in `host-core`.
  */
-export type AutoplaySnapshot = {
-  next: UpNextEpisode;
-  phase: AutoplayPhase;
-};
+export type AutoplaySnapshot = { next: UpNextEpisode } & AutoplayPhase;
 
 /**
  * Where the Player's picture is drawn — a fact about the machine, not a setting.
