@@ -1096,6 +1096,7 @@ impl Host {
             self.state.record_subtitles_attempt();
         }
 
+        let was_ended = self.state.playback().has_ended();
         let Some(next) = self.state.playback().advanced(&observation) else {
             // Nothing the Player said moved; only the countdown ending can.
             if countdown_ended {
@@ -1105,7 +1106,7 @@ impl Host {
             return None;
         };
         let published = next.differs_publicly_from(self.state.playback());
-        let reached_the_end = next.has_ended() && !self.state.playback().has_ended();
+        let reached_the_end = next.has_ended() && !was_ended;
 
         self.state.set_playback(next);
 
@@ -1129,6 +1130,15 @@ impl Host {
         let corrected = written.is_some();
         if let Some(entry) = written {
             let _ = self.store.write_watch_progress(&entry);
+        }
+
+        // Reaching `Ended` finishes the Video in Watch progress above, so push
+        // its Title once on the transition — never on later ticks that stay on
+        // `Ended` (#315).
+        if !was_ended && self.state.playback().has_ended() {
+            if let Some(title) = self.playing_title() {
+                self.push_title(title.id());
+            }
         }
 
         if !published && !corrected && !countdown_ended {
@@ -1648,6 +1658,15 @@ impl Host {
         title: Option<TitleStub>,
         start: Option<f64>,
     ) -> Result<Change, ActionError> {
+        // A new play replacing a loaded Stream (Opening, Playing, Paused, or
+        // Ended) owes the account the Title it is leaving before `Change::Play`
+        // moves Watch progress onto the next Video (#315). A failed open that
+        // left playback `Idle` never loaded and pushes nothing.
+        let leaving = (self.state.playback().is_live() || self.state.playback().has_ended())
+            .then(|| self.playing_title())
+            .flatten()
+            .map(|title| title.id().to_owned());
+
         self.player
             .open(&chosen.url, start)
             .map_err(|error| ActionError::Playback {
@@ -1656,6 +1675,9 @@ impl Host {
         // Armed at the same moment the Stream opens, and cheap: the worker does
         // not connect until the first still is asked for (ADR-0028).
         self.arm_preview(&chosen.url);
+        if let Some(title) = leaving {
+            self.push_title(&title);
+        }
         Ok(Change::Play {
             chosen,
             title: title.map(Box::new),
