@@ -6,6 +6,7 @@ import { formatTime, watching } from "../core/playback";
 import { usePlaybackView } from "../core/react/usePlaybackView";
 import { transportControls } from "../core/transportControls";
 import type { PlaybackState, Picture } from "../core/wire";
+import { Button } from "../kit/Button";
 import { Icon } from "../kit/icons";
 import { PendingSpinner } from "../kit/PendingSpinner";
 import { useShell } from "./context";
@@ -88,7 +89,9 @@ export function PlayerDock() {
         <p className="shell-player-dock-kicker">
           <span>Now playing</span>
           <span className="shell-player-dock-kicker-rule" aria-hidden="true" />
-          <span data-testid="player-dock-episode">{view.episodeLabel}</span>
+          <span data-testid="player-dock-episode">
+            {view.autoplay.kind === "countdown" ? view.autoplay.strip : view.episodeLabel}
+          </span>
         </p>
         <p className="shell-player-dock-title" data-testid="player-dock-title">
           {view.title}
@@ -174,6 +177,16 @@ export function PlayerDock() {
       </div>
 
       <div className="shell-player-dock-settings">
+        {view.autoplay.kind === "countdown" ? (
+          <Button
+            variant="ghost"
+            className="shell-player-dock-autoplay-cancel"
+            data-testid="dock-autoplay-cancel"
+            onClick={() => void take({ type: "cancel_autoplay" })}
+          >
+            Cancel
+          </Button>
+        ) : null}
         <div className="shell-player-dock-volume" role="group" aria-label="Volume">
           <span className="shell-player-dock-volume-level tabular" data-testid="dock-volume-level">
             {formatVolume(shownLevel)}

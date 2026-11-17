@@ -8,6 +8,7 @@
  * OSD and the Remote's strip are two drawings of these facts (#191 §5).
  */
 
+import { autoplayView, type AutoplayView } from "./autoplay";
 import {
   controllable,
   formatVolume,
@@ -102,6 +103,8 @@ export type PlaybackView = {
   speed: number;
   volume: { level: number; fraction: number; muted: boolean; label: string };
   episode: Episode | null;
+  /** What Autoplay is doing about the episode that ended, projected to now. */
+  autoplay: AutoplayView;
   /** The Session's pending keys, by Action key. */
   pending: ReadonlySet<string>;
   /** What clears the Seek previews: one Stream, as far as a client can tell. */
@@ -190,6 +193,7 @@ export function playbackView(
       label: formatVolume(volumeLevel),
     },
     episode: playback.episode,
+    autoplay: autoplayView(playback, input.played * 1000),
     pending: input.pending,
     streamKey: streamKey(playback.nowPlaying),
     openingPreview: openingPreviewOf(progress),

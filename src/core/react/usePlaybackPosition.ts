@@ -24,13 +24,16 @@ export function usePlaybackPlayed(
   const anchor = useMemo(() => ({ at: performance.now() }), [playback]);
   const [, setTick] = useState(0);
 
+  // A playing Stream moves its position; an ended one with a countdown moves
+  // the digit. Both are the same projection from the Snapshot's arrival.
+  const moving = playback?.state === "playing" || playback?.autoplay != null;
   useEffect(() => {
-    if (!active || playback === null || playback.state !== "playing") {
+    if (!active || !moving) {
       return;
     }
     const timer = setInterval(() => setTick((tick) => tick + 1), PROJECTION_MS);
     return () => clearInterval(timer);
-  }, [active, playback?.state]);
+  }, [active, moving]);
 
   if (playback === null) {
     return 0;

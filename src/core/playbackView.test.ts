@@ -429,4 +429,31 @@ describe("the programme note", () => {
       subtitle: "S1E1 · Episode One",
     });
   });
+
+  test("an Autoplay countdown is projected from the time since the Snapshot arrived", () => {
+    const counting = playback({
+      state: "ended",
+      autoplay: {
+        next: {
+          title: { type: "series", id: "tt7777777" },
+          video: { type: "series", id: "tt7777777:1:2" },
+          episode: { season: 1, episode: 2 },
+          name: "Episode Two",
+          still: null,
+        },
+        phase: "countdown",
+        remaining: 5,
+        duration: 5,
+      },
+    });
+
+    const fresh = playbackView(counting, { played: 0, pending: NO_PENDING, watchProgress: [] });
+    expect(fresh.autoplay.kind === "countdown" ? fresh.autoplay.digit : null).toBe(5);
+
+    const later = playbackView(counting, { played: 2.2, pending: NO_PENDING, watchProgress: [] });
+    expect(later.autoplay.kind === "countdown" ? later.autoplay.digit : null).toBe(3);
+
+    const none = playbackView(playback(), { played: 0, pending: NO_PENDING, watchProgress: [] });
+    expect(none.autoplay).toEqual({ kind: "none" });
+  });
 });

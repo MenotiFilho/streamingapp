@@ -7,6 +7,7 @@ import {
   chapterMarks,
   CHAPTER_TICK_SPACING_PX,
   idleOsd,
+  osdPinned,
   OSD_START,
   spacedChapterMarks,
   OSD_IDLE_MS,
@@ -276,6 +277,37 @@ describe("the OSD's readings", () => {
 describe("the OSD's idle window", () => {
   test("is three seconds", () => {
     expect(OSD_IDLE_MS).toBe(3000);
+  });
+});
+
+describe("what pins the OSD", () => {
+  const COUNTING = { kind: "none" } as const;
+  const countdown = {
+    kind: "countdown",
+    digit: 4,
+    fraction: 0.7,
+    next: {
+      title: { type: "series", id: "tt1" },
+      video: { type: "series", id: "tt1:1:4" },
+      label: "S1E4",
+      name: null,
+      still: null,
+    },
+    kicker: { lead: "Up next", episode: "S1E4", text: "Up next · S1E4" },
+    strip: "Up next in 4 · S1E4",
+  } as const;
+
+  test("nothing open and nothing pending pins nothing", () => {
+    expect(osdPinned({ popoverOpen: false, autoplay: COUNTING })).toBe(false);
+  });
+
+  test("an open popover pins it", () => {
+    expect(osdPinned({ popoverOpen: true, autoplay: COUNTING })).toBe(true);
+  });
+
+  test("a countdown pins it, so the OSD and the cursor stay up while the card does", () => {
+    expect(osdPinned({ popoverOpen: false, autoplay: countdown })).toBe(true);
+    expect(osdPinned({ popoverOpen: true, autoplay: countdown })).toBe(true);
   });
 });
 
