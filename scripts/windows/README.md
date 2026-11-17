@@ -24,8 +24,9 @@ each and with the OSD hidden, the strip's Up-from-the-top-row landing and a
 click through the strip onto the rail beneath it, and the OSD's own copy of the
 button; Settings' Preferences, Credentials, Remote devices and About/Credits
 sub-screens; the subtitle appearance (colour and size, their restart, and what
-they do to an SRT and an ASS track); the key-gated Discover and Search; the
-Library sign-in gate; and the
+they do to an SRT and an ASS track); an Up next played directly and, with Autoplay,
+the Host's countdown, its Cancel, the switch and the next episode on its own; the
+key-gated Discover and Search; the Library sign-in gate; and the
 TMDB attribution.
 
 The Addon it configures is a parameter, so the walkthrough can be run against the
@@ -100,7 +101,7 @@ the three seconds out.
 
 ## Walking part of the checklist
 
-The whole checklist is 37 steps and takes minutes. To iterate on one step, run
+The whole checklist is 38 steps and takes minutes. To iterate on one step, run
 just that one: the runner builds the ground the step declares first — an empty
 data directory, one Host on `-Monitor`, the fixture Addon configured by manifest
 URL, its first Catalog featured, at Home — and reuses it when several selected
@@ -379,11 +380,31 @@ or started).
   ASS track is chosen. If step 35 skips, the configured Addon served a Stream
   without the fixture's tracks (or no playable candidate), and the reason is
   printed.
-- **An Up next needs a finished episode.** Step 36 seeks the fixture video to
-  its last seconds, stops, and presses the row's `Up next` card; the Title's
+- **An Up next needs a finished episode.** Step 36 first sets "When an episode
+  ends" to **Wait** in Settings > Preferences > Up next (Autoplay is on by
+  default, and a countdown would play S1E2 under it), then seeks the fixture
+  video to its last seconds, stops, and presses the row's `Up next` card; the Title's
   main control must read `Play S1E2`, and Play must open S1E2 with no Streams
   list in between (#276). If no Up next card appears, the fixture Addon's meta
   answer listed no episode after the one that finished.
+- **Autoplay is five seconds long, and the script does not get to be slow.**
+  Step 38 sets "When an episode ends" back to `Play it after 5 seconds` (step 36
+  left it on Wait), plays S1E1 to its end and walks the Host's countdown (#302):
+  the corner card, a group named `Up next · S1E2` with `Play now` and `Cancel`,
+  whose Cancel takes the keyboard focus; a key press of Enter cancels it, and the
+  step then waits past the five seconds to see the episode stay on its ended
+  prompt. The prompt draws the `Autoplay the next episode` switch beside Next
+  episode. **Cancel keeps the preference**, so the switch still reads On: the
+  step presses it once to turn Autoplay off (no countdown) and once more to turn
+  it on, and that second press starts the countdown again; it then lets it run
+  out and checks that S1E2 plays with no Streams list in between. The countdown
+  checks are made as fast as the window answers (the focus and the card are read
+  in the same breath, and the switch is pressed with a key rather than
+  `Press-Element`, which waits two seconds), because the Host does not wait for
+  the script. The switch's state is read off its Toggle pattern; if the
+  accessibility tree does not carry one, that check skips and says so. If the
+  card never appears, the fixture Addon's meta answer listed no episode after the
+  one that finished.
 - **A second open is the cache's.** Step 37 opens a series Title, backs out and
   opens the same Title again, timing the press; under three seconds with the
   Title's seasons drawn is the cache answering (#266, ADR-0038 §1). The first
