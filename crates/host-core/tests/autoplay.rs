@@ -63,6 +63,11 @@ fn fixture_offering(candidates: Vec<Stream>) -> Fixture {
 }
 
 fn fixture_over(provider: FixtureProvider) -> Fixture {
+    fixture_serving(provider, SERIES_META)
+}
+
+/// A Host whose Addon lists this `meta` for the series.
+fn fixture_serving(provider: FixtureProvider, meta: &'static str) -> Fixture {
     let player = Arc::new(FixturePlayer::new());
     let provider = Arc::new(provider);
     let clock = Arc::new(FixtureClock::new().at(NOW));
@@ -75,7 +80,7 @@ fn fixture_over(provider: FixtureProvider) -> Fixture {
                      "resources":["meta","stream"],"types":["movie","series"],"catalogs":[]}}"#
             ),
         )
-        .serving(META_URL, SERIES_META.to_owned());
+        .serving(META_URL, meta.to_owned());
 
     let mut host = Host::new(
         store.clone() as Arc<dyn Store>,
@@ -642,6 +647,35 @@ fn an_up_next_that_has_not_aired_yet_arms_nothing() {
     fixture.clock.set(1201478400000);
     let published = first_episode_ended(&mut fixture);
     assert!(published.playback.autoplay.is_some());
+}
+
+#[test]
+fn an_up_next_with_no_air_date_arms_the_countdown() {
+    // An Addon that lists no date for its episodes (Kitsu-style catalogs often
+    // don't): nothing says the next one has not aired, so the Host counts down.
+    const UNDATED: &str = r#"{"meta":{"id":"tt0903747","type":"series","name":"Breaking Bad","videos":[
+        {"id":"tt0903747:1:1","season":1,"episode":1,"name":"Pilot"},
+        {"id":"tt0903747:1:2","season":1,"episode":2,"name":"Undated"}
+    ]}}"#;
+    let mut fixture = fixture_serving(
+        FixtureProvider::new().offering(SERIES_ID, vec![candidate("1080p", SAME_RELEASE, None)]),
+        UNDATED,
+    );
+
+    let published = first_episode_ended(&mut fixture);
+
+    assert_eq!(
+        countdown(&published),
+        Some(("tt0903747:1:2".to_owned(), 5.0, 5.0)),
+        "the episode has no air date, which is not a date after today"
+    );
+    fixture.clock.tick(5_000);
+    fixture.host.sample().expect("the countdown ran out");
+    assert_eq!(
+        fixture.player.opened(),
+        vec![PLAYING.to_owned(), SAME_RELEASE.to_owned()],
+        "and it plays"
+    );
 }
 
 #[test]

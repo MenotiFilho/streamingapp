@@ -6,9 +6,9 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, AutoplayPhase, FixtureClock, FixtureFetcher, FixturePlayer, FixtureProvider, Host,
-    InMemorySecretStore, InMemoryStore, Observation, Playback, PlaybackState, SecretBackend,
-    Snapshot, Store, Stream, ACTION_VERSION, AUTOPLAY_COUNTDOWN_MS,
+    Action, ActionError, AutoplayPhase, FixtureClock, FixtureFetcher, FixturePlayer,
+    FixtureProvider, Host, InMemorySecretStore, InMemoryStore, Observation, Playback,
+    PlaybackState, SecretBackend, Snapshot, Store, Stream, ACTION_VERSION, AUTOPLAY_COUNTDOWN_MS,
 };
 
 const SERIES: &str = "https://series.example.org/manifest.json";
@@ -46,9 +46,8 @@ struct Fixture {
     clock: Arc<FixtureClock>,
 }
 
-fn a_host() -> Fixture {
-    let player = Arc::new(FixturePlayer::new());
-    let candidate = Stream {
+fn candidate() -> Stream {
+    Stream {
         name: Some("1080p".to_owned()),
         description: None,
         playback: Playback::Direct {
@@ -57,8 +56,16 @@ fn a_host() -> Fixture {
         warnings: Vec::new(),
         filename: None,
         binge_group: Some("the-release".to_owned()),
-    };
-    let provider = Arc::new(FixtureProvider::new().offering(SERIES_ID, vec![candidate]));
+    }
+}
+
+fn a_host() -> Fixture {
+    a_host_over(FixtureProvider::new().offering(SERIES_ID, vec![candidate()]))
+}
+
+fn a_host_over(provider: FixtureProvider) -> Fixture {
+    let player = Arc::new(FixturePlayer::new());
+    let provider = Arc::new(provider);
     let clock = Arc::new(FixtureClock::new().at(NOW));
     let fetcher = FixtureFetcher::new()
         .serving(
@@ -352,4 +359,53 @@ fn stop_playback_dismisses_the_hold() {
     let stopped = dispatch(&mut fixture, serde_json::json!({ "type": "stop_playback" }));
 
     assert!(stopped.snapshots[0].playback.autoplay.is_none());
+}
+
+#[test]
+fn a_missing_stream_after_an_unattended_advance_is_not_one_more_unattended_advance() {
+    // Episode 4's Stream is the one the Addon cannot give: the Host plays 2 and 3
+    // on its own (two advances), and at the end of 3 the countdown finds nothing.
+    let mut fixture = a_host_over(
+        FixtureProvider::new()
+            .offering(SERIES_ID, vec![candidate()])
+            .failing_for_video(
+                SERIES_ID,
+                "tt0903747:1:4",
+                ActionError::Stream {
+                    detail: "the Addon is down for this one".to_owned(),
+                },
+            ),
+    );
+    start(&mut fixture, 1);
+    for _ in 1..=2 {
+        reach_the_end(&mut fixture);
+        let_it_run_out(&mut fixture);
+    }
+    reach_the_end(&mut fixture);
+    fixture.clock.tick(AUTOPLAY_COUNTDOWN_MS);
+    let missing = fixture
+        .host
+        .sample()
+        .expect("the missing Stream is published");
+    assert!(
+        matches!(phase(&missing), Some(AutoplayPhase::NoStream { .. })),
+        "continuity found nothing for episode 4: {:?}",
+        phase(&missing)
+    );
+    assert_eq!(fixture.player.opened().len(), 3, "and nothing was played");
+
+    // The Stream comes back to life on its own (nobody touched the Host), then
+    // ends again. Two episodes played unattended, so this is a countdown. Had the
+    // missing Stream counted as a third advance, it would be the hold.
+    fixture
+        .player
+        .now_reporting(Observation::playing(0.0, 2820.0));
+    fixture.host.sample();
+    let ended = reach_the_end(&mut fixture);
+
+    assert!(
+        is_counting_down(&ended),
+        "a start that never happened is not an advance nobody watched: {:?}",
+        phase(&ended)
+    );
 }
