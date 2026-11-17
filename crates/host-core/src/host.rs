@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use crate::action::{Action, ActionError, ValidatedAction};
 use crate::addon::{Addon, AddonId, Manifest};
-use crate::autoplay::{self, Outcome, Pending, UpNextEpisode};
+use crate::autoplay::{self, Pending};
 use crate::background::{BackgroundQueue, Job, RevisionSink, Work};
 use crate::cache::CatalogCache;
 use crate::clock::Clock;
@@ -12,8 +12,8 @@ use crate::library::LibraryCache;
 use crate::meta::{self, Title, TitleKey, Video};
 use crate::pairing::PairingCode;
 use crate::playback::{
-    ChapterStep, ChosenStream, Control, Episode, Observation, Picture, PlaybackState, Player,
-    StreamUrl, Telling, TrackId, TrackKind, Unplayable,
+    ChapterStep, ChosenStream, Control, Observation, Picture, PlaybackState, Player, StreamUrl,
+    Telling, TrackId, TrackKind, Unplayable,
 };
 use crate::preferences::FeaturedCatalog;
 use crate::preview::{
@@ -36,6 +36,9 @@ use crate::title_cache::{
 };
 use crate::tmdb;
 use crate::view::{HostView, HostViewShared};
+
+mod countdown;
+use countdown::CountdownEffect;
 
 /// How often the Host looks for a caught-up Title whose record is now due: a
 /// day, the shortest rhythm any caught-up check runs at. It is the scan that
@@ -727,17 +730,8 @@ impl Host {
     /// through when it runs out: a next episode started by Autoplay is the same
     /// change `next_episode` makes, taken the same way (ADR-0040).
     fn commit(&mut self, change: Change, answer: Option<Answer>) -> Result<Response, ActionError> {
-        // What the change does to the countdown: a play replaces it, a stop, a
-        // cancel and switching Autoplay off end it, and switching Autoplay on
-        // starts one where the Host is sitting on an ended episode.
-        let countdown = match &change {
-            Change::Play { .. }
-            | Change::Stop
-            | Change::SetAutoplay(false)
-            | Change::CancelAutoplay => Countdown::End,
-            Change::SetAutoplay(true) => Countdown::Arm,
-            _ => Countdown::Keep,
-        };
+        // What the change does to the Autoplay countdown, settled below.
+        let countdown = CountdownEffect::of(&change);
 
         // The Title a pause or a stop leaves is the one the account is owed: the
         // Stream is still the Host's here, and after a stop it is not.
@@ -786,15 +780,7 @@ impl Host {
 
         self.state = next;
         self.revision += 1;
-        match countdown {
-            Countdown::Keep => {}
-            Countdown::End => self.autoplay = None,
-            Countdown::Arm => {
-                if self.autoplay.is_none() {
-                    self.autoplay = self.countdown_to_next();
-                }
-            }
-        }
+        self.settle_countdown(countdown);
         if account_changed {
             self.library_cache
                 .lock()
@@ -1697,70 +1683,6 @@ impl Host {
         })
     }
 
-    /// The countdown owed to the episode that has just ended, or nothing.
-    ///
-    /// Only an episode of a series arms one (a film's Video is not an episode),
-    /// only with Autoplay on, and only where the Title's own list has a Video
-    /// after it that has aired ([`autoplay::on_ended`]). The list is the one
-    /// `next_episode` reads, so what counts down is what the Next episode button
-    /// would play (ADR-0040). Asking for it is Addon I/O, like the subtitle
-    /// fallback in the same tick (ADR-0014).
-    fn countdown_to_next(&self) -> Option<Pending> {
-        if !self.state.preferences().autoplay() || !self.state.playback().has_ended() {
-            return None;
-        }
-        let finished = &self.state.playback().chosen()?.now_playing.video;
-        meta::episode_of(&finished.id)?;
-
-        let now = self.clock.now_millis();
-        let neighbour = self.neighbour_video(EpisodeStep::Next, finished).ok();
-        match autoplay::on_ended(neighbour, now, self.unattended) {
-            Outcome::Start(video) => {
-                let next = up_next_episode(&finished.r#type, &video)?;
-                Some(Pending::starting(next, now))
-            }
-            // Nobody has touched anything for the whole run: no countdown, and
-            // only a play moves on.
-            Outcome::Hold(video) => {
-                let next = up_next_episode(&finished.r#type, &video)?;
-                Some(Pending::holding(next))
-            }
-            Outcome::None => None,
-        }
-    }
-
-    /// The countdown has run out: play the next episode as `next_episode` would,
-    /// or — where continuity finds no Stream — stay on the ended state with the
-    /// countdown cleared. Either way every client is owed a Snapshot.
-    fn autoplay_expired(&mut self) -> Option<Snapshot> {
-        let pending = self.autoplay.take();
-        let outcome = self.stepped(EpisodeStep::Next);
-        match outcome {
-            Ok(Resolved::Change(change)) => {
-                if let Ok(mut response) = self.commit(change, None) {
-                    // The Host played this one and no client asked for it: it
-                    // is one more episode nobody has touched.
-                    self.unattended += 1;
-                    return response.snapshots.pop();
-                }
-                // The store refused the play: the Host stays on the ended
-                // state, as for a Stream that was not found.
-                self.autoplay = pending.map(|pending| {
-                    pending.without_stream("the Host could not start the next episode".to_owned())
-                });
-            }
-            Ok(_) => {}
-            Err(error) => {
-                // Continuity found nothing: the Host says so and holds the
-                // ended state, and the clients offer the Streams picker.
-                self.autoplay =
-                    pending.map(|pending| pending.without_stream(refusal_detail(&error)));
-            }
-        }
-        self.revision += 1;
-        Some(self.snapshot())
-    }
-
     /// Take one episode step: the neighbouring Stream chosen and opened, and
     /// the change every client is told.
     ///
@@ -2089,44 +2011,6 @@ impl Host {
                 id: id.as_str().to_owned(),
             })
     }
-}
-
-/// Why a step found nothing, as a sentence a client can show: the refusal's own
-/// detail where it carries one, else its message.
-fn refusal_detail(error: &ActionError) -> String {
-    match error {
-        ActionError::NoNextEpisode { detail } | ActionError::NoPreviousEpisode { detail } => {
-            detail.clone()
-        }
-        other => other.to_string(),
-    }
-}
-
-/// What a change does to the Autoplay countdown.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Countdown {
-    /// Nothing: the countdown, if there is one, runs on.
-    Keep,
-    /// It is over: replaced by a play, or stopped by the owner.
-    End,
-    /// Start one, if the Host is sitting on an ended episode that has a next.
-    Arm,
-}
-
-/// The episode `video` is, as Autoplay tells every client of it: its Title is
-/// the one its id carries, of the type the finished episode's Title had.
-fn up_next_episode(r#type: &str, video: &Video) -> Option<UpNextEpisode> {
-    let (title, season, episode) = meta::episode_of(&video.id)?;
-    Some(UpNextEpisode {
-        title: TitleRef::parse(r#type, title).ok()?,
-        video: VideoRef::parse(r#type, &video.id).ok()?,
-        episode: Episode {
-            season: video.season.unwrap_or(season),
-            episode: video.episode.unwrap_or(episode),
-        },
-        name: video.name.clone(),
-        still: video.thumbnail.clone(),
-    })
 }
 
 /// An Action with everything it needed already resolved.

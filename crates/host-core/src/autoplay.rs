@@ -102,10 +102,10 @@ pub(crate) struct Pending {
 #[derive(Debug, Clone, PartialEq)]
 enum Stage {
     /// Counting down, since this moment on the Host's `Clock`.
-    Counting { started_at: i64 },
+    Countdown { started_at: i64 },
     /// The unattended limit: nothing runs, and the Host holds on "Still
     /// watching?" until a play, a cancel, a stop or switching Autoplay off.
-    Holding,
+    UnattendedLimit,
     /// The countdown ran out and no Stream was found: nothing runs any more,
     /// and the Host holds the fact until something ends it.
     NoStream { detail: String },
@@ -113,23 +113,23 @@ enum Stage {
 
 impl Pending {
     /// A countdown to `next` that started at `now`.
-    pub(crate) fn starting(next: UpNextEpisode, now: i64) -> Self {
+    pub(crate) fn countdown(next: UpNextEpisode, now: i64) -> Self {
         Self {
             next,
-            stage: Stage::Counting { started_at: now },
+            stage: Stage::Countdown { started_at: now },
         }
     }
 
     /// The hold at the unattended limit, on its way to `next`.
-    pub(crate) fn holding(next: UpNextEpisode) -> Self {
+    pub(crate) fn unattended_limit(next: UpNextEpisode) -> Self {
         Self {
             next,
-            stage: Stage::Holding,
+            stage: Stage::UnattendedLimit,
         }
     }
 
     /// The same episode, after continuity found no Stream for it.
-    pub(crate) fn without_stream(self, detail: String) -> Self {
+    pub(crate) fn no_stream(self, detail: String) -> Self {
         Self {
             next: self.next,
             stage: Stage::NoStream { detail },
@@ -140,11 +140,11 @@ impl Pending {
     /// already ended in a missing Stream, does not run out: only a play, a
     /// cancel, a stop or switching Autoplay off ends them.
     pub(crate) fn expired(&self, now: i64) -> bool {
-        matches!(self.stage, Stage::Counting { .. }) && self.remaining_millis(now) == 0
+        matches!(self.stage, Stage::Countdown { .. }) && self.remaining_millis(now) == 0
     }
 
     fn remaining_millis(&self, now: i64) -> i64 {
-        let Stage::Counting { started_at } = self.stage else {
+        let Stage::Countdown { started_at } = self.stage else {
             return 0;
         };
         let elapsed = now.saturating_sub(started_at).max(0);
@@ -157,11 +157,11 @@ impl Pending {
         AutoplaySnapshot {
             next: self.next.clone(),
             phase: match &self.stage {
-                Stage::Counting { .. } => AutoplayPhase::Countdown {
+                Stage::Countdown { .. } => AutoplayPhase::Countdown {
                     remaining: self.remaining_millis(now) as f64 / 1_000.0,
                     duration: AUTOPLAY_COUNTDOWN_MS as f64 / 1_000.0,
                 },
-                Stage::Holding => AutoplayPhase::UnattendedLimit {},
+                Stage::UnattendedLimit => AutoplayPhase::UnattendedLimit {},
                 Stage::NoStream { detail } => AutoplayPhase::NoStream {
                     detail: detail.clone(),
                 },
@@ -289,7 +289,7 @@ mod tests {
 
     #[test]
     fn a_countdown_has_five_seconds_and_runs_out_on_the_clock() {
-        let pending = Pending::starting(episode(), 10_000);
+        let pending = Pending::countdown(episode(), 10_000);
         let left = |now| match pending.snapshot(now).phase {
             AutoplayPhase::Countdown { remaining, .. } => remaining,
             other => panic!("a countdown, not {other:?}"),
@@ -306,7 +306,7 @@ mod tests {
 
     #[test]
     fn the_snapshot_says_how_long_the_countdown_is_in_seconds() {
-        let wire = serde_json::to_value(Pending::starting(episode(), 0).snapshot(2_000))
+        let wire = serde_json::to_value(Pending::countdown(episode(), 0).snapshot(2_000))
             .expect("a Snapshot serializes");
 
         assert_eq!(
@@ -327,7 +327,7 @@ mod tests {
 
     #[test]
     fn a_snapshot_with_a_field_nobody_declared_is_refused() {
-        let mut wire = serde_json::to_value(Pending::starting(episode(), 0).snapshot(1_000))
+        let mut wire = serde_json::to_value(Pending::countdown(episode(), 0).snapshot(1_000))
             .expect("a Snapshot serializes");
         wire["surprise"] = serde_json::json!(true);
 
@@ -339,7 +339,7 @@ mod tests {
 
     #[test]
     fn the_snapshot_round_trips_the_wire() {
-        let snapshot = Pending::starting(episode(), 0).snapshot(1_500);
+        let snapshot = Pending::countdown(episode(), 0).snapshot(1_500);
         let wire = serde_json::to_string(&snapshot).expect("a Snapshot serializes");
 
         assert_eq!(
@@ -350,7 +350,7 @@ mod tests {
 
     #[test]
     fn a_missing_stream_is_flat_on_the_wire_and_never_runs_out_again() {
-        let pending = Pending::starting(episode(), 0).without_stream("no Stream".to_owned());
+        let pending = Pending::countdown(episode(), 0).no_stream("no Stream".to_owned());
         let wire = serde_json::to_value(pending.snapshot(60_000)).expect("a Snapshot serializes");
 
         assert_eq!(wire["phase"], "no_stream");
@@ -437,7 +437,7 @@ mod tests {
 
     #[test]
     fn a_hold_has_no_countdown_and_never_runs_out() {
-        let hold = Pending::holding(episode());
+        let hold = Pending::unattended_limit(episode());
 
         assert!(!hold.expired(0));
         assert!(!hold.expired(i64::MAX));
@@ -449,7 +449,7 @@ mod tests {
 
     #[test]
     fn the_hold_is_flat_on_the_wire_and_round_trips() {
-        let snapshot = Pending::holding(episode()).snapshot(0);
+        let snapshot = Pending::unattended_limit(episode()).snapshot(0);
         let wire = serde_json::to_value(&snapshot).expect("a Snapshot serializes");
 
         assert_eq!(wire["phase"], "unattended_limit");
@@ -463,7 +463,7 @@ mod tests {
 
     #[test]
     fn a_hold_with_a_field_nobody_declared_is_refused() {
-        let mut wire = serde_json::to_value(Pending::holding(episode()).snapshot(0))
+        let mut wire = serde_json::to_value(Pending::unattended_limit(episode()).snapshot(0))
             .expect("a Snapshot serializes");
         wire["remaining"] = serde_json::json!(3.0);
 
