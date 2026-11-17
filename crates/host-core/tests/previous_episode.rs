@@ -568,7 +568,11 @@ fn a_stream_that_reached_its_end_can_still_step_to_the_previous_episode() {
         duration: Some(2820.0),
         ..Observation::idle()
     });
-    host.sample().expect("reaching the end is a change");
+    let ended = host.sample().expect("reaching the end is a change");
+    assert!(
+        ended.playback.autoplay.is_none(),
+        "the series' last numbered episode has nothing to count down to, so Previous is all it offers"
+    );
 
     host.dispatch(previous_episode())
         .expect("a finished episode still has the one before it");

@@ -9,9 +9,9 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, Control, FixtureClock, FixtureFetcher, FixturePlayer, FixtureProvider,
-    Host, InMemorySecretStore, InMemoryStore, Observation, Playback, PlaybackState, SecretBackend,
-    Store, Stream, ACTION_VERSION,
+    Action, ActionError, AutoplayPhase, Control, FixtureClock, FixtureFetcher, FixturePlayer,
+    FixtureProvider, Host, InMemorySecretStore, InMemoryStore, Observation, Playback,
+    PlaybackState, SecretBackend, Store, Stream, ACTION_VERSION,
 };
 
 /// The Addon that answers both `meta` and `stream` for a series.
@@ -245,14 +245,34 @@ fn a_stream_that_reached_its_end_can_still_step_to_the_next_episode() {
         duration: Some(2820.0),
         ..Observation::idle()
     });
-    host.sample().expect("reaching the end is a change");
+    let ended = host.sample().expect("reaching the end is a change");
+    assert_eq!(
+        ended
+            .playback
+            .autoplay
+            .as_ref()
+            .map(|autoplay| (autoplay.next.video.id.as_str(), &autoplay.phase)),
+        Some((
+            "tt0903747:1:2",
+            &AutoplayPhase::Countdown {
+                remaining: 5.0,
+                duration: 5.0
+            }
+        )),
+        "Autoplay is on by default: the end counts down to the very episode Next would play"
+    );
 
-    host.dispatch(next_episode())
+    let stepped = host
+        .dispatch(next_episode())
         .expect("a finished episode still has the one after it");
 
     assert_eq!(
         player.opened(),
         vec![PLAYING.to_owned(), SAME_RELEASE.to_owned()]
+    );
+    assert!(
+        stepped.snapshots[0].playback.autoplay.is_none(),
+        "pressing Next is the play the countdown was waiting for"
     );
 }
 

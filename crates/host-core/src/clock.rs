@@ -37,12 +37,24 @@ impl Clock for SystemClock {
 
 /// A clock a test drives by hand, so that the order two writes happened in is
 /// the order the test says rather than the order two statements ran in.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct FixtureClock(AtomicI64);
 
+impl Default for FixtureClock {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FixtureClock {
+    /// 2026-11-17 00:00:00 UTC, where a new clock starts: a day after every air
+    /// date the fixture Titles list, so a test that does not care what day it is
+    /// finds its episodes aired — as they are in life, and as Autoplay's "has it
+    /// aired" decision reads them. A test about time sets its own (`at`).
+    pub const TODAY: i64 = 1_794_873_600_000;
+
     pub fn new() -> Self {
-        Self::default()
+        Self(AtomicI64::new(Self::TODAY))
     }
 
     /// The same clock, set to this moment before it is handed over.
@@ -81,6 +93,12 @@ mod tests {
         assert_eq!(clock.now_millis(), 1_000, "reading does not move it");
         assert_eq!(clock.tick(250), 1_250);
         assert_eq!(clock.now_millis(), 1_250);
+    }
+
+    #[test]
+    fn a_new_fixture_clock_reads_today_and_not_the_epoch() {
+        assert_eq!(FixtureClock::new().now_millis(), FixtureClock::TODAY);
+        assert_eq!(FixtureClock::default().now_millis(), FixtureClock::TODAY);
     }
 
     #[test]

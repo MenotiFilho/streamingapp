@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use host_core::{
     Action, ActionError, FixtureClock, FixtureFetcher, FixturePlayer, FixtureProvider, Host,
-    InMemorySecretStore, InMemoryStore, Observation, Playback, PlaybackState, SecretBackend, Store,
-    Stream, UpNextPlayback, ACTION_VERSION,
+    InMemorySecretStore, InMemoryStore, Observation, Playback, PlaybackState, SecretBackend,
+    Snapshot, Store, Stream, UpNextPlayback, ACTION_VERSION,
 };
 
 /// The Addon that answers both `meta` and `stream` for the series.
@@ -82,7 +82,7 @@ fn fixture_over(store: Arc<InMemoryStore>, candidates: Vec<Stream>) -> Fixture {
     let fetcher = FixtureFetcher::new()
         .serving(SERIES, manifest())
         .serving(META_URL, SERIES_META);
-    let clock = Arc::new(FixtureClock::new().at(1_000));
+    let clock = Arc::new(FixtureClock::new());
 
     let mut host = Host::new(
         store.clone() as Arc<dyn Store>,
@@ -138,7 +138,7 @@ fn restarted(store: Arc<InMemoryStore>) -> Fixture {
         Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
         provider.clone(),
         player.clone(),
-        Arc::new(FixtureClock::new().at(2_000)),
+        Arc::new(FixtureClock::new().at(FixtureClock::TODAY + 1_000)),
     )
     .expect("a Host over the same store starts again");
 
@@ -195,14 +195,14 @@ fn play(fixture: &mut Fixture, video: &str, url: &str, binge_group: Option<&str>
 
 /// The Player reports the Video at its end, and the Host folds that into Watch
 /// progress: the card has an Up next afterwards.
-fn finished(fixture: &mut Fixture) {
+fn finished(fixture: &mut Fixture) -> Snapshot {
     fixture.player.now_reporting(Observation {
         state: PlaybackState::Ended,
         position: Some(2820.0),
         duration: Some(2820.0),
         ..Observation::idle()
     });
-    fixture.host.sample().expect("reaching the end is a change");
+    fixture.host.sample().expect("reaching the end is a change")
 }
 
 fn play_up_next() -> Action {
@@ -217,7 +217,11 @@ fn playing_an_up_next_continues_the_addon_and_release_of_the_video_before_it() {
     let mut fixture = fixture();
     open_series(&mut fixture);
     play(&mut fixture, "tt0903747:1:1", PLAYING, Some("the-release"));
-    finished(&mut fixture);
+    let ended = finished(&mut fixture);
+    assert!(
+        ended.playback.autoplay.is_some(),
+        "Autoplay is on by default: the finished episode is counting down to its Up next"
+    );
     let asked_before = fixture.provider.asked().len();
 
     let published = fixture
@@ -247,6 +251,10 @@ fn playing_an_up_next_continues_the_addon_and_release_of_the_video_before_it() {
             )),
         Some(("tt0903747:1:2", SERIES_ID, Some("the-release"))),
         "every client is told of the new Now playing, and no URL is in it"
+    );
+    assert!(
+        published.snapshots[0].playback.autoplay.is_none(),
+        "playing the Up next by hand is the play the countdown was waiting for"
     );
 }
 

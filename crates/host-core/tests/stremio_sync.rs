@@ -452,7 +452,11 @@ fn on_ended_sample_pushes_that_title_once_and_not_on_later_ticks() {
         ..Observation::idle()
     });
     f.clock.set(NEWER + 20);
-    f.host.sample().expect("reaching Ended publishes");
+    let ended = f.host.sample().expect("reaching Ended publishes");
+    assert!(
+        ended.playback.autoplay.is_some(),
+        "Autoplay's countdown runs beside the push, and asks Stremio nothing of its own"
+    );
 
     let item = held_for(&f, "tt0903747").expect("Ended pushes that Title");
     assert_eq!(item.video_id(), Some("tt0903747:1:2"));
@@ -669,6 +673,10 @@ fn a_stremio_that_errors_leaves_ended_tick_and_play_replacement_succeeding() {
         .sample()
         .expect("reaching Ended succeeds even when Stremio is down");
     assert_eq!(ended.playback.state, PlaybackState::Ended);
+    assert!(
+        ended.playback.autoplay.is_some(),
+        "a Stremio that is down does not stop Autoplay's countdown"
+    );
 
     f.clock.set(NEWER + 30);
     let next = f
