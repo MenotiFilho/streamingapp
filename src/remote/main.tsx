@@ -8,6 +8,8 @@ import { socketUrl } from "./socketUrl";
 import { browserTokenStore } from "./tokenStore";
 import { WebSocketLink } from "./websocketLink";
 import "./remote.css";
+import { PreviewLink } from "../window/previewLink";
+import { PROTO } from "../prototype/autoplay287";
 
 const root = document.getElementById("root");
 if (!root) {
@@ -34,10 +36,13 @@ installPointerPress(document.documentElement, {
  * follows the page's own origin, the Device token lives in the same store the
  * hand-written page used, and the app is handed the one door.
  */
-const link = new WebSocketLink({
-  url: socketUrl(window.location),
-  tokens: browserTokenStore(),
-});
+// PROTOTYPE (#287): the rehearsal Host stands in for the socket.
+const link = PROTO
+  ? new PreviewLink()
+  : new WebSocketLink({
+      url: socketUrl(window.location),
+      tokens: browserTokenStore(),
+    });
 
 createRoot(root).render(
   <StrictMode>

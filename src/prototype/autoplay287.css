@@ -1,0 +1,263 @@
+/* PROTOTYPE (#287, throwaway). Square, hairline, brass: the room's own words. */
+
+/* ---- the prototype bar: deliberately not the design ---- */
+.proto-bar {
+  position: fixed;
+  left: 50%;
+  bottom: 10px;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 16px);
+  padding: 6px 10px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: #fff;
+  color: #111;
+  font: 500 12px/1.2 system-ui, sans-serif;
+  box-shadow: 0 6px 24px rgb(0 0 0 / 60%);
+  pointer-events: auto;
+  white-space: nowrap;
+}
+.proto-bar[data-surface="window"] { top: 10px; bottom: auto; }
+.proto-bar[data-surface="remote"] { flex-wrap: wrap; justify-content: center; border-radius: 14px; white-space: normal; }
+.proto-bar button {
+  padding: 4px 8px;
+  border: 1px solid #bbb;
+  border-radius: 999px;
+  background: #f3f3f3;
+  color: #111;
+  font: inherit;
+  cursor: pointer;
+}
+.proto-bar button[aria-pressed="true"] { background: #111; color: #fff; }
+.proto-bar code { font: 11px/1.2 ui-monospace, monospace; color: #7a1fa2; }
+.proto-bar small { color: #777; }
+.proto-bar-rule { width: 1px; height: 16px; background: #ccc; }
+
+/* ---- shared ---- */
+.proto-kicker {
+  display: flex;
+  align-items: center;
+  gap: var(--rep-space-3);
+  margin: 0;
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-badge);
+  letter-spacing: var(--rep-tracking-caps);
+  text-transform: uppercase;
+}
+.proto-kicker-rule { flex: 1; min-width: var(--rep-space-5); height: 1px; background: var(--rep-hairline); }
+.proto-actions { display: flex; gap: var(--rep-space-3); margin-top: var(--rep-space-4); }
+.proto-drain { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: var(--rep-hairline); }
+.proto-drain > span { display: block; height: 100%; background: var(--rep-house); }
+
+.proto-switch {
+  display: flex;
+  align-items: center;
+  gap: var(--rep-space-3);
+  width: 100%;
+  padding: var(--rep-space-3) var(--rep-space-4);
+  border: 0;
+  background: transparent;
+  color: var(--rep-ivory);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-caption);
+  text-align: left;
+  cursor: pointer;
+}
+.proto-switch:hover { background: var(--rep-ink-elevated); }
+:where(html[data-input="navigation"]) .proto-switch:focus { outline: var(--rep-focus-ring); outline-offset: -2px; }
+.proto-switch-label { flex: 1; }
+.proto-switch-state {
+  color: var(--rep-muted);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-badge);
+  letter-spacing: var(--rep-tracking-caps);
+  text-transform: uppercase;
+}
+.proto-switch[aria-checked="true"] .proto-switch-state { color: var(--rep-house); }
+.proto-switch-track {
+  position: relative;
+  width: 2.6em;
+  height: 1.3em;
+  border: 1px solid var(--rep-hairline);
+  flex: none;
+}
+.proto-switch-thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc(50% - 3px);
+  background: var(--rep-muted);
+  transition: left var(--rep-motion-quick) var(--rep-ease);
+}
+.proto-switch[aria-checked="true"] .proto-switch-track { border-color: var(--rep-house); }
+.proto-switch[aria-checked="true"] .proto-switch-thumb { left: calc(50% + 1px); background: var(--rep-house); }
+
+/* ---- A: the transport toggle and the corner card ---- */
+.proto-transport-toggle[aria-checked="true"] { color: var(--rep-house); }
+.proto-transport-toggle[aria-checked="true"] .rep-osd-speed-value { color: var(--rep-house); }
+.proto-transport-toggle[aria-checked="false"] { color: var(--rep-muted); }
+
+.proto-card {
+  position: absolute;
+  right: var(--rep-gutter);
+  bottom: calc(var(--rep-stage) * 14);
+  z-index: 3;
+  display: grid;
+  grid-template-columns: calc(var(--rep-stage) * 14) calc(var(--rep-stage) * 22);
+  border: 1px solid var(--rep-hairline);
+  border-top: 2px solid var(--rep-house);
+  background: var(--rep-ink-raised);
+  pointer-events: auto;
+}
+.proto-card-still { position: relative; min-height: calc(var(--rep-stage) * 7.9); overflow: hidden; background: var(--rep-ink); }
+.proto-card-still img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.8; }
+.proto-card-digit {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgb(11 10 9 / 45%);
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-hero);
+  line-height: 1;
+}
+.proto-card-copy { padding: var(--rep-space-4) var(--rep-space-5); min-width: 0; }
+.proto-card-name {
+  margin: var(--rep-space-2) 0 0;
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-body);
+  line-height: 1.15;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- B: the Episodes head switch and the takeover ---- */
+.proto-episodes-head { border-bottom: 1px solid var(--rep-hairline); }
+.proto-takeover { position: absolute; inset: 0; z-index: 3; pointer-events: auto; background: var(--rep-ink); }
+.proto-takeover-art { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.proto-takeover-scrim {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgb(11 10 9 / 92%) 0%, rgb(11 10 9 / 70%) 38%, rgb(11 10 9 / 15%) 75%),
+    linear-gradient(0deg, rgb(11 10 9 / 85%) 0%, transparent 45%);
+}
+.proto-takeover-copy {
+  position: absolute;
+  left: var(--rep-gutter);
+  top: 50%;
+  width: min(46%, 60rem);
+  transform: translateY(-50%);
+  padding-left: var(--rep-space-4);
+  border-left: 2px solid var(--rep-house);
+}
+.proto-takeover-name {
+  margin: var(--rep-space-3) 0 0;
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-title);
+  line-height: var(--rep-leading-display);
+  letter-spacing: var(--rep-tracking-display);
+}
+.proto-takeover-line {
+  margin: var(--rep-space-3) 0 0;
+  color: var(--rep-dim);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+}
+.proto-takeover-digit { color: var(--rep-house); font-size: 1.6em; }
+.proto-drain-foot { height: 3px; }
+
+/* ---- C: the one line ---- */
+.proto-line { align-items: center; gap: var(--rep-space-4); }
+.proto-line-copy {
+  display: flex;
+  align-items: baseline;
+  gap: var(--rep-space-3);
+  margin: 0;
+  color: var(--rep-dim);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-mono);
+}
+.proto-line-label { color: var(--rep-house); letter-spacing: var(--rep-tracking-caps); text-transform: uppercase; }
+.proto-line-name { color: var(--rep-ivory); font-family: var(--rep-sans); }
+.proto-line-next {
+  position: relative;
+  overflow: hidden;
+  padding: var(--rep-space-3) var(--rep-space-5);
+  border: 1px solid var(--rep-house);
+  background: transparent;
+  color: var(--rep-ivory);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-control);
+  font-weight: 600;
+  cursor: pointer;
+}
+:where(html[data-input="navigation"]) .proto-line-next:focus { outline: var(--rep-focus-ring); outline-offset: var(--rep-focus-offset); }
+.proto-line-fill { position: absolute; inset: 0 auto 0 0; background: rgb(201 164 92 / 38%); }
+.proto-line-next-text { position: relative; }
+
+/* ---- Settings ---- */
+.proto-settings-note { margin: var(--rep-space-2) 0 0; color: var(--rep-muted); font-size: 0.85em; }
+
+/* ---- the Remote client ---- */
+.proto-remote-cell { font-family: var(--rep-mono); font-size: var(--rep-remote-text-mono); letter-spacing: var(--rep-tracking-caps); text-transform: uppercase; }
+.proto-remote-cell[aria-checked="true"] { border-color: var(--rep-house); color: var(--rep-house); }
+.proto-remote-switch { border: 1px solid var(--rep-hairline); }
+.proto-remote-switch-sheet { margin-bottom: var(--rep-space-3); }
+.proto-switch[data-compact] { font-size: var(--rep-remote-text-control); min-height: var(--rep-remote-touch); }
+.proto-switch[data-compact] .proto-switch-state { font-size: var(--rep-remote-text-badge); }
+.remote-player-card .proto-kicker, .remote-player-card .proto-line-next { font-size: var(--rep-remote-text-control); }
+.remote-player-card .proto-kicker { font-size: var(--rep-remote-text-badge); }
+.remote-player-card .proto-actions { margin-top: 0; }
+.remote-player-card .proto-actions > * { flex: 1; }
+.proto-remote-banner {
+  position: relative;
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr);
+  gap: var(--rep-space-3);
+  padding: var(--rep-space-3);
+  border: 1px solid var(--rep-hairline);
+  border-top: 2px solid var(--rep-house);
+  background: var(--rep-ink-raised);
+}
+.proto-remote-banner .proto-actions { grid-column: 1 / -1; }
+.proto-remote-banner-still { position: relative; aspect-ratio: 16 / 9; overflow: hidden; }
+.proto-remote-banner-still img { width: 100%; height: 100%; object-fit: cover; opacity: 0.75; }
+.proto-remote-banner-still span {
+  position: absolute; inset: 0; display: grid; place-items: center;
+  background: rgb(11 10 9 / 45%); color: var(--rep-ivory);
+  font-family: var(--rep-display); font-size: 2.25rem; line-height: 1;
+}
+.proto-remote-banner-copy { min-width: 0; align-self: center; }
+.proto-remote-banner-name { margin: var(--rep-space-1) 0 0; color: var(--rep-ivory); font-family: var(--rep-display); font-size: var(--rep-remote-text-section); line-height: 1.15; }
+.proto-remote-line { display: flex; flex-direction: column; gap: var(--rep-space-3); }
+.proto-remote-line-row { display: flex; gap: var(--rep-space-3); }
+.proto-remote-line-row .proto-line-next { flex: 1; min-height: var(--rep-remote-touch); }
+.proto-remote-strip-next { color: var(--rep-house); }
+
+/* the Remote's bar: small, at the head of the page, out of the card's way */
+.proto-bar[data-surface="remote"] {
+  top: 4px;
+  bottom: auto;
+  flex-wrap: nowrap;
+  gap: 4px;
+  padding: 3px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  white-space: nowrap;
+}
+.proto-bar[data-surface="remote"] small,
+.proto-bar[data-surface="remote"] code,
+.proto-bar[data-surface="remote"] .proto-bar-rule,
+.proto-bar[data-surface="remote"] [data-testid="proto-near-end"] { display: none; }
+.proto-bar[data-surface="remote"] strong { max-width: 5.5em; overflow: hidden; text-overflow: ellipsis; }
+.proto-bar[data-surface="remote"] button { padding: 2px 6px; }

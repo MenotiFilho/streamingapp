@@ -1,3 +1,4 @@
+import { PROTO, proto, useAutoplayProto } from "../prototype/autoplay287";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 
 import { version as appVersion } from "../../package.json";
@@ -410,6 +411,7 @@ function PreferencesLeaf({ category, session, state }: LeafProps) {
     (language) => language.tag === heldLanguage,
   );
   const otherColor = unknownColorLabel(heldColor);
+  const auto = useAutoplayProto();
   const heldUpNext = snapshot?.preferences.upNextPlayback ?? "direct";
   const catalogs = declaredCatalogs(snapshot);
   const featured = snapshot?.featuredCatalog ?? null;
@@ -573,6 +575,7 @@ function PreferencesLeaf({ category, session, state }: LeafProps) {
         <Refusal error={bufferError} />
       </section>
 
+      {!PROTO ? (
       <section className="remote-settings-group">
         <h2 className="remote-settings-label">{UP_NEXT_PLAYBACK_HEAD}</h2>
         <div className="remote-settings-chips">
@@ -593,6 +596,92 @@ function PreferencesLeaf({ category, session, state }: LeafProps) {
         </div>
         <Refusal error={upNextError} />
       </section>
+      ) : auto.variant === "A" ? (
+      <>
+      <section className="remote-settings-group">
+        <h2 className="remote-settings-label">Autoplay</h2>
+        <div className="remote-settings-chips">
+          <ChoiceChip pressed={auto.autoplay} onClick={() => proto.setAutoplay(true)}>On</ChoiceChip>
+          <ChoiceChip pressed={!auto.autoplay} onClick={() => proto.setAutoplay(false)}>Off</ChoiceChip>
+        </div>
+        <p className="remote-settings-sub">When an episode ends, its Up next starts after five seconds.</p>
+      </section>
+      <section className="remote-settings-group">
+        <h2 className="remote-settings-label">{UP_NEXT_PLAYBACK_HEAD}</h2>
+        <div className="remote-settings-chips">
+          {UP_NEXT_PLAYBACK_CHOICES.map((choice) => (
+            <ChoiceChip
+              key={choice.playback}
+              pressed={heldUpNext === choice.playback}
+              onClick={() =>
+                void take(
+                  upNextPlaybackRequest(choice.playback),
+                  setUpNextError,
+                )
+              }
+            >
+              {choice.label}
+            </ChoiceChip>
+          ))}
+        </div>
+      </section>
+      </>
+      ) : auto.variant === "B" ? (
+      <section className="remote-settings-group">
+        <h2 className="remote-settings-label">Up next</h2>
+        <p className="remote-settings-sub">When an episode ends</p>
+        <div className="remote-settings-chips">
+          <ChoiceChip pressed={auto.autoplay} onClick={() => proto.setAutoplay(true)}>Play it after 5 seconds</ChoiceChip>
+          <ChoiceChip pressed={!auto.autoplay} onClick={() => proto.setAutoplay(false)}>Wait</ChoiceChip>
+        </div>
+        <p className="remote-settings-sub">When Play is pressed on it</p>
+        <div className="remote-settings-chips">
+          {UP_NEXT_PLAYBACK_CHOICES.map((choice) => (
+            <ChoiceChip
+              key={choice.playback}
+              pressed={heldUpNext === choice.playback}
+              onClick={() =>
+                void take(
+                  upNextPlaybackRequest(choice.playback),
+                  setUpNextError,
+                )
+              }
+            >
+              {choice.label}
+            </ChoiceChip>
+          ))}
+        </div>
+      </section>
+      ) : (
+      <>
+      <section className="remote-settings-group">
+        <h2 className="remote-settings-label">{UP_NEXT_PLAYBACK_HEAD}</h2>
+        <div className="remote-settings-chips">
+          {UP_NEXT_PLAYBACK_CHOICES.map((choice) => (
+            <ChoiceChip
+              key={choice.playback}
+              pressed={heldUpNext === choice.playback}
+              onClick={() =>
+                void take(
+                  upNextPlaybackRequest(choice.playback),
+                  setUpNextError,
+                )
+              }
+            >
+              {choice.label}
+            </ChoiceChip>
+          ))}
+        </div>
+      </section>
+      <section className="remote-settings-group">
+        <h2 className="remote-settings-label">When an episode ends</h2>
+        <div className="remote-settings-chips">
+          <ChoiceChip pressed={auto.autoplay} onClick={() => proto.setAutoplay(true)}>Play the next episode</ChoiceChip>
+          <ChoiceChip pressed={!auto.autoplay} onClick={() => proto.setAutoplay(false)}>Wait</ChoiceChip>
+        </div>
+      </section>
+      </>
+      )}
 
       <section className="remote-settings-group">
         <h2 className="remote-settings-label">{FEATURED_CATALOG_HEAD}</h2>

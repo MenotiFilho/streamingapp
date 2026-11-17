@@ -9,6 +9,8 @@ import { ChoiceChip } from "../kit/Chip";
 import { MenuGroup, MenuRow } from "../kit/Menu";
 import { StreamsLoader } from "./StreamsScreen";
 import { useShell } from "./context";
+import { PROTO, useAutoplayProto } from "../prototype/autoplay287";
+import { EpisodesHeadSwitch } from "../prototype/autoplay287.window";
 import {
   EPISODES_EMPTY,
   EPISODES_LOOKING,
@@ -43,6 +45,7 @@ export function OsdEpisodesMenu({ playback }: { playback: PlaybackSnapshot }) {
   // ADR-0039); `null` is a real season (the Videos the Addon placed in none).
   const [chosen, setChosen] = useState<number | null | undefined>(undefined);
 
+  const auto = useAutoplayProto();
   const nowPlaying = playback.nowPlaying;
   const series = nowPlaying ? seriesRef(snapshot, nowPlaying) : null;
   const cache = series?.cache ?? null;
@@ -128,6 +131,7 @@ export function OsdEpisodesMenu({ playback }: { playback: PlaybackSnapshot }) {
 
   return (
     <>
+      {PROTO && auto.variant === "B" ? <EpisodesHeadSwitch auto={auto} /> : null}
       <div
         className="shell-osd-seasons"
         data-testid="osd-seasons"

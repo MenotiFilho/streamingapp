@@ -38,6 +38,7 @@ import {
   PREVIEW_ADDON,
   previewStream,
   rehearsalChapterAt,
+  rehearsalPlayback,
   sampleLibrary,
   sampleResumeEntries,
   type CinemetaMeta,
@@ -472,8 +473,11 @@ async function ensureSnapshot(): Promise<Snapshot> {
     return current;
   }
   booting ??= buildSnapshot().then((state) => {
-    current = state;
-    return state;
+    current = PROTO_PLAYS ? protoSeries(state, 0, PROTO_DURATION - 20) : state;
+    if (PROTO_PLAYS) {
+      startTicker();
+    }
+    return current;
   });
   return booting;
 }
@@ -600,6 +604,13 @@ function answerPlayback(action: Action): Response | null {
         },
       }));
     }
+
+    case "next_episode":
+      if (!PROTO_AUTOPLAY) {
+        return null;
+      }
+      protoAdvance();
+      return { snapshots: [current], answer: null };
 
     case "stop_playback":
       stopTicker();
@@ -933,3 +944,110 @@ export const previewTransport: Transport = {
     };
   },
 };
+
+
+/* --------------------------------------------------------------------------
+ * PROTOTYPE (#287, throwaway): a series episode playing near its end, so the
+ * autoplay switch and the countdown can be judged in the real player. Reached
+ * with `?proto=autoplay`; never merged.
+ * -------------------------------------------------------------------------- */
+
+const PROTO_PARAM =
+  typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("proto") : null;
+/** `?proto=autoplay` opens the player; `?proto=settings` leaves the room idle for Settings. */
+export const PROTO_AUTOPLAY = PROTO_PARAM === "autoplay" || PROTO_PARAM === "settings";
+const PROTO_PLAYS = PROTO_PARAM === "autoplay";
+
+const PROTO_DURATION = 2880;
+const PROTO_SERIES = "tt0903747";
+
+export const PROTO_EPISODES = [
+  { season: 1, episode: 3, name: "...And the Bag's in the River" },
+  { season: 1, episode: 4, name: "Cancer Man" },
+  { season: 1, episode: 5, name: "Gray Matter" },
+  { season: 1, episode: 6, name: "Crazy Handful of Nothin'" },
+  { season: 1, episode: 7, name: "A No-Rough-Stuff-Type Deal" },
+] as const;
+
+export function protoStill(index: number): string {
+  const held = PROTO_EPISODES[index % PROTO_EPISODES.length]!;
+  return `https://episodes.metahub.space/${PROTO_SERIES}/${held.season}/${held.episode}/w780.jpg`;
+}
+
+let protoIndex = 0;
+
+/** Which sample episode is playing, as an index into `PROTO_EPISODES`. */
+export function protoPlayingIndex(): number {
+  return protoIndex;
+}
+
+function protoSeries(state: Snapshot, index: number, position: number): Snapshot {
+  protoIndex = index % PROTO_EPISODES.length;
+  const held = PROTO_EPISODES[protoIndex]!;
+  const id = `${PROTO_SERIES}:${held.season}:${held.episode}`;
+  const entry = {
+    video: {
+      id,
+      name: held.name,
+      season: held.season,
+      episode: held.episode,
+      thumbnail: protoStill(protoIndex),
+      airDate: null,
+    },
+    title: {
+      addon: ADDON,
+      id: PROTO_SERIES,
+      type: "series",
+      name: "Breaking Bad",
+      poster: `https://images.metahub.space/poster/medium/${PROTO_SERIES}/img`,
+      background: `https://images.metahub.space/background/medium/${PROTO_SERIES}/img`,
+    },
+    position,
+    duration: PROTO_DURATION,
+    watched: false,
+    unplayable: null,
+  };
+  const playback = rehearsalPlayback(entry, {
+    video: { type: "series", id },
+    addon: ADDON,
+    name: "1080p WEB-DL",
+    description: null,
+    filename: null,
+    bingeGroup: "proto-1080p",
+  });
+  return {
+    ...state,
+    playback: { ...playback, episode: { season: held.season, episode: held.episode } },
+    watchProgress: [entry, ...state.watchProgress.filter((kept) => kept.video.id !== id)],
+  };
+}
+
+/** Jump the sample episode to five seconds before its end, playing. */
+export function protoNearEnd(): void {
+  if (!current) {
+    return;
+  }
+  change((state) => protoSeries(state, protoIndex, PROTO_DURATION - 5));
+  startTicker();
+}
+
+/** Put the sample episode on its ended state right now. */
+export function protoEnd(): void {
+  if (!current) {
+    return;
+  }
+  stopTicker();
+  change((state) => {
+    const next = protoSeries(state, protoIndex, PROTO_DURATION);
+    return { ...next, playback: { ...next.playback, state: "ended" } };
+  });
+}
+
+/** What the Host does when the countdown runs out: the next episode opens. */
+export function protoAdvance(): void {
+  if (!current) {
+    return;
+  }
+  change((state) => protoSeries(state, protoIndex + 1, 0));
+  startTicker();
+}

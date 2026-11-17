@@ -1,3 +1,5 @@
+import { PROTO, useAutoplayProto } from "../prototype/autoplay287";
+import { SheetSwitch } from "../prototype/autoplay287.remote";
 import { useState } from "react";
 
 import { actionKey } from "../core/actionKey";
@@ -58,6 +60,7 @@ export function PlayerSheets({
   const [showStatistics, setShowStatistics] = useState(false);
   const playback = state.snapshot?.playback ?? null;
 
+  const auto = useAutoplayProto();
   // The card is popped with the Stream, so a sheet over nothing is no sheet.
   if (!playback) {
     return null;
@@ -78,7 +81,10 @@ export function PlayerSheets({
       testId={`player-sheet-${plate}`}
     >
       {plate === "episodes" ? (
-        <EpisodesPlate title={title} onEpisode={onEpisode} />
+        <>
+          {PROTO && auto.variant === "B" ? <SheetSwitch auto={auto} /> : null}
+          <EpisodesPlate title={title} onEpisode={onEpisode} />
+        </>
       ) : (
         <Sections
           groups={groups}

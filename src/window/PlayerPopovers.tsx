@@ -16,6 +16,8 @@ import { useShell, type NewShellLevel } from "./context";
 import { MenuGroup, MenuReadout, MenuRow } from "../kit/Menu";
 import { Popover } from "../kit/Popover";
 import { OsdEpisodesMenu } from "./PlayerEpisodes";
+import { PROTO, useAutoplayProto } from "../prototype/autoplay287";
+import { PlaybackGroup } from "../prototype/autoplay287.window";
 
 /** The six menus the OSD's icon buttons open, one level each. */
 export type OsdPopoverName =
@@ -189,7 +191,7 @@ function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopover
       >
         <Popover
           label={LABELS[name]}
-          heading={HEADINGS[name]}
+          heading={PROTO && name === "speed" && window.location.search.includes("variant=C") ? "Playback" : HEADINGS[name]}
           align={side}
           testId={osdPopoverId(name)}
         >
@@ -298,7 +300,13 @@ function AudioMenu({ playback, take }: MenuProps) {
 
 /** The rates a person can pick, with the one in force marked. */
 function SpeedMenu({ playback, take }: MenuProps) {
-  return <Sections groups={[speedSection(playback)]} onPress={(row) => send(take, row)} />;
+  const auto = useAutoplayProto();
+  return (
+    <>
+      {PROTO && auto.variant === "C" && playback.episode ? <PlaybackGroup auto={auto} /> : null}
+      <Sections groups={[speedSection(playback)]} onPress={(row) => send(take, row)} />
+    </>
+  );
 }
 
 /**

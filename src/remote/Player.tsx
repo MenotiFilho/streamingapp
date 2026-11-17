@@ -86,6 +86,7 @@ export type PlayerStripProps = {
  */
 export function PlayerStrip({ session, title, push }: PlayerStripProps) {
   const view = usePlaybackView(session, true);
+  const auto = useAutoplayProto(view?.state ?? null);
 
   if (!view || !watching(view.state)) {
     return null;
@@ -111,7 +112,13 @@ export function PlayerStrip({ session, title, push }: PlayerStripProps) {
         onClick={() => push(playerLevel(title))}
       >
         <span className="remote-player-strip-title">{view.title}</span>
-        <span className="remote-player-strip-episode">{view.episodeLabel}</span>
+        {PROTO && auto.phase === "countdown" ? (
+          <span className="remote-player-strip-episode proto-remote-strip-next">
+            {`Up next in ${countdownDigit(auto)} · ${auto.next.label}`}
+          </span>
+        ) : (
+          <span className="remote-player-strip-episode">{view.episodeLabel}</span>
+        )}
         {view.pictureNote ? (
           <span className="remote-player-strip-note">{view.pictureNote}</span>
         ) : null}
@@ -137,6 +144,15 @@ export function PlayerStrip({ session, title, push }: PlayerStripProps) {
  * and the always-visible volume box. It is the level a strip press pushes, so
  * the room's Back closes it without asking the Host anything.
  */
+import { countdownDigit, PROTO, PrototypeBar, useAutoplayProto } from "../prototype/autoplay287";
+import {
+  CardSwitch,
+  EndedNote,
+  live as autoLive,
+  MenuCell,
+  TakeoverPlate,
+} from "../prototype/autoplay287.remote";
+
 export function PlayerCard({
   session,
   title,
@@ -149,11 +165,13 @@ export function PlayerCard({
   push: (level: NewLevel<RemotePayload>) => string;
 }) {
   const view = usePlaybackView(session, true);
+  const auto = useAutoplayProto(view?.state ?? null);
 
   if (!view || !watching(view.state)) {
     return null;
   }
 
+  const counting = PROTO && autoLive(auto);
   const controls = transportControls(view);
   const take = (action: Action) => void session.take(action);
   const stateNote =
@@ -170,7 +188,7 @@ export function PlayerCard({
       aria-label={CARD_NAME}
       data-testid="remote-player-card"
     >
-      <PlayerPlate view={view} />
+      {counting && auto.variant === "B" ? <TakeoverPlate auto={auto} /> : <PlayerPlate view={view} />}
 
       {view.pictureNote ? (
         <p className="remote-player-note" role="status">
@@ -178,7 +196,8 @@ export function PlayerCard({
         </p>
       ) : null}
 
-      {stateNote ? (
+      {counting && auto.variant !== "B" ? <EndedNote auto={auto} /> : null}
+      {stateNote && !counting ? (
         <p className="remote-player-state" role="status">
           {stateNote}
         </p>
@@ -192,9 +211,12 @@ export function PlayerCard({
         ))}
       </div>
 
-      <PlayerMenus title={title} push={push} />
+      {PROTO && auto.variant === "C" ? <CardSwitch auto={auto} /> : null}
+
+      <PlayerMenus title={title} push={push} auto={PROTO && auto.variant === "A" ? <MenuCell auto={auto} /> : null} />
 
       <VolumeBox view={view} session={session} />
+      <PrototypeBar surface="remote" />
     </section>
   );
 }
@@ -207,7 +229,9 @@ export function PlayerCard({
 function PlayerMenus({
   title,
   push,
+  auto,
 }: {
+  auto?: React.ReactNode;
   title: Title | null;
   push: (level: NewLevel<RemotePayload>) => string;
 }) {
@@ -226,6 +250,7 @@ function PlayerMenus({
           <Icon name={control.icon} strokeWidth={2} />
         </button>
       ))}
+      {auto}
     </div>
   );
 }

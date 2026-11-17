@@ -45,6 +45,8 @@ import { episodesMenuVisible } from "./episodesMenu";
 import { useOsdVisibility } from "./useOsdVisibility";
 import { useReducedMotion } from "../core/react/useReducedMotion";
 import "./repertory/osd.css";
+import { PROTO, PrototypeBar, useAutoplayProto } from "../prototype/autoplay287";
+import { EndedLine, PictureLayer, TransportToggle } from "../prototype/autoplay287.window";
 
 /** One press of the pad's volume faces, on the Host's 0–130 scale. */
 const VOLUME_STEP = 5;
@@ -203,8 +205,11 @@ export function PlayerOverlay() {
     setPreviewSettled(true);
   }, [playback?.state]);
 
+  // PROTOTYPE (#287): the ended episode's countdown keeps the OSD up.
+  const auto = useAutoplayProto(playback?.state ?? null);
+  const autoLive = PROTO && (auto.phase === "countdown" || auto.phase === "still_there");
   const { visible, wake } = useOsdVisibility({
-    pinned: popover !== null,
+    pinned: popover !== null || autoLive,
     chrome,
     onHide: () => focusAndReveal(pictureButton.current),
   });
@@ -516,7 +521,8 @@ export function PlayerOverlay() {
             </div>
           </div>
         ) : null}
-        {state === "ended" ? (
+        {PROTO ? <PictureLayer auto={auto} /> : null}
+        {state === "ended" && !autoLive ? (
           <p className="shell-picture-note" data-testid="stream-ended">
             The Stream reached its end.
           </p>
@@ -680,6 +686,7 @@ export function PlayerOverlay() {
                 </div>
 
                 <div className="shell-osd-cluster shell-osd-cluster-right">
+                  {PROTO && auto.variant === "A" && episodesMenu ? <TransportToggle auto={auto} /> : null}
                   {episodesMenu ? (
                     <IconButton
                       testId="osd-episodes"
@@ -716,7 +723,8 @@ export function PlayerOverlay() {
               </div>
             ) : null}
 
-            {state === "ended" && !nextEpisode.disabled ? (
+            {autoLive && auto.variant === "C" ? <EndedLine auto={auto} /> : null}
+            {state === "ended" && !nextEpisode.disabled && !autoLive ? (
               <div className="shell-osd-ended">
                 <Button
                   variant="primary"
@@ -757,6 +765,7 @@ export function PlayerOverlay() {
           </div>
         </div>
       ) : null}
+      <PrototypeBar surface="window" />
     </section>
   );
 }

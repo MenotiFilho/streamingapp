@@ -1,3 +1,4 @@
+import { PROTO, proto, useAutoplayProto } from "../../prototype/autoplay287";
 import {
   useEffect,
   useRef,
@@ -391,6 +392,7 @@ function PreferencesScreen() {
     }
   };
 
+  const auto = useAutoplayProto();
   const pickUpNext = async (playback: "direct" | "picker") => {
     setUpNextError(null);
     const outcome = await ask({ type: "set_up_next_playback", playback });
@@ -585,6 +587,7 @@ function PreferencesScreen() {
         <Refusal error={bufferError} testId="stream-buffer-error" />
       </LogGroup>
 
+      {!PROTO ? (
       <LogGroup id="settings-up-next" title="Up next">
         <div
           className="rep-log-chips"
@@ -605,6 +608,121 @@ function PreferencesScreen() {
         </div>
         <Refusal error={upNextError} testId="up-next-error" />
       </LogGroup>
+      ) : auto.variant === "A" ? (
+      <>
+      <LogGroup id="settings-autoplay" title="Autoplay">
+        <div
+          className="rep-log-chips"
+          data-region="settings-autoplay"
+          data-kind="row"
+          data-label="Autoplay"
+        >
+          <ChoiceChip pressed={auto.autoplay} data-testid="autoplay-on" onClick={() => proto.setAutoplay(true)}>
+            On
+          </ChoiceChip>
+          <ChoiceChip pressed={!auto.autoplay} data-testid="autoplay-off" onClick={() => proto.setAutoplay(false)}>
+            Off
+          </ChoiceChip>
+        </div>
+        <LogNote>When an episode ends, its Up next starts after five seconds.</LogNote>
+      </LogGroup>
+      <LogGroup id="settings-up-next" title="Up next">
+        <div
+          className="rep-log-chips"
+          data-region="settings-up-next"
+          data-kind="row"
+          data-label="Play an Up next"
+        >
+          {UP_NEXT_PLAYBACK_CHOICES.map((choice) => (
+            <ChoiceChip
+              key={choice.playback}
+              pressed={heldUpNext === choice.playback}
+              data-testid={`up-next-${choice.playback}`}
+              onClick={() => void pickUpNext(choice.playback)}
+            >
+              {choice.label}
+            </ChoiceChip>
+          ))}
+        </div>
+      </LogGroup>
+      </>
+      ) : auto.variant === "B" ? (
+      <LogGroup id="settings-up-next" title="Up next">
+        <div className="rep-log-choice-group">
+          <p className="rep-log-choice-label">When an episode ends</p>
+          <div
+          className="rep-log-chips"
+          data-region="settings-autoplay"
+          data-kind="row"
+          data-label="Autoplay"
+        >
+          <ChoiceChip pressed={auto.autoplay} data-testid="autoplay-on" onClick={() => proto.setAutoplay(true)}>
+            Play it after 5 seconds
+          </ChoiceChip>
+          <ChoiceChip pressed={!auto.autoplay} data-testid="autoplay-off" onClick={() => proto.setAutoplay(false)}>
+            Wait
+          </ChoiceChip>
+        </div>
+        </div>
+        <div className="rep-log-choice-group">
+          <p className="rep-log-choice-label">When Play is pressed on it</p>
+          <div
+          className="rep-log-chips"
+          data-region="settings-up-next"
+          data-kind="row"
+          data-label="Play an Up next"
+        >
+          {UP_NEXT_PLAYBACK_CHOICES.map((choice) => (
+            <ChoiceChip
+              key={choice.playback}
+              pressed={heldUpNext === choice.playback}
+              data-testid={`up-next-${choice.playback}`}
+              onClick={() => void pickUpNext(choice.playback)}
+            >
+              {choice.label}
+            </ChoiceChip>
+          ))}
+        </div>
+        </div>
+      </LogGroup>
+      ) : (
+      <>
+      <LogGroup id="settings-up-next" title="Up next">
+        <div
+          className="rep-log-chips"
+          data-region="settings-up-next"
+          data-kind="row"
+          data-label="Play an Up next"
+        >
+          {UP_NEXT_PLAYBACK_CHOICES.map((choice) => (
+            <ChoiceChip
+              key={choice.playback}
+              pressed={heldUpNext === choice.playback}
+              data-testid={`up-next-${choice.playback}`}
+              onClick={() => void pickUpNext(choice.playback)}
+            >
+              {choice.label}
+            </ChoiceChip>
+          ))}
+        </div>
+      </LogGroup>
+      <LogGroup id="settings-autoplay" title="When an episode ends">
+        <div
+          className="rep-log-chips"
+          data-region="settings-autoplay"
+          data-kind="row"
+          data-label="Autoplay"
+        >
+          <ChoiceChip pressed={auto.autoplay} data-testid="autoplay-on" onClick={() => proto.setAutoplay(true)}>
+            Play the next episode
+          </ChoiceChip>
+          <ChoiceChip pressed={!auto.autoplay} data-testid="autoplay-off" onClick={() => proto.setAutoplay(false)}>
+            Wait
+          </ChoiceChip>
+        </div>
+      </LogGroup>
+      </>
+      )}
 
       <LogGroup id="settings-featured-catalog" title="Featured catalog">
         {snapshot === null ? (
