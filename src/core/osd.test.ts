@@ -6,12 +6,15 @@ import {
   chapterAt,
   chapterMarks,
   CHAPTER_TICK_SPACING_PX,
+  idleOsd,
+  OSD_START,
   spacedChapterMarks,
   OSD_IDLE_MS,
   PREVIEW_BUCKET_SECONDS,
   previewBucket,
   qualityBadge,
   projectedPosition,
+  wakeOsd,
   remainingTime,
   selectedTrack,
   streamDetails,
@@ -272,5 +275,75 @@ describe("the OSD's readings", () => {
 describe("the OSD's idle window", () => {
   test("is three seconds", () => {
     expect(OSD_IDLE_MS).toBe(3000);
+  });
+});
+
+describe("the OSD and cursor visibility decision", () => {
+  const HIDDEN = { visible: false, cursorVisible: false, lastInput: "pointer" } as const;
+  const IDLE = { pinned: false, focusedInside: false };
+
+  test("it starts with the OSD and the cursor both showing, last moved by the pointer", () => {
+    expect(OSD_START).toEqual({ visible: true, cursorVisible: true, lastInput: "pointer" });
+  });
+
+  test("an idle tick puts the OSD and the cursor away together", () => {
+    expect(idleOsd(OSD_START, IDLE)).toEqual({
+      visible: false,
+      cursorVisible: false,
+      lastInput: "pointer",
+    });
+  });
+
+  test("an idle tick with a popover open keeps the OSD and leaves the cursor as it was", () => {
+    const pinned = { pinned: true, focusedInside: false };
+
+    expect(idleOsd(OSD_START, pinned)).toEqual(OSD_START);
+    const hidCursor = { ...OSD_START, cursorVisible: false };
+    expect(idleOsd(hidCursor, pinned)).toEqual(hidCursor);
+  });
+
+  test("an idle tick with keyboard focus inside the chrome keeps the OSD but hides the cursor", () => {
+    const keyed = { ...OSD_START, lastInput: "key" } as const;
+
+    expect(idleOsd(keyed, { pinned: false, focusedInside: true })).toEqual({
+      visible: true,
+      cursorVisible: false,
+      lastInput: "key",
+    });
+  });
+
+  test("focus inside the chrome after a pointer input pins nothing", () => {
+    expect(idleOsd(OSD_START, { pinned: false, focusedInside: true })).toEqual({
+      visible: false,
+      cursorVisible: false,
+      lastInput: "pointer",
+    });
+  });
+
+  test("keyboard input outside the chrome lets both go", () => {
+    const keyed = { ...OSD_START, lastInput: "key" } as const;
+
+    expect(idleOsd(keyed, IDLE)).toEqual({ visible: false, cursorVisible: false, lastInput: "key" });
+  });
+
+  test("a pointer wake brings the OSD and the cursor back from anywhere", () => {
+    expect(wakeOsd(HIDDEN, "pointer")).toEqual(OSD_START);
+    expect(wakeOsd({ ...HIDDEN, lastInput: "key" }, "pointer")).toEqual(OSD_START);
+  });
+
+  test("a key wake shows the OSD and leaves a hidden cursor hidden", () => {
+    expect(wakeOsd(HIDDEN, "key")).toEqual({
+      visible: true,
+      cursorVisible: false,
+      lastInput: "key",
+    });
+  });
+
+  test("a key wake leaves a showing cursor showing", () => {
+    expect(wakeOsd(OSD_START, "key")).toEqual({
+      visible: true,
+      cursorVisible: true,
+      lastInput: "key",
+    });
   });
 });

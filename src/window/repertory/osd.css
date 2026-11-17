@@ -22,6 +22,18 @@
   pointer-events: none;
 }
 
+/* The mouse cursor, put away on the OSD's idle clock. WebView2 owns the cursor
+   over the Windows Picture, so only the page can hide it (#284), and the player
+   draws explicit `cursor: pointer` / `default` on the picture button and the
+   OSD controls: every descendant has to be told, not just the surface.
+   `!important` because the controls' own rules (`.shell-osd-icon:disabled`)
+   tie this selector on specificity and come later; nothing in a player whose
+   cursor is put away may bring it back. */
+.shell-player[data-cursor="hidden"],
+.shell-player[data-cursor="hidden"] * {
+  cursor: none !important;
+}
+
 /* The hole the picture goes in. Clicking it is play/pause, not summoning. It
    is its own stacking context so the full-screen button's focus cannot rise
    above the OSD and swallow every press. */

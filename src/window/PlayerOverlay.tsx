@@ -203,7 +203,7 @@ export function PlayerOverlay() {
     setPreviewSettled(true);
   }, [playback?.state]);
 
-  const { visible, wake } = useOsdVisibility({
+  const { visible, cursorVisible, wake } = useOsdVisibility({
     pinned: popover !== null,
     chrome,
     onHide: () => focusAndReveal(pictureButton.current),
@@ -457,6 +457,7 @@ export function PlayerOverlay() {
       data-testid="shell-player"
       data-state={state}
       data-picture={picture}
+      data-cursor={cursorVisible ? "visible" : "hidden"}
       data-region="player"
       data-kind="branch"
       data-label="Player"

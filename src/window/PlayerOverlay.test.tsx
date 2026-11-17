@@ -1587,6 +1587,120 @@ describe("the player OSD", () => {
   });
 });
 
+describe("the mouse cursor over the player", () => {
+  // The OSD's own clock only: a level's exit uses `requestAnimationFrame`, and a
+  // fake one left behind would stall the next test's popover.
+  async function mountPlayer(overrides: Partial<PlaybackSnapshot> = {}, pad = false) {
+    vi.useFakeTimers(
+      pad ? PAD_TIMERS : { toFake: ["setTimeout", "clearTimeout"] },
+    );
+    const host = fakeHost({ ...NOTHING_SAID, revision: 9, playback: playback(overrides) });
+    render(<Shell client={host.client} />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
+  const cursor = () => screen.getByTestId("shell-player").getAttribute("data-cursor");
+
+  test("it starts showing", async () => {
+    await mountPlayer();
+
+    expect(cursor()).toBe("visible");
+  });
+
+  test.each(["opening", "playing", "paused", "ended"] as const)(
+    "it hides after three idle seconds while the Stream is %s",
+    async (state) => {
+      await mountPlayer({ state });
+
+      act(() => vi.advanceTimersByTime(OSD_IDLE_MS - 1));
+      expect(cursor()).toBe("visible");
+      act(() => vi.advanceTimersByTime(1));
+      expect(cursor()).toBe("hidden");
+    },
+  );
+
+  test("an open popover keeps it showing", async () => {
+    await mountPlayer();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("osd-chapters"));
+      await Promise.resolve();
+    });
+
+    act(() => vi.advanceTimersByTime(OSD_IDLE_MS * 2));
+
+    expect(screen.getByTestId("popover-chapters")).toBeInTheDocument();
+    expect(cursor()).toBe("visible");
+  });
+
+  test("it hides even while keyboard focus in the chrome keeps the OSD up", async () => {
+    await mountPlayer();
+    await act(async () => {
+      screen.getByTestId("stop").focus();
+    });
+    fireEvent.keyDown(document, { key: "x" });
+
+    act(() => vi.advanceTimersByTime(OSD_IDLE_MS));
+
+    expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
+    expect(cursor()).toBe("hidden");
+  });
+
+  test.each([
+    ["moves", () => fireEvent.pointerMove(window)],
+    ["presses", () => fireEvent.pointerDown(window)],
+    ["scrolls the wheel", () => fireEvent.wheel(window)],
+  ] as const)("it comes back, with the OSD, when the pointer %s", async (_name, input) => {
+    await mountPlayer();
+    act(() => vi.advanceTimersByTime(OSD_IDLE_MS));
+    expect(cursor()).toBe("hidden");
+    expect(screen.queryByTestId("shell-osd")).not.toBeInTheDocument();
+
+    act(() => {
+      input();
+    });
+
+    expect(cursor()).toBe("visible");
+    expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
+  });
+
+  test("a key press summons the OSD without bringing it back", async () => {
+    await mountPlayer();
+    act(() => vi.advanceTimersByTime(OSD_IDLE_MS));
+
+    fireEvent.keyDown(document, { key: "x" });
+
+    expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
+    expect(cursor()).toBe("hidden");
+  });
+
+  test("a pad press summons the OSD without bringing it back", async () => {
+    const buttons = fakePad();
+    await mountPlayer({ state: "paused" }, true);
+    act(() => vi.advanceTimersByTime(OSD_IDLE_MS));
+    expect(cursor()).toBe("hidden");
+
+    press(buttons, 14, true); // D-pad left
+    act(() => vi.advanceTimersByTime(16));
+
+    expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
+    expect(cursor()).toBe("hidden");
+  });
+
+  test("the pointer leaving the window neither wakes the OSD nor shows it", async () => {
+    await mountPlayer();
+    act(() => vi.advanceTimersByTime(OSD_IDLE_MS));
+
+    fireEvent.pointerLeave(window);
+    fireEvent.pointerOut(document.body);
+
+    expect(screen.queryByTestId("shell-osd")).not.toBeInTheDocument();
+    expect(cursor()).toBe("hidden");
+  });
+});
+
 describe("the Episodes menu", () => {
   test("a film has no Episodes menu", async () => {
     await renderPlayer();

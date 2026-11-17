@@ -22,6 +22,54 @@ import { badgeLines } from "./stream";
 /** How long the OSD stays up with nothing happening. */
 export const OSD_IDLE_MS = 3000;
 
+/** The kind of input that moved last: a pointer's, or a key's or a pad's. */
+export type OsdInput = "pointer" | "key";
+
+/**
+ * What the player level shows of itself: the OSD, the mouse cursor over the
+ * Picture, and which kind of input moved last. The OSD and the cursor share one
+ * idle clock but not one fate — a key or pad press summons the OSD without
+ * un-hiding a stationary cursor, and keyboard focus inside the chrome keeps the
+ * OSD up while the pointer, idle for the same three seconds, still goes away.
+ */
+export type OsdState = {
+  visible: boolean;
+  cursorVisible: boolean;
+  lastInput: OsdInput;
+};
+
+/** A player level that has just mounted: everything showing. */
+export const OSD_START: OsdState = { visible: true, cursorVisible: true, lastInput: "pointer" };
+
+/**
+ * Input arrived. The pointer brings both back; a key or pad press brings back
+ * the OSD only, so a pointer that has stopped over a control stays hidden there.
+ */
+export function wakeOsd(state: OsdState, input: OsdInput): OsdState {
+  return {
+    visible: true,
+    cursorVisible: input === "pointer" ? true : state.cursorVisible,
+    lastInput: input,
+  };
+}
+
+/**
+ * Three idle seconds passed. An open popover (`pinned`) keeps everything as it
+ * is. Otherwise the cursor goes, and the OSD goes with it unless a keyboard or
+ * pad user still holds focus inside the chrome — a mouse click leaves focus
+ * behind too, but it does not pin the OSD.
+ */
+export function idleOsd(
+  state: OsdState,
+  { pinned, focusedInside }: { pinned: boolean; focusedInside: boolean },
+): OsdState {
+  if (pinned) {
+    return state;
+  }
+  const held = state.lastInput === "key" && focusedInside;
+  return { ...state, visible: held, cursorVisible: false };
+}
+
 /**
  * The badge the OSD draws beside the Title: the Addon's own line that names a
  * resolution or a dynamic range where it wrote one, and otherwise the last line
