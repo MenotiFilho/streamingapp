@@ -3,7 +3,14 @@ import { describe, expect, test, vi } from "vitest";
 
 import { pictureNote } from "../core/playback";
 import type { HostLink } from "../core/link";
-import type { Action, PlaybackSnapshot, ResumeEntry, Snapshot } from "../core/wire";
+import type {
+  Action,
+  AddonStreams,
+  PlaybackSnapshot,
+  ResumeEntry,
+  Snapshot,
+  Title,
+} from "../core/wire";
 import { RemoteApp } from "./RemoteApp";
 import { FakeHost, type Respond } from "./fakeHost.testing";
 import { NOTHING } from "./fakeSocket.testing";
@@ -493,5 +500,107 @@ describe("the Remote's Autoplay countdown", () => {
     );
     expect(within(strip()).queryByRole("button", { name: "Cancel" })).toBeNull();
     expect(within(strip()).getAllByRole("button").map((b) => b.textContent)).toHaveLength(3);
+  });
+});
+
+const SERIES: Title = {
+  addon: "torrentio",
+  id: "tt1",
+  key: { kind: "addon", addon: "torrentio", id: "tt1" },
+  type: "series",
+  name: "One",
+  poster: null,
+  background: null,
+  logo: null,
+  description: null,
+  releaseInfo: null,
+  runtime: null,
+  imdbRating: null,
+  genres: [],
+  videos: [
+    { id: "tt1:1:2", name: "The Choice", season: 1, episode: 2, thumbnail: null, airDate: null },
+    { id: "tt1:1:3", name: "The Third", season: 1, episode: 3, thumbnail: null, airDate: null },
+  ],
+};
+
+const NO_STREAMS: AddonStreams[] = [{ addon: "torrentio", failure: null, streams: [] }];
+
+/** The Host's countdown ran out: continuity found no Stream for the third episode. */
+function missing(videoId = "tt1:1:3"): Partial<PlaybackSnapshot> {
+  return {
+    state: "ended",
+    autoplay: {
+      next: { ...NEXT, video: { type: "series", id: videoId } },
+      phase: "no_stream",
+      detail: "No Stream continues the release",
+    },
+  };
+}
+
+const answersTitles: Respond = (action: Action) => {
+  if (action.type === "open_title") {
+    return { snapshots: [], answer: { title: SERIES } };
+  }
+  if (action.type === "find_streams") {
+    return { snapshots: [], answer: { streams: NO_STREAMS } };
+  }
+  return { snapshots: [], answer: null };
+};
+
+describe("the Remote's missing Stream", () => {
+  test("the expanded card pushes the Streams level for the next episode once", async () => {
+    const { host } = mount(answersTitles);
+    await openCard();
+
+    act(() => host.publish(snapshot(missing(), 3)));
+    await waitFor(() =>
+      expect(host.asked("find_streams")).toEqual([
+        { type: "find_streams", video: { type: "series", id: "tt1:1:3" } },
+      ]),
+    );
+
+    act(() => host.publish(snapshot(missing(), 4)));
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(host.asked("find_streams")).toHaveLength(1);
+  });
+
+  test("Back from the picker leaves the card without opening it again", async () => {
+    const { host } = mount(answersTitles);
+    await openCard();
+    act(() => host.publish(snapshot(missing(), 3)));
+    await waitFor(() => expect(host.asked("find_streams")).toHaveLength(1));
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await screen.findByRole("region", { name: CARD_NAME });
+    act(() => host.publish(snapshot(missing(), 4)));
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(host.asked("find_streams")).toHaveLength(1);
+  });
+
+  test("a browse screen is not interrupted: nothing is pushed, and nothing is asked", async () => {
+    const { host } = mount(answersTitles);
+    await screen.findByLabelText(STRIP_LABEL);
+
+    act(() => host.publish(snapshot(missing(), 3)));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(host.asked("find_streams")).toEqual([]);
+    expect(host.asked("open_title")).toEqual([]);
+
+    // Opening the card afterwards is not "a missing Stream appearing": the
+    // person already had its news on the strip.
+    await openCard();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(host.asked("find_streams")).toEqual([]);
   });
 });

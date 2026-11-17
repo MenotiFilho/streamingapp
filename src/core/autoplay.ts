@@ -8,8 +8,8 @@
  * (ADR-0033, ADR-0040). The window's corner card and docked band and the
  * Remote's banner and strip are drawings of this one view.
  *
- * Only the countdown is drawn so far; the held and missing-Stream phases arrive
- * with the Host rules that publish them.
+ * The countdown and the missing Stream are viewed so far; the held phase
+ * arrives with the Host rule that publishes it.
  */
 
 import type { PlaybackSnapshot, UpNextEpisode } from "./wire";
@@ -44,6 +44,13 @@ export type AutoplayView =
       kicker: AutoplayKicker;
       /** The docked strip's text: "Up next in 4 · S1E4". */
       strip: string;
+    }
+  | {
+      kind: "no_stream";
+      /** The episode continuity found no Stream for: the Streams picker opens on it. */
+      next: AutoplayNext;
+      /** Why, as the Host said it. */
+      detail: string;
     };
 
 /** What the kicker leads with. */
@@ -62,25 +69,61 @@ export function autoplayView(
     return { kind: "none" };
   }
 
+  const label = `S${held.next.episode.season}E${held.next.episode.episode}`;
+  const next: AutoplayNext = {
+    title: held.next.title,
+    video: held.next.video,
+    label,
+    name: held.next.name,
+    still: held.next.still,
+  };
+
+  if (held.phase === "no_stream") {
+    return { kind: "no_stream", next, detail: held.detail };
+  }
+
   const gone = Number.isFinite(sinceSnapshotMs) ? Math.max(0, sinceSnapshotMs) / 1000 : 0;
   const left = Math.max(0, held.remaining - gone);
   const digit = Math.max(1, Math.ceil(left));
   const fraction =
     Number.isFinite(held.duration) && held.duration > 0 ? Math.min(1, left / held.duration) : 0;
-  const label = `S${held.next.episode.season}E${held.next.episode.episode}`;
 
   return {
     kind: "countdown",
     digit,
     fraction,
-    next: {
-      title: held.next.title,
-      video: held.next.video,
-      label,
-      name: held.next.name,
-      still: held.next.still,
-    },
+    next,
     kicker: { lead: KICKER_LEAD, episode: label, text: `${KICKER_LEAD} · ${label}` },
     strip: `${KICKER_LEAD} in ${digit} · ${label}`,
   };
+}
+
+/**
+ * Whether a client opens the Streams picker now: once per missing-Stream target.
+ *
+ * `previous` is what the client last drew and `next` what it draws now. It is
+ * true when `next` is a missing Stream for a Video `previous` was not already
+ * about, so a repeated Snapshot for the same Video opens nothing more and a
+ * different Video opens it again. Where a client is allowed to open it — the
+ * window on its player level, the Remote on its expanded player card — is the
+ * client's own rule.
+ */
+export function opensPicker(previous: AutoplayView, next: AutoplayView): boolean {
+  if (next.kind !== "no_stream") {
+    return false;
+  }
+  return (
+    previous.kind !== "no_stream" ||
+    previous.next.video.type !== next.next.video.type ||
+    previous.next.video.id !== next.next.video.id
+  );
+}
+
+/**
+ * Whether the ended state is drawn as it always was — its note and **Next
+ * episode** — because no card is up over it. A missing Stream is no card: the
+ * Host stays on the ended state, and the picker is what is pushed for it.
+ */
+export function plainEnd(view: AutoplayView): boolean {
+  return view.kind === "none" || view.kind === "no_stream";
 }

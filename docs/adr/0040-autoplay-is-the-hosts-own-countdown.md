@@ -55,9 +55,15 @@ the play's Snapshot straight away rather than folding that stale report into the
 new Stream.
 
 Where continuity finds nothing (the Addon is gone, errors, or has no playable
-candidate), the countdown is cleared and the Host stays on the plain `Ended`
-state. The `no_stream` phase and the "Still watching?" hold belong to later
-tickets of the spec.
+candidate), the Host opens nothing and stays on `Ended`, and it says so: the
+countdown becomes `phase: no_stream { detail }` for the same next episode, with
+the refusal's reason in `detail`. Nothing runs any more, and it ends as a
+countdown does: a cancel, a stop, a play, switching Autoplay off. Clients on
+their player surface open the **Streams picker** for that episode once per
+target (`opensPicker`); the window on its player level, the Remote only on its
+expanded card, so a Remote on a browse screen is not torn off it. The ended
+state itself is drawn as it always was. The "Still watching?" hold belongs to a
+later ticket of the spec.
 
 ## 4. Ending the countdown
 

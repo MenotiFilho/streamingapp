@@ -16,7 +16,7 @@ import type { ActionError } from "../core/errors";
 import { VOLUME_MAX, formatSpeed, formatVolume, volumeFraction } from "../core/controls";
 import type { Intent } from "../core/input";
 import { formatTime, playingName } from "../core/playback";
-import { autoplayView } from "../core/autoplay";
+import { autoplayView, plainEnd } from "../core/autoplay";
 import { osdPinned, remainingTime, spacedChapterMarks, timelineFraction } from "../core/osd";
 import type { PlaybackView } from "../core/playbackView";
 import {
@@ -29,6 +29,7 @@ import { usePreview, type PreviewAsk } from "../core/react/usePreview";
 import { useShell } from "./context";
 import { AutoplayCard } from "./AutoplayCard";
 import { AutoplaySwitch } from "./AutoplaySwitch";
+import { useMissingStreamPicker } from "./useMissingStreamPicker";
 import { FullscreenButton } from "./FullscreenButton";
 import { Button } from "../kit/Button";
 import { PendingSpinner } from "../kit/PendingSpinner";
@@ -213,6 +214,7 @@ export function PlayerOverlay() {
   // the view below.
   const pending = autoplayView({ autoplay: playback?.autoplay ?? null }, 0);
   const counting = pending.kind === "countdown";
+  useMissingStreamPicker(root, pending);
   const { visible, cursorVisible, wake } = useOsdVisibility({
     pinned: osdPinned({ popoverOpen: popover !== null, autoplay: pending }),
     chrome,
@@ -540,7 +542,7 @@ export function PlayerOverlay() {
             </div>
           </div>
         ) : null}
-        {state === "ended" && view.autoplay.kind === "none" ? (
+        {state === "ended" && plainEnd(view.autoplay) ? (
           <p className="shell-picture-note" data-testid="stream-ended">
             The Stream reached its end.
           </p>
@@ -750,7 +752,7 @@ export function PlayerOverlay() {
               </div>
             ) : null}
 
-            {state === "ended" && view.autoplay.kind === "none" && !nextEpisode.disabled ? (
+            {state === "ended" && plainEnd(view.autoplay) && !nextEpisode.disabled ? (
               <div className="shell-osd-ended">
                 <Button
                   variant="primary"

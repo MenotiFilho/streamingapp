@@ -1715,18 +1715,29 @@ impl Host {
     /// or — where continuity finds no Stream — stay on the ended state with the
     /// countdown cleared. Either way every client is owed a Snapshot.
     fn autoplay_expired(&mut self) -> Option<Snapshot> {
-        self.autoplay = None;
-        let played = match self.stepped(EpisodeStep::Next) {
-            Ok(Resolved::Change(change)) => self.commit(change, None).ok(),
-            _ => None,
-        };
-        match played {
-            Some(mut response) => response.snapshots.pop(),
-            None => {
-                self.revision += 1;
-                Some(self.snapshot())
+        let pending = self.autoplay.take();
+        let outcome = self.stepped(EpisodeStep::Next);
+        match outcome {
+            Ok(Resolved::Change(change)) => {
+                if let Ok(mut response) = self.commit(change, None) {
+                    return response.snapshots.pop();
+                }
+                // The store refused the play: the Host stays on the ended
+                // state, as for a Stream that was not found.
+                self.autoplay = pending.map(|pending| {
+                    pending.without_stream("the Host could not start the next episode".to_owned())
+                });
+            }
+            Ok(_) => {}
+            Err(error) => {
+                // Continuity found nothing: the Host says so and holds the
+                // ended state, and the clients offer the Streams picker.
+                self.autoplay =
+                    pending.map(|pending| pending.without_stream(refusal_detail(&error)));
             }
         }
+        self.revision += 1;
+        Some(self.snapshot())
     }
 
     /// Take one episode step: the neighbouring Stream chosen and opened, and
@@ -2056,6 +2067,17 @@ impl Host {
             .ok_or_else(|| ActionError::UnknownAddon {
                 id: id.as_str().to_owned(),
             })
+    }
+}
+
+/// Why a step found nothing, as a sentence a client can show: the refusal's own
+/// detail where it carries one, else its message.
+fn refusal_detail(error: &ActionError) -> String {
+    match error {
+        ActionError::NoNextEpisode { detail } | ActionError::NoPreviousEpisode { detail } => {
+            detail.clone()
+        }
+        other => other.to_string(),
     }
 }
 

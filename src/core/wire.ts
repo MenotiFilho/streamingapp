@@ -217,9 +217,13 @@ export type UpNextEpisode = {
  * Snapshot, so a client projects the digit on its own monotonic clock from the
  * Snapshot's arrival and never compares wall clocks with the Host (ADR-0033,
  * ADR-0040). Mirrors `AutoplayPhase` in `host-core`; the other phases arrive
- * with the Host rules that publish them.
+ * with the Host rules that publish them. `no_stream` is the countdown that ran
+ * out with no Stream found by continuity for `next`: the Host stays on the
+ * ended state and `detail` says why.
  */
-export type AutoplayPhase = { phase: "countdown"; remaining: number; duration: number };
+export type AutoplayPhase =
+  | { phase: "countdown"; remaining: number; duration: number }
+  | { phase: "no_stream"; detail: string };
 
 /**
  * What Autoplay is doing about the episode that ended: the next episode and

@@ -64,6 +64,11 @@ pub enum AutoplayPhase {
     /// projects the digit on its own monotonic clock from the Snapshot's arrival
     /// and never compares wall clocks with the Host (ADR-0033).
     Countdown { remaining: f64, duration: f64 },
+    /// The countdown ran out and continuity found no Stream for `next`: the
+    /// Addon is gone, it errored, or it has no playable candidate. The Host
+    /// stays on the ended state, and clients offer the Streams picker for the
+    /// episode. `detail` is the reason, as the refusal reported it.
+    NoStream { detail: String },
 }
 
 /// A countdown the Host is running: where it leads, and when it started on the
@@ -76,7 +81,17 @@ pub enum AutoplayPhase {
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Pending {
     next: UpNextEpisode,
-    started_at: i64,
+    stage: Stage,
+}
+
+/// What a [`Pending`] is waiting on.
+#[derive(Debug, Clone, PartialEq)]
+enum Stage {
+    /// Counting down, since this moment on the Host's `Clock`.
+    Counting { started_at: i64 },
+    /// The countdown ran out and no Stream was found: nothing runs any more,
+    /// and the Host holds the fact until something ends it.
+    NoStream { detail: String },
 }
 
 impl Pending {
@@ -84,17 +99,29 @@ impl Pending {
     pub(crate) fn starting(next: UpNextEpisode, now: i64) -> Self {
         Self {
             next,
-            started_at: now,
+            stage: Stage::Counting { started_at: now },
         }
     }
 
-    /// Whether the countdown has run out at `now`.
+    /// The same episode, after continuity found no Stream for it.
+    pub(crate) fn without_stream(self, detail: String) -> Self {
+        Self {
+            next: self.next,
+            stage: Stage::NoStream { detail },
+        }
+    }
+
+    /// Whether the countdown has run out at `now`. A countdown that already
+    /// ended in a missing Stream does not run out again.
     pub(crate) fn expired(&self, now: i64) -> bool {
-        self.remaining_millis(now) == 0
+        matches!(self.stage, Stage::Counting { .. }) && self.remaining_millis(now) == 0
     }
 
     fn remaining_millis(&self, now: i64) -> i64 {
-        let elapsed = now.saturating_sub(self.started_at).max(0);
+        let Stage::Counting { started_at } = self.stage else {
+            return 0;
+        };
+        let elapsed = now.saturating_sub(started_at).max(0);
         AUTOPLAY_COUNTDOWN_MS.saturating_sub(elapsed).max(0)
     }
 
@@ -103,9 +130,14 @@ impl Pending {
     pub(crate) fn snapshot(&self, now: i64) -> AutoplaySnapshot {
         AutoplaySnapshot {
             next: self.next.clone(),
-            phase: AutoplayPhase::Countdown {
-                remaining: self.remaining_millis(now) as f64 / 1_000.0,
-                duration: AUTOPLAY_COUNTDOWN_MS as f64 / 1_000.0,
+            phase: match &self.stage {
+                Stage::Counting { .. } => AutoplayPhase::Countdown {
+                    remaining: self.remaining_millis(now) as f64 / 1_000.0,
+                    duration: AUTOPLAY_COUNTDOWN_MS as f64 / 1_000.0,
+                },
+                Stage::NoStream { detail } => AutoplayPhase::NoStream {
+                    detail: detail.clone(),
+                },
             },
         }
     }
@@ -212,6 +244,7 @@ mod tests {
         let pending = Pending::starting(episode(), 10_000);
         let left = |now| match pending.snapshot(now).phase {
             AutoplayPhase::Countdown { remaining, .. } => remaining,
+            other => panic!("expected a countdown, got {other:?}"),
         };
 
         assert_eq!(left(10_000), 5.0);
@@ -264,6 +297,25 @@ mod tests {
         assert_eq!(
             serde_json::from_str::<AutoplaySnapshot>(&wire).expect("and reads back"),
             snapshot
+        );
+    }
+
+    #[test]
+    fn a_missing_stream_is_flat_on_the_wire_and_never_runs_out_again() {
+        let pending = Pending::starting(episode(), 0).without_stream("no Stream".to_owned());
+        let wire = serde_json::to_value(pending.snapshot(60_000)).expect("a Snapshot serializes");
+
+        assert_eq!(wire["phase"], "no_stream");
+        assert_eq!(wire["detail"], "no Stream");
+        assert_eq!(wire["next"]["video"]["id"], "tt1:1:4");
+        assert!(wire.get("remaining").is_none());
+        assert!(
+            !pending.expired(60_000),
+            "there is nothing left to wait for"
+        );
+        assert_eq!(
+            serde_json::from_value::<AutoplaySnapshot>(wire).expect("and reads back"),
+            pending.snapshot(60_000)
         );
     }
 
