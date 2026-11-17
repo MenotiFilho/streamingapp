@@ -1,6 +1,8 @@
-import { VOLUME_MAX } from "../core/controls";
+import { actionKey } from "../core/actionKey";
+import type { AutoplayView } from "../core/autoplay";
+import { AUTOPLAY_SWITCH_LABEL, VOLUME_MAX } from "../core/controls";
 import type { Level, NewLevel } from "../core/navigation";
-import { watching } from "../core/playback";
+import { playingName, watching } from "../core/playback";
 import type { PlaybackView } from "../core/playbackView";
 import {
   transportControls,
@@ -61,6 +63,93 @@ export function openingNote(name: string): string {
 
 /** The card's note when the Stream has run to its end. */
 export const ENDED_NOTE = "The Stream reached its end.";
+
+/**
+ * The card's one state note: the Host opening the Stream, or the Stream's end.
+ *
+ * While the Host's countdown is up the banner says what is happening and the
+ * ended note would say it twice, so the note steps aside (#318, #302).
+ */
+export function cardStateNote(
+  view: Pick<PlaybackView, "state" | "nowPlaying" | "autoplay">,
+): string | null {
+  if (view.state === "opening") {
+    return openingNote(playingName(view.nowPlaying));
+  }
+  if (view.state === "ended" && view.autoplay.kind === "none") {
+    return ENDED_NOTE;
+  }
+  return null;
+}
+
+/**
+ * The strip's episode label: the countdown's own text ("Up next in 4 · S1E4")
+ * while the Host's countdown runs, else the episode the strip already named.
+ * Text only: the strip has no Cancel (#287).
+ */
+export function stripEpisode(
+  view: Pick<PlaybackView, "episodeLabel" | "autoplay">,
+): string {
+  return view.autoplay.kind === "countdown" ? view.autoplay.strip : view.episodeLabel;
+}
+
+/** The Autoplay switch row: what it says, where it stands, what a press sends. */
+export type AutoplaySwitchRow = {
+  label: string;
+  on: boolean;
+  /** The Action a press takes: `set_autoplay` with the value it flips to. */
+  toggle: (next: boolean) => Extract<Action, { type: "set_autoplay" }>;
+};
+
+/**
+ * The always-visible switch row on the expanded card, or `null` where there is
+ * nothing for it to do. Autoplay acts only on an episode's Stream, so a film's
+ * card draws none (#302, #287).
+ */
+export function autoplaySwitch(
+  view: Pick<PlaybackView, "episode">,
+  on: boolean,
+): AutoplaySwitchRow | null {
+  if (view.episode === null) {
+    return null;
+  }
+  return {
+    label: AUTOPLAY_SWITCH_LABEL,
+    on,
+    toggle: (next) => ({ type: "set_autoplay", autoplay: next }),
+  };
+}
+
+type Countdown = Extract<AutoplayView, { kind: "countdown" }>;
+
+/** The countdown banner: the core's view, plus the two Actions it carries. */
+export type AutoplayBanner = Countdown & {
+  /** Skip the rest of the countdown: the Host's `next_episode`. */
+  playNow: { action: Action; pending: boolean };
+  /** Stop this countdown and keep the preference. */
+  cancel: { action: Action };
+};
+
+/**
+ * The banner under the plate while the Host counts down, or `null`.
+ *
+ * It is the one `autoplayView` the window's card draws too; this adds only the
+ * two Actions the buttons take. Play now is the same `next_episode` the
+ * transport's step sends, so its wait is the same Session key.
+ */
+export function autoplayBanner(
+  view: Pick<PlaybackView, "autoplay" | "pending">,
+): AutoplayBanner | null {
+  if (view.autoplay.kind !== "countdown") {
+    return null;
+  }
+  const next: Action = { type: "next_episode" };
+  return {
+    ...view.autoplay,
+    playNow: { action: next, pending: view.pending.has(actionKey(next)) },
+    cancel: { action: { type: "cancel_autoplay" } },
+  };
+}
 
 /** A chapter's name: its title where the container gave one, else its place. */
 export function chapterName(chapter: { index: number; title: string | null }): string {

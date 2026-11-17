@@ -2,6 +2,7 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 
@@ -13,7 +14,7 @@ import {
   spacedChapterMarks,
   timelineFraction,
 } from "../core/osd";
-import { formatTime, playingName, watching } from "../core/playback";
+import { formatTime, watching } from "../core/playback";
 import type { PlaybackView } from "../core/playbackView";
 import { usePlaybackView } from "../core/react/usePlaybackView";
 import { usePreview } from "../core/react/usePreview";
@@ -23,8 +24,10 @@ import {
   type TransportControl,
 } from "../core/transportControls";
 import type { Action, Title } from "../core/wire";
+import { Button } from "../kit/Button";
 import { Icon } from "../kit/icons";
 import { PendingSpinner } from "../kit/PendingSpinner";
+import { Switch } from "../kit/Switch";
 import type { RemotePayload } from "./levels";
 import {
   PLAYER_SHEET_CONTROLS,
@@ -32,11 +35,12 @@ import {
   SHEET_TITLES,
 } from "./playerSheets";
 import {
+  autoplayBanner,
+  autoplaySwitch,
+  cardStateNote,
   CARD_NAME,
   chapterName,
-  ENDED_NOTE,
   NOW_PLAYING,
-  openingNote,
   playerLevel,
   seekTo,
   setMuted,
@@ -44,11 +48,13 @@ import {
   STRIP_EXPAND,
   STRIP_LABEL,
   stripControls,
+  stripEpisode,
   TIMELINE_LABEL,
   timelineRange,
   trackFills,
   volumeRange,
   VOLUME_LABEL,
+  type AutoplayBanner,
   type TrackFill,
 } from "./playerScreen";
 
@@ -111,7 +117,7 @@ export function PlayerStrip({ session, title, push }: PlayerStripProps) {
         onClick={() => push(playerLevel(title))}
       >
         <span className="remote-player-strip-title">{view.title}</span>
-        <span className="remote-player-strip-episode">{view.episodeLabel}</span>
+        <span className="remote-player-strip-episode">{stripEpisode(view)}</span>
         {view.pictureNote ? (
           <span className="remote-player-strip-note">{view.pictureNote}</span>
         ) : null}
@@ -156,12 +162,8 @@ export function PlayerCard({
 
   const controls = transportControls(view);
   const take = (action: Action) => void session.take(action);
-  const stateNote =
-    view.state === "opening"
-      ? openingNote(playingName(view.nowPlaying))
-      : view.state === "ended"
-        ? ENDED_NOTE
-        : null;
+  const stateNote = cardStateNote(view);
+  const banner = autoplayBanner(view);
 
   return (
     <section
@@ -178,6 +180,8 @@ export function PlayerCard({
         </p>
       ) : null}
 
+      {banner ? <PlayerAutoplayBanner banner={banner} take={take} /> : null}
+
       {stateNote ? (
         <p className="remote-player-state" role="status">
           {stateNote}
@@ -192,10 +196,100 @@ export function PlayerCard({
         ))}
       </div>
 
+      <PlayerAutoplaySwitch session={session} episode={view.episode} />
+
       <PlayerMenus title={title} push={push} />
 
       <VolumeBox view={view} session={session} />
     </section>
+  );
+}
+
+/**
+ * The Autoplay switch row, always on the card for an episode: the Host's one
+ * preference as it last published it, and `set_autoplay` on a press. It holds no
+ * state of its own; flipping it mid-episode changes what this one's end does
+ * (#318, #302).
+ */
+function PlayerAutoplaySwitch({
+  session,
+  episode,
+}: {
+  session: Session;
+  episode: PlaybackView["episode"];
+}) {
+  const state = useSyncExternalStore(session.subscribe, session.getState, session.getState);
+  const row = autoplaySwitch({ episode }, state.snapshot?.preferences.autoplay ?? true);
+
+  if (row === null) {
+    return null;
+  }
+
+  return (
+    <div className="remote-player-autoplay">
+      <Switch
+        on={row.on}
+        label={row.label}
+        testId="remote-autoplay-switch"
+        onToggle={(next) => void session.take(row.toggle(next))}
+      />
+    </div>
+  );
+}
+
+/**
+ * The countdown banner, where the ended note sits: the next episode's still
+ * with the digit over it, "Up next · S1E4", its name, full-width **Play now**
+ * and **Cancel**, and the brass line draining along its foot. The view is the
+ * core's; this draws it and sends the two Actions the decision names.
+ */
+function PlayerAutoplayBanner({
+  banner,
+  take,
+}: {
+  banner: AutoplayBanner;
+  take: (action: Action) => void;
+}) {
+  const { next, kicker } = banner;
+
+  return (
+    <aside
+      className="remote-autoplay-banner"
+      role="group"
+      aria-label={kicker.text}
+      data-testid="remote-autoplay-banner"
+    >
+      <div className="remote-autoplay-still">
+        {next.still ? <img src={next.still} alt="" /> : null}
+        <span className="tabular" data-testid="remote-autoplay-digit" aria-hidden="true">
+          {banner.digit}
+        </span>
+      </div>
+      <div className="remote-autoplay-copy">
+        <p className="remote-autoplay-kicker">
+          <span>{kicker.lead}</span>
+          <span className="remote-autoplay-rule" aria-hidden="true" />
+          <span>{kicker.episode}</span>
+        </p>
+        {next.name ? <p className="remote-autoplay-name">{next.name}</p> : null}
+      </div>
+      <div className="remote-autoplay-actions">
+        <Button
+          variant="primary"
+          disabled={banner.playNow.pending}
+          pending={banner.playNow.pending}
+          onClick={() => take(banner.playNow.action)}
+        >
+          Play now
+        </Button>
+        <Button variant="ghost" onClick={() => take(banner.cancel.action)}>
+          Cancel
+        </Button>
+      </div>
+      <span className="remote-autoplay-drain" aria-hidden="true">
+        <span style={{ width: `${banner.fraction * 100}%` }} />
+      </span>
+    </aside>
   );
 }
 
