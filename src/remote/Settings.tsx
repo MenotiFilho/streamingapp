@@ -3,16 +3,12 @@ import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { version as appVersion } from "../../package.json";
 import { catalogKey, declaredCatalogs, keyOf } from "../core/browse";
 import {
-  AUTOPLAY_CHOICES,
-  AUTOPLAY_SETTING_LABEL,
   STREAM_BUFFER_DEFAULT_MEGABYTES,
   STREAM_BUFFER_DEFAULT_SECONDS,
   STREAM_BUFFER_MEGABYTES,
   STREAM_BUFFER_SECONDS,
   SUBTITLE_COLORS,
   SUBTITLE_SCALES,
-  UP_NEXT_PLAYBACK_CHOICES,
-  UP_NEXT_PLAYBACK_SETTING_LABEL,
   bufferMegabytesPreset,
   bufferSecondsPreset,
   colorSelected,
@@ -21,6 +17,7 @@ import {
   formatScale,
   scalePreset,
   scaleSelected,
+  upNextRows,
 } from "../core/controls";
 import { explain, type ActionError } from "../core/errors";
 import { HOST_PICKS_PER_VIDEO, SUBTITLE_LANGUAGES } from "../core/languages";
@@ -70,9 +67,8 @@ import {
   TMDB_FIELD_PLACEHOLDER,
   TMDB_MARK,
   TMDB_SAVE,
-  UP_NEXT_PLAYBACK_HEAD,
+  UP_NEXT_HEAD,
   VERSION_TERM,
-  autoplayRequest,
   bufferAfter,
   bufferRequest,
   clearTmdbLevel,
@@ -87,7 +83,6 @@ import {
   signInRequest,
   signOutLevel,
   tmdbKeyRequest,
-  upNextPlaybackRequest,
   type StreamBuffer,
 } from "./settingsScreen";
 
@@ -415,8 +410,6 @@ function PreferencesLeaf({ category, session, state }: LeafProps) {
     (language) => language.tag === heldLanguage,
   );
   const otherColor = unknownColorLabel(heldColor);
-  const heldUpNext = snapshot?.preferences.upNextPlayback ?? "direct";
-  const heldAutoplay = snapshot?.preferences.autoplay ?? true;
   const catalogs = declaredCatalogs(snapshot);
   const featured = snapshot?.featuredCatalog ?? null;
   const featuredKey = featured
@@ -580,38 +573,23 @@ function PreferencesLeaf({ category, session, state }: LeafProps) {
       </section>
 
       <section className="remote-settings-group">
-        <h2 className="remote-settings-label">{UP_NEXT_PLAYBACK_HEAD}</h2>
-        <p className="remote-settings-sub">{AUTOPLAY_SETTING_LABEL}</p>
-        <div className="remote-settings-chips">
-          {AUTOPLAY_CHOICES.map((choice) => (
-            <ChoiceChip
-              key={String(choice.autoplay)}
-              pressed={heldAutoplay === choice.autoplay}
-              onClick={() =>
-                void take(autoplayRequest(choice.autoplay), setUpNextError)
-              }
-            >
-              {choice.label}
-            </ChoiceChip>
-          ))}
-        </div>
-        <p className="remote-settings-sub">{UP_NEXT_PLAYBACK_SETTING_LABEL}</p>
-        <div className="remote-settings-chips">
-          {UP_NEXT_PLAYBACK_CHOICES.map((choice) => (
-            <ChoiceChip
-              key={choice.playback}
-              pressed={heldUpNext === choice.playback}
-              onClick={() =>
-                void take(
-                  upNextPlaybackRequest(choice.playback),
-                  setUpNextError,
-                )
-              }
-            >
-              {choice.label}
-            </ChoiceChip>
-          ))}
-        </div>
+        <h2 className="remote-settings-label">{UP_NEXT_HEAD}</h2>
+        {upNextRows(snapshot).map((row) => (
+          <div key={row.id}>
+            <p className="remote-settings-sub">{row.label}</p>
+            <div className="remote-settings-chips">
+              {row.choices.map((choice) => (
+                <ChoiceChip
+                  key={choice.id}
+                  pressed={choice.pressed}
+                  onClick={() => void take(choice.action, setUpNextError)}
+                >
+                  {choice.label}
+                </ChoiceChip>
+              ))}
+            </div>
+          </div>
+        ))}
         <Refusal error={upNextError} />
       </section>
 

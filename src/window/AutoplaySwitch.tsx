@@ -1,4 +1,4 @@
-import { AUTOPLAY_SWITCH_LABEL } from "../core/controls";
+import { AUTOPLAY_SWITCH_LABEL, autoplayOn } from "../core/controls";
 import { Switch } from "../kit/Switch";
 import { useShell } from "./context";
 
@@ -14,7 +14,7 @@ export function AutoplaySwitch({ className }: { className?: string }) {
 
   return (
     <Switch
-      on={snapshot?.preferences.autoplay ?? true}
+      on={autoplayOn(snapshot)}
       label={AUTOPLAY_SWITCH_LABEL}
       testId="autoplay-switch"
       className={className}

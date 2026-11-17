@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import {
   ASPECTS,
   AUTOPLAY_CHOICES,
+  AUTOPLAY_DEFAULT,
   AUTOPLAY_SETTING_LABEL,
   AUTOPLAY_SWITCH_LABEL,
   CROP_RATIOS,
@@ -16,6 +17,7 @@ import {
   UP_NEXT_PLAYBACK_SETTING_LABEL,
   VOLUME_MAX,
   aspectSelected,
+  autoplayOn,
   centredCrop,
   chapterLabel,
   colorSelected,
@@ -28,6 +30,7 @@ import {
   formatVolume,
   nextEpisodeDisabled,
   orderedTracks,
+  upNextRows,
   previousEpisodeDisabled,
   scalePreset,
   scaleSelected,
@@ -40,7 +43,7 @@ import {
   trackMarks,
   volumeFraction,
 } from "./controls";
-import type { Aspect, Crop, CropRectangle, Track, VideoSize } from "./wire";
+import type { Aspect, Crop, CropRectangle, Snapshot, Track, VideoSize } from "./wire";
 import appearance from "../subtitle-appearance.json";
 
 function track(overrides: Partial<Track> & { id: number }): Track {
@@ -403,5 +406,58 @@ describe("Up next and Autoplay", () => {
 
   test("the player switch carries the shared Autoplay label", () => {
     expect(AUTOPLAY_SWITCH_LABEL).toBe("Autoplay the next episode");
+  });
+});
+
+describe("the Autoplay preference a client reads", () => {
+  const held = (autoplay: boolean, upNextPlayback: "direct" | "picker" = "direct") =>
+    ({
+      preferences: { autoplay, upNextPlayback },
+    }) as Pick<Snapshot, "preferences">;
+
+  test("is what the Host last published", () => {
+    expect(autoplayOn(held(true))).toBe(true);
+    expect(autoplayOn(held(false))).toBe(false);
+  });
+
+  test("before any Snapshot it is the Host's own default, on", () => {
+    expect(AUTOPLAY_DEFAULT).toBe(true);
+    expect(autoplayOn(null)).toBe(true);
+  });
+
+  test("the Up next rows mark the held choices and each chip sends its own Action", () => {
+    const [autoplayRow, playbackRow] = upNextRows(held(false, "picker"));
+
+    expect(autoplayRow!.id).toBe("autoplay");
+    expect(autoplayRow!.choices.map((choice) => [choice.pressed, choice.action])).toEqual([
+      [false, { type: "set_autoplay", autoplay: true }],
+      [true, { type: "set_autoplay", autoplay: false }],
+    ]);
+    expect(playbackRow!.id).toBe("playback");
+    expect(playbackRow!.choices.map((choice) => [choice.pressed, choice.action])).toEqual([
+      [false, { type: "set_up_next_playback", playback: "direct" }],
+      [true, { type: "set_up_next_playback", playback: "picker" }],
+    ]);
+  });
+
+  test("before any Snapshot the rows hold the defaults: Autoplay on, Play directly", () => {
+    const [autoplayRow, playbackRow] = upNextRows(null);
+
+    expect(autoplayRow!.choices.filter((choice) => choice.pressed).map((choice) => choice.id)).toEqual([
+      "autoplay-true",
+    ]);
+    expect(playbackRow!.choices.filter((choice) => choice.pressed).map((choice) => choice.id)).toEqual([
+      "direct",
+    ]);
+  });
+
+  test("the rows carry the words Settings uses", () => {
+    const rows = upNextRows(null);
+
+    expect(rows.map((row) => row.label)).toEqual([AUTOPLAY_SETTING_LABEL, UP_NEXT_PLAYBACK_SETTING_LABEL]);
+    expect(rows[0]!.choices.map((choice) => choice.label)).toEqual(AUTOPLAY_CHOICES.map((choice) => choice.label));
+    expect(rows[1]!.choices.map((choice) => choice.label)).toEqual(
+      UP_NEXT_PLAYBACK_CHOICES.map((choice) => choice.label),
+    );
   });
 });

@@ -13,12 +13,14 @@
  */
 
 import type {
+  Action,
   Aspect,
   Chapter,
   Crop,
   CropRectangle,
   Episode,
   PlaybackState,
+  Snapshot,
   Statistics,
   Track,
   TrackKind,
@@ -306,6 +308,69 @@ export const UP_NEXT_PLAYBACK_SETTING_LABEL = "When Play is pressed on it";
 
 /** The player's Autoplay switch label, shared across both clients (#302, #314). */
 export const AUTOPLAY_SWITCH_LABEL = "Autoplay the next episode";
+
+/**
+ * What a client draws as the Autoplay preference before the Host has published
+ * a Snapshot at all. The wire always carries the value (`PreferencesSnapshot.autoplay`
+ * is never absent), so this answers only "no Snapshot yet"; it is the Host's own
+ * default, on, so a switch is not drawn off for a moment and then flipped.
+ */
+export const AUTOPLAY_DEFAULT = true;
+
+/** Whether Autoplay is on, as the Host last published it. */
+export function autoplayOn(snapshot: Pick<Snapshot, "preferences"> | null): boolean {
+  return snapshot?.preferences.autoplay ?? AUTOPLAY_DEFAULT;
+}
+
+/** One chip of a Settings row: what it says, whether it is the held value, what pressing it sends. */
+export type PreferenceChoice = {
+  /** Stable within its row; a drawing may build its own test id from it. */
+  id: string;
+  label: string;
+  pressed: boolean;
+  action: Action;
+};
+
+/** One row of the Up next group in Settings: its label and its chips. */
+export type PreferenceRow = {
+  id: "autoplay" | "playback";
+  label: string;
+  choices: ReadonlyArray<PreferenceChoice>;
+};
+
+/**
+ * The Up next group's two rows, from what the Host last published: what happens
+ * when an episode ends (Autoplay) and what Play does on an Up next. The window's
+ * Settings and the served Remote's draw the same rows and press the same
+ * Actions; this holds what each says, which chip is held and what it sends
+ * (#302, #314, #276).
+ */
+export function upNextRows(snapshot: Pick<Snapshot, "preferences"> | null): ReadonlyArray<PreferenceRow> {
+  const autoplay = autoplayOn(snapshot);
+  const playback = snapshot?.preferences.upNextPlayback ?? "direct";
+  return [
+    {
+      id: "autoplay",
+      label: AUTOPLAY_SETTING_LABEL,
+      choices: AUTOPLAY_CHOICES.map((choice) => ({
+        id: `autoplay-${choice.autoplay}`,
+        label: choice.label,
+        pressed: autoplay === choice.autoplay,
+        action: { type: "set_autoplay", autoplay: choice.autoplay },
+      })),
+    },
+    {
+      id: "playback",
+      label: UP_NEXT_PLAYBACK_SETTING_LABEL,
+      choices: UP_NEXT_PLAYBACK_CHOICES.map((choice) => ({
+        id: choice.playback,
+        label: choice.label,
+        pressed: playback === choice.playback,
+        action: { type: "set_up_next_playback", playback: choice.playback },
+      })),
+    },
+  ];
+}
 
 /** The Player's loudest level: above 100 is a boost, not a second scale. */
 export const VOLUME_MAX = 130;

@@ -9,7 +9,6 @@ import {
 import type { AddonManifest } from "../core/wire";
 import { NOTHING, PHONE } from "./fakeSocket.testing";
 import {
-  autoplayRequest,
   bufferAfter,
   bufferRequest,
   clearTmdbLevel,
@@ -23,7 +22,6 @@ import {
   signInRequest,
   signOutLevel,
   tmdbKeyRequest,
-  upNextPlaybackRequest,
 } from "./settingsScreen";
 
 /**
@@ -158,19 +156,6 @@ describe("the Preferences leaf's Actions", () => {
       type: "set_stream_buffer",
       seconds: 60,
       megabytes: 512,
-    });
-  });
-
-  test("the two Up next preferences carry their own Actions", () => {
-    expect(autoplayRequest(true)).toEqual({ type: "set_autoplay", autoplay: true });
-    expect(autoplayRequest(false)).toEqual({ type: "set_autoplay", autoplay: false });
-    expect(upNextPlaybackRequest("direct")).toEqual({
-      type: "set_up_next_playback",
-      playback: "direct",
-    });
-    expect(upNextPlaybackRequest("picker")).toEqual({
-      type: "set_up_next_playback",
-      playback: "picker",
     });
   });
 });

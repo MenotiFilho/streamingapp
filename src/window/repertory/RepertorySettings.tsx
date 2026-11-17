@@ -10,16 +10,12 @@ import {
 import { version as appVersion } from "../../../package.json";
 import { catalogKey, declaredCatalogs, keyOf, type DeclaredCatalog } from "../../core/browse";
 import {
-  AUTOPLAY_CHOICES,
-  AUTOPLAY_SETTING_LABEL,
   STREAM_BUFFER_DEFAULT_MEGABYTES,
   STREAM_BUFFER_DEFAULT_SECONDS,
   STREAM_BUFFER_MEGABYTES,
   STREAM_BUFFER_SECONDS,
   SUBTITLE_COLORS,
   SUBTITLE_SCALES,
-  UP_NEXT_PLAYBACK_CHOICES,
-  UP_NEXT_PLAYBACK_SETTING_LABEL,
   bufferMegabytesPreset,
   bufferSecondsPreset,
   colorSelected,
@@ -28,6 +24,7 @@ import {
   formatScale,
   scalePreset,
   scaleSelected,
+  upNextRows,
 } from "../../core/controls";
 import type { Action, DeviceSummary } from "../../core/wire";
 import type { ActionError } from "../../core/errors";
@@ -347,8 +344,6 @@ function PreferencesScreen() {
 
   const known = SUBTITLE_LANGUAGES.some((language) => language.tag === heldLanguage);
   const otherColor = unknownColorLabel(heldColor);
-  const heldUpNext = snapshot?.preferences.upNextPlayback ?? "direct";
-  const heldAutoplay = snapshot?.preferences.autoplay ?? true;
   const catalogs = declaredCatalogs(snapshot);
   const featured = snapshot?.featuredCatalog ?? null;
   const featuredKey = featured
@@ -395,17 +390,9 @@ function PreferencesScreen() {
     }
   };
 
-  const pickAutoplay = async (autoplay: boolean) => {
+  const pickUpNext = async (action: Action) => {
     setUpNextError(null);
-    const outcome = await ask({ type: "set_autoplay", autoplay });
-    if (outcome.error) {
-      setUpNextError(outcome.error);
-    }
-  };
-
-  const pickUpNext = async (playback: "direct" | "picker") => {
-    setUpNextError(null);
-    const outcome = await ask({ type: "set_up_next_playback", playback });
+    const outcome = await ask(action);
     if (outcome.error) {
       setUpNextError(outcome.error);
     }
@@ -598,46 +585,28 @@ function PreferencesScreen() {
       </LogGroup>
 
       <LogGroup id="settings-up-next" title="Up next">
-        <div className="rep-log-choice-group">
-          <p className="rep-log-choice-label">{AUTOPLAY_SETTING_LABEL}</p>
-          <div
-            className="rep-log-chips"
-            data-region="settings-up-next-autoplay"
-            data-kind="row"
-            data-label={AUTOPLAY_SETTING_LABEL}
-          >
-            {AUTOPLAY_CHOICES.map((choice) => (
-              <ChoiceChip
-                key={String(choice.autoplay)}
-                pressed={heldAutoplay === choice.autoplay}
-                data-testid={`up-next-autoplay-${choice.autoplay}`}
-                onClick={() => void pickAutoplay(choice.autoplay)}
-              >
-                {choice.label}
-              </ChoiceChip>
-            ))}
+        {upNextRows(snapshot).map((row) => (
+          <div key={row.id} className="rep-log-choice-group">
+            <p className="rep-log-choice-label">{row.label}</p>
+            <div
+              className="rep-log-chips"
+              data-region={`settings-up-next-${row.id}`}
+              data-kind="row"
+              data-label={row.label}
+            >
+              {row.choices.map((choice) => (
+                <ChoiceChip
+                  key={choice.id}
+                  pressed={choice.pressed}
+                  data-testid={`up-next-${choice.id}`}
+                  onClick={() => void pickUpNext(choice.action)}
+                >
+                  {choice.label}
+                </ChoiceChip>
+              ))}
+            </div>
           </div>
-        </div>
-        <div className="rep-log-choice-group">
-          <p className="rep-log-choice-label">{UP_NEXT_PLAYBACK_SETTING_LABEL}</p>
-          <div
-            className="rep-log-chips"
-            data-region="settings-up-next-playback"
-            data-kind="row"
-            data-label={UP_NEXT_PLAYBACK_SETTING_LABEL}
-          >
-            {UP_NEXT_PLAYBACK_CHOICES.map((choice) => (
-              <ChoiceChip
-                key={choice.playback}
-                pressed={heldUpNext === choice.playback}
-                data-testid={`up-next-${choice.playback}`}
-                onClick={() => void pickUpNext(choice.playback)}
-              >
-                {choice.label}
-              </ChoiceChip>
-            ))}
-          </div>
-        </div>
+        ))}
         <Refusal error={upNextError} testId="up-next-error" />
       </LogGroup>
 

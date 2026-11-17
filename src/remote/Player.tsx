@@ -7,7 +7,7 @@ import {
 } from "react";
 
 import { actionKey } from "../core/actionKey";
-import { formatVolume } from "../core/controls";
+import { autoplayOn, formatVolume } from "../core/controls";
 import type { NewLevel } from "../core/navigation";
 import {
   remainingTime,
@@ -218,7 +218,7 @@ function PlayerAutoplaySwitch({
   episode: PlaybackView["episode"];
 }) {
   const state = useSyncExternalStore(session.subscribe, session.getState, session.getState);
-  const row = autoplaySwitch({ episode }, state.snapshot?.preferences.autoplay ?? true);
+  const row = autoplaySwitch({ episode }, autoplayOn(state.snapshot));
 
   if (row === null) {
     return null;

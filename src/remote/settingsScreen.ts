@@ -124,7 +124,7 @@ export const SUBTITLE_SIZE_HEAD = "Subtitle size";
 export const STREAM_BUFFER_HEAD = "Stream buffer";
 export const STREAM_BUFFER_SECONDS_HEAD = "Look-ahead";
 export const STREAM_BUFFER_MEGABYTES_HEAD = "Memory ceiling";
-export const UP_NEXT_PLAYBACK_HEAD = "Up next";
+export const UP_NEXT_HEAD = "Up next";
 export const FEATURED_CATALOG_HEAD = "Featured catalog";
 export const FEATURED_NONE = "No featured catalog";
 
@@ -168,18 +168,6 @@ export function bufferAfter(
 /** One Action carries the pair, so the Host cannot half-apply it (ADR-0026). */
 export function bufferRequest(pair: StreamBuffer): Action {
   return { type: "set_stream_buffer", ...pair };
-}
-
-/** What Play does with a Title's Up next (#276). */
-export function upNextPlaybackRequest(
-  playback: "direct" | "picker",
-): Action {
-  return { type: "set_up_next_playback", playback };
-}
-
-/** Whether the Host advances on its own when an episode's Stream ends (#302, #314). */
-export function autoplayRequest(autoplay: boolean): Action {
-  return { type: "set_autoplay", autoplay };
 }
 
 /**
