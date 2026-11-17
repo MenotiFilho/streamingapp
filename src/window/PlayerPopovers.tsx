@@ -16,6 +16,11 @@ import { useShell, type NewShellLevel } from "./context";
 import { MenuGroup, MenuReadout, MenuRow } from "../kit/Menu";
 import { Popover } from "../kit/Popover";
 import { OsdEpisodesMenu } from "./PlayerEpisodes";
+import {
+  PROTO,
+  useTorrentProto,
+  withTorrentStatistics,
+} from "../prototype/torrent307";
 
 /** The six menus the OSD's icon buttons open, one level each. */
 export type OsdPopoverName =
@@ -149,6 +154,9 @@ function OsdPopover({ name, anchor }: { name: OsdPopoverName; anchor: OsdPopover
       if (!current || !levelExists(id)) {
         return;
       }
+      if (target instanceof HTMLElement && target.closest(".proto-bar")) {
+        return;
+      }
       if (target instanceof Node && !current.contains(target)) {
         pop();
       }
@@ -270,11 +278,26 @@ function send(take: MenuProps["take"], row: PanelRow): void {
 
 /** Aspect, the crop choices, the Autocrop toggle, and statistics. */
 function PictureMenu({ playback, take }: MenuProps) {
-  const [showStatistics, setShowStatistics] = useState(false);
+  const protoView = useTorrentProto();
+  const [showStatistics, setShowStatistics] = useState(
+    () => PROTO && protoView.stateId === "playing",
+  );
+
+  useEffect(() => {
+    if (PROTO && protoView.stateId === "playing") {
+      setShowStatistics(true);
+    }
+  }, [protoView.stateId]);
+
+  const groups = withTorrentStatistics(
+    pictureSections(playback, showStatistics),
+    playback,
+    protoView.variant,
+  );
 
   return (
     <Sections
-      groups={pictureSections(playback, showStatistics)}
+      groups={groups}
       onPress={(row) => {
         if (row.key === STATISTICS_TOGGLE_KEY) {
           setShowStatistics((shown) => !shown);

@@ -25,6 +25,7 @@ import { pageSurface } from "./pageSurface";
 import { PlayerStrip } from "./Player";
 import { playerLevelStale, stripDrawn } from "./playerScreen";
 import { Settings } from "./Settings";
+import { PROTO, PrototypeBar } from "../prototype/torrent307";
 
 export type RemoteAppProps = {
   /**
@@ -222,6 +223,7 @@ function RemoteRoom({
 
   const refusal = sessionState.error;
   const playback = sessionState.snapshot?.playback?.state ?? "idle";
+  const playbackFailure = sessionState.snapshot?.playback?.failure ?? null;
   // A card of a Stream the Host has stopped is no card, and a card the Host has
   // not yet confirmed is not drawn yet either: what is on screen is the top
   // level that is not such a card — the Title it was opened over, say — and the
@@ -273,6 +275,7 @@ function RemoteRoom({
       className="remote-ui"
       {...pageAttrs(surface)}
     >
+      <PrototypeBar surface="remote" />
       <header className="remote-status">
         <span className="remote-device">{device ? device.name : "This device"}</span>
         {reconnecting ? (
@@ -335,6 +338,14 @@ function RemoteRoom({
         inert={sheetOpen ? true : undefined}
         aria-hidden={sheetOpen ? true : undefined}
       >
+        {PROTO && !watching(playback) && playbackFailure ? (
+          <div className="proto-remote-alert-wrap" data-testid="remote-playback-failure">
+            <p className="proto-remote-alert" role="alert">
+              {`${playbackFailure} Pick another Stream from the list.`}
+            </p>
+          </div>
+        ) : null}
+
         {stripDrawn(drawn) ? (
           <PlayerStrip
             session={session}

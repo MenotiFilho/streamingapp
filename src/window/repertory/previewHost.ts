@@ -24,9 +24,12 @@ import {
   type AddonManifest,
   type CatalogRow,
   type PlaybackSnapshot,
+  type PlaybackState,
   type Response,
+  type ResumeEntry,
   type Snapshot,
   type Title,
+  type TorrentStatus,
   type Video,
 } from "../../core/wire";
 import type { ActionError } from "../../core/errors";
@@ -38,6 +41,7 @@ import {
   PREVIEW_ADDON,
   previewStream,
   rehearsalChapterAt,
+  rehearsalPlayback,
   sampleLibrary,
   sampleResumeEntries,
   type CinemetaMeta,
@@ -464,6 +468,7 @@ async function buildSnapshot(): Promise<Snapshot> {
  * their answers from Snapshots exactly as they do in Tauri.
  */
 let current: Snapshot | null = null;
+let baseSnapshot: Snapshot | null = null;
 let booting: Promise<Snapshot> | null = null;
 let subscriber: ((event: { payload: Snapshot }) => void) | null = null;
 
@@ -472,8 +477,16 @@ async function ensureSnapshot(): Promise<Snapshot> {
     return current;
   }
   booting ??= buildSnapshot().then((state) => {
-    current = state;
-    return state;
+    baseSnapshot = state;
+    current = PROTO_TORRENT ? protoTorrentSnapshot(state, readInitialTorrentState()) : state;
+    if (
+      PROTO_TORRENT &&
+      current.playback.state === "playing" &&
+      !current.playback.stalled
+    ) {
+      startTicker();
+    }
+    return current;
   });
   return booting;
 }
@@ -522,7 +535,7 @@ function startTicker(): void {
   stopTicker();
   ticker = setInterval(() => {
     const state = current;
-    if (!state || state.playback.state !== "playing") {
+    if (!state || state.playback.state !== "playing" || state.playback.stalled) {
       stopTicker();
       return;
     }
@@ -933,3 +946,251 @@ export const previewTransport: Transport = {
     };
   },
 };
+
+/* --------------------------------------------------------------------------
+ * PROTOTYPE (#307, throwaway — never merged): pretend torrent status, stalled,
+ * and failure states published as real Snapshots. Reached with `?proto=torrent`.
+ * -------------------------------------------------------------------------- */
+
+const PROTO_PARAM =
+  typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("proto") : null;
+
+export const PROTO_TORRENT = PROTO_PARAM === "torrent";
+
+export type TorrentStateId =
+  | "finding-0"
+  | "finding-5"
+  | "fetching"
+  | "fetching-0"
+  | "playing"
+  | "stalled-torrent"
+  | "stalled-direct"
+  | "failed-nobody"
+  | "failed-crash"
+  | "failed-disk";
+
+export type TorrentStateSpec = {
+  id: TorrentStateId;
+  label: string;
+  playbackState: PlaybackState;
+  torrent: TorrentStatus | null;
+  stalled: boolean;
+  failure: string | null;
+};
+
+export const TORRENT_STATE_SPECS: ReadonlyArray<TorrentStateSpec> = [
+  {
+    id: "finding-0",
+    label: "finding (0 peers)",
+    playbackState: "opening",
+    torrent: { phase: "finding", peers: 0, rate: 0 },
+    stalled: false,
+    failure: null,
+  },
+  {
+    id: "finding-5",
+    label: "finding (5 peers)",
+    playbackState: "opening",
+    torrent: { phase: "finding", peers: 5, rate: 0 },
+    stalled: false,
+    failure: null,
+  },
+  {
+    id: "fetching",
+    label: "fetching (12 peers, 4.2 MB/s)",
+    playbackState: "opening",
+    torrent: { phase: "fetching", peers: 12, rate: 4_200_000 },
+    stalled: false,
+    failure: null,
+  },
+  {
+    id: "fetching-0",
+    label: "fetching (0 peers, 0 B/s)",
+    playbackState: "opening",
+    torrent: { phase: "fetching", peers: 0, rate: 0 },
+    stalled: false,
+    failure: null,
+  },
+  {
+    id: "playing",
+    label: "playing (torrent, OSD + stats)",
+    playbackState: "playing",
+    torrent: { phase: "fetching", peers: 12, rate: 4_200_000 },
+    stalled: false,
+    failure: null,
+  },
+  {
+    id: "stalled-torrent",
+    label: "stalled (torrent, 3 peers, 180 kB/s)",
+    playbackState: "playing",
+    torrent: { phase: "fetching", peers: 3, rate: 180_000 },
+    stalled: true,
+    failure: null,
+  },
+  {
+    id: "stalled-direct",
+    label: "stalled (direct, torrent null)",
+    playbackState: "playing",
+    torrent: null,
+    stalled: true,
+    failure: null,
+  },
+  {
+    id: "failed-nobody",
+    label: "failed (nobody sharing)",
+    playbackState: "idle",
+    torrent: null,
+    stalled: false,
+    failure: "Nobody is sharing this torrent right now.",
+  },
+  {
+    id: "failed-crash",
+    label: "failed (engine crash)",
+    playbackState: "idle",
+    torrent: null,
+    stalled: false,
+    failure: "The torrent engine stopped twice while playing this Stream.",
+  },
+  {
+    id: "failed-disk",
+    label: "failed (disk full)",
+    playbackState: "idle",
+    torrent: null,
+    stalled: false,
+    failure: "The disk is full, so the torrent could not be kept.",
+  },
+];
+
+const FALLBACK_ENTRY: ResumeEntry = {
+  video: {
+    id: "tt15239678",
+    name: null,
+    season: null,
+    episode: null,
+    thumbnail: "https://images.metahub.space/background/medium/tt15239678/img",
+    airDate: null,
+  },
+  title: {
+    addon: ADDON,
+    id: "tt15239678",
+    type: "movie",
+    name: "Dune: Part Two",
+    poster: "https://images.metahub.space/poster/medium/tt15239678/img",
+    background: "https://images.metahub.space/background/medium/tt15239678/img",
+  },
+  position: 2314,
+  duration: 6420,
+  watched: false,
+  unplayable: null,
+};
+
+export function torrentSpecOf(id: TorrentStateId): TorrentStateSpec {
+  return TORRENT_STATE_SPECS.find((spec) => spec.id === id) ?? TORRENT_STATE_SPECS[1]!;
+}
+
+export function readInitialTorrentState(): TorrentStateId {
+  if (typeof window === "undefined") {
+    return "finding-5";
+  }
+  const held = new URLSearchParams(window.location.search).get("state");
+  const match = TORRENT_STATE_SPECS.find((spec) => spec.id === held);
+  return match ? match.id : "finding-5";
+}
+
+function protoTorrentSnapshot(base: Snapshot, stateId: TorrentStateId): Snapshot {
+  const spec = torrentSpecOf(stateId);
+  const entry = base.watchProgress[0] ?? FALLBACK_ENTRY;
+  const watchProgress =
+    base.watchProgress.length > 0 ? base.watchProgress : [entry];
+
+  if (spec.playbackState === "idle") {
+    return {
+      ...base,
+      watchProgress,
+      continueWatching: watchProgress.map((held) => ({ ...held, upNext: false })),
+      playback: {
+        ...idlePlayback(),
+        failure: spec.failure,
+        torrent: null,
+        stalled: false,
+      },
+    };
+  }
+
+  const isDirect = stateId === "stalled-direct";
+  const nowPlaying = isDirect
+    ? {
+        video: { type: entry.title.type, id: entry.video.id },
+        addon: "http-direct",
+        name: "1080p WEB-DL",
+        description: null,
+        filename: "film.1080p.web-dl.mkv",
+        bingeGroup: "proto-direct",
+      }
+    : {
+        video: { type: entry.title.type, id: entry.video.id },
+        addon: TORRENTIO_ID,
+        name: "Torrentio\n2160p HDR",
+        description: "4K HDR · DDP 5.1 · 18.4 GB",
+        filename: "film.2160p.web-dl.hdr.mkv",
+        bingeGroup: "proto-torrent",
+      };
+
+  const basePlayback = rehearsalPlayback(entry, nowPlaying);
+
+  if (spec.playbackState === "opening") {
+    return {
+      ...base,
+      watchProgress,
+      continueWatching: watchProgress.map((held) => ({ ...held, upNext: false })),
+      playback: {
+        ...basePlayback,
+        state: "opening",
+        failure: null,
+        position: 0,
+        duration: null,
+        buffered: null,
+        chapters: [],
+        chapter: null,
+        statistics: null,
+        torrent: spec.torrent ? { ...spec.torrent } : null,
+        stalled: false,
+      },
+    };
+  }
+
+  const pos = basePlayback.position ?? 2314;
+  const dur = basePlayback.duration ?? 6420;
+  const buffered = spec.stalled
+    ? { start: Math.max(0, pos - 900), end: Math.min(dur, pos + 1) }
+    : { start: Math.max(0, pos - 900), end: Math.min(dur, pos + 1200) };
+
+  return {
+    ...base,
+    watchProgress,
+    continueWatching: watchProgress.map((held) => ({ ...held, upNext: false })),
+    playback: {
+      ...basePlayback,
+      state: "playing",
+      failure: null,
+      buffered,
+      torrent: spec.torrent ? { ...spec.torrent } : null,
+      stalled: spec.stalled,
+    },
+  };
+}
+
+/** Switch the preview Host directly into one of the #307 pretend states. */
+export function protoSetTorrentState(stateId: TorrentStateId): void {
+  const anchor = baseSnapshot ?? current;
+  if (!anchor) {
+    return;
+  }
+  stopTicker();
+  const next = protoTorrentSnapshot(anchor, stateId);
+  publish({ ...next, revision: (current?.revision ?? anchor.revision) + 1 });
+  if (next.playback.state === "playing" && !next.playback.stalled) {
+    startTicker();
+  }
+}
+

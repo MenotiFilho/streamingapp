@@ -15,7 +15,7 @@ import type { Action, Chapter } from "../core/wire";
 import type { ActionError } from "../core/errors";
 import { VOLUME_MAX, formatSpeed, formatVolume, volumeFraction } from "../core/controls";
 import type { Intent } from "../core/input";
-import { formatTime, playingName } from "../core/playback";
+import { formatTime } from "../core/playback";
 import { remainingTime, spacedChapterMarks, timelineFraction } from "../core/osd";
 import type { PlaybackView } from "../core/playbackView";
 import {
@@ -44,6 +44,13 @@ import { focusAndReveal } from "./reveal";
 import { episodesMenuVisible } from "./episodesMenu";
 import { useOsdVisibility } from "./useOsdVisibility";
 import { useReducedMotion } from "../core/react/useReducedMotion";
+import { PROTO, useTorrentProto } from "../prototype/torrent307";
+import {
+  WindowCornerChip,
+  WindowOpeningStatus,
+  WindowStallRing,
+  WindowTimelineElapsed,
+} from "../prototype/torrent307.window";
 import "./repertory/osd.css";
 
 /** One press of the pad's volume faces, on the Host's 0–130 scale. */
@@ -203,8 +210,12 @@ export function PlayerOverlay() {
     setPreviewSettled(true);
   }, [playback?.state]);
 
+  const protoView = useTorrentProto();
+  const pictureBtn = useRef<HTMLButtonElement | null>(null);
   const { visible, wake } = useOsdVisibility({
-    pinned: popover !== null,
+    pinned:
+      popover !== null ||
+      (PROTO && (protoView.stateId === "playing" || (protoView.variant === "B" && Boolean(playback?.stalled)))),
     chrome,
     onHide: () => focusAndReveal(pictureButton.current),
   });
@@ -296,6 +307,30 @@ export function PlayerOverlay() {
     },
     [pop, popover, push],
   );
+
+  // PROTOTYPE (#307, throwaway — never merged): keep OSD up & Picture open for `playing`,
+  // and force OSD visible immediately on Variant B stall.
+  useEffect(() => {
+    if (!PROTO) {
+      return;
+    }
+    if (protoView.stateId === "playing" || (protoView.variant === "B" && Boolean(playback?.stalled))) {
+      wake("key");
+    }
+  }, [playback?.stalled, protoView.stateId, protoView.variant, wake]);
+
+  useEffect(() => {
+    if (!PROTO) {
+      return;
+    }
+    if (protoView.stateId === "playing") {
+      if (popover !== osdPopoverId("picture") && pictureBtn.current && visible) {
+        openPopover("picture", pictureBtn.current);
+      }
+    } else if (popover === osdPopoverId("picture")) {
+      pop();
+    }
+  }, [openPopover, pop, popover, protoView.stateId, visible]);
 
   /**
    * An episode step owns its refusal: the Host answers `no_previous_episode` /
@@ -474,6 +509,9 @@ export function PlayerOverlay() {
             <span className="rep-player-still-scrim" />
           </div>
         ) : null}
+        {PROTO && protoView.variant === "C" && view.stalled ? (
+          <div className="proto-picture-dim" aria-hidden="true" />
+        ) : null}
         {canTransport ? (
           <button
             ref={pictureButton}
@@ -508,14 +546,12 @@ export function PlayerOverlay() {
               {view.openingPreview?.subtitle ? (
                 <p className="shell-player-preview-subtitle">{view.openingPreview.subtitle}</p>
               ) : null}
-              {state === "opening" ? (
-                <p className="shell-player-preview-note" data-testid="opening-stream">
-                  {`Opening ${playingName(view.nowPlaying)}…`}
-                </p>
-              ) : null}
+              {state === "opening" ? <WindowOpeningStatus view={view} /> : null}
             </div>
           </div>
         ) : null}
+        <WindowStallRing view={view} />
+        <WindowCornerChip view={view} osdVisible={visible} />
         {state === "ended" ? (
           <p className="shell-picture-note" data-testid="stream-ended">
             The Stream reached its end.
@@ -595,6 +631,7 @@ export function PlayerOverlay() {
               >
                 <div className="shell-osd-cluster shell-osd-cluster-left">
                   <IconButton
+                    ref={pictureBtn}
                     testId="osd-picture"
                     label="Picture"
                     title="Picture — aspect, crop and statistics"
@@ -902,6 +939,7 @@ function Timeline({
   onSeek: (seconds: number) => void;
 }) {
   const { duration } = view;
+  const protoView = useTorrentProto();
   const [scrub, setScrub] = useState<number | null>(null);
   const [point, setPoint] = useState<{ at: number; fraction: number } | null>(null);
   const [trackWidth, setTrackWidth] = useState(0);
@@ -915,7 +953,6 @@ function Timeline({
   // track that has not been measured yet keeps every mark.
   const marks = spacedChapterMarks(allMarks, trackWidth);
   const dense = marks.length < allMarks.length;
-  const left = formatTime(at);
   const right = remainingTime(at, duration);
   const chapter = point ? view.chapterAt(point.at) : null;
 
@@ -977,7 +1014,11 @@ function Timeline({
           />
         )}
         <span className="shell-osd-progress" style={{ width: `${fraction * 100}%` }} />
-        <span className="shell-osd-playhead" style={{ left: `${fraction * 100}%` }} />
+        <span
+          className="shell-osd-playhead"
+          data-stalled={PROTO && protoView.variant === "B" && view.stalled ? "true" : undefined}
+          style={{ left: `${fraction * 100}%` }}
+        />
         {marks.map(({ chapter, fraction: atFraction }) => (
           <span
             key={chapter.index}
@@ -1040,9 +1081,7 @@ function Timeline({
         />
       ) : null}
 
-      <span className="shell-osd-elapsed tabular" data-testid="elapsed">
-        {left}
-      </span>
+      <WindowTimelineElapsed view={view} at={at} />
       <span className="shell-osd-remaining tabular" data-testid="remaining">
         {right}
       </span>

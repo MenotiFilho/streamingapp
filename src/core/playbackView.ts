@@ -37,6 +37,7 @@ import type {
   PlaybackSnapshot,
   PlaybackState,
   ResumeEntry,
+  TorrentStatus,
   Track,
 } from "./wire";
 
@@ -108,6 +109,10 @@ export type PlaybackView = {
   streamKey: string | null;
   /** The art and name of the Stream that is opening, where the Host holds them. */
   openingPreview: OpeningPreview | null;
+  // PROTOTYPE (#307, throwaway — never merged)
+  torrent: TorrentStatus | null;
+  // PROTOTYPE (#307, throwaway — never merged)
+  stalled: boolean;
 };
 
 function progressFor(
@@ -193,5 +198,7 @@ export function playbackView(
     pending: input.pending,
     streamKey: streamKey(playback.nowPlaying),
     openingPreview: openingPreviewOf(progress),
+    torrent: playback.torrent ?? null,
+    stalled: playback.stalled ?? false,
   };
 }

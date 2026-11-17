@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { actionKey } from "../core/actionKey";
 import { episodesOf } from "../core/episodes";
@@ -8,6 +8,11 @@ import { seasonName } from "../core/title";
 import type { Title, Video } from "../core/wire";
 import { MenuGroup, MenuReadout, MenuRow } from "../kit/Menu";
 import { Sheet } from "../kit/Sheet";
+import {
+  PROTO,
+  useTorrentProto,
+  withTorrentStatistics,
+} from "../prototype/torrent307";
 import {
   episodeLabel,
   NO_EPISODES,
@@ -55,7 +60,16 @@ export function PlayerSheets({
   onClose,
   onEpisode,
 }: PlayerSheetsProps) {
-  const [showStatistics, setShowStatistics] = useState(false);
+  const protoView = useTorrentProto();
+  const [showStatistics, setShowStatistics] = useState(
+    () => PROTO && protoView.stateId === "playing",
+  );
+  useEffect(() => {
+    if (PROTO && protoView.stateId === "playing") {
+      setShowStatistics(true);
+    }
+  }, [protoView.stateId]);
+
   const playback = state.snapshot?.playback ?? null;
 
   // The card is popped with the Stream, so a sheet over nothing is no sheet.
@@ -63,11 +77,15 @@ export function PlayerSheets({
     return null;
   }
 
-  const groups = sheetGroups(
-    plate,
+  const groups = withTorrentStatistics(
+    sheetGroups(
+      plate,
+      playback,
+      state.snapshot?.preferences.subtitleScale ?? 1,
+      showStatistics,
+    ),
     playback,
-    state.snapshot?.preferences.subtitleScale ?? 1,
-    showStatistics,
+    protoView.variant,
   );
 
   return (

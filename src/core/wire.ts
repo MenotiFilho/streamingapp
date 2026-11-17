@@ -277,6 +277,16 @@ export type Statistics = {
   hardwareDecode: string | null;
 };
 
+// PROTOTYPE (#307, throwaway — never merged)
+export type TorrentPhase = "finding" | "fetching";
+
+// PROTOTYPE (#307, throwaway — never merged)
+export type TorrentStatus = {
+  phase: TorrentPhase;
+  peers: number;
+  rate: number;
+};
+
 /**
  * What every client is told about playback: the one genuinely shared state.
  * Mirrors `PlaybackSnapshot` in `host-core`.
@@ -322,6 +332,10 @@ export type PlaybackSnapshot = {
   aspect: Aspect | null;
   resolution: VideoSize | null;
   statistics: Statistics | null;
+  // PROTOTYPE (#307, throwaway — never merged)
+  torrent?: TorrentStatus | null;
+  // PROTOTYPE (#307, throwaway — never merged)
+  stalled?: boolean;
 };
 
 /**

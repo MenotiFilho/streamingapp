@@ -9,11 +9,10 @@ import { actionKey } from "../core/actionKey";
 import { formatVolume } from "../core/controls";
 import type { NewLevel } from "../core/navigation";
 import {
-  remainingTime,
   spacedChapterMarks,
   timelineFraction,
 } from "../core/osd";
-import { formatTime, playingName, watching } from "../core/playback";
+import { formatTime, watching } from "../core/playback";
 import type { PlaybackView } from "../core/playbackView";
 import { usePlaybackView } from "../core/react/usePlaybackView";
 import { usePreview } from "../core/react/usePreview";
@@ -34,9 +33,7 @@ import {
 import {
   CARD_NAME,
   chapterName,
-  ENDED_NOTE,
   NOW_PLAYING,
-  openingNote,
   playerLevel,
   seekTo,
   setMuted,
@@ -51,6 +48,13 @@ import {
   VOLUME_LABEL,
   type TrackFill,
 } from "./playerScreen";
+import { PROTO, useTorrentProto } from "../prototype/torrent307";
+import {
+  RemoteCardStatus,
+  RemotePlateLadder,
+  RemoteTimelineClocks,
+  remoteStripStatusNote,
+} from "../prototype/torrent307.remote";
 
 /**
  * The Remote's player, drawn at hand scale (#213, ADR-0035 §2).
@@ -86,6 +90,7 @@ export type PlayerStripProps = {
  */
 export function PlayerStrip({ session, title, push }: PlayerStripProps) {
   const view = usePlaybackView(session, true);
+  const protoView = useTorrentProto();
 
   if (!view || !watching(view.state)) {
     return null;
@@ -93,6 +98,8 @@ export function PlayerStrip({ session, title, push }: PlayerStripProps) {
 
   const [rewind, playPause] = stripControls(view);
   const art = view.openingPreview?.art ?? null;
+  const stripNote = remoteStripStatusNote(view, protoView.variant, protoView.graceElapsed);
+  const stripStalled = PROTO && protoView.variant === "B" && view.stalled;
 
   return (
     <section
@@ -112,8 +119,8 @@ export function PlayerStrip({ session, title, push }: PlayerStripProps) {
       >
         <span className="remote-player-strip-title">{view.title}</span>
         <span className="remote-player-strip-episode">{view.episodeLabel}</span>
-        {view.pictureNote ? (
-          <span className="remote-player-strip-note">{view.pictureNote}</span>
+        {stripNote ? (
+          <span className="remote-player-strip-note">{stripNote}</span>
         ) : null}
         <span className="remote-visually-hidden">{STRIP_EXPAND}</span>
       </button>
@@ -125,7 +132,11 @@ export function PlayerStrip({ session, title, push }: PlayerStripProps) {
         onTake={(action) => void session.take(action)}
       />
 
-      <span className="remote-player-strip-progress" aria-hidden="true">
+      <span
+        className="remote-player-strip-progress"
+        data-stalled={stripStalled ? "true" : undefined}
+        aria-hidden="true"
+      >
         <span style={{ width: `${view.fraction * 100}%` }} />
       </span>
     </section>
@@ -149,6 +160,7 @@ export function PlayerCard({
   push: (level: NewLevel<RemotePayload>) => string;
 }) {
   const view = usePlaybackView(session, true);
+  const protoView = useTorrentProto();
 
   if (!view || !watching(view.state)) {
     return null;
@@ -156,12 +168,7 @@ export function PlayerCard({
 
   const controls = transportControls(view);
   const take = (action: Action) => void session.take(action);
-  const stateNote =
-    view.state === "opening"
-      ? openingNote(playingName(view.nowPlaying))
-      : view.state === "ended"
-        ? ENDED_NOTE
-        : null;
+  const stalledDim = PROTO && protoView.variant === "C" && view.stalled;
 
   return (
     <section
@@ -170,7 +177,7 @@ export function PlayerCard({
       aria-label={CARD_NAME}
       data-testid="remote-player-card"
     >
-      <PlayerPlate view={view} />
+      <PlayerPlate view={view} stalledDim={stalledDim} />
 
       {view.pictureNote ? (
         <p className="remote-player-note" role="status">
@@ -178,11 +185,7 @@ export function PlayerCard({
         </p>
       ) : null}
 
-      {stateNote ? (
-        <p className="remote-player-state" role="status">
-          {stateNote}
-        </p>
-      ) : null}
+      <RemoteCardStatus view={view} />
 
       <PlayerTimeline view={view} session={session} />
 
@@ -231,13 +234,24 @@ function PlayerMenus({
 }
 
 /** The card's plate: the film's own backdrop, the Title and the episode. */
-function PlayerPlate({ view }: { view: PlaybackView }) {
+function PlayerPlate({
+  view,
+  stalledDim = false,
+}: {
+  view: PlaybackView;
+  stalledDim?: boolean;
+}) {
   const art = view.openingPreview?.art ?? null;
 
   return (
-    <div className="remote-player-plate" data-empty={art === null}>
+    <div
+      className="remote-player-plate"
+      data-empty={art === null}
+      data-stalled-dim={stalledDim ? "true" : undefined}
+    >
       {art ? <img className="remote-player-plate-art" src={art} alt="" /> : null}
       <span className="remote-player-plate-scrim" aria-hidden="true" />
+      <RemotePlateLadder view={view} />
       <div className="remote-player-plate-copy">
         <span className="remote-player-kicker">{NOW_PLAYING}</span>
         <h1 className="remote-player-title">{view.title}</h1>
@@ -264,6 +278,7 @@ function PlayerTimeline({
   view: PlaybackView;
   session: Session;
 }) {
+  const protoView = useTorrentProto();
   const range = timelineRange(view);
   const [scrub, setScrub] = useState<number | null>(null);
   const [point, setPoint] = useState<{ at: number; fraction: number } | null>(null);
@@ -276,6 +291,7 @@ function PlayerTimeline({
   const fills = trackFills(fraction, view.buffered);
   const marks = spacedChapterMarks(view.marks, width);
   const chapter = point ? view.chapterAt(point.at) : null;
+  const stalledPlayhead = PROTO && protoView.variant === "B" && view.stalled;
 
   useEffect(() => {
     const node = track.current;
@@ -337,6 +353,7 @@ function PlayerTimeline({
       >
         <span
           className="remote-player-playhead"
+          data-stalled={stalledPlayhead ? "true" : undefined}
           style={{ left: `${fraction * 100}%` }}
         />
         {marks.map(({ chapter: mark, fraction: at }) => (
@@ -391,10 +408,7 @@ function PlayerTimeline({
         onBlur={commit}
       />
 
-      <div className="remote-player-clocks" aria-hidden="true">
-        <span className="tabular">{formatTime(shown)}</span>
-        <span className="tabular">{remainingTime(shown, view.duration)}</span>
-      </div>
+      <RemoteTimelineClocks view={view} shown={shown} />
     </div>
   );
 }

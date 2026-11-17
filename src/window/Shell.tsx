@@ -19,6 +19,7 @@ import {
   type ShellLevel,
   type WindowPayload,
 } from "./navigation";
+import { PrototypeBar } from "../prototype/torrent307";
 
 /** The id the player level holds, so a later push can replace it rather than stack a copy. */
 const PLAYER_LEVEL = "player";
@@ -256,10 +257,11 @@ export function Shell({ client }: { client?: HostLink }) {
         ) : null}
         {!playerActive && playback?.failure ? (
           <p role="alert" className="shell-alert">
-            {`${playback.failure} Pick another Stream from the list.`}
+            {`${playback.failure} Pick another Stream from the list.` }
           </p>
         ) : null}
       </div>
+      <PrototypeBar surface="window" />
     </ShellContext.Provider>
   );
 }
