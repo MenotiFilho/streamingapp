@@ -1360,49 +1360,16 @@ impl Host {
                 // `observe`, because agreeing to try is not playing. The Title
                 // rides along so the play is recorded as progress in a Video of
                 // it (#29), and a fresh play starts at the Stream's beginning.
-                self.player
-                    .open(&chosen.url, None)
-                    .map_err(|error| ActionError::Playback {
-                        detail: error.to_string(),
-                    })?;
-                // Armed at the same moment the Stream opens, and cheap: the
-                // worker does not connect until the first still is asked for
-                // (ADR-0028).
-                self.arm_preview(&chosen.url);
-                Resolved::Change(Change::Play {
-                    chosen,
-                    title: Some(Box::new(title)),
-                    start: None,
-                })
+                Resolved::Change(self.open_stream(chosen, Some(title), None)?)
             }
             ValidatedAction::Resume { video } => {
                 let (chosen, title, start) = self.resume(&video)?;
-                self.player
-                    .open(&chosen.url, start)
-                    .map_err(|error| ActionError::Playback {
-                        detail: error.to_string(),
-                    })?;
-                self.arm_preview(&chosen.url);
-                Resolved::Change(Change::Play {
-                    chosen: Box::new(chosen),
-                    title: Some(Box::new(title)),
-                    start,
-                })
+                Resolved::Change(self.open_stream(Box::new(chosen), Some(title), start)?)
             }
             ValidatedAction::PlayUpNext { title } => {
                 let (entry, previous) = self.up_next(&title)?;
                 let chosen = self.up_next_stream(&entry, &previous)?;
-                self.player
-                    .open(&chosen.url, None)
-                    .map_err(|error| ActionError::Playback {
-                        detail: error.to_string(),
-                    })?;
-                self.arm_preview(&chosen.url);
-                Resolved::Change(Change::Play {
-                    chosen: Box::new(chosen),
-                    title: Some(Box::new(entry.title)),
-                    start: None,
-                })
+                Resolved::Change(self.open_stream(Box::new(chosen), Some(entry.title), None)?)
             }
             ValidatedAction::SetPaused { paused } => {
                 self.playing(Control::Pause)?;
@@ -1585,6 +1552,33 @@ impl Host {
         self.preview_since = None;
     }
 
+    /// Open `chosen` in the Player at `start`, arm the Seek preview for its
+    /// URL, and return the [`Change::Play`] every client is told.
+    ///
+    /// Every play Action (`play_stream`, `resume`, `play_up_next`,
+    /// `next_episode`, `previous_episode`) opens its Stream here so opening,
+    /// preview arming, and play-replacement side effects live in one place.
+    fn open_stream(
+        &mut self,
+        chosen: Box<ChosenStream>,
+        title: Option<TitleStub>,
+        start: Option<f64>,
+    ) -> Result<Change, ActionError> {
+        self.player
+            .open(&chosen.url, start)
+            .map_err(|error| ActionError::Playback {
+                detail: error.to_string(),
+            })?;
+        // Armed at the same moment the Stream opens, and cheap: the worker does
+        // not connect until the first still is asked for (ADR-0028).
+        self.arm_preview(&chosen.url);
+        Ok(Change::Play {
+            chosen,
+            title: title.map(Box::new),
+            start,
+        })
+    }
+
     /// Take one episode step: the neighbouring Stream chosen and opened, and
     /// the change every client is told.
     ///
@@ -1598,39 +1592,15 @@ impl Host {
         self.stepping(step.control())?;
         let chosen = self.adjacent_episode(step)?;
         let title = self.playing_title();
-        self.player
-            .open(&chosen.url, None)
-            .map_err(|error| ActionError::Playback {
-                detail: error.to_string(),
-            })?;
-        self.arm_preview(&chosen.url);
-        Ok(Resolved::Change(Change::Play {
-            chosen: Box::new(chosen),
-            title: title.map(Box::new),
-            start: None,
-        }))
+        Ok(Resolved::Change(self.open_stream(
+            Box::new(chosen),
+            title,
+            None,
+        )?))
     }
 
     /// The Stream one step from the one playing in the direction `step` names,
     /// or why the Host will not open one.
-    ///
-    /// The Video playing must be an episode of a series — a reading of the id's
-    /// own shape, never of the Title's `type`. Where the Video is an Addon's,
-    /// the Host asks the Addons that answer `meta` for its Title, in the order
-    /// they were configured, for the list that still holds the Video playing,
-    /// and the Video standing beside it in the Host's series order is the one
-    /// that plays; where the Video is TMDB's — a TMDB-first series' episode —
-    /// the list is TMDB's own, the one the client is looking at, whose
-    /// numbering the Addons may not share (ADR-0020's known hazard). That order
-    /// is numbered seasons ascending, episodes within each season, then the
-    /// specials, and no step crosses between the numbered seasons and the
-    /// specials (ADR-0039). Either way the neighbour plays from the Addon
-    /// already playing, in the spelling that Addon declares, so continuity is
-    /// kept: the same `bingeGroup` where that Addon offers one, and otherwise
-    /// its first playable candidate. Nothing here invents an id by arithmetic
-    /// and nothing re-ranks the candidates: the neighbour is the source's own,
-    /// and continuing the release is continuity rather than a score (ADR-0012,
-    /// ADR-0014).
     fn adjacent_episode(&self, step: EpisodeStep) -> Result<ChosenStream, ActionError> {
         let Some(playing) = self.state.playback().chosen() else {
             // Behind `playing(Control::…)` this cannot happen, and it is a
@@ -1642,17 +1612,41 @@ impl Host {
         let now = &playing.now_playing;
         let refused = |detail: String| step.refusal(detail);
 
-        let neighbour_id = match tmdb::video_id(&now.video.r#type, &now.video.id) {
-            Some(video) => self.tmdb_adjacent_episode(step, video).ok_or_else(|| {
-                refused(format!(
-                    "TMDB lists no episode {} {}",
-                    step.side(),
-                    now.video
-                ))
-            })?,
+        let neighbour = self.neighbour_video(step, &now.video)?;
+        let video = VideoRef::parse(&now.video.r#type, &neighbour.id)
+            .map_err(|error| refused(error.to_string()))?;
+
+        // The neighbour is played from the Addon already playing, so that the
+        // release continues: another Addon's candidates would be a different set
+        // of releases, which is not "the episode beside what is playing".
+        self.stream_by_continuity(&now.addon, now.binge_group.as_deref(), &video)
+            .map_err(refused)
+    }
+
+    /// The neighbouring `Video` standing beside `from` in the direction `step`
+    /// names, keeping its name, still (`thumbnail`), and `air_date` — or why
+    /// the Host finds none.
+    ///
+    /// `from` must be an episode of a series — a reading of the id's own
+    /// shape, never of the Title's `type`. Where the Video is an Addon's, the
+    /// Host asks the Addons that answer `meta` for its Title, in the order they
+    /// were configured, for the list that still holds `from`, and the Video
+    /// standing beside it in the Host's series order is returned; where the
+    /// Video is TMDB's — a TMDB-first series' episode — the list is TMDB's own,
+    /// the one the client is looking at, whose numbering the Addons may not
+    /// share (ADR-0020's known hazard). That order is numbered seasons
+    /// ascending, episodes within each season, then the specials, and no step
+    /// crosses between the numbered seasons and the specials (ADR-0039).
+    fn neighbour_video(&self, step: EpisodeStep, from: &VideoRef) -> Result<Video, ActionError> {
+        let refused = |detail: String| step.refusal(detail);
+
+        match tmdb::video_id(&from.r#type, &from.id) {
+            Some(video) => self
+                .tmdb_neighbour_video(step, video)
+                .ok_or_else(|| refused(format!("TMDB lists no episode {} {}", step.side(), from))),
             None => {
-                let title_id = episode_title(step, &now.video)?;
-                let asked = TitleRef::parse(&now.video.r#type, &title_id)
+                let title_id = episode_title(step, from)?;
+                let asked = TitleRef::parse(&from.r#type, &title_id)
                     .map_err(|error| refused(error.to_string()))?;
 
                 // The Title's Videos come from the first Addon that answers `meta` for
@@ -1660,9 +1654,9 @@ impl Host {
                 // stands beside it — whether or not anything does. Two Addons can
                 // number a series differently (ADR-0020), so only the list that
                 // contains the Video playing is known to put the right one next to it.
-                let requested_meta = ResourceRequest::new(META, &now.video.r#type, &title_id);
+                let requested_meta = ResourceRequest::new(META, &from.r#type, &title_id);
                 let view = self.view();
-                let mut neighbour_id = None;
+                let mut neighbour = None;
                 for addon in view.addons() {
                     if !addon.manifest().answers(&requested_meta) {
                         continue;
@@ -1673,67 +1667,29 @@ impl Host {
                     // Only the list that still holds the Video playing is known
                     // to put the right one beside it; a list that does not hold
                     // it has nothing to say about it.
-                    if !title.videos.iter().any(|video| video.id == now.video.id) {
+                    if !title.videos.iter().any(|video| video.id == from.id) {
                         continue;
                     }
-                    neighbour_id = step
-                        .neighbour(&title.videos, &now.video.id)
-                        .map(|video| video.id.clone());
+                    neighbour = step.neighbour(&title.videos, &from.id).cloned();
                     break;
                 }
 
-                neighbour_id.ok_or_else(|| {
+                neighbour.ok_or_else(|| {
                     refused(format!(
                         "no Addon lists an episode {} {}",
                         step.side(),
-                        now.video
+                        from
                     ))
-                })?
+                })
             }
-        };
-
-        // The neighbour is played from the Addon already playing, so that the
-        // release continues: another Addon's candidates would be a different set
-        // of releases, which is not "the episode beside what is playing".
-        let playing_addon =
-            self.state.addon(&now.addon).cloned().ok_or_else(|| {
-                refused(format!("the Addon {} is no longer configured", now.addon))
-            })?;
-        let video = VideoRef::parse(&now.video.r#type, &neighbour_id)
-            .map_err(|error| refused(error.to_string()))?;
-        let Some(requested_stream) = self.view().ask_of(&playing_addon, STREAM, &video) else {
-            return Err(refused(format!(
-                "{} has nothing for {}/{}",
-                now.addon, now.video.r#type, neighbour_id
-            )));
-        };
-        let streams = self
-            .provider
-            .streams(&playing_addon, &requested_stream)
-            .map_err(|error| refused(error.to_string()))?;
-
-        streams
-            .iter()
-            .find(|stream| stream.binge_group == now.binge_group)
-            .and_then(|stream| playable(&video, playing_addon.id(), stream))
-            .or_else(|| {
-                streams
-                    .iter()
-                    .find_map(|stream| playable(&video, playing_addon.id(), stream))
-            })
-            .ok_or_else(|| {
-                refused(format!(
-                    "no candidate for {}/{} is one this Host can play",
-                    now.video.r#type, neighbour_id
-                ))
-            })
+        }
     }
 
     /// The Video standing beside what is playing in TMDB's own episodes, in the
     /// direction `step` names — or nothing where TMDB lists none, the Video is
     /// a film, this Host cannot read the list, or the step would cross into the
     /// specials (ADR-0020, ADR-0039 §2).
-    fn tmdb_adjacent_episode(&self, step: EpisodeStep, video: tmdb::TmdbVideo) -> Option<String> {
+    fn tmdb_neighbour_video(&self, step: EpisodeStep, video: tmdb::TmdbVideo) -> Option<Video> {
         let at = video.at?;
         let view = self.view();
         let key = view.tmdb_credential()?;
@@ -1741,7 +1697,51 @@ impl Host {
         let videos = view.tmdb_videos(&read, video.id, &key)?;
 
         let id = tmdb::video_spelling(video.id, Some(at));
-        step.neighbour(&videos, &id).map(|video| video.id.clone())
+        step.neighbour(&videos, &id).cloned()
+    }
+
+    /// A playable Stream for `video` by continuity from `stream_addon` and
+    /// `binge_group`: that Addon's candidate with the same `bingeGroup` where
+    /// one was named, else that Addon's first playable candidate (ADR-0012,
+    /// ADR-0014).
+    ///
+    /// A different Addon is not a substitute: continuing a release is
+    /// continuity rather than a second ranking.
+    fn stream_by_continuity(
+        &self,
+        stream_addon: &AddonId,
+        binge_group: Option<&str>,
+        video: &VideoRef,
+    ) -> Result<ChosenStream, String> {
+        let addon = self
+            .state
+            .addon(stream_addon)
+            .cloned()
+            .ok_or_else(|| format!("the Addon {stream_addon} is no longer configured"))?;
+        let requested = self
+            .view()
+            .ask_of(&addon, STREAM, video)
+            .ok_or_else(|| format!("{stream_addon} has nothing for {video}"))?;
+        let streams = self
+            .provider
+            .streams(&addon, &requested)
+            .map_err(|error| error.to_string())?;
+
+        let same_release = binge_group
+            .and_then(|group| {
+                streams
+                    .iter()
+                    .find(|stream| stream.binge_group.as_deref() == Some(group))
+            })
+            .and_then(|stream| playable(video, stream_addon, stream));
+
+        same_release
+            .or_else(|| {
+                streams
+                    .iter()
+                    .find_map(|stream| playable(video, stream_addon, stream))
+            })
+            .ok_or_else(|| format!("no candidate for {video} is one this Host can play"))
     }
 
     /// The Title's Up next and the finished Video whose Stream it continues, or
@@ -1813,41 +1813,9 @@ impl Host {
                 previous.video.r#type, previous.video.id
             )));
         };
-        let Some(addon) = self.state.addon(stream_addon).cloned() else {
-            return Err(refused(format!(
-                "the Addon {stream_addon} that streamed {}/{} is no longer configured",
-                previous.video.r#type, previous.video.id
-            )));
-        };
-        let Some(requested) = self.view().ask_of(&addon, STREAM, &video) else {
-            return Err(refused(format!("{stream_addon} has nothing for {video}")));
-        };
-        let streams = self
-            .provider
-            .streams(&addon, &requested)
-            .map_err(|error| refused(error.to_string()))?;
 
-        let same_release = previous
-            .binge_group
-            .as_ref()
-            .and_then(|group| {
-                streams
-                    .iter()
-                    .find(|stream| stream.binge_group.as_ref() == Some(group))
-            })
-            .and_then(|stream| playable(&video, stream_addon, stream));
-
-        same_release
-            .or_else(|| {
-                streams
-                    .iter()
-                    .find_map(|stream| playable(&video, stream_addon, stream))
-            })
-            .ok_or_else(|| {
-                refused(format!(
-                    "no candidate for {video} is one this Host can play"
-                ))
-            })
+        self.stream_by_continuity(stream_addon, previous.binge_group.as_deref(), &video)
+            .map_err(refused)
     }
 
     /// The Stream a resume plays and where in it to start, or why the Host will
@@ -2028,5 +1996,368 @@ impl EpisodeStep {
             Self::Next => ActionError::NoNextEpisode { detail },
             Self::Previous => ActionError::NoPreviousEpisode { detail },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::clock::FixtureClock;
+    use crate::fetcher::FixtureFetcher;
+    use crate::playback::{FixturePlayer, PlaybackError};
+    use crate::preview::FixturePreviewer;
+    use crate::provider::FixtureProvider;
+    use crate::secret::{InMemorySecretStore, SecretBackend};
+    use crate::store::InMemoryStore;
+    use crate::stream::Playback;
+
+    const SERIES: &str = "https://series.example.org/manifest.json";
+    const SERIES_ID: &str = "org.example.series";
+    const META_URL: &str = "https://series.example.org/meta/series/tt0903747.json";
+    const SERIES_META: &str = include_str!("../tests/fixtures/cinemeta-meta-series.json");
+
+    const TMDB_KEY: &str = "0123456789abcdef0123456789abcdef";
+    const TMDB_TV_1396: &str = concat!(
+        "https://api.themoviedb.org/3/tv/1396?append_to_response=",
+        "season/0,season/1,season/2,season/3,season/4,season/5,season/6,season/7,",
+        "season/8,season/9,season/10,season/11,season/12,season/13,season/14,season/15,",
+        "season/16,season/17,season/18,season/19",
+        "&api_key=0123456789abcdef0123456789abcdef",
+    );
+    const TMDB_TV_DETAILS_APPENDED: &str =
+        include_str!("../tests/fixtures/tmdb-tv-details-appended.json");
+
+    fn action(body: serde_json::Value) -> Action {
+        let envelope = serde_json::json!({
+            "version": crate::ACTION_VERSION,
+            "action": body,
+        });
+        Action::parse(&envelope.to_string()).expect("a test Action parses")
+    }
+
+    fn manifest(id: &str, resources: &str) -> String {
+        format!(
+            r#"{{"id":"{id}","name":"{id}","version":"1.0.0",
+                 "resources":[{resources}],"types":["movie","series"],"catalogs":[]}}"#
+        )
+    }
+
+    fn direct_candidate(name: &str, url: &str, binge_group: Option<&str>) -> Stream {
+        Stream {
+            name: Some(name.to_owned()),
+            description: None,
+            playback: Playback::Direct {
+                url: url.to_owned(),
+            },
+            warnings: Vec::new(),
+            filename: None,
+            binge_group: binge_group.map(str::to_owned),
+        }
+    }
+
+    fn torrent_candidate(name: &str, info_hash: &str, binge_group: Option<&str>) -> Stream {
+        Stream {
+            name: Some(name.to_owned()),
+            description: None,
+            playback: Playback::InfoHash {
+                info_hash: info_hash.to_owned(),
+            },
+            warnings: Vec::new(),
+            filename: None,
+            binge_group: binge_group.map(str::to_owned),
+        }
+    }
+
+    fn host_with(
+        fetcher: FixtureFetcher,
+        provider: Arc<FixtureProvider>,
+        player: Arc<FixturePlayer>,
+        previewer: Arc<FixturePreviewer>,
+    ) -> Host {
+        Host::new(
+            Arc::new(InMemoryStore::new()),
+            Arc::new(fetcher),
+            Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
+            provider,
+            player,
+            Arc::new(FixtureClock::new()),
+        )
+        .expect("a Host over a store starts")
+        .with_previewer(previewer)
+    }
+
+    #[test]
+    fn neighbour_video_returns_full_video_for_an_addon_listed_series() {
+        let fetcher = FixtureFetcher::new()
+            .serving(SERIES, manifest(SERIES_ID, r#""meta","stream""#))
+            .serving(META_URL, SERIES_META);
+        let mut host = host_with(
+            fetcher,
+            Arc::new(FixtureProvider::new()),
+            Arc::new(FixturePlayer::new()),
+            Arc::new(FixturePreviewer::new()),
+        );
+        host.dispatch(action(serde_json::json!({
+            "type": "add_addon",
+            "url": SERIES,
+        })))
+        .expect("configuring the Addon works");
+
+        let s1e1 = VideoRef::parse("series", "tt0903747:1:1").unwrap();
+        let next = host
+            .neighbour_video(EpisodeStep::Next, &s1e1)
+            .expect("S1E1 has a next Video in the Addon's meta");
+        assert_eq!(
+            next,
+            Video {
+                id: "tt0903747:1:2".to_owned(),
+                name: Some("Cat's in the Bag...".to_owned()),
+                season: Some(1),
+                episode: Some(2),
+                thumbnail: Some("https://episodes.metahub.space/tt0903747/1/2/w780.jpg".to_owned()),
+                air_date: Some("2008-01-28".to_owned()),
+            }
+        );
+
+        let prev = host
+            .neighbour_video(
+                EpisodeStep::Previous,
+                &VideoRef::parse("series", &next.id).unwrap(),
+            )
+            .expect("S1E2 has a previous Video in the Addon's meta");
+        assert_eq!(
+            prev,
+            Video {
+                id: "tt0903747:1:1".to_owned(),
+                name: Some("Pilot".to_owned()),
+                season: Some(1),
+                episode: Some(1),
+                thumbnail: Some("https://episodes.metahub.space/tt0903747/1/1/w780.jpg".to_owned()),
+                air_date: Some("2008-01-21".to_owned()),
+            }
+        );
+
+        let finale = VideoRef::parse("series", "tt0903747:1:3").unwrap();
+        let s2e1 = host
+            .neighbour_video(EpisodeStep::Next, &finale)
+            .expect("season finale steps into the next season");
+        assert_eq!(s2e1.id, "tt0903747:2:1");
+        assert_eq!(s2e1.name.as_deref(), Some("Seven Thirty-Seven"));
+        assert_eq!(
+            s2e1.thumbnail.as_deref(),
+            Some("https://episodes.metahub.space/tt0903747/2/1/w780.jpg")
+        );
+        assert_eq!(s2e1.air_date.as_deref(), Some("2009-03-09"));
+
+        let last_numbered = VideoRef::parse("series", "tt0903747:2:1").unwrap();
+        assert!(
+            matches!(
+                host.neighbour_video(EpisodeStep::Next, &last_numbered),
+                Err(ActionError::NoNextEpisode { .. })
+            ),
+            "ADR-0039: numbered seasons never step into the specials"
+        );
+    }
+
+    #[test]
+    fn neighbour_video_returns_full_video_for_a_tmdb_first_series() {
+        let fetcher = FixtureFetcher::new().serving(TMDB_TV_1396, TMDB_TV_DETAILS_APPENDED);
+        let mut host = host_with(
+            fetcher,
+            Arc::new(FixtureProvider::new()),
+            Arc::new(FixturePlayer::new()),
+            Arc::new(FixturePreviewer::new()),
+        );
+        host.dispatch(action(serde_json::json!({
+            "type": "set_tmdb_key",
+            "key": TMDB_KEY,
+        })))
+        .expect("entering a TMDB key works");
+
+        let s1e1 = VideoRef::parse("series", "tmdb:1396:1:1").unwrap();
+        let next = host
+            .neighbour_video(EpisodeStep::Next, &s1e1)
+            .expect("S1E1 has a next Video in TMDB's list");
+        assert_eq!(
+            next,
+            Video {
+                id: "tmdb:1396:1:2".to_owned(),
+                name: Some("Cat's in the Bag...".to_owned()),
+                season: Some(1),
+                episode: Some(2),
+                thumbnail: Some(format!("{}/still-1396-1-2.jpg", tmdb::STILL_ROOT)),
+                air_date: Some("2008-01-27".to_owned()),
+            }
+        );
+
+        let prev = host
+            .neighbour_video(
+                EpisodeStep::Previous,
+                &VideoRef::parse("series", &next.id).unwrap(),
+            )
+            .expect("S1E2 has a previous Video in TMDB's list");
+        assert_eq!(
+            prev,
+            Video {
+                id: "tmdb:1396:1:1".to_owned(),
+                name: Some("Pilot".to_owned()),
+                season: Some(1),
+                episode: Some(1),
+                thumbnail: Some(format!("{}/still-1396-1-1.jpg", tmdb::STILL_ROOT)),
+                air_date: Some("2008-01-20".to_owned()),
+            }
+        );
+
+        let finale = VideoRef::parse("series", "tmdb:1396:1:3").unwrap();
+        let s2e1 = host
+            .neighbour_video(EpisodeStep::Next, &finale)
+            .expect("TMDB season finale steps into season 2");
+        assert_eq!(s2e1.id, "tmdb:1396:2:1");
+        assert_eq!(s2e1.name.as_deref(), Some("Seven Thirty-Seven"));
+        assert_eq!(
+            s2e1.thumbnail.as_deref(),
+            Some(format!("{}/still-1396-2-1.jpg", tmdb::STILL_ROOT).as_str())
+        );
+        assert_eq!(s2e1.air_date.as_deref(), Some("2009-03-08"));
+
+        let last_numbered = VideoRef::parse("series", "tmdb:1396:2:1").unwrap();
+        assert!(
+            matches!(
+                host.neighbour_video(EpisodeStep::Next, &last_numbered),
+                Err(ActionError::NoNextEpisode { .. })
+            ),
+            "ADR-0039: TMDB numbered seasons never step into the specials"
+        );
+    }
+
+    #[test]
+    fn stream_by_continuity_prefers_same_binge_group_else_first_playable() {
+        let grouped_first = "https://stream.example.org/grouped-other.mkv";
+        let same_group = "https://stream.example.org/same-group.mkv";
+        let ungrouped = "https://stream.example.org/ungrouped.mkv";
+        let torrent_hash = "61065ea115b7cc3e8db9fb5ab1f6f327f08bd1c9";
+
+        let fetcher =
+            FixtureFetcher::new().serving(SERIES, manifest(SERIES_ID, r#""meta","stream""#));
+        let provider = Arc::new(FixtureProvider::new().offering(
+            SERIES_ID,
+            vec![
+                torrent_candidate("torrent", torrent_hash, Some("gone-group")),
+                direct_candidate("720p", grouped_first, Some("other-group")),
+                direct_candidate("1080p", same_group, Some("the-release")),
+                direct_candidate("fallback", ungrouped, None),
+            ],
+        ));
+        let mut host = host_with(
+            fetcher,
+            provider,
+            Arc::new(FixturePlayer::new()),
+            Arc::new(FixturePreviewer::new()),
+        );
+        host.dispatch(action(serde_json::json!({
+            "type": "add_addon",
+            "url": SERIES,
+        })))
+        .expect("configuring the Addon works");
+
+        let addon = AddonId::parse(SERIES_ID).unwrap();
+        let target = VideoRef::parse("series", "tt0903747:1:2").unwrap();
+
+        let matched = host
+            .stream_by_continuity(&addon, Some("the-release"), &target)
+            .expect("matching bingeGroup is picked");
+        assert_eq!(matched.url.as_str(), same_group);
+
+        let fallback = host
+            .stream_by_continuity(&addon, Some("gone-group"), &target)
+            .expect("unplayable bingeGroup falls back to first playable candidate");
+        assert_eq!(fallback.url.as_str(), grouped_first);
+
+        let no_group = host
+            .stream_by_continuity(&addon, None, &target)
+            .expect("missing bingeGroup takes the Addon's first playable candidate");
+        assert_eq!(no_group.url.as_str(), grouped_first);
+
+        let unknown_addon = AddonId::parse("org.example.missing").unwrap();
+        assert!(host
+            .stream_by_continuity(&unknown_addon, Some("the-release"), &target)
+            .is_err());
+    }
+
+    #[test]
+    fn open_stream_opens_the_player_arms_preview_and_resolves_play() {
+        let player = Arc::new(FixturePlayer::new());
+        let previewer = Arc::new(FixturePreviewer::new());
+        let mut host = host_with(
+            FixtureFetcher::new(),
+            Arc::new(FixtureProvider::new()),
+            player.clone(),
+            previewer.clone(),
+        );
+
+        let video = VideoRef::parse("series", "tt0903747:1:2").unwrap();
+        let addon = AddonId::parse(SERIES_ID).unwrap();
+        let stream = direct_candidate(
+            "1080p",
+            "https://stream.example.org/v/tt0903747-1-2.mkv",
+            Some("the-release"),
+        );
+        let chosen = ChosenStream::parse(video, addon.clone(), &stream).unwrap();
+        let title = TitleStub::parse(&crate::progress::TitleCard {
+            addon: Some(addon),
+            id: "tt0903747".to_owned(),
+            r#type: "series".to_owned(),
+            name: "Breaking Bad".to_owned(),
+            poster: None,
+            background: None,
+        })
+        .unwrap();
+
+        let change = host
+            .open_stream(Box::new(chosen.clone()), Some(title.clone()), Some(42.5))
+            .expect("open_stream succeeds when the Player opens");
+
+        assert_eq!(
+            player.openings(),
+            vec![(
+                "https://stream.example.org/v/tt0903747-1-2.mkv".to_owned(),
+                Some(42.5)
+            )]
+        );
+        assert_eq!(
+            previewer.armed().as_deref(),
+            Some("https://stream.example.org/v/tt0903747-1-2.mkv")
+        );
+        assert!(matches!(
+            change,
+            Change::Play {
+                chosen: played,
+                title: Some(played_title),
+                start: Some(s),
+            } if *played == chosen && *played_title == title && (s - 42.5).abs() < f64::EPSILON
+        ));
+    }
+
+    #[test]
+    fn open_stream_leaves_preview_unarmed_when_player_refuses() {
+        let player = Arc::new(FixturePlayer::new().refusing(PlaybackError::Open {
+            detail: "no mpv".to_owned(),
+        }));
+        let previewer = Arc::new(FixturePreviewer::new());
+        let mut host = host_with(
+            FixtureFetcher::new(),
+            Arc::new(FixtureProvider::new()),
+            player,
+            previewer.clone(),
+        );
+
+        let video = VideoRef::parse("movie", "tt0133093").unwrap();
+        let addon = AddonId::parse(SERIES_ID).unwrap();
+        let stream = direct_candidate("1080p", "https://stream.example.org/v/movie.mkv", None);
+        let chosen = ChosenStream::parse(video, addon, &stream).unwrap();
+
+        let refused = host.open_stream(Box::new(chosen), None, None);
+        assert!(matches!(refused, Err(ActionError::Playback { .. })));
+        assert_eq!(previewer.armed(), None);
     }
 }
