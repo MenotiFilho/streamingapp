@@ -1,11 +1,17 @@
 import { describe, expect, test } from "vitest";
 
+import { actionKey } from "../core/actionKey";
 import type { Level } from "../core/navigation";
 import { playbackView } from "../core/playbackView";
 import type { PlaybackSnapshot, Title } from "../core/wire";
 import type { RemotePayload } from "./levels";
 import {
+  autoplayBanner,
+  autoplaySwitch,
+  cardStateNote,
   CARD_NAME,
+  ENDED_NOTE,
+  openingNote,
   playerLevel,
   playerLevelStale,
   seekTo,
@@ -13,6 +19,7 @@ import {
   setVolume,
   stripControls,
   stripDrawn,
+  stripEpisode,
   timelineRange,
   trackFills,
   volumeRange,
@@ -311,5 +318,123 @@ describe("the track's fills", () => {
       { from: 0, to: 0.2, role: "played" },
       { from: 0.2, to: 1, role: "buffered" },
     ]);
+  });
+});
+
+/**
+ * What the card and the strip draw of Autoplay (#318, ADR-0035 §2).
+ *
+ * The view and its text are the core's (`autoplayView`); the Remote decides
+ * only where each part sits and which Action each control takes.
+ */
+describe("the Remote's Autoplay drawings", () => {
+  const COUNTDOWN: PlaybackSnapshot["autoplay"] = {
+    next: {
+      title: { type: "series", id: "tt1" },
+      video: { type: "series", id: "tt1:1:4" },
+      episode: { season: 1, episode: 4 },
+      name: "The Fourth",
+      still: "https://images.test/4.jpg",
+    },
+    phase: "countdown",
+    remaining: 4,
+    duration: 5,
+  };
+
+  function view(
+    overrides: Partial<PlaybackSnapshot> = {},
+    pending: ReadonlySet<string> = new Set(),
+  ) {
+    const playback: PlaybackSnapshot = {
+      state: "ended",
+      autoplay: null,
+      picture: "in_window",
+      failure: null,
+      nowPlaying: null,
+      episode: { season: 1, episode: 3 },
+      position: null,
+      duration: 600,
+      buffered: null,
+      tracks: [],
+      chapters: [],
+      chapter: null,
+      speed: null,
+      volume: null,
+      muted: null,
+      subtitleDelay: 0,
+      crop: null,
+      aspect: null,
+      resolution: null,
+      statistics: null,
+      ...overrides,
+    };
+    return playbackView(playback, { played: 0, pending, watchProgress: [] });
+  }
+
+  test("the switch row is drawn for an episode and takes the flipped preference", () => {
+    expect(autoplaySwitch(view(), true)?.toggle(false)).toEqual({
+      type: "set_autoplay",
+      autoplay: false,
+    });
+    expect(autoplaySwitch(view(), false)?.toggle(true)).toEqual({
+      type: "set_autoplay",
+      autoplay: true,
+    });
+    expect(autoplaySwitch(view(), true)?.on).toBe(true);
+    expect(autoplaySwitch(view(), false)?.on).toBe(false);
+  });
+
+  test("a film has no Autoplay switch", () => {
+    expect(autoplaySwitch(view({ episode: null }), true)).toBeNull();
+  });
+
+  test("the banner is the countdown's, with Play now and Cancel as the Host's own Actions", () => {
+    const banner = autoplayBanner(view({ autoplay: COUNTDOWN }));
+
+    expect(banner).not.toBeNull();
+    expect(banner?.kicker.text).toBe("Up next · S1E4");
+    expect(banner?.digit).toBe(4);
+    expect(banner?.next.name).toBe("The Fourth");
+    expect(banner?.next.still).toBe("https://images.test/4.jpg");
+    expect(banner?.playNow.action).toEqual({ type: "next_episode" });
+    expect(banner?.cancel.action).toEqual({ type: "cancel_autoplay" });
+  });
+
+  test("Play now waits while the step it took is in flight", () => {
+    const idle = autoplayBanner(view({ autoplay: COUNTDOWN }));
+    const waiting = autoplayBanner(
+      view({ autoplay: COUNTDOWN }, new Set([actionKey({ type: "next_episode" })])),
+    );
+
+    expect(idle?.playNow.pending).toBe(false);
+    expect(waiting?.playNow.pending).toBe(true);
+  });
+
+  test("no countdown, no banner", () => {
+    expect(autoplayBanner(view())).toBeNull();
+  });
+
+  test("the card's note is the ended one only while no countdown is up", () => {
+    expect(cardStateNote(view())).toBe(ENDED_NOTE);
+    expect(cardStateNote(view({ autoplay: COUNTDOWN }))).toBeNull();
+    expect(cardStateNote(view({ state: "playing" }))).toBeNull();
+    expect(cardStateNote(view({ state: "opening", nowPlaying: null }))).toBe(
+      openingNote("a Stream"),
+    );
+  });
+
+  test("the strip's label is the countdown's text, else the episode's own", () => {
+    expect(stripEpisode(view({ autoplay: COUNTDOWN }))).toBe("Up next in 4 · S1E4");
+    expect(stripEpisode(view())).toBe("S1E3");
+  });
+
+  test("the strip's two transport cells do not change during a countdown", () => {
+    const during = stripControls(view({ autoplay: COUNTDOWN })).map((control) => [
+      control.id,
+      control.action,
+    ]);
+    const plain = stripControls(view()).map((control) => [control.id, control.action]);
+
+    expect(during).toEqual(plain);
   });
 });
