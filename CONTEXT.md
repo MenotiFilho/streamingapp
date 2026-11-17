@@ -222,7 +222,16 @@ countdown when an episode's Stream ends, or waits on the ended state until
 someone asks: a preference of the Host's, shown in Settings and in the player on
 every client (#302, #314). Orthogonal to **Up next playback** — Autoplay
 advances by `next_episode`'s continuity and never opens the picker because of Up
-next playback; the picker opens only when continuity finds no Stream.
+next playback; the picker opens only when continuity finds no Stream. After
+three episodes in a row that nobody touched, it holds on **Still watching?**
+instead of counting down (#319).
+
+**Still watching?**:
+Autoplay's hold after three auto-advances in a row with nobody touching
+anything: the Host publishes `unattended_limit` for the episode it would have
+played, with no countdown, and only a play — **Keep watching** — moves on.
+Pausing, seeking, changing the volume or any other Change from a client counts as
+being there and starts the count again (#319, ADR-0040).
 
 **Library**:
 The collection of Titles held in the owner's Stremio account. The room reads the

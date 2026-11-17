@@ -417,6 +417,44 @@ function counting(remaining = 4): Partial<PlaybackSnapshot> {
   };
 }
 
+function holding(): Partial<PlaybackSnapshot> {
+  return {
+    state: "ended",
+    autoplay: { next: NEXT, phase: "unattended_limit" },
+  };
+}
+
+describe("the Remote's Still watching? hold", () => {
+  test("the banner offers Keep watching only, which is the Host's next_episode", async () => {
+    const { host } = mount();
+    const card = await openCard();
+
+    act(() => host.publish(snapshot(holding(), 3)));
+    const banner = await within(card).findByRole("group", { name: "Still watching? · S1E3" });
+
+    expect(within(banner).getAllByRole("button").map((b) => b.textContent)).toEqual([
+      "Keep watching",
+    ]);
+    expect(within(card).queryByText("The Stream reached its end.")).not.toBeInTheDocument();
+    expect(within(banner).queryByTestId("remote-autoplay-digit")).not.toBeInTheDocument();
+
+    fireEvent.click(within(banner).getByRole("button", { name: "Keep watching" }));
+    await waitFor(() => expect(host.asked("next_episode")).toEqual([{ type: "next_episode" }]));
+  });
+
+  test("the strip's label reads Still watching?, with its cells and press unchanged", async () => {
+    const { host } = mount();
+    await screen.findByLabelText(STRIP_LABEL);
+    act(() => host.publish(snapshot(holding(), 3)));
+
+    await waitFor(() =>
+      expect(within(strip()).getByText("Still watching? · S1E3")).toBeInTheDocument(),
+    );
+    expect(within(strip()).queryByRole("button", { name: "Keep watching" })).toBeNull();
+    expect(within(strip()).getAllByRole("button")).toHaveLength(3);
+  });
+});
+
 describe("the Remote's Autoplay switch", () => {
   test("is on the card for an episode and takes set_autoplay with the flipped value", async () => {
     const { host } = mount();

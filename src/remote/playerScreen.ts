@@ -1,5 +1,5 @@
 import { actionKey } from "../core/actionKey";
-import type { AutoplayView } from "../core/autoplay";
+import { autoplayStrip, type AutoplayView } from "../core/autoplay";
 import { AUTOPLAY_SWITCH_LABEL, VOLUME_MAX } from "../core/controls";
 import type { Level, NewLevel } from "../core/navigation";
 import { playingName, watching } from "../core/playback";
@@ -83,14 +83,15 @@ export function cardStateNote(
 }
 
 /**
- * The strip's episode label: the countdown's own text ("Up next in 4 · S1E4")
- * while the Host's countdown runs, else the episode the strip already named.
- * Text only: the strip has no Cancel (#287).
+ * The strip's episode label: Autoplay's own text ("Up next in 4 · S1E4",
+ * "Still watching? · S1E4") while the Host counts down or holds, else the episode
+ * the strip already named. Text only: the strip has no Cancel and no Keep
+ * watching (#287).
  */
 export function stripEpisode(
   view: Pick<PlaybackView, "episodeLabel" | "autoplay">,
 ): string {
-  return view.autoplay.kind === "countdown" ? view.autoplay.strip : view.episodeLabel;
+  return autoplayStrip(view.autoplay) ?? view.episodeLabel;
 }
 
 /** The Autoplay switch row: what it says, where it stands, what a press sends. */
@@ -121,34 +122,47 @@ export function autoplaySwitch(
 }
 
 type Countdown = Extract<AutoplayView, { kind: "countdown" }>;
+type StillWatching = Extract<AutoplayView, { kind: "still_watching" }>;
 
 /** The countdown banner: the core's view, plus the two Actions it carries. */
-export type AutoplayBanner = Countdown & {
+export type CountdownBanner = Countdown & {
   /** Skip the rest of the countdown: the Host's `next_episode`. */
   playNow: { action: Action; pending: boolean };
   /** Stop this countdown and keep the preference. */
   cancel: { action: Action };
 };
 
+/** The "Still watching?" banner: the core's view, plus its one Action. */
+export type StillWatchingBanner = StillWatching & {
+  /** Carry on: the Host's `next_episode`, the only thing that moves a hold on. */
+  keepWatching: { action: Action; pending: boolean };
+};
+
+/** What the banner under the plate draws: the countdown, or the hold. */
+export type AutoplayBanner = CountdownBanner | StillWatchingBanner;
+
 /**
- * The banner under the plate while the Host counts down, or `null`.
+ * The banner under the plate while the Host counts down or holds, or `null`.
  *
  * It is the one `autoplayView` the window's card draws too; this adds only the
- * two Actions the buttons take. Play now is the same `next_episode` the
- * transport's step sends, so its wait is the same Session key.
+ * Actions the buttons take. Play now and Keep watching are the same
+ * `next_episode` the transport's step sends, so their wait is the same Session
+ * key.
  */
 export function autoplayBanner(
   view: Pick<PlaybackView, "autoplay" | "pending">,
 ): AutoplayBanner | null {
-  if (view.autoplay.kind !== "countdown") {
-    return null;
-  }
   const next: Action = { type: "next_episode" };
-  return {
-    ...view.autoplay,
-    playNow: { action: next, pending: view.pending.has(actionKey(next)) },
-    cancel: { action: { type: "cancel_autoplay" } },
-  };
+  const step = { action: next, pending: view.pending.has(actionKey(next)) };
+
+  switch (view.autoplay.kind) {
+    case "countdown":
+      return { ...view.autoplay, playNow: step, cancel: { action: { type: "cancel_autoplay" } } };
+    case "still_watching":
+      return { ...view.autoplay, keepWatching: step };
+    default:
+      return null;
+  }
 }
 
 /** A chapter's name: its title where the container gave one, else its place. */

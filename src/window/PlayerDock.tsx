@@ -1,5 +1,6 @@
 import { useState } from "react";
 
+import { autoplayStrip } from "../core/autoplay";
 import { VOLUME_MAX, formatVolume, volumeFraction } from "../core/controls";
 import { remainingTime, timelineFraction } from "../core/osd";
 import { formatTime, watching } from "../core/playback";
@@ -90,7 +91,7 @@ export function PlayerDock() {
           <span>Now playing</span>
           <span className="shell-player-dock-kicker-rule" aria-hidden="true" />
           <span data-testid="player-dock-episode">
-            {view.autoplay.kind === "countdown" ? view.autoplay.strip : view.episodeLabel}
+            {autoplayStrip(view.autoplay) ?? view.episodeLabel}
           </span>
         </p>
         <p className="shell-player-dock-title" data-testid="player-dock-title">
@@ -185,6 +186,16 @@ export function PlayerDock() {
             onClick={() => void take({ type: "cancel_autoplay" })}
           >
             Cancel
+          </Button>
+        ) : null}
+        {view.autoplay.kind === "still_watching" ? (
+          <Button
+            variant="ghost"
+            className="shell-player-dock-autoplay-cancel"
+            data-testid="dock-autoplay-keep-watching"
+            onClick={() => void take({ type: "next_episode" })}
+          >
+            Keep watching
           </Button>
         ) : null}
         <div className="shell-player-dock-volume" role="group" aria-label="Volume">

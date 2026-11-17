@@ -225,7 +225,8 @@ the Player are the shell's job (§5), and tests drain the queue inline.
 - `autoplay.rs`: **Autoplay**, the Host's own 5-second countdown to the next
   episode when a Stream ends. It is published in `PlaybackSnapshot.autoplay`,
   anchored to the `Clock` and checked in `Host::sample()`, so the Host advances
-  with no client attached and every client draws the same digit. (ADR-0040)
+  with no client attached and every client draws the same digit. After three
+  auto-advances nobody touched it holds on "Still watching?". (ADR-0040)
 - `preview.rs`: **Seek previews**, the still frames above the timeline. These are
   the only frames that ever cross the Player seam, produced by a *second, silent*
   libmpv instance on request, never at frame rate. (ADR-0028)

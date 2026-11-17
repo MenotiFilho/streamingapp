@@ -238,10 +238,13 @@ function PlayerAutoplaySwitch({
 }
 
 /**
- * The countdown banner, where the ended note sits: the next episode's still
- * with the digit over it, "Up next · S1E4", its name, full-width **Play now**
- * and **Cancel**, and the brass line draining along its foot. The view is the
- * core's; this draws it and sends the two Actions the decision names.
+ * The banner under the plate, where the ended note sits: the next episode's
+ * still, its name, and what the Host is doing about it. While it counts down the
+ * digit is over the still, the kicker says "Up next · S1E4", **Play now** and
+ * **Cancel** are full-width and the brass line drains along its foot. At the
+ * hold it is titled "Still watching?", has no digit and no line, and carries one
+ * **Keep watching**. The view is the core's; this draws it and sends the
+ * Actions the decision names.
  */
 function PlayerAutoplayBanner({
   banner,
@@ -250,45 +253,65 @@ function PlayerAutoplayBanner({
   banner: AutoplayBanner;
   take: (action: Action) => void;
 }) {
-  const { next, kicker } = banner;
+  const { next } = banner;
+  const counting = banner.kind === "countdown";
+  const lead = counting ? banner.kicker.lead : banner.title;
+  const label = counting ? banner.kicker.text : banner.strip;
 
   return (
     <aside
       className="remote-autoplay-banner"
       role="group"
-      aria-label={kicker.text}
+      aria-label={label}
       data-testid="remote-autoplay-banner"
     >
       <div className="remote-autoplay-still">
         {next.still ? <img src={next.still} alt="" /> : null}
-        <span className="tabular" data-testid="remote-autoplay-digit" aria-hidden="true">
-          {banner.digit}
-        </span>
+        {counting ? (
+          <span className="tabular" data-testid="remote-autoplay-digit" aria-hidden="true">
+            {banner.digit}
+          </span>
+        ) : null}
       </div>
       <div className="remote-autoplay-copy">
         <p className="remote-autoplay-kicker">
-          <span>{kicker.lead}</span>
+          <span>{lead}</span>
           <span className="remote-autoplay-rule" aria-hidden="true" />
-          <span>{kicker.episode}</span>
+          <span>{next.label}</span>
         </p>
         {next.name ? <p className="remote-autoplay-name">{next.name}</p> : null}
       </div>
       <div className="remote-autoplay-actions">
-        <Button
-          variant="primary"
-          disabled={banner.playNow.pending}
-          pending={banner.playNow.pending}
-          onClick={() => take(banner.playNow.action)}
-        >
-          Play now
-        </Button>
-        <Button variant="ghost" onClick={() => take(banner.cancel.action)}>
-          Cancel
-        </Button>
+        {banner.kind === "countdown" ? (
+          <>
+            <Button
+              variant="primary"
+              disabled={banner.playNow.pending}
+              pending={banner.playNow.pending}
+              onClick={() => take(banner.playNow.action)}
+            >
+              Play now
+            </Button>
+            <Button variant="ghost" onClick={() => take(banner.cancel.action)}>
+              Cancel
+            </Button>
+          </>
+        ) : (
+          <Button
+            variant="primary"
+            disabled={banner.keepWatching.pending}
+            pending={banner.keepWatching.pending}
+            onClick={() => take(banner.keepWatching.action)}
+          >
+            Keep watching
+          </Button>
+        )}
       </div>
-      <span className="remote-autoplay-drain" aria-hidden="true">
-        <span style={{ width: `${banner.fraction * 100}%` }} />
-      </span>
+      {banner.kind === "countdown" ? (
+        <span className="remote-autoplay-drain" aria-hidden="true">
+          <span style={{ width: `${banner.fraction * 100}%` }} />
+        </span>
+      ) : null}
     </aside>
   );
 }
