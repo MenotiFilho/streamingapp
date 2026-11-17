@@ -27,6 +27,12 @@ export const VARIANT_NAMES: Record<Variant, string> = {
 
 const STALL_GRACE_MS = 1_000;
 
+// PROTOTYPE (#307): where the opening copy sits, `?layout=lift|centre` (none = today's).
+if (typeof window !== "undefined") {
+  document.documentElement.dataset.protoLayout =
+    new URLSearchParams(window.location.search).get("layout") ?? "";
+}
+
 function readVariant(): Variant {
   if (typeof window === "undefined") {
     return "A";

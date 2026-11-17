@@ -532,3 +532,17 @@ body:has(.proto-bar[data-surface="window"]) .shell-alert-stack {
     animation: none;
   }
 }
+
+/* PROTOTYPE (#307): opening copy placements. */
+[data-proto-layout="lift"] .shell-player-preview-copy {
+  padding-bottom: calc(var(--rep-stage) * 12);
+}
+[data-proto-layout="centre"] .shell-player-preview {
+  align-items: center;
+  justify-content: center;
+}
+[data-proto-layout="centre"] .shell-player-preview-copy {
+  padding: 0 var(--rep-gutter);
+  justify-items: center;
+  text-align: center;
+}
