@@ -56,9 +56,9 @@ export function wakeOsd(state: OsdState, input: OsdInput): OsdState {
 
 /**
  * Whether something above the OSD holds it up: an open popover, or the Host's
- * Autoplay countdown. The countdown's card is drawn on the Picture and asks to
- * be read and pressed, so the OSD stays and the cursor with it, the way they do
- * for a menu a person is in (#302, #298).
+ * Autoplay countdown, or its hold on "Still watching?". The card is drawn on the
+ * Picture and asks to be read and pressed, so the OSD stays and the cursor with
+ * it, the way they do for a menu a person is in (#302, #298, #319).
  */
 export function osdPinned({
   popoverOpen,
@@ -67,7 +67,7 @@ export function osdPinned({
   popoverOpen: boolean;
   autoplay: AutoplayView;
 }): boolean {
-  return popoverOpen || autoplay.kind === "countdown";
+  return popoverOpen || autoplay.kind === "countdown" || autoplay.kind === "still_watching";
 }
 
 /**

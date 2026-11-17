@@ -143,7 +143,7 @@ export function PlayerOverlay() {
   const [previewSettled, setPreviewSettled] = useState(() => playback?.state !== "opening");
   const root = useRef<HTMLElement | null>(null);
   const chrome = useRef<HTMLDivElement | null>(null);
-  const cancelButton = useRef<HTMLButtonElement | null>(null);
+  const cardFocus = useRef<HTMLButtonElement | null>(null);
   const pictureButton = useRef<HTMLButtonElement | null>(null);
   const strip = useRef<HTMLDivElement | null>(null);
   const top = useRef<HTMLDivElement | null>(null);
@@ -212,7 +212,8 @@ export function PlayerOverlay() {
   // decision reads it straight off the Snapshot; the projected digit comes with
   // the view below.
   const pending = autoplayView({ autoplay: playback?.autoplay ?? null }, 0);
-  const counting = pending.kind === "countdown";
+  // The card is up for the countdown and for the hold on "Still watching?".
+  const counting = pending.kind === "countdown" || pending.kind === "still_watching";
   const { visible, cursorVisible, wake } = useOsdVisibility({
     pinned: osdPinned({ popoverOpen: popover !== null, autoplay: pending }),
     chrome,
@@ -223,14 +224,15 @@ export function PlayerOverlay() {
   // countdown's digit moves on that clock whether or not the OSD is showing.
   const view = usePlaybackView(session, visible || counting);
 
-  // The countdown's card puts focus on Cancel when it appears: one press stops
-  // it, and doing nothing lets the next episode play (#302). A menu open over
+  // The card puts focus on Cancel when it appears: one press stops the
+  // countdown, and doing nothing lets the next episode play (#302). At the hold
+  // it lands on Keep watching, the card's one button (#319). A menu open over
   // the player, or a list pushed above it, keeps the focus it holds.
   useEffect(() => {
     if (!counting || popover !== null || root.current?.closest("[inert]")) {
       return;
     }
-    focusAndReveal(cancelButton.current);
+    focusAndReveal(cardFocus.current);
     // Only the card appearing takes focus; a later popover is not this effect's.
   }, [counting]);
   const canControl = view?.controllable ?? false;
@@ -547,10 +549,10 @@ export function PlayerOverlay() {
         ) : null}
       </div>
 
-      {view.autoplay.kind === "countdown" ? (
+      {view.autoplay.kind === "countdown" || view.autoplay.kind === "still_watching" ? (
         <AutoplayCard
           view={view.autoplay}
-          cancel={cancelButton}
+          focus={cardFocus}
           stepping={stepping}
           onPlayNow={() => void step("next_episode")}
           onCancel={() => takeAction({ type: "cancel_autoplay" })}

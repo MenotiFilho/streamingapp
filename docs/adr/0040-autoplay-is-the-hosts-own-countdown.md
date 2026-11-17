@@ -56,8 +56,7 @@ new Stream.
 
 Where continuity finds nothing (the Addon is gone, errors, or has no playable
 candidate), the countdown is cleared and the Host stays on the plain `Ended`
-state. The `no_stream` phase and the "Still watching?" hold belong to later
-tickets of the spec.
+state. The `no_stream` phase belongs to a later ticket of the spec.
 
 ## 4. Ending the countdown
 
@@ -78,6 +77,25 @@ special, or when the next Video's `air_date` is after today in UTC. A finale
 leads into the next season's first episode, and no step crosses between the
 numbered seasons and the specials (ADR-0039). Films are never touched: Autoplay
 acts only on a Stream whose Video is an episode.
+
+## 6. Where it holds: "Still watching?"
+
+A Host that advances on its own must stop before an unattended run goes on all
+night. The Host keeps a counter beside its state: not published, not persisted.
+It goes up by one on each auto-advance, and it goes back to 0 on any client
+Change Action (a pause, a seek, a volume, a play) except `look_hint`, which is a
+client warming a Title and not a person being there. `autoplay::attends` is that
+rule, and a pure function.
+
+When an episode ends with a next Video that has aired and the counter at
+`UNATTENDED_LIMIT` (3: one episode a person started or touched, then three that
+played on their own), `on_ended` answers `Hold`. The Host publishes
+`autoplay: { next, phase: "unattended_limit" }`: no countdown, so it never runs
+out. A Change during the hold resets the counter but starts nothing: only a play
+(`next_episode` from **Keep watching**) moves on, and `cancel_autoplay`,
+`set_autoplay { autoplay: false }` and `stop_playback` dismiss it. With nothing
+to advance to (the last episode, an episode that has not aired) there is nothing
+to ask, so the hold is never offered.
 
 ## Rejected
 

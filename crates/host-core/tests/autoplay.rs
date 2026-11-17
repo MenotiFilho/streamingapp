@@ -167,12 +167,15 @@ fn dispatch(fixture: &mut Fixture, body: serde_json::Value) -> host_core::Respon
 }
 
 fn countdown(snapshot: &Snapshot) -> Option<(String, f64, f64)> {
-    snapshot.playback.autoplay.as_ref().map(|autoplay| {
+    snapshot.playback.autoplay.as_ref().and_then(|autoplay| {
         let AutoplayPhase::Countdown {
             remaining,
             duration,
-        } = autoplay.phase;
-        (autoplay.next.video.id.clone(), remaining, duration)
+        } = autoplay.phase
+        else {
+            return None;
+        };
+        Some((autoplay.next.video.id.clone(), remaining, duration))
     })
 }
 

@@ -1,22 +1,29 @@
 import { describe, expect, test } from "vitest";
 
-import { autoplayView } from "./autoplay";
+import { autoplayStrip, autoplayView } from "./autoplay";
 import type { AutoplaySnapshot } from "./wire";
+
+const NEXT = {
+  title: { type: "series", id: "tt0903747" },
+  video: { type: "series", id: "tt0903747:1:4" },
+  episode: { season: 1, episode: 4 },
+  name: "Cancer Man",
+  still: "https://images.test/cancer-man.jpg",
+};
 
 function autoplay(remaining: number, overrides: Partial<AutoplaySnapshot> = {}): AutoplaySnapshot {
   return {
-    next: {
-      title: { type: "series", id: "tt0903747" },
-      video: { type: "series", id: "tt0903747:1:4" },
-      episode: { season: 1, episode: 4 },
-      name: "Cancer Man",
-      still: "https://images.test/cancer-man.jpg",
-    },
+    next: NEXT,
     phase: "countdown",
     remaining,
     duration: 5,
     ...overrides,
-  };
+  } as AutoplaySnapshot;
+}
+
+/** What the Host publishes at the unattended limit: no countdown, only where it leads. */
+function held(): AutoplaySnapshot {
+  return { next: NEXT, phase: "unattended_limit" };
 }
 
 describe("the autoplay view", () => {
@@ -101,5 +108,37 @@ describe("the autoplay view", () => {
 
     const later = at(1_200);
     expect(later.kind === "countdown" ? later.strip : null).toBe("Up next in 4 · S1E4");
+  });
+
+  describe("still watching", () => {
+    test("the hold is its own view, carrying the next episode as the Host named it", () => {
+      const view = autoplayView({ autoplay: held() }, 0);
+
+      expect(view).toEqual({
+        kind: "still_watching",
+        title: "Still watching?",
+        next: {
+          title: { type: "series", id: "tt0903747" },
+          video: { type: "series", id: "tt0903747:1:4" },
+          label: "S1E4",
+          name: "Cancer Man",
+          still: "https://images.test/cancer-man.jpg",
+        },
+        strip: "Still watching? · S1E4",
+      });
+    });
+
+    test("the docked strip's text is the countdown's, the hold's, or nothing", () => {
+      expect(autoplayStrip(autoplayView({ autoplay: autoplay(4) }, 0))).toBe("Up next in 4 · S1E4");
+      expect(autoplayStrip(autoplayView({ autoplay: held() }, 0))).toBe("Still watching? · S1E4");
+      expect(autoplayStrip(autoplayView({ autoplay: null }, 0))).toBeNull();
+    });
+
+    test("it has no countdown to project: time passing changes nothing", () => {
+      const at = (since: number) => autoplayView({ autoplay: held() }, since);
+
+      expect(at(0)).toEqual(at(60_000));
+      expect(at(Number.NaN)).toEqual(at(0));
+    });
   });
 });

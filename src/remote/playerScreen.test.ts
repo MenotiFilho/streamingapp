@@ -392,12 +392,47 @@ describe("the Remote's Autoplay drawings", () => {
     const banner = autoplayBanner(view({ autoplay: COUNTDOWN }));
 
     expect(banner).not.toBeNull();
-    expect(banner?.kicker.text).toBe("Up next · S1E4");
-    expect(banner?.digit).toBe(4);
-    expect(banner?.next.name).toBe("The Fourth");
-    expect(banner?.next.still).toBe("https://images.test/4.jpg");
-    expect(banner?.playNow.action).toEqual({ type: "next_episode" });
-    expect(banner?.cancel.action).toEqual({ type: "cancel_autoplay" });
+    expect(banner?.kind).toBe("countdown");
+    if (banner?.kind !== "countdown") {
+      return;
+    }
+    expect(banner.kicker.text).toBe("Up next · S1E4");
+    expect(banner.digit).toBe(4);
+    expect(banner.next.name).toBe("The Fourth");
+    expect(banner.next.still).toBe("https://images.test/4.jpg");
+    expect(banner.playNow.action).toEqual({ type: "next_episode" });
+    expect(banner.cancel.action).toEqual({ type: "cancel_autoplay" });
+  });
+
+  const HELD: PlaybackSnapshot["autoplay"] = {
+    next: COUNTDOWN!.next,
+    phase: "unattended_limit",
+  };
+
+  test("the hold's banner has Keep watching, which is the Host's next_episode, and no Cancel", () => {
+    const banner = autoplayBanner(view({ autoplay: HELD }));
+
+    expect(banner?.kind).toBe("still_watching");
+    if (banner?.kind !== "still_watching") {
+      return;
+    }
+    expect(banner.title).toBe("Still watching?");
+    expect(banner.next.name).toBe("The Fourth");
+    expect(banner.keepWatching.action).toEqual({ type: "next_episode" });
+    expect("cancel" in banner).toBe(false);
+  });
+
+  test("Keep watching waits while the step it took is in flight", () => {
+    const waiting = autoplayBanner(
+      view({ autoplay: HELD }, new Set([actionKey({ type: "next_episode" })])),
+    );
+
+    expect(waiting?.kind === "still_watching" ? waiting.keepWatching.pending : null).toBe(true);
+  });
+
+  test("the card's note steps aside for the hold too, and the strip reads Still watching?", () => {
+    expect(cardStateNote(view({ autoplay: HELD }))).toBeNull();
+    expect(stripEpisode(view({ autoplay: HELD }))).toBe("Still watching? · S1E4");
   });
 
   test("Play now waits while the step it took is in flight", () => {
@@ -406,8 +441,8 @@ describe("the Remote's Autoplay drawings", () => {
       view({ autoplay: COUNTDOWN }, new Set([actionKey({ type: "next_episode" })])),
     );
 
-    expect(idle?.playNow.pending).toBe(false);
-    expect(waiting?.playNow.pending).toBe(true);
+    expect(idle?.kind === "countdown" ? idle.playNow.pending : null).toBe(false);
+    expect(waiting?.kind === "countdown" ? waiting.playNow.pending : null).toBe(true);
   });
 
   test("no countdown, no banner", () => {

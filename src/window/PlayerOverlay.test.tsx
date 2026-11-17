@@ -2315,6 +2315,11 @@ function countdown(remaining = 5): AutoplaySnapshot {
   };
 }
 
+/** The Host's hold on "Still watching?" at S1E4: no countdown, only where it leads. */
+function stillWatching(): AutoplaySnapshot {
+  return { next: countdown().next, phase: "unattended_limit" };
+}
+
 /** An episode at its end, with the Host's Autoplay preference as given. */
 async function renderEnded(
   overrides: Partial<PlaybackSnapshot> = {},
@@ -2443,6 +2448,71 @@ describe("Autoplay in the player", () => {
     });
   });
 
+  describe("the Still watching? card", () => {
+    test("is the corner card in its hold form: the still, the name and Keep watching only", async () => {
+      await renderEnded({ autoplay: stillWatching() });
+
+      const card = screen.getByTestId("autoplay-card");
+      expect(card).toHaveAccessibleName("Still watching? · S1E4");
+      expect(screen.getByTestId("autoplay-name")).toHaveTextContent("Cancer Man");
+      expect(screen.queryByTestId("autoplay-digit")).not.toBeInTheDocument();
+      expect(card.querySelector(".rep-autoplay-drain")).toBeNull();
+      expect(screen.queryByTestId("autoplay-play-now")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("autoplay-cancel")).not.toBeInTheDocument();
+      expect(
+        within(card)
+          .getAllByRole("button")
+          .map((button) => button.textContent),
+      ).toEqual(["Keep watching"]);
+      expect(screen.getByTestId("autoplay-keep-watching")).toHaveFocus();
+    });
+
+    test("Keep watching takes next_episode", async () => {
+      const host = await renderEnded({ autoplay: stillWatching() });
+
+      fireEvent.click(screen.getByTestId("autoplay-keep-watching"));
+
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "next_episode" }),
+      );
+      expect(actions(host.invocations)).not.toContainEqual({ type: "cancel_autoplay" });
+    });
+
+    test("replaces the centred end note and the plain prompt while it is up", async () => {
+      await renderEnded({ autoplay: stillWatching() });
+
+      expect(screen.queryByTestId("stream-ended")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("next-episode-after-end")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("autoplay-switch")).not.toBeInTheDocument();
+    });
+
+    test("counts as pinned: the OSD and the cursor stay up past the idle clock", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const host = fakeHost({
+        ...NOTHING_SAID,
+        revision: 9,
+        playback: playback({
+          ...SERIES_PLAYING,
+          state: "ended",
+          episode: { season: 1, episode: 3 },
+          autoplay: stillWatching(),
+        }),
+      });
+      render(<Shell client={host.client} />);
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      act(() => vi.advanceTimersByTime(OSD_IDLE_MS * 3));
+
+      expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
+      expect(screen.getByTestId("shell-player")).toHaveAttribute("data-cursor", "visible");
+      expect(screen.getByTestId("autoplay-card")).toBeInTheDocument();
+      vi.useRealTimers();
+    });
+  });
+
   describe("the ended state with nothing pending", () => {
     test("draws the switch beside Next episode, and turning it on takes set_autoplay: true", async () => {
       const host = await renderEnded({ autoplay: null }, false);
@@ -2522,6 +2592,23 @@ describe("Autoplay in the player", () => {
       fireEvent.click(screen.getByTestId("dock-autoplay-cancel"));
       await waitFor(() =>
         expect(actions(host.invocations)).toContainEqual({ type: "cancel_autoplay" }),
+      );
+    });
+
+    test("at the hold it reads Still watching? and offers Keep watching, not Cancel", async () => {
+      const host = await renderDock("own_window", {
+        ...SERIES_PLAYING,
+        state: "ended",
+        autoplay: stillWatching(),
+      });
+
+      expect(screen.getByTestId("player-dock-episode")).toHaveTextContent(
+        "Still watching? · S1E4",
+      );
+      expect(screen.queryByTestId("dock-autoplay-cancel")).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("dock-autoplay-keep-watching"));
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "next_episode" }),
       );
     });
 

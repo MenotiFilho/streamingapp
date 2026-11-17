@@ -311,6 +311,25 @@ describe("what pins the OSD", () => {
   });
 });
 
+describe("what pins the OSD: the hold on Still watching?", () => {
+  const stillWatching = {
+    kind: "still_watching",
+    title: "Still watching?",
+    next: {
+      title: { type: "series", id: "tt1" },
+      video: { type: "series", id: "tt1:1:4" },
+      label: "S1E4",
+      name: null,
+      still: null,
+    },
+    strip: "Still watching? · S1E4",
+  } as const;
+
+  test("the hold pins it, so the card can be read and pressed", () => {
+    expect(osdPinned({ popoverOpen: false, autoplay: stillWatching })).toBe(true);
+  });
+});
+
 describe("the OSD and cursor visibility decision", () => {
   const HIDDEN = { visible: false, cursorVisible: false, lastInput: "pointer" } as const;
   const IDLE = { pinned: false, focusedInside: false };

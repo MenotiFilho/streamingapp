@@ -123,6 +123,12 @@ pub struct Host {
     /// time left read off the clock, and never stored, so a restarted Host comes
     /// back with none (ADR-0040).
     autoplay: Option<Pending>,
+    /// How many episodes in a row Autoplay has started with nobody touching
+    /// anything: incremented on each auto-advance, reset by any client Change
+    /// but a look hint, and read when an episode ends to decide between a
+    /// countdown and the "Still watching?" hold. Never published and never
+    /// stored (ADR-0040).
+    unattended: u32,
 }
 
 /// What one look at the background queue did.
@@ -252,6 +258,7 @@ impl Host {
             background: Arc::new(Mutex::new(BackgroundQueue::default())),
             read_ahead_scanned_at: None,
             autoplay: None,
+            unattended: 0,
         };
         // The Titles behind Continue watching are known here, and they are the
         // ones the owner is most likely to open and the ones Up next is drawn
@@ -694,6 +701,11 @@ impl Host {
     /// serializing those is what keeps two changes from interleaving into a
     /// state neither asked for (ADR-0022).
     pub fn apply(&mut self, validated: ValidatedAction) -> Result<Response, ActionError> {
+        // A client doing anything but warming a Title is somebody being there:
+        // the unattended count starts again, whatever becomes of the Action.
+        if autoplay::attends(&validated) {
+            self.unattended = 0;
+        }
         let (change, answer) = match self.change(validated)? {
             Resolved::Change(change) => (change, None),
             // The one Action that both changes state and answers the client that
@@ -1702,10 +1714,16 @@ impl Host {
 
         let now = self.clock.now_millis();
         let neighbour = self.neighbour_video(EpisodeStep::Next, finished).ok();
-        match autoplay::on_ended(neighbour, now) {
+        match autoplay::on_ended(neighbour, now, self.unattended) {
             Outcome::Start(video) => {
                 let next = up_next_episode(&finished.r#type, &video)?;
                 Some(Pending::starting(next, now))
+            }
+            // Nobody has touched anything for the whole run: no countdown, and
+            // only a play moves on.
+            Outcome::Hold(video) => {
+                let next = up_next_episode(&finished.r#type, &video)?;
+                Some(Pending::holding(next))
             }
             Outcome::None => None,
         }
@@ -1720,6 +1738,11 @@ impl Host {
             Ok(Resolved::Change(change)) => self.commit(change, None).ok(),
             _ => None,
         };
+        // The Host played this one and no client asked for it: it is one more
+        // episode nobody has touched.
+        if played.is_some() {
+            self.unattended += 1;
+        }
         match played {
             Some(mut response) => response.snapshots.pop(),
             None => {
