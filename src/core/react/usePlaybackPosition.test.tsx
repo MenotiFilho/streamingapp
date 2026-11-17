@@ -2,7 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import type { PlaybackSnapshot } from "../wire";
-import { usePlaybackPosition } from "./usePlaybackPosition";
+import { usePlaybackPlayed, usePlaybackPosition } from "./usePlaybackPosition";
 
 let now = 0;
 
@@ -85,5 +85,42 @@ describe("the projected player clock", () => {
       result.current,
       "the projection catches up from the anchor when the surface is shown",
     ).toBeCloseTo(905);
+  });
+
+  test("an ended Stream with a countdown still ticks, so the digit can move", () => {
+    const counting = playback({
+      state: "ended",
+      autoplay: {
+        next: {
+          title: { type: "series", id: "tt1" },
+          video: { type: "series", id: "tt1:1:2" },
+          episode: { season: 1, episode: 2 },
+          name: null,
+          still: null,
+        },
+        phase: "countdown",
+        remaining: 5,
+        duration: 5,
+      },
+    });
+    const { result } = renderHook(() => usePlaybackPlayed(counting, true));
+    expect(result.current).toBe(0);
+
+    act(() => {
+      now = 1000;
+      vi.advanceTimersByTime(1000);
+    });
+    expect(result.current).toBeCloseTo(1);
+  });
+
+  test("an ended Stream with nothing pending does not tick", () => {
+    const quiet = playback({ state: "ended", autoplay: null });
+    const { result } = renderHook(() => usePlaybackPlayed(quiet, true));
+
+    act(() => {
+      now = 1000;
+      vi.advanceTimersByTime(1000);
+    });
+    expect(result.current).toBe(0);
   });
 });

@@ -7,6 +7,7 @@
  * nothing holds state — a position that moved is a Snapshot that arrived.
  */
 
+import type { AutoplayView } from "./autoplay";
 import { formatBitrate } from "./controls";
 import type {
   Buffered,
@@ -51,6 +52,22 @@ export function wakeOsd(state: OsdState, input: OsdInput): OsdState {
     cursorVisible: input === "pointer" ? true : state.cursorVisible,
     lastInput: input,
   };
+}
+
+/**
+ * Whether something above the OSD holds it up: an open popover, or the Host's
+ * Autoplay countdown. The countdown's card is drawn on the Picture and asks to
+ * be read and pressed, so the OSD stays and the cursor with it, the way they do
+ * for a menu a person is in (#302, #298).
+ */
+export function osdPinned({
+  popoverOpen,
+  autoplay,
+}: {
+  popoverOpen: boolean;
+  autoplay: AutoplayView;
+}): boolean {
+  return popoverOpen || autoplay.kind === "countdown";
 }
 
 /**
