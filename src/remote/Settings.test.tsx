@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 
 import { version as packageVersion } from "../../package.json";
 import {
+  AUTOPLAY_CHOICES,
   SUBTITLE_SCALES,
   formatScale,
 } from "../core/controls";
@@ -324,7 +325,8 @@ describe("the Preferences leaf", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: HOST_PICKS_PER_VIDEO }));
     fireEvent.click(screen.getByRole("button", { name: FEATURED_NONE }));
-    fireEvent.click(screen.getByRole("button", { name: "Wait" }));
+    const wait = AUTOPLAY_CHOICES.find((choice) => !choice.autoplay)!;
+    fireEvent.click(screen.getByRole("button", { name: wait.label }));
     fireEvent.click(screen.getByRole("button", { name: "Open the Streams picker" }));
 
     await waitFor(() =>

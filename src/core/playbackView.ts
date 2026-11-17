@@ -8,7 +8,7 @@
  * OSD and the Remote's strip are two drawings of these facts (#191 §5).
  */
 
-import { autoplayView, type AutoplayView } from "./autoplay";
+import { autoplayStrip, autoplayView, type AutoplayView } from "./autoplay";
 import {
   controllable,
   formatVolume,
@@ -135,6 +135,16 @@ function openingPreviewOf(progress: ResumeEntry | null): OpeningPreview | null {
       .join(" · ") || null;
 
   return { art, title: progress.title.name, subtitle };
+}
+
+/**
+ * The episode line under "Now playing": Autoplay's own text ("Up next in 4 ·
+ * S1E4", "Still watching? · S1E4") while the Host counts down or holds, else the
+ * episode label. The window's docked band and the Remote's strip both read it;
+ * neither has a Cancel or a Keep watching to put beside it, or does so itself.
+ */
+export function episodeLine(view: Pick<PlaybackView, "episodeLabel" | "autoplay">): string {
+  return autoplayStrip(view.autoplay) ?? view.episodeLabel;
 }
 
 function episodeLabelOf(episode: Episode | null, progress: ResumeEntry | null): string {

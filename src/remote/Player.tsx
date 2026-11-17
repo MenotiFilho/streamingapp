@@ -15,7 +15,7 @@ import {
   timelineFraction,
 } from "../core/osd";
 import { formatTime, watching } from "../core/playback";
-import type { PlaybackView } from "../core/playbackView";
+import { episodeLine, type PlaybackView } from "../core/playbackView";
 import { usePlaybackView } from "../core/react/usePlaybackView";
 import { usePreview } from "../core/react/usePreview";
 import type { Session } from "../core/session";
@@ -48,7 +48,6 @@ import {
   STRIP_EXPAND,
   STRIP_LABEL,
   stripControls,
-  stripEpisode,
   TIMELINE_LABEL,
   timelineRange,
   trackFills,
@@ -117,7 +116,7 @@ export function PlayerStrip({ session, title, push }: PlayerStripProps) {
         onClick={() => push(playerLevel(title))}
       >
         <span className="remote-player-strip-title">{view.title}</span>
-        <span className="remote-player-strip-episode">{stripEpisode(view)}</span>
+        <span className="remote-player-strip-episode">{episodeLine(view)}</span>
         {view.pictureNote ? (
           <span className="remote-player-strip-note">{view.pictureNote}</span>
         ) : null}
@@ -183,7 +182,7 @@ export function PlayerCard({
       {banner ? <PlayerAutoplayBanner banner={banner} take={take} /> : null}
 
       {stateNote ? (
-        <p className="remote-player-state" role="status">
+        <p className="remote-player-state" role="status" data-testid="remote-player-state">
           {stateNote}
         </p>
       ) : null}
@@ -286,19 +285,25 @@ function PlayerAutoplayBanner({
           <>
             <Button
               variant="primary"
+              data-testid="remote-autoplay-play-now"
               disabled={banner.playNow.pending}
               pending={banner.playNow.pending}
               onClick={() => take(banner.playNow.action)}
             >
               Play now
             </Button>
-            <Button variant="ghost" onClick={() => take(banner.cancel.action)}>
+            <Button
+              variant="ghost"
+              data-testid="remote-autoplay-cancel"
+              onClick={() => take(banner.cancel.action)}
+            >
               Cancel
             </Button>
           </>
         ) : (
           <Button
             variant="primary"
+            data-testid="remote-autoplay-keep-watching"
             disabled={banner.keepWatching.pending}
             pending={banner.keepWatching.pending}
             onClick={() => take(banner.keepWatching.action)}

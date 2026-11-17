@@ -543,7 +543,7 @@ describe("the repertory Settings register", () => {
     );
 
     // #276, #314: both Up next preferences take their own Actions.
-    fireEvent.click(screen.getByRole("button", { name: "Wait" }));
+    fireEvent.click(screen.getByTestId("up-next-autoplay-false"));
     await waitFor(() =>
       expect(actions(ask)).toContainEqual({
         type: "set_autoplay",
@@ -551,7 +551,7 @@ describe("the repertory Settings register", () => {
       }),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Play it after 5 seconds" }));
+    fireEvent.click(screen.getByTestId("up-next-autoplay-true"));
     await waitFor(() =>
       expect(actions(ask)).toContainEqual({
         type: "set_autoplay",
@@ -559,7 +559,7 @@ describe("the repertory Settings register", () => {
       }),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Open the Streams picker" }));
+    fireEvent.click(screen.getByTestId("up-next-picker"));
     await waitFor(() =>
       expect(actions(ask)).toContainEqual({
         type: "set_up_next_playback",

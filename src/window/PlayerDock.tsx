@@ -1,8 +1,8 @@
 import { useState } from "react";
 
-import { autoplayStrip } from "../core/autoplay";
 import { VOLUME_MAX, formatVolume, volumeFraction } from "../core/controls";
 import { remainingTime, timelineFraction } from "../core/osd";
+import { episodeLine } from "../core/playbackView";
 import { formatTime, watching } from "../core/playback";
 import { usePlaybackView } from "../core/react/usePlaybackView";
 import { transportControls } from "../core/transportControls";
@@ -91,7 +91,7 @@ export function PlayerDock() {
           <span>Now playing</span>
           <span className="shell-player-dock-kicker-rule" aria-hidden="true" />
           <span data-testid="player-dock-episode">
-            {autoplayStrip(view.autoplay) ?? view.episodeLabel}
+            {episodeLine(view)}
           </span>
         </p>
         <p className="shell-player-dock-title" data-testid="player-dock-title">

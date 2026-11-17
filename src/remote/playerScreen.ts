@@ -1,5 +1,5 @@
 import { actionKey } from "../core/actionKey";
-import { autoplayStrip, opensPicker, plainEnd, type AutoplayView } from "../core/autoplay";
+import { opensPicker, plainEnd, type AutoplayView } from "../core/autoplay";
 import { AUTOPLAY_SWITCH_LABEL, VOLUME_MAX } from "../core/controls";
 import type { Level, NewLevel } from "../core/navigation";
 import { playingName, watching } from "../core/playback";
@@ -95,18 +95,6 @@ export function pushesPicker(
   levelKind: string | null,
 ): boolean {
   return levelKind === "player" && opensPicker(previous, view);
-}
-
-/**
- * The strip's episode label: Autoplay's own text ("Up next in 4 · S1E4",
- * "Still watching? · S1E4") while the Host counts down or holds, else the episode
- * the strip already named. Text only: the strip has no Cancel and no Keep
- * watching (#287).
- */
-export function stripEpisode(
-  view: Pick<PlaybackView, "episodeLabel" | "autoplay">,
-): string {
-  return autoplayStrip(view.autoplay) ?? view.episodeLabel;
 }
 
 /** The Autoplay switch row: what it says, where it stands, what a press sends. */

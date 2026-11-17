@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { actionKey } from "./actionKey";
-import { playbackView } from "./playbackView";
+import { episodeLine, playbackView } from "./playbackView";
 import { streamKey } from "./osd";
 import type { PlaybackSnapshot, ResumeEntry, Track } from "./wire";
 
@@ -455,5 +455,35 @@ describe("the programme note", () => {
 
     const none = playbackView(playback(), { played: 0, pending: NO_PENDING, watchProgress: [] });
     expect(none.autoplay).toEqual({ kind: "none" });
+  });
+
+  test("the episode line is Autoplay's text while the Host counts down or holds, else the episode", () => {
+    const next = {
+      title: { type: "series", id: "tt7777777" },
+      video: { type: "series", id: "tt7777777:1:2" },
+      episode: { season: 1, episode: 2 },
+      name: null,
+      still: null,
+    };
+    const lineOf = (overrides: Partial<PlaybackSnapshot>) =>
+      episodeLine(
+        playbackView(playback({ episode: { season: 1, episode: 1 }, ...overrides }), {
+          played: 0,
+          pending: NO_PENDING,
+          watchProgress: [],
+        }),
+      );
+
+    expect(lineOf({})).toBe("S1E1");
+    expect(
+      lineOf({ state: "ended", autoplay: { next, phase: "countdown", remaining: 4, duration: 5 } }),
+    ).toBe("Up next in 4 · S1E2");
+    expect(lineOf({ state: "ended", autoplay: { next, phase: "unattended_limit" } })).toBe(
+      "Still watching? · S1E2",
+    );
+    // A missing Stream is no card: the line keeps naming the episode that ended.
+    expect(
+      lineOf({ state: "ended", autoplay: { next, phase: "no_stream", detail: "none" } }),
+    ).toBe("S1E1");
   });
 });

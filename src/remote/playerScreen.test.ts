@@ -21,7 +21,6 @@ import {
   setVolume,
   stripControls,
   stripDrawn,
-  stripEpisode,
   timelineRange,
   trackFills,
   volumeRange,
@@ -438,9 +437,8 @@ describe("the Remote's Autoplay drawings", () => {
     expect(waiting?.kind === "still_watching" ? waiting.keepWatching.pending : null).toBe(true);
   });
 
-  test("the card's note steps aside for the hold too, and the strip reads Still watching?", () => {
+  test("the card's note steps aside for the hold too", () => {
     expect(cardStateNote(view({ autoplay: HELD }))).toBeNull();
-    expect(stripEpisode(view({ autoplay: HELD }))).toBe("Still watching? · S1E4");
   });
 
   test("Play now waits while the step it took is in flight", () => {
@@ -469,7 +467,6 @@ describe("the Remote's Autoplay drawings", () => {
   test("a missing Stream leaves the ended note, because the Host stays on the ended state", () => {
     expect(cardStateNote(view({ autoplay: MISSING }))).toBe(ENDED_NOTE);
     expect(autoplayBanner(view({ autoplay: MISSING }))).toBeNull();
-    expect(stripEpisode(view({ autoplay: MISSING }))).toBe("S1E3");
   });
 
   test("the Streams picker is pushed only while the Remote is on its expanded card", () => {
@@ -484,11 +481,6 @@ describe("the Remote's Autoplay drawings", () => {
     expect(pushesPicker(none, missing, "sheet"), "a plate over the card").toBe(false);
     expect(pushesPicker(none, missing, "streams"), "a list already open").toBe(false);
     expect(pushesPicker(missing, missing, "player"), "once per target").toBe(false);
-  });
-
-  test("the strip's label is the countdown's text, else the episode's own", () => {
-    expect(stripEpisode(view({ autoplay: COUNTDOWN }))).toBe("Up next in 4 · S1E4");
-    expect(stripEpisode(view())).toBe("S1E3");
   });
 
   test("the strip's two transport cells do not change during a countdown", () => {
