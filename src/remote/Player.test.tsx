@@ -401,3 +401,97 @@ describe("the Remote's volume box", () => {
     );
   });
 });
+
+const NEXT = {
+  title: { type: "series", id: "tt1" },
+  video: { type: "series", id: "tt1:1:3" },
+  episode: { season: 1, episode: 3 },
+  name: "The Third",
+  still: "https://images.test/3.jpg",
+};
+
+function counting(remaining = 4): Partial<PlaybackSnapshot> {
+  return {
+    state: "ended",
+    autoplay: { next: NEXT, phase: "countdown", remaining, duration: 5 },
+  };
+}
+
+describe("the Remote's Autoplay switch", () => {
+  test("is on the card for an episode and takes set_autoplay with the flipped value", async () => {
+    const { host } = mount();
+    const card = await openCard();
+
+    const row = within(card).getByRole("switch", { name: "Autoplay the next episode" });
+    expect(row).toHaveAttribute("aria-checked", "true");
+
+    fireEvent.click(row);
+    await waitFor(() =>
+      expect(host.asked("set_autoplay")).toEqual([
+        { type: "set_autoplay", autoplay: false },
+      ]),
+    );
+  });
+
+  test("is absent from the card of a film", async () => {
+    const { host } = mount();
+    const card = await openCard();
+    act(() => host.publish(snapshot({ episode: null }, 3)));
+
+    await waitFor(() =>
+      expect(
+        within(card).queryByRole("switch", { name: "Autoplay the next episode" }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+});
+
+describe("the Remote's Autoplay countdown", () => {
+  test("the banner stands in for the ended note, and Play now and Cancel are the Host's Actions", async () => {
+    const { host } = mount();
+    const card = await openCard();
+
+    act(() => host.publish(snapshot({ state: "ended" }, 3)));
+    expect(await within(card).findByText("The Stream reached its end.")).toBeInTheDocument();
+
+    act(() => host.publish(snapshot(counting(), 4)));
+    const banner = await within(card).findByRole("group", { name: "Up next · S1E3" });
+    expect(
+      within(card).queryByText("The Stream reached its end."),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(within(banner).getByRole("button", { name: "Play now" }));
+    await waitFor(() => expect(host.asked("next_episode")).toEqual([{ type: "next_episode" }]));
+
+    fireEvent.click(within(banner).getByRole("button", { name: "Cancel" }));
+    await waitFor(() =>
+      expect(host.asked("cancel_autoplay")).toEqual([{ type: "cancel_autoplay" }]),
+    );
+  });
+
+  test("the banner goes when the Host clears the countdown", async () => {
+    const { host } = mount();
+    const card = await openCard();
+    act(() => host.publish(snapshot(counting(), 3)));
+    await within(card).findByRole("group", { name: "Up next · S1E3" });
+
+    act(() => host.publish(snapshot({ state: "ended", autoplay: null }, 4)));
+    await waitFor(() =>
+      expect(
+        within(card).queryByRole("group", { name: "Up next · S1E3" }),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
+  test("the strip's label reads the countdown, and its cells and press are unchanged", async () => {
+    const { host } = mount();
+    await screen.findByLabelText(STRIP_LABEL);
+    act(() => host.publish(snapshot(counting(), 3)));
+
+    await waitFor(() =>
+      expect(within(strip()).getByText("Up next in 4 · S1E3")).toBeInTheDocument(),
+    );
+    expect(within(strip()).queryByRole("button", { name: "Cancel" })).toBeNull();
+    expect(within(strip()).getAllByRole("button").map((b) => b.textContent)).toHaveLength(3);
+  });
+});
