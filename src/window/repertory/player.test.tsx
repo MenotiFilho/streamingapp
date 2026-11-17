@@ -33,6 +33,7 @@ const PLAYING: Snapshot = {
   revision: 9,
   playback: {
     state: "playing",
+    autoplay: null,
     picture: "in_window",
     failure: null,
     nowPlaying: {

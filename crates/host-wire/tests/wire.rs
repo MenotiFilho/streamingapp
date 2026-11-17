@@ -781,6 +781,22 @@ fn a_paired_client_sets_autoplay_and_sees_it_pushed() {
 }
 
 #[test]
+fn a_paired_client_cancels_autoplay_and_a_cancel_with_nothing_pending_is_harmless() {
+    let (fixture, server) = server();
+    let mut client = Client::connect(&server);
+    client.hello(None);
+    pair(&mut client, &fixture, "Test phone");
+
+    let cancelled = client.command(3, json!({ "type": "cancel_autoplay" }));
+
+    assert!(
+        cancelled.get("response").is_some(),
+        "the Remote can cancel Autoplay, and with no countdown it is answered, not refused: {cancelled}"
+    );
+    assert!(cancelled.get("refusal").is_none());
+}
+
+#[test]
 fn a_client_that_reconnects_is_told_the_state_as_it_stands() {
     let (fixture, server) = server();
     let mut first = Client::connect(&server);

@@ -222,6 +222,10 @@ the Player are the shell's job (§5), and tests drain the queue inline.
   killed Host. **Continue watching** is built from it: one card per Title,
   newest first, where a finished episode's card becomes its **Up next**.
   Specials come last and stand apart. (ADR-0015, ADR-0039)
+- `autoplay.rs`: **Autoplay**, the Host's own 5-second countdown to the next
+  episode when a Stream ends. It is published in `PlaybackSnapshot.autoplay`,
+  anchored to the `Clock` and checked in `Host::sample()`, so the Host advances
+  with no client attached and every client draws the same digit. (ADR-0040)
 - `preview.rs`: **Seek previews**, the still frames above the timeline. These are
   the only frames that ever cross the Player seam, produced by a *second, silent*
   libmpv instance on request, never at frame rate. (ADR-0028)
@@ -485,4 +489,4 @@ Check these before adding anything:
 | change a window screen | `src/window/repertory/`, with its decisions in `src/core/` |
 | change the phone UI | `src/remote/`, then `pnpm build:remote` |
 | change colours or type | `src/kit/tokens.css` and `docs/design-system.md` |
-| understand a past decision | `docs/adr/` (0001–0039), then `docs/research/` |
+| understand a past decision | `docs/adr/` (0001–0040), then `docs/research/` |

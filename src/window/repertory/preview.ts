@@ -380,6 +380,7 @@ export function rehearsalPlayback(entry: ResumeEntry, nowPlaying: NowPlaying): P
 
   return {
     state: "playing",
+    autoplay: null,
     picture: "in_window",
     failure: null,
     nowPlaying,

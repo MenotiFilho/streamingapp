@@ -44,6 +44,7 @@ const EPISODE: ResumeEntry = {
 
 const WATCHING: PlaybackSnapshot = {
   state: "playing",
+  autoplay: null,
   picture: "in_window",
   failure: null,
   nowPlaying: {

@@ -10,6 +10,7 @@ import {
 function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
   return {
     state: "playing",
+    autoplay: null,
     picture: "in_window",
     failure: null,
     nowPlaying: {

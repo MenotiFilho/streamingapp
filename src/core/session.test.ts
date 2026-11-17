@@ -12,6 +12,7 @@ function nothing(revision: number, address: string | null = null): Snapshot {
     revision,
     playback: {
       state: "idle",
+      autoplay: null,
       picture: "in_window",
       failure: null,
       nowPlaying: null,

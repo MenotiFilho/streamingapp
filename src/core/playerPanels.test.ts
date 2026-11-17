@@ -29,6 +29,7 @@ function track(overrides: Partial<Track> & { id: number }): Track {
 function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
   return {
     state: "playing",
+    autoplay: null,
     picture: "in_window",
     failure: null,
     nowPlaying: null,

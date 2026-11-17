@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::addon::Manifest;
+use crate::autoplay::AutoplaySnapshot;
 use crate::device::DeviceSummary;
 use crate::pairing::PairingCode;
 use crate::playback::{Picture, PlaybackSnapshot};
@@ -127,6 +128,10 @@ impl Snapshot {
     /// Up next is read from; it is not state, so a cached Title gaining episodes
     /// moves the row without an Action (#274, ADR-0038).
     ///
+    /// `autoplay` is the countdown the Host is running, read off its clock at
+    /// the moment of the build: it is the Host's own record beside the state, not
+    /// part of it (ADR-0040).
+    ///
     /// `picture` is the Player's answer to where it draws: a fact about the
     /// machine the Host was built on, like which backend holds a credential, and
     /// not something any Action changes.
@@ -136,10 +141,14 @@ impl Snapshot {
         revision: u64,
         picture: Picture,
         address: Option<&str>,
+        autoplay: Option<AutoplaySnapshot>,
     ) -> Self {
+        let mut playback = state.playback().snapshot(picture);
+        playback.autoplay = autoplay;
+
         Self {
             revision,
-            playback: state.playback().snapshot(picture),
+            playback,
             preferences: PreferencesSnapshot {
                 subtitle_language: state.preferences().subtitle_language().cloned(),
                 subtitle_color: state.preferences().subtitle_color().clone(),

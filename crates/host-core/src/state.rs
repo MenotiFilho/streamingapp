@@ -198,6 +198,9 @@ impl State {
                 self.preferences.set_autoplay(autoplay);
                 Persist::Preferences
             }
+            // The countdown is the Host's own record beside the state, so there
+            // is nothing here to move and nothing to keep (ADR-0040).
+            Change::CancelAutoplay => Persist::Nothing,
             // The Featured catalog is a preference of the Host's, and it is
             // taken as given: whether the Addon it names is configured, and
             // whether the Addon offers the Catalog, was judged where the state
@@ -500,6 +503,9 @@ pub(crate) enum Change {
     /// Whether the Host advances on its own when an episode's Stream ends
     /// (#302, #314).
     SetAutoplay(bool),
+    /// Stop the running Autoplay countdown. A change so that every client is
+    /// told the countdown is over, with nothing of its own in [`State`].
+    CancelAutoplay,
     /// The one Catalog marked as the Host's featured feed, resolved against the
     /// Addon that offers it (#74).
     SetFeaturedCatalog(FeaturedCatalog),
