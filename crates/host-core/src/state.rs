@@ -1,5 +1,6 @@
 use crate::addon::{Addon, AddonId};
 use crate::device::{Device, DeviceId, DeviceToken};
+use crate::handpick::HandPick;
 use crate::pairing::PairingCode;
 use crate::playback::{
     Aspect, ChapterStep, ChosenStream, Crop, PlaybackSession, SeekTarget, TrackId, TrackKind,
@@ -46,6 +47,10 @@ pub(crate) struct State {
     /// paired may redeem it with. Rotated the moment it is redeemed, so a code
     /// is worth exactly one pairing (#31).
     pairing: PairingCode,
+    /// The Track a client picked during playback, carried as a language (or as
+    /// "off") while the Title keeps playing (ADR-0041). Never stored and never
+    /// published: it is not in any Snapshot, and a restarted Host holds none.
+    hand_pick: HandPick,
 }
 
 /// Which credentials the Host is known to hold, and where the store that holds
@@ -83,6 +88,7 @@ impl State {
             watch,
             devices,
             pairing,
+            hand_pick: HandPick::default(),
         };
         // A marking the store cannot honour — an Addon that is not configured,
         // or a Catalog the Addon's manifest does not offer — is not one the
@@ -108,6 +114,11 @@ impl State {
 
     pub(crate) fn playback(&self) -> &PlaybackSession {
         &self.playback
+    }
+
+    /// The Hand pick: what the owner picked in the player, for the Title playing.
+    pub(crate) fn hand_pick(&self) -> &HandPick {
+        &self.hand_pick
     }
 
     /// The Continue watching entries, most recently written first.
@@ -140,6 +151,15 @@ impl State {
     /// resume point is read from and what a next episode carries its Title from.
     pub(crate) fn watch_for(&self, video: &VideoRef) -> Option<&WatchProgress> {
         self.watch.iter().find(|entry| &entry.video == video)
+    }
+
+    /// The id of the Title the Stream playing now belongs to, as the Host was told
+    /// it: the key of the Hand pick. None for a Stream the Host was never told a
+    /// Title of, which is played and not recorded.
+    fn playing_title_id(&self) -> Option<String> {
+        let video = &self.playback.chosen()?.now_playing.video;
+        self.watch_for(video)
+            .map(|entry| entry.title.id().to_owned())
     }
 
     /// What is playing, as the Player's latest report leaves it.
@@ -322,6 +342,9 @@ impl State {
                 start,
             } => {
                 let video = chosen.now_playing.video.clone();
+                // The Hand pick follows the Title: a Stream of the same one
+                // keeps it, any other play ends it (ADR-0041).
+                self.hand_pick.played(title.as_deref().map(TitleStub::id));
                 // The Stream the play came from is what Playing Up next
                 // continues (#276): its Addon and release are read before the
                 // PlaybackSession takes the candidate.
@@ -359,10 +382,21 @@ impl State {
             }
             Change::SetAudioTrack(track) => {
                 self.playback.select(TrackKind::Audio, Some(track));
+                self.playback.record_hand_pick();
+                if let Some(title) = self.playing_title_id() {
+                    let language = self.playback.language_of_track(TrackKind::Audio, track);
+                    self.hand_pick.picked_audio(&title, language);
+                }
                 Persist::Nothing
             }
             Change::SetSubtitleTrack(track) => {
                 self.playback.select(TrackKind::Subtitle, track);
+                self.playback.record_hand_pick();
+                if let Some(title) = self.playing_title_id() {
+                    let picked =
+                        track.map(|id| self.playback.language_of_track(TrackKind::Subtitle, id));
+                    self.hand_pick.picked_subtitle(&title, picked);
+                }
                 Persist::Nothing
             }
             Change::SetSubtitleDelay(seconds) => {
@@ -398,6 +432,7 @@ impl State {
                 Persist::Nothing
             }
             Change::Stop => {
+                self.hand_pick.stopped();
                 // Where the Stream got to is written before it is let go: after
                 // the stop there is no position to read, and an unclean exit is
                 // exactly the case this is for.
