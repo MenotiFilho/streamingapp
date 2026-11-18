@@ -1141,6 +1141,124 @@ function Press-Switch($app) {
     Start-Sleep -Milliseconds 500
 }
 
+# --- the language field (#304) ------------------------------------------------
+#
+# Preferences draws Subtitle languages and Audio languages as a field of chips,
+# each with a `Remove <language>` control, and a `Choose subtitle languages` (or
+# `Choose audio languages`) control that opens a drawer over the screen. The
+# drawer's "Chosen" group lists the held languages in rank, each row with `Move
+# <language> up` and `Move <language> down`; its "Languages" group lists the rest.
+# A row is a choice, so it announces its state through the Toggle pattern: On in
+# Chosen, Off in Languages. The row's own name is its words plus a tick and a rank
+# mark when it is chosen, so it is matched whole, around those, never by a
+# fragment: `English` must not find `English (UK)` or `Remove English`.
+$tickGlyph = [string][char]0x2713
+$followSubtitleLine = 'The subtitle the file marks as default'
+
+function Language-Row-Pattern($name) {
+    '^\s*(' + [regex]::Escape($tickGlyph) + ')?\s*' + [regex]::Escape($name) + '\s*(1st|2nd|3rd)?\s*$'
+}
+
+# The drawer's row for a language, whichever group it is in.
+function Language-Rows($app, $name) {
+    $pattern = Language-Row-Pattern $name
+    @(Buttons $app | Where-Object { $_.Current.Name -match $pattern })
+}
+
+# Wait for a language's row to be chosen ($true) or not chosen ($false). Rows are
+# looked up afresh each time: a press moves the row between the two groups, so the
+# element a press was made on is gone by the time the Host has answered.
+function Wait-Language-Row($app, $name, $chosen, $seconds = 15) {
+    $deadline = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $deadline) {
+        foreach ($row in (Language-Rows $app $name)) {
+            if ((Toggled $row) -eq $chosen) { return $row }
+        }
+        Start-Sleep -Milliseconds 300
+    }
+    return $null
+}
+
+# Wait for a chosen language's `Move ... up` / `Move ... down` to be disabled (the
+# first and the last rank have nowhere to go) or enabled.
+function Wait-Move-State($app, $name, $direction, $disabled, $seconds = 15) {
+    $deadline = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $deadline) {
+        $button = Button-Named $app ('Move ' + $name + ' ' + $direction) 1
+        if ($button -and ((Is-Disabled $button) -eq $disabled)) { return $true }
+        Start-Sleep -Milliseconds 300
+    }
+    return $false
+}
+
+# Press a control in the field or the drawer, and say whether it landed. The
+# keyboard is the first try; the drawer is a pushed level whose focus the shell
+# owns, so a focus the script set can be undone, and a click where the control is
+# is the second. `$landed` waits long enough for the Host to answer, so a press
+# that did land is never pressed twice.
+function Press-Language-Control($app, [scriptblock] $find, [scriptblock] $landed) {
+    $element = & $find
+    if (-not $element) { return $false }
+    Press-Element $app $element
+    if (& $landed) { return $true }
+    $element = & $find
+    if (-not $element) { return $false }
+    $rect = $element.Current.BoundingRectangle
+    if ($rect.IsEmpty -or $rect.Width -le 0 -or $rect.Height -le 0) { return $false }
+    [W]::Click([int]($rect.Left + ($rect.Width / 2)), [int]($rect.Top + ($rect.Height / 2)))
+    Start-Sleep -Seconds 2
+    return [bool](& $landed)
+}
+
+# Open a list's drawer with its ▾ and wait for the drawer's Done. `$kind` is
+# `subtitle` or `audio`.
+function Open-Language-Drawer($app, $kind) {
+    $name = 'Choose ' + $kind + ' languages'
+    Press-Button $app $name 10
+    if (-not (Button-Named $app 'Done' 10)) {
+        throw "the $name control did not open a drawer with a Done control"
+    }
+}
+
+function Close-Language-Drawer($app) {
+    Press $app 'Done'
+    Start-Sleep -Milliseconds 500
+}
+
+# Tick a language in the open drawer: its row moves from Languages to Chosen.
+function Tick-Language($app, $name) {
+    $find = { Language-Rows $app $name | Where-Object { -not (Toggled $_) } | Select-Object -First 1 }.GetNewClosure()
+    $landed = { $null -ne (Wait-Language-Row $app $name $true 6) }.GetNewClosure()
+    if (-not (Press-Language-Control $app $find $landed)) {
+        throw "ticking $name in the drawer did not make it a chosen row"
+    }
+}
+
+# Move a chosen language one rank toward the first, with its ↑.
+function Move-Language-Up($app, $name) {
+    $find = { Button-Named $app ('Move ' + $name + ' up') 6 }.GetNewClosure()
+    $landed = { Wait-Move-State $app $name 'up' $true 6 }.GetNewClosure()
+    if (-not (Press-Language-Control $app $find $landed)) {
+        throw "Move $name up did not take $name to the first rank"
+    }
+}
+
+# Take a chip out with its ×, on the Preferences screen (the drawer closed).
+function Remove-Language-Chip($app, $name) {
+    $find = { Button-Named $app ('Remove ' + $name) 6 }.GetNewClosure()
+    $landed = {
+        $deadline = (Get-Date).AddSeconds(6)
+        while ((Get-Date) -lt $deadline) {
+            if (@(Buttons-Named $app ('Remove ' + $name)).Count -eq 0) { return $true }
+            Start-Sleep -Milliseconds 300
+        }
+        return $false
+    }.GetNewClosure()
+    if (-not (Press-Language-Control $app $find $landed)) {
+        throw "the Remove $name control did not take the chip out"
+    }
+}
+
 # --- the fixtures the later steps stand on ------------------------------------
 #
 # A step run on its own must not stand on the leftovers of a previous run: the
@@ -1731,7 +1849,7 @@ function Step-1($ctx) {
 }
 
 function Step-2($ctx) {
-    '--- 2. Settings > Preferences: choosing a subtitle language'
+    '--- 2. Settings > Preferences: ticking a subtitle language'
     $app = $ctx.App
     $before = Snapshot-Baseline
     Open-Settings $app
@@ -1740,22 +1858,33 @@ function Step-2($ctx) {
         (Shows $app 'Credentials') -and (Shows $app 'Preferences') -and
         (Shows $app 'Remote devices') -and (Shows $app 'About/Credits')) (Page-Text $app)
     Press $app 'Preferences'
-    Wait-Text $app 'Subtitle language' 20 | Out-Null
+    Wait-Text $app 'Subtitle languages' 20 | Out-Null
     Shot $app '02-preferences.png'
-    Check 'Preferences says the Host picks per Video before any choice' (
-        (Page-Text $app) -match 'Host picks per Video') (Page-Text $app)
+    $text = Page-Text $app
+    Check 'Preferences draws a Subtitle languages field and an Audio languages field' (
+        ($text -match 'Subtitle languages') -and ($text -match 'Audio languages')) $text
+    Check 'the empty Subtitle languages field says Follow the file, and what that means' (
+        ($text -match 'Follow the file') -and ($text -match $followSubtitleLine)) $text
 
-    $english = Button-Named $app 'English' 10
-    if (-not $english) { throw 'the Preferences screen shows no English choice' }
-    Press-Element $app $english
-    $chosen = Wait-Toggled $app 'English' 15
+    Open-Language-Drawer $app 'subtitle'
+    Shot $app '02-drawer.png'
+    $english = Wait-Language-Row $app 'English' $false 10
+    if (-not $english) { throw 'the Subtitle languages drawer lists no English row to tick' }
+    Tick-Language $app 'English'
     Shot $app '02-saved.png'
-    Check 'the choice pressed is the one the Host holds' (
-        $null -ne $chosen) "the English choice never became the pressed one"
-    Check 'and the old choice is no longer pressed' (
-        -not (Toggled (Button-Named $app 'Host picks per Video'))) "the Host picks choice is still pressed"
-    Check 'choosing a language published one Snapshot' (
+    Check 'the language ticked is a chosen row the Host holds' (
+        $null -ne (Wait-Language-Row $app 'English' $true 15)) 'the English row never became a chosen one'
+    Check 'the drawer now has a Chosen group, and the English row has left Languages' (
+        (Shows $app 'Chosen' 5) -and
+        -not (Language-Rows $app 'English' | Where-Object { -not (Toggled $_) })) (Page-Text $app)
+    Check 'ticking a language published one Snapshot' (
         (Wait-Published $before 20) -gt $before) "the log still shows $before published Snapshot(s)"
+
+    Close-Language-Drawer $app
+    Check 'the field draws English as a chip with its remove control' (
+        $null -ne (Button-Named $app 'Remove English' 10)) (Page-Text $app)
+    Check 'and no longer says Follow the file for subtitles' (
+        (Wait-No-Text $app $followSubtitleLine 10) -notmatch $followSubtitleLine) (Page-Text $app)
 }
 
 function Step-3($ctx) {
@@ -1770,8 +1899,9 @@ function Step-3($ctx) {
     Shot $app '03-after-second-launch.png'
 }
 
+
 function Step-4($ctx) {
-    '--- 4. the preference survives a restart'
+    '--- 4. the list survives a restart'
     $app = $ctx.App
     Stop-Host $app
     Check 'the Host logged the Snapshot it published' (
@@ -1783,52 +1913,75 @@ function Step-4($ctx) {
     $ctx.App = $restarted
     Focus $restarted | Out-Null
     Start-Sleep -Seconds 2
-    Open-Settings-Category $restarted 'Preferences' 'Subtitle language'
+    Open-Settings-Category $restarted 'Preferences' 'Subtitle languages'
     Shot $restarted '04-restarted.png'
-    $chosen = Wait-Toggled $restarted 'English' 15
-    Check 'the restarted Host still prefers English' (
-        $null -ne $chosen) "the English choice was not pressed after the restart"
-    Check 'and its Preferences still marks that choice' (
-        Toggled (Button-Named $restarted 'English')) "the restart cleared the pressed choice"
+    Check 'the restarted Host still draws English as a Subtitle languages chip' (
+        $null -ne (Button-Named $restarted 'Remove English' 15)) 'the English chip was not on the Preferences screen after the restart'
+    $text = Page-Text $restarted
+    Check 'and Subtitle languages no longer follow the file' (
+        $text -notmatch $followSubtitleLine) $text
+    Check 'while Audio languages, never touched, still follow it' (
+        $text -match 'The soundtrack the file marks as default') $text
+
+    Open-Language-Drawer $restarted 'subtitle'
+    Shot $restarted '04-restarted-drawer.png'
+    Check 'its drawer marks English as chosen' (
+        $null -ne (Wait-Language-Row $restarted 'English' $true 15)) 'the English row was not a chosen one after the restart'
+    Close-Language-Drawer $restarted
 }
 
 function Step-5($ctx) {
-    '--- 5. choosing another language moves the choice and publishes one Snapshot'
+    '--- 5. ticking a second language and moving it first publishes one Snapshot each'
     $app = $ctx.App
-    # The new Preferences screen offers choices, not a free-text tag, so the
-    # window cannot send a tag the Host would refuse; host-core's preference
-    # tests cover that refusal. What is walkable here is that each choice is one
-    # Action, and that the pressed choice follows the Host.
+    # The drawer offers rows, not a free-text tag, so the window cannot send a tag
+    # the Host would refuse; host-core's preference tests cover that refusal. What
+    # is walkable here is that each press is one Action carrying the whole list,
+    # and that the order the Host holds is the order the drawer shows.
+    Open-Language-Drawer $app 'subtitle'
     $before = Snapshot-Baseline
-    $uk = Button-Named $app 'English (UK)' 10
-    if (-not $uk) { throw 'the Preferences screen shows no English (UK) choice' }
-    Press-Element $app $uk
-    $chosen = Wait-Toggled $app 'English (UK)' 15
+    Tick-Language $app 'English (UK)'
     Shot $app '05-second-language.png'
-    Check 'the window shows the second language' (
-        $null -ne $chosen) "the English (UK) choice never became the pressed one"
-    Check 'the second choice is pressed and the first is not' (
-        (Toggled (Button-Named $app 'English (UK)')) -and
-        -not (Toggled (Button-Named $app 'English'))) "both English choices are pressed or neither is"
-    Check 'and moving the choice published one Snapshot' (
+    Check 'the second language is a chosen row' (
+        $null -ne (Wait-Language-Row $app 'English (UK)' $true 15)) 'the English (UK) row never became a chosen one'
+    Check 'it went last: English holds the first rank and English (UK) the second' (
+        (Wait-Move-State $app 'English' 'up' $true 10) -and
+        (Wait-Move-State $app 'English (UK)' 'up' $false 10) -and
+        (Wait-Move-State $app 'English (UK)' 'down' $true 10)) (Page-Text $app)
+    Check 'and ticking it published one Snapshot' (
         (Wait-Published $before 20) -gt $before) "the log still shows $before published Snapshot(s)"
+
+    $beforeMove = Snapshot-Baseline
+    Move-Language-Up $app 'English (UK)'
+    Shot $app '05-moved-first.png'
+    Check 'moving it up takes English (UK) to the first rank and English to the second' (
+        (Wait-Move-State $app 'English (UK)' 'up' $true 10) -and
+        (Wait-Move-State $app 'English' 'up' $false 10) -and
+        (Wait-Move-State $app 'English' 'down' $true 10)) (Page-Text $app)
+    Check 'and moving it published one Snapshot' (
+        (Wait-Published $beforeMove 20) -gt $beforeMove) "the log still shows $beforeMove published Snapshot(s)"
+    Close-Language-Drawer $app
 }
 
 function Step-6($ctx) {
-    '--- 6. clearing the preference: Host picks per Video, and no featured Catalog'
+    '--- 6. removing every chip: Follow the file, and no featured Catalog'
     $app = $ctx.App
     $before = Snapshot-Baseline
-    $none = Button-Named $app 'Host picks per Video' 10
-    if (-not $none) { throw 'the Preferences screen shows no Host picks per Video choice' }
-    Press-Element $app $none
-    $cleared = Wait-Toggled $app 'Host picks per Video' 15
-    Shot $app '06-cleared.png'
-    Check 'the window says the Host picks per Video again' (
-        $null -ne $cleared) "the Host picks choice never became the pressed one"
-    Check 'the cleared choice is the one pressed' (
-        Toggled (Button-Named $app 'Host picks per Video')) "the Host picks choice is not pressed"
-    Check 'clearing the language published one Snapshot' (
+    Remove-Language-Chip $app 'English (UK)'
+    Check 'removing a chip published one Snapshot' (
         (Wait-Published $before 20) -gt $before) "the log still shows $before published Snapshot(s)"
+    Check 'the other chip is still there' (
+        $null -ne (Button-Named $app 'Remove English' 10)) (Page-Text $app)
+
+    $beforeLast = Snapshot-Baseline
+    Remove-Language-Chip $app 'English'
+    $text = Wait-Text $app $followSubtitleLine 15
+    Shot $app '06-cleared.png'
+    Check 'with every chip removed the field says Follow the file again' (
+        ($text -match 'Follow the file') -and ($text -match $followSubtitleLine)) $text
+    Check 'no chip is left to remove' (
+        (@(Buttons $app | Where-Object { $_.Current.Name -like 'Remove *' }).Count -eq 0)) $text
+    Check 'removing the last chip published one Snapshot' (
+        (Wait-Published $beforeLast 20) -gt $beforeLast) "the log still shows $beforeLast published Snapshot(s)"
     Check 'with no Addon configured there is no Catalog to feature, and the screen says so' (
         (Page-Text $app) -match 'No configured Addon offers a Catalog') (Page-Text $app)
     Check 'and No featured catalog is the choice pressed' (
