@@ -113,14 +113,22 @@ _Avoid_: page, results
 **Provider**:
 The Host's internal seam for turning a Video into playable candidates. The
 Stremio addon protocol is one Provider; direct integrations (local files,
-TorBox, a torrent bridge) are others.
+TorBox) are others.
 _Avoid_: source, backend, resolver
 
 **Stream**:
 A candidate a Provider returns for a Video: either a direct URL that can be
-played immediately, or an infoHash that something else must turn into bytes
-first.
+played immediately, or a torrent — an infoHash, and which file in it — that the
+Torrent engine turns into bytes first. A magnet link is a torrent too.
 _Avoid_: source, link, result
+
+**Torrent engine**:
+The Host's seam between a chosen torrent Stream and the Player: it joins the
+torrent's swarm from the owner's own address, uploads included, and serves the
+file asked for to the Player. A program shipped with the Host and started by it
+on the first torrent played; it lives only as long as the Host does. Not a
+Provider: it answers for no Video.
+_Avoid_: bridge, sidecar, torrent client, server
 
 **Streams picker**:
 The list of Streams a Video can be played as — one group per Addon that answered,
@@ -165,7 +173,8 @@ in-process, and it keeps the picture; the Host's interface is drawn above or
 beside the video and never receives the picture itself. The only frames that
 cross this seam are a Seek preview, asked for at one moment and never at the
 frame rate (ADR-0028).
-_Avoid_: mpv (for the seam), backend, engine, renderer
+_Avoid_: mpv (for the seam), backend, engine, renderer. The Player is never
+called an engine, and "Torrent engine" is always qualified.
 
 **Picture**:
 Where the Player draws the video: inside the same window as the Host's
@@ -352,8 +361,27 @@ How much of a Stream the Player keeps read ahead of where it is playing — how
 many seconds it aims for and how much memory that read-ahead may take — so a dip
 in the network is ridden out instead of interrupting playback. A preference of
 the Host's, not a client's, and the same on every Stream: it ends where either
-limit is reached first (ADR-0026).
+limit is reached first (ADR-0026). For a torrent Stream, it also sets how far
+ahead the Torrent engine fetches.
 _Avoid_: cache (the Host already caches Addon pages), preload, buffer size
+
+**Torrent cache**:
+The most disk a held torrent may take while it plays: pieces furthest behind
+playback are given up first, and all of it is deleted when the torrent is let go.
+A preference of the Host's, set once for every torrent.
+_Avoid_: download, torrent storage, disk buffer
+
+**Stalled**:
+A Stream that is playing, paused by no one, and held because the bytes ahead of it
+have not arrived yet. True of any Stream, direct or torrent; a Stream still
+opening is not Stalled, it is opening.
+_Avoid_: buffering, loading, frozen
+
+**Torrent status**:
+What the Torrent engine reports about the torrent being played: whether it is
+still finding the torrent or fetching it, how many peers it is connected to, and
+how fast bytes arrive. Never which torrent. Absent for a direct Stream.
+_Avoid_: swarm info, health, torrent stats
 
 ### Clients
 
