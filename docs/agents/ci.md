@@ -11,6 +11,8 @@ development container uses:
 3. `cargo fmt --check`
 4. `cargo clippy --all-targets -- -D warnings`
 5. `cargo test --workspace --no-fail-fast`
+6. `go vet ./...` and `go test ./...` in `crates/host-torrent/engine` — the
+   Torrent engine is a Go module of its own, with Go pinned in the image
 
 It checks the pull request's head out into a throwaway worktree, so nothing
 uncommitted in your checkout reaches the result, and posts the outcome as a

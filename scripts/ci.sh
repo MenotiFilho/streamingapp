@@ -131,6 +131,10 @@ if [[ "$code" == true ]]; then
   step "Check Rust formatting" run cargo fmt --check
   step "Clippy" run cargo clippy --all-targets -- -D warnings
   step "Test the Rust workspace" run cargo test --workspace --no-fail-fast
+  # The Torrent engine is a Go module of its own (ADR-0042 §1), outside the cargo
+  # workspace and the window's packages; `-C` keeps each step one command.
+  step "Vet the Torrent engine" run go -C crates/host-torrent/engine vet ./...
+  step "Test the Torrent engine" run go -C crates/host-torrent/engine test ./...
 else
   echo "Docs only: the suites are skipped."
 fi
