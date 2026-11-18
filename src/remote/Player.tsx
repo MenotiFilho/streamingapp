@@ -17,6 +17,7 @@ import {
 import { formatTime, watching } from "../core/playback";
 import { episodeLine, type PlaybackView } from "../core/playbackView";
 import { usePlaybackView } from "../core/react/usePlaybackView";
+import { useStallShown } from "../core/react/useStallShown";
 import { usePreview } from "../core/react/usePreview";
 import type { Session } from "../core/session";
 import {
@@ -48,6 +49,7 @@ import {
   STRIP_EXPAND,
   STRIP_LABEL,
   stripControls,
+  stripNote,
   TIMELINE_LABEL,
   timelineRange,
   trackFills,
@@ -91,12 +93,14 @@ export type PlayerStripProps = {
  */
 export function PlayerStrip({ session, title, push }: PlayerStripProps) {
   const view = usePlaybackView(session, true);
+  const stallUp = useStallShown(view?.stalled ?? false);
 
   if (!view || !watching(view.state)) {
     return null;
   }
 
   const [rewind, playPause] = stripControls(view);
+  const note = stripNote(view, stallUp);
   const art = view.openingPreview?.art ?? null;
 
   return (
@@ -117,9 +121,7 @@ export function PlayerStrip({ session, title, push }: PlayerStripProps) {
       >
         <span className="remote-player-strip-title">{view.title}</span>
         <span className="remote-player-strip-episode">{episodeLine(view)}</span>
-        {view.pictureNote ? (
-          <span className="remote-player-strip-note">{view.pictureNote}</span>
-        ) : null}
+        {note ? <span className="remote-player-strip-note">{note}</span> : null}
         <span className="remote-visually-hidden">{STRIP_EXPAND}</span>
       </button>
 
@@ -154,6 +156,7 @@ export function PlayerCard({
   push: (level: NewLevel<RemotePayload>) => string;
 }) {
   const view = usePlaybackView(session, true);
+  const stallUp = useStallShown(view?.stalled ?? false);
 
   if (!view || !watching(view.state)) {
     return null;
@@ -161,7 +164,8 @@ export function PlayerCard({
 
   const controls = transportControls(view);
   const take = (action: Action) => void session.take(action);
-  const stateNote = cardStateNote(view);
+  const stateNote = cardStateNote(view, stallUp);
+  const waiting = view.stalled && stallUp;
   const banner = autoplayBanner(view);
 
   return (
@@ -182,7 +186,13 @@ export function PlayerCard({
       {banner ? <PlayerAutoplayBanner banner={banner} take={take} /> : null}
 
       {stateNote ? (
-        <p className="remote-player-state" role="status" data-testid="remote-player-state">
+        <p
+          className="remote-player-state"
+          role="status"
+          data-testid="remote-player-state"
+          data-stalled={waiting ? "true" : undefined}
+        >
+          {waiting ? <PendingSpinner /> : null}
           {stateNote}
         </p>
       ) : null}

@@ -301,6 +301,12 @@ impl MpvPlayer {
             // read has reached. `demuxer-cache-time` is not this — it is the
             // read's own end, not a span to draw.
             cache_state: self.mpv.get_property::<String>("demuxer-cache-state").ok(),
+            // Held for bytes, whoever's pause it is not: mpv's own fact, which
+            // is false whenever it cannot answer.
+            paused_for_cache: self
+                .mpv
+                .get_property::<bool>(observing::PAUSED_FOR_CACHE)
+                .unwrap_or(false),
         }
     }
 

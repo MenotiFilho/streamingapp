@@ -4,6 +4,7 @@ import { AUTOPLAY_SWITCH_LABEL, VOLUME_MAX } from "../core/controls";
 import type { Level, NewLevel } from "../core/navigation";
 import { playingName, watching } from "../core/playback";
 import type { PlaybackView } from "../core/playbackView";
+import { STALLED_NOTE, STALLED_STRIP_NOTE } from "../core/stall";
 import {
   transportControls,
   type TransportControl,
@@ -71,15 +72,36 @@ export const ENDED_NOTE = "The Stream reached its end.";
  * ended note would say it twice, so the note steps aside (#318, #302).
  */
 export function cardStateNote(
-  view: Pick<PlaybackView, "state" | "nowPlaying" | "autoplay">,
+  view: Pick<PlaybackView, "state" | "nowPlaying" | "autoplay" | "stalled">,
+  stallUp = false,
 ): string | null {
   if (view.state === "opening") {
     return openingNote(playingName(view.nowPlaying));
+  }
+  // `stallUp` is the client's own `stallShown`: a seek's brief wait is a stall
+  // the Host published and the card draws nothing for.
+  if (view.stalled && stallUp) {
+    return STALLED_NOTE;
   }
   if (view.state === "ended" && plainEnd(view.autoplay)) {
     return ENDED_NOTE;
   }
   return null;
+}
+
+/**
+ * What the docked strip says under the episode: "Waiting…" while a shown stall
+ * holds the Stream, ahead of the core's note about where the picture is. Text
+ * only; nothing new is said while the Stream is opening.
+ */
+export function stripNote(
+  view: Pick<PlaybackView, "stalled" | "pictureNote">,
+  stallUp: boolean,
+): string | null {
+  const parts = [view.stalled && stallUp ? STALLED_STRIP_NOTE : null, view.pictureNote].filter(
+    (part): part is string => part !== null,
+  );
+  return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 /**

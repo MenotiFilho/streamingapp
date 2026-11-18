@@ -357,6 +357,14 @@ export type PlaybackSnapshot = {
    * that gap is what the reading is for. Null where the Player has no answer.
    */
   buffered: Buffered | null;
+  /**
+   * Whether the Stream is Stalled: playing, paused by no one, and held because
+   * the bytes ahead of it have not arrived yet. True of any Stream, and
+   * published as the Player reports it, with no grace: a client draws nothing
+   * for a stall until it has lasted a second (`stallShown`). False in every
+   * state but `playing`.
+   */
+  stalled: boolean;
   /** The Stream's tracks — audio and subtitles — in the Player's own order. */
   tracks: Track[];
   /** The Stream's chapters, in the container's order. */

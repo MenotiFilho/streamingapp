@@ -811,6 +811,10 @@ pub struct Observation {
     /// The span of the Stream the Player has read, where it can say. `None` is
     /// a Player with no answer, not a Stream with nothing read.
     pub buffered: Option<Buffered>,
+    /// Whether the Player is held for bytes that have not arrived: mpv's own
+    /// `paused-for-cache`, as it said it. A raw reading — the Host decides when
+    /// it counts as a Stalled Stream, and only in `playing`.
+    pub stalled: bool,
     /// Why an open failed, in the Player's own words, set once and until the
     /// next open. The Host shows it to the client that pressed play.
     pub failure: Option<String>,
@@ -858,6 +862,7 @@ impl Observation {
             position: None,
             duration: None,
             buffered: None,
+            stalled: false,
             failure: None,
             tracks: None,
             chapters: Vec::new(),
@@ -952,6 +957,9 @@ pub(crate) struct PlaybackSession {
     /// it. The Player's report corrects it, with a span that moved by less than
     /// a second at either end counted as the same reading.
     buffered: Option<Buffered>,
+    /// Whether the Stream is Stalled: playing, paused by no one, and held for
+    /// bytes. True only in `playing`, and published as the Player reports it.
+    stalled: bool,
     /// Why the last open failed, kept until the next play or stop.
     failure: Option<String>,
     /// The Stream's tracks, as the Player last reported them: the Host's own
@@ -991,6 +999,7 @@ impl PlaybackSession {
             position: None,
             duration: None,
             buffered: None,
+            stalled: false,
             failure: None,
             tracks: Vec::new(),
             chapters: Vec::new(),
@@ -1044,6 +1053,7 @@ impl PlaybackSession {
             position: self.position,
             duration: self.duration,
             buffered: self.buffered,
+            stalled: self.stalled,
             tracks: self.tracks.clone(),
             chapters: self.chapters.clone(),
             chapter: self.chapter,
@@ -1299,6 +1309,11 @@ impl PlaybackSession {
                 (Some(held), Some(reported)) if held.same_reading(reported) => Some(held),
                 (_, reported) => reported,
             },
+            // A Stream is Stalled only while it plays and nobody paused it: a
+            // Player waiting for bytes in any other state is opening, held by
+            // the owner, or done, and says so by its state. No debounce here —
+            // the grace belongs to the client that draws it.
+            stalled: observation.stalled && observation.state == PlaybackState::Playing,
             failure: observation.failure.clone(),
             // A Player that could not say what the Stream carries says *nothing*
             // rather than "nothing": the tracks the Host already held stand, and
@@ -1341,6 +1356,7 @@ impl PlaybackSession {
             || self.state != earlier.state
             || self.duration != earlier.duration
             || self.buffered != earlier.buffered
+            || self.stalled != earlier.stalled
             || self.failure != earlier.failure
             || self.tracks != earlier.tracks
             || self.chapters != earlier.chapters
@@ -1401,6 +1417,10 @@ pub struct PlaybackSnapshot {
     /// timeline — what a client draws behind its progress bar. Null where the
     /// Player has no answer.
     pub buffered: Option<Buffered>,
+    /// Whether the Stream is Stalled: playing, paused by no one, and held
+    /// because the bytes ahead of it have not arrived yet. True of any Stream,
+    /// direct or torrent. A Stream still opening is not Stalled; it is opening.
+    pub stalled: bool,
     /// The Stream's tracks — audio and subtitles — in mpv's own order.
     pub tracks: Vec<Track>,
     /// The Stream's chapters, in the order the container gives them.
@@ -1984,6 +2004,7 @@ mod tests {
                 position: None,
                 duration: None,
                 buffered: None,
+                stalled: false,
                 tracks: Vec::new(),
                 chapters: Vec::new(),
                 chapter: None,
@@ -2144,6 +2165,7 @@ mod tests {
                 "position": null,
                 "duration": null,
                 "buffered": null,
+                "stalled": false,
                 "tracks": [],
                 "chapters": [],
                 "chapter": null,
@@ -2527,6 +2549,7 @@ mod tests {
                 "position": 12.5,
                 "duration": 600.0,
                 "buffered": { "start": 12.0, "end": 40.0 },
+                "stalled": false,
                 "tracks": [
                     { "id": 1, "kind": "audio", "language": "eng", "title": "English stereo", "codec": "aac",
                       "embedded": true, "selected": true, "default": true, "forced": false, "hearingImpaired": false },

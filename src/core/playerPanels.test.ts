@@ -45,6 +45,7 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
     volume: 100,
     muted: false,
     subtitleDelay: 0,
+    stalled: false,
     crop: null,
     aspect: null,
     resolution: { width: 128, height: 72 },

@@ -1,7 +1,8 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { pictureNote } from "../core/playback";
+import { STALLED_NOTE, STALLED_STRIP_NOTE, STALL_GRACE_MS } from "../core/stall";
 import type { HostLink } from "../core/link";
 import type {
   Action,
@@ -76,6 +77,7 @@ const WATCHING: PlaybackSnapshot = {
   volume: 60,
   muted: false,
   subtitleDelay: 0,
+  stalled: false,
   crop: null,
   aspect: null,
   resolution: null,
@@ -268,6 +270,75 @@ describe("the Remote's expanded card", () => {
     }
 
     await waitFor(() => expect(host.actions).toEqual(sequence.map(([, action]) => action)));
+  });
+
+  describe("a Stalled Stream", () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    /** `openCard` waits on real timers; here the clock is the test's own. */
+    function openCardNow() {
+      fireEvent.click(
+        within(strip()).getByRole("button", { name: new RegExp(STRIP_EXPAND) }),
+      );
+      return screen.getByRole("region", { name: CARD_NAME });
+    }
+
+    async function mountStalled() {
+      const mounted = mount();
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      act(() => mounted.host.publish(snapshot({ stalled: true }, 3)));
+      return mounted;
+    }
+
+    test("the strip says Waiting… from one continuous second, and clears when it ends", async () => {
+      const { host } = await mountStalled();
+      expect(within(strip()).queryByText(STALLED_STRIP_NOTE)).not.toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(STALL_GRACE_MS - 1));
+      expect(within(strip()).queryByText(STALLED_STRIP_NOTE)).not.toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(1));
+      expect(within(strip()).getByText(STALLED_STRIP_NOTE)).toBeInTheDocument();
+
+      act(() => host.publish(snapshot({ stalled: false }, 4)));
+      expect(within(strip()).queryByText(STALLED_STRIP_NOTE)).not.toBeInTheDocument();
+    });
+
+    test("the card's state note is the ring and the sentence, after the same second", async () => {
+      const { host } = await mountStalled();
+      const card = openCardNow();
+      expect(within(card).queryByTestId("remote-player-state")).not.toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(STALL_GRACE_MS));
+      const note = within(card).getByTestId("remote-player-state");
+      expect(note).toHaveTextContent(STALLED_NOTE);
+      expect(within(note).getByTestId("pending-spinner")).toBeInTheDocument();
+
+      act(() => host.publish(snapshot({ stalled: false }, 4)));
+      expect(within(card).queryByTestId("remote-player-state")).not.toBeInTheDocument();
+    });
+
+    test("a seek's brief wait draws nothing on either", async () => {
+      const { host } = await mountStalled();
+
+      act(() => vi.advanceTimersByTime(500));
+      act(() => host.publish(snapshot({ stalled: false }, 4)));
+      act(() => vi.advanceTimersByTime(2000));
+
+      // The strip is withheld on the card's own screen, so it is read first.
+      expect(within(strip()).queryByText(STALLED_STRIP_NOTE)).not.toBeInTheDocument();
+      const card = openCardNow();
+      expect(within(card).queryByTestId("remote-player-state")).not.toBeInTheDocument();
+    });
   });
 
   test("a control the core disables sends nothing when pressed", async () => {
