@@ -82,7 +82,7 @@ playback closes; it does **not** increase how far ahead the demuxer reads (the
 `demuxer-max-*` limits still apply, to metadata only). It is a way to save RAM at
 the cost of disk I/O and lifetime, not a way to survive a longer outage. The
 Streams this Host plays are private URLs a debrid Addon minted, and a cache file
-on disk is another copy of bytes the owner did not ask the Host to keep.
+on disk is another copy of bytes the owner did not ask the Host to keep. A torrent's bounded on-disk cache is the one exception (ADR-0042 §3).
 
 Rejected, with reasons: **`cache-on-disk` as the "storage" limit** (it changes
 where the cache lives, not how much is read ahead, and it is deleted at close);

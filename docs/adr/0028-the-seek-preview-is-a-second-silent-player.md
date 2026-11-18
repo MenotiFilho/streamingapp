@@ -9,6 +9,8 @@ A second libmpv instance is the only way to get a frame from a moment other than
 the one being played. This records that instance, the two brakes on it, and why
 the alternatives are worse.
 
+_Never armed for a torrent Stream (ADR-0042 §6)._
+
 ## The facts this rests on
 
 Probed in the dev container against **mpv 0.37.0 / FFmpeg 6.1.1 / libmpv2 6.0.0**
