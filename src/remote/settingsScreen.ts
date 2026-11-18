@@ -1,5 +1,9 @@
 import type { DeclaredCatalog } from "../core/browse";
 import type { LanguageKind } from "../core/languageList";
+import {
+  FOLLOW_THE_FILE_AUDIO_LINE,
+  FOLLOW_THE_FILE_SUBTITLE_LINE,
+} from "../core/languages";
 import type { NewLevel } from "../core/navigation";
 import {
   CREDENTIALS_CATEGORY,
@@ -133,6 +137,26 @@ export const LANGUAGE_GROUP_HEADS: Record<LanguageKind, string> = {
   subtitle: "Subtitle languages",
   audio: "Audio languages",
 };
+
+/** What an empty list means, in the words the window prints under its field. */
+export const LANGUAGE_FOLLOW_LINES: Record<LanguageKind, string> = {
+  subtitle: FOLLOW_THE_FILE_SUBTITLE_LINE,
+  audio: FOLLOW_THE_FILE_AUDIO_LINE,
+};
+
+/**
+ * The sheet a field's ▾ opens (#330, ADR-0035 §2): a level, so the phone's
+ * system Back puts it away (ADR-0034). One id per list, so a second press
+ * replaces it and a single Back leaves.
+ */
+export function languageSheetLevel(kind: LanguageKind): NewLevel<RemotePayload> {
+  return {
+    id: `language-sheet-${kind}`,
+    name: LANGUAGE_GROUP_HEADS[kind],
+    kind: "popover",
+    payload: { kind: "language-sheet", list: kind },
+  };
+}
 
 /** How long a chip is held before it is picked up: about half a second. */
 export const LONG_PRESS_MS = 500;

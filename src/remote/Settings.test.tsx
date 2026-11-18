@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, test } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { afterEach, describe, expect, test, vi } from "vitest";
 
 import { version as packageVersion } from "../../package.json";
 import {
@@ -9,6 +9,7 @@ import {
 } from "../core/controls";
 import { explain, type ActionError } from "../core/errors";
 import { FOLLOW_THE_FILE } from "../core/languages";
+import { THREE_CHOSEN_NOTE } from "../core/languageList";
 import type { HostLink } from "../core/link";
 import type { NewLevel } from "../core/navigation";
 import {
@@ -38,8 +39,11 @@ import {
   bufferRequest,
   clearTmdbLevel,
   colorRequest,
+  LANGUAGE_FOLLOW_LINES,
+  LANGUAGE_GROUP_HEADS,
+  LONG_PRESS_MS,
+  SUBTITLE_COLOUR_HEAD,
   featuredRequest,
-  languageRequest,
   revokeLevel,
   scaleRequest,
   signOutLevel,
@@ -310,7 +314,6 @@ describe("the Preferences leaf", () => {
     await openSettings();
     await openCategory(PREFERENCES);
 
-    fireEvent.click(screen.getByRole("button", { name: "Português (Brasil)" }));
     fireEvent.click(screen.getByRole("button", { name: "Yellow" }));
     const large = SUBTITLE_SCALES[2]!;
     fireEvent.click(
@@ -323,18 +326,11 @@ describe("the Preferences leaf", () => {
     fireEvent.click(
       screen.getByRole("button", { name: `${catalog.name} · ${CINEMETA.name}` }),
     );
-    fireEvent.click(screen.getByRole("button", { name: FOLLOW_THE_FILE }));
     fireEvent.click(screen.getByRole("button", { name: FEATURED_NONE }));
     const wait = AUTOPLAY_CHOICES.find((choice) => !choice.autoplay)!;
     fireEvent.click(screen.getByRole("button", { name: wait.label }));
     fireEvent.click(screen.getByRole("button", { name: "Open the Streams picker" }));
 
-    await waitFor(() =>
-      expect(host.asked("set_subtitle_languages")).toEqual([
-        languageRequest("pt-BR"),
-        languageRequest(null),
-      ]),
-    );
     await waitFor(() =>
       expect(host.asked("set_subtitle_color")).toEqual([
         colorRequest("#FFFF00"),
@@ -370,6 +366,254 @@ describe("the Preferences leaf", () => {
         featuredRequest(null),
       ]),
     );
+  });
+});
+
+/** A Host holding both lists, as a person last left them. */
+function withLanguages(subtitle: string[], audio: string[] = []): Snapshot {
+  return {
+    ...WITH_SETTINGS,
+    preferences: {
+      ...WITH_SETTINGS.preferences,
+      subtitleLanguages: subtitle,
+      audioLanguages: audio,
+    },
+  };
+}
+
+/** The chips of one field, as a person reads them: rank then name. */
+function chipsOf(kind: "subtitle" | "audio"): string[] {
+  const field = screen.getByTestId(`language-field-${kind}`);
+  return Array.from(field.querySelectorAll("[data-chip-index]"), (chip) =>
+    (chip.textContent ?? "").replace("×", ""),
+  );
+}
+
+describe("the Preferences leaf's language lists", () => {
+  test("both groups sit above Subtitle appearance, each a field of ranked chips", async () => {
+    mount({ snapshot: withLanguages(["pt-BR", "en"], ["ja"]) });
+    await openSettings();
+    await openCategory(PREFERENCES);
+
+    const heads = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
+    const at = (head: string) => heads.indexOf(head);
+    expect(at(LANGUAGE_GROUP_HEADS.subtitle)).toBeGreaterThanOrEqual(0);
+    expect(at(LANGUAGE_GROUP_HEADS.audio)).toBeGreaterThan(at(LANGUAGE_GROUP_HEADS.subtitle));
+    expect(at(SUBTITLE_COLOUR_HEAD)).toBeGreaterThan(at(LANGUAGE_GROUP_HEADS.audio));
+
+    expect(chipsOf("subtitle")).toEqual(["1Português (Brasil)", "2English"]);
+    expect(chipsOf("audio")).toEqual(["1日本語"]);
+  });
+
+  test("an empty list reads Follow the file, with what that means for it", async () => {
+    mount({ snapshot: withLanguages([], ["ja"]) });
+    await openSettings();
+    await openCategory(PREFERENCES);
+
+    expect(screen.getByTestId("language-field-subtitle")).toHaveTextContent(FOLLOW_THE_FILE);
+    expect(screen.getByTestId("language-follow-line-subtitle")).toHaveTextContent(
+      LANGUAGE_FOLLOW_LINES.subtitle,
+    );
+    expect(screen.queryByTestId("language-follow-line-audio")).toBeNull();
+  });
+
+  test("× takes a language out and sends the whole list at once", async () => {
+    const { host } = mount({ snapshot: withLanguages(["pt-BR", "en", "es-419"], ["ja"]) });
+    await openSettings();
+    await openCategory(PREFERENCES);
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove English" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove 日本語" }));
+
+    await waitFor(() =>
+      expect(host.asked("set_subtitle_languages")).toEqual([
+        { type: "set_subtitle_languages", languages: ["pt-BR", "es-419"] },
+      ]),
+    );
+    await waitFor(() =>
+      expect(host.asked("set_audio_languages")).toEqual([
+        { type: "set_audio_languages", languages: [] },
+      ]),
+    );
+  });
+
+  test("an unknown stored tag keeps its chip at its rank and can be removed", async () => {
+    const { host } = mount({ snapshot: withLanguages(["en", "xx-YY"]) });
+    await openSettings();
+    await openCategory(PREFERENCES);
+
+    expect(chipsOf("subtitle")).toEqual(["1English", "2Other (xx-YY)"]);
+    fireEvent.click(screen.getByRole("button", { name: "Remove Other (xx-YY)" }));
+    await waitFor(() =>
+      expect(host.asked("set_subtitle_languages")).toEqual([
+        { type: "set_subtitle_languages", languages: ["en"] },
+      ]),
+    );
+  });
+
+  test("a refusal is the Host's words beside the field, and the chips come back", async () => {
+    const refusal: ActionError = { kind: "store", detail: "the store is read-only" };
+    mount({ snapshot: withLanguages(["pt-BR", "en"]), respond: () => refusal });
+    await openSettings();
+    await openCategory(PREFERENCES);
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove English" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(explain(refusal));
+    await waitFor(() =>
+      expect(chipsOf("subtitle")).toEqual(["1Português (Brasil)", "2English"]),
+    );
+  });
+
+  test("the old single-language picker is gone", async () => {
+    mount({ snapshot: withLanguages(["pt-BR"]) });
+    await openSettings();
+    await openCategory(PREFERENCES);
+
+    expect(screen.queryByText("Subtitle language")).toBeNull();
+    expect(screen.queryByRole("button", { name: FOLLOW_THE_FILE })).toBeNull();
+  });
+});
+
+describe("the language sheet", () => {
+  async function openSheet(kind: "subtitle" | "audio", snapshot: Snapshot) {
+    const view = mount({ snapshot });
+    await openSettings();
+    await openCategory(PREFERENCES);
+    fireEvent.click(screen.getByTestId(`language-open-${kind}`));
+    const sheet = await screen.findByRole("dialog", { name: LANGUAGE_GROUP_HEADS[kind] });
+    return { ...view, sheet };
+  }
+
+  test("lifts the chosen rows to the top in rank, with no ↑ ↓, and Done puts it away", async () => {
+    const { sheet } = await openSheet("subtitle", withLanguages(["pt-BR", "en"]));
+
+    const chosen = within(sheet).getAllByTestId(/^language-chosen-/);
+    expect(chosen.map((row) => row.textContent)).toEqual([
+      "✓Português (Brasil)1st",
+      "✓English2nd",
+    ]);
+    expect(within(sheet).queryByRole("button", { name: /Move .* (up|down)/ })).toBeNull();
+
+    fireEvent.click(within(sheet).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  test("ticking sends the whole list with the language last; unticking closes the rest up", async () => {
+    const { host, sheet } = await openSheet("audio", withLanguages([], ["ja"]));
+
+    fireEvent.click(within(sheet).getByTestId("language-row-en"));
+    fireEvent.click(within(sheet).getByTestId("language-chosen-ja"));
+
+    await waitFor(() =>
+      expect(host.asked("set_audio_languages")).toEqual([
+        { type: "set_audio_languages", languages: ["ja", "en"] },
+        { type: "set_audio_languages", languages: ["en"] },
+      ]),
+    );
+  });
+
+  test("at three chosen every other row is disabled and the note says why", async () => {
+    const { host, sheet } = await openSheet(
+      "subtitle",
+      withLanguages(["pt-BR", "en", "es-419"]),
+    );
+
+    expect(within(sheet).getByTestId("language-note")).toHaveTextContent(THREE_CHOSEN_NOTE);
+    const rest = within(sheet).getAllByTestId(/^language-row-/);
+    expect(rest.length).toBeGreaterThan(0);
+    for (const row of rest) {
+      expect(row).toBeDisabled();
+    }
+    fireEvent.click(rest[0]!);
+    expect(host.asked("set_subtitle_languages")).toEqual([]);
+
+    // A chosen row still unticks, which is how a place is freed.
+    fireEvent.click(within(sheet).getByTestId("language-chosen-en"));
+    await waitFor(() =>
+      expect(host.asked("set_subtitle_languages")).toEqual([
+        { type: "set_subtitle_languages", languages: ["pt-BR", "es-419"] },
+      ]),
+    );
+  });
+
+  test("the page under it is inert while it is open, and Back puts it away", async () => {
+    await openSheet("subtitle", withLanguages(["en"]));
+
+    expect(screen.getByTestId("language-field-subtitle").closest("[inert]")).not.toBeNull();
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(screen.getByTestId("language-field-subtitle")).toBeInTheDocument();
+  });
+});
+
+describe("a chip's long-press drag", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Lay the three chips side by side, as a browser would have. */
+  function layOut() {
+    const field = screen.getByTestId("language-field-subtitle");
+    Array.from(field.querySelectorAll<HTMLElement>("[data-chip-index]")).forEach((chip, index) => {
+      chip.getBoundingClientRect = () =>
+        ({ left: index * 100, top: 0, width: 90, height: 40, right: 0, bottom: 0 }) as DOMRect;
+    });
+    return Array.from(field.querySelectorAll<HTMLElement>("[data-chip-index]"));
+  }
+
+  test("held past the threshold, a chip is picked up and dropped on another rank", async () => {
+    const { host } = mount({ snapshot: withLanguages(["pt-BR", "en", "es-419"]) });
+    await openSettings();
+    await openCategory(PREFERENCES);
+    const [first] = layOut();
+    vi.useFakeTimers();
+
+    fireEvent.pointerDown(first!, { pointerId: 1, clientX: 10, clientY: 10 });
+    act(() => vi.advanceTimersByTime(LONG_PRESS_MS));
+    fireEvent.pointerMove(first!, { pointerId: 1, clientX: 250, clientY: 10 });
+    fireEvent.pointerUp(first!, { pointerId: 1, clientX: 250, clientY: 10 });
+    vi.useRealTimers();
+
+    await waitFor(() =>
+      expect(host.asked("set_subtitle_languages")).toEqual([
+        { type: "set_subtitle_languages", languages: ["en", "es-419", "pt-BR"] },
+      ]),
+    );
+  });
+
+  test("a move before the threshold is a swipe: nothing is picked up and nothing is sent", async () => {
+    const { host } = mount({ snapshot: withLanguages(["pt-BR", "en", "es-419"]) });
+    await openSettings();
+    await openCategory(PREFERENCES);
+    const [first] = layOut();
+    vi.useFakeTimers();
+
+    fireEvent.pointerDown(first!, { pointerId: 1, clientX: 10, clientY: 10 });
+    fireEvent.pointerMove(first!, { pointerId: 1, clientX: 12, clientY: 60 });
+    act(() => vi.advanceTimersByTime(LONG_PRESS_MS * 2));
+    fireEvent.pointerMove(first!, { pointerId: 1, clientX: 250, clientY: 10 });
+    fireEvent.pointerUp(first!, { pointerId: 1, clientX: 250, clientY: 10 });
+    vi.useRealTimers();
+
+    expect(first!).not.toHaveAttribute("data-dragging");
+    expect(host.asked("set_subtitle_languages")).toEqual([]);
+  });
+
+  test("a tap is no drag", async () => {
+    const { host } = mount({ snapshot: withLanguages(["pt-BR", "en", "es-419"]) });
+    await openSettings();
+    await openCategory(PREFERENCES);
+    const [first] = layOut();
+    vi.useFakeTimers();
+
+    fireEvent.pointerDown(first!, { pointerId: 1, clientX: 10, clientY: 10 });
+    act(() => vi.advanceTimersByTime(LONG_PRESS_MS / 2));
+    fireEvent.pointerUp(first!, { pointerId: 1, clientX: 10, clientY: 10 });
+    act(() => vi.advanceTimersByTime(LONG_PRESS_MS));
+    vi.useRealTimers();
+
+    expect(host.asked("set_subtitle_languages")).toEqual([]);
   });
 });
 

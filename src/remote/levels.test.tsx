@@ -25,6 +25,7 @@ import { FakeHost } from "./fakeHost.testing";
 import { ISSUED_TOKEN, NOTHING, PHONE, fakeLink } from "./fakeSocket.testing";
 import {
   heldTitle,
+  isSheetPayload,
   levelTitle,
   RemoteLevel,
   titleLevel,
@@ -33,7 +34,7 @@ import {
 } from "./levels";
 import { playerSheetLevel } from "./playerSheets";
 import { CARD_NAME, playerLevel } from "./playerScreen";
-import { settingsLevel } from "./settingsScreen";
+import { languageSheetLevel, settingsLevel } from "./settingsScreen";
 
 /**
  * The one level B2 pushes (ADR-0035 §1).
@@ -567,5 +568,14 @@ describe("the Remote's settings level", () => {
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(pop).toHaveBeenCalledOnce();
     expect(host.actions).toEqual([]);
+  });
+});
+
+describe("which levels are sheets over the screen under them", () => {
+  test("a player plate and a language sheet are; a screen is not", () => {
+    expect(isSheetPayload(playerSheetLevel("speed", null).payload)).toBe(true);
+    expect(isSheetPayload(languageSheetLevel("audio").payload)).toBe(true);
+    expect(isSheetPayload(settingsLevel(SETTINGS_CATEGORIES[1]!).payload)).toBe(false);
+    expect(isSheetPayload({ kind: "player", title: null } as RemotePayload)).toBe(false);
   });
 });

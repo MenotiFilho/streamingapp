@@ -14,7 +14,9 @@ import {
   clearTmdbLevel,
   colorRequest,
   featuredRequest,
+  LANGUAGE_FOLLOW_LINES,
   LANGUAGE_GROUP_HEADS,
+  languageSheetLevel,
   LONG_PRESS_MS,
   LONG_PRESS_SLOP,
   pressVerdict,
@@ -194,5 +196,21 @@ describe("the long-press that starts a chip's drag", () => {
   test("a move before the threshold is a swipe: the page scrolls and no drag starts", () => {
     expect(pressVerdict({ heldMs: 100, travelled: LONG_PRESS_SLOP + 1 })).toBe("scroll");
     expect(pressVerdict({ heldMs: LONG_PRESS_MS - 1, travelled: 40 })).toBe("scroll");
+  });
+});
+
+describe("the sheet a field's ▾ opens", () => {
+  test("is one level per list, so a second press replaces it and one Back leaves", () => {
+    const subtitle = languageSheetLevel("subtitle");
+    const audio = languageSheetLevel("audio");
+    expect(subtitle.id).not.toBe(audio.id);
+    expect(languageSheetLevel("subtitle").id).toBe(subtitle.id);
+    expect(subtitle.name).toBe(LANGUAGE_GROUP_HEADS.subtitle);
+    expect(subtitle.payload).toEqual({ kind: "language-sheet", list: "subtitle" });
+    expect(audio.payload).toEqual({ kind: "language-sheet", list: "audio" });
+  });
+
+  test("an empty list says what following the file means for each list", () => {
+    expect(LANGUAGE_FOLLOW_LINES.subtitle).not.toBe(LANGUAGE_FOLLOW_LINES.audio);
   });
 });
