@@ -56,6 +56,7 @@ function track(overrides: Partial<Track> & { id: number }): Track {
     selected: false,
     default: false,
     forced: false,
+    hearingImpaired: false,
     ...overrides,
   };
 }

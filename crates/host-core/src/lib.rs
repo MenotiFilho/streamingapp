@@ -146,7 +146,8 @@ pub use tmdb::{
     TmdbRequest, TmdbVideo, IMAGE_ROOT, LOGO_ROOT, STILL_ROOT, TMDB_ROOT,
 };
 pub use tracks::{
-    codes_for, codes_for_list, curated_entry, locale_of, same_literally, Locale, CURATED,
+    choose_subtitle, codes_for, codes_for_list, curated_entry, language_of, locale_of,
+    same_literally, Locale, SubtitleChoice, SubtitleHandPick, CURATED,
 };
 pub use view::HostView;
 pub use wire::{permitted, ClientFrame, Refusal, ServerFrame, WIRE_VERSION};
