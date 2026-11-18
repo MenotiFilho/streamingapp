@@ -33,9 +33,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use host_core::{
-    Aspect, ChapterStep, Crop, CropRectangle, Observation, PlaybackState, Player, SeekTarget,
-    Statistics, StreamBuffer, StreamUrl, SubtitleColor, SubtitleLanguage, SubtitleScale, Telling,
-    Track, TrackKind, VideoSize,
+    Aspect, ChapterStep, Crop, CropRectangle, Language, Observation, PlaybackState, Player,
+    SeekTarget, Statistics, StreamBuffer, StreamUrl, SubtitleColor, SubtitleScale, Telling, Track,
+    TrackKind, VideoSize,
 };
 use host_mpv::{MpvError, MpvPlayer, Placement};
 
@@ -806,7 +806,7 @@ fn the_subtitle_language_preference_selects_the_matching_embedded_track() {
     // only does so when it is set before the open.
     player
         .tell(Telling::SubtitleLanguage(Some(
-            SubtitleLanguage::parse("pt-BR").expect("a language tag"),
+            Language::parse("pt-BR").expect("a language tag"),
         )))
         .expect("mpv takes the preference");
     player

@@ -10,7 +10,7 @@ use crate::request::CatalogRef;
 /// to it (ADR-0002, and the spec's "Credentials and secrets").
 #[derive(Debug, Clone, PartialEq)]
 pub struct Preferences {
-    subtitle_language: Option<SubtitleLanguage>,
+    subtitle_language: Option<Language>,
     subtitle_color: SubtitleColor,
     subtitle_scale: SubtitleScale,
     stream_buffer: StreamBuffer,
@@ -41,12 +41,12 @@ impl Preferences {
 
     /// The language the Host prefers when it picks a subtitle track, if the owner
     /// has expressed one.
-    pub fn subtitle_language(&self) -> Option<&SubtitleLanguage> {
+    pub fn subtitle_language(&self) -> Option<&Language> {
         self.subtitle_language.as_ref()
     }
 
     /// Set or clear the subtitle language preference.
-    pub fn set_subtitle_language(&mut self, language: Option<SubtitleLanguage>) {
+    pub fn set_subtitle_language(&mut self, language: Option<Language>) {
         self.subtitle_language = language;
     }
 
@@ -119,7 +119,7 @@ impl Preferences {
     /// The preferences a store read back, in one step: every value it holds,
     /// with an absent row already resolved to its default.
     pub fn from_stored(
-        subtitle_language: Option<SubtitleLanguage>,
+        subtitle_language: Option<Language>,
         subtitle_color: SubtitleColor,
         subtitle_scale: SubtitleScale,
         stream_buffer: StreamBuffer,
@@ -140,7 +140,7 @@ impl Preferences {
 
     /// The same preferences, with a subtitle language, for a store that has just
     /// read one back.
-    pub fn with_subtitle_language(language: Option<SubtitleLanguage>) -> Self {
+    pub fn with_subtitle_language(language: Option<Language>) -> Self {
         Self::from_stored(
             language,
             SubtitleColor::default(),
@@ -170,7 +170,8 @@ pub struct FeaturedCatalog {
     pub catalog: CatalogRef,
 }
 
-/// The language the Host prefers when it chooses a subtitle track.
+/// A language the Host chooses a Track by: the vocabulary of both language
+/// preferences (Subtitle languages and Audio languages, ADR-0041).
 ///
 /// Held as a BCP-47 language tag but judged only on the shape a tag takes — a
 /// primary subtag and optional hyphenated subtags — rather than against a
@@ -178,9 +179,9 @@ pub struct FeaturedCatalog {
 /// Video turns out to have, not validated against IANA.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct SubtitleLanguage(String);
+pub struct Language(String);
 
-impl SubtitleLanguage {
+impl Language {
     /// The longest tag BCP-47 allows.
     const MAX_LEN: usize = 35;
 
@@ -188,8 +189,8 @@ impl SubtitleLanguage {
     const MAX_SUBTAG_LEN: usize = 8;
 
     /// Parse a language tag, or say why this string is not one.
-    pub fn parse(raw: &str) -> Result<Self, InvalidSubtitleLanguage> {
-        let invalid = || InvalidSubtitleLanguage {
+    pub fn parse(raw: &str) -> Result<Self, InvalidLanguage> {
+        let invalid = || InvalidLanguage {
             language: raw.to_owned(),
         };
 
@@ -223,16 +224,16 @@ impl SubtitleLanguage {
     }
 }
 
-impl std::fmt::Display for SubtitleLanguage {
+impl std::fmt::Display for Language {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
     }
 }
 
-/// A string that is not a language tag, offered as a subtitle language.
+/// A string that is not a language tag, offered as a language.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
 #[error("{language:?} is not a language tag")]
-pub struct InvalidSubtitleLanguage {
+pub struct InvalidLanguage {
     pub language: String,
 }
 
@@ -493,7 +494,7 @@ mod tests {
     fn language_tags_bcp_47_allows_are_accepted() {
         for tag in ["en", "pt-BR", "zh-Hans-CN", "es-419", "sr-Latn-RS"] {
             assert_eq!(
-                SubtitleLanguage::parse(tag).map(|l| l.as_str().to_owned()),
+                Language::parse(tag).map(|l| l.as_str().to_owned()),
                 Ok(tag.to_owned()),
                 "{tag} is a language tag"
             );
@@ -516,7 +517,7 @@ mod tests {
             "abcdefghij", // and at most eight letters
         ] {
             assert!(
-                SubtitleLanguage::parse(not_a_tag).is_err(),
+                Language::parse(not_a_tag).is_err(),
                 "{not_a_tag:?} is not a language tag"
             );
         }
@@ -525,9 +526,9 @@ mod tests {
     #[test]
     fn the_longest_tag_bcp_47_allows_is_accepted() {
         let tag = "aaaaaaaa-bbbbbbbb-cccccccc-dddddddd";
-        assert_eq!(tag.len(), SubtitleLanguage::MAX_LEN);
-        assert!(SubtitleLanguage::parse(tag).is_ok());
-        assert!(SubtitleLanguage::parse(&format!("{tag}e")).is_err());
+        assert_eq!(tag.len(), Language::MAX_LEN);
+        assert!(Language::parse(tag).is_ok());
+        assert!(Language::parse(&format!("{tag}e")).is_err());
     }
 
     #[test]

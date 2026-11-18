@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use host_core::{
     Action, ActionError, AddonProvider, FixtureClock, FixtureFetcher, FixturePlayer, Host,
-    InMemorySecretStore, InMemoryStore, Preferences, SecretBackend, Snapshot, Store, StoreError,
-    StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale, ACTION_VERSION,
+    InMemorySecretStore, InMemoryStore, Language, Preferences, SecretBackend, Snapshot, Store,
+    StoreError, StreamBuffer, SubtitleColor, SubtitleScale, ACTION_VERSION,
 };
 
 /// A Player a test drives by hand: nothing plays unless a test says so, and
@@ -57,7 +57,7 @@ fn subtitle_language(snapshot: &Snapshot) -> Option<&str> {
         .preferences
         .subtitle_language
         .as_ref()
-        .map(SubtitleLanguage::as_str)
+        .map(Language::as_str)
 }
 
 /// The Snapshots an Action published.
@@ -87,7 +87,7 @@ fn a_fresh_host_has_no_subtitle_language() {
 #[test]
 fn a_host_starts_from_the_preferences_its_store_holds() {
     let stored = Preferences::with_subtitle_language(Some(
-        SubtitleLanguage::parse("pt-BR").expect("pt-BR is a language tag"),
+        Language::parse("pt-BR").expect("pt-BR is a language tag"),
     ));
     let store = Arc::new(InMemoryStore::holding(stored));
     let host = host_over(store);
@@ -364,13 +364,13 @@ fn a_subtitle_language_that_is_not_a_language_tag_is_rejected() {
         r#"{"type":"set_subtitle_language","language":"Brazilian Portuguese"}"#,
     ));
 
+    let refused = rejected.expect_err("a bad tag is refused");
+    assert_eq!(refused.kind(), "invalid_language");
     assert_eq!(
-        rejected.err(),
-        Some(ActionError::InvalidSubtitleLanguage(
-            host_core::InvalidSubtitleLanguage {
-                language: "Brazilian Portuguese".to_owned(),
-            }
-        ))
+        refused,
+        ActionError::InvalidLanguage(host_core::InvalidLanguage {
+            language: "Brazilian Portuguese".to_owned(),
+        })
     );
     assert_eq!(host.snapshot(), before, "a rejected Action changes nothing");
 }
@@ -383,10 +383,7 @@ fn the_host_writes_a_persisted_preference_through_the_store() {
     set_subtitle_language(&mut host, "pt-BR");
 
     assert_eq!(
-        store
-            .persisted()
-            .subtitle_language()
-            .map(SubtitleLanguage::as_str),
+        store.persisted().subtitle_language().map(Language::as_str),
         Some("pt-BR")
     );
 }

@@ -336,7 +336,7 @@ mod tests {
             ),
             (
                 Telling::SubtitleLanguage(Some(
-                    host_core::SubtitleLanguage::parse("pt-BR").expect("a language tag"),
+                    host_core::Language::parse("pt-BR").expect("a language tag"),
                 )),
                 ("set", vec!["slang".to_owned(), "pt-BR".to_owned()]),
             ),

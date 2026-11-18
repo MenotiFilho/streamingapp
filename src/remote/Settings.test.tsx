@@ -8,7 +8,7 @@ import {
   formatScale,
 } from "../core/controls";
 import { explain, type ActionError } from "../core/errors";
-import { HOST_PICKS_PER_VIDEO } from "../core/languages";
+import { FOLLOW_THE_FILE } from "../core/languages";
 import type { HostLink } from "../core/link";
 import type { NewLevel } from "../core/navigation";
 import {
@@ -323,7 +323,7 @@ describe("the Preferences leaf", () => {
     fireEvent.click(
       screen.getByRole("button", { name: `${catalog.name} · ${CINEMETA.name}` }),
     );
-    fireEvent.click(screen.getByRole("button", { name: HOST_PICKS_PER_VIDEO }));
+    fireEvent.click(screen.getByRole("button", { name: FOLLOW_THE_FILE }));
     fireEvent.click(screen.getByRole("button", { name: FEATURED_NONE }));
     const wait = AUTOPLAY_CHOICES.find((choice) => !choice.autoplay)!;
     fireEvent.click(screen.getByRole("button", { name: wait.label }));

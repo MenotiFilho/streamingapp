@@ -20,7 +20,7 @@ import {
   upNextRows,
 } from "../core/controls";
 import { explain, type ActionError } from "../core/errors";
-import { HOST_PICKS_PER_VIDEO, SUBTITLE_LANGUAGES } from "../core/languages";
+import { FOLLOW_THE_FILE, LANGUAGES } from "../core/languages";
 import type { NewLevel } from "../core/navigation";
 import {
   LICENCE,
@@ -406,7 +406,7 @@ function PreferencesLeaf({ category, session, state }: LeafProps) {
   const [upNextError, setUpNextError] = useState<ActionError | null>(null);
   const [featuredError, setFeaturedError] = useState<ActionError | null>(null);
 
-  const known = SUBTITLE_LANGUAGES.some(
+  const known = LANGUAGES.some(
     (language) => language.tag === heldLanguage,
   );
   const otherColor = unknownColorLabel(heldColor);
@@ -455,7 +455,7 @@ function PreferencesLeaf({ category, session, state }: LeafProps) {
             pressed={heldLanguage === null}
             onClick={() => void take(languageRequest(null), setLanguageError)}
           >
-            {HOST_PICKS_PER_VIDEO}
+            {FOLLOW_THE_FILE}
           </ChoiceChip>
           {heldLanguage && !known ? (
             <ChoiceChip
@@ -465,7 +465,7 @@ function PreferencesLeaf({ category, session, state }: LeafProps) {
               {unknownLanguageLabel(heldLanguage)}
             </ChoiceChip>
           ) : null}
-          {SUBTITLE_LANGUAGES.map((language) => (
+          {LANGUAGES.map((language) => (
             <ChoiceChip
               key={language.tag}
               pressed={heldLanguage === language.tag}

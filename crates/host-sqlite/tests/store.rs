@@ -3,14 +3,14 @@
 use std::path::{Path, PathBuf};
 
 use host_core::{
-    Addon, AddonId, CatalogRef, FeaturedCatalog, Manifest, ManifestUrl, Preferences, Store,
-    StoreError, StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale, UpNextPlayback,
+    Addon, AddonId, CatalogRef, FeaturedCatalog, Language, Manifest, ManifestUrl, Preferences,
+    Store, StoreError, StreamBuffer, SubtitleColor, SubtitleScale, UpNextPlayback,
 };
 use host_sqlite::SqliteStore;
 use rusqlite::Connection;
 
-fn language(tag: &str) -> SubtitleLanguage {
-    SubtitleLanguage::parse(tag).unwrap_or_else(|error| panic!("{tag} is a language tag: {error}"))
+fn language(tag: &str) -> Language {
+    Language::parse(tag).unwrap_or_else(|error| panic!("{tag} is a language tag: {error}"))
 }
 
 /// A Featured catalog as the Host would have written it.
@@ -195,7 +195,7 @@ fn writing_a_preference_again_replaces_the_one_before_it() {
         .expect("the store takes a replacement");
     let replaced = store.read_preferences().expect("preferences read back");
     assert_eq!(
-        replaced.subtitle_language().map(SubtitleLanguage::as_str),
+        replaced.subtitle_language().map(Language::as_str),
         Some("en")
     );
 

@@ -364,7 +364,7 @@ fn a_change_applies_while_a_question_is_blocked_on_a_fetch() {
             .preferences
             .subtitle_language
             .as_ref()
-            .map(host_core::SubtitleLanguage::as_str),
+            .map(host_core::Language::as_str),
         Some("pt-BR"),
         "the change published while the question was still fetching"
     );

@@ -10,8 +10,8 @@ use crate::playback::{
     InvalidSubtitleDelay, InvalidVolume, SeekTarget, TrackId, Unplayable,
 };
 use crate::preferences::{
-    InvalidStreamBuffer, InvalidSubtitleColor, InvalidSubtitleLanguage, InvalidSubtitleScale,
-    StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale, UpNextPlayback,
+    InvalidLanguage, InvalidStreamBuffer, InvalidSubtitleColor, InvalidSubtitleScale, Language,
+    StreamBuffer, SubtitleColor, SubtitleScale, UpNextPlayback,
 };
 use crate::preview::checked_preview_at;
 use crate::progress::{TitleCard, TitleStub};
@@ -505,7 +505,7 @@ impl Action {
     pub fn validate(self) -> Result<ValidatedAction, ActionError> {
         match self {
             Action::SetSubtitleLanguage { language } => {
-                let language = SubtitleLanguage::parse(&language)?;
+                let language = Language::parse(&language)?;
                 Ok(ValidatedAction::SetSubtitleLanguage(language))
             }
             Action::ClearSubtitleLanguage => Ok(ValidatedAction::ClearSubtitleLanguage),
@@ -766,7 +766,7 @@ fn search_query(raw: &str) -> Result<String, ActionError> {
 /// than of the order of two statements.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValidatedAction {
-    SetSubtitleLanguage(SubtitleLanguage),
+    SetSubtitleLanguage(Language),
     ClearSubtitleLanguage,
     SetSubtitleColor(SubtitleColor),
     SetSubtitleScale(SubtitleScale),
@@ -1022,7 +1022,7 @@ pub enum ActionError {
     #[error("the Host speaks action version {supported}; this Action carries version {got}")]
     UnsupportedVersion { got: u64, supported: u16 },
     #[error("{0}")]
-    InvalidSubtitleLanguage(#[from] InvalidSubtitleLanguage),
+    InvalidLanguage(#[from] InvalidLanguage),
     #[error("{0}")]
     InvalidSubtitleColor(#[from] InvalidSubtitleColor),
     #[error("{0}")]
@@ -1227,7 +1227,7 @@ impl ActionError {
         match self {
             Self::Malformed { .. } => "malformed",
             Self::UnsupportedVersion { .. } => "unsupported_version",
-            Self::InvalidSubtitleLanguage(_) => "invalid_subtitle_language",
+            Self::InvalidLanguage(_) => "invalid_language",
             Self::InvalidSubtitleColor(_) => "invalid_subtitle_color",
             Self::InvalidSubtitleScale(_) => "invalid_subtitle_scale",
             Self::InvalidStreamBuffer(_) => "invalid_stream_buffer",
@@ -2374,7 +2374,7 @@ mod tests {
                 got: 99,
                 supported: ACTION_VERSION,
             },
-            ActionError::InvalidSubtitleLanguage(InvalidSubtitleLanguage {
+            ActionError::InvalidLanguage(InvalidLanguage {
                 language: "not a language".to_owned(),
             }),
             ActionError::InvalidManifestUrl(InvalidManifestUrl {

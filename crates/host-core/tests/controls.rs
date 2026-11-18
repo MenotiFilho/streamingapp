@@ -520,7 +520,7 @@ fn the_subtitle_language_preference_is_told_to_the_player_and_survives_a_refusal
             .preferences
             .subtitle_language
             .as_ref()
-            .map(host_core::SubtitleLanguage::as_str),
+            .map(host_core::Language::as_str),
         Some("pt-BR")
     );
     assert!(
@@ -547,7 +547,7 @@ fn the_subtitle_language_preference_is_told_to_the_player_and_survives_a_refusal
             .preferences
             .subtitle_language
             .as_ref()
-            .map(host_core::SubtitleLanguage::as_str),
+            .map(host_core::Language::as_str),
         Some("en")
     );
 }

@@ -29,8 +29,8 @@ import {
 import type { Action, DeviceSummary } from "../../core/wire";
 import type { ActionError } from "../../core/errors";
 import {
-  HOST_PICKS_PER_VIDEO,
-  SUBTITLE_LANGUAGES,
+  FOLLOW_THE_FILE,
+  LANGUAGES,
 } from "../../core/languages";
 import tmdbLogo from "../../assets/tmdb-logo.svg";
 import { useShell, type NewShellLevel } from "../context";
@@ -342,7 +342,7 @@ function PreferencesScreen() {
   const [upNextError, setUpNextError] = useState<ActionError | null>(null);
   const [featuredError, setFeaturedError] = useState<ActionError | null>(null);
 
-  const known = SUBTITLE_LANGUAGES.some((language) => language.tag === heldLanguage);
+  const known = LANGUAGES.some((language) => language.tag === heldLanguage);
   const otherColor = unknownColorLabel(heldColor);
   const catalogs = declaredCatalogs(snapshot);
   const featured = snapshot?.featuredCatalog ?? null;
@@ -427,7 +427,7 @@ function PreferencesScreen() {
             data-testid="language-host-picks"
             onClick={() => void pickLanguage(null)}
           >
-            {HOST_PICKS_PER_VIDEO}
+            {FOLLOW_THE_FILE}
           </ChoiceChip>
           {heldLanguage && !known ? (
             <ChoiceChip
@@ -438,7 +438,7 @@ function PreferencesScreen() {
               {unknownLanguageLabel(heldLanguage)}
             </ChoiceChip>
           ) : null}
-          {SUBTITLE_LANGUAGES.map((language) => (
+          {LANGUAGES.map((language) => (
             <ChoiceChip
               key={language.tag}
               pressed={heldLanguage === language.tag}
