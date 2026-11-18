@@ -129,8 +129,8 @@ export const FEATURED_CATALOG_HEAD = "Featured catalog";
 export const FEATURED_NONE = "No featured catalog";
 
 /**
- * The one preference that is an absence: the Host picks a language per Video
- * rather than preferring one, so the choice sends the clear rather than an
+ * The one preference that is an absence: the Host follows the file rather
+ * than preferring one, so the choice sends the clear rather than an
  * empty tag.
  */
 export function languageRequest(tag: string | null): Action {

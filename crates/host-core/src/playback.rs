@@ -37,7 +37,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::addon::{AddonId, MAX_STRING_LEN};
 use crate::autoplay::AutoplaySnapshot;
-use crate::preferences::{StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale};
+use crate::preferences::{Language, StreamBuffer, SubtitleColor, SubtitleScale};
 use crate::request::VideoRef;
 use crate::stream::{holdable, Playback, Stream};
 
@@ -579,7 +579,7 @@ pub enum Telling {
     Aspect(Aspect),
     /// The language the Player prefers when it selects a subtitle track for the
     /// owner: mpv's `slang`. `None` clears it.
-    SubtitleLanguage(Option<SubtitleLanguage>),
+    SubtitleLanguage(Option<Language>),
     /// The colour the Player draws subtitles in where a track leaves the colour
     /// open. A track that styles its own text keeps that styling (ADR-0024).
     SubtitleColor(SubtitleColor),

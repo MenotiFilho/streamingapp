@@ -150,6 +150,8 @@ carrying two numbers that disagree whenever the override is on.
 
 ## The language preference is `slang`; the Host does not match languages
 
+_Track choice superseded by ADR-0041; the Addon subtitles fallback's request and cap stand where 0041 does not change them._
+
 The Host stores one global subtitle language and passes it through to mpv's
 `slang`, which is exactly the feature asked for: when mpv selects a subtitle
 track, it selects one that matches. Crucially, mpv's matcher already knows what

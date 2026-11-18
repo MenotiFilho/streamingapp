@@ -316,9 +316,33 @@ about the Host — and two relative steps (two rewinds, two chapter steps) are t
 steps, never collapsed into one (ADR-0027).
 _Avoid_: busy, loading, spinner (for the state)
 
+**Subtitle languages**:
+An ordered list of up to three languages the Host chooses a Stream's subtitle
+Track by, first the most wanted: a preference of the Host's, the same on every
+client. Empty, it follows the file (ADR-0041).
+_Avoid_: subtitle language (singular), slang, caption language
+
+**Audio languages**:
+The same, for the soundtrack. Independent of Subtitle languages; neither is
+derived from the other (ADR-0041).
+_Avoid_: audio language (singular), alang, dub preference
+
+**Hand pick**:
+A Track a client selected during playback, kept as a language (or as "off")
+while the Title keeps playing, ahead of the lists. It ends on stop, on playing
+another Title, and on a Host restart. It is never stored, and it never changes
+the lists.
+_Avoid_: override, manual track, sticky track
+
+**Follow the file** (under Subtitle languages):
+The phrase for an empty list, in this glossary and in Settings: the Host takes
+the subtitle or soundtrack the file itself marks as default, and chooses by no
+language. It replaces "Host picks per Video".
+_Avoid_: Host picks per Video, auto, default language
+
 **Subtitle appearance**:
 The colour and size the Player draws subtitles in, a preference of the Host's
-beside the subtitle language: the same on every Stream and every client. The
+beside the Subtitle languages: the same on every Stream and every client. The
 colour reaches subtitles that leave the colour open, so an ASS track keeps the
 colour it was authored with; the size reaches both kinds of subtitle (ADR-0024).
 _Avoid_: subtitle style, caption settings, theme, styling

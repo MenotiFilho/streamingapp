@@ -57,6 +57,17 @@ describe("the refusals the Host can send", () => {
     );
   });
 
+  test("a refused language tag is read as a language refusal, whichever list it was for", () => {
+    expect(HOST_ERROR_KINDS).toContain("invalid_language");
+    expect(HOST_ERROR_KINDS).not.toContain("invalid_subtitle_language");
+
+    const error = asActionError({ kind: "invalid_language", language: "Brazilian" });
+    expect(error.kind).toBe("invalid_language");
+    expect(explain(error)).toBe(
+      '"Brazilian" is not a language tag — try "pt-BR" or "en".',
+    );
+  });
+
   test("a refused Library read is read as the account's failure", () => {
     const error = asActionError({
       kind: "library",

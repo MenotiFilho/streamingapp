@@ -7,7 +7,7 @@ import { ACTION_VERSION } from "./wire";
 export const HOST_ERROR_KINDS = [
   "malformed",
   "unsupported_version",
-  "invalid_subtitle_language",
+  "invalid_language",
   "invalid_subtitle_color",
   "invalid_subtitle_scale",
   "invalid_stream_buffer",
@@ -161,8 +161,8 @@ export function explain(error: ActionError): string {
       return `The Host could not read that Action${error.detail ? `: ${error.detail}` : ""}.`;
     case "unsupported_version":
       return `This window speaks version ${ACTION_VERSION} and the Host ${error.supported}; the Action carried version ${error.got}.`;
-    case "invalid_subtitle_language":
-      return `${JSON.stringify(error.language)} is not a subtitle language tag — try "pt-BR" or "en".`;
+    case "invalid_language":
+      return `${JSON.stringify(error.language)} is not a language tag — try "pt-BR" or "en".`;
     case "invalid_subtitle_color":
       return `${JSON.stringify(error.color)} is not a subtitle colour — a colour is "#RRGGBB", like "#FFFF00".`;
     case "invalid_subtitle_scale":

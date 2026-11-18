@@ -11,7 +11,7 @@
 //!
 //! use host_core::{
 //!     Action, AddonProvider, FixtureClock, FixtureFetcher, FixturePlayer, Host,
-//!     InMemorySecretStore, InMemoryStore, SubtitleLanguage,
+//!     InMemorySecretStore, InMemoryStore, Language,
 //! };
 //!
 //! let store = Arc::new(InMemoryStore::new());
@@ -31,7 +31,7 @@
 //!
 //! let published = &response.snapshots[0];
 //! let preferred = published.preferences.subtitle_language.as_ref();
-//! assert_eq!(preferred.map(SubtitleLanguage::as_str), Some("pt-BR"));
+//! assert_eq!(preferred.map(Language::as_str), Some("pt-BR"));
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
@@ -104,9 +104,9 @@ pub use playback::{
     TrackId, TrackKind, Unplayable, VideoSize,
 };
 pub use preferences::{
-    FeaturedCatalog, InvalidStreamBuffer, InvalidSubtitleColor, InvalidSubtitleLanguage,
-    InvalidSubtitleScale, InvalidUpNextPlayback, Preferences, StreamBuffer, SubtitleColor,
-    SubtitleLanguage, SubtitleScale, UpNextPlayback,
+    FeaturedCatalog, InvalidLanguage, InvalidStreamBuffer, InvalidSubtitleColor,
+    InvalidSubtitleScale, InvalidUpNextPlayback, Language, Preferences, StreamBuffer,
+    SubtitleColor, SubtitleScale, UpNextPlayback,
 };
 pub use preview::{
     bucket_of, bucket_start, checked_preview_at, preview_ceiling, FixturePreviewer, Frame,

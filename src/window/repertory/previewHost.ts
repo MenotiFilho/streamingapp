@@ -819,7 +819,7 @@ async function dispatch(action: Action): Promise<Response> {
     case "set_subtitle_language": {
       const language = action.language.trim();
       if (!language) {
-        return refuse({ kind: "invalid_subtitle_language", language });
+        return refuse({ kind: "invalid_language", language });
       }
       return change((state) => ({
         preferences: { ...state.preferences, subtitleLanguage: language },

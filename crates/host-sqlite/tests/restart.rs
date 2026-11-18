@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use host_core::{
     Action, AddonId, AddonProvider, CatalogRef, FeaturedCatalog, FixtureClock, FixtureFetcher,
-    FixturePlayer, Host, InMemorySecretStore, Snapshot, SubtitleLanguage,
+    FixturePlayer, Host, InMemorySecretStore, Language, Snapshot,
 };
 use host_sqlite::SqliteStore;
 
@@ -52,7 +52,7 @@ fn preference(snapshot: &Snapshot) -> Option<&str> {
         .preferences
         .subtitle_language
         .as_ref()
-        .map(SubtitleLanguage::as_str)
+        .map(Language::as_str)
 }
 
 /// The subtitle appearance a Snapshot carries, as a client reads it.

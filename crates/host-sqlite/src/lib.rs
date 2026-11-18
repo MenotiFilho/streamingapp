@@ -11,9 +11,9 @@ use std::sync::Mutex;
 
 use host_core::{
     Addon, AddonId, CachedTitle, CatalogRef, Device, DeviceId, DeviceName, FeaturedCatalog,
-    InvalidUpNextPlayback, Manifest, ManifestUrl, NextEpisode, Preferences, SeriesStatus, Store,
-    StoreError, StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale, Title, TitleCard,
-    TitleKey, TitleSource, TitleStub, TokenDigest, UpNextPlayback, VideoRef, WatchProgress,
+    InvalidUpNextPlayback, Language, Manifest, ManifestUrl, NextEpisode, Preferences, SeriesStatus,
+    Store, StoreError, StreamBuffer, SubtitleColor, SubtitleScale, Title, TitleCard, TitleKey,
+    TitleSource, TitleStub, TokenDigest, UpNextPlayback, VideoRef, WatchProgress,
 };
 use rusqlite::{params, Connection, Transaction};
 
@@ -129,11 +129,10 @@ impl Store for SqliteStore {
             let (key, value) = row.map_err(StoreError::read)?;
             match key.as_str() {
                 SUBTITLE_LANGUAGE => {
-                    subtitle_language = Some(SubtitleLanguage::parse(&value).map_err(|error| {
-                        StoreError::Read {
+                    subtitle_language =
+                        Some(Language::parse(&value).map_err(|error| StoreError::Read {
                             detail: format!("the stored subtitle language is unusable: {error}"),
-                        }
-                    })?);
+                        })?);
                 }
                 SUBTITLE_COLOR => {
                     subtitle_color =
@@ -218,9 +217,7 @@ impl Store for SqliteStore {
         put_preference(
             &transaction,
             SUBTITLE_LANGUAGE,
-            preferences
-                .subtitle_language()
-                .map(SubtitleLanguage::as_str),
+            preferences.subtitle_language().map(Language::as_str),
         )?;
         // The appearance is always a value — white and 1.0 are answers, not the
         // absence of one — so both rows are written with every preference

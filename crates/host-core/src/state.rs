@@ -5,7 +5,7 @@ use crate::playback::{
     Aspect, ChapterStep, ChosenStream, Crop, PlaybackSession, SeekTarget, TrackId, TrackKind,
 };
 use crate::preferences::{
-    FeaturedCatalog, Preferences, StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale,
+    FeaturedCatalog, Language, Preferences, StreamBuffer, SubtitleColor, SubtitleScale,
     UpNextPlayback,
 };
 use crate::progress::{TitleStub, WatchProgress};
@@ -490,7 +490,7 @@ impl State {
 /// is a word or two wide.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Change {
-    SetSubtitleLanguage(SubtitleLanguage),
+    SetSubtitleLanguage(Language),
     ClearSubtitleLanguage,
     SetSubtitleColor(SubtitleColor),
     SetSubtitleScale(SubtitleScale),

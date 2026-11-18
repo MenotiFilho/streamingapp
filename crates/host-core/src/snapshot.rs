@@ -6,7 +6,7 @@ use crate::device::DeviceSummary;
 use crate::pairing::PairingCode;
 use crate::playback::{Picture, PlaybackSnapshot};
 use crate::preferences::{
-    FeaturedCatalog, StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale, UpNextPlayback,
+    FeaturedCatalog, Language, StreamBuffer, SubtitleColor, SubtitleScale, UpNextPlayback,
 };
 use crate::progress::{ContinueEntry, ResumeEntry};
 use crate::secret::SecretBackend;
@@ -84,7 +84,7 @@ pub struct PreferencesSnapshot {
     /// The subtitle language the Host prefers, or `null` when it has none and
     /// chooses per Video. A language tag by construction, so the wire cannot carry
     /// anything else here.
-    pub subtitle_language: Option<SubtitleLanguage>,
+    pub subtitle_language: Option<Language>,
     /// The colour the Player draws subtitles in where a track leaves the colour
     /// open. Always a value — white is the default rather than an absence — so a
     /// client never has to invent one (ADR-0024).

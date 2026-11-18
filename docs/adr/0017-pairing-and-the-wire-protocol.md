@@ -81,7 +81,7 @@ with `include_str!`).
 **#88 amends this by one step, not the principle.** The page is still one
 compiled-in document and still has no build step, but its template is completed
 *at serve time*: `host-wire` splices `src/tokens.css`, the shared
-`src/subtitle-languages.json`, and the approved TMDB mark into the page through
+`src/languages.json`, and the approved TMDB mark into the page through
 one marker convention (`/*__SPLICE_NAME__*/`) before the bytes leave the Host. This keeps `src/tokens.css` the single palette in the tree and
 the subtitle list one list for two clients — the alternative was a second copy
 on disk that could drift from the window's — while the document a browser
