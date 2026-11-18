@@ -29,7 +29,7 @@ use crate::state::{Change, Persist, Protection, State};
 use crate::store::{Store, StoreError};
 use crate::stream::Stream;
 use crate::stremio::StremioApi;
-use crate::subtitles::{missing_languages, Admission, MAX_FALLBACK_SUBTITLES};
+use crate::subtitles::{missing_languages, Admission, Subtitle, MAX_FALLBACK_SUBTITLES};
 use crate::sync::{merge, Merged, RemoteItem};
 use crate::title_cache::{
     CachedTitle, TitleCache, TitleProbe, TitleProtection, MAX_CACHED_TITLES, RUNNING_FRESH_MILLIS,
@@ -222,9 +222,9 @@ impl Host {
         );
         let picture = player.picture();
         // The two language lists the owner stored are told to the Player once,
-        // before anything is opened: mpv's `slang` and `alang` are its first
-        // guess at a Stream's tracks, and they have to be set before the `open`
-        // that would use them (ADR-0041). A Player that refuses a preference is
+        // before anything is opened: they are the Player's first guess at a
+        // Stream's Tracks, and have to be told before the `open` that would use
+        // them (ADR-0041). A Player that refuses a preference is
         // not a Host that cannot hold one, so the refusal is dropped.
         let _ = player.tell(Telling::SubtitleLanguages(
             state.preferences().subtitle_languages().clone(),
@@ -1125,8 +1125,8 @@ impl Host {
         if let Some(id) = initial.audio {
             next.select(TrackKind::Audio, Some(id));
         }
-        if let Some(id) = initial.subtitle {
-            next.select(TrackKind::Subtitle, id);
+        if let Some(choice) = initial.subtitle {
+            next.select(TrackKind::Subtitle, choice.track());
         }
         let published = next.differs_publicly_from(self.state.playback());
         let reached_the_end = next.has_ended() && !was_ended;
@@ -1182,17 +1182,14 @@ impl Host {
     /// mid-Stream applies from the next Stream). The Host ranks the audio Tracks
     /// against Audio languages, then the subtitle Tracks against Subtitle
     /// languages with the soundtrack's language to hand, and tells `AudioTrack`
-    /// then `SubtitleTrack` only where its choice differs from the Track mpv has
+    /// then `SubtitleTrack` only where its choice differs from the Track the Player has
     /// selected (ADR-0041). The Hand pick, where the owner made one earlier in
     /// this Title, is ranked ahead of the lists.
     fn choose_initial_tracks(&mut self, observation: &Observation) -> InitialChoice {
         let mut told = InitialChoice::default();
         if !self.state.playback().has_stream()
             || self.state.playback().chosen_initial()
-            || !matches!(
-                observation.state,
-                PlaybackState::Playing | PlaybackState::Paused
-            )
+            || !observation.is_running()
         {
             return told;
         }
@@ -1201,23 +1198,16 @@ impl Host {
         };
         self.state.record_initial_choice();
 
-        let selected = |kind: TrackKind| {
-            tracks
-                .iter()
-                .find(|track| track.kind == kind && track.selected)
-                .map(|track| track.id)
-        };
-
         // The soundtrack first. A Player that refuses leaves the Host's record
-        // where mpv has it, and the subtitle is then chosen against what plays.
-        let mut heard = selected(TrackKind::Audio);
+        // where the Player has it, and the subtitle is then chosen against what plays.
+        let mut heard = tracks::selected(tracks, TrackKind::Audio).map(|track| track.id);
         if let Some(chosen) = tracks::choose_soundtrack(
             tracks,
             self.state.preferences().audio_languages(),
             self.state.hand_pick().audio(),
         ) {
             if heard == Some(chosen) {
-                // Already what mpv plays.
+                // Already what the Player plays.
             } else if self.player.tell(Telling::AudioTrack(chosen)).is_ok() {
                 told.audio = Some(chosen);
                 heard = Some(chosen);
@@ -1233,26 +1223,25 @@ impl Host {
 
     /// Rank the subtitle Tracks and tell the Player where the answer differs
     /// from what it has selected: `Some(choice)` when the Player took the
-    /// Telling (the choice is then the Track id, or `None` for no subtitle).
+    /// Telling.
     fn tell_subtitle_choice(
         &self,
         tracks: &[Track],
         soundtrack_language: Option<&Language>,
-    ) -> Option<Option<TrackId>> {
-        let chosen = match tracks::choose_subtitle(
+    ) -> Option<SubtitleChoice> {
+        let chosen = tracks::choose_subtitle(
             tracks,
             self.state.preferences().subtitle_languages(),
             self.state.hand_pick().subtitle(),
             soundtrack_language,
-        ) {
-            SubtitleChoice::Track(id) => Some(id),
-            SubtitleChoice::Off => None,
-        };
-        let selected = tracks
-            .iter()
-            .find(|track| track.kind == TrackKind::Subtitle && track.selected)
-            .map(|track| track.id);
-        if selected != chosen && self.player.tell(Telling::SubtitleTrack(chosen)).is_ok() {
+        );
+        let selected = tracks::selected(tracks, TrackKind::Subtitle).map(|track| track.id);
+        if selected != chosen.track()
+            && self
+                .player
+                .tell(Telling::SubtitleTrack(chosen.track()))
+                .is_ok()
+        {
             return Some(chosen);
         }
         None
@@ -1268,15 +1257,9 @@ impl Host {
     /// and where the Addons added nothing nothing is awaited and nothing
     /// happens (ADR-0041). A report that does not hold the Tracks yet, or could
     /// not be read, spends nothing.
-    fn switch_to_addon_subtitle(&mut self, observation: &Observation) -> Option<Option<TrackId>> {
+    fn switch_to_addon_subtitle(&mut self, observation: &Observation) -> Option<SubtitleChoice> {
         let awaited = self.state.playback().addon_tracks_awaited();
-        if awaited == 0
-            || !self.state.playback().has_stream()
-            || !matches!(
-                observation.state,
-                PlaybackState::Playing | PlaybackState::Paused
-            )
-        {
+        if awaited == 0 || !self.state.playback().has_stream() || !observation.is_running() {
             return None;
         }
         let tracks = observation.tracks.as_deref()?;
@@ -1289,10 +1272,8 @@ impl Host {
         }
         self.state.record_addon_switch_done();
 
-        let soundtrack_language = tracks
-            .iter()
-            .find(|track| track.kind == TrackKind::Audio && track.selected)
-            .and_then(tracks::language_of);
+        let soundtrack_language =
+            tracks::selected(tracks, TrackKind::Audio).and_then(tracks::language_of);
         self.tell_subtitle_choice(tracks, soundtrack_language.as_ref())
     }
 
@@ -1319,10 +1300,7 @@ impl Host {
         if !self.state.playback().has_stream() || self.state.playback().subtitles_attempted() {
             return false;
         }
-        if !matches!(
-            observation.state,
-            PlaybackState::Playing | PlaybackState::Paused
-        ) {
+        if !observation.is_running() {
             return false;
         }
         let Some(tracks) = observation.tracks.as_deref() else {
@@ -1374,17 +1352,13 @@ impl Host {
     ///   a handful of tracks and none of them is a choice a client made. None is
     ///   ever selected.
     ///
-    /// `sub-add` keeps the `auto` flag either way: the Host selects by id, so
-    /// mpv's own select-on-add is not wanted.
+    /// None is selected on adding, either way: the Host selects by id, so the
+    /// Player's own select-on-add is not wanted.
     fn ask_addons_for_subtitles(&self, observation: &Observation) -> usize {
         let Some(chosen) = self.state.playback().chosen() else {
             return 0;
         };
         let tracks = observation.tracks.as_deref().unwrap_or_default();
-        let follows = self.follows_the_file();
-        let mut admission =
-            (!follows).then(|| Admission::for_languages(self.missing_subtitle_languages(tracks)));
-
         let video = chosen.now_playing.video.clone();
         let addons: Vec<(Addon, ResourceRequest)> = self
             .view()
@@ -1393,50 +1367,77 @@ impl Host {
             .filter_map(|asked| Some((asked.addon, asked.requested?)))
             .collect();
 
+        if self.follows_the_file() {
+            self.add_fallback_subtitles(&addons);
+            0
+        } else {
+            self.add_subtitles_in(&addons, self.missing_subtitle_languages(tracks))
+        }
+    }
+
+    /// The Addon fallback of a Host that follows the file: whatever the Addons
+    /// offer, in Addon order, up to [`MAX_FALLBACK_SUBTITLES`] across all of
+    /// them. The Host chooses none of them, so nothing is awaited.
+    fn add_fallback_subtitles(&self, addons: &[(Addon, ResourceRequest)]) {
         let mut counted = 0usize;
-        let mut loaded = 0usize;
-        for (addon, requested) in &addons {
-            let done = match &admission {
-                Some(admission) => admission.is_full(),
-                None => counted >= MAX_FALLBACK_SUBTITLES,
-            };
-            if done {
+        for (addon, requested) in addons {
+            if counted >= MAX_FALLBACK_SUBTITLES {
                 break;
             }
-            // A fetch that fails, or an answer that cannot be read, is this
-            // Addon having nothing: the Host does not invent a subtitle for it,
-            // and the next Addon is still asked.
-            let Ok(subtitles) = self.provider.subtitles(addon, requested) else {
-                continue;
-            };
-            for subtitle in subtitles {
-                let admitted = match &mut admission {
-                    Some(admission) => admission.admit(&subtitle),
-                    None if counted >= MAX_FALLBACK_SUBTITLES => break,
-                    None => true,
-                };
-                if !admitted {
-                    continue;
+            for subtitle in self.offered_by(addon, requested) {
+                if counted >= MAX_FALLBACK_SUBTITLES {
+                    break;
                 }
-                // A Player that refuses one is not a failed fallback either: the
-                // Host's own record has already noted the attempt, and a refusal
-                // is the Player's to make.
-                let told = self.player.tell(Telling::AddSubtitle {
-                    url: subtitle.url,
-                    title: subtitle.id,
-                    language: subtitle.language,
-                });
+                self.add_subtitle(subtitle);
                 counted += 1;
-                if told.is_ok() {
+            }
+        }
+    }
+
+    /// The Addon fallback of a Host that chooses by language: the subtitles that
+    /// answer a language the file lacks, at most three of each, in Addon order.
+    /// Returns how many the Player took, which the Host will look for in a later
+    /// report and choose from.
+    fn add_subtitles_in(
+        &self,
+        addons: &[(Addon, ResourceRequest)],
+        missing: Vec<Language>,
+    ) -> usize {
+        let mut admission = Admission::for_languages(missing);
+        let mut loaded = 0usize;
+        for (addon, requested) in addons {
+            if admission.is_full() {
+                break;
+            }
+            for subtitle in self.offered_by(addon, requested) {
+                if admission.admit(&subtitle) && self.add_subtitle(subtitle) {
                     loaded += 1;
                 }
             }
         }
-        if follows {
-            0
-        } else {
-            loaded
-        }
+        loaded
+    }
+
+    /// What one Addon offers for this Video. A fetch that fails, or an answer
+    /// that cannot be read, is this Addon having nothing: the Host does not
+    /// invent a subtitle for it, and the next Addon is still asked.
+    fn offered_by(&self, addon: &Addon, requested: &ResourceRequest) -> Vec<Subtitle> {
+        self.provider
+            .subtitles(addon, requested)
+            .unwrap_or_default()
+    }
+
+    /// Tell the Player to load one subtitle; whether it took it. A Player that
+    /// refuses one is not a failed fallback: the Host's own record has already
+    /// noted the attempt, and a refusal is the Player's to make.
+    fn add_subtitle(&self, subtitle: Subtitle) -> bool {
+        self.player
+            .tell(Telling::AddSubtitle {
+                url: subtitle.url,
+                title: subtitle.id,
+                language: subtitle.language,
+            })
+            .is_ok()
     }
 
     /// Turn a validated change into the change it will make.
@@ -2227,18 +2228,17 @@ impl Host {
     }
 }
 
-/// An Action with everything it needed already resolved.
 /// What the Host told the Player on a Stream's first report of its Tracks: where
 /// each field is set, the Host moved that selection, and the Snapshot says so.
 #[derive(Debug, Default)]
 struct InitialChoice {
-    /// The soundtrack the Host selected, where it was not mpv's.
+    /// The soundtrack the Host selected, where it was not the Player's.
     audio: Option<TrackId>,
-    /// The subtitle the Host selected (`Some(None)` for none), where it was not
-    /// mpv's.
-    subtitle: Option<Option<TrackId>>,
+    /// The subtitle the Host selected, where it was not the Player's.
+    subtitle: Option<SubtitleChoice>,
 }
 
+/// An Action with everything it needed already resolved.
 enum Resolved {
     Change(Change),
     /// A change that also answers the client that asked. Pairing is the only one:

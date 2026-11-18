@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 
 import { chips, dropIndex, move, remove, type LanguageKind } from "../core/languageList";
+import { chipMarks, type DragOver } from "../core/chipGeometry";
+import { chipRects } from "../core/react/chipRects";
 import { FOLLOW_THE_FILE } from "../core/languages";
 import { LANGUAGE_GROUP_HEADS, LONG_PRESS_MS, pressVerdict } from "./settingsScreen";
 
@@ -49,14 +51,11 @@ export function LanguageField({
   const title = LANGUAGE_GROUP_HEADS[kind];
   const field = useRef<HTMLDivElement | null>(null);
   const press = useRef<Press | null>(null);
-  const [over, setOver] = useState<{ from: number; to: number } | null>(null);
+  const [over, setOver] = useState<DragOver | null>(null);
   const drawn = chips(list);
+  const marks = (index: number) => chipMarks(over, index);
 
-  const rects = () =>
-    Array.from(field.current?.querySelectorAll<HTMLElement>("[data-chip-index]") ?? [], (chip) => {
-      const box = chip.getBoundingClientRect();
-      return { x: box.left, y: box.top, w: box.width, h: box.height };
-    });
+  const rects = () => chipRects(field.current);
 
   const dropOf = (held: Press) => dropIndex(rects(), { x: held.x, y: held.y }, held.from);
 
@@ -189,8 +188,8 @@ export function LanguageField({
             key={chip.tag}
             className="remote-lang-chip"
             data-chip-index={chip.index}
-            data-dragging={over?.from === chip.index ? "" : undefined}
-            data-drop={over && over.to === chip.index && over.from !== chip.index ? "" : undefined}
+            data-dragging={marks(chip.index).dragging ? "" : undefined}
+            data-drop={marks(chip.index).drop ? "" : undefined}
           >
             <span className="remote-lang-rank">{chip.rank}</span>
             <span className="remote-lang-name">{chip.name}</span>

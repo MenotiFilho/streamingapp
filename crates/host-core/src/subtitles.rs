@@ -34,10 +34,10 @@
 use serde_json::{Map, Value};
 
 use crate::addon::MAX_ITEMS;
-use crate::playback::{StreamUrl, Track, TrackId, TrackKind};
+use crate::playback::{StreamUrl, Track, TrackKind};
 use crate::preferences::{Language, LanguageList};
 use crate::stream::holdable;
-use crate::tracks::{fit, read, SubtitleHandPick};
+use crate::tracks::{fit, read, read_tag, SubtitleHandPick};
 
 /// The most of a subtitles body the Host will read.
 ///
@@ -183,7 +183,7 @@ fn field(object: &Map<String, Value>, name: &str) -> Option<String> {
 /// names no language (ADR-0041).
 pub fn missing_languages(
     tracks: &[Track],
-    lists: &LanguageList,
+    list: &LanguageList,
     hand_pick: Option<&SubtitleHandPick>,
 ) -> Vec<Language> {
     let picked = match hand_pick {
@@ -200,7 +200,7 @@ pub fn missing_languages(
         .collect();
 
     let mut asked: Vec<Language> = Vec::new();
-    for entry in picked.into_iter().chain(lists.as_slice()) {
+    for entry in picked.into_iter().chain(list.as_slice()) {
         let twice = asked
             .iter()
             .any(|held| held.as_str().eq_ignore_ascii_case(entry.as_str()));
@@ -239,18 +239,7 @@ impl Admission {
     /// language. A subtitle that answers several languages counts for the first
     /// of them that still has room.
     pub fn admit(&mut self, subtitle: &Subtitle) -> bool {
-        let reading = read(&Track {
-            id: TrackId(0),
-            kind: TrackKind::Subtitle,
-            language: subtitle.language.clone(),
-            title: subtitle.id.clone(),
-            codec: None,
-            embedded: false,
-            selected: false,
-            default: false,
-            forced: false,
-            hearing_impaired: false,
-        });
+        let reading = read_tag(subtitle.language.as_deref(), subtitle.id.as_deref());
         for (language, taken) in &mut self.wanted {
             if *taken < MAX_SUBTITLES_PER_LANGUAGE && fit(language, &reading).is_some() {
                 *taken += 1;

@@ -187,13 +187,17 @@ impl Fixture {
     /// The owner opens the series, so the Host knows the Videos of it, and
     /// watches an episode with these Tracks.
     fn watching(&mut self, episode: u32) {
+        self.watching_with(episode, tracks());
+    }
+
+    fn watching_with(&mut self, episode: u32, tracks: Vec<Track>) {
         self.dispatch(serde_json::json!({
             "type": "open_title",
             "addon": SERIES_ID,
             "title": { "type": "series", "id": "tt0903747" },
         }));
         self.play_episode(episode);
-        self.report(PlaybackState::Playing, tracks());
+        self.report(PlaybackState::Playing, tracks);
     }
 
     fn pick_subtitle(&mut self, track: Option<i64>) {
@@ -403,6 +407,48 @@ fn a_pick_of_a_track_with_no_language_carries_nothing() {
         Vec::<String>::new(),
         "the file's own choice"
     );
+}
+
+#[test]
+fn a_pick_of_a_tagless_track_the_title_calls_brazilian_carries_nothing() {
+    // The title fills a region for a Track that has a language tag; it never
+    // supplies the language, so there is nothing to carry.
+    let mut fixture = fixture();
+    let mut here = tracks();
+    here[4].title = Some("Brazilian".to_owned());
+    fixture.watching_with(1, here);
+    fixture.pick_subtitle(Some(5));
+    fixture.count_from_here();
+
+    let mut next = tracks();
+    next.push(track(6, TrackKind::Subtitle, Some("pob"), false));
+    fixture.dispatch(serde_json::json!({ "type": "next_episode" }));
+    fixture.report(PlaybackState::Playing, next);
+
+    assert_eq!(
+        fixture.told(),
+        Vec::<String>::new(),
+        "the file's own choice, not the pt-BR Track"
+    );
+}
+
+#[test]
+fn a_pick_on_a_regional_tag_outside_the_list_carries_to_the_curated_entry() {
+    let mut fixture = fixture_over(
+        Arc::new(InMemoryStore::new()),
+        provider().offering_subtitles(SERIES_ID, Vec::new()),
+    );
+    let mut here = tracks();
+    here[3].language = Some("fr-CA".to_owned());
+    fixture.watching_with(1, here);
+    fixture.pick_subtitle(Some(4));
+    fixture.count_from_here();
+
+    // Episode 2 tags its French `fra`.
+    fixture.dispatch(serde_json::json!({ "type": "next_episode" }));
+    fixture.report(PlaybackState::Playing, tracks());
+
+    assert_eq!(fixture.told(), ["s4"]);
 }
 
 #[test]

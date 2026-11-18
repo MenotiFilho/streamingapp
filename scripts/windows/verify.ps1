@@ -71,7 +71,7 @@ $tmdbNotice = 'This product uses the TMDB API but is not endorsed or certified b
 # run in the same invocation; `Need` is the words `-List` prints for both.
 $Steps = @(
     [pscustomobject]@{ Id = 1;  Title = 'launching the Host opens the ten-foot window'; Ground = ''; After = @(); Need = 'nothing: it starts its own Host from the empty data directory' }
-    [pscustomobject]@{ Id = 2;  Title = 'Settings > Preferences: ticking a subtitle language in the drawer goes through the Action surface'; Ground = 'fresh'; After = @(); Need = 'a fresh Host (empty data directory, one Host, no Addon)' }
+    [pscustomobject]@{ Id = 2;  Title = 'Settings > Preferences: ticking a language for Subtitle languages in the drawer goes through the Action surface'; Ground = 'fresh'; After = @(); Need = 'a fresh Host (empty data directory, one Host, no Addon)' }
     [pscustomobject]@{ Id = 3;  Title = 'launching again focuses the running Host instead of starting a second one'; Ground = 'fresh'; After = @(); Need = 'a fresh Host (empty data directory, one Host, no Addon)' }
     [pscustomobject]@{ Id = 4;  Title = 'the Subtitle languages list survives a restart'; Ground = ''; After = @(2, 3); Need = 'steps 2 and 3: the English Subtitle languages list, and the second launch step 3 logged' }
     [pscustomobject]@{ Id = 5;  Title = 'ticking a second language and moving it first publishes one Snapshot each'; Ground = ''; After = @(4); Need = 'step 4: its restarted Host, in Preferences' }
@@ -1856,7 +1856,7 @@ function Step-1($ctx) {
 }
 
 function Step-2($ctx) {
-    '--- 2. Settings > Preferences: ticking a subtitle language'
+    '--- 2. Settings > Preferences: ticking a language for Subtitle languages'
     $app = $ctx.App
     $before = Snapshot-Baseline
     Open-Settings $app

@@ -45,16 +45,13 @@ impl HandPick {
         }
     }
 
-    /// A subtitle picked in this Title: `None` for no subtitle, which is "off",
-    /// else the Track's language. A Track that names no language leaves nothing
-    /// to carry, and any earlier pick where it was.
-    pub(crate) fn picked_subtitle(&mut self, title: &str, track: Option<Option<Language>>) {
-        let pick = match track {
-            None => SubtitleHandPick::Off,
-            Some(Some(language)) => SubtitleHandPick::Language(language),
-            Some(None) => return,
-        };
-        self.picks_for(title).subtitle = Some(pick);
+    /// A subtitle picked in this Title: off, or the Track's language. `None`
+    /// is a Track that names no language, which leaves nothing to carry, and
+    /// any earlier pick where it was.
+    pub(crate) fn picked_subtitle(&mut self, title: &str, pick: Option<SubtitleHandPick>) {
+        if let Some(pick) = pick {
+            self.picks_for(title).subtitle = Some(pick);
+        }
     }
 
     /// A Stream of this Title starts (`None` where the Host was never told one):
@@ -103,14 +100,14 @@ mod tests {
     fn a_pick_is_a_language_or_off() {
         let mut picks = HandPick::default();
         picks.picked_audio("tt1", Some(language("pt-BR")));
-        picks.picked_subtitle("tt1", Some(Some(language("en"))));
+        picks.picked_subtitle("tt1", Some(SubtitleHandPick::Language(language("en"))));
         assert_eq!(picks.audio(), Some(&language("pt-BR")));
         assert_eq!(
             picks.subtitle(),
             Some(&SubtitleHandPick::Language(language("en")))
         );
 
-        picks.picked_subtitle("tt1", None);
+        picks.picked_subtitle("tt1", Some(SubtitleHandPick::Off));
         assert_eq!(picks.subtitle(), Some(&SubtitleHandPick::Off));
     }
 
@@ -118,11 +115,11 @@ mod tests {
     fn a_track_with_no_language_records_nothing_and_leaves_an_earlier_pick() {
         let mut picks = HandPick::default();
         picks.picked_audio("tt1", None);
-        picks.picked_subtitle("tt1", Some(None));
+        picks.picked_subtitle("tt1", None);
         assert_eq!(picks, HandPick::default());
 
-        picks.picked_subtitle("tt1", Some(Some(language("fr"))));
-        picks.picked_subtitle("tt1", Some(None));
+        picks.picked_subtitle("tt1", Some(SubtitleHandPick::Language(language("fr"))));
+        picks.picked_subtitle("tt1", None);
         assert_eq!(
             picks.subtitle(),
             Some(&SubtitleHandPick::Language(language("fr")))
@@ -133,7 +130,7 @@ mod tests {
     fn the_same_title_keeps_the_picks_and_another_ends_them() {
         let mut picks = HandPick::default();
         picks.picked_audio("tt1", Some(language("ja")));
-        picks.picked_subtitle("tt1", None);
+        picks.picked_subtitle("tt1", Some(SubtitleHandPick::Off));
 
         picks.played(Some("tt1"));
         assert_eq!(picks.audio(), Some(&language("ja")));
@@ -146,7 +143,7 @@ mod tests {
     #[test]
     fn a_play_of_no_known_title_ends_the_picks() {
         let mut picks = HandPick::default();
-        picks.picked_subtitle("tt1", None);
+        picks.picked_subtitle("tt1", Some(SubtitleHandPick::Off));
         picks.played(None);
         assert_eq!(picks, HandPick::default());
     }
@@ -163,7 +160,7 @@ mod tests {
     fn a_pick_in_another_title_starts_afresh() {
         let mut picks = HandPick::default();
         picks.picked_audio("tt1", Some(language("ja")));
-        picks.picked_subtitle("tt2", None);
+        picks.picked_subtitle("tt2", Some(SubtitleHandPick::Off));
         assert_eq!(picks.audio(), None, "the other Title's soundtrack is gone");
         assert_eq!(picks.subtitle(), Some(&SubtitleHandPick::Off));
     }

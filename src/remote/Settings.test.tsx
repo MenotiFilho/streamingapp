@@ -381,11 +381,13 @@ function withLanguages(subtitle: string[], audio: string[] = []): Snapshot {
   };
 }
 
-/** The chips of one field, as a person reads them: rank then name. */
+/** The tags of one field's chips, in the order they are drawn (which is rank). */
 function chipsOf(kind: "subtitle" | "audio"): string[] {
   const field = screen.getByTestId(`language-field-${kind}`);
+  const prefix = `language-remove-${kind}-`;
   return Array.from(field.querySelectorAll("[data-chip-index]"), (chip) =>
-    (chip.textContent ?? "").replace("×", ""),
+    (chip.querySelector("[data-testid^='language-remove-']")?.getAttribute("data-testid") ?? "")
+      .replace(prefix, ""),
   );
 }
 
@@ -401,8 +403,8 @@ describe("the Preferences leaf's language lists", () => {
     expect(at(LANGUAGE_GROUP_HEADS.audio)).toBeGreaterThan(at(LANGUAGE_GROUP_HEADS.subtitle));
     expect(at(SUBTITLE_COLOUR_HEAD)).toBeGreaterThan(at(LANGUAGE_GROUP_HEADS.audio));
 
-    expect(chipsOf("subtitle")).toEqual(["1Português (Brasil)", "2English"]);
-    expect(chipsOf("audio")).toEqual(["1日本語"]);
+    expect(chipsOf("subtitle")).toEqual(["pt-BR", "en"]);
+    expect(chipsOf("audio")).toEqual(["ja"]);
   });
 
   test("an empty list reads Follow the file, with what that means for it", async () => {
@@ -442,7 +444,7 @@ describe("the Preferences leaf's language lists", () => {
     await openSettings();
     await openCategory(PREFERENCES);
 
-    expect(chipsOf("subtitle")).toEqual(["1English", "2Other (xx-YY)"]);
+    expect(chipsOf("subtitle")).toEqual(["en", "xx-YY"]);
     fireEvent.click(screen.getByRole("button", { name: "Remove Other (xx-YY)" }));
     await waitFor(() =>
       expect(host.asked("set_subtitle_languages")).toEqual([
@@ -460,18 +462,17 @@ describe("the Preferences leaf's language lists", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove English" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(explain(refusal));
-    await waitFor(() =>
-      expect(chipsOf("subtitle")).toEqual(["1Português (Brasil)", "2English"]),
-    );
+    await waitFor(() => expect(chipsOf("subtitle")).toEqual(["pt-BR", "en"]));
   });
 
-  test("the old single-language picker is gone", async () => {
+  test("the single-language picker is replaced by exactly the two fields", async () => {
     mount({ snapshot: withLanguages(["pt-BR"]) });
     await openSettings();
     await openCategory(PREFERENCES);
 
-    expect(screen.queryByText("Subtitle language")).toBeNull();
-    expect(screen.queryByRole("button", { name: FOLLOW_THE_FILE })).toBeNull();
+    expect(
+      screen.getAllByTestId(/^language-field-/).map((field) => field.dataset.testid),
+    ).toEqual(["language-field-subtitle", "language-field-audio"]);
   });
 });
 
@@ -489,9 +490,9 @@ describe("the language sheet", () => {
     const { sheet } = await openSheet("subtitle", withLanguages(["pt-BR", "en"]));
 
     const chosen = within(sheet).getAllByTestId(/^language-chosen-/);
-    expect(chosen.map((row) => row.textContent)).toEqual([
-      "✓Português (Brasil)1st",
-      "✓English2nd",
+    expect(chosen.map((row) => row.dataset.testid)).toEqual([
+      "language-chosen-pt-BR",
+      "language-chosen-en",
     ]);
     expect(within(sheet).queryByRole("button", { name: /Move .* (up|down)/ })).toBeNull();
 
