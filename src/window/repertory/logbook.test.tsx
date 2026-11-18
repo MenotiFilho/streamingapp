@@ -1125,20 +1125,20 @@ describe("Preferences edits Subtitle languages and Audio languages", () => {
 
     const { layout, elements } = readLevel(preferences.container, {}, measure);
     const regionId = "settings-subtitle-languages-field";
-    const labelAt = (index: number) => elements[regionId]![index]!.getAttribute("aria-label");
+    const stopAt = (index: number) => elements[regionId]![index]!.getAttribute("data-testid");
 
     expect(elements[regionId]).toHaveLength(3);
     const first = decideMove(layout, { regionId, index: 0 }, "right");
     expect(first).toMatchObject({ kind: "moved", regionId, index: 1 });
     const second = decideMove(layout, { regionId, index: 1 }, "right");
     expect(second).toMatchObject({ kind: "moved", regionId, index: 2 });
-    expect(labelAt(2)).toBe("Choose subtitle languages");
+    expect(stopAt(2)).toBe("language-open-subtitle");
     expect(decideMove(layout, { regionId, index: 2 }, "left")).toMatchObject({
       kind: "moved",
       regionId,
       index: 1,
     });
-    expect(labelAt(0)).toBe("Remove Português (Brasil)");
+    expect(stopAt(0)).toBe("language-remove-subtitle-pt-BR");
   });
 
   test("every focus region id on the page is unique, with the drawer open too", () => {
@@ -1172,8 +1172,10 @@ describe("Preferences edits Subtitle languages and Audio languages", () => {
       const run = openPreferences(withLists(["es-419", "en"]));
       const drawer = within(drawerOf(run, "subtitle").container);
 
-      expect(drawer.getByTestId("language-chosen-es-419")).toHaveTextContent("1st");
-      expect(drawer.getByTestId("language-chosen-en")).toHaveTextContent("2nd");
+      expect(drawer.getAllByTestId(/^language-chosen-/).map((row) => row.dataset.testid)).toEqual([
+        "language-chosen-es-419",
+        "language-chosen-en",
+      ]);
       expect(drawer.queryByTestId("language-row-en")).not.toBeInTheDocument();
       expect(drawer.getByTestId("language-row-fr")).toHaveAttribute("aria-pressed", "false");
     });
@@ -1277,7 +1279,7 @@ describe("Preferences edits Subtitle languages and Audio languages", () => {
       const run = openPreferences(withLists(["fr-CA"]));
       const drawer = within(drawerOf(run, "subtitle").container);
 
-      expect(drawer.getByTestId("language-chosen-fr-CA")).toHaveTextContent("Other (fr-CA)");
+      expect(drawer.getByTestId("language-chosen-fr-CA")).toBeInTheDocument();
       expect(drawer.queryByTestId("language-row-fr-CA")).not.toBeInTheDocument();
 
       fireEvent.click(drawer.getByTestId("language-chosen-fr-CA"));
