@@ -71,6 +71,7 @@ mod subtitles;
 mod sync;
 mod title_cache;
 mod tmdb;
+mod torrent;
 mod tracks;
 mod view;
 mod wire;
@@ -145,6 +146,10 @@ pub use tmdb::{
     video_id, video_spelling, Credential, DiscoverQuery, DiscoverQueryError, ExternalId, Kind,
     NextEpisode, SearchQuery, SearchQueryError, SeriesStatus, TmdbDetails, TmdbError, TmdbId,
     TmdbRequest, TmdbVideo, IMAGE_ROOT, LOGO_ROOT, STILL_ROOT, TMDB_ROOT,
+};
+pub use torrent::{
+    FailureKind, FixtureTorrentEngine, InfoHash, InvalidInfoHash, NoTorrentEngine, ServeHints,
+    ServeRequest, TorrentEngine, TorrentError, TorrentLimits, TorrentPhase, TorrentReport,
 };
 pub use tracks::codes_for_list;
 pub use view::HostView;

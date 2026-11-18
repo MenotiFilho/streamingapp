@@ -723,3 +723,91 @@ fn what_is_playing_does_not_survive_a_restart() {
          restart is #29's business"
     );
 }
+
+#[test]
+fn a_stream_held_for_bytes_is_stalled_and_is_published_as_the_player_reports_it() {
+    // Stalled is true of any Stream the Player says is waiting for bytes while
+    // it plays, and the Host publishes it as reported: the grace before a
+    // client draws anything is the client's (ADR-0033), so a stall and its end
+    // are each one change, with nothing held back.
+    let mut fixture = fixture();
+    playing(&mut fixture);
+    assert!(
+        !fixture.host.snapshot().playback.stalled,
+        "a Stream that is simply playing is not stalled"
+    );
+
+    fixture.player.now_reporting(Observation {
+        stalled: true,
+        ..Observation::playing(12.5, 8100.0)
+    });
+    let published = fixture.host.sample().expect("a stall is a change");
+    assert!(playback_of(std::slice::from_ref(&published)).stalled);
+    assert_eq!(
+        fixture.host.sample(),
+        None,
+        "a stall that goes on says nothing more"
+    );
+
+    fixture
+        .player
+        .now_reporting(Observation::playing(12.5, 8100.0));
+    let published = fixture
+        .host
+        .sample()
+        .expect("the end of a stall is a change");
+    assert!(
+        !playback_of(std::slice::from_ref(&published)).stalled,
+        "the stall is over the moment the Player says so"
+    );
+}
+
+#[test]
+fn a_stall_is_only_ever_published_while_playing_with_nobody_having_paused() {
+    // The Player can say it is waiting for bytes while a pause holds the
+    // picture, or while an open is still in flight, or after the end. None of
+    // those is Stalled: a Stream still opening is opening, and one the owner
+    // paused is paused.
+    for state in [
+        PlaybackState::Paused,
+        PlaybackState::Opening,
+        PlaybackState::Ended,
+    ] {
+        let mut fixture = fixture();
+        playing(&mut fixture);
+
+        fixture.player.now_reporting(Observation {
+            state,
+            stalled: true,
+            ..Observation::playing(12.5, 8100.0)
+        });
+        fixture.host.sample();
+
+        assert!(
+            !fixture.host.snapshot().playback.stalled,
+            "a Player in {state:?} that says it waits for bytes is not Stalled"
+        );
+    }
+}
+
+#[test]
+fn stalled_is_false_for_a_stream_that_was_let_go() {
+    let mut fixture = fixture();
+    playing(&mut fixture);
+    fixture.player.now_reporting(Observation {
+        stalled: true,
+        ..Observation::playing(12.5, 8100.0)
+    });
+    fixture.host.sample();
+    assert!(fixture.host.snapshot().playback.stalled);
+
+    fixture
+        .host
+        .dispatch(action(&serde_json::json!({ "type": "stop_playback" })))
+        .expect("a stop is taken");
+
+    assert!(
+        !fixture.host.snapshot().playback.stalled,
+        "nothing playing is nothing stalled"
+    );
+}

@@ -26,6 +26,7 @@ import { Shell } from "./Shell";
 import { dockedTransport } from "./PlayerDock";
 import { EPISODES_EMPTY } from "./episodesMenu";
 import { OSD_IDLE_MS } from "./useOsdVisibility";
+import { STALL_GRACE_MS } from "../core/stall";
 
 /**
  * The Tauri window the player tests hold lives in `tauriWindow.testing`, so the
@@ -56,6 +57,7 @@ const NOTHING_SAID: Snapshot = {
     volume: null,
     muted: null,
     subtitleDelay: null,
+    stalled: false,
     crop: null,
     aspect: null,
     resolution: null,
@@ -157,6 +159,7 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
     volume: 60,
     muted: true,
     subtitleDelay: 0,
+    stalled: false,
     crop: null,
     aspect: null,
     resolution: { width: 128, height: 72 },
@@ -1256,6 +1259,17 @@ describe("the player OSD", () => {
     expect(screen.getByTestId("volume")).toBeInTheDocument();
   });
 
+  test("an opening Stream's block is centred over the picture for any Stream, not lifted over the OSD", async () => {
+    // The decision: the block lives in the picture, drawn by the preview rules
+    // that centre it. Whether it clears the OSD at 1600x900 and at 720x480 is
+    // Windows' to confirm; jsdom has no layout (#333, ADR-0032).
+    await renderPlayer({ state: "opening", position: null, duration: null });
+
+    const preview = screen.getByTestId("opening-preview");
+    expect(preview).toContainElement(screen.getByTestId("opening-stream"));
+    expect(screen.getByTestId("picture")).toContainElement(preview);
+  });
+
   test("the wait for mpv shows the Title's own art instead of an empty hole", async () => {
     await renderPlayer(
       {
@@ -1530,6 +1544,90 @@ describe("the player OSD", () => {
     expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
 
     vi.useRealTimers();
+  });
+
+  describe("a Stalled Stream", () => {
+    beforeEach(() => {
+      // The card's second runs on the client's own clock: setTimeout and
+      // performance, and nothing else the player leans on.
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    async function mountStalled(stalled: boolean) {
+      const initial = { ...NOTHING_SAID, revision: 9, playback: playback({ stalled }) };
+      const host = fakeHost(initial);
+      render(<Shell client={host.client} />);
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      return {
+        host,
+        say(next: Partial<PlaybackSnapshot>, revision: number) {
+          act(() => {
+            host.publish({
+              ...NOTHING_SAID,
+              revision,
+              playback: playback({ ...next }),
+            });
+          });
+        },
+      };
+    }
+
+    test("draws its card only after one continuous second, and takes it down the moment it ends", async () => {
+      const { say } = await mountStalled(true);
+      expect(screen.queryByTestId("stall-card")).not.toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(STALL_GRACE_MS - 1));
+      expect(screen.queryByTestId("stall-card")).not.toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByTestId("stall-card")).toHaveTextContent("Waiting for the Stream…");
+
+      say({ stalled: false }, 10);
+      expect(screen.queryByTestId("stall-card")).not.toBeInTheDocument();
+    });
+
+    test("a seek's brief wait draws nothing", async () => {
+      const { say } = await mountStalled(false);
+
+      say({ stalled: true }, 10);
+      act(() => vi.advanceTimersByTime(600));
+      say({ stalled: false }, 11);
+      act(() => vi.advanceTimersByTime(2000));
+
+      expect(screen.queryByTestId("stall-card")).not.toBeInTheDocument();
+    });
+
+    test("a position moving under a stall does not restart its second", async () => {
+      const { say } = await mountStalled(true);
+
+      act(() => vi.advanceTimersByTime(700));
+      say({ stalled: true, position: 901 }, 10);
+      act(() => vi.advanceTimersByTime(300));
+
+      expect(screen.getByTestId("stall-card")).toBeInTheDocument();
+    });
+
+    test("neither summons the OSD nor touches its idle clock", async () => {
+      await mountStalled(true);
+      expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(OSD_IDLE_MS));
+      expect(
+        screen.queryByTestId("shell-osd"),
+        "the OSD goes away on its own three seconds, stall or not",
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByTestId("stall-card"),
+        "and the card stays up without it, on its own clock"
+      ).toBeInTheDocument();
+    });
   });
 
   test("a control holding focus keeps the OSD up", async () => {

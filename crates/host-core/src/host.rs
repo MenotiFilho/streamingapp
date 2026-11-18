@@ -35,6 +35,7 @@ use crate::title_cache::{
     CachedTitle, TitleCache, TitleProbe, TitleProtection, MAX_CACHED_TITLES, RUNNING_FRESH_MILLIS,
 };
 use crate::tmdb;
+use crate::torrent::{NoTorrentEngine, TorrentEngine};
 use crate::tracks::{self, SubtitleChoice};
 use crate::view::{HostView, HostViewShared};
 
@@ -75,6 +76,12 @@ pub struct Host {
     /// and a Host that never names one has a previewer that answers nothing
     /// (ADR-0028).
     previewer: Arc<dyn Previewer>,
+    /// What turns a chosen torrent into a URL the Player can open (ADR-0042 §2).
+    /// The real Host is built with the bundled engine; a test hands in a fake, and
+    /// a Host that never names one has an engine that refuses every serve. Nothing
+    /// calls it yet: the slices after the prefactor serve before `Player::open`.
+    #[allow(dead_code)]
+    torrent_engine: Arc<dyn TorrentEngine>,
     /// Whether the Stream now open may be previewed, once the Player's first
     /// report has said what it costs. [`PreviewCeiling::Waiting`] until then, and
     /// decided once per Stream: a refusal is not revisited on a later report, and
@@ -251,6 +258,7 @@ impl Host {
             provider,
             player,
             previewer: Arc::new(NoPreviewer),
+            torrent_engine: Arc::new(NoTorrentEngine),
             preview_gate: PreviewCeiling::Refused,
             preview_since: None,
             clock,
@@ -289,6 +297,17 @@ impl Host {
     #[must_use]
     pub fn with_previewer(mut self, previewer: Arc<dyn Previewer>) -> Self {
         self.previewer = previewer;
+        self
+    }
+
+    /// The same Host, able to play torrents through `engine` (ADR-0042).
+    ///
+    /// A builder for the same reason as [`Host::with_previewer`]: a Host built
+    /// without one is the default every test and every build without the bundled
+    /// engine is written against, and it refuses a torrent with a sentence.
+    #[must_use]
+    pub fn with_torrent_engine(mut self, engine: Arc<dyn TorrentEngine>) -> Self {
+        self.torrent_engine = engine;
         self
     }
 
@@ -2339,6 +2358,7 @@ mod tests {
     use crate::secret::{InMemorySecretStore, SecretBackend};
     use crate::store::InMemoryStore;
     use crate::stream::Playback;
+    use crate::torrent::{FixtureTorrentEngine, InfoHash, ServeHints, ServeRequest};
 
     const SERIES: &str = "https://series.example.org/manifest.json";
     const SERIES_ID: &str = "org.example.series";
@@ -2665,6 +2685,50 @@ mod tests {
                 start: Some(s),
             } if *played == chosen && *played_title == title && (s - 42.5).abs() < f64::EPSILON
         ));
+    }
+
+    fn torrent_request() -> ServeRequest {
+        ServeRequest {
+            info_hash: InfoHash::parse(&"a".repeat(40)).unwrap(),
+            file_idx: None,
+            sources: Vec::new(),
+            hints: ServeHints::default(),
+        }
+    }
+
+    #[test]
+    fn a_host_that_is_never_given_a_torrent_engine_refuses_a_torrent_with_a_sentence() {
+        let host = host_with(
+            FixtureFetcher::new(),
+            Arc::new(FixtureProvider::new()),
+            Arc::new(FixturePlayer::new()),
+            Arc::new(FixturePreviewer::new()),
+        );
+
+        let refused = host.torrent_engine.serve(&torrent_request());
+
+        assert_eq!(
+            refused.expect_err("refused").to_string(),
+            "The torrent engine is not part of this build."
+        );
+    }
+
+    #[test]
+    fn a_host_carries_the_torrent_engine_it_is_given() {
+        let engine = Arc::new(FixtureTorrentEngine::new());
+        let host = host_with(
+            FixtureFetcher::new(),
+            Arc::new(FixtureProvider::new()),
+            Arc::new(FixturePlayer::new()),
+            Arc::new(FixturePreviewer::new()),
+        )
+        .with_torrent_engine(engine.clone());
+
+        host.torrent_engine
+            .serve(&torrent_request())
+            .expect("the fixture serves");
+
+        assert_eq!(engine.serves(), vec![torrent_request()]);
     }
 
     #[test]

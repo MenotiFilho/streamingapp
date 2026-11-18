@@ -27,6 +27,7 @@ function snapshot(overrides: Partial<Snapshot["playback"]> = {}): Snapshot {
       volume: 100,
       muted: false,
       subtitleDelay: 0,
+      stalled: false,
       crop: null,
       aspect: null,
       resolution: null,

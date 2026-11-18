@@ -403,6 +403,7 @@ export function rehearsalPlayback(entry: ResumeEntry, nowPlaying: NowPlaying): P
     volume: 60,
     muted: false,
     subtitleDelay: 0,
+    stalled: false,
     crop: null,
     aspect: null,
     resolution: { width: 1920, height: 804 },

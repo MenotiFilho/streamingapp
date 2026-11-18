@@ -287,6 +287,10 @@ fn a_stream_plays_and_reports_where_it_is_and_how_long_it_is() {
         "the Stream says how long it is, and the Host publishes it: {playing:?}"
     );
     assert_eq!(playing.failure, None);
+    assert!(
+        !playing.stalled,
+        "a local Stream that plays is not held for bytes: {playing:?}"
+    );
 
     thread::sleep(Duration::from_millis(400));
     let moved = player.observe();

@@ -8,6 +8,8 @@ ticket as one of the same shape; ADR-0011 named it among the capabilities "keyed
 by the Video's own id". This is that shape, filled in — and it corrects
 ADR-0011's letter about the Addon, below.
 
+_The open question of resolving an `infoHash` before playback, or answering as a source with playable candidates, is closed by ADR-0042 §2: resolved before playback._
+
 ## One Addon's answer beside the others, and no ranking
 
 `Action::FindStreams { video }` validates into `ValidatedAction::FindStreams`,
