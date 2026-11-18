@@ -1,4 +1,5 @@
 import { ACTION_VERSION } from "./wire";
+import { MAX_LANGUAGES } from "./languageList";
 
 /**
  * The failures the Host itself reports. Mirrors the variants of `ActionError` in
@@ -173,7 +174,7 @@ export function explain(error: ActionError): string {
     case "duplicate_language":
       return `${JSON.stringify(error.language)} is already on the list.`;
     case "too_many_languages":
-      return `A list holds at most ${error.max ?? 3} languages — remove one before adding another.`;
+      return `A list holds at most ${error.max ?? MAX_LANGUAGES} languages — remove one before adding another.`;
     case "invalid_subtitle_color":
       return `${JSON.stringify(error.color)} is not a subtitle colour — a colour is "#RRGGBB", like "#FFFF00".`;
     case "invalid_subtitle_scale":
