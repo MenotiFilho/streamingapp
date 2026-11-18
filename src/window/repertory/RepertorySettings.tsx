@@ -28,10 +28,6 @@ import {
 } from "../../core/controls";
 import type { Action, DeviceSummary } from "../../core/wire";
 import type { ActionError } from "../../core/errors";
-import {
-  FOLLOW_THE_FILE,
-  LANGUAGES,
-} from "../../core/languages";
 import tmdbLogo from "../../assets/tmdb-logo.svg";
 import { useShell, type NewShellLevel } from "../context";
 import { confirmActionLevel } from "../ConfirmAction";
@@ -39,6 +35,8 @@ import { Button } from "../../kit/Button";
 import { ChoiceChip } from "../../kit/Chip";
 import { Field } from "../../kit/Field";
 import { focusAndReveal } from "../reveal";
+import { LanguageFieldGroup } from "./LanguageFieldGroup";
+import { LANGUAGE_TITLES } from "./languageTitles";
 import { Refusal } from "../Refusal";
 import { StremioAccount } from "../StremioAccount";
 import {
@@ -61,7 +59,6 @@ import {
   settingsLevelId,
   settingsLevelName,
   unknownColorLabel,
-  unknownLanguageLabel,
   type SettingsCategory,
   type SettingsCategoryId,
 } from "../../core/settingsRegister";
@@ -319,8 +316,6 @@ function CredentialsScreen() {
 
 function PreferencesScreen() {
   const { snapshot, ask } = useShell();
-  // The single-language picker shows the list's first entry as the choice.
-  const heldLanguage = snapshot?.preferences.subtitleLanguages[0] ?? null;
   const heldColor = snapshot?.preferences.subtitleColor ?? "#FFFFFF";
   const heldScale = snapshot?.preferences.subtitleScale ?? 1;
   const publishedBuffer = snapshot?.preferences.streamBuffer ?? {
@@ -337,13 +332,11 @@ function PreferencesScreen() {
     setBufferDraft(publishedBuffer);
   }, [publishedBuffer.seconds, publishedBuffer.megabytes]);
   const heldBuffer = bufferDraft;
-  const [languageError, setLanguageError] = useState<ActionError | null>(null);
   const [appearanceError, setAppearanceError] = useState<ActionError | null>(null);
   const [bufferError, setBufferError] = useState<ActionError | null>(null);
   const [upNextError, setUpNextError] = useState<ActionError | null>(null);
   const [featuredError, setFeaturedError] = useState<ActionError | null>(null);
 
-  const known = LANGUAGES.some((language) => language.tag === heldLanguage);
   const otherColor = unknownColorLabel(heldColor);
   const catalogs = declaredCatalogs(snapshot);
   const featured = snapshot?.featuredCatalog ?? null;
@@ -354,17 +347,6 @@ function PreferencesScreen() {
         id: featured.catalog.id,
       })
     : null;
-
-  const pickLanguage = async (language: string | null) => {
-    setLanguageError(null);
-    const outcome = await ask({
-      type: "set_subtitle_languages",
-      languages: language === null ? [] : [language],
-    });
-    if (outcome.error) {
-      setLanguageError(outcome.error);
-    }
-  };
 
   const pickAppearance = async (action: Action) => {
     setAppearanceError(null);
@@ -415,41 +397,12 @@ function PreferencesScreen() {
 
   return (
     <SettingsLevel id="preferences" title="Preferences">
-      <LogGroup id="settings-subtitle-language" title="Subtitle language">
-        <div
-          className="rep-log-chips"
-          data-region="settings-languages"
-          data-kind="row"
-          data-label="Subtitle languages"
-        >
-          <ChoiceChip
-            pressed={heldLanguage === null}
-            data-testid="language-host-picks"
-            onClick={() => void pickLanguage(null)}
-          >
-            {FOLLOW_THE_FILE}
-          </ChoiceChip>
-          {heldLanguage && !known ? (
-            <ChoiceChip
-              pressed
-              data-testid={`language-${heldLanguage}`}
-              onClick={() => void pickLanguage(heldLanguage)}
-            >
-              {unknownLanguageLabel(heldLanguage)}
-            </ChoiceChip>
-          ) : null}
-          {LANGUAGES.map((language) => (
-            <ChoiceChip
-              key={language.tag}
-              pressed={heldLanguage === language.tag}
-              data-testid={`language-${language.tag}`}
-              onClick={() => void pickLanguage(language.tag)}
-            >
-              {language.name}
-            </ChoiceChip>
-          ))}
-        </div>
-        <Refusal error={languageError} testId="subtitle-language-error" />
+      <LogGroup id="settings-subtitle-languages" title={LANGUAGE_TITLES.subtitle}>
+        <LanguageFieldGroup kind="subtitle" />
+      </LogGroup>
+
+      <LogGroup id="settings-audio-languages" title={LANGUAGE_TITLES.audio}>
+        <LanguageFieldGroup kind="audio" />
       </LogGroup>
 
       <LogGroup id="settings-subtitle-appearance" title="Subtitle appearance">
