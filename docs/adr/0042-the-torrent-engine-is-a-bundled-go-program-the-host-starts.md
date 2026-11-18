@@ -31,27 +31,25 @@ The installer carries the Go modules' licence texts.
 
 Rejected:
 
-- **`librqbit` in-process.** The best Rust fit and Apache-2.0, but unpatched it
-  keeps downloading the rest of the file and evicts nothing behind the reader, so
-  the bounded cache of §3 would be a fork to maintain; and it binds UDP at start,
-  which raises the Windows firewall alert at launch rather than at the first
-  torrent (story 20).
-- **`TorrServer`.** GPL-3.0 and eligible, but a large program with its own web
-  UI, database and side effects, and its own idea of what is kept.
-- **`stremio-service` / `server.js`.** Disqualified: `server.js` is proprietary
-  and unlicensed, so it cannot be shipped.
-- **`libtorrent-rasterbar`.** The best piece scheduler, but the Rust bindings do
-  not build on MSVC or expose the streaming API, and a custom FFI crate plus Boost
-  in the dev image and the Windows build is more than the engine is worth.
-- **A libmpv custom protocol.** It would put the swarm inside the Player's
-  process through an `unsafe fn` callback, against ADR-0013 and the Host's rule of
-  no `unsafe`.
-- **A loopback control API.** A second protocol, with a port and a lifetime of its
-  own, where stdio's lifetime is the pipe's.
-- **Go on Windows** as a toolchain: it would put a second toolchain on a machine
-  the walkthrough already needs only Rust for.
-- **A separately published binary.** The owner would have to install it, and the
-  installer is the only thing they run (story 2).
+- **`librqbit` in-process.** It needs no new toolchain, but it brings a
+  multi-threaded `tokio` into a Host that is synchronous today, it fills the disk
+  with the whole file unless it is patched or given our own storage, and uTP and
+  UPnP are off by default.
+- **`TorrServer`.** It is 61 MiB, numbers files 1-based in sorted order (Stremio's
+  `fileIdx` would play the wrong file), calls outside services at startup and has
+  an unauthenticated control API.
+- **`stremio-service` / `server.js`.** Its licence forbids shipping it.
+- **`libtorrent-rasterbar`.** No Rust binding builds on MSVC.
+- **A libmpv custom protocol** (`libmpv2::protocol::Protocol::new`). It is an
+  `unsafe fn` and would need a carve-out from `unsafe_code = "forbid"`; a loopback
+  URL goes through the path the Player already uses for any URL.
+- **A loopback HTTP control API guarded by a secret.** Stdio needs no control port,
+  and the engine exits when its stdin closes, so no Job Object is needed.
+- **Go on Windows** (a Go toolchain in `build.ps1`). The engine is cross-compiled
+  in the container and carried to the Windows tree, so Windows needs no new
+  toolchain.
+- **A separately published prebuilt binary.** The same: the engine is built in
+  the container and carried beside `libmpv-2.dll`, not fetched from elsewhere.
 
 ## 2. Where it sits: resolved before playback
 
@@ -70,12 +68,11 @@ answering as a source with playable candidates"): **resolved before playback.**
 
 Rejected:
 
-- **A second Provider.** A Provider answers for a Video, and the engine answers
-  for no Video: it would have to be invented candidates, and every consumer of the
-  Streams list would then have to know which kind they came from.
-- **Inside the Player.** The Player is the Stream playing now, and a fake Player
-  should not have to pretend to join a swarm (the argument ADR-0028 made for the
-  Previewer).
+- **A second Provider.** Torrents still arrive inside Addon answers, and an engine
+  that answered `FindStreams` would join a swarm for every listed candidate. The
+  Provider's grain is one source's answer for a Video, which the engine is not.
+- **Inside the Player.** It would couple `host-mpv` to swarms, and the Seek
+  preview's second connection would need the same knowledge.
 
 ## 3. What the Host keeps of a torrent
 
@@ -93,22 +90,22 @@ Rejected:
 
 Rejected:
 
-- **A RAM ring.** A 60 GB remux needs a read-ahead the owner can set, and a ring
-  big enough to survive a seek is bigger than memory a Host should take.
-- **The whole file on disk.** A 60 GB remux fills the drive; the cache is a bound
-  the owner chooses.
-- **A cross-torrent LRU.** It would keep what the owner stopped watching, which is
-  a download nobody asked for (story 14).
-- **An upload limit, or a cap on it.** Held only while watched, upload is the
-  price of the swarm; a limit would make the Host a worse peer for a feature the
-  owner did not ask for.
-- **Lazy re-join** of a let-go torrent. It would keep a half-held torrent that
-  neither uploads nor is deleted, and make two states of what is simply held or
-  not.
-- **A derived or fixed disk ceiling.** The owner's disk is the owner's to size.
-- **Validation coupled to the Stream buffer.** The two preferences are told to the
-  engine as limits and the engine clamps read-ahead to 3/4 of the cache, so no
-  rule between them is the Host's to refuse.
+- **A RAM-only ring** (about 64 MiB, as in TorrServer). A seek back fetches the
+  pieces again, there is little for peers to download from us, and it spends RAM
+  that mpv's own buffer (ADR-0026) already uses.
+- **The whole file on disk.** A 60 GB remux fills the disk.
+- **An LRU cache kept across torrents,** for an instant resume or rewatch. It needs
+  a cap, eviction rules and gigabytes left on disk; a resume re-joins the swarm
+  instead.
+- **An upload-limit preference, or a fixed modest cap.** Upload is unlimited while
+  the torrent is held and ends at let go.
+- **The engine re-joining lazily on mpv's next read** after an idle let go. The
+  engine would then hold state after a let go.
+- **A disk ceiling derived from the Stream buffer (4x), or a fixed 2 GB; a
+  read-ahead fixed in the engine.** The Torrent cache is its own preference, and
+  read-ahead follows the Stream buffer.
+- **Validating the two preferences together.** The engine clamps read-ahead to 3/4
+  of the Torrent cache, so no rule between them is the Host's to refuse.
 
 ## 4. Which file of a torrent plays
 
@@ -121,14 +118,16 @@ missing among several videos or there is no video at all. The owner is never ask
 
 Rejected:
 
-- **The Host choosing.** It would need the file list sent back over stdio before
-  the Player opens, which breaks the answer-at-once of §2.
-- **Always trusting `fileIdx`.** Addons point at the wrong file, and a `fileIdx`
-  at a subtitle or an `.nfo` plays nothing.
-- **The largest file regardless.** In a season pack that is the wrong episode and
-  records Watch progress against it.
-- **A file list for the owner.** The owner pressed Play on a Stream; a second
-  question is a regression from the Streams picker.
+- **The Host choosing.** The file list would have to come back over stdio, so
+  either the play waits for metadata inside the 5 s bound of §2, or a second
+  round-trip happens after the URL is already out.
+- **Always trusting `fileIdx`.** It would turn an Addon's mistake into a failed
+  open.
+- **The largest file anyway when the episode matches no file** (as `enginefs`
+  does). It silently plays the wrong episode and records Watch progress and
+  autoplay against it.
+- **A file list for the owner.** It needs a new Level and Action, and a play that
+  waits on a person.
 
 ## 5. What a client is told while a torrent waits
 
@@ -141,19 +140,21 @@ Rejected:
 
 Rejected:
 
-- **Phase only, or no status.** The owner cannot tell a dead torrent from a slow
-  one.
-- **Three phases** (metadata, connecting, fetching). The owner's decision is wait
-  or leave, and two phases carry it.
-- **Folding into Statistics.** Statistics is something the owner opens; the wait
-  is something they are in.
-- **A torrent-only stall.** A held picture looks the same for any Stream, and the
-  Player already reports it (`paused-for-cache`).
-- **A mid-play give-up, or never giving up.** The first ends a Stream that would
-  have recovered; the second leaves an opening that cannot (story 8).
-- **Ending on the first crash, or restarting without limit.** The first costs the
-  owner their place for a fault the Host can repair; the second loops on one that
-  it cannot.
+- **Phase only, or nothing new.** `fetching` with 0 peers is how the owner reads
+  "nobody sharing", so the peer count has to travel with the phase.
+- **Three phases,** with a `connecting` step. It duplicates `peers = 0`.
+- **Folding peers and rate into Statistics.** Statistics stays the Player's own
+  report; the Torrent status has its own field, drawn while opening or Stalled and
+  repeated in the Statistics panel.
+- **A torrent-only stall** from the engine's reports, or no stall state at all.
+  Stalled is read from mpv's `paused-for-cache` for every Stream, so one wait looks
+  the same everywhere.
+- **Also ending a stalled torrent mid-play after 60 s with no peers, or never
+  giving up.** The owner sees the stall and stops, or picks another Stream; the
+  Host gives up only while opening.
+- **Ending the Stream at once on any crash, or restarting without limit.** A
+  storage error is the exception that ends at once, because a full disk does not
+  fix itself.
 
 ## 6. No Seek preview for a torrent
 
@@ -166,9 +167,16 @@ holds, torrent or not.
 
 Rejected:
 
-- **Armed on held pieces only.** A still of a held piece is mostly a still of the
-  beginning and the last place watched, which is not what a scrub bar asks.
-- **Armed normally.** The competing reader described above.
+- **Armed on held pieces only.** A second, no-fetch URL served from the Torrent
+  cache. Previews would work behind playback and be absent ahead of it, which is
+  inconsistent on screen, and it needs a no-fetch read mode in the engine.
+- **Armed normally,** under the 20 Mbps rule of ADR-0028. Every scrub would be a
+  second reader far from playback, and most stills would still time out (3 s).
+- **Resume taking the same release first** (stream Addon plus `bingeGroup`, as Up
+  next does). It would reverse ADR-0015's rejected alternative, and nothing about
+  it is specific to torrents.
+- **Resume taking direct Streams first and torrents last.** It overrides the
+  Addons' order, which is the owner's ranking.
 
 ## Consequences
 
