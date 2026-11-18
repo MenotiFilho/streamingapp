@@ -154,6 +154,12 @@ impl State {
         self.playback.record_subtitles_attempt();
     }
 
+    /// Record that the Stream playing now has had its first report chosen
+    /// from (ADR-0041). The Host's note to itself, like the attempt above.
+    pub(crate) fn record_initial_choice(&mut self) {
+        self.playback.record_initial_choice();
+    }
+
     pub(crate) fn has_addon(&self, id: &AddonId) -> bool {
         self.addons.iter().any(|addon| addon.id() == id)
     }
