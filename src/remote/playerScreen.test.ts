@@ -4,6 +4,7 @@ import { actionKey } from "../core/actionKey";
 import { autoplayView } from "../core/autoplay";
 import type { Level } from "../core/navigation";
 import { playbackView } from "../core/playbackView";
+import { STALLED_NOTE, STALLED_STRIP_NOTE } from "../core/stall";
 import type { PlaybackSnapshot, Title } from "../core/wire";
 import type { RemotePayload } from "./levels";
 import {
@@ -21,6 +22,7 @@ import {
   setVolume,
   stripControls,
   stripDrawn,
+  stripNote,
   timelineRange,
   trackFills,
   volumeRange,
@@ -61,6 +63,7 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
     volume: 60,
     muted: false,
     subtitleDelay: 0,
+    stalled: false,
     crop: null,
     aspect: null,
     resolution: null,
@@ -369,6 +372,7 @@ describe("the Remote's Autoplay drawings", () => {
       volume: null,
       muted: null,
       subtitleDelay: 0,
+      stalled: false,
       crop: null,
       aspect: null,
       resolution: null,
@@ -462,6 +466,36 @@ describe("the Remote's Autoplay drawings", () => {
     expect(cardStateNote(view({ state: "opening", nowPlaying: null }))).toBe(
       openingNote("a Stream"),
     );
+  });
+
+  test("a Stalled Stream's card says it waits, but only once the stall is shown", () => {
+    const stalled = view({ state: "playing", stalled: true });
+
+    expect(cardStateNote(stalled, false)).toBeNull();
+    expect(cardStateNote(stalled)).toBeNull();
+    expect(cardStateNote(stalled, true)).toBe(STALLED_NOTE);
+    expect(STALLED_NOTE).toBe("Waiting for the Stream…");
+  });
+
+  test("a shown stall is never a note for a Stream that is not stalled", () => {
+    expect(cardStateNote(view({ state: "playing", stalled: false }), true)).toBeNull();
+  });
+
+  test("the docked strip says Waiting… while a shown stall holds the Stream", () => {
+    const stalled = view({ state: "playing", stalled: true });
+
+    expect(stripNote(stalled, true)).toBe(STALLED_STRIP_NOTE);
+    expect(STALLED_STRIP_NOTE).toBe("Waiting…");
+    expect(stripNote(stalled, false)).toBeNull();
+  });
+
+  test("the strip's picture note stays, with the wait ahead of it", () => {
+    const elsewhere = view({ state: "playing", stalled: true, picture: "own_window" });
+
+    expect(stripNote(view({ state: "playing", picture: "own_window" }), false)).toBe(
+      elsewhere.pictureNote,
+    );
+    expect(stripNote(elsewhere, true)).toBe(`${STALLED_STRIP_NOTE} · ${elsewhere.pictureNote}`);
   });
 
   test("a missing Stream leaves the ended note, because the Host stays on the ended state", () => {

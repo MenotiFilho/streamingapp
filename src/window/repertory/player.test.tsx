@@ -108,6 +108,7 @@ const PLAYING: Snapshot = {
     volume: 60,
     muted: true,
     subtitleDelay: 0,
+    stalled: false,
     crop: null,
     aspect: null,
     resolution: { width: 1920, height: 804 },

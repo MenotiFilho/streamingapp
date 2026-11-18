@@ -77,6 +77,11 @@ export type PlaybackView = {
   controllable: boolean;
   picture: Picture;
   pictureNote: string | null;
+  /**
+   * Whether the Host says the Stream is held for bytes, as published. What is
+   * drawn for it waits a second (`stallShown`); this is only the fact.
+   */
+  stalled: boolean;
   nowPlaying: NowPlaying | null;
   /** The Watch-progress Title's name, else the Stream's own title. */
   title: string;
@@ -178,6 +183,7 @@ export function playbackView(
     controllable: controllable(playback.state),
     picture: playback.picture,
     pictureNote: pictureNote(playback.picture),
+    stalled: playback.stalled,
     nowPlaying: playback.nowPlaying,
     title: progress?.title.name ?? streamTitle(playback.nowPlaying),
     episodeLabel: episodeLabelOf(playback.episode, progress),
