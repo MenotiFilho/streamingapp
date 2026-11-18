@@ -12,6 +12,7 @@ use crate::preferences::{
 use crate::progress::{TitleStub, WatchProgress};
 use crate::request::VideoRef;
 use crate::secret::SecretBackend;
+use crate::tracks::SubtitleHandPick;
 
 /// The Host's state, as the Host holds it.
 ///
@@ -393,8 +394,13 @@ impl State {
                 self.playback.select(TrackKind::Subtitle, track);
                 self.playback.record_hand_pick();
                 if let Some(title) = self.playing_title_id() {
-                    let picked =
-                        track.map(|id| self.playback.language_of_track(TrackKind::Subtitle, id));
+                    let picked = match track {
+                        None => Some(SubtitleHandPick::Off),
+                        Some(id) => self
+                            .playback
+                            .language_of_track(TrackKind::Subtitle, id)
+                            .map(SubtitleHandPick::Language),
+                    };
                     self.hand_pick.picked_subtitle(&title, picked);
                 }
                 Persist::Nothing
