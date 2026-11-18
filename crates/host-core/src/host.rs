@@ -35,6 +35,7 @@ use crate::title_cache::{
     CachedTitle, TitleCache, TitleProbe, TitleProtection, MAX_CACHED_TITLES, RUNNING_FRESH_MILLIS,
 };
 use crate::tmdb;
+use crate::tracks;
 use crate::view::{HostView, HostViewShared};
 
 mod countdown;
@@ -1097,8 +1098,14 @@ impl Host {
             self.state.record_subtitles_attempt();
         }
 
+        // The first report of a Stream's Tracks is where the Host chooses the
+        // soundtrack itself (ADR-0041). It is told before the report is folded
+        // in, and the choice is carried into the folded record below, so the
+        // Snapshot already says what the Host chose.
+        let soundtrack = self.choose_initial_soundtrack(&observation);
+
         let was_ended = self.state.playback().has_ended();
-        let Some(next) = self.state.playback().advanced(&observation) else {
+        let Some(mut next) = self.state.playback().advanced(&observation) else {
             // Nothing the Player said moved; only the countdown ending can.
             if countdown_ended {
                 self.revision += 1;
@@ -1106,6 +1113,9 @@ impl Host {
             }
             return None;
         };
+        if let Some(id) = soundtrack {
+            next.select(TrackKind::Audio, Some(id));
+        }
         let published = next.differs_publicly_from(self.state.playback());
         let reached_the_end = next.has_ended() && !was_ended;
 
@@ -1148,6 +1158,44 @@ impl Host {
 
         self.revision += 1;
         Some(self.snapshot())
+    }
+
+    /// The soundtrack the Host tells the Player to play, on the first report of
+    /// this Stream's Tracks, or nothing.
+    ///
+    /// The first observation with a track list while the Stream plays or is
+    /// paused is the one the choice is made from, once per Stream: a report
+    /// still describing an open in flight, or one that could not read the list,
+    /// spends nothing, and a later report never re-chooses (a list changed
+    /// mid-Stream applies from the next Stream). The Host ranks the audio Tracks
+    /// against Audio languages and tells `AudioTrack` only where its choice
+    /// differs from the Track mpv has selected (ADR-0041). No Hand pick exists
+    /// yet, so none is passed.
+    fn choose_initial_soundtrack(&mut self, observation: &Observation) -> Option<TrackId> {
+        if !self.state.playback().has_stream()
+            || self.state.playback().chosen_initial()
+            || !matches!(
+                observation.state,
+                PlaybackState::Playing | PlaybackState::Paused
+            )
+        {
+            return None;
+        }
+        let tracks = observation.tracks.as_deref()?;
+        self.state.record_initial_choice();
+
+        let chosen =
+            tracks::choose_soundtrack(tracks, self.state.preferences().audio_languages(), None)?;
+        let selected = tracks
+            .iter()
+            .find(|track| track.kind == TrackKind::Audio && track.selected)
+            .map(|track| track.id);
+        if selected == Some(chosen) {
+            return None;
+        }
+        // A Player that refuses leaves the Host's record where mpv has it.
+        self.player.tell(Telling::AudioTrack(chosen)).ok()?;
+        Some(chosen)
     }
 
     /// Whether the Addon subtitles fallback is owed right now.

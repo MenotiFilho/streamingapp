@@ -10,6 +10,7 @@
 //! A tag outside the curated list is still a language (ADR-0041), and matches
 //! only literally, ignoring case.
 
+use crate::playback::{Track, TrackId, TrackKind};
 use crate::preferences::{Language, LanguageList};
 
 /// The 32 curated tags, in the order a client offers them.
@@ -204,6 +205,218 @@ pub fn same_literally(a: &str, b: &str) -> bool {
     a.eq_ignore_ascii_case(b)
 }
 
+/// What a title word says about a Track.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Meaning {
+    /// A language and the region or script it is spoken in.
+    Region(&'static str, &'static str),
+    /// Subtitles for the deaf and hard of hearing.
+    Sdh,
+    /// Only the parts a viewer would not understand.
+    Forced,
+    /// A commentary soundtrack rather than the film's own.
+    Commentary,
+}
+
+/// The title word table (ADR-0041): the words a Track's own title uses for what
+/// its tag and flags leave open. Matched without regard to case, on whole words
+/// (a phrase is its words in a row); a word in a script that does not separate
+/// its words is matched wherever it stands.
+const TITLE_WORDS: [(&str, Meaning); 24] = [
+    ("brazilian", Meaning::Region("pt", "br")),
+    ("brasil", Meaning::Region("pt", "br")),
+    ("brazil", Meaning::Region("pt", "br")),
+    ("european", Meaning::Region("pt", "pt")),
+    ("portugal", Meaning::Region("pt", "pt")),
+    ("latin", Meaning::Region("es", "419")),
+    ("latino", Meaning::Region("es", "419")),
+    ("latam", Meaning::Region("es", "419")),
+    ("latinoamérica", Meaning::Region("es", "419")),
+    ("castilian", Meaning::Region("es", "es")),
+    ("castellano", Meaning::Region("es", "es")),
+    ("españa", Meaning::Region("es", "es")),
+    ("spain", Meaning::Region("es", "es")),
+    ("simplified", Meaning::Region("zh", "hans")),
+    ("简体", Meaning::Region("zh", "hans")),
+    ("traditional", Meaning::Region("zh", "hant")),
+    ("繁體", Meaning::Region("zh", "hant")),
+    ("繁体", Meaning::Region("zh", "hant")),
+    ("sdh", Meaning::Sdh),
+    ("cc", Meaning::Sdh),
+    ("hearing impaired", Meaning::Sdh),
+    ("forced", Meaning::Forced),
+    ("foreign", Meaning::Forced),
+    ("commentary", Meaning::Commentary),
+];
+
+/// Whether a character is one of a script that writes no spaces between words.
+fn is_han(c: char) -> bool {
+    ('\u{4e00}'..='\u{9fff}').contains(&c)
+}
+
+/// Every meaning the words of a title carry, in the table's order.
+fn title_meanings(title: &str) -> Vec<Meaning> {
+    let lowered = title.to_lowercase();
+    let words: Vec<&str> = lowered
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|word| !word.is_empty())
+        .collect();
+    TITLE_WORDS
+        .iter()
+        .filter(|(phrase, _)| {
+            if phrase.chars().all(is_han) {
+                return lowered.contains(phrase);
+            }
+            let wanted: Vec<&str> = phrase.split(' ').collect();
+            words.windows(wanted.len()).any(|run| run == wanted)
+        })
+        .map(|(_, meaning)| *meaning)
+        .collect()
+}
+
+/// What the Host knows about one Track once its tag, its flags and its title
+/// have been read: the one reading every choice ranks from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Reading {
+    /// The tag the container gave, as it gave it: what a literal match reads.
+    tag: Option<String>,
+    /// The language and region the tag names through the table, with the
+    /// title's words filling a region the tag left out, or the language of a
+    /// Track that has no tag. `None` when neither says.
+    locale: Option<Locale>,
+    /// Whether the container marks it the default of its kind.
+    pub default: bool,
+    /// Whether it is forced: the container's flag, or a title that says so.
+    pub forced: bool,
+    /// Whether it is for the hard of hearing, as a title says so.
+    pub sdh: bool,
+    /// Whether it is a commentary, as a title says so.
+    pub commentary: bool,
+}
+
+/// Read a Track. Flags the container set are believed first, and a title only
+/// adds what the container did not say: a region the tag lacks, and the flags
+/// that follow its words (ADR-0041).
+pub fn read(track: &Track) -> Reading {
+    let tag = track.language.clone();
+    let mut locale = tag.as_deref().and_then(locale_of);
+    let meanings = track
+        .title
+        .as_deref()
+        .map(title_meanings)
+        .unwrap_or_default();
+
+    let named = meanings.iter().find_map(|meaning| match meaning {
+        Meaning::Region(language, region) => Some((*language, *region)),
+        _ => None,
+    });
+    if let Some((language, region)) = named {
+        match &mut locale {
+            // A tag that names the language and no region: the title fills it.
+            Some(held) if held.language == language && held.region.is_none() => {
+                held.region = Some(region.to_owned());
+            }
+            // A Track with no tag at all is the language the title names.
+            None if tag.is_none() => {
+                locale = Some(Locale {
+                    language,
+                    region: Some(region.to_owned()),
+                });
+            }
+            // Anything else is the tag's word against the title's: the tag's.
+            _ => {}
+        }
+    }
+
+    Reading {
+        tag,
+        locale,
+        default: track.default,
+        forced: track.forced || meanings.contains(&Meaning::Forced),
+        sdh: meanings.contains(&Meaning::Sdh),
+        commentary: meanings.contains(&Meaning::Commentary),
+    }
+}
+
+/// How well a Track answers one listed language. Declared best first, so the
+/// derived order is the rank: `Exact` before `Regionless`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Fit {
+    /// The language and, where the entry names one, its region.
+    Exact,
+    /// The entry names a region and the Track names the language alone (`por`
+    /// for `pt-BR`): a match, but below one that says the region.
+    Regionless,
+}
+
+/// A Track's rank against one entry of a list, or `None` for no match.
+///
+/// A curated entry matches through the code table: with a region or script
+/// (`pt-BR`) the same region is [`Fit::Exact`], the language alone is
+/// [`Fit::Regionless`] and another region is no match; without one (`fr`) any
+/// region is exact. An entry outside the curated list matches only literally
+/// (ADR-0041).
+pub fn fit(entry: &Language, track: &Reading) -> Option<Fit> {
+    if curated_tag(entry.as_str()).is_none() {
+        return track
+            .tag
+            .as_deref()
+            .filter(|tag| same_literally(tag, entry.as_str()))
+            .map(|_| Fit::Exact);
+    }
+    let wanted = locale_of(entry.as_str())?;
+    let held = track.locale.as_ref()?;
+    if held.language != wanted.language {
+        return None;
+    }
+    match (&wanted.region, &held.region) {
+        (None, _) => Some(Fit::Exact),
+        (Some(wanted), Some(held)) if wanted == held => Some(Fit::Exact),
+        (Some(_), Some(_)) => None,
+        (Some(_), None) => Some(Fit::Regionless),
+    }
+}
+
+/// The soundtrack the Host chooses: a Track id, or nothing where the Stream has
+/// no audio at all.
+///
+/// Walks the Hand pick (a tag, like a list entry), then the list, in order. For
+/// the first entry any audio Track answers: a commentary after the others, then
+/// exact before region-less, then the one the file marks default, then file
+/// order. Channel count and codec are not considered. Where nothing answers, or
+/// the list is empty, the file's own default soundtrack, else its first.
+pub fn choose_soundtrack(
+    tracks: &[Track],
+    audio_languages: &LanguageList,
+    hand_pick: Option<&Language>,
+) -> Option<TrackId> {
+    let audio: Vec<(&Track, Reading)> = tracks
+        .iter()
+        .filter(|track| track.kind == TrackKind::Audio)
+        .map(|track| (track, read(track)))
+        .collect();
+
+    for entry in hand_pick.into_iter().chain(audio_languages.as_slice()) {
+        let best = audio
+            .iter()
+            .enumerate()
+            .filter_map(|(order, (track, reading))| {
+                let fit = fit(entry, reading)?;
+                Some(((reading.commentary, fit, !reading.default, order), track.id))
+            })
+            .min_by_key(|(rank, _)| *rank);
+        if let Some((_, id)) = best {
+            return Some(id);
+        }
+    }
+
+    audio
+        .iter()
+        .find(|(_, reading)| reading.default)
+        .or_else(|| audio.first())
+        .map(|(track, _)| track.id)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -218,6 +431,40 @@ mod tests {
 
     fn list(tags: &[&str]) -> LanguageList {
         LanguageList::parse(tags).expect("a language list")
+    }
+
+    /// An audio Track with a language tag and nothing else the container says.
+    fn audio(id: i64, tag: &str) -> Track {
+        track(id, TrackKind::Audio, Some(tag))
+    }
+
+    fn track(id: i64, kind: TrackKind, tag: Option<&str>) -> Track {
+        Track {
+            id: TrackId(id),
+            kind,
+            language: tag.map(str::to_owned),
+            title: None,
+            codec: None,
+            embedded: true,
+            selected: false,
+            default: false,
+            forced: false,
+        }
+    }
+
+    fn titled(mut track: Track, title: &str) -> Track {
+        track.title = Some(title.to_owned());
+        track
+    }
+
+    fn marked_default(mut track: Track) -> Track {
+        track.default = true;
+        track
+    }
+
+    /// How a Track ranks against an entry given as a tag.
+    fn fit_of(entry: &str, track: &Track) -> Option<Fit> {
+        fit(&language(entry), &read(track))
     }
 
     #[test]
@@ -389,5 +636,228 @@ mod tests {
         );
         // Dropped without regard to case.
         assert_eq!(codes_for_list(&list(&["en", "ENG"])), ["en", "eng"]);
+    }
+
+    #[test]
+    fn a_regional_entry_matches_its_region_exactly_and_the_bare_language_below_that() {
+        for tag in ["pt-BR", "pob", "PT-br"] {
+            assert_eq!(fit_of("pt-BR", &audio(1, tag)), Some(Fit::Exact), "{tag}");
+        }
+        for tag in ["por", "pt"] {
+            assert_eq!(
+                fit_of("pt-BR", &audio(1, tag)),
+                Some(Fit::Regionless),
+                "{tag}"
+            );
+        }
+        assert_eq!(fit_of("pt-BR", &audio(1, "pt-PT")), None);
+        assert_eq!(fit_of("pt-BR", &audio(1, "pt-AO")), None);
+        assert_eq!(fit_of("pt-BR", &audio(1, "eng")), None);
+        assert_eq!(fit_of("pt-BR", &track(1, TrackKind::Audio, None)), None);
+    }
+
+    #[test]
+    fn a_script_entry_reads_the_regional_codes_too() {
+        assert_eq!(fit_of("zh-Hans", &audio(1, "chs")), Some(Fit::Exact));
+        assert_eq!(fit_of("zh-Hans", &audio(1, "zh-SG")), Some(Fit::Exact));
+        assert_eq!(fit_of("zh-Hans", &audio(1, "chi")), Some(Fit::Regionless));
+        assert_eq!(fit_of("zh-Hans", &audio(1, "zh-TW")), None);
+        assert_eq!(fit_of("es-419", &audio(1, "es-MX")), Some(Fit::Exact));
+        assert_eq!(fit_of("es-419", &audio(1, "es-ES")), None);
+    }
+
+    #[test]
+    fn an_entry_without_a_region_matches_any_region_exactly() {
+        for tag in ["fr", "fre", "fra", "fr-CA", "fr-FR"] {
+            assert_eq!(fit_of("fr", &audio(1, tag)), Some(Fit::Exact), "{tag}");
+        }
+        assert_eq!(fit_of("fr", &audio(1, "de")), None);
+        assert_eq!(fit_of("no", &audio(1, "nob")), Some(Fit::Exact));
+    }
+
+    #[test]
+    fn a_non_curated_entry_matches_only_literally() {
+        assert_eq!(fit_of("sw", &audio(1, "SW")), Some(Fit::Exact));
+        assert_eq!(fit_of("sw", &audio(1, "sw-KE")), None);
+        assert_eq!(fit_of("sw-KE", &audio(1, "sw")), None);
+        // A listed code that is not a curated tag is not widened either.
+        assert_eq!(fit_of("eng", &audio(1, "eng")), Some(Fit::Exact));
+        assert_eq!(fit_of("eng", &audio(1, "en")), None);
+    }
+
+    #[test]
+    fn the_title_fills_a_missing_region() {
+        for title in ["Portuguese (Brazilian)", "Brasil", "brazil dub"] {
+            let track = titled(audio(1, "por"), title);
+            assert_eq!(fit_of("pt-BR", &track), Some(Fit::Exact), "{title}");
+        }
+        let european = titled(audio(1, "por"), "European Portuguese");
+        assert_eq!(fit_of("pt-BR", &european), None);
+        assert_eq!(fit_of("pt-PT", &european), Some(Fit::Exact));
+        let latin = titled(audio(1, "spa"), "Español Latino");
+        assert_eq!(fit_of("es-419", &latin), Some(Fit::Exact));
+        assert_eq!(fit_of("es-ES", &latin), None);
+        let castilian = titled(audio(1, "spa"), "Castellano");
+        assert_eq!(fit_of("es-ES", &castilian), Some(Fit::Exact));
+        let simplified = titled(audio(1, "chi"), "简体中文");
+        assert_eq!(fit_of("zh-Hans", &simplified), Some(Fit::Exact));
+        let traditional = titled(audio(1, "chi"), "Traditional");
+        assert_eq!(fit_of("zh-Hant", &traditional), Some(Fit::Exact));
+    }
+
+    #[test]
+    fn the_title_never_overrides_the_tag() {
+        // The tag says Portugal; the title's "Brazilian" is not believed.
+        let track = titled(audio(1, "pt-PT"), "Brazilian");
+        assert_eq!(fit_of("pt-BR", &track), None);
+        assert_eq!(fit_of("pt-PT", &track), Some(Fit::Exact));
+        // A title about another language says nothing about this one.
+        let track = titled(audio(1, "eng"), "Brazilian");
+        assert_eq!(fit_of("pt-BR", &track), None);
+        assert_eq!(fit_of("en", &track), Some(Fit::Exact));
+        // And a word inside another word is no word.
+        let track = titled(audio(1, "por"), "Brazilianesque");
+        assert_eq!(fit_of("pt-BR", &track), Some(Fit::Regionless));
+    }
+
+    #[test]
+    fn a_title_alone_names_a_track_the_container_left_untagged() {
+        let track = titled(track(1, TrackKind::Audio, None), "Brazilian");
+        assert_eq!(fit_of("pt-BR", &track), Some(Fit::Exact));
+        assert_eq!(fit_of("pt-PT", &track), None);
+        assert_eq!(fit_of("en", &track), None);
+    }
+
+    #[test]
+    fn the_title_adds_flags_the_container_did_not_set() {
+        let flags = |title: &str| {
+            let reading = read(&titled(audio(1, "eng"), title));
+            (reading.forced, reading.sdh, reading.commentary)
+        };
+        assert_eq!(flags("English"), (false, false, false));
+        assert_eq!(flags("English [Forced]"), (true, false, false));
+        assert_eq!(flags("Foreign parts only"), (true, false, false));
+        assert_eq!(flags("English SDH"), (false, true, false));
+        assert_eq!(flags("English (CC)"), (false, true, false));
+        assert_eq!(flags("English - Hearing Impaired"), (false, true, false));
+        assert_eq!(flags("Director's Commentary"), (false, false, true));
+        assert_eq!(flags("Hearing and Impaired apart"), (false, false, false));
+
+        // The container's own flags are believed first, and the title only adds.
+        let mut forced = audio(1, "eng");
+        forced.forced = true;
+        forced.default = true;
+        let reading = read(&titled(forced, "English"));
+        assert!(reading.forced && reading.default);
+        assert!(!reading.sdh);
+    }
+
+    fn soundtrack(tracks: &[Track], languages: &[&str]) -> Option<i64> {
+        choose_soundtrack(tracks, &list(languages), None).map(|id| id.0)
+    }
+
+    #[test]
+    fn the_soundtrack_follows_the_order_of_the_list() {
+        let tracks = [audio(1, "eng"), audio(2, "por"), audio(3, "jpn")];
+        assert_eq!(soundtrack(&tracks, &["ja", "en"]), Some(3));
+        assert_eq!(soundtrack(&tracks, &["en", "ja"]), Some(1));
+        assert_eq!(soundtrack(&tracks, &["de", "pt-BR", "en"]), Some(2));
+    }
+
+    #[test]
+    fn a_portuguese_dub_beats_the_files_english_default_for_pt_br() {
+        let tracks = [marked_default(audio(1, "eng")), audio(2, "pob")];
+        assert_eq!(soundtrack(&tracks, &["pt-BR"]), Some(2));
+    }
+
+    #[test]
+    fn an_exact_match_comes_before_a_regionless_one_whatever_the_flags() {
+        let tracks = [marked_default(audio(1, "por")), audio(2, "pob")];
+        assert_eq!(soundtrack(&tracks, &["pt-BR"]), Some(2));
+        // And a region that is not asked for is not a match at all.
+        let tracks = [audio(1, "eng"), audio(2, "pt-PT")];
+        assert_eq!(soundtrack(&tracks, &["pt-BR"]), Some(1));
+        assert_eq!(soundtrack(&tracks, &["pt-BR", "pt-PT"]), Some(2));
+    }
+
+    #[test]
+    fn within_an_entry_the_default_flag_comes_before_file_order() {
+        let tracks = [
+            audio(1, "eng"),
+            marked_default(audio(2, "eng")),
+            audio(3, "eng"),
+        ];
+        assert_eq!(soundtrack(&tracks, &["en"]), Some(2));
+        let tracks = [audio(1, "eng"), audio(2, "eng")];
+        assert_eq!(soundtrack(&tracks, &["en"]), Some(1));
+    }
+
+    #[test]
+    fn a_commentary_comes_last_within_an_entry() {
+        let tracks = [
+            titled(marked_default(audio(1, "eng")), "Director's Commentary"),
+            audio(2, "eng"),
+        ];
+        assert_eq!(soundtrack(&tracks, &["en"]), Some(2));
+        // Alone in its language it is still that language's soundtrack.
+        let tracks = [titled(audio(1, "eng"), "Commentary"), audio(2, "jpn")];
+        assert_eq!(soundtrack(&tracks, &["en", "ja"]), Some(1));
+    }
+
+    #[test]
+    fn where_nothing_matches_the_file_decides() {
+        let tracks = [
+            audio(1, "eng"),
+            marked_default(audio(2, "jpn")),
+            audio(3, "fre"),
+        ];
+        assert_eq!(soundtrack(&tracks, &["pt-BR", "de"]), Some(2));
+        let tracks = [audio(4, "eng"), audio(5, "jpn")];
+        assert_eq!(soundtrack(&tracks, &["pt-BR"]), Some(4));
+        // An empty list follows the file the same way.
+        let tracks = [audio(1, "eng"), marked_default(audio(2, "jpn"))];
+        assert_eq!(soundtrack(&tracks, &[]), Some(2));
+    }
+
+    #[test]
+    fn a_stream_with_no_audio_has_no_soundtrack() {
+        assert_eq!(soundtrack(&[], &["en"]), None);
+        let only_subtitles = [track(1, TrackKind::Subtitle, Some("eng"))];
+        assert_eq!(soundtrack(&only_subtitles, &["en"]), None);
+        assert_eq!(soundtrack(&only_subtitles, &[]), None);
+    }
+
+    #[test]
+    fn a_subtitle_is_never_the_soundtrack() {
+        let tracks = [track(1, TrackKind::Subtitle, Some("por")), audio(2, "eng")];
+        assert_eq!(soundtrack(&tracks, &["pt"]), Some(2));
+    }
+
+    #[test]
+    fn a_hand_pick_comes_ahead_of_the_list() {
+        let tracks = [audio(1, "eng"), audio(2, "pob"), audio(3, "jpn")];
+        let picked = language("ja");
+        assert_eq!(
+            choose_soundtrack(&tracks, &list(&["pt-BR"]), Some(&picked)),
+            Some(TrackId(3))
+        );
+        // A Hand pick no Track answers falls through to the list.
+        let picked = language("de");
+        assert_eq!(
+            choose_soundtrack(&tracks, &list(&["pt-BR"]), Some(&picked)),
+            Some(TrackId(2))
+        );
+        // And with an empty list it still decides.
+        let picked = language("ja");
+        assert_eq!(
+            choose_soundtrack(&tracks, &LanguageList::empty(), Some(&picked)),
+            Some(TrackId(3))
+        );
+    }
+
+    #[test]
+    fn a_non_curated_entry_chooses_a_soundtrack_literally() {
+        let tracks = [audio(1, "eng"), audio(2, "tlh")];
+        assert_eq!(soundtrack(&tracks, &["tlh"]), Some(2));
     }
 }

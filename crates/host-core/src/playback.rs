@@ -932,6 +932,13 @@ pub(crate) struct PlaybackSession {
     /// report that rebuilds the session carries it forward rather than losing
     /// it; a new Stream starts a fresh record.
     subtitles_attempted: bool,
+    /// Whether the Host has already chosen the soundtrack for the Stream playing
+    /// now, which it does once, on the first report of the Stream's Tracks
+    /// (ADR-0041). The first of the per-Stream record's notes: the switch once
+    /// to an Addon subtitle and the Hand pick's mark on this Stream join it as
+    /// those choices land. Like the attempt above, the Player has never heard
+    /// of it, and a new Stream starts a fresh one.
+    chosen_initial: bool,
 }
 
 impl PlaybackSession {
@@ -956,6 +963,7 @@ impl PlaybackSession {
             resolution: None,
             statistics: None,
             subtitles_attempted: false,
+            chosen_initial: false,
         }
     }
 
@@ -1084,6 +1092,18 @@ impl PlaybackSession {
     /// Snapshot carries.
     pub(crate) fn record_subtitles_attempt(&mut self) {
         self.subtitles_attempted = true;
+    }
+
+    /// Whether the Host has already chosen the soundtrack for the Stream
+    /// playing now.
+    pub(crate) fn chosen_initial(&self) -> bool {
+        self.chosen_initial
+    }
+
+    /// Record that the first report of the Stream's Tracks has been chosen
+    /// from, so no later report chooses again.
+    pub(crate) fn record_initial_choice(&mut self) {
+        self.chosen_initial = true;
     }
 
     /// Hold the picture where it is, or let it run — the record moving at the
@@ -1228,6 +1248,7 @@ impl PlaybackSession {
             // session carries the attempt forward rather than forgetting it and
             // asking four times a second (ADR-0014).
             subtitles_attempted: self.subtitles_attempted,
+            chosen_initial: self.chosen_initial,
         };
 
         (next != *self).then_some(next)
