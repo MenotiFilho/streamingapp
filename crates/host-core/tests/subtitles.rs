@@ -49,6 +49,7 @@ fn audio_track() -> Track {
         selected: true,
         default: true,
         forced: false,
+        hearing_impaired: false,
     }
 }
 
@@ -232,6 +233,7 @@ fn a_stream_that_carries_an_embedded_subtitle_is_never_asked_about() {
                 selected: false,
                 default: false,
                 forced: false,
+                hearing_impaired: false,
             },
         ]),
         ..without_subtitles()
@@ -337,6 +339,7 @@ fn the_subtitle_url_reaches_the_player_and_never_a_snapshot() {
                 selected: true,
                 default: false,
                 forced: false,
+                hearing_impaired: false,
             },
         ]),
         ..without_subtitles()

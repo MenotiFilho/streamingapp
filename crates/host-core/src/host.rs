@@ -35,7 +35,7 @@ use crate::title_cache::{
     CachedTitle, TitleCache, TitleProbe, TitleProtection, MAX_CACHED_TITLES, RUNNING_FRESH_MILLIS,
 };
 use crate::tmdb;
-use crate::tracks;
+use crate::tracks::{self, SubtitleChoice};
 use crate::view::{HostView, HostViewShared};
 
 mod countdown;
@@ -1099,10 +1099,10 @@ impl Host {
         }
 
         // The first report of a Stream's Tracks is where the Host chooses the
-        // soundtrack itself (ADR-0041). It is told before the report is folded
-        // in, and the choice is carried into the folded record below, so the
-        // Snapshot already says what the Host chose.
-        let soundtrack = self.choose_initial_soundtrack(&observation);
+        // soundtrack and then the subtitle itself (ADR-0041). They are told
+        // before the report is folded in, and the choices are carried into the
+        // folded record below, so the Snapshot already says what the Host chose.
+        let initial = self.choose_initial_tracks(&observation);
 
         let was_ended = self.state.playback().has_ended();
         let Some(mut next) = self.state.playback().advanced(&observation) else {
@@ -1113,8 +1113,11 @@ impl Host {
             }
             return None;
         };
-        if let Some(id) = soundtrack {
+        if let Some(id) = initial.audio {
             next.select(TrackKind::Audio, Some(id));
+        }
+        if let Some(id) = initial.subtitle {
+            next.select(TrackKind::Subtitle, id);
         }
         let published = next.differs_publicly_from(self.state.playback());
         let reached_the_end = next.has_ended() && !was_ended;
@@ -1160,18 +1163,20 @@ impl Host {
         Some(self.snapshot())
     }
 
-    /// The soundtrack the Host tells the Player to play, on the first report of
-    /// this Stream's Tracks, or nothing.
+    /// The soundtrack and the subtitle the Host tells the Player to select, on
+    /// the first report of this Stream's Tracks, or nothing.
     ///
     /// The first observation with a track list while the Stream plays or is
     /// paused is the one the choice is made from, once per Stream: a report
     /// still describing an open in flight, or one that could not read the list,
     /// spends nothing, and a later report never re-chooses (a list changed
     /// mid-Stream applies from the next Stream). The Host ranks the audio Tracks
-    /// against Audio languages and tells `AudioTrack` only where its choice
-    /// differs from the Track mpv has selected (ADR-0041). No Hand pick exists
-    /// yet, so none is passed.
-    fn choose_initial_soundtrack(&mut self, observation: &Observation) -> Option<TrackId> {
+    /// against Audio languages, then the subtitle Tracks against Subtitle
+    /// languages with the soundtrack's language to hand, and tells `AudioTrack`
+    /// then `SubtitleTrack` only where its choice differs from the Track mpv has
+    /// selected (ADR-0041). No Hand pick exists yet, so none is passed.
+    fn choose_initial_tracks(&mut self, observation: &Observation) -> InitialChoice {
+        let mut told = InitialChoice::default();
         if !self.state.playback().has_stream()
             || self.state.playback().chosen_initial()
             || !matches!(
@@ -1179,23 +1184,52 @@ impl Host {
                 PlaybackState::Playing | PlaybackState::Paused
             )
         {
-            return None;
+            return told;
         }
-        let tracks = observation.tracks.as_deref()?;
+        let Some(tracks) = observation.tracks.as_deref() else {
+            return told;
+        };
         self.state.record_initial_choice();
 
-        let chosen =
-            tracks::choose_soundtrack(tracks, self.state.preferences().audio_languages(), None)?;
-        let selected = tracks
-            .iter()
-            .find(|track| track.kind == TrackKind::Audio && track.selected)
-            .map(|track| track.id);
-        if selected == Some(chosen) {
-            return None;
+        let selected = |kind: TrackKind| {
+            tracks
+                .iter()
+                .find(|track| track.kind == kind && track.selected)
+                .map(|track| track.id)
+        };
+
+        // The soundtrack first. A Player that refuses leaves the Host's record
+        // where mpv has it, and the subtitle is then chosen against what plays.
+        let mut heard = selected(TrackKind::Audio);
+        if let Some(chosen) =
+            tracks::choose_soundtrack(tracks, self.state.preferences().audio_languages(), None)
+        {
+            if heard == Some(chosen) {
+                // Already what mpv plays.
+            } else if self.player.tell(Telling::AudioTrack(chosen)).is_ok() {
+                told.audio = Some(chosen);
+                heard = Some(chosen);
+            }
         }
-        // A Player that refuses leaves the Host's record where mpv has it.
-        self.player.tell(Telling::AudioTrack(chosen)).ok()?;
-        Some(chosen)
+        let soundtrack_language = heard
+            .and_then(|id| tracks.iter().find(|track| track.id == id))
+            .and_then(tracks::language_of);
+
+        let chosen = match tracks::choose_subtitle(
+            tracks,
+            self.state.preferences().subtitle_languages(),
+            None,
+            soundtrack_language.as_ref(),
+        ) {
+            SubtitleChoice::Track(id) => Some(id),
+            SubtitleChoice::Off => None,
+        };
+        if selected(TrackKind::Subtitle) != chosen
+            && self.player.tell(Telling::SubtitleTrack(chosen)).is_ok()
+        {
+            told.subtitle = Some(chosen);
+        }
+        told
     }
 
     /// Whether the Addon subtitles fallback is owed right now.
@@ -2067,6 +2101,17 @@ impl Host {
 }
 
 /// An Action with everything it needed already resolved.
+/// What the Host told the Player on a Stream's first report of its Tracks: where
+/// each field is set, the Host moved that selection, and the Snapshot says so.
+#[derive(Debug, Default)]
+struct InitialChoice {
+    /// The soundtrack the Host selected, where it was not mpv's.
+    audio: Option<TrackId>,
+    /// The subtitle the Host selected (`Some(None)` for none), where it was not
+    /// mpv's.
+    subtitle: Option<Option<TrackId>>,
+}
+
 enum Resolved {
     Change(Change),
     /// A change that also answers the client that asked. Pairing is the only one:

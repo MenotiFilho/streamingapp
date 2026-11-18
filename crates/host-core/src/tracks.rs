@@ -288,7 +288,8 @@ pub struct Reading {
     pub default: bool,
     /// Whether it is forced: the container's flag, or a title that says so.
     pub forced: bool,
-    /// Whether it is for the hard of hearing, as a title says so.
+    /// Whether it is for the hard of hearing: the container's flag, or a title
+    /// that says so.
     pub sdh: bool,
     /// Whether it is a commentary, as a title says so.
     pub commentary: bool,
@@ -333,7 +334,7 @@ pub fn read(track: &Track) -> Reading {
         locale,
         default: track.default,
         forced: track.forced || meanings.contains(&Meaning::Forced),
-        sdh: meanings.contains(&Meaning::Sdh),
+        sdh: track.hearing_impaired || meanings.contains(&Meaning::Sdh),
         commentary: meanings.contains(&Meaning::Commentary),
     }
 }
@@ -417,6 +418,147 @@ pub fn choose_soundtrack(
         .map(|(track, _)| track.id)
 }
 
+/// The language of a Track as a list entry would name it: its tag read through
+/// the table, with the region or script the title filled in where the tag left
+/// it open (`por` titled "Brazilian" is `pt-BR`), and a tag the table does not
+/// know as the container wrote it. `None` for a Track that says no language.
+///
+/// This is what a soundtrack's language is to the forced rule, and what a Hand
+/// pick records of the Track a client picked (ADR-0041).
+pub fn language_of(track: &Track) -> Option<Language> {
+    let reading = read(track);
+    let tag = match &reading.locale {
+        Some(locale) => match locale.region() {
+            None => locale.language().to_owned(),
+            Some(region) => format!("{}-{}", locale.language(), region_spelling(region)),
+        },
+        None => reading.tag?,
+    };
+    Language::parse(&tag).ok()
+}
+
+/// A region or script in the case BCP-47 spells it: `BR`, `Hans`, `419`.
+fn region_spelling(region: &str) -> String {
+    match region.len() {
+        2 => region.to_ascii_uppercase(),
+        4 => {
+            let (head, tail) = region.split_at(1);
+            format!("{}{tail}", head.to_ascii_uppercase())
+        }
+        _ => region.to_owned(),
+    }
+}
+
+/// What a client's pick of a subtitle leaves for the next Stream: the language
+/// it chose, or that it chose none. Not a Track id, because the next file's
+/// Tracks are not numbered like this one's (ADR-0041).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SubtitleHandPick {
+    /// Subtitles off, and every forced Track with them.
+    Off,
+    /// The language of the Track picked, with its region where it had one.
+    Language(Language),
+}
+
+/// What the Host chooses to show.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubtitleChoice {
+    /// This subtitle Track.
+    Track(TrackId),
+    /// No subtitle.
+    Off,
+}
+
+/// The subtitle the Host chooses, decided after the soundtrack, whose language
+/// is `soundtrack_language` (ADR-0041).
+///
+/// A Hand pick of "off" is the answer outright, forced Tracks included.
+/// Otherwise the Hand pick (a language), then the list, are walked in order and
+/// the first entry some Track answers is shown: an embedded Track, else an Addon
+/// subtitle (an added Track); within those, exact before region-less, a regular
+/// Track before an SDH one, the one the file marks default, then file order,
+/// which for Addon subtitles is the order they were added in. A forced-only
+/// Track is never the full subtitle. An SDH Track in a listed language still
+/// beats the next one in the list.
+///
+/// Where no full subtitle is chosen, a forced Track in the soundtrack's language
+/// is, and failing that there is none. An empty list follows the file: the
+/// embedded Track it flags default is the full subtitle, and an unlisted default
+/// is otherwise never shown. The best match is shown whatever the soundtrack is.
+pub fn choose_subtitle(
+    tracks: &[Track],
+    subtitle_languages: &LanguageList,
+    hand_pick: Option<&SubtitleHandPick>,
+    soundtrack_language: Option<&Language>,
+) -> SubtitleChoice {
+    if hand_pick == Some(&SubtitleHandPick::Off) {
+        return SubtitleChoice::Off;
+    }
+
+    let subtitles: Vec<(&Track, Reading)> = tracks
+        .iter()
+        .filter(|track| track.kind == TrackKind::Subtitle)
+        .map(|track| (track, read(track)))
+        .collect();
+
+    let picked = match hand_pick {
+        Some(SubtitleHandPick::Language(language)) => Some(language),
+        _ => None,
+    };
+    for entry in picked.into_iter().chain(subtitle_languages.as_slice()) {
+        // An embedded Track first, and only where there is none an Addon one.
+        for embedded in [true, false] {
+            let best = subtitles
+                .iter()
+                .enumerate()
+                .filter(|(_, (track, reading))| track.embedded == embedded && !reading.forced)
+                .filter_map(|(order, (track, reading))| {
+                    let fit = fit(entry, reading)?;
+                    // File order is the list's order; Addon subtitles carry the
+                    // id they were added under, which is Addon order.
+                    let place = if embedded { order as i64 } else { track.id.0 };
+                    Some(((fit, reading.sdh, !reading.default, place), track.id))
+                })
+                .min_by_key(|(rank, _)| *rank);
+            if let Some((_, id)) = best {
+                return SubtitleChoice::Track(id);
+            }
+        }
+    }
+
+    // Following the file: the embedded Track it marks default, which is a full
+    // subtitle and so not a forced one.
+    if subtitle_languages.as_slice().is_empty() {
+        let flagged = subtitles
+            .iter()
+            .find(|(track, reading)| track.embedded && reading.default && !reading.forced);
+        if let Some((track, _)) = flagged {
+            return SubtitleChoice::Track(track.id);
+        }
+    }
+
+    // No full subtitle: the forced Track in the language that is heard.
+    let heard = soundtrack_language;
+    let forced = subtitles
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, reading))| reading.forced)
+        .filter_map(|(order, (track, reading))| {
+            let fit = fit(heard?, reading)?;
+            let place = if track.embedded {
+                order as i64
+            } else {
+                track.id.0
+            };
+            Some(((!track.embedded, fit, !reading.default, place), track.id))
+        })
+        .min_by_key(|(rank, _)| *rank);
+    match forced {
+        Some((_, id)) => SubtitleChoice::Track(id),
+        None => SubtitleChoice::Off,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -449,6 +591,7 @@ mod tests {
             selected: false,
             default: false,
             forced: false,
+            hearing_impaired: false,
         }
     }
 
@@ -859,5 +1002,275 @@ mod tests {
     fn a_non_curated_entry_chooses_a_soundtrack_literally() {
         let tracks = [audio(1, "eng"), audio(2, "tlh")];
         assert_eq!(soundtrack(&tracks, &["tlh"]), Some(2));
+    }
+
+    // ---- choosing the subtitle -------------------------------------------
+
+    fn subtitle(id: i64, tag: &str) -> Track {
+        track(id, TrackKind::Subtitle, Some(tag))
+    }
+
+    /// A subtitle Track an Addon supplied and the Player added afterwards.
+    fn addon(id: i64, tag: &str) -> Track {
+        let mut track = subtitle(id, tag);
+        track.embedded = false;
+        track
+    }
+
+    fn forced(mut track: Track) -> Track {
+        track.forced = true;
+        track
+    }
+
+    fn sdh(mut track: Track) -> Track {
+        track.hearing_impaired = true;
+        track
+    }
+
+    /// The choice for a list, no Hand pick, a soundtrack in `heard`.
+    fn chosen(tracks: &[Track], languages: &[&str], heard: &str) -> SubtitleChoice {
+        choose_subtitle(tracks, &list(languages), None, Some(&language(heard)))
+    }
+
+    fn shows(id: i64) -> SubtitleChoice {
+        SubtitleChoice::Track(TrackId(id))
+    }
+
+    #[test]
+    fn a_subtitle_in_the_first_listed_language_is_shown() {
+        let tracks = [subtitle(1, "eng"), subtitle(2, "pob")];
+        assert_eq!(chosen(&tracks, &["pt-BR", "en"], "en"), shows(2));
+        assert_eq!(chosen(&tracks, &["en", "pt-BR"], "en"), shows(1));
+    }
+
+    #[test]
+    fn an_addon_pt_br_beats_an_embedded_english_for_pt_br_then_en() {
+        let tracks = [subtitle(1, "eng"), addon(2, "pob")];
+        assert_eq!(chosen(&tracks, &["pt-BR", "en"], "en"), shows(2));
+        // With the languages the other way round the embedded one is first.
+        assert_eq!(chosen(&tracks, &["en", "pt-BR"], "en"), shows(1));
+    }
+
+    #[test]
+    fn an_embedded_subtitle_beats_an_addon_one_of_the_same_language() {
+        let tracks = [addon(1, "eng"), subtitle(2, "eng")];
+        assert_eq!(chosen(&tracks, &["en"], "en"), shows(2));
+    }
+
+    #[test]
+    fn the_lowest_added_id_wins_among_addon_subtitles_of_one_language() {
+        let tracks = [
+            subtitle(1, "jpn"),
+            addon(4, "por"),
+            addon(3, "por"),
+            addon(5, "por"),
+        ];
+        assert_eq!(chosen(&tracks, &["pt-BR"], "ja"), shows(3));
+    }
+
+    #[test]
+    fn exact_comes_before_regionless_within_an_entry() {
+        let tracks = [subtitle(1, "por"), subtitle(2, "pob")];
+        assert_eq!(chosen(&tracks, &["pt-BR"], "en"), shows(2));
+        // A region-less Track still answers where nothing says the region.
+        let tracks = [subtitle(1, "por"), subtitle(2, "eng")];
+        assert_eq!(chosen(&tracks, &["pt-BR"], "en"), shows(1));
+        // And another region does not.
+        let tracks = [subtitle(1, "pt-PT")];
+        assert_eq!(chosen(&tracks, &["pt-BR"], "en"), SubtitleChoice::Off);
+    }
+
+    #[test]
+    fn a_regular_subtitle_beats_an_sdh_one_in_the_same_language() {
+        let tracks = [sdh(subtitle(1, "eng")), subtitle(2, "eng")];
+        assert_eq!(chosen(&tracks, &["en"], "en"), shows(2));
+        // The title says it too, where the flag is not set.
+        let tracks = [
+            titled(subtitle(1, "eng"), "English SDH"),
+            subtitle(2, "eng"),
+        ];
+        assert_eq!(chosen(&tracks, &["en"], "en"), shows(2));
+    }
+
+    #[test]
+    fn an_sdh_subtitle_still_beats_the_next_language() {
+        let tracks = [subtitle(1, "pob"), sdh(subtitle(2, "eng"))];
+        assert_eq!(chosen(&tracks, &["en", "pt-BR"], "ja"), shows(2));
+    }
+
+    #[test]
+    fn the_default_flag_then_file_order_settle_what_the_rest_leaves() {
+        let tracks = [subtitle(1, "eng"), marked_default(subtitle(2, "eng"))];
+        assert_eq!(chosen(&tracks, &["en"], "en"), shows(2));
+        let tracks = [subtitle(1, "eng"), subtitle(2, "eng")];
+        assert_eq!(chosen(&tracks, &["en"], "en"), shows(1));
+    }
+
+    #[test]
+    fn a_forced_only_track_never_counts_as_the_full_subtitle() {
+        // The forced English Track is in a listed language and is not the full
+        // subtitle: the regular Portuguese one, later in the list, is.
+        let tracks = [forced(subtitle(1, "eng")), subtitle(2, "pob")];
+        assert_eq!(chosen(&tracks, &["en", "pt-BR"], "ja"), shows(2));
+        // Marked forced by its title alone, it is forced as well.
+        let tracks = [titled(subtitle(1, "eng"), "Forced"), subtitle(2, "pob")];
+        assert_eq!(chosen(&tracks, &["en", "pt-BR"], "ja"), shows(2));
+    }
+
+    #[test]
+    fn the_forced_track_in_the_soundtracks_language_shows_when_no_full_one_does() {
+        let tracks = [forced(subtitle(1, "eng")), forced(subtitle(2, "pob"))];
+        // Nothing in the list is a full subtitle: the forced Track in the
+        // language that is heard shows, and it follows the soundtrack.
+        assert_eq!(chosen(&tracks, &["de"], "en"), shows(1));
+        assert_eq!(chosen(&tracks, &["de"], "pt-BR"), shows(2));
+        // A soundtrack in no language the forced Tracks speak: nothing.
+        assert_eq!(chosen(&tracks, &["de"], "ja"), SubtitleChoice::Off);
+        // A soundtrack that says no language shows no forced Track either.
+        assert_eq!(
+            choose_subtitle(&tracks, &list(&["de"]), None, None),
+            SubtitleChoice::Off
+        );
+    }
+
+    #[test]
+    fn a_full_subtitle_wins_over_the_forced_one() {
+        let tracks = [forced(subtitle(1, "eng")), subtitle(2, "pob")];
+        assert_eq!(chosen(&tracks, &["pt-BR"], "en"), shows(2));
+    }
+
+    #[test]
+    fn the_forced_rule_reads_the_region_of_the_soundtrack() {
+        let tracks = [forced(subtitle(1, "pt-PT"))];
+        assert_eq!(chosen(&tracks, &["de"], "pt-BR"), SubtitleChoice::Off);
+        let tracks = [forced(subtitle(1, "por"))];
+        assert_eq!(chosen(&tracks, &["de"], "pt-BR"), shows(1));
+    }
+
+    #[test]
+    fn an_unlisted_default_subtitle_is_not_shown() {
+        let tracks = [marked_default(subtitle(1, "fre")), subtitle(2, "eng")];
+        assert_eq!(chosen(&tracks, &["pt-BR"], "ja"), SubtitleChoice::Off);
+    }
+
+    #[test]
+    fn an_empty_list_follows_the_file() {
+        let tracks = [subtitle(1, "eng"), marked_default(subtitle(2, "fre"))];
+        assert_eq!(chosen(&tracks, &[], "en"), shows(2));
+        // Nothing flagged default: nothing is shown.
+        let tracks = [subtitle(1, "eng"), subtitle(2, "fre")];
+        assert_eq!(chosen(&tracks, &[], "en"), SubtitleChoice::Off);
+        // An Addon subtitle is never what the file flags.
+        let added = marked_default(addon(3, "eng"));
+        assert_eq!(chosen(&[added], &[], "en"), SubtitleChoice::Off);
+    }
+
+    #[test]
+    fn following_the_file_still_shows_a_forced_track_in_the_soundtracks_language() {
+        let tracks = [forced(subtitle(1, "eng")), subtitle(2, "fre")];
+        assert_eq!(chosen(&tracks, &[], "en"), shows(1));
+        // A forced Track the file flags default is not the full subtitle.
+        let tracks = [marked_default(forced(subtitle(1, "fre")))];
+        assert_eq!(chosen(&tracks, &[], "en"), SubtitleChoice::Off);
+    }
+
+    #[test]
+    fn a_hand_pick_of_off_beats_a_forced_track() {
+        let tracks = [forced(subtitle(1, "eng")), subtitle(2, "pob")];
+        let off = SubtitleHandPick::Off;
+        assert_eq!(
+            choose_subtitle(
+                &tracks,
+                &list(&["pt-BR"]),
+                Some(&off),
+                Some(&language("en"))
+            ),
+            SubtitleChoice::Off
+        );
+        assert_eq!(
+            choose_subtitle(&tracks, &list(&["de"]), Some(&off), Some(&language("en"))),
+            SubtitleChoice::Off
+        );
+        assert_eq!(
+            choose_subtitle(&tracks, &LanguageList::empty(), Some(&off), None),
+            SubtitleChoice::Off
+        );
+    }
+
+    #[test]
+    fn a_hand_pick_of_a_language_comes_ahead_of_the_list() {
+        let tracks = [subtitle(1, "eng"), subtitle(2, "pob")];
+        let picked = SubtitleHandPick::Language(language("en"));
+        assert_eq!(
+            choose_subtitle(&tracks, &list(&["pt-BR"]), Some(&picked), None),
+            shows(1)
+        );
+        // With the language missing, the list decides.
+        let picked = SubtitleHandPick::Language(language("fr"));
+        assert_eq!(
+            choose_subtitle(&tracks, &list(&["pt-BR"]), Some(&picked), None),
+            shows(2)
+        );
+        // An empty list with a picked language the file lacks follows the file.
+        let tracks = [subtitle(1, "eng"), marked_default(subtitle(2, "pob"))];
+        assert_eq!(
+            choose_subtitle(&tracks, &LanguageList::empty(), Some(&picked), None),
+            shows(2)
+        );
+    }
+
+    #[test]
+    fn a_hand_pick_does_not_make_an_unlisted_default_shown_under_a_list() {
+        let tracks = [marked_default(subtitle(1, "fre"))];
+        let picked = SubtitleHandPick::Language(language("de"));
+        assert_eq!(
+            choose_subtitle(&tracks, &list(&["en"]), Some(&picked), None),
+            SubtitleChoice::Off
+        );
+    }
+
+    #[test]
+    fn a_dub_with_a_matching_subtitle_still_shows_it() {
+        let tracks = [subtitle(1, "eng"), subtitle(2, "pob")];
+        assert_eq!(chosen(&tracks, &["pt-BR", "en"], "pt-BR"), shows(2));
+    }
+
+    #[test]
+    fn an_audio_track_is_never_the_subtitle() {
+        let tracks = [audio(1, "pob")];
+        assert_eq!(chosen(&tracks, &["pt-BR"], "pt-BR"), SubtitleChoice::Off);
+    }
+
+    #[test]
+    fn a_non_curated_entry_chooses_a_subtitle_literally() {
+        let tracks = [subtitle(1, "eng"), subtitle(2, "tlh")];
+        assert_eq!(chosen(&tracks, &["tlh"], "en"), shows(2));
+    }
+
+    #[test]
+    fn the_container_flag_marks_a_subtitle_sdh() {
+        assert!(read(&sdh(subtitle(1, "eng"))).sdh);
+        assert!(!read(&subtitle(1, "eng")).sdh);
+    }
+
+    #[test]
+    fn a_tracks_language_is_its_tag_with_the_region_the_table_or_the_title_gives() {
+        let tag = |track: &Track| language_of(track).map(|language| language.to_string());
+        assert_eq!(tag(&audio(1, "eng")).as_deref(), Some("en"));
+        assert_eq!(tag(&audio(1, "pob")).as_deref(), Some("pt-BR"));
+        assert_eq!(tag(&audio(1, "por")).as_deref(), Some("pt"));
+        assert_eq!(tag(&audio(1, "chs")).as_deref(), Some("zh-Hans"));
+        assert_eq!(tag(&audio(1, "es-419")).as_deref(), Some("es-419"));
+        assert_eq!(
+            tag(&titled(audio(1, "por"), "Brazilian")).as_deref(),
+            Some("pt-BR")
+        );
+        assert_eq!(
+            tag(&titled(track(1, TrackKind::Audio, None), "Brazilian")).as_deref(),
+            Some("pt-BR")
+        );
+        // A tag outside the table is its own word; no tag at all is no language.
+        assert_eq!(tag(&audio(1, "tlh")).as_deref(), Some("tlh"));
+        assert_eq!(tag(&track(1, TrackKind::Audio, None)), None);
     }
 }

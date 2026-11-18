@@ -109,6 +109,7 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
         selected: true,
         default: true,
         forced: false,
+        hearingImpaired: false,
       },
       {
         id: 2,
@@ -120,6 +121,7 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
         selected: false,
         default: false,
         forced: false,
+        hearingImpaired: false,
       },
       {
         id: 3,
@@ -131,6 +133,7 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
         selected: true,
         default: true,
         forced: false,
+        hearingImpaired: false,
       },
       {
         id: 4,
@@ -142,6 +145,7 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
         selected: false,
         default: false,
         forced: false,
+        hearingImpaired: false,
       },
     ],
     chapters: [

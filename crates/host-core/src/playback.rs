@@ -387,6 +387,9 @@ pub struct Track {
     pub default: bool,
     /// Whether the subtitles are forced: the ones a container says to show.
     pub forced: bool,
+    /// Whether the subtitles are for the hard of hearing (SDH): the container's
+    /// flag, which the Host ranks by and no client draws (ADR-0041).
+    pub hearing_impaired: bool,
 }
 
 impl Track {
@@ -2183,6 +2186,7 @@ mod tests {
             selected: false,
             default: false,
             forced: false,
+            hearing_impaired: false,
         };
         assert_eq!(
             serde_json::to_value(&track).expect("a track serializes"),
@@ -2196,6 +2200,7 @@ mod tests {
                 "selected": false,
                 "default": false,
                 "forced": false,
+                "hearingImpaired": false,
             })
         );
 
@@ -2273,6 +2278,7 @@ mod tests {
                     selected: true,
                     default: true,
                     forced: false,
+                    hearing_impaired: false,
                 },
                 Track {
                     id: TrackId(2),
@@ -2284,6 +2290,7 @@ mod tests {
                     selected: false,
                     default: false,
                     forced: false,
+                    hearing_impaired: false,
                 },
             ]),
             chapters: vec![
@@ -2384,6 +2391,7 @@ mod tests {
                     selected: true,
                     default: true,
                     forced: false,
+                    hearing_impaired: false,
                 },
                 Track {
                     id: TrackId(2),
@@ -2395,6 +2403,7 @@ mod tests {
                     selected: false,
                     default: false,
                     forced: false,
+                    hearing_impaired: false,
                 },
             ]),
             chapters: vec![Chapter {
@@ -2449,9 +2458,9 @@ mod tests {
                 "buffered": { "start": 12.0, "end": 40.0 },
                 "tracks": [
                     { "id": 1, "kind": "audio", "language": "eng", "title": "English stereo", "codec": "aac",
-                      "embedded": true, "selected": true, "default": true, "forced": false },
+                      "embedded": true, "selected": true, "default": true, "forced": false, "hearingImpaired": false },
                     { "id": 2, "kind": "subtitle", "language": "por", "title": null, "codec": "subrip",
-                      "embedded": true, "selected": false, "default": false, "forced": false }
+                      "embedded": true, "selected": false, "default": false, "forced": false, "hearingImpaired": false }
                 ],
                 "chapters": [ { "index": 0, "title": "Intro", "time": 0.0 } ],
                 "chapter": 0,
@@ -2482,6 +2491,7 @@ mod tests {
             selected: false,
             default: false,
             forced: false,
+            hearing_impaired: false,
         }
         .bounded();
 

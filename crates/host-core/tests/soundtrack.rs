@@ -112,6 +112,7 @@ fn audio(id: i64, language: &str, default: bool, selected: bool) -> Track {
         selected,
         default,
         forced: false,
+        hearing_impaired: false,
     }
 }
 

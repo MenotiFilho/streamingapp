@@ -128,6 +128,7 @@ fn track(id: i64, kind: TrackKind, language: &str, selected: bool) -> Track {
         selected,
         default: selected,
         forced: false,
+        hearing_impaired: false,
     }
 }
 

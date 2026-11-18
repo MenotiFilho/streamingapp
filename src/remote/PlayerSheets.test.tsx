@@ -65,6 +65,7 @@ const TRACKS: Track[] = [
     selected: false,
     default: false,
     forced: false,
+    hearingImpaired: false,
   },
   {
     id: 2,
@@ -76,6 +77,7 @@ const TRACKS: Track[] = [
     selected: true,
     default: true,
     forced: false,
+    hearingImpaired: false,
   },
   {
     id: 3,
@@ -87,6 +89,7 @@ const TRACKS: Track[] = [
     selected: true,
     default: false,
     forced: false,
+    hearingImpaired: false,
   },
   {
     id: 4,
@@ -98,6 +101,7 @@ const TRACKS: Track[] = [
     selected: false,
     default: false,
     forced: false,
+    hearingImpaired: false,
   },
 ];
 
