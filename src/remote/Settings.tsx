@@ -20,7 +20,6 @@ import {
   upNextRows,
 } from "../core/controls";
 import { explain, type ActionError } from "../core/errors";
-import { FOLLOW_THE_FILE, LANGUAGES } from "../core/languages";
 import type { NewLevel } from "../core/navigation";
 import {
   LICENCE,
@@ -31,7 +30,6 @@ import {
   protectionLedger,
   settingsLevelId,
   unknownColorLabel,
-  unknownLanguageLabel,
   type SettingsCategoryId,
 } from "../core/settingsRegister";
 import type { Session, SessionState } from "../core/session";
@@ -40,6 +38,9 @@ import tmdbLogo from "../assets/tmdb-logo.svg";
 import { Button } from "../kit/Button";
 import { Chip, ChoiceChip } from "../kit/Chip";
 import { Field } from "../kit/Field";
+import { LanguageField } from "./LanguageField";
+import { useLanguageList } from "../core/react/useLanguageList";
+import type { LanguageKind } from "../core/languageList";
 import type { RemotePayload } from "./levels";
 import {
   ADDRESS_ABSENT,
@@ -60,7 +61,8 @@ import {
   STREMIO_SIGN_IN,
   STREMIO_SIGN_OUT,
   SUBTITLE_COLOUR_HEAD,
-  SUBTITLE_LANGUAGE_HEAD,
+  LANGUAGE_FOLLOW_LINES,
+  LANGUAGE_GROUP_HEADS,
   SUBTITLE_SIZE_HEAD,
   TMDB_CLEAR,
   TMDB_FIELD_LABEL,
@@ -74,7 +76,7 @@ import {
   clearTmdbLevel,
   colorRequest,
   featuredRequest,
-  languageRequest,
+  languageSheetLevel,
   pairedAt,
   revokeLevel,
   scaleRequest,
@@ -377,10 +379,8 @@ function CredentialsLeaf({ category, session, state, push }: LeafProps) {
  * the Host holds that a list does not name keeps an Other chip, so one choice
  * is still shown as chosen; a refusal is drawn beside the group that asked.
  */
-function PreferencesLeaf({ category, session, state }: LeafProps) {
+function PreferencesLeaf({ category, session, state, push }: LeafProps) {
   const snapshot = state.snapshot;
-  // The single-language picker shows the list's first entry as the choice.
-  const heldLanguage = snapshot?.preferences.subtitleLanguages[0] ?? null;
   const heldColor = snapshot?.preferences.subtitleColor ?? "#FFFFFF";
   const heldScale = snapshot?.preferences.subtitleScale ?? 1;
   const published: StreamBuffer = snapshot?.preferences.streamBuffer ?? {
@@ -400,16 +400,12 @@ function PreferencesLeaf({ category, session, state }: LeafProps) {
     });
   }, [published.seconds, published.megabytes]);
 
-  const [languageError, setLanguageError] = useState<ActionError | null>(null);
   const [colorError, setColorError] = useState<ActionError | null>(null);
   const [scaleError, setScaleError] = useState<ActionError | null>(null);
   const [bufferError, setBufferError] = useState<ActionError | null>(null);
   const [upNextError, setUpNextError] = useState<ActionError | null>(null);
   const [featuredError, setFeaturedError] = useState<ActionError | null>(null);
 
-  const known = LANGUAGES.some(
-    (language) => language.tag === heldLanguage,
-  );
   const otherColor = unknownColorLabel(heldColor);
   const catalogs = declaredCatalogs(snapshot);
   const featured = snapshot?.featuredCatalog ?? null;
@@ -449,35 +445,8 @@ function PreferencesLeaf({ category, session, state }: LeafProps) {
 
   return (
     <LeafFrame category={category}>
-      <section className="remote-settings-group">
-        <h2 className="remote-settings-label">{SUBTITLE_LANGUAGE_HEAD}</h2>
-        <div className="remote-settings-chips">
-          <ChoiceChip
-            pressed={heldLanguage === null}
-            onClick={() => void take(languageRequest(null), setLanguageError)}
-          >
-            {FOLLOW_THE_FILE}
-          </ChoiceChip>
-          {heldLanguage && !known ? (
-            <ChoiceChip
-              pressed
-              onClick={() => void take(languageRequest(heldLanguage), setLanguageError)}
-            >
-              {unknownLanguageLabel(heldLanguage)}
-            </ChoiceChip>
-          ) : null}
-          {LANGUAGES.map((language) => (
-            <ChoiceChip
-              key={language.tag}
-              pressed={heldLanguage === language.tag}
-              onClick={() => void take(languageRequest(language.tag), setLanguageError)}
-            >
-              {language.name}
-            </ChoiceChip>
-          ))}
-        </div>
-        <Refusal error={languageError} />
-      </section>
+      <LanguageGroup kind="subtitle" session={session} state={state} push={push} />
+      <LanguageGroup kind="audio" session={session} state={state} push={push} />
 
       <section className="remote-settings-group">
         <h2 className="remote-settings-label">{SUBTITLE_COLOUR_HEAD}</h2>
@@ -631,6 +600,42 @@ function PreferencesLeaf({ category, session, state }: LeafProps) {
 }
 
 /**
+ * One language list in Preferences (#330): its field of ranked chips, what an
+ * empty list means, and a refusal in the Host's words. The ▾ pushes the sheet
+ * as a level, so the phone's Back puts it away (ADR-0034).
+ */
+function LanguageGroup({
+  kind,
+  session,
+  state,
+  push,
+}: {
+  kind: LanguageKind;
+  session: Session;
+  state: SessionState;
+  push: (level: NewLevel<RemotePayload>) => string;
+}) {
+  const { list, error, change } = useLanguageList(kind, state.snapshot, session.ask);
+  return (
+    <section className="remote-settings-group">
+      <h2 className="remote-settings-label">{LANGUAGE_GROUP_HEADS[kind]}</h2>
+      <LanguageField
+        kind={kind}
+        list={list}
+        onChange={(next) => void change(next)}
+        onOpen={() => push(languageSheetLevel(kind))}
+      />
+      {list.length === 0 ? (
+        <p className="remote-quiet" data-testid={`language-follow-line-${kind}`}>
+          {LANGUAGE_FOLLOW_LINES[kind]}
+        </p>
+      ) : null}
+      <Refusal error={error} />
+    </section>
+  );
+}
+
+/**
  * Remote devices: the address and the pairing code a person reads out, the
  * Host's devices in the order they paired, and a Revoke behind a question.
  *
@@ -758,7 +763,7 @@ function ScreenHead({ title }: { title: string }) {
 }
 
 /** The Host's own words for a refusal, announced where the control was. */
-function Refusal({ error }: { error: ActionError | null }) {
+export function Refusal({ error }: { error: ActionError | null }) {
   return error ? (
     <p role="alert" className="remote-failure">
       {explain(error)}

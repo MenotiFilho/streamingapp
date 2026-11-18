@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { explain, type ActionError } from "../core/errors";
+import type { LanguageKind } from "../core/languageList";
 import type { Level, NewLevel } from "../core/navigation";
 import type { Session, SessionState } from "../core/session";
 import type { SettingsCategoryId } from "../core/settingsRegister";
@@ -13,6 +14,7 @@ import { PlayerCard } from "./Player";
 import { PlayerSheets } from "./PlayerSheets";
 import type { RemoteSheet } from "./playerSheets";
 import { playerLevel, playerLevelStale, type RemotePlayer } from "./playerScreen";
+import { LanguageSheet } from "./LanguageSheet";
 import { SettingsLeaf } from "./Settings";
 import { streamsLevelFor } from "./titleScreen";
 import { StreamsScreen } from "./StreamsScreen";
@@ -78,7 +80,20 @@ export type RemotePayload =
   | { kind: "confirm"; confirm: RemoteConfirm }
   | GridPayload
   | RemotePlayer
-  | RemoteSheet;
+  | RemoteSheet
+  | RemoteLanguageSheet;
+
+/** A language list's sheet, opened from its field's ▾ over Preferences (#330). */
+export type RemoteLanguageSheet = { kind: "language-sheet"; list: LanguageKind };
+
+/**
+ * Whether a level is a sheet over the screen under it: a player plate or a
+ * language list. The room keeps the screen under it drawn and inert, so a Back
+ * puts the plate away and what was beneath is exactly as it was.
+ */
+export function isSheetPayload(payload: RemotePayload): boolean {
+  return payload.kind === "sheet" || payload.kind === "language-sheet";
+}
 
 /**
  * The Title a level already holds, or null where it holds none.
@@ -251,6 +266,15 @@ export function RemoteLevel({
             pop();
             push(streamsLevelFor(title, video));
           }}
+        />
+      );
+    case "language-sheet":
+      return (
+        <LanguageSheet
+          kind={level.payload.list}
+          session={session}
+          state={state}
+          onClose={pop}
         />
       );
     case "confirm":
