@@ -1183,7 +1183,8 @@ impl Host {
     /// against Audio languages, then the subtitle Tracks against Subtitle
     /// languages with the soundtrack's language to hand, and tells `AudioTrack`
     /// then `SubtitleTrack` only where its choice differs from the Track mpv has
-    /// selected (ADR-0041). No Hand pick exists yet, so none is passed.
+    /// selected (ADR-0041). The Hand pick, where the owner made one earlier in
+    /// this Title, is ranked ahead of the lists.
     fn choose_initial_tracks(&mut self, observation: &Observation) -> InitialChoice {
         let mut told = InitialChoice::default();
         if !self.state.playback().has_stream()
@@ -1210,9 +1211,11 @@ impl Host {
         // The soundtrack first. A Player that refuses leaves the Host's record
         // where mpv has it, and the subtitle is then chosen against what plays.
         let mut heard = selected(TrackKind::Audio);
-        if let Some(chosen) =
-            tracks::choose_soundtrack(tracks, self.state.preferences().audio_languages(), None)
-        {
+        if let Some(chosen) = tracks::choose_soundtrack(
+            tracks,
+            self.state.preferences().audio_languages(),
+            self.state.hand_pick().audio(),
+        ) {
             if heard == Some(chosen) {
                 // Already what mpv plays.
             } else if self.player.tell(Telling::AudioTrack(chosen)).is_ok() {
@@ -1239,7 +1242,7 @@ impl Host {
         let chosen = match tracks::choose_subtitle(
             tracks,
             self.state.preferences().subtitle_languages(),
-            None,
+            self.state.hand_pick().subtitle(),
             soundtrack_language,
         ) {
             SubtitleChoice::Track(id) => Some(id),
@@ -1335,19 +1338,25 @@ impl Host {
     }
 
     /// Whether the Host follows the file for subtitles: no Subtitle languages
-    /// and no Hand pick, so no language is asked of any Addon (ADR-0041).
+    /// and no subtitle Hand pick, so no language is asked of any Addon
+    /// (ADR-0041).
     fn follows_the_file(&self) -> bool {
         self.state
             .preferences()
             .subtitle_languages()
             .as_slice()
             .is_empty()
+            && self.state.hand_pick().subtitle().is_none()
     }
 
-    /// The listed languages this Stream's file lacks. No Hand pick exists yet,
-    /// so none is passed.
+    /// The languages this Stream's file lacks: the Hand pick's, then the listed
+    /// ones.
     fn missing_subtitle_languages(&self, tracks: &[Track]) -> Vec<Language> {
-        missing_languages(tracks, self.state.preferences().subtitle_languages(), None)
+        missing_languages(
+            tracks,
+            self.state.preferences().subtitle_languages(),
+            self.state.hand_pick().subtitle(),
+        )
     }
 
     /// Ask every configured Addon that answers a `subtitles` request for the

@@ -37,9 +37,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::addon::{AddonId, MAX_STRING_LEN};
 use crate::autoplay::AutoplaySnapshot;
-use crate::preferences::{LanguageList, StreamBuffer, SubtitleColor, SubtitleScale};
+use crate::preferences::{Language, LanguageList, StreamBuffer, SubtitleColor, SubtitleScale};
 use crate::request::VideoRef;
 use crate::stream::{holdable, Playback, Stream};
+use crate::tracks;
 
 /// A URL the Host will hand to a Player.
 ///
@@ -937,10 +938,10 @@ pub(crate) struct PlaybackSession {
     subtitles_attempted: bool,
     /// Whether the Host has already chosen the soundtrack for the Stream playing
     /// now, which it does once, on the first report of the Stream's Tracks
-    /// (ADR-0041). The first of the per-Stream record's notes: the switch once
-    /// to an Addon subtitle and the Hand pick's mark on this Stream join it as
-    /// those choices land. Like the attempt above, the Player has never heard
-    /// of it, and a new Stream starts a fresh one.
+    /// (ADR-0041). The first of the per-Stream record's notes, with the switch
+    /// once to an Addon subtitle and the Hand pick's mark on this Stream below.
+    /// Like the attempt above, the Player has never heard of it, and a new
+    /// Stream starts a fresh one.
     chosen_initial: bool,
     /// How many Addon subtitles the Host asked the Player to add for the Stream
     /// playing now and is waiting to see in a report (ADR-0041). Zero where none
@@ -950,6 +951,12 @@ pub(crate) struct PlaybackSession {
     /// the Stream playing now, or decided there is none to make. Never again on
     /// the same Stream; a new Stream starts a fresh one.
     addon_switch_done: bool,
+    /// Whether a client has picked a Track by hand on the Stream playing now: the
+    /// third of the per-Stream record's notes. The Host's one switch to an Addon
+    /// subtitle is never made over a Track the owner picked (ADR-0041). A new
+    /// Stream starts a fresh one, and a Hand pick carried from an earlier Stream
+    /// is not this.
+    hand_picked_this_stream: bool,
 }
 
 impl PlaybackSession {
@@ -977,6 +984,7 @@ impl PlaybackSession {
             chosen_initial: false,
             addon_tracks_awaited: 0,
             addon_switch_done: false,
+            hand_picked_this_stream: false,
         }
     }
 
@@ -1120,9 +1128,10 @@ impl PlaybackSession {
     }
 
     /// How many added Addon subtitles the Host is waiting to see reported, while
-    /// its switch to one is still to be made.
+    /// its switch to one is still to be made. None once a Track was picked by
+    /// hand on this Stream: the Host does not undo it.
     pub(crate) fn addon_tracks_awaited(&self) -> usize {
-        if self.addon_switch_done {
+        if self.addon_switch_done || self.hand_picked_this_stream {
             0
         } else {
             self.addon_tracks_awaited
@@ -1139,6 +1148,20 @@ impl PlaybackSession {
     /// Stream, whether or not it moved the subtitle.
     pub(crate) fn record_addon_switch_done(&mut self) {
         self.addon_switch_done = true;
+    }
+
+    /// Record that a client picked a Track by hand on the Stream playing now.
+    pub(crate) fn record_hand_pick(&mut self) {
+        self.hand_picked_this_stream = true;
+    }
+
+    /// The language the Track of this kind and id names, as a list entry would,
+    /// or none where the Track is not known or names no language (ADR-0041).
+    pub(crate) fn language_of_track(&self, kind: TrackKind, id: TrackId) -> Option<Language> {
+        self.tracks
+            .iter()
+            .find(|track| track.kind == kind && track.id == id)
+            .and_then(tracks::language_of)
     }
 
     /// Hold the picture where it is, or let it run — the record moving at the
@@ -1286,6 +1309,7 @@ impl PlaybackSession {
             chosen_initial: self.chosen_initial,
             addon_tracks_awaited: self.addon_tracks_awaited,
             addon_switch_done: self.addon_switch_done,
+            hand_picked_this_stream: self.hand_picked_this_stream,
         };
 
         (next != *self).then_some(next)
