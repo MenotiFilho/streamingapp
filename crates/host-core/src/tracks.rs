@@ -281,8 +281,8 @@ pub struct Reading {
     /// The tag the container gave, as it gave it: what a literal match reads.
     tag: Option<String>,
     /// The language and region the tag names through the table, with the
-    /// title's words filling a region the tag left out, or the language of a
-    /// Track that has no tag. `None` when neither says.
+    /// title's words filling a region the tag left out. `None` for a Track with
+    /// no tag, or one the table does not know.
     locale: Option<Locale>,
     /// Whether the container marks it the default of its kind.
     pub default: bool,
@@ -297,7 +297,7 @@ pub struct Reading {
 
 /// Read a Track. Flags the container set are believed first, and a title only
 /// adds what the container did not say: a region the tag lacks, and the flags
-/// that follow its words (ADR-0041).
+/// that follow its words. The language is the tag's alone (ADR-0041).
 pub fn read(track: &Track) -> Reading {
     let tag = track.language.clone();
     let mut locale = tag.as_deref().and_then(locale_of);
@@ -317,14 +317,9 @@ pub fn read(track: &Track) -> Reading {
             Some(held) if held.language == language && held.region.is_none() => {
                 held.region = Some(region.to_owned());
             }
-            // A Track with no tag at all is the language the title names.
-            None if tag.is_none() => {
-                locale = Some(Locale {
-                    language,
-                    region: Some(region.to_owned()),
-                });
-            }
             // Anything else is the tag's word against the title's: the tag's.
+            // A Track with no tag at all stays without a language: a title
+            // fills a region, never the language (ADR-0041).
             _ => {}
         }
     }
@@ -418,20 +413,27 @@ pub fn choose_soundtrack(
         .map(|(track, _)| track.id)
 }
 
-/// The language of a Track as a list entry would name it: its tag read through
-/// the table, with the region or script the title filled in where the tag left
-/// it open (`por` titled "Brazilian" is `pt-BR`), and a tag the table does not
-/// know as the container wrote it. `None` for a Track that says no language.
+/// The language of a Track as a list entry would name it: the curated entry its
+/// tag falls under, read through the table with the region or script the title
+/// filled in where the tag left it open (`fr-CA` is `fr`, `por` titled
+/// "Brazilian" is `pt-BR`, `pt-BR` keeps its region). A tag with no curated
+/// entry stays as the container wrote it, which is how it will match again. `None`
+/// for a Track with no language tag, whatever its title says.
 ///
 /// This is what a soundtrack's language is to the forced rule, and what a Hand
-/// pick records of the Track a client picked (ADR-0041).
+/// pick records of the Track a client picked, so that the next Stream's Tracks,
+/// which spell the same language another way, answer it (ADR-0041).
 pub fn language_of(track: &Track) -> Option<Language> {
     let reading = read(track);
-    let tag = match &reading.locale {
-        Some(locale) => match locale.region() {
+    let tag = reading.locale.as_ref().and_then(|locale| {
+        let spelled = match locale.region() {
             None => locale.language().to_owned(),
             Some(region) => format!("{}-{}", locale.language(), region_spelling(region)),
-        },
+        };
+        curated_entry(&spelled)
+    });
+    let tag = match tag {
+        Some(entry) => entry.to_owned(),
         None => reading.tag?,
     };
     Language::parse(&tag).ok()
@@ -593,6 +595,10 @@ mod tests {
             forced: false,
             hearing_impaired: false,
         }
+    }
+
+    fn track_without_tag() -> Track {
+        track(1, TrackKind::Audio, None)
     }
 
     fn titled(mut track: Track, title: &str) -> Track {
@@ -864,11 +870,26 @@ mod tests {
     }
 
     #[test]
-    fn a_title_alone_names_a_track_the_container_left_untagged() {
+    fn a_title_never_supplies_the_language_of_a_track_the_container_left_untagged() {
+        // The title only fills a region (and the flags) of a Track that has a
+        // language tag: "Brazilian" on a tagless Track matches no entry at all.
         let track = titled(track(1, TrackKind::Audio, None), "Brazilian");
-        assert_eq!(fit_of("pt-BR", &track), Some(Fit::Exact));
-        assert_eq!(fit_of("pt-PT", &track), None);
-        assert_eq!(fit_of("en", &track), None);
+        for entry in ["pt-BR", "pt-PT", "pt", "en"] {
+            assert_eq!(fit_of(entry, &track), None, "{entry}");
+        }
+        // It still reads the flags a title says.
+        let flagged = titled(track_without_tag(), "Forced");
+        assert!(read(&flagged).forced);
+    }
+
+    #[test]
+    fn a_tagless_titled_track_is_chosen_by_no_list() {
+        let tagless = titled(track(1, TrackKind::Audio, None), "Brazilian");
+        let tracks = [audio(2, "eng"), tagless];
+        // Nothing answers pt-BR, so the file's first soundtrack decides.
+        assert_eq!(soundtrack(&tracks, &["pt-BR"]), Some(2));
+        let tracks = [titled(track(1, TrackKind::Subtitle, None), "Brazilian")];
+        assert_eq!(chosen(&tracks, &["pt-BR"], "en"), SubtitleChoice::Off);
     }
 
     #[test]
@@ -1258,16 +1279,27 @@ mod tests {
         let tag = |track: &Track| language_of(track).map(|language| language.to_string());
         assert_eq!(tag(&audio(1, "eng")).as_deref(), Some("en"));
         assert_eq!(tag(&audio(1, "pob")).as_deref(), Some("pt-BR"));
-        assert_eq!(tag(&audio(1, "por")).as_deref(), Some("pt"));
+        // A bare language that picks no curated entry is left as written.
+        assert_eq!(tag(&audio(1, "por")).as_deref(), Some("por"));
+        assert_eq!(tag(&audio(1, "pt-AO")).as_deref(), Some("pt-AO"));
+        // A region the list has no entry for falls under the entry without one.
+        assert_eq!(tag(&audio(1, "fr-CA")).as_deref(), Some("fr"));
+        assert_eq!(tag(&audio(1, "en-US")).as_deref(), Some("en"));
+        assert_eq!(tag(&audio(1, "de-DE")).as_deref(), Some("de"));
+        assert_eq!(tag(&audio(1, "fre")).as_deref(), Some("fr"));
+        // A curated regional entry keeps its region.
+        assert_eq!(tag(&audio(1, "pt-PT")).as_deref(), Some("pt-PT"));
+        assert_eq!(tag(&audio(1, "es-MX")).as_deref(), Some("es-419"));
         assert_eq!(tag(&audio(1, "chs")).as_deref(), Some("zh-Hans"));
         assert_eq!(tag(&audio(1, "es-419")).as_deref(), Some("es-419"));
         assert_eq!(
             tag(&titled(audio(1, "por"), "Brazilian")).as_deref(),
             Some("pt-BR")
         );
+        // A title never supplies the language: a tagless Track records nothing.
         assert_eq!(
-            tag(&titled(track(1, TrackKind::Audio, None), "Brazilian")).as_deref(),
-            Some("pt-BR")
+            tag(&titled(track(1, TrackKind::Audio, None), "Brazilian")),
+            None
         );
         // A tag outside the table is its own word; no tag at all is no language.
         assert_eq!(tag(&audio(1, "tlh")).as_deref(), Some("tlh"));
