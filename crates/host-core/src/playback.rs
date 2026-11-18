@@ -942,6 +942,14 @@ pub(crate) struct PlaybackSession {
     /// those choices land. Like the attempt above, the Player has never heard
     /// of it, and a new Stream starts a fresh one.
     chosen_initial: bool,
+    /// How many Addon subtitles the Host asked the Player to add for the Stream
+    /// playing now and is waiting to see in a report (ADR-0041). Zero where none
+    /// were added, or once the switch below has looked at them.
+    addon_tracks_awaited: usize,
+    /// Whether the Host has already made its one switch to an Addon subtitle on
+    /// the Stream playing now, or decided there is none to make. Never again on
+    /// the same Stream; a new Stream starts a fresh one.
+    addon_switch_done: bool,
 }
 
 impl PlaybackSession {
@@ -967,6 +975,8 @@ impl PlaybackSession {
             statistics: None,
             subtitles_attempted: false,
             chosen_initial: false,
+            addon_tracks_awaited: 0,
+            addon_switch_done: false,
         }
     }
 
@@ -1107,6 +1117,28 @@ impl PlaybackSession {
     /// from, so no later report chooses again.
     pub(crate) fn record_initial_choice(&mut self) {
         self.chosen_initial = true;
+    }
+
+    /// How many added Addon subtitles the Host is waiting to see reported, while
+    /// its switch to one is still to be made.
+    pub(crate) fn addon_tracks_awaited(&self) -> usize {
+        if self.addon_switch_done {
+            0
+        } else {
+            self.addon_tracks_awaited
+        }
+    }
+
+    /// Record that this many Addon subtitles were added and the Host will look
+    /// for them in a later report. Zero leaves nothing to switch to.
+    pub(crate) fn record_addon_tracks_added(&mut self, count: usize) {
+        self.addon_tracks_awaited = count;
+    }
+
+    /// Record that the one switch to an Addon subtitle has been decided on this
+    /// Stream, whether or not it moved the subtitle.
+    pub(crate) fn record_addon_switch_done(&mut self) {
+        self.addon_switch_done = true;
     }
 
     /// Hold the picture where it is, or let it run — the record moving at the
@@ -1252,6 +1284,8 @@ impl PlaybackSession {
             // asking four times a second (ADR-0014).
             subtitles_attempted: self.subtitles_attempted,
             chosen_initial: self.chosen_initial,
+            addon_tracks_awaited: self.addon_tracks_awaited,
+            addon_switch_done: self.addon_switch_done,
         };
 
         (next != *self).then_some(next)
