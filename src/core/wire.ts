@@ -624,13 +624,15 @@ export type ContinueEntry = {
 
 /**
  * Where a Stream's bytes are, and whether this Host can open them. Mirrors
- * `Playback` in `host-core`: a direct URL mpv opens as itself, or an `infoHash`
- * this version lists and marks unplayable — the torrent bridge that would fetch
- * it is a later ticket.
+ * `Playback` in `host-core`: a direct URL mpv opens as itself, or a torrent — an
+ * Addon's `infoHash`, or a `magnet:` in its `url` — which this version lists and
+ * marks unplayable until the Torrent engine can serve it. `infoHash` is 40
+ * lowercase hex characters, `fileIdx` the Addon's file of the torrent (`null`
+ * when it names none), and `sources` its `tracker:` and `dht:` entries, verbatim.
  */
 export type Playback =
   | { kind: "direct"; url: string }
-  | { kind: "info_hash"; infoHash: string };
+  | { kind: "torrent"; infoHash: string; fileIdx: number | null; sources: string[] };
 
 /**
  * What the Addon's hints say about playing a Stream. Mirrors `Warning` in

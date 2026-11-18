@@ -62,6 +62,8 @@ describe("the Cinemeta translation", () => {
         name: "Torrentio\n4k HDR",
         title: "The Shawshank Redemption 1994 2160p BluRay\n👤 190 💾 6.91 GB",
         infoHash: "c3da9a3dc2ce14d0d4fc0e87d1b2023502f8dcd6",
+        fileIdx: 2,
+        sources: ["tracker:http://a.example/ann", "dht:c3da9a3dc2ce14d0d4fc0e87d1b2023502f8dcd6"],
         behaviorHints: {
           filename: "The.Shawshank.Redemption.1994.2160p.mkv",
           bingeGroup: "torrentio|4k|BluRay|x265",
@@ -70,7 +72,12 @@ describe("the Cinemeta translation", () => {
     ).toEqual({
       name: "Torrentio\n4k HDR",
       description: "The Shawshank Redemption 1994 2160p BluRay\n👤 190 💾 6.91 GB",
-      playback: { kind: "info_hash", infoHash: "c3da9a3dc2ce14d0d4fc0e87d1b2023502f8dcd6" },
+      playback: {
+        kind: "torrent",
+        infoHash: "c3da9a3dc2ce14d0d4fc0e87d1b2023502f8dcd6",
+        fileIdx: 2,
+        sources: ["tracker:http://a.example/ann", "dht:c3da9a3dc2ce14d0d4fc0e87d1b2023502f8dcd6"],
+      },
       warnings: [],
       filename: "The.Shawshank.Redemption.1994.2160p.mkv",
       bingeGroup: "torrentio|4k|BluRay|x265",

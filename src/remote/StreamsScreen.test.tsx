@@ -86,7 +86,7 @@ const OTHER: Stream = {
 const HASH: Stream = {
   name: "Torrentio",
   description: null,
-  playback: { kind: "info_hash", infoHash: "abc123" },
+  playback: { kind: "torrent", infoHash: "abc123", fileIdx: null, sources: [] },
   warnings: [],
   filename: null,
   bingeGroup: null,

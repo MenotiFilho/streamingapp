@@ -149,18 +149,16 @@ impl ChosenStream {
     /// a name it never got from an Addon is lying about a badge line, and the
     /// Host has no record to check it against — the list a client chooses from
     /// is that client's own (ADR-0005). What is judged is the part that
-    /// matters: *where the bytes are*. An `infoHash` is a candidate this Host
-    /// has no bridge to fetch (#12) and one it will not pretend to play, and a
+    /// matters: *where the bytes are*. A torrent is a candidate this Host
+    /// has no engine to fetch yet and one it will not pretend to play, and a
     /// word too long to hold is dropped the way a Stream read from an Addon
     /// drops one.
     pub fn parse(video: VideoRef, addon: AddonId, stream: &Stream) -> Result<Self, Unplayable> {
         let url = match &stream.playback {
             Playback::Direct { url } => StreamUrl::parse(url).map_err(Unplayable::from)?,
-            Playback::InfoHash { .. } => {
+            Playback::Torrent { .. } => {
                 return Err(Unplayable {
-                    detail: "that Stream is an infoHash: a torrent, which this Host cannot fetch \
-                             yet — the bridge that would is #12"
-                        .to_owned(),
+                    detail: "that Stream is a torrent, which this Host cannot fetch yet".to_owned(),
                 })
             }
         };
@@ -1642,6 +1640,7 @@ impl Player for FixturePlayer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::torrent::InfoHash;
 
     fn url(raw: &str) -> StreamUrl {
         StreamUrl::parse(raw)
@@ -1787,14 +1786,16 @@ mod tests {
         let refused = ChosenStream::parse(
             video(),
             addon(),
-            &candidate(Playback::InfoHash {
-                info_hash: "61065ea115b7cc3e8db9fb5ab1f6f327f08bd1c9".to_owned(),
+            &candidate(Playback::Torrent {
+                info_hash: InfoHash::parse("61065ea115b7cc3e8db9fb5ab1f6f327f08bd1c9").unwrap(),
+                file_idx: Some(1),
+                sources: vec!["tracker:http://tracker.example.org/ann".to_owned()],
             }),
         );
 
         assert!(
-            matches!(&refused, Err(Unplayable { detail }) if detail.contains("infoHash")),
-            "an infoHash is listed and marked, and never played: {refused:?}"
+            matches!(&refused, Err(Unplayable { detail }) if detail.contains("torrent")),
+            "a torrent is listed and marked, and never played: {refused:?}"
         );
     }
 

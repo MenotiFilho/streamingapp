@@ -241,7 +241,7 @@ fn a_recorded_answers_candidates_arrive_in_the_addons_own_order() {
         group
             .streams
             .iter()
-            .all(|stream| matches!(stream.playback, Playback::InfoHash { .. })),
+            .all(|stream| matches!(stream.playback, Playback::Torrent { .. })),
         "a torrent is a candidate this Host cannot open yet"
     );
 }
@@ -682,8 +682,13 @@ fn the_answer_is_the_declared_wire_shape() {
     assert_eq!(
         groups[0]["streams"][0]["playback"],
         serde_json::json!({
-            "kind": "info_hash",
+            "kind": "torrent",
             "infoHash": "61065ea115b7cc3e8db9fb5ab1f6f327f08bd1c9",
+            "fileIdx": 0,
+            "sources": [
+                "tracker:http://bt4.t-ru.org/ann?magnet",
+                "dht:61065ea115b7cc3e8db9fb5ab1f6f327f08bd1c9",
+            ],
         })
     );
     assert_eq!(groups[1]["addon"], "org.stremio.watchhub");

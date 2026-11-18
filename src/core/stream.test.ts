@@ -189,6 +189,6 @@ describe("which direct Streams the list marks unplayable", () => {
   });
 
   test("a torrent is still marked and is not a URL question", () => {
-    expect(playabilityNote({ kind: "info_hash", infoHash: "abc" })).toContain("torrent");
+    expect(playabilityNote({ kind: "torrent", infoHash: "abc", fileIdx: null, sources: [] })).toContain("torrent");
   });
 });

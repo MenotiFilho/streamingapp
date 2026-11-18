@@ -123,6 +123,8 @@ export type PreviewStream = {
   description?: string;
   url?: string;
   infoHash?: string;
+  fileIdx?: number;
+  sources?: string[];
   behaviorHints?: {
     notWebReady?: boolean;
     p2p?: boolean;
@@ -176,7 +178,14 @@ export function previewStream(raw: PreviewStream): Stream | null {
     return {
       name,
       description,
-      playback: { kind: "info_hash", infoHash: raw.infoHash.trim() },
+      playback: {
+        kind: "torrent",
+        infoHash: raw.infoHash.trim(),
+        fileIdx: Number.isSafeInteger(raw.fileIdx) && (raw.fileIdx ?? -1) >= 0 ? (raw.fileIdx ?? null) : null,
+        sources: Array.isArray(raw.sources)
+          ? raw.sources.filter((source) => typeof source === "string" && source.length > 0)
+          : [],
+      },
       warnings,
       filename,
       bingeGroup,

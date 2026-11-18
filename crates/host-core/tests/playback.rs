@@ -350,8 +350,10 @@ fn a_torrent_is_refused_before_the_player_hears_of_it() {
     let mut fixture = fixture();
     let mut chosen = a_chosen_stream();
     chosen["stream"]["playback"] = serde_json::json!({
-        "kind": "info_hash",
+        "kind": "torrent",
         "infoHash": "61065ea115b7cc3e8db9fb5ab1f6f327f08bd1c9",
+        "fileIdx": 0,
+        "sources": [],
     });
     let before = fixture.host.snapshot();
 
