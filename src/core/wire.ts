@@ -284,6 +284,8 @@ export type Track = {
   selected: boolean;
   default: boolean;
   forced: boolean;
+  /** The container's SDH flag. Carried for the Host's own ranking; nothing draws it. */
+  hearingImpaired: boolean;
 };
 
 /** One chapter marker, and where it starts. Mirrors `Chapter` in `host-core`. */

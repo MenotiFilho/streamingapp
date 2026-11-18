@@ -37,9 +37,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::addon::{AddonId, MAX_STRING_LEN};
 use crate::autoplay::AutoplaySnapshot;
-use crate::preferences::{LanguageList, StreamBuffer, SubtitleColor, SubtitleScale};
+use crate::preferences::{Language, LanguageList, StreamBuffer, SubtitleColor, SubtitleScale};
 use crate::request::VideoRef;
 use crate::stream::{holdable, Playback, Stream};
+use crate::tracks;
 
 /// A URL the Host will hand to a Player.
 ///
@@ -387,6 +388,9 @@ pub struct Track {
     pub default: bool,
     /// Whether the subtitles are forced: the ones a container says to show.
     pub forced: bool,
+    /// Whether the subtitles are for the hard of hearing (SDH): the container's
+    /// flag, which the Host ranks by and no client draws (ADR-0041).
+    pub hearing_impaired: bool,
 }
 
 impl Track {
@@ -932,6 +936,27 @@ pub(crate) struct PlaybackSession {
     /// report that rebuilds the session carries it forward rather than losing
     /// it; a new Stream starts a fresh record.
     subtitles_attempted: bool,
+    /// Whether the Host has already chosen the soundtrack for the Stream playing
+    /// now, which it does once, on the first report of the Stream's Tracks
+    /// (ADR-0041). The first of the per-Stream record's notes, with the switch
+    /// once to an Addon subtitle and the Hand pick's mark on this Stream below.
+    /// Like the attempt above, the Player has never heard of it, and a new
+    /// Stream starts a fresh one.
+    chosen_initial: bool,
+    /// How many Addon subtitles the Host asked the Player to add for the Stream
+    /// playing now and is waiting to see in a report (ADR-0041). Zero where none
+    /// were added, or once the switch below has looked at them.
+    addon_tracks_awaited: usize,
+    /// Whether the Host has already made its one switch to an Addon subtitle on
+    /// the Stream playing now, or decided there is none to make. Never again on
+    /// the same Stream; a new Stream starts a fresh one.
+    addon_switch_done: bool,
+    /// Whether a client has picked a Track by hand on the Stream playing now: the
+    /// third of the per-Stream record's notes. The Host's one switch to an Addon
+    /// subtitle is never made over a Track the owner picked (ADR-0041). A new
+    /// Stream starts a fresh one, and a Hand pick carried from an earlier Stream
+    /// is not this.
+    hand_picked_this_stream: bool,
 }
 
 impl PlaybackSession {
@@ -956,6 +981,10 @@ impl PlaybackSession {
             resolution: None,
             statistics: None,
             subtitles_attempted: false,
+            chosen_initial: false,
+            addon_tracks_awaited: 0,
+            addon_switch_done: false,
+            hand_picked_this_stream: false,
         }
     }
 
@@ -1084,6 +1113,55 @@ impl PlaybackSession {
     /// Snapshot carries.
     pub(crate) fn record_subtitles_attempt(&mut self) {
         self.subtitles_attempted = true;
+    }
+
+    /// Whether the Host has already chosen the soundtrack for the Stream
+    /// playing now.
+    pub(crate) fn chosen_initial(&self) -> bool {
+        self.chosen_initial
+    }
+
+    /// Record that the first report of the Stream's Tracks has been chosen
+    /// from, so no later report chooses again.
+    pub(crate) fn record_initial_choice(&mut self) {
+        self.chosen_initial = true;
+    }
+
+    /// How many added Addon subtitles the Host is waiting to see reported, while
+    /// its switch to one is still to be made. None once a Track was picked by
+    /// hand on this Stream: the Host does not undo it.
+    pub(crate) fn addon_tracks_awaited(&self) -> usize {
+        if self.addon_switch_done || self.hand_picked_this_stream {
+            0
+        } else {
+            self.addon_tracks_awaited
+        }
+    }
+
+    /// Record that this many Addon subtitles were added and the Host will look
+    /// for them in a later report. Zero leaves nothing to switch to.
+    pub(crate) fn record_addon_tracks_added(&mut self, count: usize) {
+        self.addon_tracks_awaited = count;
+    }
+
+    /// Record that the one switch to an Addon subtitle has been decided on this
+    /// Stream, whether or not it moved the subtitle.
+    pub(crate) fn record_addon_switch_done(&mut self) {
+        self.addon_switch_done = true;
+    }
+
+    /// Record that a client picked a Track by hand on the Stream playing now.
+    pub(crate) fn record_hand_pick(&mut self) {
+        self.hand_picked_this_stream = true;
+    }
+
+    /// The language the Track of this kind and id names, as a list entry would,
+    /// or none where the Track is not known or names no language (ADR-0041).
+    pub(crate) fn language_of_track(&self, kind: TrackKind, id: TrackId) -> Option<Language> {
+        self.tracks
+            .iter()
+            .find(|track| track.kind == kind && track.id == id)
+            .and_then(tracks::language_of)
     }
 
     /// Hold the picture where it is, or let it run — the record moving at the
@@ -1228,6 +1306,10 @@ impl PlaybackSession {
             // session carries the attempt forward rather than forgetting it and
             // asking four times a second (ADR-0014).
             subtitles_attempted: self.subtitles_attempted,
+            chosen_initial: self.chosen_initial,
+            addon_tracks_awaited: self.addon_tracks_awaited,
+            addon_switch_done: self.addon_switch_done,
+            hand_picked_this_stream: self.hand_picked_this_stream,
         };
 
         (next != *self).then_some(next)
@@ -2162,6 +2244,7 @@ mod tests {
             selected: false,
             default: false,
             forced: false,
+            hearing_impaired: false,
         };
         assert_eq!(
             serde_json::to_value(&track).expect("a track serializes"),
@@ -2175,6 +2258,7 @@ mod tests {
                 "selected": false,
                 "default": false,
                 "forced": false,
+                "hearingImpaired": false,
             })
         );
 
@@ -2252,6 +2336,7 @@ mod tests {
                     selected: true,
                     default: true,
                     forced: false,
+                    hearing_impaired: false,
                 },
                 Track {
                     id: TrackId(2),
@@ -2263,6 +2348,7 @@ mod tests {
                     selected: false,
                     default: false,
                     forced: false,
+                    hearing_impaired: false,
                 },
             ]),
             chapters: vec![
@@ -2363,6 +2449,7 @@ mod tests {
                     selected: true,
                     default: true,
                     forced: false,
+                    hearing_impaired: false,
                 },
                 Track {
                     id: TrackId(2),
@@ -2374,6 +2461,7 @@ mod tests {
                     selected: false,
                     default: false,
                     forced: false,
+                    hearing_impaired: false,
                 },
             ]),
             chapters: vec![Chapter {
@@ -2428,9 +2516,9 @@ mod tests {
                 "buffered": { "start": 12.0, "end": 40.0 },
                 "tracks": [
                     { "id": 1, "kind": "audio", "language": "eng", "title": "English stereo", "codec": "aac",
-                      "embedded": true, "selected": true, "default": true, "forced": false },
+                      "embedded": true, "selected": true, "default": true, "forced": false, "hearingImpaired": false },
                     { "id": 2, "kind": "subtitle", "language": "por", "title": null, "codec": "subrip",
-                      "embedded": true, "selected": false, "default": false, "forced": false }
+                      "embedded": true, "selected": false, "default": false, "forced": false, "hearingImpaired": false }
                 ],
                 "chapters": [ { "index": 0, "title": "Intro", "time": 0.0 } ],
                 "chapter": 0,
@@ -2461,6 +2549,7 @@ mod tests {
             selected: false,
             default: false,
             forced: false,
+            hearing_impaired: false,
         }
         .bounded();
 

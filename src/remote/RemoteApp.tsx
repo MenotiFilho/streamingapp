@@ -20,7 +20,7 @@ import { Home } from "./Home";
 import { Library } from "./Library";
 import { Search } from "./Search";
 import { armSentinel, decideHistory } from "./history";
-import { heldTitle, RemoteLevel, type RemotePayload } from "./levels";
+import { heldTitle, isSheetPayload, RemoteLevel, type RemotePayload } from "./levels";
 import { pageSurface } from "./pageSurface";
 import { PlayerStrip } from "./Player";
 import { playerLevelStale, stripDrawn } from "./playerScreen";
@@ -242,7 +242,7 @@ function RemoteRoom({
     cardTitle: cardTitleOf(level),
     push: nav.push,
   });
-  const sheetOpen = level?.payload.kind === "sheet";
+  const sheetOpen = level ? isSheetPayload(level.payload) : false;
   const under = sheetOpen ? (drawn[drawn.length - 2] ?? null) : null;
 
   // The page rule (ADR-0036 §3): Discover, Search, the Title and the player card

@@ -189,6 +189,9 @@ pub(crate) struct RawTrack {
     pub(crate) default: bool,
     /// Whether the subtitles are forced.
     pub(crate) forced: bool,
+    /// Whether the subtitles are for the hard of hearing
+    /// (`track-list/N/hearing-impaired`).
+    pub(crate) hearing_impaired: bool,
 }
 
 /// One chapter as mpv lists it, before it is numbered.
@@ -355,6 +358,7 @@ fn track(raw: &RawTrack) -> Option<Track> {
             selected: raw.selected,
             default: raw.default,
             forced: raw.forced,
+            hearing_impaired: raw.hearing_impaired,
         }
         .bounded(),
     )
@@ -613,6 +617,7 @@ mod tests {
             selected: false,
             default: false,
             forced: false,
+            hearing_impaired: false,
         }
     }
 
@@ -766,7 +771,11 @@ mod tests {
                     default: true,
                     ..track(2, "audio")
                 },
-                track(3, "sub"),
+                RawTrack {
+                    forced: true,
+                    hearing_impaired: true,
+                    ..track(3, "sub")
+                },
                 RawTrack {
                     language: Some("por".to_owned()),
                     external: true,
@@ -793,6 +802,7 @@ mod tests {
                     selected: true,
                     default: true,
                     forced: false,
+                    hearing_impaired: false,
                 },
                 Track {
                     id: TrackId::new(3).expect("a positive id"),
@@ -803,7 +813,9 @@ mod tests {
                     embedded: true,
                     selected: false,
                     default: false,
-                    forced: false,
+                    forced: true,
+                    // `track-list/N/hearing-impaired`, carried like `forced`.
+                    hearing_impaired: true,
                 },
                 Track {
                     id: TrackId::new(4).expect("a positive id"),
@@ -816,6 +828,7 @@ mod tests {
                     selected: false,
                     default: false,
                     forced: false,
+                    hearing_impaired: false,
                 },
             ]),
             "the video track is not a control, and an added track is not embedded"
@@ -850,6 +863,7 @@ mod tests {
                 selected: false,
                 default: false,
                 forced: false,
+                hearing_impaired: false,
             }
         );
     }
