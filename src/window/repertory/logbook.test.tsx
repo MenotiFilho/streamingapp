@@ -22,6 +22,9 @@ import { RepertoryLibraryScreen } from "./RepertoryLibrary";
 import { RepertorySettingsScreen } from "./RepertorySettings";
 import { SETTINGS_CATEGORIES } from "../../core/settingsRegister";
 import { readLevel } from "../layout";
+import { decideMove } from "../focus";
+import { FOLLOW_THE_FILE } from "../../core/languages";
+import { THREE_CHOSEN_NOTE } from "../../core/languageList";
 
 const CINEMETA: AddonManifest = {
   id: "com.linvo.cinemeta",
@@ -501,19 +504,11 @@ describe("the repertory Settings register", () => {
     expect(pop).toHaveBeenCalled();
   });
 
-  test("Preferences dispatches the language, the buffer pair, and the featured catalog", async () => {
+  test("Preferences dispatches the buffer pair, and the featured catalog", async () => {
     const { value, pushed, ask } = harness();
     show(value, <RepertorySettingsScreen />);
     fireEvent.click(screen.getByTestId("settings-category-preferences"));
     showLevel(categoryLevel(pushed, "preferences"), value);
-
-    fireEvent.click(screen.getByTestId("language-pt-BR"));
-    await waitFor(() =>
-      expect(actions(ask)).toContainEqual({
-        type: "set_subtitle_languages",
-        languages: ["pt-BR"],
-      }),
-    );
 
     fireEvent.click(screen.getByTestId("buffer-seconds-600"));
     await waitFor(() =>
@@ -585,15 +580,13 @@ describe("the repertory Settings register", () => {
     expect(layout.regions["settings-up-next"]).toBeDefined();
   });
 
-  test("values outside the presets are one Other chip, still selected", () => {
+  test("a colour outside the presets is one Other chip, still selected", () => {
     const { value, pushed } = harness(
       {},
       {
         ...SNAPSHOT,
         preferences: {
           ...SNAPSHOT.preferences,
-          subtitleLanguages: ["fr-CA"],
-          audioLanguages: [],
           subtitleColor: "#123456",
         },
       },
@@ -602,10 +595,6 @@ describe("the repertory Settings register", () => {
     fireEvent.click(screen.getByTestId("settings-category-preferences"));
     showLevel(categoryLevel(pushed, "preferences"), value);
 
-    expect(screen.getByTestId("language-fr-CA")).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
     expect(screen.getByTestId("subtitle-color-other")).toHaveAttribute(
       "aria-pressed",
       "true",
@@ -968,5 +957,355 @@ describe("the repertory Library's unopenable entries", () => {
 
     fireEvent.click(card);
     expect(value.take).not.toHaveBeenCalled();
+  });
+});
+
+describe("Preferences edits Subtitle languages and Audio languages", () => {
+  function withLists(subtitle: string[], audio: string[] = []): Snapshot {
+    return {
+      ...SNAPSHOT,
+      preferences: { ...SNAPSHOT.preferences, subtitleLanguages: subtitle, audioLanguages: audio },
+    };
+  }
+
+  function openPreferences(snapshot: Snapshot) {
+    const run = harness({}, snapshot);
+    show(run.value, <RepertorySettingsScreen />);
+    fireEvent.click(screen.getByTestId("settings-category-preferences"));
+    const preferences = showLevel(categoryLevel(run.pushed, "preferences"), run.value);
+    return { ...run, preferences };
+  }
+
+  function drawerOf(run: ReturnType<typeof openPreferences>, kind: "subtitle" | "audio") {
+    fireEvent.click(within(run.preferences.container).getByTestId(`language-open-${kind}`));
+    const level = run.pushed.find((held) => held.id === `language-drawer-${kind}`);
+    if (!level) {
+      throw new Error(`the ${kind} drawer was not pushed`);
+    }
+    return showLevel(level, run.value);
+  }
+
+  test("the two groups sit above Subtitle appearance, subtitles first", () => {
+    const { preferences } = openPreferences(withLists([]));
+
+    const order = Array.from(
+      preferences.container.querySelectorAll("[data-region]"),
+      (element) => element.getAttribute("data-region"),
+    );
+    const at = (id: string) => order.indexOf(id);
+    expect(at("settings-subtitle-languages")).toBeGreaterThanOrEqual(0);
+    expect(at("settings-subtitle-languages")).toBeLessThan(at("settings-audio-languages"));
+    expect(at("settings-audio-languages")).toBeLessThan(at("settings-subtitle-appearance"));
+    // The single-language picker is gone.
+    expect(order).not.toContain("settings-subtitle-language");
+  });
+
+  test("an empty list reads Follow the file, with what that means for each list", () => {
+    const { preferences } = openPreferences(withLists([]));
+    const page = within(preferences.container);
+
+    expect(page.getByTestId("language-follow-subtitle")).toHaveTextContent(FOLLOW_THE_FILE);
+    expect(page.getByTestId("language-follow-line-subtitle")).toHaveTextContent(
+      "The subtitle the file marks as default, if it has one.",
+    );
+    expect(page.getByTestId("language-follow-line-audio")).toHaveTextContent(
+      "The soundtrack the file marks as default.",
+    );
+  });
+
+  test("a list with chips does not say Follow the file", () => {
+    const { preferences } = openPreferences(withLists(["pt-BR"]));
+    const page = within(preferences.container);
+
+    expect(page.queryByTestId("language-follow-subtitle")).not.toBeInTheDocument();
+    expect(page.getByTestId("language-follow-audio")).toBeInTheDocument();
+  });
+
+  test("the × on a chip sends the whole list without it, to that list's own Action", async () => {
+    const { preferences, ask } = openPreferences(withLists(["pt-BR", "en"], ["ja", "en"]));
+    const page = within(preferences.container);
+
+    fireEvent.click(page.getByTestId("language-remove-subtitle-pt-BR"));
+    await waitFor(() =>
+      expect(actions(ask)).toContainEqual({ type: "set_subtitle_languages", languages: ["en"] }),
+    );
+
+    fireEvent.click(page.getByTestId("language-remove-audio-ja"));
+    await waitFor(() =>
+      expect(actions(ask)).toContainEqual({ type: "set_audio_languages", languages: ["en"] }),
+    );
+  });
+
+  test("removing the last chip sends an empty list", async () => {
+    const { preferences, ask } = openPreferences(withLists(["pt-BR"]));
+
+    fireEvent.click(within(preferences.container).getByTestId("language-remove-subtitle-pt-BR"));
+
+    await waitFor(() =>
+      expect(actions(ask)).toContainEqual({ type: "set_subtitle_languages", languages: [] }),
+    );
+  });
+
+  test("a second removal composes from the first before the Host has answered", async () => {
+    const { preferences, ask } = openPreferences(withLists(["pt-BR", "en", "fr"]));
+    const page = within(preferences.container);
+
+    fireEvent.click(page.getByTestId("language-remove-subtitle-pt-BR"));
+    fireEvent.click(page.getByTestId("language-remove-subtitle-fr"));
+
+    await waitFor(() =>
+      expect(actions(ask)).toEqual([
+        { type: "set_subtitle_languages", languages: ["en", "fr"] },
+        { type: "set_subtitle_languages", languages: ["en"] },
+      ]),
+    );
+  });
+
+  test("dragging a chip onto another sends the whole list moved, and a press that goes nowhere sends nothing", async () => {
+    const { preferences, ask } = openPreferences(withLists(["pt-BR", "en", "fr"]));
+    const field = within(preferences.container).getByTestId("language-field-subtitle");
+    const chipsOf = Array.from(field.querySelectorAll<HTMLElement>("[data-chip-index]"));
+    chipsOf.forEach((chip, at) => {
+      vi.spyOn(chip, "getBoundingClientRect").mockReturnValue({
+        x: at * 110,
+        y: 0,
+        left: at * 110,
+        top: 0,
+        right: at * 110 + 100,
+        bottom: 40,
+        width: 100,
+        height: 40,
+        toJSON: () => ({}),
+      } as DOMRect);
+    });
+
+    // A press and release on the same chip is no drag.
+    fireEvent.pointerDown(chipsOf[0]!, { pointerId: 1, pointerType: "mouse", button: 0, clientX: 50, clientY: 20 });
+    fireEvent.pointerUp(chipsOf[0]!, { pointerId: 1, clientX: 50, clientY: 20 });
+    expect(actions(ask)).toEqual([]);
+
+    // Taken to the end of the line, the first chip becomes the last.
+    fireEvent.pointerDown(chipsOf[0]!, { pointerId: 1, pointerType: "mouse", button: 0, clientX: 50, clientY: 20 });
+    fireEvent.pointerMove(chipsOf[0]!, { pointerId: 1, clientX: 180, clientY: 20 });
+    fireEvent.pointerUp(chipsOf[0]!, { pointerId: 1, clientX: 270, clientY: 20 });
+
+    await waitFor(() =>
+      expect(actions(ask)).toEqual([
+        { type: "set_subtitle_languages", languages: ["en", "fr", "pt-BR"] },
+      ]),
+    );
+  });
+
+  test("a refused list is explained beside its field, as Settings refusals are, and the chips stay as held", async () => {
+    const { preferences, ask } = openPreferences(withLists(["pt-BR", "en"]));
+    ask.mockImplementationOnce(async () =>
+      refusal({ kind: "duplicate_language", language: "en" }),
+    );
+    const page = within(preferences.container);
+
+    fireEvent.click(page.getByTestId("language-remove-subtitle-pt-BR"));
+
+    expect(await page.findByTestId("subtitle-languages-error")).toHaveTextContent(
+      '"en" is already on the list.',
+    );
+    expect(page.getByTestId("language-remove-subtitle-pt-BR")).toBeInTheDocument();
+  });
+
+  test("the focus stops are each chip's × and then ▾, walked Left and Right", () => {
+    const { preferences } = openPreferences(withLists(["pt-BR", "en"]));
+    const field = within(preferences.container).getByTestId("language-field-subtitle");
+    const stops = Array.from(field.querySelectorAll<HTMLElement>("[data-focusable]"));
+    // jsdom has no layout: the stops are laid on one line, a hundred apart.
+    const measure = (element: Element) => {
+      const at = stops.indexOf(element as HTMLElement);
+      return at >= 0
+        ? { x: at * 100, y: 0, w: 80, h: 40 }
+        : { x: 0, y: 0, w: 1000, h: 40 };
+    };
+
+    const { layout, elements } = readLevel(preferences.container, {}, measure);
+    const regionId = "settings-subtitle-languages-field";
+    const labelAt = (index: number) => elements[regionId]![index]!.getAttribute("aria-label");
+
+    expect(elements[regionId]).toHaveLength(3);
+    const first = decideMove(layout, { regionId, index: 0 }, "right");
+    expect(first).toMatchObject({ kind: "moved", regionId, index: 1 });
+    const second = decideMove(layout, { regionId, index: 1 }, "right");
+    expect(second).toMatchObject({ kind: "moved", regionId, index: 2 });
+    expect(labelAt(2)).toBe("Choose subtitle languages");
+    expect(decideMove(layout, { regionId, index: 2 }, "left")).toMatchObject({
+      kind: "moved",
+      regionId,
+      index: 1,
+    });
+    expect(labelAt(0)).toBe("Remove Português (Brasil)");
+  });
+
+  test("every focus region id on the page is unique, with the drawer open too", () => {
+    const run = openPreferences(withLists(["pt-BR"]));
+    const drawer = drawerOf(run, "subtitle");
+
+    for (const container of [run.preferences.container, drawer.container]) {
+      const ids = Array.from(container.querySelectorAll("[data-region]"), (element) =>
+        element.getAttribute("data-region"),
+      );
+      expect(new Set(ids).size).toBe(ids.length);
+      expect(() => readLevel(container, {})).not.toThrow();
+    }
+    const both = [
+      ...run.preferences.container.querySelectorAll("[data-region]"),
+      ...drawer.container.querySelectorAll("[data-region]"),
+    ].map((element) => element.getAttribute("data-region"));
+    expect(new Set(both).size).toBe(both.length);
+  });
+
+  test("the ▾ opens that list's drawer as a level of its own", () => {
+    const run = openPreferences(withLists([]));
+
+    fireEvent.click(within(run.preferences.container).getByTestId("language-open-audio"));
+
+    expect(run.pushed.at(-1)).toMatchObject({ id: "language-drawer-audio", kind: "overlay" });
+  });
+
+  describe("the drawer", () => {
+    test("Chosen lists the held languages in rank, and the rest follow under Languages", () => {
+      const run = openPreferences(withLists(["es-419", "en"]));
+      const drawer = within(drawerOf(run, "subtitle").container);
+
+      expect(drawer.getByTestId("language-chosen-es-419")).toHaveTextContent("1st");
+      expect(drawer.getByTestId("language-chosen-en")).toHaveTextContent("2nd");
+      expect(drawer.queryByTestId("language-row-en")).not.toBeInTheDocument();
+      expect(drawer.getByTestId("language-row-fr")).toHaveAttribute("aria-pressed", "false");
+    });
+
+    test("ticking a language sends the list with it last, and unticking one sends it closed up", async () => {
+      const run = openPreferences(withLists(["pt-BR"]));
+      const drawer = within(drawerOf(run, "subtitle").container);
+
+      fireEvent.click(drawer.getByTestId("language-row-en"));
+      await waitFor(() =>
+        expect(actions(run.ask)).toContainEqual({
+          type: "set_subtitle_languages",
+          languages: ["pt-BR", "en"],
+        }),
+      );
+
+      fireEvent.click(drawer.getByTestId("language-chosen-pt-BR"));
+      await waitFor(() =>
+        expect(actions(run.ask)).toContainEqual({
+          type: "set_subtitle_languages",
+          languages: ["en"],
+        }),
+      );
+    });
+
+    test("↑ and ↓ on a Chosen row send the moved list, and the ends cannot move further", async () => {
+      const run = openPreferences(withLists(["pt-BR", "en", "fr"]));
+      const drawer = within(drawerOf(run, "subtitle").container);
+
+      expect(drawer.getByTestId("language-up-pt-BR")).toBeDisabled();
+      expect(drawer.getByTestId("language-down-fr")).toBeDisabled();
+
+      fireEvent.click(drawer.getByTestId("language-down-pt-BR"));
+      await waitFor(() =>
+        expect(actions(run.ask)).toContainEqual({
+          type: "set_subtitle_languages",
+          languages: ["en", "pt-BR", "fr"],
+        }),
+      );
+      fireEvent.click(drawer.getByTestId("language-up-fr"));
+      await waitFor(() =>
+        expect(actions(run.ask)).toContainEqual({
+          type: "set_subtitle_languages",
+          languages: ["en", "fr", "pt-BR"],
+        }),
+      );
+    });
+
+    test("at three the other rows are disabled and the note says to untick one", () => {
+      const run = openPreferences(withLists(["pt-BR", "en", "fr"]));
+      const drawer = within(drawerOf(run, "subtitle").container);
+
+      expect(drawer.getByTestId("language-row-de")).toBeDisabled();
+      expect(drawer.getByTestId("language-note")).toHaveTextContent(THREE_CHOSEN_NOTE);
+      expect(drawer.getByTestId("language-chosen-fr")).not.toBeDisabled();
+    });
+
+    test("the audio drawer edits the audio list, not the subtitle list", async () => {
+      const run = openPreferences(withLists(["pt-BR"], []));
+      const drawer = within(drawerOf(run, "audio").container);
+
+      fireEvent.click(drawer.getByTestId("language-row-ja"));
+
+      await waitFor(() =>
+        expect(actions(run.ask)).toEqual([{ type: "set_audio_languages", languages: ["ja"] }]),
+      );
+    });
+
+    test("Done closes the drawer", () => {
+      const run = openPreferences(withLists(["pt-BR"]));
+      const drawer = within(drawerOf(run, "subtitle").container);
+
+      fireEvent.click(drawer.getByRole("button", { name: "Done" }));
+
+      expect(run.pop).toHaveBeenCalledTimes(1);
+    });
+
+    test("a refused list is drawn in the drawer, and the list stays as the Host holds it", async () => {
+      const run = openPreferences(withLists(["pt-BR"]));
+      run.ask.mockImplementationOnce(async () =>
+        refusal({ kind: "too_many_languages", count: 4, max: 3 }),
+      );
+      const view = drawerOf(run, "subtitle");
+      const drawer = within(view.container);
+
+      fireEvent.click(drawer.getByTestId("language-row-en"));
+
+      expect(await drawer.findByTestId("language-drawer-error")).toBeInTheDocument();
+      expect(drawer.getByTestId("language-row-en")).toHaveAttribute("aria-pressed", "false");
+    });
+
+    test("the live field at the top of the drawer follows the list", () => {
+      const run = openPreferences(withLists(["pt-BR", "en"]));
+      const drawer = within(drawerOf(run, "subtitle").container);
+
+      expect(drawer.getByTestId("language-field-subtitle")).toBeInTheDocument();
+      expect(drawer.getByTestId("language-remove-subtitle-en")).toBeInTheDocument();
+    });
+
+    test("an unknown stored tag heads Chosen and can be removed", async () => {
+      const run = openPreferences(withLists(["fr-CA"]));
+      const drawer = within(drawerOf(run, "subtitle").container);
+
+      expect(drawer.getByTestId("language-chosen-fr-CA")).toHaveTextContent("Other (fr-CA)");
+      expect(drawer.queryByTestId("language-row-fr-CA")).not.toBeInTheDocument();
+
+      fireEvent.click(drawer.getByTestId("language-chosen-fr-CA"));
+      await waitFor(() =>
+        expect(actions(run.ask)).toContainEqual({
+          type: "set_subtitle_languages",
+          languages: [],
+        }),
+      );
+    });
+  });
+
+  test("Back closes the drawer and focus returns to the ▾ that opened it", async () => {
+    render(<Shell client={fakeHost(withLists(["en"]))} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Settings" }));
+    fireEvent.click(await screen.findByTestId("settings-category-preferences"));
+    const open = await screen.findByTestId("language-open-subtitle");
+    act(() => open.focus());
+    fireEvent.click(open);
+
+    expect(await screen.findByTestId("language-drawer-subtitle")).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("language-drawer-subtitle")).not.toBeInTheDocument(),
+    );
+    await waitFor(() => expect(document.activeElement).toBe(open));
   });
 });
