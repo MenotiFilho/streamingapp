@@ -47,7 +47,20 @@ Facts from the research note, each verified against mpv 0.41 source:
   `alang` changed mid-file never re-selects: the Addon fallback only "worked"
   when the owner opened the menu and picked a subtitle by hand.
 
-## 4. Rejected alternatives
+## 4. What a Track says of its language, and what a Hand pick keeps
+
+A Track's language is its tag's, read through the Host's code table. A title
+only fills what the tag leaves open (a region, and the SDH, forced and
+commentary flags): a Track with no language tag matches no list entry and
+records no Hand pick, whatever its title says.
+
+A Hand pick records the curated entry the picked Track's tag falls under (`fr-CA`
+and `fre` are `fr`, `es-MX` is `es-419`), so the next Stream's Track, which spells
+the same language another way, answers it. A curated regional entry keeps its
+region, and a tag with no curated entry is kept as the file wrote it, which is
+the only way it can match again.
+
+## 5. Rejected alternatives
 
 - **Hand mpv the list and accept its choice.** Every gap above stays, and the
   owner's order across languages (an Addon `pt-BR` before an embedded English)
