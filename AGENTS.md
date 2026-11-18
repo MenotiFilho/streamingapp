@@ -12,6 +12,8 @@
   `docs/agents/testing.md`).
 - `docker compose exec dev cargo clippy --all-targets -- -D warnings`
 - `docker compose exec dev cargo fmt --check`
+- `docker compose exec -w /app/crates/host-torrent/engine dev go vet ./...` and
+  `go test ./...` for the Torrent engine, a Go module of its own (ADR-0042 §1).
 - `docker compose exec dev pnpm typecheck` and `pnpm test` for the window.
   `pnpm` runs at the repo root, where the frontend package lives.
 - `docker compose exec dev pnpm build` before any release or bundle build: a debug

@@ -83,6 +83,8 @@ crates/
     remote/             the BUILT remote client (committed; compiled into the binary)
   host-logging/         JSON-lines logs in the data directory
   host-live/            `live_check`: read-only conformance run against real Addons
+  host-torrent/         the Torrent engine's home (spec #311)
+    engine/             the engine itself: a Go module over anacrolix/torrent
 src-tauri/              the thin app shell: wiring, window, IPC, timers; no rules
 src/                    the React/TypeScript client (one tree, two entries)
   core/                 client decisions shared by window and remote (pure, tested)
@@ -440,6 +442,7 @@ window, but no pnpm.
 | `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check` | lint and format gates |
 | `pnpm typecheck`, `pnpm test` | client types and Vitest (jsdom) |
 | `pnpm build`, `pnpm build:remote` | the window bundle and the served remote |
+| `go vet ./...`, `go test ./...` in `crates/host-torrent/engine` | the Torrent engine's Go suites (it seeds a torrent over loopback; no real swarm) |
 | `cargo run --bin live_check` | read-only report against real Addons |
 
 - **The window** is verified by hand on Windows with `scripts/windows/`

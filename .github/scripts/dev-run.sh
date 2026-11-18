@@ -7,11 +7,12 @@
 # keeps a CI run from leaving root-owned build trees behind.
 #
 # CI overrides the build directories with host paths (CI_CARGO_HOME,
-# CI_CARGO_TARGET_DIR, CI_NODE_MODULES, CI_PNPM_STORE) so `actions/cache` can
-# keep the cargo registry and the compiled dependencies between runs. It also
-# runs the container as the runner's user: the cache is tarred by that user, and
-# root-owned build output cannot be saved. A local run leaves the variables
-# unset and keeps the named volumes and root, exactly as before.
+# CI_CARGO_TARGET_DIR, CI_NODE_MODULES, CI_PNPM_STORE, CI_GO_HOME) so
+# `actions/cache` can keep the cargo registry and the compiled dependencies
+# between runs. It also runs the container as the runner's user: the cache is
+# tarred by that user, and root-owned build output cannot be saved. A local run
+# leaves the variables unset and keeps the named volumes and root, exactly as
+# before.
 set -euo pipefail
 
 root="${GITHUB_WORKSPACE:-$(git rev-parse --show-toplevel)}"
@@ -42,6 +43,13 @@ if [[ -n "${CI_NODE_MODULES:-}" ]]; then
   mounts+=(-v "${CI_NODE_MODULES}:/app/node_modules")
 else
   mounts+=(-v streamingapp-node-modules:/app/node_modules)
+fi
+
+# Go's module and build caches live under /go, for the Torrent engine's suites.
+if [[ -n "${CI_GO_HOME:-}" ]]; then
+  mounts+=(-v "${CI_GO_HOME}:/go")
+else
+  mounts+=(-v streamingapp-go:/go)
 fi
 
 if [[ -n "${CI_PNPM_STORE:-}" ]]; then
