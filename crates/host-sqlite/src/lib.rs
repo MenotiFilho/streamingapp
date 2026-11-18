@@ -11,16 +11,19 @@ use std::sync::Mutex;
 
 use host_core::{
     Addon, AddonId, CachedTitle, CatalogRef, Device, DeviceId, DeviceName, FeaturedCatalog,
-    InvalidUpNextPlayback, Language, Manifest, ManifestUrl, NextEpisode, Preferences, SeriesStatus,
-    Store, StoreError, StreamBuffer, SubtitleColor, SubtitleScale, Title, TitleCard, TitleKey,
-    TitleSource, TitleStub, TokenDigest, UpNextPlayback, VideoRef, WatchProgress,
+    InvalidUpNextPlayback, LanguageList, Manifest, ManifestUrl, NextEpisode, Preferences,
+    SeriesStatus, Store, StoreError, StreamBuffer, SubtitleColor, SubtitleScale, Title, TitleCard,
+    TitleKey, TitleSource, TitleStub, TokenDigest, UpNextPlayback, VideoRef, WatchProgress,
 };
 use rusqlite::{params, Connection, Transaction};
 
 pub use migrations::{latest_version, migrate, schema_version, Migration, MIGRATIONS};
 
-/// The key the subtitle language preference is stored under.
-const SUBTITLE_LANGUAGE: &str = "subtitle_language";
+/// The key the Subtitle languages are stored under: a JSON array of tags.
+const SUBTITLE_LANGUAGES: &str = "subtitle_languages";
+
+/// The key the Audio languages are stored under: a JSON array of tags.
+const AUDIO_LANGUAGES: &str = "audio_languages";
 
 /// The key the subtitle colour preference is stored under.
 const SUBTITLE_COLOR: &str = "subtitle_color";
@@ -57,6 +60,30 @@ fn put_preference(
     };
 
     written.map(|_| ()).map_err(StoreError::write)
+}
+
+/// A language list as its row holds it: a JSON array of tags, or no row at all
+/// for an empty list, so that "follow the file" is the absence of a choice.
+fn language_list_row(list: &LanguageList) -> Result<Option<String>, StoreError> {
+    if list.is_empty() {
+        return Ok(None);
+    }
+
+    serde_json::to_string(list)
+        .map(Some)
+        .map_err(StoreError::write)
+}
+
+/// A language list read back from its row, judged as it was written: a row that
+/// drifted is a read failure, never a list no client chose.
+fn read_language_list(value: &str, what: &str) -> Result<LanguageList, StoreError> {
+    let unusable = |error: String| StoreError::Read {
+        detail: format!("the stored {what} are unusable: {error}"),
+    };
+    let tags: Vec<String> =
+        serde_json::from_str(value).map_err(|error| unusable(error.to_string()))?;
+
+    LanguageList::parse(&tags).map_err(|error| unusable(format!("{error:?}")))
 }
 
 /// The Host's database.
@@ -118,7 +145,8 @@ impl Store for SqliteStore {
             })
             .map_err(StoreError::read)?;
 
-        let mut subtitle_language = None;
+        let mut subtitle_languages = LanguageList::empty();
+        let mut audio_languages = LanguageList::empty();
         let mut subtitle_color = SubtitleColor::default();
         let mut subtitle_scale = SubtitleScale::default();
         let mut stream_buffer = StreamBuffer::default();
@@ -128,11 +156,11 @@ impl Store for SqliteStore {
         for row in rows {
             let (key, value) = row.map_err(StoreError::read)?;
             match key.as_str() {
-                SUBTITLE_LANGUAGE => {
-                    subtitle_language =
-                        Some(Language::parse(&value).map_err(|error| StoreError::Read {
-                            detail: format!("the stored subtitle language is unusable: {error}"),
-                        })?);
+                SUBTITLE_LANGUAGES => {
+                    subtitle_languages = read_language_list(&value, "Subtitle languages")?;
+                }
+                AUDIO_LANGUAGES => {
+                    audio_languages = read_language_list(&value, "Audio languages")?;
                 }
                 SUBTITLE_COLOR => {
                     subtitle_color =
@@ -200,7 +228,8 @@ impl Store for SqliteStore {
         }
 
         Ok(Preferences::from_stored(
-            subtitle_language,
+            subtitle_languages,
+            audio_languages,
             subtitle_color,
             subtitle_scale,
             stream_buffer,
@@ -216,8 +245,13 @@ impl Store for SqliteStore {
 
         put_preference(
             &transaction,
-            SUBTITLE_LANGUAGE,
-            preferences.subtitle_language().map(Language::as_str),
+            SUBTITLE_LANGUAGES,
+            language_list_row(preferences.subtitle_languages())?.as_deref(),
+        )?;
+        put_preference(
+            &transaction,
+            AUDIO_LANGUAGES,
+            language_list_row(preferences.audio_languages())?.as_deref(),
         )?;
         // The appearance is always a value — white and 1.0 are answers, not the
         // absence of one — so both rows are written with every preference

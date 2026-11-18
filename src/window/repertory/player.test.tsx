@@ -110,7 +110,8 @@ const PLAYING: Snapshot = {
     statistics: { bitrate: 12_500_000, droppedFrames: 0, hardwareDecode: "d3d11va" },
   },
   preferences: {
-    subtitleLanguage: "en",
+    subtitleLanguages: ["en"],
+    audioLanguages: [],
     subtitleColor: "#FFFFFF",
     subtitleScale: 1.25,
     streamBuffer: { seconds: 300, megabytes: 512 },

@@ -330,8 +330,9 @@ describe("the Preferences leaf", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open the Streams picker" }));
 
     await waitFor(() =>
-      expect(host.asked("set_subtitle_language")).toEqual([
+      expect(host.asked("set_subtitle_languages")).toEqual([
         languageRequest("pt-BR"),
+        languageRequest(null),
       ]),
     );
     await waitFor(() =>
@@ -362,11 +363,6 @@ describe("the Preferences leaf", () => {
     await waitFor(() =>
       expect(host.asked("set_up_next_playback")).toEqual([
         { type: "set_up_next_playback", playback: "picker" },
-      ]),
-    );
-    await waitFor(() =>
-      expect(host.asked("clear_subtitle_language")).toEqual([
-        languageRequest(null),
       ]),
     );
     await waitFor(() =>

@@ -7,9 +7,21 @@
 //! (ADR-0013), and faithful to the vocabulary mpv 0.37 answers
 //! (`docs/research/mpv-control-facts.md`).
 
-use host_core::{Aspect, ChapterStep, Crop, SeekTarget, StreamBuffer, StreamUrl, Telling};
+use host_core::{
+    Aspect, ChapterStep, Crop, LanguageList, SeekTarget, StreamBuffer, StreamUrl, Telling,
+};
 
 use crate::AUTOCROP_SCRIPT_STEM;
+
+/// A language list as mpv's `slang` / `alang` take it: the tags in order,
+/// separated by commas.
+fn comma_joined(languages: &LanguageList) -> String {
+    languages
+        .iter()
+        .map(|language| language.as_str())
+        .collect::<Vec<_>>()
+        .join(",")
+}
 
 /// The command that opens a Stream, whatever was playing.
 ///
@@ -126,13 +138,15 @@ pub(crate) fn commands(telling: &Telling) -> Vec<(&'static str, Vec<String>)> {
             "set",
             vec!["video-aspect-override".to_owned(), value.to_string()],
         )],
-        // An empty `slang` is how mpv is told to prefer nothing; the Host tells
-        // it once at startup and with every change of the preference.
-        Telling::SubtitleLanguage(Some(language)) => {
-            vec![("set", vec!["slang".to_owned(), language.to_string()])]
+        // The lists are mpv's first guess, the tags as listed and comma-joined
+        // (the code table that widens each tag is a later step). An empty list
+        // is an empty string, which is how mpv is told to prefer nothing; the
+        // Host tells both once at startup and with every change (ADR-0041).
+        Telling::SubtitleLanguages(languages) => {
+            vec![("set", vec!["slang".to_owned(), comma_joined(languages)])]
         }
-        Telling::SubtitleLanguage(None) => {
-            vec![("set", vec!["slang".to_owned(), String::new()])]
+        Telling::AudioLanguages(languages) => {
+            vec![("set", vec!["alang".to_owned(), comma_joined(languages)])]
         }
         // The colour applies to subtitles that do not style themselves, and the
         // size to every subtitle: deliberately no `sub-ass-override`, so an ASS
@@ -335,14 +349,24 @@ mod tests {
                 ),
             ),
             (
-                Telling::SubtitleLanguage(Some(
-                    host_core::Language::parse("pt-BR").expect("a language tag"),
-                )),
-                ("set", vec!["slang".to_owned(), "pt-BR".to_owned()]),
+                Telling::SubtitleLanguages(
+                    LanguageList::parse(&["pt-BR", "en"]).expect("a language list"),
+                ),
+                ("set", vec!["slang".to_owned(), "pt-BR,en".to_owned()]),
             ),
             (
-                Telling::SubtitleLanguage(None),
+                Telling::SubtitleLanguages(LanguageList::empty()),
                 ("set", vec!["slang".to_owned(), String::new()]),
+            ),
+            (
+                Telling::AudioLanguages(
+                    LanguageList::parse(&["en", "pt-BR", "fr-CA"]).expect("a language list"),
+                ),
+                ("set", vec!["alang".to_owned(), "en,pt-BR,fr-CA".to_owned()]),
+            ),
+            (
+                Telling::AudioLanguages(LanguageList::empty()),
+                ("set", vec!["alang".to_owned(), String::new()]),
             ),
             (
                 Telling::SubtitleColor(

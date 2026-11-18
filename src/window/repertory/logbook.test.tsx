@@ -98,7 +98,8 @@ const SNAPSHOT: Snapshot = {
     statistics: null,
   },
   preferences: {
-    subtitleLanguage: "en",
+    subtitleLanguages: ["en"],
+    audioLanguages: [],
     subtitleColor: "#FFFFFF",
     subtitleScale: 1,
     streamBuffer: { seconds: 300, megabytes: 512 },
@@ -509,8 +510,8 @@ describe("the repertory Settings register", () => {
     fireEvent.click(screen.getByTestId("language-pt-BR"));
     await waitFor(() =>
       expect(actions(ask)).toContainEqual({
-        type: "set_subtitle_language",
-        language: "pt-BR",
+        type: "set_subtitle_languages",
+        languages: ["pt-BR"],
       }),
     );
 
@@ -591,7 +592,8 @@ describe("the repertory Settings register", () => {
         ...SNAPSHOT,
         preferences: {
           ...SNAPSHOT.preferences,
-          subtitleLanguage: "fr-CA",
+          subtitleLanguages: ["fr-CA"],
+          audioLanguages: [],
           subtitleColor: "#123456",
         },
       },

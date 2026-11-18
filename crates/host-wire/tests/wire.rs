@@ -524,12 +524,67 @@ fn a_connection_that_has_not_paired_can_only_attempt_to_pair() {
     // With the token adopted, an ordinary Action is taken rather than refused.
     let answered = client.command(
         3,
-        json!({ "type": "set_subtitle_language", "language": "pt-BR" }),
+        json!({ "type": "set_subtitle_languages", "languages": ["pt-BR"] }),
     );
     assert!(
         answered.get("response").is_some(),
         "a paired client is answered: {answered}"
     );
+}
+
+#[test]
+fn the_language_lists_cross_the_wire_whole_and_the_old_actions_are_refused_as_unknown() {
+    let (fixture, server) = server();
+    let mut client = Client::connect(&server);
+    client.hello(None);
+    pair(&mut client, &fixture, "Test phone");
+    let _joined = client.next_snapshot();
+
+    // Both lists are set by their Actions and published in the Snapshot.
+    let answered = client.command(
+        3,
+        json!({ "type": "set_subtitle_languages", "languages": ["pt-BR", "en"] }),
+    );
+    assert!(answered.get("response").is_some(), "{answered}");
+    let answered = client.command(
+        4,
+        json!({ "type": "set_audio_languages", "languages": ["fr"] }),
+    );
+    assert!(answered.get("response").is_some(), "{answered}");
+    let pushed = client
+        .snapshot_where(|snapshot| snapshot["preferences"]["audioLanguages"] == json!(["fr"]));
+    assert_eq!(
+        pushed["snapshot"]["preferences"]["subtitleLanguages"],
+        json!(["pt-BR", "en"])
+    );
+    assert!(
+        pushed["snapshot"]["preferences"]
+            .get("subtitleLanguage")
+            .is_none(),
+        "the single language is gone from the Snapshot"
+    );
+
+    // A list the Host refuses is refused by what is wrong with it.
+    for (languages, kind) in [
+        (json!(["en", "fr", "de", "es"]), "too_many_languages"),
+        (json!(["en", "EN"]), "duplicate_language"),
+        (json!(["not a tag"]), "invalid_language"),
+    ] {
+        let refused = client.command(
+            5,
+            json!({ "type": "set_audio_languages", "languages": languages }),
+        );
+        assert_eq!(refused["error"]["kind"], kind, "{refused}");
+    }
+
+    // The removed Actions get the codec's ordinary refusal for an unknown one.
+    for removed in [
+        json!({ "type": "set_subtitle_language", "language": "pt-BR" }),
+        json!({ "type": "clear_subtitle_language" }),
+    ] {
+        let refused = client.command(6, removed);
+        assert_eq!(refused["error"]["kind"], "malformed", "{refused}");
+    }
 }
 
 #[test]
@@ -544,12 +599,13 @@ fn a_paired_client_sees_state_change_without_asking_for_it() {
 
     // Somebody else moved the state — here the Host itself, as its clock does.
     fixture.publish_change(action(
-        r#"{"type":"set_subtitle_language","language":"pt-BR"}"#,
+        r#"{"type":"set_subtitle_languages","languages":["pt-BR"]}"#,
     ));
 
     let pushed = client.next_snapshot();
     assert_eq!(
-        pushed["snapshot"]["preferences"]["subtitleLanguage"], "pt-BR",
+        pushed["snapshot"]["preferences"]["subtitleLanguages"],
+        json!(["pt-BR"]),
         "state arrives pushed, not polled: {pushed}"
     );
 }
@@ -689,15 +745,16 @@ fn a_reply_is_an_answer_and_not_a_second_copy_of_state() {
 
     let reply = client.command(
         3,
-        json!({ "type": "set_subtitle_language", "language": "pt-BR" }),
+        json!({ "type": "set_subtitle_languages", "languages": ["pt-BR"] }),
     );
     assert_eq!(
         reply["response"]["snapshots"],
         json!([]),
         "the reply carries the answer; state arrives as a pushed Snapshot"
     );
-    let pushed =
-        client.snapshot_where(|snapshot| snapshot["preferences"]["subtitleLanguage"] == "pt-BR");
+    let pushed = client.snapshot_where(|snapshot| {
+        snapshot["preferences"]["subtitleLanguages"] == json!(["pt-BR"])
+    });
     assert_eq!(
         pushed["snapshot"]["preferences"]["subtitleScale"], 1.0,
         "the pushed Snapshot is the one state the client applies: {pushed}"
@@ -804,7 +861,7 @@ fn a_client_that_reconnects_is_told_the_state_as_it_stands() {
     let (_device, token) = pair(&mut first, &fixture, "Test phone");
 
     fixture.publish_change(action(
-        r#"{"type":"set_subtitle_language","language":"pt-BR"}"#,
+        r#"{"type":"set_subtitle_languages","languages":["pt-BR"]}"#,
     ));
 
     // The phone slept through that. It comes back with the token it was paired
@@ -816,7 +873,8 @@ fn a_client_that_reconnects_is_told_the_state_as_it_stands() {
 
     let caught_up = returned.next_snapshot();
     assert_eq!(
-        caught_up["snapshot"]["preferences"]["subtitleLanguage"], "pt-BR",
+        caught_up["snapshot"]["preferences"]["subtitleLanguages"],
+        json!(["pt-BR"]),
         "a reconnecting client catches up instead of holding a stale view"
     );
 }
@@ -834,9 +892,11 @@ fn revoking_one_device_cuts_it_off_and_leaves_the_other_working() {
 
     // Both hear what the Host publishes.
     fixture.publish_change(action(
-        r#"{"type":"set_subtitle_language","language":"pt-BR"}"#,
+        r#"{"type":"set_subtitle_languages","languages":["pt-BR"]}"#,
     ));
-    television.snapshot_where(|snapshot| snapshot["preferences"]["subtitleLanguage"] == "pt-BR");
+    television.snapshot_where(|snapshot| {
+        snapshot["preferences"]["subtitleLanguages"] == json!(["pt-BR"])
+    });
 
     // The owner revokes the phone, from the television.
     let revoked = television.command(
@@ -847,7 +907,9 @@ fn revoking_one_device_cuts_it_off_and_leaves_the_other_working() {
 
     // The phone stops hearing anything: the next Snapshot it would have been sent
     // is a refusal and a close instead.
-    fixture.publish_change(action(r#"{"type":"clear_subtitle_language"}"#));
+    fixture.publish_change(action(
+        r#"{"type":"set_subtitle_languages","languages":[]}"#,
+    ));
     let mut cut_off = false;
     for _ in 0..10 {
         match phone.read() {
@@ -874,9 +936,10 @@ fn revoking_one_device_cuts_it_off_and_leaves_the_other_working() {
     // Its own connection still receives: the revocation did not take the server
     // down with it.
     fixture.publish_change(action(
-        r#"{"type":"set_subtitle_language","language":"en"}"#,
+        r#"{"type":"set_subtitle_languages","languages":["en"]}"#,
     ));
-    television.snapshot_where(|snapshot| snapshot["preferences"]["subtitleLanguage"] == "en");
+    television
+        .snapshot_where(|snapshot| snapshot["preferences"]["subtitleLanguages"] == json!(["en"]));
 
     assert!(
         fixture.device(&phone_token).is_none(),
@@ -923,7 +986,7 @@ fn a_revoked_devices_command_is_not_taken_before_a_snapshot_would_have_cut_it_of
         "a revoked device's command is refused, not answered"
     );
     assert!(
-        fixture.snapshot().preferences.subtitle_language.is_none(),
+        fixture.snapshot().preferences.subtitle_languages.is_empty(),
         "and nothing it asked for happened"
     );
 }

@@ -10,8 +10,9 @@ use crate::playback::{
     InvalidSubtitleDelay, InvalidVolume, SeekTarget, TrackId, Unplayable,
 };
 use crate::preferences::{
-    InvalidLanguage, InvalidStreamBuffer, InvalidSubtitleColor, InvalidSubtitleScale, Language,
-    StreamBuffer, SubtitleColor, SubtitleScale, UpNextPlayback,
+    DuplicateLanguage, InvalidLanguage, InvalidLanguageList, InvalidStreamBuffer,
+    InvalidSubtitleColor, InvalidSubtitleScale, LanguageList, StreamBuffer, SubtitleColor,
+    SubtitleScale, TooManyLanguages, UpNextPlayback,
 };
 use crate::preview::checked_preview_at;
 use crate::progress::{TitleCard, TitleStub};
@@ -44,10 +45,13 @@ pub const ACTION_VERSION: u16 = 1;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Action {
-    /// Prefer `language` when the Host chooses a subtitle track.
-    SetSubtitleLanguage { language: String },
-    /// Carry no subtitle-language preference; the Host chooses per Video.
-    ClearSubtitleLanguage,
+    /// Set the Subtitle languages: up to three languages the Host chooses a
+    /// subtitle Track by, first the most wanted. Carries the **whole** list, and
+    /// `[]` clears it, so the Host follows the file (ADR-0041).
+    SetSubtitleLanguages { languages: Vec<String> },
+    /// Set the Audio languages: the same, for the soundtrack. Independent of the
+    /// Subtitle languages.
+    SetAudioLanguages { languages: Vec<String> },
     /// Draw subtitles in `color`, where a track leaves the colour open.
     ///
     /// A preference of the Host's rather than a client's, so it persists and
@@ -409,8 +413,8 @@ macro_rules! action_spellings {
 }
 
 action_spellings! {
-    Action::SetSubtitleLanguage { .. } => "set_subtitle_language",
-    Action::ClearSubtitleLanguage => "clear_subtitle_language",
+    Action::SetSubtitleLanguages { .. } => "set_subtitle_languages",
+    Action::SetAudioLanguages { .. } => "set_audio_languages",
     Action::SetSubtitleColor { .. } => "set_subtitle_color",
     Action::SetSubtitleScale { .. } => "set_subtitle_scale",
     Action::SetStreamBuffer { .. } => "set_stream_buffer",
@@ -504,11 +508,12 @@ impl Action {
     /// neither state nor store.
     pub fn validate(self) -> Result<ValidatedAction, ActionError> {
         match self {
-            Action::SetSubtitleLanguage { language } => {
-                let language = Language::parse(&language)?;
-                Ok(ValidatedAction::SetSubtitleLanguage(language))
-            }
-            Action::ClearSubtitleLanguage => Ok(ValidatedAction::ClearSubtitleLanguage),
+            Action::SetSubtitleLanguages { languages } => Ok(
+                ValidatedAction::SetSubtitleLanguages(LanguageList::parse(&languages)?),
+            ),
+            Action::SetAudioLanguages { languages } => Ok(ValidatedAction::SetAudioLanguages(
+                LanguageList::parse(&languages)?,
+            )),
             Action::SetSubtitleColor { color } => {
                 let color = SubtitleColor::parse(&color)?;
                 Ok(ValidatedAction::SetSubtitleColor(color))
@@ -766,8 +771,8 @@ fn search_query(raw: &str) -> Result<String, ActionError> {
 /// than of the order of two statements.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValidatedAction {
-    SetSubtitleLanguage(Language),
-    ClearSubtitleLanguage,
+    SetSubtitleLanguages(LanguageList),
+    SetAudioLanguages(LanguageList),
     SetSubtitleColor(SubtitleColor),
     SetSubtitleScale(SubtitleScale),
     /// The look-ahead the Player aims for and the memory it may take, judged
@@ -960,8 +965,8 @@ impl ValidatedAction {
             | Self::FindStreams { .. }
             | Self::Preview { .. }
             | Self::Library
-            | Self::SetSubtitleLanguage(_)
-            | Self::ClearSubtitleLanguage
+            | Self::SetSubtitleLanguages(_)
+            | Self::SetAudioLanguages(_)
             | Self::SetSubtitleColor(_)
             | Self::SetSubtitleScale(_)
             | Self::SetStreamBuffer(_)
@@ -1023,6 +1028,10 @@ pub enum ActionError {
     UnsupportedVersion { got: u64, supported: u16 },
     #[error("{0}")]
     InvalidLanguage(#[from] InvalidLanguage),
+    #[error("{0}")]
+    DuplicateLanguage(#[from] DuplicateLanguage),
+    #[error("{0}")]
+    TooManyLanguages(#[from] TooManyLanguages),
     #[error("{0}")]
     InvalidSubtitleColor(#[from] InvalidSubtitleColor),
     #[error("{0}")]
@@ -1217,6 +1226,16 @@ pub enum ActionError {
     AlreadyPaired,
 }
 
+impl From<InvalidLanguageList> for ActionError {
+    fn from(refused: InvalidLanguageList) -> Self {
+        match refused {
+            InvalidLanguageList::Invalid(invalid) => Self::InvalidLanguage(invalid),
+            InvalidLanguageList::Duplicate(duplicate) => Self::DuplicateLanguage(duplicate),
+            InvalidLanguageList::TooMany(too_many) => Self::TooManyLanguages(too_many),
+        }
+    }
+}
+
 impl ActionError {
     /// This refusal's stable name: the `kind` its own serde tag carries.
     ///
@@ -1228,6 +1247,8 @@ impl ActionError {
             Self::Malformed { .. } => "malformed",
             Self::UnsupportedVersion { .. } => "unsupported_version",
             Self::InvalidLanguage(_) => "invalid_language",
+            Self::DuplicateLanguage(_) => "duplicate_language",
+            Self::TooManyLanguages(_) => "too_many_languages",
             Self::InvalidSubtitleColor(_) => "invalid_subtitle_color",
             Self::InvalidSubtitleScale(_) => "invalid_subtitle_scale",
             Self::InvalidStreamBuffer(_) => "invalid_stream_buffer",
@@ -1295,15 +1316,67 @@ mod tests {
     #[test]
     fn an_envelope_parses_into_its_action() {
         let action = Action::parse(
-            r#"{"version":1,"action":{"type":"set_subtitle_language","language":"pt-BR"}}"#,
+            r#"{"version":1,"action":{"type":"set_subtitle_languages","languages":["pt-BR","en"]}}"#,
         )
         .expect("a well-formed envelope parses");
         assert_eq!(
             action,
-            Action::SetSubtitleLanguage {
-                language: "pt-BR".to_owned()
+            Action::SetSubtitleLanguages {
+                languages: vec!["pt-BR".to_owned(), "en".to_owned()]
             }
         );
+    }
+
+    #[test]
+    fn a_language_list_action_carries_the_whole_list_and_empty_clears_it() {
+        let validated = |json: &str| {
+            Action::parse(json)
+                .expect("the envelope parses")
+                .validate()
+                .expect("the list is a list")
+        };
+
+        assert_eq!(
+            validated(
+                r#"{"version":1,"action":{"type":"set_audio_languages","languages":["pt-BR","en"]}}"#
+            ),
+            ValidatedAction::SetAudioLanguages(
+                LanguageList::parse(&["pt-BR", "en"]).expect("a list")
+            )
+        );
+        assert_eq!(
+            validated(r#"{"version":1,"action":{"type":"set_subtitle_languages","languages":[]}}"#),
+            ValidatedAction::SetSubtitleLanguages(LanguageList::empty()),
+            "[] clears the list"
+        );
+    }
+
+    #[test]
+    fn a_language_list_action_is_refused_by_what_is_wrong_with_the_list() {
+        let refusal = |languages: &[&str]| {
+            Action::SetSubtitleLanguages {
+                languages: languages.iter().map(|tag| (*tag).to_owned()).collect(),
+            }
+            .validate()
+            .expect_err("that is not a language list")
+        };
+
+        let too_many = refusal(&["en", "pt-BR", "fr", "de"]);
+        assert_eq!(too_many.kind(), "too_many_languages");
+        assert_eq!(
+            serde_json::to_value(&too_many).expect("a refusal serializes"),
+            serde_json::json!({"kind": "too_many_languages", "count": 4, "max": 3})
+        );
+
+        let duplicate = refusal(&["pt-BR", "PT-br"]);
+        assert_eq!(duplicate.kind(), "duplicate_language");
+        assert_eq!(
+            serde_json::to_value(&duplicate).expect("a refusal serializes"),
+            serde_json::json!({"kind": "duplicate_language", "language": "PT-br"})
+        );
+
+        let invalid = refusal(&["en", "not a tag"]);
+        assert_eq!(invalid.kind(), "invalid_language");
     }
 
     #[test]
@@ -1356,11 +1429,13 @@ mod tests {
 
     #[test]
     fn an_envelope_is_flat_enough_to_write_by_hand() {
-        let value =
-            serde_json::to_value(Action::ClearSubtitleLanguage).expect("an Action serializes");
+        let value = serde_json::to_value(Action::SetAudioLanguages {
+            languages: vec!["pt-BR".to_owned()],
+        })
+        .expect("an Action serializes");
         assert_eq!(
             value,
-            serde_json::json!({"type": "clear_subtitle_language"})
+            serde_json::json!({"type": "set_audio_languages", "languages": ["pt-BR"]})
         );
     }
 
@@ -2228,8 +2303,8 @@ mod tests {
     /// names is the `type` tag serde actually writes, and that no variant is
     /// missing a representative here.
     const EVERY_ACTION: &[&str] = &[
-        r#"{"type":"set_subtitle_language","language":"en"}"#,
-        r#"{"type":"clear_subtitle_language"}"#,
+        r#"{"type":"set_subtitle_languages","languages":["en"]}"#,
+        r#"{"type":"set_audio_languages","languages":["en"]}"#,
         r##"{"type":"set_subtitle_color","color":"#ffcc00"}"##,
         r#"{"type":"set_subtitle_scale","scale":1.25}"#,
         r#"{"type":"set_stream_buffer","seconds":300,"megabytes":512}"#,
@@ -2377,6 +2452,10 @@ mod tests {
             ActionError::InvalidLanguage(InvalidLanguage {
                 language: "not a language".to_owned(),
             }),
+            ActionError::DuplicateLanguage(DuplicateLanguage {
+                language: "en".to_owned(),
+            }),
+            ActionError::TooManyLanguages(TooManyLanguages { count: 4, max: 3 }),
             ActionError::InvalidManifestUrl(InvalidManifestUrl {
                 url: "not a URL".to_owned(),
             }),

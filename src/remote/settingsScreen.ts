@@ -129,14 +129,15 @@ export const FEATURED_CATALOG_HEAD = "Featured catalog";
 export const FEATURED_NONE = "No featured catalog";
 
 /**
- * The one preference that is an absence: the Host follows the file rather
- * than preferring one, so the choice sends the clear rather than an
- * empty tag.
+ * The Subtitle languages as today's single-language picker sets them: a tag is
+ * a one-entry list, and the absence of one is the empty list, which is Follow
+ * the file. The Action carries the whole list (ADR-0041).
  */
 export function languageRequest(tag: string | null): Action {
-  return tag === null
-    ? { type: "clear_subtitle_language" }
-    : { type: "set_subtitle_language", language: tag };
+  return {
+    type: "set_subtitle_languages",
+    languages: tag === null ? [] : [tag],
+  };
 }
 
 export function colorRequest(color: string): Action {

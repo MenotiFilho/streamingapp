@@ -5,7 +5,7 @@ use crate::playback::{
     Aspect, ChapterStep, ChosenStream, Crop, PlaybackSession, SeekTarget, TrackId, TrackKind,
 };
 use crate::preferences::{
-    FeaturedCatalog, Language, Preferences, StreamBuffer, SubtitleColor, SubtitleScale,
+    FeaturedCatalog, LanguageList, Preferences, StreamBuffer, SubtitleColor, SubtitleScale,
     UpNextPlayback,
 };
 use crate::progress::{TitleStub, WatchProgress};
@@ -170,12 +170,12 @@ impl State {
     /// change is taken, stamped onto the Watch progress it writes (#29).
     pub(crate) fn apply(&mut self, change: Change, now: i64) -> Persist {
         match change {
-            Change::SetSubtitleLanguage(language) => {
-                self.preferences.set_subtitle_language(Some(language));
+            Change::SetSubtitleLanguages(languages) => {
+                self.preferences.set_subtitle_languages(languages);
                 Persist::Preferences
             }
-            Change::ClearSubtitleLanguage => {
-                self.preferences.set_subtitle_language(None);
+            Change::SetAudioLanguages(languages) => {
+                self.preferences.set_audio_languages(languages);
                 Persist::Preferences
             }
             Change::SetSubtitleColor(color) => {
@@ -490,8 +490,8 @@ impl State {
 /// is a word or two wide.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Change {
-    SetSubtitleLanguage(Language),
-    ClearSubtitleLanguage,
+    SetSubtitleLanguages(LanguageList),
+    SetAudioLanguages(LanguageList),
     SetSubtitleColor(SubtitleColor),
     SetSubtitleScale(SubtitleScale),
     /// The look-ahead and memory ceiling the Player is told, judged together

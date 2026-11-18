@@ -111,7 +111,8 @@ fn controls(player: &FixturePlayer) -> Vec<Telling> {
         .filter(|telling| {
             !matches!(
                 telling,
-                Telling::SubtitleLanguage(_)
+                Telling::SubtitleLanguages(_)
+                    | Telling::AudioLanguages(_)
                     | Telling::SubtitleColor(_)
                     | Telling::SubtitleScale(_)
                     | Telling::StreamBuffer(_)

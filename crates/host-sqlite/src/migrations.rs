@@ -157,6 +157,18 @@ pub const MIGRATIONS: &[Migration] = &[
         sql: "ALTER TABLE watch_progress ADD COLUMN stream_addon TEXT;
               ALTER TABLE watch_progress ADD COLUMN binge_group TEXT;",
     },
+    Migration {
+        // The Subtitle languages (ADR-0041, #323): the single `subtitle_language`
+        // row becomes a one-entry JSON array under `subtitle_languages`, and the
+        // old key is dropped, so nothing the owner set is lost. With no row there
+        // is nothing to carry: an absent list reads as empty. The Audio languages
+        // have no old key, and no row of their own until one is set.
+        version: 10,
+        sql: "INSERT INTO preferences (key, value)
+                  SELECT 'subtitle_languages', json_array(value)
+                  FROM preferences WHERE key = 'subtitle_language';
+              DELETE FROM preferences WHERE key = 'subtitle_language';",
+    },
 ];
 
 /// The version a database is at once every migration in `migrations` has run.
