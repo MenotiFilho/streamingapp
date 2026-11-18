@@ -445,6 +445,7 @@ impl HostView {
             | ValidatedAction::SetSubtitleColor(_)
             | ValidatedAction::SetSubtitleScale(_)
             | ValidatedAction::SetStreamBuffer(_)
+            | ValidatedAction::SetTorrentCache(_)
             | ValidatedAction::SetUpNextPlayback(_)
             | ValidatedAction::SetAutoplay(_)
             | ValidatedAction::CancelAutoplay

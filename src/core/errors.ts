@@ -14,6 +14,7 @@ export const HOST_ERROR_KINDS = [
   "invalid_subtitle_color",
   "invalid_subtitle_scale",
   "invalid_stream_buffer",
+  "invalid_torrent_cache",
   "invalid_manifest_url",
   "invalid_addon_id",
   "invalid_tmdb_key",
@@ -181,6 +182,8 @@ export function explain(error: ActionError): string {
       return `${JSON.stringify(error.scale)} is not a subtitle size — a size is between 0.5 and 2.0.`;
     case "invalid_stream_buffer":
       return `The Host will not keep that Stream buffer${error.detail ? `: ${error.detail}` : ""}.`;
+    case "invalid_torrent_cache":
+      return `The Host will not keep that Torrent cache${error.detail ? `: ${error.detail}` : ""}.`;
     case "invalid_manifest_url":
       return `${JSON.stringify(error.url)} is not a manifest URL — paste the address of an Addon's manifest.json, like "https://example.com/manifest.json".`;
     case "invalid_addon_id":

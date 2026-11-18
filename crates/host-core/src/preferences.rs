@@ -15,6 +15,7 @@ pub struct Preferences {
     subtitle_color: SubtitleColor,
     subtitle_scale: SubtitleScale,
     stream_buffer: StreamBuffer,
+    torrent_cache: TorrentCache,
     up_next_playback: UpNextPlayback,
     autoplay: bool,
     featured_catalog: Option<FeaturedCatalog>,
@@ -28,6 +29,7 @@ impl Default for Preferences {
             subtitle_color: SubtitleColor::default(),
             subtitle_scale: SubtitleScale::default(),
             stream_buffer: StreamBuffer::default(),
+            torrent_cache: TorrentCache::default(),
             up_next_playback: UpNextPlayback::default(),
             autoplay: true,
             featured_catalog: None,
@@ -96,6 +98,16 @@ impl Preferences {
         self.stream_buffer = buffer;
     }
 
+    /// The most disk a playing torrent may take (ADR-0042 §3).
+    pub fn torrent_cache(&self) -> TorrentCache {
+        self.torrent_cache
+    }
+
+    /// Set the Torrent cache preference.
+    pub fn set_torrent_cache(&mut self, cache: TorrentCache) {
+        self.torrent_cache = cache;
+    }
+
     /// What Play does for a Title's Up next: play it straight away, or open the
     /// Streams picker so the owner picks the Stream themselves.
     pub fn up_next_playback(&self) -> UpNextPlayback {
@@ -138,6 +150,7 @@ impl Preferences {
         subtitle_color: SubtitleColor,
         subtitle_scale: SubtitleScale,
         stream_buffer: StreamBuffer,
+        torrent_cache: TorrentCache,
         up_next_playback: UpNextPlayback,
         autoplay: bool,
         featured_catalog: Option<FeaturedCatalog>,
@@ -148,6 +161,7 @@ impl Preferences {
             subtitle_color,
             subtitle_scale,
             stream_buffer,
+            torrent_cache,
             up_next_playback,
             autoplay,
             featured_catalog,
@@ -163,6 +177,7 @@ impl Preferences {
             SubtitleColor::default(),
             SubtitleScale::default(),
             StreamBuffer::default(),
+            TorrentCache::default(),
             UpNextPlayback::default(),
             true,
             None,
@@ -556,6 +571,70 @@ pub struct InvalidStreamBuffer {
     pub detail: String,
 }
 
+/// The Torrent cache: the most disk a held torrent may take while it plays
+/// (CONTEXT.md, ADR-0042 §3).
+///
+/// Its own preference, with its own bounds and no coupling to the
+/// [`StreamBuffer`]: the buffer is memory and this is disk, and an owner with a
+/// small disk must be able to cap one without the other moving. The unit is the
+/// decimal megabyte, as the Stream buffer's is (ADR-0026).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TorrentCache {
+    megabytes: u64,
+}
+
+impl TorrentCache {
+    /// The ceiling the Host starts from, in megabytes: 2 GB.
+    pub const DEFAULT_MEGABYTES: u64 = 2000;
+
+    /// The smallest ceiling the Host will set.
+    pub const MIN_MEGABYTES: u64 = 256;
+
+    /// The largest ceiling the Host will set.
+    pub const MAX_MEGABYTES: u64 = 32000;
+
+    /// Parse a ceiling, or say why this number is not one.
+    pub fn parse(megabytes: u64) -> Result<Self, InvalidTorrentCache> {
+        if !(Self::MIN_MEGABYTES..=Self::MAX_MEGABYTES).contains(&megabytes) {
+            return Err(InvalidTorrentCache {
+                detail: format!(
+                    "{megabytes} is not a torrent cache size — a size is a whole number of \
+                     megabytes from {} to {}",
+                    Self::MIN_MEGABYTES,
+                    Self::MAX_MEGABYTES
+                ),
+            });
+        }
+        Ok(Self { megabytes })
+    }
+
+    /// The ceiling, in megabytes.
+    pub fn megabytes(&self) -> u64 {
+        self.megabytes
+    }
+
+    /// The ceiling, in bytes: the decimal megabyte the interface says.
+    pub fn bytes(&self) -> u64 {
+        self.megabytes * 1_000_000
+    }
+}
+
+impl Default for TorrentCache {
+    fn default() -> Self {
+        Self {
+            megabytes: Self::DEFAULT_MEGABYTES,
+        }
+    }
+}
+
+/// A size that is not a Torrent cache, offered as one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
+#[error("{detail}")]
+pub struct InvalidTorrentCache {
+    pub detail: String,
+}
+
 /// What Play does for a Title's Up next.
 ///
 /// A preference of the Host's, not a client's: the choice is stored beside the
@@ -822,6 +901,51 @@ mod tests {
             serde_json::json!({"seconds": 300, "megabytes": 512}),
             "the wire carries the pair as two camelCase numbers"
         );
+    }
+
+    #[test]
+    fn a_torrent_cache_is_a_whole_number_of_megabytes_from_256_to_32000() {
+        for megabytes in [256, 2000, 32000] {
+            assert_eq!(
+                TorrentCache::parse(megabytes).map(|cache| cache.megabytes()),
+                Ok(megabytes)
+            );
+        }
+        for megabytes in [0, 255, 32001, u64::MAX] {
+            assert!(
+                TorrentCache::parse(megabytes).is_err(),
+                "{megabytes} MB is not a torrent cache"
+            );
+        }
+    }
+
+    #[test]
+    fn the_default_torrent_cache_is_two_decimal_gigabytes() {
+        let cache = TorrentCache::default();
+
+        assert_eq!(cache.megabytes(), 2000);
+        assert_eq!(cache.bytes(), 2_000_000_000);
+        assert_eq!(
+            serde_json::to_value(cache).expect("a cache serializes"),
+            serde_json::json!({"megabytes": 2000})
+        );
+        assert_eq!(Preferences::default().torrent_cache(), cache);
+    }
+
+    #[test]
+    fn the_torrent_cache_is_not_judged_against_the_stream_buffer() {
+        // The largest cache beside the smallest buffer, and the reverse: both
+        // are preferences on their own.
+        let mut preferences = Preferences::default();
+        preferences.set_stream_buffer(StreamBuffer::parse(5, 64).expect("a buffer"));
+        preferences.set_torrent_cache(TorrentCache::parse(32000).expect("a cache"));
+        assert_eq!(preferences.torrent_cache().megabytes(), 32000);
+        assert_eq!(preferences.stream_buffer().megabytes(), 64);
+
+        preferences.set_stream_buffer(StreamBuffer::parse(3600, 4096).expect("a buffer"));
+        preferences.set_torrent_cache(TorrentCache::parse(256).expect("a cache"));
+        assert_eq!(preferences.torrent_cache().megabytes(), 256);
+        assert_eq!(preferences.stream_buffer().megabytes(), 4096);
     }
 
     #[test]

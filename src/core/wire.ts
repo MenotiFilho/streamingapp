@@ -61,6 +61,12 @@ export type Snapshot = {
      */
     streamBuffer: { seconds: number; megabytes: number };
     /**
+     * The most disk a playing torrent may take, in decimal megabytes (ADR-0042
+     * §3). Always a value — a Host that has never been told keeps 2000 (2 GB) —
+     * and judged on its own, never against the Stream buffer.
+     */
+    torrentCache: { megabytes: number };
+    /**
      * What Play does for a Title's Up next: play it directly from the release
      * of the Video before it, or open the Streams picker so the owner picks
      * (#276). Always a value — direct is the default — and it governs only Up
@@ -713,6 +719,9 @@ export type Action =
   // the memory it may take. One Action carries the pair, so the two limits
   // cannot be half-applied.
   | { type: "set_stream_buffer"; seconds: number; megabytes: number }
+  // The Torrent cache (ADR-0042 §3): the most disk a playing torrent may take,
+  // a whole number of megabytes from 256 to 32000, judged on its own.
+  | { type: "set_torrent_cache"; megabytes: number }
   // What Play does for a Title's Up next (#276): a preference of the Host's,
   // stored beside the Stream buffer and published in every Snapshot. It
   // switches Play between playing the Up next directly and opening the

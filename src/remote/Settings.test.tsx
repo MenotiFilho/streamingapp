@@ -6,6 +6,7 @@ import {
   AUTOPLAY_CHOICES,
   SUBTITLE_SCALES,
   formatScale,
+  torrentCacheRequest,
 } from "../core/controls";
 import { explain, type ActionError } from "../core/errors";
 import { FOLLOW_THE_FILE } from "../core/languages";
@@ -309,6 +310,33 @@ describe("the Credentials leaf", () => {
 });
 
 describe("the Preferences leaf", () => {
+  test("the Torrent cache is its own group under the Stream buffer, and a press sends its Action", async () => {
+    const { host } = mount({ snapshot: WITH_SETTINGS });
+    await openSettings();
+    await openCategory(PREFERENCES);
+
+    expect(screen.getByText("Torrents are fetched this far ahead too.")).toBeInTheDocument();
+    const heads = screen
+      .getAllByRole("heading", { level: 2 })
+      .map((heading) => heading.textContent);
+    expect(heads.indexOf("Torrent cache")).toBe(heads.indexOf("Stream buffer") + 1);
+
+    // The default is held; a chip in the group is a press of the one Action. The
+    // group is addressed by its heading because the Stream buffer's ladder also
+    // has a 512 MB chip.
+    const group = screen.getByRole("heading", { name: "Torrent cache" }).closest("section")!;
+    expect(within(group).getByRole("button", { name: "2 GB" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    fireEvent.click(within(group).getByRole("button", { name: "8 GB" }));
+
+    await waitFor(() =>
+      expect(host.asked("set_torrent_cache")).toEqual([torrentCacheRequest(8000)]),
+    );
+    expect(host.asked("set_stream_buffer")).toEqual([]);
+  });
+
   test("each control sends the Host's own Action on press", async () => {
     const { host } = mount({ snapshot: WITH_SETTINGS });
     await openSettings();

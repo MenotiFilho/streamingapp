@@ -200,6 +200,32 @@ fn the_host_remembers_the_stream_buffer_across_a_restart() {
 }
 
 #[test]
+fn the_host_remembers_the_torrent_cache_across_a_restart() {
+    let directory = tempfile::tempdir().expect("a temporary directory is available");
+    let database = directory.path().join("host.sqlite3");
+
+    let mut host = start(&database);
+    assert_eq!(
+        host.snapshot().preferences.torrent_cache.megabytes(),
+        2000,
+        "a Host that has never been told lets a torrent take two gigabytes"
+    );
+    take(
+        &mut host,
+        r#"{"type":"set_torrent_cache","megabytes":8000}"#,
+    );
+    drop(host);
+
+    let restarted = start(&database);
+
+    assert_eq!(
+        restarted.snapshot().preferences.torrent_cache.megabytes(),
+        8000,
+        "the ceiling on a torrent's disk outlives the process"
+    );
+}
+
+#[test]
 fn a_preference_changed_twice_is_remembered_as_the_last_one() {
     let directory = tempfile::tempdir().expect("a temporary directory is available");
     let database = directory.path().join("host.sqlite3");

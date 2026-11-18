@@ -11,8 +11,8 @@ use crate::playback::{
 };
 use crate::preferences::{
     DuplicateLanguage, InvalidLanguage, InvalidLanguageList, InvalidStreamBuffer,
-    InvalidSubtitleColor, InvalidSubtitleScale, LanguageList, StreamBuffer, SubtitleColor,
-    SubtitleScale, TooManyLanguages, UpNextPlayback,
+    InvalidSubtitleColor, InvalidSubtitleScale, InvalidTorrentCache, LanguageList, StreamBuffer,
+    SubtitleColor, SubtitleScale, TooManyLanguages, TorrentCache, UpNextPlayback,
 };
 use crate::preview::checked_preview_at;
 use crate::progress::{TitleCard, TitleStub};
@@ -74,6 +74,11 @@ pub enum Action {
     /// One Action carries the pair so that a client cannot set one without the
     /// other.
     SetStreamBuffer { seconds: u64, megabytes: u64 },
+    /// Let a playing torrent take up to `megabytes` of disk.
+    ///
+    /// A preference of the Host's, set once for every torrent and judged on its
+    /// own: it is not checked against the Stream buffer (ADR-0042 §3).
+    SetTorrentCache { megabytes: u64 },
     /// What Play does for a Title's Up next: play it directly, from the release
     /// of the Video before it, or open the Streams picker so the owner picks.
     ///
@@ -418,6 +423,7 @@ action_spellings! {
     Action::SetSubtitleColor { .. } => "set_subtitle_color",
     Action::SetSubtitleScale { .. } => "set_subtitle_scale",
     Action::SetStreamBuffer { .. } => "set_stream_buffer",
+    Action::SetTorrentCache { .. } => "set_torrent_cache",
     Action::SetUpNextPlayback { .. } => "set_up_next_playback",
     Action::SetAutoplay { .. } => "set_autoplay",
     Action::CancelAutoplay => "cancel_autoplay",
@@ -526,6 +532,9 @@ impl Action {
                 let buffer = StreamBuffer::parse(seconds, megabytes)?;
                 Ok(ValidatedAction::SetStreamBuffer(buffer))
             }
+            Action::SetTorrentCache { megabytes } => Ok(ValidatedAction::SetTorrentCache(
+                TorrentCache::parse(megabytes)?,
+            )),
             Action::SetUpNextPlayback { playback } => {
                 Ok(ValidatedAction::SetUpNextPlayback(playback))
             }
@@ -778,6 +787,8 @@ pub enum ValidatedAction {
     /// The look-ahead the Player aims for and the memory it may take, judged
     /// together so the pair cannot be half-applied (ADR-0026).
     SetStreamBuffer(StreamBuffer),
+    /// The most disk a playing torrent may take, judged on its own.
+    SetTorrentCache(TorrentCache),
     /// What Play does for a Title's Up next, judged by the type's own wire form.
     SetUpNextPlayback(UpNextPlayback),
     /// Whether the Host advances on its own when an episode's Stream ends.
@@ -970,6 +981,7 @@ impl ValidatedAction {
             | Self::SetSubtitleColor(_)
             | Self::SetSubtitleScale(_)
             | Self::SetStreamBuffer(_)
+            | Self::SetTorrentCache(_)
             | Self::SetUpNextPlayback(_)
             | Self::SetAutoplay(_)
             | Self::CancelAutoplay
@@ -1038,6 +1050,8 @@ pub enum ActionError {
     InvalidSubtitleScale(#[from] InvalidSubtitleScale),
     #[error("{0}")]
     InvalidStreamBuffer(#[from] InvalidStreamBuffer),
+    #[error("{0}")]
+    InvalidTorrentCache(#[from] InvalidTorrentCache),
     #[error("{0}")]
     InvalidManifestUrl(#[from] InvalidManifestUrl),
     #[error("{0}")]
@@ -1252,6 +1266,7 @@ impl ActionError {
             Self::InvalidSubtitleColor(_) => "invalid_subtitle_color",
             Self::InvalidSubtitleScale(_) => "invalid_subtitle_scale",
             Self::InvalidStreamBuffer(_) => "invalid_stream_buffer",
+            Self::InvalidTorrentCache(_) => "invalid_torrent_cache",
             Self::InvalidManifestUrl(_) => "invalid_manifest_url",
             Self::InvalidAddonId(_) => "invalid_addon_id",
             Self::InvalidTmdbKey(_) => "invalid_tmdb_key",
@@ -2308,6 +2323,7 @@ mod tests {
         r##"{"type":"set_subtitle_color","color":"#ffcc00"}"##,
         r#"{"type":"set_subtitle_scale","scale":1.25}"#,
         r#"{"type":"set_stream_buffer","seconds":300,"megabytes":512}"#,
+        r#"{"type":"set_torrent_cache","megabytes":2000}"#,
         r#"{"type":"set_up_next_playback","playback":"picker"}"#,
         r#"{"type":"set_autoplay","autoplay":false}"#,
         r#"{"type":"cancel_autoplay"}"#,

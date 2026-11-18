@@ -7,7 +7,8 @@ use std::sync::Arc;
 use host_core::{
     Action, ActionError, AddonProvider, FixtureClock, FixtureFetcher, FixturePlayer, Host,
     InMemorySecretStore, InMemoryStore, Language, LanguageList, Preferences, SecretBackend,
-    Snapshot, Store, StoreError, StreamBuffer, SubtitleColor, SubtitleScale, ACTION_VERSION,
+    Snapshot, Store, StoreError, StreamBuffer, SubtitleColor, SubtitleScale, TorrentCache,
+    ACTION_VERSION,
 };
 
 /// A Player a test drives by hand: nothing plays unless a test says so, and
@@ -317,6 +318,61 @@ fn a_buffer_the_host_refuses_leaves_the_state_and_the_store_alone() {
 }
 
 #[test]
+fn a_fresh_host_lets_a_torrent_take_two_gigabytes() {
+    assert_eq!(
+        host().snapshot().preferences.torrent_cache.megabytes(),
+        2000
+    );
+}
+
+#[test]
+fn a_host_starts_from_the_torrent_cache_its_store_holds() {
+    let mut stored = Preferences::new();
+    stored.set_torrent_cache(TorrentCache::parse(8000).expect("a cache"));
+    let host = host_over(Arc::new(InMemoryStore::holding(stored)));
+
+    assert_eq!(host.snapshot().preferences.torrent_cache.megabytes(), 8000);
+}
+
+#[test]
+fn choosing_a_torrent_cache_publishes_a_snapshot_that_carries_it() {
+    let mut host = host();
+
+    let published = host
+        .dispatch(action(r#"{"type":"set_torrent_cache","megabytes":8000}"#))
+        .expect("a cache should be taken")
+        .snapshots;
+
+    assert_eq!(published.len(), 1, "one change publishes one Snapshot");
+    assert_eq!(published[0].preferences.torrent_cache.megabytes(), 8000);
+    assert_eq!(host.snapshot().preferences.torrent_cache.megabytes(), 8000);
+    assert_eq!(
+        host.snapshot().preferences.stream_buffer.megabytes(),
+        512,
+        "the Stream buffer is not moved by it"
+    );
+}
+
+#[test]
+fn a_torrent_cache_the_host_refuses_leaves_the_state_and_the_store_alone() {
+    let store = Arc::new(CountingStore::default());
+    let mut host = host_over(store.clone());
+    let before = host.snapshot();
+
+    for megabytes in [0, 255, 32001] {
+        let refused = host
+            .dispatch(action(&format!(
+                r#"{{"type":"set_torrent_cache","megabytes":{megabytes}}}"#
+            )))
+            .expect_err("a size outside 256 to 32000 is not a cache");
+        assert_eq!(refused.kind(), "invalid_torrent_cache");
+    }
+
+    assert_eq!(host.snapshot(), before, "nothing was written");
+    assert_eq!(store.writes(), 0, "nothing reached the store");
+}
+
+#[test]
 fn an_unknown_action_is_rejected_and_leaves_the_state_exactly_as_it_was() {
     let mut host = host();
     set_subtitle_languages(&mut host, &["pt-BR"]);
@@ -568,6 +624,7 @@ fn the_snapshot_declares_only_fields_it_can_safely_carry() {
                 "subtitleColor": "#FFFFFF",
                 "subtitleScale": 1.0,
                 "streamBuffer": { "seconds": 300, "megabytes": 512 },
+                "torrentCache": { "megabytes": 2000 },
                 "upNextPlayback": "direct",
                 "autoplay": true,
             },

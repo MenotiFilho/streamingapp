@@ -29,6 +29,7 @@ import type {
 import { formatTime } from "./playback";
 import appearance from "../subtitle-appearance.json";
 import buffer from "../stream-buffer.json";
+import torrentCache from "../torrent-cache.json";
 
 /**
  * Whether the Host would take a control right now: a Stream that is opening,
@@ -261,6 +262,45 @@ export function formatBufferMegabytes(megabytes: number): string {
 /** Whether the look-ahead the Host holds is one of Settings' presets. */
 export function bufferSecondsPreset(seconds: number): boolean {
   return STREAM_BUFFER_SECONDS.some((choice) => choice.seconds === seconds);
+}
+
+/**
+ * What the Stream buffer's group says about torrents: the buffer also sets how
+ * far ahead the Torrent engine fetches (ADR-0042 §3). One sentence for both
+ * clients.
+ */
+export const TORRENT_FETCH_NOTE = "Torrents are fetched this far ahead too.";
+
+/** What Settings calls the most disk a playing torrent may take. */
+export const TORRENT_CACHE_HEAD = "Torrent cache";
+
+/**
+ * The Torrent cache presets, from `src/torrent-cache.json` — the one list the
+ * window and the served Remote share. A preference of its own beside the Stream
+ * buffer, in decimal megabytes like it, with no coupling to it (ADR-0042 §3).
+ */
+export const TORRENT_CACHE_MEGABYTES: ReadonlyArray<BufferMegabytesChoice> =
+  torrentCache.megabytes;
+
+/** The smallest and largest Torrent cache the Host takes, and the one it starts from. */
+export const TORRENT_CACHE_MIN_MEGABYTES = torrentCache.minMegabytes;
+export const TORRENT_CACHE_MAX_MEGABYTES = torrentCache.maxMegabytes;
+export const TORRENT_CACHE_DEFAULT_MEGABYTES = torrentCache.defaultMegabytes;
+
+/** Whether the Torrent cache the Host holds is one of Settings' presets. */
+export function torrentCachePreset(megabytes: number): boolean {
+  return TORRENT_CACHE_MEGABYTES.some((choice) => choice.megabytes === megabytes);
+}
+
+/** A Torrent cache as a person reads it: a preset's own words, else decimal megabytes. */
+export function formatTorrentCache(megabytes: number): string {
+  const preset = TORRENT_CACHE_MEGABYTES.find((choice) => choice.megabytes === megabytes);
+  return preset ? preset.label : formatBufferMegabytes(megabytes);
+}
+
+/** The one Action a Torrent cache press sends, for both clients. */
+export function torrentCacheRequest(megabytes: number): Action {
+  return { type: "set_torrent_cache", megabytes };
 }
 
 /** Whether the memory ceiling the Host holds is one of Settings' presets. */

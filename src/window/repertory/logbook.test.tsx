@@ -106,6 +106,7 @@ const SNAPSHOT: Snapshot = {
     subtitleColor: "#FFFFFF",
     subtitleScale: 1,
     streamBuffer: { seconds: 300, megabytes: 512 },
+    torrentCache: { megabytes: 2000 },
     upNextPlayback: "direct",
     autoplay: true,
   },
@@ -502,6 +503,36 @@ describe("the repertory Settings register", () => {
       expect(actions(ask)).toContainEqual({ type: "sign_out_stremio" }),
     );
     expect(pop).toHaveBeenCalled();
+  });
+
+  test("Preferences dispatches the Torrent cache on its own, under the Stream buffer", async () => {
+    const { value, pushed, ask } = harness();
+    show(value, <RepertorySettingsScreen />);
+    fireEvent.click(screen.getByTestId("settings-category-preferences"));
+    showLevel(categoryLevel(pushed, "preferences"), value);
+
+    // The default is held and pressed; each preset sends the one Action.
+    expect(screen.getByTestId("torrent-cache-2000")).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByTestId("torrent-cache-8000"));
+    await waitFor(() =>
+      expect(actions(ask)).toContainEqual({ type: "set_torrent_cache", megabytes: 8000 }),
+    );
+    expect(
+      actions(ask).filter((action) => action.type === "set_stream_buffer"),
+      "the Stream buffer is not sent with it",
+    ).toEqual([]);
+
+    // The Stream buffer's group says torrents follow it, and the Torrent cache
+    // row is the next group after it.
+    expect(screen.getByTestId("stream-buffer-torrents")).toHaveTextContent(
+      "Torrents are fetched this far ahead too.",
+    );
+    const bufferGroup = screen.getByTestId("stream-buffer-torrents").closest("section");
+    expect(bufferGroup).toHaveAttribute("data-region", "settings-stream-buffer");
+    expect(bufferGroup?.nextElementSibling).toHaveAttribute(
+      "data-region",
+      "settings-torrent-cache",
+    );
   });
 
   test("Preferences dispatches the buffer pair, and the featured catalog", async () => {

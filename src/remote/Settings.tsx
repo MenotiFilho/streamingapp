@@ -9,14 +9,21 @@ import {
   STREAM_BUFFER_SECONDS,
   SUBTITLE_COLORS,
   SUBTITLE_SCALES,
+  TORRENT_CACHE_DEFAULT_MEGABYTES,
+  TORRENT_CACHE_HEAD,
+  TORRENT_CACHE_MEGABYTES,
+  TORRENT_FETCH_NOTE,
   bufferMegabytesPreset,
   bufferSecondsPreset,
   colorSelected,
   formatBufferMegabytes,
   formatBufferSeconds,
   formatScale,
+  formatTorrentCache,
   scalePreset,
   scaleSelected,
+  torrentCachePreset,
+  torrentCacheRequest,
   upNextRows,
 } from "../core/controls";
 import { explain, type ActionError } from "../core/errors";
@@ -392,6 +399,9 @@ function PreferencesLeaf({ category, session, state, push }: LeafProps) {
    * The pair the chips draw before the Host has answered a press, so two quick
    * presses compose from the first rather than both from the same Snapshot.
    */
+  const heldTorrentCache =
+    snapshot?.preferences.torrentCache.megabytes ?? TORRENT_CACHE_DEFAULT_MEGABYTES;
+
   const [bufferDraft, setBufferDraft] = useState<StreamBuffer>(published);
   useEffect(() => {
     setBufferDraft({
@@ -403,6 +413,7 @@ function PreferencesLeaf({ category, session, state, push }: LeafProps) {
   const [colorError, setColorError] = useState<ActionError | null>(null);
   const [scaleError, setScaleError] = useState<ActionError | null>(null);
   const [bufferError, setBufferError] = useState<ActionError | null>(null);
+  const [torrentCacheError, setTorrentCacheError] = useState<ActionError | null>(null);
   const [upNextError, setUpNextError] = useState<ActionError | null>(null);
   const [featuredError, setFeaturedError] = useState<ActionError | null>(null);
 
@@ -539,7 +550,38 @@ function PreferencesLeaf({ category, session, state, push }: LeafProps) {
             </ChoiceChip>
           ) : null}
         </div>
+        <p className="remote-quiet" data-testid="stream-buffer-torrents">
+          {TORRENT_FETCH_NOTE}
+        </p>
         <Refusal error={bufferError} />
+      </section>
+
+      <section className="remote-settings-group">
+        <h2 className="remote-settings-label">{TORRENT_CACHE_HEAD}</h2>
+        <div className="remote-settings-chips">
+          {TORRENT_CACHE_MEGABYTES.map((choice) => (
+            <ChoiceChip
+              key={choice.megabytes}
+              pressed={heldTorrentCache === choice.megabytes}
+              onClick={() =>
+                void take(torrentCacheRequest(choice.megabytes), setTorrentCacheError)
+              }
+            >
+              {choice.label}
+            </ChoiceChip>
+          ))}
+          {!torrentCachePreset(heldTorrentCache) ? (
+            <ChoiceChip
+              pressed
+              onClick={() =>
+                void take(torrentCacheRequest(heldTorrentCache), setTorrentCacheError)
+              }
+            >
+              {formatTorrentCache(heldTorrentCache)}
+            </ChoiceChip>
+          ) : null}
+        </div>
+        <Refusal error={torrentCacheError} />
       </section>
 
       <section className="remote-settings-group">
