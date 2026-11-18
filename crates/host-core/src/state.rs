@@ -160,6 +160,18 @@ impl State {
         self.playback.record_initial_choice();
     }
 
+    /// Record how many Addon subtitles were added to the Stream playing now, so
+    /// the Host looks for them in a later report (ADR-0041).
+    pub(crate) fn record_addon_tracks_added(&mut self, count: usize) {
+        self.playback.record_addon_tracks_added(count);
+    }
+
+    /// Record that the Host's one switch to an Addon subtitle is decided on the
+    /// Stream playing now.
+    pub(crate) fn record_addon_switch_done(&mut self) {
+        self.playback.record_addon_switch_done();
+    }
+
     pub(crate) fn has_addon(&self, id: &AddonId) -> bool {
         self.addons.iter().any(|addon| addon.id() == id)
     }

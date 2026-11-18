@@ -1,5 +1,7 @@
-//! The Addon `subtitles` fallback, driven the way the Host drives it: a Stream
+//! The Addon `subtitles` fallback **when the Host follows the file** (an empty
+//! list of Subtitle languages), driven the way the Host drives it: a Stream
 //! playing with no embedded subtitle track, and the Addons asked about once.
+//! The fallback for a list is in `addon_subtitles.rs`.
 //! Nothing below the Action surface is named here, and no test reaches the
 //! network: every Addon answer is a fixture or a fake Provider.
 
@@ -197,7 +199,7 @@ fn a_stream_with_no_embedded_subtitles_is_asked_about_once() {
 }
 
 #[test]
-fn a_stream_that_carries_an_embedded_subtitle_is_never_asked_about() {
+fn following_the_file_a_stream_that_carries_an_embedded_subtitle_is_never_asked_about() {
     let player = Arc::new(FixturePlayer::new());
     let provider = Arc::new(
         FixtureProvider::new()
@@ -242,7 +244,8 @@ fn a_stream_that_carries_an_embedded_subtitle_is_never_asked_about() {
 
     assert!(
         provider.asked().is_empty(),
-        "embedded subtitles always win: an Addon is never asked about a Stream that has one"
+        "following the file (no Subtitle languages), the file's own subtitles are all \
+         there is to follow: an Addon is never asked about a Stream that has one (ADR-0041)"
     );
     assert!(added(&player).is_empty());
 }
