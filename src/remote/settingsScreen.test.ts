@@ -14,7 +14,10 @@ import {
   clearTmdbLevel,
   colorRequest,
   featuredRequest,
-  languageRequest,
+  LANGUAGE_GROUP_HEADS,
+  LONG_PRESS_MS,
+  LONG_PRESS_SLOP,
+  pressVerdict,
   revokeLevel,
   scaleRequest,
   settingsCategoryOf,
@@ -114,14 +117,10 @@ describe("the Credentials leaf's forms", () => {
 });
 
 describe("the Preferences leaf's Actions", () => {
-  test("a language is a one-entry list, and the absence of one is the empty list", () => {
-    expect(languageRequest("pt-BR")).toEqual({
-      type: "set_subtitle_languages",
-      languages: ["pt-BR"],
-    });
-    expect(languageRequest(null)).toEqual({
-      type: "set_subtitle_languages",
-      languages: [],
+  test("the two language groups are named as the Host's lists are", () => {
+    expect(LANGUAGE_GROUP_HEADS).toEqual({
+      subtitle: "Subtitle languages",
+      audio: "Audio languages",
     });
   });
 
@@ -176,5 +175,24 @@ describe("revoking a device", () => {
         action: { type: "revoke_device", id: PHONE.id },
       },
     });
+  });
+});
+
+describe("the long-press that starts a chip's drag", () => {
+  test("a press held about half a second without travelling starts a drag", () => {
+    expect(LONG_PRESS_MS).toBeGreaterThanOrEqual(400);
+    expect(LONG_PRESS_MS).toBeLessThanOrEqual(600);
+    expect(pressVerdict({ heldMs: LONG_PRESS_MS, travelled: 0 })).toBe("drag");
+    expect(pressVerdict({ heldMs: LONG_PRESS_MS + 200, travelled: LONG_PRESS_SLOP })).toBe("drag");
+  });
+
+  test("a press shorter than the threshold is still waiting, and a tap never drags", () => {
+    expect(pressVerdict({ heldMs: 0, travelled: 0 })).toBe("wait");
+    expect(pressVerdict({ heldMs: LONG_PRESS_MS - 1, travelled: LONG_PRESS_SLOP })).toBe("wait");
+  });
+
+  test("a move before the threshold is a swipe: the page scrolls and no drag starts", () => {
+    expect(pressVerdict({ heldMs: 100, travelled: LONG_PRESS_SLOP + 1 })).toBe("scroll");
+    expect(pressVerdict({ heldMs: LONG_PRESS_MS - 1, travelled: 40 })).toBe("scroll");
   });
 });

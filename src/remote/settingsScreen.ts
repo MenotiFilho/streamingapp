@@ -1,4 +1,5 @@
 import type { DeclaredCatalog } from "../core/browse";
+import type { LanguageKind } from "../core/languageList";
 import type { NewLevel } from "../core/navigation";
 import {
   CREDENTIALS_CATEGORY,
@@ -118,7 +119,6 @@ export function signOutLevel(): NewLevel<RemotePayload> {
 /* ---------------------------------------------------------------- Preferences */
 
 /** The section labels the Preferences leaf prints, in reading order. */
-export const SUBTITLE_LANGUAGE_HEAD = "Subtitle language";
 export const SUBTITLE_COLOUR_HEAD = "Subtitle colour";
 export const SUBTITLE_SIZE_HEAD = "Subtitle size";
 export const STREAM_BUFFER_HEAD = "Stream buffer";
@@ -128,16 +128,40 @@ export const UP_NEXT_HEAD = "Up next";
 export const FEATURED_CATALOG_HEAD = "Featured catalog";
 export const FEATURED_NONE = "No featured catalog";
 
+/** What each language group is called: the Host's own two lists (ADR-0041). */
+export const LANGUAGE_GROUP_HEADS: Record<LanguageKind, string> = {
+  subtitle: "Subtitle languages",
+  audio: "Audio languages",
+};
+
+/** How long a chip is held before it is picked up: about half a second. */
+export const LONG_PRESS_MS = 500;
+
+/** How far a finger may drift while held and still be holding (CSS pixels). */
+export const LONG_PRESS_SLOP = 8;
+
+/** What a press on a chip has become. */
+export type PressVerdict = "wait" | "drag" | "scroll";
+
 /**
- * The Subtitle languages as today's single-language picker sets them: a tag is
- * a one-entry list, and the absence of one is the empty list, which is Follow
- * the file. The Action carries the whole list (ADR-0041).
+ * Whether a press on a chip is a drag yet (#330, story 18).
+ *
+ * A phone's finger lands on a chip all the time on the way to scrolling the
+ * page, so a drag starts only on a long press: held about half a second without
+ * travelling. A move before that is a swipe — the page scrolls and the chip is
+ * never picked up — and a release before it is a tap, which is no drag either.
  */
-export function languageRequest(tag: string | null): Action {
-  return {
-    type: "set_subtitle_languages",
-    languages: tag === null ? [] : [tag],
-  };
+export function pressVerdict({
+  heldMs,
+  travelled,
+}: {
+  heldMs: number;
+  travelled: number;
+}): PressVerdict {
+  if (heldMs >= LONG_PRESS_MS) {
+    return "drag";
+  }
+  return travelled > LONG_PRESS_SLOP ? "scroll" : "wait";
 }
 
 export function colorRequest(color: string): Action {
