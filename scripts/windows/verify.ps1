@@ -71,11 +71,11 @@ $tmdbNotice = 'This product uses the TMDB API but is not endorsed or certified b
 # run in the same invocation; `Need` is the words `-List` prints for both.
 $Steps = @(
     [pscustomobject]@{ Id = 1;  Title = 'launching the Host opens the ten-foot window'; Ground = ''; After = @(); Need = 'nothing: it starts its own Host from the empty data directory' }
-    [pscustomobject]@{ Id = 2;  Title = 'Settings > Preferences: choosing a subtitle language goes through the Action surface'; Ground = 'fresh'; After = @(); Need = 'a fresh Host (empty data directory, one Host, no Addon)' }
+    [pscustomobject]@{ Id = 2;  Title = 'Settings > Preferences: ticking a subtitle language in the drawer goes through the Action surface'; Ground = 'fresh'; After = @(); Need = 'a fresh Host (empty data directory, one Host, no Addon)' }
     [pscustomobject]@{ Id = 3;  Title = 'launching again focuses the running Host instead of starting a second one'; Ground = 'fresh'; After = @(); Need = 'a fresh Host (empty data directory, one Host, no Addon)' }
-    [pscustomobject]@{ Id = 4;  Title = 'the preference survives a restart'; Ground = ''; After = @(2, 3); Need = 'steps 2 and 3: the English preference, and the second launch step 3 logged' }
-    [pscustomobject]@{ Id = 5;  Title = 'choosing another language moves the choice and publishes one Snapshot'; Ground = ''; After = @(4); Need = 'step 4: its restarted Host, in Preferences' }
-    [pscustomobject]@{ Id = 6;  Title = 'clearing the preference: Host picks per Video, and no featured Catalog'; Ground = ''; After = @(4); Need = 'step 4: its restarted Host, in Preferences' }
+    [pscustomobject]@{ Id = 4;  Title = 'the Subtitle languages list survives a restart'; Ground = ''; After = @(2, 3); Need = 'steps 2 and 3: the English Subtitle languages list, and the second launch step 3 logged' }
+    [pscustomobject]@{ Id = 5;  Title = 'ticking a second language and moving it first publishes one Snapshot each'; Ground = ''; After = @(4); Need = 'step 4: its restarted Host, in Preferences' }
+    [pscustomobject]@{ Id = 6;  Title = 'removing every chip: Follow the file, and no featured Catalog'; Ground = ''; After = @(4); Need = 'step 4: its restarted Host, in Preferences' }
     [pscustomobject]@{ Id = 7;  Title = 'configuring an Addon by manifest URL'; Ground = ''; After = @(); Need = 'nothing: it starts its own Host from the empty data directory' }
     [pscustomobject]@{ Id = 8;  Title = 'a URL that is not an Addon is refused without losing the Addon that works'; Ground = 'addon'; After = @(); Need = 'the fixture Addon configured (one Host, the Addon added by manifest URL)' }
     [pscustomobject]@{ Id = 9;  Title = 'the Addon survives a restart'; Ground = 'addon'; After = @(); Need = 'the fixture Addon configured (one Host, the Addon added by manifest URL)' }
@@ -1203,6 +1203,13 @@ function Press-Language-Control($app, [scriptblock] $find, [scriptblock] $landed
     if (& $landed) { return $true }
     $element = & $find
     if (-not $element) { return $false }
+    # The Languages group scrolls inside the drawer: bring the row into view, and
+    # let Chromium's scroll stop, before the rectangle is read.
+    $scroll = $null
+    if ($element.TryGetCurrentPattern([Windows.Automation.ScrollItemPattern]::Pattern, [ref]$scroll)) {
+        try { $scroll.ScrollIntoView() } catch { }
+    }
+    Start-Sleep -Milliseconds 900
     $rect = $element.Current.BoundingRectangle
     if ($rect.IsEmpty -or $rect.Width -le 0 -or $rect.Height -le 0) { return $false }
     [W]::Click([int]($rect.Left + ($rect.Width / 2)), [int]($rect.Top + ($rect.Height / 2)))
@@ -1227,8 +1234,8 @@ function Close-Language-Drawer($app) {
 
 # Tick a language in the open drawer: its row moves from Languages to Chosen.
 function Tick-Language($app, $name) {
-    $find = { Language-Rows $app $name | Where-Object { -not (Toggled $_) } | Select-Object -First 1 }.GetNewClosure()
-    $landed = { $null -ne (Wait-Language-Row $app $name $true 6) }.GetNewClosure()
+    $find = { Language-Rows $app $name | Where-Object { -not (Toggled $_) } | Select-Object -First 1 }
+    $landed = { $null -ne (Wait-Language-Row $app $name $true 6) }
     if (-not (Press-Language-Control $app $find $landed)) {
         throw "ticking $name in the drawer did not make it a chosen row"
     }
@@ -1236,8 +1243,8 @@ function Tick-Language($app, $name) {
 
 # Move a chosen language one rank toward the first, with its ↑.
 function Move-Language-Up($app, $name) {
-    $find = { Button-Named $app ('Move ' + $name + ' up') 6 }.GetNewClosure()
-    $landed = { Wait-Move-State $app $name 'up' $true 6 }.GetNewClosure()
+    $find = { Button-Named $app ('Move ' + $name + ' up') 6 }
+    $landed = { Wait-Move-State $app $name 'up' $true 6 }
     if (-not (Press-Language-Control $app $find $landed)) {
         throw "Move $name up did not take $name to the first rank"
     }
@@ -1245,7 +1252,7 @@ function Move-Language-Up($app, $name) {
 
 # Take a chip out with its ×, on the Preferences screen (the drawer closed).
 function Remove-Language-Chip($app, $name) {
-    $find = { Button-Named $app ('Remove ' + $name) 6 }.GetNewClosure()
+    $find = { Button-Named $app ('Remove ' + $name) 6 }
     $landed = {
         $deadline = (Get-Date).AddSeconds(6)
         while ((Get-Date) -lt $deadline) {
@@ -1253,7 +1260,7 @@ function Remove-Language-Chip($app, $name) {
             Start-Sleep -Milliseconds 300
         }
         return $false
-    }.GetNewClosure()
+    }
     if (-not (Press-Language-Control $app $find $landed)) {
         throw "the Remove $name control did not take the chip out"
     }
@@ -1280,7 +1287,7 @@ function Ensure-FreshHost($ctx) {
 function Ensure-Featured($app) {
     Open-Settings $app
     Press $app 'Preferences'
-    Wait-Text $app 'Subtitle language' 20 | Out-Null
+    Wait-Text $app 'Subtitle languages' 20 | Out-Null
     $label = $AddonCatalog + ' ' + $dot + ' ' + $AddonName
     $chip = @(Buttons-Matching $app $label)[0]
     if (-not $chip) {
@@ -1875,7 +1882,7 @@ function Step-2($ctx) {
     Check 'the language ticked is a chosen row the Host holds' (
         $null -ne (Wait-Language-Row $app 'English' $true 15)) 'the English row never became a chosen one'
     Check 'the drawer now has a Chosen group, and the English row has left Languages' (
-        (Shows $app 'Chosen' 5) -and
+        ((Wait-Text $app 'Chosen' 5) -match 'Chosen') -and
         -not (Language-Rows $app 'English' | Where-Object { -not (Toggled $_) })) (Page-Text $app)
     Check 'ticking a language published one Snapshot' (
         (Wait-Published $before 20) -gt $before) "the log still shows $before published Snapshot(s)"
@@ -1898,7 +1905,6 @@ function Step-3($ctx) {
         -not $app.Process.HasExited) 'the first Host died'
     Shot $app '03-after-second-launch.png'
 }
-
 
 function Step-4($ctx) {
     '--- 4. the list survives a restart'

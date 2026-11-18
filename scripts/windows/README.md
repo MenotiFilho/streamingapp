@@ -135,7 +135,7 @@ screenshots keep their names, so a partial run's `evidence\` compares with a ful
 one's.
 
 A handful of steps read what an earlier step left behind and cannot rebuild it:
-step 4 needs steps 2 and 3 (the saved language, and the second launch in the
+step 4 needs steps 2 and 3 (the saved Subtitle languages list, and the second launch in the
 log), step 12 needs the Title step 11 opened, step 18 needs the Search screen step
 17 left showing, and step 21 needs the log steps 19 and 20 wrote. Run alone, one
 of these **refuses loudly** — it prints the step it needs and the selection to run
@@ -336,7 +336,7 @@ or started).
   anything the page paints over the video would hide it.
 - **The window's data outlives the run.** The Host keeps its database and logs in
   `%APPDATA%\dev.streamingapp.host\` (`/mnt/c/Users/<you>/AppData/Roaming/dev.streamingapp.host`).
-  `verify.ps1` starts by removing them, so "the preference survives a restart" is
+  `verify.ps1` starts by removing them, so "the Subtitle languages list survives a restart" is
   really being tested.
 - **On Windows the config and data directories are the same directory**
   (`%APPDATA%\dev.streamingapp.host`); on Linux they differ (`~/.config` vs
