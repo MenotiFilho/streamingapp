@@ -25,6 +25,8 @@ import {
   type TransportControlId,
 } from "../core/transportControls";
 import { usePlaybackView } from "../core/react/usePlaybackView";
+import { useStallShown } from "../core/react/useStallShown";
+import { STALLED_NOTE } from "../core/stall";
 import { usePreview, type PreviewAsk } from "../core/react/usePreview";
 import { useShell } from "./context";
 import { AutoplayCard } from "./AutoplayCard";
@@ -225,6 +227,10 @@ export function PlayerOverlay() {
   // Actions set, and the one clock between Snapshots (#191 §5, #137). The
   // countdown's digit moves on that clock whether or not the OSD is showing.
   const view = usePlaybackView(session, visible || counting);
+  // The Stalled card has its own second on its own clock: it neither wakes the
+  // OSD nor reads its idle timer, so a stall draws the same whether the chrome
+  // is up or put away (ADR-0033).
+  const stallUp = useStallShown(playback?.stalled ?? false);
 
   // The card puts focus on Cancel when it appears: one press stops the
   // countdown, and doing nothing lets the next episode play (#302). At the hold
@@ -542,6 +548,14 @@ export function PlayerOverlay() {
                 </p>
               ) : null}
             </div>
+          </div>
+        ) : null}
+        {stallUp ? (
+          <div className="shell-stall-card" role="status" data-testid="stall-card">
+            <span className="shell-stall-ring" aria-hidden="true">
+              <PendingSpinner />
+            </span>
+            <p className="shell-stall-title">{STALLED_NOTE}</p>
           </div>
         ) : null}
         {state === "ended" && plainEnd(view.autoplay) ? (

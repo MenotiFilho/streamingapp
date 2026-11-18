@@ -2222,6 +2222,20 @@ body {
   line-height: 1.3;
 }
 
+/* A Stalled Stream's note: the ring, then the sentence, in the house's ivory
+   rather than the opening note's brass (#333). */
+.remote-player-state[data-stalled="true"] {
+  display: flex;
+  align-items: center;
+  gap: var(--rep-space-2);
+  color: var(--rep-ivory);
+}
+
+.remote-player-state[data-stalled="true"] .rep-kit-spinner {
+  color: var(--rep-house);
+  font-size: 0.95rem;
+}
+
 /* The Autoplay switch row: hairline-boxed, one touch target tall, under the
    transport cells and above the menu row (#318). */
 .remote-player-autoplay {

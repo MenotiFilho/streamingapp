@@ -78,6 +78,7 @@ const SNAPSHOT: Snapshot = {
     volume: null,
     muted: null,
     subtitleDelay: null,
+    stalled: false,
     crop: null,
     aspect: null,
     resolution: null,

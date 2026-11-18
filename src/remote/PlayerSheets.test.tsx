@@ -132,6 +132,7 @@ const PLAYBACK: PlaybackSnapshot = {
   volume: 60,
   muted: false,
   subtitleDelay: 0.2,
+  stalled: false,
   crop: null,
   aspect: null,
   resolution: { width: 1280, height: 720 },

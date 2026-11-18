@@ -796,7 +796,8 @@
   position: absolute;
   inset: 0;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
+  justify-content: center;
   overflow: hidden;
   background: var(--rep-ink);
 }
@@ -814,9 +815,11 @@
   z-index: 1;
   display: grid;
   gap: var(--rep-space-1);
+  justify-items: center;
   width: 100%;
-  padding: 0 var(--rep-gutter) calc(var(--rep-stage) * 5.4);
+  padding: 0 var(--rep-gutter);
   box-sizing: border-box;
+  text-align: center;
 }
 
 .shell-player-preview-scrim {
@@ -854,6 +857,43 @@
   font-family: var(--rep-mono);
   font-size: var(--rep-text-badge);
   letter-spacing: 0.04em;
+}
+
+/* The Stalled card: a small plate in the middle of the picture, a ring over one
+   sentence. It never takes a press (the picture beneath it is the play/pause
+   control) and does not move with the OSD. */
+.shell-stall-card {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  display: grid;
+  justify-items: center;
+  gap: var(--rep-space-2);
+  padding: var(--rep-space-4) var(--rep-space-5);
+  border: 1px solid var(--rep-hairline);
+  border-top: 2px solid var(--rep-house);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--rep-ink-raised) 88%, transparent);
+  text-align: center;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.shell-stall-ring {
+  display: grid;
+  place-items: center;
+  color: var(--rep-house);
+  font-size: max(26px, calc(var(--rep-stage) * 1.55));
+}
+
+.shell-stall-title {
+  margin: 0;
+  color: var(--rep-ivory);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-control);
+  font-weight: 500;
+  line-height: 1.25;
 }
 
 .shell-picture-note {
