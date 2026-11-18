@@ -52,6 +52,7 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
     volume: 60,
     muted: true,
     subtitleDelay: 0,
+    stalled: false,
     crop: null,
     aspect: null,
     resolution: { width: 1920, height: 1080 },
@@ -101,6 +102,13 @@ describe("what the playback facts say", () => {
     expect(view.watching).toBe(true);
     expect(view.transportable).toBe(true);
     expect(view.controllable).toBe(true);
+  });
+
+  test("the view carries the Host's Stalled as published", () => {
+    const input = { played: 0, pending: NO_PENDING, watchProgress: NO_PROGRESS };
+
+    expect(playbackView(playback(), input).stalled).toBe(false);
+    expect(playbackView(playback({ stalled: true }), input).stalled).toBe(true);
   });
 
   test("opening is watched and controllable but not transportable yet", () => {
