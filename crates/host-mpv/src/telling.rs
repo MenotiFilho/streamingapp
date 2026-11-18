@@ -8,19 +8,18 @@
 //! (`docs/research/mpv-control-facts.md`).
 
 use host_core::{
-    Aspect, ChapterStep, Crop, LanguageList, SeekTarget, StreamBuffer, StreamUrl, Telling,
+    codes_for_list, Aspect, ChapterStep, Crop, LanguageList, SeekTarget, StreamBuffer, StreamUrl,
+    Telling,
 };
 
 use crate::AUTOCROP_SCRIPT_STEM;
 
-/// A language list as mpv's `slang` / `alang` take it: the tags in order,
-/// separated by commas.
+/// A language list as mpv's `slang` / `alang` take it: every entry widened
+/// through the Host's code table, in order and with duplicates dropped, separated
+/// by commas. `pt-BR,en` is `pt-BR,pob,en,eng`, so a Track tagged `pob` is in
+/// mpv's first guess too (ADR-0041).
 fn comma_joined(languages: &LanguageList) -> String {
-    languages
-        .iter()
-        .map(|language| language.as_str())
-        .collect::<Vec<_>>()
-        .join(",")
+    codes_for_list(languages).join(",")
 }
 
 /// The command that opens a Stream, whatever was playing.
@@ -32,6 +31,22 @@ pub(crate) fn load(url: &StreamUrl) -> (&'static str, Vec<String>) {
         "loadfile",
         vec![url.as_str().to_owned(), "replace".to_owned()],
     )
+}
+
+/// The commands that open a Stream, in the order mpv is given them: the track
+/// selection starts from mpv's own choice, and then the file is loaded.
+///
+/// `aid` and `sid` go back to `auto` because a `sid=no` from the last Stream
+/// would otherwise carry into this one (mpv resets only a selection of a track
+/// number, never "no"). The Host's own choice comes after the file reports its
+/// Tracks; what an owner picked in the player is carried by the Host as a Hand
+/// pick, not by mpv (ADR-0041).
+pub(crate) fn opening(url: &StreamUrl) -> Vec<(&'static str, Vec<String>)> {
+    vec![
+        ("set", vec!["aid".to_owned(), "auto".to_owned()]),
+        ("set", vec!["sid".to_owned(), "auto".to_owned()]),
+        load(url),
+    ]
 }
 
 /// The option that starts the next file where a resume left off, in mpv's own
@@ -138,10 +153,10 @@ pub(crate) fn commands(telling: &Telling) -> Vec<(&'static str, Vec<String>)> {
             "set",
             vec!["video-aspect-override".to_owned(), value.to_string()],
         )],
-        // The lists are mpv's first guess, the tags as listed and comma-joined
-        // (the code table that widens each tag is a later step). An empty list
-        // is an empty string, which is how mpv is told to prefer nothing; the
-        // Host tells both once at startup and with every change (ADR-0041).
+        // The lists are mpv's first guess, each entry widened through the code
+        // table. An empty list is an empty string, which is how mpv is told to
+        // prefer nothing; the Host tells both once at startup and with every
+        // change (ADR-0041).
         Telling::SubtitleLanguages(languages) => {
             vec![("set", vec!["slang".to_owned(), comma_joined(languages)])]
         }
@@ -239,6 +254,43 @@ mod tests {
             )
         );
         assert_eq!(stop(), ("stop", Vec::new()));
+    }
+
+    #[test]
+    fn opening_a_stream_first_forgets_the_last_streams_track_selection() {
+        // `sid=no` is below zero, so mpv never resets it when the next file's
+        // layout differs: a subtitle turned off on one Stream would stay off on
+        // the next. `auto` puts both back to mpv's own choice before the file is
+        // read; carrying "off" on purpose is the Host's Hand pick (ADR-0041).
+        assert_eq!(
+            opening(&url()),
+            vec![
+                ("set", vec!["aid".to_owned(), "auto".to_owned()]),
+                ("set", vec!["sid".to_owned(), "auto".to_owned()]),
+                load(&url()),
+            ],
+            "the two resets come before the file, and the file is the last word"
+        );
+    }
+
+    #[test]
+    fn a_listed_language_is_told_with_every_code_a_file_might_use() {
+        // Each entry widened through the Host's code table, in order, with a
+        // code both entries share told once: `no` already carries `nb`.
+        let told =
+            |languages: LanguageList| match &commands(&Telling::SubtitleLanguages(languages))[..] {
+                [("set", arguments)] => arguments[1].clone(),
+                other => panic!("not one `set`: {other:?}"),
+            };
+        assert_eq!(
+            told(LanguageList::parse(&["no", "nb"]).expect("a list")),
+            "no,nor,nb,nob,nn,nno"
+        );
+        assert_eq!(
+            told(LanguageList::parse(&["zh-Hans", "sw"]).expect("a list")),
+            "zh-Hans,zh-CN,zh-SG,chs,sw",
+            "and a tag the table does not know is told as it is"
+        );
     }
 
     #[test]
@@ -352,7 +404,10 @@ mod tests {
                 Telling::SubtitleLanguages(
                     LanguageList::parse(&["pt-BR", "en"]).expect("a language list"),
                 ),
-                ("set", vec!["slang".to_owned(), "pt-BR,en".to_owned()]),
+                (
+                    "set",
+                    vec!["slang".to_owned(), "pt-BR,pob,en,eng".to_owned()],
+                ),
             ),
             (
                 Telling::SubtitleLanguages(LanguageList::empty()),
@@ -362,7 +417,10 @@ mod tests {
                 Telling::AudioLanguages(
                     LanguageList::parse(&["en", "pt-BR", "fr-CA"]).expect("a language list"),
                 ),
-                ("set", vec!["alang".to_owned(), "en,pt-BR,fr-CA".to_owned()]),
+                (
+                    "set",
+                    vec!["alang".to_owned(), "en,eng,pt-BR,pob,fr-CA".to_owned()],
+                ),
             ),
             (
                 Telling::AudioLanguages(LanguageList::empty()),

@@ -443,10 +443,13 @@ impl Player for MpvPlayer {
 
         // An open that mpv will not even take is the one failure this call can
         // report: whether the *Stream* opens is found out later, in `observe`.
-        let result = self.run(telling::load(url)).map_err(|error| match error {
-            PlaybackError::Command { detail } => PlaybackError::Open { detail },
-            other => other,
-        });
+        let result = telling::opening(url)
+            .into_iter()
+            .try_for_each(|command| self.run(command))
+            .map_err(|error| match error {
+                PlaybackError::Command { detail } => PlaybackError::Open { detail },
+                other => other,
+            });
         if result.is_ok() {
             *memory = Memory::asking();
             if starting {
@@ -972,6 +975,16 @@ fn options(surface: Placement, script: Option<&str>) -> Vec<(&'static str, Strin
             .to_owned(),
         ),
         ("hwdec", "auto-safe".to_owned()),
+        // mpv stands down: the Host chooses the Track, and mpv's own fallbacks
+        // must not fight it (ADR-0041). No unrelated default subtitle when
+        // `slang` misses, no forced subtitle by mpv's rule, and no choosing by
+        // the OS language when a list is empty: following the file is the file's
+        // own default. `track-auto-selection` and `subs-with-matching-audio`
+        // stay at `yes`, so the first guess still selects something before the
+        // Host's first report and a matching soundtrack hides no subtitle.
+        ("subs-fallback", "no".to_owned()),
+        ("subs-fallback-forced", "no".to_owned()),
+        ("subs-match-os-language", "no".to_owned()),
         ("keep-open", "yes".to_owned()),
         ("target-colorspace-hint", "yes".to_owned()),
         ("idle", "yes".to_owned()),
@@ -1051,6 +1064,20 @@ mod tests {
             "HDR passthrough needs gpu-next, and the fallback keeps the rest playing"
         );
         assert_eq!(option(&options, "hwdec"), Some("auto-safe"));
+    }
+
+    #[test]
+    fn mpv_stands_down_so_the_hosts_choice_is_not_fought() {
+        for surface in [Placement::Headless, Placement::InWindow { handle: 1 }] {
+            let options = options(surface, None);
+
+            assert_eq!(option(&options, "subs-fallback"), Some("no"));
+            assert_eq!(option(&options, "subs-fallback-forced"), Some("no"));
+            assert_eq!(option(&options, "subs-match-os-language"), Some("no"));
+            // Left at mpv's default `yes`, by not being set at all.
+            assert_eq!(option(&options, "track-auto-selection"), None);
+            assert_eq!(option(&options, "subs-with-matching-audio"), None);
+        }
     }
 
     #[test]

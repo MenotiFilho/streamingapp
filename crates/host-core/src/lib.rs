@@ -70,6 +70,7 @@ mod subtitles;
 mod sync;
 mod title_cache;
 mod tmdb;
+mod tracks;
 mod view;
 mod wire;
 
@@ -143,6 +144,9 @@ pub use tmdb::{
     video_id, video_spelling, Credential, DiscoverQuery, DiscoverQueryError, ExternalId, Kind,
     NextEpisode, SearchQuery, SearchQueryError, SeriesStatus, TmdbDetails, TmdbError, TmdbId,
     TmdbRequest, TmdbVideo, IMAGE_ROOT, LOGO_ROOT, STILL_ROOT, TMDB_ROOT,
+};
+pub use tracks::{
+    codes_for, codes_for_list, curated_entry, locale_of, same_literally, Locale, CURATED,
 };
 pub use view::HostView;
 pub use wire::{permitted, ClientFrame, Refusal, ServerFrame, WIRE_VERSION};
