@@ -56,7 +56,8 @@ export const NOTHING: Snapshot = {
     statistics: null,
   },
   preferences: {
-    subtitleLanguage: null,
+    subtitleLanguages: [],
+    audioLanguages: [],
     subtitleColor: "#FFFFFF",
     subtitleScale: 1,
     streamBuffer: { seconds: 300, megabytes: 512 },

@@ -59,7 +59,7 @@ fn host_with_addons_and_a_key(secrets: Arc<InMemorySecretStore>) -> Host {
     ))
     .expect("configuring the recorded Addon should work");
     host.dispatch(action(
-        &serde_json::json!({ "type": "set_subtitle_language", "language": "pt-BR" }),
+        &serde_json::json!({ "type": "set_subtitle_languages", "languages": ["pt-BR"] }),
     ))
     .expect("setting the preference should work");
     host.dispatch(action(

@@ -220,13 +220,16 @@ impl Host {
             PairingCode::generate(),
         );
         let picture = player.picture();
-        // The subtitle language the owner stored is told to the Player once,
-        // before anything is opened: mpv's `slang` decides which subtitle track
-        // it selects for a Stream, and it has to be set before the `open` that
-        // would use it. A Player that refuses a preference is not a Host that
-        // cannot hold one, so the refusal is dropped.
-        let _ = player.tell(Telling::SubtitleLanguage(
-            state.preferences().subtitle_language().cloned(),
+        // The two language lists the owner stored are told to the Player once,
+        // before anything is opened: mpv's `slang` and `alang` are its first
+        // guess at a Stream's tracks, and they have to be set before the `open`
+        // that would use them (ADR-0041). A Player that refuses a preference is
+        // not a Host that cannot hold one, so the refusal is dropped.
+        let _ = player.tell(Telling::SubtitleLanguages(
+            state.preferences().subtitle_languages().clone(),
+        ));
+        let _ = player.tell(Telling::AudioLanguages(
+            state.preferences().audio_languages().clone(),
         ));
         // The appearance follows, for the same reason and in the same order:
         // the preferences are Host state, and a Stream opened after a restart
@@ -1235,18 +1238,20 @@ impl Host {
     /// state nor store. A question never reaches this method (ADR-0022).
     fn change(&mut self, validated: ValidatedAction) -> Result<Resolved, ActionError> {
         Ok(match validated {
-            ValidatedAction::SetSubtitleLanguage(language) => {
+            ValidatedAction::SetSubtitleLanguages(languages) => {
                 // The preference is the Host's and persists whether or not the
                 // Player takes it; a Player that refuses is not a reason a
-                // client cannot express a preference (ADR-0013).
+                // client cannot express a preference (ADR-0013). Told to the
+                // Player as its first guess for the next Stream; the Stream
+                // playing keeps its tracks (ADR-0041).
                 let _ = self
                     .player
-                    .tell(Telling::SubtitleLanguage(Some(language.clone())));
-                Resolved::Change(Change::SetSubtitleLanguage(language))
+                    .tell(Telling::SubtitleLanguages(languages.clone()));
+                Resolved::Change(Change::SetSubtitleLanguages(languages))
             }
-            ValidatedAction::ClearSubtitleLanguage => {
-                let _ = self.player.tell(Telling::SubtitleLanguage(None));
-                Resolved::Change(Change::ClearSubtitleLanguage)
+            ValidatedAction::SetAudioLanguages(languages) => {
+                let _ = self.player.tell(Telling::AudioLanguages(languages.clone()));
+                Resolved::Change(Change::SetAudioLanguages(languages))
             }
             ValidatedAction::SetSubtitleColor(color) => {
                 // A preference the Host keeps whether or not the Player takes

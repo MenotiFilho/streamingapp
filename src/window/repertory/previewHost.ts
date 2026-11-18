@@ -424,7 +424,8 @@ async function buildSnapshot(): Promise<Snapshot> {
     revision: 1,
     playback: idlePlayback(),
     preferences: {
-      subtitleLanguage: null,
+      subtitleLanguages: [],
+      audioLanguages: [],
       subtitleColor: "#FFFFFF",
       subtitleScale: 1,
       streamBuffer: { seconds: 300, megabytes: 512 },
@@ -816,19 +817,38 @@ async function dispatch(action: Action): Promise<Response> {
       return change((state) => ({
         protection: { ...state.protection, stremioHeld: false },
       }));
-    case "set_subtitle_language": {
-      const language = action.language.trim();
-      if (!language) {
-        return refuse({ kind: "invalid_language", language });
+    case "set_subtitle_languages":
+    case "set_audio_languages": {
+      // The Host's own refusals, in the Host's own order of judging: a bad
+      // entry, then a duplicate (case-insensitive), then a fourth.
+      const languages = action.languages.map((language) => language.trim());
+      const bad = languages.find((language) => !language);
+      if (bad !== undefined) {
+        return refuse({ kind: "invalid_language", language: bad });
       }
+      const seen = new Set<string>();
+      for (const language of languages) {
+        const key = language.toLowerCase();
+        if (seen.has(key)) {
+          return refuse({ kind: "duplicate_language", language });
+        }
+        seen.add(key);
+      }
+      if (languages.length > 3) {
+        return refuse({
+          kind: "too_many_languages",
+          count: languages.length,
+          max: 3,
+        });
+      }
+      const field =
+        action.type === "set_subtitle_languages"
+          ? "subtitleLanguages"
+          : "audioLanguages";
       return change((state) => ({
-        preferences: { ...state.preferences, subtitleLanguage: language },
+        preferences: { ...state.preferences, [field]: languages },
       }));
     }
-    case "clear_subtitle_language":
-      return change((state) => ({
-        preferences: { ...state.preferences, subtitleLanguage: null },
-      }));
     case "set_subtitle_color": {
       if (!/^#[0-9a-fA-F]{6}$/.test(action.color)) {
         return refuse({ kind: "invalid_subtitle_color", color: action.color });

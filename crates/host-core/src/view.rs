@@ -440,8 +440,8 @@ impl HostView {
             // rather than answered. Every change is named, so adding one to
             // `ValidatedAction` fails to compile until it is classified here
             // as well as in `is_question` and `Host::change`.
-            ValidatedAction::SetSubtitleLanguage(_)
-            | ValidatedAction::ClearSubtitleLanguage
+            ValidatedAction::SetSubtitleLanguages(_)
+            | ValidatedAction::SetAudioLanguages(_)
             | ValidatedAction::SetSubtitleColor(_)
             | ValidatedAction::SetSubtitleScale(_)
             | ValidatedAction::SetStreamBuffer(_)

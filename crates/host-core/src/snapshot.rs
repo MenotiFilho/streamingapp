@@ -81,10 +81,12 @@ pub struct Snapshot {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PreferencesSnapshot {
-    /// The subtitle language the Host prefers, or `null` when it has none and
-    /// chooses per Video. A language tag by construction, so the wire cannot carry
-    /// anything else here.
-    pub subtitle_language: Option<Language>,
+    /// The Subtitle languages, first the most wanted: up to three, and empty
+    /// when the Host follows the file. Language tags by construction, so the wire
+    /// cannot carry anything else here (ADR-0041).
+    pub subtitle_languages: Vec<Language>,
+    /// The Audio languages: the same, for the soundtrack.
+    pub audio_languages: Vec<Language>,
     /// The colour the Player draws subtitles in where a track leaves the colour
     /// open. Always a value — white is the default rather than an absence — so a
     /// client never has to invent one (ADR-0024).
@@ -150,7 +152,8 @@ impl Snapshot {
             revision,
             playback,
             preferences: PreferencesSnapshot {
-                subtitle_language: state.preferences().subtitle_language().cloned(),
+                subtitle_languages: state.preferences().subtitle_languages().to_vec(),
+                audio_languages: state.preferences().audio_languages().to_vec(),
                 subtitle_color: state.preferences().subtitle_color().clone(),
                 subtitle_scale: state.preferences().subtitle_scale(),
                 stream_buffer: state.preferences().stream_buffer(),

@@ -57,6 +57,21 @@ describe("the refusals the Host can send", () => {
     );
   });
 
+  test("a refused language list is read by what is wrong with it", () => {
+    expect(HOST_ERROR_KINDS).toContain("duplicate_language");
+    expect(HOST_ERROR_KINDS).toContain("too_many_languages");
+
+    const duplicate = asActionError({ kind: "duplicate_language", language: "pt-br" });
+    expect(duplicate.kind).toBe("duplicate_language");
+    expect(explain(duplicate)).toBe('"pt-br" is already on the list.');
+
+    const many = asActionError({ kind: "too_many_languages", count: 4, max: 3 });
+    expect(many.kind).toBe("too_many_languages");
+    expect(explain(many)).toBe(
+      "A list holds at most 3 languages — remove one before adding another.",
+    );
+  });
+
   test("a refused language tag is read as a language refusal, whichever list it was for", () => {
     expect(HOST_ERROR_KINDS).toContain("invalid_language");
     expect(HOST_ERROR_KINDS).not.toContain("invalid_subtitle_language");

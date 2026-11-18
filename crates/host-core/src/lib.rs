@@ -26,11 +26,11 @@
 //!     Arc::new(FixturePlayer::new()),
 //!     Arc::new(FixtureClock::new()),
 //! )?;
-//! let action = Action::parse(r#"{"version":1,"action":{"type":"set_subtitle_language","language":"pt-BR"}}"#)?;
+//! let action = Action::parse(r#"{"version":1,"action":{"type":"set_subtitle_languages","languages":["pt-BR"]}}"#)?;
 //! let response = host.dispatch(action)?;
 //!
 //! let published = &response.snapshots[0];
-//! let preferred = published.preferences.subtitle_language.as_ref();
+//! let preferred = published.preferences.subtitle_languages.first();
 //! assert_eq!(preferred.map(Language::as_str), Some("pt-BR"));
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
@@ -104,9 +104,9 @@ pub use playback::{
     TrackId, TrackKind, Unplayable, VideoSize,
 };
 pub use preferences::{
-    FeaturedCatalog, InvalidLanguage, InvalidStreamBuffer, InvalidSubtitleColor,
-    InvalidSubtitleScale, InvalidUpNextPlayback, Language, Preferences, StreamBuffer,
-    SubtitleColor, SubtitleScale, UpNextPlayback,
+    DuplicateLanguage, FeaturedCatalog, InvalidLanguage, InvalidLanguageList, InvalidStreamBuffer,
+    InvalidSubtitleColor, InvalidSubtitleScale, InvalidUpNextPlayback, Language, LanguageList,
+    Preferences, StreamBuffer, SubtitleColor, SubtitleScale, TooManyLanguages, UpNextPlayback,
 };
 pub use preview::{
     bucket_of, bucket_start, checked_preview_at, preview_ceiling, FixturePreviewer, Frame,

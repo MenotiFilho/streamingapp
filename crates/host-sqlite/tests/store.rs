@@ -3,14 +3,19 @@
 use std::path::{Path, PathBuf};
 
 use host_core::{
-    Addon, AddonId, CatalogRef, FeaturedCatalog, Language, Manifest, ManifestUrl, Preferences,
-    Store, StoreError, StreamBuffer, SubtitleColor, SubtitleScale, UpNextPlayback,
+    Addon, AddonId, CatalogRef, FeaturedCatalog, Language, LanguageList, Manifest, ManifestUrl,
+    Preferences, Store, StoreError, StreamBuffer, SubtitleColor, SubtitleScale, UpNextPlayback,
 };
 use host_sqlite::SqliteStore;
 use rusqlite::Connection;
 
-fn language(tag: &str) -> Language {
-    Language::parse(tag).unwrap_or_else(|error| panic!("{tag} is a language tag: {error}"))
+fn languages(tags: &[&str]) -> LanguageList {
+    LanguageList::parse(tags)
+        .unwrap_or_else(|error| panic!("{tags:?} is a language list: {error:?}"))
+}
+
+fn tags(list: &LanguageList) -> Vec<&str> {
+    list.iter().map(Language::as_str).collect()
 }
 
 /// A Featured catalog as the Host would have written it.
@@ -170,15 +175,52 @@ fn a_stored_autoplay_that_is_not_a_boolean_is_reported_and_not_a_panic() {
 }
 
 #[test]
-fn a_subtitle_language_round_trips() {
+fn both_language_lists_round_trip_in_order() {
     let store = store();
-    let written = Preferences::with_subtitle_language(Some(language("pt-BR")));
+    let mut written = Preferences::with_subtitle_languages(languages(&["pt-BR", "en", "fr-CA"]));
+    written.set_audio_languages(languages(&["en", "pt-BR"]));
 
     store
         .write_preferences(&written)
-        .expect("the store takes a preference");
+        .expect("the store takes both lists");
 
-    assert_eq!(store.read_preferences(), Ok(written));
+    let read = store.read_preferences().expect("preferences read back");
+    assert_eq!(tags(read.subtitle_languages()), ["pt-BR", "en", "fr-CA"]);
+    assert_eq!(tags(read.audio_languages()), ["en", "pt-BR"]);
+    assert_eq!(read, written);
+}
+
+#[test]
+fn both_language_lists_default_to_empty() {
+    let read = store().read_preferences().expect("the store answers");
+
+    assert!(read.subtitle_languages().is_empty());
+    assert!(read.audio_languages().is_empty());
+}
+
+#[test]
+fn a_list_is_stored_as_a_json_array_of_tags_under_its_own_key() {
+    let (_directory, path) = store_on_disk();
+    let store = SqliteStore::open(&path).expect("the store opens");
+    let mut written = Preferences::with_subtitle_languages(languages(&["pt-BR", "en"]));
+    written.set_audio_languages(languages(&["fr"]));
+    store
+        .write_preferences(&written)
+        .expect("the store takes both lists");
+
+    let stored = |key: &str| -> String {
+        Connection::open(&path)
+            .expect("the database opens")
+            .query_row(
+                "SELECT value FROM preferences WHERE key = ?1",
+                [key],
+                |row| row.get(0),
+            )
+            .expect("the row is there")
+    };
+
+    assert_eq!(stored("subtitle_languages"), r#"["pt-BR","en"]"#);
+    assert_eq!(stored("audio_languages"), r#"["fr"]"#);
 }
 
 #[test]
@@ -186,18 +228,13 @@ fn writing_a_preference_again_replaces_the_one_before_it() {
     let store = store();
 
     store
-        .write_preferences(&Preferences::with_subtitle_language(Some(language(
-            "pt-BR",
-        ))))
+        .write_preferences(&Preferences::with_subtitle_languages(languages(&["pt-BR"])))
         .expect("the store takes a preference");
     store
-        .write_preferences(&Preferences::with_subtitle_language(Some(language("en"))))
+        .write_preferences(&Preferences::with_subtitle_languages(languages(&["en"])))
         .expect("the store takes a replacement");
     let replaced = store.read_preferences().expect("preferences read back");
-    assert_eq!(
-        replaced.subtitle_language().map(Language::as_str),
-        Some("en")
-    );
+    assert_eq!(tags(replaced.subtitle_languages()), ["en"]);
 
     store
         .write_preferences(&Preferences::new())
@@ -206,27 +243,26 @@ fn writing_a_preference_again_replaces_the_one_before_it() {
         store
             .read_preferences()
             .expect("preferences read back")
-            .subtitle_language(),
-        None,
+            .subtitle_languages(),
+        &LanguageList::empty(),
         "clearing the preference leaves nothing behind"
     );
 }
 
 #[test]
-fn clearing_the_subtitle_language_removes_the_row_rather_than_blanking_it() {
+fn clearing_a_language_list_removes_its_row_rather_than_blanking_it() {
     let (_directory, path) = store_on_disk();
     let store = SqliteStore::open(&path).expect("the store opens");
     store
-        .write_preferences(&Preferences::with_subtitle_language(Some(language(
-            "pt-BR",
-        ))))
+        .write_preferences(&Preferences::with_subtitle_languages(languages(&["pt-BR"])))
         .expect("the store takes a preference");
 
     store
         .write_preferences(&Preferences::new())
         .expect("the store takes a cleared preference");
 
-    assert_eq!(stored_rows(&path, "subtitle_language"), 0);
+    assert_eq!(stored_rows(&path, "subtitle_languages"), 0);
+    assert_eq!(stored_rows(&path, "audio_languages"), 0);
 }
 
 #[test]
@@ -257,12 +293,10 @@ fn the_appearance_is_written_beside_the_language_in_one_preference_write() {
     let (_directory, path) = store_on_disk();
     let store = SqliteStore::open(&path).expect("the store opens");
     store
-        .write_preferences(&Preferences::with_subtitle_language(Some(language(
-            "pt-BR",
-        ))))
+        .write_preferences(&Preferences::with_subtitle_languages(languages(&["pt-BR"])))
         .expect("the store takes a preference");
 
-    assert_eq!(stored_rows(&path, "subtitle_language"), 1);
+    assert_eq!(stored_rows(&path, "subtitle_languages"), 1);
     assert_eq!(
         stored_rows(&path, "subtitle_color"),
         1,
@@ -350,9 +384,7 @@ fn the_buffer_is_written_beside_the_language_in_one_preference_write() {
     let (_directory, path) = store_on_disk();
     let store = SqliteStore::open(&path).expect("the store opens");
     store
-        .write_preferences(&Preferences::with_subtitle_language(Some(language(
-            "pt-BR",
-        ))))
+        .write_preferences(&Preferences::with_subtitle_languages(languages(&["pt-BR"])))
         .expect("the store takes a preference");
 
     assert_eq!(
@@ -405,9 +437,9 @@ fn a_featured_catalog_round_trips() {
 }
 
 #[test]
-fn a_featured_catalog_round_trips_beside_the_subtitle_language() {
+fn a_featured_catalog_round_trips_beside_the_subtitle_languages() {
     let store = store();
-    let mut written = Preferences::with_subtitle_language(Some(language("pt-BR")));
+    let mut written = Preferences::with_subtitle_languages(languages(&["pt-BR"]));
     written.set_featured_catalog(Some(featured("org.example.first", "movie", "top")));
 
     store
@@ -505,9 +537,7 @@ fn a_preference_a_newer_host_wrote_is_left_where_it_is() {
         .expect("a preference this Host does not know about lands in the table");
 
     store
-        .write_preferences(&Preferences::with_subtitle_language(Some(language(
-            "pt-BR",
-        ))))
+        .write_preferences(&Preferences::with_subtitle_languages(languages(&["pt-BR"])))
         .expect("the store takes a preference");
 
     assert_eq!(
@@ -515,31 +545,40 @@ fn a_preference_a_newer_host_wrote_is_left_where_it_is() {
         1,
         "it was not dropped"
     );
-    assert_eq!(stored_rows(&path, "subtitle_language"), 1);
+    assert_eq!(stored_rows(&path, "subtitle_languages"), 1);
 }
 
 #[test]
-fn a_stored_subtitle_language_that_is_not_a_tag_is_reported_and_not_a_panic() {
+fn a_stored_language_list_that_is_not_a_list_is_reported_and_not_a_panic() {
     let (_directory, path) = store_on_disk();
     SqliteStore::open(&path)
         .expect("the store opens")
-        .write_preferences(&Preferences::with_subtitle_language(Some(language(
-            "pt-BR",
-        ))))
+        .write_preferences(&Preferences::with_subtitle_languages(languages(&["pt-BR"])))
         .expect("the store takes a preference");
-    Connection::open(&path)
-        .expect("the database opens")
-        .execute("UPDATE preferences SET value = 'pt BR'", [])
-        .expect("the stored value is made unusable");
+    for unusable in [
+        "pt BR",                    // not JSON at all
+        r#"["pt BR"]"#,             // an entry that is not a tag
+        r#"["en","EN"]"#,           // a duplicate
+        r#"["en","fr","de","es"]"#, // a fourth
+        r#""en""#,                  // not an array
+    ] {
+        Connection::open(&path)
+            .expect("the database opens")
+            .execute(
+                "UPDATE preferences SET value = ?1 WHERE key = 'subtitle_languages'",
+                [unusable],
+            )
+            .expect("the stored value is made unusable");
 
-    let read = SqliteStore::open(&path)
-        .expect("the store opens")
-        .read_preferences();
+        let read = SqliteStore::open(&path)
+            .expect("the store opens")
+            .read_preferences();
 
-    assert!(
-        matches!(read, Err(StoreError::Read { .. })),
-        "an unusable stored value is a read failure, not a crash: {read:?}"
-    );
+        assert!(
+            matches!(read, Err(StoreError::Read { .. })),
+            "{unusable} is a read failure, not a crash: {read:?}"
+        );
+    }
 }
 
 #[test]

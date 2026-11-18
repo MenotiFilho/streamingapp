@@ -122,12 +122,12 @@ fn a_database_at_the_first_schema_upgrades_without_losing_what_it_held() {
     assert_eq!(version, latest_version(MIGRATIONS));
     let kept: String = connection
         .query_row(
-            "SELECT value FROM preferences WHERE key = 'subtitle_language'",
+            "SELECT value FROM preferences WHERE key = 'subtitle_languages'",
             [],
             |row| row.get(0),
         )
-        .expect("the preference written before the upgrade is still there");
-    assert_eq!(kept, "pt-BR");
+        .expect("the preference written before the upgrade is still there, as a list");
+    assert_eq!(kept, r#"["pt-BR"]"#);
     let addons: i64 = connection
         .query_row("SELECT count(*) FROM addons", [], |row| row.get(0))
         .expect("the table the upgrade added is there");
@@ -295,4 +295,56 @@ fn a_library_written_before_the_addon_became_optional_upgrades_with_its_rows_int
             [],
         )
         .expect("the fifth schema takes an entry with no Addon");
+}
+
+#[test]
+fn a_stored_subtitle_language_becomes_a_one_entry_list_and_the_old_key_is_dropped() {
+    // The tenth schema (ADR-0041): the single subtitle language is the first
+    // entry of the Subtitle languages. Nothing the owner set is lost.
+    let mut connection = connection();
+    migrate(&mut connection, &MIGRATIONS[..9]).expect("the ninth schema applies");
+    connection
+        .execute_batch(
+            "INSERT INTO preferences (key, value) VALUES ('subtitle_language', 'pt-BR');
+             INSERT INTO preferences (key, value) VALUES ('subtitle_color', '#FFFF00');",
+        )
+        .expect("the ninth schema takes preferences");
+    assert_eq!(schema_version(&connection), Ok(9));
+
+    let version = migrate(&mut connection, MIGRATIONS).expect("the database upgrades");
+
+    assert_eq!(version, latest_version(MIGRATIONS));
+    let rows = |key: &str| -> Vec<String> {
+        connection
+            .prepare("SELECT value FROM preferences WHERE key = ?1")
+            .expect("a query")
+            .query_map([key], |row| row.get(0))
+            .expect("the rows read")
+            .collect::<Result<_, _>>()
+            .expect("every row is text")
+    };
+    assert_eq!(rows("subtitle_languages"), [r#"["pt-BR"]"#]);
+    assert!(rows("subtitle_language").is_empty(), "the old key is gone");
+    assert!(
+        rows("audio_languages").is_empty(),
+        "there was no audio language to carry"
+    );
+    assert_eq!(rows("subtitle_color"), ["#FFFF00"], "nothing else moved");
+}
+
+#[test]
+fn a_database_with_no_subtitle_language_gains_no_language_rows() {
+    let mut connection = connection();
+    migrate(&mut connection, &MIGRATIONS[..9]).expect("the ninth schema applies");
+
+    migrate(&mut connection, MIGRATIONS).expect("the database upgrades");
+
+    let languages: i64 = connection
+        .query_row(
+            "SELECT count(*) FROM preferences WHERE key LIKE '%language%'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("the table reads");
+    assert_eq!(languages, 0, "no row reads as two empty lists");
 }

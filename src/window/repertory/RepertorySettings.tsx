@@ -319,7 +319,8 @@ function CredentialsScreen() {
 
 function PreferencesScreen() {
   const { snapshot, ask } = useShell();
-  const heldLanguage = snapshot?.preferences.subtitleLanguage ?? null;
+  // The single-language picker shows the list's first entry as the choice.
+  const heldLanguage = snapshot?.preferences.subtitleLanguages[0] ?? null;
   const heldColor = snapshot?.preferences.subtitleColor ?? "#FFFFFF";
   const heldScale = snapshot?.preferences.subtitleScale ?? 1;
   const publishedBuffer = snapshot?.preferences.streamBuffer ?? {
@@ -356,11 +357,10 @@ function PreferencesScreen() {
 
   const pickLanguage = async (language: string | null) => {
     setLanguageError(null);
-    const outcome = await ask(
-      language === null
-        ? { type: "clear_subtitle_language" }
-        : { type: "set_subtitle_language", language },
-    );
+    const outcome = await ask({
+      type: "set_subtitle_languages",
+      languages: language === null ? [] : [language],
+    });
     if (outcome.error) {
       setLanguageError(outcome.error);
     }

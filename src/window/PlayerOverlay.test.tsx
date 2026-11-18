@@ -62,7 +62,8 @@ const NOTHING_SAID: Snapshot = {
     statistics: null,
   },
   preferences: {
-    subtitleLanguage: null,
+    subtitleLanguages: [],
+    audioLanguages: [],
     subtitleColor: "#FFFFFF",
     subtitleScale: 1,
     streamBuffer: { seconds: 300, megabytes: 512 },
@@ -1062,7 +1063,8 @@ describe("the player OSD", () => {
         revision: 10,
         playback: playback(),
         preferences: {
-          subtitleLanguage: null,
+          subtitleLanguages: [],
+          audioLanguages: [],
           subtitleColor: "#FFFFFF",
           subtitleScale: 1.25, streamBuffer: { seconds: 300, megabytes: 512 },
           upNextPlayback: "direct",

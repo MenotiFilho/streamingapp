@@ -36,13 +36,19 @@ export type Snapshot = {
   revision: number;
   playback: PlaybackSnapshot;
   /**
-   * The Host's preferences: the subtitle language it prefers, and the appearance
-   * it draws subtitles in. The appearance is always a value — white and 1.0 are
+   * The Host's preferences: the Subtitle languages and Audio languages it
+   * chooses Tracks by, and the appearance it draws subtitles in. The appearance is always a value — white and 1.0 are
    * answers rather than absences — so a client never invents one (#126,
    * ADR-0024).
    */
   preferences: {
-    subtitleLanguage: string | null;
+    /**
+     * The Subtitle languages, first the most wanted: up to three language
+     * tags, and empty when the Host follows the file (ADR-0041).
+     */
+    subtitleLanguages: string[];
+    /** The Audio languages: the same, for the soundtrack. */
+    audioLanguages: string[];
     /** `#RRGGBB`, uppercase, as the Host normalized it. */
     subtitleColor: string;
     /** A finite multiplier from 0.5 to 2.0. */
@@ -691,8 +697,11 @@ export type Response = {
 
 /** What a client can ask the Host to do. Mirrors `Action` in `host-core`. */
 export type Action =
-  | { type: "set_subtitle_language"; language: string }
-  | { type: "clear_subtitle_language" }
+  // The two language lists (ADR-0041): each Action carries the **whole** list,
+  // up to three tags, and `[]` clears it so the Host follows the file. The
+  // single-language Actions are gone, with no alias.
+  | { type: "set_subtitle_languages"; languages: string[] }
+  | { type: "set_audio_languages"; languages: string[] }
   // The subtitle appearance (#126, ADR-0024): a preference of the Host's, so it
   // outlives a Stream and reaches every client. The colour applies where a
   // subtitle track leaves its own colour open; a size applies to every track.

@@ -114,12 +114,15 @@ describe("the Credentials leaf's forms", () => {
 });
 
 describe("the Preferences leaf's Actions", () => {
-  test("a language is the tag, and the absence of one is the clear", () => {
+  test("a language is a one-entry list, and the absence of one is the empty list", () => {
     expect(languageRequest("pt-BR")).toEqual({
-      type: "set_subtitle_language",
-      language: "pt-BR",
+      type: "set_subtitle_languages",
+      languages: ["pt-BR"],
     });
-    expect(languageRequest(null)).toEqual({ type: "clear_subtitle_language" });
+    expect(languageRequest(null)).toEqual({
+      type: "set_subtitle_languages",
+      languages: [],
+    });
   });
 
   test("appearance and the Featured catalog are the Host's own Actions", () => {

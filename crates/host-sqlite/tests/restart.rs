@@ -47,12 +47,22 @@ const SECOND_MANIFEST: &str = r#"{
     "catalogs": [{ "type": "movie", "id": "top", "name": "Popular" }]
 }"#;
 
-fn preference(snapshot: &Snapshot) -> Option<&str> {
+fn subtitle_languages(snapshot: &Snapshot) -> Vec<&str> {
     snapshot
         .preferences
-        .subtitle_language
-        .as_ref()
+        .subtitle_languages
+        .iter()
         .map(Language::as_str)
+        .collect()
+}
+
+fn audio_languages(snapshot: &Snapshot) -> Vec<&str> {
+    snapshot
+        .preferences
+        .audio_languages
+        .iter()
+        .map(Language::as_str)
+        .collect()
 }
 
 /// The subtitle appearance a Snapshot carries, as a client reads it.
@@ -115,20 +125,25 @@ fn addons(snapshot: &Snapshot) -> Vec<&str> {
 }
 
 #[test]
-fn the_host_remembers_the_subtitle_language_across_a_restart() {
+fn the_host_remembers_both_language_lists_across_a_restart() {
     let directory = tempfile::tempdir().expect("a temporary directory is available");
     let database = directory.path().join("host.sqlite3");
 
     let mut host = start(&database);
     take(
         &mut host,
-        r#"{"type":"set_subtitle_language","language":"pt-BR"}"#,
+        r#"{"type":"set_subtitle_languages","languages":["pt-BR","en"]}"#,
+    );
+    take(
+        &mut host,
+        r#"{"type":"set_audio_languages","languages":["fr"]}"#,
     );
     drop(host);
 
     let restarted = start(&database);
 
-    assert_eq!(preference(&restarted.snapshot()), Some("pt-BR"));
+    assert_eq!(subtitle_languages(&restarted.snapshot()), ["pt-BR", "en"]);
+    assert_eq!(audio_languages(&restarted.snapshot()), ["fr"]);
 }
 
 #[test]
@@ -192,15 +207,18 @@ fn a_preference_changed_twice_is_remembered_as_the_last_one() {
     let mut host = start(&database);
     take(
         &mut host,
-        r#"{"type":"set_subtitle_language","language":"pt-BR"}"#,
+        r#"{"type":"set_subtitle_languages","languages":["pt-BR"]}"#,
     );
     take(
         &mut host,
-        r#"{"type":"set_subtitle_language","language":"en"}"#,
+        r#"{"type":"set_subtitle_languages","languages":["en","pt-BR"]}"#,
     );
     drop(host);
 
-    assert_eq!(preference(&start(&database).snapshot()), Some("en"));
+    assert_eq!(
+        subtitle_languages(&start(&database).snapshot()),
+        ["en", "pt-BR"]
+    );
 }
 
 #[test]
@@ -211,12 +229,25 @@ fn a_cleared_preference_stays_cleared_across_a_restart() {
     let mut host = start(&database);
     take(
         &mut host,
-        r#"{"type":"set_subtitle_language","language":"pt-BR"}"#,
+        r#"{"type":"set_subtitle_languages","languages":["pt-BR"]}"#,
     );
-    take(&mut host, r#"{"type":"clear_subtitle_language"}"#);
+    take(
+        &mut host,
+        r#"{"type":"set_audio_languages","languages":["en"]}"#,
+    );
+    take(
+        &mut host,
+        r#"{"type":"set_subtitle_languages","languages":[]}"#,
+    );
+    take(
+        &mut host,
+        r#"{"type":"set_audio_languages","languages":[]}"#,
+    );
     drop(host);
 
-    assert_eq!(preference(&start(&database).snapshot()), None);
+    let restarted = start(&database);
+    assert!(subtitle_languages(&restarted.snapshot()).is_empty());
+    assert!(audio_languages(&restarted.snapshot()).is_empty());
 }
 
 #[test]

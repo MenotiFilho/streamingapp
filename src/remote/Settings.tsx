@@ -379,7 +379,8 @@ function CredentialsLeaf({ category, session, state, push }: LeafProps) {
  */
 function PreferencesLeaf({ category, session, state }: LeafProps) {
   const snapshot = state.snapshot;
-  const heldLanguage = snapshot?.preferences.subtitleLanguage ?? null;
+  // The single-language picker shows the list's first entry as the choice.
+  const heldLanguage = snapshot?.preferences.subtitleLanguages[0] ?? null;
   const heldColor = snapshot?.preferences.subtitleColor ?? "#FFFFFF";
   const heldScale = snapshot?.preferences.subtitleScale ?? 1;
   const published: StreamBuffer = snapshot?.preferences.streamBuffer ?? {

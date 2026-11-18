@@ -124,7 +124,7 @@ behaviour is tested there. (ADR-0008, ADR-0009, ADR-0013)
 An Action arrives as JSON in a versioned envelope:
 
 ```json
-{"version":1,"action":{"type":"set_subtitle_language","language":"pt-BR"}}
+{"version":1,"action":{"type":"set_subtitle_languages","languages":["pt-BR","en"]}}
 ```
 
 1. **Parse** (`action.rs`). The version is checked *before* the body, so a

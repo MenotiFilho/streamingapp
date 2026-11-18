@@ -225,8 +225,8 @@ fn remove_addon(id: &str) -> Action {
     action(serde_json::json!({ "type": "remove_addon", "id": id }))
 }
 
-fn set_subtitle_language(language: &str) -> Action {
-    action(serde_json::json!({ "type": "set_subtitle_language", "language": language }))
+fn set_subtitle_languages(language: &str) -> Action {
+    action(serde_json::json!({ "type": "set_subtitle_languages", "languages": [language] }))
 }
 
 #[test]
@@ -348,7 +348,7 @@ fn a_change_applies_while_a_question_is_blocked_on_a_fetch() {
     let (sent, received) = mpsc::channel();
     let change_door = door.clone();
     thread::spawn(move || {
-        let response = change_door.dispatch(set_subtitle_language("pt-BR"));
+        let response = change_door.dispatch(set_subtitle_languages("pt-BR"));
         sent.send(response).expect("the test is still listening");
     });
 
@@ -362,10 +362,11 @@ fn a_change_applies_while_a_question_is_blocked_on_a_fetch() {
     assert_eq!(
         changed.snapshots[0]
             .preferences
-            .subtitle_language
-            .as_ref()
-            .map(host_core::Language::as_str),
-        Some("pt-BR"),
+            .subtitle_languages
+            .iter()
+            .map(host_core::Language::as_str)
+            .collect::<Vec<_>>(),
+        ["pt-BR"],
         "the change published while the question was still fetching"
     );
     assert!(!question.is_finished(), "the question is still blocked");

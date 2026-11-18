@@ -33,7 +33,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use host_core::{
-    Aspect, ChapterStep, Crop, CropRectangle, Language, Observation, PlaybackState, Player,
+    Aspect, ChapterStep, Crop, CropRectangle, LanguageList, Observation, PlaybackState, Player,
     SeekTarget, Statistics, StreamBuffer, StreamUrl, SubtitleColor, SubtitleScale, Telling, Track,
     TrackKind, VideoSize,
 };
@@ -798,16 +798,16 @@ fn autocrop_is_off_until_asked_and_toggling_it_crops_and_restores() {
 }
 
 #[test]
-fn the_subtitle_language_preference_selects_the_matching_embedded_track() {
+fn the_subtitle_languages_preference_selects_the_matching_embedded_track() {
     let streams = serve(6.0);
     let player = player();
 
     // mpv matches a BCP-47 tag like `pt-BR` to the container's `por` track, and
     // only does so when it is set before the open.
     player
-        .tell(Telling::SubtitleLanguage(Some(
-            Language::parse("pt-BR").expect("a language tag"),
-        )))
+        .tell(Telling::SubtitleLanguages(
+            LanguageList::parse(&["pt-BR"]).expect("a language list"),
+        ))
         .expect("mpv takes the preference");
     player
         .open(&stream(&streams.movie), None)

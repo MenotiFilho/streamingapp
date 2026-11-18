@@ -10,7 +10,8 @@ use crate::request::CatalogRef;
 /// to it (ADR-0002, and the spec's "Credentials and secrets").
 #[derive(Debug, Clone, PartialEq)]
 pub struct Preferences {
-    subtitle_language: Option<Language>,
+    subtitle_languages: LanguageList,
+    audio_languages: LanguageList,
     subtitle_color: SubtitleColor,
     subtitle_scale: SubtitleScale,
     stream_buffer: StreamBuffer,
@@ -22,7 +23,8 @@ pub struct Preferences {
 impl Default for Preferences {
     fn default() -> Self {
         Self {
-            subtitle_language: None,
+            subtitle_languages: LanguageList::empty(),
+            audio_languages: LanguageList::empty(),
             subtitle_color: SubtitleColor::default(),
             subtitle_scale: SubtitleScale::default(),
             stream_buffer: StreamBuffer::default(),
@@ -39,15 +41,26 @@ impl Preferences {
         Self::default()
     }
 
-    /// The language the Host prefers when it picks a subtitle track, if the owner
-    /// has expressed one.
-    pub fn subtitle_language(&self) -> Option<&Language> {
-        self.subtitle_language.as_ref()
+    /// The Subtitle languages: the languages the Host chooses a subtitle Track
+    /// by, first the most wanted. Empty, it follows the file.
+    pub fn subtitle_languages(&self) -> &LanguageList {
+        &self.subtitle_languages
     }
 
-    /// Set or clear the subtitle language preference.
-    pub fn set_subtitle_language(&mut self, language: Option<Language>) {
-        self.subtitle_language = language;
+    /// Set the Subtitle languages, whole.
+    pub fn set_subtitle_languages(&mut self, languages: LanguageList) {
+        self.subtitle_languages = languages;
+    }
+
+    /// The Audio languages: the same, for the soundtrack. Independent of the
+    /// Subtitle languages.
+    pub fn audio_languages(&self) -> &LanguageList {
+        &self.audio_languages
+    }
+
+    /// Set the Audio languages, whole.
+    pub fn set_audio_languages(&mut self, languages: LanguageList) {
+        self.audio_languages = languages;
     }
 
     /// The colour the Player draws subtitles in, where a track leaves the colour
@@ -118,8 +131,10 @@ impl Preferences {
 
     /// The preferences a store read back, in one step: every value it holds,
     /// with an absent row already resolved to its default.
+    #[allow(clippy::too_many_arguments)]
     pub fn from_stored(
-        subtitle_language: Option<Language>,
+        subtitle_languages: LanguageList,
+        audio_languages: LanguageList,
         subtitle_color: SubtitleColor,
         subtitle_scale: SubtitleScale,
         stream_buffer: StreamBuffer,
@@ -128,7 +143,8 @@ impl Preferences {
         featured_catalog: Option<FeaturedCatalog>,
     ) -> Self {
         Self {
-            subtitle_language,
+            subtitle_languages,
+            audio_languages,
             subtitle_color,
             subtitle_scale,
             stream_buffer,
@@ -138,11 +154,12 @@ impl Preferences {
         }
     }
 
-    /// The same preferences, with a subtitle language, for a store that has just
-    /// read one back.
-    pub fn with_subtitle_language(language: Option<Language>) -> Self {
+    /// The same preferences, with Subtitle languages, for a store that has just
+    /// read them back.
+    pub fn with_subtitle_languages(languages: LanguageList) -> Self {
         Self::from_stored(
-            language,
+            languages,
+            LanguageList::empty(),
             SubtitleColor::default(),
             SubtitleScale::default(),
             StreamBuffer::default(),
@@ -235,6 +252,106 @@ impl std::fmt::Display for Language {
 #[error("{language:?} is not a language tag")]
 pub struct InvalidLanguage {
     pub language: String,
+}
+
+/// An ordered list of up to three [`Language`]s, first the most wanted: the shape
+/// of both Subtitle languages and Audio languages (ADR-0041). Empty, it means
+/// *follow the file*.
+///
+/// The list is the whole preference, so a client sends it whole and a refusal is
+/// about the list: a fourth entry, a duplicate (compared case-insensitively, for
+/// a tag is not case-sensitive) or a bad tag.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize)]
+#[serde(transparent)]
+pub struct LanguageList(Vec<Language>);
+
+impl LanguageList {
+    /// The most languages a list may hold.
+    pub const MAX: usize = 3;
+
+    /// An empty list: follow the file.
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
+    /// Parse a list of tags, or say why this is not a list.
+    pub fn parse<S: AsRef<str>>(raw: &[S]) -> Result<Self, InvalidLanguageList> {
+        let mut languages: Vec<Language> = Vec::with_capacity(raw.len());
+        for tag in raw {
+            let language = Language::parse(tag.as_ref())?;
+            if languages
+                .iter()
+                .any(|held| held.as_str().eq_ignore_ascii_case(language.as_str()))
+            {
+                return Err(InvalidLanguageList::Duplicate(DuplicateLanguage {
+                    language: language.to_string(),
+                }));
+            }
+            languages.push(language);
+        }
+        if languages.len() > Self::MAX {
+            return Err(InvalidLanguageList::TooMany(TooManyLanguages {
+                count: languages.len(),
+                max: Self::MAX,
+            }));
+        }
+
+        Ok(Self(languages))
+    }
+
+    /// The languages, in order.
+    pub fn as_slice(&self) -> &[Language] {
+        &self.0
+    }
+
+    /// The languages, in order, as the Snapshot and the wire carry them.
+    pub fn to_vec(&self) -> Vec<Language> {
+        self.0.clone()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, Language> {
+        self.0.iter()
+    }
+}
+
+/// A list that is not a language list, and which way it fails.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InvalidLanguageList {
+    /// An entry is not a tag.
+    Invalid(InvalidLanguage),
+    /// A language is listed twice.
+    Duplicate(DuplicateLanguage),
+    /// More than three languages.
+    TooMany(TooManyLanguages),
+}
+
+impl From<InvalidLanguage> for InvalidLanguageList {
+    fn from(invalid: InvalidLanguage) -> Self {
+        Self::Invalid(invalid)
+    }
+}
+
+/// A language listed twice, compared without regard to case.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
+#[error("{language:?} is listed twice")]
+pub struct DuplicateLanguage {
+    pub language: String,
+}
+
+/// A list of more languages than a list may hold.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
+#[error("{count} languages is too many — a list holds at most {max}")]
+pub struct TooManyLanguages {
+    pub count: usize,
+    pub max: usize,
 }
 
 /// The colour the Player draws subtitles in, where a track leaves the colour open.
@@ -521,6 +638,66 @@ mod tests {
                 "{not_a_tag:?} is not a language tag"
             );
         }
+    }
+
+    fn tags(list: &LanguageList) -> Vec<&str> {
+        list.iter().map(Language::as_str).collect()
+    }
+
+    #[test]
+    fn a_language_list_holds_nought_to_three_languages_in_order() {
+        for raw in [
+            &[][..],
+            &["pt-BR"][..],
+            &["pt-BR", "en"][..],
+            &["pt-BR", "en", "fr-CA"][..],
+        ] {
+            let list = LanguageList::parse(raw).expect("up to three languages is a list");
+            assert_eq!(tags(&list), raw, "the order is the owner's");
+        }
+        assert!(LanguageList::parse::<&str>(&[]).expect("empty").is_empty());
+        assert_eq!(LanguageList::default(), LanguageList::empty());
+    }
+
+    #[test]
+    fn a_fourth_language_is_refused() {
+        assert_eq!(
+            LanguageList::parse(&["en", "pt-BR", "fr", "de"]),
+            Err(InvalidLanguageList::TooMany(TooManyLanguages {
+                count: 4,
+                max: 3
+            }))
+        );
+    }
+
+    #[test]
+    fn a_language_listed_twice_is_refused_whatever_its_case() {
+        assert_eq!(
+            LanguageList::parse(&["pt-BR", "en", "PT-br"]),
+            Err(InvalidLanguageList::Duplicate(DuplicateLanguage {
+                language: "PT-br".to_owned()
+            }))
+        );
+        assert!(LanguageList::parse(&["en", "en"]).is_err());
+    }
+
+    #[test]
+    fn a_bad_tag_in_a_list_is_refused_as_an_invalid_language() {
+        assert_eq!(
+            LanguageList::parse(&["en", "Brazilian Portuguese"]),
+            Err(InvalidLanguageList::Invalid(InvalidLanguage {
+                language: "Brazilian Portuguese".to_owned()
+            }))
+        );
+    }
+
+    #[test]
+    fn a_language_list_serializes_as_a_plain_array_of_tags() {
+        let list = LanguageList::parse(&["pt-BR", "en"]).expect("a list");
+        assert_eq!(
+            serde_json::to_value(&list).expect("a list serializes"),
+            serde_json::json!(["pt-BR", "en"])
+        );
     }
 
     #[test]
