@@ -380,6 +380,10 @@ impl MpvPlayer {
                             .mpv
                             .get_property::<bool>(&format!("track-list/{index}/forced"))
                             .unwrap_or(false),
+                        hearing_impaired: self
+                            .mpv
+                            .get_property::<bool>(&format!("track-list/{index}/hearing-impaired"))
+                            .unwrap_or(false),
                     })
                 })
                 .collect(),

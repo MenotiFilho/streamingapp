@@ -46,6 +46,7 @@ mod device;
 mod discover;
 mod door;
 mod fetcher;
+mod handpick;
 mod host;
 mod library;
 mod log;
@@ -134,7 +135,10 @@ pub use snapshot::{PreferencesSnapshot, ProtectionSnapshot, Snapshot};
 pub use store::{InMemoryStore, Store, StoreError};
 pub use stream::{AddonStreams, Playback, Stream, StreamError, Warning, MAX_STREAM_BYTES};
 pub use stremio::{FixtureStremio, LibraryMeta, StremioApi, SyncError};
-pub use subtitles::{Subtitle, SubtitleError, MAX_FALLBACK_SUBTITLES, MAX_SUBTITLES_BYTES};
+pub use subtitles::{
+    missing_languages, Admission, Subtitle, SubtitleError, MAX_FALLBACK_SUBTITLES,
+    MAX_SUBTITLES_BYTES, MAX_SUBTITLES_PER_LANGUAGE,
+};
 pub use sync::{merge, BitField, Merged, RemoteItem, WatchedField};
 pub use title_cache::{
     CachedTitle, TitleSource, CAUGHT_UP_CHECK_MILLIS, MAX_CACHED_TITLES, OTHER_FRESH_MILLIS,
@@ -146,7 +150,8 @@ pub use tmdb::{
     TmdbRequest, TmdbVideo, IMAGE_ROOT, LOGO_ROOT, STILL_ROOT, TMDB_ROOT,
 };
 pub use tracks::{
-    codes_for, codes_for_list, curated_entry, locale_of, same_literally, Locale, CURATED,
+    choose_subtitle, codes_for, codes_for_list, curated_entry, language_of, locale_of,
+    same_literally, Locale, SubtitleChoice, SubtitleHandPick, CURATED,
 };
 pub use view::HostView;
 pub use wire::{permitted, ClientFrame, Refusal, ServerFrame, WIRE_VERSION};

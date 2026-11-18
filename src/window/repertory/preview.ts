@@ -331,6 +331,7 @@ export function rehearsalPlayback(entry: ResumeEntry, nowPlaying: NowPlaying): P
       selected: true,
       default: true,
       forced: false,
+      hearingImpaired: false,
     },
     {
       id: 2,
@@ -342,6 +343,7 @@ export function rehearsalPlayback(entry: ResumeEntry, nowPlaying: NowPlaying): P
       selected: false,
       default: false,
       forced: false,
+      hearingImpaired: false,
     },
     {
       id: 3,
@@ -353,6 +355,7 @@ export function rehearsalPlayback(entry: ResumeEntry, nowPlaying: NowPlaying): P
       selected: true,
       default: true,
       forced: false,
+      hearingImpaired: false,
     },
     {
       id: 4,
@@ -364,6 +367,7 @@ export function rehearsalPlayback(entry: ResumeEntry, nowPlaying: NowPlaying): P
       selected: false,
       default: false,
       forced: false,
+      hearingImpaired: false,
     },
     {
       id: 5,
@@ -375,6 +379,7 @@ export function rehearsalPlayback(entry: ResumeEntry, nowPlaying: NowPlaying): P
       selected: false,
       default: false,
       forced: false,
+      hearingImpaired: false,
     },
   ];
 

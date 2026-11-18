@@ -59,6 +59,7 @@ const PLAYING: Snapshot = {
         selected: true,
         default: true,
         forced: false,
+        hearingImpaired: false,
       },
       {
         id: 2,
@@ -70,6 +71,7 @@ const PLAYING: Snapshot = {
         selected: false,
         default: false,
         forced: false,
+        hearingImpaired: false,
       },
       {
         id: 3,
@@ -81,6 +83,7 @@ const PLAYING: Snapshot = {
         selected: true,
         default: true,
         forced: false,
+        hearingImpaired: false,
       },
       {
         id: 4,
@@ -92,6 +95,7 @@ const PLAYING: Snapshot = {
         selected: false,
         default: false,
         forced: false,
+        hearingImpaired: false,
       },
     ],
     chapters: [
