@@ -515,13 +515,13 @@ func TestPiecesLandInThePerTorrentDirectory(t *testing.T) {
 	dir := filepath.Join(r.dir, s.hash)
 	var found bool
 	filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
-		if err == nil && !d.IsDir() && d.Name() == "film.mkv" {
+		if err == nil && !d.IsDir() && strings.HasSuffix(d.Name(), ".piece") {
 			found = true
 		}
 		return nil
 	})
 	if !found {
-		t.Fatalf("film.mkv is not under %s", dir)
+		t.Fatalf("no piece file is under %s", dir)
 	}
 }
 
@@ -627,7 +627,7 @@ func TestAMalformedInfoHashIsRefused(t *testing.T) {
 	}
 }
 
-func TestLimitsAreStoredNotApplied(t *testing.T) {
+func TestLimitsAreStored(t *testing.T) {
 	s := seed(t, film())
 	r := startEngine(t)
 	r.send(map[string]any{"op": "limits", "readahead": 16 << 20, "cache": 2_000_000_000})

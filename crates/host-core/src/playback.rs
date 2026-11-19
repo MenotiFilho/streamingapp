@@ -1035,6 +1035,11 @@ pub(crate) struct PlaybackSession {
     stalled: bool,
     /// Why the last open failed, kept until the next play or stop.
     failure: Option<String>,
+    /// Whether the Host ended this Stream itself, for a reason the Player does
+    /// not know (a torrent that could not be kept on disk). The Player's next
+    /// reports are about a Stream that is gone, so they move nothing until a
+    /// play or a stop replaces the session.
+    ended_by_host: bool,
     /// The Stream's tracks, as the Player last reported them: the Host's own
     /// record of what a selection may name before a Player hears of it.
     tracks: Vec<Track>,
@@ -1074,6 +1079,7 @@ impl PlaybackSession {
             buffered: None,
             stalled: false,
             failure: None,
+            ended_by_host: false,
             tracks: Vec::new(),
             chapters: Vec::new(),
             chapter: None,
@@ -1353,6 +1359,18 @@ impl PlaybackSession {
         self.aspect = Some(aspect);
     }
 
+    /// The Host ended the Stream, for `sentence`: nothing is playing, and the
+    /// Stream that was is named beside the failure, as for an open that failed.
+    /// Only a play or a stop moves the session after this.
+    pub(crate) fn ended_with_failure(&mut self, sentence: String) {
+        *self = Self {
+            playing: self.playing.clone(),
+            failure: Some(sentence),
+            ended_by_host: true,
+            ..Self::idle()
+        };
+    }
+
     /// Let the Stream go: nothing is playing, and what failed no longer is.
     pub(crate) fn stop(&mut self) {
         *self = Self::idle();
@@ -1367,6 +1385,9 @@ impl PlaybackSession {
     /// Stream the owner stopped is not about anything.
     pub(crate) fn advanced(&self, observation: &Observation) -> Option<Self> {
         self.playing.as_ref()?;
+        if self.ended_by_host {
+            return None;
+        }
 
         let next = Self {
             playing: self.playing.clone(),
@@ -1388,6 +1409,7 @@ impl PlaybackSession {
             // the grace belongs to the client that draws it.
             stalled: observation.stalled && observation.state == PlaybackState::Playing,
             failure: observation.failure.clone(),
+            ended_by_host: false,
             // A Player that could not say what the Stream carries says *nothing*
             // rather than "nothing": the tracks the Host already held stand, and
             // the fallback stays un-attempted until a report it can trust

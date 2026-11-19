@@ -168,6 +168,11 @@ impl State {
         self.playback = playback;
     }
 
+    /// The Host ended the Stream playing: `idle`, with `sentence` as the failure.
+    pub(crate) fn end_playback_with_failure(&mut self, sentence: String) {
+        self.playback.ended_with_failure(sentence);
+    }
+
     /// Record that the Addon subtitles fallback was attempted for the Stream
     /// playing now. The Host's note to itself rather than something the Player
     /// says, so it moves no revision and is published by nothing (ADR-0014).
