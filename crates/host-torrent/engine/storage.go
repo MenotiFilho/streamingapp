@@ -133,6 +133,10 @@ type boundedDisk struct {
 	// failed is told once for every storage error, from whatever goroutine hit it.
 	failed func(error)
 
+	// admit is held while a piece is made room for, and passed through by every
+	// write, so no chunk of a piece reaches the disk before the pieces given up
+	// for it are gone: the ceiling holds at every moment, not only afterwards.
+	admit  sync.Mutex
 	mu     sync.Mutex
 	pieces []keptEntry
 	// recheck tells the swarm client a piece it believed complete is gone.
@@ -252,6 +256,7 @@ func (p *keptPieceImpl) ReadAt(b []byte, off int64) (int, error) {
 }
 
 func (p *keptPieceImpl) WriteAt(b []byte, off int64) (int, error) {
+	p.admit()
 	f, err := os.OpenFile(p.d.path(p.index), os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		p.d.failed(err)
@@ -265,17 +270,26 @@ func (p *keptPieceImpl) WriteAt(b []byte, off int64) (int, error) {
 		p.d.failed(err)
 		return n, err
 	}
-
-	p.d.mu.Lock()
-	begun := p.d.pieces[p.index].size == 0
-	if begun {
-		p.d.pieces[p.index].size = p.length
-	}
-	p.d.mu.Unlock()
-	if begun {
-		p.d.Trim()
-	}
 	return n, nil
+}
+
+// admit counts the piece at its full length the first time it is written, and
+// gives up what has to go to fit it, before a byte of it is on disk. A write to
+// a piece already counted passes straight through, but only once the room for
+// it has been made, which is why every write goes through the one lock.
+func (p *keptPieceImpl) admit() {
+	d := p.d
+	d.admit.Lock()
+	defer d.admit.Unlock()
+	d.mu.Lock()
+	begun := d.pieces[p.index].size == 0
+	if begun {
+		d.pieces[p.index].size = p.length
+	}
+	d.mu.Unlock()
+	if begun {
+		d.Trim()
+	}
 }
 
 func (p *keptPieceImpl) MarkComplete() error {
