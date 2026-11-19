@@ -547,6 +547,11 @@ export function PlayerOverlay() {
                   {`Opening ${playingName(view.nowPlaying)}…`}
                 </p>
               ) : null}
+              {state === "opening" && view.torrentLine ? (
+                <p className="shell-torrent-line" data-testid="opening-torrent">
+                  {view.torrentLine}
+                </p>
+              ) : null}
             </div>
           </div>
         ) : null}
@@ -556,6 +561,11 @@ export function PlayerOverlay() {
               <PendingSpinner />
             </span>
             <p className="shell-stall-title">{STALLED_NOTE}</p>
+            {view.torrentLine ? (
+              <p className="shell-torrent-line" data-testid="stall-torrent">
+                {view.torrentLine}
+              </p>
+            ) : null}
           </div>
         ) : null}
         {state === "ended" && plainEnd(view.autoplay) ? (

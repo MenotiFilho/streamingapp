@@ -21,14 +21,13 @@ import (
 	"time"
 
 	"github.com/anacrolix/torrent"
-	"github.com/anacrolix/torrent/metainfo"
 	"github.com/anacrolix/torrent/storage"
 	"github.com/anacrolix/torrent/types/infohash"
 )
 
 // Config is what an Engine is made from.
 type Config struct {
-	// TorrentsDir holds one plain directory per held torrent, named by its
+	// TorrentsDir holds one directory per held torrent, bounded by the Torrent cache, named by its
 	// infoHash. The Host owns it: it wipes it at its own startup.
 	TorrentsDir string
 	// StatusEvery is the gap between one torrent's status events. A second, as
@@ -52,8 +51,9 @@ type Engine struct {
 	srv    *http.Server
 	token  string
 
-	// Stored from the Host's `limits` op. Bounded storage and read-ahead are a
-	// later ticket, so nothing reads them yet.
+	// Stored from the Host's `limits` op and applied live to every held torrent:
+	// the cache is the disk ceiling, the read-ahead is clamped by it
+	// (effectiveReadahead).
 	readahead atomic.Int64
 	cache     atomic.Int64
 
@@ -67,8 +67,12 @@ type held struct {
 	hash string
 	t    *torrent.Torrent
 	dir  string
-	disk storage.ClientImplCloser
-	done chan struct{}
+	disk *boundedDisk
+	// readers are the HTTP reads in flight, where the cache counts "behind" from.
+	readers *readerSet
+	done    chan struct{}
+	// failure makes sure a torrent says its storage failed once.
+	failure sync.Once
 
 	mu     sync.Mutex
 	serves map[int64]*serveEntry
@@ -118,6 +122,8 @@ func NewEngine(cfg Config, out *Emitter) (*Engine, error) {
 	// no upload limit; what a torrent uploads, it uploads while it is held.
 	cc.ListenPort = 0
 	cc.Seed = false
+	// Every torrent brings its own bounded storage (join); this default is only
+	// what the client wants to hold, and nothing is ever written through it.
 	cc.DefaultStorage = storage.NewFileOpts(storage.NewFileClientOpts{
 		ClientBaseDir:   cfg.TorrentsDir,
 		PieceCompletion: storage.NewMapPieceCompletion(),
@@ -178,13 +184,46 @@ func (e *Engine) handleLine(line []byte) {
 	}
 	switch op := op.(type) {
 	case LimitsOp:
-		e.readahead.Store(op.Readahead)
-		e.cache.Store(op.Cache)
+		e.SetLimits(op)
 	case ServeOp:
 		e.Serve(op)
 	case LetGoOp:
 		e.LetGo(op.InfoHash)
 	}
+}
+
+// SetLimits stores the Host's limits and applies them to every held torrent at
+// once: the open readers read ahead by the new amount and what is on disk is
+// trimmed to the new ceiling.
+func (e *Engine) SetLimits(op LimitsOp) {
+	e.readahead.Store(op.Readahead)
+	e.cache.Store(op.Cache)
+
+	e.mu.Lock()
+	all := make([]*held, 0, len(e.held))
+	for _, h := range e.held {
+		all = append(all, h)
+	}
+	e.mu.Unlock()
+	ahead := e.effectiveReadahead()
+	for _, h := range all {
+		h.readers.setReadahead(ahead)
+		h.disk.Trim()
+	}
+}
+
+// defaultReadahead is how far a torrent is read ahead before the Host has said:
+// the least it is ever asked for.
+const defaultReadahead = 16 << 20
+
+// effectiveReadahead is the read-ahead in force: the Host's, clamped to three
+// quarters of the cache.
+func (e *Engine) effectiveReadahead() int64 {
+	ahead := e.readahead.Load()
+	if ahead <= 0 {
+		ahead = defaultReadahead
+	}
+	return clampReadahead(ahead, e.cache.Load())
 }
 
 // Addr is the loopback address the engine serves on.
@@ -237,29 +276,43 @@ func (e *Engine) refuse(id int64, sentence string) {
 	}
 }
 
-// join adds a torrent, kept in a plain directory of its own.
+// join adds a torrent, kept in a bounded directory of its own.
 func (e *Engine) join(hash string) (*held, error) {
 	dir := filepath.Join(e.cfg.TorrentsDir, hash)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	disk := storage.NewFileOpts(storage.NewFileClientOpts{
-		ClientBaseDir:   dir,
-		PieceCompletion: storage.NewMapPieceCompletion(),
-		TorrentDirMaker: func(base string, _ *metainfo.Info, _ infohash.T) string { return base },
-	})
-	t, _ := e.client.AddTorrentOpt(torrent.AddTorrentOpts{
+	h := &held{
+		hash:    hash,
+		dir:     dir,
+		readers: newReaderSet(),
+		done:    make(chan struct{}),
+		serves:  map[int64]*serveEntry{},
+	}
+	h.disk = newBoundedDisk(dir, e.cache.Load, h.readers.piece, func(err error) { e.storageFailed(h, err) })
+	h.t, _ = e.client.AddTorrentOpt(torrent.AddTorrentOpts{
 		InfoHash: infohash.FromHexString(hash),
-		Storage:  disk,
+		Storage:  h.disk,
 	})
-	return &held{
-		hash:   hash,
-		t:      t,
-		dir:    dir,
-		disk:   disk,
-		done:   make(chan struct{}),
-		serves: map[int64]*serveEntry{},
-	}, nil
+	h.disk.setRecheck(func(piece int) { h.t.Piece(piece).UpdateCompletion() })
+	return h, nil
+}
+
+// storageFailed says, once for the torrent, that it could not be kept on disk,
+// and stops it fetching: a write that failed once will fail again, and the Host
+// ends the Stream and lets the torrent go (ADR-0042 §3, §5). It is called from
+// inside the swarm client's own calls, so what it does that takes the client's
+// lock or the pipe's happens on a goroutine of its own.
+func (e *Engine) storageFailed(h *held, err error) {
+	h.failure.Do(func() {
+		e.log.Printf("storage of %s: %v", h.hash, err)
+		go func() {
+			h.t.DisallowDataDownload()
+			if err := e.out.Send(FailedEvent(h.hash, FailStorage, storageSentence(err))); err != nil {
+				e.log.Printf("telling the Host: %v", err)
+			}
+		}()
+	})
 }
 
 // LetGo drops a torrent: it stops fetching and uploading, and its directory is

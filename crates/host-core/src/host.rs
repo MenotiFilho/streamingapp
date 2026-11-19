@@ -38,6 +38,7 @@ use crate::title_cache::{
 use crate::tmdb;
 use crate::torrent::{
     FailureKind, InfoHash, NoTorrentEngine, TorrentEngine, TorrentLimits, TorrentReport,
+    TorrentStatus,
 };
 use crate::tracks::{self, SubtitleChoice};
 use crate::view::{HostView, HostViewShared};
@@ -50,6 +51,10 @@ use countdown::CountdownEffect;
 /// makes a week pass while the Host stays open, and it is why a failing source
 /// is not asked again on every tick (#277, ADR-0038 §5).
 const READ_AHEAD_SCAN_MILLIS: i64 = RUNNING_FRESH_MILLIS;
+
+/// The least gap between two Torrent statuses reaching the Snapshot: a second,
+/// the engine's own cadence, so a client is not woken by every sample.
+const TORRENT_STATUS_EVERY_MS: i64 = 1_000;
 
 /// The Host: its state, and the surface over it.
 ///
@@ -88,6 +93,14 @@ pub struct Host {
     /// it, and keeps across `Ended` and across another file of the same infoHash
     /// (ADR-0042 §2).
     held_torrent: Option<InfoHash>,
+    /// The engine's latest reading of the held torrent that has not been
+    /// published yet: the Torrent status is published at most once every
+    /// [`TORRENT_STATUS_EVERY_MS`], and what arrives between is kept, newest
+    /// wins, until the second has passed.
+    torrent_reading: Option<TorrentStatus>,
+    /// When a Torrent status last reached the Snapshot, in the Host's own
+    /// millis.
+    torrent_status_at: Option<i64>,
     /// How long the held torrent's Stream has sat `Ended` or `Paused`, by the
     /// Host's own clock: what lets an idle torrent go (ADR-0042 §3).
     idle: Idle,
@@ -186,6 +199,19 @@ impl Drained {
 }
 
 /// The cache key a read's work will be kept under, where the work names one.
+/// What a Stream that ended for lack of disk says when the engine said nothing
+/// of its own: the likeliest cause, a full disk.
+const DISK_FULL: &str = "The disk is full, so the torrent could not be kept.";
+
+/// The engine's own sentence for a storage failure, or the full disk's where it
+/// sent none.
+fn storage_sentence(engine_says: &str) -> String {
+    match engine_says.trim() {
+        "" => DISK_FULL.to_owned(),
+        own => own.to_owned(),
+    }
+}
+
 fn key_of(work: &Work) -> Option<TitleKey> {
     match work {
         Work::Addon { addon, asked } => Some(TitleKey::Addon {
@@ -280,6 +306,8 @@ impl Host {
             previewer: Arc::new(NoPreviewer),
             torrent_engine: Arc::new(NoTorrentEngine),
             held_torrent: None,
+            torrent_reading: None,
+            torrent_status_at: None,
             idle: Idle::default(),
             released: false,
             engine_failure: None,
@@ -1099,7 +1127,10 @@ impl Host {
     /// timers — so whoever owns the shell's event loop calls this while
     /// something is playing (ADR-0013, ADR-0033).
     pub fn sample(&mut self) -> Option<Snapshot> {
-        self.drain_torrent_reports();
+        let (ending, status_moved) = self.drain_torrent_reports();
+        if let Some(sentence) = ending {
+            return Some(self.end_for_storage(sentence));
+        }
 
         // A released Stream is the Host's record of it: what the Player says
         // about a URL nobody serves is not news (ADR-0042 §3).
@@ -1192,7 +1223,7 @@ impl Host {
         let was_ended = self.state.playback().has_ended();
         let Some(mut next) = self.state.playback().advanced(&observation) else {
             // Nothing the Player said moved; only the countdown ending can.
-            if countdown_ended {
+            if countdown_ended || status_moved {
                 self.revision += 1;
                 return Some(self.snapshot());
             }
@@ -1241,7 +1272,7 @@ impl Host {
             }
         }
 
-        if !published && !corrected && !countdown_ended {
+        if !published && !corrected && !countdown_ended && !status_moved {
             return None;
         }
 
@@ -1966,6 +1997,7 @@ impl Host {
         if let Some(info_hash) = self.held_torrent.take() {
             self.torrent_engine.let_go(&info_hash);
         }
+        self.forget_torrent_readings();
     }
 
     /// Feed the Host's idle measure the state the Stream is in now, at the
@@ -2041,11 +2073,27 @@ impl Host {
         Ok(Resolved::Change(reopened))
     }
 
-    /// Take what the engine has reported since the last tick. A `Chosen` report
-    /// is logged and goes nowhere else. A `Failed { NoFile }` for the torrent
-    /// held is kept, for [`Self::prefer_the_engines_failure`]; the other reports
-    /// are for later handling in this same drain.
-    fn drain_torrent_reports(&mut self) {
+    /// Drop what the Host holds of a torrent's Torrent status: a reading kept
+    /// back, and when the last one went out. What the Snapshot says goes with the
+    /// Stream, and the next torrent's first reading must not wait on this one's.
+    fn forget_torrent_readings(&mut self) {
+        self.torrent_reading = None;
+        self.torrent_status_at = None;
+    }
+
+    /// Take what the engine has reported since the last tick. Two things come
+    /// back: the sentence the Stream must end with when the torrent held could
+    /// not be kept on disk (ADR-0042 §3), and whether a Torrent status reached
+    /// the Snapshot, which is then news for this tick.
+    ///
+    /// A `Chosen` report is logged and goes nowhere else. A `Failed { NoFile }`
+    /// for the torrent held is kept, for [`Self::prefer_the_engines_failure`];
+    /// the other reports are for later handling in this same drain. A `Status`
+    /// of the torrent being held is kept as the newest reading, and published by
+    /// [`Self::publish_torrent_reading`]; one of any other torrent is not about
+    /// this Stream.
+    fn drain_torrent_reports(&mut self) -> (Option<String>, bool) {
+        let mut ending = None;
         for report in self.torrent_engine.reports() {
             match report {
                 TorrentReport::Chosen {
@@ -2053,6 +2101,24 @@ impl Host {
                     file_idx,
                     name,
                 } => tracing::info!(%info_hash, file_idx, name, "the torrent engine chose a file"),
+                TorrentReport::Status {
+                    info_hash,
+                    phase,
+                    peers,
+                    rate,
+                } => {
+                    if self.held_torrent.as_ref() == Some(&info_hash) {
+                        self.torrent_reading = Some(TorrentStatus { phase, peers, rate });
+                    }
+                }
+                TorrentReport::Failed {
+                    info_hash,
+                    kind: FailureKind::Storage,
+                    sentence,
+                } if self.held_torrent.as_ref() == Some(&info_hash) => {
+                    tracing::warn!(%info_hash, sentence, "the torrent could not be kept on disk");
+                    ending.get_or_insert_with(|| storage_sentence(&sentence));
+                }
                 TorrentReport::Failed {
                     info_hash,
                     kind: FailureKind::NoFile,
@@ -2060,11 +2126,64 @@ impl Host {
                 } if self.held_torrent.as_ref() == Some(&info_hash) => {
                     self.engine_failure = Some((info_hash, sentence));
                 }
-                TorrentReport::Status { .. }
-                | TorrentReport::Failed { .. }
-                | TorrentReport::Exited => {}
+                TorrentReport::Failed { .. } | TorrentReport::Exited => {}
             }
         }
+        if ending.is_some() {
+            // The Stream is about to end; a reading of it is not news.
+            return (ending, false);
+        }
+        (ending, self.publish_torrent_reading())
+    }
+
+    /// Let the newest kept reading into the Snapshot, once a second has passed
+    /// since the last one did. A reading equal to the one held is not news, and
+    /// does not start the second over.
+    fn publish_torrent_reading(&mut self) -> bool {
+        let Some(reading) = self.torrent_reading else {
+            return false;
+        };
+        let now = self.clock.now_millis();
+        if self
+            .torrent_status_at
+            .is_some_and(|at| now.saturating_sub(at) < TORRENT_STATUS_EVERY_MS)
+        {
+            return false;
+        }
+        self.torrent_reading = None;
+        if self.state.set_torrent_status(reading) {
+            self.torrent_status_at = Some(now);
+            return true;
+        }
+        false
+    }
+
+    /// End the Stream at once because its torrent cannot be kept on disk: the
+    /// Player is stopped, the torrent let go, Watch progress written where the
+    /// Stream got to, and the failure published beside an `idle` state. A full
+    /// disk does not fix itself, so nothing is restarted (ADR-0042 §3, §5).
+    fn end_for_storage(&mut self, sentence: String) -> Snapshot {
+        // The Player may already have lost the Stream; either way it is over.
+        let _ = self.player.stop();
+        self.disarm_preview();
+        self.let_go_held_torrent();
+        self.autoplay = None;
+
+        let leaving = self.playing_title().map(|title| title.id().to_owned());
+        let now = self.clock.now_millis();
+        if let Some(entry) = self.state.refresh_watch(now, true) {
+            let _ = self.store.write_watch_progress(&entry);
+        }
+        self.state.end_playback_with_failure(sentence);
+        if let Some(title) = leaving {
+            self.push_title(&title);
+        }
+
+        // The Stream is gone and so is its torrent: the idle measure must not
+        // carry the Paused or Ended that preceded it into whatever plays next.
+        self.note_idle();
+        self.revision += 1;
+        self.snapshot()
     }
 
     /// Put the engine's sentence where the Player reports a failed open of the
@@ -2146,6 +2265,7 @@ impl Host {
         // one torrent across its episodes.
         self.engine_failure = None;
         let previous = std::mem::replace(&mut self.held_torrent, served);
+        self.forget_torrent_readings();
         if let Some(previous) = previous {
             if self.held_torrent.as_ref() != Some(&previous) {
                 self.torrent_engine.let_go(&previous);

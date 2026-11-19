@@ -68,6 +68,10 @@ func (e *Engine) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	defer reader.Close()
 	reader.SetResponsive()
 	reader.SetContext(r.Context())
+	// The cache counts "behind" from where this read is, and a `limits` op
+	// reaches it while it runs.
+	tracked := newTrackedReader(reader, reader, h.readers, entry.file.Offset(), h.t.Info().PieceLength, e.effectiveReadahead())
+	defer tracked.Close()
 
 	name := path.Base(entry.file.DisplayPath())
 	// A type is named outright: left to itself ServeContent would sniff the
@@ -77,7 +81,7 @@ func (e *Engine) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		ctype = "application/octet-stream"
 	}
 	w.Header().Set("Content-Type", ctype)
-	http.ServeContent(w, r, name, time.Time{}, reader)
+	http.ServeContent(w, r, name, time.Time{}, tracked)
 }
 
 // choose picks the file this serve plays and says so, once.

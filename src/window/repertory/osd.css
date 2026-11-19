@@ -887,6 +887,18 @@
   font-size: max(26px, calc(var(--rep-stage) * 1.55));
 }
 
+/* The Torrent status, one line: under "Opening …" on the opening block and under
+   the sentence on the Stalled card (#341). Mono and dim, as the subtitle is, and
+   tabular so a rate that ticks does not shift the line. */
+.shell-torrent-line {
+  margin: 0;
+  color: var(--rep-dim);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-badge);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
 .shell-stall-title {
   margin: 0;
   color: var(--rep-ivory);

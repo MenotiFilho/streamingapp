@@ -414,6 +414,7 @@ export function rehearsalPlayback(entry: ResumeEntry, nowPlaying: NowPlaying): P
     muted: false,
     subtitleDelay: 0,
     stalled: false,
+    torrent: null,
     crop: null,
     aspect: null,
     resolution: { width: 1920, height: 804 },
