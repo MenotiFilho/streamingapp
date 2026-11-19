@@ -203,15 +203,24 @@ function continueEntry(overrides: Partial<ContinueEntry> = {}): ContinueEntry {
 const UNPLAYABLE: Stream = {
   name: "Torrentio\n4k HDR",
   description: "Breaking Bad S01E01 2160p BluRay\n👤 106 💾 9.53 GB",
-  playback: {
-    kind: "torrent",
-    infoHash: "a584351126afcf50d32be068f3c9a62550d41ecc",
-    fileIdx: null,
-    sources: [],
-  },
+  playback: { kind: "direct", url: "ftp://example.test/Breaking.Bad.S01E01.Pilot.2160p.mkv" },
   warnings: [],
   filename: "Breaking.Bad.S01E01.Pilot.2160p.mkv",
   bingeGroup: "torrentio|4k",
+};
+
+const TORRENT: Stream = {
+  name: "Torrentio\n1080p",
+  description: "Breaking Bad S01E01 1080p BluRay\n👤 106 💾 3.1 GB",
+  playback: {
+    kind: "torrent",
+    infoHash: "a584351126afcf50d32be068f3c9a62550d41ecc",
+    fileIdx: 3,
+    sources: ["tracker:udp://tracker.example.org:1337"],
+  },
+  warnings: ["p2p"],
+  filename: "Breaking.Bad.S01E01.Pilot.1080p.mkv",
+  bingeGroup: "torrentio|1080p",
 };
 
 const PLAYABLE: Stream = {
@@ -626,7 +635,7 @@ describe("the repertory Streams list", () => {
       "Breaking.Bad.S01E01.Pilot.2160p.mkv",
     );
     expect(within(torrentio).getByTestId("stream-unplayable")).toHaveTextContent(
-      "Not playable yet",
+      "Not playable",
     );
 
     const aiostreams = screen.getByTestId("streams-aiostreams");
@@ -650,8 +659,34 @@ describe("the repertory Streams list", () => {
 
     fireEvent.click(screen.getByTestId("candidate-torrentio-0"));
 
-    expect(screen.getByTestId("chosen-stream")).toHaveTextContent("Not playable yet");
+    expect(screen.getByTestId("chosen-stream")).toHaveTextContent("Not playable");
     expect(take).not.toHaveBeenCalled();
+  });
+
+  it("lists a torrent playable, with its p2p warning, and sends the whole shape when pressed", async () => {
+    const { value, take } = harness();
+    render(
+      withShell(
+        value,
+        <RepertoryStreamsScreen
+          title={SERIES}
+          video={SERIES.videos[0]!}
+          groups={[{ addon: "torrentio", streams: [TORRENT], failure: null }]}
+        />,
+      ),
+    );
+
+    expect(screen.queryByTestId("stream-unplayable")).toBeNull();
+    expect(screen.getByText(/Peer-to-peer/)).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("candidate-torrentio-0"));
+
+    await waitFor(() => expect(take).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId("chosen-stream")).toBeNull();
+    expect(take.mock.calls[0]?.[0]).toMatchObject({
+      type: "play_stream",
+      addon: "torrentio",
+      stream: TORRENT,
+    });
   });
 
   it("takes a playable candidate back to the Host with its Addon and Title card", async () => {

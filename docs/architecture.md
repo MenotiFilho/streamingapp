@@ -177,8 +177,10 @@ carried one.
 - **Provider** (`provider.rs`): the seam that turns a Video into **Streams**.
   Today the only Provider is `AddonProvider`. Direct sources (local files,
   TorBox…) would arrive as further Providers with nothing above them changing.
-  A Stream is a direct URL (playable) or an `infoHash` (listed but marked
-  unplayable: there is no torrent engine). (ADR-0012)
+  A Stream is a direct URL or a torrent (an `infoHash`, or a `magnet:`). A
+  torrent is served by the **Torrent engine** seam (`torrent.rs`) before the
+  Player opens it, in `Host::open_stream`, and carries the `p2p` warning whether
+  or not its Addon says so. (ADR-0012, ADR-0042)
 - **TMDB** (`tmdb.rs`, `discover.rs`, `search.rs`): the Host's metadata source.
   It keys Titles by TMDB id where one exists, powers **Discover** and Search
   (with the Addons' own search catalogs as the fallback when no key is held),

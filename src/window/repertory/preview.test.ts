@@ -78,10 +78,20 @@ describe("the Cinemeta translation", () => {
         fileIdx: 2,
         sources: ["tracker:http://a.example/ann", "dht:c3da9a3dc2ce14d0d4fc0e87d1b2023502f8dcd6"],
       },
-      warnings: [],
+      warnings: ["p2p"],
       filename: "The.Shawshank.Redemption.1994.2160p.mkv",
       bingeGroup: "torrentio|4k|BluRay|x265",
     });
+  });
+
+  it("warns of peers on every torrent, whether or not the Addon's hint says so", () => {
+    const hash = "c3da9a3dc2ce14d0d4fc0e87d1b2023502f8dcd6";
+
+    expect(previewStream({ infoHash: hash })?.warnings).toEqual(["p2p"]);
+    expect(
+      previewStream({ infoHash: hash, behaviorHints: { p2p: false, notWebReady: true } })?.warnings,
+    ).toEqual(["not_web_ready", "p2p"]);
+    expect(previewStream({ url: "https://stream.example.org/x.mkv" })?.warnings).toEqual([]);
   });
 
   it("keeps a direct candidate's warnings in the Host's order and drops a locationless one", () => {

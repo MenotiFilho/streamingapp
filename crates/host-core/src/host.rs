@@ -12,8 +12,8 @@ use crate::library::LibraryCache;
 use crate::meta::{self, Title, TitleKey, Video};
 use crate::pairing::PairingCode;
 use crate::playback::{
-    ChapterStep, ChosenStream, Control, Observation, Picture, PlaybackState, Player, StreamUrl,
-    Telling, Track, TrackId, TrackKind, Unplayable,
+    ChapterStep, ChosenStream, Control, Observation, Picture, PlaybackState, Player, Source,
+    StreamUrl, Telling, Track, TrackId, TrackKind, Unplayable,
 };
 use crate::preferences::{FeaturedCatalog, Language, StreamBuffer, TorrentCache};
 use crate::preview::{
@@ -35,7 +35,7 @@ use crate::title_cache::{
     CachedTitle, TitleCache, TitleProbe, TitleProtection, MAX_CACHED_TITLES, RUNNING_FRESH_MILLIS,
 };
 use crate::tmdb;
-use crate::torrent::{NoTorrentEngine, TorrentEngine, TorrentLimits};
+use crate::torrent::{InfoHash, NoTorrentEngine, TorrentEngine, TorrentLimits, TorrentReport};
 use crate::tracks::{self, SubtitleChoice};
 use crate::view::{HostView, HostViewShared};
 
@@ -78,10 +78,13 @@ pub struct Host {
     previewer: Arc<dyn Previewer>,
     /// What turns a chosen torrent into a URL the Player can open (ADR-0042 §2).
     /// The real Host is built with the bundled engine; a test hands in a fake, and
-    /// a Host that never names one has an engine that refuses every serve. Nothing
-    /// calls it yet: the slices after the prefactor serve before `Player::open`.
-    #[allow(dead_code)]
+    /// a Host that never names one has an engine that refuses every serve.
     torrent_engine: Arc<dyn TorrentEngine>,
+    /// The torrent the Stream now open is being served from, where it is one: what
+    /// the Host lets go at a stop, and when a Stream of another infoHash replaces
+    /// it, and keeps across `Ended` and across another file of the same infoHash
+    /// (ADR-0042 §2).
+    held_torrent: Option<InfoHash>,
     /// Whether the Stream now open may be previewed, once the Player's first
     /// report has said what it costs. [`PreviewCeiling::Waiting`] until then, and
     /// decided once per Stream: a refusal is not revisited on a later report, and
@@ -259,6 +262,7 @@ impl Host {
             player,
             previewer: Arc::new(NoPreviewer),
             torrent_engine: Arc::new(NoTorrentEngine),
+            held_torrent: None,
             preview_gate: PreviewCeiling::Refused,
             preview_since: None,
             clock,
@@ -1074,6 +1078,7 @@ impl Host {
     /// timers — so whoever owns the shell's event loop calls this while
     /// something is playing (ADR-0013, ADR-0033).
     pub fn sample(&mut self) -> Option<Snapshot> {
+        self.drain_torrent_reports();
         let observation = self.player.observe();
 
         // The Host's own countdown is checked against its clock *before* an
@@ -1821,6 +1826,7 @@ impl Host {
                 // for: letting the URL go ends a second connection the Stream
                 // was only lent (ADR-0028).
                 self.disarm_preview();
+                self.let_go_held_torrent();
                 Resolved::Change(Change::Stop)
             }
             ValidatedAction::LookHint { addon, title } => {
@@ -1902,6 +1908,32 @@ impl Host {
         self.preview_since = None;
     }
 
+    /// Let the torrent being served go, where the Stream is one: the engine stops
+    /// fetching and uploading and deletes what it kept (ADR-0042 §2).
+    fn let_go_held_torrent(&mut self) {
+        if let Some(info_hash) = self.held_torrent.take() {
+            self.torrent_engine.let_go(&info_hash);
+        }
+    }
+
+    /// Take what the engine has reported since the last tick. A `Chosen` report
+    /// is logged and goes nowhere else; the other reports are for later
+    /// handling in this same drain.
+    fn drain_torrent_reports(&self) {
+        for report in self.torrent_engine.reports() {
+            match report {
+                TorrentReport::Chosen {
+                    info_hash,
+                    file_idx,
+                    name,
+                } => tracing::info!(%info_hash, file_idx, name, "the torrent engine chose a file"),
+                TorrentReport::Status { .. }
+                | TorrentReport::Failed { .. }
+                | TorrentReport::Exited => {}
+            }
+        }
+    }
+
     /// Open `chosen` in the Player at `start`, arm the Seek preview for its
     /// URL, and return the [`Change::Play`] every client is told.
     ///
@@ -1923,14 +1955,54 @@ impl Host {
             .flatten()
             .map(|title| title.id().to_owned());
 
-        self.player
-            .open(&chosen.url, start)
-            .map_err(|error| ActionError::Playback {
+        // A torrent is served before the Player is told to open: what the Player
+        // is handed is the loopback URL the engine answered with, never the
+        // infoHash (ADR-0042 §2). A serve the engine refuses opens nothing.
+        let (url, served) = match &chosen.source {
+            Source::Url(url) => (url.clone(), None),
+            Source::Torrent(torrent) => {
+                let request = torrent.serve_request(&chosen.now_playing);
+                let url =
+                    self.torrent_engine
+                        .serve(&request)
+                        .map_err(|error| ActionError::Playback {
+                            detail: error.sentence,
+                        })?;
+                (url, Some(torrent.info_hash.clone()))
+            }
+        };
+        if let Err(error) = self.player.open(&url, start) {
+            // A torrent served for a Stream that never opened is nobody's, unless
+            // it is the one already held for the Stream that is still playing.
+            if let Some(info_hash) = &served {
+                if self.held_torrent.as_ref() != Some(info_hash) {
+                    self.torrent_engine.let_go(info_hash);
+                }
+            }
+            return Err(ActionError::Playback {
                 detail: error.to_string(),
-            })?;
-        // Armed at the same moment the Stream opens, and cheap: the worker does
-        // not connect until the first still is asked for (ADR-0028).
-        self.arm_preview(&chosen.url);
+            });
+        }
+        if served.is_some() {
+            // A torrent's pieces arrive in the order the engine wants them, so a
+            // second reader taking stills would fight playback for them: never
+            // armed, and anything armed for the Stream it replaces is let go.
+            self.disarm_preview();
+            tracing::info!("the Seek preview is not armed for a torrent");
+        } else {
+            // Armed at the same moment the Stream opens, and cheap: the worker
+            // does not connect until the first still is asked for (ADR-0028).
+            self.arm_preview(&url);
+        }
+        // The torrent that was held goes once the Stream that replaces it has
+        // opened, unless the replacement is the same torrent: a season pack is
+        // one torrent across its episodes.
+        let previous = std::mem::replace(&mut self.held_torrent, served);
+        if let Some(previous) = previous {
+            if self.held_torrent.as_ref() != Some(&previous) {
+                self.torrent_engine.let_go(&previous);
+            }
+        }
         if let Some(title) = leaving {
             self.push_title(&title);
         }
@@ -2641,17 +2713,21 @@ mod tests {
         let matched = host
             .stream_by_continuity(&addon, Some("the-release"), &target)
             .expect("matching bingeGroup is picked");
-        assert_eq!(matched.url.as_str(), same_group);
+        assert_eq!(matched.url().unwrap().as_str(), same_group);
 
         let fallback = host
             .stream_by_continuity(&addon, Some("gone-group"), &target)
-            .expect("unplayable bingeGroup falls back to first playable candidate");
-        assert_eq!(fallback.url.as_str(), grouped_first);
+            .expect("a gone bingeGroup falls back to the first playable candidate");
+        assert_eq!(
+            fallback.info_hash(),
+            Some(&InfoHash::parse(torrent_hash).unwrap()),
+            "a torrent is playable, so the Addon's first candidate is the fallback"
+        );
 
         let no_group = host
             .stream_by_continuity(&addon, None, &target)
             .expect("missing bingeGroup takes the Addon's first playable candidate");
-        assert_eq!(no_group.url.as_str(), grouped_first);
+        assert_eq!(no_group.info_hash(), fallback.info_hash());
 
         let unknown_addon = AddonId::parse("org.example.missing").unwrap();
         assert!(host

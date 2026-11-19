@@ -103,8 +103,8 @@ pub use playback::{
     Aspect, Buffered, Chapter, ChapterStep, ChosenStream, Control, Crop, CropRectangle, Episode,
     FixturePlayer, InvalidAspect, InvalidCrop, InvalidSeekTarget, InvalidSpeed, InvalidStreamUrl,
     InvalidSubtitleDelay, InvalidVolume, NowPlaying, Observation, Picture, PlaybackError,
-    PlaybackSnapshot, PlaybackState, Player, SeekTarget, Statistics, StreamUrl, Telling, Track,
-    TrackId, TrackKind, Unplayable, VideoSize,
+    PlaybackSnapshot, PlaybackState, Player, SeekTarget, Source, Statistics, StreamUrl, Telling,
+    TorrentSource, Track, TrackId, TrackKind, Unplayable, VideoSize,
 };
 pub use preferences::{
     DuplicateLanguage, FeaturedCatalog, InvalidLanguage, InvalidLanguageList, InvalidStreamBuffer,

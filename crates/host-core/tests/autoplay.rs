@@ -8,14 +8,18 @@ use std::sync::Arc;
 
 use host_core::{
     Action, AutoplayPhase, FixtureClock, FixtureFetcher, FixturePlayer, FixtureProvider, Host,
-    InMemorySecretStore, InMemoryStore, InfoHash, Observation, Playback, PlaybackState,
-    SecretBackend, Snapshot, Store, Stream, ACTION_VERSION, AUTOPLAY_COUNTDOWN_MS,
+    InMemorySecretStore, InMemoryStore, Observation, Playback, PlaybackState, SecretBackend,
+    Snapshot, Store, Stream, ACTION_VERSION, AUTOPLAY_COUNTDOWN_MS,
 };
 
 const SERIES: &str = "https://series.example.org/manifest.json";
 const SERIES_ID: &str = "org.example.series";
 const META_URL: &str = "https://series.example.org/meta/series/tt0903747.json";
 const SERIES_META: &str = include_str!("fixtures/cinemeta-meta-series.json");
+
+/// A candidate's URL this Host will not open: not `http`, so it is listed and
+/// never played.
+const UNOPENABLE: &str = "ftp://stream.example.org/v/unopenable.mkv";
 
 const PLAYING: &str = "https://stream.example.org/v/tt0903747-1-1.mkv";
 const OTHER_RELEASE: &str = "https://stream.example.org/v/tt0903747-1-2-720p.mkv";
@@ -39,17 +43,6 @@ fn candidate(name: &str, url: &str, binge_group: Option<&str>) -> Stream {
         warnings: Vec::new(),
         filename: None,
         binge_group: binge_group.map(str::to_owned),
-    }
-}
-
-fn torrent(name: &str, info_hash: &str, binge_group: Option<&str>) -> Stream {
-    Stream {
-        playback: Playback::Torrent {
-            info_hash: InfoHash::parse(info_hash).expect("a valid infoHash"),
-            file_idx: None,
-            sources: Vec::new(),
-        },
-        ..candidate(name, "", binge_group)
     }
 }
 
@@ -327,11 +320,7 @@ fn when_the_countdown_runs_out_the_next_episode_plays_from_the_same_release() {
 #[test]
 fn when_the_release_is_gone_the_addons_first_playable_candidate_plays() {
     let mut fixture = fixture_offering(vec![
-        torrent(
-            "a torrent",
-            "61065ea115b7cc3e8db9fb5ab1f6f327f08bd1c9",
-            Some("the-release"),
-        ),
+        candidate("a Stream no Player opens", UNOPENABLE, Some("the-release")),
         candidate("720p", OTHER_RELEASE, Some("another-release")),
     ]);
     first_episode_ended(&mut fixture);
@@ -347,9 +336,9 @@ fn when_the_release_is_gone_the_addons_first_playable_candidate_plays() {
 
 #[test]
 fn when_continuity_finds_nothing_the_host_stays_on_the_ended_state_and_says_so() {
-    let mut fixture = fixture_offering(vec![torrent(
-        "a torrent",
-        "61065ea115b7cc3e8db9fb5ab1f6f327f08bd1c9",
+    let mut fixture = fixture_offering(vec![candidate(
+        "a Stream no Player opens",
+        UNOPENABLE,
         Some("the-release"),
     )]);
     first_episode_ended(&mut fixture);

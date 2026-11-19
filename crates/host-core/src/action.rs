@@ -1589,6 +1589,54 @@ mod tests {
         );
     }
 
+    fn play_torrent(playback: &str) -> String {
+        format!(
+            r#"{{"version":{ACTION_VERSION},"action":{{"type":"play_stream",
+                "video":{{"type":"series","id":"tt0903747:1:2"}},
+                "addon":"community.torrentio",
+                "title":{{"addon":"com.linvo.cinemeta","id":"tt0903747","type":"series",
+                    "name":"Breaking Bad","poster":null}},
+                "stream":{{"name":"Torrentio\n1080p","playback":{playback}}}}}}}"#
+        )
+    }
+
+    #[test]
+    fn a_torrent_a_client_sends_back_is_judged_again_and_asks_no_engine() {
+        let sent = Action::parse(&play_torrent(
+            r#"{"kind":"torrent","infoHash":"C12FE1C06BBA254A9DC9F519B335AA7C1367A88A",
+                "fileIdx":3,"sources":["tracker:udp://tracker.example.org:1337"]}"#,
+        ))
+        .expect("the torrent shape a client was given is the one it sends back");
+
+        // `validate` takes no engine: it is pure, and a torrent passes it as a
+        // candidate to be served later, at the opening.
+        let ValidatedAction::PlayStream { chosen, .. } = sent.validate().expect("a torrent plays")
+        else {
+            panic!("that is a play");
+        };
+
+        assert_eq!(
+            chosen.info_hash().map(crate::InfoHash::as_str),
+            Some("c12fe1c06bba254a9dc9f519b335aa7c1367a88a"),
+            "read the way an Addon's is: one lowercase spelling"
+        );
+        assert_eq!(chosen.url(), None);
+    }
+
+    #[test]
+    fn a_torrent_a_client_cannot_have_been_given_is_refused_on_the_way_in() {
+        for playback in [
+            r#"{"kind":"torrent","infoHash":"not-a-hash"}"#,
+            r#"{"kind":"torrent","infoHash":"abc123"}"#,
+            r#"{"kind":"torrent"}"#,
+        ] {
+            assert!(
+                Action::parse(&play_torrent(playback)).is_err(),
+                "{playback} names no torrent this Host could have listed"
+            );
+        }
+    }
+
     #[test]
     fn the_playback_controls_are_flat_enough_to_write_by_hand() {
         assert_eq!(
