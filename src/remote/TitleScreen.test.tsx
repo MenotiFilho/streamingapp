@@ -656,8 +656,12 @@ describe("a series' Play", () => {
     fireEvent.click(screen.getByTestId("title-main"));
 
     expect(await screen.findByTestId("remote-streams")).toBeInTheDocument();
-    expect(host.asked("find_streams")).toEqual([
-      { type: "find_streams", video: { type: "series", id: "tt1:1:2" } },
-    ]);
+    // The Streams level asks after it mounts, so the Action can trail the level
+    // by a tick on a loaded machine.
+    await waitFor(() =>
+      expect(host.asked("find_streams")).toEqual([
+        { type: "find_streams", video: { type: "series", id: "tt1:1:2" } },
+      ]),
+    );
   });
 });
