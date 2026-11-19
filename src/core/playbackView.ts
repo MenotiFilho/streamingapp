@@ -30,6 +30,7 @@ import {
 } from "./osd";
 import { pictureNote, transportable, watching } from "./playback";
 import { labelOf } from "./title";
+import { torrentLine } from "./torrentStatus";
 import type {
   Chapter,
   Episode,
@@ -82,6 +83,12 @@ export type PlaybackView = {
    * drawn for it waits a second (`stallShown`); this is only the fact.
    */
   stalled: boolean;
+  /**
+   * The Torrent status as the one line the opening block and the Stalled card
+   * draw, or null for a direct Stream and for a torrent the engine has not yet
+   * reported on.
+   */
+  torrentLine: string | null;
   nowPlaying: NowPlaying | null;
   /** The Watch-progress Title's name, else the Stream's own title. */
   title: string;
@@ -184,6 +191,7 @@ export function playbackView(
     picture: playback.picture,
     pictureNote: pictureNote(playback.picture),
     stalled: playback.stalled,
+    torrentLine: playback.torrent ? torrentLine(playback.torrent) : null,
     nowPlaying: playback.nowPlaying,
     title: progress?.title.name ?? streamTitle(playback.nowPlaying),
     episodeLabel: episodeLabelOf(playback.episode, progress),

@@ -133,6 +133,7 @@ const PLAYBACK: PlaybackSnapshot = {
   muted: false,
   subtitleDelay: 0.2,
   stalled: false,
+  torrent: null,
   crop: null,
   aspect: null,
   resolution: { width: 1280, height: 720 },

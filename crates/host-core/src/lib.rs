@@ -152,6 +152,7 @@ pub use tmdb::{
 pub use torrent::{
     FailureKind, FixtureTorrentEngine, InfoHash, InvalidInfoHash, NoTorrentEngine, ServeHints,
     ServeRequest, TorrentEngine, TorrentError, TorrentLimits, TorrentPhase, TorrentReport,
+    TorrentStatus,
 };
 pub use tracks::codes_for_list;
 pub use view::HostView;

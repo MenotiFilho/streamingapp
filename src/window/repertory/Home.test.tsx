@@ -54,6 +54,7 @@ const BASE_SNAPSHOT: Snapshot = {
     muted: null,
     subtitleDelay: null,
     stalled: false,
+    torrent: null,
     crop: null,
     aspect: null,
     resolution: null,

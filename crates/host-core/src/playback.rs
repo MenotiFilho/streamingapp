@@ -40,7 +40,7 @@ use crate::autoplay::AutoplaySnapshot;
 use crate::preferences::{Language, LanguageList, StreamBuffer, SubtitleColor, SubtitleScale};
 use crate::request::VideoRef;
 use crate::stream::{holdable, Playback, Stream};
-use crate::torrent::{InfoHash, ServeHints, ServeRequest};
+use crate::torrent::{InfoHash, ServeHints, ServeRequest, TorrentStatus};
 use crate::tracks;
 
 /// A URL the Host will hand to a Player.
@@ -1033,6 +1033,11 @@ pub(crate) struct PlaybackSession {
     /// Whether the Stream is Stalled: playing, paused by no one, and held for
     /// bytes. True only in `playing`, and published as the Player reports it.
     stalled: bool,
+    /// The Torrent status of the Stream, where it is a torrent: what the engine
+    /// last reported that the Host let through its once-a-second throttle. The
+    /// Player never says it, so a report that rebuilds the session carries it
+    /// forward; a new Stream starts without one.
+    torrent: Option<TorrentStatus>,
     /// Why the last open failed, kept until the next play or stop.
     failure: Option<String>,
     /// Whether the Host ended this Stream itself, for a reason the Player does
@@ -1078,6 +1083,7 @@ impl PlaybackSession {
             duration: None,
             buffered: None,
             stalled: false,
+            torrent: None,
             failure: None,
             ended_by_host: false,
             tracks: Vec::new(),
@@ -1133,6 +1139,7 @@ impl PlaybackSession {
             duration: self.duration,
             buffered: self.buffered,
             stalled: self.stalled,
+            torrent: self.torrent,
             tracks: self.tracks.clone(),
             chapters: self.chapters.clone(),
             chapter: self.chapter,
@@ -1359,6 +1366,17 @@ impl PlaybackSession {
         };
     }
 
+    /// Take the engine's reading of the torrent being served, and say whether it
+    /// differs from the one held. A session with no Stream takes nothing: the
+    /// reading would be about a torrent nobody is playing.
+    pub(crate) fn torrent_status(&mut self, status: TorrentStatus) -> bool {
+        if self.playing.is_none() || self.torrent == Some(status) {
+            return false;
+        }
+        self.torrent = Some(status);
+        true
+    }
+
     /// The shape the Host's own record says the picture is drawn at.
     pub(crate) fn shaped(&mut self, aspect: Aspect) {
         self.aspect = Some(aspect);
@@ -1413,6 +1431,9 @@ impl PlaybackSession {
             // the owner, or done, and says so by its state. No debounce here —
             // the grace belongs to the client that draws it.
             stalled: observation.stalled && observation.state == PlaybackState::Playing,
+            // The Player knows nothing of the swarm: the engine's reading stands
+            // until the Host replaces it.
+            torrent: self.torrent,
             failure: observation.failure.clone(),
             ended_by_host: false,
             // A Player that could not say what the Stream carries says *nothing*
@@ -1457,6 +1478,7 @@ impl PlaybackSession {
             || self.duration != earlier.duration
             || self.buffered != earlier.buffered
             || self.stalled != earlier.stalled
+            || self.torrent != earlier.torrent
             || self.failure != earlier.failure
             || self.tracks != earlier.tracks
             || self.chapters != earlier.chapters
@@ -1521,6 +1543,11 @@ pub struct PlaybackSnapshot {
     /// because the bytes ahead of it have not arrived yet. True of any Stream,
     /// direct or torrent. A Stream still opening is not Stalled; it is opening.
     pub stalled: bool,
+    /// The Torrent status of the Stream: whether its torrent is still being
+    /// found or is being fetched, how many peers, and how fast. Null for a
+    /// direct Stream, and for a torrent Stream the engine has not yet reported
+    /// on. Never which torrent.
+    pub torrent: Option<TorrentStatus>,
     /// The Stream's tracks — audio and subtitles — in mpv's own order.
     pub tracks: Vec<Track>,
     /// The Stream's chapters, in the order the container gives them.
@@ -2218,6 +2245,7 @@ mod tests {
                 duration: None,
                 buffered: None,
                 stalled: false,
+                torrent: None,
                 tracks: Vec::new(),
                 chapters: Vec::new(),
                 chapter: None,
@@ -2379,6 +2407,7 @@ mod tests {
                 "duration": null,
                 "buffered": null,
                 "stalled": false,
+                "torrent": null,
                 "tracks": [],
                 "chapters": [],
                 "chapter": null,
@@ -2763,6 +2792,7 @@ mod tests {
                 "duration": 600.0,
                 "buffered": { "start": 12.0, "end": 40.0 },
                 "stalled": false,
+                "torrent": null,
                 "tracks": [
                     { "id": 1, "kind": "audio", "language": "eng", "title": "English stereo", "codec": "aac",
                       "embedded": true, "selected": true, "default": true, "forced": false, "hearingImpaired": false },
@@ -2816,5 +2846,51 @@ mod tests {
         }
         .bounded();
         assert_eq!(statistics.hardware_decode, None);
+    }
+
+    #[test]
+    fn the_torrent_status_travels_in_the_playback_snapshot_and_comes_back() {
+        use crate::torrent::TorrentPhase;
+        let mut session = PlaybackSession::opening(
+            ChosenStream::parse(
+                video(),
+                addon(),
+                &candidate(Playback::Direct {
+                    url: "https://stream.example.org/v/x.mkv".to_owned(),
+                }),
+            )
+            .expect("a direct URL is a candidate this Host plays"),
+        );
+        assert!(session.torrent_status(TorrentStatus {
+            phase: TorrentPhase::Fetching,
+            peers: 12,
+            rate: 4_200_000,
+        }));
+
+        let published =
+            serde_json::to_value(session.snapshot(Picture::InWindow)).expect("it serializes");
+
+        assert_eq!(
+            published["torrent"],
+            serde_json::json!({ "phase": "fetching", "peers": 12, "rate": 4_200_000 })
+        );
+        let back: PlaybackSnapshot =
+            serde_json::from_value(published).expect("the Snapshot reads back");
+        assert_eq!(back, session.snapshot(Picture::InWindow));
+        assert!(
+            !session.torrent_status(TorrentStatus {
+                phase: TorrentPhase::Fetching,
+                peers: 12,
+                rate: 4_200_000,
+            }),
+            "the same reading is not a change"
+        );
+        let finding = serde_json::to_value(TorrentStatus {
+            phase: TorrentPhase::Finding,
+            peers: 0,
+            rate: 0,
+        })
+        .expect("it serializes");
+        assert_eq!(finding["phase"], "finding");
     }
 }

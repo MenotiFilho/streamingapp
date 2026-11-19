@@ -14,8 +14,8 @@ use host_core::{
     Action, ActionError, FailureKind, FixtureClock, FixtureFetcher, FixturePlayer,
     FixturePreviewer, FixtureProvider, FixtureTorrentEngine, Host, InMemorySecretStore,
     InMemoryStore, InfoHash, Observation, Playback, PlaybackError, PlaybackState, Previewer,
-    SecretBackend, ServeHints, ServeRequest, Store, Stream, Telling, TorrentEngine, TorrentReport,
-    Track, TrackId, TrackKind, ACTION_VERSION,
+    SecretBackend, ServeHints, ServeRequest, Store, Stream, Telling, TorrentEngine, TorrentPhase,
+    TorrentReport, TorrentStatus, Track, TrackId, TrackKind, ACTION_VERSION,
 };
 
 const SERIES: &str = "https://series.example.org/manifest.json";
@@ -1346,6 +1346,256 @@ fn a_seek_on_a_torrent_that_is_still_held_does_not_reopen() {
         .tellings()
         .iter()
         .any(|telling| matches!(telling, Telling::Seek(_))));
+}
+
+// ── Torrent status ──────────────────────────────────────────────────────────
+
+fn status(info_hash: &str, phase: TorrentPhase, peers: u32, rate: u64) -> TorrentReport {
+    TorrentReport::Status {
+        info_hash: hash(info_hash),
+        phase,
+        peers,
+        rate,
+    }
+}
+
+fn torrent_status(peers: u32, rate: u64) -> TorrentStatus {
+    TorrentStatus {
+        phase: TorrentPhase::Fetching,
+        peers,
+        rate,
+    }
+}
+
+fn opening(fixture: &Fixture) {
+    fixture.player.now_reporting(Observation {
+        state: PlaybackState::Opening,
+        ..Observation::idle()
+    });
+}
+
+#[test]
+fn a_direct_stream_has_no_torrent_status() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:1", &direct("1080p", DIRECT)).expect("plays");
+    is_playing(&fixture, 10.0);
+    fixture.host.sample();
+    fixture
+        .engine
+        .report(status(HASH, TorrentPhase::Fetching, 12, 4_200_000));
+
+    fixture.host.sample();
+
+    assert_eq!(fixture.host.snapshot().playback.torrent, None);
+}
+
+#[test]
+fn a_torrent_stream_has_none_until_the_engine_reports() {
+    let mut fixture = fixture();
+
+    let response = play(&mut fixture, "tt0903747:1:1", &torrent_of(HASH)).expect("a torrent plays");
+
+    assert_eq!(fixture.host.snapshot().playback.torrent, None);
+    assert!(response
+        .snapshots
+        .iter()
+        .all(|snapshot| snapshot.playback.torrent.is_none()));
+}
+
+#[test]
+fn a_status_report_is_published_while_the_stream_opens() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:1", &torrent_of(HASH)).expect("a torrent plays");
+    opening(&fixture);
+    fixture
+        .engine
+        .report(status(HASH, TorrentPhase::Finding, 5, 0));
+
+    let published = fixture.host.sample().expect("a new reading is news");
+
+    assert_eq!(published.playback.state, PlaybackState::Opening);
+    assert_eq!(
+        published.playback.torrent,
+        Some(TorrentStatus {
+            phase: TorrentPhase::Finding,
+            peers: 5,
+            rate: 0,
+        })
+    );
+    assert_eq!(fixture.host.snapshot(), published);
+}
+
+#[test]
+fn a_status_report_is_published_while_playing_paused_and_ended() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:1", &torrent_of(HASH)).expect("a torrent plays");
+    is_playing(&fixture, 10.0);
+    fixture.host.sample();
+    let mut peers = 0;
+    let mut say = |fixture: &mut Fixture| {
+        peers += 1;
+        fixture.clock.tick(1_000);
+        fixture
+            .engine
+            .report(status(HASH, TorrentPhase::Fetching, peers, 1_000));
+        fixture.host.sample().expect("a new reading is news")
+    };
+
+    let playing = say(&mut fixture);
+    fixture.player.now_reporting(Observation {
+        state: PlaybackState::Paused,
+        ..Observation::playing(10.0, 2820.0)
+    });
+    fixture.host.sample();
+    let paused = say(&mut fixture);
+    fixture.player.now_reporting(Observation {
+        state: PlaybackState::Ended,
+        position: Some(2820.0),
+        duration: Some(2820.0),
+        ..Observation::idle()
+    });
+    fixture.host.sample();
+    let ended = say(&mut fixture);
+
+    assert_eq!(playing.playback.torrent, Some(torrent_status(1, 1_000)));
+    assert_eq!(paused.playback.state, PlaybackState::Paused);
+    assert_eq!(paused.playback.torrent, Some(torrent_status(2, 1_000)));
+    assert_eq!(ended.playback.state, PlaybackState::Ended);
+    assert_eq!(ended.playback.torrent, Some(torrent_status(3, 1_000)));
+}
+
+#[test]
+fn the_status_is_published_at_most_once_a_second_and_the_latest_reading_wins() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:1", &torrent_of(HASH)).expect("a torrent plays");
+    is_playing(&fixture, 10.0);
+    fixture.host.sample();
+    fixture
+        .engine
+        .report(status(HASH, TorrentPhase::Fetching, 1, 100));
+    fixture.host.sample().expect("the first reading publishes");
+
+    // Two readings inside the second: neither is published, and the later one
+    // is the one held back.
+    fixture.clock.tick(300);
+    fixture
+        .engine
+        .report(status(HASH, TorrentPhase::Fetching, 2, 200));
+    fixture
+        .engine
+        .report(status(HASH, TorrentPhase::Fetching, 3, 300));
+    assert_eq!(fixture.host.sample(), None);
+    fixture.clock.tick(600);
+    assert_eq!(fixture.host.sample(), None, "900 ms is not yet a second");
+    assert_eq!(
+        fixture.host.snapshot().playback.torrent,
+        Some(torrent_status(1, 100))
+    );
+
+    fixture.clock.tick(100);
+    let published = fixture.host.sample().expect("the second has passed");
+
+    assert_eq!(published.playback.torrent, Some(torrent_status(3, 300)));
+}
+
+#[test]
+fn an_unchanged_reading_publishes_nothing() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:1", &torrent_of(HASH)).expect("a torrent plays");
+    is_playing(&fixture, 10.0);
+    fixture.host.sample();
+    fixture
+        .engine
+        .report(status(HASH, TorrentPhase::Fetching, 4, 400));
+    fixture.host.sample().expect("the first reading publishes");
+    let before = fixture.host.snapshot();
+
+    fixture.clock.tick(1_000);
+    fixture
+        .engine
+        .report(status(HASH, TorrentPhase::Fetching, 4, 400));
+    let published = fixture.host.sample();
+
+    assert_eq!(published, None);
+    assert_eq!(fixture.host.snapshot(), before);
+}
+
+#[test]
+fn a_reading_of_another_torrent_is_not_this_streams() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:1", &torrent_of(HASH)).expect("a torrent plays");
+    is_playing(&fixture, 10.0);
+    fixture.host.sample();
+    fixture
+        .engine
+        .report(status(OTHER_HASH, TorrentPhase::Fetching, 9, 900));
+
+    assert_eq!(fixture.host.sample(), None);
+
+    assert_eq!(fixture.host.snapshot().playback.torrent, None);
+}
+
+#[test]
+fn the_status_goes_with_the_stream() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:1", &torrent_of(HASH)).expect("a torrent plays");
+    is_playing(&fixture, 10.0);
+    fixture.host.sample();
+    fixture
+        .engine
+        .report(status(HASH, TorrentPhase::Fetching, 4, 400));
+    fixture.host.sample().expect("the reading publishes");
+
+    dispatch(&mut fixture, serde_json::json!({ "type": "stop_playback" }));
+    assert_eq!(fixture.host.snapshot().playback.torrent, None);
+
+    // A reading held back for a Stream that is gone is not the next Stream's.
+    fixture.clock.tick(100);
+    fixture
+        .engine
+        .report(status(HASH, TorrentPhase::Fetching, 7, 700));
+    fixture.host.sample();
+    play(&mut fixture, "tt0903747:1:2", &direct("1080p", DIRECT)).expect("plays");
+    is_playing(&fixture, 1.0);
+    fixture.clock.tick(5_000);
+    fixture.host.sample();
+    assert_eq!(fixture.host.snapshot().playback.torrent, None);
+}
+
+#[test]
+fn the_next_torrent_streams_first_reading_is_not_held_by_the_throttle() {
+    let mut fixture = fixture_with(
+        FixtureTorrentEngine::new(),
+        vec![torrent_of(HASH), torrent_of(OTHER_HASH)],
+    );
+    play(&mut fixture, "tt0903747:1:1", &torrent_of(HASH)).expect("a torrent plays");
+    is_playing(&fixture, 10.0);
+    fixture.host.sample();
+    fixture
+        .engine
+        .report(status(HASH, TorrentPhase::Fetching, 4, 400));
+    fixture.host.sample().expect("the reading publishes");
+
+    play(&mut fixture, "tt0903747:1:2", &torrent_of(OTHER_HASH)).expect("another torrent plays");
+    assert_eq!(
+        fixture.host.snapshot().playback.torrent,
+        None,
+        "the last torrent's reading is not this one's"
+    );
+    opening(&fixture);
+    fixture
+        .engine
+        .report(status(OTHER_HASH, TorrentPhase::Finding, 0, 0));
+    let published = fixture.host.sample().expect("its first reading is news");
+
+    assert_eq!(
+        published.playback.torrent,
+        Some(TorrentStatus {
+            phase: TorrentPhase::Finding,
+            peers: 0,
+            rate: 0,
+        })
+    );
 }
 
 // ── A torrent with no file to play ──────────────────────────────────────────
