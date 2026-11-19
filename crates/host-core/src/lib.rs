@@ -48,6 +48,7 @@ mod door;
 mod fetcher;
 mod handpick;
 mod host;
+mod idle;
 mod library;
 mod log;
 mod meta;

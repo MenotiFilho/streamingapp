@@ -294,6 +294,11 @@ impl FixtureTorrentEngine {
             Some(TorrentError::new(sentence));
     }
 
+    /// Serve again from now on, after a [`Self::refuse`].
+    pub fn allow(&self) {
+        *self.refusing.lock().expect("the fixture is not poisoned") = None;
+    }
+
     /// Queue a report for the next [`TorrentEngine::reports`] call.
     pub fn report(&self, report: TorrentReport) {
         self.queued
