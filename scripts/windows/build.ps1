@@ -13,6 +13,11 @@
 # wants an MSVC import library, and the dev bundle ships a MinGW one. See
 # "the libmpv half" below, and scripts/windows/README.md.
 #
+# The Torrent engine is Go and built in the container (`crates/host-torrent/build.sh`),
+# then staged with the tree: `streamingapp-torrent.exe` goes beside
+# `streamingapp.exe`, which is where the Host looks for it, and `-Bundle` puts it
+# in the installer with its licence notice, `THIRD-PARTY.md`.
+#
 # `-LibmpvBundle` overrides which dev bundle is fetched; by default it is the
 # newest `mpv-dev-x86_64-v3` release of shinchiro/mpv-winbuild-cmake.
 # `-CacheDir` moves `libmpv`, `tauri-cli` and Cargo's `target` out of `-Tree` so
@@ -36,6 +41,15 @@ $env:CARGO_TERM_COLOR = 'never'
 if (-not (Test-Path $Tree)) { throw "no tree at $Tree" }
 if (-not (Test-Path (Join-Path $Tree 'dist\index.html'))) {
     throw "no frontend in $Tree\dist - build it in the container with 'pnpm build' and stage it again"
+}
+
+$torrentEngine = Join-Path $Tree 'crates\host-torrent\out\streamingapp-torrent.exe'
+$torrentNotices = Join-Path $Tree 'crates\host-torrent\engine\THIRD-PARTY.md'
+if (-not (Test-Path $torrentEngine)) {
+    throw "no Torrent engine at $torrentEngine - build it in the container with 'crates/host-torrent/build.sh' and stage again"
+}
+if (-not (Test-Path $torrentNotices)) {
+    throw "no licence notice at $torrentNotices - stage the tree again"
 }
 
 if ($CacheDir) {
@@ -199,6 +213,9 @@ if ($Bundle) {
     #   Linux dev container and staged (Windows has no `pnpm`).
     # - `libmpv-2.dll` is bundled alongside `streamingapp.exe` so the installed
     #   Host has a working Player.
+    # - `streamingapp-torrent.exe` is bundled there too, where the Host looks for
+    #   its Torrent engine, with `THIRD-PARTY.md`, the licences of the Go modules
+    #   it is built from.
     # - `version` is overridden when `-Version` is given so every release tag gets
     #   its own installer version without a version-bump commit in git.
     $overridePath = Join-Path $Tree 'src-tauri\tauri.bundle.conf.json'
@@ -209,6 +226,8 @@ if ($Bundle) {
         bundle = @{
             resources = @{
                 $dll = 'libmpv-2.dll'
+                $torrentEngine = 'streamingapp-torrent.exe'
+                $torrentNotices = 'THIRD-PARTY.md'
             }
         }
     }
@@ -269,6 +288,10 @@ if (-not (Test-Path $exe)) { throw "built, but no executable at $exe" }
 Copy-Item $dll (Split-Path $exe) -Force
 
 $beside = Join-Path (Split-Path $exe) 'libmpv-2.dll'
+# And so is the Torrent engine, which the Host starts from beside itself.
+Copy-Item $torrentEngine (Split-Path $exe) -Force
+$engineBeside = Join-Path (Split-Path $exe) 'streamingapp-torrent.exe'
 "exe: $exe  ($((Get-Item $exe).Length) bytes)"
 "dll: $beside  ($((Get-Item $beside).Length) bytes)"
+"torrent engine: $engineBeside  ($((Get-Item $engineBeside).Length) bytes)"
 Get-Content $buildLog -Tail 3
