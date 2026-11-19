@@ -37,8 +37,8 @@ use crate::title_cache::{
 };
 use crate::tmdb;
 use crate::torrent::{
-    FailureKind, InfoHash, NoTorrentEngine, TorrentEngine, TorrentLimits, TorrentReport,
-    TorrentStatus,
+    FailureKind, InfoHash, NoTorrentEngine, TorrentEngine, TorrentLimits, TorrentPhase,
+    TorrentReport, TorrentStatus,
 };
 use crate::tracks::{self, SubtitleChoice};
 use crate::view::{HostView, HostViewShared};
@@ -110,6 +110,11 @@ pub struct Host {
     /// Play, a seek or a track change serves the torrent again and reopens the
     /// same Stream; anything that opens or stops a Stream ends it.
     released: bool,
+    /// Whether the Torrent engine has already been restarted for the Stream now
+    /// open: it is restarted once, and a second exit ends the Stream
+    /// (ADR-0042 §5). A new Stream, even another file of the same torrent,
+    /// starts the count over.
+    engine_restarted: bool,
     /// What the engine said when the held torrent had no file to play: the
     /// sentence the failed open shows in place of the Player's own words
     /// (ADR-0042 §4). It belongs to the open that failed, and the next open or
@@ -212,6 +217,18 @@ fn storage_sentence(engine_says: &str) -> String {
     }
 }
 
+/// What a Stream that lost its Torrent engine twice says.
+const ENGINE_STOPPED_TWICE: &str = "The torrent engine stopped twice while playing this Stream.";
+
+/// What one look at the engine's reports found: the sentence the Stream must end
+/// with, whether a Torrent status reached the Snapshot, and whether the engine
+/// itself exited.
+struct EngineReports {
+    ending: Option<String>,
+    status_moved: bool,
+    exited: bool,
+}
+
 fn key_of(work: &Work) -> Option<TitleKey> {
     match work {
         Work::Addon { addon, asked } => Some(TitleKey::Addon {
@@ -310,6 +327,7 @@ impl Host {
             torrent_status_at: None,
             idle: Idle::default(),
             released: false,
+            engine_restarted: false,
             engine_failure: None,
             preview_gate: PreviewCeiling::Refused,
             preview_since: None,
@@ -1127,9 +1145,15 @@ impl Host {
     /// timers — so whoever owns the shell's event loop calls this while
     /// something is playing (ADR-0013, ADR-0033).
     pub fn sample(&mut self) -> Option<Snapshot> {
-        let (ending, status_moved) = self.drain_torrent_reports();
-        if let Some(sentence) = ending {
-            return Some(self.end_for_storage(sentence));
+        let drained = self.drain_torrent_reports();
+        if let Some(sentence) = drained.ending {
+            return Some(self.end_with_failure(sentence));
+        }
+        let status_moved = drained.status_moved;
+        if drained.exited {
+            if let Some(snapshot) = self.recover_from_engine_exit() {
+                return Some(snapshot);
+            }
         }
 
         // A released Stream is the Host's record of it: what the Player says
@@ -2085,8 +2109,9 @@ impl Host {
     /// of the torrent being held is kept as the newest reading, and published by
     /// [`Self::publish_torrent_reading`]; one of any other torrent is not about
     /// this Stream.
-    fn drain_torrent_reports(&mut self) -> (Option<String>, bool) {
+    fn drain_torrent_reports(&mut self) -> EngineReports {
         let mut ending = None;
+        let mut exited = false;
         for report in self.torrent_engine.reports() {
             match report {
                 TorrentReport::Chosen {
@@ -2119,14 +2144,88 @@ impl Host {
                 } if self.held_torrent.as_ref() == Some(&info_hash) => {
                     self.engine_failure = Some((info_hash, sentence));
                 }
-                TorrentReport::Failed { .. } | TorrentReport::Exited => {}
+                TorrentReport::Exited => exited = true,
+                TorrentReport::Failed { .. } => {}
             }
         }
         if ending.is_some() {
             // The Stream is about to end; a reading of it is not news.
-            return (ending, false);
+            return EngineReports {
+                ending,
+                status_moved: false,
+                exited,
+            };
         }
-        (ending, self.publish_torrent_reading())
+        EngineReports {
+            ending,
+            status_moved: self.publish_torrent_reading(),
+            exited,
+        }
+    }
+
+    /// What the Torrent engine's exit means for the Stream open, if it is a
+    /// torrent that is: the engine is restarted once, and a second exit during
+    /// the same Stream ends it (ADR-0042 §5).
+    ///
+    /// The restart is a reopen at the position the Host holds, through the path
+    /// a resume opens a Stream at a start position, so the limits are told
+    /// again first — the next serve starts a fresh child, and it must have
+    /// them. A Stream that was paused is reopened paused. Opening is what every
+    /// client sees meanwhile, finding the torrent, and the Player's next report
+    /// takes it from there.
+    ///
+    /// An exit while nothing is held is not this Stream's business: nothing
+    /// published, and the next serve starts the engine as on first use. A
+    /// Stream that `Ended` holds its torrent but is not being read, so it is
+    /// not restarted either; playing it again serves it then.
+    fn recover_from_engine_exit(&mut self) -> Option<Snapshot> {
+        let state = self.state.playback().state();
+        let open = matches!(
+            state,
+            PlaybackState::Opening | PlaybackState::Playing | PlaybackState::Paused
+        );
+        if self.held_torrent.is_none() || self.released || !open {
+            return None;
+        }
+        if self.engine_restarted {
+            tracing::warn!("the torrent engine exited a second time during this Stream");
+            return Some(self.end_with_failure(ENGINE_STOPPED_TWICE.to_owned()));
+        }
+
+        tracing::warn!("the torrent engine exited; restarting it once and reopening the Stream");
+        let preferences = self.state.preferences();
+        self.tell_torrent_limits(preferences.stream_buffer(), preferences.torrent_cache());
+        let position = self.state.playback().position();
+        let chosen = self.state.playback().chosen().cloned()?;
+        let title = self.playing_title();
+        let reopened = match self.open_stream(Box::new(chosen), title, position) {
+            Ok(change) => change,
+            Err(ActionError::Playback { detail }) => return Some(self.end_with_failure(detail)),
+            Err(other) => return Some(self.end_with_failure(other.to_string())),
+        };
+        if let Err(error) = self.commit(reopened, None) {
+            return Some(self.end_with_failure(error.to_string()));
+        }
+        // The count is the Stream's, and reopening it is not a new Stream.
+        self.engine_restarted = true;
+        if state == PlaybackState::Paused {
+            // The pause property outlives a load: the Player holds the picture on
+            // its first frame, as the owner left it. A refusal costs nothing the
+            // next report would not correct.
+            let _ = self.player.tell(Telling::Pause(true));
+        }
+        // The engine has not said anything yet: the opening block is told it is
+        // finding the torrent.
+        let finding = TorrentStatus {
+            phase: TorrentPhase::Finding,
+            peers: 0,
+            rate: 0,
+        };
+        if self.state.set_torrent_status(finding) {
+            self.torrent_status_at = Some(self.clock.now_millis());
+        }
+        self.revision += 1;
+        Some(self.snapshot())
     }
 
     /// Let the newest kept reading into the Snapshot, once a second has passed
@@ -2151,11 +2250,12 @@ impl Host {
         false
     }
 
-    /// End the Stream at once because its torrent cannot be kept on disk: the
-    /// Player is stopped, the torrent let go, Watch progress written where the
-    /// Stream got to, and the failure published beside an `idle` state. A full
-    /// disk does not fix itself, so nothing is restarted (ADR-0042 §3, §5).
-    fn end_for_storage(&mut self, sentence: String) -> Snapshot {
+    /// End the Stream at once, for `sentence`: the Player is stopped, the
+    /// torrent let go, Watch progress written where the Stream got to, and the
+    /// failure published beside an `idle` state. Nothing is restarted. A torrent
+    /// that cannot be kept on disk ends this way — a full disk does not fix
+    /// itself — and so does an engine that stopped twice (ADR-0042 §3, §5).
+    fn end_with_failure(&mut self, sentence: String) -> Snapshot {
         // The Player may already have lost the Stream; either way it is over.
         let _ = self.player.stop();
         self.disarm_preview();
@@ -2257,6 +2357,7 @@ impl Host {
         // opened, unless the replacement is the same torrent: a season pack is
         // one torrent across its episodes.
         self.engine_failure = None;
+        self.engine_restarted = false;
         let previous = std::mem::replace(&mut self.held_torrent, served);
         self.forget_torrent_readings();
         if let Some(previous) = previous {
