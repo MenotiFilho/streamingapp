@@ -755,6 +755,43 @@ func TestTheSwarmClientIsConfiguredForPeers(t *testing.T) {
 	}
 }
 
+func TestMetadataEmitsChosenWithoutFetchingVideoBytes(t *testing.T) {
+	s := seed(t, film())
+	r := startEngine(t)
+	r.serve(s.hash, nil, nil)
+	r.connect(s)
+
+	chosen := r.await("chosen", ofKind("chosen"))
+	if chosen["name"] != "film.mkv" || chosen["infoHash"] != s.hash || int(chosen["fileIdx"].(float64)) != 0 {
+		t.Fatalf("chosen %v, want film.mkv at 0 for %s", chosen, s.hash)
+	}
+	if completed := r.eng.heldFor(s.hash).t.BytesCompleted(); completed != 0 {
+		t.Fatalf("downloaded %d video bytes when only metadata was asked", completed)
+	}
+	dir := filepath.Join(r.dir, s.hash)
+	filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() && strings.HasSuffix(d.Name(), ".piece") {
+			t.Fatalf("unexpected piece file %s written when only metadata was asked", path)
+		}
+		return nil
+	})
+}
+
+func TestMetadataEmitsNoFileFailureWithoutFetchingVideoBytes(t *testing.T) {
+	s := seed(t, map[string][]byte{"readme.txt": randomBytes(13, 40<<10)})
+	r := startEngine(t)
+	r.serve(s.hash, nil, nil)
+	r.connect(s)
+
+	failed := r.await("failed", ofKind("failed"))
+	if failed["kind"] != "no_file" || failed["sentence"] != "This torrent holds no video." || failed["infoHash"] != s.hash {
+		t.Fatalf("failed %v", failed)
+	}
+	if completed := r.eng.heldFor(s.hash).t.BytesCompleted(); completed != 0 {
+		t.Fatalf("downloaded %d bytes when only metadata was asked", completed)
+	}
+}
+
 func eventually(t *testing.T, what string, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(wait)

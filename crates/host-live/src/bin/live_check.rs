@@ -10,11 +10,13 @@
 //! found. Run it deliberately: it reaches the network, and it is a report rather
 //! than a test suite (ADR-0019).
 
+use std::path::Path;
 use std::process::ExitCode;
 
 use host_addon::HttpFetcher;
-use host_core::{ManifestUrl, TitleRef};
+use host_core::{ManifestUrl, NoTorrentEngine, TitleRef, TorrentEngine};
 use host_live::{render, run, Options};
+use host_torrent::{Launch, ProcessTorrentEngine};
 
 /// The Addons a run with no arguments checks, one for each resource the Host
 /// reads, so that the documented command exercises the whole path with no setup.
@@ -30,8 +32,11 @@ live_check — read-only conformance against real Addons
 Usage: live_check [OPTIONS] [MANIFEST_URL...]
 
 Runs the Host's addon path — manifest, catalog, search, meta, stream, subtitles —
-against each Addon, and reports what each resource answered. It only reads: it
-writes nothing to the Addon, to Stremio or to the Host's own store.
+against each Addon, and reports what each resource answered. When an Addon
+returns a torrent Stream for the Title, it starts the Torrent engine and waits
+up to 60 s for metadata only, reporting time to metadata, peers and the chosen
+file before letting the torrent go without fetching video bytes. It only reads:
+it writes nothing to the Addon, to Stremio or to the Host's own store.
 
 With no MANIFEST_URL it checks a small set of real Addons that between them cover
 every resource:
@@ -70,15 +75,37 @@ fn main() -> ExitCode {
     };
 
     let fetcher = HttpFetcher::new();
+    let torrents_dir = tempfile::tempdir().ok();
+    let torrents = torrent_engine(torrents_dir.as_ref().map(|dir| dir.path()));
     let reports: Vec<_> = cli
         .addons
         .iter()
-        .map(|url| run(&fetcher, url, &cli.options))
+        .map(|url| run(&fetcher, torrents.as_ref(), url, &cli.options))
         .collect();
+    // Drop the engine before its temporary directory so the child exits and
+    // removes its own folders before TempDir cleans up.
+    drop(torrents);
+    drop(torrents_dir);
 
     print!("{}", render(&reports));
 
     ExitCode::SUCCESS
+}
+
+/// The real Torrent engine when its binary is available beside the executable
+/// (or under `target/torrent/` in a debug build), and one that refuses every
+/// serve with a sentence when it is not — matching the app shell (ADR-0042 §1).
+fn torrent_engine(torrents_dir: Option<&Path>) -> Box<dyn TorrentEngine> {
+    let Some(torrents_dir) = torrents_dir else {
+        return Box::new(NoTorrentEngine);
+    };
+    let binary = std::env::current_exe()
+        .ok()
+        .and_then(|executable| host_torrent::launch::locate(&executable, cfg!(debug_assertions)));
+    match binary {
+        Some(binary) => Box::new(ProcessTorrentEngine::new(Launch::new(binary, torrents_dir))),
+        None => Box::new(NoTorrentEngine),
+    }
 }
 
 enum Cli {

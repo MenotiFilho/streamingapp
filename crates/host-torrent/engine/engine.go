@@ -260,14 +260,33 @@ func (e *Engine) Serve(op ServeOp) {
 	if trackers := TrackersOf(op.Sources); len(trackers) > 0 {
 		h.t.AddTrackers([][]string{trackers})
 	}
+	entry := &serveEntry{op: op}
 	h.mu.Lock()
-	h.serves[op.ID] = &serveEntry{op: op}
+	h.serves[op.ID] = entry
 	h.mu.Unlock()
 
 	url := fmt.Sprintf("http://%s/%s/%s/%d", e.ln.Addr(), e.token, hash, op.ID)
 	if err := e.out.Send(ServedEvent(op.ID, url)); err != nil {
 		e.log.Printf("telling the Host: %v", err)
 	}
+	go e.chooseOnceReady(h, entry)
+}
+
+// chooseOnceReady picks the serve's file as soon as metadata arrives, without
+// waiting for an HTTP read, so a caller that only wants metadata (like
+// live_check) receives `chosen` or `failed` without fetching any video bytes.
+func (e *Engine) chooseOnceReady(h *held, entry *serveEntry) {
+	select {
+	case <-h.t.GotInfo():
+	case <-h.done:
+		return
+	}
+	select {
+	case <-h.done:
+		return
+	default:
+	}
+	entry.once.Do(func() { e.choose(h, entry) })
 }
 
 func (e *Engine) refuse(id int64, sentence string) {
