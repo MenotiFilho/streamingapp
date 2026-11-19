@@ -132,9 +132,9 @@ function playableDirectUrl(raw: string): boolean {
 
 /**
  * What the list says about playing a candidate: nothing for a URL the Host can
- * open, and the reason for one it cannot. A candidate is never hidden for being
- * unplayable — it is listed and marked, and pressing it says so rather than
- * pretending to play.
+ * open or a torrent it serves, and the reason for a direct Stream it cannot. A
+ * candidate is never hidden for being unplayable — it is listed and marked, and
+ * pressing it says so rather than pretending to play.
  */
 export function playabilityNote(playback: Playback): string | null {
   switch (playback.kind) {
@@ -143,7 +143,9 @@ export function playabilityNote(playback: Playback): string | null {
         ? null
         : "Not playable — a direct Stream must be an http(s) address.";
     case "torrent":
-      return "Not playable yet — a torrent this Host cannot fetch.";
+      // The Host serves it through its Torrent engine at the press; a Host
+      // without one refuses then, in the engine's own words (ADR-0042).
+      return null;
   }
 }
 

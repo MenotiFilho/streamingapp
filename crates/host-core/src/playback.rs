@@ -40,6 +40,7 @@ use crate::autoplay::AutoplaySnapshot;
 use crate::preferences::{Language, LanguageList, StreamBuffer, SubtitleColor, SubtitleScale};
 use crate::request::VideoRef;
 use crate::stream::{holdable, Playback, Stream};
+use crate::torrent::{InfoHash, ServeHints, ServeRequest};
 use crate::tracks;
 
 /// A URL the Host will hand to a Player.
@@ -100,21 +101,42 @@ pub struct InvalidStreamUrl {
     pub url: String,
 }
 
-/// What a client asked to play, judged: the URL the Player will be given, and
-/// the Addon's own words about the candidate — which is all that travels out.
+/// What a client asked to play, judged: where the bytes are — a URL the Player
+/// will be given, or a torrent the Torrent engine will serve — and the Addon's
+/// own words about the candidate, which is all that travels out.
 ///
 /// Built by [`Action::validate`](crate::Action::validate) and nothing else, so a
-/// `ChosenStream` that exists is a Stream a Player can be handed. Deliberately
-/// not `Serialize`: there is no shape of this that a Snapshot could carry, and
-/// that is the point.
+/// `ChosenStream` that exists is a Stream this Host can open. Deliberately not
+/// `Serialize`: there is no shape of this that a Snapshot could carry, and that
+/// is the point.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChosenStream {
-    /// The URL the Player is given, and the one thing about a Stream no
-    /// Snapshot carries.
-    pub url: StreamUrl,
+    /// Where the bytes are, and the one thing about a Stream no Snapshot
+    /// carries.
+    pub source: Source,
     /// The candidate as every client is told about it: the Addon's badge line,
     /// its description, the file's name — and never where the bytes are.
     pub now_playing: NowPlaying,
+}
+
+/// Where a chosen Stream's bytes are.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Source {
+    /// A URL the Player opens as itself.
+    Url(StreamUrl),
+    /// A torrent: the Torrent engine serves it as a loopback URL, and that is
+    /// what the Player opens (ADR-0042 §2).
+    Torrent(TorrentSource),
+}
+
+/// A torrent as the Host holds it once chosen: what the Addon named, judged.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TorrentSource {
+    pub info_hash: InfoHash,
+    /// The file of the torrent the Addon said is the Video, where it did.
+    pub file_idx: Option<u32>,
+    /// Trackers and `dht:` sources, within the bounds an Addon's are held to.
+    pub sources: Vec<String>,
 }
 
 /// The Stream that is playing, in the Addon's own words, without its URL.
@@ -142,29 +164,36 @@ pub struct NowPlaying {
 }
 
 impl ChosenStream {
-    /// The candidate as the Host holds it: the URL to open and the words to
+    /// The candidate as the Host holds it: where its bytes are and the words to
     /// publish, or why this Host will not play it.
     ///
     /// The words are the client's, and they are only words: a client that sends
     /// a name it never got from an Addon is lying about a badge line, and the
     /// Host has no record to check it against — the list a client chooses from
     /// is that client's own (ADR-0005). What is judged is the part that
-    /// matters: *where the bytes are*. A torrent is a candidate this Host
-    /// has no engine to fetch yet and one it will not pretend to play, and a
-    /// word too long to hold is dropped the way a Stream read from an Addon
-    /// drops one.
+    /// matters: *where the bytes are*. A direct URL must be one this Host opens;
+    /// a torrent's infoHash was judged when it was read, and its sources are
+    /// held to the bounds an Addon's are, so a client cannot hand the engine
+    /// more than an Addon could. A word too long to hold is dropped the way a
+    /// Stream read from an Addon drops one.
     pub fn parse(video: VideoRef, addon: AddonId, stream: &Stream) -> Result<Self, Unplayable> {
-        let url = match &stream.playback {
-            Playback::Direct { url } => StreamUrl::parse(url).map_err(Unplayable::from)?,
-            Playback::Torrent { .. } => {
-                return Err(Unplayable {
-                    detail: "that Stream is a torrent, which this Host cannot fetch yet".to_owned(),
-                })
+        let source = match &stream.playback {
+            Playback::Direct { url } => {
+                Source::Url(StreamUrl::parse(url).map_err(Unplayable::from)?)
             }
+            Playback::Torrent {
+                info_hash,
+                file_idx,
+                sources,
+            } => Source::Torrent(TorrentSource {
+                info_hash: info_hash.clone(),
+                file_idx: *file_idx,
+                sources: crate::stream::bounded(sources.iter().map(String::as_str)),
+            }),
         };
 
         Ok(Self {
-            url,
+            source,
             now_playing: NowPlaying {
                 video,
                 addon,
@@ -174,6 +203,52 @@ impl ChosenStream {
                 binge_group: held(stream.binge_group.as_deref()),
             },
         })
+    }
+
+    /// The URL the Player is given as it stands, for a direct Stream. A torrent
+    /// has none until the engine serves it.
+    pub fn url(&self) -> Option<&StreamUrl> {
+        match &self.source {
+            Source::Url(url) => Some(url),
+            Source::Torrent(_) => None,
+        }
+    }
+
+    /// The torrent's identity, for a torrent.
+    pub fn info_hash(&self) -> Option<&InfoHash> {
+        match &self.source {
+            Source::Url(_) => None,
+            Source::Torrent(torrent) => Some(&torrent.info_hash),
+        }
+    }
+
+    /// What the Torrent engine is asked to serve for a torrent: the file the
+    /// Addon named, and the hints — the file's own name and the Video's season
+    /// and episode, as [`meta::episode_of`](crate::meta::episode_of) reads them —
+    /// the engine chooses by once the metadata arrives (ADR-0042 §4).
+    pub fn serve_request(&self) -> Option<ServeRequest> {
+        match &self.source {
+            Source::Url(_) => None,
+            Source::Torrent(torrent) => Some(torrent.serve_request(&self.now_playing)),
+        }
+    }
+}
+
+impl TorrentSource {
+    /// What the engine is asked to serve of this torrent for the Stream
+    /// `now_playing` words: see [`ChosenStream::serve_request`].
+    pub fn serve_request(&self, now_playing: &NowPlaying) -> ServeRequest {
+        let (season, episode) = crate::meta::episode_numbers(&now_playing.video.id);
+        ServeRequest {
+            info_hash: self.info_hash.clone(),
+            file_idx: self.file_idx,
+            sources: self.sources.clone(),
+            hints: ServeHints {
+                filename: now_playing.filename.clone(),
+                season,
+                episode,
+            },
+        }
     }
 }
 
@@ -1535,6 +1610,15 @@ impl FixturePlayer {
         self
     }
 
+    /// Refuse every telling from now on — for a test that has already handed
+    /// the Player to a Host, and wants a Stream to open before it does.
+    pub fn now_refusing(&self, error: PlaybackError) {
+        *self
+            .refusing
+            .lock()
+            .expect("the fixture player is not poisoned") = Some(error);
+    }
+
     /// Every URL the Host asked to open, in order.
     pub fn opened(&self) -> Vec<String> {
         self.opened
@@ -1660,7 +1744,6 @@ impl Player for FixturePlayer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::torrent::InfoHash;
 
     fn url(raw: &str) -> StreamUrl {
         StreamUrl::parse(raw)
@@ -1752,7 +1835,7 @@ mod tests {
         .expect("a direct URL is a candidate this Host plays");
 
         assert_eq!(
-            chosen.url.as_str(),
+            chosen.url().expect("a direct Stream has a URL").as_str(),
             "https://stream.example.org/v/tt0133093.mkv"
         );
         assert_eq!(
@@ -1801,22 +1884,124 @@ mod tests {
         );
     }
 
+    const HASH: &str = "61065ea115b7cc3e8db9fb5ab1f6f327f08bd1c9";
+
+    fn torrent(file_idx: Option<u32>, sources: Vec<String>) -> Playback {
+        Playback::Torrent {
+            info_hash: InfoHash::parse(HASH).unwrap(),
+            file_idx,
+            sources,
+        }
+    }
+
     #[test]
-    fn a_torrent_is_a_candidate_this_host_will_not_pretend_to_play() {
-        let refused = ChosenStream::parse(
+    fn a_torrent_is_a_candidate_this_host_plays_through_the_engine() {
+        let chosen = ChosenStream::parse(
             video(),
             addon(),
-            &candidate(Playback::Torrent {
-                info_hash: InfoHash::parse("61065ea115b7cc3e8db9fb5ab1f6f327f08bd1c9").unwrap(),
-                file_idx: Some(1),
-                sources: vec!["tracker:http://tracker.example.org/ann".to_owned()],
-            }),
-        );
+            &candidate(torrent(
+                Some(1),
+                vec!["tracker:http://tracker.example.org/ann".to_owned()],
+            )),
+        )
+        .expect("a torrent is a candidate the one playability rule accepts");
 
-        assert!(
-            matches!(&refused, Err(Unplayable { detail }) if detail.contains("torrent")),
-            "a torrent is listed and marked, and never played: {refused:?}"
+        assert_eq!(
+            chosen.url(),
+            None,
+            "a torrent has no URL until it is served"
         );
+        assert_eq!(chosen.info_hash(), Some(&InfoHash::parse(HASH).unwrap()));
+        assert_eq!(
+            chosen.now_playing.name.as_deref(),
+            Some("AIOStreams\n1080p"),
+            "the Addon's words travel as they do for a direct Stream"
+        );
+    }
+
+    #[test]
+    fn a_direct_stream_has_a_url_and_no_info_hash() {
+        let chosen = ChosenStream::parse(
+            video(),
+            addon(),
+            &candidate(Playback::Direct {
+                url: "https://stream.example.org/v/tt0133093.mkv".to_owned(),
+            }),
+        )
+        .expect("a direct URL plays");
+
+        assert_eq!(chosen.info_hash(), None);
+        assert!(chosen.serve_request().is_none(), "nothing to serve");
+    }
+
+    #[test]
+    fn a_torrent_asks_the_engine_for_the_file_the_addon_named_with_the_hints_it_has() {
+        let chosen = ChosenStream::parse(
+            VideoRef::parse("series", "tt0903747:2:5").unwrap(),
+            addon(),
+            &candidate(torrent(
+                Some(3),
+                vec!["tracker:udp://tracker.example.org:1337".to_owned()],
+            )),
+        )
+        .expect("a torrent plays");
+
+        assert_eq!(
+            chosen.serve_request(),
+            Some(ServeRequest {
+                info_hash: InfoHash::parse(HASH).unwrap(),
+                file_idx: Some(3),
+                sources: vec!["tracker:udp://tracker.example.org:1337".to_owned()],
+                hints: ServeHints {
+                    filename: Some("The.Matrix.1999.1080p.mkv".to_owned()),
+                    season: Some(2),
+                    episode: Some(5),
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn a_film_has_no_season_or_episode_to_hint() {
+        let request = ChosenStream::parse(video(), addon(), &candidate(torrent(None, Vec::new())))
+            .expect("a torrent plays")
+            .serve_request()
+            .expect("a torrent is served");
+
+        assert_eq!(request.file_idx, None);
+        assert_eq!((request.hints.season, request.hints.episode), (None, None));
+    }
+
+    #[test]
+    fn the_sources_a_client_sends_back_are_bounded_as_an_addons_are() {
+        let sources: Vec<String> = (0..crate::stream::MAX_SOURCES + 8)
+            .map(|n| format!("tracker:http://t{n}.example.org/ann"))
+            .chain([format!(
+                "tracker:{}",
+                "a".repeat(crate::stream::MAX_SOURCE_LEN)
+            )])
+            .collect();
+
+        let request =
+            ChosenStream::parse(video(), addon(), &candidate(torrent(None, sources.clone())))
+                .expect("a torrent plays")
+                .serve_request()
+                .expect("a torrent is served");
+
+        assert_eq!(request.sources, sources[..crate::stream::MAX_SOURCES]);
+    }
+
+    #[test]
+    fn a_torrent_with_a_hostile_hint_word_is_served_without_it() {
+        let mut stream = candidate(torrent(None, Vec::new()));
+        stream.filename = Some("x".repeat(crate::addon::MAX_STRING_LEN + 1));
+
+        let request = ChosenStream::parse(video(), addon(), &stream)
+            .expect("a torrent plays")
+            .serve_request()
+            .expect("a torrent is served");
+
+        assert_eq!(request.hints.filename, None);
     }
 
     #[test]

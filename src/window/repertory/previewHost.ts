@@ -6,7 +6,7 @@
  * `browse_catalog`, `open_title`, `search_catalogs` and `find_streams` — from
  * two public Addons: Cinemeta for metadata and Torrentio for candidates. It
  * reads the live catalogues, keeps artwork on Metahub's CDN, and invents no
- * posters; the torrent candidates are real and marked unplayable by this Host.
+ * posters; the torrent candidates are real, and a press on one is taken like any other.
  * Continue watching is sample progress built from the same live films, and Home
  * says so.
  *
@@ -252,8 +252,8 @@ async function answerSearchCatalogs(
 
 /**
  * The Streams a Video has in the preview: Torrentio's real candidates, carried
- * the way the Host carries them. They are torrents, so this Host marks every
- * one unplayable — that mark is part of what the list has to show.
+ * the way the Host carries them. They are torrents, which the Host plays
+ * through its Torrent engine; this prototype has none, and plays nothing.
  */
 async function answerStreams(
   action: Extract<Action, { type: "find_streams" }>,

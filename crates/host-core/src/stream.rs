@@ -5,11 +5,11 @@
 //! protocol's `stream` object carries raw fields and implies that everything it
 //! lists can be played; the Host's Stream says where the bytes are *and whether
 //! this Host can play them* — a direct URL mpv opens as itself, or a torrent
-//! (an `infoHash`, or a `magnet:` in `url`) that this version lists and marks
-//! unplayable until the torrent engine arrives (#311). That is what the Provider
-//! seam exists for: a candidate that is not playable yet has a shape of its own,
-//! so playing it can change without the list, the answer or any client changing
-//! shape.
+//! (an `infoHash`, or a `magnet:` in `url`) that the Torrent engine serves as a
+//! URL before the Player opens it (ADR-0042). That is what the Provider seam
+//! exists for: a candidate whose bytes are not a URL has a shape of its own, so
+//! how it is played can change without the list, the answer or any client
+//! changing shape.
 //!
 //! ## The Addon's words are kept verbatim
 //!
@@ -150,8 +150,8 @@ pub enum Playback {
     /// A direct URL: mpv opens it as itself.
     Direct { url: String },
     /// A torrent: an Addon's `infoHash` Stream, or a `magnet:` in its `url`.
-    /// Listed and marked unplayable until the Torrent engine can serve it
-    /// (#311), and it will play from this same shape.
+    /// Played through the Torrent engine (ADR-0042): the Host asks it to serve
+    /// the torrent, and the Player opens the loopback URL it answers with.
     Torrent {
         info_hash: InfoHash,
         /// Which file of the torrent is the Video, where the Addon says; absent,
@@ -302,6 +302,8 @@ fn one(value: &Value) -> Option<Stream> {
         _ => return None,
     };
 
+    let torrent = matches!(playback, Playback::Torrent { .. });
+
     Some(Stream {
         name: field(object, "name"),
         // `title` is what the protocol deprecated in favour of `description`,
@@ -309,7 +311,7 @@ fn one(value: &Value) -> Option<Stream> {
         // with, so a Stream reads both and shows one.
         description: field(object, "description").or_else(|| field(object, "title")),
         playback,
-        warnings: warnings(object),
+        warnings: warnings(object, torrent),
         filename: hint(object, "filename"),
         binge_group: hint(object, "bingeGroup"),
     })
@@ -338,7 +340,7 @@ fn sources(object: &Map<String, Value>) -> Vec<String> {
 
 /// Entries within the bounds, in order: the empty and the overlong are dropped,
 /// and so is everything past the first [`MAX_SOURCES`] that remain.
-fn bounded<'a>(entries: impl Iterator<Item = &'a str>) -> Vec<String> {
+pub(crate) fn bounded<'a>(entries: impl Iterator<Item = &'a str>) -> Vec<String> {
     entries
         .filter(|entry| !entry.is_empty() && entry.chars().count() <= MAX_SOURCE_LEN)
         .take(MAX_SOURCES)
@@ -406,17 +408,24 @@ fn locates(value: &Value) -> bool {
     }
 }
 
-/// The warnings a candidate's hints carry, in a fixed order.
-fn warnings(object: &Map<String, Value>) -> Vec<Warning> {
-    let Some(hints) = object.get("behaviorHints").and_then(Value::as_object) else {
-        return Vec::new();
-    };
+/// The warnings a candidate carries, in a fixed order.
+///
+/// Mostly its hints'. The exception is `p2p`: a torrent is peer-to-peer whether
+/// or not its Addon says so — Torrentio sends no such hint — and the swarm sees
+/// the owner's address, so every torrent Stream carries the warning. A direct
+/// Stream keeps the hint-only rule.
+fn warnings(object: &Map<String, Value>, torrent: bool) -> Vec<Warning> {
+    let no_hints = Map::new();
+    let hints = object
+        .get("behaviorHints")
+        .and_then(Value::as_object)
+        .unwrap_or(&no_hints);
 
     let mut warnings = Vec::new();
     if hints.get("notWebReady") == Some(&Value::Bool(true)) {
         warnings.push(Warning::NotWebReady);
     }
-    if hints.get("p2p") == Some(&Value::Bool(true)) {
+    if torrent || hints.get("p2p") == Some(&Value::Bool(true)) {
         warnings.push(Warning::P2p);
     }
     if hints.get("proxyHeaders").is_some_and(Value::is_object) {
@@ -868,6 +877,52 @@ mod tests {
             r#"{"streams":[{"url":"https://example.org/x.mkv","behaviorHints":{"p2p":true}}]}"#,
         );
         assert_eq!(peers[0].warnings, vec![Warning::P2p]);
+    }
+
+    #[test]
+    fn every_torrent_warns_that_it_shares_the_owners_address_whatever_its_hints_say() {
+        // Torrentio sends no `p2p` hint (docs/research/torrent-streams-in-the-
+        // addon-protocol-291.md), and a torrent is peer-to-peer whether or not
+        // the Addon says so: the swarm sees the owner's address.
+        let info_hash =
+            parsed(r#"{"streams":[{"infoHash":"c12fe1c06bba254a9dc9f519b335aa7c1367a88a"}]}"#);
+        let magnet = parsed(
+            r#"{"streams":[{"url":"magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a"}]}"#,
+        );
+        let denied = parsed(
+            r#"{"streams":[{"infoHash":"c12fe1c06bba254a9dc9f519b335aa7c1367a88a","behaviorHints":{"p2p":false}}]}"#,
+        );
+        let said = parsed(
+            r#"{"streams":[{"infoHash":"c12fe1c06bba254a9dc9f519b335aa7c1367a88a","behaviorHints":{"p2p":true}}]}"#,
+        );
+
+        for torrent in [&info_hash, &magnet, &denied, &said] {
+            assert_eq!(torrent[0].warnings, vec![Warning::P2p]);
+        }
+    }
+
+    #[test]
+    fn a_torrents_p2p_warning_keeps_its_place_among_the_others() {
+        let both = parsed(
+            r#"{"streams":[{"infoHash":"c12fe1c06bba254a9dc9f519b335aa7c1367a88a","behaviorHints":{"notWebReady":true,"proxyHeaders":{"request":{}}}}]}"#,
+        );
+
+        assert_eq!(
+            both[0].warnings,
+            vec![Warning::NotWebReady, Warning::P2p, Warning::ProxyHeaders],
+            "one P2p, in the fixed order every client reads"
+        );
+    }
+
+    #[test]
+    fn a_direct_stream_warns_of_peers_only_when_its_hint_says_so() {
+        let quiet = parsed(r#"{"streams":[{"url":"https://example.org/x.mkv"}]}"#);
+
+        assert!(
+            quiet[0].warnings.is_empty(),
+            "a direct URL is not a swarm: {:?}",
+            quiet[0].warnings
+        );
     }
 
     #[test]

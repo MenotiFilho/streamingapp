@@ -22,11 +22,10 @@
 //! The seam speaks in [`Stream`]s, not in addon objects, and that is the point
 //! of it. An addon `stream` object has raw fields and implicitly claims that
 //! everything it lists can be played; a `Stream` says where the bytes are *and
-//! whether this Host can open them* — a direct URL, or an `infoHash` that is
-//! listed and marked unplayable until something turns it into bytes. A
-//! candidate that is not playable yet is expressible here, so what can be
-//! played can change without the list, the answer or any client changing
-//! shape.
+//! whether this Host can open them* — a direct URL, or a torrent that the
+//! Torrent engine turns into a URL before the Player opens it. A candidate whose
+//! bytes are not a URL is expressible here, so how it is played can change
+//! without the list, the answer or any client changing shape.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

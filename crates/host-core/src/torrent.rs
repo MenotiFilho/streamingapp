@@ -287,6 +287,13 @@ impl FixtureTorrentEngine {
         self
     }
 
+    /// Refuse every serve from now on, for a test that has already handed the
+    /// engine to a Host and wants a torrent to open before it does.
+    pub fn refuse(&self, sentence: &str) {
+        *self.refusing.lock().expect("the fixture is not poisoned") =
+            Some(TorrentError::new(sentence));
+    }
+
     /// Queue a report for the next [`TorrentEngine::reports`] call.
     pub fn report(&self, report: TorrentReport) {
         self.queued

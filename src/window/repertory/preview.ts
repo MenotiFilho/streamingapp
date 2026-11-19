@@ -134,19 +134,20 @@ export type PreviewStream = {
   };
 };
 
-/** A hint's warnings, in the Host's own order and vocabulary (ADR-0009). */
-function warningsOf(hints: PreviewStream["behaviorHints"]): StreamWarning[] {
-  if (!hints) {
-    return [];
-  }
+/**
+ * A candidate's warnings, in the Host's own order and vocabulary (ADR-0009):
+ * its hints', and `p2p` on every torrent whatever the hint says, as the Host
+ * does.
+ */
+function warningsOf(hints: PreviewStream["behaviorHints"], torrent: boolean): StreamWarning[] {
   const warnings: StreamWarning[] = [];
-  if (hints.notWebReady === true) {
+  if (hints?.notWebReady === true) {
     warnings.push("not_web_ready");
   }
-  if (hints.p2p === true) {
+  if (torrent || hints?.p2p === true) {
     warnings.push("p2p");
   }
-  if (hints.proxyHeaders && typeof hints.proxyHeaders === "object") {
+  if (hints?.proxyHeaders && typeof hints.proxyHeaders === "object") {
     warnings.push("proxy_headers");
   }
   return warnings;
@@ -162,7 +163,7 @@ export function previewStream(raw: PreviewStream): Stream | null {
   const description = (raw.description ?? raw.title)?.trim() || null;
   const filename = raw.behaviorHints?.filename?.trim() || null;
   const bingeGroup = raw.behaviorHints?.bingeGroup?.trim() || null;
-  const warnings = warningsOf(raw.behaviorHints);
+  const warnings = warningsOf(raw.behaviorHints, !raw.url?.trim() && Boolean(raw.infoHash?.trim()));
 
   if (raw.url?.trim()) {
     return {

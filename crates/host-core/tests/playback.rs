@@ -346,23 +346,25 @@ fn a_span_the_player_stops_answering_with_is_published_once() {
 }
 
 #[test]
-fn a_torrent_is_refused_before_the_player_hears_of_it() {
-    let mut fixture = fixture();
-    let mut chosen = a_chosen_stream();
-    chosen["stream"]["playback"] = serde_json::json!({
-        "kind": "torrent",
-        "infoHash": "61065ea115b7cc3e8db9fb5ab1f6f327f08bd1c9",
-        "fileIdx": 0,
-        "sources": [],
-    });
+fn a_torrent_no_addon_could_have_listed_is_refused_before_the_player_hears_of_it() {
+    let fixture = fixture();
     let before = fixture.host.snapshot();
 
-    let refused = fixture.host.dispatch(action(&chosen));
+    for info_hash in ["not-a-hash", "abc123", ""] {
+        let mut chosen = a_chosen_stream();
+        chosen["stream"]["playback"] = serde_json::json!({
+            "kind": "torrent",
+            "infoHash": info_hash,
+            "fileIdx": 0,
+            "sources": [],
+        });
+        let envelope = format!(r#"{{"version":{ACTION_VERSION},"action":{chosen}}}"#);
 
-    assert!(
-        matches!(refused, Err(ActionError::Unplayable(_))),
-        "a candidate this Host cannot fetch is refused, not pretended about: {refused:?}"
-    );
+        assert!(
+            Action::parse(&envelope).is_err(),
+            "{info_hash:?} is not an infoHash, so the client was never given it"
+        );
+    }
     assert!(fixture.player.opened().is_empty());
     assert_eq!(fixture.host.snapshot(), before);
 }
