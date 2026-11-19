@@ -209,6 +209,21 @@ describe("the series a playing Stream belongs to", () => {
       cache: "community.aiostreams|movie|tt0133093",
     });
   });
+
+  test("a film's TMDB-keyed id is the discovered key, even with no progress at all", () => {
+    const held = seriesRef(
+      null,
+      nowPlaying({ video: { type: "movie", id: "tmdb:603" } }),
+    );
+
+    expect(held).toEqual({
+      kind: "discovered",
+      key: { kind: "tmdb", id: 603 },
+      type: "movie",
+      fallbackAddon: "community.aiostreams",
+      cache: "tmdb|movie|603",
+    });
+  });
 });
 
 describe("the question an Episodes menu asks about its series", () => {

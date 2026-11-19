@@ -6,7 +6,8 @@
  */
 
 .rep-lang {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: var(--rep-space-2);
   max-width: 40rem;
 }
@@ -15,6 +16,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  align-content: flex-start;
   gap: var(--rep-space-2);
   min-height: 3.25rem;
   padding: var(--rep-space-2) 0;
@@ -105,8 +107,8 @@
   top: var(--window-chrome-clearance);
   right: 0;
   bottom: 0;
-  display: grid;
-  align-content: start;
+  display: flex;
+  flex-direction: column;
   gap: var(--rep-space-4);
   width: min(36rem, 100%);
   padding: var(--rep-space-5);
@@ -114,6 +116,10 @@
   border-left: 1px solid var(--rep-hairline);
   background: var(--rep-ink-raised);
   box-sizing: border-box;
+}
+
+.rep-lang-drawer > * {
+  flex-shrink: 0;
 }
 
 .rep-lang-drawer-head {

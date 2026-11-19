@@ -91,6 +91,17 @@ export function seriesRef(
     };
   }
 
+  const filmKey = discoveredKeyOf(video.id);
+  if (filmKey) {
+    return {
+      kind: "discovered",
+      key: filmKey,
+      type: video.type,
+      fallbackAddon: nowPlaying.addon,
+      cache: `tmdb|${video.type}|${filmKey.id}`,
+    };
+  }
+
   const stripped = EPISODE_ID.exec(video.id)?.[1] ?? video.id;
   return {
     kind: "addon",

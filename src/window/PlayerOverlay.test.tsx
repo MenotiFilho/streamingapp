@@ -2904,4 +2904,438 @@ describe("Autoplay in the player", () => {
       expect(screen.queryByTestId("autoplay-card")).not.toBeInTheDocument();
     });
   });
+
+  describe("returning to the Title page at the end of playback", () => {
+    const FILM_TITLE = {
+      addon: "cinemeta",
+      id: "tt0133093",
+      key: { kind: "tmdb" as const, id: 603 },
+      type: "movie",
+      name: "The Matrix",
+      poster: null,
+      background: null,
+      logo: null,
+      description: null,
+      releaseInfo: "1999",
+      runtime: "136 min",
+      imdbRating: "8.7",
+      genres: [],
+      videos: [],
+    };
+
+    const SERIES_UNAIRED_NEXT = {
+      addon: "cinemeta",
+      id: "tt7777777",
+      key: { kind: "tmdb" as const, id: 7777777 },
+      type: "series",
+      name: "A Series That Plays",
+      poster: null,
+      background: null,
+      logo: null,
+      description: null,
+      releaseInfo: "2026",
+      runtime: null,
+      imdbRating: null,
+      genres: [],
+      videos: [
+        {
+          id: "tt7777777:1:1",
+          name: "Episode One",
+          season: 1,
+          episode: 1,
+          thumbnail: null,
+          airDate: "2026-01-01",
+        },
+        {
+          id: "tt7777777:1:2",
+          name: "Episode Two",
+          season: 1,
+          episode: 2,
+          thumbnail: null,
+          airDate: "2099-01-01",
+        },
+      ],
+    };
+
+    const SERIES_AIRED_NEXT = {
+      ...SERIES_UNAIRED_NEXT,
+      videos: [
+        SERIES_UNAIRED_NEXT.videos[0]!,
+        {
+          id: "tt7777777:1:2",
+          name: "Episode Two",
+          season: 1,
+          episode: 2,
+          thumbnail: null,
+          airDate: "2020-01-01",
+        },
+      ],
+    };
+
+    const filmPlaying = playback({
+      state: "playing",
+      episode: null,
+      nowPlaying: {
+        video: { type: "movie", id: "tt0133093" },
+        addon: "cinemeta",
+        name: "1080p",
+        description: null,
+        filename: null,
+        bingeGroup: null,
+      },
+    });
+
+    test("a movie that finishes stops playback and opens its Title page", async () => {
+      const host = fakeHost(
+        { ...NOTHING_SAID, revision: 9, playback: filmPlaying },
+        undefined,
+        undefined,
+        undefined,
+        (action) => {
+          if (action.type === "open_title") {
+            return { snapshots: [], answer: { title: FILM_TITLE } };
+          }
+          return null;
+        },
+      );
+
+      render(<Shell client={host.client} />);
+      await screen.findByTestId("shell-player");
+      await act(async () => {});
+
+      await act(async () => {
+        host.publish({
+          ...NOTHING_SAID,
+          revision: 10,
+          playback: { ...filmPlaying, state: "ended", autoplay: null },
+        });
+      });
+
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "stop_playback" }),
+      );
+      await act(async () => {
+        host.publish({ ...NOTHING_SAID, revision: 11 });
+      });
+      expect(await screen.findByTestId("title-tt0133093")).toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByTestId("shell-player")).not.toBeInTheDocument());
+    });
+
+    test("a movie started from its Title and Streams list returns to the Title, not Streams", async () => {
+      const idle: Snapshot = {
+        ...NOTHING_SAID,
+        revision: 12,
+        addons: [
+          {
+            id: "cinemeta",
+            name: "Cinemeta",
+            version: "1.0.0",
+            resources: [
+              { name: "catalog", types: ["movie"], idPrefixes: ["tt"] },
+              { name: "meta", types: ["movie"], idPrefixes: ["tt"] },
+              { name: "stream", types: ["movie"], idPrefixes: ["tt"] },
+            ],
+            types: ["movie"],
+            catalogs: [{ type: "movie", id: "top", name: "Top", extra: [] }],
+            idPrefixes: ["tt"],
+            behaviorHints: { configurable: false, configurationRequired: false },
+          },
+        ],
+        featuredCatalog: { addon: "cinemeta", catalog: { type: "movie", id: "top" } },
+      };
+      const host = fakeHost(
+        idle,
+        undefined,
+        undefined,
+        undefined,
+        (action) => {
+          if (action.type === "browse_catalog") {
+            return {
+              snapshots: [],
+              answer: {
+                catalogs: [
+                  {
+                    addon: "cinemeta",
+                    type: "movie",
+                    id: "top",
+                    name: "Top",
+                    sent: 1,
+                    metas: [
+                      {
+                        id: "tt0133093",
+                        type: "movie",
+                        name: "The Matrix",
+                        poster: null,
+                        posterShape: "poster",
+                        background: null,
+                        releaseInfo: "1999",
+                        imdbRating: "8.7",
+                        genres: [],
+                        description: null,
+                      },
+                    ],
+                    failure: null,
+                  },
+                ],
+              },
+            };
+          }
+          if (action.type === "open_title") {
+            return { snapshots: [], answer: { title: FILM_TITLE } };
+          }
+          if (action.type === "find_streams") {
+            return {
+              snapshots: [],
+              answer: {
+                streams: [
+                  {
+                    addon: "cinemeta",
+                    streams: [
+                      {
+                        name: "1080p",
+                        description: null,
+                        playback: { kind: "direct", url: "https://example.test/matrix.mkv" },
+                        warnings: [],
+                        filename: null,
+                        bingeGroup: null,
+                      },
+                    ],
+                    failure: null,
+                  },
+                ],
+              },
+            };
+          }
+          return null;
+        },
+      );
+
+      render(<Shell client={host.client} />);
+      fireEvent.click(await screen.findByTestId("card-cinemeta-tt0133093"));
+      await screen.findByTestId("title-tt0133093");
+
+      fireEvent.click(screen.getByTestId("play-film"));
+      const streamRow = await screen.findByTestId("candidate-cinemeta-0");
+      fireEvent.click(streamRow);
+      await waitFor(() =>
+        expect(actions(host.invocations).some((action) => action.type === "play_stream")).toBe(
+          true,
+        ),
+      );
+      await act(async () => {
+        host.publish({ ...idle, revision: 13, playback: filmPlaying });
+      });
+      await screen.findByTestId("shell-player");
+      await act(async () => {});
+
+      const opensBeforeEnd = actions(host.invocations).filter(
+        (action) => action.type === "open_title",
+      ).length;
+
+      await act(async () => {
+        host.publish({
+          ...idle,
+          revision: 14,
+          playback: { ...filmPlaying, state: "ended", autoplay: null },
+        });
+      });
+
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "stop_playback" }),
+      );
+      await act(async () => {
+        host.publish({ ...idle, revision: 15 });
+      });
+      expect(await screen.findByTestId("title-tt0133093")).toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByTestId("streams")).not.toBeInTheDocument());
+      await waitFor(() => expect(screen.queryByTestId("shell-player")).not.toBeInTheDocument());
+      expect(
+        actions(host.invocations).filter((action) => action.type === "open_title"),
+      ).toHaveLength(opensBeforeEnd);
+    });
+
+    test("a series episode with Autoplay on and no aired next episode returns to its Title page", async () => {
+      const idle: Snapshot = { ...NOTHING_SAID, revision: 12 };
+      const seriesPlaying = playback({
+        ...SERIES_PLAYING,
+        state: "playing",
+        episode: { season: 1, episode: 1 },
+      });
+      const host = fakeHost(
+        {
+          ...NOTHING_SAID,
+          revision: 9,
+          playback: seriesPlaying,
+          watchProgress: [seriesEntry()],
+        },
+        undefined,
+        undefined,
+        undefined,
+        (action) => {
+          if (action.type === "open_title") {
+            return { snapshots: [], answer: { title: SERIES_UNAIRED_NEXT } };
+          }
+          if (action.type === "stop_playback") {
+            return { snapshots: [idle], answer: null };
+          }
+          return null;
+        },
+      );
+
+      render(<Shell client={host.client} />);
+      await screen.findByTestId("shell-player");
+      await act(async () => {});
+
+      await act(async () => {
+        host.publish({
+          ...NOTHING_SAID,
+          revision: 10,
+          playback: { ...seriesPlaying, state: "ended", autoplay: null },
+          watchProgress: [seriesEntry()],
+        });
+      });
+
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "stop_playback" }),
+      );
+      expect(await screen.findByTestId("title-tt7777777")).toBeInTheDocument();
+    });
+
+    test("a series episode with an aired next episode keeps the countdown and stays after Cancel", async () => {
+      const seriesPlaying = playback({
+        ...SERIES_PLAYING,
+        state: "playing",
+        episode: { season: 1, episode: 1 },
+      });
+      const host = fakeHost({
+        ...NOTHING_SAID,
+        revision: 9,
+        playback: seriesPlaying,
+        watchProgress: [seriesEntry()],
+      });
+
+      render(<Shell client={host.client} />);
+      await screen.findByTestId("shell-player");
+      await act(async () => {});
+
+      await act(async () => {
+        host.publish({
+          ...NOTHING_SAID,
+          revision: 10,
+          playback: { ...seriesPlaying, state: "ended", autoplay: countdown() },
+          watchProgress: [seriesEntry()],
+        });
+      });
+
+      expect(await screen.findByTestId("autoplay-card")).toBeInTheDocument();
+      expect(actions(host.invocations)).not.toContainEqual({ type: "stop_playback" });
+
+      await act(async () => {
+        host.publish({
+          ...NOTHING_SAID,
+          revision: 11,
+          playback: { ...seriesPlaying, state: "ended", autoplay: null },
+          watchProgress: [seriesEntry()],
+        });
+      });
+
+      expect(screen.getByTestId("stream-ended")).toBeInTheDocument();
+      expect(actions(host.invocations)).not.toContainEqual({ type: "stop_playback" });
+    });
+
+    test("with Autoplay off (Wait), an unaired next episode returns to the Title while an aired next stays on ended", async () => {
+      const idle: Snapshot = {
+        ...NOTHING_SAID,
+        revision: 12,
+        preferences: { ...NOTHING_SAID.preferences, autoplay: false },
+      };
+      const seriesPlaying = playback({
+        ...SERIES_PLAYING,
+        state: "playing",
+        episode: { season: 1, episode: 1 },
+      });
+
+      const unairedHost = fakeHost(
+        {
+          ...idle,
+          revision: 9,
+          playback: seriesPlaying,
+          watchProgress: [seriesEntry()],
+        },
+        undefined,
+        undefined,
+        undefined,
+        (action) => {
+          if (action.type === "open_title") {
+            return { snapshots: [], answer: { title: SERIES_UNAIRED_NEXT } };
+          }
+          if (action.type === "stop_playback") {
+            return { snapshots: [idle], answer: null };
+          }
+          return null;
+        },
+      );
+
+      const first = render(<Shell client={unairedHost.client} />);
+      await screen.findByTestId("shell-player");
+      await act(async () => {});
+
+      await act(async () => {
+        unairedHost.publish({
+          ...idle,
+          revision: 10,
+          playback: { ...seriesPlaying, state: "ended", autoplay: null },
+          watchProgress: [seriesEntry()],
+        });
+      });
+
+      await waitFor(() =>
+        expect(actions(unairedHost.invocations)).toContainEqual({ type: "stop_playback" }),
+      );
+      expect(await screen.findByTestId("title-tt7777777")).toBeInTheDocument();
+      first.unmount();
+
+      const airedHost = fakeHost(
+        {
+          ...idle,
+          revision: 9,
+          playback: seriesPlaying,
+          watchProgress: [seriesEntry()],
+        },
+        undefined,
+        undefined,
+        undefined,
+        (action) => {
+          if (action.type === "open_title") {
+            return { snapshots: [], answer: { title: SERIES_AIRED_NEXT } };
+          }
+          return null;
+        },
+      );
+
+      render(<Shell client={airedHost.client} />);
+      await screen.findByTestId("shell-player");
+      await act(async () => {});
+
+      await act(async () => {
+        airedHost.publish({
+          ...idle,
+          revision: 10,
+          playback: { ...seriesPlaying, state: "ended", autoplay: null },
+          watchProgress: [seriesEntry()],
+        });
+        await Promise.resolve();
+      });
+
+      await waitFor(() =>
+        expect(actions(airedHost.invocations)).toContainEqual({
+          type: "open_title",
+          addon: "cinemeta",
+          title: { type: "series", id: "tt7777777" },
+        }),
+      );
+      expect(screen.getByTestId("stream-ended")).toBeInTheDocument();
+      expect(actions(airedHost.invocations)).not.toContainEqual({ type: "stop_playback" });
+    });
+  });
 });

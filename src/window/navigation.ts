@@ -9,6 +9,7 @@
 
 import type { ReactNode } from "react";
 
+import type { TitleIdentity } from "../core/endOfPlayback";
 import type { Intent } from "../core/input";
 import type { Level, Navigation as CoreNavigation, NewLevel } from "../core/navigation";
 
@@ -20,6 +21,8 @@ export { DESTINATIONS, type Destination } from "../core/destinations";
 export type WindowPayload = {
   /** The level's contents, drawn when it is on top of the stack. */
   render: () => ReactNode;
+  /** The Title this level is drawing, where the level is a Title page. */
+  title?: TitleIdentity;
   /**
    * A first chance to consume Back inside the level — an open OSD popover, a
    * confirmation that wants to cancel itself. Return true to consume it; the

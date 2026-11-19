@@ -21,6 +21,8 @@ export type NavigationReads<P> = {
   choose: (destination: Destination) => void;
   /** Push a level. Returns the id the navigation gave it. */
   push: (level: NewLevel<P>) => string;
+  /** Place a level directly beneath `beforeId` (or at the top if absent). Returns its id. */
+  pushBefore: (beforeId: string, level: NewLevel<P>) => string;
   /** Take one level out by id, wherever it sits. */
   remove: (id: string) => void;
   /** Take a level out along with everything above it. */
@@ -58,6 +60,12 @@ export function useNavigation<P>(): NavigationReads<P> {
     return id;
   }, []);
 
+  const pushBefore = useCallback((beforeId: string, level: NewLevel<P>): string => {
+    const id = level.id ?? `level-${(nextLevelId.current += 1)}`;
+    dispatch({ type: "push-before", beforeId, level: { ...level, id } });
+    return id;
+  }, []);
+
   const remove = useCallback((id: string) => dispatch({ type: "remove", id }), []);
   const removeFrom = useCallback(
     (id: string) => dispatch({ type: "remove-from", id }),
@@ -74,12 +82,13 @@ export function useNavigation<P>(): NavigationReads<P> {
       levels: state.levels,
       choose,
       push,
+      pushBefore,
       remove,
       removeFrom,
       pop,
       back,
       canGoBack,
     }),
-    [state, choose, push, remove, removeFrom, pop, back, canGoBack],
+    [state, choose, push, pushBefore, remove, removeFrom, pop, back, canGoBack],
   );
 }
