@@ -45,7 +45,21 @@ mkdir -p "$target/crates/host-torrent/out" "$target/crates/host-torrent/engine"
 cp "$engine" "$target/crates/host-torrent/out/"
 cp crates/host-torrent/engine/THIRD-PARTY.md "$target/crates/host-torrent/engine/"
 
+# Walkthrough-only local torrent seeder (spec #311, issue #347): built only for
+# a manual walkthrough tree — never by build.sh, cd.sh (which sets
+# TORRENT_ENGINE_PREBUILT=1), or build.ps1, and never bundled into the installer.
+if [ -z "${TORRENT_ENGINE_PREBUILT:-}" ]; then
+  mkdir -p "$target/fixture"
+  docker compose exec -T dev bash -c \
+    "cd crates/host-torrent/engine && GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -trimpath -o /tmp/fixture-seed.exe ./cmd/fixture-seed"
+  docker compose cp dev:/tmp/fixture-seed.exe "$target/fixture/fixture-seed.exe" >/dev/null
+  docker compose exec -T dev rm -f /tmp/fixture-seed.exe
+fi
+
 echo "staged $(git rev-parse --short HEAD) at $target"
+if [ -f "$target/fixture/fixture-seed.exe" ]; then
+  echo "fixture seeder: $(wc -c <"$target/fixture/fixture-seed.exe") bytes (walkthrough only, never bundled)"
+fi
 if [ -f "$target/fixture/verify-controls.mkv" ]; then
   echo "fixture video: $(wc -c <"$target/fixture/verify-controls.mkv") bytes (scripts/windows/fixture-video.sh)"
 else

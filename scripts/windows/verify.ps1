@@ -108,6 +108,7 @@ $Steps = @(
     [pscustomobject]@{ Id = 36; Title = 'an Up next plays directly: Play from the finished episode''s card, with no Streams list in between'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it sets "When an episode ends" to Wait in Settings, plays S1E1 to its end, opens the Up next card and presses Play)' }
     [pscustomobject]@{ Id = 37; Title = 'a second open of the same Title is instant: the Host answers it from the cache'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it opens a series Title, back, and opens the same Title again)' }
     [pscustomobject]@{ Id = 38; Title = 'autoplay: the countdown, its Cancel, and the next episode on its own'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it sets "When an episode ends" to "Play it after 5 seconds" in Settings, plays S1E1 to its end, cancels the countdown, switches Autoplay off and on again beside Next episode, and lets the new countdown play S1E2)' }
+    [pscustomobject]@{ Id = 39; Title = 'a torrent plays from the local seed and leaves nothing behind'; Ground = 'addon'; After = @(); Need = 'the fixture Addon with fixture-seed running, and a person at the window to answer the Windows Security Alert on the first torrent play' }
 )
 
 # The discovery path and the cheap syntax check: print the checklist and what
@@ -308,6 +309,7 @@ New-Item -ItemType Directory -Force $Evidence | Out-Null
 $exe = Join-Path $Tree 'target\release\streamingapp.exe'
 if (-not (Test-Path $exe)) { throw "no executable at $exe - run build.ps1 first" }
 $dataDir = Join-Path $env:APPDATA 'dev.streamingapp.host'
+$torrentsDir = Join-Path $env:LOCALAPPDATA 'dev.streamingapp.host\torrents'
 $log = Join-Path $dataDir 'host.log'
 $failures = New-Object Collections.Generic.List[string]
 # The checks a step could not walk at all, because the Stream or the surface it
@@ -319,6 +321,7 @@ $skipped = New-Object Collections.Generic.List[string]
 # A Host left over from an earlier run would hold the single instance, and its
 # window would answer for the one this script starts.
 Get-Process streamingapp -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process streamingapp-torrent -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 2
 
 function Check($what, $condition, $detail) {
@@ -1380,7 +1383,7 @@ function Choose-Candidate($app) {
     foreach ($candidate in $candidates) {
         Write-Host "candidate: $(Short $candidate.Current.Name)"
     }
-    $playable = @($candidates | Where-Object { $_.Current.Name -notmatch 'Not playable yet' })
+    $playable = @($candidates | Where-Object { $_.Current.Name -notmatch 'Not playable' })
     $chosen = if ($playable) { $playable[0] } else { $candidates[0] }
     Write-Host "chose: $(Short $chosen.Current.Name)"
     Press-Element $app $chosen
@@ -1424,10 +1427,10 @@ function Play-A-Candidate($app) {
     if ($kind -eq 'unplayable') {
         # Every candidate is one this version cannot open: the window says so
         # and the video never appears.
-        $text = Wait-Text $app 'Not playable yet' 20
+        $text = Wait-Text $app 'Not playable' 20
         Shot $app '12-stream-unplayable.png'
         Check 'a candidate this Host cannot play says so rather than pretending' (
-            $text -match 'Not playable yet') "showed: $text"
+            $text -match 'Not playable') "showed: $text"
         Check 'and nothing is drawn for a Stream that will not play' (
             -not (Shows $app 'Pause' 2)) "showed: $text"
         return
@@ -2179,21 +2182,31 @@ function Step-12($ctx) {
         Start-Sleep -Seconds 1
     }
 
-    # The second film in the fixture's Catalog answers an infoHash: the list has
-    # to show it, say why it cannot play, and leave the picture alone. Walked
-    # when the Catalog drew it, and skipped for an Addon that did not.
-    $unplayable = @(Buttons-Matching $app 'A Film That Cannot Play')[0]
-    if ($unplayable) {
-        Press-Element $app $unplayable
+    # The second film in the fixture's Catalog answers an infoHash: torrents are
+    # playable now (spec #311), so its candidate must be listed with no
+    # unplayable note. Playing it belongs to step 39 (where the Windows Security
+    # Alert is handled).
+    $torrentFilm = @(Buttons-Matching $app 'A Film From A Torrent')[0]
+    if ($torrentFilm) {
+        Press-Element $app $torrentFilm
         Wait-Text $app 'Supplied by' 20 | Out-Null
         Open-Streams $app 'Find Streams' | Out-Null
-        Play-A-Candidate $app
+        Shot $app '12-torrent-streams.png'
+        $candidates = @(Candidates $app)
+        $text = Page-Text $app
+        Check 'the torrent film lists its candidate in the Streams picker' (
+            $candidates.Count -gt 0) "showed: $text"
+        Check 'the torrent film candidate has no unplayable note' (
+            ($candidates.Count -gt 0) -and
+            ($candidates[0].Current.Name -notmatch 'Not playable') -and
+            ($text -notmatch 'Not playable')) (
+            "candidate: $(if ($candidates.Count -gt 0) { $candidates[0].Current.Name } else { '<none>' }); showed: $text")
         Press-Keys $app '{ESC}'
         Start-Sleep -Seconds 1
         Press-Keys $app '{ESC}'
         Start-Sleep -Seconds 1
     } else {
-        'this Addon drew no second film, so the unplayable-candidate case was not walked'
+        'this Addon drew no "A Film From A Torrent", so the torrent-candidate listing check was not walked'
     }
 }
 
@@ -3942,6 +3955,247 @@ function Step-38($ctx) {
             (Episode-Number $app) -eq 2) "the OSD reads S1E$(Episode-Number $app)"
         Press-Button $app 'Stop'
     }
+}
+
+function Step-39($ctx) {
+    '--- 39. a torrent plays from the local seed and leaves nothing behind'
+    $app = $ctx.App
+    Open-Home $app
+    Start-Sleep -Seconds 2
+
+    $torrentFilm = @(Buttons-Matching $app 'A Film From A Torrent')[0]
+    if (-not $torrentFilm) {
+        Skip 'torrent playback from the local seed' (
+            'this Addon drew no "A Film From A Torrent": run with the fixture Addon (fixture-addon.ps1) to walk torrent playback')
+        return
+    }
+
+    # Read the local seed's infoHash straight from the Addon's own Stream answer
+    # so sub-check 6 verifies the exact torrents\<infoHash>\ directory.
+    $torrentHash = ''
+    try {
+        $addonBase = $Addon -replace '/manifest\.json$', ''
+        $streamAnswer = Invoke-RestMethod -Uri "$addonBase/stream/movie/tt8888888.json" -TimeoutSec 10
+        if ($streamAnswer -and $streamAnswer.streams -and $streamAnswer.streams[0].infoHash) {
+            $torrentHash = ([string]$streamAnswer.streams[0].infoHash).ToLowerInvariant()
+        }
+    } catch {
+        "could not read tt8888888 infoHash from Addon: $($_.Exception.Message)"
+    }
+
+    # 1. Open "A Film From A Torrent" from the Streams picker.
+    Press-Element $app $torrentFilm
+    Wait-Text $app 'Supplied by' 20 | Out-Null
+    $openedStreams = Open-Streams $app 'Find Streams'
+    $candidates = @(Candidates $app)
+    Shot $app '39-streams.png'
+    Check 'the torrent film opens its Streams picker with a playable candidate' (
+        $openedStreams -and ($candidates.Count -gt 0) -and ($candidates[0].Current.Name -notmatch 'Not playable')) (
+        "opened=$openedStreams; candidates=$($candidates.Count); showed: $(Page-Text $app)")
+    if (-not $openedStreams -or $candidates.Count -eq 0) {
+        Skip 'torrent playback from the local seed' 'no torrent candidate appeared in the Streams picker'
+        return
+    }
+
+    # Count any Seek preview stills an earlier step in this Host might have
+    # created, so sub-check 5 can verify no new still is captured for a torrent.
+    $previewDir = Join-Path $env:TEMP ("streamingapp-preview-$($app.Process.Id)")
+    $stillsBefore = if (Test-Path $previewDir) {
+        @(Get-ChildItem -Path $previewDir -Filter '*.jpg' -ErrorAction SilentlyContinue).Count
+    } else { 0 }
+
+    # Press the candidate without Press-Element's 2 s post-sleep so the tight
+    # UIA poll immediately catches the centred opening block's torrent status
+    # line ("Finding the torrent ..." or "Fetching ...").
+    $candidates[0].SetFocus()
+    Start-Sleep -Milliseconds 300
+    if (-not (Focus $app)) { throw 'opening the torrent candidate needs the Host in the foreground' }
+    [Windows.Forms.SendKeys]::SendWait('{ENTER}')
+
+    # 3. Poll UI Automation for the centred opening block's "Finding the torrent"
+    # or "Fetching ..." line before playback moves to playing.
+    $openingLine = ''
+    $openingDeadline = (Get-Date).AddSeconds(20)
+    while ((Get-Date) -lt $openingDeadline) {
+        $text = Page-Text $app
+        $m = [regex]::Match($text, '(Finding the torrent[^|]*|Fetching [^|]*)')
+        if ($m.Success) {
+            $openingLine = $m.Groups[1].Value.Trim()
+            Shot $app '39-opening.png'
+            break
+        }
+        if ($text -match '(^|\|\s*)Pause(\s*\||$)') {
+            break
+        }
+        Start-Sleep -Milliseconds 50
+    }
+
+    # 2. Pause for the person to answer the Windows Security Alert (raised once
+    # by streamingapp-torrent.exe on the first torrent play) and record the
+    # choice.
+    $alertWindow = $null
+    try {
+        $topWindows = [Windows.Automation.AutomationElement]::RootElement.FindAll(
+            [Windows.Automation.TreeScope]::Children,
+            [Windows.Automation.Condition]::TrueCondition)
+        foreach ($w in $topWindows) {
+            if ($w.Current.Name -match 'Windows Security Alert|Windows Defender Firewall') {
+                $alertWindow = $w
+                break
+            }
+        }
+    } catch { }
+
+    ''
+    'WINDOWS SECURITY ALERT (step 39):'
+    'If Windows Defender Firewall showed a Security Alert for streamingapp-torrent.exe,'
+    'answer it now (Allow access or Cancel/Block). If no alert appeared because a rule'
+    'already exists for this executable path, enter "none".'
+    $firewallChoice = ''
+    if (-not [Console]::IsInputRedirected) {
+        $firewallChoice = (Read-Host 'Record the Windows Security Alert choice (allow / block / none) and press Enter').Trim()
+        if (-not $firewallChoice) { $firewallChoice = 'unspecified' }
+    } else {
+        $firewallChoice = if ($alertWindow) { 'alert-visible (non-interactive)' } else { 'none (non-interactive)' }
+        "non-interactive stdin: recorded Windows Security Alert choice as '$firewallChoice'"
+    }
+    $choiceFile = Join-Path $Evidence '39-firewall-choice.txt'
+    Set-Content -Path $choiceFile -Value "Windows Security Alert choice: $firewallChoice" -Encoding utf8
+    "recorded Windows Security Alert choice: $firewallChoice ($choiceFile)"
+    Focus $app | Out-Null
+
+    # If the Security Alert stalled UIA before the opening line appeared, check
+    # once more while it is still opening.
+    if (-not $openingLine) {
+        $text = Page-Text $app
+        $m = [regex]::Match($text, '(Finding the torrent[^|]*|Fetching [^|]*)')
+        if ($m.Success) {
+            $openingLine = $m.Groups[1].Value.Trim()
+            Shot $app '39-opening.png'
+        }
+    }
+    Check 'the centred opening block showed "Finding the torrent" or "Fetching ..."' (
+        $openingLine -ne '') "no torrent status line was seen in UIA; current window: $(Page-Text $app)"
+    if ($openingLine) { "opening block line: $openingLine" }
+
+    # 4. Assert playing.
+    $playing = Wait-Shows $app 'Pause' 45
+    Wake-Osd $app
+    Shot $app '39-playing.png'
+    Check 'the torrent reaches playing from the local seed' $playing (
+        "the window shows: $(Page-Text $app)")
+    if (-not $playing) {
+        Skip 'torrent timeline preview and cleanup checks' 'the torrent never reached playing'
+        return
+    }
+
+    # 5. Assert the Seek preview is absent over the timeline: time and Chapter
+    # only (ADR-0042 6). Hover at 60% of the five-minute fixture video (around
+    # 3:00, inside chapter Middle).
+    Wake-Osd $app
+    $slider = Find-Element (Window-Root $app) 'Position' ([Windows.Automation.ControlType]::Slider) 5
+    if (-not $slider) {
+        Skip 'Seek preview absent on a torrent' 'the OSD showed no Position slider to hover'
+    } else {
+        $rect = $slider.Current.BoundingRectangle
+        $y = [int]($rect.Top + ($rect.Height / 2))
+        [W]::Move([int]($rect.Left + ($rect.Width * 0.58)), $y)
+        Start-Sleep -Milliseconds 150
+        [W]::Move([int]($rect.Left + ($rect.Width * 0.60)), $y)
+        Start-Sleep -Milliseconds 1500
+        Shot $app '39-timeline-hover.png'
+
+        $chapterEl = Find-Element (Window-Root $app) 'Middle' ([Windows.Automation.ControlType]::Text) 5
+        $hoverText = Page-Text $app
+        $hasTime = ($hoverText -match '\b[23]:\d\d\b')
+        $hasImage = $false
+        $plateHeight = 0.0
+        if ($chapterEl) {
+            $plate = [Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($chapterEl)
+            if ($plate) {
+                $plateHeight = $plate.Current.BoundingRectangle.Height
+                $imgCond = New-Object Windows.Automation.PropertyCondition(
+                    [Windows.Automation.AutomationElement]::ControlTypeProperty,
+                    [Windows.Automation.ControlType]::Image)
+                $imgs = $plate.FindAll([Windows.Automation.TreeScope]::Descendants, $imgCond)
+                $hasImage = ($imgs.Count -gt 0)
+            }
+        }
+        $stillsAfter = if (Test-Path $previewDir) {
+            @(Get-ChildItem -Path $previewDir -Filter '*.jpg' -ErrorAction SilentlyContinue).Count
+        } else { 0 }
+
+        Check 'hovering the timeline shows the hovered time and Chapter' (
+            ($chapterEl -ne $null) -and $hasTime) (
+            "chapter=$($chapterEl -ne $null), hasTime=$hasTime, showed: $hoverText")
+        Check 'the Seek preview is absent over a torrent timeline (time and Chapter only)' (
+            ($chapterEl -ne $null) -and (-not $hasImage) -and ($plateHeight -gt 0) -and ($plateHeight -lt 110) -and ($stillsAfter -eq $stillsBefore)) (
+            "hasImage=$hasImage, plateHeight=$plateHeight, stills $stillsBefore->$stillsAfter; review 39-timeline-hover.png")
+    }
+
+    # 6. Press Stop and assert torrents\<infoHash>\ is gone.
+    $torrentDir = if ($torrentHash) { Join-Path $torrentsDir $torrentHash } else { '' }
+    $existedBeforeStop = if ($torrentDir) { Test-Path $torrentDir } else { $false }
+    "before Stop: torrents\$torrentHash exists = $existedBeforeStop"
+
+    Wake-Osd $app
+    Press-Button $app 'Stop'
+    $afterStop = Wait-Text $app 'Streams ' 20
+    Check 'Stop leaves torrent playback and returns to the Streams picker' (
+        $afterStop -match 'Streams ') "showed: $afterStop"
+
+    $dirGone = $false
+    if ($torrentDir) {
+        $dirDeadline = (Get-Date).AddSeconds(10)
+        while ((Get-Date) -lt $dirDeadline) {
+            if (-not (Test-Path $torrentDir)) {
+                $dirGone = $true
+                break
+            }
+            Start-Sleep -Milliseconds 300
+        }
+        Check "pressing Stop removes torrents\$torrentHash\" $dirGone (
+            "$torrentDir still exists after Stop")
+    } else {
+        Skip 'torrents\<infoHash>\ removed on Stop' 'could not learn the film infoHash from the Addon'
+    }
+
+    # 7. Close the Host and assert the Torrent engine process is gone.
+    Stop-Host $app
+    $ctx.App = $null
+    $engineGone = $false
+    $procDeadline = (Get-Date).AddSeconds(10)
+    while ((Get-Date) -lt $procDeadline) {
+        $engineProc = Get-Process streamingapp-torrent -ErrorAction SilentlyContinue
+        if (-not $engineProc) {
+            $engineGone = $true
+            break
+        }
+        Start-Sleep -Milliseconds 300
+    }
+    Check 'closing the Host stops the Torrent engine process' $engineGone (
+        "streamingapp-torrent is still running: $((Get-Process streamingapp-torrent -ErrorAction SilentlyContinue | ForEach-Object { $_.Id }) -join ', ')")
+
+    # 8. Plant torrents\leftover\ and launch again, asserting it is wiped.
+    $leftover = Join-Path $torrentsDir 'leftover'
+    New-Item -ItemType Directory -Force $leftover | Out-Null
+    Set-Content -Path (Join-Path $leftover 'piece.bin') -Value 'leftover' -Encoding ascii
+    Check 'planted torrents\leftover\ before relaunch' (Test-Path $leftover) "could not create $leftover"
+
+    $app = Start-Host
+    $ctx.App = $app
+    $wiped = $false
+    $wipeDeadline = (Get-Date).AddSeconds(5)
+    while ((Get-Date) -lt $wipeDeadline) {
+        if (-not (Test-Path $leftover)) {
+            $wiped = $true
+            break
+        }
+        Start-Sleep -Milliseconds 200
+    }
+    Shot $app '39-leftover-wiped.png'
+    Check 'launching again wipes torrents\leftover\' $wiped (
+        "$leftover still exists after launching the Host")
 }
 
 # --- the dispatcher -----------------------------------------------------------
