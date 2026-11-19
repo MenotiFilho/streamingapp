@@ -2408,8 +2408,10 @@ mod tests {
         Stream {
             name: Some(name.to_owned()),
             description: None,
-            playback: Playback::InfoHash {
-                info_hash: info_hash.to_owned(),
+            playback: Playback::Torrent {
+                info_hash: InfoHash::parse(info_hash).expect("a valid infoHash"),
+                file_idx: None,
+                sources: Vec::new(),
             },
             warnings: Vec::new(),
             filename: None,

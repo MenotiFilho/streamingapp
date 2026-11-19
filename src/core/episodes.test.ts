@@ -287,7 +287,7 @@ describe("the first Stream an Episodes press can play", () => {
         addon: "first",
         failure: null,
         streams: [
-          { name: "torrent", description: null, playback: { kind: "info_hash", infoHash: "abc" }, warnings: [], filename: null, bingeGroup: null },
+          { name: "torrent", description: null, playback: { kind: "torrent", infoHash: "abc", fileIdx: null, sources: [] }, warnings: [], filename: null, bingeGroup: null },
           { name: "direct", description: null, playback: { kind: "direct", url: "https://x" }, warnings: [], filename: null, bingeGroup: null },
         ],
       },
@@ -304,7 +304,7 @@ describe("the first Stream an Episodes press can play", () => {
       {
         addon: "first",
         failure: null,
-        streams: [{ name: "torrent", description: null, playback: { kind: "info_hash", infoHash: "abc" }, warnings: [], filename: null, bingeGroup: null }],
+        streams: [{ name: "torrent", description: null, playback: { kind: "torrent", infoHash: "abc", fileIdx: null, sources: [] }, warnings: [], filename: null, bingeGroup: null }],
       },
       {
         addon: "second",
@@ -322,7 +322,7 @@ describe("the first Stream an Episodes press can play", () => {
         {
           addon: "only",
           failure: null,
-          streams: [{ name: "torrent", description: null, playback: { kind: "info_hash", infoHash: "abc" }, warnings: [], filename: null, bingeGroup: null }],
+          streams: [{ name: "torrent", description: null, playback: { kind: "torrent", infoHash: "abc", fileIdx: null, sources: [] }, warnings: [], filename: null, bingeGroup: null }],
         },
       ]),
     ).toBeNull();

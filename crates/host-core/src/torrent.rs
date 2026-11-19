@@ -18,7 +18,7 @@
 use std::fmt;
 use std::sync::Mutex;
 
-use serde::Serialize;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::playback::StreamUrl;
 
@@ -76,6 +76,23 @@ impl InfoHash {
 impl fmt::Display for InfoHash {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
+    }
+}
+
+impl Serialize for InfoHash {
+    /// As the 40 lowercase hexadecimal characters, which is what a client reads.
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for InfoHash {
+    /// Read the way an Addon's is: 40 hexadecimal or 32 base32 characters, and
+    /// anything else is refused, so a client cannot send back a name this Host
+    /// could not have listed.
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(deserializer)?;
+        Self::parse(&raw).map_err(serde::de::Error::custom)
     }
 }
 
