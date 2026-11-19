@@ -14,7 +14,8 @@ use host_core::{
     Action, ActionError, FixtureClock, FixtureFetcher, FixturePlayer, FixturePreviewer,
     FixtureProvider, FixtureTorrentEngine, Host, InMemorySecretStore, InMemoryStore, InfoHash,
     Observation, Playback, PlaybackError, PlaybackState, Previewer, SecretBackend, ServeHints,
-    ServeRequest, Store, Stream, TorrentEngine, TorrentReport, ACTION_VERSION,
+    ServeRequest, Store, Stream, Telling, TorrentEngine, TorrentReport, Track, TrackId, TrackKind,
+    ACTION_VERSION,
 };
 
 const SERIES: &str = "https://series.example.org/manifest.json";
@@ -684,4 +685,501 @@ fn a_chosen_report_is_drained_on_the_tick_and_publishes_nothing() {
         fixture.engine.reports().is_empty(),
         "the tick took what was reported"
     );
+}
+
+// ── The idle let go ─────────────────────────────────────────────────────────
+
+const MINUTE: i64 = 60 * 1000;
+
+fn paused_at(fixture: &mut Fixture, position: f64) {
+    dispatch(
+        fixture,
+        serde_json::json!({ "type": "set_paused", "paused": true }),
+    );
+    fixture.player.now_reporting(Observation {
+        state: PlaybackState::Paused,
+        position: Some(position),
+        duration: Some(2820.0),
+        ..Observation::idle()
+    });
+    fixture.host.sample();
+}
+
+fn audio_track(id: i64, language: &str, selected: bool) -> Track {
+    Track {
+        id: TrackId(id),
+        kind: TrackKind::Audio,
+        language: Some(language.to_owned()),
+        title: None,
+        codec: Some("aac".to_owned()),
+        embedded: true,
+        selected,
+        default: selected,
+        forced: false,
+        hearing_impaired: false,
+    }
+}
+
+/// A torrent whose Stream was paused at `position`, then left for `minutes`, and
+/// let go by the tick that found it idle long enough.
+fn released_while_paused(position: f64) -> Fixture {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:1", &torrent_of(HASH)).expect("a torrent plays");
+    is_playing(&fixture, position);
+    fixture.host.sample();
+    paused_at(&mut fixture, position);
+    fixture.clock.tick(30 * MINUTE);
+    fixture.host.sample();
+    fixture
+}
+
+#[test]
+fn a_torrent_paused_for_thirty_minutes_is_let_go_and_the_stream_stays_paused() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:1", &torrent_of(HASH)).expect("a torrent plays");
+    is_playing(&fixture, 600.0);
+    fixture.host.sample();
+    paused_at(&mut fixture, 600.0);
+    let before = fixture.host.snapshot();
+
+    fixture.clock.tick(30 * MINUTE);
+    let published = fixture.host.sample();
+
+    assert_eq!(fixture.engine.let_gos(), vec![hash(HASH)]);
+    assert_eq!(published, None, "nothing a client draws moved");
+    assert_eq!(
+        fixture.host.snapshot().playback,
+        before.playback,
+        "the Stream is still Now playing, still paused, at the same position"
+    );
+}
+
+#[test]
+fn a_torrent_paused_for_under_thirty_minutes_is_kept() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:1", &torrent_of(HASH)).expect("a torrent plays");
+    is_playing(&fixture, 600.0);
+    fixture.host.sample();
+    paused_at(&mut fixture, 600.0);
+
+    fixture.clock.tick(30 * MINUTE - 1);
+    fixture.host.sample();
+
+    assert!(fixture.engine.let_gos().is_empty());
+}
+
+#[test]
+fn ten_minutes_paused_is_not_enough() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:1", &torrent_of(HASH)).expect("a torrent plays");
+    is_playing(&fixture, 600.0);
+    fixture.host.sample();
+    paused_at(&mut fixture, 600.0);
+
+    fixture.clock.tick(10 * MINUTE);
+    fixture.host.sample();
+
+    assert!(
+        fixture.engine.let_gos().is_empty(),
+        "ten minutes is Ended's"
+    );
+}
+
+#[test]
+fn a_torrent_ended_for_ten_minutes_is_let_go_and_the_stream_stays_ended() {
+    let mut fixture = fixture();
+    // No countdown to a next episode is running: the Stream is idle, not leaving.
+    dispatch(
+        &mut fixture,
+        serde_json::json!({ "type": "set_autoplay", "autoplay": false }),
+    );
+    play(&mut fixture, "tt0903747:1:1", &torrent_of(HASH)).expect("a torrent plays");
+    reach_the_end(&mut fixture);
+    let before = fixture.host.snapshot();
+
+    fixture.clock.tick(10 * MINUTE);
+    fixture.host.sample();
+
+    assert_eq!(fixture.engine.let_gos(), vec![hash(HASH)]);
+    assert_eq!(fixture.host.snapshot().playback, before.playback);
+    assert_eq!(fixture.host.snapshot().playback.state, PlaybackState::Ended);
+}
+
+#[test]
+fn a_torrent_ended_for_under_ten_minutes_is_kept() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:1", &torrent_of(HASH)).expect("a torrent plays");
+    reach_the_end(&mut fixture);
+
+    fixture.clock.tick(10 * MINUTE - 1);
+    fixture.host.sample();
+
+    assert!(fixture.engine.let_gos().is_empty());
+}
+
+#[test]
+fn a_torrent_that_plays_is_never_let_go_however_long_it_takes() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:1", &torrent_of(HASH)).expect("a torrent plays");
+    is_playing(&fixture, 600.0);
+    fixture.host.sample();
+
+    fixture.clock.tick(300 * MINUTE);
+    fixture.host.sample();
+
+    assert!(fixture.engine.let_gos().is_empty());
+}
+
+#[test]
+fn playing_again_starts_the_pause_measure_over() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:1", &torrent_of(HASH)).expect("a torrent plays");
+    is_playing(&fixture, 600.0);
+    fixture.host.sample();
+    paused_at(&mut fixture, 600.0);
+    fixture.clock.tick(29 * MINUTE);
+    fixture.host.sample();
+    dispatch(
+        &mut fixture,
+        serde_json::json!({ "type": "set_paused", "paused": false }),
+    );
+    is_playing(&fixture, 600.0);
+    fixture.host.sample();
+    paused_at(&mut fixture, 640.0);
+
+    fixture.clock.tick(29 * MINUTE);
+    fixture.host.sample();
+
+    assert!(
+        fixture.engine.let_gos().is_empty(),
+        "29 minutes since the second pause"
+    );
+}
+
+#[test]
+fn a_direct_stream_left_idle_lets_nothing_go() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:1", &direct("1080p", DIRECT)).expect("plays");
+    is_playing(&fixture, 600.0);
+    fixture.host.sample();
+    paused_at(&mut fixture, 600.0);
+
+    fixture.clock.tick(300 * MINUTE);
+    fixture.host.sample();
+
+    assert!(fixture.engine.let_gos().is_empty());
+    assert!(fixture.player.stopped() == 0, "nothing was stopped either");
+}
+
+#[test]
+fn a_released_torrent_is_let_go_only_once_and_the_stream_is_not_read_again() {
+    let mut fixture = released_while_paused(600.0);
+    let before = fixture.host.snapshot();
+
+    // The Player still holds a URL nobody serves: whatever it now says about it
+    // is not about the Stream the owner left.
+    fixture.player.now_reporting(Observation::idle());
+    fixture.clock.tick(300 * MINUTE);
+    let published = fixture.host.sample();
+
+    assert_eq!(fixture.engine.let_gos(), vec![hash(HASH)]);
+    assert_eq!(published, None);
+    assert_eq!(fixture.host.snapshot().playback, before.playback);
+}
+
+#[test]
+fn a_stop_after_the_let_go_lets_nothing_go_again() {
+    let mut fixture = released_while_paused(600.0);
+
+    dispatch(&mut fixture, serde_json::json!({ "type": "stop_playback" }));
+
+    assert_eq!(fixture.engine.let_gos(), vec![hash(HASH)]);
+    assert_eq!(fixture.host.snapshot().playback.state, PlaybackState::Idle);
+}
+
+#[test]
+fn another_stream_replacing_a_released_one_lets_nothing_go_again_and_wakes_nothing() {
+    let mut fixture = released_while_paused(600.0);
+
+    play(&mut fixture, "tt0903747:1:2", &torrent_of(OTHER_HASH)).expect("another plays");
+
+    assert_eq!(fixture.engine.let_gos(), vec![hash(HASH)]);
+    assert_eq!(
+        fixture.engine.serves().len(),
+        2,
+        "only the new one was served"
+    );
+    assert_eq!(fixture.engine.serves()[1].info_hash, hash(OTHER_HASH));
+}
+
+#[test]
+fn play_on_a_released_torrent_serves_again_and_reopens_at_the_held_position() {
+    let mut fixture = released_while_paused(600.0);
+    assert_eq!(fixture.engine.serves().len(), 1);
+
+    let response = dispatch(
+        &mut fixture,
+        serde_json::json!({ "type": "set_paused", "paused": false }),
+    );
+
+    assert_eq!(fixture.engine.serves().len(), 2, "served again");
+    assert_eq!(fixture.engine.serves()[1], fixture.engine.serves()[0]);
+    let openings = fixture.player.openings();
+    assert_eq!(openings.len(), 2);
+    assert!(openings[1].0.starts_with(LOOPBACK));
+    assert_eq!(openings[1].1, Some(600.0), "at the held position");
+    let playback = &response.snapshots.last().expect("a Snapshot").playback;
+    assert_eq!(playback.state, PlaybackState::Opening, "opening meanwhile");
+    assert_eq!(
+        playback
+            .now_playing
+            .as_ref()
+            .map(|now| now.video.id.as_str()),
+        Some("tt0903747:1:1"),
+        "the same Stream"
+    );
+}
+
+#[test]
+fn a_woken_torrent_is_held_again_and_goes_idle_again() {
+    let mut fixture = released_while_paused(600.0);
+    dispatch(
+        &mut fixture,
+        serde_json::json!({ "type": "set_paused", "paused": false }),
+    );
+    is_playing(&fixture, 600.0);
+    fixture.host.sample();
+    paused_at(&mut fixture, 700.0);
+
+    fixture.clock.tick(30 * MINUTE);
+    fixture.host.sample();
+
+    assert_eq!(fixture.engine.let_gos(), vec![hash(HASH), hash(HASH)]);
+}
+
+#[test]
+fn a_woken_torrent_is_let_go_at_a_stop() {
+    let mut fixture = released_while_paused(600.0);
+    dispatch(
+        &mut fixture,
+        serde_json::json!({ "type": "set_paused", "paused": false }),
+    );
+    is_playing(&fixture, 601.0);
+    fixture.host.sample();
+
+    dispatch(&mut fixture, serde_json::json!({ "type": "stop_playback" }));
+
+    assert_eq!(fixture.engine.let_gos(), vec![hash(HASH), hash(HASH)]);
+}
+
+#[test]
+fn play_on_an_ended_released_torrent_serves_again_and_starts_the_stream_over() {
+    let mut fixture = fixture();
+    dispatch(
+        &mut fixture,
+        serde_json::json!({ "type": "set_autoplay", "autoplay": false }),
+    );
+    play(&mut fixture, "tt0903747:1:1", &torrent_of(HASH)).expect("a torrent plays");
+    reach_the_end(&mut fixture);
+    fixture.clock.tick(10 * MINUTE);
+    fixture.host.sample();
+
+    dispatch(
+        &mut fixture,
+        serde_json::json!({ "type": "set_paused", "paused": false }),
+    );
+
+    assert_eq!(fixture.engine.serves().len(), 2);
+    let (_, start) = fixture.player.openings().pop().expect("opened");
+    assert_eq!(
+        start, None,
+        "a finished Stream has no position left to hold"
+    );
+    assert_eq!(
+        fixture.host.snapshot().playback.state,
+        PlaybackState::Opening
+    );
+}
+
+#[test]
+fn play_on_an_ended_torrent_that_is_still_held_is_refused_as_before() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:1", &torrent_of(HASH)).expect("a torrent plays");
+    reach_the_end(&mut fixture);
+
+    let refused = fixture.host.dispatch(action(
+        &serde_json::json!({ "type": "set_paused", "paused": false }),
+    ));
+
+    assert!(matches!(refused, Err(ActionError::NothingPlaying { .. })));
+    assert_eq!(fixture.engine.serves().len(), 1);
+}
+
+#[test]
+fn pausing_a_released_torrent_does_not_wake_it() {
+    let mut fixture = released_while_paused(600.0);
+
+    dispatch(
+        &mut fixture,
+        serde_json::json!({ "type": "set_paused", "paused": true }),
+    );
+
+    assert_eq!(fixture.engine.serves().len(), 1);
+    assert_eq!(fixture.player.openings().len(), 1);
+}
+
+#[test]
+fn a_refused_serve_on_wake_leaves_the_stream_released_and_a_second_play_wakes_it() {
+    let mut fixture = released_while_paused(600.0);
+    fixture.engine.refuse("Nobody answers.");
+
+    let refused = fixture.host.dispatch(action(
+        &serde_json::json!({ "type": "set_paused", "paused": false }),
+    ));
+
+    match refused {
+        Err(ActionError::Playback { detail }) => assert_eq!(detail, "Nobody answers."),
+        other => panic!("a refused serve is a playback error: {other:?}"),
+    }
+    assert_eq!(fixture.player.openings().len(), 1, "nothing was opened");
+    assert_eq!(
+        fixture.host.snapshot().playback.state,
+        PlaybackState::Paused,
+        "the Stream is as it was"
+    );
+    assert_eq!(
+        fixture.engine.let_gos(),
+        vec![hash(HASH)],
+        "nothing more to let go"
+    );
+
+    fixture.engine.allow();
+    dispatch(
+        &mut fixture,
+        serde_json::json!({ "type": "set_paused", "paused": false }),
+    );
+    assert_eq!(fixture.player.openings().len(), 2);
+}
+
+#[test]
+fn a_seek_on_a_released_torrent_reopens_it_at_where_the_seek_lands() {
+    let mut fixture = released_while_paused(600.0);
+
+    dispatch(
+        &mut fixture,
+        serde_json::json!({ "type": "seek", "target": { "kind": "to", "seconds": 1200.0 } }),
+    );
+
+    assert_eq!(fixture.engine.serves().len(), 2, "reopened first");
+    let (url, start) = fixture.player.openings().pop().expect("opened");
+    assert!(url.starts_with(LOOPBACK));
+    assert_eq!(start, Some(1200.0));
+    assert!(
+        !fixture
+            .player
+            .tellings()
+            .iter()
+            .any(|telling| matches!(telling, Telling::Seek(_))),
+        "the open is already there, so the Player is not told to seek"
+    );
+    assert_eq!(
+        fixture.host.snapshot().playback.state,
+        PlaybackState::Opening
+    );
+}
+
+#[test]
+fn a_relative_seek_on_a_released_torrent_lands_from_the_held_position() {
+    let mut fixture = released_while_paused(600.0);
+
+    dispatch(
+        &mut fixture,
+        serde_json::json!({ "type": "seek", "target": { "kind": "by", "seconds": -10.0 } }),
+    );
+
+    let (_, start) = fixture.player.openings().pop().expect("opened");
+    assert_eq!(start, Some(590.0));
+}
+
+#[test]
+fn an_audio_track_change_on_a_released_torrent_reopens_it_first_then_applies() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:1", &torrent_of(HASH)).expect("a torrent plays");
+    fixture.player.now_reporting(Observation {
+        tracks: Some(vec![
+            audio_track(1, "eng", true),
+            audio_track(2, "por", false),
+        ]),
+        ..Observation::playing(600.0, 2820.0)
+    });
+    fixture.host.sample();
+    paused_at(&mut fixture, 600.0);
+    fixture.clock.tick(30 * MINUTE);
+    fixture.host.sample();
+    fixture.player.forget();
+
+    dispatch(
+        &mut fixture,
+        serde_json::json!({ "type": "set_audio_track", "track": 2 }),
+    );
+
+    assert_eq!(fixture.engine.serves().len(), 2, "reopened first");
+    let (_, start) = fixture.player.openings().pop().expect("opened");
+    assert_eq!(start, Some(600.0), "at the held position");
+    assert!(
+        fixture
+            .player
+            .tellings()
+            .contains(&Telling::AudioTrack(TrackId(2))),
+        "and the Player is told the choice once it is open"
+    );
+}
+
+#[test]
+fn an_unknown_track_on_a_released_torrent_is_refused_without_reopening() {
+    let mut fixture = released_while_paused(600.0);
+
+    let refused = fixture.host.dispatch(action(
+        &serde_json::json!({ "type": "set_audio_track", "track": 9 }),
+    ));
+
+    assert!(matches!(refused, Err(ActionError::UnknownTrack { .. })));
+    assert_eq!(fixture.engine.serves().len(), 1, "nothing was served");
+}
+
+#[test]
+fn a_subtitle_track_change_on_a_released_torrent_reopens_it_first() {
+    let mut fixture = released_while_paused(600.0);
+
+    dispatch(
+        &mut fixture,
+        serde_json::json!({ "type": "set_subtitle_track", "track": null }),
+    );
+
+    assert_eq!(fixture.engine.serves().len(), 2);
+    assert!(fixture
+        .player
+        .tellings()
+        .contains(&Telling::SubtitleTrack(None)));
+}
+
+#[test]
+fn a_seek_on_a_torrent_that_is_still_held_does_not_reopen() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:1", &torrent_of(HASH)).expect("a torrent plays");
+    is_playing(&fixture, 600.0);
+    fixture.host.sample();
+
+    dispatch(
+        &mut fixture,
+        serde_json::json!({ "type": "seek", "target": { "kind": "to", "seconds": 1200.0 } }),
+    );
+
+    assert_eq!(fixture.engine.serves().len(), 1);
+    assert_eq!(fixture.player.openings().len(), 1);
+    assert!(fixture
+        .player
+        .tellings()
+        .iter()
+        .any(|telling| matches!(telling, Telling::Seek(_))));
 }
