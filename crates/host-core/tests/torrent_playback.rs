@@ -11,10 +11,11 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, FixtureClock, FixtureFetcher, FixturePlayer, FixturePreviewer,
-    FixtureProvider, FixtureTorrentEngine, Host, InMemorySecretStore, InMemoryStore, InfoHash,
-    Observation, Playback, PlaybackError, PlaybackState, Previewer, SecretBackend, ServeHints,
-    ServeRequest, Store, Stream, TorrentEngine, TorrentReport, ACTION_VERSION,
+    Action, ActionError, FailureKind, FixtureClock, FixtureFetcher, FixturePlayer,
+    FixturePreviewer, FixtureProvider, FixtureTorrentEngine, Host, InMemorySecretStore,
+    InMemoryStore, InfoHash, Observation, Playback, PlaybackError, PlaybackState, Previewer,
+    SecretBackend, ServeHints, ServeRequest, Store, Stream, TorrentEngine, TorrentReport,
+    ACTION_VERSION,
 };
 
 const SERIES: &str = "https://series.example.org/manifest.json";
@@ -69,6 +70,7 @@ struct Fixture {
     previewer: Arc<FixturePreviewer>,
     engine: Arc<FixtureTorrentEngine>,
     clock: Arc<FixtureClock>,
+    store: Arc<InMemoryStore>,
 }
 
 fn fixture_with(engine: FixtureTorrentEngine, candidates: Vec<Stream>) -> Fixture {
@@ -76,6 +78,7 @@ fn fixture_with(engine: FixtureTorrentEngine, candidates: Vec<Stream>) -> Fixtur
     let previewer = Arc::new(FixturePreviewer::new());
     let engine = Arc::new(engine);
     let clock = Arc::new(FixtureClock::new().at(NOW));
+    let store = Arc::new(InMemoryStore::new());
     let fetcher = FixtureFetcher::new()
         .serving(
             SERIES,
@@ -86,7 +89,7 @@ fn fixture_with(engine: FixtureTorrentEngine, candidates: Vec<Stream>) -> Fixtur
         )
         .serving(META_URL, SERIES_META);
     let mut host = Host::new(
-        Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
+        store.clone() as Arc<dyn Store>,
         Arc::new(fetcher),
         Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
         Arc::new(FixtureProvider::new().offering(SERIES_ID, candidates)),
@@ -107,6 +110,7 @@ fn fixture_with(engine: FixtureTorrentEngine, candidates: Vec<Stream>) -> Fixtur
         previewer,
         engine,
         clock,
+        store,
     }
 }
 
@@ -683,5 +687,110 @@ fn a_chosen_report_is_drained_on_the_tick_and_publishes_nothing() {
     assert!(
         fixture.engine.reports().is_empty(),
         "the tick took what was reported"
+    );
+}
+
+// ── A torrent with no file to play ──────────────────────────────────────────
+
+const NO_FILE: &str = "This torrent holds 24 videos and none is S01E03.";
+const MPV_WORDS: &str = "That Stream could not be opened — mpv could not load it.";
+
+fn mpv_could_not_open(fixture: &Fixture) {
+    fixture.player.now_reporting(Observation {
+        state: PlaybackState::Idle,
+        failure: Some(MPV_WORDS.to_owned()),
+        ..Observation::idle()
+    });
+}
+
+fn no_file(info_hash: &str) -> TorrentReport {
+    TorrentReport::Failed {
+        info_hash: hash(info_hash),
+        kind: FailureKind::NoFile,
+        sentence: NO_FILE.to_owned(),
+    }
+}
+
+#[test]
+fn a_no_file_report_is_the_failed_opens_sentence_in_place_of_the_players() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:3", &torrent_of(HASH)).expect("a torrent plays");
+    fixture.engine.report(no_file(HASH));
+    mpv_could_not_open(&fixture);
+
+    let published = fixture.host.sample().expect("a failed open is published");
+
+    assert_eq!(published.playback.state, PlaybackState::Idle);
+    assert_eq!(
+        published.playback.failure.as_deref(),
+        Some(NO_FILE),
+        "the engine's words, not mpv's"
+    );
+}
+
+#[test]
+fn the_engines_sentence_wins_when_the_players_failure_was_published_first() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:3", &torrent_of(HASH)).expect("a torrent plays");
+    mpv_could_not_open(&fixture);
+    let first = fixture.host.sample().expect("a failed open is published");
+    assert_eq!(first.playback.failure.as_deref(), Some(MPV_WORDS));
+
+    fixture.engine.report(no_file(HASH));
+    let second = fixture.host.sample().expect("the sentence replaces mpv's");
+
+    assert_eq!(second.playback.failure.as_deref(), Some(NO_FILE));
+    assert_eq!(second.playback.state, PlaybackState::Idle);
+}
+
+#[test]
+fn a_no_file_failure_writes_no_watch_progress() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:3", &torrent_of(HASH)).expect("a torrent plays");
+    let before = fixture.store.persisted_watch();
+    fixture.engine.report(no_file(HASH));
+    mpv_could_not_open(&fixture);
+
+    fixture.host.sample();
+
+    assert_eq!(
+        fixture.store.persisted_watch(),
+        before,
+        "an open that failed is not progress"
+    );
+}
+
+#[test]
+fn a_no_file_report_for_a_torrent_that_is_not_held_changes_nothing() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:3", &torrent_of(HASH)).expect("a torrent plays");
+    fixture.engine.report(no_file(OTHER_HASH));
+    mpv_could_not_open(&fixture);
+
+    let published = fixture.host.sample().expect("a failed open is published");
+
+    assert_eq!(
+        published.playback.failure.as_deref(),
+        Some(MPV_WORDS),
+        "the report was about another torrent"
+    );
+}
+
+#[test]
+fn the_sentence_of_one_open_is_not_the_failure_of_the_next() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:3", &torrent_of(HASH)).expect("a torrent plays");
+    fixture.engine.report(no_file(HASH));
+    mpv_could_not_open(&fixture);
+    fixture.host.sample();
+
+    play(&mut fixture, "tt0903747:1:4", &torrent_of(HASH)).expect("another episode plays");
+    mpv_could_not_open(&fixture);
+    let published = fixture.host.sample().expect("a failed open is published");
+
+    assert_eq!(
+        published.playback.failure.as_deref(),
+        Some(MPV_WORDS),
+        "a new open starts without the last one's sentence"
     );
 }
