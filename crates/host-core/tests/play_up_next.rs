@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use host_core::{
     Action, ActionError, FixtureClock, FixtureFetcher, FixturePlayer, FixtureProvider, Host,
-    InMemorySecretStore, InMemoryStore, Observation, Playback, PlaybackState, SecretBackend,
-    Snapshot, Store, Stream, UpNextPlayback, ACTION_VERSION,
+    InMemorySecretStore, InMemoryStore, InfoHash, Observation, Playback, PlaybackState,
+    SecretBackend, Snapshot, Store, Stream, UpNextPlayback, ACTION_VERSION,
 };
 
 /// The Addon that answers both `meta` and `stream` for the series.
@@ -58,8 +58,10 @@ fn torrent(name: &str, info_hash: &str, binge_group: Option<&str>) -> Stream {
     Stream {
         name: Some(name.to_owned()),
         description: None,
-        playback: Playback::InfoHash {
-            info_hash: info_hash.to_owned(),
+        playback: Playback::Torrent {
+            info_hash: InfoHash::parse(info_hash).expect("a valid infoHash"),
+            file_idx: None,
+            sources: Vec::new(),
         },
         warnings: Vec::new(),
         filename: None,

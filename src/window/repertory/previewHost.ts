@@ -30,6 +30,10 @@ import {
   type Video,
 } from "../../core/wire";
 import type { ActionError } from "../../core/errors";
+import {
+  TORRENT_CACHE_MAX_MEGABYTES,
+  TORRENT_CACHE_MIN_MEGABYTES,
+} from "../../core/controls";
 import type { Transport } from "../transport";
 import {
   cinemetaPreviews,
@@ -430,6 +434,7 @@ async function buildSnapshot(): Promise<Snapshot> {
       subtitleColor: "#FFFFFF",
       subtitleScale: 1,
       streamBuffer: { seconds: 300, megabytes: 512 },
+      torrentCache: { megabytes: 2000 },
       upNextPlayback: "direct",
       autoplay: true,
     },
@@ -883,6 +888,24 @@ async function dispatch(action: Action): Promise<Response> {
         preferences: {
           ...state.preferences,
           streamBuffer: { seconds: action.seconds, megabytes: action.megabytes },
+        },
+      }));
+    }
+    case "set_torrent_cache": {
+      if (
+        !Number.isInteger(action.megabytes) ||
+        action.megabytes < TORRENT_CACHE_MIN_MEGABYTES ||
+        action.megabytes > TORRENT_CACHE_MAX_MEGABYTES
+      ) {
+        return refuse({
+          kind: "invalid_torrent_cache",
+          detail: `${action.megabytes} is not a torrent cache size`,
+        });
+      }
+      return change((state) => ({
+        preferences: {
+          ...state.preferences,
+          torrentCache: { megabytes: action.megabytes },
         },
       }));
     }

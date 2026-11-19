@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use host_core::{
     Action, AutoplayPhase, FixtureClock, FixtureFetcher, FixturePlayer, FixtureProvider, Host,
-    InMemorySecretStore, InMemoryStore, Observation, Playback, PlaybackState, SecretBackend,
-    Snapshot, Store, Stream, ACTION_VERSION, AUTOPLAY_COUNTDOWN_MS,
+    InMemorySecretStore, InMemoryStore, InfoHash, Observation, Playback, PlaybackState,
+    SecretBackend, Snapshot, Store, Stream, ACTION_VERSION, AUTOPLAY_COUNTDOWN_MS,
 };
 
 const SERIES: &str = "https://series.example.org/manifest.json";
@@ -44,8 +44,10 @@ fn candidate(name: &str, url: &str, binge_group: Option<&str>) -> Stream {
 
 fn torrent(name: &str, info_hash: &str, binge_group: Option<&str>) -> Stream {
     Stream {
-        playback: Playback::InfoHash {
-            info_hash: info_hash.to_owned(),
+        playback: Playback::Torrent {
+            info_hash: InfoHash::parse(info_hash).expect("a valid infoHash"),
+            file_idx: None,
+            sources: Vec::new(),
         },
         ..candidate(name, "", binge_group)
     }

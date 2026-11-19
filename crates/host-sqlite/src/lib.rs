@@ -13,7 +13,8 @@ use host_core::{
     Addon, AddonId, CachedTitle, CatalogRef, Device, DeviceId, DeviceName, FeaturedCatalog,
     InvalidUpNextPlayback, LanguageList, Manifest, ManifestUrl, NextEpisode, Preferences,
     SeriesStatus, Store, StoreError, StreamBuffer, SubtitleColor, SubtitleScale, Title, TitleCard,
-    TitleKey, TitleSource, TitleStub, TokenDigest, UpNextPlayback, VideoRef, WatchProgress,
+    TitleKey, TitleSource, TitleStub, TokenDigest, TorrentCache, UpNextPlayback, VideoRef,
+    WatchProgress,
 };
 use rusqlite::{params, Connection, Transaction};
 
@@ -33,6 +34,9 @@ const SUBTITLE_SCALE: &str = "subtitle_scale";
 
 /// The key the Stream buffer preference is stored under.
 const STREAM_BUFFER: &str = "stream_buffer";
+
+/// The key the Torrent cache preference is stored under.
+const TORRENT_CACHE: &str = "torrent_cache";
 
 /// The key the Up next playback preference is stored under.
 const UP_NEXT_PLAYBACK: &str = "up_next_playback";
@@ -150,6 +154,7 @@ impl Store for SqliteStore {
         let mut subtitle_color = SubtitleColor::default();
         let mut subtitle_scale = SubtitleScale::default();
         let mut stream_buffer = StreamBuffer::default();
+        let mut torrent_cache = TorrentCache::default();
         let mut up_next_playback = UpNextPlayback::default();
         let mut autoplay = true;
         let mut featured_catalog = None;
@@ -205,6 +210,19 @@ impl Store for SqliteStore {
                     stream_buffer = StreamBuffer::parse(stored.seconds(), stored.megabytes())
                         .map_err(|error| unusable(error.to_string()))?;
                 }
+                TORRENT_CACHE => {
+                    // One whole number of megabytes, judged as it was written:
+                    // a row that drifted is a read failure, never a ceiling no
+                    // client chose (ADR-0042 §3).
+                    let unusable = |error: String| StoreError::Read {
+                        detail: format!("the stored torrent cache is unusable: {error}"),
+                    };
+                    let megabytes: u64 = value
+                        .parse()
+                        .map_err(|error: std::num::ParseIntError| unusable(error.to_string()))?;
+                    torrent_cache = TorrentCache::parse(megabytes)
+                        .map_err(|error| unusable(error.to_string()))?;
+                }
                 UP_NEXT_PLAYBACK => {
                     // One word from a closed set, judged as it was written: a
                     // row that drifted is a read failure, never a choice no
@@ -233,6 +251,7 @@ impl Store for SqliteStore {
             subtitle_color,
             subtitle_scale,
             stream_buffer,
+            torrent_cache,
             up_next_playback,
             autoplay,
             featured_catalog,
@@ -269,6 +288,10 @@ impl Store for SqliteStore {
         let buffer =
             serde_json::to_string(&preferences.stream_buffer()).map_err(StoreError::write)?;
         put_preference(&transaction, STREAM_BUFFER, Some(&buffer))?;
+        // The Torrent cache is one whole number of megabytes, written with every
+        // preference write like the buffer beside it (ADR-0042 §3).
+        let cache = preferences.torrent_cache().megabytes().to_string();
+        put_preference(&transaction, TORRENT_CACHE, Some(&cache))?;
         // One word from a closed set, written with every preference write like
         // the appearance and the buffer (#276).
         put_preference(

@@ -15,7 +15,7 @@ use crate::playback::{
     ChapterStep, ChosenStream, Control, Observation, Picture, PlaybackState, Player, StreamUrl,
     Telling, Track, TrackId, TrackKind, Unplayable,
 };
-use crate::preferences::{FeaturedCatalog, Language};
+use crate::preferences::{FeaturedCatalog, Language, StreamBuffer, TorrentCache};
 use crate::preview::{
     preview_ceiling, NoPreviewer, PreviewCeiling, Previewer, PREVIEW_BITRATE_GRACE_MS,
 };
@@ -35,7 +35,7 @@ use crate::title_cache::{
     CachedTitle, TitleCache, TitleProbe, TitleProtection, MAX_CACHED_TITLES, RUNNING_FRESH_MILLIS,
 };
 use crate::tmdb;
-use crate::torrent::{NoTorrentEngine, TorrentEngine};
+use crate::torrent::{NoTorrentEngine, TorrentEngine, TorrentLimits};
 use crate::tracks::{self, SubtitleChoice};
 use crate::view::{HostView, HostViewShared};
 
@@ -308,7 +308,22 @@ impl Host {
     #[must_use]
     pub fn with_torrent_engine(mut self, engine: Arc<dyn TorrentEngine>) -> Self {
         self.torrent_engine = engine;
+        // The limits are told as the engine is given, which is the Host's
+        // startup: they are what the stored preferences say, and a torrent
+        // served before they were known would be read ahead by the engine's own
+        // guess (ADR-0042 §3).
+        let preferences = self.state.preferences();
+        self.tell_torrent_limits(preferences.stream_buffer(), preferences.torrent_cache());
         self
+    }
+
+    /// Tell the Torrent engine how far to read ahead and how much disk to take,
+    /// from the two preferences that make it. Told at startup and on every change
+    /// of either, so the limits reach a torrent that is already held (ADR-0042
+    /// §3).
+    fn tell_torrent_limits(&self, buffer: StreamBuffer, cache: TorrentCache) {
+        self.torrent_engine
+            .set_limits(TorrentLimits::from_preferences(buffer, cache));
     }
 
     /// The same Host, able to sync with a Stremio account (#30).
@@ -1498,7 +1513,16 @@ impl Host {
                 // Player takes it, like the appearance beside it; the Player's
                 // buffer limits move without reopening the Stream (ADR-0026).
                 let _ = self.player.tell(Telling::StreamBuffer(buffer));
+                // A torrent's read-ahead follows it too (ADR-0042 §3).
+                self.tell_torrent_limits(buffer, self.state.preferences().torrent_cache());
                 Resolved::Change(Change::SetStreamBuffer(buffer))
+            }
+            ValidatedAction::SetTorrentCache(cache) => {
+                // Told at once, so a torrent already held is trimmed to it; a
+                // refusing or absent engine does not stop the Host holding the
+                // preference (ADR-0042 §3).
+                self.tell_torrent_limits(self.state.preferences().stream_buffer(), cache);
+                Resolved::Change(Change::SetTorrentCache(cache))
             }
             ValidatedAction::SetUpNextPlayback(playback) => {
                 // A preference and nothing else: the Player is not told, because
@@ -2408,8 +2432,10 @@ mod tests {
         Stream {
             name: Some(name.to_owned()),
             description: None,
-            playback: Playback::InfoHash {
-                info_hash: info_hash.to_owned(),
+            playback: Playback::Torrent {
+                info_hash: InfoHash::parse(info_hash).expect("a valid infoHash"),
+                file_idx: None,
+                sources: Vec::new(),
             },
             warnings: Vec::new(),
             filename: None,

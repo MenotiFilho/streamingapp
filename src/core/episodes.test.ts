@@ -45,6 +45,7 @@ function snapshot(entries: ResumeEntry[]): Snapshot {
       subtitleColor: "#FFFFFF",
       subtitleScale: 1,
       streamBuffer: { seconds: 300, megabytes: 512 },
+      torrentCache: { megabytes: 2000 },
       upNextPlayback: "direct",
       autoplay: true,
     },
@@ -287,7 +288,7 @@ describe("the first Stream an Episodes press can play", () => {
         addon: "first",
         failure: null,
         streams: [
-          { name: "torrent", description: null, playback: { kind: "info_hash", infoHash: "abc" }, warnings: [], filename: null, bingeGroup: null },
+          { name: "torrent", description: null, playback: { kind: "torrent", infoHash: "abc", fileIdx: null, sources: [] }, warnings: [], filename: null, bingeGroup: null },
           { name: "direct", description: null, playback: { kind: "direct", url: "https://x" }, warnings: [], filename: null, bingeGroup: null },
         ],
       },
@@ -304,7 +305,7 @@ describe("the first Stream an Episodes press can play", () => {
       {
         addon: "first",
         failure: null,
-        streams: [{ name: "torrent", description: null, playback: { kind: "info_hash", infoHash: "abc" }, warnings: [], filename: null, bingeGroup: null }],
+        streams: [{ name: "torrent", description: null, playback: { kind: "torrent", infoHash: "abc", fileIdx: null, sources: [] }, warnings: [], filename: null, bingeGroup: null }],
       },
       {
         addon: "second",
@@ -322,7 +323,7 @@ describe("the first Stream an Episodes press can play", () => {
         {
           addon: "only",
           failure: null,
-          streams: [{ name: "torrent", description: null, playback: { kind: "info_hash", infoHash: "abc" }, warnings: [], filename: null, bingeGroup: null }],
+          streams: [{ name: "torrent", description: null, playback: { kind: "torrent", infoHash: "abc", fileIdx: null, sources: [] }, warnings: [], filename: null, bingeGroup: null }],
         },
       ]),
     ).toBeNull();

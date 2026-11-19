@@ -7,7 +7,7 @@ use crate::playback::{
 };
 use crate::preferences::{
     FeaturedCatalog, LanguageList, Preferences, StreamBuffer, SubtitleColor, SubtitleScale,
-    UpNextPlayback,
+    TorrentCache, UpNextPlayback,
 };
 use crate::progress::{TitleStub, WatchProgress};
 use crate::request::VideoRef;
@@ -227,6 +227,10 @@ impl State {
             }
             Change::SetStreamBuffer(buffer) => {
                 self.preferences.set_stream_buffer(buffer);
+                Persist::Preferences
+            }
+            Change::SetTorrentCache(cache) => {
+                self.preferences.set_torrent_cache(cache);
                 Persist::Preferences
             }
             Change::SetUpNextPlayback(playback) => {
@@ -556,6 +560,8 @@ pub(crate) enum Change {
     /// The look-ahead and memory ceiling the Player is told, judged together
     /// before either reaches it (ADR-0026).
     SetStreamBuffer(StreamBuffer),
+    /// The most disk a playing torrent may take (ADR-0042 §3).
+    SetTorrentCache(TorrentCache),
     /// What Play does for a Title's Up next: play it directly, or open the
     /// Streams picker (#276).
     SetUpNextPlayback(UpNextPlayback),

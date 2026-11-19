@@ -90,6 +90,7 @@ const SNAPSHOT: Snapshot = {
     subtitleColor: "#FFFFFF",
     subtitleScale: 1,
     streamBuffer: { seconds: 300, megabytes: 512 },
+    torrentCache: { megabytes: 2000 },
     upNextPlayback: "direct",
     autoplay: true,
   },
@@ -202,7 +203,12 @@ function continueEntry(overrides: Partial<ContinueEntry> = {}): ContinueEntry {
 const UNPLAYABLE: Stream = {
   name: "Torrentio\n4k HDR",
   description: "Breaking Bad S01E01 2160p BluRay\n👤 106 💾 9.53 GB",
-  playback: { kind: "info_hash", infoHash: "a584351126afcf50d32be068f3c9a62550d41ecc" },
+  playback: {
+    kind: "torrent",
+    infoHash: "a584351126afcf50d32be068f3c9a62550d41ecc",
+    fileIdx: null,
+    sources: [],
+  },
   warnings: [],
   filename: "Breaking.Bad.S01E01.Pilot.2160p.mkv",
   bingeGroup: "torrentio|4k",

@@ -142,7 +142,7 @@ export function playabilityNote(playback: Playback): string | null {
       return playableDirectUrl(playback.url)
         ? null
         : "Not playable — a direct Stream must be an http(s) address.";
-    case "info_hash":
+    case "torrent":
       return "Not playable yet — a torrent this Host cannot fetch.";
   }
 }

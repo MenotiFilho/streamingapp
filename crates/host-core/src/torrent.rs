@@ -18,9 +18,10 @@
 use std::fmt;
 use std::sync::Mutex;
 
-use serde::Serialize;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::playback::StreamUrl;
+use crate::preferences::{StreamBuffer, TorrentCache};
 
 /// A torrent's identity: the SHA-1 of its info dictionary, spelled as 40
 /// lowercase hexadecimal characters.
@@ -76,6 +77,23 @@ impl InfoHash {
 impl fmt::Display for InfoHash {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.0)
+    }
+}
+
+impl Serialize for InfoHash {
+    /// As the 40 lowercase hexadecimal characters, which is what a client reads.
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for InfoHash {
+    /// Read the way an Addon's is: 40 hexadecimal or 32 base32 characters, and
+    /// anything else is refused, so a client cannot send back a name this Host
+    /// could not have listed.
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(deserializer)?;
+        Self::parse(&raw).map_err(serde::de::Error::custom)
     }
 }
 
@@ -161,6 +179,29 @@ pub enum TorrentReport {
 pub struct TorrentLimits {
     pub readahead_bytes: u64,
     pub cache_bytes: u64,
+}
+
+impl TorrentLimits {
+    /// The least a torrent is ever read ahead: 16 MiB.
+    pub const MIN_READAHEAD_BYTES: u64 = 16 << 20;
+
+    /// The limits two preferences make (ADR-0042 §3): a torrent is read ahead by
+    /// three quarters of the Stream buffer's bytes, and never less than 16 MiB,
+    /// and the disk it may take is the Torrent cache.
+    ///
+    /// The Stream buffer's megabytes are decimal, as the interface says; the
+    /// engine clamps the read-ahead to what its cache can hold.
+    pub fn from_preferences(buffer: StreamBuffer, cache: TorrentCache) -> Self {
+        Self {
+            readahead_bytes: readahead_for(buffer.megabytes() * 1_000_000),
+            cache_bytes: cache.bytes(),
+        }
+    }
+}
+
+/// Three quarters of a buffer's bytes, and at least 16 MiB.
+fn readahead_for(buffer_bytes: u64) -> u64 {
+    (buffer_bytes / 4 * 3).max(TorrentLimits::MIN_READAHEAD_BYTES)
 }
 
 /// The engine could not serve a torrent, in a sentence an owner can read.
@@ -386,6 +427,38 @@ mod tests {
         assert!(InfoHash::parse(&format!("{} ", &HEX[..39])).is_err());
         assert!(InfoHash::parse(&format!("{}é", &HEX[..38])).is_err());
         assert!(InfoHash::parse(&format!("{}=", &BASE32_HASH[..31])).is_err());
+    }
+
+    fn limits(buffer_megabytes: u64, cache_megabytes: u64) -> TorrentLimits {
+        TorrentLimits::from_preferences(
+            StreamBuffer::parse(300, buffer_megabytes).expect("a buffer"),
+            TorrentCache::parse(cache_megabytes).expect("a cache"),
+        )
+    }
+
+    #[test]
+    fn read_ahead_is_three_quarters_of_the_stream_buffers_bytes() {
+        assert_eq!(limits(512, 2000).readahead_bytes, 384_000_000);
+        assert_eq!(limits(4096, 2000).readahead_bytes, 3_072_000_000);
+    }
+
+    #[test]
+    fn read_ahead_is_never_less_than_sixteen_mebibytes() {
+        // 64 MB is the smallest buffer: three quarters is 48 MB, above the floor.
+        assert_eq!(limits(64, 2000).readahead_bytes, 48_000_000);
+        // The floor binds below 22.37 MB of buffer, which the preference cannot be
+        // set to today but the arithmetic must still hold.
+        assert_eq!(readahead_for(0), 16 << 20);
+        assert_eq!(readahead_for(20_000_000), 16 << 20);
+        assert_eq!(readahead_for(30_000_000), 22_500_000);
+    }
+
+    #[test]
+    fn the_cache_is_the_torrent_caches_bytes_whatever_the_buffer_is() {
+        assert_eq!(limits(512, 2000).cache_bytes, 2_000_000_000);
+        assert_eq!(limits(64, 256).cache_bytes, 256_000_000);
+        assert_eq!(limits(4096, 32000).cache_bytes, 32_000_000_000);
+        assert_eq!(limits(64, 2000).cache_bytes, limits(4096, 2000).cache_bytes);
     }
 
     #[test]
