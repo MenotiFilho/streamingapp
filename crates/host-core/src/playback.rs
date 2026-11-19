@@ -36,9 +36,12 @@ use std::sync::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::addon::{AddonId, MAX_STRING_LEN};
-use crate::preferences::{StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale};
+use crate::autoplay::AutoplaySnapshot;
+use crate::preferences::{Language, LanguageList, StreamBuffer, SubtitleColor, SubtitleScale};
 use crate::request::VideoRef;
 use crate::stream::{holdable, Playback, Stream};
+use crate::torrent::{InfoHash, ServeHints, ServeRequest, TorrentStatus};
+use crate::tracks;
 
 /// A URL the Host will hand to a Player.
 ///
@@ -98,21 +101,42 @@ pub struct InvalidStreamUrl {
     pub url: String,
 }
 
-/// What a client asked to play, judged: the URL the Player will be given, and
-/// the Addon's own words about the candidate — which is all that travels out.
+/// What a client asked to play, judged: where the bytes are — a URL the Player
+/// will be given, or a torrent the Torrent engine will serve — and the Addon's
+/// own words about the candidate, which is all that travels out.
 ///
 /// Built by [`Action::validate`](crate::Action::validate) and nothing else, so a
-/// `ChosenStream` that exists is a Stream a Player can be handed. Deliberately
-/// not `Serialize`: there is no shape of this that a Snapshot could carry, and
-/// that is the point.
+/// `ChosenStream` that exists is a Stream this Host can open. Deliberately not
+/// `Serialize`: there is no shape of this that a Snapshot could carry, and that
+/// is the point.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChosenStream {
-    /// The URL the Player is given, and the one thing about a Stream no
-    /// Snapshot carries.
-    pub url: StreamUrl,
+    /// Where the bytes are, and the one thing about a Stream no Snapshot
+    /// carries.
+    pub source: Source,
     /// The candidate as every client is told about it: the Addon's badge line,
     /// its description, the file's name — and never where the bytes are.
     pub now_playing: NowPlaying,
+}
+
+/// Where a chosen Stream's bytes are.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Source {
+    /// A URL the Player opens as itself.
+    Url(StreamUrl),
+    /// A torrent: the Torrent engine serves it as a loopback URL, and that is
+    /// what the Player opens (ADR-0042 §2).
+    Torrent(TorrentSource),
+}
+
+/// A torrent as the Host holds it once chosen: what the Addon named, judged.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TorrentSource {
+    pub info_hash: InfoHash,
+    /// The file of the torrent the Addon said is the Video, where it did.
+    pub file_idx: Option<u32>,
+    /// Trackers and `dht:` sources, within the bounds an Addon's are held to.
+    pub sources: Vec<String>,
 }
 
 /// The Stream that is playing, in the Addon's own words, without its URL.
@@ -140,31 +164,36 @@ pub struct NowPlaying {
 }
 
 impl ChosenStream {
-    /// The candidate as the Host holds it: the URL to open and the words to
+    /// The candidate as the Host holds it: where its bytes are and the words to
     /// publish, or why this Host will not play it.
     ///
     /// The words are the client's, and they are only words: a client that sends
     /// a name it never got from an Addon is lying about a badge line, and the
     /// Host has no record to check it against — the list a client chooses from
     /// is that client's own (ADR-0005). What is judged is the part that
-    /// matters: *where the bytes are*. An `infoHash` is a candidate this Host
-    /// has no bridge to fetch (#12) and one it will not pretend to play, and a
-    /// word too long to hold is dropped the way a Stream read from an Addon
-    /// drops one.
+    /// matters: *where the bytes are*. A direct URL must be one this Host opens;
+    /// a torrent's infoHash was judged when it was read, and its sources are
+    /// held to the bounds an Addon's are, so a client cannot hand the engine
+    /// more than an Addon could. A word too long to hold is dropped the way a
+    /// Stream read from an Addon drops one.
     pub fn parse(video: VideoRef, addon: AddonId, stream: &Stream) -> Result<Self, Unplayable> {
-        let url = match &stream.playback {
-            Playback::Direct { url } => StreamUrl::parse(url).map_err(Unplayable::from)?,
-            Playback::InfoHash { .. } => {
-                return Err(Unplayable {
-                    detail: "that Stream is an infoHash: a torrent, which this Host cannot fetch \
-                             yet — the bridge that would is #12"
-                        .to_owned(),
-                })
+        let source = match &stream.playback {
+            Playback::Direct { url } => {
+                Source::Url(StreamUrl::parse(url).map_err(Unplayable::from)?)
             }
+            Playback::Torrent {
+                info_hash,
+                file_idx,
+                sources,
+            } => Source::Torrent(TorrentSource {
+                info_hash: info_hash.clone(),
+                file_idx: *file_idx,
+                sources: crate::stream::bounded(sources.iter().map(String::as_str)),
+            }),
         };
 
         Ok(Self {
-            url,
+            source,
             now_playing: NowPlaying {
                 video,
                 addon,
@@ -174,6 +203,52 @@ impl ChosenStream {
                 binge_group: held(stream.binge_group.as_deref()),
             },
         })
+    }
+
+    /// The URL the Player is given as it stands, for a direct Stream. A torrent
+    /// has none until the engine serves it.
+    pub fn url(&self) -> Option<&StreamUrl> {
+        match &self.source {
+            Source::Url(url) => Some(url),
+            Source::Torrent(_) => None,
+        }
+    }
+
+    /// The torrent's identity, for a torrent.
+    pub fn info_hash(&self) -> Option<&InfoHash> {
+        match &self.source {
+            Source::Url(_) => None,
+            Source::Torrent(torrent) => Some(&torrent.info_hash),
+        }
+    }
+
+    /// What the Torrent engine is asked to serve for a torrent: the file the
+    /// Addon named, and the hints — the file's own name and the Video's season
+    /// and episode, as [`meta::episode_of`](crate::meta::episode_of) reads them —
+    /// the engine chooses by once the metadata arrives (ADR-0042 §4).
+    pub fn serve_request(&self) -> Option<ServeRequest> {
+        match &self.source {
+            Source::Url(_) => None,
+            Source::Torrent(torrent) => Some(torrent.serve_request(&self.now_playing)),
+        }
+    }
+}
+
+impl TorrentSource {
+    /// What the engine is asked to serve of this torrent for the Stream
+    /// `now_playing` words: see [`ChosenStream::serve_request`].
+    pub fn serve_request(&self, now_playing: &NowPlaying) -> ServeRequest {
+        let (season, episode) = crate::meta::episode_numbers(&now_playing.video.id);
+        ServeRequest {
+            info_hash: self.info_hash.clone(),
+            file_idx: self.file_idx,
+            sources: self.sources.clone(),
+            hints: ServeHints {
+                filename: now_playing.filename.clone(),
+                season,
+                episode,
+            },
+        }
     }
 }
 
@@ -386,6 +461,9 @@ pub struct Track {
     pub default: bool,
     /// Whether the subtitles are forced: the ones a container says to show.
     pub forced: bool,
+    /// Whether the subtitles are for the hard of hearing (SDH): the container's
+    /// flag, which the Host ranks by and no client draws (ADR-0041).
+    pub hearing_impaired: bool,
 }
 
 impl Track {
@@ -576,9 +654,13 @@ pub enum Telling {
     Autocrop,
     /// Override the picture's shape.
     Aspect(Aspect),
-    /// The language the Player prefers when it selects a subtitle track for the
-    /// owner: mpv's `slang`. `None` clears it.
-    SubtitleLanguage(Option<SubtitleLanguage>),
+    /// The Subtitle languages, as the Player's first guess at a subtitle track.
+    /// Empty clears it. The Host chooses the Track itself; this only makes the
+    /// first frame usually right (ADR-0041).
+    SubtitleLanguages(LanguageList),
+    /// The Audio languages, as the Player's first guess at a soundtrack. Empty
+    /// clears it.
+    AudioLanguages(LanguageList),
     /// The colour the Player draws subtitles in where a track leaves the colour
     /// open. A track that styles its own text keeps that styling (ADR-0024).
     SubtitleColor(SubtitleColor),
@@ -802,6 +884,10 @@ pub struct Observation {
     /// The span of the Stream the Player has read, where it can say. `None` is
     /// a Player with no answer, not a Stream with nothing read.
     pub buffered: Option<Buffered>,
+    /// Whether the Player is held for bytes that have not arrived: mpv's own
+    /// `paused-for-cache`, as it said it. A raw reading — the Host decides when
+    /// it counts as a Stalled Stream, and only in `playing`.
+    pub stalled: bool,
     /// Why an open failed, in the Player's own words, set once and until the
     /// next open. The Host shows it to the client that pressed play.
     pub failure: Option<String>,
@@ -836,6 +922,12 @@ pub struct Observation {
 }
 
 impl Observation {
+    /// Whether the Stream is loaded and live: playing or paused, not merely
+    /// opening, and not over.
+    pub(crate) fn is_running(&self) -> bool {
+        matches!(self.state, PlaybackState::Playing | PlaybackState::Paused)
+    }
+
     /// A Player doing nothing.
     pub fn idle() -> Self {
         Self {
@@ -843,6 +935,7 @@ impl Observation {
             position: None,
             duration: None,
             buffered: None,
+            stalled: false,
             failure: None,
             tracks: None,
             chapters: Vec::new(),
@@ -884,6 +977,40 @@ pub enum PlaybackError {
     Command { detail: String },
 }
 
+/// What the Host notes to itself while it chooses the Tracks of the Stream
+/// playing now (ADR-0041): the per-Stream record, which the four things travel
+/// in together because they begin and end with the Stream. None of it is
+/// published, and a new Stream starts a fresh one.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct StreamNotes {
+    /// Whether the Host has already chosen the soundtrack, which it does once,
+    /// on the first report of the Stream's Tracks.
+    chosen_initial: bool,
+    /// How many Addon subtitles the Host asked the Player to add and is waiting
+    /// to see in a report. Zero where none were added, or once the switch below
+    /// has looked at them.
+    addon_tracks_awaited: usize,
+    /// Whether the Host has already made its one switch to an Addon subtitle, or
+    /// decided there is none to make. Never again on the same Stream.
+    addon_switch_done: bool,
+    /// Whether a client has picked a Track by hand on this Stream. The Host's
+    /// one switch to an Addon subtitle is never made over a Track the owner
+    /// picked, and a Hand pick carried from an earlier Stream is not this.
+    hand_picked_this_stream: bool,
+}
+
+impl StreamNotes {
+    /// The Addon subtitles the Host is waiting to see, while its switch to one
+    /// is still to be made: none once it is done or the owner picked by hand.
+    fn addon_tracks_awaited(&self) -> usize {
+        if self.addon_switch_done || self.hand_picked_this_stream {
+            0
+        } else {
+            self.addon_tracks_awaited
+        }
+    }
+}
+
 /// What the Host is playing, and what it was last told about it.
 ///
 /// The Host's own record, kept beside the rest of its state and never in the
@@ -903,8 +1030,21 @@ pub(crate) struct PlaybackSession {
     /// it. The Player's report corrects it, with a span that moved by less than
     /// a second at either end counted as the same reading.
     buffered: Option<Buffered>,
+    /// Whether the Stream is Stalled: playing, paused by no one, and held for
+    /// bytes. True only in `playing`, and published as the Player reports it.
+    stalled: bool,
+    /// The Torrent status of the Stream, where it is a torrent: what the engine
+    /// last reported that the Host let through its once-a-second throttle. The
+    /// Player never says it, so a report that rebuilds the session carries it
+    /// forward; a new Stream starts without one.
+    torrent: Option<TorrentStatus>,
     /// Why the last open failed, kept until the next play or stop.
     failure: Option<String>,
+    /// Whether the Host ended this Stream itself, for a reason the Player does
+    /// not know (a torrent that could not be kept on disk). The Player's next
+    /// reports are about a Stream that is gone, so they move nothing until a
+    /// play or a stop replaces the session.
+    ended_by_host: bool,
     /// The Stream's tracks, as the Player last reported them: the Host's own
     /// record of what a selection may name before a Player hears of it.
     tracks: Vec<Track>,
@@ -927,6 +1067,10 @@ pub(crate) struct PlaybackSession {
     /// report that rebuilds the session carries it forward rather than losing
     /// it; a new Stream starts a fresh record.
     subtitles_attempted: bool,
+    /// What the Host has noted to itself about choosing this Stream's Tracks
+    /// (ADR-0041). The Player has never heard of it, and a new Stream starts a
+    /// fresh one.
+    notes: StreamNotes,
 }
 
 impl PlaybackSession {
@@ -938,7 +1082,10 @@ impl PlaybackSession {
             position: None,
             duration: None,
             buffered: None,
+            stalled: false,
+            torrent: None,
             failure: None,
+            ended_by_host: false,
             tracks: Vec::new(),
             chapters: Vec::new(),
             chapter: None,
@@ -951,6 +1098,7 @@ impl PlaybackSession {
             resolution: None,
             statistics: None,
             subtitles_attempted: false,
+            notes: StreamNotes::default(),
         }
     }
 
@@ -990,6 +1138,8 @@ impl PlaybackSession {
             position: self.position,
             duration: self.duration,
             buffered: self.buffered,
+            stalled: self.stalled,
+            torrent: self.torrent,
             tracks: self.tracks.clone(),
             chapters: self.chapters.clone(),
             chapter: self.chapter,
@@ -1001,7 +1151,20 @@ impl PlaybackSession {
             aspect: self.aspect,
             resolution: self.resolution,
             statistics: self.statistics.clone(),
+            // The countdown is the Host's own record, not the session's: the
+            // Snapshot that carries it is built where the clock is read.
+            autoplay: None,
         }
+    }
+
+    /// Where the Stream stands, as the Host's record has it.
+    pub(crate) fn state(&self) -> PlaybackState {
+        self.state
+    }
+
+    /// Why the Stream failed to open or ended in failure, if it did.
+    pub(crate) fn failure(&self) -> Option<&str> {
+        self.failure.as_deref()
     }
 
     /// Whether the Host is on a Stream at all — playing, opening, paused, ended
@@ -1078,6 +1241,51 @@ impl PlaybackSession {
         self.subtitles_attempted = true;
     }
 
+    /// Whether the Host has already chosen the soundtrack for the Stream
+    /// playing now.
+    pub(crate) fn chosen_initial(&self) -> bool {
+        self.notes.chosen_initial
+    }
+
+    /// Record that the first report of the Stream's Tracks has been chosen
+    /// from, so no later report chooses again.
+    pub(crate) fn record_initial_choice(&mut self) {
+        self.notes.chosen_initial = true;
+    }
+
+    /// How many added Addon subtitles the Host is waiting to see reported, while
+    /// its switch to one is still to be made. None once a Track was picked by
+    /// hand on this Stream: the Host does not undo it.
+    pub(crate) fn addon_tracks_awaited(&self) -> usize {
+        self.notes.addon_tracks_awaited()
+    }
+
+    /// Record that this many Addon subtitles were added and the Host will look
+    /// for them in a later report. Zero leaves nothing to switch to.
+    pub(crate) fn record_addon_tracks_added(&mut self, count: usize) {
+        self.notes.addon_tracks_awaited = count;
+    }
+
+    /// Record that the one switch to an Addon subtitle has been decided on this
+    /// Stream, whether or not it moved the subtitle.
+    pub(crate) fn record_addon_switch_done(&mut self) {
+        self.notes.addon_switch_done = true;
+    }
+
+    /// Record that a client picked a Track by hand on the Stream playing now.
+    pub(crate) fn record_hand_pick(&mut self) {
+        self.notes.hand_picked_this_stream = true;
+    }
+
+    /// The language the Track of this kind and id names, as a list entry would,
+    /// or none where the Track is not known or names no language (ADR-0041).
+    pub(crate) fn language_of_track(&self, kind: TrackKind, id: TrackId) -> Option<Language> {
+        self.tracks
+            .iter()
+            .find(|track| track.kind == kind && track.id == id)
+            .and_then(tracks::language_of)
+    }
+
     /// Hold the picture where it is, or let it run — the record moving at the
     /// moment of the Action, with the Player's next report correcting it.
     pub(crate) fn set_paused(&mut self, paused: bool) {
@@ -1128,21 +1336,30 @@ impl PlaybackSession {
         self.subtitle_delay = Some(seconds);
     }
 
+    /// Where a chapter step lands in the list the Player last reported, clamped
+    /// the same way mpv's own `add chapter` clamps; an empty list holds no
+    /// chapter to land on.
+    fn chapter_after(&self, step: ChapterStep) -> Option<usize> {
+        let last = self.chapters.len().checked_sub(1)?;
+        Some(match step {
+            ChapterStep::At { index } => index,
+            ChapterStep::Next => self.chapter.map_or(0, |index| (index + 1).min(last)),
+            ChapterStep::Previous => self.chapter.map_or(0, |index| index.saturating_sub(1)),
+        })
+    }
+
     /// Move the Host's own record of which chapter is playing, clamped to the
-    /// list the Player last reported — the same clamp mpv's own `add chapter`
-    /// applies, and an empty list holds no chapter at all.
+    /// list the Player last reported, and an empty list holds no chapter at all.
     pub(crate) fn chapter_step(&mut self, step: ChapterStep) {
-        let last = self.chapters.len().checked_sub(1);
-        self.chapter = match (step, last) {
-            (ChapterStep::At { index }, Some(_)) => Some(index),
-            (ChapterStep::Next, Some(last)) => {
-                Some(self.chapter.map_or(0, |index| (index + 1).min(last)))
-            }
-            (ChapterStep::Previous, Some(_)) => {
-                Some(self.chapter.map_or(0, |index| index.saturating_sub(1)))
-            }
-            (_, None) => None,
-        };
+        self.chapter = self.chapter_after(step);
+    }
+
+    /// Where, in seconds from the Stream's start, the chapter a step lands on
+    /// begins — what a Stream with no Player to jump must be opened at. `None`
+    /// when the list holds no such chapter.
+    pub(crate) fn chapter_start(&self, step: ChapterStep) -> Option<f64> {
+        let index = self.chapter_after(step)?;
+        self.chapters.get(index).map(|chapter| chapter.time)
     }
 
     /// The crop the Host's own record holds: the rectangle kept, or none.
@@ -1163,9 +1380,37 @@ impl PlaybackSession {
         };
     }
 
+    /// Take the engine's reading of the torrent being served, and say whether it
+    /// differs from the one held. A session with no Stream takes nothing: the
+    /// reading would be about a torrent nobody is playing.
+    pub(crate) fn torrent_status(&mut self, status: TorrentStatus) -> bool {
+        if self.playing.is_none() || self.torrent == Some(status) {
+            return false;
+        }
+        self.torrent = Some(status);
+        true
+    }
+
+    /// Clear the engine's reading of the torrent, and say whether one was held.
+    pub(crate) fn clear_torrent_status(&mut self) -> bool {
+        self.torrent.take().is_some()
+    }
+
     /// The shape the Host's own record says the picture is drawn at.
     pub(crate) fn shaped(&mut self, aspect: Aspect) {
         self.aspect = Some(aspect);
+    }
+
+    /// The Host ended the Stream, for `sentence`: nothing is playing, and the
+    /// Stream that was is named beside the failure, as for an open that failed.
+    /// Only a play or a stop moves the session after this.
+    pub(crate) fn ended_with_failure(&mut self, sentence: String) {
+        *self = Self {
+            playing: self.playing.clone(),
+            failure: Some(sentence),
+            ended_by_host: true,
+            ..Self::idle()
+        };
     }
 
     /// Let the Stream go: nothing is playing, and what failed no longer is.
@@ -1182,6 +1427,9 @@ impl PlaybackSession {
     /// Stream the owner stopped is not about anything.
     pub(crate) fn advanced(&self, observation: &Observation) -> Option<Self> {
         self.playing.as_ref()?;
+        if self.ended_by_host {
+            return None;
+        }
 
         let next = Self {
             playing: self.playing.clone(),
@@ -1197,7 +1445,16 @@ impl PlaybackSession {
                 (Some(held), Some(reported)) if held.same_reading(reported) => Some(held),
                 (_, reported) => reported,
             },
+            // A Stream is Stalled only while it plays and nobody paused it: a
+            // Player waiting for bytes in any other state is opening, held by
+            // the owner, or done, and says so by its state. No debounce here —
+            // the grace belongs to the client that draws it.
+            stalled: observation.stalled && observation.state == PlaybackState::Playing,
+            // The Player knows nothing of the swarm: the engine's reading stands
+            // until the Host replaces it.
+            torrent: self.torrent,
             failure: observation.failure.clone(),
+            ended_by_host: false,
             // A Player that could not say what the Stream carries says *nothing*
             // rather than "nothing": the tracks the Host already held stand, and
             // the fallback stays un-attempted until a report it can trust
@@ -1220,6 +1477,7 @@ impl PlaybackSession {
             // session carries the attempt forward rather than forgetting it and
             // asking four times a second (ADR-0014).
             subtitles_attempted: self.subtitles_attempted,
+            notes: self.notes.clone(),
         };
 
         (next != *self).then_some(next)
@@ -1238,6 +1496,8 @@ impl PlaybackSession {
             || self.state != earlier.state
             || self.duration != earlier.duration
             || self.buffered != earlier.buffered
+            || self.stalled != earlier.stalled
+            || self.torrent != earlier.torrent
             || self.failure != earlier.failure
             || self.tracks != earlier.tracks
             || self.chapters != earlier.chapters
@@ -1298,6 +1558,15 @@ pub struct PlaybackSnapshot {
     /// timeline — what a client draws behind its progress bar. Null where the
     /// Player has no answer.
     pub buffered: Option<Buffered>,
+    /// Whether the Stream is Stalled: playing, paused by no one, and held
+    /// because the bytes ahead of it have not arrived yet. True of any Stream,
+    /// direct or torrent. A Stream still opening is not Stalled; it is opening.
+    pub stalled: bool,
+    /// The Torrent status of the Stream: whether its torrent is still being
+    /// found or is being fetched, how many peers, and how fast. Null for a
+    /// direct Stream, and for a torrent Stream the engine has not yet reported
+    /// on. Never which torrent.
+    pub torrent: Option<TorrentStatus>,
     /// The Stream's tracks — audio and subtitles — in mpv's own order.
     pub tracks: Vec<Track>,
     /// The Stream's chapters, in the order the container gives them.
@@ -1320,6 +1589,10 @@ pub struct PlaybackSnapshot {
     pub resolution: Option<VideoSize>,
     /// What the Player says about how the Stream is playing.
     pub statistics: Option<Statistics>,
+    /// What Autoplay is doing about the episode that ended: the next episode
+    /// and the countdown to it, with the time left as of this Snapshot. Null
+    /// whenever nothing is pending, which is nearly always (ADR-0040).
+    pub autoplay: Option<AutoplaySnapshot>,
 }
 
 /// A [`Player`] a test drives by hand: it records every telling, and reports
@@ -1408,6 +1681,15 @@ impl FixturePlayer {
             .lock()
             .expect("the fixture player is not poisoned") = Some(error);
         self
+    }
+
+    /// Refuse every telling from now on — for a test that has already handed
+    /// the Player to a Host, and wants a Stream to open before it does.
+    pub fn now_refusing(&self, error: PlaybackError) {
+        *self
+            .refusing
+            .lock()
+            .expect("the fixture player is not poisoned") = Some(error);
     }
 
     /// Every URL the Host asked to open, in order.
@@ -1626,7 +1908,7 @@ mod tests {
         .expect("a direct URL is a candidate this Host plays");
 
         assert_eq!(
-            chosen.url.as_str(),
+            chosen.url().expect("a direct Stream has a URL").as_str(),
             "https://stream.example.org/v/tt0133093.mkv"
         );
         assert_eq!(
@@ -1675,20 +1957,124 @@ mod tests {
         );
     }
 
+    const HASH: &str = "61065ea115b7cc3e8db9fb5ab1f6f327f08bd1c9";
+
+    fn torrent(file_idx: Option<u32>, sources: Vec<String>) -> Playback {
+        Playback::Torrent {
+            info_hash: InfoHash::parse(HASH).unwrap(),
+            file_idx,
+            sources,
+        }
+    }
+
     #[test]
-    fn a_torrent_is_a_candidate_this_host_will_not_pretend_to_play() {
-        let refused = ChosenStream::parse(
+    fn a_torrent_is_a_candidate_this_host_plays_through_the_engine() {
+        let chosen = ChosenStream::parse(
             video(),
             addon(),
-            &candidate(Playback::InfoHash {
-                info_hash: "61065ea115b7cc3e8db9fb5ab1f6f327f08bd1c9".to_owned(),
-            }),
-        );
+            &candidate(torrent(
+                Some(1),
+                vec!["tracker:http://tracker.example.org/ann".to_owned()],
+            )),
+        )
+        .expect("a torrent is a candidate the one playability rule accepts");
 
-        assert!(
-            matches!(&refused, Err(Unplayable { detail }) if detail.contains("infoHash")),
-            "an infoHash is listed and marked, and never played: {refused:?}"
+        assert_eq!(
+            chosen.url(),
+            None,
+            "a torrent has no URL until it is served"
         );
+        assert_eq!(chosen.info_hash(), Some(&InfoHash::parse(HASH).unwrap()));
+        assert_eq!(
+            chosen.now_playing.name.as_deref(),
+            Some("AIOStreams\n1080p"),
+            "the Addon's words travel as they do for a direct Stream"
+        );
+    }
+
+    #[test]
+    fn a_direct_stream_has_a_url_and_no_info_hash() {
+        let chosen = ChosenStream::parse(
+            video(),
+            addon(),
+            &candidate(Playback::Direct {
+                url: "https://stream.example.org/v/tt0133093.mkv".to_owned(),
+            }),
+        )
+        .expect("a direct URL plays");
+
+        assert_eq!(chosen.info_hash(), None);
+        assert!(chosen.serve_request().is_none(), "nothing to serve");
+    }
+
+    #[test]
+    fn a_torrent_asks_the_engine_for_the_file_the_addon_named_with_the_hints_it_has() {
+        let chosen = ChosenStream::parse(
+            VideoRef::parse("series", "tt0903747:2:5").unwrap(),
+            addon(),
+            &candidate(torrent(
+                Some(3),
+                vec!["tracker:udp://tracker.example.org:1337".to_owned()],
+            )),
+        )
+        .expect("a torrent plays");
+
+        assert_eq!(
+            chosen.serve_request(),
+            Some(ServeRequest {
+                info_hash: InfoHash::parse(HASH).unwrap(),
+                file_idx: Some(3),
+                sources: vec!["tracker:udp://tracker.example.org:1337".to_owned()],
+                hints: ServeHints {
+                    filename: Some("The.Matrix.1999.1080p.mkv".to_owned()),
+                    season: Some(2),
+                    episode: Some(5),
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn a_film_has_no_season_or_episode_to_hint() {
+        let request = ChosenStream::parse(video(), addon(), &candidate(torrent(None, Vec::new())))
+            .expect("a torrent plays")
+            .serve_request()
+            .expect("a torrent is served");
+
+        assert_eq!(request.file_idx, None);
+        assert_eq!((request.hints.season, request.hints.episode), (None, None));
+    }
+
+    #[test]
+    fn the_sources_a_client_sends_back_are_bounded_as_an_addons_are() {
+        let sources: Vec<String> = (0..crate::stream::MAX_SOURCES + 8)
+            .map(|n| format!("tracker:http://t{n}.example.org/ann"))
+            .chain([format!(
+                "tracker:{}",
+                "a".repeat(crate::stream::MAX_SOURCE_LEN)
+            )])
+            .collect();
+
+        let request =
+            ChosenStream::parse(video(), addon(), &candidate(torrent(None, sources.clone())))
+                .expect("a torrent plays")
+                .serve_request()
+                .expect("a torrent is served");
+
+        assert_eq!(request.sources, sources[..crate::stream::MAX_SOURCES]);
+    }
+
+    #[test]
+    fn a_torrent_with_a_hostile_hint_word_is_served_without_it() {
+        let mut stream = candidate(torrent(None, Vec::new()));
+        stream.filename = Some("x".repeat(crate::addon::MAX_STRING_LEN + 1));
+
+        let request = ChosenStream::parse(video(), addon(), &stream)
+            .expect("a torrent plays")
+            .serve_request()
+            .expect("a torrent is served");
+
+        assert_eq!(request.hints.filename, None);
     }
 
     #[test]
@@ -1877,6 +2263,8 @@ mod tests {
                 position: None,
                 duration: None,
                 buffered: None,
+                stalled: false,
+                torrent: None,
                 tracks: Vec::new(),
                 chapters: Vec::new(),
                 chapter: None,
@@ -1888,6 +2276,7 @@ mod tests {
                 aspect: None,
                 resolution: None,
                 statistics: None,
+                autoplay: None,
             },
             "the client that pressed play is told which candidate did not open"
         );
@@ -2036,6 +2425,8 @@ mod tests {
                 "position": null,
                 "duration": null,
                 "buffered": null,
+                "stalled": false,
+                "torrent": null,
                 "tracks": [],
                 "chapters": [],
                 "chapter": null,
@@ -2047,6 +2438,7 @@ mod tests {
                 "aspect": null,
                 "resolution": null,
                 "statistics": null,
+                "autoplay": null,
             }),
             "the window reads this by hand, so the shape it declares is the shape that arrives"
         );
@@ -2148,6 +2540,7 @@ mod tests {
             selected: false,
             default: false,
             forced: false,
+            hearing_impaired: false,
         };
         assert_eq!(
             serde_json::to_value(&track).expect("a track serializes"),
@@ -2161,6 +2554,7 @@ mod tests {
                 "selected": false,
                 "default": false,
                 "forced": false,
+                "hearingImpaired": false,
             })
         );
 
@@ -2238,6 +2632,7 @@ mod tests {
                     selected: true,
                     default: true,
                     forced: false,
+                    hearing_impaired: false,
                 },
                 Track {
                     id: TrackId(2),
@@ -2249,6 +2644,7 @@ mod tests {
                     selected: false,
                     default: false,
                     forced: false,
+                    hearing_impaired: false,
                 },
             ]),
             chapters: vec![
@@ -2349,6 +2745,7 @@ mod tests {
                     selected: true,
                     default: true,
                     forced: false,
+                    hearing_impaired: false,
                 },
                 Track {
                     id: TrackId(2),
@@ -2360,6 +2757,7 @@ mod tests {
                     selected: false,
                     default: false,
                     forced: false,
+                    hearing_impaired: false,
                 },
             ]),
             chapters: vec![Chapter {
@@ -2412,11 +2810,13 @@ mod tests {
                 "position": 12.5,
                 "duration": 600.0,
                 "buffered": { "start": 12.0, "end": 40.0 },
+                "stalled": false,
+                "torrent": null,
                 "tracks": [
                     { "id": 1, "kind": "audio", "language": "eng", "title": "English stereo", "codec": "aac",
-                      "embedded": true, "selected": true, "default": true, "forced": false },
+                      "embedded": true, "selected": true, "default": true, "forced": false, "hearingImpaired": false },
                     { "id": 2, "kind": "subtitle", "language": "por", "title": null, "codec": "subrip",
-                      "embedded": true, "selected": false, "default": false, "forced": false }
+                      "embedded": true, "selected": false, "default": false, "forced": false, "hearingImpaired": false }
                 ],
                 "chapters": [ { "index": 0, "title": "Intro", "time": 0.0 } ],
                 "chapter": 0,
@@ -2427,7 +2827,8 @@ mod tests {
                 "crop": { "width": 96, "height": 72, "x": 16, "y": 0 },
                 "aspect": { "kind": "source" },
                 "resolution": { "width": 128, "height": 72 },
-                "statistics": { "bitrate": null, "droppedFrames": 0, "hardwareDecode": "no" }
+                "statistics": { "bitrate": null, "droppedFrames": 0, "hardwareDecode": "no" },
+                "autoplay": null
             }),
             "the whole playback object the window reads is the frozen one"
         );
@@ -2446,6 +2847,7 @@ mod tests {
             selected: false,
             default: false,
             forced: false,
+            hearing_impaired: false,
         }
         .bounded();
 
@@ -2463,5 +2865,51 @@ mod tests {
         }
         .bounded();
         assert_eq!(statistics.hardware_decode, None);
+    }
+
+    #[test]
+    fn the_torrent_status_travels_in_the_playback_snapshot_and_comes_back() {
+        use crate::torrent::TorrentPhase;
+        let mut session = PlaybackSession::opening(
+            ChosenStream::parse(
+                video(),
+                addon(),
+                &candidate(Playback::Direct {
+                    url: "https://stream.example.org/v/x.mkv".to_owned(),
+                }),
+            )
+            .expect("a direct URL is a candidate this Host plays"),
+        );
+        assert!(session.torrent_status(TorrentStatus {
+            phase: TorrentPhase::Fetching,
+            peers: 12,
+            rate: 4_200_000,
+        }));
+
+        let published =
+            serde_json::to_value(session.snapshot(Picture::InWindow)).expect("it serializes");
+
+        assert_eq!(
+            published["torrent"],
+            serde_json::json!({ "phase": "fetching", "peers": 12, "rate": 4_200_000 })
+        );
+        let back: PlaybackSnapshot =
+            serde_json::from_value(published).expect("the Snapshot reads back");
+        assert_eq!(back, session.snapshot(Picture::InWindow));
+        assert!(
+            !session.torrent_status(TorrentStatus {
+                phase: TorrentPhase::Fetching,
+                peers: 12,
+                rate: 4_200_000,
+            }),
+            "the same reading is not a change"
+        );
+        let finding = serde_json::to_value(TorrentStatus {
+            phase: TorrentPhase::Finding,
+            peers: 0,
+            rate: 0,
+        })
+        .expect("it serializes");
+        assert_eq!(finding["phase"], "finding");
     }
 }

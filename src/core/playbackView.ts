@@ -8,6 +8,7 @@
  * OSD and the Remote's strip are two drawings of these facts (#191 §5).
  */
 
+import { autoplayStrip, autoplayView, type AutoplayView } from "./autoplay";
 import {
   controllable,
   formatVolume,
@@ -29,6 +30,7 @@ import {
 } from "./osd";
 import { pictureNote, transportable, watching } from "./playback";
 import { labelOf } from "./title";
+import { torrentLine } from "./torrentStatus";
 import type {
   Chapter,
   Episode,
@@ -76,6 +78,17 @@ export type PlaybackView = {
   controllable: boolean;
   picture: Picture;
   pictureNote: string | null;
+  /**
+   * Whether the Host says the Stream is held for bytes, as published. What is
+   * drawn for it waits a second (`stallShown`); this is only the fact.
+   */
+  stalled: boolean;
+  /**
+   * The Torrent status as the one line the opening block and the Stalled card
+   * draw, or null for a direct Stream and for a torrent the engine has not yet
+   * reported on.
+   */
+  torrentLine: string | null;
   nowPlaying: NowPlaying | null;
   /** The Watch-progress Title's name, else the Stream's own title. */
   title: string;
@@ -102,6 +115,8 @@ export type PlaybackView = {
   speed: number;
   volume: { level: number; fraction: number; muted: boolean; label: string };
   episode: Episode | null;
+  /** What Autoplay is doing about the episode that ended, projected to now. */
+  autoplay: AutoplayView;
   /** The Session's pending keys, by Action key. */
   pending: ReadonlySet<string>;
   /** What clears the Seek previews: one Stream, as far as a client can tell. */
@@ -132,6 +147,16 @@ function openingPreviewOf(progress: ResumeEntry | null): OpeningPreview | null {
       .join(" · ") || null;
 
   return { art, title: progress.title.name, subtitle };
+}
+
+/**
+ * The episode line under "Now playing": Autoplay's own text ("Up next in 4 ·
+ * S1E4", "Still watching? · S1E4") while the Host counts down or holds, else the
+ * episode label. The window's docked band and the Remote's strip both read it;
+ * neither has a Cancel or a Keep watching to put beside it, or does so itself.
+ */
+export function episodeLine(view: Pick<PlaybackView, "episodeLabel" | "autoplay">): string {
+  return autoplayStrip(view.autoplay) ?? view.episodeLabel;
 }
 
 function episodeLabelOf(episode: Episode | null, progress: ResumeEntry | null): string {
@@ -165,6 +190,8 @@ export function playbackView(
     controllable: controllable(playback.state),
     picture: playback.picture,
     pictureNote: pictureNote(playback.picture),
+    stalled: playback.stalled,
+    torrentLine: playback.torrent ? torrentLine(playback.torrent) : null,
     nowPlaying: playback.nowPlaying,
     title: progress?.title.name ?? streamTitle(playback.nowPlaying),
     episodeLabel: episodeLabelOf(playback.episode, progress),
@@ -190,6 +217,7 @@ export function playbackView(
       label: formatVolume(volumeLevel),
     },
     episode: playback.episode,
+    autoplay: autoplayView(playback, input.played * 1000),
     pending: input.pending,
     streamKey: streamKey(playback.nowPlaying),
     openingPreview: openingPreviewOf(progress),

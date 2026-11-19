@@ -7,12 +7,14 @@ import type {
   PlaybackSnapshot,
   ResumeEntry,
   Snapshot,
+  Stream,
   Title,
   Video,
 } from "./wire";
 
 const EMPTY_PLAYBACK: PlaybackSnapshot = {
   state: "idle",
+  autoplay: null,
   picture: "in_window",
   failure: null,
   nowPlaying: null,
@@ -27,6 +29,8 @@ const EMPTY_PLAYBACK: PlaybackSnapshot = {
   volume: null,
   muted: null,
   subtitleDelay: null,
+  stalled: false,
+  torrent: null,
   crop: null,
   aspect: null,
   resolution: null,
@@ -38,11 +42,14 @@ function snapshot(entries: ResumeEntry[]): Snapshot {
     revision: 1,
     playback: EMPTY_PLAYBACK,
     preferences: {
-      subtitleLanguage: null,
+      subtitleLanguages: [],
+      audioLanguages: [],
       subtitleColor: "#FFFFFF",
       subtitleScale: 1,
       streamBuffer: { seconds: 300, megabytes: 512 },
+      torrentCache: { megabytes: 2000 },
       upNextPlayback: "direct",
+      autoplay: true,
     },
     addons: [],
     featuredCatalog: null,
@@ -202,6 +209,21 @@ describe("the series a playing Stream belongs to", () => {
       cache: "community.aiostreams|movie|tt0133093",
     });
   });
+
+  test("a film's TMDB-keyed id is the discovered key, even with no progress at all", () => {
+    const held = seriesRef(
+      null,
+      nowPlaying({ video: { type: "movie", id: "tmdb:603" } }),
+    );
+
+    expect(held).toEqual({
+      kind: "discovered",
+      key: { kind: "tmdb", id: 603 },
+      type: "movie",
+      fallbackAddon: "community.aiostreams",
+      cache: "tmdb|movie|603",
+    });
+  });
 });
 
 describe("the question an Episodes menu asks about its series", () => {
@@ -277,13 +299,27 @@ describe("the episodes of a Title", () => {
 });
 
 describe("the first Stream an Episodes press can play", () => {
-  test("skips a candidate this Host cannot play and names the Addon that offered it", () => {
+  test("a torrent is a candidate like any other, taken in the Addon's order", () => {
+    const torrent: Stream = {
+      name: "torrent",
+      description: null,
+      playback: { kind: "torrent", infoHash: "c12fe1c06bba254a9dc9f519b335aa7c1367a88a", fileIdx: null, sources: [] },
+      warnings: ["p2p"],
+      filename: null,
+      bingeGroup: null,
+    };
+    const groups: AddonStreams[] = [{ addon: "first", failure: null, streams: [torrent] }];
+
+    expect(firstPlayableStream(groups)).toEqual({ addon: "first", stream: torrent });
+  });
+
+  test("skips a candidate this Host cannot open and names the Addon that offered it", () => {
     const groups: AddonStreams[] = [
       {
         addon: "first",
         failure: null,
         streams: [
-          { name: "torrent", description: null, playback: { kind: "info_hash", infoHash: "abc" }, warnings: [], filename: null, bingeGroup: null },
+          { name: "ftp", description: null, playback: { kind: "direct", url: "ftp://example.test/film.mkv" }, warnings: [], filename: null, bingeGroup: null },
           { name: "direct", description: null, playback: { kind: "direct", url: "https://x" }, warnings: [], filename: null, bingeGroup: null },
         ],
       },
@@ -300,7 +336,7 @@ describe("the first Stream an Episodes press can play", () => {
       {
         addon: "first",
         failure: null,
-        streams: [{ name: "torrent", description: null, playback: { kind: "info_hash", infoHash: "abc" }, warnings: [], filename: null, bingeGroup: null }],
+        streams: [{ name: "ftp", description: null, playback: { kind: "direct", url: "ftp://example.test/film.mkv" }, warnings: [], filename: null, bingeGroup: null }],
       },
       {
         addon: "second",
@@ -318,7 +354,7 @@ describe("the first Stream an Episodes press can play", () => {
         {
           addon: "only",
           failure: null,
-          streams: [{ name: "torrent", description: null, playback: { kind: "info_hash", infoHash: "abc" }, warnings: [], filename: null, bingeGroup: null }],
+          streams: [{ name: "ftp", description: null, playback: { kind: "direct", url: "ftp://example.test/film.mkv" }, warnings: [], filename: null, bingeGroup: null }],
         },
       ]),
     ).toBeNull();

@@ -10,6 +10,7 @@ import {
 function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
   return {
     state: "playing",
+    autoplay: null,
     picture: "in_window",
     failure: null,
     nowPlaying: {
@@ -31,6 +32,8 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
     volume: 60,
     muted: false,
     subtitleDelay: 0,
+    stalled: false,
+    torrent: null,
     crop: null,
     aspect: null,
     resolution: null,

@@ -16,22 +16,25 @@ import {
   STREAM_BUFFER_SECONDS,
   SUBTITLE_COLORS,
   SUBTITLE_SCALES,
-  UP_NEXT_PLAYBACK_CHOICES,
+  TORRENT_CACHE_DEFAULT_MEGABYTES,
+  TORRENT_CACHE_HEAD,
+  TORRENT_CACHE_MEGABYTES,
+  TORRENT_FETCH_NOTE,
   bufferMegabytesPreset,
   bufferSecondsPreset,
   colorSelected,
   formatBufferMegabytes,
   formatBufferSeconds,
   formatScale,
+  formatTorrentCache,
   scalePreset,
   scaleSelected,
+  torrentCachePreset,
+  torrentCacheRequest,
+  upNextRows,
 } from "../../core/controls";
 import type { Action, DeviceSummary } from "../../core/wire";
 import type { ActionError } from "../../core/errors";
-import {
-  HOST_PICKS_PER_VIDEO,
-  SUBTITLE_LANGUAGES,
-} from "../../core/languages";
 import tmdbLogo from "../../assets/tmdb-logo.svg";
 import { useShell, type NewShellLevel } from "../context";
 import { confirmActionLevel } from "../ConfirmAction";
@@ -39,6 +42,8 @@ import { Button } from "../../kit/Button";
 import { ChoiceChip } from "../../kit/Chip";
 import { Field } from "../../kit/Field";
 import { focusAndReveal } from "../reveal";
+import { LanguageFieldGroup } from "./LanguageFieldGroup";
+import { LANGUAGE_TITLES } from "./languageTitles";
 import { Refusal } from "../Refusal";
 import { StremioAccount } from "../StremioAccount";
 import {
@@ -61,7 +66,6 @@ import {
   settingsLevelId,
   settingsLevelName,
   unknownColorLabel,
-  unknownLanguageLabel,
   type SettingsCategory,
   type SettingsCategoryId,
 } from "../../core/settingsRegister";
@@ -319,7 +323,6 @@ function CredentialsScreen() {
 
 function PreferencesScreen() {
   const { snapshot, ask } = useShell();
-  const heldLanguage = snapshot?.preferences.subtitleLanguage ?? null;
   const heldColor = snapshot?.preferences.subtitleColor ?? "#FFFFFF";
   const heldScale = snapshot?.preferences.subtitleScale ?? 1;
   const publishedBuffer = snapshot?.preferences.streamBuffer ?? {
@@ -336,15 +339,15 @@ function PreferencesScreen() {
     setBufferDraft(publishedBuffer);
   }, [publishedBuffer.seconds, publishedBuffer.megabytes]);
   const heldBuffer = bufferDraft;
-  const [languageError, setLanguageError] = useState<ActionError | null>(null);
+  const heldTorrentCache =
+    snapshot?.preferences.torrentCache.megabytes ?? TORRENT_CACHE_DEFAULT_MEGABYTES;
   const [appearanceError, setAppearanceError] = useState<ActionError | null>(null);
   const [bufferError, setBufferError] = useState<ActionError | null>(null);
+  const [torrentCacheError, setTorrentCacheError] = useState<ActionError | null>(null);
   const [upNextError, setUpNextError] = useState<ActionError | null>(null);
   const [featuredError, setFeaturedError] = useState<ActionError | null>(null);
 
-  const known = SUBTITLE_LANGUAGES.some((language) => language.tag === heldLanguage);
   const otherColor = unknownColorLabel(heldColor);
-  const heldUpNext = snapshot?.preferences.upNextPlayback ?? "direct";
   const catalogs = declaredCatalogs(snapshot);
   const featured = snapshot?.featuredCatalog ?? null;
   const featuredKey = featured
@@ -354,18 +357,6 @@ function PreferencesScreen() {
         id: featured.catalog.id,
       })
     : null;
-
-  const pickLanguage = async (language: string | null) => {
-    setLanguageError(null);
-    const outcome = await ask(
-      language === null
-        ? { type: "clear_subtitle_language" }
-        : { type: "set_subtitle_language", language },
-    );
-    if (outcome.error) {
-      setLanguageError(outcome.error);
-    }
-  };
 
   const pickAppearance = async (action: Action) => {
     setAppearanceError(null);
@@ -391,9 +382,17 @@ function PreferencesScreen() {
     }
   };
 
-  const pickUpNext = async (playback: "direct" | "picker") => {
+  const pickTorrentCache = async (megabytes: number) => {
+    setTorrentCacheError(null);
+    const outcome = await ask(torrentCacheRequest(megabytes));
+    if (outcome.error) {
+      setTorrentCacheError(outcome.error);
+    }
+  };
+
+  const pickUpNext = async (action: Action) => {
     setUpNextError(null);
-    const outcome = await ask({ type: "set_up_next_playback", playback });
+    const outcome = await ask(action);
     if (outcome.error) {
       setUpNextError(outcome.error);
     }
@@ -416,41 +415,12 @@ function PreferencesScreen() {
 
   return (
     <SettingsLevel id="preferences" title="Preferences">
-      <LogGroup id="settings-subtitle-language" title="Subtitle language">
-        <div
-          className="rep-log-chips"
-          data-region="settings-languages"
-          data-kind="row"
-          data-label="Subtitle languages"
-        >
-          <ChoiceChip
-            pressed={heldLanguage === null}
-            data-testid="language-host-picks"
-            onClick={() => void pickLanguage(null)}
-          >
-            {HOST_PICKS_PER_VIDEO}
-          </ChoiceChip>
-          {heldLanguage && !known ? (
-            <ChoiceChip
-              pressed
-              data-testid={`language-${heldLanguage}`}
-              onClick={() => void pickLanguage(heldLanguage)}
-            >
-              {unknownLanguageLabel(heldLanguage)}
-            </ChoiceChip>
-          ) : null}
-          {SUBTITLE_LANGUAGES.map((language) => (
-            <ChoiceChip
-              key={language.tag}
-              pressed={heldLanguage === language.tag}
-              data-testid={`language-${language.tag}`}
-              onClick={() => void pickLanguage(language.tag)}
-            >
-              {language.name}
-            </ChoiceChip>
-          ))}
-        </div>
-        <Refusal error={languageError} testId="subtitle-language-error" />
+      <LogGroup id="settings-subtitle-languages" title={LANGUAGE_TITLES.subtitle}>
+        <LanguageFieldGroup kind="subtitle" />
+      </LogGroup>
+
+      <LogGroup id="settings-audio-languages" title={LANGUAGE_TITLES.audio}>
+        <LanguageFieldGroup kind="audio" />
       </LogGroup>
 
       <LogGroup id="settings-subtitle-appearance" title="Subtitle appearance">
@@ -582,27 +552,65 @@ function PreferencesScreen() {
             ) : null}
           </div>
         </div>
+        <LogNote testId="stream-buffer-torrents">{TORRENT_FETCH_NOTE}</LogNote>
         <Refusal error={bufferError} testId="stream-buffer-error" />
       </LogGroup>
 
-      <LogGroup id="settings-up-next" title="Up next">
-        <div
-          className="rep-log-chips"
-          data-region="settings-up-next"
-          data-kind="row"
-          data-label="Play an Up next"
-        >
-          {UP_NEXT_PLAYBACK_CHOICES.map((choice) => (
-            <ChoiceChip
-              key={choice.playback}
-              pressed={heldUpNext === choice.playback}
-              data-testid={`up-next-${choice.playback}`}
-              onClick={() => void pickUpNext(choice.playback)}
-            >
-              {choice.label}
-            </ChoiceChip>
-          ))}
+      <LogGroup id="settings-torrent-cache" title={TORRENT_CACHE_HEAD}>
+        <div className="rep-log-choice-group">
+          <div
+            className="rep-log-chips"
+            data-region="settings-torrent-cache-sizes"
+            data-kind="row"
+            data-label="Torrent cache"
+          >
+            {TORRENT_CACHE_MEGABYTES.map((choice) => (
+              <ChoiceChip
+                key={choice.megabytes}
+                pressed={heldTorrentCache === choice.megabytes}
+                data-testid={`torrent-cache-${choice.megabytes}`}
+                onClick={() => void pickTorrentCache(choice.megabytes)}
+              >
+                {choice.label}
+              </ChoiceChip>
+            ))}
+            {!torrentCachePreset(heldTorrentCache) ? (
+              <ChoiceChip
+                pressed
+                data-testid="torrent-cache-other"
+                onClick={() => void pickTorrentCache(heldTorrentCache)}
+              >
+                {formatTorrentCache(heldTorrentCache)}
+              </ChoiceChip>
+            ) : null}
+          </div>
         </div>
+        <Refusal error={torrentCacheError} testId="torrent-cache-error" />
+      </LogGroup>
+
+      <LogGroup id="settings-up-next" title="Up next">
+        {upNextRows(snapshot).map((row) => (
+          <div key={row.id} className="rep-log-choice-group">
+            <p className="rep-log-choice-label">{row.label}</p>
+            <div
+              className="rep-log-chips"
+              data-region={`settings-up-next-${row.id}`}
+              data-kind="row"
+              data-label={row.label}
+            >
+              {row.choices.map((choice) => (
+                <ChoiceChip
+                  key={choice.id}
+                  pressed={choice.pressed}
+                  data-testid={`up-next-${choice.id}`}
+                  onClick={() => void pickUpNext(choice.action)}
+                >
+                  {choice.label}
+                </ChoiceChip>
+              ))}
+            </div>
+          </div>
+        ))}
         <Refusal error={upNextError} testId="up-next-error" />
       </LogGroup>
 

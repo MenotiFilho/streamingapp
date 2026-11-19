@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 
 import { actionKey } from "./actionKey";
-import { playbackView } from "./playbackView";
+import { episodeLine, playbackView } from "./playbackView";
 import { streamKey } from "./osd";
 import type { PlaybackSnapshot, ResumeEntry, Track } from "./wire";
 
@@ -15,6 +15,7 @@ function track(overrides: Partial<Track> & { id: number }): Track {
     selected: false,
     default: false,
     forced: false,
+    hearingImpaired: false,
     ...overrides,
   };
 }
@@ -22,6 +23,7 @@ function track(overrides: Partial<Track> & { id: number }): Track {
 function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
   return {
     state: "playing",
+    autoplay: null,
     picture: "in_window",
     failure: null,
     nowPlaying: {
@@ -50,6 +52,8 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
     volume: 60,
     muted: true,
     subtitleDelay: 0,
+    stalled: false,
+    torrent: null,
     crop: null,
     aspect: null,
     resolution: { width: 1920, height: 1080 },
@@ -99,6 +103,31 @@ describe("what the playback facts say", () => {
     expect(view.watching).toBe(true);
     expect(view.transportable).toBe(true);
     expect(view.controllable).toBe(true);
+  });
+
+  test("the view carries the Host's Stalled as published", () => {
+    const input = { played: 0, pending: NO_PENDING, watchProgress: NO_PROGRESS };
+
+    expect(playbackView(playback(), input).stalled).toBe(false);
+    expect(playbackView(playback({ stalled: true }), input).stalled).toBe(true);
+  });
+
+  test("the view says a torrent's status in one line, and a direct Stream's in none", () => {
+    const input = { played: 0, pending: NO_PENDING, watchProgress: NO_PROGRESS };
+
+    expect(playbackView(playback(), input).torrentLine).toBeNull();
+    expect(
+      playbackView(
+        playback({ state: "opening", torrent: { phase: "finding", peers: 5, rate: 0 } }),
+        input,
+      ).torrentLine,
+    ).toBe("Finding the torrent · 5 peers");
+    expect(
+      playbackView(
+        playback({ torrent: { phase: "fetching", peers: 12, rate: 4_200_000 } }),
+        input,
+      ).torrentLine,
+    ).toBe("Fetching · 12 peers · 4.2 MB/s");
   });
 
   test("opening is watched and controllable but not transportable yet", () => {
@@ -427,5 +456,62 @@ describe("the programme note", () => {
       title: "A Series That Plays",
       subtitle: "S1E1 · Episode One",
     });
+  });
+
+  test("an Autoplay countdown is projected from the time since the Snapshot arrived", () => {
+    const counting = playback({
+      state: "ended",
+      autoplay: {
+        next: {
+          title: { type: "series", id: "tt7777777" },
+          video: { type: "series", id: "tt7777777:1:2" },
+          episode: { season: 1, episode: 2 },
+          name: "Episode Two",
+          still: null,
+        },
+        phase: "countdown",
+        remaining: 5,
+        duration: 5,
+      },
+    });
+
+    const fresh = playbackView(counting, { played: 0, pending: NO_PENDING, watchProgress: [] });
+    expect(fresh.autoplay.kind === "countdown" ? fresh.autoplay.digit : null).toBe(5);
+
+    const later = playbackView(counting, { played: 2.2, pending: NO_PENDING, watchProgress: [] });
+    expect(later.autoplay.kind === "countdown" ? later.autoplay.digit : null).toBe(3);
+
+    const none = playbackView(playback(), { played: 0, pending: NO_PENDING, watchProgress: [] });
+    expect(none.autoplay).toEqual({ kind: "none" });
+  });
+
+  test("the episode line is Autoplay's text while the Host counts down or holds, else the episode", () => {
+    const next = {
+      title: { type: "series", id: "tt7777777" },
+      video: { type: "series", id: "tt7777777:1:2" },
+      episode: { season: 1, episode: 2 },
+      name: null,
+      still: null,
+    };
+    const lineOf = (overrides: Partial<PlaybackSnapshot>) =>
+      episodeLine(
+        playbackView(playback({ episode: { season: 1, episode: 1 }, ...overrides }), {
+          played: 0,
+          pending: NO_PENDING,
+          watchProgress: [],
+        }),
+      );
+
+    expect(lineOf({})).toBe("S1E1");
+    expect(
+      lineOf({ state: "ended", autoplay: { next, phase: "countdown", remaining: 4, duration: 5 } }),
+    ).toBe("Up next in 4 · S1E2");
+    expect(lineOf({ state: "ended", autoplay: { next, phase: "unattended_limit" } })).toBe(
+      "Still watching? · S1E2",
+    );
+    // A missing Stream is no card: the line keeps naming the episode that ended.
+    expect(
+      lineOf({ state: "ended", autoplay: { next, phase: "no_stream", detail: "none" } }),
+    ).toBe("S1E1");
   });
 });

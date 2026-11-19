@@ -12,6 +12,13 @@
   `docs/agents/testing.md`).
 - `docker compose exec dev cargo clippy --all-targets -- -D warnings`
 - `docker compose exec dev cargo fmt --check`
+- `docker compose exec -w /app/crates/host-torrent/engine dev go vet ./...` and
+  `go test ./...` for the Torrent engine, a Go module of its own (ADR-0042 §1).
+- `docker compose exec dev crates/host-torrent/build.sh` — builds the Torrent
+  engine twice, `CGO_ENABLED=0`: `streamingapp-torrent.exe` for Windows into
+  `crates/host-torrent/out/`, and a native binary into `target/torrent/`, where a
+  debug `cargo run` in the container finds it. It first regenerates
+  `engine/THIRD-PARTY.md` (`licenses.sh`) and `stage.sh`/`cd.sh` call it for you.
 - `docker compose exec dev pnpm typecheck` and `pnpm test` for the window.
   `pnpm` runs at the repo root, where the frontend package lives.
 - `docker compose exec dev pnpm build` before any release or bundle build: a debug
@@ -162,6 +169,13 @@ Issue **#1** is the earlier map, and the design record it produced still stands.
   with, and the mDNS announcement that finds it. Outside `host-core` for the same
   reason as the transport and the player above; the protocol's own codec is in
   `host-core`, because it is the Host's vocabulary written down (ADR-0017).
+- `crates/host-torrent/` — the real `TorrentEngine`: the bundled Go program of
+  `engine/` (over `anacrolix/torrent`, GPL-3.0-or-later with MPL-2.0 modules)
+  started as a child on the first torrent played, JSON lines over stdio on OS
+  threads, no `tokio` and no `unsafe`. Outside `host-core` for the same reason as
+  the transport and the player above (ADR-0042 §1). Its tests spawn a scripted
+  stand-in (`fake-torrent-engine`), never the Go engine; `build.sh` builds the Go
+  one and `licenses.sh` writes the licences that ship with it.
 - `crates/host-logging/` — structured logs: JSON lines in the data directory.
 - `crates/host-live/` — the read-only conformance run against real Addons
   (`live_check`): the Host's addon path composed over the transport and the

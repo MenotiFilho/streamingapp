@@ -1,4 +1,4 @@
-import type { ComponentPropsWithoutRef, ReactNode } from "react";
+import type { ComponentPropsWithRef, ReactNode } from "react";
 
 import { cx } from "./cx";
 import { PendingSpinner } from "./PendingSpinner";
@@ -10,7 +10,7 @@ import { PendingSpinner } from "./PendingSpinner";
  */
 export type ButtonVariant = "primary" | "secondary" | "ghost";
 
-export type ButtonProps = Omit<ComponentPropsWithoutRef<"button">, "children"> & {
+export type ButtonProps = Omit<ComponentPropsWithRef<"button">, "children"> & {
   variant?: ButtonVariant;
   /** Set on a toggle-like control; `false` is still a pressed state to announce. */
   pressed?: boolean;

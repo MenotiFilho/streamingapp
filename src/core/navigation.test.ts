@@ -147,6 +147,41 @@ describe("the level stack", () => {
     expect(watching.levels).toHaveLength(1);
     expect(watching.levels[0]?.kind).toBe("player");
   });
+
+  test("push-before inserts a level directly underneath the named level", () => {
+    const held: Navigation<Payload> = {
+      destination: "home",
+      levels: [level("other"), level("player", "player"), level("popover", "popover")],
+    };
+
+    const inserted = navigate(held, {
+      type: "push-before",
+      beforeId: "player",
+      level: level("title"),
+    });
+
+    expect(inserted.levels.map((entry) => entry.id)).toEqual([
+      "other",
+      "title",
+      "player",
+      "popover",
+    ]);
+  });
+
+  test("push-before falls back to the top when the named level is absent", () => {
+    const held: Navigation<Payload> = {
+      destination: "home",
+      levels: [level("other")],
+    };
+
+    const inserted = navigate(held, {
+      type: "push-before",
+      beforeId: "player",
+      level: level("title"),
+    });
+
+    expect(inserted.levels.map((entry) => entry.id)).toEqual(["other", "title"]);
+  });
 });
 
 describe("canGoBack", () => {

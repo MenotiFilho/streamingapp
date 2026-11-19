@@ -20,11 +20,12 @@ import { Home } from "./Home";
 import { Library } from "./Library";
 import { Search } from "./Search";
 import { armSentinel, decideHistory } from "./history";
-import { heldTitle, RemoteLevel, type RemotePayload } from "./levels";
+import { heldTitle, isSheetPayload, RemoteLevel, type RemotePayload } from "./levels";
 import { pageSurface } from "./pageSurface";
 import { PlayerStrip } from "./Player";
 import { playerLevelStale, stripDrawn } from "./playerScreen";
 import { Settings } from "./Settings";
+import { cardTitleOf, useMissingStreamPicker } from "./useMissingStreamPicker";
 
 export type RemoteAppProps = {
   /**
@@ -234,7 +235,14 @@ function RemoteRoom({
   // under it stays drawn so Back puts the plate away and the card is still
   // there. While it is open the card and the dock are inert, which is what
   // makes the modal panel the one region a press or a tab can reach.
-  const sheetOpen = level?.payload.kind === "sheet";
+  useMissingStreamPicker({
+    session,
+    state: sessionState,
+    levelKind: level?.payload.kind ?? null,
+    cardTitle: cardTitleOf(level),
+    push: nav.push,
+  });
+  const sheetOpen = level ? isSheetPayload(level.payload) : false;
   const under = sheetOpen ? (drawn[drawn.length - 2] ?? null) : null;
 
   // The page rule (ADR-0036 §3): Discover, Search, the Title and the player card

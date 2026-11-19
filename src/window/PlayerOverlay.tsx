@@ -16,7 +16,8 @@ import type { ActionError } from "../core/errors";
 import { VOLUME_MAX, formatSpeed, formatVolume, volumeFraction } from "../core/controls";
 import type { Intent } from "../core/input";
 import { formatTime, playingName } from "../core/playback";
-import { remainingTime, spacedChapterMarks, timelineFraction } from "../core/osd";
+import { autoplayView, plainEnd } from "../core/autoplay";
+import { osdPinned, remainingTime, spacedChapterMarks, timelineFraction } from "../core/osd";
 import type { PlaybackView } from "../core/playbackView";
 import {
   transportControls,
@@ -24,8 +25,13 @@ import {
   type TransportControlId,
 } from "../core/transportControls";
 import { usePlaybackView } from "../core/react/usePlaybackView";
+import { useStallShown } from "../core/react/useStallShown";
+import { STALLED_NOTE } from "../core/stall";
 import { usePreview, type PreviewAsk } from "../core/react/usePreview";
 import { useShell } from "./context";
+import { AutoplayCard } from "./AutoplayCard";
+import { AutoplaySwitch } from "./AutoplaySwitch";
+import { useMissingStreamPicker } from "./useMissingStreamPicker";
 import { FullscreenButton } from "./FullscreenButton";
 import { Button } from "../kit/Button";
 import { PendingSpinner } from "../kit/PendingSpinner";
@@ -138,7 +144,9 @@ export function PlayerOverlay() {
   const [stepSide, setStepSide] = useState<"previous" | "next" | null>(null);
   const [wheelVolume, setWheelVolume] = useState<number | null>(null);
   const [previewSettled, setPreviewSettled] = useState(() => playback?.state !== "opening");
+  const root = useRef<HTMLElement | null>(null);
   const chrome = useRef<HTMLDivElement | null>(null);
+  const cardFocus = useRef<HTMLButtonElement | null>(null);
   const pictureButton = useRef<HTMLButtonElement | null>(null);
   const strip = useRef<HTMLDivElement | null>(null);
   const top = useRef<HTMLDivElement | null>(null);
@@ -203,14 +211,38 @@ export function PlayerOverlay() {
     setPreviewSettled(true);
   }, [playback?.state]);
 
-  const { visible, wake } = useOsdVisibility({
-    pinned: popover !== null,
+  // Whether a countdown is up does not depend on the clock, so the pinned
+  // decision reads it straight off the Snapshot; the projected digit comes with
+  // the view below.
+  const pending = autoplayView({ autoplay: playback?.autoplay ?? null }, 0);
+  // The card is up for the countdown and for the hold on "Still watching?".
+  const counting = pending.kind === "countdown" || pending.kind === "still_watching";
+  useMissingStreamPicker(root, pending);
+  const { visible, cursorVisible, wake } = useOsdVisibility({
+    pinned: osdPinned({ popoverOpen: popover !== null, autoplay: pending }),
     chrome,
     onHide: () => focusAndReveal(pictureButton.current),
   });
   // The OSD reads the Session the Shell owns: the same pending keys its own
-  // Actions set, and the one clock between Snapshots (#191 §5, #137).
-  const view = usePlaybackView(session, visible);
+  // Actions set, and the one clock between Snapshots (#191 §5, #137). The
+  // countdown's digit moves on that clock whether or not the OSD is showing.
+  const view = usePlaybackView(session, visible || counting);
+  // The Stalled card has its own second on its own clock: it neither wakes the
+  // OSD nor reads its idle timer, so a stall draws the same whether the chrome
+  // is up or put away (ADR-0033).
+  const stallUp = useStallShown(playback?.stalled ?? false);
+
+  // The card puts focus on Cancel when it appears: one press stops the
+  // countdown, and doing nothing lets the next episode play (#302). At the hold
+  // it lands on Keep watching, the card's one button (#319). A menu open over
+  // the player, or a list pushed above it, keeps the focus it holds.
+  useEffect(() => {
+    if (!counting || popover !== null || root.current?.closest("[inert]")) {
+      return;
+    }
+    focusAndReveal(cardFocus.current);
+    // Only the card appearing takes focus; a later popover is not this effect's.
+  }, [counting]);
   const canControl = view?.controllable ?? false;
 
   /** Put focus on a stop, and say whether there was a control to land on. */
@@ -451,12 +483,14 @@ export function PlayerOverlay() {
 
   return (
     <section
+      ref={root}
       className="shell-player rep-player"
       aria-label="Playing"
       role="region"
       data-testid="shell-player"
       data-state={state}
       data-picture={picture}
+      data-cursor={cursorVisible ? "visible" : "hidden"}
       data-region="player"
       data-kind="branch"
       data-label="Player"
@@ -513,15 +547,43 @@ export function PlayerOverlay() {
                   {`Opening ${playingName(view.nowPlaying)}…`}
                 </p>
               ) : null}
+              {state === "opening" && view.torrentLine ? (
+                <p className="shell-torrent-line" data-testid="opening-torrent">
+                  {view.torrentLine}
+                </p>
+              ) : null}
             </div>
           </div>
         ) : null}
-        {state === "ended" ? (
+        {stallUp ? (
+          <div className="shell-stall-card" role="status" data-testid="stall-card">
+            <span className="shell-stall-ring" aria-hidden="true">
+              <PendingSpinner />
+            </span>
+            <p className="shell-stall-title">{STALLED_NOTE}</p>
+            {view.torrentLine ? (
+              <p className="shell-torrent-line" data-testid="stall-torrent">
+                {view.torrentLine}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        {state === "ended" && plainEnd(view.autoplay) ? (
           <p className="shell-picture-note" data-testid="stream-ended">
             The Stream reached its end.
           </p>
         ) : null}
       </div>
+
+      {view.autoplay.kind === "countdown" || view.autoplay.kind === "still_watching" ? (
+        <AutoplayCard
+          view={view.autoplay}
+          focus={cardFocus}
+          stepping={stepping}
+          onPlayNow={() => void step("next_episode")}
+          onCancel={() => takeAction({ type: "cancel_autoplay" })}
+        />
+      ) : null}
 
       {visible ? (
         <div className="shell-osd" data-testid="shell-osd" ref={chrome}>
@@ -716,7 +778,7 @@ export function PlayerOverlay() {
               </div>
             ) : null}
 
-            {state === "ended" && !nextEpisode.disabled ? (
+            {state === "ended" && plainEnd(view.autoplay) && !nextEpisode.disabled ? (
               <div className="shell-osd-ended">
                 <Button
                   variant="primary"
@@ -727,6 +789,7 @@ export function PlayerOverlay() {
                 >
                   Next episode
                 </Button>
+                {playback.episode ? <AutoplaySwitch className="shell-osd-ended-switch" /> : null}
               </div>
             ) : null}
 

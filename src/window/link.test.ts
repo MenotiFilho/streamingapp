@@ -14,6 +14,7 @@ const NOTHING: Snapshot = {
   revision: 1,
   playback: {
     state: "idle",
+    autoplay: null,
     picture: "in_window",
     failure: null,
     nowPlaying: null,
@@ -28,17 +29,22 @@ const NOTHING: Snapshot = {
     volume: null,
     muted: null,
     subtitleDelay: null,
+    stalled: false,
+    torrent: null,
     crop: null,
     aspect: null,
     resolution: null,
     statistics: null,
   },
   preferences: {
-    subtitleLanguage: null,
+    subtitleLanguages: [],
+    audioLanguages: [],
     subtitleColor: "#FFFFFF",
     subtitleScale: 1,
     streamBuffer: { seconds: 300, megabytes: 512 },
+    torrentCache: { megabytes: 2000 },
     upNextPlayback: "direct",
+    autoplay: true,
   },
   addons: [],
   featuredCatalog: null,
@@ -407,6 +413,29 @@ describe("the preview link's adapter", () => {
     const response = await link.dispatch({ type: "set_subtitle_scale", scale: 1.25 });
 
     expect(response.snapshots.at(-1)?.preferences.subtitleScale).toBe(1.25);
+  });
+
+  test("the rehearsal Host holds both language lists whole and refuses a list as the Host does", async () => {
+    const link = new PreviewLink(previewTransport);
+
+    const set = await link.dispatch({
+      type: "set_subtitle_languages",
+      languages: ["pt-BR", "en"],
+    });
+    expect(set.snapshots.at(-1)?.preferences.subtitleLanguages).toEqual(["pt-BR", "en"]);
+    const audio = await link.dispatch({ type: "set_audio_languages", languages: ["fr"] });
+    expect(audio.snapshots.at(-1)?.preferences.audioLanguages).toEqual(["fr"]);
+    expect(audio.snapshots.at(-1)?.preferences.subtitleLanguages).toEqual(["pt-BR", "en"]);
+
+    await expect(
+      link.dispatch({ type: "set_audio_languages", languages: ["en", "fr", "de", "es"] }),
+    ).rejects.toEqual({ kind: "too_many_languages", count: 4, max: 3 });
+    await expect(
+      link.dispatch({ type: "set_audio_languages", languages: ["pt-BR", "PT-br"] }),
+    ).rejects.toEqual({ kind: "duplicate_language", language: "PT-br" });
+
+    const cleared = await link.dispatch({ type: "set_subtitle_languages", languages: [] });
+    expect(cleared.snapshots.at(-1)?.preferences.subtitleLanguages).toEqual([]);
   });
 
   test("close() unsubscribes, so a later change is not delivered", async () => {

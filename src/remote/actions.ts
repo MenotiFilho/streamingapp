@@ -16,12 +16,15 @@ import type { Action } from "../core/wire";
  * typecheck time, so `pnpm typecheck` catches what the Rust test would.
  */
 export const REMOTE_ACTIONS = [
-  "set_subtitle_language",
-  "clear_subtitle_language",
+  "set_subtitle_languages",
+  "set_audio_languages",
   "set_subtitle_color",
   "set_subtitle_scale",
   "set_stream_buffer",
+  "set_torrent_cache",
   "set_up_next_playback",
+  "set_autoplay",
+  "cancel_autoplay",
   "set_featured_catalog",
   "clear_featured_catalog",
   "add_addon",

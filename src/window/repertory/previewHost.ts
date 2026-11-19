@@ -6,7 +6,7 @@
  * `browse_catalog`, `open_title`, `search_catalogs` and `find_streams` — from
  * two public Addons: Cinemeta for metadata and Torrentio for candidates. It
  * reads the live catalogues, keeps artwork on Metahub's CDN, and invents no
- * posters; the torrent candidates are real and marked unplayable by this Host.
+ * posters; the torrent candidates are real, and a press on one is taken like any other.
  * Continue watching is sample progress built from the same live films, and Home
  * says so.
  *
@@ -30,6 +30,10 @@ import {
   type Video,
 } from "../../core/wire";
 import type { ActionError } from "../../core/errors";
+import {
+  TORRENT_CACHE_MAX_MEGABYTES,
+  TORRENT_CACHE_MIN_MEGABYTES,
+} from "../../core/controls";
 import type { Transport } from "../transport";
 import {
   cinemetaPreviews,
@@ -248,8 +252,8 @@ async function answerSearchCatalogs(
 
 /**
  * The Streams a Video has in the preview: Torrentio's real candidates, carried
- * the way the Host carries them. They are torrents, so this Host marks every
- * one unplayable — that mark is part of what the list has to show.
+ * the way the Host carries them. They are torrents, which the Host plays
+ * through its Torrent engine; this prototype has none, and plays nothing.
  */
 async function answerStreams(
   action: Extract<Action, { type: "find_streams" }>,
@@ -388,6 +392,7 @@ async function answerOpenTitle(
 function idlePlayback(): PlaybackSnapshot {
   return {
     state: "idle",
+    autoplay: null,
     picture: "in_window",
     failure: null,
     nowPlaying: null,
@@ -402,6 +407,8 @@ function idlePlayback(): PlaybackSnapshot {
     volume: null,
     muted: null,
     subtitleDelay: null,
+    stalled: false,
+    torrent: null,
     crop: null,
     aspect: null,
     resolution: null,
@@ -423,11 +430,14 @@ async function buildSnapshot(): Promise<Snapshot> {
     revision: 1,
     playback: idlePlayback(),
     preferences: {
-      subtitleLanguage: null,
+      subtitleLanguages: [],
+      audioLanguages: [],
       subtitleColor: "#FFFFFF",
       subtitleScale: 1,
       streamBuffer: { seconds: 300, megabytes: 512 },
+      torrentCache: { megabytes: 2000 },
       upNextPlayback: "direct",
+      autoplay: true,
     },
     addons: [
       {
@@ -814,19 +824,38 @@ async function dispatch(action: Action): Promise<Response> {
       return change((state) => ({
         protection: { ...state.protection, stremioHeld: false },
       }));
-    case "set_subtitle_language": {
-      const language = action.language.trim();
-      if (!language) {
-        return refuse({ kind: "invalid_subtitle_language", language });
+    case "set_subtitle_languages":
+    case "set_audio_languages": {
+      // The Host's own refusals, in the Host's own order of judging: a bad
+      // entry, then a duplicate (case-insensitive), then a fourth.
+      const languages = action.languages.map((language) => language.trim());
+      const bad = languages.find((language) => !language);
+      if (bad !== undefined) {
+        return refuse({ kind: "invalid_language", language: bad });
       }
+      const seen = new Set<string>();
+      for (const language of languages) {
+        const key = language.toLowerCase();
+        if (seen.has(key)) {
+          return refuse({ kind: "duplicate_language", language });
+        }
+        seen.add(key);
+      }
+      if (languages.length > 3) {
+        return refuse({
+          kind: "too_many_languages",
+          count: languages.length,
+          max: 3,
+        });
+      }
+      const field =
+        action.type === "set_subtitle_languages"
+          ? "subtitleLanguages"
+          : "audioLanguages";
       return change((state) => ({
-        preferences: { ...state.preferences, subtitleLanguage: language },
+        preferences: { ...state.preferences, [field]: languages },
       }));
     }
-    case "clear_subtitle_language":
-      return change((state) => ({
-        preferences: { ...state.preferences, subtitleLanguage: null },
-      }));
     case "set_subtitle_color": {
       if (!/^#[0-9a-fA-F]{6}$/.test(action.color)) {
         return refuse({ kind: "invalid_subtitle_color", color: action.color });
@@ -863,9 +892,31 @@ async function dispatch(action: Action): Promise<Response> {
         },
       }));
     }
+    case "set_torrent_cache": {
+      if (
+        !Number.isInteger(action.megabytes) ||
+        action.megabytes < TORRENT_CACHE_MIN_MEGABYTES ||
+        action.megabytes > TORRENT_CACHE_MAX_MEGABYTES
+      ) {
+        return refuse({
+          kind: "invalid_torrent_cache",
+          detail: `${action.megabytes} is not a torrent cache size`,
+        });
+      }
+      return change((state) => ({
+        preferences: {
+          ...state.preferences,
+          torrentCache: { megabytes: action.megabytes },
+        },
+      }));
+    }
     case "set_up_next_playback":
       return change((state) => ({
         preferences: { ...state.preferences, upNextPlayback: action.playback },
+      }));
+    case "set_autoplay":
+      return change((state) => ({
+        preferences: { ...state.preferences, autoplay: action.autoplay },
       }));
     case "set_featured_catalog":
       return setFeatured(action);

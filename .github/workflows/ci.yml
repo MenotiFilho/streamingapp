@@ -104,6 +104,7 @@ jobs:
           path: |
             ${{ runner.temp }}/cargo-home
             ${{ runner.temp }}/cargo-target
+            ${{ runner.temp }}/go-home
           key: rust-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'Cargo.toml', 'docker/dev.Dockerfile') }}
           restore-keys: |
             rust-${{ runner.os }}-
@@ -125,12 +126,14 @@ jobs:
             "$RUNNER_TEMP/cargo-home" \
             "$RUNNER_TEMP/cargo-target" \
             "$RUNNER_TEMP/node-modules" \
+            "$RUNNER_TEMP/go-home" \
             "$RUNNER_TEMP/pnpm-store"
           {
             echo "CI_CARGO_HOME=$RUNNER_TEMP/cargo-home"
             echo "CI_CARGO_TARGET_DIR=$RUNNER_TEMP/cargo-target"
             echo "CI_NODE_MODULES=$RUNNER_TEMP/node-modules"
             echo "CI_PNPM_STORE=$RUNNER_TEMP/pnpm-store"
+            echo "CI_GO_HOME=$RUNNER_TEMP/go-home"
           } >> "$GITHUB_ENV"
 
       - name: Install the window's dependencies
@@ -187,6 +190,16 @@ jobs:
       - name: Test the Rust workspace
         if: steps.scope.outputs.code == 'true'
         run: .github/scripts/dev-run.sh cargo test --workspace --no-fail-fast
+
+      # The Torrent engine is a Go module of its own (ADR-0042 §1), outside the
+      # cargo workspace and the window's packages.
+      - name: Vet the Torrent engine
+        if: steps.scope.outputs.code == 'true'
+        run: .github/scripts/dev-run.sh go -C crates/host-torrent/engine vet ./...
+
+      - name: Test the Torrent engine
+        if: steps.scope.outputs.code == 'true'
+        run: .github/scripts/dev-run.sh go -C crates/host-torrent/engine test ./...
 
       - name: Nothing to build
         if: steps.scope.outputs.code != 'true'

@@ -18,6 +18,18 @@ pub fn data_dir(app: &AppHandle) -> Result<PathBuf, PathError> {
     ensure(app.path().app_data_dir().map_err(PathError::resolve)?)
 }
 
+/// The directory for what only this machine needs and nothing is lost without:
+/// `%LOCALAPPDATA%\dev.streamingapp.host\` on Windows, where a roaming profile
+/// must not carry it. The Torrent engine keeps its torrents in `torrents/` here,
+/// and the Host removes that directory at every start (ADR-0042 §3).
+pub fn local_data_dir(app: &AppHandle) -> Result<PathBuf, PathError> {
+    ensure(
+        app.path()
+            .app_local_data_dir()
+            .map_err(PathError::resolve)?,
+    )
+}
+
 /// The directory for settings a person may want to edit by hand.
 pub fn config_dir(app: &AppHandle) -> Result<PathBuf, PathError> {
     ensure(app.path().app_config_dir().map_err(PathError::resolve)?)

@@ -94,6 +94,24 @@ describe("reading a level's geometry from the DOM", () => {
     expect(elements["row:one"]?.map((element) => element.textContent)).toEqual(["Move down"]);
     expect(firstFocusable(root)?.textContent).toBe("Move down");
   });
+
+  test("does not recurse if a nested element repeats an ancestor's region id", () => {
+    const root = document.createElement("div");
+    root.setAttribute("data-region", "level");
+    root.setAttribute("data-kind", "branch");
+    root.innerHTML = `
+      <section data-region="group" data-kind="branch">
+        <div data-region="group" data-kind="row">
+          <button data-focusable data-rect="0,0,100,40">Wait</button>
+        </div>
+      </section>
+    `;
+
+    const { layout, elements } = readLevel(root, {}, measure);
+    expect(layout.regions["group"]?.parent).toBe("level");
+    expect(layout.regions["group"]?.children).toEqual([]);
+    expect(elements["group"]?.map((element) => element.textContent)).toEqual(["Wait"]);
+  });
 });
 
 describe("pruning the regions that cannot hold focus", () => {

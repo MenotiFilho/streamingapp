@@ -13,12 +13,14 @@
  */
 
 import type {
+  Action,
   Aspect,
   Chapter,
   Crop,
   CropRectangle,
   Episode,
   PlaybackState,
+  Snapshot,
   Statistics,
   Track,
   TrackKind,
@@ -27,6 +29,7 @@ import type {
 import { formatTime } from "./playback";
 import appearance from "../subtitle-appearance.json";
 import buffer from "../stream-buffer.json";
+import torrentCache from "../torrent-cache.json";
 
 /**
  * Whether the Host would take a control right now: a Stream that is opening,
@@ -261,6 +264,45 @@ export function bufferSecondsPreset(seconds: number): boolean {
   return STREAM_BUFFER_SECONDS.some((choice) => choice.seconds === seconds);
 }
 
+/**
+ * What the Stream buffer's group says about torrents: the buffer also sets how
+ * far ahead the Torrent engine fetches (ADR-0042 §3). One sentence for both
+ * clients.
+ */
+export const TORRENT_FETCH_NOTE = "Torrents are fetched this far ahead too.";
+
+/** What Settings calls the most disk a playing torrent may take. */
+export const TORRENT_CACHE_HEAD = "Torrent cache";
+
+/**
+ * The Torrent cache presets, from `src/torrent-cache.json` — the one list the
+ * window and the served Remote share. A preference of its own beside the Stream
+ * buffer, in decimal megabytes like it, with no coupling to it (ADR-0042 §3).
+ */
+export const TORRENT_CACHE_MEGABYTES: ReadonlyArray<BufferMegabytesChoice> =
+  torrentCache.megabytes;
+
+/** The smallest and largest Torrent cache the Host takes, and the one it starts from. */
+export const TORRENT_CACHE_MIN_MEGABYTES = torrentCache.minMegabytes;
+export const TORRENT_CACHE_MAX_MEGABYTES = torrentCache.maxMegabytes;
+export const TORRENT_CACHE_DEFAULT_MEGABYTES = torrentCache.defaultMegabytes;
+
+/** Whether the Torrent cache the Host holds is one of Settings' presets. */
+export function torrentCachePreset(megabytes: number): boolean {
+  return TORRENT_CACHE_MEGABYTES.some((choice) => choice.megabytes === megabytes);
+}
+
+/** A Torrent cache as a person reads it: a preset's own words, else decimal megabytes. */
+export function formatTorrentCache(megabytes: number): string {
+  const preset = TORRENT_CACHE_MEGABYTES.find((choice) => choice.megabytes === megabytes);
+  return preset ? preset.label : formatBufferMegabytes(megabytes);
+}
+
+/** The one Action a Torrent cache press sends, for both clients. */
+export function torrentCacheRequest(megabytes: number): Action {
+  return { type: "set_torrent_cache", megabytes };
+}
+
 /** Whether the memory ceiling the Host holds is one of Settings' presets. */
 export function bufferMegabytesPreset(megabytes: number): boolean {
   return STREAM_BUFFER_MEGABYTES.some((choice) => choice.megabytes === megabytes);
@@ -285,6 +327,90 @@ export const UP_NEXT_PLAYBACK_CHOICES: ReadonlyArray<UpNextPlaybackChoice> = [
   { playback: "direct", label: "Play directly" },
   { playback: "picker", label: "Open the Streams picker" },
 ];
+
+/**
+ * One choice for what happens when an episode's Stream ends (#302, #314): the
+ * Host's Autoplay preference, shared by the window and the served Remote.
+ */
+export type AutoplayChoice = {
+  autoplay: boolean;
+  label: string;
+};
+
+export const AUTOPLAY_CHOICES: ReadonlyArray<AutoplayChoice> = [
+  { autoplay: true, label: "Play it after 5 seconds" },
+  { autoplay: false, label: "Wait" },
+];
+
+/** The Up next group's two row labels in Settings (#302, #314). */
+export const AUTOPLAY_SETTING_LABEL = "When an episode ends";
+export const UP_NEXT_PLAYBACK_SETTING_LABEL = "When Play is pressed on it";
+
+/** The player's Autoplay switch label, shared across both clients (#302, #314). */
+export const AUTOPLAY_SWITCH_LABEL = "Autoplay the next episode";
+
+/**
+ * What a client draws as the Autoplay preference before the Host has published
+ * a Snapshot at all. The wire always carries the value (`PreferencesSnapshot.autoplay`
+ * is never absent), so this answers only "no Snapshot yet"; it is the Host's own
+ * default, on, so a switch is not drawn off for a moment and then flipped.
+ */
+export const AUTOPLAY_DEFAULT = true;
+
+/** Whether Autoplay is on, as the Host last published it. */
+export function autoplayOn(snapshot: Pick<Snapshot, "preferences"> | null): boolean {
+  return snapshot?.preferences.autoplay ?? AUTOPLAY_DEFAULT;
+}
+
+/** One chip of a Settings row: what it says, whether it is the held value, what pressing it sends. */
+export type PreferenceChoice = {
+  /** Stable within its row; a drawing may build its own test id from it. */
+  id: string;
+  label: string;
+  pressed: boolean;
+  action: Action;
+};
+
+/** One row of the Up next group in Settings: its label and its chips. */
+export type PreferenceRow = {
+  id: "autoplay" | "playback";
+  label: string;
+  choices: ReadonlyArray<PreferenceChoice>;
+};
+
+/**
+ * The Up next group's two rows, from what the Host last published: what happens
+ * when an episode ends (Autoplay) and what Play does on an Up next. The window's
+ * Settings and the served Remote's draw the same rows and press the same
+ * Actions; this holds what each says, which chip is held and what it sends
+ * (#302, #314, #276).
+ */
+export function upNextRows(snapshot: Pick<Snapshot, "preferences"> | null): ReadonlyArray<PreferenceRow> {
+  const autoplay = autoplayOn(snapshot);
+  const playback = snapshot?.preferences.upNextPlayback ?? "direct";
+  return [
+    {
+      id: "autoplay",
+      label: AUTOPLAY_SETTING_LABEL,
+      choices: AUTOPLAY_CHOICES.map((choice) => ({
+        id: `autoplay-${choice.autoplay}`,
+        label: choice.label,
+        pressed: autoplay === choice.autoplay,
+        action: { type: "set_autoplay", autoplay: choice.autoplay },
+      })),
+    },
+    {
+      id: "playback",
+      label: UP_NEXT_PLAYBACK_SETTING_LABEL,
+      choices: UP_NEXT_PLAYBACK_CHOICES.map((choice) => ({
+        id: choice.playback,
+        label: choice.label,
+        pressed: playback === choice.playback,
+        action: { type: "set_up_next_playback", playback: choice.playback },
+      })),
+    },
+  ];
+}
 
 /** The Player's loudest level: above 100 is a boost, not a second scale. */
 export const VOLUME_MAX = 130;

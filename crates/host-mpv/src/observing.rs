@@ -52,6 +52,10 @@ pub(crate) struct Memory {
     /// `opening` while it waits.
     starting: bool,
     starting_since: Option<Instant>,
+    /// Whether the caller explicitly asked to stay paused (`Telling::Pause(true)`)
+    /// while a resume's opening hold was in flight. When set, the opening hold
+    /// still finishes once the picture is configured, but without unpausing mpv.
+    hold_paused: bool,
 }
 
 /// How long a resume waits for a picture before letting the Stream play anyway.
@@ -80,6 +84,7 @@ impl Memory {
             decode: None,
             starting: false,
             starting_since: None,
+            hold_paused: false,
         }
     }
 
@@ -87,6 +92,7 @@ impl Memory {
     pub(crate) fn begin_start(&mut self) {
         self.starting = true;
         self.starting_since = Some(Instant::now());
+        self.hold_paused = false;
     }
 
     /// Whether this open is still waiting for its picture.
@@ -94,10 +100,31 @@ impl Memory {
         self.starting
     }
 
+    /// Whether the caller asked this opening resume to stay paused once ready.
+    pub(crate) fn hold_paused(&self) -> bool {
+        self.hold_paused
+    }
+
+    /// Record an explicit pause/unpause from the caller while a resume's
+    /// opening hold is in flight: `Pause(true)` keeps the Stream paused once
+    /// its picture is configured instead of auto-unpausing it; `Pause(false)`
+    /// has already unpaused mpv, so the hold is over.
+    pub(crate) fn told_pause(&mut self, paused: bool) {
+        if !self.starting {
+            return;
+        }
+        if paused {
+            self.hold_paused = true;
+        } else {
+            self.start_ready();
+        }
+    }
+
     /// The picture is configured, or the wait has gone on long enough.
     pub(crate) fn start_ready(&mut self) {
         self.starting = false;
         self.starting_since = None;
+        self.hold_paused = false;
     }
 
     /// Whether the resume has waited longer than a picture should take.
@@ -189,6 +216,9 @@ pub(crate) struct RawTrack {
     pub(crate) default: bool,
     /// Whether the subtitles are forced.
     pub(crate) forced: bool,
+    /// Whether the subtitles are for the hard of hearing
+    /// (`track-list/N/hearing-impaired`).
+    pub(crate) hearing_impaired: bool,
 }
 
 /// One chapter as mpv lists it, before it is numbered.
@@ -254,7 +284,17 @@ pub(crate) struct Properties {
     /// mpv's `demuxer-cache-state` JSON verbatim: where the demuxer's read has
     /// reached, and the ranges it says it can seek within.
     pub(crate) cache_state: Option<String>,
+    /// Whether playback is held for bytes the cache has not got: mpv's
+    /// `paused-for-cache`.
+    pub(crate) paused_for_cache: bool,
 }
+
+/// mpv's own name for "playback is held for bytes the cache has not got".
+///
+/// One place spells it, because the property is read off the handle in `lib.rs`
+/// and its spelling is the only part of the stall a Player can get wrong
+/// silently: a misspelt property answers an error, which reads as "not stalled".
+pub(crate) const PAUSED_FOR_CACHE: &str = "paused-for-cache";
 
 /// What the Player is doing, from the memory of mpv's events and the properties
 /// mpv answers with.
@@ -327,6 +367,10 @@ pub(crate) fn observe(memory: &Memory, properties: &Properties) -> Observation {
         resolution: resolution(properties.width, properties.height, properties.loaded),
         statistics: statistics(properties),
         buffered: buffered_span(properties),
+        // Like the span, about the file that is loaded: a flag left over from
+        // the last Stream is not about this one. Whether it counts as Stalled
+        // is the Host's decision, which only holds it in `playing`.
+        stalled: properties.loaded && properties.paused_for_cache,
     }
 }
 
@@ -355,6 +399,7 @@ fn track(raw: &RawTrack) -> Option<Track> {
             selected: raw.selected,
             default: raw.default,
             forced: raw.forced,
+            hearing_impaired: raw.hearing_impaired,
         }
         .bounded(),
     )
@@ -588,6 +633,7 @@ mod tests {
             dropped_frames: None,
             hardware_decode: None,
             cache_state: None,
+            paused_for_cache: false,
         }
     }
 
@@ -613,6 +659,7 @@ mod tests {
             selected: false,
             default: false,
             forced: false,
+            hearing_impaired: false,
         }
     }
 
@@ -766,7 +813,11 @@ mod tests {
                     default: true,
                     ..track(2, "audio")
                 },
-                track(3, "sub"),
+                RawTrack {
+                    forced: true,
+                    hearing_impaired: true,
+                    ..track(3, "sub")
+                },
                 RawTrack {
                     language: Some("por".to_owned()),
                     external: true,
@@ -793,6 +844,7 @@ mod tests {
                     selected: true,
                     default: true,
                     forced: false,
+                    hearing_impaired: false,
                 },
                 Track {
                     id: TrackId::new(3).expect("a positive id"),
@@ -803,7 +855,9 @@ mod tests {
                     embedded: true,
                     selected: false,
                     default: false,
-                    forced: false,
+                    forced: true,
+                    // `track-list/N/hearing-impaired`, carried like `forced`.
+                    hearing_impaired: true,
                 },
                 Track {
                     id: TrackId::new(4).expect("a positive id"),
@@ -816,6 +870,7 @@ mod tests {
                     selected: false,
                     default: false,
                     forced: false,
+                    hearing_impaired: false,
                 },
             ]),
             "the video track is not a control, and an added track is not embedded"
@@ -850,6 +905,7 @@ mod tests {
                 selected: false,
                 default: false,
                 forced: false,
+                hearing_impaired: false,
             }
         );
     }
@@ -1174,6 +1230,41 @@ mod tests {
             None,
             "a Player mpv did not answer is a Player with no span, not a span of nothing"
         );
+    }
+
+    #[test]
+    fn mpv_holding_for_the_cache_is_read_into_stalled() {
+        let waiting = Properties {
+            paused_for_cache: true,
+            ..loaded()
+        };
+        assert!(
+            observe(&Memory::asking(), &waiting).stalled,
+            "a file playing that mpv holds for the cache is the Player saying it waits"
+        );
+
+        assert!(
+            !observe(&Memory::asking(), &loaded()).stalled,
+            "a file mpv is not holding is not waiting"
+        );
+    }
+
+    #[test]
+    fn a_wait_for_the_cache_is_only_about_a_file_that_is_loaded() {
+        let left_over = Properties {
+            paused_for_cache: true,
+            ..loading()
+        };
+
+        assert!(
+            !observe(&Memory::asking(), &left_over).stalled,
+            "a flag left over from the last Stream is not about this one"
+        );
+    }
+
+    #[test]
+    fn the_property_read_for_a_stall_is_mpvs_own_spelling() {
+        assert_eq!(PAUSED_FOR_CACHE, "paused-for-cache");
     }
 
     #[test]

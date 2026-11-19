@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { answeredTitle } from "../core/answers";
+import {
+  endOfPlaybackDecision,
+  hasAiredNextEpisode,
+  matchesTitleIdentity,
+} from "../core/endOfPlayback";
+import { seriesAction, type SeriesRef } from "../core/episodes";
 import { explain } from "../core/errors";
 import type { HostLink } from "../core/link";
 import { useNavigation } from "../core/react/useNavigation";
@@ -7,13 +14,14 @@ import { useSession } from "../core/react/useSession";
 import { TauriLink } from "./tauriLink";
 import type { Intent } from "../core/input";
 import { closingAfter, pictureBehind, requestsStop } from "../core/playback";
-import type { Action, Response } from "../core/wire";
+import type { Action, PlaybackState, Response, Title } from "../core/wire";
 import { PlayerDock, dockedTransport } from "./PlayerDock";
 import { PlayerOverlay } from "./PlayerOverlay";
 import { RepertoryDestinationScreen } from "./repertory/RepertoryScreens";
 import { DestinationGrid } from "./repertory/DestinationGrid";
 import { ShellFrame } from "./ShellFrame";
 import { ShellContext } from "./context";
+import { titleLevelOf } from "./TitleScreen";
 import {
   type Destination,
   type ShellLevel,
@@ -45,6 +53,9 @@ export function Shell({ client }: { client?: HostLink }) {
   const [chosenDestination, setChosenDestination] = useState(false);
   const levelsRef = useRef(nav.levels);
   levelsRef.current = nav.levels;
+  const snapshotRef = useRef(snapshot);
+  snapshotRef.current = snapshot;
+  const previousPlaybackState = useRef<PlaybackState | null>(null);
   /**
    * The player's own first look at an intent. A level is built once and holds
    * on to its handler, so the handler itself lives in a ref that the player
@@ -69,7 +80,15 @@ export function Shell({ client }: { client?: HostLink }) {
     [],
   );
 
-  const { choose: chooseDestination, push, remove, removeFrom, pop, back: backStack } = nav;
+  const {
+    choose: chooseDestination,
+    push,
+    pushBefore,
+    remove,
+    removeFrom,
+    pop,
+    back: backStack,
+  } = nav;
 
   const choose = useCallback(
     (destination: Destination) => {
@@ -172,6 +191,98 @@ export function Shell({ client }: { client?: HostLink }) {
     };
     push(player);
   }, [playerActive, push, removeFrom]);
+
+  // When a movie finishes, or a series episode finishes with no aired next
+  // episode, leave the ended screen and land on the respective Title page:
+  // trimming any Streams list between that Title and the player, or placing
+  // the Title directly underneath the player before stopping when playback
+  // started from elsewhere.
+  useEffect(() => {
+    const previous = previousPlaybackState.current;
+    previousPlaybackState.current = playback?.state ?? null;
+
+    if (!playerActive || snapshot === null) {
+      return;
+    }
+    const decision = endOfPlaybackDecision(previous, snapshot, new Date());
+    if (decision.kind === "stay") {
+      return;
+    }
+
+    const endedVideoId = snapshot.playback.nowPlaying?.video.id ?? null;
+    if (endedVideoId === null) {
+      return;
+    }
+
+    const stillEnded = () => {
+      const latest = snapshotRef.current?.playback ?? null;
+      return (
+        latest !== null &&
+        pictureBehind(latest, false) &&
+        latest.state === "ended" &&
+        latest.nowPlaying?.video.id === endedVideoId
+      );
+    };
+
+    const trimToExistingTitle = (ref: SeriesRef): boolean => {
+      const levels = levelsRef.current;
+      const playerIndex = levels.findIndex((level) => level.id === PLAYER_LEVEL);
+      const limit = playerIndex < 0 ? levels.length : playerIndex;
+      for (let i = limit - 1; i >= 0; i -= 1) {
+        const candidate = levels[i]?.payload.title;
+        if (candidate && matchesTitleIdentity(candidate, ref)) {
+          for (let j = i + 1; j < limit; j += 1) {
+            const between = levels[j];
+            if (between) {
+              remove(between.id);
+            }
+          }
+          return true;
+        }
+      }
+      return false;
+    };
+
+    const landOnTitleAndStop = (ref: SeriesRef, loaded?: Title | null) => {
+      if (trimToExistingTitle(ref)) {
+        void takeWithStop({ type: "stop_playback" });
+        return;
+      }
+      if (loaded) {
+        pushBefore(PLAYER_LEVEL, titleLevelOf(loaded));
+        void takeWithStop({ type: "stop_playback" });
+        return;
+      }
+      void ask(seriesAction(ref)).then(({ response, error: titleError }) => {
+        if (!stillEnded()) {
+          return;
+        }
+        const title = titleError ? null : answeredTitle(response);
+        if (title !== null && !trimToExistingTitle(ref)) {
+          pushBefore(PLAYER_LEVEL, titleLevelOf(title));
+        }
+        void takeWithStop({ type: "stop_playback" });
+      });
+    };
+
+    if (decision.kind === "return") {
+      landOnTitleAndStop(decision.ref);
+      return;
+    }
+
+    void ask(seriesAction(decision.ref)).then(({ response, error: titleError }) => {
+      if (!stillEnded()) {
+        return;
+      }
+      const title = titleError ? null : answeredTitle(response);
+      if (title === null) {
+        return;
+      }
+      if (!hasAiredNextEpisode(title.videos, endedVideoId, new Date())) {
+        landOnTitleAndStop(decision.ref, title);
+      }
+    });
+  }, [ask, playback?.state, playerActive, pushBefore, remove, snapshot, takeWithStop]);
 
   // Where the picture is in this window, the page must stop painting its own
   // rectangle so mpv's child window shows through (ADR-0003), and the browsing

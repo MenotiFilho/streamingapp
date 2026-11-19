@@ -28,9 +28,11 @@ services:
       - cargo-git:/usr/local/cargo/git
       - target:/app/target
       - node-modules:/app/node_modules
+      - go:/go
 
 volumes:
   cargo-registry:
   cargo-git:
   target:
   node-modules:
+  go:

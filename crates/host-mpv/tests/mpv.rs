@@ -33,9 +33,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use host_core::{
-    Aspect, ChapterStep, Crop, CropRectangle, Observation, PlaybackState, Player, SeekTarget,
-    Statistics, StreamBuffer, StreamUrl, SubtitleColor, SubtitleLanguage, SubtitleScale, Telling,
-    Track, TrackKind, VideoSize,
+    Aspect, ChapterStep, Crop, CropRectangle, LanguageList, Observation, PlaybackState, Player,
+    SeekTarget, Statistics, StreamBuffer, StreamUrl, SubtitleColor, SubtitleScale, Telling, Track,
+    TrackKind, VideoSize,
 };
 use host_mpv::{MpvError, MpvPlayer, Placement};
 
@@ -52,12 +52,30 @@ const PATIENCE: Duration = Duration::from_secs(15);
 /// binary so a test never depends on the working directory.
 const CONTROLS: &[u8] = include_bytes!("fixtures/controls.mkv");
 
+/// A second committed fixture, for the one thing `controls.mkv` does not carry:
+/// a subtitle track the container flags hearing-impaired. Generated in the dev
+/// container with ffmpeg (3 s, 64×48, one audio track and two `eng` subtitle
+/// tracks, the second flagged). It is an MP4 on purpose: mpv's own Matroska
+/// reader only learned the flag in a later release than the dev image's, and
+/// every release reads it through its libavformat demuxer, which MP4 takes:
+///
+/// ```text
+/// ffmpeg -y -f lavfi -i "testsrc2=size=64x48:rate=5:duration=3" \
+///   -f lavfi -i "sine=frequency=440:duration=3" -i en.srt -i sdh.srt \
+///   -map 0:v -map 1:a -map 2:s -map 3:s -c:v libx264 -crf 35 -pix_fmt yuv420p \
+///   -c:a aac -b:a 24k -c:s mov_text -metadata:s:s:0 language=eng \
+///   -metadata:s:s:1 language=eng -disposition:s:1 hearing_impaired sdh.mp4
+/// ```
+const SDH: &[u8] = include_bytes!("fixtures/sdh.mp4");
+
 /// A Stream served over HTTP, and the server that serves it.
 struct Streams {
     /// Where the silence that plays, pauses and ends is.
     playing: String,
     /// Where the control fixture is.
     movie: String,
+    /// Where the fixture with a hearing-impaired subtitle track is.
+    sdh: String,
     /// Where nothing but a refusal is.
     refused: String,
 }
@@ -86,6 +104,7 @@ fn serve(seconds: f64) -> Streams {
     Streams {
         playing: format!("http://127.0.0.1:{port}/silence.wav"),
         movie: format!("http://127.0.0.1:{port}/controls.mkv"),
+        sdh: format!("http://127.0.0.1:{port}/sdh.mp4"),
         refused: format!("http://127.0.0.1:{port}/nothing-here.wav"),
     }
 }
@@ -151,6 +170,8 @@ fn answer(mut stream: TcpStream, bytes: &[u8]) {
         ("audio/wav", bytes)
     } else if request.contains("/controls.mkv") {
         ("video/x-matroska", CONTROLS)
+    } else if request.contains("/sdh.mp4") {
+        ("video/mp4", SDH)
     } else {
         let _ = write!(
             stream,
@@ -266,6 +287,10 @@ fn a_stream_plays_and_reports_where_it_is_and_how_long_it_is() {
         "the Stream says how long it is, and the Host publishes it: {playing:?}"
     );
     assert_eq!(playing.failure, None);
+    assert!(
+        !playing.stalled,
+        "a local Stream that plays is not held for bytes: {playing:?}"
+    );
 
     thread::sleep(Duration::from_millis(400));
     let moved = player.observe();
@@ -798,16 +823,50 @@ fn autocrop_is_off_until_asked_and_toggling_it_crops_and_restores() {
 }
 
 #[test]
-fn the_subtitle_language_preference_selects_the_matching_embedded_track() {
+fn a_subtitle_track_the_container_flags_hearing_impaired_says_so() {
+    let streams = serve(6.0);
+    let player = player();
+    player
+        .open(&stream(&streams.sdh), None)
+        .expect("mpv takes the fixture");
+
+    let observed = until(&player, "listed the fixture's tracks", |observation| {
+        observation.state == PlaybackState::Playing && said(observation).len() == 3
+    });
+
+    let subtitles: Vec<_> = said(&observed)
+        .iter()
+        .filter(|track| track.kind == TrackKind::Subtitle)
+        .collect();
+    assert_eq!(subtitles.len(), 2, "the fixture has two subtitle tracks");
+    assert!(
+        !subtitles[0].hearing_impaired,
+        "the plain English track is not flagged"
+    );
+    assert!(
+        subtitles[1].hearing_impaired,
+        "the flagged track is read from `track-list/N/hearing-impaired`"
+    );
+    assert!(
+        said(&observed)
+            .iter()
+            .filter(|track| track.kind == TrackKind::Audio)
+            .all(|track| !track.hearing_impaired),
+        "the audio track carries no such flag"
+    );
+}
+
+#[test]
+fn the_subtitle_languages_preference_selects_the_matching_embedded_track() {
     let streams = serve(6.0);
     let player = player();
 
     // mpv matches a BCP-47 tag like `pt-BR` to the container's `por` track, and
     // only does so when it is set before the open.
     player
-        .tell(Telling::SubtitleLanguage(Some(
-            SubtitleLanguage::parse("pt-BR").expect("a language tag"),
-        )))
+        .tell(Telling::SubtitleLanguages(
+            LanguageList::parse(&["pt-BR"]).expect("a language list"),
+        ))
         .expect("mpv takes the preference");
     player
         .open(&stream(&streams.movie), None)

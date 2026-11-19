@@ -6,6 +6,7 @@ import { SNAPSHOT_EVENT } from "../core/wire";
 import type {
   Action,
   AddonStreams,
+  AutoplaySnapshot,
   PlaybackSnapshot,
   Response,
   ResumeEntry,
@@ -25,6 +26,7 @@ import { Shell } from "./Shell";
 import { dockedTransport } from "./PlayerDock";
 import { EPISODES_EMPTY } from "./episodesMenu";
 import { OSD_IDLE_MS } from "./useOsdVisibility";
+import { STALL_GRACE_MS } from "../core/stall";
 
 /**
  * The Tauri window the player tests hold lives in `tauriWindow.testing`, so the
@@ -40,6 +42,7 @@ const NOTHING_SAID: Snapshot = {
   revision: 0,
   playback: {
     state: "idle",
+    autoplay: null,
     picture: "in_window",
     failure: null,
     nowPlaying: null,
@@ -54,17 +57,22 @@ const NOTHING_SAID: Snapshot = {
     volume: null,
     muted: null,
     subtitleDelay: null,
+    stalled: false,
+    torrent: null,
     crop: null,
     aspect: null,
     resolution: null,
     statistics: null,
   },
   preferences: {
-    subtitleLanguage: null,
+    subtitleLanguages: [],
+    audioLanguages: [],
     subtitleColor: "#FFFFFF",
     subtitleScale: 1,
     streamBuffer: { seconds: 300, megabytes: 512 },
+    torrentCache: { megabytes: 2000 },
     upNextPlayback: "direct",
+    autoplay: true,
   },
   addons: [],
   featuredCatalog: null,
@@ -79,6 +87,7 @@ const NOTHING_SAID: Snapshot = {
 function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
   return {
     state: "playing",
+    autoplay: null,
     picture: "in_window",
     failure: null,
     nowPlaying: {
@@ -104,6 +113,7 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
         selected: true,
         default: true,
         forced: false,
+        hearingImpaired: false,
       },
       {
         id: 2,
@@ -115,6 +125,7 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
         selected: false,
         default: false,
         forced: false,
+        hearingImpaired: false,
       },
       {
         id: 3,
@@ -126,6 +137,7 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
         selected: true,
         default: true,
         forced: false,
+        hearingImpaired: false,
       },
       {
         id: 4,
@@ -137,6 +149,7 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
         selected: false,
         default: false,
         forced: false,
+        hearingImpaired: false,
       },
     ],
     chapters: [
@@ -148,6 +161,8 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
     volume: 60,
     muted: true,
     subtitleDelay: 0,
+    stalled: false,
+    torrent: null,
     crop: null,
     aspect: null,
     resolution: { width: 128, height: 72 },
@@ -1058,10 +1073,13 @@ describe("the player OSD", () => {
         revision: 10,
         playback: playback(),
         preferences: {
-          subtitleLanguage: null,
+          subtitleLanguages: [],
+          audioLanguages: [],
           subtitleColor: "#FFFFFF",
           subtitleScale: 1.25, streamBuffer: { seconds: 300, megabytes: 512 },
+          torrentCache: { megabytes: 2000 },
           upNextPlayback: "direct",
+          autoplay: true,
         },
       }),
     );
@@ -1116,6 +1134,33 @@ describe("the player OSD", () => {
 
     expect(screen.getByTestId("delay-forward")).toHaveFocus();
     await closePopover("popover-subtitles");
+  });
+
+  test("the Statistics rows say Peers and Download for a torrent only", async () => {
+    await renderPlayer({ torrent: { phase: "fetching", peers: 12, rate: 4_200_000 } });
+    fireEvent.click(screen.getByTestId("osd-picture"));
+    const picture = await screen.findByTestId("popover-picture");
+    fireEvent.click(within(picture).getByTestId("toggle-statistics"));
+
+    const statistics = within(picture).getByTestId("statistics");
+    expect(statistics).toHaveTextContent("Peers");
+    expect(statistics).toHaveTextContent("12");
+    expect(statistics).toHaveTextContent("Download");
+    expect(statistics).toHaveTextContent("4.2 MB/s");
+    await closePopover("popover-picture");
+  });
+
+  test("a direct Stream's Statistics have neither row", async () => {
+    await renderPlayer({ torrent: null });
+    fireEvent.click(screen.getByTestId("osd-picture"));
+    const picture = await screen.findByTestId("popover-picture");
+    fireEvent.click(within(picture).getByTestId("toggle-statistics"));
+
+    const statistics = within(picture).getByTestId("statistics");
+    expect(statistics).toHaveTextContent("Hardware decode");
+    expect(statistics).not.toHaveTextContent("Peers");
+    expect(statistics).not.toHaveTextContent("Download");
+    await closePopover("popover-picture");
   });
 
   test("the popovers carry the whole control set", async () => {
@@ -1243,6 +1288,74 @@ describe("the player OSD", () => {
     expect(screen.queryByTestId("rewind")).not.toBeInTheDocument();
     expect(screen.getByTestId("osd-picture")).toBeInTheDocument();
     expect(screen.getByTestId("volume")).toBeInTheDocument();
+  });
+
+  test("an opening Stream presents the opening block for any Stream", async () => {
+    // Whether the centred block clears the OSD at 1600x900 and at 720x480 is
+    // Windows' to confirm; jsdom tests presence and copy, never DOM nesting
+    // (#333, ADR-0032).
+    await renderPlayer({ state: "opening", position: null, duration: null });
+
+    expect(screen.getByTestId("opening-preview")).toBeInTheDocument();
+    expect(screen.getByTestId("opening-stream")).toHaveTextContent("Opening");
+  });
+
+  describe("a torrent's status on the opening block", () => {
+    test("is one line under Opening, and nothing is added for a direct Stream", async () => {
+      await renderPlayer({
+        state: "opening",
+        position: null,
+        duration: null,
+        torrent: { phase: "finding", peers: 5, rate: 0 },
+      });
+
+      expect(screen.getByTestId("opening-stream")).toHaveTextContent("Opening");
+      expect(screen.getByTestId("opening-torrent")).toHaveTextContent(
+        "Finding the torrent · 5 peers",
+      );
+    });
+
+    test("a direct Stream's block has no such line", async () => {
+      await renderPlayer({ state: "opening", position: null, duration: null, torrent: null });
+
+      expect(screen.getByTestId("opening-stream")).toHaveTextContent("Opening");
+      expect(screen.queryByTestId("opening-torrent")).not.toBeInTheDocument();
+    });
+
+    test("a torrent the engine has not reported on has no line yet", async () => {
+      await renderPlayer({ state: "opening", position: null, duration: null });
+
+      expect(screen.queryByTestId("opening-torrent")).not.toBeInTheDocument();
+    });
+
+    test("follows the status as it changes", async () => {
+      const host = await renderPlayer({
+        state: "opening",
+        position: null,
+        duration: null,
+        torrent: { phase: "finding", peers: 1, rate: 0 },
+      });
+      expect(screen.getByTestId("opening-torrent")).toHaveTextContent(
+        "Finding the torrent · 1 peer",
+      );
+
+      act(() => {
+        host.publish({
+          ...NOTHING_SAID,
+          revision: 10,
+          playback: playback({
+            state: "opening",
+            position: null,
+            duration: null,
+            torrent: { phase: "fetching", peers: 12, rate: 4_200_000 },
+          }),
+        });
+      });
+
+      expect(screen.getByTestId("opening-torrent")).toHaveTextContent(
+        "Fetching · 12 peers · 4.2 MB/s",
+      );
+    });
   });
 
   test("the wait for mpv shows the Title's own art instead of an empty hole", async () => {
@@ -1521,6 +1634,114 @@ describe("the player OSD", () => {
     vi.useRealTimers();
   });
 
+  describe("a Stalled Stream", () => {
+    beforeEach(() => {
+      // The card's second runs on the client's own clock: setTimeout and
+      // performance, and nothing else the player leans on.
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "performance"] });
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    async function mountStalled(stalled: boolean, overrides: Partial<PlaybackSnapshot> = {}) {
+      const initial = {
+        ...NOTHING_SAID,
+        revision: 9,
+        playback: playback({ stalled, ...overrides }),
+      };
+      const host = fakeHost(initial);
+      render(<Shell client={host.client} />);
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      return {
+        host,
+        say(next: Partial<PlaybackSnapshot>, revision: number) {
+          act(() => {
+            host.publish({
+              ...NOTHING_SAID,
+              revision,
+              playback: playback({ ...next }),
+            });
+          });
+        },
+      };
+    }
+
+    test("draws its card only after one continuous second, and takes it down the moment it ends", async () => {
+      const { say } = await mountStalled(true);
+      expect(screen.queryByTestId("stall-card")).not.toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(STALL_GRACE_MS - 1));
+      expect(screen.queryByTestId("stall-card")).not.toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(1));
+      expect(screen.getByTestId("stall-card")).toHaveTextContent("Waiting for the Stream…");
+
+      say({ stalled: false }, 10);
+      expect(screen.queryByTestId("stall-card")).not.toBeInTheDocument();
+    });
+
+    test("a torrent's status is the card's second line, and a direct Stream has none", async () => {
+      const { say } = await mountStalled(true, {
+        torrent: { phase: "fetching", peers: 0, rate: 0 },
+      });
+      act(() => vi.advanceTimersByTime(STALL_GRACE_MS));
+      expect(screen.getByTestId("stall-torrent")).toHaveTextContent(
+        "Fetching · 0 peers · 0 B/s",
+      );
+
+      say({ stalled: true, torrent: { phase: "fetching", peers: 3, rate: 120_000 } }, 10);
+      expect(screen.getByTestId("stall-torrent")).toHaveTextContent(
+        "Fetching · 3 peers · 120 kB/s",
+      );
+      expect(screen.getByTestId("stall-card")).toHaveTextContent("Waiting for the Stream…");
+
+      say({ stalled: true, torrent: null }, 11);
+      expect(screen.getByTestId("stall-card")).toBeInTheDocument();
+      expect(screen.queryByTestId("stall-torrent")).not.toBeInTheDocument();
+    });
+
+    test("a seek's brief wait draws nothing", async () => {
+      const { say } = await mountStalled(false);
+
+      say({ stalled: true }, 10);
+      act(() => vi.advanceTimersByTime(600));
+      say({ stalled: false }, 11);
+      act(() => vi.advanceTimersByTime(2000));
+
+      expect(screen.queryByTestId("stall-card")).not.toBeInTheDocument();
+    });
+
+    test("a position moving under a stall does not restart its second", async () => {
+      const { say } = await mountStalled(true);
+
+      act(() => vi.advanceTimersByTime(700));
+      say({ stalled: true, position: 901 }, 10);
+      act(() => vi.advanceTimersByTime(300));
+
+      expect(screen.getByTestId("stall-card")).toBeInTheDocument();
+    });
+
+    test("neither summons the OSD nor touches its idle clock", async () => {
+      await mountStalled(true);
+      expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
+
+      act(() => vi.advanceTimersByTime(OSD_IDLE_MS));
+      expect(
+        screen.queryByTestId("shell-osd"),
+        "the OSD goes away on its own three seconds, stall or not",
+      ).not.toBeInTheDocument();
+      expect(
+        screen.getByTestId("stall-card"),
+        "and the card stays up without it, on its own clock"
+      ).toBeInTheDocument();
+    });
+  });
+
   test("a control holding focus keeps the OSD up", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const host = fakeHost({ ...NOTHING_SAID, revision: 9, playback: playback() });
@@ -1584,6 +1805,120 @@ describe("the player OSD", () => {
     expect(screen.getByTestId("popover-chapters")).toBeInTheDocument();
 
     vi.useRealTimers();
+  });
+});
+
+describe("the mouse cursor over the player", () => {
+  // The OSD's own clock only: a level's exit uses `requestAnimationFrame`, and a
+  // fake one left behind would stall the next test's popover.
+  async function mountPlayer(overrides: Partial<PlaybackSnapshot> = {}, pad = false) {
+    vi.useFakeTimers(
+      pad ? PAD_TIMERS : { toFake: ["setTimeout", "clearTimeout"] },
+    );
+    const host = fakeHost({ ...NOTHING_SAID, revision: 9, playback: playback(overrides) });
+    render(<Shell client={host.client} />);
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
+  const cursor = () => screen.getByTestId("shell-player").getAttribute("data-cursor");
+
+  test("it starts showing", async () => {
+    await mountPlayer();
+
+    expect(cursor()).toBe("visible");
+  });
+
+  test.each(["opening", "playing", "paused", "ended"] as const)(
+    "it hides after three idle seconds while the Stream is %s",
+    async (state) => {
+      await mountPlayer({ state });
+
+      act(() => vi.advanceTimersByTime(OSD_IDLE_MS - 1));
+      expect(cursor()).toBe("visible");
+      act(() => vi.advanceTimersByTime(1));
+      expect(cursor()).toBe("hidden");
+    },
+  );
+
+  test("an open popover keeps it showing", async () => {
+    await mountPlayer();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("osd-chapters"));
+      await Promise.resolve();
+    });
+
+    act(() => vi.advanceTimersByTime(OSD_IDLE_MS * 2));
+
+    expect(screen.getByTestId("popover-chapters")).toBeInTheDocument();
+    expect(cursor()).toBe("visible");
+  });
+
+  test("it hides even while keyboard focus in the chrome keeps the OSD up", async () => {
+    await mountPlayer();
+    await act(async () => {
+      screen.getByTestId("stop").focus();
+    });
+    fireEvent.keyDown(document, { key: "x" });
+
+    act(() => vi.advanceTimersByTime(OSD_IDLE_MS));
+
+    expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
+    expect(cursor()).toBe("hidden");
+  });
+
+  test.each([
+    ["moves", () => fireEvent.pointerMove(window)],
+    ["presses", () => fireEvent.pointerDown(window)],
+    ["scrolls the wheel", () => fireEvent.wheel(window)],
+  ] as const)("it comes back, with the OSD, when the pointer %s", async (_name, input) => {
+    await mountPlayer();
+    act(() => vi.advanceTimersByTime(OSD_IDLE_MS));
+    expect(cursor()).toBe("hidden");
+    expect(screen.queryByTestId("shell-osd")).not.toBeInTheDocument();
+
+    act(() => {
+      input();
+    });
+
+    expect(cursor()).toBe("visible");
+    expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
+  });
+
+  test("a key press summons the OSD without bringing it back", async () => {
+    await mountPlayer();
+    act(() => vi.advanceTimersByTime(OSD_IDLE_MS));
+
+    fireEvent.keyDown(document, { key: "x" });
+
+    expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
+    expect(cursor()).toBe("hidden");
+  });
+
+  test("a pad press summons the OSD without bringing it back", async () => {
+    const buttons = fakePad();
+    await mountPlayer({ state: "paused" }, true);
+    act(() => vi.advanceTimersByTime(OSD_IDLE_MS));
+    expect(cursor()).toBe("hidden");
+
+    press(buttons, 14, true); // D-pad left
+    act(() => vi.advanceTimersByTime(16));
+
+    expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
+    expect(cursor()).toBe("hidden");
+  });
+
+  test("the pointer leaving the window neither wakes the OSD nor shows it", async () => {
+    await mountPlayer();
+    act(() => vi.advanceTimersByTime(OSD_IDLE_MS));
+
+    fireEvent.pointerLeave(window);
+    fireEvent.pointerOut(document.body);
+
+    expect(screen.queryByTestId("shell-osd")).not.toBeInTheDocument();
+    expect(cursor()).toBe("hidden");
   });
 });
 
@@ -2177,5 +2512,830 @@ describe("the pad in the player", () => {
     ).toEqual([]);
 
     vi.useRealTimers();
+  });
+});
+
+/** The Host's countdown to S1E4, as a Snapshot built `remaining` seconds from the end of it. */
+function countdown(remaining = 5): AutoplaySnapshot {
+  return {
+    next: {
+      title: { type: "series", id: "tt7777777" },
+      video: { type: "series", id: "tt7777777:1:4" },
+      episode: { season: 1, episode: 4 },
+      name: "Cancer Man",
+      still: "https://images.test/cancer-man.jpg",
+    },
+    phase: "countdown",
+    remaining,
+    duration: 5,
+  };
+}
+
+/** The Host's hold on "Still watching?" at S1E4: no countdown, only where it leads. */
+function stillWatching(): AutoplaySnapshot {
+  return { next: countdown().next, phase: "unattended_limit" };
+}
+
+/** An episode at its end, with the Host's Autoplay preference as given. */
+async function renderEnded(
+  overrides: Partial<PlaybackSnapshot> = {},
+  autoplayPreference = true,
+) {
+  const host = fakeHost({
+    ...NOTHING_SAID,
+    revision: 9,
+    playback: playback({
+      ...SERIES_PLAYING,
+      state: "ended",
+      episode: { season: 1, episode: 3 },
+      position: 3600,
+      ...overrides,
+    }),
+    preferences: { ...NOTHING_SAID.preferences, autoplay: autoplayPreference },
+  });
+  render(<Shell client={host.client} />);
+  await screen.findByTestId("shell-player");
+  await act(async () => {});
+  return host;
+}
+
+/** The Host's countdown ran out and continuity found no Stream for `videoId`. */
+function missingStream(videoId: string): AutoplaySnapshot {
+  return {
+    next: {
+      title: { type: "series", id: "tt7777777" },
+      video: { type: "series", id: videoId },
+      episode: { season: 1, episode: 2 },
+      name: "Episode Two",
+      still: null,
+    },
+    phase: "no_stream",
+    detail: "No Stream continues the release",
+  };
+}
+
+describe("Autoplay in the player", () => {
+  describe("the countdown's corner card", () => {
+    test("appears with focus on Cancel, so one press stops it and doing nothing lets it play", async () => {
+      const host = await renderEnded({ autoplay: countdown() });
+
+      expect(screen.getByTestId("autoplay-card")).toBeInTheDocument();
+      expect(screen.getByTestId("autoplay-cancel")).toHaveFocus();
+      expect(actions(host.invocations)).toEqual([]);
+    });
+
+    test("Play now takes next_episode and Cancel takes cancel_autoplay", async () => {
+      const host = await renderEnded({ autoplay: countdown() });
+
+      fireEvent.click(screen.getByTestId("autoplay-play-now"));
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "next_episode" }),
+      );
+
+      fireEvent.click(screen.getByTestId("autoplay-cancel"));
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "cancel_autoplay" }),
+      );
+    });
+
+    test("replaces the centred end note and the plain prompt while it is up", async () => {
+      await renderEnded({ autoplay: countdown() });
+
+      expect(screen.queryByTestId("stream-ended")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("next-episode-after-end")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("autoplay-switch")).not.toBeInTheDocument();
+    });
+
+    test("leaves the focus alone when a menu or a list above the player holds it", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const host = fakeHost({
+        ...NOTHING_SAID,
+        revision: 9,
+        playback: playback({ ...SERIES_PLAYING, state: "playing", episode: { season: 1, episode: 3 } }),
+      });
+      render(<Shell client={host.client} />);
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("osd-chapters"));
+        await Promise.resolve();
+      });
+      const inMenu = document.activeElement;
+      expect(screen.getByTestId("popover-chapters")).toBeInTheDocument();
+
+      await act(async () => {
+        host.publish({
+          ...NOTHING_SAID,
+          revision: 10,
+          playback: playback({
+            ...SERIES_PLAYING,
+            state: "ended",
+            episode: { season: 1, episode: 3 },
+            autoplay: countdown(),
+          }),
+        });
+        await Promise.resolve();
+      });
+
+      expect(screen.getByTestId("autoplay-card")).toBeInTheDocument();
+      expect(screen.getByTestId("autoplay-cancel")).not.toHaveFocus();
+      expect(document.activeElement).toBe(inMenu);
+      vi.useRealTimers();
+    });
+
+    test("keeps the OSD and the cursor up past the idle clock", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const host = fakeHost({
+        ...NOTHING_SAID,
+        revision: 9,
+        playback: playback({
+          ...SERIES_PLAYING,
+          state: "ended",
+          episode: { season: 1, episode: 3 },
+          autoplay: countdown(),
+        }),
+      });
+      render(<Shell client={host.client} />);
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      act(() => vi.advanceTimersByTime(OSD_IDLE_MS * 3));
+
+      expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
+      expect(screen.getByTestId("shell-player")).toHaveAttribute("data-cursor", "visible");
+      expect(screen.getByTestId("autoplay-card")).toBeInTheDocument();
+      vi.useRealTimers();
+    });
+
+    test("is not drawn for an episode with nothing pending", async () => {
+      await renderEnded({ autoplay: null });
+
+      expect(screen.queryByTestId("autoplay-card")).not.toBeInTheDocument();
+      expect(screen.getByTestId("stream-ended")).toBeInTheDocument();
+    });
+  });
+
+  describe("the Still watching? card", () => {
+    test("is the corner card in its hold form: Keep watching takes focus, and there is no countdown or Cancel", async () => {
+      await renderEnded({ autoplay: stillWatching() });
+
+      expect(screen.getByTestId("autoplay-card")).toBeInTheDocument();
+      expect(screen.queryByTestId("autoplay-digit")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("autoplay-play-now")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("autoplay-cancel")).not.toBeInTheDocument();
+      expect(screen.getByTestId("autoplay-keep-watching")).toHaveFocus();
+    });
+
+    test("Keep watching takes next_episode", async () => {
+      const host = await renderEnded({ autoplay: stillWatching() });
+
+      fireEvent.click(screen.getByTestId("autoplay-keep-watching"));
+
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "next_episode" }),
+      );
+      expect(actions(host.invocations)).not.toContainEqual({ type: "cancel_autoplay" });
+    });
+
+    test("replaces the centred end note and the plain prompt while it is up", async () => {
+      await renderEnded({ autoplay: stillWatching() });
+
+      expect(screen.queryByTestId("stream-ended")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("next-episode-after-end")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("autoplay-switch")).not.toBeInTheDocument();
+    });
+
+    test("counts as pinned: the OSD and the cursor stay up past the idle clock", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const host = fakeHost({
+        ...NOTHING_SAID,
+        revision: 9,
+        playback: playback({
+          ...SERIES_PLAYING,
+          state: "ended",
+          episode: { season: 1, episode: 3 },
+          autoplay: stillWatching(),
+        }),
+      });
+      render(<Shell client={host.client} />);
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      act(() => vi.advanceTimersByTime(OSD_IDLE_MS * 3));
+
+      expect(screen.getByTestId("shell-osd")).toBeInTheDocument();
+      expect(screen.getByTestId("shell-player")).toHaveAttribute("data-cursor", "visible");
+      expect(screen.getByTestId("autoplay-card")).toBeInTheDocument();
+      vi.useRealTimers();
+    });
+  });
+
+  describe("the ended state with nothing pending", () => {
+    test("draws the switch beside Next episode, and turning it on takes set_autoplay: true", async () => {
+      const host = await renderEnded({ autoplay: null }, false);
+
+      expect(screen.getByTestId("next-episode-after-end")).toBeInTheDocument();
+      const toggle = screen.getByTestId("autoplay-switch");
+      expect(toggle).toHaveAttribute("aria-checked", "false");
+
+      fireEvent.click(toggle);
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "set_autoplay", autoplay: true }),
+      );
+    });
+
+    test("turning it off, with Autoplay on and nothing pending, takes set_autoplay: false", async () => {
+      const host = await renderEnded({ autoplay: null }, true);
+
+      const toggle = screen.getByTestId("autoplay-switch");
+      expect(toggle).toHaveAttribute("aria-checked", "true");
+
+      fireEvent.click(toggle);
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "set_autoplay", autoplay: false }),
+      );
+    });
+
+    test("a film's end draws no switch", async () => {
+      await renderEnded({ autoplay: null, episode: null, nowPlaying: playback().nowPlaying });
+
+      expect(screen.queryByTestId("autoplay-switch")).not.toBeInTheDocument();
+    });
+
+    test("a Stream that is still playing draws no switch on the strip", async () => {
+      await renderEpisodesPlayer();
+
+      expect(screen.queryByTestId("autoplay-switch")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("the Episodes popover's switch", () => {
+    test("is in the popover, and pressing it takes set_autoplay", async () => {
+      const host = await renderEpisodesPlayer();
+      fireEvent.click(screen.getByTestId("osd-episodes"));
+      const toggle = await screen.findByTestId("autoplay-switch");
+
+      expect(toggle).toHaveAttribute("aria-checked", "true");
+      await screen.findByTestId("osd-seasons");
+
+      fireEvent.click(toggle);
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "set_autoplay", autoplay: false }),
+      );
+    });
+
+    test("a film has no Episodes menu, so no switch", async () => {
+      await renderPlayer();
+
+      expect(screen.queryByTestId("osd-episodes")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("autoplay-switch")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("the docked band", () => {
+    test("during a countdown it offers Cancel, which takes cancel_autoplay", async () => {
+      const host = await renderDock("own_window", {
+        ...SERIES_PLAYING,
+        state: "ended",
+        autoplay: countdown(),
+      });
+
+      fireEvent.click(screen.getByTestId("dock-autoplay-cancel"));
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "cancel_autoplay" }),
+      );
+    });
+
+    test("at the hold it offers Keep watching, not Cancel", async () => {
+      const host = await renderDock("own_window", {
+        ...SERIES_PLAYING,
+        state: "ended",
+        autoplay: stillWatching(),
+      });
+
+      expect(screen.queryByTestId("dock-autoplay-cancel")).not.toBeInTheDocument();
+      fireEvent.click(screen.getByTestId("dock-autoplay-keep-watching"));
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "next_episode" }),
+      );
+    });
+
+    test("with nothing pending it has no Cancel and no Keep watching", async () => {
+      await renderDock("own_window", { ...SERIES_PLAYING, state: "ended", autoplay: null });
+
+      expect(screen.queryByTestId("dock-autoplay-keep-watching")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("dock-autoplay-cancel")).not.toBeInTheDocument();
+    });
+  });
+  describe("a missing Stream", () => {
+    const endedWith = (autoplay: AutoplaySnapshot | null, revision: number): Snapshot => ({
+      ...NOTHING_SAID,
+      revision,
+      playback: playback({
+        ...SERIES_PLAYING,
+        state: "ended",
+        episode: { season: 1, episode: 1 },
+        autoplay,
+      }),
+      watchProgress: [seriesEntry()],
+    });
+
+    test("opens the Streams picker for the next episode once, and a repeated Snapshot opens nothing more", async () => {
+      const host = await renderEpisodesPlayer(episodesAnswer, {
+        state: "ended",
+        episode: { season: 1, episode: 1 },
+      });
+
+      await act(async () => {
+        host.publish(endedWith(missingStream("tt7777777:1:2"), 10));
+        await Promise.resolve();
+      });
+      await screen.findByTestId("streams");
+
+      expect(actions(host.invocations)).toContainEqual({
+        type: "find_streams",
+        video: { type: "series", id: "tt7777777:1:2" },
+      });
+
+      await act(async () => {
+        host.publish(endedWith(missingStream("tt7777777:1:2"), 11));
+        await Promise.resolve();
+      });
+      expect(
+        actions(host.invocations).filter((action) => action.type === "find_streams"),
+      ).toHaveLength(1);
+      expect(screen.getAllByTestId("streams")).toHaveLength(1);
+    });
+
+    test("does not open over a surface that is already above the player", async () => {
+      const host = await renderEpisodesPlayer(episodesAnswer, {
+        state: "ended",
+        episode: { season: 1, episode: 1 },
+      });
+      await act(async () => {
+        host.publish(endedWith(missingStream("tt7777777:1:2"), 10));
+        await Promise.resolve();
+      });
+      await screen.findByTestId("streams");
+
+      // The Streams list is on top; a missing Stream for another target is not
+      // an interruption of it.
+      await act(async () => {
+        host.publish(endedWith(missingStream("tt7777777:2:1"), 11));
+        await Promise.resolve();
+      });
+
+      expect(
+        actions(host.invocations).filter((action) => action.type === "find_streams"),
+      ).toHaveLength(1);
+    });
+
+    test("keeps the plain ended state, with its note and Next episode", async () => {
+      await renderEnded({ autoplay: missingStream("tt7777777:1:4") });
+
+      expect(screen.getByTestId("stream-ended")).toBeInTheDocument();
+      expect(screen.getByTestId("next-episode-after-end")).toBeInTheDocument();
+      expect(screen.queryByTestId("autoplay-card")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("returning to the Title page at the end of playback", () => {
+    const FILM_TITLE = {
+      addon: "cinemeta",
+      id: "tt0133093",
+      key: { kind: "tmdb" as const, id: 603 },
+      type: "movie",
+      name: "The Matrix",
+      poster: null,
+      background: null,
+      logo: null,
+      description: null,
+      releaseInfo: "1999",
+      runtime: "136 min",
+      imdbRating: "8.7",
+      genres: [],
+      videos: [],
+    };
+
+    const SERIES_UNAIRED_NEXT = {
+      addon: "cinemeta",
+      id: "tt7777777",
+      key: { kind: "tmdb" as const, id: 7777777 },
+      type: "series",
+      name: "A Series That Plays",
+      poster: null,
+      background: null,
+      logo: null,
+      description: null,
+      releaseInfo: "2026",
+      runtime: null,
+      imdbRating: null,
+      genres: [],
+      videos: [
+        {
+          id: "tt7777777:1:1",
+          name: "Episode One",
+          season: 1,
+          episode: 1,
+          thumbnail: null,
+          airDate: "2026-01-01",
+        },
+        {
+          id: "tt7777777:1:2",
+          name: "Episode Two",
+          season: 1,
+          episode: 2,
+          thumbnail: null,
+          airDate: "2099-01-01",
+        },
+      ],
+    };
+
+    const SERIES_AIRED_NEXT = {
+      ...SERIES_UNAIRED_NEXT,
+      videos: [
+        SERIES_UNAIRED_NEXT.videos[0]!,
+        {
+          id: "tt7777777:1:2",
+          name: "Episode Two",
+          season: 1,
+          episode: 2,
+          thumbnail: null,
+          airDate: "2020-01-01",
+        },
+      ],
+    };
+
+    const filmPlaying = playback({
+      state: "playing",
+      episode: null,
+      nowPlaying: {
+        video: { type: "movie", id: "tt0133093" },
+        addon: "cinemeta",
+        name: "1080p",
+        description: null,
+        filename: null,
+        bingeGroup: null,
+      },
+    });
+
+    test("a movie that finishes stops playback and opens its Title page", async () => {
+      const host = fakeHost(
+        { ...NOTHING_SAID, revision: 9, playback: filmPlaying },
+        undefined,
+        undefined,
+        undefined,
+        (action) => {
+          if (action.type === "open_title") {
+            return { snapshots: [], answer: { title: FILM_TITLE } };
+          }
+          return null;
+        },
+      );
+
+      render(<Shell client={host.client} />);
+      await screen.findByTestId("shell-player");
+      await act(async () => {});
+
+      await act(async () => {
+        host.publish({
+          ...NOTHING_SAID,
+          revision: 10,
+          playback: { ...filmPlaying, state: "ended", autoplay: null },
+        });
+      });
+
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "stop_playback" }),
+      );
+      await act(async () => {
+        host.publish({ ...NOTHING_SAID, revision: 11 });
+      });
+      expect(await screen.findByTestId("title-tt0133093")).toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByTestId("shell-player")).not.toBeInTheDocument());
+    });
+
+    test("a movie started from its Title and Streams list returns to the Title, not Streams", async () => {
+      const idle: Snapshot = {
+        ...NOTHING_SAID,
+        revision: 12,
+        addons: [
+          {
+            id: "cinemeta",
+            name: "Cinemeta",
+            version: "1.0.0",
+            resources: [
+              { name: "catalog", types: ["movie"], idPrefixes: ["tt"] },
+              { name: "meta", types: ["movie"], idPrefixes: ["tt"] },
+              { name: "stream", types: ["movie"], idPrefixes: ["tt"] },
+            ],
+            types: ["movie"],
+            catalogs: [{ type: "movie", id: "top", name: "Top", extra: [] }],
+            idPrefixes: ["tt"],
+            behaviorHints: { configurable: false, configurationRequired: false },
+          },
+        ],
+        featuredCatalog: { addon: "cinemeta", catalog: { type: "movie", id: "top" } },
+      };
+      const host = fakeHost(
+        idle,
+        undefined,
+        undefined,
+        undefined,
+        (action) => {
+          if (action.type === "browse_catalog") {
+            return {
+              snapshots: [],
+              answer: {
+                catalogs: [
+                  {
+                    addon: "cinemeta",
+                    type: "movie",
+                    id: "top",
+                    name: "Top",
+                    sent: 1,
+                    metas: [
+                      {
+                        id: "tt0133093",
+                        type: "movie",
+                        name: "The Matrix",
+                        poster: null,
+                        posterShape: "poster",
+                        background: null,
+                        releaseInfo: "1999",
+                        imdbRating: "8.7",
+                        genres: [],
+                        description: null,
+                      },
+                    ],
+                    failure: null,
+                  },
+                ],
+              },
+            };
+          }
+          if (action.type === "open_title") {
+            return { snapshots: [], answer: { title: FILM_TITLE } };
+          }
+          if (action.type === "find_streams") {
+            return {
+              snapshots: [],
+              answer: {
+                streams: [
+                  {
+                    addon: "cinemeta",
+                    streams: [
+                      {
+                        name: "1080p",
+                        description: null,
+                        playback: { kind: "direct", url: "https://example.test/matrix.mkv" },
+                        warnings: [],
+                        filename: null,
+                        bingeGroup: null,
+                      },
+                    ],
+                    failure: null,
+                  },
+                ],
+              },
+            };
+          }
+          return null;
+        },
+      );
+
+      render(<Shell client={host.client} />);
+      fireEvent.click(await screen.findByTestId("card-cinemeta-tt0133093"));
+      await screen.findByTestId("title-tt0133093");
+
+      fireEvent.click(screen.getByTestId("play-film"));
+      const streamRow = await screen.findByTestId("candidate-cinemeta-0");
+      fireEvent.click(streamRow);
+      await waitFor(() =>
+        expect(actions(host.invocations).some((action) => action.type === "play_stream")).toBe(
+          true,
+        ),
+      );
+      await act(async () => {
+        host.publish({ ...idle, revision: 13, playback: filmPlaying });
+      });
+      await screen.findByTestId("shell-player");
+      await act(async () => {});
+
+      const opensBeforeEnd = actions(host.invocations).filter(
+        (action) => action.type === "open_title",
+      ).length;
+
+      await act(async () => {
+        host.publish({
+          ...idle,
+          revision: 14,
+          playback: { ...filmPlaying, state: "ended", autoplay: null },
+        });
+      });
+
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "stop_playback" }),
+      );
+      await act(async () => {
+        host.publish({ ...idle, revision: 15 });
+      });
+      expect(await screen.findByTestId("title-tt0133093")).toBeInTheDocument();
+      await waitFor(() => expect(screen.queryByTestId("streams")).not.toBeInTheDocument());
+      await waitFor(() => expect(screen.queryByTestId("shell-player")).not.toBeInTheDocument());
+      expect(
+        actions(host.invocations).filter((action) => action.type === "open_title"),
+      ).toHaveLength(opensBeforeEnd);
+    });
+
+    test("a series episode with Autoplay on and no aired next episode returns to its Title page", async () => {
+      const idle: Snapshot = { ...NOTHING_SAID, revision: 12 };
+      const seriesPlaying = playback({
+        ...SERIES_PLAYING,
+        state: "playing",
+        episode: { season: 1, episode: 1 },
+      });
+      const host = fakeHost(
+        {
+          ...NOTHING_SAID,
+          revision: 9,
+          playback: seriesPlaying,
+          watchProgress: [seriesEntry()],
+        },
+        undefined,
+        undefined,
+        undefined,
+        (action) => {
+          if (action.type === "open_title") {
+            return { snapshots: [], answer: { title: SERIES_UNAIRED_NEXT } };
+          }
+          if (action.type === "stop_playback") {
+            return { snapshots: [idle], answer: null };
+          }
+          return null;
+        },
+      );
+
+      render(<Shell client={host.client} />);
+      await screen.findByTestId("shell-player");
+      await act(async () => {});
+
+      await act(async () => {
+        host.publish({
+          ...NOTHING_SAID,
+          revision: 10,
+          playback: { ...seriesPlaying, state: "ended", autoplay: null },
+          watchProgress: [seriesEntry()],
+        });
+      });
+
+      await waitFor(() =>
+        expect(actions(host.invocations)).toContainEqual({ type: "stop_playback" }),
+      );
+      expect(await screen.findByTestId("title-tt7777777")).toBeInTheDocument();
+    });
+
+    test("a series episode with an aired next episode keeps the countdown and stays after Cancel", async () => {
+      const seriesPlaying = playback({
+        ...SERIES_PLAYING,
+        state: "playing",
+        episode: { season: 1, episode: 1 },
+      });
+      const host = fakeHost({
+        ...NOTHING_SAID,
+        revision: 9,
+        playback: seriesPlaying,
+        watchProgress: [seriesEntry()],
+      });
+
+      render(<Shell client={host.client} />);
+      await screen.findByTestId("shell-player");
+      await act(async () => {});
+
+      await act(async () => {
+        host.publish({
+          ...NOTHING_SAID,
+          revision: 10,
+          playback: { ...seriesPlaying, state: "ended", autoplay: countdown() },
+          watchProgress: [seriesEntry()],
+        });
+      });
+
+      expect(await screen.findByTestId("autoplay-card")).toBeInTheDocument();
+      expect(actions(host.invocations)).not.toContainEqual({ type: "stop_playback" });
+
+      await act(async () => {
+        host.publish({
+          ...NOTHING_SAID,
+          revision: 11,
+          playback: { ...seriesPlaying, state: "ended", autoplay: null },
+          watchProgress: [seriesEntry()],
+        });
+      });
+
+      expect(screen.getByTestId("stream-ended")).toBeInTheDocument();
+      expect(actions(host.invocations)).not.toContainEqual({ type: "stop_playback" });
+    });
+
+    test("with Autoplay off (Wait), an unaired next episode returns to the Title while an aired next stays on ended", async () => {
+      const idle: Snapshot = {
+        ...NOTHING_SAID,
+        revision: 12,
+        preferences: { ...NOTHING_SAID.preferences, autoplay: false },
+      };
+      const seriesPlaying = playback({
+        ...SERIES_PLAYING,
+        state: "playing",
+        episode: { season: 1, episode: 1 },
+      });
+
+      const unairedHost = fakeHost(
+        {
+          ...idle,
+          revision: 9,
+          playback: seriesPlaying,
+          watchProgress: [seriesEntry()],
+        },
+        undefined,
+        undefined,
+        undefined,
+        (action) => {
+          if (action.type === "open_title") {
+            return { snapshots: [], answer: { title: SERIES_UNAIRED_NEXT } };
+          }
+          if (action.type === "stop_playback") {
+            return { snapshots: [idle], answer: null };
+          }
+          return null;
+        },
+      );
+
+      const first = render(<Shell client={unairedHost.client} />);
+      await screen.findByTestId("shell-player");
+      await act(async () => {});
+
+      await act(async () => {
+        unairedHost.publish({
+          ...idle,
+          revision: 10,
+          playback: { ...seriesPlaying, state: "ended", autoplay: null },
+          watchProgress: [seriesEntry()],
+        });
+      });
+
+      await waitFor(() =>
+        expect(actions(unairedHost.invocations)).toContainEqual({ type: "stop_playback" }),
+      );
+      expect(await screen.findByTestId("title-tt7777777")).toBeInTheDocument();
+      first.unmount();
+
+      const airedHost = fakeHost(
+        {
+          ...idle,
+          revision: 9,
+          playback: seriesPlaying,
+          watchProgress: [seriesEntry()],
+        },
+        undefined,
+        undefined,
+        undefined,
+        (action) => {
+          if (action.type === "open_title") {
+            return { snapshots: [], answer: { title: SERIES_AIRED_NEXT } };
+          }
+          return null;
+        },
+      );
+
+      render(<Shell client={airedHost.client} />);
+      await screen.findByTestId("shell-player");
+      await act(async () => {});
+
+      await act(async () => {
+        airedHost.publish({
+          ...idle,
+          revision: 10,
+          playback: { ...seriesPlaying, state: "ended", autoplay: null },
+          watchProgress: [seriesEntry()],
+        });
+        await Promise.resolve();
+      });
+
+      await waitFor(() =>
+        expect(actions(airedHost.invocations)).toContainEqual({
+          type: "open_title",
+          addon: "cinemeta",
+          title: { type: "series", id: "tt7777777" },
+        }),
+      );
+      expect(screen.getByTestId("stream-ended")).toBeInTheDocument();
+      expect(actions(airedHost.invocations)).not.toContainEqual({ type: "stop_playback" });
+    });
   });
 });

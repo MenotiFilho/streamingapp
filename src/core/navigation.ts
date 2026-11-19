@@ -46,6 +46,7 @@ export const INITIAL_NAVIGATION: Navigation<never> = { destination: "home", leve
 export type NavigationEvent<P> =
   | { type: "choose"; destination: Destination }
   | { type: "push"; level: Level<P> }
+  | { type: "push-before"; beforeId: string; level: Level<P> }
   | { type: "pop" }
   | { type: "remove"; id: string }
   | { type: "remove-from"; id: string }
@@ -65,6 +66,27 @@ export function pushLevel<P>(state: Navigation<P>, level: Level<P>): Navigation<
   const levels = state.levels.slice();
   levels[at] = level;
   return { ...state, levels };
+}
+
+/**
+ * Place one level directly beneath `beforeId` so when `beforeId` leaves (for
+ * instance the player stopping), the stack lands on this level with no flash
+ * and no ordering race. If `beforeId` is absent, pushes to the top as usual.
+ */
+export function pushLevelBefore<P>(
+  state: Navigation<P>,
+  beforeId: string,
+  level: Level<P>,
+): Navigation<P> {
+  const withoutCopy = state.levels.filter((held) => held.id !== level.id);
+  const at = withoutCopy.findIndex((held) => held.id === beforeId);
+  if (at < 0) {
+    return { ...state, levels: [...withoutCopy, level] };
+  }
+  return {
+    ...state,
+    levels: [...withoutCopy.slice(0, at), level, ...withoutCopy.slice(at)],
+  };
 }
 
 /** Take one level out by id, wherever it sits. */
@@ -126,6 +148,8 @@ export function navigate<P>(
       return { destination: event.destination, levels: [] };
     case "push":
       return pushLevel(state, event.level);
+    case "push-before":
+      return pushLevelBefore(state, event.beforeId, event.level);
     case "pop":
       return popLevel(state);
     case "remove":

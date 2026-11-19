@@ -4,8 +4,11 @@ The dev container has no display and no GPU, so **the window is verified on
 Windows**, reached from WSL. This directory is that route, written down so it is
 run the same way twice:
 
-- `stage.sh` — run in WSL: copies the tree to a Windows path, with the built frontend.
-- `build.ps1` — run on Windows: fetches libmpv, makes it linkable, and does a
+- `stage.sh` — run in WSL: copies the tree to a Windows path, with the built frontend
+  and the Torrent engine, which it builds first in the dev container
+  (`crates/host-torrent/build.sh`; Windows has no Go).
+- `build.ps1` — run on Windows: fetches libmpv, makes it linkable, puts
+  `streamingapp-torrent.exe` beside `streamingapp.exe`, and does a
   release build of the app shell (or builds the NSIS installer with `-Bundle`,
   which `scripts/cd.sh` drives for GitHub Releases; see `docs/agents/ci.md`).
 - `verify.ps1` — run on Windows: walks the window's manual checklist, asserting
@@ -24,8 +27,9 @@ each and with the OSD hidden, the strip's Up-from-the-top-row landing and a
 click through the strip onto the rail beneath it, and the OSD's own copy of the
 button; Settings' Preferences, Credentials, Remote devices and About/Credits
 sub-screens; the subtitle appearance (colour and size, their restart, and what
-they do to an SRT and an ASS track); the key-gated Discover and Search; the
-Library sign-in gate; and the
+they do to an SRT and an ASS track); an Up next played directly and, with Autoplay,
+the Host's countdown, its Cancel, the switch and the next episode on its own; the
+key-gated Discover and Search; the Library sign-in gate; and the
 TMDB attribution.
 
 The Addon it configures is a parameter, so the walkthrough can be run against the
@@ -44,8 +48,17 @@ whose candidates are a local video file. The file carries two audio tracks,
 three embedded subtitle tracks — two plain-text (SRT) and one ASS line authored
 red, so the colour can be checked on both kinds — two chapters and letterbox
 bars, so every OSD control has something to move; the series has two episodes,
-so `Next episode` and `Previous episode` have somewhere to go. One film's candidate is an `infoHash`,
-which this Host lists and marks unplayable rather than pretending to play.
+so `Next episode` and `Previous episode` have somewhere to go. It also starts
+`fixture-seed.exe` (cross-compiled into `fixture\` by `stage.sh`, never bundled
+into the installer) to seed the fixture video on `127.0.0.1` behind a loopback
+HTTP tracker as both a single-file film (**A Film From A Torrent**, `tt8888888`)
+and a two-file season pack (**A Series From A Torrent**, `tt7777778`, with S1E1,
+S1E2 and a missing S1E3), and lists **A Film From The Swarm** (Sintel, CC BY
+3.0) and **A Film Nobody Shares** (dead `infoHash`) for the by-hand torrent
+checks (#311, #347). Step 12 checks that the torrent film's candidate is listed
+with no unplayable note, and step 39 walks playing it from the local seed,
+answering the Windows Security Alert, asserting the opening block and absent
+Seek preview, and confirming cleanup on Stop, Host exit, and relaunch.
 
 The remote steps (25 and 26) pair and drive the **Cast Remote** (#32, ADR-0035):
 since the cutover (#216) `/` serves the React Remote, drawn in the Cast Remote's
@@ -100,7 +113,7 @@ the three seconds out.
 
 ## Walking part of the checklist
 
-The whole checklist is 37 steps and takes minutes. To iterate on one step, run
+The whole checklist is 39 steps and takes minutes. To iterate on one step, run
 just that one: the runner builds the ground the step declares first — an empty
 data directory, one Host on `-Monitor`, the fixture Addon configured by manifest
 URL, its first Catalog featured, at Home — and reuses it when several selected
@@ -134,7 +147,7 @@ screenshots keep their names, so a partial run's `evidence\` compares with a ful
 one's.
 
 A handful of steps read what an earlier step left behind and cannot rebuild it:
-step 4 needs steps 2 and 3 (the saved language, and the second launch in the
+step 4 needs steps 2 and 3 (the saved Subtitle languages list, and the second launch in the
 log), step 12 needs the Title step 11 opened, step 18 needs the Search screen step
 17 left showing, and step 21 needs the log steps 19 and 20 wrote. Run alone, one
 of these **refuses loudly** — it prints the step it needs and the selection to run
@@ -335,7 +348,7 @@ or started).
   anything the page paints over the video would hide it.
 - **The window's data outlives the run.** The Host keeps its database and logs in
   `%APPDATA%\dev.streamingapp.host\` (`/mnt/c/Users/<you>/AppData/Roaming/dev.streamingapp.host`).
-  `verify.ps1` starts by removing them, so "the preference survives a restart" is
+  `verify.ps1` starts by removing them, so "the Subtitle languages list survives a restart" is
   really being tested.
 - **On Windows the config and data directories are the same directory**
   (`%APPDATA%\dev.streamingapp.host`); on Linux they differ (`~/.config` vs
@@ -379,11 +392,31 @@ or started).
   ASS track is chosen. If step 35 skips, the configured Addon served a Stream
   without the fixture's tracks (or no playable candidate), and the reason is
   printed.
-- **An Up next needs a finished episode.** Step 36 seeks the fixture video to
-  its last seconds, stops, and presses the row's `Up next` card; the Title's
+- **An Up next needs a finished episode.** Step 36 first sets "When an episode
+  ends" to **Wait** in Settings > Preferences > Up next (Autoplay is on by
+  default, and a countdown would play S1E2 under it), then seeks the fixture
+  video to its last seconds, stops, and presses the row's `Up next` card; the Title's
   main control must read `Play S1E2`, and Play must open S1E2 with no Streams
   list in between (#276). If no Up next card appears, the fixture Addon's meta
   answer listed no episode after the one that finished.
+- **Autoplay is five seconds long, and the script does not get to be slow.**
+  Step 38 sets "When an episode ends" back to `Play it after 5 seconds` (step 36
+  left it on Wait), plays S1E1 to its end and walks the Host's countdown (#302):
+  the corner card, a group named `Up next · S1E2` with `Play now` and `Cancel`,
+  whose Cancel takes the keyboard focus; a key press of Enter cancels it, and the
+  step then waits past the five seconds to see the episode stay on its ended
+  prompt. The prompt draws the `Autoplay the next episode` switch beside Next
+  episode. **Cancel keeps the preference**, so the switch still reads On: the
+  step presses it once to turn Autoplay off (no countdown) and once more to turn
+  it on, and that second press starts the countdown again; it then lets it run
+  out and checks that S1E2 plays with no Streams list in between. The countdown
+  checks are made as fast as the window answers (the focus and the card are read
+  in the same breath, and the switch is pressed with a key rather than
+  `Press-Element`, which waits two seconds), because the Host does not wait for
+  the script. The switch's state is read off its Toggle pattern; if the
+  accessibility tree does not carry one, that check skips and says so. If the
+  card never appears, the fixture Addon's meta answer listed no episode after the
+  one that finished.
 - **A second open is the cache's.** Step 37 opens a series Title, backs out and
   opens the same Title again, timing the press; under three seconds with the
   Title's seasons drawn is the cache answering (#266, ADR-0038 §1). The first

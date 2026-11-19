@@ -11,7 +11,7 @@
 //!
 //! use host_core::{
 //!     Action, AddonProvider, FixtureClock, FixtureFetcher, FixturePlayer, Host,
-//!     InMemorySecretStore, InMemoryStore, SubtitleLanguage,
+//!     InMemorySecretStore, InMemoryStore, Language,
 //! };
 //!
 //! let store = Arc::new(InMemoryStore::new());
@@ -26,17 +26,18 @@
 //!     Arc::new(FixturePlayer::new()),
 //!     Arc::new(FixtureClock::new()),
 //! )?;
-//! let action = Action::parse(r#"{"version":1,"action":{"type":"set_subtitle_language","language":"pt-BR"}}"#)?;
+//! let action = Action::parse(r#"{"version":1,"action":{"type":"set_subtitle_languages","languages":["pt-BR"]}}"#)?;
 //! let response = host.dispatch(action)?;
 //!
 //! let published = &response.snapshots[0];
-//! let preferred = published.preferences.subtitle_language.as_ref();
-//! assert_eq!(preferred.map(SubtitleLanguage::as_str), Some("pt-BR"));
+//! let preferred = published.preferences.subtitle_languages.first();
+//! assert_eq!(preferred.map(Language::as_str), Some("pt-BR"));
 //! # Ok::<(), Box<dyn std::error::Error>>(())
 //! ```
 
 mod action;
 mod addon;
+mod autoplay;
 mod background;
 mod cache;
 mod catalog;
@@ -45,7 +46,10 @@ mod device;
 mod discover;
 mod door;
 mod fetcher;
+mod giveup;
+mod handpick;
 mod host;
+mod idle;
 mod library;
 mod log;
 mod meta;
@@ -69,6 +73,8 @@ mod subtitles;
 mod sync;
 mod title_cache;
 mod tmdb;
+mod torrent;
+mod tracks;
 mod view;
 mod wire;
 
@@ -78,6 +84,7 @@ pub use addon::{
     Manifest, ManifestError, ManifestUrl, Resource, MAX_ITEMS, MAX_MANIFEST_BYTES, MAX_STRING_LEN,
     MAX_URL_LEN,
 };
+pub use autoplay::{AutoplayPhase, AutoplaySnapshot, UpNextEpisode, AUTOPLAY_COUNTDOWN_MS};
 pub use background::{FixtureRevisions, RevisionSink};
 pub use catalog::{CacheHints, CatalogError, CatalogRow, MetaPreview, Page, MAX_CATALOG_BYTES};
 pub use clock::{Clock, FixtureClock, SystemClock};
@@ -98,13 +105,14 @@ pub use playback::{
     Aspect, Buffered, Chapter, ChapterStep, ChosenStream, Control, Crop, CropRectangle, Episode,
     FixturePlayer, InvalidAspect, InvalidCrop, InvalidSeekTarget, InvalidSpeed, InvalidStreamUrl,
     InvalidSubtitleDelay, InvalidVolume, NowPlaying, Observation, Picture, PlaybackError,
-    PlaybackSnapshot, PlaybackState, Player, SeekTarget, Statistics, StreamUrl, Telling, Track,
-    TrackId, TrackKind, Unplayable, VideoSize,
+    PlaybackSnapshot, PlaybackState, Player, SeekTarget, Source, Statistics, StreamUrl, Telling,
+    TorrentSource, Track, TrackId, TrackKind, Unplayable, VideoSize,
 };
 pub use preferences::{
-    FeaturedCatalog, InvalidStreamBuffer, InvalidSubtitleColor, InvalidSubtitleLanguage,
-    InvalidSubtitleScale, InvalidUpNextPlayback, Preferences, StreamBuffer, SubtitleColor,
-    SubtitleLanguage, SubtitleScale, UpNextPlayback,
+    DuplicateLanguage, FeaturedCatalog, InvalidLanguage, InvalidLanguageList, InvalidStreamBuffer,
+    InvalidSubtitleColor, InvalidSubtitleScale, InvalidTorrentCache, InvalidUpNextPlayback,
+    Language, LanguageList, Preferences, StreamBuffer, SubtitleColor, SubtitleScale,
+    TooManyLanguages, TorrentCache, UpNextPlayback,
 };
 pub use preview::{
     bucket_of, bucket_start, checked_preview_at, preview_ceiling, FixturePreviewer, Frame,
@@ -142,5 +150,11 @@ pub use tmdb::{
     NextEpisode, SearchQuery, SearchQueryError, SeriesStatus, TmdbDetails, TmdbError, TmdbId,
     TmdbRequest, TmdbVideo, IMAGE_ROOT, LOGO_ROOT, STILL_ROOT, TMDB_ROOT,
 };
+pub use torrent::{
+    FailureKind, FixtureTorrentEngine, InfoHash, InvalidInfoHash, NoTorrentEngine, ServeHints,
+    ServeRequest, TorrentEngine, TorrentError, TorrentLimits, TorrentPhase, TorrentReport,
+    TorrentStatus,
+};
+pub use tracks::codes_for_list;
 pub use view::HostView;
 pub use wire::{permitted, ClientFrame, Refusal, ServerFrame, WIRE_VERSION};

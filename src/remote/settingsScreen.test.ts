@@ -14,7 +14,12 @@ import {
   clearTmdbLevel,
   colorRequest,
   featuredRequest,
-  languageRequest,
+  LANGUAGE_FOLLOW_LINES,
+  LANGUAGE_GROUP_HEADS,
+  languageSheetLevel,
+  LONG_PRESS_MS,
+  LONG_PRESS_SLOP,
+  pressVerdict,
   revokeLevel,
   scaleRequest,
   settingsCategoryOf,
@@ -114,12 +119,11 @@ describe("the Credentials leaf's forms", () => {
 });
 
 describe("the Preferences leaf's Actions", () => {
-  test("a language is the tag, and the absence of one is the clear", () => {
-    expect(languageRequest("pt-BR")).toEqual({
-      type: "set_subtitle_language",
-      language: "pt-BR",
+  test("the two language groups are named as the Host's lists are", () => {
+    expect(LANGUAGE_GROUP_HEADS).toEqual({
+      subtitle: "Subtitle languages",
+      audio: "Audio languages",
     });
-    expect(languageRequest(null)).toEqual({ type: "clear_subtitle_language" });
   });
 
   test("appearance and the Featured catalog are the Host's own Actions", () => {
@@ -173,5 +177,40 @@ describe("revoking a device", () => {
         action: { type: "revoke_device", id: PHONE.id },
       },
     });
+  });
+});
+
+describe("the long-press that starts a chip's drag", () => {
+  test("a press held about half a second without travelling starts a drag", () => {
+    expect(LONG_PRESS_MS).toBeGreaterThanOrEqual(400);
+    expect(LONG_PRESS_MS).toBeLessThanOrEqual(600);
+    expect(pressVerdict({ heldMs: LONG_PRESS_MS, travelled: 0 })).toBe("drag");
+    expect(pressVerdict({ heldMs: LONG_PRESS_MS + 200, travelled: LONG_PRESS_SLOP })).toBe("drag");
+  });
+
+  test("a press shorter than the threshold is still waiting, and a tap never drags", () => {
+    expect(pressVerdict({ heldMs: 0, travelled: 0 })).toBe("wait");
+    expect(pressVerdict({ heldMs: LONG_PRESS_MS - 1, travelled: LONG_PRESS_SLOP })).toBe("wait");
+  });
+
+  test("a move before the threshold is a swipe: the page scrolls and no drag starts", () => {
+    expect(pressVerdict({ heldMs: 100, travelled: LONG_PRESS_SLOP + 1 })).toBe("scroll");
+    expect(pressVerdict({ heldMs: LONG_PRESS_MS - 1, travelled: 40 })).toBe("scroll");
+  });
+});
+
+describe("the sheet a field's ▾ opens", () => {
+  test("is one level per list, so a second press replaces it and one Back leaves", () => {
+    const subtitle = languageSheetLevel("subtitle");
+    const audio = languageSheetLevel("audio");
+    expect(subtitle.id).not.toBe(audio.id);
+    expect(languageSheetLevel("subtitle").id).toBe(subtitle.id);
+    expect(subtitle.name).toBe(LANGUAGE_GROUP_HEADS.subtitle);
+    expect(subtitle.payload).toEqual({ kind: "language-sheet", list: "subtitle" });
+    expect(audio.payload).toEqual({ kind: "language-sheet", list: "audio" });
+  });
+
+  test("an empty list says what following the file means for each list", () => {
+    expect(LANGUAGE_FOLLOW_LINES.subtitle).not.toBe(LANGUAGE_FOLLOW_LINES.audio);
   });
 });

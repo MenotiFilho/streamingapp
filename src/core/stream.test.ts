@@ -112,6 +112,27 @@ describe("the Action a chosen Stream is", () => {
     });
   });
 
+  test("a torrent goes back whole: infoHash, file, sources and the p2p warning", () => {
+    const torrent: Stream = {
+      name: "Torrentio\n1080p",
+      description: null,
+      playback: {
+        kind: "torrent",
+        infoHash: "c12fe1c06bba254a9dc9f519b335aa7c1367a88a",
+        fileIdx: 3,
+        sources: ["tracker:udp://tracker.example.org:1337", "dht:c12fe1c06bba254a9dc9f519b335aa7c1367a88a"],
+      },
+      warnings: ["p2p"],
+      filename: "Show.S01E03.mkv",
+      bingeGroup: "torrentio|1080p",
+    };
+
+    const action = playStreamAction(film(), video, "torrentio", torrent);
+
+    expect(action.stream).toEqual(torrent);
+    expect(JSON.parse(JSON.stringify(action)).stream.playback).toEqual(torrent.playback);
+  });
+
   test("the card stands in for what a sparse meta answer left out", () => {
     const sparse = film({ name: "tt0133093", poster: null });
 
@@ -188,7 +209,16 @@ describe("which direct Streams the list marks unplayable", () => {
     expect(playabilityNote({ kind: "direct", url: wide })).not.toBeNull();
   });
 
-  test("a torrent is still marked and is not a URL question", () => {
-    expect(playabilityNote({ kind: "info_hash", infoHash: "abc" })).toContain("torrent");
+  test("a torrent is playable: the Host serves it, so the list marks nothing", () => {
+    const hash = "c12fe1c06bba254a9dc9f519b335aa7c1367a88a";
+    expect(playabilityNote({ kind: "torrent", infoHash: hash, fileIdx: null, sources: [] })).toBeNull();
+    expect(
+      playabilityNote({
+        kind: "torrent",
+        infoHash: hash,
+        fileIdx: 3,
+        sources: ["tracker:udp://tracker.example.org:1337"],
+      }),
+    ).toBeNull();
   });
 });

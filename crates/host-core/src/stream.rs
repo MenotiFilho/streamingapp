@@ -4,12 +4,12 @@
 //! A Stream here is the Host's own thing, not the protocol's object. The
 //! protocol's `stream` object carries raw fields and implies that everything it
 //! lists can be played; the Host's Stream says where the bytes are *and whether
-//! this Host can play them* — a direct URL mpv opens as itself, or an
-//! `infoHash` that this version lists and marks unplayable because the torrent
-//! bridge is a later ticket (#12). That is what the Provider seam exists for:
-//! a candidate that is not playable yet has a shape of its own, so the bridge
-//! can change what plays without the list, the answer or any client changing
-//! shape.
+//! this Host can play them* — a direct URL mpv opens as itself, or a torrent
+//! (an `infoHash`, or a `magnet:` in `url`) that the Torrent engine serves as a
+//! URL before the Player opens it (ADR-0042). That is what the Provider seam
+//! exists for: a candidate whose bytes are not a URL has a shape of its own, so
+//! how it is played can change without the list, the answer or any client
+//! changing shape.
 //!
 //! ## The Addon's words are kept verbatim
 //!
@@ -42,24 +42,43 @@
 //! Addon's opinion about some client; which client can do what with it is the
 //! client's business, and mpv is not a web page.
 //!
-//! The rest of a stream object — `fileIdx`, `sources` (a torrent's trackers),
-//! `subtitles`, `videoSize`, `videoHash`, and Addon-specific fields like
-//! WatchHub's per-platform URLs — is not read: nothing here acts on it, and
-//! reading a field nothing acts on is a promise this Host would not be keeping
-//! (ADR-0009). #12's bridge is where a torrent's file index and trackers
-//! arrive, and the subtitles ticket where a stream's own `subtitles` do.
+//! ## A torrent is read whole
+//!
+//! A torrent Stream keeps what the swarm will need: its `fileIdx` (which file of
+//! the torrent is the Video), and its `sources` — `announce` is read as an alias,
+//! the way the official client core reads it — the `tracker:` and `dht:` entries
+//! the Addon points at. Sources are kept verbatim, at most [`MAX_SOURCES`] of at
+//! most [`MAX_SOURCE_LEN`] characters each, and the excess is dropped. A `magnet:`
+//! in `url` is the same torrent written another way: its `xt=urn:btih:` hash and
+//! each `tr=` tracker (as `tracker:<tr>`), with no `fileIdx` and its `dn`
+//! ignored. Neither is a direct URL, and a hash that is not an
+//! [`InfoHash`] drops the candidate like any malformed one.
+//!
+//! The rest of a stream object — `subtitles`, `videoSize`, `videoHash`, and
+//! Addon-specific fields like WatchHub's per-platform URLs — is not read: nothing
+//! here acts on it, and reading a field nothing acts on is a promise this Host
+//! would not be keeping (ADR-0009). The subtitles ticket is where a stream's own
+//! `subtitles` arrive.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::action::ActionError;
 use crate::addon::{AddonId, MAX_ITEMS, MAX_STRING_LEN};
+use crate::torrent::InfoHash;
 
 /// The most of a stream body the Host will read.
 ///
 /// An answer of a hundred candidates is tens of kilobytes, trackers and all; an
 /// Addon answering with megabytes is misbehaving or lying.
 pub const MAX_STREAM_BYTES: usize = 4 * 1024 * 1024;
+
+/// The most `sources` a torrent Stream keeps; the rest are dropped.
+pub const MAX_SOURCES: usize = 32;
+
+/// The most characters one of a torrent's `sources` may have; a longer entry is
+/// dropped, not cut, because half a tracker address is not one.
+pub const MAX_SOURCE_LEN: usize = 512;
 
 /// The fields the protocol says point at a stream's bytes, of which exactly one
 /// may be present.
@@ -119,9 +138,8 @@ pub struct Stream {
 
 /// Where a Stream's bytes are, and whether this Host can play it now.
 ///
-/// The two shapes, and the only two: a direct URL mpv opens as itself, and an
-/// `infoHash` that something must turn into bytes first — something this
-/// version does not have.
+/// The two shapes, and the only two: a direct URL mpv opens as itself, and a
+/// torrent that the Torrent engine must turn into bytes first.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
@@ -131,10 +149,20 @@ pub struct Stream {
 pub enum Playback {
     /// A direct URL: mpv opens it as itself.
     Direct { url: String },
-    /// A torrent infoHash: listed and marked unplayable in this version. The
-    /// bridge that would fetch it is #12, and it will play from this same
-    /// shape — which is why the shape is here rather than after it.
-    InfoHash { info_hash: String },
+    /// A torrent: an Addon's `infoHash` Stream, or a `magnet:` in its `url`.
+    /// Played through the Torrent engine (ADR-0042): the Host asks it to serve
+    /// the torrent, and the Player opens the loopback URL it answers with.
+    Torrent {
+        info_hash: InfoHash,
+        /// Which file of the torrent is the Video, where the Addon says; absent,
+        /// the engine chooses once the torrent's metadata arrives.
+        #[serde(default)]
+        file_idx: Option<u32>,
+        /// The Addon's `sources` (or `announce`), verbatim: `tracker:` and
+        /// `dht:` entries, within [`MAX_SOURCES`] and [`MAX_SOURCE_LEN`].
+        #[serde(default)]
+        sources: Vec<String>,
+    },
 }
 
 /// What the Addon's hints say about playing a Stream.
@@ -256,16 +284,25 @@ fn one(value: &Value) -> Option<Stream> {
     }
 
     let playback = match location {
-        "url" => Playback::Direct {
-            url: string(object.get("url")?)?,
-        },
-        "infoHash" => Playback::InfoHash {
-            info_hash: string(object.get("infoHash")?)?,
+        "url" => {
+            let url = string(object.get("url")?)?;
+            if is_magnet(&url) {
+                magnet(&url)?
+            } else {
+                Playback::Direct { url }
+            }
+        }
+        "infoHash" => Playback::Torrent {
+            info_hash: InfoHash::parse(&string(object.get("infoHash")?)?).ok()?,
+            file_idx: file_idx(object),
+            sources: sources(object),
         },
         // ytId, externalUrl, nzbUrl, the archive lists: a single location, and
         // a shape this Host does not have. Nothing here plays one.
         _ => return None,
     };
+
+    let torrent = matches!(playback, Playback::Torrent { .. });
 
     Some(Stream {
         name: field(object, "name"),
@@ -274,10 +311,85 @@ fn one(value: &Value) -> Option<Stream> {
         // with, so a Stream reads both and shows one.
         description: field(object, "description").or_else(|| field(object, "title")),
         playback,
-        warnings: warnings(object),
+        warnings: warnings(object, torrent),
         filename: hint(object, "filename"),
         binge_group: hint(object, "bingeGroup"),
     })
+}
+
+/// A torrent's `fileIdx`: a non-negative whole number, or nothing.
+///
+/// Anything else — a string, a fraction, the `-1` some Addons write for "you
+/// choose" — is the Addon not naming a file, and the engine chooses.
+fn file_idx(object: &Map<String, Value>) -> Option<u32> {
+    u32::try_from(object.get("fileIdx")?.as_u64()?).ok()
+}
+
+/// A torrent's `sources`, or its `announce` alias: the entries that are
+/// strings, within the bounds. `sources` wins when an object carries both.
+fn sources(object: &Map<String, Value>) -> Vec<String> {
+    let Some(entries) = object
+        .get("sources")
+        .or_else(|| object.get("announce"))
+        .and_then(Value::as_array)
+    else {
+        return Vec::new();
+    };
+    bounded(entries.iter().filter_map(Value::as_str))
+}
+
+/// Entries within the bounds, in order: the empty and the overlong are dropped,
+/// and so is everything past the first [`MAX_SOURCES`] that remain.
+pub(crate) fn bounded<'a>(entries: impl Iterator<Item = &'a str>) -> Vec<String> {
+    entries
+        .filter(|entry| !entry.is_empty() && entry.chars().count() <= MAX_SOURCE_LEN)
+        .take(MAX_SOURCES)
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Whether a `url` is a magnet link rather than an address: the scheme is
+/// case-insensitive.
+fn is_magnet(url: &str) -> bool {
+    url.get(.."magnet:".len())
+        .is_some_and(|scheme| scheme.eq_ignore_ascii_case("magnet:"))
+}
+
+/// A magnet link as the torrent it names: the first `xt=urn:btih:` hash and each
+/// `tr=` as `tracker:<tr>`. There is no file index in a magnet, and `dn` — a
+/// display name nobody asked for — is ignored. A magnet without a valid `btih`
+/// is nothing.
+fn magnet(url: &str) -> Option<Playback> {
+    let query = url["magnet:".len()..].strip_prefix('?')?;
+    let mut hash = None;
+    let mut trackers = Vec::new();
+    for (key, value) in query.split('&').filter_map(|pair| pair.split_once('=')) {
+        match key {
+            "xt" if hash.is_none() => {
+                let urn = decoded(value);
+                if let Some((scheme, rest)) = urn.split_at_checked("urn:btih:".len()) {
+                    if scheme.eq_ignore_ascii_case("urn:btih:") {
+                        hash = Some(InfoHash::parse(rest).ok()?);
+                    }
+                }
+            }
+            "tr" if !value.is_empty() => trackers.push(format!("tracker:{}", decoded(value))),
+            _ => {}
+        }
+    }
+    Some(Playback::Torrent {
+        info_hash: hash?,
+        file_idx: None,
+        sources: bounded(trackers.iter().map(String::as_str)),
+    })
+}
+
+/// A magnet parameter's value with its percent-escapes undone. `+` stays `+`: a
+/// tracker address may carry one, and a magnet is not a form.
+fn decoded(value: &str) -> String {
+    percent_encoding::percent_decode_str(value)
+        .decode_utf8_lossy()
+        .into_owned()
 }
 
 /// Whether a location field carries a location.
@@ -296,17 +408,24 @@ fn locates(value: &Value) -> bool {
     }
 }
 
-/// The warnings a candidate's hints carry, in a fixed order.
-fn warnings(object: &Map<String, Value>) -> Vec<Warning> {
-    let Some(hints) = object.get("behaviorHints").and_then(Value::as_object) else {
-        return Vec::new();
-    };
+/// The warnings a candidate carries, in a fixed order.
+///
+/// Mostly its hints'. The exception is `p2p`: a torrent is peer-to-peer whether
+/// or not its Addon says so — Torrentio sends no such hint — and the swarm sees
+/// the owner's address, so every torrent Stream carries the warning. A direct
+/// Stream keeps the hint-only rule.
+fn warnings(object: &Map<String, Value>, torrent: bool) -> Vec<Warning> {
+    let no_hints = Map::new();
+    let hints = object
+        .get("behaviorHints")
+        .and_then(Value::as_object)
+        .unwrap_or(&no_hints);
 
     let mut warnings = Vec::new();
     if hints.get("notWebReady") == Some(&Value::Bool(true)) {
         warnings.push(Warning::NotWebReady);
     }
-    if hints.get("p2p") == Some(&Value::Bool(true)) {
+    if torrent || hints.get("p2p") == Some(&Value::Bool(true)) {
         warnings.push(Warning::P2p);
     }
     if hints.get("proxyHeaders").is_some_and(Value::is_object) {
@@ -372,12 +491,41 @@ mod tests {
         }
     }
 
+    const HEX: &str = "abcdef0123456789abcdef0123456789abcdef01";
+
     /// The infoHash a candidate says its bytes are at, or a complaint.
     fn info_hash(stream: &Stream) -> &str {
         match &stream.playback {
-            Playback::InfoHash { info_hash } => info_hash,
-            other => panic!("expected an infoHash candidate: {other:?}"),
+            Playback::Torrent { info_hash, .. } => info_hash.as_str(),
+            other => panic!("expected a torrent candidate: {other:?}"),
         }
+    }
+
+    /// A torrent candidate's file index and sources, or a complaint.
+    fn shape(stream: &Stream) -> (Option<u32>, &[String]) {
+        match &stream.playback {
+            Playback::Torrent {
+                file_idx, sources, ..
+            } => (*file_idx, sources),
+            other => panic!("expected a torrent candidate: {other:?}"),
+        }
+    }
+
+    /// The one candidate a body holds, as a torrent: its hash, file index and
+    /// sources.
+    fn torrent_of(body: &str) -> (String, Option<u32>, Vec<String>) {
+        let streams = parsed(body);
+        assert_eq!(streams.len(), 1, "{body} is one candidate");
+        let (file_idx, sources) = shape(&streams[0]);
+        (
+            info_hash(&streams[0]).to_owned(),
+            file_idx,
+            sources.to_vec(),
+        )
+    }
+
+    fn stream_with(fields: &str) -> String {
+        format!(r#"{{"streams":[{{{fields}}}]}}"#)
     }
 
     /// The URL a candidate says its bytes are at, or a complaint.
@@ -431,19 +579,233 @@ mod tests {
     }
 
     #[test]
-    fn an_infohash_candidate_is_listed_and_says_it_is_not_playable_here_yet() {
-        // The torrent bridge is #12: until it exists, a candidate whose bytes
-        // are a torrent is a candidate this Host cannot open — and the list
-        // says so by the shape it carries, not by dropping it.
+    fn an_infohash_candidate_is_listed_as_a_torrent_not_dropped() {
+        // A candidate whose bytes are a torrent is not a URL this Host can open
+        // as itself — and the list says so by the shape it carries.
         let streams = parsed(TORRENTIO);
 
         assert_eq!(streams.len(), 5, "every recorded candidate is listed");
         for stream in &streams {
             assert!(
-                matches!(stream.playback, Playback::InfoHash { .. }),
+                matches!(stream.playback, Playback::Torrent { .. }),
                 "a torrent is not a URL this Host can open: {stream:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_torrent_keeps_its_file_index_and_sources_when_the_addon_gives_them() {
+        // The recorded answer: the first candidate names its file and its
+        // sources, the second names neither, the third names a file only.
+        let streams = parsed(TORRENTIO);
+
+        assert_eq!(
+            shape(&streams[0]),
+            (
+                Some(0),
+                &[
+                    "tracker:http://bt4.t-ru.org/ann?magnet".to_owned(),
+                    "dht:61065ea115b7cc3e8db9fb5ab1f6f327f08bd1c9".to_owned(),
+                ][..]
+            ),
+            "fileIdx 0 is a file, not an absence"
+        );
+        assert_eq!(
+            shape(&streams[1]),
+            (None, &[][..]),
+            "a torrent without fileIdx"
+        );
+        assert_eq!(shape(&streams[2]), (Some(2), &[][..]));
+    }
+
+    #[test]
+    fn a_torrent_reads_its_sources_from_announce_when_that_is_what_the_addon_says() {
+        // `announce` is what the official client core serializes, and what a
+        // client re-sending a Stream through it would write.
+        let (_, _, sources) = torrent_of(&stream_with(&format!(
+            r#""infoHash":"{HEX}","announce":["tracker:udp://tracker.example.org:1337","dht:{HEX}"]"#
+        )));
+
+        assert_eq!(
+            sources,
+            vec![
+                "tracker:udp://tracker.example.org:1337".to_owned(),
+                format!("dht:{HEX}"),
+            ]
+        );
+
+        let (_, _, both) = torrent_of(&stream_with(&format!(
+            r#""infoHash":"{HEX}","sources":["tracker:http://a.example/ann"],"announce":["tracker:http://b.example/ann"]"#
+        )));
+        assert_eq!(
+            both,
+            vec!["tracker:http://a.example/ann".to_owned()],
+            "`sources` is the field the protocol documents, so it wins"
+        );
+    }
+
+    #[test]
+    fn a_file_index_that_is_not_a_whole_non_negative_number_is_the_addon_not_naming_a_file() {
+        for value in ["-1", "1.5", "\"2\"", "null", "true", "4294967296"] {
+            let (_, file_idx, _) = torrent_of(&stream_with(&format!(
+                r#""infoHash":"{HEX}","fileIdx":{value}"#
+            )));
+            assert_eq!(file_idx, None, "fileIdx {value}");
+        }
+
+        let (_, file_idx, _) = torrent_of(&stream_with(&format!(
+            r#""infoHash":"{HEX}","fileIdx":4294967295"#
+        )));
+        assert_eq!(file_idx, Some(u32::MAX));
+    }
+
+    #[test]
+    fn sources_are_kept_verbatim_up_to_thirty_two_entries_of_five_hundred_and_twelve_characters() {
+        let long = format!("tracker:http://{}", "a".repeat(MAX_SOURCE_LEN));
+        let exact = format!("tracker:{}", "b".repeat(MAX_SOURCE_LEN - "tracker:".len()));
+        assert_eq!(exact.chars().count(), MAX_SOURCE_LEN);
+
+        let entries = serde_json::json!([
+            long,
+            exact,
+            5,
+            null,
+            "",
+            "tracker:UDP://Keeps.Case:80/x?y=%20"
+        ]);
+        let (_, _, sources) = torrent_of(&stream_with(&format!(
+            r#""infoHash":"{HEX}","sources":{entries}"#
+        )));
+        assert_eq!(
+            sources,
+            vec![exact, "tracker:UDP://Keeps.Case:80/x?y=%20".to_owned()],
+            "an overlong entry, a non-string and an empty one are dropped; the rest is verbatim"
+        );
+
+        let many: Vec<String> = (0..MAX_SOURCES + 8)
+            .map(|n| format!("tracker:http://t{n}.example/ann"))
+            .collect();
+        let (_, _, kept) = torrent_of(&stream_with(&format!(
+            r#""infoHash":"{HEX}","sources":{}"#,
+            serde_json::json!(many)
+        )));
+        assert_eq!(kept.len(), MAX_SOURCES);
+        assert_eq!(kept[..], many[..MAX_SOURCES], "the excess is the tail");
+    }
+
+    #[test]
+    fn sources_that_are_not_a_list_are_no_sources() {
+        for value in ["\"tracker:http://a.example\"", "null", "{}", "7"] {
+            let (_, _, sources) = torrent_of(&stream_with(&format!(
+                r#""infoHash":"{HEX}","sources":{value}"#
+            )));
+            assert!(sources.is_empty(), "sources {value}");
+        }
+    }
+
+    #[test]
+    fn an_infohash_is_kept_as_lowercase_hex_whichever_way_the_addon_spelled_it() {
+        let upper = HEX.to_ascii_uppercase();
+        assert_eq!(
+            torrent_of(&stream_with(&format!(r#""infoHash":"{upper}""#))).0,
+            HEX
+        );
+
+        // 32 base32 characters are the same 20 bytes: this spells the ASCII
+        // "abcdefghijklmnopqrst".
+        let base32 = "MFRGGZDFMZTWQ2LKNNWG23TPOBYXE43U";
+        assert_eq!(
+            torrent_of(&stream_with(&format!(r#""infoHash":"{base32}""#))).0,
+            "6162636465666768696a6b6c6d6e6f7071727374"
+        );
+    }
+
+    #[test]
+    fn a_malformed_infohash_drops_the_candidate_and_leaves_its_neighbours() {
+        let body = format!(
+            r#"{{"streams":[{{"infoHash":"deadbeef"}},{{"infoHash":"{}g"}},{{"infoHash":5}},{{"infoHash":"{HEX}"}}]}}"#,
+            &HEX[..39]
+        );
+        let streams = parsed(&body);
+
+        assert_eq!(streams.len(), 1, "only the well-formed hash lists");
+        assert_eq!(info_hash(&streams[0]), HEX);
+    }
+
+    #[test]
+    fn a_magnet_in_url_is_a_torrent_not_a_direct_url() {
+        let magnet = format!(
+            "magnet:?xt=urn:btih:{HEX}&dn=The+Matrix+1999&tr=udp%3A%2F%2Ftracker.example.org%3A1337&tr=http%3A%2F%2Fb.example%2Fann%3Fpass%3Dx%2By"
+        );
+        let (hash, file_idx, sources) = torrent_of(&stream_with(&format!(r#""url":"{magnet}""#)));
+
+        assert_eq!(hash, HEX);
+        assert_eq!(file_idx, None, "a magnet names no file");
+        assert_eq!(
+            sources,
+            vec![
+                "tracker:udp://tracker.example.org:1337".to_owned(),
+                "tracker:http://b.example/ann?pass=x+y".to_owned(),
+            ],
+            "each tr= is a tracker source, decoded; dn is nobody's business"
+        );
+    }
+
+    #[test]
+    fn a_magnets_hash_may_be_base32_and_its_scheme_and_keys_any_case_the_hash_urn_allows() {
+        let (hash, _, sources) = torrent_of(&stream_with(
+            r#""url":"MAGNET:?xt=URN:BTIH:MFRGGZDFMZTWQ2LKNNWG23TPOBYXE43U""#,
+        ));
+        assert_eq!(hash, "6162636465666768696a6b6c6d6e6f7071727374");
+        assert!(sources.is_empty());
+
+        // A hybrid magnet also carries a v2 `btmh` hash this Host does not read.
+        let (hash, _, _) = torrent_of(&stream_with(&format!(
+            r#""url":"magnet:?xt=urn:btmh:1220{}&xt=urn:btih:{HEX}""#,
+            "0".repeat(64)
+        )));
+        assert_eq!(hash, HEX);
+    }
+
+    #[test]
+    fn a_magnet_without_a_valid_btih_is_dropped_not_played_as_a_url() {
+        for url in [
+            "magnet:",
+            "magnet:?",
+            "magnet:?dn=just+a+name",
+            "magnet:?xt=urn:btmh:1220aaaa",
+            "magnet:?xt=urn:btih:",
+            "magnet:?xt=urn:btih:deadbeef",
+            &format!("magnet:?xt=urn:btih:{}g", &HEX[..39]),
+            &format!("magnet:{HEX}"),
+            &format!("magnet:?xt=btih:{HEX}"),
+        ] {
+            assert!(
+                parsed(&stream_with(&format!(r#""url":"{url}""#))).is_empty(),
+                "{url} is neither a torrent nor a URL"
+            );
+        }
+    }
+
+    #[test]
+    fn a_magnets_trackers_are_bounded_like_any_sources() {
+        let trackers: String = (0..MAX_SOURCES + 3)
+            .map(|n| format!("&tr=http://t{n}.example/ann"))
+            .collect();
+        let (_, _, sources) = torrent_of(&stream_with(&format!(
+            r#""url":"magnet:?xt=urn:btih:{HEX}{trackers}""#
+        )));
+
+        assert_eq!(sources.len(), MAX_SOURCES);
+        assert_eq!(sources[0], "tracker:http://t0.example/ann");
+    }
+
+    #[test]
+    fn a_magnet_is_the_one_location_so_a_second_location_still_drops_the_candidate() {
+        assert!(parsed(&stream_with(&format!(
+            r#""url":"magnet:?xt=urn:btih:{HEX}","infoHash":"{HEX}""#
+        )))
+        .is_empty());
     }
 
     #[test]
@@ -518,6 +880,52 @@ mod tests {
     }
 
     #[test]
+    fn every_torrent_warns_that_it_shares_the_owners_address_whatever_its_hints_say() {
+        // Torrentio sends no `p2p` hint (docs/research/torrent-streams-in-the-
+        // addon-protocol-291.md), and a torrent is peer-to-peer whether or not
+        // the Addon says so: the swarm sees the owner's address.
+        let info_hash =
+            parsed(r#"{"streams":[{"infoHash":"c12fe1c06bba254a9dc9f519b335aa7c1367a88a"}]}"#);
+        let magnet = parsed(
+            r#"{"streams":[{"url":"magnet:?xt=urn:btih:c12fe1c06bba254a9dc9f519b335aa7c1367a88a"}]}"#,
+        );
+        let denied = parsed(
+            r#"{"streams":[{"infoHash":"c12fe1c06bba254a9dc9f519b335aa7c1367a88a","behaviorHints":{"p2p":false}}]}"#,
+        );
+        let said = parsed(
+            r#"{"streams":[{"infoHash":"c12fe1c06bba254a9dc9f519b335aa7c1367a88a","behaviorHints":{"p2p":true}}]}"#,
+        );
+
+        for torrent in [&info_hash, &magnet, &denied, &said] {
+            assert_eq!(torrent[0].warnings, vec![Warning::P2p]);
+        }
+    }
+
+    #[test]
+    fn a_torrents_p2p_warning_keeps_its_place_among_the_others() {
+        let both = parsed(
+            r#"{"streams":[{"infoHash":"c12fe1c06bba254a9dc9f519b335aa7c1367a88a","behaviorHints":{"notWebReady":true,"proxyHeaders":{"request":{}}}}]}"#,
+        );
+
+        assert_eq!(
+            both[0].warnings,
+            vec![Warning::NotWebReady, Warning::P2p, Warning::ProxyHeaders],
+            "one P2p, in the fixed order every client reads"
+        );
+    }
+
+    #[test]
+    fn a_direct_stream_warns_of_peers_only_when_its_hint_says_so() {
+        let quiet = parsed(r#"{"streams":[{"url":"https://example.org/x.mkv"}]}"#);
+
+        assert!(
+            quiet[0].warnings.is_empty(),
+            "a direct URL is not a swarm: {:?}",
+            quiet[0].warnings
+        );
+    }
+
+    #[test]
     fn a_candidate_that_locates_its_bytes_twice_is_not_guessed_at() {
         // The protocol says exactly one location; a stream object with two is
         // an Addon contradicting itself, and picking one would be the Host
@@ -548,7 +956,7 @@ mod tests {
             r#"{"streams":[{"externalUrl":"https://www.netflix.com/title/123","name":"Watch on Netflix"}]}"#,
             r#"{"streams":[{"nzbUrl":"https://example.org/a.nzb"}]}"#,
             r#"{"streams":[{"url":"https://example.org/a.mkv","externalUrl":"https://example.org/page"}]}"#,
-            r#"{"streams":[{"ytId":"dQw4w9WgXcQ","infoHash":"deadbeef"}]}"#,
+            r#"{"streams":[{"ytId":"dQw4w9WgXcQ","infoHash":"abcdef0123456789abcdef0123456789abcdef01"}]}"#,
         ] {
             assert!(
                 parsed(body).is_empty(),
@@ -578,7 +986,7 @@ mod tests {
         for body in [
             r#"{"streams":[{"url":"https://example.org/a.mkv","rarUrls":[]}]}"#,
             r#"{"streams":[{"url":"https://example.org/a.mkv","ytId":""}]}"#,
-            r#"{"streams":[{"infoHash":"deadbeef","externalUrl":""}]}"#,
+            r#"{"streams":[{"infoHash":"abcdef0123456789abcdef0123456789abcdef01","externalUrl":""}]}"#,
         ] {
             assert_eq!(parsed(body).len(), 1, "{body} locates its bytes once");
         }
@@ -606,9 +1014,9 @@ mod tests {
 
         // A `null` is the Addon not sending a field — the shape serde's own
         // `Option` would read — so a usable location beside it still locates.
-        let streams = parsed(r#"{"streams":[{"url":null,"infoHash":"deadbeef"}]}"#);
+        let streams = parsed(&stream_with(&format!(r#""url":null,"infoHash":"{HEX}""#)));
         assert_eq!(streams.len(), 1);
-        assert_eq!(info_hash(&streams[0]), "deadbeef");
+        assert_eq!(info_hash(&streams[0]), HEX);
     }
 
     #[test]
@@ -703,7 +1111,7 @@ mod tests {
 
     #[test]
     fn fields_this_host_has_no_use_for_are_ignored_rather_than_refused() {
-        // The recorded answers carry `fileIdx`, `sources`, and WatchHub's
+        // The recorded answers carry `title`, `behaviorHints` and WatchHub's
         // per-platform URLs beside the fields the Host reads; a candidate that
         // knows more than the Host does still lists.
         let streams = parsed(TORRENTIO);
@@ -733,14 +1141,66 @@ mod tests {
             "the window reads this by hand, so the shape it declares is the shape that arrives"
         );
 
-        let info_hash_stream =
-            serde_json::to_value(&parsed(TORRENTIO)[0]).expect("a Stream serializes");
+        let torrent = serde_json::to_value(&parsed(TORRENTIO)[0]).expect("a Stream serializes");
         assert_eq!(
-            info_hash_stream["playback"],
+            torrent["playback"],
             serde_json::json!({
-                "kind": "info_hash",
+                "kind": "torrent",
                 "infoHash": "61065ea115b7cc3e8db9fb5ab1f6f327f08bd1c9",
+                "fileIdx": 0,
+                "sources": [
+                    "tracker:http://bt4.t-ru.org/ann?magnet",
+                    "dht:61065ea115b7cc3e8db9fb5ab1f6f327f08bd1c9",
+                ],
             })
         );
+
+        let bare = serde_json::to_value(&parsed(TORRENTIO)[1]).expect("a Stream serializes");
+        assert_eq!(
+            bare["playback"],
+            serde_json::json!({
+                "kind": "torrent",
+                "infoHash": "8dc393c100ef0c0d010cfefdcebe572e26c4f775",
+                "fileIdx": null,
+                "sources": [],
+            }),
+            "an absent fileIdx is null, and absent sources are an empty list"
+        );
+    }
+
+    #[test]
+    fn a_torrent_a_client_sends_back_is_read_whole_and_a_bad_hash_is_refused() {
+        let wire = serde_json::json!({
+            "kind": "torrent",
+            "infoHash": HEX.to_ascii_uppercase(),
+            "fileIdx": 3,
+            "sources": ["tracker:http://a.example/ann"],
+        });
+        let playback: Playback = serde_json::from_value(wire).expect("the shape round-trips");
+        assert_eq!(
+            playback,
+            Playback::Torrent {
+                info_hash: InfoHash::parse(HEX).unwrap(),
+                file_idx: Some(3),
+                sources: vec!["tracker:http://a.example/ann".to_owned()],
+            }
+        );
+
+        let minimal: Playback =
+            serde_json::from_value(serde_json::json!({"kind": "torrent", "infoHash": HEX}))
+                .expect("fileIdx and sources may be missing");
+        assert!(matches!(
+            minimal,
+            Playback::Torrent { file_idx: None, sources, .. } if sources.is_empty()
+        ));
+
+        assert!(serde_json::from_value::<Playback>(
+            serde_json::json!({"kind": "torrent", "infoHash": "deadbeef"})
+        )
+        .is_err());
+        assert!(serde_json::from_value::<Playback>(
+            serde_json::json!({"kind": "info_hash", "infoHash": HEX})
+        )
+        .is_err());
     }
 }

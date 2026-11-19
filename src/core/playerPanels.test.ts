@@ -22,6 +22,7 @@ function track(overrides: Partial<Track> & { id: number }): Track {
     selected: false,
     default: false,
     forced: false,
+    hearingImpaired: false,
     ...overrides,
   };
 }
@@ -29,6 +30,7 @@ function track(overrides: Partial<Track> & { id: number }): Track {
 function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
   return {
     state: "playing",
+    autoplay: null,
     picture: "in_window",
     failure: null,
     nowPlaying: null,
@@ -43,6 +45,8 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
     volume: 100,
     muted: false,
     subtitleDelay: 0,
+    stalled: false,
+    torrent: null,
     crop: null,
     aspect: null,
     resolution: { width: 128, height: 72 },
@@ -149,6 +153,58 @@ describe("the picture panel", () => {
         { label: "Hardware decode", value: "d3d11va" },
       ],
     });
+  });
+});
+
+describe("the picture panel's statistics for a torrent", () => {
+  test("a torrent adds Peers and Download after the Player's own lines", () => {
+    const shown = pictureSections(
+      playback({ torrent: { phase: "fetching", peers: 12, rate: 4_200_000 } }),
+      true,
+    );
+
+    expect(row(shown, "statistics")).toMatchObject({
+      kind: "readout",
+      lines: [
+        { label: "Bitrate", value: "4.0 Mbps" },
+        { label: "Dropped frames", value: "0" },
+        { label: "Hardware decode", value: "d3d11va" },
+        { label: "Peers", value: "12" },
+        { label: "Download", value: "4.2 MB/s" },
+      ],
+    });
+  });
+
+  test("a torrent still being found has its peers and a zero rate to show", () => {
+    const shown = pictureSections(
+      playback({ torrent: { phase: "finding", peers: 0, rate: 0 } }),
+      true,
+    );
+
+    expect(row(shown, "statistics")).toMatchObject({
+      lines: expect.arrayContaining([
+        { label: "Peers", value: "0" },
+        { label: "Download", value: "0 B/s" },
+      ]),
+    });
+  });
+
+  test("a direct Stream has neither row", () => {
+    const shown = pictureSections(playback({ torrent: null }), true);
+
+    const labels = (row(shown, "statistics") as { lines: Array<{ label: string }> }).lines.map(
+      (line) => line.label,
+    );
+    expect(labels).toEqual(["Bitrate", "Dropped frames", "Hardware decode"]);
+  });
+
+  test("hidden statistics show no torrent rows either", () => {
+    const hidden = pictureSections(
+      playback({ torrent: { phase: "fetching", peers: 3, rate: 10 } }),
+      false,
+    );
+
+    expect(rows(hidden).some((held) => held.key === "statistics")).toBe(false);
   });
 });
 

@@ -9,18 +9,24 @@ import {
   STREAM_BUFFER_SECONDS,
   SUBTITLE_COLORS,
   SUBTITLE_SCALES,
-  UP_NEXT_PLAYBACK_CHOICES,
+  TORRENT_CACHE_DEFAULT_MEGABYTES,
+  TORRENT_CACHE_HEAD,
+  TORRENT_CACHE_MEGABYTES,
+  TORRENT_FETCH_NOTE,
   bufferMegabytesPreset,
   bufferSecondsPreset,
   colorSelected,
   formatBufferMegabytes,
   formatBufferSeconds,
   formatScale,
+  formatTorrentCache,
   scalePreset,
   scaleSelected,
+  torrentCachePreset,
+  torrentCacheRequest,
+  upNextRows,
 } from "../core/controls";
 import { explain, type ActionError } from "../core/errors";
-import { HOST_PICKS_PER_VIDEO, SUBTITLE_LANGUAGES } from "../core/languages";
 import type { NewLevel } from "../core/navigation";
 import {
   LICENCE,
@@ -31,7 +37,6 @@ import {
   protectionLedger,
   settingsLevelId,
   unknownColorLabel,
-  unknownLanguageLabel,
   type SettingsCategoryId,
 } from "../core/settingsRegister";
 import type { Session, SessionState } from "../core/session";
@@ -40,6 +45,9 @@ import tmdbLogo from "../assets/tmdb-logo.svg";
 import { Button } from "../kit/Button";
 import { Chip, ChoiceChip } from "../kit/Chip";
 import { Field } from "../kit/Field";
+import { LanguageField } from "./LanguageField";
+import { useLanguageList } from "../core/react/useLanguageList";
+import type { LanguageKind } from "../core/languageList";
 import type { RemotePayload } from "./levels";
 import {
   ADDRESS_ABSENT,
@@ -53,27 +61,29 @@ import {
   STREAM_BUFFER_HEAD,
   STREAM_BUFFER_MEGABYTES_HEAD,
   STREAM_BUFFER_SECONDS_HEAD,
-  STREMIO_EMAIL_LABEL,  STREMIO_EMAIL_PLACEHOLDER,
+  STREMIO_EMAIL_LABEL,
+  STREMIO_EMAIL_PLACEHOLDER,
   STREMIO_PASSWORD_LABEL,
   STREMIO_PASSWORD_PLACEHOLDER,
   STREMIO_SIGN_IN,
   STREMIO_SIGN_OUT,
   SUBTITLE_COLOUR_HEAD,
-  SUBTITLE_LANGUAGE_HEAD,
+  LANGUAGE_FOLLOW_LINES,
+  LANGUAGE_GROUP_HEADS,
   SUBTITLE_SIZE_HEAD,
   TMDB_CLEAR,
   TMDB_FIELD_LABEL,
   TMDB_FIELD_PLACEHOLDER,
   TMDB_MARK,
   TMDB_SAVE,
-  UP_NEXT_PLAYBACK_HEAD,
+  UP_NEXT_HEAD,
   VERSION_TERM,
   bufferAfter,
   bufferRequest,
   clearTmdbLevel,
   colorRequest,
   featuredRequest,
-  languageRequest,
+  languageSheetLevel,
   pairedAt,
   revokeLevel,
   scaleRequest,
@@ -82,7 +92,6 @@ import {
   signInRequest,
   signOutLevel,
   tmdbKeyRequest,
-  upNextPlaybackRequest,
   type StreamBuffer,
 } from "./settingsScreen";
 
@@ -377,9 +386,8 @@ function CredentialsLeaf({ category, session, state, push }: LeafProps) {
  * the Host holds that a list does not name keeps an Other chip, so one choice
  * is still shown as chosen; a refusal is drawn beside the group that asked.
  */
-function PreferencesLeaf({ category, session, state }: LeafProps) {
+function PreferencesLeaf({ category, session, state, push }: LeafProps) {
   const snapshot = state.snapshot;
-  const heldLanguage = snapshot?.preferences.subtitleLanguage ?? null;
   const heldColor = snapshot?.preferences.subtitleColor ?? "#FFFFFF";
   const heldScale = snapshot?.preferences.subtitleScale ?? 1;
   const published: StreamBuffer = snapshot?.preferences.streamBuffer ?? {
@@ -391,6 +399,9 @@ function PreferencesLeaf({ category, session, state }: LeafProps) {
    * The pair the chips draw before the Host has answered a press, so two quick
    * presses compose from the first rather than both from the same Snapshot.
    */
+  const heldTorrentCache =
+    snapshot?.preferences.torrentCache.megabytes ?? TORRENT_CACHE_DEFAULT_MEGABYTES;
+
   const [bufferDraft, setBufferDraft] = useState<StreamBuffer>(published);
   useEffect(() => {
     setBufferDraft({
@@ -399,18 +410,14 @@ function PreferencesLeaf({ category, session, state }: LeafProps) {
     });
   }, [published.seconds, published.megabytes]);
 
-  const [languageError, setLanguageError] = useState<ActionError | null>(null);
   const [colorError, setColorError] = useState<ActionError | null>(null);
   const [scaleError, setScaleError] = useState<ActionError | null>(null);
   const [bufferError, setBufferError] = useState<ActionError | null>(null);
+  const [torrentCacheError, setTorrentCacheError] = useState<ActionError | null>(null);
   const [upNextError, setUpNextError] = useState<ActionError | null>(null);
   const [featuredError, setFeaturedError] = useState<ActionError | null>(null);
 
-  const known = SUBTITLE_LANGUAGES.some(
-    (language) => language.tag === heldLanguage,
-  );
   const otherColor = unknownColorLabel(heldColor);
-  const heldUpNext = snapshot?.preferences.upNextPlayback ?? "direct";
   const catalogs = declaredCatalogs(snapshot);
   const featured = snapshot?.featuredCatalog ?? null;
   const featuredKey = featured
@@ -449,35 +456,8 @@ function PreferencesLeaf({ category, session, state }: LeafProps) {
 
   return (
     <LeafFrame category={category}>
-      <section className="remote-settings-group">
-        <h2 className="remote-settings-label">{SUBTITLE_LANGUAGE_HEAD}</h2>
-        <div className="remote-settings-chips">
-          <ChoiceChip
-            pressed={heldLanguage === null}
-            onClick={() => void take(languageRequest(null), setLanguageError)}
-          >
-            {HOST_PICKS_PER_VIDEO}
-          </ChoiceChip>
-          {heldLanguage && !known ? (
-            <ChoiceChip
-              pressed
-              onClick={() => void take(languageRequest(heldLanguage), setLanguageError)}
-            >
-              {unknownLanguageLabel(heldLanguage)}
-            </ChoiceChip>
-          ) : null}
-          {SUBTITLE_LANGUAGES.map((language) => (
-            <ChoiceChip
-              key={language.tag}
-              pressed={heldLanguage === language.tag}
-              onClick={() => void take(languageRequest(language.tag), setLanguageError)}
-            >
-              {language.name}
-            </ChoiceChip>
-          ))}
-        </div>
-        <Refusal error={languageError} />
-      </section>
+      <LanguageGroup kind="subtitle" session={session} state={state} push={push} />
+      <LanguageGroup kind="audio" session={session} state={state} push={push} />
 
       <section className="remote-settings-group">
         <h2 className="remote-settings-label">{SUBTITLE_COLOUR_HEAD}</h2>
@@ -570,27 +550,58 @@ function PreferencesLeaf({ category, session, state }: LeafProps) {
             </ChoiceChip>
           ) : null}
         </div>
+        <p className="remote-quiet" data-testid="stream-buffer-torrents">
+          {TORRENT_FETCH_NOTE}
+        </p>
         <Refusal error={bufferError} />
       </section>
 
       <section className="remote-settings-group">
-        <h2 className="remote-settings-label">{UP_NEXT_PLAYBACK_HEAD}</h2>
+        <h2 className="remote-settings-label">{TORRENT_CACHE_HEAD}</h2>
         <div className="remote-settings-chips">
-          {UP_NEXT_PLAYBACK_CHOICES.map((choice) => (
+          {TORRENT_CACHE_MEGABYTES.map((choice) => (
             <ChoiceChip
-              key={choice.playback}
-              pressed={heldUpNext === choice.playback}
+              key={choice.megabytes}
+              pressed={heldTorrentCache === choice.megabytes}
               onClick={() =>
-                void take(
-                  upNextPlaybackRequest(choice.playback),
-                  setUpNextError,
-                )
+                void take(torrentCacheRequest(choice.megabytes), setTorrentCacheError)
               }
             >
               {choice.label}
             </ChoiceChip>
           ))}
+          {!torrentCachePreset(heldTorrentCache) ? (
+            <ChoiceChip
+              pressed
+              onClick={() =>
+                void take(torrentCacheRequest(heldTorrentCache), setTorrentCacheError)
+              }
+            >
+              {formatTorrentCache(heldTorrentCache)}
+            </ChoiceChip>
+          ) : null}
         </div>
+        <Refusal error={torrentCacheError} />
+      </section>
+
+      <section className="remote-settings-group">
+        <h2 className="remote-settings-label">{UP_NEXT_HEAD}</h2>
+        {upNextRows(snapshot).map((row) => (
+          <div key={row.id}>
+            <p className="remote-settings-sub">{row.label}</p>
+            <div className="remote-settings-chips">
+              {row.choices.map((choice) => (
+                <ChoiceChip
+                  key={choice.id}
+                  pressed={choice.pressed}
+                  onClick={() => void take(choice.action, setUpNextError)}
+                >
+                  {choice.label}
+                </ChoiceChip>
+              ))}
+            </div>
+          </div>
+        ))}
         <Refusal error={upNextError} />
       </section>
 
@@ -627,6 +638,42 @@ function PreferencesLeaf({ category, session, state }: LeafProps) {
         <Refusal error={featuredError} />
       </section>
     </LeafFrame>
+  );
+}
+
+/**
+ * One language list in Preferences (#330): its field of ranked chips, what an
+ * empty list means, and a refusal in the Host's words. The ▾ pushes the sheet
+ * as a level, so the phone's Back puts it away (ADR-0034).
+ */
+function LanguageGroup({
+  kind,
+  session,
+  state,
+  push,
+}: {
+  kind: LanguageKind;
+  session: Session;
+  state: SessionState;
+  push: (level: NewLevel<RemotePayload>) => string;
+}) {
+  const { list, error, change } = useLanguageList(kind, state.snapshot, session.ask);
+  return (
+    <section className="remote-settings-group">
+      <h2 className="remote-settings-label">{LANGUAGE_GROUP_HEADS[kind]}</h2>
+      <LanguageField
+        kind={kind}
+        list={list}
+        onChange={(next) => void change(next)}
+        onOpen={() => push(languageSheetLevel(kind))}
+      />
+      {list.length === 0 ? (
+        <p className="remote-quiet" data-testid={`language-follow-line-${kind}`}>
+          {LANGUAGE_FOLLOW_LINES[kind]}
+        </p>
+      ) : null}
+      <Refusal error={error} />
+    </section>
   );
 }
 
@@ -758,7 +805,7 @@ function ScreenHead({ title }: { title: string }) {
 }
 
 /** The Host's own words for a refusal, announced where the control was. */
-function Refusal({ error }: { error: ActionError | null }) {
+export function Refusal({ error }: { error: ActionError | null }) {
   return error ? (
     <p role="alert" className="remote-failure">
       {explain(error)}

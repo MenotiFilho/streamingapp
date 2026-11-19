@@ -2,19 +2,22 @@ use std::sync::{Arc, Mutex};
 
 use crate::action::{Action, ActionError, ValidatedAction};
 use crate::addon::{Addon, AddonId, Manifest};
+use crate::autoplay::{self, Pending};
 use crate::background::{BackgroundQueue, Job, RevisionSink, Work};
 use crate::cache::CatalogCache;
 use crate::clock::Clock;
 use crate::device::{Device, DeviceSummary, DeviceToken};
 use crate::fetcher::Fetcher;
+use crate::giveup::GiveUp;
+use crate::idle::Idle;
 use crate::library::LibraryCache;
 use crate::meta::{self, Title, TitleKey, Video};
 use crate::pairing::PairingCode;
 use crate::playback::{
-    ChapterStep, ChosenStream, Control, Observation, Picture, PlaybackState, Player, StreamUrl,
-    Telling, TrackId, TrackKind, Unplayable,
+    ChapterStep, ChosenStream, Control, Observation, Picture, PlaybackState, Player, Source,
+    StreamUrl, Telling, Track, TrackId, TrackKind, Unplayable,
 };
-use crate::preferences::FeaturedCatalog;
+use crate::preferences::{FeaturedCatalog, Language, StreamBuffer, TorrentCache};
 use crate::preview::{
     preview_ceiling, NoPreviewer, PreviewCeiling, Previewer, PREVIEW_BITRATE_GRACE_MS,
 };
@@ -28,19 +31,31 @@ use crate::state::{Change, Persist, Protection, State};
 use crate::store::{Store, StoreError};
 use crate::stream::Stream;
 use crate::stremio::StremioApi;
-use crate::subtitles::MAX_FALLBACK_SUBTITLES;
+use crate::subtitles::{missing_languages, Admission, Subtitle, MAX_FALLBACK_SUBTITLES};
 use crate::sync::{merge, Merged, RemoteItem};
 use crate::title_cache::{
     CachedTitle, TitleCache, TitleProbe, TitleProtection, MAX_CACHED_TITLES, RUNNING_FRESH_MILLIS,
 };
 use crate::tmdb;
+use crate::torrent::{
+    FailureKind, InfoHash, NoTorrentEngine, TorrentEngine, TorrentLimits, TorrentPhase,
+    TorrentReport, TorrentStatus,
+};
+use crate::tracks::{self, SubtitleChoice};
 use crate::view::{HostView, HostViewShared};
+
+mod countdown;
+use countdown::CountdownEffect;
 
 /// How often the Host looks for a caught-up Title whose record is now due: a
 /// day, the shortest rhythm any caught-up check runs at. It is the scan that
 /// makes a week pass while the Host stays open, and it is why a failing source
 /// is not asked again on every tick (#277, ADR-0038 §5).
 const READ_AHEAD_SCAN_MILLIS: i64 = RUNNING_FRESH_MILLIS;
+
+/// The least gap between two Torrent statuses reaching the Snapshot: a second,
+/// the engine's own cadence, so a client is not woken by every sample.
+const TORRENT_STATUS_EVERY_MS: i64 = 1_000;
 
 /// The Host: its state, and the surface over it.
 ///
@@ -70,6 +85,46 @@ pub struct Host {
     /// and a Host that never names one has a previewer that answers nothing
     /// (ADR-0028).
     previewer: Arc<dyn Previewer>,
+    /// What turns a chosen torrent into a URL the Player can open (ADR-0042 §2).
+    /// The real Host is built with the bundled engine; a test hands in a fake, and
+    /// a Host that never names one has an engine that refuses every serve.
+    torrent_engine: Arc<dyn TorrentEngine>,
+    /// The torrent the Stream now open is being served from, where it is one: what
+    /// the Host lets go at a stop, and when a Stream of another infoHash replaces
+    /// it, and keeps across `Ended` and across another file of the same infoHash
+    /// (ADR-0042 §2).
+    held_torrent: Option<InfoHash>,
+    /// The engine's latest reading of the held torrent that has not been
+    /// published yet: the Torrent status is published at most once every
+    /// [`TORRENT_STATUS_EVERY_MS`], and what arrives between is kept, newest
+    /// wins, until the second has passed.
+    torrent_reading: Option<TorrentStatus>,
+    /// When a Torrent status last reached the Snapshot, in the Host's own
+    /// millis.
+    torrent_status_at: Option<i64>,
+    /// How long the held torrent's Stream has sat `Ended` or `Paused`, by the
+    /// Host's own clock: what lets an idle torrent go (ADR-0042 §3).
+    idle: Idle,
+    /// How the held torrent has fared since it was served, by the Host's own
+    /// clock, while its Stream is still opening: what lets the Host give up on a
+    /// torrent nobody is sharing (ADR-0042 §5).
+    give_up: GiveUp,
+    /// Whether the torrent of the Stream now open was let go for being idle. The
+    /// Stream stays Now playing, in the state it was left in, and the Host stops
+    /// reading the Player about it: the Player still holds a URL nobody serves.
+    /// Play, a seek or a track change serves the torrent again and reopens the
+    /// same Stream; anything that opens or stops a Stream ends it.
+    released: bool,
+    /// Whether the Torrent engine has already been restarted for the Stream now
+    /// open: it is restarted once, and a second exit ends the Stream
+    /// (ADR-0042 §5). A new Stream, even another file of the same torrent,
+    /// starts the count over.
+    engine_restarted: bool,
+    /// What the engine said when the held torrent had no file to play: the
+    /// sentence the failed open shows in place of the Player's own words
+    /// (ADR-0042 §4). It belongs to the open that failed, and the next open or
+    /// a stop forgets it.
+    engine_failure: Option<(InfoHash, String)>,
     /// Whether the Stream now open may be previewed, once the Player's first
     /// report has said what it costs. [`PreviewCeiling::Waiting`] until then, and
     /// decided once per Stream: a refusal is not revisited on a later report, and
@@ -117,6 +172,17 @@ pub struct Host {
     /// When a caught-up Title was last looked for, so the scan that lets a week
     /// pass on an open Host runs at most once a day (#277).
     read_ahead_scanned_at: Option<i64>,
+    /// The countdown Autoplay is running, or `None` — nearly always. The Host's
+    /// own record beside the state: published in the playback Snapshot with the
+    /// time left read off the clock, and never stored, so a restarted Host comes
+    /// back with none (ADR-0040).
+    autoplay: Option<Pending>,
+    /// How many episodes in a row Autoplay has started with nobody touching
+    /// anything: incremented on each auto-advance, reset by any client Change
+    /// but a look hint, and read when an episode ends to decide between a
+    /// countdown and the "Still watching?" hold. Never published and never
+    /// stored (ADR-0040).
+    unattended: u32,
 }
 
 /// What one look at the background queue did.
@@ -143,6 +209,35 @@ impl Drained {
 }
 
 /// The cache key a read's work will be kept under, where the work names one.
+/// What a Stream that ended for lack of disk says when the engine said nothing
+/// of its own: the likeliest cause, a full disk.
+const DISK_FULL: &str = "The disk is full, so the torrent could not be kept.";
+
+/// What every client is told when the Host gives up on a torrent that never
+/// began to arrive (ADR-0042 §5).
+const NOBODY_SHARING: &str = "Nobody is sharing this torrent right now.";
+
+/// The engine's own sentence for a storage failure, or the full disk's where it
+/// sent none.
+fn storage_sentence(engine_says: &str) -> String {
+    match engine_says.trim() {
+        "" => DISK_FULL.to_owned(),
+        own => own.to_owned(),
+    }
+}
+
+/// What a Stream that lost its Torrent engine twice says.
+const ENGINE_STOPPED_TWICE: &str = "The torrent engine stopped twice while playing this Stream.";
+
+/// What one look at the engine's reports found: the sentence the Stream must end
+/// with, whether a Torrent status reached the Snapshot, and whether the engine
+/// itself exited.
+struct EngineReports {
+    ending: Option<String>,
+    status_moved: bool,
+    exited: bool,
+}
+
 fn key_of(work: &Work) -> Option<TitleKey> {
     match work {
         Work::Addon { addon, asked } => Some(TitleKey::Addon {
@@ -205,13 +300,16 @@ impl Host {
             PairingCode::generate(),
         );
         let picture = player.picture();
-        // The subtitle language the owner stored is told to the Player once,
-        // before anything is opened: mpv's `slang` decides which subtitle track
-        // it selects for a Stream, and it has to be set before the `open` that
-        // would use it. A Player that refuses a preference is not a Host that
-        // cannot hold one, so the refusal is dropped.
-        let _ = player.tell(Telling::SubtitleLanguage(
-            state.preferences().subtitle_language().cloned(),
+        // The two language lists the owner stored are told to the Player once,
+        // before anything is opened: they are the Player's first guess at a
+        // Stream's Tracks, and have to be told before the `open` that would use
+        // them (ADR-0041). A Player that refuses a preference is
+        // not a Host that cannot hold one, so the refusal is dropped.
+        let _ = player.tell(Telling::SubtitleLanguages(
+            state.preferences().subtitle_languages().clone(),
+        ));
+        let _ = player.tell(Telling::AudioLanguages(
+            state.preferences().audio_languages().clone(),
         ));
         // The appearance follows, for the same reason and in the same order:
         // the preferences are Host state, and a Stream opened after a restart
@@ -232,6 +330,15 @@ impl Host {
             provider,
             player,
             previewer: Arc::new(NoPreviewer),
+            torrent_engine: Arc::new(NoTorrentEngine),
+            held_torrent: None,
+            torrent_reading: None,
+            torrent_status_at: None,
+            idle: Idle::default(),
+            give_up: GiveUp::default(),
+            released: false,
+            engine_restarted: false,
+            engine_failure: None,
             preview_gate: PreviewCeiling::Refused,
             preview_since: None,
             clock,
@@ -245,6 +352,8 @@ impl Host {
             titles,
             background: Arc::new(Mutex::new(BackgroundQueue::default())),
             read_ahead_scanned_at: None,
+            autoplay: None,
+            unattended: 0,
         };
         // The Titles behind Continue watching are known here, and they are the
         // ones the owner is most likely to open and the ones Up next is drawn
@@ -269,6 +378,32 @@ impl Host {
     pub fn with_previewer(mut self, previewer: Arc<dyn Previewer>) -> Self {
         self.previewer = previewer;
         self
+    }
+
+    /// The same Host, able to play torrents through `engine` (ADR-0042).
+    ///
+    /// A builder for the same reason as [`Host::with_previewer`]: a Host built
+    /// without one is the default every test and every build without the bundled
+    /// engine is written against, and it refuses a torrent with a sentence.
+    #[must_use]
+    pub fn with_torrent_engine(mut self, engine: Arc<dyn TorrentEngine>) -> Self {
+        self.torrent_engine = engine;
+        // The limits are told as the engine is given, which is the Host's
+        // startup: they are what the stored preferences say, and a torrent
+        // served before they were known would be read ahead by the engine's own
+        // guess (ADR-0042 §3).
+        let preferences = self.state.preferences();
+        self.tell_torrent_limits(preferences.stream_buffer(), preferences.torrent_cache());
+        self
+    }
+
+    /// Tell the Torrent engine how far to read ahead and how much disk to take,
+    /// from the two preferences that make it. Told at startup and on every change
+    /// of either, so the limits reach a torrent that is already held (ADR-0042
+    /// §3).
+    fn tell_torrent_limits(&self, buffer: StreamBuffer, cache: TorrentCache) {
+        self.torrent_engine
+            .set_limits(TorrentLimits::from_preferences(buffer, cache));
     }
 
     /// The same Host, able to sync with a Stremio account (#30).
@@ -305,6 +440,9 @@ impl Host {
             self.revision,
             self.picture,
             self.serving.as_deref(),
+            self.autoplay
+                .as_ref()
+                .map(|pending| pending.snapshot(self.clock.now_millis())),
         )
     }
 
@@ -684,6 +822,11 @@ impl Host {
     /// serializing those is what keeps two changes from interleaving into a
     /// state neither asked for (ADR-0022).
     pub fn apply(&mut self, validated: ValidatedAction) -> Result<Response, ActionError> {
+        // A client doing anything but warming a Title is somebody being there:
+        // the unattended count starts again, whatever becomes of the Action.
+        if autoplay::attends(&validated) {
+            self.unattended = 0;
+        }
         let (change, answer) = match self.change(validated)? {
             Resolved::Change(change) => (change, None),
             // The one Action that both changes state and answers the client that
@@ -694,6 +837,19 @@ impl Host {
             // Snapshot or an Answer (ADR-0038 §3, #278).
             Resolved::Silent => return Ok(Response::silent()),
         };
+
+        self.commit(change, answer)
+    }
+
+    /// Fold one resolved change into the state, keep what it left behind, and
+    /// publish the Snapshot it owes.
+    ///
+    /// The tail of [`Host::apply`], and what the Host's own countdown plays
+    /// through when it runs out: a next episode started by Autoplay is the same
+    /// change `next_episode` makes, taken the same way (ADR-0040).
+    fn commit(&mut self, change: Change, answer: Option<Answer>) -> Result<Response, ActionError> {
+        // What the change does to the Autoplay countdown, settled below.
+        let countdown = CountdownEffect::of(&change);
 
         // The Title a pause or a stop leaves is the one the account is owed: the
         // Stream is still the Host's here, and after a stop it is not.
@@ -742,6 +898,8 @@ impl Host {
 
         self.state = next;
         self.revision += 1;
+        self.note_idle();
+        self.settle_countdown(countdown);
         if account_changed {
             self.library_cache
                 .lock()
@@ -997,7 +1155,57 @@ impl Host {
     /// timers — so whoever owns the shell's event loop calls this while
     /// something is playing (ADR-0013, ADR-0033).
     pub fn sample(&mut self) -> Option<Snapshot> {
-        let observation = self.player.observe();
+        let drained = self.drain_torrent_reports();
+        if let Some(sentence) = drained.ending {
+            return Some(self.end_with_failure(sentence));
+        }
+        let status_moved = drained.status_moved;
+        if drained.exited {
+            if let Some(snapshot) = self.recover_from_engine_exit() {
+                return Some(snapshot);
+            }
+        }
+
+        // A released Stream is the Host's record of it: what the Player says
+        // about a URL nobody serves is not news (ADR-0042 §3).
+        if self.released {
+            return None;
+        }
+        let mut observation = self.player.observe();
+        self.prefer_the_engines_failure(&mut observation);
+
+        // A torrent nobody shares is given up on while its Stream is still
+        // opening, and never after: a Stream the Player has got past opening is
+        // not measured again (ADR-0042 §5).
+        if self.giving_up_on_opening(&observation) {
+            return Some(self.end_with_failure(NOBODY_SHARING.to_owned()));
+        }
+
+        // The Host's own countdown is checked against its clock *before* an
+        // unchanged report returns early below: nothing about a Stream that
+        // sits on its last frame changes, and the countdown must still run out.
+        // A report that says the Stream is no longer ended — a Stream that
+        // came back to life — ends the countdown instead (ADR-0040).
+        let mut countdown_ended = false;
+        if let Some(pending) = &self.autoplay {
+            if observation.state != PlaybackState::Ended {
+                self.autoplay = None;
+                countdown_ended = true;
+            } else if pending.expired(self.clock.now_millis()) {
+                // What the report said is about the Stream that ended, and the
+                // play that follows has replaced it: folding the stale report
+                // in would end the new Stream before it began.
+                return self.autoplay_expired();
+            }
+        }
+
+        // A torrent idle long enough is let go here, after the countdown had its
+        // turn — an episode that is about to play is not idle — and the report
+        // that was read is dropped with it: from now on the Host's record stands
+        // (ADR-0042 §3).
+        if self.idle.due(self.clock.now_millis()) {
+            return self.release_idle_torrent();
+        }
 
         // The first report of a Stream is where the Seek preview's ceiling is
         // decided: a Stream too dear to ask twice, or one that will not say what
@@ -1025,22 +1233,67 @@ impl Host {
             }
         }
 
-        // Reading the Player's report is also where the Host notices a Stream
-        // that came up with no subtitles of its own, and offers the Addon
-        // fallback once. The fetch is I/O inside the tick and that is
-        // deliberate: a Stream that needs subtitles needs them whether or not a
-        // client has a menu open, so no client can cause or prevent it
-        // (ADR-0014). The attempt is the Host's own note and is not published;
-        // a tick that only records it moves no revision.
-        if self.offers_subtitles(&observation) {
-            self.ask_addons_for_subtitles();
-            self.state.record_subtitles_attempt();
+        // The first report of a Stream's Tracks is where the Host chooses the
+        // soundtrack and then the subtitle itself (ADR-0041). They are told
+        // before the report is folded in, and the choices are carried into the
+        // folded record below, so the Snapshot already says what the Host chose.
+        let mut initial = self.choose_initial_tracks(&observation);
+
+        // A report that holds the Addon subtitles the Host added is where it
+        // switches to the best of them, once (ADR-0041).
+        if let Some(switched) = self.switch_to_addon_subtitle(&observation) {
+            initial.subtitle = Some(switched);
         }
 
-        let next = self.state.playback().advanced(&observation)?;
+        // Reading the Player's report is also where the Host notices a Stream
+        // that lacks a language it was asked for, and offers the Addon fallback
+        // once. The fetch is I/O inside the tick and that is deliberate: a
+        // Stream that needs subtitles needs them whether or not a client has a
+        // menu open, so no client can cause or prevent it (ADR-0014). The
+        // attempt is the Host's own note and is not published; a tick that only
+        // records it moves no revision. It follows the choice above: what is
+        // embedded shows at once, and the added Tracks are chosen from when they
+        // appear in a later report.
+        if self.offers_subtitles(&observation) {
+            let added = self.ask_addons_for_subtitles(&observation);
+            self.state.record_subtitles_attempt();
+            self.state.record_addon_tracks_added(added);
+        }
+
+        let was_ended = self.state.playback().has_ended();
+        let Some(mut next) = self.state.playback().advanced(&observation) else {
+            // Nothing the Player said moved; only the countdown ending can.
+            if countdown_ended || status_moved {
+                self.revision += 1;
+                return Some(self.snapshot());
+            }
+            return None;
+        };
+        if let Some(id) = initial.audio {
+            next.select(TrackKind::Audio, Some(id));
+        }
+        if let Some(choice) = initial.subtitle {
+            next.select(TrackKind::Subtitle, choice.track());
+        }
+        let failed_open = next.state() == PlaybackState::Idle;
+        if failed_open {
+            next.clear_torrent_status();
+        }
         let published = next.differs_publicly_from(self.state.playback());
+        let reached_the_end = next.has_ended() && !was_ended;
 
         self.state.set_playback(next);
+        if failed_open {
+            self.let_go_failed_open_torrent();
+        }
+        self.note_idle();
+
+        // The tick where an episode's Stream becomes `Ended` is the one that
+        // starts the countdown, if one is owed. It is published with the
+        // Snapshot the end itself owes, and not again until it ends.
+        if reached_the_end {
+            self.autoplay = self.countdown_to_next();
+        }
 
         // Where playback has got to is Watch progress the moment it is worth
         // writing — a position that moved a few seconds, a Video that finished,
@@ -1057,7 +1310,16 @@ impl Host {
             let _ = self.store.write_watch_progress(&entry);
         }
 
-        if !published && !corrected {
+        // Reaching `Ended` finishes the Video in Watch progress above, so push
+        // its Title once on the transition — never on later ticks that stay on
+        // `Ended` (#315).
+        if !was_ended && self.state.playback().has_ended() {
+            if let Some(title) = self.playing_title() {
+                self.push_title(title.id());
+            }
+        }
+
+        if !published && !corrected && !countdown_ended && !status_moved {
             return None;
         }
 
@@ -1065,14 +1327,125 @@ impl Host {
         Some(self.snapshot())
     }
 
+    /// The soundtrack and the subtitle the Host tells the Player to select, on
+    /// the first report of this Stream's Tracks, or nothing.
+    ///
+    /// The first observation with a track list while the Stream plays or is
+    /// paused is the one the choice is made from, once per Stream: a report
+    /// still describing an open in flight, or one that could not read the list,
+    /// spends nothing, and a later report never re-chooses (a list changed
+    /// mid-Stream applies from the next Stream). The Host ranks the audio Tracks
+    /// against Audio languages, then the subtitle Tracks against Subtitle
+    /// languages with the soundtrack's language to hand, and tells `AudioTrack`
+    /// then `SubtitleTrack` only where its choice differs from the Track the Player has
+    /// selected (ADR-0041). The Hand pick, where the owner made one earlier in
+    /// this Title, is ranked ahead of the lists.
+    fn choose_initial_tracks(&mut self, observation: &Observation) -> InitialChoice {
+        let mut told = InitialChoice::default();
+        if !self.state.playback().has_stream()
+            || self.state.playback().chosen_initial()
+            || !observation.is_running()
+        {
+            return told;
+        }
+        let Some(tracks) = observation.tracks.as_deref() else {
+            return told;
+        };
+        self.state.record_initial_choice();
+
+        // The soundtrack first. A Player that refuses leaves the Host's record
+        // where the Player has it, and the subtitle is then chosen against what plays.
+        let mut heard = tracks::selected(tracks, TrackKind::Audio).map(|track| track.id);
+        if let Some(chosen) = tracks::choose_soundtrack(
+            tracks,
+            self.state.preferences().audio_languages(),
+            self.state.hand_pick().audio(),
+        ) {
+            if heard == Some(chosen) {
+                // Already what the Player plays.
+            } else if self.player.tell(Telling::AudioTrack(chosen)).is_ok() {
+                told.audio = Some(chosen);
+                heard = Some(chosen);
+            }
+        }
+        let soundtrack_language = heard
+            .and_then(|id| tracks.iter().find(|track| track.id == id))
+            .and_then(tracks::language_of);
+
+        told.subtitle = self.tell_subtitle_choice(tracks, soundtrack_language.as_ref());
+        told
+    }
+
+    /// Rank the subtitle Tracks and tell the Player where the answer differs
+    /// from what it has selected: `Some(choice)` when the Player took the
+    /// Telling.
+    fn tell_subtitle_choice(
+        &self,
+        tracks: &[Track],
+        soundtrack_language: Option<&Language>,
+    ) -> Option<SubtitleChoice> {
+        let chosen = tracks::choose_subtitle(
+            tracks,
+            self.state.preferences().subtitle_languages(),
+            self.state.hand_pick().subtitle(),
+            soundtrack_language,
+        );
+        let selected = tracks::selected(tracks, TrackKind::Subtitle).map(|track| track.id);
+        if selected != chosen.track()
+            && self
+                .player
+                .tell(Telling::SubtitleTrack(chosen.track()))
+                .is_ok()
+        {
+            return Some(chosen);
+        }
+        None
+    }
+
+    /// The Host's one switch to an Addon subtitle, or nothing.
+    ///
+    /// On the first observation, after the Addons were asked, whose report holds
+    /// every Track the Host added, the subtitle is chosen again with the
+    /// soundtrack that plays now, and the Player is told where the answer
+    /// differs from what it has selected. This is decided once per Stream and
+    /// never again, so a switch does not jump around while the owner watches,
+    /// and where the Addons added nothing nothing is awaited and nothing
+    /// happens (ADR-0041). A report that does not hold the Tracks yet, or could
+    /// not be read, spends nothing.
+    fn switch_to_addon_subtitle(&mut self, observation: &Observation) -> Option<SubtitleChoice> {
+        let awaited = self.state.playback().addon_tracks_awaited();
+        if awaited == 0 || !self.state.playback().has_stream() || !observation.is_running() {
+            return None;
+        }
+        let tracks = observation.tracks.as_deref()?;
+        let added = tracks
+            .iter()
+            .filter(|track| track.kind == TrackKind::Subtitle && !track.embedded)
+            .count();
+        if added < awaited {
+            return None;
+        }
+        self.state.record_addon_switch_done();
+
+        let soundtrack_language =
+            tracks::selected(tracks, TrackKind::Audio).and_then(tracks::language_of);
+        self.tell_subtitle_choice(tracks, soundtrack_language.as_ref())
+    }
+
     /// Whether the Addon subtitles fallback is owed right now.
     ///
     /// Only when the Stream is loaded and live — not merely opening — the
-    /// Player has *said* what the Stream carries, and what it said includes no
-    /// embedded subtitle track, and this Stream has not been asked about yet.
-    /// Embedded tracks always win, so a Stream that reports one is never asked
-    /// about; and the attempt is per Stream, so a Stream with no subtitles
-    /// anywhere is asked about once rather than every tick.
+    /// Player has *said* what the Stream carries, and this Stream has not been
+    /// asked about yet. What it has to lack depends on what the Host is
+    /// choosing by (ADR-0041):
+    ///
+    /// - With Subtitle languages (or a Hand pick), some listed language has no
+    ///   embedded subtitle Track that answers it: [`missing_languages`].
+    /// - Following the file (an empty list), the file carries no embedded
+    ///   subtitle Track at all, as it always was.
+    ///
+    /// The attempt is per Stream, so a Stream that lacks what it is asked for is
+    /// asked about once rather than every tick.
     ///
     /// `tracks` being `None` is a Player that could not read the track list,
     /// which is not the same as a Stream with no subtitles in it: the fallback
@@ -1082,33 +1455,65 @@ impl Host {
         if !self.state.playback().has_stream() || self.state.playback().subtitles_attempted() {
             return false;
         }
-        if !matches!(
-            observation.state,
-            PlaybackState::Playing | PlaybackState::Paused
-        ) {
+        if !observation.is_running() {
             return false;
         }
         let Some(tracks) = observation.tracks.as_deref() else {
             return false;
         };
 
-        !tracks
-            .iter()
-            .any(|track| track.kind == TrackKind::Subtitle && track.embedded)
+        if self.follows_the_file() {
+            return !tracks
+                .iter()
+                .any(|track| track.kind == TrackKind::Subtitle && track.embedded);
+        }
+        !self.missing_subtitle_languages(tracks).is_empty()
+    }
+
+    /// Whether the Host follows the file for subtitles: no Subtitle languages
+    /// and no subtitle Hand pick, so no language is asked of any Addon
+    /// (ADR-0041).
+    fn follows_the_file(&self) -> bool {
+        self.state
+            .preferences()
+            .subtitle_languages()
+            .as_slice()
+            .is_empty()
+            && self.state.hand_pick().subtitle().is_none()
+    }
+
+    /// The languages this Stream's file lacks: the Hand pick's, then the listed
+    /// ones.
+    fn missing_subtitle_languages(&self, tracks: &[Track]) -> Vec<Language> {
+        missing_languages(
+            tracks,
+            self.state.preferences().subtitle_languages(),
+            self.state.hand_pick().subtitle(),
+        )
     }
 
     /// Ask every configured Addon that answers a `subtitles` request for the
-    /// Video playing, and tell the Player to load what comes back.
+    /// Video playing, and tell the Player to load what comes back. Returns how
+    /// many it loaded that the Host will choose from (none, following the file).
     ///
     /// One Addon failing is one Addon with nothing, not a failed fallback: the
-    /// others still answer (ADR-0010's rule, applied here). What comes back is
-    /// capped, across every Addon, at [`MAX_FALLBACK_SUBTITLES`], because a
-    /// fallback is a handful of tracks and none of them is a choice a client
-    /// made.
-    fn ask_addons_for_subtitles(&self) {
+    /// others still answer (ADR-0010's rule, applied here).
+    ///
+    /// - With Subtitle languages, only subtitles in the languages the file lacks
+    ///   are loaded, at most three of each, in Addon order, and none is selected
+    ///   here: the Host chooses once the added Tracks are reported (ADR-0041).
+    /// - Following the file, what comes back is capped, across every Addon, at
+    ///   [`MAX_FALLBACK_SUBTITLES`], whatever its language, because a fallback is
+    ///   a handful of tracks and none of them is a choice a client made. None is
+    ///   ever selected.
+    ///
+    /// None is selected on adding, either way: the Host selects by id, so the
+    /// Player's own select-on-add is not wanted.
+    fn ask_addons_for_subtitles(&self, observation: &Observation) -> usize {
         let Some(chosen) = self.state.playback().chosen() else {
-            return;
+            return 0;
         };
+        let tracks = observation.tracks.as_deref().unwrap_or_default();
         let video = chosen.now_playing.video.clone();
         let addons: Vec<(Addon, ResourceRequest)> = self
             .view()
@@ -1117,32 +1522,77 @@ impl Host {
             .filter_map(|asked| Some((asked.addon, asked.requested?)))
             .collect();
 
-        let mut added = 0usize;
-        for (addon, requested) in &addons {
-            if added >= MAX_FALLBACK_SUBTITLES {
+        if self.follows_the_file() {
+            self.add_fallback_subtitles(&addons);
+            0
+        } else {
+            self.add_subtitles_in(&addons, self.missing_subtitle_languages(tracks))
+        }
+    }
+
+    /// The Addon fallback of a Host that follows the file: whatever the Addons
+    /// offer, in Addon order, up to [`MAX_FALLBACK_SUBTITLES`] across all of
+    /// them. The Host chooses none of them, so nothing is awaited.
+    fn add_fallback_subtitles(&self, addons: &[(Addon, ResourceRequest)]) {
+        let mut counted = 0usize;
+        for (addon, requested) in addons {
+            if counted >= MAX_FALLBACK_SUBTITLES {
                 break;
             }
-            // A fetch that fails, or an answer that cannot be read, is this
-            // Addon having nothing: the Host does not invent a subtitle for it,
-            // and the next Addon is still asked.
-            let Ok(subtitles) = self.provider.subtitles(addon, requested) else {
-                continue;
-            };
-            for subtitle in subtitles {
-                if added >= MAX_FALLBACK_SUBTITLES {
+            for subtitle in self.offered_by(addon, requested) {
+                if counted >= MAX_FALLBACK_SUBTITLES {
                     break;
                 }
-                // A Player that refuses one is not a failed fallback either: the
-                // Host's own record has already noted the attempt, and a refusal
-                // is the Player's to make.
-                let _ = self.player.tell(Telling::AddSubtitle {
-                    url: subtitle.url,
-                    title: subtitle.id,
-                    language: subtitle.language,
-                });
-                added += 1;
+                self.add_subtitle(subtitle);
+                counted += 1;
             }
         }
+    }
+
+    /// The Addon fallback of a Host that chooses by language: the subtitles that
+    /// answer a language the file lacks, at most three of each, in Addon order.
+    /// Returns how many the Player took, which the Host will look for in a later
+    /// report and choose from.
+    fn add_subtitles_in(
+        &self,
+        addons: &[(Addon, ResourceRequest)],
+        missing: Vec<Language>,
+    ) -> usize {
+        let mut admission = Admission::for_languages(missing);
+        let mut loaded = 0usize;
+        for (addon, requested) in addons {
+            if admission.is_full() {
+                break;
+            }
+            for subtitle in self.offered_by(addon, requested) {
+                if admission.admit(&subtitle) && self.add_subtitle(subtitle) {
+                    loaded += 1;
+                }
+            }
+        }
+        loaded
+    }
+
+    /// What one Addon offers for this Video. A fetch that fails, or an answer
+    /// that cannot be read, is this Addon having nothing: the Host does not
+    /// invent a subtitle for it, and the next Addon is still asked.
+    fn offered_by(&self, addon: &Addon, requested: &ResourceRequest) -> Vec<Subtitle> {
+        self.provider
+            .subtitles(addon, requested)
+            .unwrap_or_default()
+    }
+
+    /// Tell the Player to load one subtitle; whether it took it. A Player that
+    /// refuses one is not a failed fallback: the Host's own record has already
+    /// noted the attempt, and a refusal is the Player's to make.
+    fn add_subtitle(&self, subtitle: Subtitle) -> bool {
+        self.player
+            .tell(Telling::AddSubtitle {
+                url: subtitle.url,
+                title: subtitle.id,
+                language: subtitle.language,
+            })
+            .is_ok()
     }
 
     /// Turn a validated change into the change it will make.
@@ -1153,18 +1603,20 @@ impl Host {
     /// state nor store. A question never reaches this method (ADR-0022).
     fn change(&mut self, validated: ValidatedAction) -> Result<Resolved, ActionError> {
         Ok(match validated {
-            ValidatedAction::SetSubtitleLanguage(language) => {
+            ValidatedAction::SetSubtitleLanguages(languages) => {
                 // The preference is the Host's and persists whether or not the
                 // Player takes it; a Player that refuses is not a reason a
-                // client cannot express a preference (ADR-0013).
+                // client cannot express a preference (ADR-0013). Told to the
+                // Player as its first guess for the next Stream; the Stream
+                // playing keeps its tracks (ADR-0041).
                 let _ = self
                     .player
-                    .tell(Telling::SubtitleLanguage(Some(language.clone())));
-                Resolved::Change(Change::SetSubtitleLanguage(language))
+                    .tell(Telling::SubtitleLanguages(languages.clone()));
+                Resolved::Change(Change::SetSubtitleLanguages(languages))
             }
-            ValidatedAction::ClearSubtitleLanguage => {
-                let _ = self.player.tell(Telling::SubtitleLanguage(None));
-                Resolved::Change(Change::ClearSubtitleLanguage)
+            ValidatedAction::SetAudioLanguages(languages) => {
+                let _ = self.player.tell(Telling::AudioLanguages(languages.clone()));
+                Resolved::Change(Change::SetAudioLanguages(languages))
             }
             ValidatedAction::SetSubtitleColor(color) => {
                 // A preference the Host keeps whether or not the Player takes
@@ -1182,13 +1634,37 @@ impl Host {
                 // Player takes it, like the appearance beside it; the Player's
                 // buffer limits move without reopening the Stream (ADR-0026).
                 let _ = self.player.tell(Telling::StreamBuffer(buffer));
+                // A torrent's read-ahead follows it too (ADR-0042 §3).
+                self.tell_torrent_limits(buffer, self.state.preferences().torrent_cache());
                 Resolved::Change(Change::SetStreamBuffer(buffer))
+            }
+            ValidatedAction::SetTorrentCache(cache) => {
+                // Told at once, so a torrent already held is trimmed to it; a
+                // refusing or absent engine does not stop the Host holding the
+                // preference (ADR-0042 §3).
+                self.tell_torrent_limits(self.state.preferences().stream_buffer(), cache);
+                Resolved::Change(Change::SetTorrentCache(cache))
             }
             ValidatedAction::SetUpNextPlayback(playback) => {
                 // A preference and nothing else: the Player is not told, because
                 // what Play does is decided by the client that presses it from
                 // the Snapshot (#276).
                 Resolved::Change(Change::SetUpNextPlayback(playback))
+            }
+            ValidatedAction::SetAutoplay(autoplay) => {
+                // A preference, and where it is switched on while the Host sits
+                // on an ended episode, the countdown it was waiting for
+                // ([`Host::commit`]).
+                Resolved::Change(Change::SetAutoplay(autoplay))
+            }
+            ValidatedAction::CancelAutoplay => {
+                // With nothing counting down there is nothing to say: two
+                // clients pressing Cancel together is harmless.
+                if self.autoplay.is_none() {
+                    Resolved::Silent
+                } else {
+                    Resolved::Change(Change::CancelAutoplay)
+                }
             }
             ValidatedAction::AddAddon(url) => {
                 let body =
@@ -1355,49 +1831,29 @@ impl Host {
                 // `observe`, because agreeing to try is not playing. The Title
                 // rides along so the play is recorded as progress in a Video of
                 // it (#29), and a fresh play starts at the Stream's beginning.
-                self.player
-                    .open(&chosen.url, None)
-                    .map_err(|error| ActionError::Playback {
-                        detail: error.to_string(),
-                    })?;
-                // Armed at the same moment the Stream opens, and cheap: the
-                // worker does not connect until the first still is asked for
-                // (ADR-0028).
-                self.arm_preview(&chosen.url);
-                Resolved::Change(Change::Play {
-                    chosen,
-                    title: Some(Box::new(title)),
-                    start: None,
-                })
+                Resolved::Change(self.open_stream(chosen, Some(title), None)?)
             }
             ValidatedAction::Resume { video } => {
                 let (chosen, title, start) = self.resume(&video)?;
-                self.player
-                    .open(&chosen.url, start)
-                    .map_err(|error| ActionError::Playback {
-                        detail: error.to_string(),
-                    })?;
-                self.arm_preview(&chosen.url);
-                Resolved::Change(Change::Play {
-                    chosen: Box::new(chosen),
-                    title: Some(Box::new(title)),
-                    start,
-                })
+                Resolved::Change(self.open_stream(Box::new(chosen), Some(title), start)?)
             }
             ValidatedAction::PlayUpNext { title } => {
                 let (entry, previous) = self.up_next(&title)?;
                 let chosen = self.up_next_stream(&entry, &previous)?;
-                self.player
-                    .open(&chosen.url, None)
-                    .map_err(|error| ActionError::Playback {
-                        detail: error.to_string(),
-                    })?;
-                self.arm_preview(&chosen.url);
-                Resolved::Change(Change::Play {
-                    chosen: Box::new(chosen),
-                    title: Some(Box::new(entry.title)),
-                    start: None,
-                })
+                Resolved::Change(self.open_stream(Box::new(chosen), Some(entry.title), None)?)
+            }
+            ValidatedAction::SetPaused { paused: false } if self.released => {
+                // Play on a torrent that was let go for being idle: it is served
+                // again and the same Stream reopens where it was left. A finished
+                // Stream has no position left to hold, and reopening at its end
+                // would end it again at once, so it starts over (ADR-0042 §3).
+                let held = self.state.playback();
+                let start = if held.has_ended() {
+                    None
+                } else {
+                    held.position()
+                };
+                Resolved::Change(self.reopen_released(start)?)
             }
             ValidatedAction::SetPaused { paused } => {
                 self.playing(Control::Pause)?;
@@ -1406,22 +1862,30 @@ impl Host {
             }
             ValidatedAction::Seek { target } => {
                 self.playing(Control::Seek)?;
+                if self.released {
+                    // The reopen is the seek: the Player is opened where the seek
+                    // lands, and is not told to seek a Stream that is still loading.
+                    let held = self.state.playback();
+                    let landing = target.landing(held.position().unwrap_or(0.0), held.duration());
+                    return Ok(Resolved::Change(self.reopen_released(Some(landing))?));
+                }
                 self.told(Telling::Seek(target))?;
                 Resolved::Change(Change::Seek(target))
             }
             ValidatedAction::SetAudioTrack { track } => {
                 self.playing(Control::AudioTrack)?;
                 self.known_track(Control::AudioTrack, TrackKind::Audio, track)?;
-                self.told(Telling::AudioTrack(track))?;
-                Resolved::Change(Change::SetAudioTrack(track))
+                self.picked(Change::SetAudioTrack(track), Telling::AudioTrack(track))?
             }
             ValidatedAction::SetSubtitleTrack { track } => {
                 self.playing(Control::SubtitleTrack)?;
                 if let Some(id) = track {
                     self.known_track(Control::SubtitleTrack, TrackKind::Subtitle, id)?;
                 }
-                self.told(Telling::SubtitleTrack(track))?;
-                Resolved::Change(Change::SetSubtitleTrack(track))
+                self.picked(
+                    Change::SetSubtitleTrack(track),
+                    Telling::SubtitleTrack(track),
+                )?
             }
             ValidatedAction::SetSubtitleDelay { seconds } => {
                 self.playing(Control::SubtitleDelay)?;
@@ -1443,16 +1907,8 @@ impl Host {
                 self.told(Telling::Muted(muted))?;
                 Resolved::Change(Change::SetMuted(muted))
             }
-            ValidatedAction::NextChapter => {
-                self.playing(Control::Chapter)?;
-                self.told(Telling::Chapter(ChapterStep::Next))?;
-                Resolved::Change(Change::Chapter(ChapterStep::Next))
-            }
-            ValidatedAction::PreviousChapter => {
-                self.playing(Control::Chapter)?;
-                self.told(Telling::Chapter(ChapterStep::Previous))?;
-                Resolved::Change(Change::Chapter(ChapterStep::Previous))
-            }
+            ValidatedAction::NextChapter => self.chapter_jump(ChapterStep::Next)?,
+            ValidatedAction::PreviousChapter => self.chapter_jump(ChapterStep::Previous)?,
             ValidatedAction::SetChapter { index } => {
                 self.playing(Control::Chapter)?;
                 // The chapter list is the Host's own record of what the Player
@@ -1460,8 +1916,7 @@ impl Host {
                 if index >= self.state.playback().chapters().len() {
                     return Err(ActionError::UnknownChapter { index });
                 }
-                self.told(Telling::Chapter(ChapterStep::At { index }))?;
-                Resolved::Change(Change::Chapter(ChapterStep::At { index }))
+                self.chapter_jump(ChapterStep::At { index })?
             }
             ValidatedAction::SetCrop { crop } => {
                 self.playing(Control::Crop)?;
@@ -1499,6 +1954,8 @@ impl Host {
                 // for: letting the URL go ends a second connection the Stream
                 // was only lent (ADR-0028).
                 self.disarm_preview();
+                self.let_go_held_torrent();
+                self.released = false;
                 Resolved::Change(Change::Stop)
             }
             ValidatedAction::LookHint { addon, title } => {
@@ -1580,6 +2037,442 @@ impl Host {
         self.preview_since = None;
     }
 
+    /// Let the torrent being served go, where the Stream is one: the engine stops
+    /// fetching and uploading and deletes what it kept (ADR-0042 §2).
+    fn let_go_held_torrent(&mut self) {
+        self.engine_failure = None;
+        if let Some(info_hash) = self.held_torrent.take() {
+            self.torrent_engine.let_go(&info_hash);
+        }
+        self.forget_torrent_readings();
+    }
+
+    /// Let the torrent being opened go after the Player reported `Idle` (a failed
+    /// open): drops the torrent from disk and clears held-torrent state while
+    /// preserving `engine_failure` so subsequent ticks of the same failed open
+    /// keep the engine's `NoFile` sentence.
+    fn let_go_failed_open_torrent(&mut self) {
+        if let Some(info_hash) = self.held_torrent.take() {
+            self.torrent_engine.let_go(&info_hash);
+        }
+        self.forget_torrent_readings();
+        self.idle.clear();
+        self.released = false;
+    }
+
+    /// Whether `info_hash` is the torrent held right now, or the torrent whose
+    /// open just failed (`Idle` with a failure). Letting go on a failed open
+    /// drops `held_torrent` immediately, while a late `Failed { NoFile }` report
+    /// (and later ticks keeping that sentence) still belongs to that failed open.
+    fn matches_torrent_for_no_file(&self, info_hash: &InfoHash) -> bool {
+        if self.held_torrent.as_ref() == Some(info_hash) {
+            return true;
+        }
+        self.state.playback().state() == PlaybackState::Idle
+            && self.state.playback().failure().is_some()
+            && self
+                .state
+                .playback()
+                .chosen()
+                .and_then(ChosenStream::info_hash)
+                == Some(info_hash)
+    }
+
+    /// Feed the Host's idle measure the state the Stream is in now, at the
+    /// Host's own clock. Called wherever the state can have changed, so the
+    /// measure begins at the moment a Stream was paused or ended and not at the
+    /// next tick after it (ADR-0042 §3).
+    fn note_idle(&mut self) {
+        let held = self.held_torrent.is_some();
+        self.idle
+            .note(self.state.playback().state(), held, self.clock.now_millis());
+    }
+
+    /// Let the held torrent go for being idle, and keep the Stream where it is:
+    /// still Now playing, in the state it was left in. Clears any stale Torrent
+    /// status from the Snapshot and publishes if one was present (ADR-0042 §3).
+    fn release_idle_torrent(&mut self) -> Option<Snapshot> {
+        self.let_go_held_torrent();
+        self.idle.clear();
+        self.released = true;
+        let cleared = self.state.clear_torrent_status();
+        tracing::info!("an idle torrent was let go; its Stream stays as Now playing");
+        if cleared {
+            self.revision += 1;
+            return Some(self.snapshot());
+        }
+        None
+    }
+
+    /// Serve the released torrent again and reopen the same Stream at `start`,
+    /// through the path a resume opens a Stream at a start position. Opening is
+    /// what clients see until the Player reports. A serve or an open that fails
+    /// leaves the Stream released, as it was, and a second try is a new try.
+    fn reopen_released(&mut self, start: Option<f64>) -> Result<Change, ActionError> {
+        let Some(chosen) = self.state.playback().chosen().cloned() else {
+            // Released is only ever set on a Stream; this is a refusal rather
+            // than a panic all the same.
+            return Err(ActionError::NothingPlaying {
+                control: Control::Pause,
+            });
+        };
+        let title = self.playing_title();
+        self.open_stream(Box::new(chosen), title, start)
+    }
+
+    /// A chapter jump: a seek to where the chapter starts. Told to the Player, or
+    /// — on a released torrent, whose Player has nothing served to jump in — the
+    /// Stream reopened at the chapter's start, as a seek reopens it at its landing
+    /// point. A list with no chapter to land on has nothing to reopen for.
+    fn chapter_jump(&mut self, step: ChapterStep) -> Result<Resolved, ActionError> {
+        self.playing(Control::Chapter)?;
+        if self.released {
+            if let Some(start) = self.state.playback().chapter_start(step) {
+                return Ok(Resolved::Change(self.reopen_released(Some(start))?));
+            }
+            return Ok(Resolved::Change(Change::Chapter(step)));
+        }
+        self.told(Telling::Chapter(step))?;
+        Ok(Resolved::Change(Change::Chapter(step)))
+    }
+
+    /// A track the owner picked: told to the Player and recorded, or — on a
+    /// released torrent — the Stream reopened first and the pick applied to it.
+    ///
+    /// The pick is recorded on the Stream as the owner saw it, with the Track's
+    /// language known, before the reopen's fresh session replaces it: the Host
+    /// chooses a reopened Stream's Tracks again from its first report, and a Hand
+    /// pick that lost its language would be chosen over (ADR-0041).
+    fn picked(&mut self, pick: Change, telling: Telling) -> Result<Resolved, ActionError> {
+        if !self.released {
+            self.told(telling)?;
+            return Ok(Resolved::Change(pick));
+        }
+        let start = self.state.playback().position();
+        let reopened = self.reopen_released(start)?;
+        self.commit(pick, None)?;
+        // The Player is already opening; a refusal here costs nothing, because
+        // the Host's choice from the reopened Stream's own Tracks follows the pick.
+        let _ = self.told(telling);
+        Ok(Resolved::Change(reopened))
+    }
+
+    /// Drop what the Host holds of a torrent's Torrent status: a reading kept
+    /// back, and when the last one went out. What the Snapshot says goes with the
+    /// Stream, and the next torrent's first reading must not wait on this one's.
+    fn forget_torrent_readings(&mut self) {
+        self.torrent_reading = None;
+        self.torrent_status_at = None;
+        self.give_up.clear();
+    }
+
+    /// Take what the engine has reported since the last tick. Two things come
+    /// back: the sentence the Stream must end with when the torrent held could
+    /// not be kept on disk (ADR-0042 §3), and whether a Torrent status reached
+    /// the Snapshot, which is then news for this tick.
+    ///
+    /// A `Chosen` report is logged and goes nowhere else. A `Failed { NoFile }`
+    /// for the torrent held is kept, for [`Self::prefer_the_engines_failure`];
+    /// the other reports are for later handling in this same drain. A `Status`
+    /// of the torrent being held is kept as the newest reading, and published by
+    /// [`Self::publish_torrent_reading`]; one of any other torrent is not about
+    /// this Stream.
+    fn drain_torrent_reports(&mut self) -> EngineReports {
+        let mut ending = None;
+        let mut exited = false;
+        for report in self.torrent_engine.reports() {
+            match report {
+                TorrentReport::Chosen {
+                    info_hash,
+                    file_idx,
+                    name,
+                } => tracing::info!(%info_hash, file_idx, name, "the torrent engine chose a file"),
+                TorrentReport::Status {
+                    info_hash,
+                    phase,
+                    peers,
+                    rate,
+                } => {
+                    if self.held_torrent.as_ref() == Some(&info_hash) {
+                        // Every reading counts for the give-up, whether or not
+                        // the second's throttle lets it reach the Snapshot.
+                        self.give_up.note(phase, peers, self.clock.now_millis());
+                        self.torrent_reading = Some(TorrentStatus { phase, peers, rate });
+                    }
+                }
+                TorrentReport::Failed {
+                    info_hash,
+                    kind: FailureKind::Storage,
+                    sentence,
+                } if self.held_torrent.as_ref() == Some(&info_hash) => {
+                    tracing::warn!(%info_hash, sentence, "the torrent could not be kept on disk");
+                    ending.get_or_insert_with(|| storage_sentence(&sentence));
+                }
+                TorrentReport::Failed {
+                    info_hash,
+                    kind: FailureKind::NoFile,
+                    sentence,
+                } if self.matches_torrent_for_no_file(&info_hash) => {
+                    self.engine_failure = Some((info_hash, sentence));
+                }
+                TorrentReport::Exited => exited = true,
+                TorrentReport::Failed { .. } => {}
+            }
+        }
+        if ending.is_some() {
+            // The Stream is about to end; a reading of it is not news.
+            return EngineReports {
+                ending,
+                status_moved: false,
+                exited,
+            };
+        }
+        EngineReports {
+            ending,
+            status_moved: self.publish_torrent_reading(),
+            exited,
+        }
+    }
+
+    /// What the Torrent engine's exit means for the Stream open, if it is a
+    /// torrent that is: the engine is restarted once, and a second exit during
+    /// the same Stream ends it (ADR-0042 §5).
+    ///
+    /// The restart is a reopen at the position the Host holds, through the path
+    /// a resume opens a Stream at a start position, so the limits are told
+    /// again first — the next serve starts a fresh child, and it must have
+    /// them. A Stream that was paused is reopened paused. Opening is what every
+    /// client sees meanwhile, finding the torrent, and the Player's next report
+    /// takes it from there.
+    ///
+    /// An exit while nothing is held is not this Stream's business: nothing
+    /// published, and the next serve starts the engine as on first use. A
+    /// Stream that `Ended` holds its torrent but is not being read, so it is
+    /// not restarted either; playing it again serves it then.
+    fn recover_from_engine_exit(&mut self) -> Option<Snapshot> {
+        let state = self.state.playback().state();
+        let open = matches!(
+            state,
+            PlaybackState::Opening | PlaybackState::Playing | PlaybackState::Paused
+        );
+        if self.held_torrent.is_none() || self.released || !open {
+            return None;
+        }
+        if self.engine_restarted {
+            tracing::warn!("the torrent engine exited a second time during this Stream");
+            return Some(self.end_with_failure(ENGINE_STOPPED_TWICE.to_owned()));
+        }
+
+        tracing::warn!("the torrent engine exited; restarting it once and reopening the Stream");
+        let preferences = self.state.preferences();
+        self.tell_torrent_limits(preferences.stream_buffer(), preferences.torrent_cache());
+        let position = self.state.playback().position();
+        let chosen = self.state.playback().chosen().cloned()?;
+        let title = self.playing_title();
+        let reopened = match self.open_stream(Box::new(chosen), title, position) {
+            Ok(change) => change,
+            Err(ActionError::Playback { detail }) => return Some(self.end_with_failure(detail)),
+            Err(other) => return Some(self.end_with_failure(other.to_string())),
+        };
+        if let Err(error) = self.commit(reopened, None) {
+            return Some(self.end_with_failure(error.to_string()));
+        }
+        // The count is the Stream's, and reopening it is not a new Stream.
+        self.engine_restarted = true;
+        if state == PlaybackState::Paused {
+            // The pause property outlives a load: the Player holds the picture on
+            // its first frame, as the owner left it. A refusal costs nothing the
+            // next report would not correct.
+            let _ = self.player.tell(Telling::Pause(true));
+        }
+        // The engine has not said anything yet: the opening block is told it is
+        // finding the torrent.
+        let finding = TorrentStatus {
+            phase: TorrentPhase::Finding,
+            peers: 0,
+            rate: 0,
+        };
+        if self.state.set_torrent_status(finding) {
+            self.torrent_status_at = Some(self.clock.now_millis());
+        }
+        self.revision += 1;
+        Some(self.snapshot())
+    }
+
+    /// Let the newest kept reading into the Snapshot, once a second has passed
+    /// since the last one did. A reading equal to the one held is not news, and
+    /// does not start the second over.
+    fn publish_torrent_reading(&mut self) -> bool {
+        let Some(reading) = self.torrent_reading else {
+            return false;
+        };
+        let now = self.clock.now_millis();
+        if self
+            .torrent_status_at
+            .is_some_and(|at| now.saturating_sub(at) < TORRENT_STATUS_EVERY_MS)
+        {
+            return false;
+        }
+        self.torrent_reading = None;
+        if self.state.set_torrent_status(reading) {
+            self.torrent_status_at = Some(now);
+            return true;
+        }
+        false
+    }
+
+    /// Whether the Host gives up now on the torrent it holds: the Stream is still
+    /// opening, and the engine has shown no sign of anyone sharing it for 60 s.
+    ///
+    /// A report that the Stream is already past opening ends the measure for
+    /// good — it is the one case where the clock and the Player disagree, and the
+    /// Player is right — and a Player that failed the open has its own failure to
+    /// publish, which the engine's words may still replace.
+    fn giving_up_on_opening(&mut self, observation: &Observation) -> bool {
+        let past_opening = matches!(
+            observation.state,
+            PlaybackState::Playing | PlaybackState::Paused | PlaybackState::Ended
+        );
+        if past_opening || self.state.playback().state() != PlaybackState::Opening {
+            self.give_up.clear();
+            return false;
+        }
+        observation.failure.is_none() && self.give_up.due(self.clock.now_millis())
+    }
+
+    /// End the Stream at once, for `sentence`: the Player is stopped, the
+    /// torrent let go, Watch progress written where the Stream got to, and the
+    /// failure published beside an `idle` state. Nothing is restarted. A torrent
+    /// that cannot be kept on disk ends this way — a full disk does not fix
+    /// itself — and so does an engine that stopped twice (ADR-0042 §3, §5).
+    fn end_with_failure(&mut self, sentence: String) -> Snapshot {
+        // The Player may already have lost the Stream; either way it is over.
+        let _ = self.player.stop();
+        self.disarm_preview();
+        self.let_go_held_torrent();
+        self.autoplay = None;
+
+        let leaving = self.playing_title().map(|title| title.id().to_owned());
+        let now = self.clock.now_millis();
+        if let Some(entry) = self.state.refresh_watch(now, true) {
+            let _ = self.store.write_watch_progress(&entry);
+        }
+        self.state.end_playback_with_failure(sentence);
+        if let Some(title) = leaving {
+            self.push_title(&title);
+        }
+
+        // The Stream is gone and so is its torrent: the idle measure must not
+        // carry the Paused or Ended that preceded it into whatever plays next.
+        self.note_idle();
+        self.revision += 1;
+        self.snapshot()
+    }
+
+    /// Put the engine's sentence where the Player reports a failed open of the
+    /// torrent held. The engine answered the Player with a `404`, so the Player's
+    /// words are about a refusal and the engine's say why (ADR-0042 §4). A
+    /// report with no failure is left alone, and so is a failure of some other
+    /// Stream.
+    fn prefer_the_engines_failure(&self, observation: &mut Observation) {
+        let Some((info_hash, sentence)) = &self.engine_failure else {
+            return;
+        };
+        if observation.failure.is_some() && self.matches_torrent_for_no_file(info_hash) {
+            observation.failure = Some(sentence.clone());
+        }
+    }
+
+    /// Open `chosen` in the Player at `start`, arm the Seek preview for its
+    /// URL, and return the [`Change::Play`] every client is told.
+    ///
+    /// Every play Action (`play_stream`, `resume`, `play_up_next`,
+    /// `next_episode`, `previous_episode`) opens its Stream here so opening,
+    /// preview arming, and play-replacement side effects live in one place.
+    fn open_stream(
+        &mut self,
+        chosen: Box<ChosenStream>,
+        title: Option<TitleStub>,
+        start: Option<f64>,
+    ) -> Result<Change, ActionError> {
+        // A new play replacing a loaded Stream (Opening, Playing, Paused, or
+        // Ended) owes the account the Title it is leaving before `Change::Play`
+        // moves Watch progress onto the next Video (#315). A failed open that
+        // left playback `Idle` never loaded and pushes nothing.
+        let leaving = (self.state.playback().is_live() || self.state.playback().has_ended())
+            .then(|| self.playing_title())
+            .flatten()
+            .map(|title| title.id().to_owned());
+
+        // A torrent is served before the Player is told to open: what the Player
+        // is handed is the loopback URL the engine answered with, never the
+        // infoHash (ADR-0042 §2). A serve the engine refuses opens nothing.
+        let (url, served) = match &chosen.source {
+            Source::Url(url) => (url.clone(), None),
+            Source::Torrent(torrent) => {
+                let request = torrent.serve_request(&chosen.now_playing);
+                let url =
+                    self.torrent_engine
+                        .serve(&request)
+                        .map_err(|error| ActionError::Playback {
+                            detail: error.sentence,
+                        })?;
+                (url, Some(torrent.info_hash.clone()))
+            }
+        };
+        if let Err(error) = self.player.open(&url, start) {
+            // A torrent served for a Stream that never opened is nobody's, unless
+            // it is the one already held for the Stream that is still playing.
+            if let Some(info_hash) = &served {
+                if self.held_torrent.as_ref() != Some(info_hash) {
+                    self.torrent_engine.let_go(info_hash);
+                }
+            }
+            return Err(ActionError::Playback {
+                detail: error.to_string(),
+            });
+        }
+        if served.is_some() {
+            // A torrent's pieces arrive in the order the engine wants them, so a
+            // second reader taking stills would fight playback for them: never
+            // armed, and anything armed for the Stream it replaces is let go.
+            self.disarm_preview();
+            tracing::info!("the Seek preview is not armed for a torrent");
+        } else {
+            // Armed at the same moment the Stream opens, and cheap: the worker
+            // does not connect until the first still is asked for (ADR-0028).
+            self.arm_preview(&url);
+        }
+        // The torrent that was held goes once the Stream that replaces it has
+        // opened, unless the replacement is the same torrent: a season pack is
+        // one torrent across its episodes.
+        self.engine_failure = None;
+        self.engine_restarted = false;
+        let previous = std::mem::replace(&mut self.held_torrent, served);
+        self.forget_torrent_readings();
+        if self.held_torrent.is_some() {
+            // The 60 s the torrent has to show it is shared run from here, where
+            // it was served (ADR-0042 §5).
+            self.give_up.begin(self.clock.now_millis());
+        }
+        if let Some(previous) = previous {
+            if self.held_torrent.as_ref() != Some(&previous) {
+                self.torrent_engine.let_go(&previous);
+            }
+        }
+        // Whatever Stream this replaces, a torrent let go for being idle was the
+        // last of it: the one now open is served, or direct, and not released.
+        self.released = false;
+        if let Some(title) = leaving {
+            self.push_title(&title);
+        }
+        Ok(Change::Play {
+            chosen,
+            title: title.map(Box::new),
+            start,
+        })
+    }
+
     /// Take one episode step: the neighbouring Stream chosen and opened, and
     /// the change every client is told.
     ///
@@ -1593,39 +2486,15 @@ impl Host {
         self.stepping(step.control())?;
         let chosen = self.adjacent_episode(step)?;
         let title = self.playing_title();
-        self.player
-            .open(&chosen.url, None)
-            .map_err(|error| ActionError::Playback {
-                detail: error.to_string(),
-            })?;
-        self.arm_preview(&chosen.url);
-        Ok(Resolved::Change(Change::Play {
-            chosen: Box::new(chosen),
-            title: title.map(Box::new),
-            start: None,
-        }))
+        Ok(Resolved::Change(self.open_stream(
+            Box::new(chosen),
+            title,
+            None,
+        )?))
     }
 
     /// The Stream one step from the one playing in the direction `step` names,
     /// or why the Host will not open one.
-    ///
-    /// The Video playing must be an episode of a series — a reading of the id's
-    /// own shape, never of the Title's `type`. Where the Video is an Addon's,
-    /// the Host asks the Addons that answer `meta` for its Title, in the order
-    /// they were configured, for the list that still holds the Video playing,
-    /// and the Video standing beside it in the Host's series order is the one
-    /// that plays; where the Video is TMDB's — a TMDB-first series' episode —
-    /// the list is TMDB's own, the one the client is looking at, whose
-    /// numbering the Addons may not share (ADR-0020's known hazard). That order
-    /// is numbered seasons ascending, episodes within each season, then the
-    /// specials, and no step crosses between the numbered seasons and the
-    /// specials (ADR-0039). Either way the neighbour plays from the Addon
-    /// already playing, in the spelling that Addon declares, so continuity is
-    /// kept: the same `bingeGroup` where that Addon offers one, and otherwise
-    /// its first playable candidate. Nothing here invents an id by arithmetic
-    /// and nothing re-ranks the candidates: the neighbour is the source's own,
-    /// and continuing the release is continuity rather than a score (ADR-0012,
-    /// ADR-0014).
     fn adjacent_episode(&self, step: EpisodeStep) -> Result<ChosenStream, ActionError> {
         let Some(playing) = self.state.playback().chosen() else {
             // Behind `playing(Control::…)` this cannot happen, and it is a
@@ -1637,17 +2506,41 @@ impl Host {
         let now = &playing.now_playing;
         let refused = |detail: String| step.refusal(detail);
 
-        let neighbour_id = match tmdb::video_id(&now.video.r#type, &now.video.id) {
-            Some(video) => self.tmdb_adjacent_episode(step, video).ok_or_else(|| {
-                refused(format!(
-                    "TMDB lists no episode {} {}",
-                    step.side(),
-                    now.video
-                ))
-            })?,
+        let neighbour = self.neighbour_video(step, &now.video)?;
+        let video = VideoRef::parse(&now.video.r#type, &neighbour.id)
+            .map_err(|error| refused(error.to_string()))?;
+
+        // The neighbour is played from the Addon already playing, so that the
+        // release continues: another Addon's candidates would be a different set
+        // of releases, which is not "the episode beside what is playing".
+        self.stream_by_continuity(&now.addon, now.binge_group.as_deref(), &video)
+            .map_err(refused)
+    }
+
+    /// The neighbouring `Video` standing beside `from` in the direction `step`
+    /// names, keeping its name, still (`thumbnail`), and `air_date` — or why
+    /// the Host finds none.
+    ///
+    /// `from` must be an episode of a series — a reading of the id's own
+    /// shape, never of the Title's `type`. Where the Video is an Addon's, the
+    /// Host asks the Addons that answer `meta` for its Title, in the order they
+    /// were configured, for the list that still holds `from`, and the Video
+    /// standing beside it in the Host's series order is returned; where the
+    /// Video is TMDB's — a TMDB-first series' episode — the list is TMDB's own,
+    /// the one the client is looking at, whose numbering the Addons may not
+    /// share (ADR-0020's known hazard). That order is numbered seasons
+    /// ascending, episodes within each season, then the specials, and no step
+    /// crosses between the numbered seasons and the specials (ADR-0039).
+    fn neighbour_video(&self, step: EpisodeStep, from: &VideoRef) -> Result<Video, ActionError> {
+        let refused = |detail: String| step.refusal(detail);
+
+        match tmdb::video_id(&from.r#type, &from.id) {
+            Some(video) => self
+                .tmdb_neighbour_video(step, video)
+                .ok_or_else(|| refused(format!("TMDB lists no episode {} {}", step.side(), from))),
             None => {
-                let title_id = episode_title(step, &now.video)?;
-                let asked = TitleRef::parse(&now.video.r#type, &title_id)
+                let title_id = episode_title(step, from)?;
+                let asked = TitleRef::parse(&from.r#type, &title_id)
                     .map_err(|error| refused(error.to_string()))?;
 
                 // The Title's Videos come from the first Addon that answers `meta` for
@@ -1655,9 +2548,9 @@ impl Host {
                 // stands beside it — whether or not anything does. Two Addons can
                 // number a series differently (ADR-0020), so only the list that
                 // contains the Video playing is known to put the right one next to it.
-                let requested_meta = ResourceRequest::new(META, &now.video.r#type, &title_id);
+                let requested_meta = ResourceRequest::new(META, &from.r#type, &title_id);
                 let view = self.view();
-                let mut neighbour_id = None;
+                let mut neighbour = None;
                 for addon in view.addons() {
                     if !addon.manifest().answers(&requested_meta) {
                         continue;
@@ -1668,67 +2561,29 @@ impl Host {
                     // Only the list that still holds the Video playing is known
                     // to put the right one beside it; a list that does not hold
                     // it has nothing to say about it.
-                    if !title.videos.iter().any(|video| video.id == now.video.id) {
+                    if !title.videos.iter().any(|video| video.id == from.id) {
                         continue;
                     }
-                    neighbour_id = step
-                        .neighbour(&title.videos, &now.video.id)
-                        .map(|video| video.id.clone());
+                    neighbour = step.neighbour(&title.videos, &from.id).cloned();
                     break;
                 }
 
-                neighbour_id.ok_or_else(|| {
+                neighbour.ok_or_else(|| {
                     refused(format!(
                         "no Addon lists an episode {} {}",
                         step.side(),
-                        now.video
+                        from
                     ))
-                })?
+                })
             }
-        };
-
-        // The neighbour is played from the Addon already playing, so that the
-        // release continues: another Addon's candidates would be a different set
-        // of releases, which is not "the episode beside what is playing".
-        let playing_addon =
-            self.state.addon(&now.addon).cloned().ok_or_else(|| {
-                refused(format!("the Addon {} is no longer configured", now.addon))
-            })?;
-        let video = VideoRef::parse(&now.video.r#type, &neighbour_id)
-            .map_err(|error| refused(error.to_string()))?;
-        let Some(requested_stream) = self.view().ask_of(&playing_addon, STREAM, &video) else {
-            return Err(refused(format!(
-                "{} has nothing for {}/{}",
-                now.addon, now.video.r#type, neighbour_id
-            )));
-        };
-        let streams = self
-            .provider
-            .streams(&playing_addon, &requested_stream)
-            .map_err(|error| refused(error.to_string()))?;
-
-        streams
-            .iter()
-            .find(|stream| stream.binge_group == now.binge_group)
-            .and_then(|stream| playable(&video, playing_addon.id(), stream))
-            .or_else(|| {
-                streams
-                    .iter()
-                    .find_map(|stream| playable(&video, playing_addon.id(), stream))
-            })
-            .ok_or_else(|| {
-                refused(format!(
-                    "no candidate for {}/{} is one this Host can play",
-                    now.video.r#type, neighbour_id
-                ))
-            })
+        }
     }
 
     /// The Video standing beside what is playing in TMDB's own episodes, in the
     /// direction `step` names — or nothing where TMDB lists none, the Video is
     /// a film, this Host cannot read the list, or the step would cross into the
     /// specials (ADR-0020, ADR-0039 §2).
-    fn tmdb_adjacent_episode(&self, step: EpisodeStep, video: tmdb::TmdbVideo) -> Option<String> {
+    fn tmdb_neighbour_video(&self, step: EpisodeStep, video: tmdb::TmdbVideo) -> Option<Video> {
         let at = video.at?;
         let view = self.view();
         let key = view.tmdb_credential()?;
@@ -1736,7 +2591,51 @@ impl Host {
         let videos = view.tmdb_videos(&read, video.id, &key)?;
 
         let id = tmdb::video_spelling(video.id, Some(at));
-        step.neighbour(&videos, &id).map(|video| video.id.clone())
+        step.neighbour(&videos, &id).cloned()
+    }
+
+    /// A playable Stream for `video` by continuity from `stream_addon` and
+    /// `binge_group`: that Addon's candidate with the same `bingeGroup` where
+    /// one was named, else that Addon's first playable candidate (ADR-0012,
+    /// ADR-0014).
+    ///
+    /// A different Addon is not a substitute: continuing a release is
+    /// continuity rather than a second ranking.
+    fn stream_by_continuity(
+        &self,
+        stream_addon: &AddonId,
+        binge_group: Option<&str>,
+        video: &VideoRef,
+    ) -> Result<ChosenStream, String> {
+        let addon = self
+            .state
+            .addon(stream_addon)
+            .cloned()
+            .ok_or_else(|| format!("the Addon {stream_addon} is no longer configured"))?;
+        let requested = self
+            .view()
+            .ask_of(&addon, STREAM, video)
+            .ok_or_else(|| format!("{stream_addon} has nothing for {video}"))?;
+        let streams = self
+            .provider
+            .streams(&addon, &requested)
+            .map_err(|error| error.to_string())?;
+
+        let same_release = binge_group
+            .and_then(|group| {
+                streams
+                    .iter()
+                    .find(|stream| stream.binge_group.as_deref() == Some(group))
+            })
+            .and_then(|stream| playable(video, stream_addon, stream));
+
+        same_release
+            .or_else(|| {
+                streams
+                    .iter()
+                    .find_map(|stream| playable(video, stream_addon, stream))
+            })
+            .ok_or_else(|| format!("no candidate for {video} is one this Host can play"))
     }
 
     /// The Title's Up next and the finished Video whose Stream it continues, or
@@ -1808,41 +2707,9 @@ impl Host {
                 previous.video.r#type, previous.video.id
             )));
         };
-        let Some(addon) = self.state.addon(stream_addon).cloned() else {
-            return Err(refused(format!(
-                "the Addon {stream_addon} that streamed {}/{} is no longer configured",
-                previous.video.r#type, previous.video.id
-            )));
-        };
-        let Some(requested) = self.view().ask_of(&addon, STREAM, &video) else {
-            return Err(refused(format!("{stream_addon} has nothing for {video}")));
-        };
-        let streams = self
-            .provider
-            .streams(&addon, &requested)
-            .map_err(|error| refused(error.to_string()))?;
 
-        let same_release = previous
-            .binge_group
-            .as_ref()
-            .and_then(|group| {
-                streams
-                    .iter()
-                    .find(|stream| stream.binge_group.as_ref() == Some(group))
-            })
-            .and_then(|stream| playable(&video, stream_addon, stream));
-
-        same_release
-            .or_else(|| {
-                streams
-                    .iter()
-                    .find_map(|stream| playable(&video, stream_addon, stream))
-            })
-            .ok_or_else(|| {
-                refused(format!(
-                    "no candidate for {video} is one this Host can play"
-                ))
-            })
+        self.stream_by_continuity(stream_addon, previous.binge_group.as_deref(), &video)
+            .map_err(refused)
     }
 
     /// The Stream a resume plays and where in it to start, or why the Host will
@@ -1936,6 +2803,16 @@ impl Host {
     }
 }
 
+/// What the Host told the Player on a Stream's first report of its Tracks: where
+/// each field is set, the Host moved that selection, and the Snapshot says so.
+#[derive(Debug, Default)]
+struct InitialChoice {
+    /// The soundtrack the Host selected, where it was not the Player's.
+    audio: Option<TrackId>,
+    /// The subtitle the Host selected, where it was not the Player's.
+    subtitle: Option<SubtitleChoice>,
+}
+
 /// An Action with everything it needed already resolved.
 enum Resolved {
     Change(Change),
@@ -2023,5 +2900,419 @@ impl EpisodeStep {
             Self::Next => ActionError::NoNextEpisode { detail },
             Self::Previous => ActionError::NoPreviousEpisode { detail },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::clock::FixtureClock;
+    use crate::fetcher::FixtureFetcher;
+    use crate::playback::{FixturePlayer, PlaybackError};
+    use crate::preview::FixturePreviewer;
+    use crate::provider::FixtureProvider;
+    use crate::secret::{InMemorySecretStore, SecretBackend};
+    use crate::store::InMemoryStore;
+    use crate::stream::Playback;
+    use crate::torrent::{FixtureTorrentEngine, InfoHash, ServeHints, ServeRequest};
+
+    const SERIES: &str = "https://series.example.org/manifest.json";
+    const SERIES_ID: &str = "org.example.series";
+    const META_URL: &str = "https://series.example.org/meta/series/tt0903747.json";
+    const SERIES_META: &str = include_str!("../tests/fixtures/cinemeta-meta-series.json");
+
+    const TMDB_KEY: &str = "0123456789abcdef0123456789abcdef";
+    const TMDB_TV_1396: &str = concat!(
+        "https://api.themoviedb.org/3/tv/1396?append_to_response=",
+        "season/0,season/1,season/2,season/3,season/4,season/5,season/6,season/7,",
+        "season/8,season/9,season/10,season/11,season/12,season/13,season/14,season/15,",
+        "season/16,season/17,season/18,season/19",
+        "&api_key=0123456789abcdef0123456789abcdef",
+    );
+    const TMDB_TV_DETAILS_APPENDED: &str =
+        include_str!("../tests/fixtures/tmdb-tv-details-appended.json");
+
+    fn action(body: serde_json::Value) -> Action {
+        let envelope = serde_json::json!({
+            "version": crate::ACTION_VERSION,
+            "action": body,
+        });
+        Action::parse(&envelope.to_string()).expect("a test Action parses")
+    }
+
+    fn manifest(id: &str, resources: &str) -> String {
+        format!(
+            r#"{{"id":"{id}","name":"{id}","version":"1.0.0",
+                 "resources":[{resources}],"types":["movie","series"],"catalogs":[]}}"#
+        )
+    }
+
+    fn direct_candidate(name: &str, url: &str, binge_group: Option<&str>) -> Stream {
+        Stream {
+            name: Some(name.to_owned()),
+            description: None,
+            playback: Playback::Direct {
+                url: url.to_owned(),
+            },
+            warnings: Vec::new(),
+            filename: None,
+            binge_group: binge_group.map(str::to_owned),
+        }
+    }
+
+    fn torrent_candidate(name: &str, info_hash: &str, binge_group: Option<&str>) -> Stream {
+        Stream {
+            name: Some(name.to_owned()),
+            description: None,
+            playback: Playback::Torrent {
+                info_hash: InfoHash::parse(info_hash).expect("a valid infoHash"),
+                file_idx: None,
+                sources: Vec::new(),
+            },
+            warnings: Vec::new(),
+            filename: None,
+            binge_group: binge_group.map(str::to_owned),
+        }
+    }
+
+    fn host_with(
+        fetcher: FixtureFetcher,
+        provider: Arc<FixtureProvider>,
+        player: Arc<FixturePlayer>,
+        previewer: Arc<FixturePreviewer>,
+    ) -> Host {
+        Host::new(
+            Arc::new(InMemoryStore::new()),
+            Arc::new(fetcher),
+            Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
+            provider,
+            player,
+            Arc::new(FixtureClock::new()),
+        )
+        .expect("a Host over a store starts")
+        .with_previewer(previewer)
+    }
+
+    #[test]
+    fn neighbour_video_returns_full_video_for_an_addon_listed_series() {
+        let fetcher = FixtureFetcher::new()
+            .serving(SERIES, manifest(SERIES_ID, r#""meta","stream""#))
+            .serving(META_URL, SERIES_META);
+        let mut host = host_with(
+            fetcher,
+            Arc::new(FixtureProvider::new()),
+            Arc::new(FixturePlayer::new()),
+            Arc::new(FixturePreviewer::new()),
+        );
+        host.dispatch(action(serde_json::json!({
+            "type": "add_addon",
+            "url": SERIES,
+        })))
+        .expect("configuring the Addon works");
+
+        let s1e1 = VideoRef::parse("series", "tt0903747:1:1").unwrap();
+        let next = host
+            .neighbour_video(EpisodeStep::Next, &s1e1)
+            .expect("S1E1 has a next Video in the Addon's meta");
+        assert_eq!(
+            next,
+            Video {
+                id: "tt0903747:1:2".to_owned(),
+                name: Some("Cat's in the Bag...".to_owned()),
+                season: Some(1),
+                episode: Some(2),
+                thumbnail: Some("https://episodes.metahub.space/tt0903747/1/2/w780.jpg".to_owned()),
+                air_date: Some("2008-01-28".to_owned()),
+            }
+        );
+
+        let prev = host
+            .neighbour_video(
+                EpisodeStep::Previous,
+                &VideoRef::parse("series", &next.id).unwrap(),
+            )
+            .expect("S1E2 has a previous Video in the Addon's meta");
+        assert_eq!(
+            prev,
+            Video {
+                id: "tt0903747:1:1".to_owned(),
+                name: Some("Pilot".to_owned()),
+                season: Some(1),
+                episode: Some(1),
+                thumbnail: Some("https://episodes.metahub.space/tt0903747/1/1/w780.jpg".to_owned()),
+                air_date: Some("2008-01-21".to_owned()),
+            }
+        );
+
+        let finale = VideoRef::parse("series", "tt0903747:1:3").unwrap();
+        let s2e1 = host
+            .neighbour_video(EpisodeStep::Next, &finale)
+            .expect("season finale steps into the next season");
+        assert_eq!(s2e1.id, "tt0903747:2:1");
+        assert_eq!(s2e1.name.as_deref(), Some("Seven Thirty-Seven"));
+        assert_eq!(
+            s2e1.thumbnail.as_deref(),
+            Some("https://episodes.metahub.space/tt0903747/2/1/w780.jpg")
+        );
+        assert_eq!(s2e1.air_date.as_deref(), Some("2009-03-09"));
+
+        let last_numbered = VideoRef::parse("series", "tt0903747:2:1").unwrap();
+        assert!(
+            matches!(
+                host.neighbour_video(EpisodeStep::Next, &last_numbered),
+                Err(ActionError::NoNextEpisode { .. })
+            ),
+            "ADR-0039: numbered seasons never step into the specials"
+        );
+    }
+
+    #[test]
+    fn neighbour_video_returns_full_video_for_a_tmdb_first_series() {
+        let fetcher = FixtureFetcher::new().serving(TMDB_TV_1396, TMDB_TV_DETAILS_APPENDED);
+        let mut host = host_with(
+            fetcher,
+            Arc::new(FixtureProvider::new()),
+            Arc::new(FixturePlayer::new()),
+            Arc::new(FixturePreviewer::new()),
+        );
+        host.dispatch(action(serde_json::json!({
+            "type": "set_tmdb_key",
+            "key": TMDB_KEY,
+        })))
+        .expect("entering a TMDB key works");
+
+        let s1e1 = VideoRef::parse("series", "tmdb:1396:1:1").unwrap();
+        let next = host
+            .neighbour_video(EpisodeStep::Next, &s1e1)
+            .expect("S1E1 has a next Video in TMDB's list");
+        assert_eq!(
+            next,
+            Video {
+                id: "tmdb:1396:1:2".to_owned(),
+                name: Some("Cat's in the Bag...".to_owned()),
+                season: Some(1),
+                episode: Some(2),
+                thumbnail: Some(format!("{}/still-1396-1-2.jpg", tmdb::STILL_ROOT)),
+                air_date: Some("2008-01-27".to_owned()),
+            }
+        );
+
+        let prev = host
+            .neighbour_video(
+                EpisodeStep::Previous,
+                &VideoRef::parse("series", &next.id).unwrap(),
+            )
+            .expect("S1E2 has a previous Video in TMDB's list");
+        assert_eq!(
+            prev,
+            Video {
+                id: "tmdb:1396:1:1".to_owned(),
+                name: Some("Pilot".to_owned()),
+                season: Some(1),
+                episode: Some(1),
+                thumbnail: Some(format!("{}/still-1396-1-1.jpg", tmdb::STILL_ROOT)),
+                air_date: Some("2008-01-20".to_owned()),
+            }
+        );
+
+        let finale = VideoRef::parse("series", "tmdb:1396:1:3").unwrap();
+        let s2e1 = host
+            .neighbour_video(EpisodeStep::Next, &finale)
+            .expect("TMDB season finale steps into season 2");
+        assert_eq!(s2e1.id, "tmdb:1396:2:1");
+        assert_eq!(s2e1.name.as_deref(), Some("Seven Thirty-Seven"));
+        assert_eq!(
+            s2e1.thumbnail.as_deref(),
+            Some(format!("{}/still-1396-2-1.jpg", tmdb::STILL_ROOT).as_str())
+        );
+        assert_eq!(s2e1.air_date.as_deref(), Some("2009-03-08"));
+
+        let last_numbered = VideoRef::parse("series", "tmdb:1396:2:1").unwrap();
+        assert!(
+            matches!(
+                host.neighbour_video(EpisodeStep::Next, &last_numbered),
+                Err(ActionError::NoNextEpisode { .. })
+            ),
+            "ADR-0039: TMDB numbered seasons never step into the specials"
+        );
+    }
+
+    #[test]
+    fn stream_by_continuity_prefers_same_binge_group_else_first_playable() {
+        let grouped_first = "https://stream.example.org/grouped-other.mkv";
+        let same_group = "https://stream.example.org/same-group.mkv";
+        let ungrouped = "https://stream.example.org/ungrouped.mkv";
+        let torrent_hash = "61065ea115b7cc3e8db9fb5ab1f6f327f08bd1c9";
+
+        let fetcher =
+            FixtureFetcher::new().serving(SERIES, manifest(SERIES_ID, r#""meta","stream""#));
+        let provider = Arc::new(FixtureProvider::new().offering(
+            SERIES_ID,
+            vec![
+                torrent_candidate("torrent", torrent_hash, Some("gone-group")),
+                direct_candidate("720p", grouped_first, Some("other-group")),
+                direct_candidate("1080p", same_group, Some("the-release")),
+                direct_candidate("fallback", ungrouped, None),
+            ],
+        ));
+        let mut host = host_with(
+            fetcher,
+            provider,
+            Arc::new(FixturePlayer::new()),
+            Arc::new(FixturePreviewer::new()),
+        );
+        host.dispatch(action(serde_json::json!({
+            "type": "add_addon",
+            "url": SERIES,
+        })))
+        .expect("configuring the Addon works");
+
+        let addon = AddonId::parse(SERIES_ID).unwrap();
+        let target = VideoRef::parse("series", "tt0903747:1:2").unwrap();
+
+        let matched = host
+            .stream_by_continuity(&addon, Some("the-release"), &target)
+            .expect("matching bingeGroup is picked");
+        assert_eq!(matched.url().unwrap().as_str(), same_group);
+
+        let fallback = host
+            .stream_by_continuity(&addon, Some("gone-group"), &target)
+            .expect("a gone bingeGroup falls back to the first playable candidate");
+        assert_eq!(
+            fallback.info_hash(),
+            Some(&InfoHash::parse(torrent_hash).unwrap()),
+            "a torrent is playable, so the Addon's first candidate is the fallback"
+        );
+
+        let no_group = host
+            .stream_by_continuity(&addon, None, &target)
+            .expect("missing bingeGroup takes the Addon's first playable candidate");
+        assert_eq!(no_group.info_hash(), fallback.info_hash());
+
+        let unknown_addon = AddonId::parse("org.example.missing").unwrap();
+        assert!(host
+            .stream_by_continuity(&unknown_addon, Some("the-release"), &target)
+            .is_err());
+    }
+
+    #[test]
+    fn open_stream_opens_the_player_arms_preview_and_resolves_play() {
+        let player = Arc::new(FixturePlayer::new());
+        let previewer = Arc::new(FixturePreviewer::new());
+        let mut host = host_with(
+            FixtureFetcher::new(),
+            Arc::new(FixtureProvider::new()),
+            player.clone(),
+            previewer.clone(),
+        );
+
+        let video = VideoRef::parse("series", "tt0903747:1:2").unwrap();
+        let addon = AddonId::parse(SERIES_ID).unwrap();
+        let stream = direct_candidate(
+            "1080p",
+            "https://stream.example.org/v/tt0903747-1-2.mkv",
+            Some("the-release"),
+        );
+        let chosen = ChosenStream::parse(video, addon.clone(), &stream).unwrap();
+        let title = TitleStub::parse(&crate::progress::TitleCard {
+            addon: Some(addon),
+            id: "tt0903747".to_owned(),
+            r#type: "series".to_owned(),
+            name: "Breaking Bad".to_owned(),
+            poster: None,
+            background: None,
+        })
+        .unwrap();
+
+        let change = host
+            .open_stream(Box::new(chosen.clone()), Some(title.clone()), Some(42.5))
+            .expect("open_stream succeeds when the Player opens");
+
+        assert_eq!(
+            player.openings(),
+            vec![(
+                "https://stream.example.org/v/tt0903747-1-2.mkv".to_owned(),
+                Some(42.5)
+            )]
+        );
+        assert_eq!(
+            previewer.armed().as_deref(),
+            Some("https://stream.example.org/v/tt0903747-1-2.mkv")
+        );
+        assert!(matches!(
+            change,
+            Change::Play {
+                chosen: played,
+                title: Some(played_title),
+                start: Some(s),
+            } if *played == chosen && *played_title == title && (s - 42.5).abs() < f64::EPSILON
+        ));
+    }
+
+    fn torrent_request() -> ServeRequest {
+        ServeRequest {
+            info_hash: InfoHash::parse(&"a".repeat(40)).unwrap(),
+            file_idx: None,
+            sources: Vec::new(),
+            hints: ServeHints::default(),
+        }
+    }
+
+    #[test]
+    fn a_host_that_is_never_given_a_torrent_engine_refuses_a_torrent_with_a_sentence() {
+        let host = host_with(
+            FixtureFetcher::new(),
+            Arc::new(FixtureProvider::new()),
+            Arc::new(FixturePlayer::new()),
+            Arc::new(FixturePreviewer::new()),
+        );
+
+        let refused = host.torrent_engine.serve(&torrent_request());
+
+        assert_eq!(
+            refused.expect_err("refused").to_string(),
+            "The torrent engine is not part of this build."
+        );
+    }
+
+    #[test]
+    fn a_host_carries_the_torrent_engine_it_is_given() {
+        let engine = Arc::new(FixtureTorrentEngine::new());
+        let host = host_with(
+            FixtureFetcher::new(),
+            Arc::new(FixtureProvider::new()),
+            Arc::new(FixturePlayer::new()),
+            Arc::new(FixturePreviewer::new()),
+        )
+        .with_torrent_engine(engine.clone());
+
+        host.torrent_engine
+            .serve(&torrent_request())
+            .expect("the fixture serves");
+
+        assert_eq!(engine.serves(), vec![torrent_request()]);
+    }
+
+    #[test]
+    fn open_stream_leaves_preview_unarmed_when_player_refuses() {
+        let player = Arc::new(FixturePlayer::new().refusing(PlaybackError::Open {
+            detail: "no mpv".to_owned(),
+        }));
+        let previewer = Arc::new(FixturePreviewer::new());
+        let mut host = host_with(
+            FixtureFetcher::new(),
+            Arc::new(FixtureProvider::new()),
+            player,
+            previewer.clone(),
+        );
+
+        let video = VideoRef::parse("movie", "tt0133093").unwrap();
+        let addon = AddonId::parse(SERIES_ID).unwrap();
+        let stream = direct_candidate("1080p", "https://stream.example.org/v/movie.mkv", None);
+        let chosen = ChosenStream::parse(video, addon, &stream).unwrap();
+
+        let refused = host.open_stream(Box::new(chosen), None, None);
+        assert!(matches!(refused, Err(ActionError::Playback { .. })));
+        assert_eq!(previewer.armed(), None);
     }
 }

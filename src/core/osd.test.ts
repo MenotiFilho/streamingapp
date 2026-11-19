@@ -6,12 +6,16 @@ import {
   chapterAt,
   chapterMarks,
   CHAPTER_TICK_SPACING_PX,
+  idleOsd,
+  osdPinned,
+  OSD_START,
   spacedChapterMarks,
   OSD_IDLE_MS,
   PREVIEW_BUCKET_SECONDS,
   previewBucket,
   qualityBadge,
   projectedPosition,
+  wakeOsd,
   remainingTime,
   selectedTrack,
   streamDetails,
@@ -43,6 +47,7 @@ function track(overrides: Partial<Track> = {}): Track {
     selected: false,
     default: false,
     forced: false,
+    hearingImpaired: false,
     ...overrides,
   };
 }
@@ -50,6 +55,7 @@ function track(overrides: Partial<Track> = {}): Track {
 function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
   return {
     state: "playing",
+    autoplay: null,
     picture: "in_window",
     failure: null,
     nowPlaying: nowPlaying(),
@@ -64,6 +70,8 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
     volume: 100,
     muted: false,
     subtitleDelay: 0,
+    stalled: false,
+    torrent: null,
     crop: null,
     aspect: null,
     resolution: null,
@@ -272,5 +280,127 @@ describe("the OSD's readings", () => {
 describe("the OSD's idle window", () => {
   test("is three seconds", () => {
     expect(OSD_IDLE_MS).toBe(3000);
+  });
+});
+
+describe("what pins the OSD", () => {
+  const COUNTING = { kind: "none" } as const;
+  const countdown = {
+    kind: "countdown",
+    digit: 4,
+    fraction: 0.7,
+    next: {
+      title: { type: "series", id: "tt1" },
+      video: { type: "series", id: "tt1:1:4" },
+      episode: { season: 1, episode: 4 },
+      label: "S1E4",
+      name: null,
+      still: null,
+    },
+    kicker: { lead: "Up next", episode: "S1E4", text: "Up next · S1E4" },
+    strip: "Up next in 4 · S1E4",
+  } as const;
+
+  test("nothing open and nothing pending pins nothing", () => {
+    expect(osdPinned({ popoverOpen: false, autoplay: COUNTING })).toBe(false);
+  });
+
+  test("an open popover pins it", () => {
+    expect(osdPinned({ popoverOpen: true, autoplay: COUNTING })).toBe(true);
+  });
+
+  test("a countdown pins it, so the OSD and the cursor stay up while the card does", () => {
+    expect(osdPinned({ popoverOpen: false, autoplay: countdown })).toBe(true);
+    expect(osdPinned({ popoverOpen: true, autoplay: countdown })).toBe(true);
+  });
+});
+
+describe("what pins the OSD: the hold on Still watching?", () => {
+  const stillWatching = {
+    kind: "still_watching",
+    title: "Still watching?",
+    next: {
+      title: { type: "series", id: "tt1" },
+      video: { type: "series", id: "tt1:1:4" },
+      episode: { season: 1, episode: 4 },
+      label: "S1E4",
+      name: null,
+      still: null,
+    },
+    strip: "Still watching? · S1E4",
+  } as const;
+
+  test("the hold pins it, so the card can be read and pressed", () => {
+    expect(osdPinned({ popoverOpen: false, autoplay: stillWatching })).toBe(true);
+  });
+});
+
+describe("the OSD and cursor visibility decision", () => {
+  const HIDDEN = { visible: false, cursorVisible: false, lastInput: "pointer" } as const;
+  const IDLE = { pinned: false, focusedInside: false };
+
+  test("it starts with the OSD and the cursor both showing, last moved by the pointer", () => {
+    expect(OSD_START).toEqual({ visible: true, cursorVisible: true, lastInput: "pointer" });
+  });
+
+  test("an idle tick puts the OSD and the cursor away together", () => {
+    expect(idleOsd(OSD_START, IDLE)).toEqual({
+      visible: false,
+      cursorVisible: false,
+      lastInput: "pointer",
+    });
+  });
+
+  test("an idle tick with a popover open keeps the OSD and leaves the cursor as it was", () => {
+    const pinned = { pinned: true, focusedInside: false };
+
+    expect(idleOsd(OSD_START, pinned)).toEqual(OSD_START);
+    const hidCursor = { ...OSD_START, cursorVisible: false };
+    expect(idleOsd(hidCursor, pinned)).toEqual(hidCursor);
+  });
+
+  test("an idle tick with keyboard focus inside the chrome keeps the OSD but hides the cursor", () => {
+    const keyed = { ...OSD_START, lastInput: "key" } as const;
+
+    expect(idleOsd(keyed, { pinned: false, focusedInside: true })).toEqual({
+      visible: true,
+      cursorVisible: false,
+      lastInput: "key",
+    });
+  });
+
+  test("focus inside the chrome after a pointer input pins nothing", () => {
+    expect(idleOsd(OSD_START, { pinned: false, focusedInside: true })).toEqual({
+      visible: false,
+      cursorVisible: false,
+      lastInput: "pointer",
+    });
+  });
+
+  test("keyboard input outside the chrome lets both go", () => {
+    const keyed = { ...OSD_START, lastInput: "key" } as const;
+
+    expect(idleOsd(keyed, IDLE)).toEqual({ visible: false, cursorVisible: false, lastInput: "key" });
+  });
+
+  test("a pointer wake brings the OSD and the cursor back from anywhere", () => {
+    expect(wakeOsd(HIDDEN, "pointer")).toEqual(OSD_START);
+    expect(wakeOsd({ ...HIDDEN, lastInput: "key" }, "pointer")).toEqual(OSD_START);
+  });
+
+  test("a key wake shows the OSD and leaves a hidden cursor hidden", () => {
+    expect(wakeOsd(HIDDEN, "key")).toEqual({
+      visible: true,
+      cursorVisible: false,
+      lastInput: "key",
+    });
+  });
+
+  test("a key wake leaves a showing cursor showing", () => {
+    expect(wakeOsd(OSD_START, "key")).toEqual({
+      visible: true,
+      cursorVisible: true,
+      lastInput: "key",
+    });
   });
 });

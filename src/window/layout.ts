@@ -72,12 +72,15 @@ export const FOCUSABLE = "[data-focusable]:not([disabled])";
  * region is forgotten from `memory` as well, so one that returns starts fresh.
  */
 function prune(layout: Layout, elements: Record<string, HTMLElement[]>): void {
+  const visiting = new Set<string>();
   const survives = (id: string): boolean => {
     const region = layout.regions[id];
-    if (!region) {
+    if (!region || visiting.has(id)) {
       return false;
     }
+    visiting.add(id);
     region.children = region.children.filter(survives);
+    visiting.delete(id);
     return region.itemRects.length > 0 || region.children.length > 0;
   };
 
@@ -121,11 +124,12 @@ export function readLevel(
       if (!id) {
         continue;
       }
+      const parent = regionIdOf(element, root);
       const region: Region = {
         id,
         label: element.getAttribute("data-label") ?? id,
         kind: regionKind(element.getAttribute("data-kind")),
-        parent: regionIdOf(element, root),
+        parent: parent === id ? (layout.regions[id]?.parent ?? null) : parent,
         children: [],
         rect: measure(element),
         itemRects: [],
@@ -135,7 +139,7 @@ export function readLevel(
     }
 
     for (const region of Object.values(layout.regions)) {
-      if (region.parent) {
+      if (region.parent && region.parent !== region.id) {
         layout.regions[region.parent]?.children.push(region.id);
       }
     }

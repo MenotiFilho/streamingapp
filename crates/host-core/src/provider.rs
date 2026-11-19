@@ -22,11 +22,10 @@
 //! The seam speaks in [`Stream`]s, not in addon objects, and that is the point
 //! of it. An addon `stream` object has raw fields and implicitly claims that
 //! everything it lists can be played; a `Stream` says where the bytes are *and
-//! whether this Host can open them* — a direct URL, or an `infoHash` that is
-//! listed and marked unplayable until something turns it into bytes. A
-//! candidate that is not playable yet is expressible here, so what can be
-//! played can change without the list, the answer or any client changing
-//! shape.
+//! whether this Host can open them* — a direct URL, or a torrent that the
+//! Torrent engine turns into a URL before the Player opens it. A candidate whose
+//! bytes are not a URL is expressible here, so how it is played can change
+//! without the list, the answer or any client changing shape.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -134,6 +133,9 @@ impl Provider for AddonProvider {
     }
 }
 
+/// What a fixture Addon answers a `stream` ask with.
+type StreamsAnswer = Result<Vec<Stream>, ActionError>;
+
 /// A [`Provider`] that answers from recorded candidates, and refuses to answer
 /// from anywhere else.
 ///
@@ -145,7 +147,10 @@ impl Provider for AddonProvider {
 /// an empty group.
 #[derive(Debug, Default)]
 pub struct FixtureProvider {
-    answers: Mutex<HashMap<String, Result<Vec<Stream>, ActionError>>>,
+    answers: Mutex<HashMap<String, StreamsAnswer>>,
+    /// What an Addon answers for one particular Video, keyed by the Addon's id
+    /// and the Video's: it wins over the Addon's answer for every Video.
+    video_answers: Mutex<HashMap<(String, String), StreamsAnswer>>,
     /// What each Addon answers a `subtitles` request with, keyed the same way.
     subtitle_answers: Mutex<HashMap<String, Result<Vec<Subtitle>, ActionError>>>,
     /// Every Addon this provider was asked about, in order.
@@ -160,6 +165,18 @@ impl FixtureProvider {
     /// Serve these `streams` for the Addon with this id.
     pub fn offering(self, addon: &str, streams: Vec<Stream>) -> Self {
         self.answering(addon, Ok(streams))
+    }
+
+    /// Serve these `streams` for this one Video of the Addon with this id, in
+    /// place of what it answers for every other Video.
+    pub fn offering_for_video(self, addon: &str, video: &str, streams: Vec<Stream>) -> Self {
+        self.answering_video(addon, video, Ok(streams))
+    }
+
+    /// Serve `error` for this one Video of the Addon with this id: the Addon is
+    /// fine for every other Video, and down for this one.
+    pub fn failing_for_video(self, addon: &str, video: &str, error: ActionError) -> Self {
+        self.answering_video(addon, video, Err(error))
     }
 
     /// Serve these `subtitles` for the Addon with this id.
@@ -199,6 +216,14 @@ impl FixtureProvider {
         self
     }
 
+    fn answering_video(mut self, addon: &str, video: &str, answer: StreamsAnswer) -> Self {
+        self.video_answers
+            .get_mut()
+            .expect("the fixture provider is not poisoned")
+            .insert((addon.to_owned(), video.to_owned()), answer);
+        self
+    }
+
     fn answering_subtitles(
         mut self,
         addon: &str,
@@ -216,12 +241,21 @@ impl Provider for FixtureProvider {
     fn streams(
         &self,
         addon: &Addon,
-        _requested: &ResourceRequest,
+        requested: &ResourceRequest,
     ) -> Result<Vec<Stream>, ActionError> {
         self.asked
             .lock()
             .expect("the fixture provider is not poisoned")
             .push(addon.id().as_str().to_owned());
+
+        if let Some(answer) = self
+            .video_answers
+            .lock()
+            .expect("the fixture provider is not poisoned")
+            .get(&(addon.id().as_str().to_owned(), requested.id.clone()))
+        {
+            return answer.clone();
+        }
 
         match self
             .answers
@@ -289,6 +323,35 @@ mod tests {
             crate::ManifestUrl::parse("https://example.org/manifest.json").expect("a manifest URL"),
             manifest,
         )
+    }
+
+    #[test]
+    fn a_video_with_its_own_answer_gets_it_and_every_other_gets_the_addons() {
+        let provider = FixtureProvider::new()
+            .offering("community.example", vec![candidate("everywhere")])
+            .failing_for_video(
+                "community.example",
+                "tt1:1:2",
+                ActionError::Stream {
+                    detail: "down for this one".to_owned(),
+                },
+            )
+            .offering_for_video("community.example", "tt1:1:3", vec![candidate("only here")]);
+        let addon = addon("community.example");
+        let ask =
+            |id: &str| provider.streams(&addon, &ResourceRequest::new("stream", "series", id));
+
+        assert_eq!(
+            ask("tt1:1:1").expect("the Addon's answer")[0]
+                .name
+                .as_deref(),
+            Some("everywhere")
+        );
+        assert!(ask("tt1:1:2").is_err(), "the Video that was told to fail");
+        assert_eq!(
+            ask("tt1:1:3").expect("its own answer")[0].name.as_deref(),
+            Some("only here")
+        );
     }
 
     #[test]

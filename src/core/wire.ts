@@ -36,13 +36,19 @@ export type Snapshot = {
   revision: number;
   playback: PlaybackSnapshot;
   /**
-   * The Host's preferences: the subtitle language it prefers, and the appearance
-   * it draws subtitles in. The appearance is always a value — white and 1.0 are
+   * The Host's preferences: the Subtitle languages and Audio languages it
+   * chooses Tracks by, and the appearance it draws subtitles in. The appearance is always a value — white and 1.0 are
    * answers rather than absences — so a client never invents one (#126,
    * ADR-0024).
    */
   preferences: {
-    subtitleLanguage: string | null;
+    /**
+     * The Subtitle languages, first the most wanted: up to three language
+     * tags, and empty when the Host follows the file (ADR-0041).
+     */
+    subtitleLanguages: string[];
+    /** The Audio languages: the same, for the soundtrack. */
+    audioLanguages: string[];
     /** `#RRGGBB`, uppercase, as the Host normalized it. */
     subtitleColor: string;
     /** A finite multiplier from 0.5 to 2.0. */
@@ -55,12 +61,24 @@ export type Snapshot = {
      */
     streamBuffer: { seconds: number; megabytes: number };
     /**
+     * The most disk a playing torrent may take, in decimal megabytes (ADR-0042
+     * §3). Always a value — a Host that has never been told keeps 2000 (2 GB) —
+     * and judged on its own, never against the Stream buffer.
+     */
+    torrentCache: { megabytes: number };
+    /**
      * What Play does for a Title's Up next: play it directly from the release
      * of the Video before it, or open the Streams picker so the owner picks
      * (#276). Always a value — direct is the default — and it governs only Up
      * next, never Resume.
      */
     upNextPlayback: UpNextPlayback;
+    /**
+     * Whether the Host advances on its own to a Title's Up next after a short
+     * countdown when an episode's Stream ends, or waits until someone asks
+     * (#302, #314). Always a value — on (`true`) is the default.
+     */
+    autoplay: boolean;
   };
   addons: AddonManifest[];
   /**
@@ -190,6 +208,43 @@ export type Episode = {
 };
 
 /**
+ * The episode Autoplay is about to play, as every client is told it. Mirrors
+ * `UpNextEpisode` in `host-core`.
+ */
+export type UpNextEpisode = {
+  /** The Title the episode belongs to. */
+  title: { type: string; id: string };
+  /** The episode's Video, by the type its Title carries and its own id. */
+  video: { type: string; id: string };
+  episode: Episode;
+  /** The episode's name and still, where the source gave them. */
+  name: string | null;
+  still: string | null;
+};
+
+/**
+ * Where Autoplay stands: a discriminated union on `phase`, flattened onto the
+ * Snapshot (`{ next, phase: "countdown", remaining, duration }`) rather than
+ * nested under it. `remaining` and `duration` are relative seconds as of the
+ * Snapshot, so a client projects the digit on its own monotonic clock from the
+ * Snapshot's arrival and never compares wall clocks with the Host (ADR-0033,
+ * ADR-0040). Mirrors `AutoplayPhase` in `host-core`. `unattended_limit` is the
+ * hold on "Still watching?": no countdown, so no `remaining` and no `duration`.
+ * `no_stream` is the countdown that ran out with no Stream found by continuity
+ * for `next`: the Host stays on the ended state and `detail` says why.
+ */
+export type AutoplayPhase =
+  | { phase: "countdown"; remaining: number; duration: number }
+  | { phase: "unattended_limit" }
+  | { phase: "no_stream"; detail: string };
+
+/**
+ * What Autoplay is doing about the episode that ended: the next episode and
+ * where Autoplay stands on it. Mirrors `AutoplaySnapshot` in `host-core`.
+ */
+export type AutoplaySnapshot = { next: UpNextEpisode } & AutoplayPhase;
+
+/**
  * Where the Player's picture is drawn — a fact about the machine, not a setting.
  * Mirrors `Picture` in `host-core`; a client sharing the Host's window leaves
  * the picture's rectangle unpainted where it is in the same window.
@@ -235,6 +290,8 @@ export type Track = {
   selected: boolean;
   default: boolean;
   forced: boolean;
+  /** The container's SDH flag. Carried for the Host's own ranking; nothing draws it. */
+  hearingImpaired: boolean;
 };
 
 /** One chapter marker, and where it starts. Mirrors `Chapter` in `host-core`. */
@@ -277,6 +334,20 @@ export type Statistics = {
   hardwareDecode: string | null;
 };
 
+/** How far a torrent has come: still looking for it, or bytes are arriving. */
+export type TorrentPhase = "finding" | "fetching";
+
+/**
+ * The Torrent status of a torrent Stream: its phase, how many peers, and bytes
+ * a second. Mirrors `TorrentStatus` in `host-core`; never which torrent.
+ */
+export type TorrentStatus = {
+  phase: TorrentPhase;
+  peers: number;
+  /** Bytes per second. */
+  rate: number;
+};
+
 /**
  * What every client is told about playback: the one genuinely shared state.
  * Mirrors `PlaybackSnapshot` in `host-core`.
@@ -306,6 +377,20 @@ export type PlaybackSnapshot = {
    * that gap is what the reading is for. Null where the Player has no answer.
    */
   buffered: Buffered | null;
+  /**
+   * Whether the Stream is Stalled: playing, paused by no one, and held because
+   * the bytes ahead of it have not arrived yet. True of any Stream, and
+   * published as the Player reports it, with no grace: a client draws nothing
+   * for a stall until it has lasted a second (`stallShown`). False in every
+   * state but `playing`.
+   */
+  stalled: boolean;
+  /**
+   * The Torrent status of the Stream, where it is a torrent: finding or
+   * fetching, peers, and bytes a second. Null for a direct Stream, and for a
+   * torrent the engine has not yet reported on.
+   */
+  torrent: TorrentStatus | null;
   /** The Stream's tracks — audio and subtitles — in the Player's own order. */
   tracks: Track[];
   /** The Stream's chapters, in the container's order. */
@@ -322,6 +407,11 @@ export type PlaybackSnapshot = {
   aspect: Aspect | null;
   resolution: VideoSize | null;
   statistics: Statistics | null;
+  /**
+   * The countdown to the next episode the Host is running, or null — nearly
+   * always. Published when it starts and when it ends, not per tick (ADR-0040).
+   */
+  autoplay: AutoplaySnapshot | null;
 };
 
 /**
@@ -567,14 +657,16 @@ export type ContinueEntry = {
 };
 
 /**
- * Where a Stream's bytes are, and whether this Host can open them. Mirrors
- * `Playback` in `host-core`: a direct URL mpv opens as itself, or an `infoHash`
- * this version lists and marks unplayable — the torrent bridge that would fetch
- * it is a later ticket.
+ * Where a Stream's bytes are, and how this Host opens them. Mirrors `Playback`
+ * in `host-core`: a direct URL mpv opens as itself, or a torrent — an Addon's
+ * `infoHash`, or a `magnet:` in its `url` — which the Torrent engine serves as
+ * a loopback URL before mpv opens it. `infoHash` is 40 lowercase hex
+ * characters, `fileIdx` the Addon's file of the torrent (`null` when it names
+ * none), and `sources` its `tracker:` and `dht:` entries, verbatim.
  */
 export type Playback =
   | { kind: "direct"; url: string }
-  | { kind: "info_hash"; infoHash: string };
+  | { kind: "torrent"; infoHash: string; fileIdx: number | null; sources: string[] };
 
 /**
  * What the Addon's hints say about playing a Stream. Mirrors `Warning` in
@@ -643,8 +735,11 @@ export type Response = {
 
 /** What a client can ask the Host to do. Mirrors `Action` in `host-core`. */
 export type Action =
-  | { type: "set_subtitle_language"; language: string }
-  | { type: "clear_subtitle_language" }
+  // The two language lists (ADR-0041): each Action carries the **whole** list,
+  // up to three tags, and `[]` clears it so the Host follows the file. The
+  // single-language Actions are gone, with no alias.
+  | { type: "set_subtitle_languages"; languages: string[] }
+  | { type: "set_audio_languages"; languages: string[] }
   // The subtitle appearance (#126, ADR-0024): a preference of the Host's, so it
   // outlives a Stream and reaches every client. The colour applies where a
   // subtitle track leaves its own colour open; a size applies to every track.
@@ -654,11 +749,22 @@ export type Action =
   // the memory it may take. One Action carries the pair, so the two limits
   // cannot be half-applied.
   | { type: "set_stream_buffer"; seconds: number; megabytes: number }
+  // The Torrent cache (ADR-0042 §3): the most disk a playing torrent may take,
+  // a whole number of megabytes from 256 to 32000, judged on its own.
+  | { type: "set_torrent_cache"; megabytes: number }
   // What Play does for a Title's Up next (#276): a preference of the Host's,
   // stored beside the Stream buffer and published in every Snapshot. It
   // switches Play between playing the Up next directly and opening the
   // Streams picker; it never affects Resume.
   | { type: "set_up_next_playback"; playback: UpNextPlayback }
+  // Whether the Host advances on its own to a Title's Up next after a short
+  // countdown when an episode's Stream ends, or waits until someone asks
+  // (#302, #314).
+  | { type: "set_autoplay"; autoplay: boolean }
+  // Stop the countdown Autoplay is running and nothing else: the preference
+  // stays, and the Host stays on the ended state. A silent no-op when there is
+  // no countdown (#316).
+  | { type: "cancel_autoplay" }
   // The Featured catalog (#74): a preference of the Host's rather than this
   // client's, so marking one changes what *every* client's Home is drawn from.
   | {

@@ -113,14 +113,22 @@ _Avoid_: page, results
 **Provider**:
 The Host's internal seam for turning a Video into playable candidates. The
 Stremio addon protocol is one Provider; direct integrations (local files,
-TorBox, a torrent bridge) are others.
+TorBox) are others.
 _Avoid_: source, backend, resolver
 
 **Stream**:
 A candidate a Provider returns for a Video: either a direct URL that can be
-played immediately, or an infoHash that something else must turn into bytes
-first.
+played immediately, or a torrent — an infoHash, and which file in it — that the
+Torrent engine turns into bytes first. A magnet link is a torrent too.
 _Avoid_: source, link, result
+
+**Torrent engine**:
+The Host's seam between a chosen torrent Stream and the Player: it joins the
+torrent's swarm from the owner's own address, uploads included, and serves the
+file asked for to the Player. A program shipped with the Host and started by it
+on the first torrent played; it lives only as long as the Host does. Not a
+Provider: it answers for no Video.
+_Avoid_: bridge, sidecar, torrent client, server
 
 **Streams picker**:
 The list of Streams a Video can be played as — one group per Addon that answered,
@@ -165,7 +173,8 @@ in-process, and it keeps the picture; the Host's interface is drawn above or
 beside the video and never receives the picture itself. The only frames that
 cross this seam are a Seek preview, asked for at one moment and never at the
 frame rate (ADR-0028).
-_Avoid_: mpv (for the seam), backend, engine, renderer
+_Avoid_: mpv (for the seam), backend, engine, renderer. The Player is never
+called an engine, and "Torrent engine" is always qualified.
 
 **Picture**:
 Where the Player draws the video: inside the same window as the Host's
@@ -209,6 +218,29 @@ and comes back when its Up next is listed, aired or not. A Title opened anywhere
 is anchored on its card's Video — Up next included — and a Title with no card
 opens at its beginning.
 _Avoid_: next episode (that is the Action that steps playback)
+
+**Up next playback**:
+Whether pressing **Play** on a Title's Up next opens its Stream straight away by
+continuity or opens the Streams picker first: a preference of the Host's, shared
+by every client (#276). Orthogonal to **Autoplay** — it governs only Play on
+an Up next card, never what happens when an episode ends or Resume.
+
+**Autoplay**:
+Whether the Host advances on its own to a Title's Up next after a short
+countdown when an episode's Stream ends, or waits on the ended state until
+someone asks: a preference of the Host's, shown in Settings and in the player on
+every client (#302, #314). Orthogonal to **Up next playback** — Autoplay
+advances by `next_episode`'s continuity and never opens the picker because of Up
+next playback; the picker opens only when continuity finds no Stream. After
+three episodes in a row that nobody touched, it holds on **Still watching?**
+instead of counting down (#319).
+
+**Still watching?**:
+Autoplay's hold after three auto-advances in a row with nobody touching
+anything: the Host publishes `unattended_limit` for the episode it would have
+played, with no countdown, and only a play — **Keep watching** — moves on.
+Pausing, seeking, changing the volume or any other Change from a client counts as
+being there and starts the count again (#319, ADR-0040).
 
 **Library**:
 The collection of Titles held in the owner's Stremio account. The room reads the
@@ -293,9 +325,33 @@ about the Host — and two relative steps (two rewinds, two chapter steps) are t
 steps, never collapsed into one (ADR-0027).
 _Avoid_: busy, loading, spinner (for the state)
 
+**Subtitle languages**:
+An ordered list of up to three languages the Host chooses a Stream's subtitle
+Track by, first the most wanted: a preference of the Host's, the same on every
+client. Empty, it follows the file (ADR-0041).
+_Avoid_: subtitle language (singular), slang, caption language
+
+**Audio languages**:
+The same, for the soundtrack. Independent of Subtitle languages; neither is
+derived from the other (ADR-0041).
+_Avoid_: audio language (singular), alang, dub preference
+
+**Hand pick**:
+A Track a client selected during playback, kept as a language (or as "off")
+while the Title keeps playing, ahead of the lists. It ends on stop, on playing
+another Title, and on a Host restart. It is never stored, and it never changes
+the lists.
+_Avoid_: override, manual track, sticky track
+
+**Follow the file** (under Subtitle languages):
+The phrase for an empty list, in this glossary and in Settings: the Host takes
+the subtitle or soundtrack the file itself marks as default, and chooses by no
+language. It replaces "Host picks per Video".
+_Avoid_: Host picks per Video, auto, default language
+
 **Subtitle appearance**:
 The colour and size the Player draws subtitles in, a preference of the Host's
-beside the subtitle language: the same on every Stream and every client. The
+beside the Subtitle languages: the same on every Stream and every client. The
 colour reaches subtitles that leave the colour open, so an ASS track keeps the
 colour it was authored with; the size reaches both kinds of subtitle (ADR-0024).
 _Avoid_: subtitle style, caption settings, theme, styling
@@ -305,8 +361,27 @@ How much of a Stream the Player keeps read ahead of where it is playing — how
 many seconds it aims for and how much memory that read-ahead may take — so a dip
 in the network is ridden out instead of interrupting playback. A preference of
 the Host's, not a client's, and the same on every Stream: it ends where either
-limit is reached first (ADR-0026).
+limit is reached first (ADR-0026). For a torrent Stream, it also sets how far
+ahead the Torrent engine fetches.
 _Avoid_: cache (the Host already caches Addon pages), preload, buffer size
+
+**Torrent cache**:
+The most disk a held torrent may take while it plays: pieces furthest behind
+playback are given up first, and all of it is deleted when the torrent is let go.
+A preference of the Host's, set once for every torrent.
+_Avoid_: download, torrent storage, disk buffer
+
+**Stalled**:
+A Stream that is playing, paused by no one, and held because the bytes ahead of it
+have not arrived yet. True of any Stream, direct or torrent; a Stream still
+opening is not Stalled, it is opening.
+_Avoid_: buffering, loading, frozen
+
+**Torrent status**:
+What the Torrent engine reports about the torrent being played: whether it is
+still finding the torrent or fetching it, how many peers it is connected to, and
+how fast bytes arrive. Never which torrent. Absent for a direct Stream.
+_Avoid_: swarm info, health, torrent stats
 
 ### Clients
 

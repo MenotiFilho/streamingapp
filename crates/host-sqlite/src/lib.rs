@@ -11,16 +11,20 @@ use std::sync::Mutex;
 
 use host_core::{
     Addon, AddonId, CachedTitle, CatalogRef, Device, DeviceId, DeviceName, FeaturedCatalog,
-    InvalidUpNextPlayback, Manifest, ManifestUrl, NextEpisode, Preferences, SeriesStatus, Store,
-    StoreError, StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale, Title, TitleCard,
-    TitleKey, TitleSource, TitleStub, TokenDigest, UpNextPlayback, VideoRef, WatchProgress,
+    InvalidUpNextPlayback, LanguageList, Manifest, ManifestUrl, NextEpisode, Preferences,
+    SeriesStatus, Store, StoreError, StreamBuffer, SubtitleColor, SubtitleScale, Title, TitleCard,
+    TitleKey, TitleSource, TitleStub, TokenDigest, TorrentCache, UpNextPlayback, VideoRef,
+    WatchProgress,
 };
 use rusqlite::{params, Connection, Transaction};
 
 pub use migrations::{latest_version, migrate, schema_version, Migration, MIGRATIONS};
 
-/// The key the subtitle language preference is stored under.
-const SUBTITLE_LANGUAGE: &str = "subtitle_language";
+/// The key the Subtitle languages are stored under: a JSON array of tags.
+const SUBTITLE_LANGUAGES: &str = "subtitle_languages";
+
+/// The key the Audio languages are stored under: a JSON array of tags.
+const AUDIO_LANGUAGES: &str = "audio_languages";
 
 /// The key the subtitle colour preference is stored under.
 const SUBTITLE_COLOR: &str = "subtitle_color";
@@ -31,8 +35,14 @@ const SUBTITLE_SCALE: &str = "subtitle_scale";
 /// The key the Stream buffer preference is stored under.
 const STREAM_BUFFER: &str = "stream_buffer";
 
+/// The key the Torrent cache preference is stored under.
+const TORRENT_CACHE: &str = "torrent_cache";
+
 /// The key the Up next playback preference is stored under.
 const UP_NEXT_PLAYBACK: &str = "up_next_playback";
+
+/// The key the Autoplay preference is stored under.
+const AUTOPLAY: &str = "autoplay";
 
 /// The key the Featured catalog preference is stored under.
 const FEATURED_CATALOG: &str = "featured_catalog";
@@ -54,6 +64,30 @@ fn put_preference(
     };
 
     written.map(|_| ()).map_err(StoreError::write)
+}
+
+/// A language list as its row holds it: a JSON array of tags, or no row at all
+/// for an empty list, so that "follow the file" is the absence of a choice.
+fn language_list_row(list: &LanguageList) -> Result<Option<String>, StoreError> {
+    if list.is_empty() {
+        return Ok(None);
+    }
+
+    serde_json::to_string(list)
+        .map(Some)
+        .map_err(StoreError::write)
+}
+
+/// A language list read back from its row, judged as it was written: a row that
+/// drifted is a read failure, never a list no client chose.
+fn read_language_list(value: &str, what: &str) -> Result<LanguageList, StoreError> {
+    let unusable = |error: String| StoreError::Read {
+        detail: format!("the stored {what} are unusable: {error}"),
+    };
+    let tags: Vec<String> =
+        serde_json::from_str(value).map_err(|error| unusable(error.to_string()))?;
+
+    LanguageList::parse(&tags).map_err(|error| unusable(format!("{error:?}")))
 }
 
 /// The Host's database.
@@ -115,21 +149,23 @@ impl Store for SqliteStore {
             })
             .map_err(StoreError::read)?;
 
-        let mut subtitle_language = None;
+        let mut subtitle_languages = LanguageList::empty();
+        let mut audio_languages = LanguageList::empty();
         let mut subtitle_color = SubtitleColor::default();
         let mut subtitle_scale = SubtitleScale::default();
         let mut stream_buffer = StreamBuffer::default();
+        let mut torrent_cache = TorrentCache::default();
         let mut up_next_playback = UpNextPlayback::default();
+        let mut autoplay = true;
         let mut featured_catalog = None;
         for row in rows {
             let (key, value) = row.map_err(StoreError::read)?;
             match key.as_str() {
-                SUBTITLE_LANGUAGE => {
-                    subtitle_language = Some(SubtitleLanguage::parse(&value).map_err(|error| {
-                        StoreError::Read {
-                            detail: format!("the stored subtitle language is unusable: {error}"),
-                        }
-                    })?);
+                SUBTITLE_LANGUAGES => {
+                    subtitle_languages = read_language_list(&value, "Subtitle languages")?;
+                }
+                AUDIO_LANGUAGES => {
+                    audio_languages = read_language_list(&value, "Audio languages")?;
                 }
                 SUBTITLE_COLOR => {
                     subtitle_color =
@@ -174,6 +210,19 @@ impl Store for SqliteStore {
                     stream_buffer = StreamBuffer::parse(stored.seconds(), stored.megabytes())
                         .map_err(|error| unusable(error.to_string()))?;
                 }
+                TORRENT_CACHE => {
+                    // One whole number of megabytes, judged as it was written:
+                    // a row that drifted is a read failure, never a ceiling no
+                    // client chose (ADR-0042 §3).
+                    let unusable = |error: String| StoreError::Read {
+                        detail: format!("the stored torrent cache is unusable: {error}"),
+                    };
+                    let megabytes: u64 = value
+                        .parse()
+                        .map_err(|error: std::num::ParseIntError| unusable(error.to_string()))?;
+                    torrent_cache = TorrentCache::parse(megabytes)
+                        .map_err(|error| unusable(error.to_string()))?;
+                }
                 UP_NEXT_PLAYBACK => {
                     // One word from a closed set, judged as it was written: a
                     // row that drifted is a read failure, never a choice no
@@ -185,6 +234,11 @@ impl Store for SqliteStore {
                                 detail: format!("the stored Up next playback is unusable: {error}"),
                             })?;
                 }
+                AUTOPLAY => {
+                    autoplay = value.parse::<bool>().map_err(|error| StoreError::Read {
+                        detail: format!("the stored Autoplay is unusable: {error}"),
+                    })?;
+                }
                 // A preference written by a newer Host than this one: leaving it
                 // alone keeps it for the Host that understands it.
                 _ => continue,
@@ -192,11 +246,14 @@ impl Store for SqliteStore {
         }
 
         Ok(Preferences::from_stored(
-            subtitle_language,
+            subtitle_languages,
+            audio_languages,
             subtitle_color,
             subtitle_scale,
             stream_buffer,
+            torrent_cache,
             up_next_playback,
+            autoplay,
             featured_catalog,
         ))
     }
@@ -207,10 +264,13 @@ impl Store for SqliteStore {
 
         put_preference(
             &transaction,
-            SUBTITLE_LANGUAGE,
-            preferences
-                .subtitle_language()
-                .map(SubtitleLanguage::as_str),
+            SUBTITLE_LANGUAGES,
+            language_list_row(preferences.subtitle_languages())?.as_deref(),
+        )?;
+        put_preference(
+            &transaction,
+            AUDIO_LANGUAGES,
+            language_list_row(preferences.audio_languages())?.as_deref(),
         )?;
         // The appearance is always a value — white and 1.0 are answers, not the
         // absence of one — so both rows are written with every preference
@@ -228,6 +288,10 @@ impl Store for SqliteStore {
         let buffer =
             serde_json::to_string(&preferences.stream_buffer()).map_err(StoreError::write)?;
         put_preference(&transaction, STREAM_BUFFER, Some(&buffer))?;
+        // The Torrent cache is one whole number of megabytes, written with every
+        // preference write like the buffer beside it (ADR-0042 §3).
+        let cache = preferences.torrent_cache().megabytes().to_string();
+        put_preference(&transaction, TORRENT_CACHE, Some(&cache))?;
         // One word from a closed set, written with every preference write like
         // the appearance and the buffer (#276).
         put_preference(
@@ -235,6 +299,12 @@ impl Store for SqliteStore {
             UP_NEXT_PLAYBACK,
             Some(preferences.up_next_playback().as_str()),
         )?;
+        let autoplay = if preferences.autoplay() {
+            "true"
+        } else {
+            "false"
+        };
+        put_preference(&transaction, AUTOPLAY, Some(autoplay))?;
         // The whole pair as one document: an id is only half of what an Addon's
         // Catalog is, and two rows could disagree.
         let featured = match preferences.featured_catalog() {

@@ -1622,7 +1622,9 @@ version = "0.1.0"
 dependencies = [
  "host-addon",
  "host-core",
+ "host-torrent",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -1670,6 +1672,17 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "host-torrent"
+version = "0.1.0"
+dependencies = [
+ "host-core",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tracing",
 ]
 
 [[package]]
@@ -3759,6 +3772,7 @@ dependencies = [
  "host-mpv",
  "host-secret",
  "host-sqlite",
+ "host-torrent",
  "host-wire",
  "serde",
  "serde_json",

@@ -33,6 +33,7 @@ const PLAYING: Snapshot = {
   revision: 9,
   playback: {
     state: "playing",
+    autoplay: null,
     picture: "in_window",
     failure: null,
     nowPlaying: {
@@ -58,6 +59,7 @@ const PLAYING: Snapshot = {
         selected: true,
         default: true,
         forced: false,
+        hearingImpaired: false,
       },
       {
         id: 2,
@@ -69,6 +71,7 @@ const PLAYING: Snapshot = {
         selected: false,
         default: false,
         forced: false,
+        hearingImpaired: false,
       },
       {
         id: 3,
@@ -80,6 +83,7 @@ const PLAYING: Snapshot = {
         selected: true,
         default: true,
         forced: false,
+        hearingImpaired: false,
       },
       {
         id: 4,
@@ -91,6 +95,7 @@ const PLAYING: Snapshot = {
         selected: false,
         default: false,
         forced: false,
+        hearingImpaired: false,
       },
     ],
     chapters: [
@@ -103,17 +108,22 @@ const PLAYING: Snapshot = {
     volume: 60,
     muted: true,
     subtitleDelay: 0,
+    stalled: false,
+    torrent: null,
     crop: null,
     aspect: null,
     resolution: { width: 1920, height: 804 },
     statistics: { bitrate: 12_500_000, droppedFrames: 0, hardwareDecode: "d3d11va" },
   },
   preferences: {
-    subtitleLanguage: "en",
+    subtitleLanguages: ["en"],
+    audioLanguages: [],
     subtitleColor: "#FFFFFF",
     subtitleScale: 1.25,
     streamBuffer: { seconds: 300, megabytes: 512 },
+    torrentCache: { megabytes: 2000 },
     upNextPlayback: "direct",
+    autoplay: true,
   },
   addons: [],
   featuredCatalog: null,

@@ -9,9 +9,9 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, Control, FixtureClock, FixtureFetcher, FixturePlayer, FixtureProvider,
-    Host, InMemorySecretStore, InMemoryStore, Observation, Playback, PlaybackState, SecretBackend,
-    Store, Stream, ACTION_VERSION,
+    Action, ActionError, AutoplayPhase, Control, FixtureClock, FixtureFetcher, FixturePlayer,
+    FixtureProvider, Host, InMemorySecretStore, InMemoryStore, Observation, Playback,
+    PlaybackState, SecretBackend, Store, Stream, ACTION_VERSION,
 };
 
 /// The Addon that answers both `meta` and `stream` for a series.
@@ -27,6 +27,10 @@ const SERIES_META: &str = include_str!("fixtures/cinemeta-meta-series.json");
 
 /// The URL the episode playing was chosen from, and two candidates for the one
 /// after it: a different release first, the same release second.
+/// A candidate's URL this Host will not open: not `http`, so it is listed and
+/// never played.
+const UNOPENABLE: &str = "ftp://stream.example.org/v/unopenable.mkv";
+
 const PLAYING: &str = "https://stream.example.org/v/tt0903747-1-1.mkv";
 const OTHER_RELEASE: &str = "https://stream.example.org/v/tt0903747-1-2-720p.mkv";
 const SAME_RELEASE: &str = "https://stream.example.org/v/tt0903747-1-2-1080p.mkv";
@@ -245,29 +249,35 @@ fn a_stream_that_reached_its_end_can_still_step_to_the_next_episode() {
         duration: Some(2820.0),
         ..Observation::idle()
     });
-    host.sample().expect("reaching the end is a change");
+    let ended = host.sample().expect("reaching the end is a change");
+    assert_eq!(
+        ended
+            .playback
+            .autoplay
+            .as_ref()
+            .map(|autoplay| (autoplay.next.video.id.as_str(), &autoplay.phase)),
+        Some((
+            "tt0903747:1:2",
+            &AutoplayPhase::Countdown {
+                remaining: 5.0,
+                duration: 5.0
+            }
+        )),
+        "Autoplay is on by default: the end counts down to the very episode Next would play"
+    );
 
-    host.dispatch(next_episode())
+    let stepped = host
+        .dispatch(next_episode())
         .expect("a finished episode still has the one after it");
 
     assert_eq!(
         player.opened(),
         vec![PLAYING.to_owned(), SAME_RELEASE.to_owned()]
     );
-}
-
-/// A candidate whose bytes are a torrent: listed, and not one this Host plays.
-fn torrent(name: &str, info_hash: &str, binge_group: Option<&str>) -> Stream {
-    Stream {
-        name: Some(name.to_owned()),
-        description: None,
-        playback: Playback::InfoHash {
-            info_hash: info_hash.to_owned(),
-        },
-        warnings: Vec::new(),
-        filename: None,
-        binge_group: binge_group.map(str::to_owned),
-    }
+    assert!(
+        stepped.snapshots[0].playback.autoplay.is_none(),
+        "pressing Next is the play the countdown was waiting for"
+    );
 }
 
 #[test]
@@ -276,11 +286,7 @@ fn when_the_release_is_gone_the_same_addons_first_playable_candidate_plays() {
     let provider = Arc::new(FixtureProvider::new().offering(
         SERIES_ID,
         vec![
-            torrent(
-                "a torrent",
-                "61065ea115b7cc3e8db9fb5ab1f6f327f08bd1c9",
-                Some("the-release"),
-            ),
+            candidate("a Stream no Player opens", UNOPENABLE, Some("the-release")),
             candidate("720p", OTHER_RELEASE, Some("another-release")),
         ],
     ));

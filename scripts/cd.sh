@@ -10,8 +10,9 @@
 # runners: the frontend is built inside the `streamingapp-dev:ci` container from
 # a throwaway git worktree, staged into a clean temporary directory on the
 # Windows filesystem (wiped on exit), compiled and bundled into an NSIS
-# per-user setup `.exe` with `libmpv-2.dll` beside `streamingapp.exe`, and
-# uploaded to GitHub Releases with a `.sha256` checksum file.
+# per-user setup `.exe` with `libmpv-2.dll` and the Torrent engine
+# (`streamingapp-torrent.exe`, cross-compiled in the same container) beside
+# `streamingapp.exe`, and uploaded to GitHub Releases with a `.sha256` checksum file.
 #
 # The Windows `libmpv` bundle, `cargo-tauri` binary, and Cargo `target/`
 # directory are kept in `%LOCALAPPDATA%\streamingapp-cd-cache` between runs so
@@ -123,9 +124,14 @@ step "Install the window's dependencies" \
 step "Build the window" \
   run pnpm build
 
+# The Torrent engine is Go, cross-compiled to Windows here, in the pinned image,
+# and staged with its licence notice; Windows has no Go.
+step "Build the Torrent engine" \
+  run crates/host-torrent/build.sh
+
 rm -rf "$win_stage_wsl"
 step "Stage the tree to a clean Windows directory ($win_stage_win)" \
-  bash -c "cd \"$work\" && ./scripts/windows/stage.sh \"$win_stage_wsl\""
+  bash -c "cd \"$work\" && TORRENT_ENGINE_PREBUILT=1 ./scripts/windows/stage.sh \"$win_stage_wsl\""
 
 step "Build the Windows NSIS installer ($version)" \
   bash -c "cd /mnt/c && \"$powershell\" -NoProfile -NonInteractive -ExecutionPolicy Bypass \

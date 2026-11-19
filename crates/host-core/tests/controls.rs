@@ -9,9 +9,9 @@ use std::sync::Arc;
 use host_core::{
     Action, ActionError, AddonProvider, Aspect, Chapter, ChapterStep, Control, Crop, CropRectangle,
     FixtureClock, FixtureFetcher, FixturePlayer, Host, InMemorySecretStore, InMemoryStore,
-    Observation, PlaybackError, PlaybackState, Preferences, SecretBackend, Snapshot, Statistics,
-    Store, StreamBuffer, SubtitleColor, SubtitleScale, Telling, Track, TrackId, TrackKind,
-    VideoSize, ACTION_VERSION,
+    LanguageList, Observation, PlaybackError, PlaybackState, Preferences, SecretBackend, Snapshot,
+    Statistics, Store, StreamBuffer, SubtitleColor, SubtitleScale, Telling, Track, TrackId,
+    TrackKind, VideoSize, ACTION_VERSION,
 };
 
 /// The URL a recorded debrid answer would carry, with a session in it.
@@ -128,6 +128,7 @@ fn track(id: i64, kind: TrackKind, language: &str, selected: bool) -> Track {
         selected,
         default: selected,
         forced: false,
+        hearing_impaired: false,
     }
 }
 
@@ -181,7 +182,8 @@ fn controls(player: &FixturePlayer) -> Vec<Telling> {
         .filter(|telling| {
             !matches!(
                 telling,
-                Telling::SubtitleLanguage(_)
+                Telling::SubtitleLanguages(_)
+                    | Telling::AudioLanguages(_)
                     | Telling::SubtitleColor(_)
                     | Telling::SubtitleScale(_)
             )
@@ -508,27 +510,75 @@ fn no_control_reopens_the_stream() {
 }
 
 #[test]
-fn the_subtitle_language_preference_is_told_to_the_player_and_survives_a_refusal() {
-    let mut fixture = fixture();
+fn a_language_list_changed_mid_stream_leaves_the_stream_playing_alone() {
+    // The new list applies from the next Stream (story 14): the Player is told
+    // its first guess, and nothing about what is playing is selected or reopened.
+    let mut fixture = playing();
+    let opened = fixture.player.opened();
+    let before = fixture.host.snapshot().playback;
 
-    let published = published(
+    for body in [
+        serde_json::json!({ "type": "set_subtitle_languages", "languages": ["fr", "en"] }),
+        serde_json::json!({ "type": "set_audio_languages", "languages": ["fr"] }),
+    ] {
+        let after = published(&mut fixture, &body);
+
+        assert_eq!(fixture.player.opened(), opened, "{body} never reopens");
+        assert_eq!(
+            after[0].playback.tracks, before.tracks,
+            "{body} selects no other track"
+        );
+    }
+    assert!(
+        controls(&fixture.player)
+            .iter()
+            .all(|telling| !matches!(telling, Telling::SubtitleTrack(_) | Telling::AudioTrack(_))),
+        "no track was told to the Player"
+    );
+}
+
+#[test]
+fn the_language_lists_are_told_to_the_player_and_survive_a_refusal() {
+    let mut fixture = fixture();
+    let list = |tags: &[&str]| LanguageList::parse(tags).expect("a language list");
+
+    let first = published(
         &mut fixture,
-        &serde_json::json!({ "type": "set_subtitle_language", "language": "pt-BR" }),
+        &serde_json::json!({ "type": "set_subtitle_languages", "languages": ["pt-BR", "en"] }),
     );
     assert_eq!(
-        published[0]
+        first[0]
             .preferences
-            .subtitle_language
-            .as_ref()
-            .map(host_core::SubtitleLanguage::as_str),
-        Some("pt-BR")
+            .subtitle_languages
+            .iter()
+            .map(host_core::Language::as_str)
+            .collect::<Vec<_>>(),
+        ["pt-BR", "en"]
     );
-    assert!(
-        matches!(
-            fixture.player.tellings().last(),
-            Some(Telling::SubtitleLanguage(Some(_)))
-        ),
-        "the Player is told the preference, so mpv selects the right subtitle track"
+    assert_eq!(
+        fixture.player.tellings().last(),
+        Some(&Telling::SubtitleLanguages(list(&["pt-BR", "en"]))),
+        "the Player is told the whole list, so mpv's first guess is right"
+    );
+
+    published(
+        &mut fixture,
+        &serde_json::json!({ "type": "set_audio_languages", "languages": ["fr"] }),
+    );
+    assert_eq!(
+        fixture.player.tellings().last(),
+        Some(&Telling::AudioLanguages(list(&["fr"]))),
+        "the audio list is told on its own"
+    );
+
+    published(
+        &mut fixture,
+        &serde_json::json!({ "type": "set_subtitle_languages", "languages": [] }),
+    );
+    assert_eq!(
+        fixture.player.tellings().last(),
+        Some(&Telling::SubtitleLanguages(LanguageList::empty())),
+        "an empty list is told as empty: follow the file"
     );
 
     // A Player that refuses every telling is not a reason the Host cannot hold
@@ -539,16 +589,17 @@ fn the_subtitle_language_preference_is_told_to_the_player_and_survives_a_refusal
     let mut host = host_over(player);
     let published = host
         .dispatch(action(
-            &serde_json::json!({ "type": "set_subtitle_language", "language": "en" }),
+            &serde_json::json!({ "type": "set_subtitle_languages", "languages": ["en"] }),
         ))
         .expect("a refused telling is not a refused preference");
     assert_eq!(
         published.snapshots[0]
             .preferences
-            .subtitle_language
-            .as_ref()
-            .map(host_core::SubtitleLanguage::as_str),
-        Some("en")
+            .subtitle_languages
+            .iter()
+            .map(host_core::Language::as_str)
+            .collect::<Vec<_>>(),
+        ["en"]
     );
 }
 
@@ -673,11 +724,12 @@ fn a_host_tells_its_player_the_stored_appearance_at_startup() {
     assert_eq!(
         told,
         vec![
-            Telling::SubtitleLanguage(None),
+            Telling::SubtitleLanguages(LanguageList::empty()),
+            Telling::AudioLanguages(LanguageList::empty()),
             Telling::SubtitleColor(SubtitleColor::parse("#FFFF00").expect("a colour")),
             Telling::SubtitleScale(SubtitleScale::parse(1.25).expect("a size")),
             Telling::StreamBuffer(StreamBuffer::parse(600, 1024).expect("a buffer")),
         ],
-        "the language, the appearance, and the buffer before any Stream is opened"
+        "both language lists, the appearance, and the buffer before any Stream is opened"
     );
 }

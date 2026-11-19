@@ -20,6 +20,7 @@ members = [
     "crates/host-secret",
     "crates/host-wire",
     "crates/host-live",
+    "crates/host-torrent",
     "src-tauri",
 ]
 
@@ -39,6 +40,7 @@ host-sqlite = { path = "crates/host-sqlite" }
 host-logging = { path = "crates/host-logging" }
 host-wire = { path = "crates/host-wire" }
 host-live = { path = "crates/host-live" }
+host-torrent = { path = "crates/host-torrent" }
 
 base64 = "0.22"
 flate2 = "1"

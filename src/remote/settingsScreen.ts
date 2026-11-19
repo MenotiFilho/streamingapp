@@ -1,4 +1,9 @@
 import type { DeclaredCatalog } from "../core/browse";
+import type { LanguageKind } from "../core/languageList";
+import {
+  FOLLOW_THE_FILE_AUDIO_LINE,
+  FOLLOW_THE_FILE_SUBTITLE_LINE,
+} from "../core/languages";
 import type { NewLevel } from "../core/navigation";
 import {
   CREDENTIALS_CATEGORY,
@@ -118,25 +123,69 @@ export function signOutLevel(): NewLevel<RemotePayload> {
 /* ---------------------------------------------------------------- Preferences */
 
 /** The section labels the Preferences leaf prints, in reading order. */
-export const SUBTITLE_LANGUAGE_HEAD = "Subtitle language";
 export const SUBTITLE_COLOUR_HEAD = "Subtitle colour";
 export const SUBTITLE_SIZE_HEAD = "Subtitle size";
 export const STREAM_BUFFER_HEAD = "Stream buffer";
 export const STREAM_BUFFER_SECONDS_HEAD = "Look-ahead";
 export const STREAM_BUFFER_MEGABYTES_HEAD = "Memory ceiling";
-export const UP_NEXT_PLAYBACK_HEAD = "Up next";
+export const UP_NEXT_HEAD = "Up next";
 export const FEATURED_CATALOG_HEAD = "Featured catalog";
 export const FEATURED_NONE = "No featured catalog";
 
+/** What each language group is called: the Host's own two lists (ADR-0041). */
+export const LANGUAGE_GROUP_HEADS: Record<LanguageKind, string> = {
+  subtitle: "Subtitle languages",
+  audio: "Audio languages",
+};
+
+/** What an empty list means, in the words the window prints under its field. */
+export const LANGUAGE_FOLLOW_LINES: Record<LanguageKind, string> = {
+  subtitle: FOLLOW_THE_FILE_SUBTITLE_LINE,
+  audio: FOLLOW_THE_FILE_AUDIO_LINE,
+};
+
 /**
- * The one preference that is an absence: the Host picks a language per Video
- * rather than preferring one, so the choice sends the clear rather than an
- * empty tag.
+ * The sheet a field's ▾ opens (#330, ADR-0035 §2): a level, so the phone's
+ * system Back puts it away (ADR-0034). One id per list, so a second press
+ * replaces it and a single Back leaves.
  */
-export function languageRequest(tag: string | null): Action {
-  return tag === null
-    ? { type: "clear_subtitle_language" }
-    : { type: "set_subtitle_language", language: tag };
+export function languageSheetLevel(kind: LanguageKind): NewLevel<RemotePayload> {
+  return {
+    id: `language-sheet-${kind}`,
+    name: LANGUAGE_GROUP_HEADS[kind],
+    kind: "popover",
+    payload: { kind: "language-sheet", list: kind },
+  };
+}
+
+/** How long a chip is held before it is picked up: about half a second. */
+export const LONG_PRESS_MS = 500;
+
+/** How far a finger may drift while held and still be holding (CSS pixels). */
+export const LONG_PRESS_SLOP = 8;
+
+/** What a press on a chip has become. */
+export type PressVerdict = "wait" | "drag" | "scroll";
+
+/**
+ * Whether a press on a chip is a drag yet (#330, story 18).
+ *
+ * A phone's finger lands on a chip all the time on the way to scrolling the
+ * page, so a drag starts only on a long press: held about half a second without
+ * travelling. A move before that is a swipe — the page scrolls and the chip is
+ * never picked up — and a release before it is a tap, which is no drag either.
+ */
+export function pressVerdict({
+  heldMs,
+  travelled,
+}: {
+  heldMs: number;
+  travelled: number;
+}): PressVerdict {
+  if (heldMs >= LONG_PRESS_MS) {
+    return "drag";
+  }
+  return travelled > LONG_PRESS_SLOP ? "scroll" : "wait";
 }
 
 export function colorRequest(color: string): Action {
@@ -168,13 +217,6 @@ export function bufferAfter(
 /** One Action carries the pair, so the Host cannot half-apply it (ADR-0026). */
 export function bufferRequest(pair: StreamBuffer): Action {
   return { type: "set_stream_buffer", ...pair };
-}
-
-/** What Play does with a Title's Up next (#276). */
-export function upNextPlaybackRequest(
-  playback: "direct" | "picker",
-): Action {
-  return { type: "set_up_next_playback", playback };
 }
 
 /**

@@ -301,6 +301,12 @@ impl MpvPlayer {
             // read has reached. `demuxer-cache-time` is not this — it is the
             // read's own end, not a span to draw.
             cache_state: self.mpv.get_property::<String>("demuxer-cache-state").ok(),
+            // Held for bytes, whoever's pause it is not: mpv's own fact, which
+            // is false whenever it cannot answer.
+            paused_for_cache: self
+                .mpv
+                .get_property::<bool>(observing::PAUSED_FOR_CACHE)
+                .unwrap_or(false),
         }
     }
 
@@ -380,6 +386,10 @@ impl MpvPlayer {
                             .mpv
                             .get_property::<bool>(&format!("track-list/{index}/forced"))
                             .unwrap_or(false),
+                        hearing_impaired: self
+                            .mpv
+                            .get_property::<bool>(&format!("track-list/{index}/hearing-impaired"))
+                            .unwrap_or(false),
                     })
                 })
                 .collect(),
@@ -402,6 +412,33 @@ impl MpvPlayer {
                     .unwrap_or(0.0),
             })
             .collect()
+    }
+    /// Send a Telling's commands directly to mpv without touching `self.memory`.
+    fn send(&self, telling: &Telling) -> Result<(), PlaybackError> {
+        for command in telling::commands(telling) {
+            self.run(command)?;
+        }
+        Ok(())
+    }
+}
+
+/// Complete a resume's opening hold once the picture is configured (or the wait
+/// times out). Unpauses mpv unless the caller explicitly told
+/// `Telling::Pause(true)` after `open`.
+fn finish_start_when_ready(
+    memory: &mut Memory,
+    properties: &Properties,
+    unpause: impl FnOnce() -> bool,
+) {
+    if !memory.starting() {
+        return;
+    }
+    let ready = properties.configured && properties.width.is_some() && properties.height.is_some();
+    if !(ready || memory.start_timed_out()) {
+        return;
+    }
+    if memory.hold_paused() || unpause() {
+        memory.start_ready();
     }
 }
 
@@ -429,7 +466,7 @@ impl Player for MpvPlayer {
         // held until its picture is configured so the room does not start with
         // sound over a poster.
         let starting = start.is_some();
-        self.tell(Telling::Pause(starting))?;
+        self.send(&Telling::Pause(starting))?;
 
         // Where a resume begins, set before the file is loaded because that is
         // when mpv reads it: a seek sent afterwards would move a Stream that has
@@ -443,10 +480,13 @@ impl Player for MpvPlayer {
 
         // An open that mpv will not even take is the one failure this call can
         // report: whether the *Stream* opens is found out later, in `observe`.
-        let result = self.run(telling::load(url)).map_err(|error| match error {
-            PlaybackError::Command { detail } => PlaybackError::Open { detail },
-            other => other,
-        });
+        let result = telling::opening(url)
+            .into_iter()
+            .try_for_each(|command| self.run(command))
+            .map_err(|error| match error {
+                PlaybackError::Command { detail } => PlaybackError::Open { detail },
+                other => other,
+            });
         if result.is_ok() {
             *memory = Memory::asking();
             if starting {
@@ -457,8 +497,13 @@ impl Player for MpvPlayer {
     }
 
     fn tell(&self, telling: Telling) -> Result<(), PlaybackError> {
-        for command in telling::commands(&telling) {
-            self.run(command)?;
+        self.send(&telling)?;
+        if let Telling::Pause(paused) = telling {
+            let mut memory = self
+                .memory
+                .lock()
+                .expect("nothing panics while holding the Player's memory");
+            memory.told_pause(paused);
         }
         Ok(())
     }
@@ -485,14 +530,11 @@ impl Player for MpvPlayer {
         let properties = self.properties();
 
         // A resume is held paused until the picture is configured. The wait is
-        // bounded: a Stream with no video at all must still play its sound.
-        if memory.starting() {
-            let ready =
-                properties.configured && properties.width.is_some() && properties.height.is_some();
-            if (ready || memory.start_timed_out()) && self.tell(Telling::Pause(false)).is_ok() {
-                memory.start_ready();
-            }
-        }
+        // bounded: a Stream with no video at all must still play its sound,
+        // unless the caller explicitly asked to stay paused.
+        finish_start_when_ready(&mut memory, &properties, || {
+            self.send(&Telling::Pause(false)).is_ok()
+        });
 
         let mut observation = observe(&memory, &properties);
         if memory.starting() {
@@ -950,7 +992,9 @@ fn preview_directory() -> std::path::PathBuf {
 /// keeps a machine without it playing (ADR-0003); `hwdec=auto-safe` so that
 /// hardware decode is engaged where the machine can and playback still works
 /// where it cannot; `keep-open` so that a Stream at its end stays loaded, which
-/// is what makes "ended" and a resume from it possible (#29). A placement in
+/// is what makes "ended" and a resume from it possible (#29); `network-timeout`
+/// is 90 s so that it outlasts the Host's 60 s give-up on a torrent nobody
+/// shares. A placement in
 /// the Host's own window also keeps the video output up, black, when no Stream
 /// is playing, so a Stop never leaves a hole where the desktop shows (#250).
 ///
@@ -972,7 +1016,21 @@ fn options(surface: Placement, script: Option<&str>) -> Vec<(&'static str, Strin
             .to_owned(),
         ),
         ("hwdec", "auto-safe".to_owned()),
+        // mpv stands down: the Host chooses the Track, and mpv's own fallbacks
+        // must not fight it (ADR-0041). No unrelated default subtitle when
+        // `slang` misses, no forced subtitle by mpv's rule, and no choosing by
+        // the OS language when a list is empty: following the file is the file's
+        // own default. `track-auto-selection` and `subs-with-matching-audio`
+        // stay at `yes`, so the first guess still selects something before the
+        // Host's first report and a matching soundtrack hides no subtitle.
+        ("subs-fallback", "no".to_owned()),
+        ("subs-fallback-forced", "no".to_owned()),
+        ("subs-match-os-language", "no".to_owned()),
         ("keep-open", "yes".to_owned()),
+        // The Host gives up on a torrent nobody shares at 60 s while it opens;
+        // mpv's own wait must outlast that, so the Host's decision is the one
+        // that ends it (ADR-0042 §5).
+        ("network-timeout", "90".to_owned()),
         ("target-colorspace-hint", "yes".to_owned()),
         ("idle", "yes".to_owned()),
         ("config", "no".to_owned()),
@@ -1051,6 +1109,38 @@ mod tests {
             "HDR passthrough needs gpu-next, and the fallback keeps the rest playing"
         );
         assert_eq!(option(&options, "hwdec"), Some("auto-safe"));
+    }
+
+    #[test]
+    fn mpv_waits_on_the_network_longer_than_the_host_does() {
+        // The Host gives up on a torrent nobody shares at 60 s, and says so in
+        // its own words (ADR-0042 §5). mpv's own timeout must outlast that, so
+        // the Host's decision ends the wait and mpv's never does — for every
+        // Stream and every placement, because a direct Stream is no different.
+        for surface in [
+            Placement::Headless,
+            Placement::InWindow { handle: 1 },
+            Placement::OwnWindow,
+        ] {
+            assert_eq!(
+                option(&options(surface, None), "network-timeout"),
+                Some("90")
+            );
+        }
+    }
+
+    #[test]
+    fn mpv_stands_down_so_the_hosts_choice_is_not_fought() {
+        for surface in [Placement::Headless, Placement::InWindow { handle: 1 }] {
+            let options = options(surface, None);
+
+            assert_eq!(option(&options, "subs-fallback"), Some("no"));
+            assert_eq!(option(&options, "subs-fallback-forced"), Some("no"));
+            assert_eq!(option(&options, "subs-match-os-language"), Some("no"));
+            // Left at mpv's default `yes`, by not being set at all.
+            assert_eq!(option(&options, "track-auto-selection"), None);
+            assert_eq!(option(&options, "subs-with-matching-audio"), None);
+        }
     }
 
     #[test]
@@ -1182,5 +1272,77 @@ mod tests {
                 "{surface:?} leaves a Stream at its end rather than unloading it"
             );
         }
+    }
+
+    #[test]
+    fn a_resume_told_to_stay_paused_is_not_unpaused_when_vo_is_configured() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::net::TcpListener;
+        use std::thread;
+
+        const CONTROLS: &[u8] = include_bytes!("../tests/fixtures/controls.mkv");
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a free port");
+        let port = listener.local_addr().expect("listener address").port();
+        thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                thread::spawn(move || {
+                    let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
+                    let mut line = String::new();
+                    while reader.read_line(&mut line).is_ok() {
+                        if line.trim().is_empty() {
+                            break;
+                        }
+                        line.clear();
+                    }
+                    let mut stream = stream;
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Type: video/x-matroska\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        CONTROLS.len()
+                    );
+                    let _ = stream.write_all(CONTROLS);
+                    let _ = stream.flush();
+                });
+            }
+        });
+
+        let player = MpvPlayer::start(Placement::Headless).expect("headless mpv starts");
+        let url =
+            StreamUrl::parse(&format!("http://127.0.0.1:{port}/controls.mkv")).expect("valid URL");
+        player
+            .open(&url, Some(2.0))
+            .expect("mpv takes the Stream at a resume point");
+        player
+            .tell(Telling::Pause(true))
+            .expect("caller tells the opening resume to stay paused");
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut settled = None;
+        while Instant::now() < deadline {
+            let observation = player.observe();
+            let configured = player
+                .mpv
+                .get_property::<bool>("vo-configured")
+                .unwrap_or(false);
+            if configured && observation.state != PlaybackState::Opening {
+                settled = Some(observation);
+                break;
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+
+        let first = settled.expect("vo-configured should become true and leave Opening");
+        assert_eq!(first.state, PlaybackState::Paused);
+
+        // Observe again after a brief pause so any erroneous `Pause(false)` sent
+        // on the `vo-configured` tick has taken effect in mpv.
+        thread::sleep(Duration::from_millis(100));
+        let later = player.observe();
+        assert_eq!(
+            later.state,
+            PlaybackState::Paused,
+            "a resume explicitly told Pause(true) must stay Paused after vo-configured"
+        );
     }
 }

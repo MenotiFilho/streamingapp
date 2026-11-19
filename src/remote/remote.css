@@ -1162,6 +1162,82 @@ body {
   gap: var(--rep-space-2);
 }
 
+/* ---- the language lists (#330): variant D of the #300 prototype ---- */
+
+.remote-lang-field {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--rep-space-2);
+  min-height: var(--rep-remote-touch);
+  padding: var(--rep-space-2) 0;
+  border-bottom: 1px solid var(--rep-hairline);
+}
+
+.remote-lang-follow {
+  padding: 0 var(--rep-space-2);
+  color: var(--rep-muted);
+  font-size: var(--rep-remote-text-control);
+  font-style: italic;
+}
+
+.remote-lang-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--rep-space-2);
+  padding: 0 0 0 var(--rep-space-2);
+  border: 1px solid var(--rep-hairline);
+  color: var(--rep-ivory);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-remote-text-control);
+  line-height: 1.2;
+  /* A swipe on a chip still scrolls the page; the long press lifts it. */
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.remote-lang-chip[data-dragging] {
+  opacity: 0.5;
+}
+
+/* Where the lifted chip would land: the brass rule the chosen state uses. */
+.remote-lang-chip[data-drop] {
+  box-shadow: inset 2px 0 0 var(--rep-house);
+}
+
+.remote-lang-rank {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.6em;
+  padding: 0 0.2em;
+  background: var(--rep-house);
+  color: var(--rep-ink);
+  font-family: var(--rep-mono);
+  font-size: 0.85em;
+}
+
+.remote-lang-x,
+.remote-lang-open {
+  min-width: var(--rep-remote-touch);
+  min-height: var(--rep-remote-touch);
+  border: 0;
+  background: transparent;
+  color: var(--rep-muted);
+  font: inherit;
+}
+
+.remote-lang-open {
+  margin-left: auto;
+  color: var(--rep-house);
+}
+
+.remote-lang-check {
+  display: inline-block;
+  min-width: 1.5em;
+  color: var(--rep-house);
+}
+
 .remote-settings-form {
   display: flex;
   flex-direction: column;
@@ -2144,6 +2220,151 @@ body {
   font-family: var(--rep-mono);
   font-size: var(--rep-remote-text-mono);
   line-height: 1.3;
+}
+
+/* The state note's lines: the sentence, then a torrent's status beneath it,
+   each on its own line, in the note's own colour as variant A draws them (#342). */
+.remote-player-state-lines {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* A Stalled Stream's note: the ring, then the sentence, in the house's ivory
+   rather than the opening note's brass (#333). */
+.remote-player-state[data-stalled="true"] {
+  display: flex;
+  align-items: center;
+  gap: var(--rep-space-2);
+  color: var(--rep-ivory);
+}
+
+.remote-player-state[data-stalled="true"] .rep-kit-spinner {
+  color: var(--rep-house);
+  font-size: 0.95rem;
+}
+
+/* The Autoplay switch row: hairline-boxed, one touch target tall, under the
+   transport cells and above the menu row (#318). */
+.remote-player-autoplay {
+  border: 1px solid var(--rep-hairline);
+}
+
+.remote-player-autoplay .rep-kit-switch {
+  min-height: var(--rep-remote-touch);
+  font-size: var(--rep-remote-text-control);
+}
+
+.remote-player-autoplay .rep-kit-switch-state {
+  font-size: var(--rep-remote-text-badge);
+}
+
+/* The countdown banner, where the ended note sits: the still with the digit,
+   the kicker and name, two full-width actions and the draining line (#318). */
+.remote-autoplay-banner {
+  position: relative;
+  display: grid;
+  grid-template-columns: 7rem minmax(0, 1fr);
+  gap: var(--rep-space-3);
+  padding: var(--rep-space-3);
+  border: 1px solid var(--rep-hairline);
+  border-top: 2px solid var(--rep-house);
+  background: var(--rep-ink-raised);
+}
+
+.remote-autoplay-still {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  background: var(--rep-ink);
+}
+
+.remote-autoplay-still img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.75;
+}
+
+.remote-autoplay-still span {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--rep-ink) 45%, transparent);
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: 2.25rem;
+  line-height: 1;
+}
+
+.remote-autoplay-copy {
+  align-self: center;
+  min-width: 0;
+}
+
+.remote-autoplay-kicker {
+  display: flex;
+  align-items: center;
+  gap: var(--rep-space-3);
+  margin: 0;
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-remote-text-badge);
+  letter-spacing: var(--rep-tracking-caps);
+  text-transform: uppercase;
+}
+
+.remote-autoplay-kicker > span:last-child {
+  color: var(--rep-muted);
+  white-space: nowrap;
+}
+
+.remote-autoplay-rule {
+  flex: 1;
+  min-width: var(--rep-space-5);
+  height: 1px;
+  background: var(--rep-hairline);
+}
+
+.remote-autoplay-name {
+  margin: var(--rep-space-1) 0 0;
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-remote-text-section);
+  line-height: 1.15;
+}
+
+.remote-autoplay-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: var(--rep-space-3);
+}
+
+.remote-autoplay-actions > * {
+  flex: 1;
+}
+
+.remote-autoplay-drain {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--rep-hairline);
+}
+
+.remote-autoplay-drain > span {
+  display: block;
+  height: 100%;
+  background: var(--rep-house);
+  transition: width 250ms linear;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .remote-autoplay-drain > span {
+    transition: none;
+  }
 }
 
 .remote-player-timeline {

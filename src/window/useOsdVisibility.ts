@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 
-import { OSD_IDLE_MS } from "../core/osd";
+import { idleOsd, OSD_IDLE_MS, OSD_START, wakeOsd, type OsdInput, type OsdState } from "../core/osd";
 
 // The idle duration is the OSD decision's; the hook that runs the timer reads
 // it from the core, and window consumers keep this door.
@@ -17,7 +17,12 @@ export type OsdVisibilityOptions = {
 
 /**
  * The OSD's summon-and-hide rule: any key or pointer movement shows it, and it
- * goes away after three idle seconds unless the person is still in it.
+ * goes away after three idle seconds unless the person is still in it. The
+ * mouse cursor over the Picture rides the same clock (`cursorVisible`), but only
+ * the pointer brings it back: a key or pad press summons the OSD and leaves a
+ * stationary cursor hidden, and keyboard focus in the chrome keeps the OSD up
+ * without keeping the cursor. The rule itself is `core/osd`'s; this hook is the
+ * timer and the listeners around it.
  *
  * "In it" is focus: a control inside the chrome keeps the OSD up, and so does
  * an open popover, which lives on its own level above the player. The picture
@@ -29,20 +34,27 @@ export type OsdVisibilityOptions = {
  * again. Re-arming the timer is enough; only showing and hiding re-render.
  */
 export function useOsdVisibility({ pinned, chrome, onHide }: OsdVisibilityOptions) {
-  const [visible, setVisible] = useState(true);
+  // The decision's state lives in a ref and a render only follows the part a
+  // person sees changing: a pointer moving over a visible OSD changes nothing.
+  const osd = useRef<OsdState>(OSD_START);
+  const [shown, setShown] = useState({
+    visible: OSD_START.visible,
+    cursorVisible: OSD_START.cursorVisible,
+  });
+  const settle = useCallback((next: OsdState) => {
+    osd.current = next;
+    setShown((last) =>
+      last.visible === next.visible && last.cursorVisible === next.cursorVisible
+        ? last
+        : { visible: next.visible, cursorVisible: next.cursorVisible },
+    );
+  }, []);
   const pinnedRef = useRef(pinned);
   pinnedRef.current = pinned;
   const chromeRef = useRef(chrome);
   chromeRef.current = chrome;
   const onHideRef = useRef(onHide);
   onHideRef.current = onHide;
-  /**
-   * Which kind of input moved last. A keyboard or pad user navigates by focus,
-   * and focus on a control is what keeps the OSD up for them. A mouse click also
-   * leaves focus on a control, but a person watching with the mouse wants the
-   * OSD out of the way once they stop; pointer input therefore does not pin it.
-   */
-  const lastInput = useRef<"pointer" | "key">("pointer");
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const arm = useCallback(() => {
@@ -56,29 +68,29 @@ export function useOsdVisibility({ pinned, chrome, onHide }: OsdVisibilityOption
         active instanceof HTMLElement &&
         (chromeRef.current.current?.contains(active) ?? false);
 
-      // A keyboard/pad user still in the OSD, or a popover still open above it,
-      // gets another idle window rather than having the surface pulled away. A
-      // mouse click leaves focus behind too, but it does not pin the OSD.
-      if (pinnedRef.current || (lastInput.current === "key" && focusedInside)) {
+      const next = idleOsd(osd.current, { pinned: pinnedRef.current, focusedInside });
+      settle(next);
+
+      // The decision kept the OSD up (a popover open, or a keyboard/pad user
+      // still in it): another idle window, so it can still go once they leave.
+      if (next.visible) {
         timer.current = setTimeout(tick, OSD_IDLE_MS);
         return;
       }
 
       timer.current = null;
-      setVisible(false);
       onHideRef.current();
     };
 
     timer.current = setTimeout(tick, OSD_IDLE_MS);
-  }, []);
+  }, [settle]);
 
   const wake = useCallback(
-    (input: "pointer" | "key") => {
-      lastInput.current = input;
-      setVisible(true);
+    (input: OsdInput) => {
+      settle(wakeOsd(osd.current, input));
       arm();
     },
-    [arm],
+    [arm, settle],
   );
 
   useEffect(() => {
@@ -109,5 +121,5 @@ export function useOsdVisibility({ pinned, chrome, onHide }: OsdVisibilityOption
     };
   }, [wake]);
 
-  return { visible, wake };
+  return { visible: shown.visible, cursorVisible: shown.cursorVisible, wake };
 }

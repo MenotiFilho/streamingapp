@@ -201,6 +201,11 @@
   gap: var(--rep-space-3);
 }
 
+/* The band's Cancel, beside the volume while a countdown runs. */
+.shell-player-dock-autoplay-cancel {
+  flex: none;
+}
+
 .shell-player-dock-volume {
   display: flex;
   align-items: center;

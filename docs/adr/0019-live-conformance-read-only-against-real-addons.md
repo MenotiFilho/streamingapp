@@ -9,12 +9,13 @@ what it is allowed to do, and what its report prints.
 ## The run is its own crate, outside `host-core`
 
 The engine and the `live_check` binary live in `crates/host-live/`, which depends
-on `host-core` (the vocabulary and the parsers) and `host-addon` (the real
-`Fetcher`). It is outside `host-core` for the same reason the transport is: it
-reaches the network, and `host-core` knows nothing of it (ADR-0009). It is not in
+on `host-core` (the vocabulary and the parsers), `host-addon` (the real
+`Fetcher`), and `host-torrent` (the real `TorrentEngine`, added in #346). It is
+outside `host-core` for the same reason the transports are: it reaches the
+network, and `host-core` knows nothing of it (ADR-0009, ADR-0042). It is not in
 `host-addon` either — that crate's whole reason is that it "knows nothing about
 Addons beyond fetching a URL", and the run is exactly the composition of the
-transport with the Host's parsers, which is a thing neither crate is. It is not
+transports with the Host's parsers, which is a thing neither crate is. It is not
 in `src-tauri` for the opposite reason: that shell links the UI toolkit, and a
 diagnostic that compiles Tauri to ask one Addon a question is the window's weight
 paid for the airport's purpose.
@@ -27,13 +28,18 @@ rules, which AGENTS.md says it must not).
 
 ## Read-only, and it never fails on third-party content
 
-The engine takes one thing: a `Fetcher`. Every ask is a `GET` through it, and
-it holds no `Store`, no Stremio client and no credential — so there is no code
-path here to a write to the Addon, to Stremio or to the Host's own store. The
-question is a report, not a test suite: one Addon being down is a line in the
-report, and the run still exits `0`. An unknown option, or a URL that is not a
-manifest URL, exits `2` instead, because those are the command's mistake rather
-than a fact about someone else's content.
+The engine takes two seams: a `&dyn Fetcher` and a `&dyn TorrentEngine` (#346).
+Every HTTP ask is a `GET` through the `Fetcher`. When an Addon returns a torrent
+Stream for the run's Video, the run hands the first torrent Stream to the
+`TorrentEngine` — backed by a temporary torrents directory that is removed on
+exit — to wait for metadata only (bounded at `METADATA_BOUND`, 60 s), reporting
+time to metadata, peer count and the chosen file before calling `let_go` without
+requesting any video bytes. It holds no `Store`, no Stremio client and no
+credential — so there is no code path here to a write to the Addon, to Stremio
+or to the Host's own store. The question is a report, not a test suite: one Addon
+being down is a line in the report, and the run still exits `0`. An unknown
+option, or a URL that is not a manifest URL, exits `2` instead, because those are
+the command's mistake rather than a fact about someone else's content.
 
 Each ask reports one of four outcomes — `ok`, `empty`, `malformed`,
 `unreachable` — and, when the resource is a list, how many things the answer

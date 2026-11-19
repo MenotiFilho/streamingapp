@@ -1,16 +1,19 @@
 use crate::addon::{Addon, AddonId};
 use crate::device::{Device, DeviceId, DeviceToken};
+use crate::handpick::HandPick;
 use crate::pairing::PairingCode;
 use crate::playback::{
     Aspect, ChapterStep, ChosenStream, Crop, PlaybackSession, SeekTarget, TrackId, TrackKind,
 };
 use crate::preferences::{
-    FeaturedCatalog, Preferences, StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale,
-    UpNextPlayback,
+    FeaturedCatalog, LanguageList, Preferences, StreamBuffer, SubtitleColor, SubtitleScale,
+    TorrentCache, UpNextPlayback,
 };
 use crate::progress::{TitleStub, WatchProgress};
 use crate::request::VideoRef;
 use crate::secret::SecretBackend;
+use crate::torrent::TorrentStatus;
+use crate::tracks::SubtitleHandPick;
 
 /// The Host's state, as the Host holds it.
 ///
@@ -46,6 +49,10 @@ pub(crate) struct State {
     /// paired may redeem it with. Rotated the moment it is redeemed, so a code
     /// is worth exactly one pairing (#31).
     pairing: PairingCode,
+    /// The Track a client picked during playback, carried as a language (or as
+    /// "off") while the Title keeps playing (ADR-0041). Never stored and never
+    /// published: it is not in any Snapshot, and a restarted Host holds none.
+    hand_pick: HandPick,
 }
 
 /// Which credentials the Host is known to hold, and where the store that holds
@@ -83,6 +90,7 @@ impl State {
             watch,
             devices,
             pairing,
+            hand_pick: HandPick::default(),
         };
         // A marking the store cannot honour — an Addon that is not configured,
         // or a Catalog the Addon's manifest does not offer — is not one the
@@ -108,6 +116,11 @@ impl State {
 
     pub(crate) fn playback(&self) -> &PlaybackSession {
         &self.playback
+    }
+
+    /// The Hand pick: what the owner picked in the player, for the Title playing.
+    pub(crate) fn hand_pick(&self) -> &HandPick {
+        &self.hand_pick
     }
 
     /// The Continue watching entries, most recently written first.
@@ -142,9 +155,35 @@ impl State {
         self.watch.iter().find(|entry| &entry.video == video)
     }
 
+    /// The id of the Title the Stream playing now belongs to, as the Host was told
+    /// it: the key of the Hand pick. None for a Stream the Host was never told a
+    /// Title of, which is played and not recorded.
+    fn playing_title_id(&self) -> Option<String> {
+        let video = &self.playback.chosen()?.now_playing.video;
+        self.watch_for(video)
+            .map(|entry| entry.title.id().to_owned())
+    }
+
     /// What is playing, as the Player's latest report leaves it.
     pub(crate) fn set_playback(&mut self, playback: PlaybackSession) {
         self.playback = playback;
+    }
+
+    /// The Host ended the Stream playing: `idle`, with `sentence` as the failure.
+    pub(crate) fn end_playback_with_failure(&mut self, sentence: String) {
+        self.playback.ended_with_failure(sentence);
+    }
+
+    /// Take the engine's reading of the torrent being served, and say whether
+    /// the Snapshot's Torrent status moved with it.
+    pub(crate) fn set_torrent_status(&mut self, status: TorrentStatus) -> bool {
+        self.playback.torrent_status(status)
+    }
+
+    /// Clear the engine's reading of the torrent, and say whether the Snapshot's
+    /// Torrent status moved with it.
+    pub(crate) fn clear_torrent_status(&mut self) -> bool {
+        self.playback.clear_torrent_status()
     }
 
     /// Record that the Addon subtitles fallback was attempted for the Stream
@@ -152,6 +191,24 @@ impl State {
     /// says, so it moves no revision and is published by nothing (ADR-0014).
     pub(crate) fn record_subtitles_attempt(&mut self) {
         self.playback.record_subtitles_attempt();
+    }
+
+    /// Record that the Stream playing now has had its first report chosen
+    /// from (ADR-0041). The Host's note to itself, like the attempt above.
+    pub(crate) fn record_initial_choice(&mut self) {
+        self.playback.record_initial_choice();
+    }
+
+    /// Record how many Addon subtitles were added to the Stream playing now, so
+    /// the Host looks for them in a later report (ADR-0041).
+    pub(crate) fn record_addon_tracks_added(&mut self, count: usize) {
+        self.playback.record_addon_tracks_added(count);
+    }
+
+    /// Record that the Host's one switch to an Addon subtitle is decided on the
+    /// Stream playing now.
+    pub(crate) fn record_addon_switch_done(&mut self) {
+        self.playback.record_addon_switch_done();
     }
 
     pub(crate) fn has_addon(&self, id: &AddonId) -> bool {
@@ -170,12 +227,12 @@ impl State {
     /// change is taken, stamped onto the Watch progress it writes (#29).
     pub(crate) fn apply(&mut self, change: Change, now: i64) -> Persist {
         match change {
-            Change::SetSubtitleLanguage(language) => {
-                self.preferences.set_subtitle_language(Some(language));
+            Change::SetSubtitleLanguages(languages) => {
+                self.preferences.set_subtitle_languages(languages);
                 Persist::Preferences
             }
-            Change::ClearSubtitleLanguage => {
-                self.preferences.set_subtitle_language(None);
+            Change::SetAudioLanguages(languages) => {
+                self.preferences.set_audio_languages(languages);
                 Persist::Preferences
             }
             Change::SetSubtitleColor(color) => {
@@ -190,10 +247,21 @@ impl State {
                 self.preferences.set_stream_buffer(buffer);
                 Persist::Preferences
             }
+            Change::SetTorrentCache(cache) => {
+                self.preferences.set_torrent_cache(cache);
+                Persist::Preferences
+            }
             Change::SetUpNextPlayback(playback) => {
                 self.preferences.set_up_next_playback(playback);
                 Persist::Preferences
             }
+            Change::SetAutoplay(autoplay) => {
+                self.preferences.set_autoplay(autoplay);
+                Persist::Preferences
+            }
+            // The countdown is the Host's own record beside the state, so there
+            // is nothing here to move and nothing to keep (ADR-0040).
+            Change::CancelAutoplay => Persist::Nothing,
             // The Featured catalog is a preference of the Host's, and it is
             // taken as given: whether the Addon it names is configured, and
             // whether the Addon offers the Catalog, was judged where the state
@@ -297,6 +365,9 @@ impl State {
                 start,
             } => {
                 let video = chosen.now_playing.video.clone();
+                // The Hand pick follows the Title: a Stream of the same one
+                // keeps it, any other play ends it (ADR-0041).
+                self.hand_pick.played(title.as_deref().map(TitleStub::id));
                 // The Stream the play came from is what Playing Up next
                 // continues (#276): its Addon and release are read before the
                 // PlaybackSession takes the candidate.
@@ -334,10 +405,26 @@ impl State {
             }
             Change::SetAudioTrack(track) => {
                 self.playback.select(TrackKind::Audio, Some(track));
+                self.playback.record_hand_pick();
+                if let Some(title) = self.playing_title_id() {
+                    let language = self.playback.language_of_track(TrackKind::Audio, track);
+                    self.hand_pick.picked_audio(&title, language);
+                }
                 Persist::Nothing
             }
             Change::SetSubtitleTrack(track) => {
                 self.playback.select(TrackKind::Subtitle, track);
+                self.playback.record_hand_pick();
+                if let Some(title) = self.playing_title_id() {
+                    let picked = match track {
+                        None => Some(SubtitleHandPick::Off),
+                        Some(id) => self
+                            .playback
+                            .language_of_track(TrackKind::Subtitle, id)
+                            .map(SubtitleHandPick::Language),
+                    };
+                    self.hand_pick.picked_subtitle(&title, picked);
+                }
                 Persist::Nothing
             }
             Change::SetSubtitleDelay(seconds) => {
@@ -373,6 +460,7 @@ impl State {
                 Persist::Nothing
             }
             Change::Stop => {
+                self.hand_pick.stopped();
                 // Where the Stream got to is written before it is let go: after
                 // the stop there is no position to read, and an unclean exit is
                 // exactly the case this is for.
@@ -483,16 +571,24 @@ impl State {
 /// is a word or two wide.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Change {
-    SetSubtitleLanguage(SubtitleLanguage),
-    ClearSubtitleLanguage,
+    SetSubtitleLanguages(LanguageList),
+    SetAudioLanguages(LanguageList),
     SetSubtitleColor(SubtitleColor),
     SetSubtitleScale(SubtitleScale),
     /// The look-ahead and memory ceiling the Player is told, judged together
     /// before either reaches it (ADR-0026).
     SetStreamBuffer(StreamBuffer),
+    /// The most disk a playing torrent may take (ADR-0042 §3).
+    SetTorrentCache(TorrentCache),
     /// What Play does for a Title's Up next: play it directly, or open the
     /// Streams picker (#276).
     SetUpNextPlayback(UpNextPlayback),
+    /// Whether the Host advances on its own when an episode's Stream ends
+    /// (#302, #314).
+    SetAutoplay(bool),
+    /// Stop the running Autoplay countdown. A change so that every client is
+    /// told the countdown is over, with nothing of its own in [`State`].
+    CancelAutoplay,
     /// The one Catalog marked as the Host's featured feed, resolved against the
     /// Addon that offers it (#74).
     SetFeaturedCatalog(FeaturedCatalog),

@@ -1,11 +1,13 @@
 //! A `subtitles` response, in the Host's own words: **the subtitle files one
 //! Addon offers for one Video**.
 //!
-//! A container often carries its own subtitle tracks, and when it does those
-//! always win — they are the ones the file was made with. But a Stream whose
-//! container carries none is not a Stream without subtitles: the Addon ecosystem
-//! answers a `subtitles` resource with files a Player can load on top of the
-//! picture, and this is the Host's reading of that answer (ADR-0014).
+//! A container often carries its own subtitle tracks. When the Host follows the
+//! file, a Stream whose container carries none is not a Stream without
+//! subtitles: the Addon ecosystem answers a `subtitles` resource with files a
+//! Player can load on top of the picture, and this is the Host's reading of that
+//! answer (ADR-0014). When the owner lists Subtitle languages, the Addons are
+//! asked for the languages the file lacks, and an Addon subtitle in a listed
+//! language can beat an embedded one in a later language (ADR-0041).
 //!
 //! ## The URL is the point, and it never travels
 //!
@@ -32,8 +34,10 @@
 use serde_json::{Map, Value};
 
 use crate::addon::MAX_ITEMS;
-use crate::playback::StreamUrl;
+use crate::playback::{StreamUrl, Track, TrackKind};
+use crate::preferences::{Language, LanguageList};
 use crate::stream::holdable;
+use crate::tracks::{fit, read, read_tag, SubtitleHandPick};
 
 /// The most of a subtitles body the Host will read.
 ///
@@ -42,15 +46,24 @@ use crate::stream::holdable;
 /// way one answering a stream request with megabytes is.
 pub const MAX_SUBTITLES_BYTES: usize = 4 * 1024 * 1024;
 
-/// The most subtitle files the Host will add to one Stream as a fallback.
+/// The most subtitle files the Host will add to one Stream when it **follows the
+/// file**: empty Subtitle languages and no Hand pick, so no language is asked for
+/// (ADR-0014, ADR-0041).
 ///
 /// A fallback is a handful of tracks, one per language an Addon offers; across
 /// every configured Addon a hundred `sub-add`s would flood mpv's track list and
 /// the Snapshot every paired client reads, and none of it is a choice a client
 /// made. The cap is deliberately small: a person who wants one of the rest is
 /// where a per-Title subtitle preference would live, and that is a ticket that
-/// has not been asked for (ADR-0014).
+/// has not been asked for. With a list, the Host adds by language instead, at
+/// most [`MAX_SUBTITLES_PER_LANGUAGE`] of each, and this cap does not apply.
 pub const MAX_FALLBACK_SUBTITLES: usize = 5;
+
+/// The most subtitle files the Host will add per missing language, in Addon
+/// order, when it chooses by Subtitle languages (ADR-0041). A list is at most
+/// three languages and a Hand pick ahead of it makes four, so a Stream gains at
+/// most twelve.
+pub const MAX_SUBTITLES_PER_LANGUAGE: usize = 3;
 
 /// One subtitle file an Addon offers for a Video.
 ///
@@ -156,6 +169,92 @@ fn field(object: &Map<String, Value>, name: &str) -> Option<String> {
         return None;
     }
     Some(text.to_owned())
+}
+
+/// The listed languages the file lacks, in the order they are asked for: the
+/// Hand pick's language (if it is one) first, then the list, each once.
+///
+/// An entry is missing when no **embedded** subtitle Track answers it, by the
+/// same rules the choice ranks by: a region-less Track answers a regional entry,
+/// a Track of another region does not, and a forced-only Track is not a full
+/// subtitle and answers nothing. An Addon subtitle already added says nothing
+/// about what the *file* lacks. A Hand pick of "off" wants no subtitle at all,
+/// so nothing is missing; an empty list with no Hand pick follows the file and
+/// names no language (ADR-0041).
+pub fn missing_languages(
+    tracks: &[Track],
+    list: &LanguageList,
+    hand_pick: Option<&SubtitleHandPick>,
+) -> Vec<Language> {
+    let picked = match hand_pick {
+        Some(SubtitleHandPick::Off) => return Vec::new(),
+        Some(SubtitleHandPick::Language(language)) => Some(language),
+        None => None,
+    };
+
+    let carried: Vec<_> = tracks
+        .iter()
+        .filter(|track| track.kind == TrackKind::Subtitle && track.embedded)
+        .map(read)
+        .filter(|reading| !reading.forced)
+        .collect();
+
+    let mut asked: Vec<Language> = Vec::new();
+    for entry in picked.into_iter().chain(list.as_slice()) {
+        let twice = asked
+            .iter()
+            .any(|held| held.as_str().eq_ignore_ascii_case(entry.as_str()));
+        if !twice && !carried.iter().any(|reading| fit(entry, reading).is_some()) {
+            asked.push(entry.clone());
+        }
+    }
+    asked
+}
+
+/// Which of the subtitles Addons offer are loaded, language by language: the
+/// pure half of the Addon fallback for a list (ADR-0041).
+///
+/// A subtitle is admitted when it answers one of the missing languages by the
+/// rules the choice uses (its tag and its id, the title it will list under, are
+/// read as a Track's would be) and fewer than
+/// [`MAX_SUBTITLES_PER_LANGUAGE`] have been admitted for that language. Offers
+/// are admitted in the order they are put, which is Addon order.
+#[derive(Debug, Clone)]
+pub struct Admission {
+    wanted: Vec<(Language, usize)>,
+}
+
+impl Admission {
+    /// Admit subtitles for these languages and no others.
+    pub fn for_languages(languages: Vec<Language>) -> Self {
+        Self {
+            wanted: languages
+                .into_iter()
+                .map(|language| (language, 0))
+                .collect(),
+        }
+    }
+
+    /// Whether this subtitle is to be added; admitting it counts against its
+    /// language. A subtitle that answers several languages counts for the first
+    /// of them that still has room.
+    pub fn admit(&mut self, subtitle: &Subtitle) -> bool {
+        let reading = read_tag(subtitle.language.as_deref(), subtitle.id.as_deref());
+        for (language, taken) in &mut self.wanted {
+            if *taken < MAX_SUBTITLES_PER_LANGUAGE && fit(language, &reading).is_some() {
+                *taken += 1;
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Whether no language has room left, so asking another Addon is pointless.
+    pub fn is_full(&self) -> bool {
+        self.wanted
+            .iter()
+            .all(|(_, taken)| *taken >= MAX_SUBTITLES_PER_LANGUAGE)
+    }
 }
 
 #[cfg(test)]
@@ -390,5 +489,179 @@ mod tests {
                 limit: MAX_SUBTITLES_BYTES,
             }
         );
+    }
+
+    // --- the languages the file lacks (ADR-0041) -------------------------------
+
+    use crate::playback::{Track, TrackId, TrackKind};
+    use crate::preferences::{Language, LanguageList};
+    use crate::tracks::SubtitleHandPick;
+
+    fn list(tags: &[&str]) -> LanguageList {
+        LanguageList::parse(tags).expect("a language list")
+    }
+
+    fn language(tag: &str) -> Language {
+        Language::parse(tag).expect("a language tag")
+    }
+
+    fn embedded(id: i64, tag: &str) -> Track {
+        Track {
+            id: TrackId(id),
+            kind: TrackKind::Subtitle,
+            language: Some(tag.to_owned()),
+            title: None,
+            codec: Some("subrip".to_owned()),
+            embedded: true,
+            selected: false,
+            default: false,
+            forced: false,
+            hearing_impaired: false,
+        }
+    }
+
+    fn missing(tracks: &[Track], tags: &[&str]) -> Vec<String> {
+        missing_languages(tracks, &list(tags), None)
+            .iter()
+            .map(|language| language.as_str().to_owned())
+            .collect()
+    }
+
+    #[test]
+    fn a_listed_language_the_file_carries_is_not_missing() {
+        let tracks = [embedded(1, "eng")];
+
+        assert_eq!(missing(&tracks, &["en"]), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_language_the_file_lacks_is_missing_in_the_lists_order() {
+        let tracks = [embedded(1, "eng")];
+
+        assert_eq!(missing(&tracks, &["pt-BR", "en", "ja"]), ["pt-BR", "ja"]);
+    }
+
+    #[test]
+    fn a_region_strict_miss_is_missing() {
+        // Only European Portuguese is embedded: it is not what was asked for.
+        let tracks = [embedded(1, "pt-PT")];
+
+        assert_eq!(missing(&tracks, &["pt-BR"]), ["pt-BR"]);
+    }
+
+    #[test]
+    fn a_region_less_track_answers_a_regional_entry() {
+        let tracks = [embedded(1, "por")];
+
+        assert_eq!(missing(&tracks, &["pt-BR"]), Vec::<String>::new());
+    }
+
+    #[test]
+    fn an_empty_list_misses_nothing() {
+        assert_eq!(missing(&[], &[]), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_forced_only_track_does_not_answer_an_entry() {
+        let mut forced = embedded(1, "eng");
+        forced.forced = true;
+
+        assert_eq!(missing(&[forced], &["en"]), ["en"]);
+    }
+
+    #[test]
+    fn an_added_track_does_not_answer_an_entry_the_file_lacks() {
+        // Only what the file carries says what the file lacks.
+        let mut added = embedded(5, "por");
+        added.embedded = false;
+
+        assert_eq!(missing(&[added], &["pt-BR"]), ["pt-BR"]);
+    }
+
+    #[test]
+    fn a_hand_picks_language_counts_as_an_entry_ahead_of_the_list() {
+        let tracks = [embedded(1, "eng")];
+        let pick = SubtitleHandPick::Language(language("fr"));
+
+        let asked = missing_languages(&tracks, &list(&["en", "de"]), Some(&pick));
+
+        let asked: Vec<&str> = asked.iter().map(Language::as_str).collect();
+        assert_eq!(asked, ["fr", "de"]);
+    }
+
+    #[test]
+    fn a_hand_pick_the_file_carries_adds_nothing_and_one_in_the_list_is_not_twice() {
+        let tracks = [embedded(1, "fre")];
+        let pick = SubtitleHandPick::Language(language("fr"));
+
+        assert!(missing_languages(&tracks, &list(&[]), Some(&pick)).is_empty());
+
+        let pick = SubtitleHandPick::Language(language("DE"));
+        let asked = missing_languages(&tracks, &list(&["de"]), Some(&pick));
+        assert_eq!(asked.len(), 1, "one language is asked for once");
+    }
+
+    #[test]
+    fn a_hand_pick_of_off_wants_no_subtitle_from_any_addon() {
+        let pick = SubtitleHandPick::Off;
+
+        assert!(missing_languages(&[], &list(&["en"]), Some(&pick)).is_empty());
+    }
+
+    // --- admitting an Addon's subtitles per missing language -------------------
+
+    fn offered(id: &str, language: Option<&str>) -> Subtitle {
+        Subtitle {
+            id: Some(id.to_owned()),
+            url: StreamUrl::parse(&format!("https://subs.example.org/{id}.srt"))
+                .expect("a subtitle URL"),
+            language: language.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn only_subtitles_in_a_missing_language_are_admitted() {
+        let mut quota = Admission::for_languages(vec![language("pt-BR")]);
+
+        assert!(quota.admit(&offered("a", Some("pob"))));
+        assert!(
+            quota.admit(&offered("b", Some("por"))),
+            "region-less matches"
+        );
+        assert!(!quota.admit(&offered("c", Some("pt-PT"))), "region-strict");
+        assert!(!quota.admit(&offered("d", Some("eng"))), "not asked for");
+        assert!(!quota.admit(&offered("e", None)), "says no language");
+    }
+
+    #[test]
+    fn at_most_three_are_admitted_per_language_and_the_rest_are_other_languages() {
+        let mut quota = Admission::for_languages(vec![language("pt-BR"), language("en")]);
+
+        let admitted: Vec<bool> = [
+            ("p1", "pob"),
+            ("e1", "eng"),
+            ("p2", "pob"),
+            ("p3", "pob"),
+            ("p4", "pob"),
+            ("e2", "eng"),
+        ]
+        .into_iter()
+        .map(|(id, tag)| quota.admit(&offered(id, Some(tag))))
+        .collect();
+
+        assert_eq!(admitted, [true, true, true, true, false, true]);
+        assert_eq!(MAX_SUBTITLES_PER_LANGUAGE, 3);
+    }
+
+    #[test]
+    fn the_quota_says_when_every_language_is_full() {
+        let mut quota = Admission::for_languages(vec![language("en")]);
+        assert!(!quota.is_full());
+
+        for n in 0..MAX_SUBTITLES_PER_LANGUAGE {
+            assert!(quota.admit(&offered(&format!("e{n}"), Some("eng"))));
+        }
+
+        assert!(quota.is_full());
     }
 }

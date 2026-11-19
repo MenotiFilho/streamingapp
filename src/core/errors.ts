@@ -1,4 +1,5 @@
 import { ACTION_VERSION } from "./wire";
+import { MAX_LANGUAGES } from "./languageList";
 
 /**
  * The failures the Host itself reports. Mirrors the variants of `ActionError` in
@@ -7,10 +8,13 @@ import { ACTION_VERSION } from "./wire";
 export const HOST_ERROR_KINDS = [
   "malformed",
   "unsupported_version",
-  "invalid_subtitle_language",
+  "invalid_language",
+  "duplicate_language",
+  "too_many_languages",
   "invalid_subtitle_color",
   "invalid_subtitle_scale",
   "invalid_stream_buffer",
+  "invalid_torrent_cache",
   "invalid_manifest_url",
   "invalid_addon_id",
   "invalid_tmdb_key",
@@ -122,8 +126,13 @@ export type ActionError = {
   index?: number;
   /** The position a refused reorder asked for. */
   position?: number;
-  /** How many Addons the Host was configured with when it refused the reorder. */
+  /**
+   * How many Addons the Host was configured with when it refused the reorder,
+   * or how many languages a refused list held.
+   */
   count?: number;
+  /** The most languages a list may hold, on a refused list. */
+  max?: number;
   /** The control a refusal is about, where the refusal is about one. */
   control?: Control;
   /** The pairing code a refusal names, where the refusal is about one. */
@@ -161,14 +170,20 @@ export function explain(error: ActionError): string {
       return `The Host could not read that Action${error.detail ? `: ${error.detail}` : ""}.`;
     case "unsupported_version":
       return `This window speaks version ${ACTION_VERSION} and the Host ${error.supported}; the Action carried version ${error.got}.`;
-    case "invalid_subtitle_language":
-      return `${JSON.stringify(error.language)} is not a subtitle language tag — try "pt-BR" or "en".`;
+    case "invalid_language":
+      return `${JSON.stringify(error.language)} is not a language tag — try "pt-BR" or "en".`;
+    case "duplicate_language":
+      return `${JSON.stringify(error.language)} is already on the list.`;
+    case "too_many_languages":
+      return `A list holds at most ${error.max ?? MAX_LANGUAGES} languages — remove one before adding another.`;
     case "invalid_subtitle_color":
       return `${JSON.stringify(error.color)} is not a subtitle colour — a colour is "#RRGGBB", like "#FFFF00".`;
     case "invalid_subtitle_scale":
       return `${JSON.stringify(error.scale)} is not a subtitle size — a size is between 0.5 and 2.0.`;
     case "invalid_stream_buffer":
       return `The Host will not keep that Stream buffer${error.detail ? `: ${error.detail}` : ""}.`;
+    case "invalid_torrent_cache":
+      return `The Host will not keep that Torrent cache${error.detail ? `: ${error.detail}` : ""}.`;
     case "invalid_manifest_url":
       return `${JSON.stringify(error.url)} is not a manifest URL — paste the address of an Addon's manifest.json, like "https://example.com/manifest.json".`;
     case "invalid_addon_id":

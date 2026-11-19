@@ -43,6 +43,7 @@ const TITLE: Title = {
 
 const PLAYBACK: PlaybackSnapshot = {
   state: "playing",
+  autoplay: null,
   picture: "in_window",
   failure: null,
   nowPlaying: null,
@@ -57,6 +58,8 @@ const PLAYBACK: PlaybackSnapshot = {
   volume: 100,
   muted: false,
   subtitleDelay: 0,
+  stalled: false,
+  torrent: null,
   crop: null,
   aspect: null,
   resolution: null,

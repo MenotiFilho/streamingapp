@@ -105,6 +105,7 @@ export function titleLevelOf(
     name: "Title",
     kind: "overlay",
     payload: {
+      title: { type: title.type, id: title.id, key: title.key },
       render: () => <RepertoryTitleScreen title={title} preview={preview} />,
     },
   };

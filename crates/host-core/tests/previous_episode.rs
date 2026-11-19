@@ -27,6 +27,10 @@ const SERIES_META: &str = include_str!("fixtures/cinemeta-meta-series.json");
 
 /// The URL the episode playing was chosen from, and two candidates for the one
 /// before it: a different release first, the same release second.
+/// A candidate's URL this Host will not open: not `http`, so it is listed and
+/// never played.
+const UNOPENABLE: &str = "ftp://stream.example.org/v/unopenable.mkv";
+
 const PLAYING: &str = "https://stream.example.org/v/tt0903747-2-1.mkv";
 const OTHER_RELEASE: &str = "https://stream.example.org/v/tt0903747-1-3-720p.mkv";
 const SAME_RELEASE: &str = "https://stream.example.org/v/tt0903747-1-3-1080p.mkv";
@@ -52,20 +56,6 @@ fn candidate(name: &str, url: &str, binge_group: Option<&str>) -> Stream {
         description: None,
         playback: Playback::Direct {
             url: url.to_owned(),
-        },
-        warnings: Vec::new(),
-        filename: None,
-        binge_group: binge_group.map(str::to_owned),
-    }
-}
-
-/// A candidate whose bytes are a torrent: listed, and not one this Host plays.
-fn torrent(name: &str, info_hash: &str, binge_group: Option<&str>) -> Stream {
-    Stream {
-        name: Some(name.to_owned()),
-        description: None,
-        playback: Playback::InfoHash {
-            info_hash: info_hash.to_owned(),
         },
         warnings: Vec::new(),
         filename: None,
@@ -342,11 +332,7 @@ fn when_the_release_is_gone_the_same_addons_first_playable_candidate_plays() {
     let provider = Arc::new(FixtureProvider::new().offering(
         SERIES_ID,
         vec![
-            torrent(
-                "a torrent",
-                "61065ea115b7cc3e8db9fb5ab1f6f327f08bd1c9",
-                Some("the-release"),
-            ),
+            candidate("a Stream no Player opens", UNOPENABLE, Some("the-release")),
             candidate("720p", OTHER_RELEASE, Some("another-release")),
         ],
     ));
@@ -568,7 +554,11 @@ fn a_stream_that_reached_its_end_can_still_step_to_the_previous_episode() {
         duration: Some(2820.0),
         ..Observation::idle()
     });
-    host.sample().expect("reaching the end is a change");
+    let ended = host.sample().expect("reaching the end is a change");
+    assert!(
+        ended.playback.autoplay.is_none(),
+        "the series' last numbered episode has nothing to count down to, so Previous is all it offers"
+    );
 
     host.dispatch(previous_episode())
         .expect("a finished episode still has the one before it");

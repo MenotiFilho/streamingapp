@@ -22,6 +22,7 @@ import {
   subtitleSections,
 } from "../core/playerPanels";
 import { Session } from "../core/session";
+import { formatRate } from "../core/torrentStatus";
 import { labelOf, seasonName } from "../core/title";
 import type {
   PlaybackSnapshot,
@@ -65,6 +66,7 @@ const TRACKS: Track[] = [
     selected: false,
     default: false,
     forced: false,
+    hearingImpaired: false,
   },
   {
     id: 2,
@@ -76,6 +78,7 @@ const TRACKS: Track[] = [
     selected: true,
     default: true,
     forced: false,
+    hearingImpaired: false,
   },
   {
     id: 3,
@@ -87,6 +90,7 @@ const TRACKS: Track[] = [
     selected: true,
     default: false,
     forced: false,
+    hearingImpaired: false,
   },
   {
     id: 4,
@@ -98,11 +102,13 @@ const TRACKS: Track[] = [
     selected: false,
     default: false,
     forced: false,
+    hearingImpaired: false,
   },
 ];
 
 const PLAYBACK: PlaybackSnapshot = {
   state: "playing",
+  autoplay: null,
   picture: "in_window",
   failure: null,
   nowPlaying: {
@@ -127,6 +133,8 @@ const PLAYBACK: PlaybackSnapshot = {
   volume: 60,
   muted: false,
   subtitleDelay: 0.2,
+  stalled: false,
+  torrent: null,
   crop: null,
   aspect: null,
   resolution: { width: 1280, height: 720 },
@@ -414,6 +422,44 @@ describe("the Picture plate", () => {
     fireEvent.click(toggle);
     await waitFor(() => expect(within(sheet).queryByTestId("statistics")).toBeNull());
     expect(host.actions).toEqual([]);
+  });
+});
+
+describe("the Picture plate's statistics for a torrent", () => {
+  const FETCHING = { phase: "fetching", peers: 12, rate: 4_200_000 } as const;
+
+  async function statisticsOf(playback: PlaybackSnapshot) {
+    await mountSheet("picture", { playback });
+    const sheet = await screen.findByRole("dialog", { name: "Picture" });
+    fireEvent.click(within(sheet).getByTestId("toggle-statistics"));
+    return within(await within(sheet).findByTestId("statistics"));
+  }
+
+  test("a torrent's statistics carry Peers and Download after the Player's lines", async () => {
+    const statistics = await statisticsOf({ ...PLAYBACK, torrent: FETCHING });
+
+    expect(statistics.getByText("Peers")).toBeInTheDocument();
+    expect(statistics.getByText("12")).toBeInTheDocument();
+    expect(statistics.getByText("Download")).toBeInTheDocument();
+    expect(statistics.getByText(formatRate(FETCHING.rate))).toBeInTheDocument();
+    for (const line of statisticsLines(PLAYBACK.statistics)) {
+      expect(statistics.getByText(line.label)).toBeInTheDocument();
+    }
+  });
+
+  test("a direct Stream's statistics have neither row", async () => {
+    const statistics = await statisticsOf({ ...PLAYBACK, torrent: null });
+
+    expect(statistics.queryByText("Peers")).not.toBeInTheDocument();
+    expect(statistics.queryByText("Download")).not.toBeInTheDocument();
+  });
+
+  test("hidden statistics show no torrent rows either", async () => {
+    await mountSheet("picture", { playback: { ...PLAYBACK, torrent: FETCHING } });
+    const sheet = await screen.findByRole("dialog", { name: "Picture" });
+
+    expect(within(sheet).queryByText("Peers")).not.toBeInTheDocument();
+    expect(within(sheet).queryByText("Download")).not.toBeInTheDocument();
   });
 });
 

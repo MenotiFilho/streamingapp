@@ -10,8 +10,9 @@ use crate::playback::{
     InvalidSubtitleDelay, InvalidVolume, SeekTarget, TrackId, Unplayable,
 };
 use crate::preferences::{
-    InvalidStreamBuffer, InvalidSubtitleColor, InvalidSubtitleLanguage, InvalidSubtitleScale,
-    StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale, UpNextPlayback,
+    DuplicateLanguage, InvalidLanguage, InvalidLanguageList, InvalidStreamBuffer,
+    InvalidSubtitleColor, InvalidSubtitleScale, InvalidTorrentCache, LanguageList, StreamBuffer,
+    SubtitleColor, SubtitleScale, TooManyLanguages, TorrentCache, UpNextPlayback,
 };
 use crate::preview::checked_preview_at;
 use crate::progress::{TitleCard, TitleStub};
@@ -44,10 +45,13 @@ pub const ACTION_VERSION: u16 = 1;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Action {
-    /// Prefer `language` when the Host chooses a subtitle track.
-    SetSubtitleLanguage { language: String },
-    /// Carry no subtitle-language preference; the Host chooses per Video.
-    ClearSubtitleLanguage,
+    /// Set the Subtitle languages: up to three languages the Host chooses a
+    /// subtitle Track by, first the most wanted. Carries the **whole** list, and
+    /// `[]` clears it, so the Host follows the file (ADR-0041).
+    SetSubtitleLanguages { languages: Vec<String> },
+    /// Set the Audio languages: the same, for the soundtrack. Independent of the
+    /// Subtitle languages.
+    SetAudioLanguages { languages: Vec<String> },
     /// Draw subtitles in `color`, where a track leaves the colour open.
     ///
     /// A preference of the Host's rather than a client's, so it persists and
@@ -70,6 +74,11 @@ pub enum Action {
     /// One Action carries the pair so that a client cannot set one without the
     /// other.
     SetStreamBuffer { seconds: u64, megabytes: u64 },
+    /// Let a playing torrent take up to `megabytes` of disk.
+    ///
+    /// A preference of the Host's, set once for every torrent and judged on its
+    /// own: it is not checked against the Stream buffer (ADR-0042 §3).
+    SetTorrentCache { megabytes: u64 },
     /// What Play does for a Title's Up next: play it directly, from the release
     /// of the Video before it, or open the Streams picker so the owner picks.
     ///
@@ -77,6 +86,17 @@ pub enum Action {
     /// client is told of it, and it governs only Up next — Resume always plays
     /// directly (#276, ADR-0026).
     SetUpNextPlayback { playback: UpNextPlayback },
+    /// Whether the Host advances on its own to a Title's Up next after a short
+    /// countdown when an episode's Stream ends, or waits until someone asks.
+    ///
+    /// A preference of the Host's, shared by every client (#302, #314).
+    SetAutoplay { autoplay: bool },
+    /// Stop the countdown Autoplay is running, and nothing else: the preference
+    /// stays as it is, and the Host stays on the ended state.
+    ///
+    /// With no countdown running it changes nothing and publishes nothing, so
+    /// two clients pressing Cancel together is harmless (#302, #316).
+    CancelAutoplay,
     /// Mark the Addon's Catalog as the Host's featured feed.
     ///
     /// A preference of the Host's rather than a client's: every client's Home
@@ -398,12 +418,15 @@ macro_rules! action_spellings {
 }
 
 action_spellings! {
-    Action::SetSubtitleLanguage { .. } => "set_subtitle_language",
-    Action::ClearSubtitleLanguage => "clear_subtitle_language",
+    Action::SetSubtitleLanguages { .. } => "set_subtitle_languages",
+    Action::SetAudioLanguages { .. } => "set_audio_languages",
     Action::SetSubtitleColor { .. } => "set_subtitle_color",
     Action::SetSubtitleScale { .. } => "set_subtitle_scale",
     Action::SetStreamBuffer { .. } => "set_stream_buffer",
+    Action::SetTorrentCache { .. } => "set_torrent_cache",
     Action::SetUpNextPlayback { .. } => "set_up_next_playback",
+    Action::SetAutoplay { .. } => "set_autoplay",
+    Action::CancelAutoplay => "cancel_autoplay",
     Action::SetFeaturedCatalog { .. } => "set_featured_catalog",
     Action::ClearFeaturedCatalog => "clear_featured_catalog",
     Action::AddAddon { .. } => "add_addon",
@@ -491,11 +514,12 @@ impl Action {
     /// neither state nor store.
     pub fn validate(self) -> Result<ValidatedAction, ActionError> {
         match self {
-            Action::SetSubtitleLanguage { language } => {
-                let language = SubtitleLanguage::parse(&language)?;
-                Ok(ValidatedAction::SetSubtitleLanguage(language))
-            }
-            Action::ClearSubtitleLanguage => Ok(ValidatedAction::ClearSubtitleLanguage),
+            Action::SetSubtitleLanguages { languages } => Ok(
+                ValidatedAction::SetSubtitleLanguages(LanguageList::parse(&languages)?),
+            ),
+            Action::SetAudioLanguages { languages } => Ok(ValidatedAction::SetAudioLanguages(
+                LanguageList::parse(&languages)?,
+            )),
             Action::SetSubtitleColor { color } => {
                 let color = SubtitleColor::parse(&color)?;
                 Ok(ValidatedAction::SetSubtitleColor(color))
@@ -508,9 +532,14 @@ impl Action {
                 let buffer = StreamBuffer::parse(seconds, megabytes)?;
                 Ok(ValidatedAction::SetStreamBuffer(buffer))
             }
+            Action::SetTorrentCache { megabytes } => Ok(ValidatedAction::SetTorrentCache(
+                TorrentCache::parse(megabytes)?,
+            )),
             Action::SetUpNextPlayback { playback } => {
                 Ok(ValidatedAction::SetUpNextPlayback(playback))
             }
+            Action::SetAutoplay { autoplay } => Ok(ValidatedAction::SetAutoplay(autoplay)),
+            Action::CancelAutoplay => Ok(ValidatedAction::CancelAutoplay),
             Action::SetFeaturedCatalog { addon, catalog } => {
                 let addon = AddonId::parse(&addon)?;
                 let catalog = CatalogRef::parse(&catalog.r#type, &catalog.id)?;
@@ -751,15 +780,21 @@ fn search_query(raw: &str) -> Result<String, ActionError> {
 /// than of the order of two statements.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValidatedAction {
-    SetSubtitleLanguage(SubtitleLanguage),
-    ClearSubtitleLanguage,
+    SetSubtitleLanguages(LanguageList),
+    SetAudioLanguages(LanguageList),
     SetSubtitleColor(SubtitleColor),
     SetSubtitleScale(SubtitleScale),
     /// The look-ahead the Player aims for and the memory it may take, judged
     /// together so the pair cannot be half-applied (ADR-0026).
     SetStreamBuffer(StreamBuffer),
+    /// The most disk a playing torrent may take, judged on its own.
+    SetTorrentCache(TorrentCache),
     /// What Play does for a Title's Up next, judged by the type's own wire form.
     SetUpNextPlayback(UpNextPlayback),
+    /// Whether the Host advances on its own when an episode's Stream ends.
+    SetAutoplay(bool),
+    /// Stop the running Autoplay countdown, keeping the preference.
+    CancelAutoplay,
     /// A Catalog the owner marked as the featured one, with both halves judged
     /// before either is looked up: a marked Catalog exists.
     SetFeaturedCatalog {
@@ -941,12 +976,15 @@ impl ValidatedAction {
             | Self::FindStreams { .. }
             | Self::Preview { .. }
             | Self::Library
-            | Self::SetSubtitleLanguage(_)
-            | Self::ClearSubtitleLanguage
+            | Self::SetSubtitleLanguages(_)
+            | Self::SetAudioLanguages(_)
             | Self::SetSubtitleColor(_)
             | Self::SetSubtitleScale(_)
             | Self::SetStreamBuffer(_)
+            | Self::SetTorrentCache(_)
             | Self::SetUpNextPlayback(_)
+            | Self::SetAutoplay(_)
+            | Self::CancelAutoplay
             | Self::SetFeaturedCatalog { .. }
             | Self::ClearFeaturedCatalog
             | Self::AddAddon(_)
@@ -1001,13 +1039,19 @@ pub enum ActionError {
     #[error("the Host speaks action version {supported}; this Action carries version {got}")]
     UnsupportedVersion { got: u64, supported: u16 },
     #[error("{0}")]
-    InvalidSubtitleLanguage(#[from] InvalidSubtitleLanguage),
+    InvalidLanguage(#[from] InvalidLanguage),
+    #[error("{0}")]
+    DuplicateLanguage(#[from] DuplicateLanguage),
+    #[error("{0}")]
+    TooManyLanguages(#[from] TooManyLanguages),
     #[error("{0}")]
     InvalidSubtitleColor(#[from] InvalidSubtitleColor),
     #[error("{0}")]
     InvalidSubtitleScale(#[from] InvalidSubtitleScale),
     #[error("{0}")]
     InvalidStreamBuffer(#[from] InvalidStreamBuffer),
+    #[error("{0}")]
+    InvalidTorrentCache(#[from] InvalidTorrentCache),
     #[error("{0}")]
     InvalidManifestUrl(#[from] InvalidManifestUrl),
     #[error("{0}")]
@@ -1196,6 +1240,16 @@ pub enum ActionError {
     AlreadyPaired,
 }
 
+impl From<InvalidLanguageList> for ActionError {
+    fn from(refused: InvalidLanguageList) -> Self {
+        match refused {
+            InvalidLanguageList::Invalid(invalid) => Self::InvalidLanguage(invalid),
+            InvalidLanguageList::Duplicate(duplicate) => Self::DuplicateLanguage(duplicate),
+            InvalidLanguageList::TooMany(too_many) => Self::TooManyLanguages(too_many),
+        }
+    }
+}
+
 impl ActionError {
     /// This refusal's stable name: the `kind` its own serde tag carries.
     ///
@@ -1206,10 +1260,13 @@ impl ActionError {
         match self {
             Self::Malformed { .. } => "malformed",
             Self::UnsupportedVersion { .. } => "unsupported_version",
-            Self::InvalidSubtitleLanguage(_) => "invalid_subtitle_language",
+            Self::InvalidLanguage(_) => "invalid_language",
+            Self::DuplicateLanguage(_) => "duplicate_language",
+            Self::TooManyLanguages(_) => "too_many_languages",
             Self::InvalidSubtitleColor(_) => "invalid_subtitle_color",
             Self::InvalidSubtitleScale(_) => "invalid_subtitle_scale",
             Self::InvalidStreamBuffer(_) => "invalid_stream_buffer",
+            Self::InvalidTorrentCache(_) => "invalid_torrent_cache",
             Self::InvalidManifestUrl(_) => "invalid_manifest_url",
             Self::InvalidAddonId(_) => "invalid_addon_id",
             Self::InvalidTmdbKey(_) => "invalid_tmdb_key",
@@ -1274,15 +1331,67 @@ mod tests {
     #[test]
     fn an_envelope_parses_into_its_action() {
         let action = Action::parse(
-            r#"{"version":1,"action":{"type":"set_subtitle_language","language":"pt-BR"}}"#,
+            r#"{"version":1,"action":{"type":"set_subtitle_languages","languages":["pt-BR","en"]}}"#,
         )
         .expect("a well-formed envelope parses");
         assert_eq!(
             action,
-            Action::SetSubtitleLanguage {
-                language: "pt-BR".to_owned()
+            Action::SetSubtitleLanguages {
+                languages: vec!["pt-BR".to_owned(), "en".to_owned()]
             }
         );
+    }
+
+    #[test]
+    fn a_language_list_action_carries_the_whole_list_and_empty_clears_it() {
+        let validated = |json: &str| {
+            Action::parse(json)
+                .expect("the envelope parses")
+                .validate()
+                .expect("the list is a list")
+        };
+
+        assert_eq!(
+            validated(
+                r#"{"version":1,"action":{"type":"set_audio_languages","languages":["pt-BR","en"]}}"#
+            ),
+            ValidatedAction::SetAudioLanguages(
+                LanguageList::parse(&["pt-BR", "en"]).expect("a list")
+            )
+        );
+        assert_eq!(
+            validated(r#"{"version":1,"action":{"type":"set_subtitle_languages","languages":[]}}"#),
+            ValidatedAction::SetSubtitleLanguages(LanguageList::empty()),
+            "[] clears the list"
+        );
+    }
+
+    #[test]
+    fn a_language_list_action_is_refused_by_what_is_wrong_with_the_list() {
+        let refusal = |languages: &[&str]| {
+            Action::SetSubtitleLanguages {
+                languages: languages.iter().map(|tag| (*tag).to_owned()).collect(),
+            }
+            .validate()
+            .expect_err("that is not a language list")
+        };
+
+        let too_many = refusal(&["en", "pt-BR", "fr", "de"]);
+        assert_eq!(too_many.kind(), "too_many_languages");
+        assert_eq!(
+            serde_json::to_value(&too_many).expect("a refusal serializes"),
+            serde_json::json!({"kind": "too_many_languages", "count": 4, "max": 3})
+        );
+
+        let duplicate = refusal(&["pt-BR", "PT-br"]);
+        assert_eq!(duplicate.kind(), "duplicate_language");
+        assert_eq!(
+            serde_json::to_value(&duplicate).expect("a refusal serializes"),
+            serde_json::json!({"kind": "duplicate_language", "language": "PT-br"})
+        );
+
+        let invalid = refusal(&["en", "not a tag"]);
+        assert_eq!(invalid.kind(), "invalid_language");
     }
 
     #[test]
@@ -1335,11 +1444,13 @@ mod tests {
 
     #[test]
     fn an_envelope_is_flat_enough_to_write_by_hand() {
-        let value =
-            serde_json::to_value(Action::ClearSubtitleLanguage).expect("an Action serializes");
+        let value = serde_json::to_value(Action::SetAudioLanguages {
+            languages: vec!["pt-BR".to_owned()],
+        })
+        .expect("an Action serializes");
         assert_eq!(
             value,
-            serde_json::json!({"type": "clear_subtitle_language"})
+            serde_json::json!({"type": "set_audio_languages", "languages": ["pt-BR"]})
         );
     }
 
@@ -1476,6 +1587,54 @@ mod tests {
                 .expect("a Title a request could name"),
             }
         );
+    }
+
+    fn play_torrent(playback: &str) -> String {
+        format!(
+            r#"{{"version":{ACTION_VERSION},"action":{{"type":"play_stream",
+                "video":{{"type":"series","id":"tt0903747:1:2"}},
+                "addon":"community.torrentio",
+                "title":{{"addon":"com.linvo.cinemeta","id":"tt0903747","type":"series",
+                    "name":"Breaking Bad","poster":null}},
+                "stream":{{"name":"Torrentio\n1080p","playback":{playback}}}}}}}"#
+        )
+    }
+
+    #[test]
+    fn a_torrent_a_client_sends_back_is_judged_again_and_asks_no_engine() {
+        let sent = Action::parse(&play_torrent(
+            r#"{"kind":"torrent","infoHash":"C12FE1C06BBA254A9DC9F519B335AA7C1367A88A",
+                "fileIdx":3,"sources":["tracker:udp://tracker.example.org:1337"]}"#,
+        ))
+        .expect("the torrent shape a client was given is the one it sends back");
+
+        // `validate` takes no engine: it is pure, and a torrent passes it as a
+        // candidate to be served later, at the opening.
+        let ValidatedAction::PlayStream { chosen, .. } = sent.validate().expect("a torrent plays")
+        else {
+            panic!("that is a play");
+        };
+
+        assert_eq!(
+            chosen.info_hash().map(crate::InfoHash::as_str),
+            Some("c12fe1c06bba254a9dc9f519b335aa7c1367a88a"),
+            "read the way an Addon's is: one lowercase spelling"
+        );
+        assert_eq!(chosen.url(), None);
+    }
+
+    #[test]
+    fn a_torrent_a_client_cannot_have_been_given_is_refused_on_the_way_in() {
+        for playback in [
+            r#"{"kind":"torrent","infoHash":"not-a-hash"}"#,
+            r#"{"kind":"torrent","infoHash":"abc123"}"#,
+            r#"{"kind":"torrent"}"#,
+        ] {
+            assert!(
+                Action::parse(&play_torrent(playback)).is_err(),
+                "{playback} names no torrent this Host could have listed"
+            );
+        }
     }
 
     #[test]
@@ -2207,12 +2366,15 @@ mod tests {
     /// names is the `type` tag serde actually writes, and that no variant is
     /// missing a representative here.
     const EVERY_ACTION: &[&str] = &[
-        r#"{"type":"set_subtitle_language","language":"en"}"#,
-        r#"{"type":"clear_subtitle_language"}"#,
+        r#"{"type":"set_subtitle_languages","languages":["en"]}"#,
+        r#"{"type":"set_audio_languages","languages":["en"]}"#,
         r##"{"type":"set_subtitle_color","color":"#ffcc00"}"##,
         r#"{"type":"set_subtitle_scale","scale":1.25}"#,
         r#"{"type":"set_stream_buffer","seconds":300,"megabytes":512}"#,
+        r#"{"type":"set_torrent_cache","megabytes":2000}"#,
         r#"{"type":"set_up_next_playback","playback":"picker"}"#,
+        r#"{"type":"set_autoplay","autoplay":false}"#,
+        r#"{"type":"cancel_autoplay"}"#,
         r#"{"type":"set_featured_catalog","addon":"community.example","catalog":{"type":"movie","id":"top"}}"#,
         r#"{"type":"clear_featured_catalog"}"#,
         r#"{"type":"add_addon","url":"https://example.com/manifest.json"}"#,
@@ -2351,9 +2513,13 @@ mod tests {
                 got: 99,
                 supported: ACTION_VERSION,
             },
-            ActionError::InvalidSubtitleLanguage(InvalidSubtitleLanguage {
+            ActionError::InvalidLanguage(InvalidLanguage {
                 language: "not a language".to_owned(),
             }),
+            ActionError::DuplicateLanguage(DuplicateLanguage {
+                language: "en".to_owned(),
+            }),
+            ActionError::TooManyLanguages(TooManyLanguages { count: 4, max: 3 }),
             ActionError::InvalidManifestUrl(InvalidManifestUrl {
                 url: "not a URL".to_owned(),
             }),

@@ -71,11 +71,11 @@ $tmdbNotice = 'This product uses the TMDB API but is not endorsed or certified b
 # run in the same invocation; `Need` is the words `-List` prints for both.
 $Steps = @(
     [pscustomobject]@{ Id = 1;  Title = 'launching the Host opens the ten-foot window'; Ground = ''; After = @(); Need = 'nothing: it starts its own Host from the empty data directory' }
-    [pscustomobject]@{ Id = 2;  Title = 'Settings > Preferences: choosing a subtitle language goes through the Action surface'; Ground = 'fresh'; After = @(); Need = 'a fresh Host (empty data directory, one Host, no Addon)' }
+    [pscustomobject]@{ Id = 2;  Title = 'Settings > Preferences: ticking a language for Subtitle languages in the drawer goes through the Action surface'; Ground = 'fresh'; After = @(); Need = 'a fresh Host (empty data directory, one Host, no Addon)' }
     [pscustomobject]@{ Id = 3;  Title = 'launching again focuses the running Host instead of starting a second one'; Ground = 'fresh'; After = @(); Need = 'a fresh Host (empty data directory, one Host, no Addon)' }
-    [pscustomobject]@{ Id = 4;  Title = 'the preference survives a restart'; Ground = ''; After = @(2, 3); Need = 'steps 2 and 3: the English preference, and the second launch step 3 logged' }
-    [pscustomobject]@{ Id = 5;  Title = 'choosing another language moves the choice and publishes one Snapshot'; Ground = ''; After = @(4); Need = 'step 4: its restarted Host, in Preferences' }
-    [pscustomobject]@{ Id = 6;  Title = 'clearing the preference: Host picks per Video, and no featured Catalog'; Ground = ''; After = @(4); Need = 'step 4: its restarted Host, in Preferences' }
+    [pscustomobject]@{ Id = 4;  Title = 'the Subtitle languages list survives a restart'; Ground = ''; After = @(2, 3); Need = 'steps 2 and 3: the English Subtitle languages list, and the second launch step 3 logged' }
+    [pscustomobject]@{ Id = 5;  Title = 'ticking a second language and moving it first publishes one Snapshot each'; Ground = ''; After = @(4); Need = 'step 4: its restarted Host, in Preferences' }
+    [pscustomobject]@{ Id = 6;  Title = 'removing every chip: Follow the file, and no featured Catalog'; Ground = ''; After = @(4); Need = 'step 4: its restarted Host, in Preferences' }
     [pscustomobject]@{ Id = 7;  Title = 'configuring an Addon by manifest URL'; Ground = ''; After = @(); Need = 'nothing: it starts its own Host from the empty data directory' }
     [pscustomobject]@{ Id = 8;  Title = 'a URL that is not an Addon is refused without losing the Addon that works'; Ground = 'addon'; After = @(); Need = 'the fixture Addon configured (one Host, the Addon added by manifest URL)' }
     [pscustomobject]@{ Id = 9;  Title = 'the Addon survives a restart'; Ground = 'addon'; After = @(); Need = 'the fixture Addon configured (one Host, the Addon added by manifest URL)' }
@@ -105,8 +105,10 @@ $Steps = @(
     [pscustomobject]@{ Id = 33; Title = 'fullscreen: F11, the OSD''s copy, and the chrome that outlives Stop'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it plays an episode, and walks the window''s control on Home, a pushed Title, Settings and a confirm dialog, plus F11 with the OSD visible and hidden)' }
     [pscustomobject]@{ Id = 34; Title = 'Settings > Preferences: the subtitle appearance goes through the Action surface, and survives a restart'; Ground = 'fresh'; After = @(); Need = 'a Host (the appearance needs no Addon)' }
     [pscustomobject]@{ Id = 35; Title = 'subtitles on a real picture: colour on the SRT, the authored colour on the ASS at 100% and 125%, and the size from the OSD'; Ground = 'addon'; After = @(); Need = 'the fixture Addon with the fixture video (two SRT tracks and one ASS track); it chooses the colour, plays, steps the size in the OSD, and checks Settings and the next Stream' }
-    [pscustomobject]@{ Id = 36; Title = 'an Up next plays directly: Play from the finished episode''s card, with no Streams list in between'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it plays S1E1 to its end, opens the Up next card and presses Play)' }
+    [pscustomobject]@{ Id = 36; Title = 'an Up next plays directly: Play from the finished episode''s card, with no Streams list in between'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it sets "When an episode ends" to Wait in Settings, plays S1E1 to its end, opens the Up next card and presses Play)' }
     [pscustomobject]@{ Id = 37; Title = 'a second open of the same Title is instant: the Host answers it from the cache'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it opens a series Title, back, and opens the same Title again)' }
+    [pscustomobject]@{ Id = 38; Title = 'autoplay: the countdown, its Cancel, and the next episode on its own'; Ground = 'addon'; After = @(); Need = 'the fixture Addon at Home (it sets "When an episode ends" to "Play it after 5 seconds" in Settings, plays S1E1 to its end, cancels the countdown, switches Autoplay off and on again beside Next episode, and lets the new countdown play S1E2)' }
+    [pscustomobject]@{ Id = 39; Title = 'a torrent plays from the local seed and leaves nothing behind'; Ground = 'addon'; After = @(); Need = 'the fixture Addon with fixture-seed running, and a person at the window to answer the Windows Security Alert on the first torrent play' }
 )
 
 # The discovery path and the cheap syntax check: print the checklist and what
@@ -307,6 +309,7 @@ New-Item -ItemType Directory -Force $Evidence | Out-Null
 $exe = Join-Path $Tree 'target\release\streamingapp.exe'
 if (-not (Test-Path $exe)) { throw "no executable at $exe - run build.ps1 first" }
 $dataDir = Join-Path $env:APPDATA 'dev.streamingapp.host'
+$torrentsDir = Join-Path $env:LOCALAPPDATA 'dev.streamingapp.host\torrents'
 $log = Join-Path $dataDir 'host.log'
 $failures = New-Object Collections.Generic.List[string]
 # The checks a step could not walk at all, because the Stream or the surface it
@@ -318,6 +321,7 @@ $skipped = New-Object Collections.Generic.List[string]
 # A Host left over from an earlier run would hold the single instance, and its
 # window would answer for the one this script starts.
 Get-Process streamingapp -ErrorAction SilentlyContinue | Stop-Process -Force
+Get-Process streamingapp-torrent -ErrorAction SilentlyContinue | Stop-Process -Force
 Start-Sleep -Seconds 2
 
 function Check($what, $condition, $detail) {
@@ -1055,6 +1059,216 @@ function Read-Pairing($app) {
     return @{ Text = $text; Address = $address; Code = $code }
 }
 
+# --- Autoplay (#302) ----------------------------------------------------------
+#
+# Settings > Preferences > Up next carries "When an episode ends" as two choices,
+# `Play it after 5 seconds` and `Wait`, each pressed or not (`aria-pressed`, a
+# Toggle pattern). The player carries the same preference as a switch labelled
+# `Autoplay the next episode` (`role="switch"`, `aria-checked`): inside the
+# Episodes popover, and beside Next episode on an ended episode. The Host's
+# countdown is the corner card, a group named `Up next - S1E2` (the middle dot
+# is built from its code point), holding `Play now` and `Cancel`; Cancel takes
+# the keyboard focus when the card appears.
+
+# Choose one of the "When an episode ends" choices through Settings, the way a
+# person does. Returns what the run needs to say whether it took: the pressed
+# element (or $null) and whether a Snapshot went out when a press was needed.
+function Choose-Autoplay($app, $label) {
+    Open-Settings-Category $app 'Preferences' 'When an episode ends'
+    $choice = Button-Named $app $label 10
+    if (-not $choice) { throw "the Preferences screen shows no '$label' choice for When an episode ends" }
+    $published = $true
+    if (-not (Toggled $choice)) {
+        $before = Snapshot-Baseline
+        Press-Element $app $choice
+        $published = (Wait-Published $before 20) -gt $before
+    }
+    [pscustomobject]@{ Pressed = (Wait-Toggled $app $label 10); Published = $published }
+}
+
+# The corner card the Host's countdown is drawn in, by its accessible name
+# (`Up next - S1E2`), or $null once it is not there within `$seconds`.
+function Autoplay-Card($app, $episode = 'S1E2', $seconds = 1) {
+    Find-Element (Window-Root $app) ('Up next ' + $dot + ' ' + $episode) $null $seconds
+}
+
+# Wait for the card to be drawn, polling quickly: the countdown is five seconds
+# long, so every second spent finding the card is a second off the Cancel press.
+function Wait-Autoplay-Card($app, $episode = 'S1E2', $seconds = 10) {
+    $deadline = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $deadline) {
+        $card = Autoplay-Card $app $episode 1
+        if ($card) { return $card }
+    }
+    return $null
+}
+
+# Wait for the card to be gone: the countdown was cancelled, switched off, or ran out.
+function Wait-No-Autoplay-Card($app, $episode = 'S1E2', $seconds = 10) {
+    $deadline = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $deadline) {
+        if (-not (Autoplay-Card $app $episode 1)) { return $true }
+        Start-Sleep -Milliseconds 300
+    }
+    return $false
+}
+
+# The Autoplay switch, with the OSD woken first: it is drawn on the ended
+# episode's prompt, which is part of the OSD, and the OSD puts itself away after
+# three idle seconds.
+function Autoplay-Switch($app, $seconds = 10) {
+    Wake-Osd $app
+    Find-Element (Window-Root $app) 'Autoplay the next episode' $null $seconds
+}
+
+# Whether the switch is on, read off its Toggle pattern: $true, $false, or $null
+# when the accessibility tree does not carry a toggle state for it.
+function Switch-State($element) {
+    if (-not $element) { return $null }
+    $pattern = $null
+    if ($element.TryGetCurrentPattern([Windows.Automation.TogglePattern]::Pattern, [ref]$pattern)) {
+        return ($pattern.Current.ToggleState -eq [Windows.Automation.ToggleState]::On)
+    }
+    return $null
+}
+
+# Press the switch with the keyboard and return at once: the countdown it may
+# start is five seconds long, and `Press-Element` spends two of them waiting.
+function Press-Switch($app) {
+    $switch = Autoplay-Switch $app
+    if (-not $switch) { throw 'the ended episode shows no Autoplay switch' }
+    $switch.SetFocus()
+    Start-Sleep -Milliseconds 300
+    if (-not (Focus $app)) { throw 'pressing the switch needs the Host in the foreground' }
+    [Windows.Forms.SendKeys]::SendWait('{ENTER}')
+    Start-Sleep -Milliseconds 500
+}
+
+# --- the language field (#304) ------------------------------------------------
+#
+# Preferences draws Subtitle languages and Audio languages as a field of chips,
+# each with a `Remove <language>` control, and a `Choose subtitle languages` (or
+# `Choose audio languages`) control that opens a drawer over the screen. The
+# drawer's "Chosen" group lists the held languages in rank, each row with `Move
+# <language> up` and `Move <language> down`; its "Languages" group lists the rest.
+# A row is a choice, so it announces its state through the Toggle pattern: On in
+# Chosen, Off in Languages. The row's own name is its words plus a tick and a rank
+# mark when it is chosen, so it is matched whole, around those, never by a
+# fragment: `English` must not find `English (UK)` or `Remove English`.
+$tickGlyph = [string][char]0x2713
+$followSubtitleLine = 'The subtitle the file marks as default'
+
+function Language-Row-Pattern($name) {
+    '^\s*(' + [regex]::Escape($tickGlyph) + ')?\s*' + [regex]::Escape($name) + '\s*(1st|2nd|3rd)?\s*$'
+}
+
+# The drawer's row for a language, whichever group it is in.
+function Language-Rows($app, $name) {
+    $pattern = Language-Row-Pattern $name
+    @(Buttons $app | Where-Object { $_.Current.Name -match $pattern })
+}
+
+# Wait for a language's row to be chosen ($true) or not chosen ($false). Rows are
+# looked up afresh each time: a press moves the row between the two groups, so the
+# element a press was made on is gone by the time the Host has answered.
+function Wait-Language-Row($app, $name, $chosen, $seconds = 15) {
+    $deadline = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $deadline) {
+        foreach ($row in (Language-Rows $app $name)) {
+            if ((Toggled $row) -eq $chosen) { return $row }
+        }
+        Start-Sleep -Milliseconds 300
+    }
+    return $null
+}
+
+# Wait for a chosen language's `Move ... up` / `Move ... down` to be disabled (the
+# first and the last rank have nowhere to go) or enabled.
+function Wait-Move-State($app, $name, $direction, $disabled, $seconds = 15) {
+    $deadline = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $deadline) {
+        $button = Button-Named $app ('Move ' + $name + ' ' + $direction) 1
+        if ($button -and ((Is-Disabled $button) -eq $disabled)) { return $true }
+        Start-Sleep -Milliseconds 300
+    }
+    return $false
+}
+
+# Press a control in the field or the drawer, and say whether it landed. The
+# keyboard is the first try; the drawer is a pushed level whose focus the shell
+# owns, so a focus the script set can be undone, and a click where the control is
+# is the second. `$landed` waits long enough for the Host to answer, so a press
+# that did land is never pressed twice.
+function Press-Language-Control($app, [scriptblock] $find, [scriptblock] $landed) {
+    $element = & $find
+    if (-not $element) { return $false }
+    Press-Element $app $element
+    if (& $landed) { return $true }
+    $element = & $find
+    if (-not $element) { return $false }
+    # The Languages group scrolls inside the drawer: bring the row into view, and
+    # let Chromium's scroll stop, before the rectangle is read.
+    $scroll = $null
+    if ($element.TryGetCurrentPattern([Windows.Automation.ScrollItemPattern]::Pattern, [ref]$scroll)) {
+        try { $scroll.ScrollIntoView() } catch { }
+    }
+    Start-Sleep -Milliseconds 900
+    $rect = $element.Current.BoundingRectangle
+    if ($rect.IsEmpty -or $rect.Width -le 0 -or $rect.Height -le 0) { return $false }
+    [W]::Click([int]($rect.Left + ($rect.Width / 2)), [int]($rect.Top + ($rect.Height / 2)))
+    Start-Sleep -Seconds 2
+    return [bool](& $landed)
+}
+
+# Open a list's drawer with its ▾ and wait for the drawer's Done. `$kind` is
+# `subtitle` or `audio`.
+function Open-Language-Drawer($app, $kind) {
+    $name = 'Choose ' + $kind + ' languages'
+    Press-Button $app $name 10
+    if (-not (Button-Named $app 'Done' 10)) {
+        throw "the $name control did not open a drawer with a Done control"
+    }
+}
+
+function Close-Language-Drawer($app) {
+    Press $app 'Done'
+    Start-Sleep -Milliseconds 500
+}
+
+# Tick a language in the open drawer: its row moves from Languages to Chosen.
+function Tick-Language($app, $name) {
+    $find = { Language-Rows $app $name | Where-Object { -not (Toggled $_) } | Select-Object -First 1 }
+    $landed = { $null -ne (Wait-Language-Row $app $name $true 6) }
+    if (-not (Press-Language-Control $app $find $landed)) {
+        throw "ticking $name in the drawer did not make it a chosen row"
+    }
+}
+
+# Move a chosen language one rank toward the first, with its ↑.
+function Move-Language-Up($app, $name) {
+    $find = { Button-Named $app ('Move ' + $name + ' up') 6 }
+    $landed = { Wait-Move-State $app $name 'up' $true 6 }
+    if (-not (Press-Language-Control $app $find $landed)) {
+        throw "Move $name up did not take $name to the first rank"
+    }
+}
+
+# Take a chip out with its ×, on the Preferences screen (the drawer closed).
+function Remove-Language-Chip($app, $name) {
+    $find = { Button-Named $app ('Remove ' + $name) 6 }
+    $landed = {
+        $deadline = (Get-Date).AddSeconds(6)
+        while ((Get-Date) -lt $deadline) {
+            if (@(Buttons-Named $app ('Remove ' + $name)).Count -eq 0) { return $true }
+            Start-Sleep -Milliseconds 300
+        }
+        return $false
+    }
+    if (-not (Press-Language-Control $app $find $landed)) {
+        throw "the Remove $name control did not take the chip out"
+    }
+}
+
 # --- the fixtures the later steps stand on ------------------------------------
 #
 # A step run on its own must not stand on the leftovers of a previous run: the
@@ -1076,7 +1290,7 @@ function Ensure-FreshHost($ctx) {
 function Ensure-Featured($app) {
     Open-Settings $app
     Press $app 'Preferences'
-    Wait-Text $app 'Subtitle language' 20 | Out-Null
+    Wait-Text $app 'Subtitle languages' 20 | Out-Null
     $label = $AddonCatalog + ' ' + $dot + ' ' + $AddonName
     $chip = @(Buttons-Matching $app $label)[0]
     if (-not $chip) {
@@ -1169,7 +1383,7 @@ function Choose-Candidate($app) {
     foreach ($candidate in $candidates) {
         Write-Host "candidate: $(Short $candidate.Current.Name)"
     }
-    $playable = @($candidates | Where-Object { $_.Current.Name -notmatch 'Not playable yet' })
+    $playable = @($candidates | Where-Object { $_.Current.Name -notmatch 'Not playable' })
     $chosen = if ($playable) { $playable[0] } else { $candidates[0] }
     Write-Host "chose: $(Short $chosen.Current.Name)"
     Press-Element $app $chosen
@@ -1213,10 +1427,10 @@ function Play-A-Candidate($app) {
     if ($kind -eq 'unplayable') {
         # Every candidate is one this version cannot open: the window says so
         # and the video never appears.
-        $text = Wait-Text $app 'Not playable yet' 20
+        $text = Wait-Text $app 'Not playable' 20
         Shot $app '12-stream-unplayable.png'
         Check 'a candidate this Host cannot play says so rather than pretending' (
-            $text -match 'Not playable yet') "showed: $text"
+            $text -match 'Not playable') "showed: $text"
         Check 'and nothing is drawn for a Stream that will not play' (
             -not (Shows $app 'Pause' 2)) "showed: $text"
         return
@@ -1645,7 +1859,7 @@ function Step-1($ctx) {
 }
 
 function Step-2($ctx) {
-    '--- 2. Settings > Preferences: choosing a subtitle language'
+    '--- 2. Settings > Preferences: ticking a language for Subtitle languages'
     $app = $ctx.App
     $before = Snapshot-Baseline
     Open-Settings $app
@@ -1654,22 +1868,33 @@ function Step-2($ctx) {
         (Shows $app 'Credentials') -and (Shows $app 'Preferences') -and
         (Shows $app 'Remote devices') -and (Shows $app 'About/Credits')) (Page-Text $app)
     Press $app 'Preferences'
-    Wait-Text $app 'Subtitle language' 20 | Out-Null
+    Wait-Text $app 'Subtitle languages' 20 | Out-Null
     Shot $app '02-preferences.png'
-    Check 'Preferences says the Host picks per Video before any choice' (
-        (Page-Text $app) -match 'Host picks per Video') (Page-Text $app)
+    $text = Page-Text $app
+    Check 'Preferences draws a Subtitle languages field and an Audio languages field' (
+        ($text -match 'Subtitle languages') -and ($text -match 'Audio languages')) $text
+    Check 'the empty Subtitle languages field says Follow the file, and what that means' (
+        ($text -match 'Follow the file') -and ($text -match $followSubtitleLine)) $text
 
-    $english = Button-Named $app 'English' 10
-    if (-not $english) { throw 'the Preferences screen shows no English choice' }
-    Press-Element $app $english
-    $chosen = Wait-Toggled $app 'English' 15
+    Open-Language-Drawer $app 'subtitle'
+    Shot $app '02-drawer.png'
+    $english = Wait-Language-Row $app 'English' $false 10
+    if (-not $english) { throw 'the Subtitle languages drawer lists no English row to tick' }
+    Tick-Language $app 'English'
     Shot $app '02-saved.png'
-    Check 'the choice pressed is the one the Host holds' (
-        $null -ne $chosen) "the English choice never became the pressed one"
-    Check 'and the old choice is no longer pressed' (
-        -not (Toggled (Button-Named $app 'Host picks per Video'))) "the Host picks choice is still pressed"
-    Check 'choosing a language published one Snapshot' (
+    Check 'the language ticked is a chosen row the Host holds' (
+        $null -ne (Wait-Language-Row $app 'English' $true 15)) 'the English row never became a chosen one'
+    Check 'the drawer now has a Chosen group, and the English row has left Languages' (
+        ((Wait-Text $app 'Chosen' 5) -match 'Chosen') -and
+        -not (Language-Rows $app 'English' | Where-Object { -not (Toggled $_) })) (Page-Text $app)
+    Check 'ticking a language published one Snapshot' (
         (Wait-Published $before 20) -gt $before) "the log still shows $before published Snapshot(s)"
+
+    Close-Language-Drawer $app
+    Check 'the field draws English as a chip with its remove control' (
+        $null -ne (Button-Named $app 'Remove English' 10)) (Page-Text $app)
+    Check 'and no longer says Follow the file for subtitles' (
+        (Wait-No-Text $app $followSubtitleLine 10) -notmatch $followSubtitleLine) (Page-Text $app)
 }
 
 function Step-3($ctx) {
@@ -1685,7 +1910,7 @@ function Step-3($ctx) {
 }
 
 function Step-4($ctx) {
-    '--- 4. the preference survives a restart'
+    '--- 4. the list survives a restart'
     $app = $ctx.App
     Stop-Host $app
     Check 'the Host logged the Snapshot it published' (
@@ -1697,52 +1922,75 @@ function Step-4($ctx) {
     $ctx.App = $restarted
     Focus $restarted | Out-Null
     Start-Sleep -Seconds 2
-    Open-Settings-Category $restarted 'Preferences' 'Subtitle language'
+    Open-Settings-Category $restarted 'Preferences' 'Subtitle languages'
     Shot $restarted '04-restarted.png'
-    $chosen = Wait-Toggled $restarted 'English' 15
-    Check 'the restarted Host still prefers English' (
-        $null -ne $chosen) "the English choice was not pressed after the restart"
-    Check 'and its Preferences still marks that choice' (
-        Toggled (Button-Named $restarted 'English')) "the restart cleared the pressed choice"
+    Check 'the restarted Host still draws English as a Subtitle languages chip' (
+        $null -ne (Button-Named $restarted 'Remove English' 15)) 'the English chip was not on the Preferences screen after the restart'
+    $text = Page-Text $restarted
+    Check 'and Subtitle languages no longer follow the file' (
+        $text -notmatch $followSubtitleLine) $text
+    Check 'while Audio languages, never touched, still follow it' (
+        $text -match 'The soundtrack the file marks as default') $text
+
+    Open-Language-Drawer $restarted 'subtitle'
+    Shot $restarted '04-restarted-drawer.png'
+    Check 'its drawer marks English as chosen' (
+        $null -ne (Wait-Language-Row $restarted 'English' $true 15)) 'the English row was not a chosen one after the restart'
+    Close-Language-Drawer $restarted
 }
 
 function Step-5($ctx) {
-    '--- 5. choosing another language moves the choice and publishes one Snapshot'
+    '--- 5. ticking a second language and moving it first publishes one Snapshot each'
     $app = $ctx.App
-    # The new Preferences screen offers choices, not a free-text tag, so the
-    # window cannot send a tag the Host would refuse; host-core's preference
-    # tests cover that refusal. What is walkable here is that each choice is one
-    # Action, and that the pressed choice follows the Host.
+    # The drawer offers rows, not a free-text tag, so the window cannot send a tag
+    # the Host would refuse; host-core's preference tests cover that refusal. What
+    # is walkable here is that each press is one Action carrying the whole list,
+    # and that the order the Host holds is the order the drawer shows.
+    Open-Language-Drawer $app 'subtitle'
     $before = Snapshot-Baseline
-    $uk = Button-Named $app 'English (UK)' 10
-    if (-not $uk) { throw 'the Preferences screen shows no English (UK) choice' }
-    Press-Element $app $uk
-    $chosen = Wait-Toggled $app 'English (UK)' 15
+    Tick-Language $app 'English (UK)'
     Shot $app '05-second-language.png'
-    Check 'the window shows the second language' (
-        $null -ne $chosen) "the English (UK) choice never became the pressed one"
-    Check 'the second choice is pressed and the first is not' (
-        (Toggled (Button-Named $app 'English (UK)')) -and
-        -not (Toggled (Button-Named $app 'English'))) "both English choices are pressed or neither is"
-    Check 'and moving the choice published one Snapshot' (
+    Check 'the second language is a chosen row' (
+        $null -ne (Wait-Language-Row $app 'English (UK)' $true 15)) 'the English (UK) row never became a chosen one'
+    Check 'it went last: English holds the first rank and English (UK) the second' (
+        (Wait-Move-State $app 'English' 'up' $true 10) -and
+        (Wait-Move-State $app 'English (UK)' 'up' $false 10) -and
+        (Wait-Move-State $app 'English (UK)' 'down' $true 10)) (Page-Text $app)
+    Check 'and ticking it published one Snapshot' (
         (Wait-Published $before 20) -gt $before) "the log still shows $before published Snapshot(s)"
+
+    $beforeMove = Snapshot-Baseline
+    Move-Language-Up $app 'English (UK)'
+    Shot $app '05-moved-first.png'
+    Check 'moving it up takes English (UK) to the first rank and English to the second' (
+        (Wait-Move-State $app 'English (UK)' 'up' $true 10) -and
+        (Wait-Move-State $app 'English' 'up' $false 10) -and
+        (Wait-Move-State $app 'English' 'down' $true 10)) (Page-Text $app)
+    Check 'and moving it published one Snapshot' (
+        (Wait-Published $beforeMove 20) -gt $beforeMove) "the log still shows $beforeMove published Snapshot(s)"
+    Close-Language-Drawer $app
 }
 
 function Step-6($ctx) {
-    '--- 6. clearing the preference: Host picks per Video, and no featured Catalog'
+    '--- 6. removing every chip: Follow the file, and no featured Catalog'
     $app = $ctx.App
     $before = Snapshot-Baseline
-    $none = Button-Named $app 'Host picks per Video' 10
-    if (-not $none) { throw 'the Preferences screen shows no Host picks per Video choice' }
-    Press-Element $app $none
-    $cleared = Wait-Toggled $app 'Host picks per Video' 15
-    Shot $app '06-cleared.png'
-    Check 'the window says the Host picks per Video again' (
-        $null -ne $cleared) "the Host picks choice never became the pressed one"
-    Check 'the cleared choice is the one pressed' (
-        Toggled (Button-Named $app 'Host picks per Video')) "the Host picks choice is not pressed"
-    Check 'clearing the language published one Snapshot' (
+    Remove-Language-Chip $app 'English (UK)'
+    Check 'removing a chip published one Snapshot' (
         (Wait-Published $before 20) -gt $before) "the log still shows $before published Snapshot(s)"
+    Check 'the other chip is still there' (
+        $null -ne (Button-Named $app 'Remove English' 10)) (Page-Text $app)
+
+    $beforeLast = Snapshot-Baseline
+    Remove-Language-Chip $app 'English'
+    $text = Wait-Text $app $followSubtitleLine 15
+    Shot $app '06-cleared.png'
+    Check 'with every chip removed the field says Follow the file again' (
+        ($text -match 'Follow the file') -and ($text -match $followSubtitleLine)) $text
+    Check 'no chip is left to remove' (
+        (@(Buttons $app | Where-Object { $_.Current.Name -like 'Remove *' }).Count -eq 0)) $text
+    Check 'removing the last chip published one Snapshot' (
+        (Wait-Published $beforeLast 20) -gt $beforeLast) "the log still shows $beforeLast published Snapshot(s)"
     Check 'with no Addon configured there is no Catalog to feature, and the screen says so' (
         (Page-Text $app) -match 'No configured Addon offers a Catalog') (Page-Text $app)
     Check 'and No featured catalog is the choice pressed' (
@@ -1934,21 +2182,31 @@ function Step-12($ctx) {
         Start-Sleep -Seconds 1
     }
 
-    # The second film in the fixture's Catalog answers an infoHash: the list has
-    # to show it, say why it cannot play, and leave the picture alone. Walked
-    # when the Catalog drew it, and skipped for an Addon that did not.
-    $unplayable = @(Buttons-Matching $app 'A Film That Cannot Play')[0]
-    if ($unplayable) {
-        Press-Element $app $unplayable
+    # The second film in the fixture's Catalog answers an infoHash: torrents are
+    # playable now (spec #311), so its candidate must be listed with no
+    # unplayable note. Playing it belongs to step 39 (where the Windows Security
+    # Alert is handled).
+    $torrentFilm = @(Buttons-Matching $app 'A Film From A Torrent')[0]
+    if ($torrentFilm) {
+        Press-Element $app $torrentFilm
         Wait-Text $app 'Supplied by' 20 | Out-Null
         Open-Streams $app 'Find Streams' | Out-Null
-        Play-A-Candidate $app
+        Shot $app '12-torrent-streams.png'
+        $candidates = @(Candidates $app)
+        $text = Page-Text $app
+        Check 'the torrent film lists its candidate in the Streams picker' (
+            $candidates.Count -gt 0) "showed: $text"
+        Check 'the torrent film candidate has no unplayable note' (
+            ($candidates.Count -gt 0) -and
+            ($candidates[0].Current.Name -notmatch 'Not playable') -and
+            ($text -notmatch 'Not playable')) (
+            "candidate: $(if ($candidates.Count -gt 0) { $candidates[0].Current.Name } else { '<none>' }); showed: $text")
         Press-Keys $app '{ESC}'
         Start-Sleep -Seconds 1
         Press-Keys $app '{ESC}'
         Start-Sleep -Seconds 1
     } else {
-        'this Addon drew no second film, so the unplayable-candidate case was not walked'
+        'this Addon drew no "A Film From A Torrent", so the torrent-candidate listing check was not walked'
     }
 }
 
@@ -3440,6 +3698,16 @@ function Step-35($ctx) {
 function Step-36($ctx) {
     '--- 36. an Up next plays directly: Play from the finished episode''s card'
     $app = $ctx.App
+    # Autoplay is on by default, and a finished episode would then count down and
+    # play S1E2 under this step, which walks the Up next card of an episode that
+    # stays finished. So the step first sets "When an episode ends" to Wait, in
+    # Settings, the way a person does. Step 38 sets it back.
+    $wait = Choose-Autoplay $app 'Wait'
+    Shot $app '36-autoplay-wait.png'
+    Check 'Settings holds "When an episode ends" on Wait before the walk begins' (
+        $wait.Pressed -and -not (Toggled (Button-Named $app 'Play it after 5 seconds' 2))) (
+        "showed: $(Page-Text $app)")
+    Check 'choosing Wait published a Snapshot' $wait.Published 'the log shows no new Snapshot after the press'
     # Finish S1E1 on the fixture's own video. The video is five minutes long and
     # the last thirty seconds already count as watched, so the position slider is
     # the quickest way to reach the end without watching it.
@@ -3469,6 +3737,13 @@ function Step-36($ctx) {
     }
     Click-Fraction $app $slider 0.995
     Start-Sleep -Seconds 4
+    # With Wait chosen the episode sits on its ended state: no countdown card,
+    # and nothing plays by itself.
+    Wake-Osd $app
+    $text = Wait-Text $app 'The Stream reached its end' 5
+    Check 'with Wait chosen the finished episode stays ended, with no countdown card' (
+        ($text -match 'The Stream reached its end') -and -not (Autoplay-Card $app 'S1E2' 1)) "showed: $text"
+    Shot $app '36-ended-wait.png'
 
     # Leave the player for the Title, then the Title for Home. A Stream that has
     # ended still has a Stop; if the window went back on its own, one Back is
@@ -3551,6 +3826,376 @@ function Step-37($ctx) {
         $text -match 'Season \d+') "showed: $text"
     Check 'and it is instant: the cached Title answered, under three seconds' (
         $elapsed -lt 3000) "the second open took $elapsed ms"
+}
+
+function Step-38($ctx) {
+    '--- 38. autoplay: the countdown, its Cancel, and the next episode on its own'
+    $app = $ctx.App
+    $card = 'Up next ' + $dot + ' S1E2'
+    # Step 36 leaves "When an episode ends" on Wait, and a run of this step alone
+    # starts from the default: either way the step sets what it stands on.
+    $on = Choose-Autoplay $app 'Play it after 5 seconds'
+    Shot $app '38-autoplay-on.png'
+    Check 'Settings holds "When an episode ends" on Play it after 5 seconds before the walk begins' (
+        $on.Pressed -and -not (Toggled (Button-Named $app 'Wait' 2))) "showed: $(Page-Text $app)"
+
+    # Play S1E1 and seek to its last second, as step 36 does.
+    if (-not (Open-Series $app)) {
+        Skip 'autoplay' 'the fixture Addon drew no series row'
+        return
+    }
+    if (-not (Open-Streams $app 'S1E1')) {
+        Skip 'autoplay' 'the series Title offers no first episode'
+        return
+    }
+    $kind = Choose-Candidate $app
+    if ($kind -ne 'playable') {
+        Skip 'autoplay' "the Addon answered no playable candidate ($kind)"
+        return
+    }
+    if (-not (Wait-Shows $app 'Pause' 45)) {
+        Skip 'autoplay' 'the first episode never started playing'
+        return
+    }
+    Start-Sleep -Seconds 2
+    Wake-Osd $app
+    $slider = Find-Element (Window-Root $app) 'Position' ([Windows.Automation.ControlType]::Slider) 3
+    if (-not $slider) {
+        Skip 'autoplay' 'the OSD showed no position slider to seek by'
+        return
+    }
+    Click-Fraction $app $slider 0.995
+
+    # 1. The episode ends, and the Host's five-second countdown is drawn as the
+    # corner card, with the keyboard focus on Cancel. Nothing below presses
+    # anything but the keys a remote would send, and the checks are made at once:
+    # the countdown does not wait for the script.
+    $shown = Wait-Autoplay-Card $app 'S1E2' 10
+    $focused = Focused-Name
+    Shot $app '38-countdown-card.png'
+    Check 'the ended episode draws the corner card naming the episode that comes next' (
+        $shown -ne $null) "showed: $(Page-Text $app)"
+    if (-not $shown) {
+        Skip 'autoplay' 'no countdown card appeared, so there is nothing to cancel: the finished episode has an Up next only where the Addon lists the episode after it'
+        return
+    }
+    Check 'the card offers Play now and Cancel' (
+        ((Button-Named $app 'Play now' 1) -ne $null) -and ((Button-Named $app 'Cancel' 1) -ne $null)) (
+        "showed: $(Page-Text $app)")
+    Check 'the keyboard focus is on Cancel when the card appears' (
+        $focused -eq 'Cancel') "focus is on '$focused'"
+
+    # 2. One press of Cancel stops this countdown, and the episode stays ended:
+    # the plain prompt, with the switch beside Next episode. The wait outlasts
+    # the five seconds, so an episode that still sits there was not advanced.
+    Press-Keys $app '{ENTER}'
+    $gone = Wait-No-Autoplay-Card $app 'S1E2' 5
+    Check 'Cancel takes the corner card away' $gone "the card '$card' is still drawn"
+    Start-Sleep -Seconds 6
+    Wake-Osd $app
+    $text = Wait-Text $app 'The Stream reached its end' 8
+    Check 'and the episode stays on its ended prompt past the five seconds: nothing played by itself' (
+        ($text -match 'The Stream reached its end') -and -not (Autoplay-Card $app 'S1E2' 1)) "showed: $text"
+    $switch = Autoplay-Switch $app 10
+    Check 'the ended prompt draws the Autoplay switch' ($switch -ne $null) "showed: $(Page-Text $app)"
+    if (-not $switch) { return }
+    $next = @(Buttons-Named $app 'Next episode')
+    $switchRect = $switch.Current.BoundingRectangle
+    $beside = @($next | Where-Object {
+        $rect = $_.Current.BoundingRectangle
+        (-not $rect.IsEmpty) -and ($rect.Top -lt $switchRect.Bottom) -and ($rect.Bottom -gt $switchRect.Top)
+    })
+    Check 'the switch sits beside a Next episode button' ($beside.Count -gt 0) (
+        "switch at top=$($switchRect.Top) bottom=$($switchRect.Bottom); Next episode buttons: $($next.Count)")
+    Shot $app '38-cancelled.png'
+
+    # Cancel keeps the preference, so the switch still reads On here. Turning it
+    # on starts the countdown, which is what the Host does for set_autoplay true
+    # on an ended episode - so the preference is turned off first, and the press
+    # that turns it on again is the one that starts the countdown (ADR-0040 4).
+    $state = Switch-State $switch
+    if ($state -eq $null) {
+        Skip 'autoplay: Cancel keeps the preference' 'the accessibility tree carries no toggle state for the switch'
+    } else {
+        Check 'Cancel keeps Autoplay on: the switch still reads On' $state 'the switch reads Off after Cancel'
+    }
+    if ($state -ne $false) {
+        Press-Switch $app
+        Start-Sleep -Seconds 2
+        $off = Switch-State (Autoplay-Switch $app 10)
+        if ($off -ne $null) {
+            Check 'pressing the switch turns Autoplay off' (-not $off) 'the switch still reads On'
+        }
+        Check 'and turning it off starts no countdown' (
+            -not (Autoplay-Card $app 'S1E2' 2)) "showed: $(Page-Text $app)"
+    }
+
+    # 3. Turning the switch on again starts the countdown: the card is back, with
+    # the focus on Cancel again, and it is counting rather than already over.
+    Press-Switch $app
+    $again = Wait-Autoplay-Card $app 'S1E2' 6
+    $focused = Focused-Name
+    Shot $app '38-rearmed.png'
+    Check 'turning the switch on starts the countdown again: the card is back' (
+        $again -ne $null) "showed: $(Page-Text $app)"
+    if (-not $again) { return }
+    Check 'and the keyboard focus is on Cancel again' ($focused -eq 'Cancel') "focus is on '$focused'"
+
+    # 4. Nobody presses anything now: the countdown runs out and S1E2 plays by
+    # itself, with no Streams list in between.
+    $gone = Wait-No-Autoplay-Card $app 'S1E2' 15
+    $playing = Wait-Shows $app 'Pause' 45
+    Wake-Osd $app
+    Shot $app '38-s1e2-playing.png'
+    Check 'letting the countdown run out takes the card away' $gone "the card '$card' is still drawn"
+    Check 'and the next episode starts playing on its own, with no Streams list in between' (
+        $playing -and -not (Shows $app 'Streams ' 1)) "showed: $(Page-Text $app)"
+    if ($playing) {
+        Check 'and the episode playing is S1E2' (
+            (Episode-Number $app) -eq 2) "the OSD reads S1E$(Episode-Number $app)"
+        Press-Button $app 'Stop'
+    }
+}
+
+function Step-39($ctx) {
+    '--- 39. a torrent plays from the local seed and leaves nothing behind'
+    $app = $ctx.App
+    Open-Home $app
+    Start-Sleep -Seconds 2
+
+    $torrentFilm = @(Buttons-Matching $app 'A Film From A Torrent')[0]
+    if (-not $torrentFilm) {
+        Skip 'torrent playback from the local seed' (
+            'this Addon drew no "A Film From A Torrent": run with the fixture Addon (fixture-addon.ps1) to walk torrent playback')
+        return
+    }
+
+    # Read the local seed's infoHash straight from the Addon's own Stream answer
+    # so sub-check 6 verifies the exact torrents\<infoHash>\ directory.
+    $torrentHash = ''
+    try {
+        $addonBase = $Addon -replace '/manifest\.json$', ''
+        $streamAnswer = Invoke-RestMethod -Uri "$addonBase/stream/movie/tt8888888.json" -TimeoutSec 10
+        if ($streamAnswer -and $streamAnswer.streams -and $streamAnswer.streams[0].infoHash) {
+            $torrentHash = ([string]$streamAnswer.streams[0].infoHash).ToLowerInvariant()
+        }
+    } catch {
+        "could not read tt8888888 infoHash from Addon: $($_.Exception.Message)"
+    }
+
+    # 1. Open "A Film From A Torrent" from the Streams picker.
+    Press-Element $app $torrentFilm
+    Wait-Text $app 'Supplied by' 20 | Out-Null
+    $openedStreams = Open-Streams $app 'Find Streams'
+    $candidates = @(Candidates $app)
+    Shot $app '39-streams.png'
+    Check 'the torrent film opens its Streams picker with a playable candidate' (
+        $openedStreams -and ($candidates.Count -gt 0) -and ($candidates[0].Current.Name -notmatch 'Not playable')) (
+        "opened=$openedStreams; candidates=$($candidates.Count); showed: $(Page-Text $app)")
+    if (-not $openedStreams -or $candidates.Count -eq 0) {
+        Skip 'torrent playback from the local seed' 'no torrent candidate appeared in the Streams picker'
+        return
+    }
+
+    # Count any Seek preview stills an earlier step in this Host might have
+    # created, so sub-check 5 can verify no new still is captured for a torrent.
+    $previewDir = Join-Path $env:TEMP ("streamingapp-preview-$($app.Process.Id)")
+    $stillsBefore = if (Test-Path $previewDir) {
+        @(Get-ChildItem -Path $previewDir -Filter '*.jpg' -ErrorAction SilentlyContinue).Count
+    } else { 0 }
+
+    # Press the candidate without Press-Element's 2 s post-sleep so the tight
+    # UIA poll immediately catches the centred opening block's torrent status
+    # line ("Finding the torrent ..." or "Fetching ...").
+    $candidates[0].SetFocus()
+    Start-Sleep -Milliseconds 300
+    if (-not (Focus $app)) { throw 'opening the torrent candidate needs the Host in the foreground' }
+    [Windows.Forms.SendKeys]::SendWait('{ENTER}')
+
+    # 3. Poll UI Automation for the centred opening block's "Finding the torrent"
+    # or "Fetching ..." line before playback moves to playing.
+    $openingLine = ''
+    $openingDeadline = (Get-Date).AddSeconds(20)
+    while ((Get-Date) -lt $openingDeadline) {
+        $text = Page-Text $app
+        $m = [regex]::Match($text, '(Finding the torrent[^|]*|Fetching [^|]*)')
+        if ($m.Success) {
+            $openingLine = $m.Groups[1].Value.Trim()
+            Shot $app '39-opening.png'
+            break
+        }
+        if ($text -match '(^|\|\s*)Pause(\s*\||$)') {
+            break
+        }
+        Start-Sleep -Milliseconds 50
+    }
+
+    # 2. Pause for the person to answer the Windows Security Alert (raised once
+    # by streamingapp-torrent.exe on the first torrent play) and record the
+    # choice.
+    $alertWindow = $null
+    try {
+        $topWindows = [Windows.Automation.AutomationElement]::RootElement.FindAll(
+            [Windows.Automation.TreeScope]::Children,
+            [Windows.Automation.Condition]::TrueCondition)
+        foreach ($w in $topWindows) {
+            if ($w.Current.Name -match 'Windows Security Alert|Windows Defender Firewall') {
+                $alertWindow = $w
+                break
+            }
+        }
+    } catch { }
+
+    ''
+    'WINDOWS SECURITY ALERT (step 39):'
+    'If Windows Defender Firewall showed a Security Alert for streamingapp-torrent.exe,'
+    'answer it now (Allow access or Cancel/Block). If no alert appeared because a rule'
+    'already exists for this executable path, enter "none".'
+    $firewallChoice = ''
+    if (-not [Console]::IsInputRedirected) {
+        $firewallChoice = (Read-Host 'Record the Windows Security Alert choice (allow / block / none) and press Enter').Trim()
+        if (-not $firewallChoice) { $firewallChoice = 'unspecified' }
+    } else {
+        $firewallChoice = if ($alertWindow) { 'alert-visible (non-interactive)' } else { 'none (non-interactive)' }
+        "non-interactive stdin: recorded Windows Security Alert choice as '$firewallChoice'"
+    }
+    $choiceFile = Join-Path $Evidence '39-firewall-choice.txt'
+    Set-Content -Path $choiceFile -Value "Windows Security Alert choice: $firewallChoice" -Encoding utf8
+    "recorded Windows Security Alert choice: $firewallChoice ($choiceFile)"
+    Focus $app | Out-Null
+
+    # If the Security Alert stalled UIA before the opening line appeared, check
+    # once more while it is still opening.
+    if (-not $openingLine) {
+        $text = Page-Text $app
+        $m = [regex]::Match($text, '(Finding the torrent[^|]*|Fetching [^|]*)')
+        if ($m.Success) {
+            $openingLine = $m.Groups[1].Value.Trim()
+            Shot $app '39-opening.png'
+        }
+    }
+    Check 'the centred opening block showed "Finding the torrent" or "Fetching ..."' (
+        $openingLine -ne '') "no torrent status line was seen in UIA; current window: $(Page-Text $app)"
+    if ($openingLine) { "opening block line: $openingLine" }
+
+    # 4. Assert playing.
+    $playing = Wait-Shows $app 'Pause' 45
+    Wake-Osd $app
+    Shot $app '39-playing.png'
+    Check 'the torrent reaches playing from the local seed' $playing (
+        "the window shows: $(Page-Text $app)")
+    if (-not $playing) {
+        Skip 'torrent timeline preview and cleanup checks' 'the torrent never reached playing'
+        return
+    }
+
+    # 5. Assert the Seek preview is absent over the timeline: time and Chapter
+    # only (ADR-0042 6). Hover at 60% of the five-minute fixture video (around
+    # 3:00, inside chapter Middle).
+    Wake-Osd $app
+    $slider = Find-Element (Window-Root $app) 'Position' ([Windows.Automation.ControlType]::Slider) 5
+    if (-not $slider) {
+        Skip 'Seek preview absent on a torrent' 'the OSD showed no Position slider to hover'
+    } else {
+        $rect = $slider.Current.BoundingRectangle
+        $y = [int]($rect.Top + ($rect.Height / 2))
+        [W]::Move([int]($rect.Left + ($rect.Width * 0.58)), $y)
+        Start-Sleep -Milliseconds 150
+        [W]::Move([int]($rect.Left + ($rect.Width * 0.60)), $y)
+        Start-Sleep -Milliseconds 1500
+        Shot $app '39-timeline-hover.png'
+
+        $chapterEl = Find-Element (Window-Root $app) 'Middle' ([Windows.Automation.ControlType]::Text) 5
+        $hoverText = Page-Text $app
+        $hasTime = ($hoverText -match '\b[23]:\d\d\b')
+        $hasImage = $false
+        $plateHeight = 0.0
+        if ($chapterEl) {
+            $plate = [Windows.Automation.TreeWalker]::ControlViewWalker.GetParent($chapterEl)
+            if ($plate) {
+                $plateHeight = $plate.Current.BoundingRectangle.Height
+                $imgCond = New-Object Windows.Automation.PropertyCondition(
+                    [Windows.Automation.AutomationElement]::ControlTypeProperty,
+                    [Windows.Automation.ControlType]::Image)
+                $imgs = $plate.FindAll([Windows.Automation.TreeScope]::Descendants, $imgCond)
+                $hasImage = ($imgs.Count -gt 0)
+            }
+        }
+        $stillsAfter = if (Test-Path $previewDir) {
+            @(Get-ChildItem -Path $previewDir -Filter '*.jpg' -ErrorAction SilentlyContinue).Count
+        } else { 0 }
+
+        Check 'hovering the timeline shows the hovered time and Chapter' (
+            ($chapterEl -ne $null) -and $hasTime) (
+            "chapter=$($chapterEl -ne $null), hasTime=$hasTime, showed: $hoverText")
+        Check 'the Seek preview is absent over a torrent timeline (time and Chapter only)' (
+            ($chapterEl -ne $null) -and (-not $hasImage) -and ($plateHeight -gt 0) -and ($plateHeight -lt 110) -and ($stillsAfter -eq $stillsBefore)) (
+            "hasImage=$hasImage, plateHeight=$plateHeight, stills $stillsBefore->$stillsAfter; review 39-timeline-hover.png")
+    }
+
+    # 6. Press Stop and assert torrents\<infoHash>\ is gone.
+    $torrentDir = if ($torrentHash) { Join-Path $torrentsDir $torrentHash } else { '' }
+    $existedBeforeStop = if ($torrentDir) { Test-Path $torrentDir } else { $false }
+    "before Stop: torrents\$torrentHash exists = $existedBeforeStop"
+
+    Wake-Osd $app
+    Press-Button $app 'Stop'
+    $afterStop = Wait-Text $app 'Streams ' 20
+    Check 'Stop leaves torrent playback and returns to the Streams picker' (
+        $afterStop -match 'Streams ') "showed: $afterStop"
+
+    $dirGone = $false
+    if ($torrentDir) {
+        $dirDeadline = (Get-Date).AddSeconds(10)
+        while ((Get-Date) -lt $dirDeadline) {
+            if (-not (Test-Path $torrentDir)) {
+                $dirGone = $true
+                break
+            }
+            Start-Sleep -Milliseconds 300
+        }
+        Check "pressing Stop removes torrents\$torrentHash\" $dirGone (
+            "$torrentDir still exists after Stop")
+    } else {
+        Skip 'torrents\<infoHash>\ removed on Stop' 'could not learn the film infoHash from the Addon'
+    }
+
+    # 7. Close the Host and assert the Torrent engine process is gone.
+    Stop-Host $app
+    $ctx.App = $null
+    $engineGone = $false
+    $procDeadline = (Get-Date).AddSeconds(10)
+    while ((Get-Date) -lt $procDeadline) {
+        $engineProc = Get-Process streamingapp-torrent -ErrorAction SilentlyContinue
+        if (-not $engineProc) {
+            $engineGone = $true
+            break
+        }
+        Start-Sleep -Milliseconds 300
+    }
+    Check 'closing the Host stops the Torrent engine process' $engineGone (
+        "streamingapp-torrent is still running: $((Get-Process streamingapp-torrent -ErrorAction SilentlyContinue | ForEach-Object { $_.Id }) -join ', ')")
+
+    # 8. Plant torrents\leftover\ and launch again, asserting it is wiped.
+    $leftover = Join-Path $torrentsDir 'leftover'
+    New-Item -ItemType Directory -Force $leftover | Out-Null
+    Set-Content -Path (Join-Path $leftover 'piece.bin') -Value 'leftover' -Encoding ascii
+    Check 'planted torrents\leftover\ before relaunch' (Test-Path $leftover) "could not create $leftover"
+
+    $app = Start-Host
+    $ctx.App = $app
+    $wiped = $false
+    $wipeDeadline = (Get-Date).AddSeconds(5)
+    while ((Get-Date) -lt $wipeDeadline) {
+        if (-not (Test-Path $leftover)) {
+            $wiped = $true
+            break
+        }
+        Start-Sleep -Milliseconds 200
+    }
+    Shot $app '39-leftover-wiped.png'
+    Check 'launching again wipes torrents\leftover\' $wiped (
+        "$leftover still exists after launching the Host")
 }
 
 # --- the dispatcher -----------------------------------------------------------

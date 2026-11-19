@@ -2,6 +2,10 @@ import { describe, expect, test } from "vitest";
 
 import {
   ASPECTS,
+  AUTOPLAY_CHOICES,
+  AUTOPLAY_DEFAULT,
+  AUTOPLAY_SETTING_LABEL,
+  AUTOPLAY_SWITCH_LABEL,
   CROP_RATIOS,
   DELAY_STEP,
   SPEEDS,
@@ -9,8 +13,16 @@ import {
   SUBTITLE_SCALE_MAX,
   SUBTITLE_SCALE_MIN,
   SUBTITLE_SCALES,
+  TORRENT_CACHE_DEFAULT_MEGABYTES,
+  TORRENT_CACHE_MAX_MEGABYTES,
+  TORRENT_CACHE_MEGABYTES,
+  TORRENT_CACHE_MIN_MEGABYTES,
+  TORRENT_FETCH_NOTE,
+  UP_NEXT_PLAYBACK_CHOICES,
+  UP_NEXT_PLAYBACK_SETTING_LABEL,
   VOLUME_MAX,
   aspectSelected,
+  autoplayOn,
   centredCrop,
   chapterLabel,
   colorSelected,
@@ -20,9 +32,11 @@ import {
   formatDelay,
   formatScale,
   formatSpeed,
+  formatTorrentCache,
   formatVolume,
   nextEpisodeDisabled,
   orderedTracks,
+  upNextRows,
   previousEpisodeDisabled,
   scalePreset,
   scaleSelected,
@@ -31,11 +45,13 @@ import {
   stepDelay,
   stepScale,
   subtitlesOn,
+  torrentCachePreset,
+  torrentCacheRequest,
   trackLabel,
   trackMarks,
   volumeFraction,
 } from "./controls";
-import type { Aspect, Crop, CropRectangle, Track, VideoSize } from "./wire";
+import type { Aspect, Crop, CropRectangle, Snapshot, Track, VideoSize } from "./wire";
 import appearance from "../subtitle-appearance.json";
 
 function track(overrides: Partial<Track> & { id: number }): Track {
@@ -48,6 +64,7 @@ function track(overrides: Partial<Track> & { id: number }): Track {
     selected: false,
     default: false,
     forced: false,
+    hearingImpaired: false,
     ...overrides,
   };
 }
@@ -379,5 +396,113 @@ describe("the subtitle appearance a person picks", () => {
     expect(colorSelected("#FFFF00", "#FFFF00")).toBe(true);
     expect(colorSelected("#ffcc00", "#FFCC00")).toBe(true);
     expect(colorSelected("#FFFFFF", "#FFFF00")).toBe(false);
+  });
+});
+
+describe("Up next and Autoplay", () => {
+  test("Settings offers both Up next rows and their choices", () => {
+    expect(AUTOPLAY_SETTING_LABEL).toBe("When an episode ends");
+    expect(AUTOPLAY_CHOICES).toEqual([
+      { autoplay: true, label: "Play it after 5 seconds" },
+      { autoplay: false, label: "Wait" },
+    ]);
+    expect(UP_NEXT_PLAYBACK_SETTING_LABEL).toBe("When Play is pressed on it");
+    expect(UP_NEXT_PLAYBACK_CHOICES).toEqual([
+      { playback: "direct", label: "Play directly" },
+      { playback: "picker", label: "Open the Streams picker" },
+    ]);
+  });
+
+  test("the player switch carries the shared Autoplay label", () => {
+    expect(AUTOPLAY_SWITCH_LABEL).toBe("Autoplay the next episode");
+  });
+});
+
+describe("the Autoplay preference a client reads", () => {
+  const held = (autoplay: boolean, upNextPlayback: "direct" | "picker" = "direct") =>
+    ({
+      preferences: { autoplay, upNextPlayback },
+    }) as Pick<Snapshot, "preferences">;
+
+  test("is what the Host last published", () => {
+    expect(autoplayOn(held(true))).toBe(true);
+    expect(autoplayOn(held(false))).toBe(false);
+  });
+
+  test("before any Snapshot it is the Host's own default, on", () => {
+    expect(AUTOPLAY_DEFAULT).toBe(true);
+    expect(autoplayOn(null)).toBe(true);
+  });
+
+  test("the Up next rows mark the held choices and each chip sends its own Action", () => {
+    const [autoplayRow, playbackRow] = upNextRows(held(false, "picker"));
+
+    expect(autoplayRow!.id).toBe("autoplay");
+    expect(autoplayRow!.choices.map((choice) => [choice.pressed, choice.action])).toEqual([
+      [false, { type: "set_autoplay", autoplay: true }],
+      [true, { type: "set_autoplay", autoplay: false }],
+    ]);
+    expect(playbackRow!.id).toBe("playback");
+    expect(playbackRow!.choices.map((choice) => [choice.pressed, choice.action])).toEqual([
+      [false, { type: "set_up_next_playback", playback: "direct" }],
+      [true, { type: "set_up_next_playback", playback: "picker" }],
+    ]);
+  });
+
+  test("before any Snapshot the rows hold the defaults: Autoplay on, Play directly", () => {
+    const [autoplayRow, playbackRow] = upNextRows(null);
+
+    expect(autoplayRow!.choices.filter((choice) => choice.pressed).map((choice) => choice.id)).toEqual([
+      "autoplay-true",
+    ]);
+    expect(playbackRow!.choices.filter((choice) => choice.pressed).map((choice) => choice.id)).toEqual([
+      "direct",
+    ]);
+  });
+
+  test("the rows carry the words Settings uses", () => {
+    const rows = upNextRows(null);
+
+    expect(rows.map((row) => row.label)).toEqual([AUTOPLAY_SETTING_LABEL, UP_NEXT_PLAYBACK_SETTING_LABEL]);
+    expect(rows[0]!.choices.map((choice) => choice.label)).toEqual(AUTOPLAY_CHOICES.map((choice) => choice.label));
+    expect(rows[1]!.choices.map((choice) => choice.label)).toEqual(
+      UP_NEXT_PLAYBACK_CHOICES.map((choice) => choice.label),
+    );
+  });
+});
+
+describe("the Torrent cache a person picks", () => {
+  test("Settings offers 512 MB, 2 GB, 8 GB and 32 GB, in decimal megabytes", () => {
+    expect(TORRENT_CACHE_MEGABYTES.map((choice) => [choice.label, choice.megabytes])).toEqual([
+      ["512 MB", 512],
+      ["2 GB", 2000],
+      ["8 GB", 8000],
+      ["32 GB", 32000],
+    ]);
+  });
+
+  test("every preset is a size the Host takes, and the default is one of them", () => {
+    for (const choice of TORRENT_CACHE_MEGABYTES) {
+      expect(choice.megabytes).toBeGreaterThanOrEqual(TORRENT_CACHE_MIN_MEGABYTES);
+      expect(choice.megabytes).toBeLessThanOrEqual(TORRENT_CACHE_MAX_MEGABYTES);
+    }
+    expect([TORRENT_CACHE_MIN_MEGABYTES, TORRENT_CACHE_MAX_MEGABYTES]).toEqual([256, 32000]);
+    expect(TORRENT_CACHE_DEFAULT_MEGABYTES).toBe(2000);
+    expect(torrentCachePreset(TORRENT_CACHE_DEFAULT_MEGABYTES)).toBe(true);
+  });
+
+  test("a size the ladder does not hold is its own chip, in megabytes", () => {
+    expect(torrentCachePreset(8000)).toBe(true);
+    expect(torrentCachePreset(1500)).toBe(false);
+    expect(formatTorrentCache(2000)).toBe("2 GB");
+    expect(formatTorrentCache(1500)).toBe("1500 MB");
+  });
+
+  test("a press sends the one Action, with the megabytes alone", () => {
+    expect(torrentCacheRequest(8000)).toEqual({ type: "set_torrent_cache", megabytes: 8000 });
+  });
+
+  test("the Stream buffer says a torrent is fetched that far ahead too", () => {
+    expect(TORRENT_FETCH_NOTE).toBe("Torrents are fetched this far ahead too.");
   });
 });

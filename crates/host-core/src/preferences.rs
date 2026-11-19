@@ -8,14 +8,33 @@ use crate::request::CatalogRef;
 /// Only preferences a client is allowed to see live here — and everything in
 /// here is published in every [`crate::Snapshot`], so nothing secret may be added
 /// to it (ADR-0002, and the spec's "Credentials and secrets").
-#[derive(Debug, Clone, Default, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Preferences {
-    subtitle_language: Option<SubtitleLanguage>,
+    subtitle_languages: LanguageList,
+    audio_languages: LanguageList,
     subtitle_color: SubtitleColor,
     subtitle_scale: SubtitleScale,
     stream_buffer: StreamBuffer,
+    torrent_cache: TorrentCache,
     up_next_playback: UpNextPlayback,
+    autoplay: bool,
     featured_catalog: Option<FeaturedCatalog>,
+}
+
+impl Default for Preferences {
+    fn default() -> Self {
+        Self {
+            subtitle_languages: LanguageList::empty(),
+            audio_languages: LanguageList::empty(),
+            subtitle_color: SubtitleColor::default(),
+            subtitle_scale: SubtitleScale::default(),
+            stream_buffer: StreamBuffer::default(),
+            torrent_cache: TorrentCache::default(),
+            up_next_playback: UpNextPlayback::default(),
+            autoplay: true,
+            featured_catalog: None,
+        }
+    }
 }
 
 impl Preferences {
@@ -24,15 +43,26 @@ impl Preferences {
         Self::default()
     }
 
-    /// The language the Host prefers when it picks a subtitle track, if the owner
-    /// has expressed one.
-    pub fn subtitle_language(&self) -> Option<&SubtitleLanguage> {
-        self.subtitle_language.as_ref()
+    /// The Subtitle languages: the languages the Host chooses a subtitle Track
+    /// by, first the most wanted. Empty, it follows the file.
+    pub fn subtitle_languages(&self) -> &LanguageList {
+        &self.subtitle_languages
     }
 
-    /// Set or clear the subtitle language preference.
-    pub fn set_subtitle_language(&mut self, language: Option<SubtitleLanguage>) {
-        self.subtitle_language = language;
+    /// Set the Subtitle languages, whole.
+    pub fn set_subtitle_languages(&mut self, languages: LanguageList) {
+        self.subtitle_languages = languages;
+    }
+
+    /// The Audio languages: the same, for the soundtrack. Independent of the
+    /// Subtitle languages.
+    pub fn audio_languages(&self) -> &LanguageList {
+        &self.audio_languages
+    }
+
+    /// Set the Audio languages, whole.
+    pub fn set_audio_languages(&mut self, languages: LanguageList) {
+        self.audio_languages = languages;
     }
 
     /// The colour the Player draws subtitles in, where a track leaves the colour
@@ -68,6 +98,16 @@ impl Preferences {
         self.stream_buffer = buffer;
     }
 
+    /// The most disk a playing torrent may take (ADR-0042 §3).
+    pub fn torrent_cache(&self) -> TorrentCache {
+        self.torrent_cache
+    }
+
+    /// Set the Torrent cache preference.
+    pub fn set_torrent_cache(&mut self, cache: TorrentCache) {
+        self.torrent_cache = cache;
+    }
+
     /// What Play does for a Title's Up next: play it straight away, or open the
     /// Streams picker so the owner picks the Stream themselves.
     pub fn up_next_playback(&self) -> UpNextPlayback {
@@ -77,6 +117,17 @@ impl Preferences {
     /// Set the Up next preference.
     pub fn set_up_next_playback(&mut self, playback: UpNextPlayback) {
         self.up_next_playback = playback;
+    }
+
+    /// Whether the Host advances on its own to a Title's Up next after a short
+    /// countdown when an episode's Stream ends, or waits until someone asks.
+    pub fn autoplay(&self) -> bool {
+        self.autoplay
+    }
+
+    /// Set the Autoplay preference.
+    pub fn set_autoplay(&mut self, autoplay: bool) {
+        self.autoplay = autoplay;
     }
 
     /// The one Catalog the owner has marked as the Host's featured feed, where
@@ -92,33 +143,43 @@ impl Preferences {
 
     /// The preferences a store read back, in one step: every value it holds,
     /// with an absent row already resolved to its default.
+    #[allow(clippy::too_many_arguments)]
     pub fn from_stored(
-        subtitle_language: Option<SubtitleLanguage>,
+        subtitle_languages: LanguageList,
+        audio_languages: LanguageList,
         subtitle_color: SubtitleColor,
         subtitle_scale: SubtitleScale,
         stream_buffer: StreamBuffer,
+        torrent_cache: TorrentCache,
         up_next_playback: UpNextPlayback,
+        autoplay: bool,
         featured_catalog: Option<FeaturedCatalog>,
     ) -> Self {
         Self {
-            subtitle_language,
+            subtitle_languages,
+            audio_languages,
             subtitle_color,
             subtitle_scale,
             stream_buffer,
+            torrent_cache,
             up_next_playback,
+            autoplay,
             featured_catalog,
         }
     }
 
-    /// The same preferences, with a subtitle language, for a store that has just
-    /// read one back.
-    pub fn with_subtitle_language(language: Option<SubtitleLanguage>) -> Self {
+    /// The same preferences, with Subtitle languages, for a store that has just
+    /// read them back.
+    pub fn with_subtitle_languages(languages: LanguageList) -> Self {
         Self::from_stored(
-            language,
+            languages,
+            LanguageList::empty(),
             SubtitleColor::default(),
             SubtitleScale::default(),
             StreamBuffer::default(),
+            TorrentCache::default(),
             UpNextPlayback::default(),
+            true,
             None,
         )
     }
@@ -141,7 +202,8 @@ pub struct FeaturedCatalog {
     pub catalog: CatalogRef,
 }
 
-/// The language the Host prefers when it chooses a subtitle track.
+/// A language the Host chooses a Track by: the vocabulary of both language
+/// preferences (Subtitle languages and Audio languages, ADR-0041).
 ///
 /// Held as a BCP-47 language tag but judged only on the shape a tag takes — a
 /// primary subtag and optional hyphenated subtags — rather than against a
@@ -149,9 +211,9 @@ pub struct FeaturedCatalog {
 /// Video turns out to have, not validated against IANA.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct SubtitleLanguage(String);
+pub struct Language(String);
 
-impl SubtitleLanguage {
+impl Language {
     /// The longest tag BCP-47 allows.
     const MAX_LEN: usize = 35;
 
@@ -159,8 +221,8 @@ impl SubtitleLanguage {
     const MAX_SUBTAG_LEN: usize = 8;
 
     /// Parse a language tag, or say why this string is not one.
-    pub fn parse(raw: &str) -> Result<Self, InvalidSubtitleLanguage> {
-        let invalid = || InvalidSubtitleLanguage {
+    pub fn parse(raw: &str) -> Result<Self, InvalidLanguage> {
+        let invalid = || InvalidLanguage {
             language: raw.to_owned(),
         };
 
@@ -194,17 +256,117 @@ impl SubtitleLanguage {
     }
 }
 
-impl std::fmt::Display for SubtitleLanguage {
+impl std::fmt::Display for Language {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
     }
 }
 
-/// A string that is not a language tag, offered as a subtitle language.
+/// A string that is not a language tag, offered as a language.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
 #[error("{language:?} is not a language tag")]
-pub struct InvalidSubtitleLanguage {
+pub struct InvalidLanguage {
     pub language: String,
+}
+
+/// An ordered list of up to three [`Language`]s, first the most wanted: the shape
+/// of both Subtitle languages and Audio languages (ADR-0041). Empty, it means
+/// *follow the file*.
+///
+/// The list is the whole preference, so a client sends it whole and a refusal is
+/// about the list: a fourth entry, a duplicate (compared case-insensitively, for
+/// a tag is not case-sensitive) or a bad tag.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize)]
+#[serde(transparent)]
+pub struct LanguageList(Vec<Language>);
+
+impl LanguageList {
+    /// The most languages a list may hold.
+    pub const MAX: usize = 3;
+
+    /// An empty list: follow the file.
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
+    /// Parse a list of tags, or say why this is not a list.
+    pub fn parse<S: AsRef<str>>(raw: &[S]) -> Result<Self, InvalidLanguageList> {
+        let mut languages: Vec<Language> = Vec::with_capacity(raw.len());
+        for tag in raw {
+            let language = Language::parse(tag.as_ref())?;
+            if languages
+                .iter()
+                .any(|held| held.as_str().eq_ignore_ascii_case(language.as_str()))
+            {
+                return Err(InvalidLanguageList::Duplicate(DuplicateLanguage {
+                    language: language.to_string(),
+                }));
+            }
+            languages.push(language);
+        }
+        if languages.len() > Self::MAX {
+            return Err(InvalidLanguageList::TooMany(TooManyLanguages {
+                count: languages.len(),
+                max: Self::MAX,
+            }));
+        }
+
+        Ok(Self(languages))
+    }
+
+    /// The languages, in order.
+    pub fn as_slice(&self) -> &[Language] {
+        &self.0
+    }
+
+    /// The languages, in order, as the Snapshot and the wire carry them.
+    pub fn to_vec(&self) -> Vec<Language> {
+        self.0.clone()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    pub fn iter(&self) -> std::slice::Iter<'_, Language> {
+        self.0.iter()
+    }
+}
+
+/// A list that is not a language list, and which way it fails.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InvalidLanguageList {
+    /// An entry is not a tag.
+    Invalid(InvalidLanguage),
+    /// A language is listed twice.
+    Duplicate(DuplicateLanguage),
+    /// More than three languages.
+    TooMany(TooManyLanguages),
+}
+
+impl From<InvalidLanguage> for InvalidLanguageList {
+    fn from(invalid: InvalidLanguage) -> Self {
+        Self::Invalid(invalid)
+    }
+}
+
+/// A language listed twice, compared without regard to case.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
+#[error("{language:?} is listed twice")]
+pub struct DuplicateLanguage {
+    pub language: String,
+}
+
+/// A list of more languages than a list may hold.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
+#[error("{count} languages is too many — a list holds at most {max}")]
+pub struct TooManyLanguages {
+    pub count: usize,
+    pub max: usize,
 }
 
 /// The colour the Player draws subtitles in, where a track leaves the colour open.
@@ -409,6 +571,70 @@ pub struct InvalidStreamBuffer {
     pub detail: String,
 }
 
+/// The Torrent cache: the most disk a held torrent may take while it plays
+/// (CONTEXT.md, ADR-0042 §3).
+///
+/// Its own preference, with its own bounds and no coupling to the
+/// [`StreamBuffer`]: the buffer is memory and this is disk, and an owner with a
+/// small disk must be able to cap one without the other moving. The unit is the
+/// decimal megabyte, as the Stream buffer's is (ADR-0026).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TorrentCache {
+    megabytes: u64,
+}
+
+impl TorrentCache {
+    /// The ceiling the Host starts from, in megabytes: 2 GB.
+    pub const DEFAULT_MEGABYTES: u64 = 2000;
+
+    /// The smallest ceiling the Host will set.
+    pub const MIN_MEGABYTES: u64 = 256;
+
+    /// The largest ceiling the Host will set.
+    pub const MAX_MEGABYTES: u64 = 32000;
+
+    /// Parse a ceiling, or say why this number is not one.
+    pub fn parse(megabytes: u64) -> Result<Self, InvalidTorrentCache> {
+        if !(Self::MIN_MEGABYTES..=Self::MAX_MEGABYTES).contains(&megabytes) {
+            return Err(InvalidTorrentCache {
+                detail: format!(
+                    "{megabytes} is not a torrent cache size — a size is a whole number of \
+                     megabytes from {} to {}",
+                    Self::MIN_MEGABYTES,
+                    Self::MAX_MEGABYTES
+                ),
+            });
+        }
+        Ok(Self { megabytes })
+    }
+
+    /// The ceiling, in megabytes.
+    pub fn megabytes(&self) -> u64 {
+        self.megabytes
+    }
+
+    /// The ceiling, in bytes: the decimal megabyte the interface says.
+    pub fn bytes(&self) -> u64 {
+        self.megabytes * 1_000_000
+    }
+}
+
+impl Default for TorrentCache {
+    fn default() -> Self {
+        Self {
+            megabytes: Self::DEFAULT_MEGABYTES,
+        }
+    }
+}
+
+/// A size that is not a Torrent cache, offered as one.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, thiserror::Error)]
+#[error("{detail}")]
+pub struct InvalidTorrentCache {
+    pub detail: String,
+}
+
 /// What Play does for a Title's Up next.
 ///
 /// A preference of the Host's, not a client's: the choice is stored beside the
@@ -464,7 +690,7 @@ mod tests {
     fn language_tags_bcp_47_allows_are_accepted() {
         for tag in ["en", "pt-BR", "zh-Hans-CN", "es-419", "sr-Latn-RS"] {
             assert_eq!(
-                SubtitleLanguage::parse(tag).map(|l| l.as_str().to_owned()),
+                Language::parse(tag).map(|l| l.as_str().to_owned()),
                 Ok(tag.to_owned()),
                 "{tag} is a language tag"
             );
@@ -487,18 +713,78 @@ mod tests {
             "abcdefghij", // and at most eight letters
         ] {
             assert!(
-                SubtitleLanguage::parse(not_a_tag).is_err(),
+                Language::parse(not_a_tag).is_err(),
                 "{not_a_tag:?} is not a language tag"
             );
         }
     }
 
+    fn tags(list: &LanguageList) -> Vec<&str> {
+        list.iter().map(Language::as_str).collect()
+    }
+
+    #[test]
+    fn a_language_list_holds_nought_to_three_languages_in_order() {
+        for raw in [
+            &[][..],
+            &["pt-BR"][..],
+            &["pt-BR", "en"][..],
+            &["pt-BR", "en", "fr-CA"][..],
+        ] {
+            let list = LanguageList::parse(raw).expect("up to three languages is a list");
+            assert_eq!(tags(&list), raw, "the order is the owner's");
+        }
+        assert!(LanguageList::parse::<&str>(&[]).expect("empty").is_empty());
+        assert_eq!(LanguageList::default(), LanguageList::empty());
+    }
+
+    #[test]
+    fn a_fourth_language_is_refused() {
+        assert_eq!(
+            LanguageList::parse(&["en", "pt-BR", "fr", "de"]),
+            Err(InvalidLanguageList::TooMany(TooManyLanguages {
+                count: 4,
+                max: 3
+            }))
+        );
+    }
+
+    #[test]
+    fn a_language_listed_twice_is_refused_whatever_its_case() {
+        assert_eq!(
+            LanguageList::parse(&["pt-BR", "en", "PT-br"]),
+            Err(InvalidLanguageList::Duplicate(DuplicateLanguage {
+                language: "PT-br".to_owned()
+            }))
+        );
+        assert!(LanguageList::parse(&["en", "en"]).is_err());
+    }
+
+    #[test]
+    fn a_bad_tag_in_a_list_is_refused_as_an_invalid_language() {
+        assert_eq!(
+            LanguageList::parse(&["en", "Brazilian Portuguese"]),
+            Err(InvalidLanguageList::Invalid(InvalidLanguage {
+                language: "Brazilian Portuguese".to_owned()
+            }))
+        );
+    }
+
+    #[test]
+    fn a_language_list_serializes_as_a_plain_array_of_tags() {
+        let list = LanguageList::parse(&["pt-BR", "en"]).expect("a list");
+        assert_eq!(
+            serde_json::to_value(&list).expect("a list serializes"),
+            serde_json::json!(["pt-BR", "en"])
+        );
+    }
+
     #[test]
     fn the_longest_tag_bcp_47_allows_is_accepted() {
         let tag = "aaaaaaaa-bbbbbbbb-cccccccc-dddddddd";
-        assert_eq!(tag.len(), SubtitleLanguage::MAX_LEN);
-        assert!(SubtitleLanguage::parse(tag).is_ok());
-        assert!(SubtitleLanguage::parse(&format!("{tag}e")).is_err());
+        assert_eq!(tag.len(), Language::MAX_LEN);
+        assert!(Language::parse(tag).is_ok());
+        assert!(Language::parse(&format!("{tag}e")).is_err());
     }
 
     #[test]
@@ -615,5 +901,56 @@ mod tests {
             serde_json::json!({"seconds": 300, "megabytes": 512}),
             "the wire carries the pair as two camelCase numbers"
         );
+    }
+
+    #[test]
+    fn a_torrent_cache_is_a_whole_number_of_megabytes_from_256_to_32000() {
+        for megabytes in [256, 2000, 32000] {
+            assert_eq!(
+                TorrentCache::parse(megabytes).map(|cache| cache.megabytes()),
+                Ok(megabytes)
+            );
+        }
+        for megabytes in [0, 255, 32001, u64::MAX] {
+            assert!(
+                TorrentCache::parse(megabytes).is_err(),
+                "{megabytes} MB is not a torrent cache"
+            );
+        }
+    }
+
+    #[test]
+    fn the_default_torrent_cache_is_two_decimal_gigabytes() {
+        let cache = TorrentCache::default();
+
+        assert_eq!(cache.megabytes(), 2000);
+        assert_eq!(cache.bytes(), 2_000_000_000);
+        assert_eq!(
+            serde_json::to_value(cache).expect("a cache serializes"),
+            serde_json::json!({"megabytes": 2000})
+        );
+        assert_eq!(Preferences::default().torrent_cache(), cache);
+    }
+
+    #[test]
+    fn the_torrent_cache_is_not_judged_against_the_stream_buffer() {
+        // The largest cache beside the smallest buffer, and the reverse: both
+        // are preferences on their own.
+        let mut preferences = Preferences::default();
+        preferences.set_stream_buffer(StreamBuffer::parse(5, 64).expect("a buffer"));
+        preferences.set_torrent_cache(TorrentCache::parse(32000).expect("a cache"));
+        assert_eq!(preferences.torrent_cache().megabytes(), 32000);
+        assert_eq!(preferences.stream_buffer().megabytes(), 64);
+
+        preferences.set_stream_buffer(StreamBuffer::parse(3600, 4096).expect("a buffer"));
+        preferences.set_torrent_cache(TorrentCache::parse(256).expect("a cache"));
+        assert_eq!(preferences.torrent_cache().megabytes(), 256);
+        assert_eq!(preferences.stream_buffer().megabytes(), 4096);
+    }
+
+    #[test]
+    fn the_default_autoplay_is_on() {
+        assert!(Preferences::default().autoplay());
+        assert!(Preferences::new().autoplay());
     }
 }

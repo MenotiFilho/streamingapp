@@ -1,4 +1,4 @@
-# Dev toolchain for the Host: Rust + libmpv + Node/pnpm + Tauri 2 Linux deps.
+# Dev toolchain for the Host: Rust + libmpv + Node/pnpm + Go + Tauri 2 Linux deps.
 #
 # Build:  docker compose build
 #         docker build -f docker/dev.Dockerfile -t streamingapp-dev .
@@ -12,7 +12,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LANG=C.UTF-8 \
     RUSTUP_HOME=/usr/local/rustup \
     CARGO_HOME=/usr/local/cargo \
-    PATH=/usr/local/cargo/bin:$PATH
+    GOPATH=/go \
+    GOCACHE=/go/cache \
+    GOFLAGS=-buildvcs=false \
+    PATH=/usr/local/cargo/bin:/usr/local/go/bin:/go/bin:$PATH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential pkg-config cmake git curl wget file ca-certificates xz-utils \
@@ -34,6 +37,26 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
  && apt-get install -y --no-install-recommends nodejs \
  && npm install -g pnpm@latest \
  && rm -rf /var/lib/apt/lists/*
+
+# Go, for the Torrent engine (crates/host-torrent/engine, ADR-0042 §1). The current
+# stable toolchain, pinned by version and checked against its published sha256;
+# cross-compiled to Windows from here with CGO_ENABLED=0, so no C toolchain for
+# the target is needed.
+ARG GO_VERSION=1.27.4
+ARG GO_SHA256_AMD64=7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840
+ARG GO_SHA256_ARM64=3392582988a273a87ab5043ee1b2c9c17a2c3c00580bf9326c47a2e0aaaeac92
+RUN arch="$(dpkg --print-architecture)" \
+ && case "$arch" in \
+      amd64) sha="$GO_SHA256_AMD64" ;; \
+      arm64) sha="$GO_SHA256_ARM64" ;; \
+      *) echo "no Go build pinned for $arch" >&2; exit 1 ;; \
+    esac \
+ && curl -fsSL -o /tmp/go.tgz "https://go.dev/dl/go${GO_VERSION}.linux-${arch}.tar.gz" \
+ && echo "$sha  /tmp/go.tgz" | sha256sum -c - \
+ && tar -C /usr/local -xzf /tmp/go.tgz \
+ && rm /tmp/go.tgz \
+ && mkdir -p /go \
+ && chmod 1777 /go
 
 WORKDIR /app
 CMD ["sleep", "infinity"]

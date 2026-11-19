@@ -328,10 +328,14 @@ fn a_video_that_reaches_its_end_is_watched_and_paused_in_the_wrong_place_is_not(
         duration: Some(2820.0),
         ..Observation::idle()
     });
-    fixture.clock.set(20_000);
-    fixture.host.sample().expect("reaching the end is a change");
+    fixture.clock.set(FixtureClock::TODAY + 20_000);
+    let ended = fixture.host.sample().expect("reaching the end is a change");
 
     assert!(watch_progress(&fixture.host)[0].watched);
+    assert!(
+        ended.playback.autoplay.is_some(),
+        "the end that finishes the Video also starts Autoplay's countdown, which is no part of its Watch progress"
+    );
 }
 
 #[test]

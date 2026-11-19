@@ -22,6 +22,18 @@
   pointer-events: none;
 }
 
+/* The mouse cursor, put away on the OSD's idle clock. WebView2 owns the cursor
+   over the Windows Picture, so only the page can hide it (#284), and the player
+   draws explicit `cursor: pointer` / `default` on the picture button and the
+   OSD controls: every descendant has to be told, not just the surface.
+   `!important` because the controls' own rules (`.shell-osd-icon:disabled`)
+   tie this selector on specificity and come later; nothing in a player whose
+   cursor is put away may bring it back. */
+.shell-player[data-cursor="hidden"],
+.shell-player[data-cursor="hidden"] * {
+  cursor: none !important;
+}
+
 /* The hole the picture goes in. Clicking it is play/pause, not summoning. It
    is its own stacking context so the full-screen button's focus cannot rise
    above the OSD and swallow every press. */
@@ -784,7 +796,8 @@
   position: absolute;
   inset: 0;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
+  justify-content: center;
   overflow: hidden;
   background: var(--rep-ink);
 }
@@ -802,9 +815,11 @@
   z-index: 1;
   display: grid;
   gap: var(--rep-space-1);
+  justify-items: center;
   width: 100%;
-  padding: 0 var(--rep-gutter) calc(var(--rep-stage) * 5.4);
+  padding: 0 var(--rep-gutter);
   box-sizing: border-box;
+  text-align: center;
 }
 
 .shell-player-preview-scrim {
@@ -842,6 +857,55 @@
   font-family: var(--rep-mono);
   font-size: var(--rep-text-badge);
   letter-spacing: 0.04em;
+}
+
+/* The Stalled card: a small plate in the middle of the picture, a ring over one
+   sentence. It never takes a press (the picture beneath it is the play/pause
+   control) and does not move with the OSD. */
+.shell-stall-card {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
+  display: grid;
+  justify-items: center;
+  gap: var(--rep-space-2);
+  padding: var(--rep-space-4) var(--rep-space-5);
+  border: 1px solid var(--rep-hairline);
+  border-top: 2px solid var(--rep-house);
+  border-radius: 0;
+  background: color-mix(in srgb, var(--rep-ink-raised) 88%, transparent);
+  text-align: center;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+.shell-stall-ring {
+  display: grid;
+  place-items: center;
+  color: var(--rep-house);
+  font-size: max(26px, calc(var(--rep-stage) * 1.55));
+}
+
+/* The Torrent status, one line: under "Opening …" on the opening block and under
+   the sentence on the Stalled card (#341). Mono and dim, as the subtitle is, and
+   tabular so a rate that ticks does not shift the line. */
+.shell-torrent-line {
+  margin: 0;
+  color: var(--rep-dim);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-badge);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.shell-stall-title {
+  margin: 0;
+  color: var(--rep-ivory);
+  font-family: var(--rep-sans);
+  font-size: var(--rep-text-control);
+  font-weight: 500;
+  line-height: 1.25;
 }
 
 .shell-picture-note {
@@ -952,6 +1016,144 @@
 }
 
 /* --------------------------------------------------------------------------
+ * Autoplay: the countdown's corner card and the switch (#317, #302)
+ * -------------------------------------------------------------------------- */
+
+/* The Host's countdown, bottom-right on the Picture and above the timeline. It
+   is not part of the OSD, so the OSD's idle clock never takes it away. Printed
+   like the rest of the room: ink step, hairline, a brass rule on the head. */
+.rep-autoplay-card {
+  position: absolute;
+  right: var(--rep-gutter);
+  bottom: calc(var(--rep-stage) * 14);
+  z-index: 3;
+  display: grid;
+  grid-template-columns: calc(var(--rep-stage) * 14) calc(var(--rep-stage) * 22);
+  overflow: hidden;
+  border: 1px solid var(--rep-hairline);
+  border-top: 2px solid var(--rep-house);
+  border-radius: 0;
+  background: var(--rep-ink-raised);
+  pointer-events: auto;
+}
+
+.rep-autoplay-still {
+  position: relative;
+  min-height: calc(var(--rep-stage) * 7.9);
+  overflow: hidden;
+  background: var(--rep-ink);
+}
+
+.rep-autoplay-still-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.8;
+}
+
+.rep-autoplay-digit {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--rep-ink) 45%, transparent);
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-hero);
+  line-height: 1;
+}
+
+.rep-autoplay-copy {
+  min-width: 0;
+  padding: var(--rep-space-4) var(--rep-space-5);
+}
+
+.rep-autoplay-kicker {
+  display: flex;
+  align-items: center;
+  gap: var(--rep-space-3);
+  margin: 0;
+  color: var(--rep-house);
+  font-family: var(--rep-mono);
+  font-size: var(--rep-text-badge);
+  letter-spacing: var(--rep-tracking-caps);
+  text-transform: uppercase;
+}
+
+.rep-autoplay-kicker > span:last-child {
+  color: var(--rep-muted);
+  white-space: nowrap;
+}
+
+.rep-autoplay-kicker-rule {
+  flex: 1;
+  min-width: var(--rep-space-5);
+  height: 1px;
+  background: var(--rep-hairline);
+}
+
+.rep-autoplay-name {
+  margin: var(--rep-space-2) 0 0;
+  overflow: hidden;
+  color: var(--rep-ivory);
+  font-family: var(--rep-display);
+  font-size: var(--rep-text-body);
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rep-autoplay-actions {
+  display: flex;
+  gap: var(--rep-space-3);
+  margin-top: var(--rep-space-4);
+}
+
+/* The line draining along the foot: its width is the Host's countdown, drawn
+   at the projection's own cadence and smoothed between ticks. */
+.rep-autoplay-drain {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: var(--rep-hairline);
+}
+
+.rep-autoplay-drain > span {
+  display: block;
+  height: 100%;
+  background: var(--rep-house);
+  transition: width 250ms linear;
+}
+
+/* The ended prompt carries the switch beside Next episode. */
+.shell-osd-ended {
+  align-items: center;
+  gap: var(--rep-space-4);
+}
+
+/* Beside the step, sized to its words: the kit's switch is a full-width menu
+   row until told otherwise, and Next episode keeps its one line. */
+.shell-osd-ended .shell-osd-ended-switch {
+  flex: none;
+  width: auto;
+  border: 1px solid var(--rep-hairline);
+}
+
+.shell-osd-ended .rep-kit-button {
+  flex: none;
+  white-space: nowrap;
+}
+
+/* The Episodes plate opens on the switch, with a hairline before the seasons. */
+.shell-osd-episodes-head {
+  border-bottom: 1px solid var(--rep-hairline);
+}
+
+/* --------------------------------------------------------------------------
  * Reduced motion: the room keeps its fades and loses its movement
  * -------------------------------------------------------------------------- */
 
@@ -960,4 +1162,7 @@
     height: 14px;
   }
 
+  .rep-autoplay-drain > span {
+    transition: none;
+  }
 }

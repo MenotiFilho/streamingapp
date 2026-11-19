@@ -1,11 +1,13 @@
 use serde::{Deserialize, Serialize};
 
 use crate::addon::Manifest;
+use crate::autoplay::AutoplaySnapshot;
 use crate::device::DeviceSummary;
 use crate::pairing::PairingCode;
 use crate::playback::{Picture, PlaybackSnapshot};
 use crate::preferences::{
-    FeaturedCatalog, StreamBuffer, SubtitleColor, SubtitleLanguage, SubtitleScale, UpNextPlayback,
+    FeaturedCatalog, Language, StreamBuffer, SubtitleColor, SubtitleScale, TorrentCache,
+    UpNextPlayback,
 };
 use crate::progress::{ContinueEntry, ResumeEntry};
 use crate::secret::SecretBackend;
@@ -80,10 +82,12 @@ pub struct Snapshot {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct PreferencesSnapshot {
-    /// The subtitle language the Host prefers, or `null` when it has none and
-    /// chooses per Video. A language tag by construction, so the wire cannot carry
-    /// anything else here.
-    pub subtitle_language: Option<SubtitleLanguage>,
+    /// The Subtitle languages, first the most wanted: up to three, and empty
+    /// when the Host follows the file. Language tags by construction, so the wire
+    /// cannot carry anything else here (ADR-0041).
+    pub subtitle_languages: Vec<Language>,
+    /// The Audio languages: the same, for the soundtrack.
+    pub audio_languages: Vec<Language>,
     /// The colour the Player draws subtitles in where a track leaves the colour
     /// open. Always a value — white is the default rather than an absence — so a
     /// client never has to invent one (ADR-0024).
@@ -95,10 +99,17 @@ pub struct PreferencesSnapshot {
     /// and the memory that look-ahead may take. Always values — a Host that has
     /// never been told keeps the default pair (ADR-0026).
     pub stream_buffer: StreamBuffer,
+    /// The most disk a playing torrent may take. Always a value: 2 GB for a Host
+    /// that has never been told (ADR-0042 §3).
+    pub torrent_cache: TorrentCache,
     /// What Play does for a Title's Up next: play it directly, or open the
     /// Streams picker. Always a value — direct is the default, and the choice
     /// governs only Up next, never Resume (#276).
     pub up_next_playback: UpNextPlayback,
+    /// Whether the Host advances on its own to a Title's Up next after a short
+    /// countdown when an episode's Stream ends, or waits until someone asks.
+    /// Always a value — on is the default (#302, #314).
+    pub autoplay: bool,
 }
 
 /// Where the Host's credentials are held, as the secret store reports itself.
@@ -123,6 +134,10 @@ impl Snapshot {
     /// Up next is read from; it is not state, so a cached Title gaining episodes
     /// moves the row without an Action (#274, ADR-0038).
     ///
+    /// `autoplay` is the countdown the Host is running, read off its clock at
+    /// the moment of the build: it is the Host's own record beside the state, not
+    /// part of it (ADR-0040).
+    ///
     /// `picture` is the Player's answer to where it draws: a fact about the
     /// machine the Host was built on, like which backend holds a credential, and
     /// not something any Action changes.
@@ -132,16 +147,23 @@ impl Snapshot {
         revision: u64,
         picture: Picture,
         address: Option<&str>,
+        autoplay: Option<AutoplaySnapshot>,
     ) -> Self {
+        let mut playback = state.playback().snapshot(picture);
+        playback.autoplay = autoplay;
+
         Self {
             revision,
-            playback: state.playback().snapshot(picture),
+            playback,
             preferences: PreferencesSnapshot {
-                subtitle_language: state.preferences().subtitle_language().cloned(),
+                subtitle_languages: state.preferences().subtitle_languages().to_vec(),
+                audio_languages: state.preferences().audio_languages().to_vec(),
                 subtitle_color: state.preferences().subtitle_color().clone(),
                 subtitle_scale: state.preferences().subtitle_scale(),
                 stream_buffer: state.preferences().stream_buffer(),
+                torrent_cache: state.preferences().torrent_cache(),
                 up_next_playback: state.preferences().up_next_playback(),
+                autoplay: state.preferences().autoplay(),
             },
             addons: state
                 .addons()

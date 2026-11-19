@@ -19,7 +19,8 @@ pause, a seek, a stop and a crash-safe Watch progress write all need the latest
 position. Publication is narrower:
 
 - a **public change** publishes: the Stream and its state, the duration, the
-  buffered span, a failure, the track list, the chapters and the current chapter,
+  buffered span, whether playback is stalled (`stalled`), the Torrent status
+  (`torrent`), a failure, the track list, the chapters and the current chapter,
   speed, volume, mute, subtitle delay, crop, aspect, resolution;
 - a **Watch progress write** publishes, because it is the low-rate correction
   and the write already happens at `PROGRESS_EVERY` (5 s);
@@ -30,9 +31,12 @@ The choice is `PlaybackSession::differs_publicly_from`, a pure comparison next
 to `advanced`. It names the two fields a client owns — `position` and
 `statistics` — rather than trying to classify every future field by hand.
 
-`buffered` stays public on purpose: a cache is not a clock a client can
-project, and the existing comparison already ignores a span that moved by less
-than a second at both ends (ADR-0013).
+`buffered` and `torrent` stay public on purpose: neither a cache span nor live
+swarm progress is a clock a client can project. Both are throttled rather than
+published on every tick: the `buffered` comparison ignores a span that moved by
+less than a second at both ends (ADR-0013), and `Host::sample()` throttles
+`Torrent status` (`torrent`) publication to at most once per second
+(`TORRENT_STATUS_EVERY_MS`, 1 s).
 
 ## 2. How the clients read a position
 

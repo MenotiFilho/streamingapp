@@ -4,9 +4,10 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, CredentialKind, FixtureClock, FixtureFetcher, FixturePlayer,
+    Action, ActionError, Buffered, CredentialKind, FixtureClock, FixtureFetcher, FixturePlayer,
     FixtureProvider, FixtureStremio, Host, InMemorySecretStore, InMemoryStore, Observation,
-    Playback, RemoteItem, SecretBackend, Store, Stream, WatchedField, ACTION_VERSION,
+    Playback, PlaybackState, RemoteItem, SecretBackend, Store, Stream, WatchedField,
+    ACTION_VERSION,
 };
 use serde_json::{json, Value};
 
@@ -407,4 +408,287 @@ fn a_stremio_that_is_down_never_stops_playback_or_local_progress() {
     assert!(f.host.pull_remote().is_none());
 
     assert_eq!(position(&f.host, "tt0903747:1:2"), Some(400.0));
+}
+
+fn play_movie(fixture: &mut Fixture, id: &str, name: &str) {
+    fixture
+        .host
+        .dispatch(action(&json!({
+            "type": "play_stream",
+            "video": { "type": "movie", "id": id },
+            "addon": SERIES_ID,
+            "title": { "addon": SERIES_ID, "id": id, "type": "movie",
+                       "name": name, "poster": null },
+            "stream": { "name": "1080p",
+                        "playback": { "kind": "direct", "url": EPISODE }, "warnings": [] },
+        })))
+        .expect("playing movie");
+}
+
+fn held_for(fixture: &Fixture, id: &str) -> Option<RemoteItem> {
+    fixture
+        .stremio
+        .stored()
+        .into_iter()
+        .filter_map(|item| RemoteItem::parse(item).ok())
+        .find(|item| item.id() == id)
+}
+
+#[test]
+fn on_ended_sample_pushes_that_title_once_and_not_on_later_ticks() {
+    let mut f = fixture(account(), NEWER);
+    sign_in(&mut f).expect("signing in");
+    play(&mut f, "tt0903747:1:2");
+    watching(&mut f, 600.0, NEWER + 10);
+    assert!(
+        held_for(&f, "tt0903747").is_none(),
+        "mid-play sample ticks do not push to Stremio"
+    );
+
+    f.player.now_reporting(Observation {
+        state: PlaybackState::Ended,
+        position: Some(2820.0),
+        duration: Some(2820.0),
+        ..Observation::idle()
+    });
+    f.clock.set(NEWER + 20);
+    let ended = f.host.sample().expect("reaching Ended publishes");
+    assert!(
+        ended.playback.autoplay.is_some(),
+        "Autoplay's countdown runs beside the push, and asks Stremio nothing of its own"
+    );
+
+    let item = held_for(&f, "tt0903747").expect("Ended pushes that Title");
+    assert_eq!(item.video_id(), Some("tt0903747:1:2"));
+    assert_eq!(item.offset_seconds(), Some(2820.0));
+    let flags = item.watched().expect("a bitfield").resolve(&order());
+    assert_eq!(flags, vec![false, false, true, false, false]);
+
+    let calls_after_ended = f.stremio.calls().len();
+
+    // Repeating the same Ended report returns None and calls Stremio no more.
+    f.clock.set(NEWER + 30);
+    assert!(f.host.sample().is_none());
+    assert_eq!(f.stremio.calls().len(), calls_after_ended);
+
+    // Even when another field moves while still Ended, Stremio is not called again.
+    f.player.now_reporting(Observation {
+        state: PlaybackState::Ended,
+        position: Some(2820.0),
+        duration: Some(2820.0),
+        buffered: Some(Buffered {
+            start: 0.0,
+            end: 100.0,
+        }),
+        ..Observation::idle()
+    });
+    f.clock.set(NEWER + 40);
+    assert!(f.host.sample().is_some());
+    assert_eq!(f.stremio.calls().len(), calls_after_ended);
+}
+
+#[test]
+fn a_play_action_replacing_a_loaded_stream_pushes_the_replaced_title() {
+    let mut f = fixture(account(), NEWER);
+    sign_in(&mut f).expect("signing in");
+    f.host
+        .dispatch(action(&json!({
+            "type": "open_title",
+            "addon": SERIES_ID,
+            "title": { "type": "series", "id": "tt0903747" },
+        })))
+        .expect("opening the series caches its videos");
+
+    // 1. play_stream replacing a loaded Stream pushes the replaced Title (not the new one).
+    play(&mut f, "tt0903747:1:1");
+    watching(&mut f, 1500.0, NEWER + 10);
+    f.clock.set(NEWER + 20);
+    play_movie(&mut f, "tt0133093", "The Matrix");
+
+    let series = held_for(&f, "tt0903747").expect("replaced series was pushed");
+    assert_eq!(series.video_id(), Some("tt0903747:1:1"));
+    assert_eq!(series.offset_seconds(), Some(1500.0));
+    assert!(
+        held_for(&f, "tt0133093").is_none(),
+        "the newly opened Title is not pushed on open"
+    );
+
+    // 2. Replacing The Matrix (at 120s) with Breaking Bad 1:1 via play_stream pushes The Matrix.
+    watching(&mut f, 120.0, NEWER + 30);
+    f.clock.set(NEWER + 40);
+    play(&mut f, "tt0903747:1:1");
+
+    let movie = held_for(&f, "tt0133093").expect("replaced movie was pushed");
+    assert_eq!(movie.offset_seconds(), Some(120.0));
+
+    // 3. next_episode replacing 1:1 (at 900s) pushes 1:1.
+    watching(&mut f, 900.0, NEWER + 50);
+    f.clock.set(NEWER + 60);
+    f.host
+        .dispatch(action(&json!({ "type": "next_episode" })))
+        .expect("next_episode plays 1:2");
+
+    let series = held_for(&f, "tt0903747").expect("replaced 1:1 was pushed");
+    assert_eq!(series.video_id(), Some("tt0903747:1:1"));
+    assert_eq!(series.offset_seconds(), Some(900.0));
+
+    // 4. previous_episode replacing 1:2 (at 400s) pushes 1:2.
+    watching(&mut f, 400.0, NEWER + 70);
+    f.clock.set(NEWER + 80);
+    f.host
+        .dispatch(action(&json!({ "type": "previous_episode" })))
+        .expect("previous_episode plays 1:1");
+
+    let series = held_for(&f, "tt0903747").expect("replaced 1:2 was pushed");
+    assert_eq!(series.video_id(), Some("tt0903747:1:2"));
+    assert_eq!(series.offset_seconds(), Some(400.0));
+
+    // 5. resume replacing 1:1 (now watched at 2810s) pushes 1:1 as watched before resuming The Matrix.
+    watching(&mut f, 2810.0, NEWER + 90);
+    f.clock.set(NEWER + 100);
+    f.host
+        .dispatch(action(&json!({
+            "type": "resume",
+            "video": { "type": "movie", "id": "tt0133093" },
+        })))
+        .expect("resuming movie");
+
+    let series = held_for(&f, "tt0903747").expect("replaced 1:1 was pushed on resume");
+    assert_eq!(series.video_id(), Some("tt0903747:1:1"));
+    assert_eq!(series.offset_seconds(), Some(2810.0));
+    let flags = series.watched().expect("a bitfield").resolve(&order());
+    assert_eq!(flags, vec![false, true, false, false, false]);
+
+    // 6. play_up_next replacing The Matrix (at 250s) pushes The Matrix.
+    watching(&mut f, 250.0, NEWER + 110);
+    f.clock.set(NEWER + 120);
+    f.host
+        .dispatch(action(&json!({
+            "type": "play_up_next",
+            "title": { "type": "series", "id": "tt0903747" },
+        })))
+        .expect("playing up next for Breaking Bad");
+
+    let movie = held_for(&f, "tt0133093").expect("replaced movie was pushed on play_up_next");
+    assert_eq!(movie.offset_seconds(), Some(250.0));
+}
+
+#[test]
+fn a_play_from_idle_with_nothing_loaded_pushes_nothing_extra() {
+    let mut f = fixture(account(), NEWER);
+    sign_in(&mut f).expect("signing in");
+    let after_sign_in = f.stremio.calls().len();
+
+    // Play from initial idle.
+    play(&mut f, "tt0903747:1:1");
+    assert_eq!(
+        f.stremio.calls().len(),
+        after_sign_in,
+        "playing from initial idle asks Stremio nothing"
+    );
+
+    // Stop (which pushes), then resume from idle -> asks nothing extra.
+    watching(&mut f, 300.0, NEWER + 10);
+    f.host
+        .dispatch(action(&json!({ "type": "stop_playback" })))
+        .expect("stopping");
+    let after_stop = f.stremio.calls().len();
+
+    f.clock.set(NEWER + 20);
+    f.host
+        .dispatch(action(&json!({
+            "type": "resume",
+            "video": { "type": "series", "id": "tt0903747:1:1" },
+        })))
+        .expect("resuming from idle");
+    assert_eq!(
+        f.stremio.calls().len(),
+        after_stop,
+        "resuming from idle asks Stremio nothing"
+    );
+
+    // If an open fails and leaves playback Idle, a retry play pushes nothing extra.
+    f.player.now_reporting(Observation {
+        state: PlaybackState::Idle,
+        failure: Some("404".to_owned()),
+        ..Observation::idle()
+    });
+    f.clock.set(NEWER + 30);
+    f.host.sample().expect("failure publishes");
+    let after_failure = f.stremio.calls().len();
+
+    f.clock.set(NEWER + 40);
+    play(&mut f, "tt0903747:1:2");
+    assert_eq!(
+        f.stremio.calls().len(),
+        after_failure,
+        "replacing a failed open that never loaded asks Stremio nothing"
+    );
+}
+
+#[test]
+fn with_no_account_ended_and_replace_ask_stremio_nothing() {
+    let mut f = fixture(account(), NEWER);
+
+    play(&mut f, "tt0903747:1:1");
+    watching(&mut f, 600.0, NEWER + 10);
+    f.player.now_reporting(Observation {
+        state: PlaybackState::Ended,
+        position: Some(2820.0),
+        duration: Some(2820.0),
+        ..Observation::idle()
+    });
+    f.clock.set(NEWER + 20);
+    f.host.sample().expect("reaching Ended publishes");
+
+    f.clock.set(NEWER + 30);
+    f.host
+        .dispatch(action(&json!({ "type": "next_episode" })))
+        .expect("next_episode works with no account");
+
+    f.clock.set(NEWER + 40);
+    play_movie(&mut f, "tt0133093", "The Matrix");
+
+    assert_eq!(f.stremio.calls(), Vec::<String>::new());
+}
+
+#[test]
+fn a_stremio_that_errors_leaves_ended_tick_and_play_replacement_succeeding() {
+    let mut f = fixture(account(), NEWER);
+    sign_in(&mut f).expect("signing in");
+    f.stremio.failing_library();
+
+    play(&mut f, "tt0903747:1:1");
+    watching(&mut f, 600.0, NEWER + 10);
+
+    f.player.now_reporting(Observation {
+        state: PlaybackState::Ended,
+        position: Some(2820.0),
+        duration: Some(2820.0),
+        ..Observation::idle()
+    });
+    f.clock.set(NEWER + 20);
+    let ended = f
+        .host
+        .sample()
+        .expect("reaching Ended succeeds even when Stremio is down");
+    assert_eq!(ended.playback.state, PlaybackState::Ended);
+    assert!(
+        ended.playback.autoplay.is_some(),
+        "a Stremio that is down does not stop Autoplay's countdown"
+    );
+
+    f.clock.set(NEWER + 30);
+    let next = f
+        .host
+        .dispatch(action(&json!({ "type": "next_episode" })))
+        .expect("replacing a loaded Stream succeeds even when Stremio is down");
+    assert_eq!(
+        next.snapshots[0]
+            .playback
+            .now_playing
+            .as_ref()
+            .map(|playing| playing.video.id.as_str()),
+        Some("tt0903747:1:2")
+    );
 }

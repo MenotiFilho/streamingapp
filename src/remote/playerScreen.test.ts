@@ -1,11 +1,22 @@
 import { describe, expect, test } from "vitest";
 
+import { actionKey } from "../core/actionKey";
+import { autoplayView } from "../core/autoplay";
 import type { Level } from "../core/navigation";
 import { playbackView } from "../core/playbackView";
+import { torrentLine } from "../core/torrentStatus";
+import { STALLED_NOTE, STALLED_STRIP_NOTE } from "../core/stall";
 import type { PlaybackSnapshot, Title } from "../core/wire";
 import type { RemotePayload } from "./levels";
 import {
+  autoplayBanner,
+  autoplaySwitch,
+  cardStateNote,
+  cardTorrentLine,
   CARD_NAME,
+  ENDED_NOTE,
+  openingNote,
+  pushesPicker,
   playerLevel,
   playerLevelStale,
   seekTo,
@@ -13,6 +24,7 @@ import {
   setVolume,
   stripControls,
   stripDrawn,
+  stripNote,
   timelineRange,
   trackFills,
   volumeRange,
@@ -31,6 +43,7 @@ import { playerSheetLevel } from "./playerSheets";
 function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
   return {
     state: "playing",
+    autoplay: null,
     picture: "in_window",
     failure: null,
     nowPlaying: {
@@ -52,6 +65,8 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
     volume: 60,
     muted: false,
     subtitleDelay: 0,
+    stalled: false,
+    torrent: null,
     crop: null,
     aspect: null,
     resolution: null,
@@ -310,5 +325,248 @@ describe("the track's fills", () => {
       { from: 0, to: 0.2, role: "played" },
       { from: 0.2, to: 1, role: "buffered" },
     ]);
+  });
+});
+
+/**
+ * What the card and the strip draw of Autoplay (#318, ADR-0035 §2).
+ *
+ * The view and its text are the core's (`autoplayView`); the Remote decides
+ * only where each part sits and which Action each control takes.
+ */
+describe("the Remote's Autoplay drawings", () => {
+  const COUNTDOWN: PlaybackSnapshot["autoplay"] = {
+    next: {
+      title: { type: "series", id: "tt1" },
+      video: { type: "series", id: "tt1:1:4" },
+      episode: { season: 1, episode: 4 },
+      name: "The Fourth",
+      still: "https://images.test/4.jpg",
+    },
+    phase: "countdown",
+    remaining: 4,
+    duration: 5,
+  };
+
+  const MISSING: PlaybackSnapshot["autoplay"] = {
+    next: COUNTDOWN!.next,
+    phase: "no_stream",
+    detail: "No Stream continues the release",
+  };
+
+  function view(
+    overrides: Partial<PlaybackSnapshot> = {},
+    pending: ReadonlySet<string> = new Set(),
+  ) {
+    const playback: PlaybackSnapshot = {
+      state: "ended",
+      autoplay: null,
+      picture: "in_window",
+      failure: null,
+      nowPlaying: null,
+      episode: { season: 1, episode: 3 },
+      position: null,
+      duration: 600,
+      buffered: null,
+      tracks: [],
+      chapters: [],
+      chapter: null,
+      speed: null,
+      volume: null,
+      muted: null,
+      subtitleDelay: 0,
+      stalled: false,
+      torrent: null,
+      crop: null,
+      aspect: null,
+      resolution: null,
+      statistics: null,
+      ...overrides,
+    };
+    return playbackView(playback, { played: 0, pending, watchProgress: [] });
+  }
+
+  test("the switch row is drawn for an episode and takes the flipped preference", () => {
+    expect(autoplaySwitch(view(), true)?.toggle(false)).toEqual({
+      type: "set_autoplay",
+      autoplay: false,
+    });
+    expect(autoplaySwitch(view(), false)?.toggle(true)).toEqual({
+      type: "set_autoplay",
+      autoplay: true,
+    });
+    expect(autoplaySwitch(view(), true)?.on).toBe(true);
+    expect(autoplaySwitch(view(), false)?.on).toBe(false);
+  });
+
+  test("a film has no Autoplay switch", () => {
+    expect(autoplaySwitch(view({ episode: null }), true)).toBeNull();
+  });
+
+  test("the banner is the countdown's, with Play now and Cancel as the Host's own Actions", () => {
+    const banner = autoplayBanner(view({ autoplay: COUNTDOWN }));
+
+    expect(banner).not.toBeNull();
+    expect(banner?.kind).toBe("countdown");
+    if (banner?.kind !== "countdown") {
+      return;
+    }
+    expect(banner.kicker.text).toBe("Up next · S1E4");
+    expect(banner.digit).toBe(4);
+    expect(banner.next.name).toBe("The Fourth");
+    expect(banner.next.still).toBe("https://images.test/4.jpg");
+    expect(banner.playNow.action).toEqual({ type: "next_episode" });
+    expect(banner.cancel.action).toEqual({ type: "cancel_autoplay" });
+  });
+
+  const HELD: PlaybackSnapshot["autoplay"] = {
+    next: COUNTDOWN!.next,
+    phase: "unattended_limit",
+  };
+
+  test("the hold's banner has Keep watching, which is the Host's next_episode, and no Cancel", () => {
+    const banner = autoplayBanner(view({ autoplay: HELD }));
+
+    expect(banner?.kind).toBe("still_watching");
+    if (banner?.kind !== "still_watching") {
+      return;
+    }
+    expect(banner.title).toBe("Still watching?");
+    expect(banner.next.name).toBe("The Fourth");
+    expect(banner.keepWatching.action).toEqual({ type: "next_episode" });
+    expect("cancel" in banner).toBe(false);
+  });
+
+  test("Keep watching waits while the step it took is in flight", () => {
+    const waiting = autoplayBanner(
+      view({ autoplay: HELD }, new Set([actionKey({ type: "next_episode" })])),
+    );
+
+    expect(waiting?.kind === "still_watching" ? waiting.keepWatching.pending : null).toBe(true);
+  });
+
+  test("the card's note steps aside for the hold too", () => {
+    expect(cardStateNote(view({ autoplay: HELD }))).toBeNull();
+  });
+
+  test("Play now waits while the step it took is in flight", () => {
+    const idle = autoplayBanner(view({ autoplay: COUNTDOWN }));
+    const waiting = autoplayBanner(
+      view({ autoplay: COUNTDOWN }, new Set([actionKey({ type: "next_episode" })])),
+    );
+
+    expect(idle?.kind === "countdown" ? idle.playNow.pending : null).toBe(false);
+    expect(waiting?.kind === "countdown" ? waiting.playNow.pending : null).toBe(true);
+  });
+
+  test("no countdown, no banner", () => {
+    expect(autoplayBanner(view())).toBeNull();
+  });
+
+  test("the card's note is the ended one only while no countdown is up", () => {
+    expect(cardStateNote(view())).toBe(ENDED_NOTE);
+    expect(cardStateNote(view({ autoplay: COUNTDOWN }))).toBeNull();
+    expect(cardStateNote(view({ state: "playing" }))).toBeNull();
+    expect(cardStateNote(view({ state: "opening", nowPlaying: null }))).toBe(
+      openingNote("a Stream"),
+    );
+  });
+
+  test("a Stalled Stream's card says it waits, but only once the stall is shown", () => {
+    const stalled = view({ state: "playing", stalled: true });
+
+    expect(cardStateNote(stalled, false)).toBeNull();
+    expect(cardStateNote(stalled)).toBeNull();
+    expect(cardStateNote(stalled, true)).toBe(STALLED_NOTE);
+    expect(STALLED_NOTE).toBe("Waiting for the Stream…");
+  });
+
+  test("a shown stall is never a note for a Stream that is not stalled", () => {
+    expect(cardStateNote(view({ state: "playing", stalled: false }), true)).toBeNull();
+  });
+
+  describe("the card's torrent line", () => {
+    const FINDING = { phase: "finding", peers: 5, rate: 0 } as const;
+    const FETCHING = { phase: "fetching", peers: 3, rate: 180_000 } as const;
+
+    test("rides under the opening note of a torrent, in the core's words", () => {
+      const opening = view({ state: "opening", torrent: FINDING });
+
+      expect(cardStateNote(opening)).not.toBeNull();
+      expect(cardTorrentLine(opening)).toBe(torrentLine(FINDING));
+      expect(cardTorrentLine(opening)).toBe("Finding the torrent · 5 peers");
+    });
+
+    test("rides under the Stalled note of a torrent, but only once the stall is shown", () => {
+      const stalled = view({ state: "playing", stalled: true, torrent: FETCHING });
+
+      expect(cardTorrentLine(stalled, false)).toBeNull();
+      expect(cardTorrentLine(stalled)).toBeNull();
+      expect(cardTorrentLine(stalled, true)).toBe(torrentLine(FETCHING));
+    });
+
+    test("is never drawn for a direct Stream, opening or Stalled", () => {
+      expect(cardTorrentLine(view({ state: "opening", torrent: null }))).toBeNull();
+      expect(
+        cardTorrentLine(view({ state: "playing", stalled: true, torrent: null }), true),
+      ).toBeNull();
+    });
+
+    test("is not drawn where the card has no state note to put it under", () => {
+      expect(cardTorrentLine(view({ state: "playing", torrent: FETCHING }), true)).toBeNull();
+      expect(cardTorrentLine(view({ state: "ended", torrent: FETCHING }), true)).toBeNull();
+    });
+
+    test("never reaches the docked strip, which stays Waiting…", () => {
+      const stalled = view({ state: "playing", stalled: true, torrent: FETCHING });
+
+      expect(stripNote(stalled, true)).toBe(STALLED_STRIP_NOTE);
+    });
+  });
+
+  test("the docked strip says Waiting… while a shown stall holds the Stream", () => {
+    const stalled = view({ state: "playing", stalled: true });
+
+    expect(stripNote(stalled, true)).toBe(STALLED_STRIP_NOTE);
+    expect(STALLED_STRIP_NOTE).toBe("Waiting…");
+    expect(stripNote(stalled, false)).toBeNull();
+  });
+
+  test("the strip's picture note stays, with the wait ahead of it", () => {
+    const elsewhere = view({ state: "playing", stalled: true, picture: "own_window" });
+
+    expect(stripNote(view({ state: "playing", picture: "own_window" }), false)).toBe(
+      elsewhere.pictureNote,
+    );
+    expect(stripNote(elsewhere, true)).toBe(`${STALLED_STRIP_NOTE} · ${elsewhere.pictureNote}`);
+  });
+
+  test("a missing Stream leaves the ended note, because the Host stays on the ended state", () => {
+    expect(cardStateNote(view({ autoplay: MISSING }))).toBe(ENDED_NOTE);
+    expect(autoplayBanner(view({ autoplay: MISSING }))).toBeNull();
+  });
+
+  test("the Streams picker is pushed only while the Remote is on its expanded card", () => {
+    const none = autoplayView({ autoplay: null }, 0);
+    const missing = autoplayView({ autoplay: MISSING }, 0);
+
+    expect(pushesPicker(none, missing, "player")).toBe(true);
+    expect(pushesPicker(none, missing, null), "the Home screen").toBe(false);
+    expect(pushesPicker(none, missing, "title"), "a Title").toBe(false);
+    expect(pushesPicker(none, missing, "grid"), "a browse grid").toBe(false);
+    expect(pushesPicker(none, missing, "settings"), "Settings").toBe(false);
+    expect(pushesPicker(none, missing, "sheet"), "a plate over the card").toBe(false);
+    expect(pushesPicker(none, missing, "streams"), "a list already open").toBe(false);
+    expect(pushesPicker(missing, missing, "player"), "once per target").toBe(false);
+  });
+
+  test("the strip's two transport cells do not change during a countdown", () => {
+    const during = stripControls(view({ autoplay: COUNTDOWN })).map((control) => [
+      control.id,
+      control.action,
+    ]);
+    const plain = stripControls(view()).map((control) => [control.id, control.action]);
+
+    expect(during).toEqual(plain);
   });
 });

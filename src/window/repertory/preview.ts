@@ -123,6 +123,8 @@ export type PreviewStream = {
   description?: string;
   url?: string;
   infoHash?: string;
+  fileIdx?: number;
+  sources?: string[];
   behaviorHints?: {
     notWebReady?: boolean;
     p2p?: boolean;
@@ -132,19 +134,20 @@ export type PreviewStream = {
   };
 };
 
-/** A hint's warnings, in the Host's own order and vocabulary (ADR-0009). */
-function warningsOf(hints: PreviewStream["behaviorHints"]): StreamWarning[] {
-  if (!hints) {
-    return [];
-  }
+/**
+ * A candidate's warnings, in the Host's own order and vocabulary (ADR-0009):
+ * its hints', and `p2p` on every torrent whatever the hint says, as the Host
+ * does.
+ */
+function warningsOf(hints: PreviewStream["behaviorHints"], torrent: boolean): StreamWarning[] {
   const warnings: StreamWarning[] = [];
-  if (hints.notWebReady === true) {
+  if (hints?.notWebReady === true) {
     warnings.push("not_web_ready");
   }
-  if (hints.p2p === true) {
+  if (torrent || hints?.p2p === true) {
     warnings.push("p2p");
   }
-  if (hints.proxyHeaders && typeof hints.proxyHeaders === "object") {
+  if (hints?.proxyHeaders && typeof hints.proxyHeaders === "object") {
     warnings.push("proxy_headers");
   }
   return warnings;
@@ -160,7 +163,7 @@ export function previewStream(raw: PreviewStream): Stream | null {
   const description = (raw.description ?? raw.title)?.trim() || null;
   const filename = raw.behaviorHints?.filename?.trim() || null;
   const bingeGroup = raw.behaviorHints?.bingeGroup?.trim() || null;
-  const warnings = warningsOf(raw.behaviorHints);
+  const warnings = warningsOf(raw.behaviorHints, !raw.url?.trim() && Boolean(raw.infoHash?.trim()));
 
   if (raw.url?.trim()) {
     return {
@@ -176,7 +179,14 @@ export function previewStream(raw: PreviewStream): Stream | null {
     return {
       name,
       description,
-      playback: { kind: "info_hash", infoHash: raw.infoHash.trim() },
+      playback: {
+        kind: "torrent",
+        infoHash: raw.infoHash.trim(),
+        fileIdx: Number.isSafeInteger(raw.fileIdx) && (raw.fileIdx ?? -1) >= 0 ? (raw.fileIdx ?? null) : null,
+        sources: Array.isArray(raw.sources)
+          ? raw.sources.filter((source) => typeof source === "string" && source.length > 0)
+          : [],
+      },
       warnings,
       filename,
       bingeGroup,
@@ -331,6 +341,7 @@ export function rehearsalPlayback(entry: ResumeEntry, nowPlaying: NowPlaying): P
       selected: true,
       default: true,
       forced: false,
+      hearingImpaired: false,
     },
     {
       id: 2,
@@ -342,6 +353,7 @@ export function rehearsalPlayback(entry: ResumeEntry, nowPlaying: NowPlaying): P
       selected: false,
       default: false,
       forced: false,
+      hearingImpaired: false,
     },
     {
       id: 3,
@@ -353,6 +365,7 @@ export function rehearsalPlayback(entry: ResumeEntry, nowPlaying: NowPlaying): P
       selected: true,
       default: true,
       forced: false,
+      hearingImpaired: false,
     },
     {
       id: 4,
@@ -364,6 +377,7 @@ export function rehearsalPlayback(entry: ResumeEntry, nowPlaying: NowPlaying): P
       selected: false,
       default: false,
       forced: false,
+      hearingImpaired: false,
     },
     {
       id: 5,
@@ -375,11 +389,13 @@ export function rehearsalPlayback(entry: ResumeEntry, nowPlaying: NowPlaying): P
       selected: false,
       default: false,
       forced: false,
+      hearingImpaired: false,
     },
   ];
 
   return {
     state: "playing",
+    autoplay: null,
     picture: "in_window",
     failure: null,
     nowPlaying,
@@ -397,6 +413,8 @@ export function rehearsalPlayback(entry: ResumeEntry, nowPlaying: NowPlaying): P
     volume: 60,
     muted: false,
     subtitleDelay: 0,
+    stalled: false,
+    torrent: null,
     crop: null,
     aspect: null,
     resolution: { width: 1920, height: 804 },

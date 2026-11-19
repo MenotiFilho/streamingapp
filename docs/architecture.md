@@ -31,6 +31,7 @@ flowchart LR
         CORE["host-core<br/>state · one Action surface · Snapshots"]
         ADDON["host-addon<br/>HTTP Fetcher + Stremio API"]
         MPV["host-mpv<br/>libmpv in-process"]
+        TOR["host-torrent<br/>Go engine, a child process"]
         SQL["host-sqlite<br/>Store"]
         SEC["host-secret<br/>keyring / 0600 file"]
         LOG["host-logging<br/>JSON lines"]
@@ -44,6 +45,7 @@ flowchart LR
     CORE -- "Snapshot (frame)" --> WIRE --> R
     CORE --> ADDON -->|HTTPS| NET[("Addons · TMDB · Stremio API")]
     CORE --> MPV -->|"wid child window"| SCREEN[["mpv's swapchain<br/>(HDR, gpu-next)"]]
+    CORE --> TOR -->|"loopback URL"| MPV
     CORE --> SQL
     CORE --> SEC
 ```
@@ -83,6 +85,9 @@ crates/
     remote/             the BUILT remote client (committed; compiled into the binary)
   host-logging/         JSON-lines logs in the data directory
   host-live/            `live_check`: read-only conformance run against real Addons
+  host-torrent/         the real TorrentEngine: starts the Go engine, speaks its stdio
+    engine/             the engine itself: a Go module over anacrolix/torrent
+    build.sh            builds it (Windows .exe + native); licenses.sh writes THIRD-PARTY.md
 src-tauri/              the thin app shell: wiring, window, IPC, timers; no rules
 src/                    the React/TypeScript client (one tree, two entries)
   core/                 client decisions shared by window and remote (pure, tested)
@@ -124,7 +129,7 @@ behaviour is tested there. (ADR-0008, ADR-0009, ADR-0013)
 An Action arrives as JSON in a versioned envelope:
 
 ```json
-{"version":1,"action":{"type":"set_subtitle_language","language":"pt-BR"}}
+{"version":1,"action":{"type":"set_subtitle_languages","languages":["pt-BR","en"]}}
 ```
 
 1. **Parse** (`action.rs`). The version is checked *before* the body, so a
@@ -175,8 +180,10 @@ carried one.
 - **Provider** (`provider.rs`): the seam that turns a Video into **Streams**.
   Today the only Provider is `AddonProvider`. Direct sources (local files,
   TorBox…) would arrive as further Providers with nothing above them changing.
-  A Stream is a direct URL (playable) or an `infoHash` (listed but marked
-  unplayable: there is no torrent engine). (ADR-0012)
+  A Stream is a direct URL or a torrent (an `infoHash`, or a `magnet:`). A
+  torrent is served by the **Torrent engine** seam (`torrent.rs`) before the
+  Player opens it, in `Host::open_stream`, and carries the `p2p` warning whether
+  or not its Addon says so. (ADR-0012, ADR-0042)
 - **TMDB** (`tmdb.rs`, `discover.rs`, `search.rs`): the Host's metadata source.
   It keys Titles by TMDB id where one exists, powers **Discover** and Search
   (with the Addons' own search catalogs as the fallback when no key is held),
@@ -222,6 +229,11 @@ the Player are the shell's job (§5), and tests drain the queue inline.
   killed Host. **Continue watching** is built from it: one card per Title,
   newest first, where a finished episode's card becomes its **Up next**.
   Specials come last and stand apart. (ADR-0015, ADR-0039)
+- `autoplay.rs`: **Autoplay**, the Host's own 5-second countdown to the next
+  episode when a Stream ends. It is published in `PlaybackSnapshot.autoplay`,
+  anchored to the `Clock` and checked in `Host::sample()`, so the Host advances
+  with no client attached and every client draws the same digit. After three
+  auto-advances nobody touched it holds on "Still watching?". (ADR-0040)
 - `preview.rs`: **Seek previews**, the still frames above the timeline. These are
   the only frames that ever cross the Player seam, produced by a *second, silent*
   libmpv instance on request, never at frame rate. (ADR-0028)
@@ -281,6 +293,21 @@ serves the remote client from `crates/host-wire/remote/`, which is embedded with
 nothing but the Host. It announces itself over mDNS as `_streamingapp._tcp`. The
 `Surface` trait is the shell's adapter onto the same door the window uses.
 
+**`host-torrent`.** The real `TorrentEngine`. `streamingapp-torrent` is a Go
+program (`engine/`, over `anacrolix/torrent`) shipped beside `streamingapp.exe`;
+this crate starts it as a child process on the first `serve`, hands it
+`--torrents-dir <local data dir>/torrents`, and talks to it in JSON lines over
+stdio from OS threads: no `tokio`, no `unsafe`. The engine answers a serve at once
+with a tokened `127.0.0.1` URL, which `Player::open` takes like any other, and the
+Host answers for it: a serve with no answer in ~5 s fails, the latest
+`TorrentLimits` are sent as the child starts and live after, its stderr goes to the
+Host's log, and its stdout ending is a `TorrentReport::Exited`. The crate holds the
+child's stdin, so a Host that exits or is killed closes it and the engine removes
+what it held. `launch.rs` finds the binary and wipes what a killed Host left in
+`torrents/`, which `src-tauri` does at every start, before the engine is built;
+with no binary beside the executable the shell uses `NoTorrentEngine`. The crate's
+tests spawn a scripted stand-in, never the Go engine. (ADR-0042)
+
 **`host-logging`.** A non-blocking JSON-lines writer to `host.log` in the data
 directory. The level comes from `RUST_LOG` (default `info`).
 
@@ -299,11 +326,14 @@ third-party content. (ADR-0019)
 1. A single-instance plugin comes first, so two Hosts can never share one
    database. A second launch focuses the first.
 2. Resolve the data dir (`%APPDATA%\dev.streamingapp.host\` on Windows), start
-   logging, open the Store, and open the secret store.
+   logging, open the Store, and open the secret store. The local data dir
+   (`%LOCALAPPDATA%\dev.streamingapp.host\`) holds `torrents/`, which is removed
+   here, before the Torrent engine is built.
 3. Build the Fetcher, the Player (`player.rs`: mpv in the window's `HWND` on
    Windows, or `NoPlayer` with a reason if mpv won't start, in which case the
-   app still browses), the Previewer, and the Stremio client. Assemble the
-   `Host`.
+   app still browses), the Previewer, the Torrent engine (`host-torrent`, or
+   `NoTorrentEngine` if its binary is not beside the executable), and the Stremio
+   client. Assemble the `Host`.
 4. Register the two IPC commands, `dispatch` and `snapshot` (`ipc.rs`).
 5. Start the wire server (`wire.rs`) with the LAN address and the mDNS name.
 6. Start the shell's two clocks. **Sampling** asks the Player where playback is
@@ -413,6 +443,7 @@ Host's record flips at once, and both screens show it in the next Snapshot.
 | `%APPDATA%\dev.streamingapp.host\host.sqlite3` (+ `-wal`, `-shm`) | Addons (manifest URLs included), preferences, Devices (token digests), Watch progress, Title cache |
 | `…\host.log` | JSON-lines logs |
 | `…\secrets.json` | only if no OS keyring answered; owner-only |
+| `%LOCALAPPDATA%\dev.streamingapp.host\torrents\` | per-torrent piece cache directory, wiped on stop, let-go, and startup |
 | Windows Credential Manager (`dev.streamingapp.host`) | TMDB key, Stremio `authKey` |
 
 On Linux, data and config are separate directories (`~/.local/share`,
@@ -435,6 +466,7 @@ window, but no pnpm.
 | `cargo clippy --all-targets -- -D warnings`, `cargo fmt --check` | lint and format gates |
 | `pnpm typecheck`, `pnpm test` | client types and Vitest (jsdom) |
 | `pnpm build`, `pnpm build:remote` | the window bundle and the served remote |
+| `go vet ./...`, `go test ./...` in `crates/host-torrent/engine` | the Torrent engine's Go suites (it seeds a torrent over loopback; no real swarm) |
 | `cargo run --bin live_check` | read-only report against real Addons |
 
 - **The window** is verified by hand on Windows with `scripts/windows/`
@@ -485,4 +517,4 @@ Check these before adding anything:
 | change a window screen | `src/window/repertory/`, with its decisions in `src/core/` |
 | change the phone UI | `src/remote/`, then `pnpm build:remote` |
 | change colours or type | `src/kit/tokens.css` and `docs/design-system.md` |
-| understand a past decision | `docs/adr/` (0001–0039), then `docs/research/` |
+| understand a past decision | `docs/adr/` (0001–0040), then `docs/research/` |

@@ -1,7 +1,10 @@
-import { VOLUME_MAX } from "../core/controls";
+import { actionKey } from "../core/actionKey";
+import { opensPicker, plainEnd, type AutoplayView } from "../core/autoplay";
+import { AUTOPLAY_SWITCH_LABEL, VOLUME_MAX } from "../core/controls";
 import type { Level, NewLevel } from "../core/navigation";
-import { watching } from "../core/playback";
+import { playingName, watching } from "../core/playback";
 import type { PlaybackView } from "../core/playbackView";
+import { STALLED_NOTE, STALLED_STRIP_NOTE } from "../core/stall";
 import {
   transportControls,
   type TransportControl,
@@ -61,6 +64,148 @@ export function openingNote(name: string): string {
 
 /** The card's note when the Stream has run to its end. */
 export const ENDED_NOTE = "The Stream reached its end.";
+
+/**
+ * The card's one state note: the Host opening the Stream, or the Stream's end.
+ *
+ * While the Host's countdown is up the banner says what is happening and the
+ * ended note would say it twice, so the note steps aside (#318, #302).
+ */
+export function cardStateNote(
+  view: Pick<PlaybackView, "state" | "nowPlaying" | "autoplay" | "stalled">,
+  stallUp = false,
+): string | null {
+  if (view.state === "opening") {
+    return openingNote(playingName(view.nowPlaying));
+  }
+  // `stallUp` is the client's own `stallShown`: a seek's brief wait is a stall
+  // the Host published and the card draws nothing for.
+  if (view.stalled && stallUp) {
+    return STALLED_NOTE;
+  }
+  if (view.state === "ended" && plainEnd(view.autoplay)) {
+    return ENDED_NOTE;
+  }
+  return null;
+}
+
+/**
+ * The Torrent status line the card's state note carries beneath it: the same
+ * `torrentLine` the window draws, under "Opening …" and under the Stalled
+ * sentence, and nowhere else (#342, ADR-0042 §5). A direct Stream has none, and
+ * a note that is not the opening or the shown Stalled one has nothing to carry
+ * it; the docked strip's "Waiting…" is deliberately only that word.
+ */
+export function cardTorrentLine(
+  view: Pick<PlaybackView, "state" | "stalled" | "torrentLine">,
+  stallUp = false,
+): string | null {
+  if (view.state === "opening" || (view.stalled && stallUp)) {
+    return view.torrentLine;
+  }
+  return null;
+}
+
+/**
+ * What the docked strip says under the episode: "Waiting…" while a shown stall
+ * holds the Stream, ahead of the core's note about where the picture is. Text
+ * only; nothing new is said while the Stream is opening.
+ */
+export function stripNote(
+  view: Pick<PlaybackView, "stalled" | "pictureNote">,
+  stallUp: boolean,
+): string | null {
+  const parts = [view.stalled && stallUp ? STALLED_STRIP_NOTE : null, view.pictureNote].filter(
+    (part): part is string => part !== null,
+  );
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+/**
+ * Whether the Remote pushes the Streams picker for a missing Stream now: once
+ * per target (the core's `opensPicker`), and only while it is on its expanded
+ * player card. A Remote on a browse or Settings screen, on a plate over the
+ * card, or on a list it already has open is not interrupted (#320, #302).
+ * `levelKind` is the kind of the level on show, `null` for a destination.
+ */
+export function pushesPicker(
+  previous: AutoplayView,
+  view: AutoplayView,
+  levelKind: string | null,
+): boolean {
+  return levelKind === "player" && opensPicker(previous, view);
+}
+
+/** The Autoplay switch row: what it says, where it stands, what a press sends. */
+export type AutoplaySwitchRow = {
+  label: string;
+  on: boolean;
+  /** The Action a press takes: `set_autoplay` with the value it flips to. */
+  toggle: (next: boolean) => Extract<Action, { type: "set_autoplay" }>;
+};
+
+/**
+ * The always-visible switch row on the expanded card, or `null` where there is
+ * nothing for it to do. Autoplay acts only on an episode's Stream, so a film's
+ * card draws none (#302, #287).
+ */
+export function autoplaySwitch(
+  view: Pick<PlaybackView, "episode">,
+  on: boolean,
+): AutoplaySwitchRow | null {
+  if (view.episode === null) {
+    return null;
+  }
+  return {
+    label: AUTOPLAY_SWITCH_LABEL,
+    on,
+    toggle: (next) => ({ type: "set_autoplay", autoplay: next }),
+  };
+}
+
+type Countdown = Extract<AutoplayView, { kind: "countdown" }>;
+type StillWatching = Extract<AutoplayView, { kind: "still_watching" }>;
+
+/** The countdown banner: the core's view, plus the two Actions it carries. */
+export type CountdownBanner = Countdown & {
+  /** Skip the rest of the countdown: the Host's `next_episode`. */
+  playNow: { action: Action; pending: boolean };
+  /** Stop this countdown and keep the preference. */
+  cancel: { action: Action };
+};
+
+/** The "Still watching?" banner: the core's view, plus its one Action. */
+export type StillWatchingBanner = StillWatching & {
+  /** Carry on: the Host's `next_episode`, the only thing that moves a hold on. */
+  keepWatching: { action: Action; pending: boolean };
+};
+
+/** What the banner under the plate draws: the countdown, or the hold. */
+export type AutoplayBanner = CountdownBanner | StillWatchingBanner;
+
+/**
+ * The banner under the plate while the Host counts down or holds, or `null`.
+ *
+ * It is the one `autoplayView` the window's card draws too; this adds only the
+ * Actions the buttons take. Play now and Keep watching are the same
+ * `next_episode` the transport's step sends, so their wait is the same Session
+ * key.
+ */
+export function autoplayBanner(
+  view: Pick<PlaybackView, "autoplay" | "pending">,
+): AutoplayBanner | null {
+  const next: Action = { type: "next_episode" };
+  const step = { action: next, pending: view.pending.has(actionKey(next)) };
+
+  switch (view.autoplay.kind) {
+    case "countdown":
+      return { ...view.autoplay, playNow: step, cancel: { action: { type: "cancel_autoplay" } } };
+    case "still_watching":
+      return { ...view.autoplay, keepWatching: step };
+    default:
+      return null;
+  }
+}
 
 /** A chapter's name: its title where the container gave one, else its place. */
 export function chapterName(chapter: { index: number; title: string | null }): string {

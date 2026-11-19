@@ -9,8 +9,8 @@ use std::sync::Arc;
 
 use host_core::{
     Action, ActionError, FixtureClock, FixtureFetcher, FixturePlayer, FixtureProvider, Host,
-    InMemorySecretStore, InMemoryStore, Observation, Playback, PlaybackState, SecretBackend, Store,
-    Stream, UpNextPlayback, ACTION_VERSION,
+    InMemorySecretStore, InMemoryStore, Observation, Playback, PlaybackState, SecretBackend,
+    Snapshot, Store, Stream, UpNextPlayback, ACTION_VERSION,
 };
 
 /// The Addon that answers both `meta` and `stream` for the series.
@@ -21,6 +21,10 @@ const SERIES_META: &str = include_str!("fixtures/cinemeta-meta-series.json");
 
 /// The URL the finished episode was played from, and two candidates for its Up
 /// next: a different release first, the same release second.
+/// A candidate's URL this Host will not open: not `http`, so it is listed and
+/// never played.
+const UNOPENABLE: &str = "ftp://stream.example.org/v/unopenable.mkv";
+
 const PLAYING: &str = "https://stream.example.org/v/tt0903747-1-1.mkv";
 const OTHER_RELEASE: &str = "https://stream.example.org/v/tt0903747-1-2-720p.mkv";
 const SAME_RELEASE: &str = "https://stream.example.org/v/tt0903747-1-2-1080p.mkv";
@@ -53,20 +57,6 @@ fn candidate(name: &str, url: &str, binge_group: Option<&str>) -> Stream {
     }
 }
 
-/// A candidate whose bytes are a torrent: listed, and not one this Host plays.
-fn torrent(name: &str, info_hash: &str, binge_group: Option<&str>) -> Stream {
-    Stream {
-        name: Some(name.to_owned()),
-        description: None,
-        playback: Playback::InfoHash {
-            info_hash: info_hash.to_owned(),
-        },
-        warnings: Vec::new(),
-        filename: None,
-        binge_group: binge_group.map(str::to_owned),
-    }
-}
-
 struct Fixture {
     host: Host,
     player: Arc<FixturePlayer>,
@@ -82,7 +72,7 @@ fn fixture_over(store: Arc<InMemoryStore>, candidates: Vec<Stream>) -> Fixture {
     let fetcher = FixtureFetcher::new()
         .serving(SERIES, manifest())
         .serving(META_URL, SERIES_META);
-    let clock = Arc::new(FixtureClock::new().at(1_000));
+    let clock = Arc::new(FixtureClock::new());
 
     let mut host = Host::new(
         store.clone() as Arc<dyn Store>,
@@ -138,7 +128,7 @@ fn restarted(store: Arc<InMemoryStore>) -> Fixture {
         Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
         provider.clone(),
         player.clone(),
-        Arc::new(FixtureClock::new().at(2_000)),
+        Arc::new(FixtureClock::new().at(FixtureClock::TODAY + 1_000)),
     )
     .expect("a Host over the same store starts again");
 
@@ -195,14 +185,14 @@ fn play(fixture: &mut Fixture, video: &str, url: &str, binge_group: Option<&str>
 
 /// The Player reports the Video at its end, and the Host folds that into Watch
 /// progress: the card has an Up next afterwards.
-fn finished(fixture: &mut Fixture) {
+fn finished(fixture: &mut Fixture) -> Snapshot {
     fixture.player.now_reporting(Observation {
         state: PlaybackState::Ended,
         position: Some(2820.0),
         duration: Some(2820.0),
         ..Observation::idle()
     });
-    fixture.host.sample().expect("reaching the end is a change");
+    fixture.host.sample().expect("reaching the end is a change")
 }
 
 fn play_up_next() -> Action {
@@ -217,7 +207,11 @@ fn playing_an_up_next_continues_the_addon_and_release_of_the_video_before_it() {
     let mut fixture = fixture();
     open_series(&mut fixture);
     play(&mut fixture, "tt0903747:1:1", PLAYING, Some("the-release"));
-    finished(&mut fixture);
+    let ended = finished(&mut fixture);
+    assert!(
+        ended.playback.autoplay.is_some(),
+        "Autoplay is on by default: the finished episode is counting down to its Up next"
+    );
     let asked_before = fixture.provider.asked().len();
 
     let published = fixture
@@ -248,6 +242,10 @@ fn playing_an_up_next_continues_the_addon_and_release_of_the_video_before_it() {
         Some(("tt0903747:1:2", SERIES_ID, Some("the-release"))),
         "every client is told of the new Now playing, and no URL is in it"
     );
+    assert!(
+        published.snapshots[0].playback.autoplay.is_none(),
+        "playing the Up next by hand is the play the countdown was waiting for"
+    );
 }
 
 #[test]
@@ -255,11 +253,7 @@ fn when_the_release_is_gone_the_same_addons_first_playable_candidate_plays() {
     let mut fixture = fixture_over(
         Arc::new(InMemoryStore::new()),
         vec![
-            torrent(
-                "a torrent",
-                "61065ea115b7cc3e8db9fb5ab1f6f327f08bd1c9",
-                Some("the-release"),
-            ),
+            candidate("a Stream no Player opens", UNOPENABLE, Some("the-release")),
             candidate("720p", OTHER_RELEASE, Some("another-release")),
         ],
     );
@@ -401,9 +395,9 @@ fn when_the_addon_is_gone_the_action_names_its_own_refusal() {
 fn when_nothing_is_playable_the_action_names_its_own_refusal() {
     let mut fixture = fixture_over(
         Arc::new(InMemoryStore::new()),
-        vec![torrent(
-            "a torrent",
-            "61065ea115b7cc3e8db9fb5ab1f6f327f08bd1c9",
+        vec![candidate(
+            "a Stream no Player opens",
+            UNOPENABLE,
             Some("the-release"),
         )],
     );
@@ -468,6 +462,42 @@ fn the_up_next_preference_is_published_and_survives_a_restart() {
 }
 
 #[test]
+fn the_autoplay_preference_defaults_to_on_is_published_and_survives_a_restart() {
+    let store = Arc::new(InMemoryStore::new());
+    let mut fixture = fixture_over(store.clone(), Vec::new());
+
+    assert!(
+        fixture.host.snapshot().preferences.autoplay,
+        "Autoplay is on until the owner turns it off"
+    );
+
+    let published = fixture
+        .host
+        .dispatch(action(&serde_json::json!({
+            "type": "set_autoplay",
+            "autoplay": false,
+        })))
+        .expect("setting Autoplay off should work");
+    assert!(!published.snapshots[0].preferences.autoplay);
+    assert!(!fixture.host.snapshot().preferences.autoplay);
+
+    let mut after = restarted(store);
+    assert!(
+        !after.host.snapshot().preferences.autoplay,
+        "the preference survives a Host restart"
+    );
+
+    let republished = after
+        .host
+        .dispatch(action(&serde_json::json!({
+            "type": "set_autoplay",
+            "autoplay": true,
+        })))
+        .expect("the preference can be turned back on");
+    assert!(republished.snapshots[0].preferences.autoplay);
+}
+
+#[test]
 fn the_up_next_actions_and_refusals_round_trip_the_wire_codec() {
     let set = action(&serde_json::json!({
         "type": "set_up_next_playback",
@@ -480,6 +510,18 @@ fn the_up_next_actions_and_refusals_round_trip_the_wire_codec() {
     );
     let back: Action = serde_json::from_value(json).expect("an Action round-trips");
     assert_eq!(back, set);
+
+    let set_autoplay = action(&serde_json::json!({
+        "type": "set_autoplay",
+        "autoplay": false,
+    }));
+    let json = serde_json::to_value(&set_autoplay).expect("an Action serializes");
+    assert_eq!(
+        json,
+        serde_json::json!({ "type": "set_autoplay", "autoplay": false })
+    );
+    let back: Action = serde_json::from_value(json).expect("an Action round-trips");
+    assert_eq!(back, set_autoplay);
 
     let play = play_up_next();
     let json = serde_json::to_value(&play).expect("an Action serializes");
