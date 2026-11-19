@@ -4,8 +4,11 @@ The dev container has no display and no GPU, so **the window is verified on
 Windows**, reached from WSL. This directory is that route, written down so it is
 run the same way twice:
 
-- `stage.sh` — run in WSL: copies the tree to a Windows path, with the built frontend.
-- `build.ps1` — run on Windows: fetches libmpv, makes it linkable, and does a
+- `stage.sh` — run in WSL: copies the tree to a Windows path, with the built frontend
+  and the Torrent engine, which it builds first in the dev container
+  (`crates/host-torrent/build.sh`; Windows has no Go).
+- `build.ps1` — run on Windows: fetches libmpv, makes it linkable, puts
+  `streamingapp-torrent.exe` beside `streamingapp.exe`, and does a
   release build of the app shell (or builds the NSIS installer with `-Bundle`,
   which `scripts/cd.sh` drives for GitHub Releases; see `docs/agents/ci.md`).
 - `verify.ps1` — run on Windows: walks the window's manual checklist, asserting
