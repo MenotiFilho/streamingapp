@@ -36,7 +36,9 @@ use crate::title_cache::{
     CachedTitle, TitleCache, TitleProbe, TitleProtection, MAX_CACHED_TITLES, RUNNING_FRESH_MILLIS,
 };
 use crate::tmdb;
-use crate::torrent::{InfoHash, NoTorrentEngine, TorrentEngine, TorrentLimits, TorrentReport};
+use crate::torrent::{
+    FailureKind, InfoHash, NoTorrentEngine, TorrentEngine, TorrentLimits, TorrentReport,
+};
 use crate::tracks::{self, SubtitleChoice};
 use crate::view::{HostView, HostViewShared};
 
@@ -95,6 +97,11 @@ pub struct Host {
     /// Play, a seek or a track change serves the torrent again and reopens the
     /// same Stream; anything that opens or stops a Stream ends it.
     released: bool,
+    /// What the engine said when the held torrent had no file to play: the
+    /// sentence the failed open shows in place of the Player's own words
+    /// (ADR-0042 §4). It belongs to the open that failed, and the next open or
+    /// a stop forgets it.
+    engine_failure: Option<(InfoHash, String)>,
     /// Whether the Stream now open may be previewed, once the Player's first
     /// report has said what it costs. [`PreviewCeiling::Waiting`] until then, and
     /// decided once per Stream: a refusal is not revisited on a later report, and
@@ -275,6 +282,7 @@ impl Host {
             held_torrent: None,
             idle: Idle::default(),
             released: false,
+            engine_failure: None,
             preview_gate: PreviewCeiling::Refused,
             preview_since: None,
             clock,
@@ -1098,7 +1106,8 @@ impl Host {
         if self.released {
             return None;
         }
-        let observation = self.player.observe();
+        let mut observation = self.player.observe();
+        self.prefer_the_engines_failure(&mut observation);
 
         // The Host's own countdown is checked against its clock *before* an
         // unchanged report returns early below: nothing about a Stream that
@@ -1962,6 +1971,7 @@ impl Host {
     /// Let the torrent being served go, where the Stream is one: the engine stops
     /// fetching and uploading and deletes what it kept (ADR-0042 §2).
     fn let_go_held_torrent(&mut self) {
+        self.engine_failure = None;
         if let Some(info_hash) = self.held_torrent.take() {
             self.torrent_engine.let_go(&info_hash);
         }
@@ -2025,9 +2035,10 @@ impl Host {
     }
 
     /// Take what the engine has reported since the last tick. A `Chosen` report
-    /// is logged and goes nowhere else; the other reports are for later
-    /// handling in this same drain.
-    fn drain_torrent_reports(&self) {
+    /// is logged and goes nowhere else. A `Failed { NoFile }` for the torrent
+    /// held is kept, for [`Self::prefer_the_engines_failure`]; the other reports
+    /// are for later handling in this same drain.
+    fn drain_torrent_reports(&mut self) {
         for report in self.torrent_engine.reports() {
             match report {
                 TorrentReport::Chosen {
@@ -2035,10 +2046,31 @@ impl Host {
                     file_idx,
                     name,
                 } => tracing::info!(%info_hash, file_idx, name, "the torrent engine chose a file"),
+                TorrentReport::Failed {
+                    info_hash,
+                    kind: FailureKind::NoFile,
+                    sentence,
+                } if self.held_torrent.as_ref() == Some(&info_hash) => {
+                    self.engine_failure = Some((info_hash, sentence));
+                }
                 TorrentReport::Status { .. }
                 | TorrentReport::Failed { .. }
                 | TorrentReport::Exited => {}
             }
+        }
+    }
+
+    /// Put the engine's sentence where the Player reports a failed open of the
+    /// torrent held. The engine answered the Player with a `404`, so the Player's
+    /// words are about a refusal and the engine's say why (ADR-0042 §4). A
+    /// report with no failure is left alone, and so is a failure of some other
+    /// Stream.
+    fn prefer_the_engines_failure(&self, observation: &mut Observation) {
+        let Some((info_hash, sentence)) = &self.engine_failure else {
+            return;
+        };
+        if observation.failure.is_some() && self.held_torrent.as_ref() == Some(info_hash) {
+            observation.failure = Some(sentence.clone());
         }
     }
 
@@ -2105,6 +2137,7 @@ impl Host {
         // The torrent that was held goes once the Stream that replaces it has
         // opened, unless the replacement is the same torrent: a season pack is
         // one torrent across its episodes.
+        self.engine_failure = None;
         let previous = std::mem::replace(&mut self.held_torrent, served);
         if let Some(previous) = previous {
             if self.held_torrent.as_ref() != Some(&previous) {

@@ -4,7 +4,6 @@ package main
 
 import (
 	"crypto/subtle"
-	"fmt"
 	"mime"
 	"net/http"
 	"path"
@@ -84,13 +83,13 @@ func (e *Engine) handleHTTP(w http.ResponseWriter, r *http.Request) {
 // choose picks the file this serve plays and says so, once.
 func (e *Engine) choose(h *held, entry *serveEntry) {
 	files := h.t.Files()
-	sizes := make([]int64, len(files))
+	listed := make([]torrentFile, len(files))
 	for i, f := range files {
-		sizes[i] = f.Length()
+		listed[i] = torrentFile{Path: f.DisplayPath(), Size: f.Length()}
 	}
-	idx, ok := chooseFile(sizes, entry.op.FileIdx)
-	if !ok {
-		entry.err = fmt.Errorf("This torrent holds no files.")
+	idx, err := chooseFile(listed, entry.op.FileIdx, entry.op.Hints)
+	if err != nil {
+		entry.err = err
 		if err := e.out.Send(FailedEvent(h.hash, FailNoFile, entry.err.Error())); err != nil {
 			e.log.Printf("telling the Host: %v", err)
 		}

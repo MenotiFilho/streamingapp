@@ -209,11 +209,17 @@ func ofKind(kind string) func(map[string]any) bool {
 
 func (r *rig) serve(hash string, fileIdx *int, sources []string) (id int64, url string) {
 	r.t.Helper()
+	return r.serveWith(hash, fileIdx, sources, map[string]any{"filename": nil, "season": nil, "episode": nil})
+}
+
+// serveWith is serve with the Host's hints stated.
+func (r *rig) serveWith(hash string, fileIdx *int, sources []string, hints map[string]any) (id int64, url string) {
+	r.t.Helper()
 	r.nextID++
 	id = r.nextID
 	r.send(map[string]any{
 		"op": "serve", "id": id, "infoHash": hash, "fileIdx": fileIdx, "sources": sources,
-		"hints": map[string]any{"filename": nil, "season": nil, "episode": nil},
+		"hints": hints,
 	})
 	ev := r.await("served", func(ev map[string]any) bool {
 		return ev["ev"] == "served" || ev["ev"] == "refused"
@@ -444,7 +450,7 @@ func TestStatusIsNotSentMoreOftenThanItsInterval(t *testing.T) {
 	}
 }
 
-func TestTheFileIsTheFileIdxWhenInRangeElseTheLargest(t *testing.T) {
+func TestTheFileIsTheFileIdxWhenTrustedElseTheLargestVideo(t *testing.T) {
 	files := map[string][]byte{
 		"a-extras.txt": randomBytes(3, 80<<10),
 		"b-film.mkv":   randomBytes(4, 300<<10),
@@ -465,6 +471,7 @@ func TestTheFileIsTheFileIdxWhenInRangeElseTheLargest(t *testing.T) {
 		{"no fileIdx plays the largest", nil, "b-film.mkv"},
 		{"a fileIdx in range plays that file", ptr(index["c-sample.mkv"]), "c-sample.mkv"},
 		{"a fileIdx out of range plays the largest", ptr(99), "b-film.mkv"},
+		{"a fileIdx at a non-video plays the largest video", ptr(index["a-extras.txt"]), "b-film.mkv"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -479,6 +486,69 @@ func TestTheFileIsTheFileIdxWhenInRangeElseTheLargest(t *testing.T) {
 				t.Fatalf("chosen %v, want %s at %d", chosen, c.want, index[c.want])
 			}
 		})
+	}
+}
+
+func TestTheEpisodeIsChosenFromTheHints(t *testing.T) {
+	files := map[string][]byte{
+		"Show.S01E01.mkv": randomBytes(6, 90<<10),
+		"Show.S01E02.mkv": randomBytes(7, 100<<10),
+		"Show.S01E03.mkv": randomBytes(8, 110<<10),
+	}
+	s := seed(t, files)
+	r := startEngine(t)
+	_, url := r.serveWith(s.hash, nil, nil, map[string]any{"filename": nil, "season": 1, "episode": 2})
+	r.connect(s)
+
+	resp, body := get(t, url, nil)
+
+	if resp.StatusCode != http.StatusOK || !bytes.Equal(body, files["Show.S01E02.mkv"]) {
+		t.Fatalf("status %d; the body is not Show.S01E02.mkv", resp.StatusCode)
+	}
+	chosen := r.await("chosen", ofKind("chosen"))
+	if chosen["name"] != "Show.S01E02.mkv" {
+		t.Fatalf("chosen %v", chosen)
+	}
+}
+
+func TestAnEpisodeMissingFromTheTorrentFailsWithNoFileAnd404(t *testing.T) {
+	s := seed(t, map[string][]byte{
+		"Show.S01E01.mkv": randomBytes(9, 90<<10),
+		"Show.S01E02.mkv": randomBytes(10, 100<<10),
+	})
+	r := startEngine(t)
+	_, url := r.serveWith(s.hash, nil, nil, map[string]any{"filename": nil, "season": 1, "episode": 3})
+	r.connect(s)
+
+	resp, body := get(t, url, nil)
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status %d, want 404", resp.StatusCode)
+	}
+	const sentence = "This torrent holds 2 videos and none is S01E03."
+	if !strings.Contains(string(body), sentence) {
+		t.Fatalf("the 404 body %q does not carry the sentence", body)
+	}
+	failed := r.await("failed", ofKind("failed"))
+	if failed["kind"] != "no_file" || failed["sentence"] != sentence || failed["infoHash"] != s.hash {
+		t.Fatalf("failed %v", failed)
+	}
+}
+
+func TestATorrentWithNoVideoFailsWithNoFileAnd404(t *testing.T) {
+	s := seed(t, map[string][]byte{"readme.txt": randomBytes(11, 40<<10), "cover.jpg": randomBytes(12, 60<<10)})
+	r := startEngine(t)
+	_, url := r.serve(s.hash, nil, nil)
+	r.connect(s)
+
+	resp, _ := get(t, url, nil)
+
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status %d, want 404", resp.StatusCode)
+	}
+	failed := r.await("failed", ofKind("failed"))
+	if failed["kind"] != "no_file" || failed["sentence"] != "This torrent holds no video." {
+		t.Fatalf("failed %v", failed)
 	}
 }
 
