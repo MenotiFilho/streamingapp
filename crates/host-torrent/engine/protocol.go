@@ -18,8 +18,8 @@ import (
 // Host and the engine say to each other is decided, and tested, apart from any
 // swarm.
 
-// Hints are what the Host knows about the file wanted. The placeholder choice
-// ignores them; the file rule (a later ticket) reads them.
+// Hints are what the Host knows about the file wanted: the Addon's own name for
+// it, and the Video's season and episode. The file rule reads them (choose.go).
 type Hints struct {
 	Filename *string `json:"filename"`
 	Season   *int    `json:"season"`
