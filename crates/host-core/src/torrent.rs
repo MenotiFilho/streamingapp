@@ -129,12 +129,25 @@ pub struct ServeRequest {
 }
 
 /// How far a torrent has come before it is being fetched.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum TorrentPhase {
     /// Still looking for the torrent: no metadata, or no peer yet.
     Finding,
     /// Bytes are arriving.
     Fetching,
+}
+
+/// The **Torrent status** every client is told while a torrent Stream is open:
+/// whether the torrent is still being found or is being fetched, how many peers
+/// it is connected to, and how fast bytes arrive. Never which torrent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TorrentStatus {
+    pub phase: TorrentPhase,
+    pub peers: u32,
+    /// Bytes per second.
+    pub rate: u64,
 }
 
 /// Why a torrent failed, as far as the Host acts on it.
@@ -292,6 +305,11 @@ impl FixtureTorrentEngine {
     pub fn refuse(&self, sentence: &str) {
         *self.refusing.lock().expect("the fixture is not poisoned") =
             Some(TorrentError::new(sentence));
+    }
+
+    /// Serve again from now on, after a [`Self::refuse`].
+    pub fn allow(&self) {
+        *self.refusing.lock().expect("the fixture is not poisoned") = None;
     }
 
     /// Queue a report for the next [`TorrentEngine::reports`] call.

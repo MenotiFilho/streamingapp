@@ -71,6 +71,7 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
     muted: false,
     subtitleDelay: 0,
     stalled: false,
+    torrent: null,
     crop: null,
     aspect: null,
     resolution: null,
