@@ -53,6 +53,7 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
     muted: true,
     subtitleDelay: 0,
     stalled: false,
+    torrent: null,
     crop: null,
     aspect: null,
     resolution: { width: 1920, height: 1080 },
@@ -109,6 +110,24 @@ describe("what the playback facts say", () => {
 
     expect(playbackView(playback(), input).stalled).toBe(false);
     expect(playbackView(playback({ stalled: true }), input).stalled).toBe(true);
+  });
+
+  test("the view says a torrent's status in one line, and a direct Stream's in none", () => {
+    const input = { played: 0, pending: NO_PENDING, watchProgress: NO_PROGRESS };
+
+    expect(playbackView(playback(), input).torrentLine).toBeNull();
+    expect(
+      playbackView(
+        playback({ state: "opening", torrent: { phase: "finding", peers: 5, rate: 0 } }),
+        input,
+      ).torrentLine,
+    ).toBe("Finding the torrent · 5 peers");
+    expect(
+      playbackView(
+        playback({ torrent: { phase: "fetching", peers: 12, rate: 4_200_000 } }),
+        input,
+      ).torrentLine,
+    ).toBe("Fetching · 12 peers · 4.2 MB/s");
   });
 
   test("opening is watched and controllable but not transportable yet", () => {

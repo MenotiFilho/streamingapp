@@ -12,6 +12,7 @@ use crate::preferences::{
 use crate::progress::{TitleStub, WatchProgress};
 use crate::request::VideoRef;
 use crate::secret::SecretBackend;
+use crate::torrent::TorrentStatus;
 use crate::tracks::SubtitleHandPick;
 
 /// The Host's state, as the Host holds it.
@@ -166,6 +167,12 @@ impl State {
     /// What is playing, as the Player's latest report leaves it.
     pub(crate) fn set_playback(&mut self, playback: PlaybackSession) {
         self.playback = playback;
+    }
+
+    /// Take the engine's reading of the torrent being served, and say whether
+    /// the Snapshot's Torrent status moved with it.
+    pub(crate) fn set_torrent_status(&mut self, status: TorrentStatus) -> bool {
+        self.playback.torrent_status(status)
     }
 
     /// Record that the Addon subtitles fallback was attempted for the Stream
