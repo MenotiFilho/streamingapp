@@ -17,6 +17,7 @@ mod paths;
 mod player;
 mod wire;
 
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -37,6 +38,37 @@ const SAMPLE: Duration = Duration::from_millis(250);
 /// waits for, so a beat this coarse is enough, and an idle queue costs one
 /// lock and nothing else (ADR-0038 §3).
 const BACKGROUND: Duration = Duration::from_millis(500);
+
+/// The Host's Torrent engine: the real one when its binary is beside the Host's
+/// executable, and one that refuses every torrent with a sentence when it is not,
+/// so a missing file is a Stream that fails and never a Host that does not start.
+///
+/// The torrents directory is wiped first, before anything can hold it.
+fn torrent_engine(local_data_dir: &Path) -> Arc<dyn host_core::TorrentEngine> {
+    let torrents = host_torrent::launch::torrents_dir(local_data_dir);
+    if let Err(error) = host_torrent::launch::wipe(&torrents) {
+        tracing::warn!(%error, torrents = %torrents.display(), "leftover torrents could not be removed");
+    }
+
+    let binary = std::env::current_exe()
+        .ok()
+        .and_then(|executable| host_torrent::launch::locate(&executable, cfg!(debug_assertions)));
+    match binary {
+        Some(binary) => {
+            tracing::info!(engine = %binary.display(), torrents = %torrents.display(), "the Torrent engine is available");
+            Arc::new(host_torrent::ProcessTorrentEngine::new(
+                host_torrent::Launch::new(binary, torrents),
+            ))
+        }
+        None => {
+            tracing::warn!(
+                file = host_torrent::launch::ENGINE_FILE,
+                "the Torrent engine is not beside the Host: torrents will not play"
+            );
+            Arc::new(host_core::NoTorrentEngine)
+        }
+    }
+}
 
 fn main() {
     tauri::Builder::default()
@@ -114,6 +146,12 @@ fn main() {
             let previewer: Arc<dyn host_core::Previewer> =
                 Arc::new(host_mpv::MpvPreviewer::start());
 
+            // And the Torrent engine, the bundled Go program the Host starts on
+            // the first torrent played (ADR-0042). What a Host killed mid-torrent
+            // left on disk is removed first, whether or not a torrent is ever
+            // played this run: nothing a torrent holds outlives its Stream.
+            let torrent_engine = torrent_engine(&paths::local_data_dir(&handle)?);
+
             let stremio = Arc::new(HttpStremio::new());
             let host = Host::new(
                 Arc::new(store),
@@ -124,6 +162,7 @@ fn main() {
                 Arc::new(host_core::SystemClock),
             )?
             .with_previewer(previewer)
+            .with_torrent_engine(torrent_engine)
             .with_stremio(stremio);
 
             app.manage(ipc::HostHandle::new(host));

@@ -85,8 +85,10 @@ What `scripts/cd.sh` does:
    directory under `%LOCALAPPDATA%\Temp\streamingapp-cd-…`, wiped on exit.
 4. Calls `scripts/windows/build.ps1 -Bundle -Version <version> -CacheDir …` on
    Windows to build the unsigned per-user (`currentUser`) NSIS setup `.exe`
-   (`streamingapp_<version>_x64-setup.exe`) with `libmpv-2.dll` bundled beside
-   `streamingapp.exe`. `libmpv`, `cargo-tauri` and Cargo's `target/` live in
+   (`streamingapp_<version>_x64-setup.exe`) with `libmpv-2.dll` and the Torrent
+   engine (`streamingapp-torrent.exe`, cross-compiled by
+   `crates/host-torrent/build.sh` in the container beforehand) bundled beside
+   `streamingapp.exe`, and the engine's licences (`THIRD-PARTY.md`) with them. `libmpv`, `cargo-tauri` and Cargo's `target/` live in
    `%LOCALAPPDATA%\streamingapp-cd-cache` so builds stay incremental and never
    touch `streamingapp-verify` or stop a running Host window.
 5. Writes a `.sha256` checksum file alongside the installer and publishes both
