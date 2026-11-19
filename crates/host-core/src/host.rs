@@ -35,7 +35,9 @@ use crate::title_cache::{
     CachedTitle, TitleCache, TitleProbe, TitleProtection, MAX_CACHED_TITLES, RUNNING_FRESH_MILLIS,
 };
 use crate::tmdb;
-use crate::torrent::{InfoHash, NoTorrentEngine, TorrentEngine, TorrentLimits, TorrentReport};
+use crate::torrent::{
+    FailureKind, InfoHash, NoTorrentEngine, TorrentEngine, TorrentLimits, TorrentReport,
+};
 use crate::tracks::{self, SubtitleChoice};
 use crate::view::{HostView, HostViewShared};
 
@@ -169,6 +171,19 @@ impl Drained {
 }
 
 /// The cache key a read's work will be kept under, where the work names one.
+/// What a Stream that ended for lack of disk says when the engine said nothing
+/// of its own: the likeliest cause, a full disk.
+const DISK_FULL: &str = "The disk is full, so the torrent could not be kept.";
+
+/// The engine's own sentence for a storage failure, or the full disk's where it
+/// sent none.
+fn storage_sentence(engine_says: &str) -> String {
+    match engine_says.trim() {
+        "" => DISK_FULL.to_owned(),
+        own => own.to_owned(),
+    }
+}
+
 fn key_of(work: &Work) -> Option<TitleKey> {
     match work {
         Work::Addon { addon, asked } => Some(TitleKey::Addon {
@@ -1078,7 +1093,9 @@ impl Host {
     /// timers — so whoever owns the shell's event loop calls this while
     /// something is playing (ADR-0013, ADR-0033).
     pub fn sample(&mut self) -> Option<Snapshot> {
-        self.drain_torrent_reports();
+        if let Some(sentence) = self.drain_torrent_reports() {
+            return Some(self.end_for_storage(sentence));
+        }
         let observation = self.player.observe();
 
         // The Host's own countdown is checked against its clock *before* an
@@ -1917,9 +1934,11 @@ impl Host {
     }
 
     /// Take what the engine has reported since the last tick. A `Chosen` report
-    /// is logged and goes nowhere else; the other reports are for later
-    /// handling in this same drain.
-    fn drain_torrent_reports(&self) {
+    /// is logged and goes nowhere else; a storage failure of the torrent being
+    /// held is answered with the sentence the Stream ends with (ADR-0042 §3);
+    /// the other reports are for later handling in this same drain.
+    fn drain_torrent_reports(&self) -> Option<String> {
+        let mut ending = None;
         for report in self.torrent_engine.reports() {
             match report {
                 TorrentReport::Chosen {
@@ -1927,11 +1946,45 @@ impl Host {
                     file_idx,
                     name,
                 } => tracing::info!(%info_hash, file_idx, name, "the torrent engine chose a file"),
+                TorrentReport::Failed {
+                    info_hash,
+                    kind: FailureKind::Storage,
+                    sentence,
+                } if self.held_torrent.as_ref() == Some(&info_hash) => {
+                    tracing::warn!(%info_hash, sentence, "the torrent could not be kept on disk");
+                    ending.get_or_insert_with(|| storage_sentence(&sentence));
+                }
                 TorrentReport::Status { .. }
                 | TorrentReport::Failed { .. }
                 | TorrentReport::Exited => {}
             }
         }
+        ending
+    }
+
+    /// End the Stream at once because its torrent cannot be kept on disk: the
+    /// Player is stopped, the torrent let go, Watch progress written where the
+    /// Stream got to, and the failure published beside an `idle` state. A full
+    /// disk does not fix itself, so nothing is restarted (ADR-0042 §3, §5).
+    fn end_for_storage(&mut self, sentence: String) -> Snapshot {
+        // The Player may already have lost the Stream; either way it is over.
+        let _ = self.player.stop();
+        self.disarm_preview();
+        self.let_go_held_torrent();
+        self.autoplay = None;
+
+        let leaving = self.playing_title().map(|title| title.id().to_owned());
+        let now = self.clock.now_millis();
+        if let Some(entry) = self.state.refresh_watch(now, true) {
+            let _ = self.store.write_watch_progress(&entry);
+        }
+        self.state.end_playback_with_failure(sentence);
+        if let Some(title) = leaving {
+            self.push_title(&title);
+        }
+
+        self.revision += 1;
+        self.snapshot()
     }
 
     /// Open `chosen` in the Player at `start`, arm the Seek preview for its

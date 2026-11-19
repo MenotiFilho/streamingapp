@@ -11,10 +11,11 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, FixtureClock, FixtureFetcher, FixturePlayer, FixturePreviewer,
-    FixtureProvider, FixtureTorrentEngine, Host, InMemorySecretStore, InMemoryStore, InfoHash,
-    Observation, Playback, PlaybackError, PlaybackState, Previewer, SecretBackend, ServeHints,
-    ServeRequest, Store, Stream, TorrentEngine, TorrentReport, ACTION_VERSION,
+    Action, ActionError, FailureKind, FixtureClock, FixtureFetcher, FixturePlayer,
+    FixturePreviewer, FixtureProvider, FixtureTorrentEngine, Host, InMemorySecretStore,
+    InMemoryStore, InfoHash, Observation, Playback, PlaybackError, PlaybackState, Previewer,
+    SecretBackend, ServeHints, ServeRequest, Store, Stream, TorrentEngine, TorrentReport,
+    ACTION_VERSION,
 };
 
 const SERIES: &str = "https://series.example.org/manifest.json";
@@ -592,6 +593,167 @@ fn a_torrent_whose_open_the_player_refuses_is_let_go_unless_it_was_already_held(
     let other = play(&mut fixture, "tt0903747:1:2", &torrent_of(OTHER_HASH));
     assert!(matches!(other, Err(ActionError::Playback { .. })));
     assert_eq!(fixture.engine.let_gos(), vec![hash(OTHER_HASH)]);
+}
+
+// ── Storage failures ────────────────────────────────────────────────────────
+
+const DISK_FULL: &str = "The disk is full, so the torrent could not be kept.";
+
+fn storage_failed(fixture: &Fixture, info_hash: &str, sentence: &str) {
+    fixture.engine.report(TorrentReport::Failed {
+        info_hash: hash(info_hash),
+        kind: FailureKind::Storage,
+        sentence: sentence.to_owned(),
+    });
+}
+
+#[test]
+fn a_storage_failure_ends_the_stream_at_once_and_says_why_in_the_engines_words() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:2", &torrent_of(HASH)).expect("a torrent plays");
+    is_playing(&fixture, 120.0);
+    fixture.host.sample();
+    storage_failed(&fixture, HASH, DISK_FULL);
+
+    let snapshot = fixture
+        .host
+        .sample()
+        .expect("the end of a Stream is something every client is told");
+
+    let playback = snapshot.playback;
+    assert_eq!(playback.state, PlaybackState::Idle);
+    assert_eq!(playback.failure.as_deref(), Some(DISK_FULL));
+    assert!(
+        playback.now_playing.is_some(),
+        "the client that pressed play is told which Stream failed"
+    );
+    assert_eq!(fixture.player.stopped(), 1, "the Player is told to stop");
+    assert_eq!(fixture.engine.let_gos(), vec![hash(HASH)]);
+}
+
+#[test]
+fn a_storage_failure_never_restarts_the_stream() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:2", &torrent_of(HASH)).expect("a torrent plays");
+    storage_failed(&fixture, HASH, DISK_FULL);
+
+    fixture.host.sample();
+    fixture.host.sample();
+
+    assert_eq!(fixture.engine.serves().len(), 1, "nothing is served again");
+    assert_eq!(fixture.player.opened().len(), 1, "nothing is opened again");
+}
+
+#[test]
+fn an_unwritable_directorys_sentence_is_published_as_the_engine_wrote_it() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:2", &torrent_of(HASH)).expect("a torrent plays");
+    storage_failed(
+        &fixture,
+        HASH,
+        "The torrents directory cannot be written to.",
+    );
+
+    let snapshot = fixture.host.sample().expect("the Stream ended");
+
+    assert_eq!(
+        snapshot.playback.failure.as_deref(),
+        Some("The torrents directory cannot be written to.")
+    );
+}
+
+#[test]
+fn a_storage_failure_without_a_sentence_falls_back_to_the_full_disk_one() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:2", &torrent_of(HASH)).expect("a torrent plays");
+    storage_failed(&fixture, HASH, "  ");
+
+    let snapshot = fixture.host.sample().expect("the Stream ended");
+
+    assert_eq!(snapshot.playback.failure.as_deref(), Some(DISK_FULL));
+}
+
+#[test]
+fn the_players_next_report_does_not_undo_a_storage_failure() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:2", &torrent_of(HASH)).expect("a torrent plays");
+    storage_failed(&fixture, HASH, DISK_FULL);
+    fixture.host.sample();
+
+    // The Player has not caught up: it still says it is playing.
+    is_playing(&fixture, 130.0);
+
+    assert!(fixture.host.sample().is_none(), "nothing moved");
+    let playback = fixture.host.snapshot().playback;
+    assert_eq!(playback.state, PlaybackState::Idle);
+    assert_eq!(playback.failure.as_deref(), Some(DISK_FULL));
+}
+
+#[test]
+fn a_stop_after_a_storage_failure_clears_it_without_letting_go_twice() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:2", &torrent_of(HASH)).expect("a torrent plays");
+    storage_failed(&fixture, HASH, DISK_FULL);
+    fixture.host.sample();
+
+    dispatch(&mut fixture, serde_json::json!({ "type": "stop_playback" }));
+
+    let playback = fixture.host.snapshot().playback;
+    assert_eq!(playback.failure, None);
+    assert_eq!(playback.now_playing, None);
+    assert_eq!(fixture.engine.let_gos(), vec![hash(HASH)]);
+}
+
+#[test]
+fn another_play_after_a_storage_failure_starts_clean() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:2", &torrent_of(HASH)).expect("a torrent plays");
+    storage_failed(&fixture, HASH, DISK_FULL);
+    fixture.host.sample();
+
+    play(&mut fixture, "tt0903747:1:3", &torrent_of(OTHER_HASH)).expect("another plays");
+
+    let playback = fixture.host.snapshot().playback;
+    assert_eq!(playback.state, PlaybackState::Opening);
+    assert_eq!(playback.failure, None);
+    assert_eq!(
+        fixture.engine.let_gos(),
+        vec![hash(HASH)],
+        "the failed torrent was let go once, at the failure"
+    );
+}
+
+#[test]
+fn a_storage_failure_of_a_torrent_that_is_not_held_changes_nothing() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:2", &torrent_of(HASH)).expect("a torrent plays");
+    is_playing(&fixture, 10.0);
+    fixture.host.sample();
+    storage_failed(&fixture, OTHER_HASH, DISK_FULL);
+
+    fixture.host.sample();
+
+    assert_ne!(fixture.host.snapshot().playback.state, PlaybackState::Idle);
+    assert!(fixture.engine.let_gos().is_empty());
+    assert_eq!(fixture.player.stopped(), 0);
+}
+
+#[test]
+fn a_failure_of_another_kind_does_not_end_the_stream() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:2", &torrent_of(HASH)).expect("a torrent plays");
+    is_playing(&fixture, 10.0);
+    fixture.host.sample();
+    fixture.engine.report(TorrentReport::Failed {
+        info_hash: hash(HASH),
+        kind: FailureKind::NoFile,
+        sentence: "This torrent holds no files.".to_owned(),
+    });
+
+    fixture.host.sample();
+
+    assert_ne!(fixture.host.snapshot().playback.state, PlaybackState::Idle);
+    assert!(fixture.engine.let_gos().is_empty());
 }
 
 // ── The Seek preview ────────────────────────────────────────────────────────
