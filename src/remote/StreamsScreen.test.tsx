@@ -83,10 +83,24 @@ const OTHER: Stream = {
   filename: "other.mkv",
 };
 
+const TORRENT: Stream = {
+  name: "Torrentio",
+  description: null,
+  playback: {
+    kind: "torrent",
+    infoHash: "c12fe1c06bba254a9dc9f519b335aa7c1367a88a",
+    fileIdx: 3,
+    sources: ["tracker:udp://tracker.example.org:1337"],
+  },
+  warnings: ["p2p"],
+  filename: null,
+  bingeGroup: null,
+};
+
 const HASH: Stream = {
   name: "Torrentio",
   description: null,
-  playback: { kind: "torrent", infoHash: "abc123", fileIdx: null, sources: [] },
+  playback: { kind: "direct", url: "ftp://example.test/film.mkv" },
   warnings: [],
   filename: null,
   bingeGroup: null,
@@ -277,6 +291,21 @@ describe("choosing a candidate", () => {
 
     expect(host.asked("play_stream")).toEqual([]);
     expect(screen.getByRole("status")).toHaveTextContent(unplayableNote(HASH));
+  });
+});
+
+describe("a torrent candidate", () => {
+  test("is playable: one press sends the whole shape, and no note is drawn", async () => {
+    const { host } = await mountAnswered([group("torrentio", [TORRENT])]);
+
+    fireEvent.click(screen.getByTestId("stream-torrentio-0"));
+
+    await waitFor(() => expect(host.asked("play_stream")).toHaveLength(1));
+    expect(host.asked("play_stream")).toEqual([
+      playStreamAction(TITLE, VIDEO, "torrentio", TORRENT),
+    ]);
+    expect(host.asked("play_stream")[0]).toMatchObject({ stream: TORRENT });
+    expect(screen.queryByText(/Not playable/)).toBeNull();
   });
 });
 

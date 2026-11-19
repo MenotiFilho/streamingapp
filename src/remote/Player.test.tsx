@@ -451,6 +451,39 @@ describe("the Remote's timeline", () => {
     fireEvent.pointerLeave(timeline);
     vi.restoreAllMocks();
   });
+
+  test("draws the time alone when the Host has no still to give, as it has for a torrent", async () => {
+    const { host } = mount((action) =>
+      action.type === "preview"
+        ? { snapshots: [], answer: { preview: { at: action.at, image: null } } }
+        : { snapshots: [], answer: null },
+    );
+    const card = await openCard();
+    const timeline = within(card).getByTestId("remote-player-timeline");
+    vi.spyOn(timeline, "getBoundingClientRect").mockReturnValue({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 1000,
+      bottom: 20,
+      width: 1000,
+      height: 20,
+      toJSON: () => ({}),
+    });
+
+    fireEvent.pointerMove(timeline, { clientX: 500 });
+    await waitFor(() => expect(host.asked("preview")).toHaveLength(1));
+    await waitFor(() =>
+      expect(screen.getByTestId("remote-player-preview")).toHaveAttribute("data-pending", "false"),
+    );
+
+    expect(screen.queryByTestId("remote-player-preview-still")).toBeNull();
+    expect(screen.getByTestId("remote-player-preview")).toHaveTextContent("5:00");
+
+    fireEvent.pointerLeave(timeline);
+    vi.restoreAllMocks();
+  });
 });
 
 describe("the Remote's volume box", () => {

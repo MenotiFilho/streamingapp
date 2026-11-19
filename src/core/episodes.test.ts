@@ -7,6 +7,7 @@ import type {
   PlaybackSnapshot,
   ResumeEntry,
   Snapshot,
+  Stream,
   Title,
   Video,
 } from "./wire";
@@ -282,13 +283,27 @@ describe("the episodes of a Title", () => {
 });
 
 describe("the first Stream an Episodes press can play", () => {
-  test("skips a candidate this Host cannot play and names the Addon that offered it", () => {
+  test("a torrent is a candidate like any other, taken in the Addon's order", () => {
+    const torrent: Stream = {
+      name: "torrent",
+      description: null,
+      playback: { kind: "torrent", infoHash: "c12fe1c06bba254a9dc9f519b335aa7c1367a88a", fileIdx: null, sources: [] },
+      warnings: ["p2p"],
+      filename: null,
+      bingeGroup: null,
+    };
+    const groups: AddonStreams[] = [{ addon: "first", failure: null, streams: [torrent] }];
+
+    expect(firstPlayableStream(groups)).toEqual({ addon: "first", stream: torrent });
+  });
+
+  test("skips a candidate this Host cannot open and names the Addon that offered it", () => {
     const groups: AddonStreams[] = [
       {
         addon: "first",
         failure: null,
         streams: [
-          { name: "torrent", description: null, playback: { kind: "torrent", infoHash: "abc", fileIdx: null, sources: [] }, warnings: [], filename: null, bingeGroup: null },
+          { name: "ftp", description: null, playback: { kind: "direct", url: "ftp://example.test/film.mkv" }, warnings: [], filename: null, bingeGroup: null },
           { name: "direct", description: null, playback: { kind: "direct", url: "https://x" }, warnings: [], filename: null, bingeGroup: null },
         ],
       },
@@ -305,7 +320,7 @@ describe("the first Stream an Episodes press can play", () => {
       {
         addon: "first",
         failure: null,
-        streams: [{ name: "torrent", description: null, playback: { kind: "torrent", infoHash: "abc", fileIdx: null, sources: [] }, warnings: [], filename: null, bingeGroup: null }],
+        streams: [{ name: "ftp", description: null, playback: { kind: "direct", url: "ftp://example.test/film.mkv" }, warnings: [], filename: null, bingeGroup: null }],
       },
       {
         addon: "second",
@@ -323,7 +338,7 @@ describe("the first Stream an Episodes press can play", () => {
         {
           addon: "only",
           failure: null,
-          streams: [{ name: "torrent", description: null, playback: { kind: "torrent", infoHash: "abc", fileIdx: null, sources: [] }, warnings: [], filename: null, bingeGroup: null }],
+          streams: [{ name: "ftp", description: null, playback: { kind: "direct", url: "ftp://example.test/film.mkv" }, warnings: [], filename: null, bingeGroup: null }],
         },
       ]),
     ).toBeNull();
