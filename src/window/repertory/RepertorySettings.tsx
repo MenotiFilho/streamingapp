@@ -16,14 +16,21 @@ import {
   STREAM_BUFFER_SECONDS,
   SUBTITLE_COLORS,
   SUBTITLE_SCALES,
+  TORRENT_CACHE_DEFAULT_MEGABYTES,
+  TORRENT_CACHE_HEAD,
+  TORRENT_CACHE_MEGABYTES,
+  TORRENT_FETCH_NOTE,
   bufferMegabytesPreset,
   bufferSecondsPreset,
   colorSelected,
   formatBufferMegabytes,
   formatBufferSeconds,
   formatScale,
+  formatTorrentCache,
   scalePreset,
   scaleSelected,
+  torrentCachePreset,
+  torrentCacheRequest,
   upNextRows,
 } from "../../core/controls";
 import type { Action, DeviceSummary } from "../../core/wire";
@@ -332,8 +339,11 @@ function PreferencesScreen() {
     setBufferDraft(publishedBuffer);
   }, [publishedBuffer.seconds, publishedBuffer.megabytes]);
   const heldBuffer = bufferDraft;
+  const heldTorrentCache =
+    snapshot?.preferences.torrentCache.megabytes ?? TORRENT_CACHE_DEFAULT_MEGABYTES;
   const [appearanceError, setAppearanceError] = useState<ActionError | null>(null);
   const [bufferError, setBufferError] = useState<ActionError | null>(null);
+  const [torrentCacheError, setTorrentCacheError] = useState<ActionError | null>(null);
   const [upNextError, setUpNextError] = useState<ActionError | null>(null);
   const [featuredError, setFeaturedError] = useState<ActionError | null>(null);
 
@@ -369,6 +379,14 @@ function PreferencesScreen() {
     if (outcome.error) {
       setBufferError(outcome.error);
       setBufferDraft(publishedBuffer);
+    }
+  };
+
+  const pickTorrentCache = async (megabytes: number) => {
+    setTorrentCacheError(null);
+    const outcome = await ask(torrentCacheRequest(megabytes));
+    if (outcome.error) {
+      setTorrentCacheError(outcome.error);
     }
   };
 
@@ -534,7 +552,40 @@ function PreferencesScreen() {
             ) : null}
           </div>
         </div>
+        <LogNote testId="stream-buffer-torrents">{TORRENT_FETCH_NOTE}</LogNote>
         <Refusal error={bufferError} testId="stream-buffer-error" />
+      </LogGroup>
+
+      <LogGroup id="settings-torrent-cache" title={TORRENT_CACHE_HEAD}>
+        <div className="rep-log-choice-group">
+          <div
+            className="rep-log-chips"
+            data-region="settings-torrent-cache-sizes"
+            data-kind="row"
+            data-label="Torrent cache"
+          >
+            {TORRENT_CACHE_MEGABYTES.map((choice) => (
+              <ChoiceChip
+                key={choice.megabytes}
+                pressed={heldTorrentCache === choice.megabytes}
+                data-testid={`torrent-cache-${choice.megabytes}`}
+                onClick={() => void pickTorrentCache(choice.megabytes)}
+              >
+                {choice.label}
+              </ChoiceChip>
+            ))}
+            {!torrentCachePreset(heldTorrentCache) ? (
+              <ChoiceChip
+                pressed
+                data-testid="torrent-cache-other"
+                onClick={() => void pickTorrentCache(heldTorrentCache)}
+              >
+                {formatTorrentCache(heldTorrentCache)}
+              </ChoiceChip>
+            ) : null}
+          </div>
+        </div>
+        <Refusal error={torrentCacheError} testId="torrent-cache-error" />
       </LogGroup>
 
       <LogGroup id="settings-up-next" title="Up next">

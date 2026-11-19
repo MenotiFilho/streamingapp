@@ -819,6 +819,41 @@ fn a_paired_client_sets_the_stream_buffer_and_sees_it_pushed() {
 }
 
 #[test]
+fn a_paired_client_sets_the_torrent_cache_and_sees_it_pushed() {
+    let (fixture, server) = server();
+    let mut client = Client::connect(&server);
+    client.hello(None);
+    pair(&mut client, &fixture, "Test phone");
+
+    let set = client.command(3, json!({ "type": "set_torrent_cache", "megabytes": 8000 }));
+    assert!(
+        set.get("response").is_some(),
+        "the Remote can change the torrent cache: {set}"
+    );
+    let pushed = client
+        .snapshot_where(|snapshot| snapshot["preferences"]["torrentCache"]["megabytes"] == 8000);
+    assert_eq!(
+        pushed["snapshot"]["preferences"]["streamBuffer"]["megabytes"], 512,
+        "the Stream buffer is left as it was: {pushed}"
+    );
+}
+
+#[test]
+fn a_torrent_cache_outside_its_range_is_refused_with_its_own_code() {
+    let (fixture, server) = server();
+    let mut client = Client::connect(&server);
+    client.hello(None);
+    pair(&mut client, &fixture, "Test phone");
+
+    let refused = client.command(3, json!({ "type": "set_torrent_cache", "megabytes": 255 }));
+
+    assert_eq!(
+        refused["error"]["kind"], "invalid_torrent_cache",
+        "the refusal names the preference: {refused}"
+    );
+}
+
+#[test]
 fn a_paired_client_sets_autoplay_and_sees_it_pushed() {
     let (fixture, server) = server();
     let mut client = Client::connect(&server);

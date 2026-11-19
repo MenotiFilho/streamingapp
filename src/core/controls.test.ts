@@ -13,6 +13,11 @@ import {
   SUBTITLE_SCALE_MAX,
   SUBTITLE_SCALE_MIN,
   SUBTITLE_SCALES,
+  TORRENT_CACHE_DEFAULT_MEGABYTES,
+  TORRENT_CACHE_MAX_MEGABYTES,
+  TORRENT_CACHE_MEGABYTES,
+  TORRENT_CACHE_MIN_MEGABYTES,
+  TORRENT_FETCH_NOTE,
   UP_NEXT_PLAYBACK_CHOICES,
   UP_NEXT_PLAYBACK_SETTING_LABEL,
   VOLUME_MAX,
@@ -27,6 +32,7 @@ import {
   formatDelay,
   formatScale,
   formatSpeed,
+  formatTorrentCache,
   formatVolume,
   nextEpisodeDisabled,
   orderedTracks,
@@ -39,6 +45,8 @@ import {
   stepDelay,
   stepScale,
   subtitlesOn,
+  torrentCachePreset,
+  torrentCacheRequest,
   trackLabel,
   trackMarks,
   volumeFraction,
@@ -460,5 +468,41 @@ describe("the Autoplay preference a client reads", () => {
     expect(rows[1]!.choices.map((choice) => choice.label)).toEqual(
       UP_NEXT_PLAYBACK_CHOICES.map((choice) => choice.label),
     );
+  });
+});
+
+describe("the Torrent cache a person picks", () => {
+  test("Settings offers 512 MB, 2 GB, 8 GB and 32 GB, in decimal megabytes", () => {
+    expect(TORRENT_CACHE_MEGABYTES.map((choice) => [choice.label, choice.megabytes])).toEqual([
+      ["512 MB", 512],
+      ["2 GB", 2000],
+      ["8 GB", 8000],
+      ["32 GB", 32000],
+    ]);
+  });
+
+  test("every preset is a size the Host takes, and the default is one of them", () => {
+    for (const choice of TORRENT_CACHE_MEGABYTES) {
+      expect(choice.megabytes).toBeGreaterThanOrEqual(TORRENT_CACHE_MIN_MEGABYTES);
+      expect(choice.megabytes).toBeLessThanOrEqual(TORRENT_CACHE_MAX_MEGABYTES);
+    }
+    expect([TORRENT_CACHE_MIN_MEGABYTES, TORRENT_CACHE_MAX_MEGABYTES]).toEqual([256, 32000]);
+    expect(TORRENT_CACHE_DEFAULT_MEGABYTES).toBe(2000);
+    expect(torrentCachePreset(TORRENT_CACHE_DEFAULT_MEGABYTES)).toBe(true);
+  });
+
+  test("a size the ladder does not hold is its own chip, in megabytes", () => {
+    expect(torrentCachePreset(8000)).toBe(true);
+    expect(torrentCachePreset(1500)).toBe(false);
+    expect(formatTorrentCache(2000)).toBe("2 GB");
+    expect(formatTorrentCache(1500)).toBe("1500 MB");
+  });
+
+  test("a press sends the one Action, with the megabytes alone", () => {
+    expect(torrentCacheRequest(8000)).toEqual({ type: "set_torrent_cache", megabytes: 8000 });
+  });
+
+  test("the Stream buffer says a torrent is fetched that far ahead too", () => {
+    expect(TORRENT_FETCH_NOTE).toBe("Torrents are fetched this far ahead too.");
   });
 });

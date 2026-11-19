@@ -1,0 +1,11 @@
+{
+  "megabytes": [
+    { "label": "512 MB", "megabytes": 512 },
+    { "label": "2 GB", "megabytes": 2000 },
+    { "label": "8 GB", "megabytes": 8000 },
+    { "label": "32 GB", "megabytes": 32000 }
+  ],
+  "minMegabytes": 256,
+  "maxMegabytes": 32000,
+  "defaultMegabytes": 2000
+}

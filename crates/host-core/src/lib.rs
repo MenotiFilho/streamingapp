@@ -108,8 +108,9 @@ pub use playback::{
 };
 pub use preferences::{
     DuplicateLanguage, FeaturedCatalog, InvalidLanguage, InvalidLanguageList, InvalidStreamBuffer,
-    InvalidSubtitleColor, InvalidSubtitleScale, InvalidUpNextPlayback, Language, LanguageList,
-    Preferences, StreamBuffer, SubtitleColor, SubtitleScale, TooManyLanguages, UpNextPlayback,
+    InvalidSubtitleColor, InvalidSubtitleScale, InvalidTorrentCache, InvalidUpNextPlayback,
+    Language, LanguageList, Preferences, StreamBuffer, SubtitleColor, SubtitleScale,
+    TooManyLanguages, TorrentCache, UpNextPlayback,
 };
 pub use preview::{
     bucket_of, bucket_start, checked_preview_at, preview_ceiling, FixturePreviewer, Frame,

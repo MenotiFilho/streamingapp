@@ -21,6 +21,7 @@ export const REMOTE_ACTIONS = [
   "set_subtitle_color",
   "set_subtitle_scale",
   "set_stream_buffer",
+  "set_torrent_cache",
   "set_up_next_playback",
   "set_autoplay",
   "cancel_autoplay",

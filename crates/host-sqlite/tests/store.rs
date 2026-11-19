@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 
 use host_core::{
     Addon, AddonId, CatalogRef, FeaturedCatalog, Language, LanguageList, Manifest, ManifestUrl,
-    Preferences, Store, StoreError, StreamBuffer, SubtitleColor, SubtitleScale, UpNextPlayback,
+    Preferences, Store, StoreError, StreamBuffer, SubtitleColor, SubtitleScale, TorrentCache,
+    UpNextPlayback,
 };
 use host_sqlite::SqliteStore;
 use rusqlite::Connection;
@@ -377,6 +378,74 @@ fn a_stream_buffer_that_was_never_written_reads_back_as_the_default() {
 
     assert_eq!(read.stream_buffer().seconds(), 300);
     assert_eq!(read.stream_buffer().megabytes(), 512);
+}
+
+#[test]
+fn a_torrent_cache_round_trips() {
+    let store = store();
+    let mut written = Preferences::new();
+    written.set_torrent_cache(TorrentCache::parse(8000).expect("a cache"));
+
+    store
+        .write_preferences(&written)
+        .expect("the store takes the cache");
+
+    assert_eq!(store.read_preferences(), Ok(written));
+}
+
+#[test]
+fn a_torrent_cache_that_was_never_written_reads_back_as_two_gigabytes() {
+    let store = store();
+    let read = store.read_preferences().expect("the store answers");
+
+    assert_eq!(read.torrent_cache().megabytes(), 2000);
+}
+
+#[test]
+fn a_store_that_holds_no_torrent_cache_row_reads_the_default_beside_other_rows() {
+    let (_directory, path) = store_on_disk();
+    let store = SqliteStore::open(&path).expect("the store opens");
+    store
+        .write_preferences(&Preferences::with_subtitle_languages(languages(&["pt-BR"])))
+        .expect("the store takes a preference");
+    Connection::open(&path)
+        .expect("the database opens")
+        .execute("DELETE FROM preferences WHERE key = 'torrent_cache'", [])
+        .expect("the row is removed, as in a store written before the preference");
+
+    let read = store.read_preferences().expect("the store answers");
+
+    assert_eq!(read.torrent_cache().megabytes(), 2000);
+    assert_eq!(
+        read.subtitle_languages().len(),
+        1,
+        "the rest is read as ever"
+    );
+}
+
+#[test]
+fn a_stored_torrent_cache_that_is_out_of_range_is_reported_and_not_a_panic() {
+    for unusable in ["0", "255", "32001", "-1", "2 GB", "nonsense"] {
+        let (_directory, path) = store_on_disk();
+        let store = SqliteStore::open(&path).expect("the store opens");
+        store
+            .write_preferences(&Preferences::new())
+            .expect("the store takes a preference");
+        Connection::open(&path)
+            .expect("the database opens")
+            .execute(
+                "UPDATE preferences SET value = ?1 WHERE key = 'torrent_cache'",
+                [unusable],
+            )
+            .expect("the stored cache is made unusable");
+
+        let read = store.read_preferences();
+
+        assert!(
+            matches!(read, Err(StoreError::Read { .. })),
+            "a stored cache of {unusable:?} is a read failure, not a crash: {read:?}"
+        );
+    }
 }
 
 #[test]

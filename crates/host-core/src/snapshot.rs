@@ -6,7 +6,8 @@ use crate::device::DeviceSummary;
 use crate::pairing::PairingCode;
 use crate::playback::{Picture, PlaybackSnapshot};
 use crate::preferences::{
-    FeaturedCatalog, Language, StreamBuffer, SubtitleColor, SubtitleScale, UpNextPlayback,
+    FeaturedCatalog, Language, StreamBuffer, SubtitleColor, SubtitleScale, TorrentCache,
+    UpNextPlayback,
 };
 use crate::progress::{ContinueEntry, ResumeEntry};
 use crate::secret::SecretBackend;
@@ -98,6 +99,9 @@ pub struct PreferencesSnapshot {
     /// and the memory that look-ahead may take. Always values — a Host that has
     /// never been told keeps the default pair (ADR-0026).
     pub stream_buffer: StreamBuffer,
+    /// The most disk a playing torrent may take. Always a value: 2 GB for a Host
+    /// that has never been told (ADR-0042 §3).
+    pub torrent_cache: TorrentCache,
     /// What Play does for a Title's Up next: play it directly, or open the
     /// Streams picker. Always a value — direct is the default, and the choice
     /// governs only Up next, never Resume (#276).
@@ -157,6 +161,7 @@ impl Snapshot {
                 subtitle_color: state.preferences().subtitle_color().clone(),
                 subtitle_scale: state.preferences().subtitle_scale(),
                 stream_buffer: state.preferences().stream_buffer(),
+                torrent_cache: state.preferences().torrent_cache(),
                 up_next_playback: state.preferences().up_next_playback(),
                 autoplay: state.preferences().autoplay(),
             },
