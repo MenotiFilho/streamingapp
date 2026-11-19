@@ -1331,21 +1331,30 @@ impl PlaybackSession {
         self.subtitle_delay = Some(seconds);
     }
 
+    /// Where a chapter step lands in the list the Player last reported, clamped
+    /// the same way mpv's own `add chapter` clamps; an empty list holds no
+    /// chapter to land on.
+    fn chapter_after(&self, step: ChapterStep) -> Option<usize> {
+        let last = self.chapters.len().checked_sub(1)?;
+        Some(match step {
+            ChapterStep::At { index } => index,
+            ChapterStep::Next => self.chapter.map_or(0, |index| (index + 1).min(last)),
+            ChapterStep::Previous => self.chapter.map_or(0, |index| index.saturating_sub(1)),
+        })
+    }
+
     /// Move the Host's own record of which chapter is playing, clamped to the
-    /// list the Player last reported — the same clamp mpv's own `add chapter`
-    /// applies, and an empty list holds no chapter at all.
+    /// list the Player last reported, and an empty list holds no chapter at all.
     pub(crate) fn chapter_step(&mut self, step: ChapterStep) {
-        let last = self.chapters.len().checked_sub(1);
-        self.chapter = match (step, last) {
-            (ChapterStep::At { index }, Some(_)) => Some(index),
-            (ChapterStep::Next, Some(last)) => {
-                Some(self.chapter.map_or(0, |index| (index + 1).min(last)))
-            }
-            (ChapterStep::Previous, Some(_)) => {
-                Some(self.chapter.map_or(0, |index| index.saturating_sub(1)))
-            }
-            (_, None) => None,
-        };
+        self.chapter = self.chapter_after(step);
+    }
+
+    /// Where, in seconds from the Stream's start, the chapter a step lands on
+    /// begins — what a Stream with no Player to jump must be opened at. `None`
+    /// when the list holds no such chapter.
+    pub(crate) fn chapter_start(&self, step: ChapterStep) -> Option<f64> {
+        let index = self.chapter_after(step)?;
+        self.chapters.get(index).map(|chapter| chapter.time)
     }
 
     /// The crop the Host's own record holds: the rectangle kept, or none.
