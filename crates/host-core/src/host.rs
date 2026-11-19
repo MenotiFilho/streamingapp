@@ -1829,16 +1829,8 @@ impl Host {
                 self.told(Telling::Muted(muted))?;
                 Resolved::Change(Change::SetMuted(muted))
             }
-            ValidatedAction::NextChapter => {
-                self.playing(Control::Chapter)?;
-                self.told(Telling::Chapter(ChapterStep::Next))?;
-                Resolved::Change(Change::Chapter(ChapterStep::Next))
-            }
-            ValidatedAction::PreviousChapter => {
-                self.playing(Control::Chapter)?;
-                self.told(Telling::Chapter(ChapterStep::Previous))?;
-                Resolved::Change(Change::Chapter(ChapterStep::Previous))
-            }
+            ValidatedAction::NextChapter => self.chapter_jump(ChapterStep::Next)?,
+            ValidatedAction::PreviousChapter => self.chapter_jump(ChapterStep::Previous)?,
             ValidatedAction::SetChapter { index } => {
                 self.playing(Control::Chapter)?;
                 // The chapter list is the Host's own record of what the Player
@@ -1846,8 +1838,7 @@ impl Host {
                 if index >= self.state.playback().chapters().len() {
                     return Err(ActionError::UnknownChapter { index });
                 }
-                self.told(Telling::Chapter(ChapterStep::At { index }))?;
-                Resolved::Change(Change::Chapter(ChapterStep::At { index }))
+                self.chapter_jump(ChapterStep::At { index })?
             }
             ValidatedAction::SetCrop { crop } => {
                 self.playing(Control::Crop)?;
@@ -2011,6 +2002,22 @@ impl Host {
         };
         let title = self.playing_title();
         self.open_stream(Box::new(chosen), title, start)
+    }
+
+    /// A chapter jump: a seek to where the chapter starts. Told to the Player, or
+    /// — on a released torrent, whose Player has nothing served to jump in — the
+    /// Stream reopened at the chapter's start, as a seek reopens it at its landing
+    /// point. A list with no chapter to land on has nothing to reopen for.
+    fn chapter_jump(&mut self, step: ChapterStep) -> Result<Resolved, ActionError> {
+        self.playing(Control::Chapter)?;
+        if self.released {
+            if let Some(start) = self.state.playback().chapter_start(step) {
+                return Ok(Resolved::Change(self.reopen_released(Some(start))?));
+            }
+            return Ok(Resolved::Change(Change::Chapter(step)));
+        }
+        self.told(Telling::Chapter(step))?;
+        Ok(Resolved::Change(Change::Chapter(step)))
     }
 
     /// A track the owner picked: told to the Player and recorded, or — on a

@@ -11,11 +11,11 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, FailureKind, FixtureClock, FixtureFetcher, FixturePlayer,
-    FixturePreviewer, FixtureProvider, FixtureTorrentEngine, Host, InMemorySecretStore,
-    InMemoryStore, InfoHash, Observation, Playback, PlaybackError, PlaybackState, Previewer,
-    SecretBackend, ServeHints, ServeRequest, Store, Stream, Telling, TorrentEngine, TorrentReport,
-    Track, TrackId, TrackKind, ACTION_VERSION,
+    Action, ActionError, Chapter, ChapterStep, FailureKind, FixtureClock, FixtureFetcher,
+    FixturePlayer, FixturePreviewer, FixtureProvider, FixtureTorrentEngine, Host,
+    InMemorySecretStore, InMemoryStore, InfoHash, Observation, Playback, PlaybackError,
+    PlaybackState, Previewer, SecretBackend, ServeHints, ServeRequest, Store, Stream, Telling,
+    TorrentEngine, TorrentReport, Track, TrackId, TrackKind, ACTION_VERSION,
 };
 
 const SERIES: &str = "https://series.example.org/manifest.json";
@@ -1185,6 +1185,172 @@ fn a_seek_on_a_torrent_that_is_still_held_does_not_reopen() {
         .tellings()
         .iter()
         .any(|telling| matches!(telling, Telling::Seek(_))));
+}
+
+fn chapters() -> Vec<Chapter> {
+    [0.0, 300.0, 900.0, 1500.0]
+        .into_iter()
+        .enumerate()
+        .map(|(index, time)| Chapter {
+            index,
+            title: None,
+            time,
+        })
+        .collect()
+}
+
+/// A torrent paused in its second chapter, left for thirty minutes and let go.
+fn released_in_the_second_chapter() -> Fixture {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:1", &torrent_of(HASH)).expect("a torrent plays");
+    fixture.player.now_reporting(Observation {
+        chapters: chapters(),
+        chapter: Some(1),
+        ..Observation::playing(600.0, 2820.0)
+    });
+    fixture.host.sample();
+    dispatch(
+        &mut fixture,
+        serde_json::json!({ "type": "set_paused", "paused": true }),
+    );
+    fixture.player.now_reporting(Observation {
+        state: PlaybackState::Paused,
+        chapters: chapters(),
+        chapter: Some(1),
+        ..Observation::playing(600.0, 2820.0)
+    });
+    fixture.host.sample();
+    fixture.clock.tick(30 * MINUTE);
+    fixture.host.sample();
+    fixture.player.forget();
+    fixture
+}
+
+fn a_chapter_action_on_a_released_torrent_reopens_at(body: serde_json::Value, start: f64) {
+    let mut fixture = released_in_the_second_chapter();
+
+    dispatch(&mut fixture, body);
+
+    assert_eq!(fixture.engine.serves().len(), 2, "served again");
+    let (url, opened_at) = fixture.player.openings().pop().expect("opened");
+    assert!(url.starts_with(LOOPBACK));
+    assert_eq!(opened_at, Some(start), "at the chapter's start");
+    assert!(
+        !fixture
+            .player
+            .tellings()
+            .iter()
+            .any(|telling| matches!(telling, Telling::Chapter(_))),
+        "the open is already there, so the Player is not told to jump"
+    );
+    assert_eq!(
+        fixture.host.snapshot().playback.state,
+        PlaybackState::Opening
+    );
+}
+
+#[test]
+fn next_chapter_on_a_released_torrent_reopens_at_the_next_chapters_start() {
+    a_chapter_action_on_a_released_torrent_reopens_at(
+        serde_json::json!({ "type": "next_chapter" }),
+        900.0,
+    );
+}
+
+#[test]
+fn previous_chapter_on_a_released_torrent_reopens_at_the_previous_chapters_start() {
+    a_chapter_action_on_a_released_torrent_reopens_at(
+        serde_json::json!({ "type": "previous_chapter" }),
+        0.0,
+    );
+}
+
+#[test]
+fn set_chapter_on_a_released_torrent_reopens_at_that_chapters_start() {
+    a_chapter_action_on_a_released_torrent_reopens_at(
+        serde_json::json!({ "type": "set_chapter", "index": 3 }),
+        1500.0,
+    );
+}
+
+#[test]
+fn a_refused_serve_on_a_chapter_jump_leaves_the_stream_released() {
+    for body in [
+        serde_json::json!({ "type": "next_chapter" }),
+        serde_json::json!({ "type": "previous_chapter" }),
+        serde_json::json!({ "type": "set_chapter", "index": 2 }),
+    ] {
+        let mut fixture = released_in_the_second_chapter();
+        fixture.engine.refuse("Nobody answers.");
+
+        let refused = fixture.host.dispatch(action(&body));
+
+        match refused {
+            Err(ActionError::Playback { detail }) => assert_eq!(detail, "Nobody answers."),
+            other => panic!("a refused serve is a playback error: {other:?}"),
+        }
+        assert_eq!(fixture.player.openings().len(), 0, "nothing was opened");
+        assert_eq!(
+            fixture.host.snapshot().playback.state,
+            PlaybackState::Paused,
+            "the Stream is as it was"
+        );
+
+        fixture.engine.allow();
+        dispatch(&mut fixture, body);
+        assert_eq!(fixture.player.openings().len(), 1, "a second try wakes it");
+    }
+}
+
+#[test]
+fn an_unknown_chapter_on_a_released_torrent_is_refused_without_reopening() {
+    let mut fixture = released_in_the_second_chapter();
+
+    let refused = fixture.host.dispatch(action(
+        &serde_json::json!({ "type": "set_chapter", "index": 9 }),
+    ));
+
+    assert!(matches!(
+        refused,
+        Err(ActionError::UnknownChapter { index: 9 })
+    ));
+    assert_eq!(fixture.engine.serves().len(), 1, "nothing was served");
+}
+
+#[test]
+fn the_chapter_actions_on_a_torrent_that_is_still_held_do_not_reopen() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:1", &torrent_of(HASH)).expect("a torrent plays");
+    fixture.player.now_reporting(Observation {
+        chapters: chapters(),
+        chapter: Some(1),
+        ..Observation::playing(600.0, 2820.0)
+    });
+    fixture.host.sample();
+
+    for (body, step) in [
+        (
+            serde_json::json!({ "type": "next_chapter" }),
+            ChapterStep::Next,
+        ),
+        (
+            serde_json::json!({ "type": "previous_chapter" }),
+            ChapterStep::Previous,
+        ),
+        (
+            serde_json::json!({ "type": "set_chapter", "index": 2 }),
+            ChapterStep::At { index: 2 },
+        ),
+    ] {
+        dispatch(&mut fixture, body);
+        assert!(
+            fixture.player.tellings().contains(&Telling::Chapter(step)),
+            "the Player is told {step:?}"
+        );
+    }
+
+    assert_eq!(fixture.engine.serves().len(), 1);
+    assert_eq!(fixture.player.openings().len(), 1);
 }
 
 // ── A torrent with no file to play ──────────────────────────────────────────
