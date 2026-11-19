@@ -46,6 +46,7 @@ mod device;
 mod discover;
 mod door;
 mod fetcher;
+mod giveup;
 mod handpick;
 mod host;
 mod idle;

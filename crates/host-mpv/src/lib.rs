@@ -963,7 +963,9 @@ fn preview_directory() -> std::path::PathBuf {
 /// keeps a machine without it playing (ADR-0003); `hwdec=auto-safe` so that
 /// hardware decode is engaged where the machine can and playback still works
 /// where it cannot; `keep-open` so that a Stream at its end stays loaded, which
-/// is what makes "ended" and a resume from it possible (#29). A placement in
+/// is what makes "ended" and a resume from it possible (#29); `network-timeout`
+/// is 90 s so that it outlasts the Host's 60 s give-up on a torrent nobody
+/// shares. A placement in
 /// the Host's own window also keeps the video output up, black, when no Stream
 /// is playing, so a Stop never leaves a hole where the desktop shows (#250).
 ///
@@ -996,6 +998,10 @@ fn options(surface: Placement, script: Option<&str>) -> Vec<(&'static str, Strin
         ("subs-fallback-forced", "no".to_owned()),
         ("subs-match-os-language", "no".to_owned()),
         ("keep-open", "yes".to_owned()),
+        // The Host gives up on a torrent nobody shares at 60 s while it opens;
+        // mpv's own wait must outlast that, so the Host's decision is the one
+        // that ends it (ADR-0042 §5).
+        ("network-timeout", "90".to_owned()),
         ("target-colorspace-hint", "yes".to_owned()),
         ("idle", "yes".to_owned()),
         ("config", "no".to_owned()),
@@ -1074,6 +1080,24 @@ mod tests {
             "HDR passthrough needs gpu-next, and the fallback keeps the rest playing"
         );
         assert_eq!(option(&options, "hwdec"), Some("auto-safe"));
+    }
+
+    #[test]
+    fn mpv_waits_on_the_network_longer_than_the_host_does() {
+        // The Host gives up on a torrent nobody shares at 60 s, and says so in
+        // its own words (ADR-0042 §5). mpv's own timeout must outlast that, so
+        // the Host's decision ends the wait and mpv's never does — for every
+        // Stream and every placement, because a direct Stream is no different.
+        for surface in [
+            Placement::Headless,
+            Placement::InWindow { handle: 1 },
+            Placement::OwnWindow,
+        ] {
+            assert_eq!(
+                option(&options(surface, None), "network-timeout"),
+                Some("90")
+            );
+        }
     }
 
     #[test]
