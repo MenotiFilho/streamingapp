@@ -48,8 +48,17 @@ whose candidates are a local video file. The file carries two audio tracks,
 three embedded subtitle tracks — two plain-text (SRT) and one ASS line authored
 red, so the colour can be checked on both kinds — two chapters and letterbox
 bars, so every OSD control has something to move; the series has two episodes,
-so `Next episode` and `Previous episode` have somewhere to go. One film's candidate is an `infoHash`,
-which this Host lists and marks unplayable rather than pretending to play.
+so `Next episode` and `Previous episode` have somewhere to go. It also starts
+`fixture-seed.exe` (cross-compiled into `fixture\` by `stage.sh`, never bundled
+into the installer) to seed the fixture video on `127.0.0.1` behind a loopback
+HTTP tracker as both a single-file film (**A Film From A Torrent**, `tt8888888`)
+and a two-file season pack (**A Series From A Torrent**, `tt7777778`, with S1E1,
+S1E2 and a missing S1E3), and lists **A Film From The Swarm** (Sintel, CC BY
+3.0) and **A Film Nobody Shares** (dead `infoHash`) for the by-hand torrent
+checks (#311, #347). Step 12 checks that the torrent film's candidate is listed
+with no unplayable note, and step 39 walks playing it from the local seed,
+answering the Windows Security Alert, asserting the opening block and absent
+Seek preview, and confirming cleanup on Stop, Host exit, and relaunch.
 
 The remote steps (25 and 26) pair and drive the **Cast Remote** (#32, ADR-0035):
 since the cutover (#216) `/` serves the React Remote, drawn in the Cast Remote's
@@ -104,7 +113,7 @@ the three seconds out.
 
 ## Walking part of the checklist
 
-The whole checklist is 38 steps and takes minutes. To iterate on one step, run
+The whole checklist is 39 steps and takes minutes. To iterate on one step, run
 just that one: the runner builds the ground the step declares first — an empty
 data directory, one Host on `-Monitor`, the fixture Addon configured by manifest
 URL, its first Catalog featured, at Home — and reuses it when several selected
