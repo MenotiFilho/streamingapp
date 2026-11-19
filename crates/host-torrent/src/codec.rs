@@ -314,7 +314,11 @@ impl Event {
             WireEvent::Ready => Event::Ready,
             WireEvent::Served { id, url } => Event::Served {
                 id,
-                url: StreamUrl::parse(&url).map_err(|e| DecodeError(e.to_string()))?,
+                // Never include the URL in the error: a `served` line carries
+                // the loopback token, and callers log `DecodeError` verbatim.
+                url: StreamUrl::parse(&url).map_err(|_| {
+                    DecodeError("the served URL is not a valid http or https URL".to_owned())
+                })?,
             },
             WireEvent::Refused { id, sentence } => Event::Refused { id, sentence },
             WireEvent::Status {
@@ -615,6 +619,21 @@ mod tests {
         for line in lines {
             assert!(Event::from_line(line).is_err(), "{line:?}");
         }
+    }
+
+    #[test]
+    fn a_malformed_served_url_does_not_leak_into_the_decode_error() {
+        let secret = "secret-token-9f8e7d";
+        let raw_url = format!("file:///127.0.0.1:41999/{secret}/{HASH}/0");
+        let line = format!(r#"{{"ev":"served","id":1,"url":"{raw_url}"}}"#);
+        let error = Event::from_line(&line).expect_err("a file:// URL is not a StreamUrl");
+        let rendered = error.to_string();
+
+        assert!(
+            !rendered.contains(&raw_url),
+            "error leaked raw URL: {rendered}"
+        );
+        assert!(!rendered.contains(secret), "error leaked token: {rendered}");
     }
 
     #[test]

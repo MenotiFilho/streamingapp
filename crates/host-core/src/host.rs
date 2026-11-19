@@ -1204,8 +1204,7 @@ impl Host {
         // that was read is dropped with it: from now on the Host's record stands
         // (ADR-0042 §3).
         if self.idle.due(self.clock.now_millis()) {
-            self.release_idle_torrent();
-            return None;
+            return self.release_idle_torrent();
         }
 
         // The first report of a Stream is where the Seek preview's ceiling is
@@ -1276,10 +1275,17 @@ impl Host {
         if let Some(choice) = initial.subtitle {
             next.select(TrackKind::Subtitle, choice.track());
         }
+        let failed_open = next.state() == PlaybackState::Idle;
+        if failed_open {
+            next.clear_torrent_status();
+        }
         let published = next.differs_publicly_from(self.state.playback());
         let reached_the_end = next.has_ended() && !was_ended;
 
         self.state.set_playback(next);
+        if failed_open {
+            self.let_go_failed_open_torrent();
+        }
         self.note_idle();
 
         // The tick where an episode's Stream becomes `Ended` is the one that
@@ -2041,6 +2047,37 @@ impl Host {
         self.forget_torrent_readings();
     }
 
+    /// Let the torrent being opened go after the Player reported `Idle` (a failed
+    /// open): drops the torrent from disk and clears held-torrent state while
+    /// preserving `engine_failure` so subsequent ticks of the same failed open
+    /// keep the engine's `NoFile` sentence.
+    fn let_go_failed_open_torrent(&mut self) {
+        if let Some(info_hash) = self.held_torrent.take() {
+            self.torrent_engine.let_go(&info_hash);
+        }
+        self.forget_torrent_readings();
+        self.idle.clear();
+        self.released = false;
+    }
+
+    /// Whether `info_hash` is the torrent held right now, or the torrent whose
+    /// open just failed (`Idle` with a failure). Letting go on a failed open
+    /// drops `held_torrent` immediately, while a late `Failed { NoFile }` report
+    /// (and later ticks keeping that sentence) still belongs to that failed open.
+    fn matches_torrent_for_no_file(&self, info_hash: &InfoHash) -> bool {
+        if self.held_torrent.as_ref() == Some(info_hash) {
+            return true;
+        }
+        self.state.playback().state() == PlaybackState::Idle
+            && self.state.playback().failure().is_some()
+            && self
+                .state
+                .playback()
+                .chosen()
+                .and_then(ChosenStream::info_hash)
+                == Some(info_hash)
+    }
+
     /// Feed the Host's idle measure the state the Stream is in now, at the
     /// Host's own clock. Called wherever the state can have changed, so the
     /// measure begins at the moment a Stream was paused or ended and not at the
@@ -2052,13 +2089,19 @@ impl Host {
     }
 
     /// Let the held torrent go for being idle, and keep the Stream where it is:
-    /// still Now playing, in the state it was left in. Nothing a client draws
-    /// moves, so nothing is published (ADR-0042 §3).
-    fn release_idle_torrent(&mut self) {
+    /// still Now playing, in the state it was left in. Clears any stale Torrent
+    /// status from the Snapshot and publishes if one was present (ADR-0042 §3).
+    fn release_idle_torrent(&mut self) -> Option<Snapshot> {
         self.let_go_held_torrent();
         self.idle.clear();
         self.released = true;
+        let cleared = self.state.clear_torrent_status();
         tracing::info!("an idle torrent was let go; its Stream stays as Now playing");
+        if cleared {
+            self.revision += 1;
+            return Some(self.snapshot());
+        }
+        None
     }
 
     /// Serve the released torrent again and reopen the same Stream at `start`,
@@ -2169,7 +2212,7 @@ impl Host {
                     info_hash,
                     kind: FailureKind::NoFile,
                     sentence,
-                } if self.held_torrent.as_ref() == Some(&info_hash) => {
+                } if self.matches_torrent_for_no_file(&info_hash) => {
                     self.engine_failure = Some((info_hash, sentence));
                 }
                 TorrentReport::Exited => exited = true,
@@ -2335,7 +2378,7 @@ impl Host {
         let Some((info_hash, sentence)) = &self.engine_failure else {
             return;
         };
-        if observation.failure.is_some() && self.held_torrent.as_ref() == Some(info_hash) {
+        if observation.failure.is_some() && self.matches_torrent_for_no_file(info_hash) {
             observation.failure = Some(sentence.clone());
         }
     }

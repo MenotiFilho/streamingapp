@@ -443,6 +443,7 @@ Host's record flips at once, and both screens show it in the next Snapshot.
 | `%APPDATA%\dev.streamingapp.host\host.sqlite3` (+ `-wal`, `-shm`) | Addons (manifest URLs included), preferences, Devices (token digests), Watch progress, Title cache |
 | `…\host.log` | JSON-lines logs |
 | `…\secrets.json` | only if no OS keyring answered; owner-only |
+| `%LOCALAPPDATA%\dev.streamingapp.host\torrents\` | per-torrent piece cache directory, wiped on stop, let-go, and startup |
 | Windows Credential Manager (`dev.streamingapp.host`) | TMDB key, Stremio `authKey` |
 
 On Linux, data and config are separate directories (`~/.local/share`,

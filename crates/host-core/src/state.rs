@@ -180,6 +180,12 @@ impl State {
         self.playback.torrent_status(status)
     }
 
+    /// Clear the engine's reading of the torrent, and say whether the Snapshot's
+    /// Torrent status moved with it.
+    pub(crate) fn clear_torrent_status(&mut self) -> bool {
+        self.playback.clear_torrent_status()
+    }
+
     /// Record that the Addon subtitles fallback was attempted for the Stream
     /// playing now. The Host's note to itself rather than something the Player
     /// says, so it moves no revision and is published by nothing (ADR-0014).

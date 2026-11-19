@@ -920,6 +920,36 @@ fn a_torrent_paused_for_thirty_minutes_is_let_go_and_the_stream_stays_paused() {
 }
 
 #[test]
+fn idle_let_go_clears_torrent_status_and_publishes_the_cleared_snapshot() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:1", &torrent_of(HASH)).expect("a torrent plays");
+    fixture
+        .engine
+        .report(status(HASH, TorrentPhase::Fetching, 12, 4_200_000));
+    is_playing(&fixture, 600.0);
+    fixture.host.sample();
+    paused_at(&mut fixture, 600.0);
+    assert!(
+        fixture.host.snapshot().playback.torrent.is_some(),
+        "the torrent status was published before the pause went idle"
+    );
+
+    fixture.clock.tick(30 * MINUTE);
+    let published = fixture
+        .host
+        .sample()
+        .expect("clearing stale Torrent status on idle let-go publishes a Snapshot");
+
+    assert_eq!(fixture.engine.let_gos(), vec![hash(HASH)]);
+    assert_eq!(published.playback.state, PlaybackState::Paused);
+    assert_eq!(
+        published.playback.torrent, None,
+        "Statistics must not show stale peers/rate after the torrent is let go"
+    );
+    assert_eq!(fixture.host.snapshot().playback.torrent, None);
+}
+
+#[test]
 fn a_torrent_paused_for_under_thirty_minutes_is_kept() {
     let mut fixture = fixture();
     play(&mut fixture, "tt0903747:1:1", &torrent_of(HASH)).expect("a torrent plays");
@@ -1868,6 +1898,66 @@ fn the_sentence_of_one_open_is_not_the_failure_of_the_next() {
         Some(MPV_WORDS),
         "a new open starts without the last one's sentence"
     );
+}
+
+#[test]
+fn a_no_file_failed_open_lets_go_of_the_held_torrent_and_keeps_the_engines_sentence() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:3", &torrent_of(HASH)).expect("a torrent plays");
+    fixture
+        .engine
+        .report(status(HASH, TorrentPhase::Finding, 4, 0));
+    opening(&fixture);
+    fixture.host.sample();
+    assert!(fixture.host.snapshot().playback.torrent.is_some());
+
+    fixture.engine.report(no_file(HASH));
+    mpv_could_not_open(&fixture);
+    let published = fixture.host.sample().expect("a failed open is published");
+
+    assert_eq!(published.playback.state, PlaybackState::Idle);
+    assert_eq!(published.playback.failure.as_deref(), Some(NO_FILE));
+    assert_eq!(
+        published.playback.torrent, None,
+        "a failed open clears the Torrent status"
+    );
+    assert_eq!(
+        fixture.engine.let_gos(),
+        vec![hash(HASH)],
+        "a failed open lets go of the held torrent so its cache does not sit on disk"
+    );
+
+    // A later sample tick keeps the engine's sentence and does not let go twice.
+    assert_eq!(fixture.host.sample(), None);
+    assert_eq!(
+        fixture.host.snapshot().playback.failure.as_deref(),
+        Some(NO_FILE)
+    );
+    assert_eq!(fixture.engine.let_gos(), vec![hash(HASH)]);
+}
+
+#[test]
+fn an_mpv_open_failure_lets_go_of_the_held_torrent_and_clears_torrent_status() {
+    let mut fixture = fixture();
+    play(&mut fixture, "tt0903747:1:3", &torrent_of(HASH)).expect("a torrent plays");
+    fixture
+        .engine
+        .report(status(HASH, TorrentPhase::Fetching, 6, 1_500_000));
+    opening(&fixture);
+    fixture.host.sample();
+    assert!(fixture.host.snapshot().playback.torrent.is_some());
+
+    mpv_could_not_open(&fixture);
+    let published = fixture.host.sample().expect("a failed open is published");
+
+    assert_eq!(published.playback.state, PlaybackState::Idle);
+    assert_eq!(published.playback.failure.as_deref(), Some(MPV_WORDS));
+    assert_eq!(published.playback.torrent, None);
+    assert_eq!(fixture.engine.let_gos(), vec![hash(HASH)]);
+
+    // Stopping after the failed open does not let go a second time.
+    dispatch(&mut fixture, serde_json::json!({ "type": "stop_playback" }));
+    assert_eq!(fixture.engine.let_gos(), vec![hash(HASH)]);
 }
 
 // ── The give-up while opening ───────────────────────────────────────────────

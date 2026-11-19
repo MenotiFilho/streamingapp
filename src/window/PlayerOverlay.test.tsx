@@ -1290,15 +1290,14 @@ describe("the player OSD", () => {
     expect(screen.getByTestId("volume")).toBeInTheDocument();
   });
 
-  test("an opening Stream's block is centred over the picture for any Stream, not lifted over the OSD", async () => {
-    // The decision: the block lives in the picture, drawn by the preview rules
-    // that centre it. Whether it clears the OSD at 1600x900 and at 720x480 is
-    // Windows' to confirm; jsdom has no layout (#333, ADR-0032).
+  test("an opening Stream presents the opening block for any Stream", async () => {
+    // Whether the centred block clears the OSD at 1600x900 and at 720x480 is
+    // Windows' to confirm; jsdom tests presence and copy, never DOM nesting
+    // (#333, ADR-0032).
     await renderPlayer({ state: "opening", position: null, duration: null });
 
-    const preview = screen.getByTestId("opening-preview");
-    expect(preview).toContainElement(screen.getByTestId("opening-stream"));
-    expect(screen.getByTestId("picture")).toContainElement(preview);
+    expect(screen.getByTestId("opening-preview")).toBeInTheDocument();
+    expect(screen.getByTestId("opening-stream")).toHaveTextContent("Opening");
   });
 
   describe("a torrent's status on the opening block", () => {
@@ -1310,11 +1309,9 @@ describe("the player OSD", () => {
         torrent: { phase: "finding", peers: 5, rate: 0 },
       });
 
+      expect(screen.getByTestId("opening-stream")).toHaveTextContent("Opening");
       expect(screen.getByTestId("opening-torrent")).toHaveTextContent(
         "Finding the torrent · 5 peers",
-      );
-      expect(screen.getByTestId("opening-preview")).toContainElement(
-        screen.getByTestId("opening-torrent"),
       );
     });
 

@@ -24,7 +24,10 @@ export function useStallShown(stalled: boolean): boolean {
     setStalledSince(since);
     setNow(since);
 
-    const timer = setTimeout(() => setNow(performance.now()), STALL_GRACE_MS);
+    const timer = setTimeout(
+      () => setNow(Math.max(performance.now(), since + STALL_GRACE_MS)),
+      STALL_GRACE_MS,
+    );
     return () => clearTimeout(timer);
   }, [stalled]);
 

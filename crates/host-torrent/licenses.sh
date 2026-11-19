@@ -23,23 +23,33 @@ cd "$engine"
 export GOOS=windows GOARCH=amd64 CGO_ENABLED=0
 
 # `GOFLAGS=-mod=readonly` keeps a stale go.sum a failure, not a rewrite.
+# Query `.` (the engine binary itself) rather than `./...` so walkthrough-only
+# helper commands under `cmd/` are not swept into the shipped licence inventory.
 modules="$(GOFLAGS=-mod=readonly go list -deps \
   -f '{{if and .Module (not .Module.Main)}}{{.Module.Path}}|{{.Module.Version}}|{{.Module.Dir}}{{end}}' \
-  ./... | sort -u)"
+  . | sort -u)"
 
-# A guess at the licence from its own wording; empty when it is not one we know.
+# Identify the licence from its own wording. Fails on any AGPL or unrecognized
+# licence so an incompatible or unknown licence cannot silently enter the build.
 identify() {
   local text
   text="$(tr -s '[:space:]' ' ' <"$1")"
   case "$text" in
     *"Mozilla Public License"*"ersion 2.0"* | *"Mozilla Public License"*", version 2.0"*) echo "MPL-2.0" ;;
+    *"GNU AFFERO GENERAL PUBLIC LICENSE"* | *"GNU Affero General Public License"* | *"Affero General Public License"* | *"AGPL"*)
+      echo "licenses.sh: forbidden AGPL licence in $1" >&2
+      exit 1
+      ;;
     *"Apache License"*"Version 2.0"*) echo "Apache-2.0" ;;
     *"Redistribution and use in source and binary forms"*"Neither the name"*) echo "BSD-3-Clause" ;;
     *"Redistribution and use in source and binary forms"*) echo "BSD-2-Clause" ;;
     *"Permission is hereby granted, free of charge"*) echo "MIT" ;;
     *"with or without fee is hereby granted"*) echo "ISC" ;;
     *"This is free and unencumbered software released into the public domain"*) echo "Unlicense" ;;
-    *) echo "see the text" ;;
+    *)
+      echo "licenses.sh: unrecognized licence in $1" >&2
+      exit 1
+      ;;
   esac
 }
 
@@ -51,6 +61,8 @@ license_files() {
     | sort
 }
 
+trap 'rm -f "$out.tmp"' EXIT
+
 {
   cat <<'HEADER'
 # Third-party licences of the Torrent engine
@@ -60,9 +72,12 @@ license_files() {
 The Torrent engine (`streamingapp-torrent`) is our own Go program, licensed
 GPL-3.0-or-later like the rest of the Host. It is built from the Go standard
 library and the modules below, each under its own licence, whose text follows.
-`github.com/anacrolix/torrent` is MPL-2.0: the engine is a Larger Work in the sense
-of its §3.3, distributed under the GPL, and the Source Code Form of that module is
-available from its repository at the version listed.
+`github.com/anacrolix/torrent` and its companion `github.com/anacrolix/*`
+MPL-2.0 modules listed in the index below (`dht/v2`, `generics`, `log`,
+`multiless`, `sync`, `upnp`) are licensed under MPL-2.0: the engine is a Larger
+Work in the sense of MPL-2.0 §3.3, distributed under the GPL, and the Source
+Code Form of each MPL-2.0 module is available from its repository at the version
+listed.
 
 HEADER
 

@@ -1162,6 +1162,11 @@ impl PlaybackSession {
         self.state
     }
 
+    /// Why the Stream failed to open or ended in failure, if it did.
+    pub(crate) fn failure(&self) -> Option<&str> {
+        self.failure.as_deref()
+    }
+
     /// Whether the Host is on a Stream at all — playing, opening, paused, ended
     /// or failed. A stop is allowed for all of those; a control is not.
     pub(crate) fn has_stream(&self) -> bool {
@@ -1384,6 +1389,11 @@ impl PlaybackSession {
         }
         self.torrent = Some(status);
         true
+    }
+
+    /// Clear the engine's reading of the torrent, and say whether one was held.
+    pub(crate) fn clear_torrent_status(&mut self) -> bool {
+        self.torrent.take().is_some()
     }
 
     /// The shape the Host's own record says the picture is drawn at.

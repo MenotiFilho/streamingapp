@@ -70,4 +70,18 @@ describe("useStallShown", () => {
     advance(10_000);
     expect(result.current).toBe(false);
   });
+
+  test("still shows when the one-second timer fires a fraction of a millisecond early", () => {
+    const { result } = renderHook(({ stalled }) => useStallShown(stalled), {
+      initialProps: { stalled: true },
+    });
+    expect(result.current).toBe(false);
+
+    // Simulate setTimeout(..., 1000) firing while performance.now() reads 999.7 ms.
+    act(() => {
+      now = 999.7;
+      vi.advanceTimersByTime(1000);
+    });
+    expect(result.current).toBe(true);
+  });
 });

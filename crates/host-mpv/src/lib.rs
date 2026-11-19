@@ -413,6 +413,33 @@ impl MpvPlayer {
             })
             .collect()
     }
+    /// Send a Telling's commands directly to mpv without touching `self.memory`.
+    fn send(&self, telling: &Telling) -> Result<(), PlaybackError> {
+        for command in telling::commands(telling) {
+            self.run(command)?;
+        }
+        Ok(())
+    }
+}
+
+/// Complete a resume's opening hold once the picture is configured (or the wait
+/// times out). Unpauses mpv unless the caller explicitly told
+/// `Telling::Pause(true)` after `open`.
+fn finish_start_when_ready(
+    memory: &mut Memory,
+    properties: &Properties,
+    unpause: impl FnOnce() -> bool,
+) {
+    if !memory.starting() {
+        return;
+    }
+    let ready = properties.configured && properties.width.is_some() && properties.height.is_some();
+    if !(ready || memory.start_timed_out()) {
+        return;
+    }
+    if memory.hold_paused() || unpause() {
+        memory.start_ready();
+    }
 }
 
 impl Player for MpvPlayer {
@@ -439,7 +466,7 @@ impl Player for MpvPlayer {
         // held until its picture is configured so the room does not start with
         // sound over a poster.
         let starting = start.is_some();
-        self.tell(Telling::Pause(starting))?;
+        self.send(&Telling::Pause(starting))?;
 
         // Where a resume begins, set before the file is loaded because that is
         // when mpv reads it: a seek sent afterwards would move a Stream that has
@@ -470,8 +497,13 @@ impl Player for MpvPlayer {
     }
 
     fn tell(&self, telling: Telling) -> Result<(), PlaybackError> {
-        for command in telling::commands(&telling) {
-            self.run(command)?;
+        self.send(&telling)?;
+        if let Telling::Pause(paused) = telling {
+            let mut memory = self
+                .memory
+                .lock()
+                .expect("nothing panics while holding the Player's memory");
+            memory.told_pause(paused);
         }
         Ok(())
     }
@@ -498,14 +530,11 @@ impl Player for MpvPlayer {
         let properties = self.properties();
 
         // A resume is held paused until the picture is configured. The wait is
-        // bounded: a Stream with no video at all must still play its sound.
-        if memory.starting() {
-            let ready =
-                properties.configured && properties.width.is_some() && properties.height.is_some();
-            if (ready || memory.start_timed_out()) && self.tell(Telling::Pause(false)).is_ok() {
-                memory.start_ready();
-            }
-        }
+        // bounded: a Stream with no video at all must still play its sound,
+        // unless the caller explicitly asked to stay paused.
+        finish_start_when_ready(&mut memory, &properties, || {
+            self.send(&Telling::Pause(false)).is_ok()
+        });
 
         let mut observation = observe(&memory, &properties);
         if memory.starting() {
@@ -1243,5 +1272,77 @@ mod tests {
                 "{surface:?} leaves a Stream at its end rather than unloading it"
             );
         }
+    }
+
+    #[test]
+    fn a_resume_told_to_stay_paused_is_not_unpaused_when_vo_is_configured() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::net::TcpListener;
+        use std::thread;
+
+        const CONTROLS: &[u8] = include_bytes!("../tests/fixtures/controls.mkv");
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a free port");
+        let port = listener.local_addr().expect("listener address").port();
+        thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                thread::spawn(move || {
+                    let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
+                    let mut line = String::new();
+                    while reader.read_line(&mut line).is_ok() {
+                        if line.trim().is_empty() {
+                            break;
+                        }
+                        line.clear();
+                    }
+                    let mut stream = stream;
+                    let _ = write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Type: video/x-matroska\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        CONTROLS.len()
+                    );
+                    let _ = stream.write_all(CONTROLS);
+                    let _ = stream.flush();
+                });
+            }
+        });
+
+        let player = MpvPlayer::start(Placement::Headless).expect("headless mpv starts");
+        let url =
+            StreamUrl::parse(&format!("http://127.0.0.1:{port}/controls.mkv")).expect("valid URL");
+        player
+            .open(&url, Some(2.0))
+            .expect("mpv takes the Stream at a resume point");
+        player
+            .tell(Telling::Pause(true))
+            .expect("caller tells the opening resume to stay paused");
+
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut settled = None;
+        while Instant::now() < deadline {
+            let observation = player.observe();
+            let configured = player
+                .mpv
+                .get_property::<bool>("vo-configured")
+                .unwrap_or(false);
+            if configured && observation.state != PlaybackState::Opening {
+                settled = Some(observation);
+                break;
+            }
+            thread::sleep(Duration::from_millis(25));
+        }
+
+        let first = settled.expect("vo-configured should become true and leave Opening");
+        assert_eq!(first.state, PlaybackState::Paused);
+
+        // Observe again after a brief pause so any erroneous `Pause(false)` sent
+        // on the `vo-configured` tick has taken effect in mpv.
+        thread::sleep(Duration::from_millis(100));
+        let later = player.observe();
+        assert_eq!(
+            later.state,
+            PlaybackState::Paused,
+            "a resume explicitly told Pause(true) must stay Paused after vo-configured"
+        );
     }
 }

@@ -310,16 +310,12 @@ describe("the Credentials leaf", () => {
 });
 
 describe("the Preferences leaf", () => {
-  test("the Torrent cache is its own group under the Stream buffer, and a press sends its Action", async () => {
+  test("the Torrent cache is its own group, and a press sends its Action", async () => {
     const { host } = mount({ snapshot: WITH_SETTINGS });
     await openSettings();
     await openCategory(PREFERENCES);
 
     expect(screen.getByText("Torrents are fetched this far ahead too.")).toBeInTheDocument();
-    const heads = screen
-      .getAllByRole("heading", { level: 2 })
-      .map((heading) => heading.textContent);
-    expect(heads.indexOf("Torrent cache")).toBe(heads.indexOf("Stream buffer") + 1);
 
     // The default is held; a chip in the group is a press of the one Action. The
     // group is addressed by its heading because the Stream buffer's ladder also

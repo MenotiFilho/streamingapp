@@ -52,6 +52,10 @@ pub(crate) struct Memory {
     /// `opening` while it waits.
     starting: bool,
     starting_since: Option<Instant>,
+    /// Whether the caller explicitly asked to stay paused (`Telling::Pause(true)`)
+    /// while a resume's opening hold was in flight. When set, the opening hold
+    /// still finishes once the picture is configured, but without unpausing mpv.
+    hold_paused: bool,
 }
 
 /// How long a resume waits for a picture before letting the Stream play anyway.
@@ -80,6 +84,7 @@ impl Memory {
             decode: None,
             starting: false,
             starting_since: None,
+            hold_paused: false,
         }
     }
 
@@ -87,6 +92,7 @@ impl Memory {
     pub(crate) fn begin_start(&mut self) {
         self.starting = true;
         self.starting_since = Some(Instant::now());
+        self.hold_paused = false;
     }
 
     /// Whether this open is still waiting for its picture.
@@ -94,10 +100,31 @@ impl Memory {
         self.starting
     }
 
+    /// Whether the caller asked this opening resume to stay paused once ready.
+    pub(crate) fn hold_paused(&self) -> bool {
+        self.hold_paused
+    }
+
+    /// Record an explicit pause/unpause from the caller while a resume's
+    /// opening hold is in flight: `Pause(true)` keeps the Stream paused once
+    /// its picture is configured instead of auto-unpausing it; `Pause(false)`
+    /// has already unpaused mpv, so the hold is over.
+    pub(crate) fn told_pause(&mut self, paused: bool) {
+        if !self.starting {
+            return;
+        }
+        if paused {
+            self.hold_paused = true;
+        } else {
+            self.start_ready();
+        }
+    }
+
     /// The picture is configured, or the wait has gone on long enough.
     pub(crate) fn start_ready(&mut self) {
         self.starting = false;
         self.starting_since = None;
+        self.hold_paused = false;
     }
 
     /// Whether the resume has waited longer than a picture should take.

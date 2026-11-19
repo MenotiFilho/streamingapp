@@ -5,9 +5,12 @@
 The Torrent engine (`streamingapp-torrent`) is our own Go program, licensed
 GPL-3.0-or-later like the rest of the Host. It is built from the Go standard
 library and the modules below, each under its own licence, whose text follows.
-`github.com/anacrolix/torrent` is MPL-2.0: the engine is a Larger Work in the sense
-of its §3.3, distributed under the GPL, and the Source Code Form of that module is
-available from its repository at the version listed.
+`github.com/anacrolix/torrent` and its companion `github.com/anacrolix/*`
+MPL-2.0 modules listed in the index below (`dht/v2`, `generics`, `log`,
+`multiless`, `sync`, `upnp`) are licensed under MPL-2.0: the engine is a Larger
+Work in the sense of MPL-2.0 §3.3, distributed under the GPL, and the Source
+Code Form of each MPL-2.0 module is available from its repository at the version
+listed.
 
 ## Index
 
