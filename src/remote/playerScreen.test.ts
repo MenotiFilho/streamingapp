@@ -4,6 +4,7 @@ import { actionKey } from "../core/actionKey";
 import { autoplayView } from "../core/autoplay";
 import type { Level } from "../core/navigation";
 import { playbackView } from "../core/playbackView";
+import { torrentLine } from "../core/torrentStatus";
 import { STALLED_NOTE, STALLED_STRIP_NOTE } from "../core/stall";
 import type { PlaybackSnapshot, Title } from "../core/wire";
 import type { RemotePayload } from "./levels";
@@ -11,6 +12,7 @@ import {
   autoplayBanner,
   autoplaySwitch,
   cardStateNote,
+  cardTorrentLine,
   CARD_NAME,
   ENDED_NOTE,
   openingNote,
@@ -481,6 +483,45 @@ describe("the Remote's Autoplay drawings", () => {
 
   test("a shown stall is never a note for a Stream that is not stalled", () => {
     expect(cardStateNote(view({ state: "playing", stalled: false }), true)).toBeNull();
+  });
+
+  describe("the card's torrent line", () => {
+    const FINDING = { phase: "finding", peers: 5, rate: 0 } as const;
+    const FETCHING = { phase: "fetching", peers: 3, rate: 180_000 } as const;
+
+    test("rides under the opening note of a torrent, in the core's words", () => {
+      const opening = view({ state: "opening", torrent: FINDING });
+
+      expect(cardStateNote(opening)).not.toBeNull();
+      expect(cardTorrentLine(opening)).toBe(torrentLine(FINDING));
+      expect(cardTorrentLine(opening)).toBe("Finding the torrent · 5 peers");
+    });
+
+    test("rides under the Stalled note of a torrent, but only once the stall is shown", () => {
+      const stalled = view({ state: "playing", stalled: true, torrent: FETCHING });
+
+      expect(cardTorrentLine(stalled, false)).toBeNull();
+      expect(cardTorrentLine(stalled)).toBeNull();
+      expect(cardTorrentLine(stalled, true)).toBe(torrentLine(FETCHING));
+    });
+
+    test("is never drawn for a direct Stream, opening or Stalled", () => {
+      expect(cardTorrentLine(view({ state: "opening", torrent: null }))).toBeNull();
+      expect(
+        cardTorrentLine(view({ state: "playing", stalled: true, torrent: null }), true),
+      ).toBeNull();
+    });
+
+    test("is not drawn where the card has no state note to put it under", () => {
+      expect(cardTorrentLine(view({ state: "playing", torrent: FETCHING }), true)).toBeNull();
+      expect(cardTorrentLine(view({ state: "ended", torrent: FETCHING }), true)).toBeNull();
+    });
+
+    test("never reaches the docked strip, which stays Waiting…", () => {
+      const stalled = view({ state: "playing", stalled: true, torrent: FETCHING });
+
+      expect(stripNote(stalled, true)).toBe(STALLED_STRIP_NOTE);
+    });
   });
 
   test("the docked strip says Waiting… while a shown stall holds the Stream", () => {
