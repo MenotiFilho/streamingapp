@@ -334,6 +334,20 @@ export type Statistics = {
   hardwareDecode: string | null;
 };
 
+/** How far a torrent has come: still looking for it, or bytes are arriving. */
+export type TorrentPhase = "finding" | "fetching";
+
+/**
+ * The Torrent status of a torrent Stream: its phase, how many peers, and bytes
+ * a second. Mirrors `TorrentStatus` in `host-core`; never which torrent.
+ */
+export type TorrentStatus = {
+  phase: TorrentPhase;
+  peers: number;
+  /** Bytes per second. */
+  rate: number;
+};
+
 /**
  * What every client is told about playback: the one genuinely shared state.
  * Mirrors `PlaybackSnapshot` in `host-core`.
@@ -371,6 +385,12 @@ export type PlaybackSnapshot = {
    * state but `playing`.
    */
   stalled: boolean;
+  /**
+   * The Torrent status of the Stream, where it is a torrent: finding or
+   * fetching, peers, and bytes a second. Null for a direct Stream, and for a
+   * torrent the engine has not yet reported on.
+   */
+  torrent: TorrentStatus | null;
   /** The Stream's tracks — audio and subtitles — in the Player's own order. */
   tracks: Track[];
   /** The Stream's chapters, in the container's order. */

@@ -606,6 +606,7 @@ fn the_snapshot_declares_only_fields_it_can_safely_carry() {
                 "duration": serde_json::Value::Null,
                 "buffered": serde_json::Value::Null,
                 "stalled": false,
+                "torrent": serde_json::Value::Null,
                 "tracks": [],
                 "chapters": [],
                 "chapter": serde_json::Value::Null,

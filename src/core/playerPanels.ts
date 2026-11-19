@@ -28,7 +28,8 @@ import {
   trackLabel,
   trackMarks,
 } from "./controls";
-import type { Action, Chapter, PlaybackSnapshot, Track } from "./wire";
+import { formatRate } from "./torrentStatus";
+import type { Action, Chapter, PlaybackSnapshot, TorrentStatus, Track } from "./wire";
 
 /** One choice row: a row that is pressed when it is the value in force. */
 export type ChoiceRow = {
@@ -99,6 +100,19 @@ function trackChoices(tracks: Track[]): ChoiceRow[] {
   return tracks.map(trackChoice);
 }
 
+/** The swarm's two lines, present only where the Stream is a torrent. */
+function torrentStatisticsLines(
+  torrent: TorrentStatus | null,
+): Array<{ label: string; value: string }> {
+  if (torrent === null) {
+    return [];
+  }
+  return [
+    { label: "Peers", value: String(torrent.peers) },
+    { label: "Download", value: formatRate(torrent.rate) },
+  ];
+}
+
 /**
  * Aspect, the crop choices, Autocrop and statistics.
  *
@@ -161,7 +175,10 @@ export function pictureSections(
     statisticsRows.push({
       kind: "readout",
       key: "statistics",
-      lines: statisticsLines(playback.statistics),
+      lines: [
+        ...statisticsLines(playback.statistics),
+        ...torrentStatisticsLines(playback.torrent),
+      ],
     });
   }
 

@@ -58,6 +58,7 @@ const NOTHING_SAID: Snapshot = {
     muted: null,
     subtitleDelay: null,
     stalled: false,
+    torrent: null,
     crop: null,
     aspect: null,
     resolution: null,
@@ -161,6 +162,7 @@ function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
     muted: true,
     subtitleDelay: 0,
     stalled: false,
+    torrent: null,
     crop: null,
     aspect: null,
     resolution: { width: 128, height: 72 },
@@ -1134,6 +1136,33 @@ describe("the player OSD", () => {
     await closePopover("popover-subtitles");
   });
 
+  test("the Statistics rows say Peers and Download for a torrent only", async () => {
+    await renderPlayer({ torrent: { phase: "fetching", peers: 12, rate: 4_200_000 } });
+    fireEvent.click(screen.getByTestId("osd-picture"));
+    const picture = await screen.findByTestId("popover-picture");
+    fireEvent.click(within(picture).getByTestId("toggle-statistics"));
+
+    const statistics = within(picture).getByTestId("statistics");
+    expect(statistics).toHaveTextContent("Peers");
+    expect(statistics).toHaveTextContent("12");
+    expect(statistics).toHaveTextContent("Download");
+    expect(statistics).toHaveTextContent("4.2 MB/s");
+    await closePopover("popover-picture");
+  });
+
+  test("a direct Stream's Statistics have neither row", async () => {
+    await renderPlayer({ torrent: null });
+    fireEvent.click(screen.getByTestId("osd-picture"));
+    const picture = await screen.findByTestId("popover-picture");
+    fireEvent.click(within(picture).getByTestId("toggle-statistics"));
+
+    const statistics = within(picture).getByTestId("statistics");
+    expect(statistics).toHaveTextContent("Hardware decode");
+    expect(statistics).not.toHaveTextContent("Peers");
+    expect(statistics).not.toHaveTextContent("Download");
+    await closePopover("popover-picture");
+  });
+
   test("the popovers carry the whole control set", async () => {
     const host = await renderPlayer();
 
@@ -1270,6 +1299,66 @@ describe("the player OSD", () => {
     const preview = screen.getByTestId("opening-preview");
     expect(preview).toContainElement(screen.getByTestId("opening-stream"));
     expect(screen.getByTestId("picture")).toContainElement(preview);
+  });
+
+  describe("a torrent's status on the opening block", () => {
+    test("is one line under Opening, and nothing is added for a direct Stream", async () => {
+      await renderPlayer({
+        state: "opening",
+        position: null,
+        duration: null,
+        torrent: { phase: "finding", peers: 5, rate: 0 },
+      });
+
+      expect(screen.getByTestId("opening-torrent")).toHaveTextContent(
+        "Finding the torrent · 5 peers",
+      );
+      expect(screen.getByTestId("opening-preview")).toContainElement(
+        screen.getByTestId("opening-torrent"),
+      );
+    });
+
+    test("a direct Stream's block has no such line", async () => {
+      await renderPlayer({ state: "opening", position: null, duration: null, torrent: null });
+
+      expect(screen.getByTestId("opening-stream")).toHaveTextContent("Opening");
+      expect(screen.queryByTestId("opening-torrent")).not.toBeInTheDocument();
+    });
+
+    test("a torrent the engine has not reported on has no line yet", async () => {
+      await renderPlayer({ state: "opening", position: null, duration: null });
+
+      expect(screen.queryByTestId("opening-torrent")).not.toBeInTheDocument();
+    });
+
+    test("follows the status as it changes", async () => {
+      const host = await renderPlayer({
+        state: "opening",
+        position: null,
+        duration: null,
+        torrent: { phase: "finding", peers: 1, rate: 0 },
+      });
+      expect(screen.getByTestId("opening-torrent")).toHaveTextContent(
+        "Finding the torrent · 1 peer",
+      );
+
+      act(() => {
+        host.publish({
+          ...NOTHING_SAID,
+          revision: 10,
+          playback: playback({
+            state: "opening",
+            position: null,
+            duration: null,
+            torrent: { phase: "fetching", peers: 12, rate: 4_200_000 },
+          }),
+        });
+      });
+
+      expect(screen.getByTestId("opening-torrent")).toHaveTextContent(
+        "Fetching · 12 peers · 4.2 MB/s",
+      );
+    });
   });
 
   test("the wait for mpv shows the Title's own art instead of an empty hole", async () => {
@@ -1559,8 +1648,12 @@ describe("the player OSD", () => {
       vi.useRealTimers();
     });
 
-    async function mountStalled(stalled: boolean) {
-      const initial = { ...NOTHING_SAID, revision: 9, playback: playback({ stalled }) };
+    async function mountStalled(stalled: boolean, overrides: Partial<PlaybackSnapshot> = {}) {
+      const initial = {
+        ...NOTHING_SAID,
+        revision: 9,
+        playback: playback({ stalled, ...overrides }),
+      };
       const host = fakeHost(initial);
       render(<Shell client={host.client} />);
       await act(async () => {
@@ -1593,6 +1686,26 @@ describe("the player OSD", () => {
 
       say({ stalled: false }, 10);
       expect(screen.queryByTestId("stall-card")).not.toBeInTheDocument();
+    });
+
+    test("a torrent's status is the card's second line, and a direct Stream has none", async () => {
+      const { say } = await mountStalled(true, {
+        torrent: { phase: "fetching", peers: 0, rate: 0 },
+      });
+      act(() => vi.advanceTimersByTime(STALL_GRACE_MS));
+      expect(screen.getByTestId("stall-torrent")).toHaveTextContent(
+        "Fetching · 0 peers · 0 B/s",
+      );
+
+      say({ stalled: true, torrent: { phase: "fetching", peers: 3, rate: 120_000 } }, 10);
+      expect(screen.getByTestId("stall-torrent")).toHaveTextContent(
+        "Fetching · 3 peers · 120 kB/s",
+      );
+      expect(screen.getByTestId("stall-card")).toHaveTextContent("Waiting for the Stream…");
+
+      say({ stalled: true, torrent: null }, 11);
+      expect(screen.getByTestId("stall-card")).toBeInTheDocument();
+      expect(screen.queryByTestId("stall-torrent")).not.toBeInTheDocument();
     });
 
     test("a seek's brief wait draws nothing", async () => {

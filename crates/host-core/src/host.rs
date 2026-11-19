@@ -35,7 +35,9 @@ use crate::title_cache::{
     CachedTitle, TitleCache, TitleProbe, TitleProtection, MAX_CACHED_TITLES, RUNNING_FRESH_MILLIS,
 };
 use crate::tmdb;
-use crate::torrent::{InfoHash, NoTorrentEngine, TorrentEngine, TorrentLimits, TorrentReport};
+use crate::torrent::{
+    InfoHash, NoTorrentEngine, TorrentEngine, TorrentLimits, TorrentReport, TorrentStatus,
+};
 use crate::tracks::{self, SubtitleChoice};
 use crate::view::{HostView, HostViewShared};
 
@@ -47,6 +49,10 @@ use countdown::CountdownEffect;
 /// makes a week pass while the Host stays open, and it is why a failing source
 /// is not asked again on every tick (#277, ADR-0038 §5).
 const READ_AHEAD_SCAN_MILLIS: i64 = RUNNING_FRESH_MILLIS;
+
+/// The least gap between two Torrent statuses reaching the Snapshot: a second,
+/// the engine's own cadence, so a client is not woken by every sample.
+const TORRENT_STATUS_EVERY_MS: i64 = 1_000;
 
 /// The Host: its state, and the surface over it.
 ///
@@ -85,6 +91,14 @@ pub struct Host {
     /// it, and keeps across `Ended` and across another file of the same infoHash
     /// (ADR-0042 §2).
     held_torrent: Option<InfoHash>,
+    /// The engine's latest reading of the held torrent that has not been
+    /// published yet: the Torrent status is published at most once every
+    /// [`TORRENT_STATUS_EVERY_MS`], and what arrives between is kept, newest
+    /// wins, until the second has passed.
+    torrent_reading: Option<TorrentStatus>,
+    /// When a Torrent status last reached the Snapshot, in the Host's own
+    /// millis.
+    torrent_status_at: Option<i64>,
     /// Whether the Stream now open may be previewed, once the Player's first
     /// report has said what it costs. [`PreviewCeiling::Waiting`] until then, and
     /// decided once per Stream: a refusal is not revisited on a later report, and
@@ -263,6 +277,8 @@ impl Host {
             previewer: Arc::new(NoPreviewer),
             torrent_engine: Arc::new(NoTorrentEngine),
             held_torrent: None,
+            torrent_reading: None,
+            torrent_status_at: None,
             preview_gate: PreviewCeiling::Refused,
             preview_since: None,
             clock,
@@ -1078,7 +1094,7 @@ impl Host {
     /// timers — so whoever owns the shell's event loop calls this while
     /// something is playing (ADR-0013, ADR-0033).
     pub fn sample(&mut self) -> Option<Snapshot> {
-        self.drain_torrent_reports();
+        let status_moved = self.drain_torrent_reports();
         let observation = self.player.observe();
 
         // The Host's own countdown is checked against its clock *before* an
@@ -1155,7 +1171,7 @@ impl Host {
         let was_ended = self.state.playback().has_ended();
         let Some(mut next) = self.state.playback().advanced(&observation) else {
             // Nothing the Player said moved; only the countdown ending can.
-            if countdown_ended {
+            if countdown_ended || status_moved {
                 self.revision += 1;
                 return Some(self.snapshot());
             }
@@ -1203,7 +1219,7 @@ impl Host {
             }
         }
 
-        if !published && !corrected && !countdown_ended {
+        if !published && !corrected && !countdown_ended && !status_moved {
             return None;
         }
 
@@ -1914,12 +1930,26 @@ impl Host {
         if let Some(info_hash) = self.held_torrent.take() {
             self.torrent_engine.let_go(&info_hash);
         }
+        self.forget_torrent_readings();
     }
 
-    /// Take what the engine has reported since the last tick. A `Chosen` report
-    /// is logged and goes nowhere else; the other reports are for later
-    /// handling in this same drain.
-    fn drain_torrent_reports(&self) {
+    /// Drop what the Host holds of a torrent's Torrent status: a reading kept
+    /// back, and when the last one went out. What the Snapshot says goes with the
+    /// Stream, and the next torrent's first reading must not wait on this one's.
+    fn forget_torrent_readings(&mut self) {
+        self.torrent_reading = None;
+        self.torrent_status_at = None;
+    }
+
+    /// Take what the engine has reported since the last tick, and say whether a
+    /// Torrent status reached the Snapshot, which is then news for this tick.
+    ///
+    /// A `Chosen` report is logged and goes nowhere else; the other reports are
+    /// for later handling in this same drain. A `Status` of the torrent being
+    /// held is kept as the newest reading, and published by
+    /// [`Self::publish_torrent_reading`]; one of any other torrent is not about
+    /// this Stream.
+    fn drain_torrent_reports(&mut self) -> bool {
         for report in self.torrent_engine.reports() {
             match report {
                 TorrentReport::Chosen {
@@ -1927,11 +1957,42 @@ impl Host {
                     file_idx,
                     name,
                 } => tracing::info!(%info_hash, file_idx, name, "the torrent engine chose a file"),
-                TorrentReport::Status { .. }
-                | TorrentReport::Failed { .. }
-                | TorrentReport::Exited => {}
+                TorrentReport::Status {
+                    info_hash,
+                    phase,
+                    peers,
+                    rate,
+                } => {
+                    if self.held_torrent.as_ref() == Some(&info_hash) {
+                        self.torrent_reading = Some(TorrentStatus { phase, peers, rate });
+                    }
+                }
+                TorrentReport::Failed { .. } | TorrentReport::Exited => {}
             }
         }
+        self.publish_torrent_reading()
+    }
+
+    /// Let the newest kept reading into the Snapshot, once a second has passed
+    /// since the last one did. A reading equal to the one held is not news, and
+    /// does not start the second over.
+    fn publish_torrent_reading(&mut self) -> bool {
+        let Some(reading) = self.torrent_reading else {
+            return false;
+        };
+        let now = self.clock.now_millis();
+        if self
+            .torrent_status_at
+            .is_some_and(|at| now.saturating_sub(at) < TORRENT_STATUS_EVERY_MS)
+        {
+            return false;
+        }
+        self.torrent_reading = None;
+        if self.state.set_torrent_status(reading) {
+            self.torrent_status_at = Some(now);
+            return true;
+        }
+        false
     }
 
     /// Open `chosen` in the Player at `start`, arm the Seek preview for its
@@ -1998,6 +2059,7 @@ impl Host {
         // opened, unless the replacement is the same torrent: a season pack is
         // one torrent across its episodes.
         let previous = std::mem::replace(&mut self.held_torrent, served);
+        self.forget_torrent_readings();
         if let Some(previous) = previous {
             if self.held_torrent.as_ref() != Some(&previous) {
                 self.torrent_engine.let_go(&previous);

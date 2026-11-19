@@ -109,6 +109,7 @@ const PLAYING: Snapshot = {
     muted: true,
     subtitleDelay: 0,
     stalled: false,
+    torrent: null,
     crop: null,
     aspect: null,
     resolution: { width: 1920, height: 804 },
