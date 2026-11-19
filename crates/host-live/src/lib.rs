@@ -23,10 +23,12 @@
 //! Title. A manifest that declares a dozen catalogs is a dozen rows a client
 //! pages through, not a dozen questions a conformance run needs to ask.
 //!
-//! Every ask is a `GET`. It writes nothing to the Addon, nothing to Stremio and
-//! nothing to the Host's own store, and it holds no credential: there is no path
-//! here to a write because the engine takes only a [`Fetcher`], and a `Fetcher`
-//! fetches.
+//! Every ask is a `GET`. When an Addon returns a torrent Stream for the run's
+//! Video, the first torrent Stream is handed to the [`TorrentEngine`] to wait
+//! for metadata only (bounded at [`METADATA_BOUND`], 60 s), reporting time to
+//! metadata, peer count and the chosen file before calling `let_go` without
+//! requesting any video bytes. It writes nothing to the Addon, nothing to
+//! Stremio and nothing to the Host's own store, and it holds no credential.
 //!
 //! The URL asked is part of each [`ResourceReport`], and the run prints the
 //! manifest URL it was given — for the same reason a failure to be diagnosed
@@ -42,14 +44,31 @@
 //! exception, because which resources to ask is the manifest's own answer — an
 //! Addon whose manifest cannot be read is an Addon with nothing to ask.
 
+use std::time::Duration;
+
 use host_core::{
-    Fetcher, Manifest, Page, ResourceRequest, Stream, Subtitle, Title, TitleRef, CATALOG, META,
-    SEARCH, STREAM, SUBTITLES,
+    ChosenStream, Clock, Fetcher, InfoHash, Manifest, Page, Playback, ResourceRequest,
+    ServeRequest, Stream, Subtitle, SystemClock, Title, TitleRef, TorrentEngine, TorrentPhase,
+    TorrentReport, VideoRef, CATALOG, META, SEARCH, STREAM, SUBTITLES,
 };
 
 /// The manifest's name in a report. Not a protocol resource (`Manifest::parse`
 /// reads it directly), but it is one ask like the others and is reported as one.
 const MANIFEST: &str = "manifest";
+
+/// The torrent metadata probe's name in a report.
+const TORRENT: &str = "torrent";
+
+/// The bound on waiting for a torrent's metadata: 60 s, matching the Host's
+/// give-up while opening a torrent (ADR-0042 §5).
+pub const METADATA_BOUND: Duration = Duration::from_secs(60);
+
+/// How often the metadata probe polls the engine's reports.
+const POLL_EVERY: Duration = Duration::from_millis(50);
+
+/// How long after `Chosen` arrives to wait for a post-metadata `Status` report
+/// (which carries the connected peer count) when none has arrived yet.
+const STATUS_SETTLE: Duration = Duration::from_millis(1_500);
 
 /// What one ask of one Addon came to.
 ///
@@ -100,6 +119,51 @@ pub struct ManifestSummary {
     pub catalogs: usize,
 }
 
+/// One torrent Stream's metadata probe, for the first torrent Stream an Addon
+/// returned for the run's Video.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TorrentCheck {
+    /// The Video whose first torrent Stream was probed (`movie/tt0133093`, …).
+    pub video: String,
+    /// The torrent's infoHash (40 lowercase hex characters).
+    pub info_hash: InfoHash,
+    /// What waiting for its metadata came to.
+    pub outcome: TorrentOutcome,
+}
+
+/// What waiting for a torrent's metadata came to.
+///
+/// Third-party swarm availability decides which one it is; the run itself
+/// never fails on it (ADR-0019).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TorrentOutcome {
+    /// Metadata arrived and a file was chosen, without fetching video bytes.
+    Metadata {
+        /// How long from `serve` until metadata arrived.
+        elapsed: Duration,
+        /// Connected peers reported by the engine.
+        peers: u32,
+        /// Index of the chosen file inside the torrent.
+        file_idx: u32,
+        /// Base name of the chosen file.
+        file_name: String,
+    },
+    /// The wait reached its bound without metadata arriving.
+    TimedOut {
+        /// How long the probe waited.
+        elapsed: Duration,
+        /// Latest peer count reported before the bound expired.
+        peers: u32,
+    },
+    /// The engine could not serve the torrent, chose no file, failed, or exited.
+    Failed {
+        /// The engine's own sentence or reason.
+        detail: String,
+        /// Latest peer count reported before the failure.
+        peers: u32,
+    },
+}
+
 /// One Addon's whole run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AddonReport {
@@ -110,6 +174,9 @@ pub struct AddonReport {
     pub summary: Option<ManifestSummary>,
     /// Every ask the run made, in order, the manifest first.
     pub asks: Vec<ResourceReport>,
+    /// The metadata check of the first torrent Stream the Addon returned for
+    /// the run's Video, if any.
+    pub torrent: Option<TorrentCheck>,
 }
 
 /// What the run is told to ask for, beside the manifest URL.
@@ -121,6 +188,9 @@ pub struct Options {
     /// for. For a series whose Addon answers `meta`, the first Video the Addon
     /// lists is used; the Title itself is the Video for a film.
     pub title: TitleRef,
+    /// How long to wait for a torrent's metadata before letting go (default:
+    /// [`METADATA_BOUND`], 60 s).
+    pub torrent_timeout: Duration,
 }
 
 impl Default for Options {
@@ -133,15 +203,40 @@ impl Default for Options {
                 r#type: "movie".to_owned(),
                 id: "tt0133093".to_owned(),
             },
+            torrent_timeout: METADATA_BOUND,
         }
     }
 }
 
 /// Run the conformance check against one Addon, read-only.
 ///
-/// Pure in the Host's sense: the only thing it touches is the [`Fetcher`] it was
-/// given, so a test drives it with recorded fixtures and never the network.
-pub fn run(fetcher: &dyn Fetcher, manifest_url: &str, options: &Options) -> AddonReport {
+/// Pure in the Host's sense: the only things it touches are the [`Fetcher`]
+/// and [`TorrentEngine`] it was given, so a test drives it with fixtures and
+/// never the network or a real swarm.
+pub fn run(
+    fetcher: &dyn Fetcher,
+    torrents: &dyn TorrentEngine,
+    manifest_url: &str,
+    options: &Options,
+) -> AddonReport {
+    run_with(
+        fetcher,
+        torrents,
+        manifest_url,
+        options,
+        &SystemClock,
+        std::thread::sleep,
+    )
+}
+
+fn run_with(
+    fetcher: &dyn Fetcher,
+    torrents: &dyn TorrentEngine,
+    manifest_url: &str,
+    options: &Options,
+    clock: &dyn Clock,
+    mut pause: impl FnMut(Duration),
+) -> AddonReport {
     let mut asks = Vec::new();
 
     // The manifest is the first ask and the only one that decides the rest:
@@ -170,6 +265,7 @@ pub fn run(fetcher: &dyn Fetcher, manifest_url: &str, options: &Options) -> Addo
                 manifest_url: manifest_url.to_owned(),
                 summary: None,
                 asks,
+                torrent: None,
             };
         }
     };
@@ -255,6 +351,7 @@ pub fn run(fetcher: &dyn Fetcher, manifest_url: &str, options: &Options) -> Addo
     ));
 
     // Streams, of the Video — the Title for a film, an episode for a series.
+    let mut first_torrent: Option<Stream> = None;
     let streams = ResourceRequest::new(STREAM, &video.r#type, &video.id);
     asks.extend(probe(
         fetcher,
@@ -264,9 +361,12 @@ pub fn run(fetcher: &dyn Fetcher, manifest_url: &str, options: &Options) -> Addo
         video.to_string(),
         streams,
         |body| {
-            Stream::parse(body)
-                .map(|streams| streams.len())
-                .map_err(|error| error.to_string())
+            let parsed = Stream::parse(body).map_err(|error| error.to_string())?;
+            first_torrent = parsed
+                .iter()
+                .find(|stream| matches!(stream.playback, Playback::Torrent { .. }))
+                .cloned();
+            Ok(parsed.len())
         },
     ));
 
@@ -286,10 +386,30 @@ pub fn run(fetcher: &dyn Fetcher, manifest_url: &str, options: &Options) -> Addo
         },
     ));
 
+    // First torrent Stream, if the Addon returned one: serve for metadata only,
+    // download no video bytes, and always let go.
+    let torrent = first_torrent.and_then(|stream| {
+        let video_ref = VideoRef {
+            r#type: video.r#type.clone(),
+            id: video.id.clone(),
+        };
+        let chosen = ChosenStream::parse(video_ref, manifest.id.clone(), &stream).ok()?;
+        let request = chosen.serve_request()?;
+        Some(probe_torrent_with(
+            torrents,
+            &video.to_string(),
+            &request,
+            options.torrent_timeout,
+            clock,
+            &mut pause,
+        ))
+    });
+
     AddonReport {
         manifest_url: manifest_url.to_owned(),
         summary: Some(summary),
         asks,
+        torrent,
     }
 }
 
@@ -356,6 +476,146 @@ fn read_page(body: &str) -> Result<usize, String> {
         .map_err(|error| error.to_string())
 }
 
+/// Serve one torrent for metadata only, without ever opening the returned URL
+/// (so no video bytes are fetched), waiting up to `bound` and always calling
+/// `let_go` once `serve` succeeds.
+fn probe_torrent_with(
+    engine: &dyn TorrentEngine,
+    video: &str,
+    request: &ServeRequest,
+    bound: Duration,
+    clock: &dyn Clock,
+    mut pause: impl FnMut(Duration),
+) -> TorrentCheck {
+    // Discard the loopback URL without reading from it: metadata arrives on
+    // `serve`, and video bytes are only fetched on HTTP reads.
+    if let Err(error) = engine.serve(request) {
+        return TorrentCheck {
+            video: video.to_owned(),
+            info_hash: request.info_hash.clone(),
+            outcome: TorrentOutcome::Failed {
+                detail: error.to_string(),
+                peers: 0,
+            },
+        };
+    }
+
+    let started_ms = clock.now_millis();
+    let bound_ms = i64::try_from(bound.as_millis()).unwrap_or(i64::MAX);
+    let deadline_ms = started_ms.saturating_add(bound_ms);
+
+    let mut peers: u32 = 0;
+    let mut seen_fetching = false;
+    let mut metadata_elapsed: Option<Duration> = None;
+    let mut chosen: Option<(u32, String)> = None;
+    let mut settle_deadline_ms: Option<i64> = None;
+
+    let outcome = loop {
+        let mut failed: Option<String> = None;
+        let mut exited = false;
+
+        for report in engine.reports() {
+            match report {
+                TorrentReport::Status {
+                    info_hash,
+                    phase,
+                    peers: reported_peers,
+                    ..
+                } if info_hash == request.info_hash => {
+                    peers = reported_peers;
+                    if phase == TorrentPhase::Fetching {
+                        seen_fetching = true;
+                        metadata_elapsed
+                            .get_or_insert_with(|| elapsed_since(started_ms, clock.now_millis()));
+                    }
+                }
+                TorrentReport::Chosen {
+                    info_hash,
+                    file_idx,
+                    name,
+                } if info_hash == request.info_hash => {
+                    metadata_elapsed
+                        .get_or_insert_with(|| elapsed_since(started_ms, clock.now_millis()));
+                    chosen = Some((file_idx, name));
+                }
+                TorrentReport::Failed {
+                    info_hash,
+                    sentence,
+                    ..
+                } if info_hash == request.info_hash => {
+                    failed.get_or_insert(sentence);
+                }
+                TorrentReport::Exited => {
+                    exited = true;
+                }
+                TorrentReport::Status { .. }
+                | TorrentReport::Chosen { .. }
+                | TorrentReport::Failed { .. } => {}
+            }
+        }
+
+        if let Some((file_idx, file_name)) = &chosen {
+            if seen_fetching || exited {
+                break TorrentOutcome::Metadata {
+                    elapsed: metadata_elapsed.unwrap_or_default(),
+                    peers,
+                    file_idx: *file_idx,
+                    file_name: file_name.clone(),
+                };
+            }
+            let now = clock.now_millis();
+            let settle = *settle_deadline_ms.get_or_insert_with(|| {
+                now.saturating_add(STATUS_SETTLE.as_millis() as i64)
+                    .min(deadline_ms)
+            });
+            if now >= settle {
+                break TorrentOutcome::Metadata {
+                    elapsed: metadata_elapsed.unwrap_or_default(),
+                    peers,
+                    file_idx: *file_idx,
+                    file_name: file_name.clone(),
+                };
+            }
+            let remaining = (settle - now).max(0) as u64;
+            pause(POLL_EVERY.min(Duration::from_millis(remaining)));
+            continue;
+        }
+
+        if let Some(detail) = failed {
+            break TorrentOutcome::Failed { detail, peers };
+        }
+        if exited {
+            break TorrentOutcome::Failed {
+                detail: "The torrent engine stopped.".to_owned(),
+                peers,
+            };
+        }
+
+        let now = clock.now_millis();
+        if now >= deadline_ms {
+            break TorrentOutcome::TimedOut {
+                elapsed: elapsed_since(started_ms, now),
+                peers,
+            };
+        }
+
+        let remaining = (deadline_ms - now).max(0) as u64;
+        pause(POLL_EVERY.min(Duration::from_millis(remaining)));
+    };
+
+    engine.let_go(&request.info_hash);
+
+    TorrentCheck {
+        video: video.to_owned(),
+        info_hash: request.info_hash.clone(),
+        outcome,
+    }
+}
+
+fn elapsed_since(started_ms: i64, now_ms: i64) -> Duration {
+    Duration::from_millis(now_ms.saturating_sub(started_ms).max(0) as u64)
+}
+
 /// Render reports as the lines a person reads.
 ///
 /// Pure: the whole of the output is a function of the reports, so what a run
@@ -387,6 +647,14 @@ pub fn render(reports: &[AddonReport]) -> String {
                 ask.resource,
                 ask.subject,
                 line(ask)
+            ));
+        }
+        if let Some(torrent) = &report.torrent {
+            out.push_str(&format!(
+                "  {:<10} {:<22} {}\n",
+                TORRENT,
+                torrent.video,
+                torrent_line(&torrent.outcome)
             ));
         }
         out.push('\n');
@@ -430,6 +698,45 @@ fn line(ask: &ResourceReport) -> String {
     }
 }
 
+/// One torrent metadata probe's outcome, as the words a person reads it in.
+fn torrent_line(outcome: &TorrentOutcome) -> String {
+    match outcome {
+        TorrentOutcome::Metadata {
+            elapsed,
+            peers,
+            file_idx,
+            file_name,
+        } => format!(
+            "metadata in {}, {} peer{}, file #{file_idx} {file_name}",
+            format_duration(*elapsed),
+            peers,
+            plural(*peers as usize),
+        ),
+        TorrentOutcome::TimedOut { elapsed, peers } => format!(
+            "timed out after {} ({} peer{})",
+            format_duration(*elapsed),
+            peers,
+            plural(*peers as usize),
+        ),
+        TorrentOutcome::Failed { detail, peers } => {
+            if *peers > 0 {
+                format!("failed: {detail} ({peers} peer{})", plural(*peers as usize),)
+            } else {
+                format!("failed: {detail}")
+            }
+        }
+    }
+}
+
+fn format_duration(duration: Duration) -> String {
+    let millis = duration.as_millis();
+    if millis < 1_000 {
+        format!("{millis}ms")
+    } else {
+        format!("{}.{}s", millis / 1_000, (millis % 1_000) / 100)
+    }
+}
+
 fn join(values: &[String]) -> String {
     if values.is_empty() {
         "none".to_owned()
@@ -449,7 +756,10 @@ fn plural(count: usize) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use host_core::{FetchError, FixtureFetcher};
+    use host_core::{
+        FailureKind, FetchError, FixtureClock, FixtureFetcher, FixtureTorrentEngine,
+        NoTorrentEngine,
+    };
 
     const MANIFEST_URL: &str = "https://example.org/manifest.json";
 
@@ -521,7 +831,7 @@ mod tests {
     #[test]
     fn a_well_behaved_addon_is_asked_every_resource_and_reads() {
         let fetcher = well_behaved();
-        let report = run(&fetcher, MANIFEST_URL, &options());
+        let report = run(&fetcher, &NoTorrentEngine, MANIFEST_URL, &options());
 
         let summary = report.summary.as_ref().expect("the manifest read");
         assert_eq!(summary.id, "org.example.addon");
@@ -562,7 +872,7 @@ mod tests {
     #[test]
     fn a_manifest_that_is_not_one_is_reported_and_nothing_else_is_asked() {
         let fetcher = FixtureFetcher::new().serving(MANIFEST_URL, "{ not a manifest");
-        let report = run(&fetcher, MANIFEST_URL, &options());
+        let report = run(&fetcher, &NoTorrentEngine, MANIFEST_URL, &options());
 
         assert!(report.summary.is_none());
         assert_eq!(report.asks.len(), 1, "the manifest is the only ask");
@@ -586,7 +896,7 @@ mod tests {
                 detail: "no route to host".to_owned(),
             },
         );
-        let report = run(&fetcher, MANIFEST_URL, &options());
+        let report = run(&fetcher, &NoTorrentEngine, MANIFEST_URL, &options());
 
         assert!(report.summary.is_none());
         assert_eq!(
@@ -614,7 +924,7 @@ mod tests {
         let fetcher = FixtureFetcher::new()
             .serving(MANIFEST_URL, manifest)
             .serving("https://example.org/stream/movie/tt0133093.json", streams());
-        let report = run(&fetcher, MANIFEST_URL, &options());
+        let report = run(&fetcher, &NoTorrentEngine, MANIFEST_URL, &options());
 
         assert_eq!(
             report
@@ -652,7 +962,7 @@ mod tests {
                 "https://example.org/subtitles/movie/tt0133093.json",
                 subtitles(),
             );
-        let report = run(&fetcher, MANIFEST_URL, &options());
+        let report = run(&fetcher, &NoTorrentEngine, MANIFEST_URL, &options());
 
         assert!(
             matches!(ask(&report, CATALOG).outcome, Outcome::Malformed { .. }),
@@ -688,7 +998,7 @@ mod tests {
                 "https://example.org/subtitles/movie/tt0133093.json",
                 r#"{"subtitles":[]}"#,
             );
-        let report = run(&fetcher, MANIFEST_URL, &options());
+        let report = run(&fetcher, &NoTorrentEngine, MANIFEST_URL, &options());
 
         assert_eq!(ask(&report, CATALOG).outcome, Outcome::Empty);
         assert_eq!(ask(&report, SEARCH).outcome, Outcome::Empty);
@@ -726,7 +1036,7 @@ mod tests {
                 "https://example.org/subtitles/movie/tt0133093.json",
                 FetchError::Status { status: 500 },
             );
-        let report = run(&fetcher, MANIFEST_URL, &options());
+        let report = run(&fetcher, &NoTorrentEngine, MANIFEST_URL, &options());
 
         assert_eq!(ask(&report, MANIFEST).outcome, Outcome::Ok);
         for resource in [CATALOG, SEARCH, META, STREAM, SUBTITLES] {
@@ -775,10 +1085,11 @@ mod tests {
 
         let report = run(
             &fetcher,
+            &NoTorrentEngine,
             MANIFEST_URL,
             &Options {
-                query: "matrix".to_owned(),
                 title: series,
+                ..options()
             },
         );
 
@@ -819,7 +1130,7 @@ mod tests {
                 "https://example.org/catalog/movie/new/genre=Action.json",
                 catalog(),
             );
-        let report = run(&fetcher, MANIFEST_URL, &options());
+        let report = run(&fetcher, &NoTorrentEngine, MANIFEST_URL, &options());
 
         assert_eq!(ask(&report, CATALOG).outcome, Outcome::Ok);
         assert_eq!(
@@ -849,7 +1160,7 @@ mod tests {
                 "https://example.org/subtitles/movie/tt0133093.json",
                 subtitles(),
             );
-        let rendered = render(&[run(&fetcher, MANIFEST_URL, &options())]);
+        let rendered = render(&[run(&fetcher, &NoTorrentEngine, MANIFEST_URL, &options())]);
 
         assert!(
             rendered.contains("Example  (org.example.addon v1.2.3)"),
@@ -866,6 +1177,516 @@ mod tests {
         assert!(
             rendered.contains("1 Addon, 6 asks: 4 ok, 1 empty, 1 malformed, 0 unreachable"),
             "{rendered}"
+        );
+    }
+
+    const HASH_ONE: &str = "c12fe1c06bba254a9dc9f519b335aa7c1367a88a";
+    const HASH_TWO: &str = "08ada5a7a6183aae1e09d831df6748d566095a10";
+
+    #[test]
+    fn the_first_torrent_stream_is_served_for_metadata_and_let_go() {
+        let streams = serde_json::json!({
+            "streams": [
+                { "name": "Direct", "url": "https://example.org/direct.mkv" },
+                {
+                    "name": "First Torrent",
+                    "infoHash": HASH_ONE,
+                    "fileIdx": 1,
+                    "sources": ["tracker:udp://tracker.example.org:1337/announce"],
+                    "behaviorHints": { "filename": "The.Matrix.1999.mkv" }
+                },
+                { "name": "Second Torrent", "infoHash": HASH_TWO }
+            ]
+        })
+        .to_string();
+
+        let fetcher =
+            well_behaved().serving("https://example.org/stream/movie/tt0133093.json", streams);
+        let engine = FixtureTorrentEngine::new();
+        let hash_one = InfoHash::parse(HASH_ONE).unwrap();
+        engine.report(TorrentReport::Status {
+            info_hash: hash_one.clone(),
+            phase: TorrentPhase::Fetching,
+            peers: 5,
+            rate: 0,
+        });
+        engine.report(TorrentReport::Chosen {
+            info_hash: hash_one.clone(),
+            file_idx: 1,
+            name: "The.Matrix.1999.mkv".to_owned(),
+        });
+
+        let clock = FixtureClock::new().at(10_000);
+        let report = run_with(&fetcher, &engine, MANIFEST_URL, &options(), &clock, |d| {
+            clock.tick(d.as_millis() as i64);
+        });
+
+        let torrent = report.torrent.expect("the first torrent Stream was probed");
+        assert_eq!(torrent.video, "movie/tt0133093");
+        assert_eq!(torrent.info_hash, hash_one);
+        assert_eq!(
+            torrent.outcome,
+            TorrentOutcome::Metadata {
+                elapsed: Duration::ZERO,
+                peers: 5,
+                file_idx: 1,
+                file_name: "The.Matrix.1999.mkv".to_owned(),
+            }
+        );
+        assert_eq!(
+            engine.serves().len(),
+            1,
+            "only the first torrent Stream is served"
+        );
+        assert_eq!(engine.serves()[0].info_hash, hash_one);
+        assert_eq!(engine.serves()[0].file_idx, Some(1));
+        assert_eq!(
+            engine.serves()[0].sources,
+            vec!["tracker:udp://tracker.example.org:1337/announce".to_owned()]
+        );
+        assert_eq!(
+            engine.serves()[0].hints.filename.as_deref(),
+            Some("The.Matrix.1999.mkv")
+        );
+        assert_eq!(engine.let_gos(), vec![hash_one], "the torrent is let go");
+    }
+
+    fn torrent_addon(stream_body: String) -> FixtureFetcher {
+        well_behaved().serving(
+            "https://example.org/stream/movie/tt0133093.json",
+            stream_body,
+        )
+    }
+
+    fn one_torrent_stream(hash: &str) -> String {
+        serde_json::json!({
+            "streams": [{ "name": "Torrent", "infoHash": hash }]
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn an_addon_with_only_direct_streams_never_touches_the_torrent_engine() {
+        let fetcher = well_behaved();
+        let engine = FixtureTorrentEngine::new();
+        let report = run(&fetcher, &engine, MANIFEST_URL, &options());
+
+        assert!(report.torrent.is_none());
+        assert!(engine.serves().is_empty());
+        assert!(engine.let_gos().is_empty());
+    }
+
+    #[test]
+    fn a_magnet_stream_is_probed_like_an_info_hash_stream() {
+        let streams = serde_json::json!({
+            "streams": [{
+                "name": "Magnet",
+                "url": format!(
+                    "magnet:?xt=urn:btih:{HASH_ONE}&tr=udp%3A%2F%2Ftracker.example.org%3A1337%2Fannounce"
+                )
+            }]
+        })
+        .to_string();
+        let fetcher = torrent_addon(streams);
+        let engine = FixtureTorrentEngine::new();
+        let hash = InfoHash::parse(HASH_ONE).unwrap();
+        engine.report(TorrentReport::Status {
+            info_hash: hash.clone(),
+            phase: TorrentPhase::Fetching,
+            peers: 2,
+            rate: 0,
+        });
+        engine.report(TorrentReport::Chosen {
+            info_hash: hash.clone(),
+            file_idx: 0,
+            name: "film.mkv".to_owned(),
+        });
+
+        let clock = FixtureClock::new().at(1_000);
+        let report = run_with(&fetcher, &engine, MANIFEST_URL, &options(), &clock, |d| {
+            clock.tick(d.as_millis() as i64);
+        });
+
+        assert_eq!(engine.serves().len(), 1);
+        assert_eq!(engine.serves()[0].info_hash, hash);
+        assert_eq!(
+            engine.serves()[0].sources,
+            vec!["tracker:udp://tracker.example.org:1337/announce".to_owned()]
+        );
+        assert_eq!(engine.let_gos(), vec![hash]);
+        assert!(matches!(
+            report.torrent.expect("probed").outcome,
+            TorrentOutcome::Metadata {
+                peers: 2,
+                file_idx: 0,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn a_series_torrent_carries_the_first_episodes_season_and_episode_hints() {
+        let manifest = serde_json::json!({
+            "id": "org.example.addon",
+            "name": "Example",
+            "version": "1.0.0",
+            "resources": ["meta", "stream"],
+            "types": ["series"],
+            "catalogs": [],
+        })
+        .to_string();
+        let series = TitleRef {
+            r#type: "series".to_owned(),
+            id: "tt0903747".to_owned(),
+        };
+        let fetcher = FixtureFetcher::new()
+            .serving(MANIFEST_URL, manifest)
+            .serving(
+                "https://example.org/meta/series/tt0903747.json",
+                r#"{"meta":{"name":"Breaking Bad","videos":[
+                    {"id":"tt0903747:2:5","name":"Breakage","season":2,"episode":5}
+                ]}}"#,
+            )
+            .serving(
+                "https://example.org/stream/series/tt0903747%3A2%3A5.json",
+                one_torrent_stream(HASH_ONE),
+            );
+        let engine = FixtureTorrentEngine::new();
+        let hash = InfoHash::parse(HASH_ONE).unwrap();
+        engine.report(TorrentReport::Status {
+            info_hash: hash.clone(),
+            phase: TorrentPhase::Fetching,
+            peers: 3,
+            rate: 0,
+        });
+        engine.report(TorrentReport::Chosen {
+            info_hash: hash.clone(),
+            file_idx: 4,
+            name: "Show.S02E05.mkv".to_owned(),
+        });
+
+        let clock = FixtureClock::new().at(1_000);
+        let report = run_with(
+            &fetcher,
+            &engine,
+            MANIFEST_URL,
+            &Options {
+                title: series,
+                ..options()
+            },
+            &clock,
+            |d| {
+                clock.tick(d.as_millis() as i64);
+            },
+        );
+
+        assert_eq!(engine.serves().len(), 1);
+        assert_eq!(engine.serves()[0].hints.season, Some(2));
+        assert_eq!(engine.serves()[0].hints.episode, Some(5));
+        assert_eq!(
+            report.torrent.expect("probed").video,
+            "series/tt0903747:2:5"
+        );
+        assert_eq!(engine.let_gos(), vec![hash]);
+    }
+
+    #[test]
+    fn fast_metadata_waits_for_the_fetching_status_to_capture_peers_while_keeping_metadata_time() {
+        let fetcher = torrent_addon(one_torrent_stream(HASH_ONE));
+        let engine = FixtureTorrentEngine::new();
+        let hash = InfoHash::parse(HASH_ONE).unwrap();
+        let clock = FixtureClock::new().at(5_000);
+
+        let mut sent_chosen = false;
+        let mut sent_fetching = false;
+        let report = run_with(&fetcher, &engine, MANIFEST_URL, &options(), &clock, |d| {
+            let now = clock.tick(d.as_millis() as i64);
+            let elapsed = now - 5_000;
+            if !sent_chosen && elapsed >= 250 {
+                sent_chosen = true;
+                engine.report(TorrentReport::Chosen {
+                    info_hash: hash.clone(),
+                    file_idx: 0,
+                    name: "film.mkv".to_owned(),
+                });
+            }
+            if !sent_fetching && elapsed >= 1_000 {
+                sent_fetching = true;
+                engine.report(TorrentReport::Status {
+                    info_hash: hash.clone(),
+                    phase: TorrentPhase::Fetching,
+                    peers: 7,
+                    rate: 0,
+                });
+            }
+        });
+
+        assert_eq!(
+            report.torrent.expect("probed").outcome,
+            TorrentOutcome::Metadata {
+                elapsed: Duration::from_millis(250),
+                peers: 7,
+                file_idx: 0,
+                file_name: "film.mkv".to_owned(),
+            }
+        );
+        assert_eq!(engine.let_gos(), vec![hash]);
+    }
+
+    #[test]
+    fn chosen_without_a_fetching_status_settles_with_the_latest_peer_count() {
+        let fetcher = torrent_addon(one_torrent_stream(HASH_ONE));
+        let engine = FixtureTorrentEngine::new();
+        let hash = InfoHash::parse(HASH_ONE).unwrap();
+        engine.report(TorrentReport::Status {
+            info_hash: hash.clone(),
+            phase: TorrentPhase::Finding,
+            peers: 1,
+            rate: 0,
+        });
+        engine.report(TorrentReport::Chosen {
+            info_hash: hash.clone(),
+            file_idx: 2,
+            name: "movie.mp4".to_owned(),
+        });
+
+        let clock = FixtureClock::new().at(1_000);
+        let report = run_with(&fetcher, &engine, MANIFEST_URL, &options(), &clock, |d| {
+            clock.tick(d.as_millis() as i64);
+        });
+
+        assert_eq!(
+            report.torrent.expect("probed").outcome,
+            TorrentOutcome::Metadata {
+                elapsed: Duration::ZERO,
+                peers: 1,
+                file_idx: 2,
+                file_name: "movie.mp4".to_owned(),
+            }
+        );
+        // Settled after STATUS_SETTLE rather than waiting the full 60 s bound.
+        assert_eq!(clock.now_millis() - 1_000, STATUS_SETTLE.as_millis() as i64);
+        assert_eq!(engine.let_gos(), vec![hash]);
+    }
+
+    #[test]
+    fn a_torrent_without_metadata_within_sixty_seconds_times_out_and_is_let_go() {
+        let fetcher = torrent_addon(one_torrent_stream(HASH_ONE));
+        let engine = FixtureTorrentEngine::new();
+        let hash = InfoHash::parse(HASH_ONE).unwrap();
+        engine.report(TorrentReport::Status {
+            info_hash: hash.clone(),
+            phase: TorrentPhase::Finding,
+            peers: 2,
+            rate: 0,
+        });
+
+        let clock = FixtureClock::new().at(1_000);
+        let report = run_with(&fetcher, &engine, MANIFEST_URL, &options(), &clock, |d| {
+            clock.tick(d.as_millis() as i64);
+        });
+
+        assert_eq!(
+            report.torrent.expect("probed").outcome,
+            TorrentOutcome::TimedOut {
+                elapsed: METADATA_BOUND,
+                peers: 2,
+            }
+        );
+        assert_eq!(engine.let_gos(), vec![hash]);
+    }
+
+    #[test]
+    fn an_engine_failure_during_metadata_is_reported_and_the_torrent_is_let_go() {
+        let fetcher = torrent_addon(one_torrent_stream(HASH_ONE));
+        let engine = FixtureTorrentEngine::new();
+        let hash = InfoHash::parse(HASH_ONE).unwrap();
+        engine.report(TorrentReport::Status {
+            info_hash: hash.clone(),
+            phase: TorrentPhase::Fetching,
+            peers: 3,
+            rate: 0,
+        });
+        engine.report(TorrentReport::Failed {
+            info_hash: hash.clone(),
+            kind: FailureKind::NoFile,
+            sentence: "This torrent holds no video.".to_owned(),
+        });
+
+        let clock = FixtureClock::new().at(1_000);
+        let report = run_with(&fetcher, &engine, MANIFEST_URL, &options(), &clock, |d| {
+            clock.tick(d.as_millis() as i64);
+        });
+
+        assert_eq!(
+            report.torrent.expect("probed").outcome,
+            TorrentOutcome::Failed {
+                detail: "This torrent holds no video.".to_owned(),
+                peers: 3,
+            }
+        );
+        assert_eq!(engine.let_gos(), vec![hash]);
+    }
+
+    #[test]
+    fn an_engine_exit_during_metadata_is_reported_and_the_torrent_is_let_go() {
+        let fetcher = torrent_addon(one_torrent_stream(HASH_ONE));
+        let engine = FixtureTorrentEngine::new();
+        let hash = InfoHash::parse(HASH_ONE).unwrap();
+        engine.report(TorrentReport::Exited);
+
+        let clock = FixtureClock::new().at(1_000);
+        let report = run_with(&fetcher, &engine, MANIFEST_URL, &options(), &clock, |d| {
+            clock.tick(d.as_millis() as i64);
+        });
+
+        assert_eq!(
+            report.torrent.expect("probed").outcome,
+            TorrentOutcome::Failed {
+                detail: "The torrent engine stopped.".to_owned(),
+                peers: 0,
+            }
+        );
+        assert_eq!(engine.let_gos(), vec![hash]);
+    }
+
+    #[test]
+    fn a_refused_serve_is_reported_without_letting_go() {
+        let fetcher = torrent_addon(one_torrent_stream(HASH_ONE));
+        let engine =
+            FixtureTorrentEngine::new().refusing("The torrent engine is not part of this build.");
+
+        let report = run(&fetcher, &engine, MANIFEST_URL, &options());
+
+        assert_eq!(
+            report.torrent.expect("probed").outcome,
+            TorrentOutcome::Failed {
+                detail: "The torrent engine is not part of this build.".to_owned(),
+                peers: 0,
+            }
+        );
+        assert!(engine.let_gos().is_empty());
+    }
+
+    #[test]
+    fn reports_for_another_torrent_are_ignored() {
+        let fetcher = torrent_addon(one_torrent_stream(HASH_ONE));
+        let engine = FixtureTorrentEngine::new();
+        let hash_one = InfoHash::parse(HASH_ONE).unwrap();
+        let hash_two = InfoHash::parse(HASH_TWO).unwrap();
+
+        engine.report(TorrentReport::Status {
+            info_hash: hash_two.clone(),
+            phase: TorrentPhase::Fetching,
+            peers: 99,
+            rate: 0,
+        });
+        engine.report(TorrentReport::Chosen {
+            info_hash: hash_two,
+            file_idx: 9,
+            name: "wrong.mkv".to_owned(),
+        });
+        engine.report(TorrentReport::Status {
+            info_hash: hash_one.clone(),
+            phase: TorrentPhase::Fetching,
+            peers: 4,
+            rate: 0,
+        });
+        engine.report(TorrentReport::Chosen {
+            info_hash: hash_one.clone(),
+            file_idx: 0,
+            name: "right.mkv".to_owned(),
+        });
+
+        let clock = FixtureClock::new().at(1_000);
+        let report = run_with(&fetcher, &engine, MANIFEST_URL, &options(), &clock, |d| {
+            clock.tick(d.as_millis() as i64);
+        });
+
+        assert_eq!(
+            report.torrent.expect("probed").outcome,
+            TorrentOutcome::Metadata {
+                elapsed: Duration::ZERO,
+                peers: 4,
+                file_idx: 0,
+                file_name: "right.mkv".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn the_report_renders_torrent_metadata_timeout_and_failure_lines() {
+        let hash = InfoHash::parse(HASH_ONE).unwrap();
+        let base = |outcome| AddonReport {
+            manifest_url: MANIFEST_URL.to_owned(),
+            summary: None,
+            asks: Vec::new(),
+            torrent: Some(TorrentCheck {
+                video: "movie/tt0133093".to_owned(),
+                info_hash: hash.clone(),
+                outcome,
+            }),
+        };
+
+        let metadata_secs = render(&[base(TorrentOutcome::Metadata {
+            elapsed: Duration::from_millis(1_250),
+            peers: 4,
+            file_idx: 0,
+            file_name: "The.Matrix.1999.mkv".to_owned(),
+        })]);
+        assert!(
+            metadata_secs
+                .contains("  torrent    movie/tt0133093        metadata in 1.2s, 4 peers, file #0 The.Matrix.1999.mkv
+"),
+            "{metadata_secs}"
+        );
+
+        let metadata_ms_one_peer = render(&[base(TorrentOutcome::Metadata {
+            elapsed: Duration::from_millis(340),
+            peers: 1,
+            file_idx: 2,
+            file_name: "Show.S01E01.mkv".to_owned(),
+        })]);
+        assert!(
+            metadata_ms_one_peer
+                .contains("  torrent    movie/tt0133093        metadata in 340ms, 1 peer, file #2 Show.S01E01.mkv
+"),
+            "{metadata_ms_one_peer}"
+        );
+
+        let timed_out = render(&[base(TorrentOutcome::TimedOut {
+            elapsed: Duration::from_secs(60),
+            peers: 0,
+        })]);
+        assert!(
+            timed_out.contains(
+                "  torrent    movie/tt0133093        timed out after 60.0s (0 peers)
+"
+            ),
+            "{timed_out}"
+        );
+
+        let failed_with_peers = render(&[base(TorrentOutcome::Failed {
+            detail: "This torrent holds no video.".to_owned(),
+            peers: 2,
+        })]);
+        assert!(
+            failed_with_peers.contains(
+                "  torrent    movie/tt0133093        failed: This torrent holds no video. (2 peers)
+"
+            ),
+            "{failed_with_peers}"
+        );
+
+        let failed_no_peers = render(&[base(TorrentOutcome::Failed {
+            detail: "The torrent engine is not part of this build.".to_owned(),
+            peers: 0,
+        })]);
+        assert!(
+            failed_no_peers
+                .contains("  torrent    movie/tt0133093        failed: The torrent engine is not part of this build.
+"),
+            "{failed_no_peers}"
         );
     }
 }

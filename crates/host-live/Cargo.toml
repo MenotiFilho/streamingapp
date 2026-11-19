@@ -13,6 +13,8 @@ workspace = true
 [dependencies]
 host-core = { workspace = true }
 host-addon = { workspace = true }
+host-torrent = { workspace = true }
+tempfile = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
