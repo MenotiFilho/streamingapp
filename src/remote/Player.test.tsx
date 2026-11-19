@@ -1,8 +1,9 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { pictureNote } from "../core/playback";
+import { pictureNote, playingName } from "../core/playback";
 import { STALLED_NOTE, STALLED_STRIP_NOTE, STALL_GRACE_MS } from "../core/stall";
+import { torrentLine } from "../core/torrentStatus";
 import type { HostLink } from "../core/link";
 import type {
   Action,
@@ -15,7 +16,7 @@ import type {
 import { RemoteApp } from "./RemoteApp";
 import { FakeHost, type Respond } from "./fakeHost.testing";
 import { NOTHING } from "./fakeSocket.testing";
-import { CARD_NAME, STRIP_EXPAND, STRIP_LABEL } from "./playerScreen";
+import { CARD_NAME, openingNote, STRIP_EXPAND, STRIP_LABEL } from "./playerScreen";
 
 /**
  * The Remote's player over a fake HostLink (#213, ADR-0032).
@@ -84,6 +85,9 @@ const WATCHING: PlaybackSnapshot = {
   resolution: null,
   statistics: null,
 };
+
+const FINDING = { phase: "finding", peers: 5, rate: 0 } as const;
+const FETCHING = { phase: "fetching", peers: 3, rate: 180_000 } as const;
 
 function snapshot(overrides: Partial<PlaybackSnapshot> = {}, revision = 2): Snapshot {
   return {
@@ -328,6 +332,34 @@ describe("the Remote's expanded card", () => {
       expect(within(card).queryByTestId("remote-player-state")).not.toBeInTheDocument();
     });
 
+    test("a torrent's card carries its line under the ring and the sentence, a direct Stream's does not", async () => {
+      const { host } = await mountStalled();
+      const card = openCardNow();
+
+      act(() => host.publish(snapshot({ stalled: true, torrent: FETCHING }, 4)));
+      act(() => vi.advanceTimersByTime(STALL_GRACE_MS));
+      const note = within(card).getByTestId("remote-player-state");
+      expect(note).toHaveTextContent(STALLED_NOTE);
+      expect(within(note).getByTestId("pending-spinner")).toBeInTheDocument();
+      expect(within(note).getByTestId("remote-player-torrent")).toHaveTextContent(
+        torrentLine(FETCHING),
+      );
+
+      act(() => host.publish(snapshot({ stalled: true, torrent: null }, 5)));
+      expect(within(card).getByTestId("remote-player-state")).toHaveTextContent(STALLED_NOTE);
+      expect(within(card).queryByTestId("remote-player-torrent")).not.toBeInTheDocument();
+    });
+
+    test("the strip stays Waiting… for a torrent, with no line of its own", async () => {
+      const { host } = await mountStalled();
+      act(() => host.publish(snapshot({ stalled: true, torrent: FETCHING }, 4)));
+      act(() => vi.advanceTimersByTime(STALL_GRACE_MS));
+
+      expect(within(strip()).getByText(STALLED_STRIP_NOTE)).toBeInTheDocument();
+      expect(within(strip()).queryByTestId("remote-player-torrent")).not.toBeInTheDocument();
+      expect(within(strip()).queryByText(torrentLine(FETCHING))).not.toBeInTheDocument();
+    });
+
     test("a seek's brief wait draws nothing on either", async () => {
       const { host } = await mountStalled();
 
@@ -340,6 +372,26 @@ describe("the Remote's expanded card", () => {
       const card = openCardNow();
       expect(within(card).queryByTestId("remote-player-state")).not.toBeInTheDocument();
     });
+  });
+
+  test("a torrent being opened carries its line under Opening…, a direct Stream's does not", async () => {
+    const { host } = mount();
+    act(() => host.publish(snapshot({ state: "opening", torrent: FINDING }, 3)));
+    const card = await openCard();
+
+    const note = await within(card).findByTestId("remote-player-state");
+    expect(note).toHaveTextContent(openingNote(playingName(WATCHING.nowPlaying)));
+    expect(within(note).getByTestId("remote-player-torrent")).toHaveTextContent(
+      torrentLine(FINDING),
+    );
+
+    act(() => host.publish(snapshot({ state: "opening", torrent: null }, 4)));
+    await waitFor(() =>
+      expect(within(card).queryByTestId("remote-player-torrent")).not.toBeInTheDocument(),
+    );
+    expect(within(card).getByTestId("remote-player-state")).toHaveTextContent(
+      openingNote(playingName(WATCHING.nowPlaying)),
+    );
   });
 
   test("a control the core disables sends nothing when pressed", async () => {

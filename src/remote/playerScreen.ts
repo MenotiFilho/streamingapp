@@ -90,6 +90,23 @@ export function cardStateNote(
 }
 
 /**
+ * The Torrent status line the card's state note carries beneath it: the same
+ * `torrentLine` the window draws, under "Opening …" and under the Stalled
+ * sentence, and nowhere else (#342, ADR-0042 §5). A direct Stream has none, and
+ * a note that is not the opening or the shown Stalled one has nothing to carry
+ * it; the docked strip's "Waiting…" is deliberately only that word.
+ */
+export function cardTorrentLine(
+  view: Pick<PlaybackView, "state" | "stalled" | "torrentLine">,
+  stallUp = false,
+): string | null {
+  if (view.state === "opening" || (view.stalled && stallUp)) {
+    return view.torrentLine;
+  }
+  return null;
+}
+
+/**
  * What the docked strip says under the episode: "Waiting…" while a shown stall
  * holds the Stream, ahead of the core's note about where the picture is. Text
  * only; nothing new is said while the Stream is opening.
