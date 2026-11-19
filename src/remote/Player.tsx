@@ -39,6 +39,7 @@ import {
   autoplayBanner,
   autoplaySwitch,
   cardStateNote,
+  cardTorrentLine,
   CARD_NAME,
   chapterName,
   NOW_PLAYING,
@@ -165,6 +166,7 @@ export function PlayerCard({
   const controls = transportControls(view);
   const take = (action: Action) => void session.take(action);
   const stateNote = cardStateNote(view, stallUp);
+  const torrent = cardTorrentLine(view, stallUp);
   const waiting = view.stalled && stallUp;
   const banner = autoplayBanner(view);
 
@@ -193,7 +195,14 @@ export function PlayerCard({
           data-stalled={waiting ? "true" : undefined}
         >
           {waiting ? <PendingSpinner /> : null}
-          {stateNote}
+          <span className="remote-player-state-lines">
+            <span>{stateNote}</span>
+            {torrent ? (
+              <span className="remote-player-torrent" data-testid="remote-player-torrent">
+                {torrent}
+              </span>
+            ) : null}
+          </span>
         </p>
       ) : null}
 

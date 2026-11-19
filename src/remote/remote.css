@@ -2222,6 +2222,14 @@ body {
   line-height: 1.3;
 }
 
+/* The state note's lines: the sentence, then a torrent's status beneath it,
+   each on its own line, in the note's own colour as variant A draws them (#342). */
+.remote-player-state-lines {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
 /* A Stalled Stream's note: the ring, then the sentence, in the house's ivory
    rather than the opening note's brass (#333). */
 .remote-player-state[data-stalled="true"] {

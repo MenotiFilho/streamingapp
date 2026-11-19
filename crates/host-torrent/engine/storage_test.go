@@ -256,6 +256,45 @@ func TestTheDiskStaysWithinTheCeilingAsPiecesArriveBehindTheReader(t *testing.T)
 	}
 }
 
+// bytesOnDisk is what a torrent's directory holds, in bytes of piece files.
+func bytesOnDisk(t *testing.T, d *boundedDisk) int64 {
+	t.Helper()
+	return kept(t, d.dir)
+}
+
+func TestAPieceIsMadeRoomForBeforeItsFirstBytesAreWritten(t *testing.T) {
+	reader := 3
+	var d *boundedDisk
+	var onDisk []int64
+	cache := func() int64 {
+		// Asked while the storage decides what to give up: the directory must
+		// not already hold more than the ceiling.
+		onDisk = append(onDisk, bytesOnDisk(t, d))
+		return 3000
+	}
+	d = newBoundedDisk(filepath.Join(t.TempDir(), "torrent"), cache, func() int { return reader }, func(error) {})
+	info := metainfo.Info{Name: "x", PieceLength: 1000, Length: 10_000, Pieces: make([]byte, 20*10)}
+	if _, err := d.OpenTorrent(nil, &info, metainfo.Hash{}); err != nil { //nolint:staticcheck // the context is unused
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		fill(t, piece(d, info, i))
+	}
+
+	if _, err := piece(d, info, 3).WriteAt(make([]byte, 100), 0); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, got := range onDisk {
+		if got > 3000 {
+			t.Fatalf("a piece began while the directory held %d bytes, over the 3000 ceiling: the room was made after the write", got)
+		}
+	}
+	if got := bytesOnDisk(t, d); got > 3000 {
+		t.Fatalf("after the write the directory holds %d bytes", got)
+	}
+}
+
 func TestALowerCeilingTrimsWhatIsKept(t *testing.T) {
 	reader := 9
 	cache := int64(0)
@@ -380,6 +419,52 @@ func TestAWholeFilePlaysThroughACacheSmallerThanItAndStaysWithinIt(t *testing.T)
 	}
 	if h := r.eng.heldFor(s.hash); h.disk.Held() > cache {
 		t.Fatalf("the storage counts %d, over %d", h.disk.Held(), cache)
+	}
+}
+
+// peakOnDisk watches a torrent's directory while f runs and returns the most it
+// ever held. The ceiling is a bound, not a state the torrent comes back to.
+func peakOnDisk(t *testing.T, dir string, f func()) int64 {
+	t.Helper()
+	var peak int64
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			if k := kept(t, dir); k > peak {
+				peak = k
+			}
+			select {
+			case <-stop:
+				return
+			default:
+			}
+		}
+	}()
+	f()
+	// What fetching had in flight when the reader stopped lands after it.
+	time.Sleep(300 * time.Millisecond)
+	close(stop)
+	<-done
+	return peak
+}
+
+func TestTheDirectoryNeverHoldsMoreThanTheCeilingNotEvenWhilePiecesArrive(t *testing.T) {
+	data := longFilm()
+	s := seed(t, data)
+	r := startEngine(t)
+	const cache = 512 << 10
+	r.send(map[string]any{"op": "limits", "readahead": 128 << 10, "cache": cache})
+	_, url := r.serve(s.hash, nil, nil)
+	dir := filepath.Join(r.dir, s.hash)
+
+	peak := peakOnDisk(t, dir, func() {
+		r.connect(s)
+		get(t, url, nil)
+	})
+
+	if peak > cache {
+		t.Fatalf("the torrent's directory held %d bytes at its peak, over the %d ceiling", peak, cache)
 	}
 }
 
