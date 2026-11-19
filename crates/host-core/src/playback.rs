@@ -1151,6 +1151,11 @@ impl PlaybackSession {
         }
     }
 
+    /// Where the Stream stands, as the Host's record has it.
+    pub(crate) fn state(&self) -> PlaybackState {
+        self.state
+    }
+
     /// Whether the Host is on a Stream at all — playing, opening, paused, ended
     /// or failed. A stop is allowed for all of those; a control is not.
     pub(crate) fn has_stream(&self) -> bool {

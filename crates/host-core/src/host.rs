@@ -8,6 +8,7 @@ use crate::cache::CatalogCache;
 use crate::clock::Clock;
 use crate::device::{Device, DeviceSummary, DeviceToken};
 use crate::fetcher::Fetcher;
+use crate::idle::Idle;
 use crate::library::LibraryCache;
 use crate::meta::{self, Title, TitleKey, Video};
 use crate::pairing::PairingCode;
@@ -100,6 +101,15 @@ pub struct Host {
     /// When a Torrent status last reached the Snapshot, in the Host's own
     /// millis.
     torrent_status_at: Option<i64>,
+    /// How long the held torrent's Stream has sat `Ended` or `Paused`, by the
+    /// Host's own clock: what lets an idle torrent go (ADR-0042 §3).
+    idle: Idle,
+    /// Whether the torrent of the Stream now open was let go for being idle. The
+    /// Stream stays Now playing, in the state it was left in, and the Host stops
+    /// reading the Player about it: the Player still holds a URL nobody serves.
+    /// Play, a seek or a track change serves the torrent again and reopens the
+    /// same Stream; anything that opens or stops a Stream ends it.
+    released: bool,
     /// What the engine said when the held torrent had no file to play: the
     /// sentence the failed open shows in place of the Player's own words
     /// (ADR-0042 §4). It belongs to the open that failed, and the next open or
@@ -285,6 +295,8 @@ impl Host {
             held_torrent: None,
             torrent_reading: None,
             torrent_status_at: None,
+            idle: Idle::default(),
+            released: false,
             engine_failure: None,
             preview_gate: PreviewCeiling::Refused,
             preview_since: None,
@@ -845,6 +857,7 @@ impl Host {
 
         self.state = next;
         self.revision += 1;
+        self.note_idle();
         self.settle_countdown(countdown);
         if account_changed {
             self.library_cache
@@ -1102,6 +1115,12 @@ impl Host {
     /// something is playing (ADR-0013, ADR-0033).
     pub fn sample(&mut self) -> Option<Snapshot> {
         let status_moved = self.drain_torrent_reports();
+
+        // A released Stream is the Host's record of it: what the Player says
+        // about a URL nobody serves is not news (ADR-0042 §3).
+        if self.released {
+            return None;
+        }
         let mut observation = self.player.observe();
         self.prefer_the_engines_failure(&mut observation);
 
@@ -1121,6 +1140,15 @@ impl Host {
                 // in would end the new Stream before it began.
                 return self.autoplay_expired();
             }
+        }
+
+        // A torrent idle long enough is let go here, after the countdown had its
+        // turn — an episode that is about to play is not idle — and the report
+        // that was read is dropped with it: from now on the Host's record stands
+        // (ADR-0042 §3).
+        if self.idle.due(self.clock.now_millis()) {
+            self.release_idle_torrent();
+            return None;
         }
 
         // The first report of a Stream is where the Seek preview's ceiling is
@@ -1195,6 +1223,7 @@ impl Host {
         let reached_the_end = next.has_ended() && !was_ended;
 
         self.state.set_playback(next);
+        self.note_idle();
 
         // The tick where an episode's Stream becomes `Ended` is the one that
         // starts the countdown, if one is owed. It is published with the
@@ -1750,6 +1779,19 @@ impl Host {
                 let chosen = self.up_next_stream(&entry, &previous)?;
                 Resolved::Change(self.open_stream(Box::new(chosen), Some(entry.title), None)?)
             }
+            ValidatedAction::SetPaused { paused: false } if self.released => {
+                // Play on a torrent that was let go for being idle: it is served
+                // again and the same Stream reopens where it was left. A finished
+                // Stream has no position left to hold, and reopening at its end
+                // would end it again at once, so it starts over (ADR-0042 §3).
+                let held = self.state.playback();
+                let start = if held.has_ended() {
+                    None
+                } else {
+                    held.position()
+                };
+                Resolved::Change(self.reopen_released(start)?)
+            }
             ValidatedAction::SetPaused { paused } => {
                 self.playing(Control::Pause)?;
                 self.told(Telling::Pause(paused))?;
@@ -1757,22 +1799,30 @@ impl Host {
             }
             ValidatedAction::Seek { target } => {
                 self.playing(Control::Seek)?;
+                if self.released {
+                    // The reopen is the seek: the Player is opened where the seek
+                    // lands, and is not told to seek a Stream that is still loading.
+                    let held = self.state.playback();
+                    let landing = target.landing(held.position().unwrap_or(0.0), held.duration());
+                    return Ok(Resolved::Change(self.reopen_released(Some(landing))?));
+                }
                 self.told(Telling::Seek(target))?;
                 Resolved::Change(Change::Seek(target))
             }
             ValidatedAction::SetAudioTrack { track } => {
                 self.playing(Control::AudioTrack)?;
                 self.known_track(Control::AudioTrack, TrackKind::Audio, track)?;
-                self.told(Telling::AudioTrack(track))?;
-                Resolved::Change(Change::SetAudioTrack(track))
+                self.picked(Change::SetAudioTrack(track), Telling::AudioTrack(track))?
             }
             ValidatedAction::SetSubtitleTrack { track } => {
                 self.playing(Control::SubtitleTrack)?;
                 if let Some(id) = track {
                     self.known_track(Control::SubtitleTrack, TrackKind::Subtitle, id)?;
                 }
-                self.told(Telling::SubtitleTrack(track))?;
-                Resolved::Change(Change::SetSubtitleTrack(track))
+                self.picked(
+                    Change::SetSubtitleTrack(track),
+                    Telling::SubtitleTrack(track),
+                )?
             }
             ValidatedAction::SetSubtitleDelay { seconds } => {
                 self.playing(Control::SubtitleDelay)?;
@@ -1851,6 +1901,7 @@ impl Host {
                 // was only lent (ADR-0028).
                 self.disarm_preview();
                 self.let_go_held_torrent();
+                self.released = false;
                 Resolved::Change(Change::Stop)
             }
             ValidatedAction::LookHint { addon, title } => {
@@ -1940,6 +1991,63 @@ impl Host {
             self.torrent_engine.let_go(&info_hash);
         }
         self.forget_torrent_readings();
+    }
+
+    /// Feed the Host's idle measure the state the Stream is in now, at the
+    /// Host's own clock. Called wherever the state can have changed, so the
+    /// measure begins at the moment a Stream was paused or ended and not at the
+    /// next tick after it (ADR-0042 §3).
+    fn note_idle(&mut self) {
+        let held = self.held_torrent.is_some();
+        self.idle
+            .note(self.state.playback().state(), held, self.clock.now_millis());
+    }
+
+    /// Let the held torrent go for being idle, and keep the Stream where it is:
+    /// still Now playing, in the state it was left in. Nothing a client draws
+    /// moves, so nothing is published (ADR-0042 §3).
+    fn release_idle_torrent(&mut self) {
+        self.let_go_held_torrent();
+        self.idle.clear();
+        self.released = true;
+        tracing::info!("an idle torrent was let go; its Stream stays as Now playing");
+    }
+
+    /// Serve the released torrent again and reopen the same Stream at `start`,
+    /// through the path a resume opens a Stream at a start position. Opening is
+    /// what clients see until the Player reports. A serve or an open that fails
+    /// leaves the Stream released, as it was, and a second try is a new try.
+    fn reopen_released(&mut self, start: Option<f64>) -> Result<Change, ActionError> {
+        let Some(chosen) = self.state.playback().chosen().cloned() else {
+            // Released is only ever set on a Stream; this is a refusal rather
+            // than a panic all the same.
+            return Err(ActionError::NothingPlaying {
+                control: Control::Pause,
+            });
+        };
+        let title = self.playing_title();
+        self.open_stream(Box::new(chosen), title, start)
+    }
+
+    /// A track the owner picked: told to the Player and recorded, or — on a
+    /// released torrent — the Stream reopened first and the pick applied to it.
+    ///
+    /// The pick is recorded on the Stream as the owner saw it, with the Track's
+    /// language known, before the reopen's fresh session replaces it: the Host
+    /// chooses a reopened Stream's Tracks again from its first report, and a Hand
+    /// pick that lost its language would be chosen over (ADR-0041).
+    fn picked(&mut self, pick: Change, telling: Telling) -> Result<Resolved, ActionError> {
+        if !self.released {
+            self.told(telling)?;
+            return Ok(Resolved::Change(pick));
+        }
+        let start = self.state.playback().position();
+        let reopened = self.reopen_released(start)?;
+        self.commit(pick, None)?;
+        // The Player is already opening; a refusal here costs nothing, because
+        // the Host's choice from the reopened Stream's own Tracks follows the pick.
+        let _ = self.told(telling);
+        Ok(Resolved::Change(reopened))
     }
 
     /// Drop what the Host holds of a torrent's Torrent status: a reading kept
@@ -2097,6 +2205,9 @@ impl Host {
                 self.torrent_engine.let_go(&previous);
             }
         }
+        // Whatever Stream this replaces, a torrent let go for being idle was the
+        // last of it: the one now open is served, or direct, and not released.
+        self.released = false;
         if let Some(title) = leaving {
             self.push_title(&title);
         }
