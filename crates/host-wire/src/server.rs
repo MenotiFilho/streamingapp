@@ -26,7 +26,7 @@ use std::io;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -361,13 +361,11 @@ fn push(
         // A Snapshot is the whole state, not a delta: if this connection has
         // fallen behind, the newest one is the only one worth sending. A phone
         // that slept through a minute of playback should hear where the Host is
-        // now, not replay every quarter-second it missed.
-        let Some(mut snapshot) = subscription.try_recv() else {
+        // now, not replay every quarter-second it missed — and the subscription
+        // holds no more than that one (see `Broadcast`).
+        let Some(snapshot) = subscription.take() else {
             return Ok(true);
         };
-        while let Some(newer) = subscription.try_recv() {
-            snapshot = newer;
-        }
 
         let Some(paired) = paired.as_ref() else {
             // A connection that has not paired is not told what is playing.
@@ -576,55 +574,143 @@ enum Outcome {
 
 /// The Host's published Snapshots, fanned out to whoever is asking.
 ///
-/// A queue per connection rather than one shared queue: each connection reads at
-/// its own pace, and one that has gone away must not hold the others back. A
-/// sender whose receiver has been dropped is removed the next time the Host
-/// publishes — the cleanup is lazy because a connection that has gone away is
-/// discovered by the send that fails, not by anything it says.
+/// One slot per connection rather than one shared queue: each connection reads
+/// at its own pace, and one that has gone away must not hold the others back.
+/// And a slot rather than a queue: a Snapshot is the whole state, so the newest
+/// one a connection has not sent is all it will ever send, and a publish
+/// replaces what was waiting. A connection whose thread is held in a write — a
+/// phone that froze its page while the Host was playing, its socket's buffers
+/// full — then holds one Snapshot, not every one published until it lets go.
+///
+/// A connection that has gone away is forgotten the next time the Host
+/// publishes: its slot is dropped with its subscription, so the cleanup is lazy
+/// and needs nothing from the connection that went.
 #[derive(Clone, Default)]
 pub struct Broadcast {
-    sinks: Arc<Mutex<Vec<Sender<Snapshot>>>>,
+    slots: Arc<Mutex<Vec<Weak<Slot>>>>,
 }
+
+/// The newest Snapshot one connection has not sent yet, if any.
+type Slot = Mutex<Option<Snapshot>>;
 
 impl Broadcast {
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// A queue for one connection, which stops receiving when it is dropped.
+    /// A slot for one connection, which stops receiving when it is dropped.
     pub fn subscribe(&self) -> Subscription {
-        let (sender, receiver) = mpsc::channel();
-        self.sinks
+        let slot = Arc::new(Slot::default());
+        self.slots
             .lock()
             .expect("nothing panics while publishing Snapshots")
-            .push(sender);
-        Subscription { receiver }
+            .push(Arc::downgrade(&slot));
+        Subscription { slot }
     }
 
-    /// Hand every published Snapshot to every connection that is still there.
+    /// Put a published Snapshot in front of every connection that is still there.
     pub fn publish(&self, snapshot: &Snapshot) {
-        let mut sinks = self
-            .sinks
+        let mut slots = self
+            .slots
             .lock()
             .expect("nothing panics while publishing Snapshots");
-        sinks.retain(|sink| sink.send(snapshot.clone()).is_ok());
+        slots.retain(|slot| {
+            let Some(slot) = slot.upgrade() else {
+                return false;
+            };
+            *slot.lock().expect("nothing panics while holding a slot") = Some(snapshot.clone());
+            true
+        });
+    }
+
+    /// How many connections are being published to.
+    #[cfg(test)]
+    fn connections(&self) -> usize {
+        self.slots
+            .lock()
+            .expect("nothing panics while publishing Snapshots")
+            .len()
     }
 }
 
-/// One connection's queue of published Snapshots.
+/// One connection's slot of published Snapshots.
 pub struct Subscription {
-    receiver: Receiver<Snapshot>,
+    slot: Arc<Slot>,
 }
 
 impl Subscription {
-    fn try_recv(&self) -> Option<Snapshot> {
-        self.receiver.try_recv().ok()
+    /// The newest Snapshot published since this connection last took one.
+    fn take(&self) -> Option<Snapshot> {
+        self.slot
+            .lock()
+            .expect("nothing panics while holding a slot")
+            .take()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use host_core::{
+        AddonProvider, FixtureClock, FixtureFetcher, FixturePlayer, Host, InMemorySecretStore,
+        InMemoryStore,
+    };
+
+    /// The state a fresh Host publishes, as a Snapshot to fan out.
+    fn snapshot() -> Snapshot {
+        let fetcher = Arc::new(FixtureFetcher::new());
+        Host::new(
+            Arc::new(InMemoryStore::new()),
+            fetcher.clone(),
+            Arc::new(InMemorySecretStore::new()),
+            Arc::new(AddonProvider::new(fetcher)),
+            Arc::new(FixturePlayer::new()),
+            Arc::new(FixtureClock::new()),
+        )
+        .expect("a Host over in-memory seams starts")
+        .snapshot()
+    }
+
+    #[test]
+    fn a_connection_that_cannot_write_holds_the_newest_snapshot_and_nothing_older() {
+        // A phone that froze its page while the Host was playing stops reading;
+        // its connection's thread is held in a write, and the Host publishes a
+        // Snapshot every second meanwhile. What waits for that connection is the
+        // one it will send when the write lets go — not every one it missed.
+        let broadcast = Broadcast::new();
+        let subscription = broadcast.subscribe();
+        let mut published = snapshot();
+        for revision in 1..=1_000 {
+            published.revision = revision;
+            broadcast.publish(&published);
+        }
+
+        assert_eq!(
+            subscription.take().map(|snapshot| snapshot.revision),
+            Some(1_000)
+        );
+        assert!(
+            subscription.take().is_none(),
+            "nothing older is queued behind the newest"
+        );
+    }
+
+    #[test]
+    fn a_connection_that_has_gone_is_not_published_to() {
+        let broadcast = Broadcast::new();
+        let kept = broadcast.subscribe();
+        drop(broadcast.subscribe());
+
+        broadcast.publish(&snapshot());
+
+        assert!(kept.take().is_some());
+        assert_eq!(
+            broadcast.connections(),
+            1,
+            "the gone connection is forgotten"
+        );
+    }
 
     #[test]
     fn a_quiet_connection_is_pinged_before_it_is_closed() {
