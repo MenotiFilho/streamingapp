@@ -95,11 +95,37 @@ describe("the refusals the Host can send", () => {
     );
   });
 
-  test("a kind that is not one of the Host's stays unreachable", () => {
+  test("a kind that is not one of the Host's stays unreachable, and is named in words", () => {
+    // `String` of an object is "[object Object]", which is what a person read
+    // on the phone; the kind is the one word the failure carries.
     expect(asActionError({ kind: "something_new" })).toEqual({
       kind: "unreachable",
-      detail: "[object Object]",
+      detail: 'an unknown failure, "something_new"',
     });
+    expect(asActionError({ reason: "no kind at all" })).toEqual({
+      kind: "unreachable",
+      detail: "an unknown failure",
+    });
+  });
+});
+
+describe("the failures a client names itself", () => {
+  test("the Remote's link's own unreachable keeps its words", () => {
+    // The link rejects a press it could not deliver with its own `unreachable`.
+    // Read again as a kind nobody knew, it was wrapped a second time and the
+    // phone said "The window could not reach the Host: [object Object]."
+    const error = asActionError({ kind: "unreachable", detail: "the Host is not connected" });
+
+    expect(error).toEqual({ kind: "unreachable", detail: "the Host is not connected" });
+    expect(explain(error)).toBe(
+      "The window could not reach the Host: the Host is not connected.",
+    );
+  });
+
+  test("an answer that carried no page keeps its kind", () => {
+    const error = asActionError({ kind: "answer", detail: "no grid in the answer" });
+
+    expect(error).toEqual({ kind: "answer", detail: "no grid in the answer" });
   });
 });
 

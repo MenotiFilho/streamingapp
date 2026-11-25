@@ -3,7 +3,13 @@ import { ACTION_VERSION } from "../core/wire";
 import type { Action, DeviceSummary, Response, Snapshot, Title } from "../core/wire";
 import type { TokenStore } from "./tokenStore";
 import { WebSocketLink } from "./websocketLink";
-import type { Schedule, SocketFactory, SocketLike } from "./websocketLink";
+import type {
+  PageChange,
+  PageWatch,
+  Schedule,
+  SocketFactory,
+  SocketLike,
+} from "./websocketLink";
 
 /**
  * The wire Host and the browser's socket, faked (ADR-0032).
@@ -98,6 +104,11 @@ export class FakeSocket implements SocketLike {
   readonly sent: string[] = [];
   closed = false;
   opened = false;
+  /**
+   * Whether the far end has gone without the browser hearing it: the socket
+   * still takes frames, they reach nobody, and nothing comes back.
+   */
+  stalled = false;
 
   constructor(
     readonly url: string,
@@ -118,10 +129,18 @@ export class FakeSocket implements SocketLike {
       throw new Error("the socket is closed");
     }
     this.sent.push(data);
-    this.host.receive(this, data);
+    if (!this.stalled) {
+      this.host.receive(this, data);
+    }
   }
 
-  close(): void {
+  /** The code and reason the link closed this socket with, if it closed it. */
+  closedWith: { code?: number; reason?: string } | null = null;
+
+  close(code?: number, reason?: string): void {
+    if (!this.closed) {
+      this.closedWith = { code, reason };
+    }
     this.shut();
   }
 
@@ -136,7 +155,7 @@ export class FakeSocket implements SocketLike {
 
   /** Deliver one frame to the link. */
   deliver(frame: unknown): void {
-    if (this.closed) {
+    if (this.closed || this.stalled) {
       return;
     }
     this.onmessage?.({ data: JSON.stringify(frame) });
@@ -165,6 +184,8 @@ export class FakeHost {
   private knownToken: string | null;
   private readonly pairedDevice: DeviceSummary;
   private readonly refuses: FakeHostOptions["refuses"];
+  /** Whether a new socket is left opening, as one whose handshake is lost is. */
+  private opensHeld = false;
 
   constructor(options: FakeHostOptions = {}) {
     this.held = options.snapshot ?? NOTHING;
@@ -187,7 +208,11 @@ export class FakeHost {
       this.sockets.push(socket);
       // A browser's `open` is never delivered inside the constructor: the
       // socket is created now and answers on a later turn.
-      queueMicrotask(() => socket.open());
+      queueMicrotask(() => {
+        if (!this.opensHeld) {
+          socket.open();
+        }
+      });
       return socket;
     };
   }
@@ -250,6 +275,30 @@ export class FakeHost {
   /** Drop the connection, as a phone's radio does. */
   drop(): void {
     this.socket()?.shut();
+  }
+
+  /**
+   * Lose the connection without the browser hearing it: the Host hung up on a
+   * page that was frozen, or the radio slept through the close. The browser
+   * still says OPEN, frames go nowhere, and nothing comes back.
+   */
+  stall(): void {
+    const socket = this.socket();
+    if (socket) {
+      socket.stalled = true;
+    }
+  }
+
+  /** Leave every socket asked for from now on opening, and never open. */
+  holdOpens(): void {
+    this.opensHeld = true;
+  }
+
+  /** The greetings the link sent on the newest socket. */
+  greetings(): number {
+    return (this.socket()?.sent ?? []).filter(
+      (text) => (JSON.parse(text) as { hello?: unknown }).hello !== undefined,
+    ).length;
   }
 
   /** The token of the first greeting on the newest socket, or nothing. */
@@ -377,34 +426,104 @@ export function memoryTokens(initial: string | null = null): TokenStore & {
 }
 
 /**
+ * The page around the link, faked: a case puts it away and brings it back, and
+ * the link hears what a browser's document would tell it.
+ */
+export class FakePage implements PageWatch {
+  private out = false;
+  private readonly handlers = new Set<(change: PageChange) => void>();
+
+  hidden(): boolean {
+    return this.out;
+  }
+
+  follow(handler: (change: PageChange) => void): () => void {
+    this.handlers.add(handler);
+    return () => {
+      this.handlers.delete(handler);
+    };
+  }
+
+  /** The screen goes off, or another app comes to the front. */
+  hide(): void {
+    this.out = true;
+    this.tell("hidden");
+  }
+
+  /** The person is looking at the page again. */
+  show(): void {
+    this.out = false;
+    this.tell("shown");
+  }
+
+  /** The browser says the network came back. */
+  online(): void {
+    this.tell("online");
+  }
+
+  /** How many links are following this page. */
+  following(): number {
+    return this.handlers.size;
+  }
+
+  private tell(change: PageChange): void {
+    for (const handler of [...this.handlers]) {
+      handler(change);
+    }
+  }
+}
+
+/** A clock a case moves by hand, read the way the link reads `Date.now`. */
+export class FakeClock {
+  constructor(private at: number = NOW) {}
+
+  readonly now = (): number => this.at;
+
+  /** Let `ms` pass. */
+  advance(ms: number): void {
+    this.at += ms;
+  }
+}
+
+/**
  * A link over the fake Host, and the two things a case lets go of.
  *
  * The scheduler is the fake's own, so a reconnect is a fact a test decides: a
  * drop puts the link in `reconnecting` and nothing moves until `host.flush()`.
+ * The page and the clock are fakes too, so the document a suite runs in never
+ * decides whether a socket is asked or replaced.
  */
 export function fakeLink(
   options: FakeHostOptions = {},
   token: string | null = null,
+  seams: { page?: FakePage; clock?: FakeClock } = {},
 ): {
   host: FakeHost;
   tokens: ReturnType<typeof memoryTokens>;
   link: WebSocketLink;
+  page: FakePage;
+  clock: FakeClock;
   release: () => void;
 } {
   const host = new FakeHost(options);
   const tokens = memoryTokens(token);
+  const page = seams.page ?? new FakePage();
+  const clock = seams.clock ?? new FakeClock();
   const link = new WebSocketLink({
     url: "ws://host/",
     tokens,
     open: host.open,
     schedule: host.schedule,
-    now: () => NOW,
+    now: clock.now,
+    page,
   });
 
   return {
     host,
     tokens,
     link,
+    page,
+    clock,
     release: () => {
       link.close();
       host.release();

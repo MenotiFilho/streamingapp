@@ -1,11 +1,13 @@
 import { describe, expect, test } from "vitest";
 
-import type { ActionError } from "../core/errors";
+import { explain, type ActionError } from "../core/errors";
+import { Session } from "../core/session";
 import type { LinkCapabilities, LinkContractFixture } from "../core/testing/linkContract";
 import { describeLinkContract } from "../core/testing/linkContract";
 import type { Action, Response, Title } from "../core/wire";
 import {
   FakeHost,
+  FakePage,
   ISSUED_TOKEN,
   NOW,
   PAIRING_CODE,
@@ -13,6 +15,7 @@ import {
   fakeLink,
   memoryTokens,
 } from "./fakeSocket.testing";
+import { LIVENESS } from "./liveness";
 import { WebSocketLink } from "./websocketLink";
 
 /** An Action the fake Host answers. */
@@ -39,6 +42,7 @@ function socketFixture(): LinkContractFixture {
     open: host.open,
     schedule: host.schedule,
     now: () => NOW,
+    page: new FakePage(),
   });
 
   return {
@@ -324,6 +328,337 @@ describe("the Remote's link: staying connected", () => {
         expect(state.reason).toContain("version");
       }
       expect(host.scheduled()).toBe(0);
+    } finally {
+      release();
+    }
+  });
+});
+
+describe("the Remote's link: a socket that only says it is open", () => {
+  /** A Session over a paired link whose first socket is open and welcomed. */
+  async function pairedPhone() {
+    const fixture = fakeLink({ known: { device: PHONE, token: ISSUED_TOKEN } }, ISSUED_TOKEN);
+    await fixture.host.connect();
+    const session = new Session(fixture.link);
+    const stop = session.start();
+    return {
+      ...fixture,
+      session,
+      release: () => {
+        stop();
+        fixture.release();
+      },
+    };
+  }
+
+  /** Let a press that is waiting on a socket's answer, or on a socket, move on. */
+  async function settle(): Promise<void> {
+    for (let turn = 0; turn < 10; turn += 1) {
+      await Promise.resolve();
+    }
+  }
+
+  const PLAY: Action = { type: "set_paused", paused: false };
+
+  test("a phone that slept keeps a socket the Host still answers, and the press goes down it", async () => {
+    // A locked phone's connection is usually still there when it wakes: the
+    // page asks, the Host answers, and nothing is reconnected.
+    const { host, link, page, clock, session, release } = await pairedPhone();
+    try {
+      const seen: string[] = [];
+      link.onState((state) => seen.push(state.kind));
+      page.hide();
+      clock.advance(5 * 60_000);
+      page.show();
+
+      await session.take(PLAY);
+
+      expect(host.socketCount(), "the socket is kept").toBe(1);
+      expect(seen, "the page never says it is reconnecting").not.toContain("reconnecting");
+      expect(host.received()).toContainEqual(PLAY);
+      expect(session.getState().error).toBeNull();
+    } finally {
+      release();
+    }
+  });
+
+  test("a phone that slept on a dead socket finds out at once, and a press made meanwhile goes down the new one", async () => {
+    // The report: the Remote sat idle, the phone slept, and on waking the page
+    // said Live while play spun and spun, until the socket finally closed.
+    const { host, link, page, clock, session, release } = await pairedPhone();
+    try {
+      page.hide();
+      host.stall();
+      clock.advance(5 * 60_000);
+      page.show();
+
+      const pressed = session.take(PLAY);
+      await settle();
+      const asked = host.socket()?.sent ?? [];
+      expect(
+        asked.some((text) => text.includes('"command"')),
+        "the press waits for the answer rather than going down a socket that may be dead",
+      ).toBe(false);
+
+      clock.advance(LIVENESS.probeWait);
+      host.flush();
+      expect(host.socketCount(), "silence is a dead socket").toBe(2);
+      await host.connect();
+      await pressed;
+
+      expect(host.received()).toContainEqual(PLAY);
+      expect(session.getState().pending.size, "nothing is left spinning").toBe(0);
+      expect(session.getState().error).toBeNull();
+      expect(link.state()).toEqual({ kind: "ready", device: PHONE });
+    } finally {
+      release();
+    }
+  });
+
+  test("a page looked at again soon asks at once, and a socket that does not answer is replaced", async () => {
+    const { host, link, page, clock, release } = await pairedPhone();
+    try {
+      page.hide();
+      clock.advance(5_000);
+      host.stall();
+      const greeted = host.greetings();
+      page.show();
+
+      expect(host.greetings(), "the page asks the moment it is looked at").toBe(greeted + 1);
+      expect(host.socketCount()).toBe(1);
+
+      clock.advance(LIVENESS.probeWait);
+      host.flush();
+
+      expect(host.socketCount(), "silence is a dead socket").toBe(2);
+      await host.connect();
+      expect(link.state()).toEqual({ kind: "ready", device: PHONE });
+    } finally {
+      release();
+    }
+  });
+
+  test("the link tells the Host why it let a socket go", async () => {
+    // The Host logs the reason a device gives, so a phone that keeps
+    // reconnecting can be read about rather than guessed at.
+    const { host, page, clock, release } = await pairedPhone();
+    try {
+      const first = host.socket();
+      host.stall();
+      page.hide();
+      page.show();
+      clock.advance(LIVENESS.probeWait);
+      host.flush();
+
+      expect(first?.closedWith?.code).toBe(4000);
+      expect(first?.closedWith?.reason).toContain("no answer");
+    } finally {
+      release();
+    }
+  });
+
+  test("a press made while the link reconnects waits for the new socket", async () => {
+    // A press that failed with "could not reach the Host" while the link was
+    // already on its way back was the other half of the report.
+    const { host, link, session, release } = await pairedPhone();
+    try {
+      host.drop();
+      expect(link.state().kind).toBe("reconnecting");
+
+      const pressed = session.take(PLAY);
+      await settle();
+      expect(session.getState().error, "not refused while the link comes back").toBeNull();
+
+      host.flush();
+      await host.connect();
+      await pressed;
+
+      expect(host.received()).toContainEqual(PLAY);
+      expect(session.getState().error).toBeNull();
+    } finally {
+      release();
+    }
+  });
+
+  test("a press waits a few seconds for the Host, then is refused in words", async () => {
+    const { host, clock, session, release } = await pairedPhone();
+    try {
+      host.holdOpens();
+      host.drop();
+
+      const pressed = session.take(PLAY);
+      await settle();
+      clock.advance(LIVENESS.holdPress);
+      host.flush();
+      await pressed;
+
+      const error = session.getState().error;
+      expect(error && explain(error)).toBe(
+        "The window could not reach the Host: the Host is not connected.",
+      );
+    } finally {
+      release();
+    }
+  });
+
+  test("a socket that answers the question is kept", async () => {
+    const { host, link, page, clock, release } = await pairedPhone();
+    try {
+      page.hide();
+      clock.advance(5_000);
+      page.show();
+      clock.advance(LIVENESS.probeWait);
+      host.flush();
+
+      expect(host.socketCount()).toBe(1);
+      expect(link.state()).toEqual({ kind: "ready", device: PHONE });
+    } finally {
+      release();
+    }
+  });
+
+  test("a press on a socket that stopped answering is refused in the link's own words, not left spinning", async () => {
+    const { host, link, clock, session, release } = await pairedPhone();
+    try {
+      host.stall();
+      const pressed = session.take(PLAY);
+      await settle();
+      expect(session.getState().pending.size).toBe(1);
+
+      // A press in flight may be a slow question on a busy Host, so the link
+      // waits longer than it would for an idle socket — but not for ever.
+      clock.advance(LIVENESS.deadAfter);
+      host.flush();
+      expect(host.socketCount()).toBe(1);
+
+      clock.advance(LIVENESS.deadWhileAskingAfter - LIVENESS.deadAfter);
+      host.flush();
+      await pressed;
+
+      expect(host.socketCount()).toBe(2);
+      expect(session.getState().pending.size).toBe(0);
+      const error = session.getState().error;
+      expect(error && explain(error)).toBe(
+        "The window could not reach the Host: the Host stopped answering.",
+      );
+      // The replacement was opened at once rather than after a backoff, and is
+      // already the Host's again.
+      await host.connect();
+      expect(link.state()).toEqual({ kind: "ready", device: PHONE });
+    } finally {
+      release();
+    }
+  });
+
+  test("a press in flight when the socket closes is explained in words, not as [object Object]", async () => {
+    const { host, session, release } = await pairedPhone();
+    try {
+      host.stall();
+      const pressed = session.take(PLAY);
+      await settle();
+      host.drop();
+      await pressed;
+
+      const error = session.getState().error;
+      expect(error && explain(error)).toBe(
+        "The window could not reach the Host: the Host is not connected.",
+      );
+    } finally {
+      release();
+    }
+  });
+
+  test("a quiet Host is greeted, and a socket silent past the bound is replaced", async () => {
+    const { host, clock, release } = await pairedPhone();
+    try {
+      host.stall();
+      const greeted = host.greetings();
+
+      clock.advance(LIVENESS.greetAfter);
+      host.flush();
+      expect(host.greetings(), "the link asks the Host to say something").toBe(greeted + 1);
+      expect(host.socketCount()).toBe(1);
+
+      clock.advance(LIVENESS.deadAfter - LIVENESS.greetAfter);
+      host.flush();
+      expect(host.socketCount()).toBe(2);
+    } finally {
+      release();
+    }
+  });
+
+  test("a quiet Host that answers its greeting keeps its socket", async () => {
+    const { host, link, clock, release } = await pairedPhone();
+    try {
+      clock.advance(LIVENESS.greetAfter);
+      host.flush();
+      clock.advance(LIVENESS.deadAfter - LIVENESS.greetAfter);
+      host.flush();
+
+      expect(host.socketCount()).toBe(1);
+      expect(link.state()).toEqual({ kind: "ready", device: PHONE });
+    } finally {
+      release();
+    }
+  });
+
+  test("a hidden page is neither greeted nor reconnected by the clock", async () => {
+    // A locked phone is not woken by its own page: looking at it again is what
+    // decides.
+    const { host, page, clock, release } = await pairedPhone();
+    try {
+      page.hide();
+      host.stall();
+      const greeted = host.greetings();
+      clock.advance(10 * 60_000);
+      host.flush();
+
+      expect(host.greetings()).toBe(greeted);
+      expect(host.socketCount()).toBe(1);
+    } finally {
+      release();
+    }
+  });
+
+  test("a page looked at while a retry waits connects at once", async () => {
+    const { host, link, page, release } = await pairedPhone();
+    try {
+      host.drop();
+      expect(link.state().kind).toBe("reconnecting");
+
+      page.show();
+      expect(host.socketCount(), "no backoff left to wait out").toBe(2);
+      await host.connect();
+      expect(link.state()).toEqual({ kind: "ready", device: PHONE });
+    } finally {
+      release();
+    }
+  });
+
+  test("a socket that never opens is given up on and tried again", async () => {
+    const { host, link, release } = await pairedPhone();
+    try {
+      host.holdOpens();
+      host.drop();
+      host.flush();
+      expect(host.socketCount()).toBe(2);
+      await host.connect();
+      expect(link.state().kind, "the second socket is still opening").toBe("reconnecting");
+
+      host.flush();
+      expect(host.socket()?.closed, "the attempt that never opened is closed").toBe(true);
+      expect(host.scheduled(), "and another is booked").toBe(1);
+    } finally {
+      release();
+    }
+  });
+
+  test("a closed link stops following the page", async () => {
+    const { link, page, release } = await pairedPhone();
+    try {
+      expect(page.following()).toBe(1);
+      link.close();
+      expect(page.following()).toBe(0);
     } finally {
       release();
     }

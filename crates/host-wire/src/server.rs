@@ -26,7 +26,7 @@ use std::io;
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, Weak};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -47,16 +47,28 @@ const READ_TIMEOUT: Duration = Duration::from_millis(200);
 /// How often the listener looks at whether it has been asked to stop.
 const ACCEPT_PAUSE: Duration = Duration::from_millis(25);
 
+/// How long a connection's request may take to arrive. A phone sends it the
+/// moment its socket opens, and gives up on a socket that has not opened after
+/// eight seconds; a request still missing after this is not coming, and the
+/// thread waiting for it is let go.
+const HEAD_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// How often an idle connection is pinged. The browser answers at the framing
 /// layer, so this costs the page nothing and keeps a home router's mapping for
 /// a phone whose screen has been off for a while.
 const PING_EVERY: Duration = Duration::from_secs(20);
 
 /// How long a connection may say nothing — not even a pong — before the Host
-/// hangs up on it. A phone that was suspended has already lost the connection
-/// in practice; this is how the Host's thread learns it. The client reconnects
-/// as soon as its page is visible again.
-const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+/// hangs up on it.
+///
+/// A locked phone's browser stops answering pings, but its connection is
+/// usually still there when it wakes, and the page asks the Host the moment it
+/// is looked at again. Hanging up after a minute turned every unlock into a
+/// reconnect. A peer that has really gone is found sooner by the pings
+/// themselves: nobody acknowledges them, and the socket's own retries give up.
+/// This bound is for a peer whose network still answers and whose page never
+/// comes back.
+const IDLE_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 /// How many wrong pairing codes one connection may offer before the Host hangs
 /// up on it. A six-character code is thirty bits; five guesses is not a way to
@@ -166,9 +178,11 @@ fn accept_loop(
                     .name("host-wire-connection".to_owned())
                     .spawn(move || {
                         if let Err(error) = serve(&surface, &broadcast, stream) {
-                            // A client hanging up is the ordinary end of a
-                            // connection, not a failure of the Host's.
-                            tracing::debug!(%peer, %error, "a remote connection ended");
+                            // A request that ends before it is answered — a page
+                            // load abandoned, a handshake cut short — is the
+                            // ordinary end of a connection, not a failure of the
+                            // Host's. A conversation logs its own end.
+                            tracing::debug!(%peer, %error, "a remote request ended");
                         }
                     });
             }
@@ -189,6 +203,16 @@ fn serve(
     broadcast: &Broadcast,
     mut stream: TcpStream,
 ) -> io::Result<()> {
+    // The listener is non-blocking so it can notice `stop`, and on Windows a
+    // socket accepted from it is non-blocking too (Linux does not pass the flag
+    // on). A connection's I/O is meant to block: a read waits out
+    // `READ_TIMEOUT`, and a write waits for the phone to read. Non-blocking, a
+    // read returned at once — each connection's thread spun a whole core, and a
+    // request that had not quite arrived was refused before its handshake — and
+    // a write that did not fit the socket's buffer at once failed, which hung
+    // up on a phone every time a press published a Snapshot.
+    stream.set_nonblocking(false)?;
+    stream.set_read_timeout(Some(HEAD_TIMEOUT))?;
     let head = http::read_head(&mut stream)?;
     let Some(request) = http::Request::parse(&head) else {
         return http::write_document(
@@ -218,16 +242,59 @@ fn serve(
     // packet that is never coming. A control wants sending now.
     let _ = stream.set_nodelay(true);
 
+    let peer = stream.peer_addr().ok();
     let mut socket = WebSocket::from_raw_socket(stream, Role::Server, None);
-    connection(surface, broadcast, &mut socket)
+    connection(surface, broadcast, &mut socket, peer)
 }
 
 /// The conversation: a greeting, then commands, with pushed Snapshots between.
+///
+/// Its end is logged once, with why it ended and the device it was, so a phone
+/// that keeps reconnecting is something the owner can read in the log rather
+/// than guess at.
 fn connection(
     surface: &Arc<dyn Surface>,
     broadcast: &Broadcast,
     socket: &mut WebSocket<TcpStream>,
+    peer: Option<SocketAddr>,
 ) -> io::Result<()> {
+    let opened = Instant::now();
+    let mut device = None;
+    let ended = converse(surface, broadcast, socket, peer, &mut device);
+    let why = match &ended {
+        Ok(why) => why.clone(),
+        Err(error) => format!("it failed: {error}"),
+    };
+    tracing::info!(
+        peer = %Peer(peer),
+        device = device.as_deref().unwrap_or("none"),
+        seconds = opened.elapsed().as_secs(),
+        why,
+        "a remote connection ended"
+    );
+    ended.map(|_| ())
+}
+
+/// A connection's address as a log line spells it.
+struct Peer(Option<SocketAddr>);
+
+impl std::fmt::Display for Peer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.0 {
+            Some(peer) => write!(f, "{peer}"),
+            None => f.write_str("unknown"),
+        }
+    }
+}
+
+/// The conversation's loop, answering why it ended.
+fn converse(
+    surface: &Arc<dyn Surface>,
+    broadcast: &Broadcast,
+    socket: &mut WebSocket<TcpStream>,
+    peer: Option<SocketAddr>,
+    device: &mut Option<String>,
+) -> io::Result<String> {
     let subscription = broadcast.subscribe();
     // The Answers this connection is owed after their Response: a revised
     // Title goes only to the client whose open queued the refresh, so the
@@ -242,7 +309,7 @@ fn connection(
     let mut last_ping = Instant::now();
 
     loop {
-        match socket.read() {
+        let quiet = match socket.read() {
             Ok(Message::Text(text)) => {
                 last_seen = Instant::now();
                 let mut conversation = Conversation {
@@ -251,18 +318,42 @@ fn connection(
                     paired: &mut paired,
                     wrong_codes: &mut wrong_codes,
                 };
-                if let Outcome::Stop = conversation.handle(&text, socket)? {
+                let outcome = conversation.handle(&text, socket)?;
+                if let Some(now_paired) = &paired {
+                    if device.as_deref() != Some(now_paired.name.as_str()) {
+                        tracing::info!(
+                            peer = %Peer(peer),
+                            device = now_paired.name.as_str(),
+                            "a remote device connected"
+                        );
+                        *device = Some(now_paired.name.clone());
+                    }
+                }
+                if let Outcome::Stop(why) = outcome {
                     let _ = socket.close(None);
                     let _ = socket.flush();
-                    return Ok(());
+                    return Ok(why.to_owned());
                 }
+                false
             }
-            Ok(Message::Close(_)) => return Ok(()),
+            Ok(Message::Close(frame)) => {
+                // The Remote says why when it lets a socket go on purpose.
+                return Ok(match frame {
+                    Some(frame) if !frame.reason.is_empty() => format!(
+                        "the device closed it ({}: {})",
+                        u16::from(frame.code),
+                        frame.reason
+                    ),
+                    Some(frame) => format!("the device closed it ({})", u16::from(frame.code)),
+                    None => "the device closed it".to_owned(),
+                });
+            }
             // A ping is answered by the framing layer on the next write; a pong
             // is the answer this Host asked for, and either is proof the client
             // is still there. A binary frame has no meaning here.
             Ok(_) => {
                 last_seen = Instant::now();
+                false
             }
             Err(tungstenite::Error::Io(error))
                 if matches!(
@@ -270,39 +361,42 @@ fn connection(
                     io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
                 ) =>
             {
-                // Nobody said anything; look at what the Host published.
+                // Nobody said anything.
+                true
             }
-            Err(error) => {
-                tracing::debug!(%error, "a remote connection closed");
-                return Ok(());
-            }
-        }
+            Err(error) => return Ok(format!("the connection dropped: {error}")),
+        };
 
-        // The Host's own news, on the way to every client allowed to hear it.
-        if !push(surface, &subscription, &paired, socket)? {
-            return Ok(());
-        }
-        send_revisions(&revisions, socket)?;
-
-        match keepalive(Instant::now(), last_seen, last_ping) {
+        // Judged before the push, after a read: a thread that was held in a
+        // write to a frozen phone reads the pongs that queued meanwhile before
+        // it decides the phone said nothing.
+        match keepalive(Instant::now(), last_seen, last_ping, quiet) {
             Keepalive::Close => {
-                tracing::debug!("a remote connection stopped answering; closing it");
                 let _ = socket.close(None);
                 let _ = socket.flush();
-                return Ok(());
+                return Ok(format!(
+                    "it said nothing for {} minutes",
+                    IDLE_TIMEOUT.as_secs() / 60
+                ));
             }
             Keepalive::Ping => {
                 last_ping = Instant::now();
-                // The reply is the browser's, not the page's: a locked phone
-                // still answers it, and a dead one does not.
+                // The reply is the browser's, not the page's: a phone whose page
+                // is merely hidden answers it, and a frozen or a dead one does not.
                 let _ = socket.send(Message::Ping(Vec::new().into()));
             }
             Keepalive::None => {}
         }
+
+        // The Host's own news, on the way to every client allowed to hear it.
+        if !push(surface, &subscription, &paired, socket)? {
+            return Ok("the device was revoked".to_owned());
+        }
+        send_revisions(&revisions, socket)?;
     }
 }
 
-/// What a connection's own clock says to do after a read and a push.
+/// What a connection's own clock says to do after a read.
 #[derive(Debug, PartialEq, Eq)]
 enum Keepalive {
     /// Nothing yet: keep reading, and keep looking for published state.
@@ -315,8 +409,14 @@ enum Keepalive {
 
 /// The liveness decision at the two edges it defines: a connection is pinged
 /// after one quiet interval, and closed only after a longer one with no answer.
-fn keepalive(now: Instant, last_seen: Instant, last_ping: Instant) -> Keepalive {
-    if now.saturating_duration_since(last_seen) >= IDLE_TIMEOUT {
+///
+/// Both are decided only after a read that found nothing (`quiet`): a
+/// connection that has just said something is plainly there, and one whose
+/// thread was busy has not been read since, so its silence is not yet known.
+fn keepalive(now: Instant, last_seen: Instant, last_ping: Instant, quiet: bool) -> Keepalive {
+    if !quiet {
+        Keepalive::None
+    } else if now.saturating_duration_since(last_seen) >= IDLE_TIMEOUT {
         Keepalive::Close
     } else if now.saturating_duration_since(last_ping) >= PING_EVERY {
         Keepalive::Ping
@@ -332,6 +432,8 @@ fn keepalive(now: Instant, last_seen: Instant, last_ping: Instant) -> Keepalive 
 struct Paired {
     id: DeviceId,
     token: DeviceToken,
+    /// What the device is called, for the log line that says it connected.
+    name: String,
 }
 
 impl Paired {
@@ -361,13 +463,11 @@ fn push(
         // A Snapshot is the whole state, not a delta: if this connection has
         // fallen behind, the newest one is the only one worth sending. A phone
         // that slept through a minute of playback should hear where the Host is
-        // now, not replay every quarter-second it missed.
-        let Some(mut snapshot) = subscription.try_recv() else {
+        // now, not replay every quarter-second it missed — and the subscription
+        // holds no more than that one (see `Broadcast`).
+        let Some(snapshot) = subscription.take() else {
             return Ok(true);
         };
-        while let Some(newer) = subscription.try_recv() {
-            snapshot = newer;
-        }
 
         let Some(paired) = paired.as_ref() else {
             // A connection that has not paired is not told what is playing.
@@ -422,6 +522,7 @@ impl Conversation<'_> {
                         *self.paired = Some(Paired {
                             id: device.id.clone(),
                             token,
+                            name: device.name.as_str().to_owned(),
                         });
                         self.welcome(Some(device), socket)?;
                     }
@@ -455,7 +556,7 @@ impl Conversation<'_> {
                             error: ActionError::Unpaired,
                         },
                     )?;
-                    return Ok(Outcome::Stop);
+                    return Ok(Outcome::Stop("the device was revoked"));
                 }
 
                 if let Err(error) = host_core::permitted(&action, known) {
@@ -482,6 +583,7 @@ impl Conversation<'_> {
                             *self.paired = Some(Paired {
                                 id: device.id.clone(),
                                 token: issued.clone(),
+                                name: device.name.as_str().to_owned(),
                             });
                         }
                         // The Snapshots were already published by the
@@ -506,7 +608,7 @@ impl Conversation<'_> {
                             },
                         )?;
                         Ok(if exhausted {
-                            Outcome::Stop
+                            Outcome::Stop("too many wrong pairing codes")
                         } else {
                             Outcome::Keep
                         })
@@ -571,54 +673,83 @@ fn send(socket: &mut WebSocket<TcpStream>, frame: &ServerFrame) -> io::Result<()
 /// Whether the conversation continues.
 enum Outcome {
     Keep,
-    Stop,
+    /// The Host ends the conversation, for the reason its log line gives.
+    Stop(&'static str),
 }
 
 /// The Host's published Snapshots, fanned out to whoever is asking.
 ///
-/// A queue per connection rather than one shared queue: each connection reads at
-/// its own pace, and one that has gone away must not hold the others back. A
-/// sender whose receiver has been dropped is removed the next time the Host
-/// publishes — the cleanup is lazy because a connection that has gone away is
-/// discovered by the send that fails, not by anything it says.
+/// One slot per connection rather than one shared queue: each connection reads
+/// at its own pace, and one that has gone away must not hold the others back.
+/// And a slot rather than a queue: a Snapshot is the whole state, so the newest
+/// one a connection has not sent is all it will ever send, and a publish
+/// replaces what was waiting. A connection whose thread is held in a write — a
+/// phone that froze its page while the Host was playing, its socket's buffers
+/// full — then holds one Snapshot, not every one published until it lets go.
+///
+/// A connection that has gone away is forgotten the next time the Host
+/// publishes: its slot is dropped with its subscription, so the cleanup is lazy
+/// and needs nothing from the connection that went.
 #[derive(Clone, Default)]
 pub struct Broadcast {
-    sinks: Arc<Mutex<Vec<Sender<Snapshot>>>>,
+    slots: Arc<Mutex<Vec<Weak<Slot>>>>,
 }
+
+/// The newest Snapshot one connection has not sent yet, if any.
+type Slot = Mutex<Option<Snapshot>>;
 
 impl Broadcast {
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// A queue for one connection, which stops receiving when it is dropped.
+    /// A slot for one connection, which stops receiving when it is dropped.
     pub fn subscribe(&self) -> Subscription {
-        let (sender, receiver) = mpsc::channel();
-        self.sinks
+        let slot = Arc::new(Slot::default());
+        self.slots
             .lock()
             .expect("nothing panics while publishing Snapshots")
-            .push(sender);
-        Subscription { receiver }
+            .push(Arc::downgrade(&slot));
+        Subscription { slot }
     }
 
-    /// Hand every published Snapshot to every connection that is still there.
+    /// Put a published Snapshot in front of every connection that is still there.
     pub fn publish(&self, snapshot: &Snapshot) {
-        let mut sinks = self
-            .sinks
+        let mut slots = self
+            .slots
             .lock()
             .expect("nothing panics while publishing Snapshots");
-        sinks.retain(|sink| sink.send(snapshot.clone()).is_ok());
+        slots.retain(|slot| {
+            let Some(slot) = slot.upgrade() else {
+                return false;
+            };
+            *slot.lock().expect("nothing panics while holding a slot") = Some(snapshot.clone());
+            true
+        });
+    }
+
+    /// How many connections are being published to.
+    #[cfg(test)]
+    fn connections(&self) -> usize {
+        self.slots
+            .lock()
+            .expect("nothing panics while publishing Snapshots")
+            .len()
     }
 }
 
-/// One connection's queue of published Snapshots.
+/// One connection's slot of published Snapshots.
 pub struct Subscription {
-    receiver: Receiver<Snapshot>,
+    slot: Arc<Slot>,
 }
 
 impl Subscription {
-    fn try_recv(&self) -> Option<Snapshot> {
-        self.receiver.try_recv().ok()
+    /// The newest Snapshot published since this connection last took one.
+    fn take(&self) -> Option<Snapshot> {
+        self.slot
+            .lock()
+            .expect("nothing panics while holding a slot")
+            .take()
     }
 }
 
@@ -626,17 +757,247 @@ impl Subscription {
 mod tests {
     use super::*;
 
+    use std::io::{Read, Write};
+
+    use host_core::{
+        AddonProvider, DeviceName, FixtureClock, FixtureFetcher, FixturePlayer, Host,
+        InMemorySecretStore, InMemoryStore, WIRE_VERSION,
+    };
+    use serde_json::{json, Value};
+
+    /// The state a fresh Host publishes, as a Snapshot to fan out.
+    fn snapshot() -> Snapshot {
+        let fetcher = Arc::new(FixtureFetcher::new());
+        Host::new(
+            Arc::new(InMemoryStore::new()),
+            fetcher.clone(),
+            Arc::new(InMemorySecretStore::new()),
+            Arc::new(AddonProvider::new(fetcher)),
+            Arc::new(FixturePlayer::new()),
+            Arc::new(FixtureClock::new()),
+        )
+        .expect("a Host over in-memory seams starts")
+        .snapshot()
+    }
+
+    /// A Host that knows one device by any token, with as much state as a case
+    /// gives it.
+    struct Roomy {
+        device: DeviceSummary,
+        state: Snapshot,
+    }
+
+    impl Surface for Roomy {
+        fn dispatch(
+            &self,
+            _action: Action,
+            _revisions: Arc<dyn RevisionSink>,
+        ) -> Result<Response, ActionError> {
+            Ok(Response {
+                snapshots: Vec::new(),
+                answer: None,
+            })
+        }
+
+        fn device(&self, _token: &DeviceToken) -> Option<DeviceSummary> {
+            Some(self.device.clone())
+        }
+
+        fn snapshot(&self) -> Snapshot {
+            self.state.clone()
+        }
+    }
+
+    /// The device every `Roomy` Host knows.
+    fn phone() -> DeviceSummary {
+        DeviceSummary {
+            id: DeviceId::parse("phone").expect("a device id"),
+            name: DeviceName::parse("Phone").expect("a device name"),
+            paired_at: 1_700_000_000_000,
+        }
+    }
+
+    /// One accepted connection, handed to `serve` the way Windows hands it over:
+    /// accepted from the listener's non-blocking socket, and non-blocking itself
+    /// (Linux does not pass the flag on, so a suite running there sets it).
+    fn serve_as_windows_accepts(state: Snapshot) -> (TcpStream, JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+        let client =
+            TcpStream::connect(listener.local_addr().expect("an address")).expect("connects");
+        let (accepted, _) = listener.accept().expect("accepts");
+        accepted
+            .set_nonblocking(true)
+            .expect("the accepted socket can be made non-blocking");
+        client
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .expect("the client can be given a read timeout");
+
+        let surface: Arc<dyn Surface> = Arc::new(Roomy {
+            device: phone(),
+            state,
+        });
+        let serving = thread::spawn(move || {
+            let _ = serve(&surface, &Broadcast::new(), accepted);
+        });
+        (client, serving)
+    }
+
+    const UPGRADE: &[u8] = b"GET / HTTP/1.1\r\nHost: host\r\nUpgrade: websocket\r\n\
+        Connection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+        Sec-WebSocket-Version: 13\r\n\r\n";
+
+    /// The response head the Host wrote, or what it wrote before it hung up.
+    fn response_head(client: &mut TcpStream) -> String {
+        let mut head = Vec::new();
+        let mut byte = [0u8; 1];
+        while !head.ends_with(b"\r\n\r\n") {
+            match client.read(&mut byte) {
+                Ok(1) => head.push(byte[0]),
+                _ => break,
+            }
+        }
+        String::from_utf8_lossy(&head).into_owned()
+    }
+
+    #[test]
+    fn a_request_that_arrives_after_its_connection_is_still_answered() {
+        // A phone's request reaches the Host a moment after its connection
+        // does. A non-blocking read found nothing yet and hung up, and the
+        // Remote said "Connecting" while its attempts were refused one by one.
+        let (mut client, serving) = serve_as_windows_accepts(snapshot());
+        thread::sleep(Duration::from_millis(100));
+        client.write_all(UPGRADE).expect("the request is sent");
+
+        let head = response_head(&mut client);
+        assert!(
+            head.starts_with("HTTP/1.1 101"),
+            "the Host answers the upgrade: {head:?}"
+        );
+
+        drop(client);
+        serving.join().expect("the connection's thread ends");
+    }
+
+    #[test]
+    fn a_snapshot_larger_than_the_sockets_buffers_arrives_whole() {
+        // A press is answered with a Reply and the Snapshot it published, and a
+        // Snapshot is tens of kilobytes. A non-blocking write that did not fit
+        // the socket's buffer at once failed, and the Host hung up on the phone
+        // that pressed: the Remote flickered to "Reconnecting" on every control.
+        let mut state = snapshot();
+        // About 14 MB: past what the two sockets buffer, short of a frame's 16 MB.
+        state.devices = vec![phone(); 250_000];
+        let devices = state.devices.len();
+        let (mut client, serving) = serve_as_windows_accepts(state);
+        client.write_all(UPGRADE).expect("the request is sent");
+        let head = response_head(&mut client);
+        assert!(head.starts_with("HTTP/1.1 101"), "{head:?}");
+
+        let mut socket = WebSocket::from_raw_socket(client, Role::Client, None);
+        socket
+            .send(Message::Text(
+                json!({ "version": WIRE_VERSION, "hello": { "token": "a".repeat(43) } })
+                    .to_string()
+                    .into(),
+            ))
+            .expect("the greeting is sent");
+        // The phone is busy drawing for a moment before it reads.
+        thread::sleep(Duration::from_millis(300));
+
+        let mut snapshot_devices = None;
+        while snapshot_devices.is_none() {
+            match socket.read() {
+                Ok(Message::Text(text)) => {
+                    let frame: Value = serde_json::from_str(&text).expect("the Host writes JSON");
+                    if let Some(snapshot) = frame.get("snapshot") {
+                        snapshot_devices = snapshot["devices"].as_array().map(Vec::len);
+                    }
+                }
+                Ok(_) => {}
+                Err(error) => panic!("the Host hung up before the Snapshot arrived: {error}"),
+            }
+        }
+        assert_eq!(snapshot_devices, Some(devices));
+
+        drop(socket);
+        serving.join().expect("the connection's thread ends");
+    }
+
+    #[test]
+    fn a_connection_that_cannot_write_holds_the_newest_snapshot_and_nothing_older() {
+        // A phone that froze its page while the Host was playing stops reading;
+        // its connection's thread is held in a write, and the Host publishes a
+        // Snapshot every second meanwhile. What waits for that connection is the
+        // one it will send when the write lets go — not every one it missed.
+        let broadcast = Broadcast::new();
+        let subscription = broadcast.subscribe();
+        let mut published = snapshot();
+        for revision in 1..=1_000 {
+            published.revision = revision;
+            broadcast.publish(&published);
+        }
+
+        assert_eq!(
+            subscription.take().map(|snapshot| snapshot.revision),
+            Some(1_000)
+        );
+        assert!(
+            subscription.take().is_none(),
+            "nothing older is queued behind the newest"
+        );
+    }
+
+    #[test]
+    fn a_connection_that_has_gone_is_not_published_to() {
+        let broadcast = Broadcast::new();
+        let kept = broadcast.subscribe();
+        drop(broadcast.subscribe());
+
+        broadcast.publish(&snapshot());
+
+        assert!(kept.take().is_some());
+        assert_eq!(
+            broadcast.connections(),
+            1,
+            "the gone connection is forgotten"
+        );
+    }
+
     #[test]
     fn a_quiet_connection_is_pinged_before_it_is_closed() {
         let now = Instant::now();
-        assert_eq!(keepalive(now, now, now), Keepalive::None);
+        assert_eq!(keepalive(now, now, now, true), Keepalive::None);
         assert_eq!(
-            keepalive(now, now - PING_EVERY, now - PING_EVERY),
+            keepalive(now, now - PING_EVERY, now - PING_EVERY, true),
             Keepalive::Ping
         );
         assert_eq!(
-            keepalive(now, now - IDLE_TIMEOUT, now - Duration::from_secs(1)),
+            keepalive(now, now - IDLE_TIMEOUT, now - Duration::from_secs(1), true),
             Keepalive::Close
         );
+    }
+
+    #[test]
+    fn a_phone_asleep_for_minutes_is_pinged_and_not_hung_up_on() {
+        // A locked phone's browser stops answering pings, but its connection is
+        // usually still there when it wakes. Hanging up after a minute made
+        // every unlock a reconnect.
+        let now = Instant::now();
+        let asleep = now - Duration::from_secs(5 * 60);
+        assert_eq!(
+            keepalive(now, asleep, now - PING_EVERY, true),
+            Keepalive::Ping
+        );
+        assert_eq!(keepalive(now, asleep, now, true), Keepalive::None);
+    }
+
+    #[test]
+    fn a_connection_that_was_busy_writing_is_read_before_it_is_judged() {
+        // A thread held in a write to a frozen phone cannot read the pongs that
+        // queued meanwhile: silence is only silence once a read found nothing.
+        let now = Instant::now();
+        let long_ago = now - IDLE_TIMEOUT * 2;
+        assert_eq!(keepalive(now, long_ago, now, false), Keepalive::None);
+        assert_eq!(keepalive(now, long_ago, now, true), Keepalive::Close);
     }
 }
