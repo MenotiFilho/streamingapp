@@ -149,15 +149,31 @@ export type ActionError = {
  */
 export const CLIENT_ERROR_KINDS = ["unreachable", "answer"] as const;
 
-/** Whatever a failed call threw, as something the window can explain. */
+/** Every kind an `ActionError` can be: the Host's refusals and the client's own failures. */
+const ACTION_ERROR_KINDS: readonly string[] = [...HOST_ERROR_KINDS, ...CLIENT_ERROR_KINDS];
+
+/**
+ * Whatever a failed call threw, as something the window can explain.
+ *
+ * An `ActionError` already — the Host's refusal, or a link's own `unreachable`
+ * — is kept as it is. Anything else is a transport that never reached the Host,
+ * in words: an object's `String` is "[object Object]", which says nothing to the
+ * person reading it, so an object is named by its kind where it has one.
+ */
 export function asActionError(caught: unknown): ActionError {
   if (typeof caught === "object" && caught !== null) {
     const kind = (caught as { kind?: unknown }).kind;
-    if (
-      typeof kind === "string" &&
-      (HOST_ERROR_KINDS as readonly string[]).includes(kind)
-    ) {
+    if (typeof kind === "string" && ACTION_ERROR_KINDS.includes(kind)) {
       return caught as ActionError;
+    }
+    if (!(caught instanceof Error)) {
+      return {
+        kind: "unreachable",
+        detail:
+          typeof kind === "string"
+            ? `an unknown failure, ${JSON.stringify(kind)}`
+            : "an unknown failure",
+      };
     }
   }
   return { kind: "unreachable", detail: String(caught) };
