@@ -47,6 +47,12 @@ const READ_TIMEOUT: Duration = Duration::from_millis(200);
 /// How often the listener looks at whether it has been asked to stop.
 const ACCEPT_PAUSE: Duration = Duration::from_millis(25);
 
+/// How long a connection's request may take to arrive. A phone sends it the
+/// moment its socket opens, and gives up on a socket that has not opened after
+/// eight seconds; a request still missing after this is not coming, and the
+/// thread waiting for it is let go.
+const HEAD_TIMEOUT: Duration = Duration::from_secs(10);
+
 /// How often an idle connection is pinged. The browser answers at the framing
 /// layer, so this costs the page nothing and keeps a home router's mapping for
 /// a phone whose screen has been off for a while.
@@ -189,6 +195,16 @@ fn serve(
     broadcast: &Broadcast,
     mut stream: TcpStream,
 ) -> io::Result<()> {
+    // The listener is non-blocking so it can notice `stop`, and on Windows a
+    // socket accepted from it is non-blocking too (Linux does not pass the flag
+    // on). A connection's I/O is meant to block: a read waits out
+    // `READ_TIMEOUT`, and a write waits for the phone to read. Non-blocking, a
+    // read returned at once — each connection's thread spun a whole core, and a
+    // request that had not quite arrived was refused before its handshake — and
+    // a write that did not fit the socket's buffer at once failed, which hung
+    // up on a phone every time a press published a Snapshot.
+    stream.set_nonblocking(false)?;
+    stream.set_read_timeout(Some(HEAD_TIMEOUT))?;
     let head = http::read_head(&mut stream)?;
     let Some(request) = http::Request::parse(&head) else {
         return http::write_document(
@@ -652,10 +668,13 @@ impl Subscription {
 mod tests {
     use super::*;
 
+    use std::io::{Read, Write};
+
     use host_core::{
-        AddonProvider, FixtureClock, FixtureFetcher, FixturePlayer, Host, InMemorySecretStore,
-        InMemoryStore,
+        AddonProvider, DeviceName, FixtureClock, FixtureFetcher, FixturePlayer, Host,
+        InMemorySecretStore, InMemoryStore, WIRE_VERSION,
     };
+    use serde_json::{json, Value};
 
     /// The state a fresh Host publishes, as a Snapshot to fan out.
     fn snapshot() -> Snapshot {
@@ -670,6 +689,149 @@ mod tests {
         )
         .expect("a Host over in-memory seams starts")
         .snapshot()
+    }
+
+    /// A Host that knows one device by any token, with as much state as a case
+    /// gives it.
+    struct Roomy {
+        device: DeviceSummary,
+        state: Snapshot,
+    }
+
+    impl Surface for Roomy {
+        fn dispatch(
+            &self,
+            _action: Action,
+            _revisions: Arc<dyn RevisionSink>,
+        ) -> Result<Response, ActionError> {
+            Ok(Response {
+                snapshots: Vec::new(),
+                answer: None,
+            })
+        }
+
+        fn device(&self, _token: &DeviceToken) -> Option<DeviceSummary> {
+            Some(self.device.clone())
+        }
+
+        fn snapshot(&self) -> Snapshot {
+            self.state.clone()
+        }
+    }
+
+    /// The device every `Roomy` Host knows.
+    fn phone() -> DeviceSummary {
+        DeviceSummary {
+            id: DeviceId::parse("phone").expect("a device id"),
+            name: DeviceName::parse("Phone").expect("a device name"),
+            paired_at: 1_700_000_000_000,
+        }
+    }
+
+    /// One accepted connection, handed to `serve` the way Windows hands it over:
+    /// accepted from the listener's non-blocking socket, and non-blocking itself
+    /// (Linux does not pass the flag on, so a suite running there sets it).
+    fn serve_as_windows_accepts(state: Snapshot) -> (TcpStream, JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+        let client =
+            TcpStream::connect(listener.local_addr().expect("an address")).expect("connects");
+        let (accepted, _) = listener.accept().expect("accepts");
+        accepted
+            .set_nonblocking(true)
+            .expect("the accepted socket can be made non-blocking");
+        client
+            .set_read_timeout(Some(Duration::from_secs(10)))
+            .expect("the client can be given a read timeout");
+
+        let surface: Arc<dyn Surface> = Arc::new(Roomy {
+            device: phone(),
+            state,
+        });
+        let serving = thread::spawn(move || {
+            let _ = serve(&surface, &Broadcast::new(), accepted);
+        });
+        (client, serving)
+    }
+
+    const UPGRADE: &[u8] = b"GET / HTTP/1.1\r\nHost: host\r\nUpgrade: websocket\r\n\
+        Connection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+        Sec-WebSocket-Version: 13\r\n\r\n";
+
+    /// The response head the Host wrote, or what it wrote before it hung up.
+    fn response_head(client: &mut TcpStream) -> String {
+        let mut head = Vec::new();
+        let mut byte = [0u8; 1];
+        while !head.ends_with(b"\r\n\r\n") {
+            match client.read(&mut byte) {
+                Ok(1) => head.push(byte[0]),
+                _ => break,
+            }
+        }
+        String::from_utf8_lossy(&head).into_owned()
+    }
+
+    #[test]
+    fn a_request_that_arrives_after_its_connection_is_still_answered() {
+        // A phone's request reaches the Host a moment after its connection
+        // does. A non-blocking read found nothing yet and hung up, and the
+        // Remote said "Connecting" while its attempts were refused one by one.
+        let (mut client, serving) = serve_as_windows_accepts(snapshot());
+        thread::sleep(Duration::from_millis(100));
+        client.write_all(UPGRADE).expect("the request is sent");
+
+        let head = response_head(&mut client);
+        assert!(
+            head.starts_with("HTTP/1.1 101"),
+            "the Host answers the upgrade: {head:?}"
+        );
+
+        drop(client);
+        serving.join().expect("the connection's thread ends");
+    }
+
+    #[test]
+    fn a_snapshot_larger_than_the_sockets_buffers_arrives_whole() {
+        // A press is answered with a Reply and the Snapshot it published, and a
+        // Snapshot is tens of kilobytes. A non-blocking write that did not fit
+        // the socket's buffer at once failed, and the Host hung up on the phone
+        // that pressed: the Remote flickered to "Reconnecting" on every control.
+        let mut state = snapshot();
+        // About 14 MB: past what the two sockets buffer, short of a frame's 16 MB.
+        state.devices = vec![phone(); 250_000];
+        let devices = state.devices.len();
+        let (mut client, serving) = serve_as_windows_accepts(state);
+        client.write_all(UPGRADE).expect("the request is sent");
+        let head = response_head(&mut client);
+        assert!(head.starts_with("HTTP/1.1 101"), "{head:?}");
+
+        let mut socket = WebSocket::from_raw_socket(client, Role::Client, None);
+        socket
+            .send(Message::Text(
+                json!({ "version": WIRE_VERSION, "hello": { "token": "a".repeat(43) } })
+                    .to_string()
+                    .into(),
+            ))
+            .expect("the greeting is sent");
+        // The phone is busy drawing for a moment before it reads.
+        thread::sleep(Duration::from_millis(300));
+
+        let mut snapshot_devices = None;
+        while snapshot_devices.is_none() {
+            match socket.read() {
+                Ok(Message::Text(text)) => {
+                    let frame: Value = serde_json::from_str(&text).expect("the Host writes JSON");
+                    if let Some(snapshot) = frame.get("snapshot") {
+                        snapshot_devices = snapshot["devices"].as_array().map(Vec::len);
+                    }
+                }
+                Ok(_) => {}
+                Err(error) => panic!("the Host hung up before the Snapshot arrived: {error}"),
+            }
+        }
+        assert_eq!(snapshot_devices, Some(devices));
+
+        drop(socket);
+        serving.join().expect("the connection's thread ends");
     }
 
     #[test]
