@@ -134,7 +134,13 @@ export class FakeSocket implements SocketLike {
     }
   }
 
-  close(): void {
+  /** The code and reason the link closed this socket with, if it closed it. */
+  closedWith: { code?: number; reason?: string } | null = null;
+
+  close(code?: number, reason?: string): void {
+    if (!this.closed) {
+      this.closedWith = { code, reason };
+    }
     this.shut();
   }
 

@@ -15,7 +15,8 @@ import type { TokenStore } from "./tokenStore";
  */
 export type SocketLike = {
   send(data: string): void;
-  close(): void;
+  /** The code and reason travel to the Host, which logs why a device let go. */
+  close(code?: number, reason?: string): void;
   onopen: (() => void) | null;
   onmessage: ((event: { data: unknown }) => void) | null;
   onclose: (() => void) | null;
@@ -69,6 +70,12 @@ const RETRY_BASE_MS = 400;
 const RETRY_FACTOR = 1.6;
 /** A phone on a home network is not helped by waiting longer than this. */
 const RETRY_CAP_MS = 8000;
+
+/**
+ * The close code a socket the link lets go of on purpose is shut with: an
+ * application's own (4000–4999), so the Host's log tells it from a browser's.
+ */
+const LET_GO = 4000;
 
 /** The pairing gate's words, in the two cases a connection can be unpaired. */
 const PAIR_FIRST =
@@ -157,9 +164,8 @@ export class WebSocketLink implements HostLink {
   private socket: SocketLike | null = null;
   /** Whether the current socket has opened and may be written to. */
   private open = false;
-  /** Resolves when the current attempt has opened or failed; never rejects. */
-  private settled: Promise<void> = Promise.resolve();
-  private settleAttempt: (() => void) | null = null;
+  /** The presses waiting for the link to move: a socket opens or is lost, a question is answered. */
+  private readonly movers = new Set<() => void>();
   private attempt = 0;
   private nextId = 1;
   private closed = false;
@@ -171,8 +177,6 @@ export class WebSocketLink implements HostLink {
   private cancelTick: (() => void) | null = null;
   /** A greeting's deadline, and whether anything has been heard since it was sent. */
   private probe: { cancel: () => void; heard: boolean } | null = null;
-  /** When the socket in hand opened, by the link's clock. */
-  private openedAt = 0;
   /** When the Host last sent anything on this socket, by the link's clock. */
   private heardAt = 0;
   /** When the link last greeted the Host on this socket. */
@@ -233,10 +237,11 @@ export class WebSocketLink implements HostLink {
   /**
    * Take an Action through the one door.
    *
-   * A press made while the socket is still opening waits for it rather than
-   * failing: the page is connecting, not broken. A press made while the Host is
-   * not connected — or after `close()` — rejects as `unreachable`, which is the
-   * one kind of failure a caller has to explain.
+   * A press made while the socket is opening, reconnecting or being asked
+   * whether it is still there waits for it rather than failing: the page is on
+   * its way back, not broken. One that has waited `holdPress` without a socket
+   * — or is made after `close()` — rejects as `unreachable`, which is the one
+   * kind of failure a caller has to explain.
    */
   async dispatch(action: Action): Promise<Response> {
     await this.whenOpen();
@@ -314,9 +319,6 @@ export class WebSocketLink implements HostLink {
     this.cancelRetry?.();
     this.cancelRetry = null;
     this.open = false;
-    this.settled = new Promise<void>((resolve) => {
-      this.settleAttempt = resolve;
-    });
 
     let socket: SocketLike;
     try {
@@ -324,9 +326,8 @@ export class WebSocketLink implements HostLink {
     } catch {
       // An address the browser refuses to open is a connection that failed,
       // not a page that stops working.
-      this.settleAttempt?.();
-      this.settleAttempt = null;
       this.scheduleReconnect(false);
+      this.move();
       return;
     }
 
@@ -353,7 +354,7 @@ export class WebSocketLink implements HostLink {
     this.cancelOpenWait = this.schedule(LIVENESS.openWithin, () => {
       this.cancelOpenWait = null;
       if (this.socket === socket && !this.open) {
-        this.lose(socket, "the Host is not connected", "retry");
+        this.lose(socket, "the Host is not connected", "retry", "it never opened");
       }
     });
   }
@@ -366,15 +367,13 @@ export class WebSocketLink implements HostLink {
     this.cancelOpenWait = null;
     this.open = true;
     this.attempt = 0;
-    this.openedAt = this.now();
-    this.heardAt = this.openedAt;
+    this.heardAt = this.now();
     // The greeting is the whole of "this device has paired": the Host answers
     // with the Device it names, or with nothing, which is a connection that may
     // only pair.
     this.greet();
-    this.settleAttempt?.();
-    this.settleAttempt = null;
     this.armTick();
+    this.move();
   }
 
   private onClose(socket: SocketLike): void {
@@ -386,7 +385,12 @@ export class WebSocketLink implements HostLink {
    * opened, at once when the link judged it dead — a dead socket is not a
    * network that is down, and the person who woke the page is about to press.
    */
-  private lose(socket: SocketLike, reason: string, next: "retry" | "now"): void {
+  private lose(
+    socket: SocketLike,
+    reason: string,
+    next: "retry" | "now",
+    why?: string,
+  ): void {
     if (this.socket !== socket) {
       return;
     }
@@ -396,18 +400,22 @@ export class WebSocketLink implements HostLink {
     // What the last connection held is not what the next one will be owed: a
     // reconnecting client is handed the state as it stands, not as it left.
     this.latest = null;
-    this.settleAttempt?.();
-    this.settleAttempt = null;
     this.failPending(unreachable(reason));
     try {
-      // Closed already when the browser said so; a socket judged dead is shut
-      // here, and its late `close` finds another socket current and is ignored.
-      socket.close();
+      // Closed already when the browser said so. A socket the link lets go of
+      // is shut here with its reason, which reaches the Host if the socket
+      // still does, and its late `close` finds another socket current.
+      if (why) {
+        socket.close(LET_GO, why);
+      } else {
+        socket.close();
+      }
     } catch {
       // Already gone.
     }
 
     if (this.closed) {
+      this.move();
       return;
     }
     // An unpaired page stays on its gate while the socket comes back: the
@@ -416,16 +424,17 @@ export class WebSocketLink implements HostLink {
     const hold = this.current.kind === "unpaired";
     if (next === "retry") {
       this.scheduleReconnect(hold);
-      return;
+    } else {
+      if (!hold) {
+        this.setState({
+          kind: "reconnecting",
+          attempt: this.attempt + 1,
+          retryAt: this.now(),
+        });
+      }
+      this.connect();
     }
-    if (!hold) {
-      this.setState({
-        kind: "reconnecting",
-        attempt: this.attempt + 1,
-        retryAt: this.now(),
-      });
-    }
-    this.connect();
+    this.move();
   }
 
   /** The page was put away, looked at again, or its network came back. */
@@ -437,16 +446,11 @@ export class WebSocketLink implements HostLink {
       this.hiddenAt ??= this.now();
       return;
     }
-    // How long the socket in hand went unwatched: since the page was put away,
-    // or since this socket opened if a retry opened it while nobody looked.
-    let hiddenFor: number | null = null;
-    if (change === "shown" && this.hiddenAt !== null) {
-      hiddenFor = this.now() - Math.max(this.hiddenAt, this.openedAt);
+    if (change === "shown") {
       this.hiddenAt = null;
     }
     this.act(
       onWake({
-        hiddenFor,
         socket: this.held(),
         ready: this.current.kind === "ready",
         asking: this.pending.size,
@@ -461,23 +465,25 @@ export class WebSocketLink implements HostLink {
       return;
     }
     const now = this.now();
+    const quietFor = now - this.heardAt;
     this.act(
       onTick({
         hidden: this.hiddenAt !== null,
         socket: this.held(),
         ready: this.current.kind === "ready",
         asking: this.pending.size,
-        quietFor: now - this.heardAt,
+        quietFor,
         sinceGreeting: now - this.greetedAt,
       }),
+      `nothing for ${Math.round(quietFor / 1000)} s`,
     );
     if (this.socket && this.open && this.cancelTick === null) {
       this.armTick();
     }
   }
 
-  /** Do what a liveness decision said. */
-  private act(move: LivenessMove): void {
+  /** Do what a liveness decision said; `why` is what the Host is told on a replace. */
+  private act(move: LivenessMove, why = "no answer"): void {
     switch (move) {
       case "none":
         return;
@@ -489,7 +495,7 @@ export class WebSocketLink implements HostLink {
         return;
       case "replace":
         if (this.socket) {
-          this.lose(this.socket, "the Host stopped answering", "now");
+          this.lose(this.socket, "the Host stopped answering", "now", why);
         }
         return;
       case "connect":
@@ -524,7 +530,12 @@ export class WebSocketLink implements HostLink {
         this.probe = null;
       }
       if (this.socket === socket && !probe.heard) {
-        this.lose(socket, "the Host stopped answering", "now");
+        this.lose(
+          socket,
+          "the Host stopped answering",
+          "now",
+          "no answer after the page was shown",
+        );
       }
     });
   }
@@ -538,11 +549,15 @@ export class WebSocketLink implements HostLink {
     });
   }
 
-  /** Anything at all arrived on the current socket. */
+  /** Anything at all arrived on the current socket: a question it was asked is answered. */
   private heard(): void {
     this.heardAt = this.now();
-    if (this.probe) {
-      this.probe.heard = true;
+    const probe = this.probe;
+    if (probe) {
+      probe.heard = true;
+      probe.cancel();
+      this.probe = null;
+      this.move();
     }
   }
 
@@ -762,8 +777,7 @@ export class WebSocketLink implements HostLink {
         // A socket already gone is closed enough.
       }
     }
-    this.settleAttempt?.();
-    this.settleAttempt = null;
+    this.move();
 
     this.failPending(unreachable(reason));
     this.failSnapshots(unreachable(reason));
@@ -779,24 +793,48 @@ export class WebSocketLink implements HostLink {
   }
 
   /**
-   * Wait until the current socket may be written to.
+   * Wait until the current socket may be written to: open, and not being asked
+   * whether it is still there.
    *
-   * The attempt settles either way — opened, failed, or closed — and what is
-   * checked after it is the truth rather than the promise: a link that is still
-   * opening has no socket to write to and has not failed.
+   * What is checked each time the link moves is the truth rather than a
+   * promise: a socket opening, a retry booked or a question in the air is a
+   * link on its way, and a press waits `holdPress` for it before it is refused.
    */
   private async whenOpen(): Promise<void> {
-    if (this.closed) {
-      throw unreachable("the link is closed");
+    const until = this.now() + LIVENESS.holdPress;
+    for (;;) {
+      if (this.closed) {
+        throw unreachable("the link is closed");
+      }
+      if (this.open && !this.probe) {
+        return;
+      }
+      const left = until - this.now();
+      if (left <= 0) {
+        throw unreachable("the Host is not connected");
+      }
+      await this.moved(left);
     }
-    if (!this.open) {
-      await this.settled;
-    }
-    if (this.closed) {
-      throw unreachable("the link is closed");
-    }
-    if (!this.open) {
-      throw unreachable("the Host is not connected");
+  }
+
+  /** Resolves the next time the link moves, or after `ms` if it does not. */
+  private moved(ms: number): Promise<void> {
+    return new Promise<void>((resolve) => {
+      let cancel: () => void = () => undefined;
+      const done = (): void => {
+        this.movers.delete(done);
+        cancel();
+        resolve();
+      };
+      this.movers.add(done);
+      cancel = this.schedule(ms, done);
+    });
+  }
+
+  /** Tell every waiting press the link moved, so it looks again. */
+  private move(): void {
+    for (const mover of [...this.movers]) {
+      mover();
     }
   }
 

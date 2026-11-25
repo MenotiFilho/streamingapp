@@ -360,7 +360,29 @@ describe("the Remote's link: a socket that only says it is open", () => {
 
   const PLAY: Action = { type: "set_paused", paused: false };
 
-  test("a phone that slept replaces its socket as it is looked at, and the press goes down the new one", async () => {
+  test("a phone that slept keeps a socket the Host still answers, and the press goes down it", async () => {
+    // A locked phone's connection is usually still there when it wakes: the
+    // page asks, the Host answers, and nothing is reconnected.
+    const { host, link, page, clock, session, release } = await pairedPhone();
+    try {
+      const seen: string[] = [];
+      link.onState((state) => seen.push(state.kind));
+      page.hide();
+      clock.advance(5 * 60_000);
+      page.show();
+
+      await session.take(PLAY);
+
+      expect(host.socketCount(), "the socket is kept").toBe(1);
+      expect(seen, "the page never says it is reconnecting").not.toContain("reconnecting");
+      expect(host.received()).toContainEqual(PLAY);
+      expect(session.getState().error).toBeNull();
+    } finally {
+      release();
+    }
+  });
+
+  test("a phone that slept on a dead socket finds out at once, and a press made meanwhile goes down the new one", async () => {
     // The report: the Remote sat idle, the phone slept, and on waking the page
     // said Live while play spun and spun, until the socket finally closed.
     const { host, link, page, clock, session, release } = await pairedPhone();
@@ -370,8 +392,17 @@ describe("the Remote's link: a socket that only says it is open", () => {
       clock.advance(5 * 60_000);
       page.show();
 
-      expect(host.socketCount(), "the slept-on socket is not asked, it is replaced").toBe(2);
       const pressed = session.take(PLAY);
+      await settle();
+      const asked = host.socket()?.sent ?? [];
+      expect(
+        asked.some((text) => text.includes('"command"')),
+        "the press waits for the answer rather than going down a socket that may be dead",
+      ).toBe(false);
+
+      clock.advance(LIVENESS.probeWait);
+      host.flush();
+      expect(host.socketCount(), "silence is a dead socket").toBe(2);
       await host.connect();
       await pressed;
 
@@ -407,24 +438,64 @@ describe("the Remote's link: a socket that only says it is open", () => {
     }
   });
 
-  test("a socket a retry opened while the page was away is asked, not replaced", async () => {
-    // The Host hung up while the screen was off and the link came back on its
-    // own: the socket in hand is a second old, not five minutes.
+  test("the link tells the Host why it let a socket go", async () => {
+    // The Host logs the reason a device gives, so a phone that keeps
+    // reconnecting can be read about rather than guessed at.
     const { host, page, clock, release } = await pairedPhone();
     try {
+      const first = host.socket();
+      host.stall();
       page.hide();
-      clock.advance(5 * 60_000);
+      page.show();
+      clock.advance(LIVENESS.probeWait);
+      host.flush();
+
+      expect(first?.closedWith?.code).toBe(4000);
+      expect(first?.closedWith?.reason).toContain("no answer");
+    } finally {
+      release();
+    }
+  });
+
+  test("a press made while the link reconnects waits for the new socket", async () => {
+    // A press that failed with "could not reach the Host" while the link was
+    // already on its way back was the other half of the report.
+    const { host, link, session, release } = await pairedPhone();
+    try {
       host.drop();
+      expect(link.state().kind).toBe("reconnecting");
+
+      const pressed = session.take(PLAY);
+      await settle();
+      expect(session.getState().error, "not refused while the link comes back").toBeNull();
+
       host.flush();
       await host.connect();
-      expect(host.socketCount()).toBe(2);
-      const greeted = host.greetings();
+      await pressed;
 
-      clock.advance(1_000);
-      page.show();
+      expect(host.received()).toContainEqual(PLAY);
+      expect(session.getState().error).toBeNull();
+    } finally {
+      release();
+    }
+  });
 
-      expect(host.socketCount()).toBe(2);
-      expect(host.greetings(), "it is asked whether it is still there").toBe(greeted + 1);
+  test("a press waits a few seconds for the Host, then is refused in words", async () => {
+    const { host, clock, session, release } = await pairedPhone();
+    try {
+      host.holdOpens();
+      host.drop();
+
+      const pressed = session.take(PLAY);
+      await settle();
+      clock.advance(LIVENESS.holdPress);
+      host.flush();
+      await pressed;
+
+      const error = session.getState().error;
+      expect(error && explain(error)).toBe(
+        "The window could not reach the Host: the Host is not connected.",
+      );
     } finally {
       release();
     }

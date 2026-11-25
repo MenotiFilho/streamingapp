@@ -3,7 +3,7 @@ import { describe, expect, test } from "vitest";
 import { LIVENESS, onTick, onWake, type TickFacts, type WakeFacts } from "./liveness";
 
 /** A paired, open, idle link: what most cases change one fact of. */
-const AWAKE: WakeFacts = { hiddenFor: null, socket: "open", ready: true, asking: 0 };
+const AWAKE: WakeFacts = { socket: "open", ready: true, asking: 0 };
 
 const QUIET: TickFacts = {
   hidden: false,
@@ -15,42 +15,33 @@ const QUIET: TickFacts = {
 };
 
 describe("a page looked at again", () => {
-  test("asks the Host at once whether its socket is still there", () => {
-    expect(onWake({ ...AWAKE, hiddenFor: 5_000 })).toBe("probe");
-    expect(onWake(AWAKE), "the network coming back asks too").toBe("probe");
-  });
-
-  test("replaces a socket it was away from for long, rather than asking it", () => {
-    // The Host hangs up on a page that has not answered its pings for a
-    // minute, and a page that slept through playback holds a backlog of
-    // stale Snapshots that would read as an answer to the question.
-    expect(onWake({ ...AWAKE, hiddenFor: LIVENESS.replaceAfterHidden })).toBe("replace");
-    expect(onWake({ ...AWAKE, hiddenFor: LIVENESS.replaceAfterHidden - 1 })).toBe("probe");
-    expect(
-      onWake({ ...AWAKE, hiddenFor: 10 * 60_000, ready: false }),
-      "the pairing gate's socket slept as long",
-    ).toBe("replace");
-    expect(
-      onWake({ ...AWAKE, hiddenFor: 10 * 60_000, asking: 1 }),
-      "a command sent before the sleep is not news a socket can still carry",
-    ).toBe("replace");
+  test("asks the Host at once whether its socket is still there, however long it was away", () => {
+    // Replacing a socket the page had been away from for long made every
+    // unlock a reconnect, though the socket was usually still good: the Host
+    // keeps a sleeping phone's connection, and asking costs one round trip.
+    expect(onWake(AWAKE)).toBe("probe");
   });
 
   test("does not ask while a command is on its way", () => {
     // The Host answers one frame at a time: a greeting queued behind a slow
-    // question is not late, and a short deadline would call it dead.
-    expect(onWake({ ...AWAKE, hiddenFor: 5_000, asking: 1 })).toBe("none");
+    // question is not late, and a deadline would call it dead.
+    expect(onWake({ ...AWAKE, asking: 1 })).toBe("none");
   });
 
   test("does not greet a connection that has not paired", () => {
     // A greeting there would race a pairing and could undo it.
-    expect(onWake({ ...AWAKE, hiddenFor: 5_000, ready: false })).toBe("none");
+    expect(onWake({ ...AWAKE, ready: false })).toBe("none");
   });
 
   test("connects at once when it holds no socket, and leaves an opening one alone", () => {
     expect(onWake({ ...AWAKE, socket: "none" })).toBe("connect");
-    expect(onWake({ ...AWAKE, socket: "none", hiddenFor: 10 * 60_000 })).toBe("connect");
-    expect(onWake({ ...AWAKE, socket: "opening", hiddenFor: 10 * 60_000 })).toBe("none");
+    expect(onWake({ ...AWAKE, socket: "opening" })).toBe("none");
+  });
+
+  test("gives a waking phone time to answer", () => {
+    // A phone's radio takes a moment to come back from sleep, and the Host may
+    // be finishing a write; a second and a half called live sockets dead.
+    expect(LIVENESS.probeWait).toBeGreaterThanOrEqual(3_000);
   });
 });
 

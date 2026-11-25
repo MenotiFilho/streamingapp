@@ -31,16 +31,18 @@ export const LIVENESS = {
    * timeout, so a busy Host and a dead socket look alike for longer.
    */
   deadWhileAskingAfter: 90_000,
-  /** A page looked at again greets at once, and the answer must come this soon. */
-  probeWait: 1_500,
   /**
-   * Out of sight this long, the socket is replaced rather than asked. The Host
-   * hangs up on a page that has not answered its pings for a minute, and a page
-   * that slept through playback holds a backlog of stale Snapshots that would
-   * read as an answer — the press made after it would go down a socket the Host
-   * is about to close.
+   * A page looked at again greets at once, and something must come back this
+   * soon. Generous, because a phone's radio takes a moment to come back from
+   * sleep; a press made meanwhile waits for the answer rather than failing.
    */
-  replaceAfterHidden: 30_000,
+  probeWait: 3_000,
+  /**
+   * How long a press waits for a socket that is opening, reconnecting or being
+   * asked, before it is refused. A press is better late by a moment than
+   * refused while the link is already on its way back.
+   */
+  holdPress: 8_000,
 } as const;
 
 /** The socket as the link holds it. */
@@ -57,12 +59,6 @@ export type LivenessMove = "none" | "greet" | "probe" | "replace" | "connect";
 
 /** What the link knows when the page is looked at again, or the network returns. */
 export type WakeFacts = {
-  /**
-   * How long the socket in hand was out of sight — since the page was put
-   * away, or since the socket opened if it opened later — or null when the
-   * page had not been put away.
-   */
-  hiddenFor: number | null;
   socket: SocketHeld;
   /** Whether the connection is paired: only a paired one is greeted. */
   ready: boolean;
@@ -73,6 +69,10 @@ export type WakeFacts = {
 /**
  * The page is in front of a person again (or the network came back): decide
  * before they press anything.
+ *
+ * However long it was away, the socket is asked rather than replaced. The Host
+ * keeps a sleeping phone's connection, so it is usually still good, and
+ * replacing it anyway made every unlock a reconnect.
  */
 export function onWake(facts: WakeFacts): LivenessMove {
   if (facts.socket === "none") {
@@ -80,9 +80,6 @@ export function onWake(facts: WakeFacts): LivenessMove {
   }
   if (facts.socket === "opening") {
     return "none";
-  }
-  if (facts.hiddenFor !== null && facts.hiddenFor >= LIVENESS.replaceAfterHidden) {
-    return "replace";
   }
   // A greeting on an unpaired connection could land behind a pairing and undo
   // it, and one queued behind a command in flight is late without being lost.
