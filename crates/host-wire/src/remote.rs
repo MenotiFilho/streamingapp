@@ -106,6 +106,11 @@ mod tests {
         // `/fonts/` URL `src/kit/marquee/tokens.css` names is served as valid
         // woff2 bytes alongside the Repertory faces during coexistence.
         let named = referenced_fonts(MARQUEE_TOKENS);
+        assert_eq!(
+            named.len(),
+            2,
+            "the Marquee sheet names both Figtree faces: {named:?}"
+        );
         assert!(
             named.contains("figtree-latin-wght-normal.woff2"),
             "the Marquee sheet names Figtree: {named:?}"

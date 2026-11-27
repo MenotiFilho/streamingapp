@@ -101,7 +101,7 @@ describe("the Marquee palette contrast lock (docs/design-system.md §2)", () => 
 
 describe("Marquee token hygiene", () => {
   it("declares lavender once: no hex or rgb lavender literal outside --mq-accent", () => {
-    const lavender = /196\s*,\s*167\s*,\s*231|#c4a7e7/i;
+    const lavender = /196[\s,]+167[\s,]+231|#c4a7e7/i;
     const allowed = /^\s*--mq-accent\s*:/;
     const sheets = Object.entries(
       import.meta.glob<string>("./**/*.css", {
