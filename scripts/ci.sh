@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run `verify` on this machine for a pull request, record it on GitHub, and —
-# when it carries the `automerge` label — land the pull request and publish the
-# Windows installer release through `scripts/cd.sh`.
+# when it carries the `automerge` label — land the pull request and, if its base
+# branch is `main`, publish the Windows installer release through `scripts/cd.sh`.
 #
 #   scripts/ci.sh <pr-number>        verify, report, merge + release if labelled
 #   scripts/ci.sh <pr-number> --no-merge
@@ -144,11 +144,13 @@ echo "verify: passed for $head_sha."
 
 if [[ "$merge" == true && ",$labels," == *",automerge,"* ]]; then
   gh pr merge "$pr" --merge --match-head-commit "$head_sha"
-  if [[ "$code" == true ]]; then
+  if [[ "$code" == true && "$base_ref" == "main" ]]; then
     "$root/scripts/cd.sh" "origin/$base_ref" || {
       echo "ci: PR #$pr merged, but the release build failed; re-run 'scripts/cd.sh' to publish it." >&2
       exit 1
     }
+  elif [[ "$code" == true ]]; then
+    echo "Base branch is '$base_ref' (not main): skipping release build."
   else
     echo "Docs only: skipping release build."
   fi
