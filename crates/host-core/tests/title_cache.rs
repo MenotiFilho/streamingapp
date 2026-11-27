@@ -548,6 +548,7 @@ fn watched(index: usize) -> WatchProgress {
             name: "One".to_owned(),
             poster: None,
             background: None,
+            logo: None,
         })
         .expect("a Title"),
         position: Some(10.0),
@@ -768,6 +769,7 @@ fn a_tmdb_copy_past_six_months_is_dropped_even_behind_watch_progress() {
             name: "The Matrix".to_owned(),
             poster: None,
             background: None,
+            logo: None,
         })
         .expect("a Title"),
         position: Some(10.0),

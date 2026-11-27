@@ -379,8 +379,8 @@ impl Store for SqliteStore {
         let mut statement = connection
             .prepare(
                 "SELECT video_type, video_id, title_addon, title_id, title_type, title_name,
-                        title_poster, title_background, position, duration, watched, updated_at,
-                        stream_addon, binge_group
+                        title_poster, title_background, title_logo, position, duration, watched,
+                        updated_at, stream_addon, binge_group
                  FROM watch_progress ORDER BY updated_at DESC",
             )
             .map_err(StoreError::read)?;
@@ -395,12 +395,13 @@ impl Store for SqliteStore {
                     row.get::<_, String>(5)?,
                     row.get::<_, Option<String>>(6)?,
                     row.get::<_, Option<String>>(7)?,
-                    row.get::<_, Option<f64>>(8)?,
+                    row.get::<_, Option<String>>(8)?,
                     row.get::<_, Option<f64>>(9)?,
-                    row.get::<_, i64>(10)?,
+                    row.get::<_, Option<f64>>(10)?,
                     row.get::<_, i64>(11)?,
-                    row.get::<_, Option<String>>(12)?,
+                    row.get::<_, i64>(12)?,
                     row.get::<_, Option<String>>(13)?,
+                    row.get::<_, Option<String>>(14)?,
                 ))
             })
             .map_err(StoreError::read)?;
@@ -419,6 +420,7 @@ impl Store for SqliteStore {
                 title_name,
                 title_poster,
                 title_background,
+                title_logo,
                 position,
                 duration,
                 watched,
@@ -450,6 +452,7 @@ impl Store for SqliteStore {
                 name: title_name,
                 poster: title_poster,
                 background: title_background,
+                logo: title_logo,
             })
             .map_err(|_| StoreError::Read {
                 detail: "a stored Watch progress entry names no Title".to_owned(),
@@ -490,9 +493,9 @@ impl Store for SqliteStore {
             .execute(
                 "INSERT INTO watch_progress
                      (video_id, video_type, title_addon, title_id, title_type, title_name,
-                      title_poster, title_background, position, duration, watched, updated_at,
-                      stream_addon, binge_group)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                      title_poster, title_background, title_logo, position, duration, watched,
+                      updated_at, stream_addon, binge_group)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
                  ON CONFLICT(video_id) DO UPDATE SET
                      video_type       = excluded.video_type,
                      title_addon      = excluded.title_addon,
@@ -501,6 +504,7 @@ impl Store for SqliteStore {
                      title_name       = excluded.title_name,
                      title_poster     = excluded.title_poster,
                      title_background = excluded.title_background,
+                     title_logo       = excluded.title_logo,
                      position         = excluded.position,
                      duration         = excluded.duration,
                      watched          = excluded.watched,
@@ -516,6 +520,7 @@ impl Store for SqliteStore {
                     progress.title.name(),
                     progress.title.poster(),
                     progress.title.background(),
+                    progress.title.logo(),
                     progress.position,
                     progress.duration,
                     i64::from(progress.watched),

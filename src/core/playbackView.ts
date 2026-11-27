@@ -63,6 +63,8 @@ export type PlaybackViewInput = {
 /** What the opening Stream will be, drawn in the hole while mpv is still opening. */
 export type OpeningPreview = {
   art: string | null;
+  /** The Title's wordmark logo, where Watch progress carries one (ADR-0044 §7). */
+  logo: string | null;
   title: string;
   subtitle: string | null;
 };
@@ -92,6 +94,8 @@ export type PlaybackView = {
   nowPlaying: NowPlaying | null;
   /** The Watch-progress Title's name, else the Stream's own title. */
   title: string;
+  /** The Watch-progress Title's wordmark logo, where one is held (ADR-0044 §7). */
+  logo: string | null;
   /** The kicker's `S2E3`, the Watch-progress Video's label, or `Feature`. */
   episodeLabel: string;
   quality: string | null;
@@ -141,12 +145,13 @@ function openingPreviewOf(progress: ResumeEntry | null): OpeningPreview | null {
   }
   const art =
     progress.video.thumbnail ?? progress.title.background ?? progress.title.poster ?? null;
+  const logo = progress.title.logo ?? null;
   const subtitle =
     [labelOf(progress.video), progress.video.name]
       .filter((part): part is string => Boolean(part))
       .join(" · ") || null;
 
-  return { art, title: progress.title.name, subtitle };
+  return { art, logo, title: progress.title.name, subtitle };
 }
 
 /**
@@ -194,6 +199,7 @@ export function playbackView(
     torrentLine: playback.torrent ? torrentLine(playback.torrent) : null,
     nowPlaying: playback.nowPlaying,
     title: progress?.title.name ?? streamTitle(playback.nowPlaying),
+    logo: progress?.title.logo ?? null,
     episodeLabel: episodeLabelOf(playback.episode, progress),
     quality: qualityBadge(playback.nowPlaying),
     details: streamDetails(playback),

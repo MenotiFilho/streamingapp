@@ -114,6 +114,17 @@ describe("the Title card sent back with a play", () => {
 
     expect(card).not.toHaveProperty("background");
   });
+
+  test("carries the Title's wordmark logo when present and omits it when absent", () => {
+    const withLogo = titleStubOf(
+      title({ logo: "https://images.test/matrix-logo.png" }),
+      preview(),
+    );
+    expect(withLogo.logo).toBe("https://images.test/matrix-logo.png");
+
+    const withoutLogo = titleStubOf(title({ logo: null }), preview());
+    expect(withoutLogo).not.toHaveProperty("logo");
+  });
 });
 
 describe("a Discovered Title's key", () => {
