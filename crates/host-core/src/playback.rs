@@ -1231,6 +1231,13 @@ impl PlaybackSession {
             )
     }
 
+    /// Whether the Stream the Host is on failed: it did not open, or the Host
+    /// ended it for a reason of its own. Nothing is playing, and the Stream that
+    /// was is still named beside the failure.
+    pub(crate) fn has_failed(&self) -> bool {
+        self.playing.is_some() && self.state == PlaybackState::Idle && self.failure.is_some()
+    }
+
     /// Whether the Host is on a Stream that reached its end. No control moves a
     /// finished Stream, but its Video is still the position an episode step
     /// reads from: the after-end affordance is exactly that step (#68).

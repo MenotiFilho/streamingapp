@@ -450,30 +450,71 @@ fn switching_with_nothing_playing_is_refused_and_leaves_state_untouched() {
         })
     );
     assert_eq!(fixture.host.snapshot(), after_end);
+}
 
-    // 4. Failed open (Idle with failure set).
-    fixture
-        .host
-        .dispatch(play_episode_action(direct_stream("1080p", FIRST_URL, None)))
-        .expect("open starts");
+#[test]
+fn switching_after_a_failed_open_opens_the_replacement_at_the_saved_position() {
+    let mut fixture = fixture();
+    start_playing(&mut fixture, direct_stream("1080p", FIRST_URL, None), 50.0);
     fixture.player.now_reporting(Observation {
         state: PlaybackState::Idle,
         failure: Some("That Stream could not be opened — mpv could not load it.".to_owned()),
         ..Observation::idle()
     });
     fixture.host.sample().expect("failed open");
-    let after_failure = fixture.host.snapshot();
-    let refused = fixture.host.dispatch(switch_action(
-        OTHER_ADDON,
-        direct_stream("4K", SECOND_URL, None),
-    ));
+
+    let switched = fixture
+        .host
+        .dispatch(switch_action(
+            OTHER_ADDON,
+            direct_stream("4K", SECOND_URL, None),
+        ))
+        .expect("picking another Stream after a failed open works");
+
+    let playback = &switched.snapshots[0].playback;
+    assert_eq!(playback.state, PlaybackState::Opening);
+    assert_eq!(playback.failure, None);
     assert_eq!(
-        refused,
-        Err(ActionError::NothingPlaying {
-            control: Control::SwitchStream
-        })
+        fixture.player.openings().last(),
+        Some(&(SECOND_URL.to_owned(), Some(50.0)))
     );
-    assert_eq!(fixture.host.snapshot(), after_failure);
+    let saved = fixture.store.read_watch_progress().expect("store reads");
+    assert_eq!(saved[0].position, Some(50.0));
+}
+
+#[test]
+fn switching_keeps_a_watched_video_watched_and_a_fresh_play_does_not() {
+    let mut fixture = fixture();
+    start_playing(
+        &mut fixture,
+        direct_stream("1080p", FIRST_URL, None),
+        2815.0,
+    );
+    // Rewound after reaching the tail: the Video stays watched.
+    fixture
+        .player
+        .now_reporting(Observation::playing(100.0, 2820.0));
+    fixture.host.sample();
+
+    let switched = fixture
+        .host
+        .dispatch(switch_action(
+            OTHER_ADDON,
+            direct_stream("4K", SECOND_URL, None),
+        ))
+        .expect("switch succeeds");
+
+    assert!(switched.snapshots[0].watch_progress[0].watched);
+    let saved = fixture.store.read_watch_progress().expect("store reads");
+    assert!(saved[0].watched, "a switch carries the same viewing on");
+    assert_eq!(saved[0].position, Some(100.0));
+
+    fixture
+        .host
+        .dispatch(play_episode_action(direct_stream("1080p", FIRST_URL, None)))
+        .expect("play starts");
+    let saved = fixture.store.read_watch_progress().expect("store reads");
+    assert!(!saved[0].watched, "a fresh play starts the Video over");
 }
 
 #[test]
@@ -632,6 +673,23 @@ fn asynchronous_open_failure_transitions_to_idle_with_failure_and_preserves_watc
         .expect("stored WatchProgress entry is present");
     assert_eq!(stored.position, Some(415.0));
     assert_eq!(stored.duration, Some(2820.0));
+
+    // The owner picks another Stream without losing their place.
+    let third = "https://stream.example.org/v/tt0903747-1-1-720p.mkv";
+    let retried = fixture
+        .host
+        .dispatch(switch_action(SERIES_ID, direct_stream("720p", third, None)))
+        .expect("switching after the failure works");
+
+    assert_eq!(retried.snapshots[0].playback.state, PlaybackState::Opening);
+    assert_eq!(retried.snapshots[0].playback.failure, None);
+    assert_eq!(
+        fixture.player.openings().last(),
+        Some(&(third.to_owned(), Some(415.0)))
+    );
+    let stored = fixture.store.read_watch_progress().expect("store reads");
+    assert_eq!(stored[0].position, Some(415.0));
+    assert_eq!(stored[0].duration, Some(2820.0));
 }
 
 #[test]

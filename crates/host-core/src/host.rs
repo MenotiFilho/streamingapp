@@ -1972,7 +1972,8 @@ impl Host {
 
     /// Refuse a control about a Stream the Player is not on: one that never
     /// played, one whose open failed, or one that has ended. The episode steps
-    /// are the exception and go through [`Self::stepping`] instead.
+    /// and the Stream switch are the exceptions and go through
+    /// [`Self::stepping`] and [`Self::switching`] instead.
     fn playing(&self, control: Control) -> Result<(), ActionError> {
         if self.state.playback().is_live() {
             return Ok(());
@@ -1992,6 +1993,20 @@ impl Host {
         }
 
         Err(ActionError::NothingPlaying { control })
+    }
+
+    /// Refuse a Stream switch with no Stream to switch from. A Stream whose open
+    /// failed is still one: the owner picks another without losing their place
+    /// (ADR-0044 §3). A stopped or ended Stream is not.
+    fn switching(&self) -> Result<(), ActionError> {
+        let playback = self.state.playback();
+        if playback.is_live() || playback.has_failed() {
+            return Ok(());
+        }
+
+        Err(ActionError::NothingPlaying {
+            control: Control::SwitchStream,
+        })
     }
 
     /// The track a control names, or the refusal that the Stream has none.
@@ -2474,14 +2489,17 @@ impl Host {
             chosen,
             title: title.map(Box::new),
             start,
+            switched: false,
         })
     }
 
-    /// Replace the Stream playing now with `replacement` for the same Video at
-    /// the current Playback position, preserving the Title's Hand pick and
-    /// starting playback even if Playback was paused (ADR-0044 §3).
+    /// Replace the Stream playing now — or the one whose open failed — with
+    /// `replacement` for the same Video at the current Playback position,
+    /// preserving the Title's Hand pick and starting playback even if Playback
+    /// was paused (ADR-0044 §3). A failed open has no position of its own, so
+    /// the Watch progress kept through it says where to start.
     fn switch_stream(&mut self, replacement: SwitchedStream) -> Result<Change, ActionError> {
-        self.playing(Control::SwitchStream)?;
+        self.switching()?;
         let Some(current) = self.state.playback().chosen() else {
             return Err(ActionError::NothingPlaying {
                 control: Control::SwitchStream,
@@ -2495,7 +2513,9 @@ impl Host {
                 .and_then(|entry| entry.position)
         });
         let chosen = replacement.into_chosen(video);
-        self.open_stream(Box::new(chosen), title, start)
+        Ok(self
+            .open_stream(Box::new(chosen), title, start)?
+            .into_switch())
     }
 
     /// Take one episode step: the neighbouring Stream chosen and opened, and
@@ -3281,6 +3301,7 @@ mod tests {
                 chosen: played,
                 title: Some(played_title),
                 start: Some(s),
+                switched: false,
             } if *played == chosen && *played_title == title && (s - 42.5).abs() < f64::EPSILON
         ));
     }
