@@ -5,6 +5,12 @@ the colour and the size the Player draws subtitles in. libass draws them, so the
 appearance is ultimately mpv's; what this records is who decides it, what the
 colour may or may not override, and where the two values live.
 
+> **Amended by [ADR-0044](0044-marquee-host-behaviors.md) (§5):** `SubtitleScale`
+> widens from `0.5..=2.0` to `0.25..=3.0` (§3 below), and both Settings and the
+> player OSD — on the window and on the Remote client — replace the four preset
+> size chips and preset ladder with a 5% (`0.05`) stepper (§5 below). Colour,
+> `sub-ass-override` remaining unset, and the preference model are unchanged.
+
 ## The facts this rests on
 
 Probed for #126 against mpv 0.37 in the dev container (the ticket records the
@@ -79,6 +85,9 @@ colours** (`red` is mpv's spelling, and the Host's state does not speak mpv's
 vocabulary — ADR-0008); **letting a client send any hex form** (`#FFF`, `RRGGBB`
 and `rgba()` would each need their own rule on the way to one mpv property).
 
+_Amended by [ADR-0044](0044-marquee-host-behaviors.md) §5: `SubtitleScale::parse`
+now accepts `0.25..=3.0` instead of `0.5..=2.0`._
+
 ## 4. The Player is told twice: at startup and on every change
 
 Two new `Telling`s — `SubtitleColor(SubtitleColor)` and
@@ -130,6 +139,10 @@ presets a person wants; the OSD is where the four-preset step belongs);
 surface, and the lists are one JSON — `src/subtitle-appearance.json` — imported
 by the window and spliced into the served page, so they are the same values by
 construction).
+
+_Amended by [ADR-0044](0044-marquee-host-behaviors.md) §5: both Settings and the
+player OSD (window and Remote client) replace the four preset size chips and
+preset ladder with a 5% (`0.05`) stepper across 25%–300%._
 
 ## 6. What is verified where
 
