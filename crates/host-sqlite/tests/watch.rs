@@ -17,6 +17,7 @@ fn title(name: &str) -> TitleStub {
         name: name.to_owned(),
         poster: Some("https://images.example.org/bb.jpg".to_owned()),
         background: Some("https://images.example.org/bb-backdrop.jpg".to_owned()),
+        logo: Some("https://images.example.org/bb-logo.png".to_owned()),
     })
     .expect("a Title a request could name")
 }
@@ -30,6 +31,7 @@ fn discovered() -> TitleStub {
         name: "Breaking Bad".to_owned(),
         poster: None,
         background: None,
+        logo: None,
     })
     .expect("a Discovered Title is one the Host will key by its own id")
 }
@@ -123,6 +125,72 @@ fn the_backdrop_a_client_sent_round_trips_beside_the_poster() {
         read[0].title.poster(),
         Some("https://images.example.org/bb.jpg"),
         "the poster the backdrop falls back from is kept too"
+    );
+    assert_eq!(
+        read[0].title.logo(),
+        Some("https://images.example.org/bb-logo.png"),
+        "the wordmark logo rides beside poster and backdrop (ADR-0044 §7)"
+    );
+}
+
+#[test]
+fn the_title_logo_round_trips_as_some_and_none_and_updates_on_conflict() {
+    let store = SqliteStore::open_in_memory().expect("an in-memory store opens");
+
+    let with_logo = entry("tt0903747:1:1", 100.0, 1_000);
+    store
+        .write_watch_progress(&with_logo)
+        .expect("writing a row with Some(logo) works");
+    assert_eq!(
+        store.read_watch_progress().expect("reads back")[0]
+            .title
+            .logo(),
+        Some("https://images.example.org/bb-logo.png")
+    );
+
+    let without_logo = WatchProgress {
+        title: TitleStub::parse(&TitleCard {
+            addon: Some(AddonId::parse("com.linvo.cinemeta").expect("an Addon id")),
+            id: "tt0903747".to_owned(),
+            r#type: "series".to_owned(),
+            name: "Breaking Bad".to_owned(),
+            poster: None,
+            background: None,
+            logo: None,
+        })
+        .expect("a Title"),
+        updated_at: 2_000,
+        ..with_logo
+    };
+    store
+        .write_watch_progress(&without_logo)
+        .expect("updating the row to None logo works");
+    let read = store.read_watch_progress().expect("reads back");
+    assert_eq!(read.len(), 1);
+    assert_eq!(read[0].title.logo(), None);
+
+    let with_new_logo = WatchProgress {
+        title: TitleStub::parse(&TitleCard {
+            addon: Some(AddonId::parse("com.linvo.cinemeta").expect("an Addon id")),
+            id: "tt0903747".to_owned(),
+            r#type: "series".to_owned(),
+            name: "Breaking Bad".to_owned(),
+            poster: None,
+            background: None,
+            logo: Some("https://images.example.org/bb-logo-v2.png".to_owned()),
+        })
+        .expect("a Title"),
+        updated_at: 3_000,
+        ..without_logo
+    };
+    store
+        .write_watch_progress(&with_new_logo)
+        .expect("updating the row back to Some(logo) works");
+    assert_eq!(
+        store.read_watch_progress().expect("reads back")[0]
+            .title
+            .logo(),
+        Some("https://images.example.org/bb-logo-v2.png")
     );
 }
 

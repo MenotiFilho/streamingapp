@@ -1555,7 +1555,8 @@ mod tests {
                 "addon":"community.aiostreams",
                 "title":{{"addon":"com.linvo.cinemeta","id":"tt0133093","type":"movie",
                     "name":"The Matrix","poster":"https://images.example.org/matrix.jpg",
-                    "background":"https://images.example.org/matrix-backdrop.jpg"}},
+                    "background":"https://images.example.org/matrix-backdrop.jpg",
+                    "logo":"https://images.example.org/matrix-logo.png"}},
                 "stream":{{"name":"AIOStreams\n1080p","playback":{{"kind":"direct","url":"https://stream.example.org/v/x.mkv"}}}}}}}}"#
         ))
         .expect("a client's own envelope parses");
@@ -1614,6 +1615,7 @@ mod tests {
                     name: "The Matrix".to_owned(),
                     poster: Some("https://images.example.org/matrix.jpg".to_owned()),
                     background: Some("https://images.example.org/matrix-backdrop.jpg".to_owned()),
+                    logo: Some("https://images.example.org/matrix-logo.png".to_owned()),
                 })
                 .expect("a Title a request could name"),
             }

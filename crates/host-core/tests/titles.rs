@@ -422,12 +422,18 @@ fn the_title_answer_codec_round_trips_an_episodes_air_date() {
         answered["videos"][0]["airDate"], "2008-01-21",
         "the date travels camelCased, as every field of a Video does"
     );
+    assert!(
+        answered["videos"][0]["description"]
+            .as_str()
+            .is_some_and(|description| description.contains("chemistry teacher")),
+        "the episode description travels on Video as well (ADR-0044 §6)"
+    );
     let reread: Title =
         serde_json::from_value(answered.clone()).expect("a Title reads back from its answer");
     assert_eq!(
         reread,
         title(&response).clone(),
-        "the answer round-trips whole, air date included"
+        "the answer round-trips whole, air date and description included"
     );
 }
 

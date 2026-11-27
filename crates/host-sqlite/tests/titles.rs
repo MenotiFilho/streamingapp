@@ -137,3 +137,58 @@ fn a_fresh_database_keeps_no_titles() {
         Vec::new()
     );
 }
+
+#[test]
+fn a_cached_title_without_video_descriptions_reads_cleanly_from_disk() {
+    // ADR-0044 §6: cached `titles` rows written before `Video.description`
+    // existed must stay valid without wiping the cache or migrating `titles`.
+    let directory = tempfile::tempdir().expect("a temporary directory is available");
+    let path = directory.path().join("host.sqlite3");
+    let store = SqliteStore::open(&path).expect("the store opens");
+
+    let legacy_title = serde_json::json!({
+        "addon": "com.linvo.cinemeta",
+        "id": "tt0903747",
+        "key": { "kind": "addon", "addon": "com.linvo.cinemeta", "id": "tt0903747" },
+        "type": "series",
+        "name": "Breaking Bad",
+        "poster": null,
+        "background": null,
+        "logo": null,
+        "description": null,
+        "releaseInfo": "2008–2013",
+        "runtime": null,
+        "imdbRating": null,
+        "genres": [],
+        "videos": [
+            {
+                "id": "tt0903747:1:1",
+                "name": "Pilot",
+                "season": 1,
+                "episode": 1,
+                "thumbnail": null,
+                "airDate": "2008-01-21"
+            }
+        ]
+    });
+
+    rusqlite::Connection::open(&path)
+        .expect("the database opens")
+        .execute(
+            "INSERT INTO titles (key, title, source, status, read_at, next_season, next_episode)
+             VALUES (?1, ?2, 'addon', NULL, 1000, NULL, NULL)",
+            rusqlite::params![
+                r#"{"kind":"addon","addon":"com.linvo.cinemeta","id":"tt0903747"}"#,
+                legacy_title.to_string(),
+            ],
+        )
+        .expect("a legacy cached title row lands");
+
+    let read = store
+        .read_titles()
+        .expect("legacy rows deserialize cleanly");
+    assert_eq!(read.len(), 1);
+    assert_eq!(read[0].title.videos.len(), 1);
+    assert_eq!(read[0].title.videos[0].id, "tt0903747:1:1");
+    assert_eq!(read[0].title.videos[0].description, None);
+}

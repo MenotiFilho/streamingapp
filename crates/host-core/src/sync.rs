@@ -663,6 +663,7 @@ mod tests {
             name: "Breaking Bad".to_owned(),
             poster: None,
             background: None,
+            logo: None,
         })
         .expect("a card the Host will keep")
     }
