@@ -7,7 +7,7 @@ use crate::pairing::{InvalidPairingCode, PairingCode};
 use crate::playback::{
     checked_aspect, checked_crop, checked_speed, checked_subtitle_delay, checked_volume, Aspect,
     ChosenStream, Control, Crop, InvalidAspect, InvalidCrop, InvalidSeekTarget, InvalidSpeed,
-    InvalidSubtitleDelay, InvalidVolume, SeekTarget, TrackId, Unplayable,
+    InvalidSubtitleDelay, InvalidVolume, SeekTarget, SwitchedStream, TrackId, Unplayable,
 };
 use crate::preferences::{
     DuplicateLanguage, InvalidLanguage, InvalidLanguageList, InvalidStreamBuffer,
@@ -298,6 +298,18 @@ pub enum Action {
         /// a Stream, which is boxed beside it for the same reason.
         title: Box<TitleCard>,
     },
+    /// Switch to another Stream for the Video currently playing (ADR-0044 §3).
+    ///
+    /// The client supplies only the chosen Addon and replacement candidate; the
+    /// Host reads the active Video, TitleStub, and Playback position from its
+    /// playback session, preserves the Title's Hand pick, and starts playing
+    /// even if Playback was paused.
+    SwitchStream {
+        /// The Addon whose answer the candidate came from.
+        addon: String,
+        /// The replacement candidate itself, as it was answered.
+        stream: Box<Stream>,
+    },
     /// Play a Video again from where it was left.
     ///
     /// A change, like `PlayStream`: the Host reads its own Watch progress for the
@@ -453,6 +465,7 @@ action_spellings! {
     Action::Preview { .. } => "preview",
     Action::Library => "library",
     Action::PlayStream { .. } => "play_stream",
+    Action::SwitchStream { .. } => "switch_stream",
     Action::Resume { .. } => "resume",
     Action::PlayUpNext { .. } => "play_up_next",
     Action::SetPaused { .. } => "set_paused",
@@ -673,6 +686,13 @@ impl Action {
                     title,
                 })
             }
+            Action::SwitchStream { addon, stream } => {
+                let addon = AddonId::parse(&addon)?;
+                let replacement = SwitchedStream::parse(addon, &stream)?;
+                Ok(ValidatedAction::SwitchStream {
+                    replacement: Box::new(replacement),
+                })
+            }
             Action::Resume { video } => {
                 let video = VideoRef::parse(&video.r#type, &video.id)?;
                 Ok(ValidatedAction::Resume { video })
@@ -885,6 +905,11 @@ pub enum ValidatedAction {
         chosen: Box<ChosenStream>,
         title: TitleStub,
     },
+    /// A replacement Stream for the active Video, judged ahead of reading the
+    /// Host's playback session (ADR-0044 §3).
+    SwitchStream {
+        replacement: Box<SwitchedStream>,
+    },
     /// A Video to play again from where the Host's own Watch progress left it.
     Resume {
         video: VideoRef,
@@ -1012,6 +1037,7 @@ impl ValidatedAction {
             | Self::PairDevice { .. }
             | Self::RevokeDevice(_)
             | Self::PlayStream { .. }
+            | Self::SwitchStream { .. }
             | Self::Resume { .. }
             | Self::PlayUpNext { .. }
             | Self::SetPaused { .. }
@@ -1428,15 +1454,20 @@ mod tests {
             ValidatedAction::SetSubtitleColor(SubtitleColor::parse("#FFCC00").expect("a colour"))
         );
 
-        let scale =
-            Action::parse(r#"{"version":1,"action":{"type":"set_subtitle_scale","scale":1.25}}"#)
-                .expect("a size Action parses")
-                .validate()
-                .expect("1.25 is a size");
-        assert_eq!(
-            scale,
-            ValidatedAction::SetSubtitleScale(SubtitleScale::parse(1.25).expect("a size"))
-        );
+        for valid_scale in [0.25, 1.25, 3.0] {
+            let scale = Action::parse(&format!(
+                r#"{{"version":1,"action":{{"type":"set_subtitle_scale","scale":{valid_scale}}}}}"#
+            ))
+            .expect("a size Action parses")
+            .validate()
+            .expect("a scale in 0.25..=3.0 is a size");
+            assert_eq!(
+                scale,
+                ValidatedAction::SetSubtitleScale(
+                    SubtitleScale::parse(valid_scale).expect("a size")
+                )
+            );
+        }
     }
 
     #[test]
@@ -1454,7 +1485,7 @@ mod tests {
             })
         );
 
-        for not_a_scale in [0.49, 2.01, f64::NAN, f64::INFINITY] {
+        for not_a_scale in [0.24, 3.01, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
             let refused = Action::SetSubtitleScale { scale: not_a_scale }
                 .validate()
                 .expect_err("that is not a size");
@@ -2383,6 +2414,61 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_switch_stream_action_carries_only_addon_and_stream_and_judges_both() {
+        let envelope = format!(
+            r#"{{"version":{ACTION_VERSION},"action":{{"type":"switch_stream",
+                "addon":"community.torrentio",
+                "stream":{{"name":"Torrentio\n4K","description":"Remux","playback":{{"kind":"direct","url":"https://stream.example.org/v/alt.mkv"}},"warnings":[],"filename":"Alt.mkv","bingeGroup":"torrentio|4k"}}}}}}"#
+        );
+        let validated = Action::parse(&envelope)
+            .expect("switch_stream parses")
+            .validate()
+            .expect("a direct URL with a valid Addon id validates");
+
+        assert!(
+            !validated.is_question(),
+            "switch_stream is a Change Action, never a Question"
+        );
+        let ValidatedAction::SwitchStream { replacement } = validated else {
+            panic!("expected SwitchStream");
+        };
+        assert_eq!(replacement.addon.as_str(), "community.torrentio");
+        assert_eq!(replacement.name.as_deref(), Some("Torrentio\n4K"));
+        assert_eq!(replacement.binge_group.as_deref(), Some("torrentio|4k"));
+
+        // Invalid addon id is refused before the Host touches playback.
+        let bad_addon = Action::parse(&format!(
+            r#"{{"version":{ACTION_VERSION},"action":{{"type":"switch_stream",
+                "addon":"not an addon id",
+                "stream":{{"name":null,"description":null,"playback":{{"kind":"direct","url":"https://stream.example.org/v/alt.mkv"}},"warnings":[],"filename":null,"bingeGroup":null}}}}}}"#
+        ))
+        .expect("parses")
+        .validate();
+        assert!(matches!(bad_addon, Err(ActionError::InvalidAddonId(_))));
+
+        // Invalid Stream URL is refused as Unplayable before the Host touches playback.
+        let bad_url = Action::parse(&format!(
+            r#"{{"version":{ACTION_VERSION},"action":{{"type":"switch_stream",
+                "addon":"community.torrentio",
+                "stream":{{"name":null,"description":null,"playback":{{"kind":"direct","url":"file:///etc/passwd"}},"warnings":[],"filename":null,"bingeGroup":null}}}}}}"#
+        ))
+        .expect("parses")
+        .validate();
+        assert!(matches!(bad_url, Err(ActionError::Unplayable(_))));
+
+        // Torrent replacement candidates validate the same way play_stream does.
+        let torrent = Action::parse(&format!(
+            r#"{{"version":{ACTION_VERSION},"action":{{"type":"switch_stream",
+                "addon":"community.torrentio",
+                "stream":{{"name":"Torrentio\n1080p","description":null,"playback":{{"kind":"torrent","infoHash":"61065ea115b7cc3e8db9fb5ab1f6f327f08bd1c9","fileIdx":2,"sources":[]}},"warnings":[],"filename":null,"bingeGroup":null}}}}}}"#
+        ))
+        .expect("parses")
+        .validate()
+        .expect("a torrent candidate validates");
+        assert!(matches!(torrent, ValidatedAction::SwitchStream { .. }));
+    }
+
     /// One hand-written envelope per Action, so that "every Action" is a list a
     /// person can read. Completeness is the macro's job (the generated match is
     /// exhaustive); what this list proves is that every spelling [`Action::SPELLINGS`]
@@ -2420,6 +2506,7 @@ mod tests {
         r#"{"type":"preview","at":42.5}"#,
         r#"{"type":"library"}"#,
         r#"{"type":"play_stream","video":{"type":"movie","id":"tt0133093"},"addon":"community.example","title":{"addon":"community.example","id":"tt0133093","type":"movie","name":"The Matrix","poster":null},"stream":{"name":null,"description":null,"playback":{"kind":"direct","url":"https://stream.example.org/x.mkv"},"warnings":[],"filename":null,"bingeGroup":null}}"#,
+        r#"{"type":"switch_stream","addon":"community.example","stream":{"name":null,"description":null,"playback":{"kind":"direct","url":"https://stream.example.org/x.mkv"},"warnings":[],"filename":null,"bingeGroup":null}}"#,
         r#"{"type":"resume","video":{"type":"movie","id":"tt0133093"}}"#,
         r#"{"type":"play_up_next","title":{"type":"series","id":"tt0903747"}}"#,
         r#"{"type":"set_paused","paused":true}"#,

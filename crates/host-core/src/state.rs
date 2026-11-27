@@ -391,6 +391,7 @@ impl State {
                 chosen,
                 title,
                 start,
+                switched,
             } => {
                 let video = chosen.now_playing.video.clone();
                 // The Hand pick follows the Title: a Stream of the same one
@@ -413,6 +414,9 @@ impl State {
                         // Video is.
                         if let Some(previous) = self.watch.iter().find(|held| held.video == video) {
                             entry.duration = previous.duration;
+                            // Only a switch carries it: any other play starts
+                            // the Video over.
+                            entry.watched = switched && previous.watched;
                         }
                         Persist::Watch(Box::new(self.put_watch(entry)))
                     }
@@ -666,10 +670,15 @@ pub(crate) enum Change {
     /// a Stream that starts at its beginning. Boxed because a `ChosenStream` and
     /// a `TitleStub` are both many words wide and every other variant here is a
     /// word or two.
+    ///
+    /// `switched` is a play that replaces the Stream with another for the same
+    /// Video (ADR-0044 §3): the same viewing carried on, so a Video already
+    /// watched stays watched.
     Play {
         chosen: Box<ChosenStream>,
         title: Option<Box<TitleStub>>,
         start: Option<f64>,
+        switched: bool,
     },
     /// The Player was told to hold the picture or let it run. Like the change
     /// the credentials make, this is not something the store keeps — except the
@@ -698,6 +707,17 @@ pub(crate) enum Change {
     /// The Player was told to let the Stream go: nothing is playing, and what
     /// failed no longer is.
     Stop,
+}
+
+impl Change {
+    /// The same play, marked as a switch between Streams of one Video. Any other
+    /// change is left as it is.
+    pub(crate) fn into_switch(mut self) -> Self {
+        if let Change::Play { switched, .. } = &mut self {
+            *switched = true;
+        }
+        self
+    }
 }
 
 /// Which part of the store a [`Change`] leaves out of date, so the Host knows

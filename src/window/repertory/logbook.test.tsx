@@ -651,6 +651,48 @@ describe("the repertory Settings register", () => {
     );
   });
 
+  test.each([
+    { scale: 0.25, spent: "subtitle-scale-down", open: "subtitle-scale-up" },
+    { scale: 3, spent: "subtitle-scale-up", open: "subtitle-scale-down" },
+  ])("the subtitle size stepper disables $spent at $scale", ({ scale, spent, open }) => {
+    const { value, pushed } = harness(
+      {},
+      {
+        ...SNAPSHOT,
+        preferences: { ...SNAPSHOT.preferences, subtitleScale: scale },
+      },
+    );
+    show(value, <RepertorySettingsScreen />);
+    fireEvent.click(screen.getByTestId("settings-category-preferences"));
+    showLevel(categoryLevel(pushed, "preferences"), value);
+
+    expect(screen.getByTestId(spent)).toBeDisabled();
+    expect(screen.getByTestId(open)).toBeEnabled();
+  });
+
+  test("the subtitle size stepper steps by 5%", async () => {
+    const { value, pushed, ask } = harness();
+    show(value, <RepertorySettingsScreen />);
+    fireEvent.click(screen.getByTestId("settings-category-preferences"));
+    showLevel(categoryLevel(pushed, "preferences"), value);
+
+    expect(screen.getByTestId("subtitle-scale-value")).toHaveTextContent("100%");
+    fireEvent.click(screen.getByTestId("subtitle-scale-up"));
+    await waitFor(() =>
+      expect(actions(ask)).toContainEqual({
+        type: "set_subtitle_scale",
+        scale: 1.05,
+      }),
+    );
+    fireEvent.click(screen.getByTestId("subtitle-scale-down"));
+    await waitFor(() =>
+      expect(actions(ask)).toContainEqual({
+        type: "set_subtitle_scale",
+        scale: 0.95,
+      }),
+    );
+  });
+
   test("the Featured catalog says when no Addon offers one", () => {
     const { value, pushed } = harness({}, { ...SNAPSHOT, addons: [TORRENTIO] });
     show(value, <RepertorySettingsScreen />);

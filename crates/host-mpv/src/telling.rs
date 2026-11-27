@@ -34,17 +34,21 @@ pub(crate) fn load(url: &StreamUrl) -> (&'static str, Vec<String>) {
 }
 
 /// The commands that open a Stream, in the order mpv is given them: the track
-/// selection starts from mpv's own choice, and then the file is loaded.
+/// selection starts from mpv's own choice, the subtitle sync resets to zero,
+/// and then the file is loaded.
 ///
 /// `aid` and `sid` go back to `auto` because a `sid=no` from the last Stream
 /// would otherwise carry into this one (mpv resets only a selection of a track
-/// number, never "no"). The Host's own choice comes after the file reports its
-/// Tracks; what an owner picked in the player is carried by the Host as a Hand
-/// pick, not by mpv (ADR-0041).
+/// number, never "no"). `sub-delay` goes back to `0` because mpv retains it
+/// across `loadfile replace`, and a subtitle timing offset belongs strictly to
+/// one Stream (ADR-0044 §4). The Host's own choice comes after the file reports
+/// its Tracks; what an owner picked in the player is carried by the Host as a
+/// Hand pick, not by mpv (ADR-0041).
 pub(crate) fn opening(url: &StreamUrl) -> Vec<(&'static str, Vec<String>)> {
     vec![
         ("set", vec!["aid".to_owned(), "auto".to_owned()]),
         ("set", vec!["sid".to_owned(), "auto".to_owned()]),
+        ("set", vec!["sub-delay".to_owned(), "0".to_owned()]),
         load(url),
     ]
 }
@@ -257,19 +261,23 @@ mod tests {
     }
 
     #[test]
-    fn opening_a_stream_first_forgets_the_last_streams_track_selection() {
+    fn opening_a_stream_first_forgets_the_last_streams_track_selection_and_sub_delay() {
         // `sid=no` is below zero, so mpv never resets it when the next file's
         // layout differs: a subtitle turned off on one Stream would stay off on
-        // the next. `auto` puts both back to mpv's own choice before the file is
-        // read; carrying "off" on purpose is the Host's Hand pick (ADR-0041).
+        // the next. `sub-delay` is also retained across `loadfile replace` and
+        // must reset to `0` so one Stream's sync offset never leaks into the
+        // next (ADR-0044 §4). `auto` puts both tracks back to mpv's own choice
+        // before the file is read; carrying "off" on purpose is the Host's Hand
+        // pick (ADR-0041).
         assert_eq!(
             opening(&url()),
             vec![
                 ("set", vec!["aid".to_owned(), "auto".to_owned()]),
                 ("set", vec!["sid".to_owned(), "auto".to_owned()]),
+                ("set", vec!["sub-delay".to_owned(), "0".to_owned()]),
                 load(&url()),
             ],
-            "the two resets come before the file, and the file is the last word"
+            "the three resets come before the file, and the file is the last word"
         );
     }
 

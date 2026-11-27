@@ -1099,7 +1099,7 @@ describe("the player OSD", () => {
     await waitFor(() =>
       expect(actions(host.invocations)).toContainEqual({
         type: "set_subtitle_scale",
-        scale: 1.5,
+        scale: 1.3,
       }),
     );
 
@@ -1107,7 +1107,7 @@ describe("the player OSD", () => {
     await waitFor(() =>
       expect(actions(host.invocations)).toContainEqual({
         type: "set_subtitle_scale",
-        scale: 1,
+        scale: 1.2,
       }),
     );
 
@@ -1226,7 +1226,7 @@ describe("the player OSD", () => {
     await waitFor(() =>
       expect(actions(host.invocations)).toContainEqual({
         type: "set_subtitle_scale",
-        scale: 1.25,
+        scale: 1.05,
       }),
     );
     await closePopover("popover-subtitles");

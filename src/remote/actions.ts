@@ -47,6 +47,7 @@ export const REMOTE_ACTIONS = [
   "preview",
   "library",
   "play_stream",
+  "switch_stream",
   "resume",
   "play_up_next",
   "set_paused",

@@ -20,6 +20,7 @@ import {
   formatScale,
   formatSpeed,
   orderedTracks,
+  scaleAtBound,
   speedSelected,
   statisticsLines,
   stepDelay,
@@ -278,6 +279,7 @@ export function subtitleSections(
           label: "Smaller subtitles",
           text: "−",
           action: { type: "set_subtitle_scale", scale: stepScale(subtitleScale, -1) },
+          disabled: scaleAtBound(subtitleScale, -1),
         },
         {
           kind: "action",
@@ -285,6 +287,7 @@ export function subtitleSections(
           label: "Larger subtitles",
           text: "+",
           action: { type: "set_subtitle_scale", scale: stepScale(subtitleScale, 1) },
+          disabled: scaleAtBound(subtitleScale, 1),
         },
       ],
     },

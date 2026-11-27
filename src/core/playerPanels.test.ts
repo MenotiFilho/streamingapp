@@ -327,7 +327,7 @@ describe("the subtitles panel", () => {
     });
   });
 
-  test("the size readout is the Host's preference, and its buttons step the presets", () => {
+  test("the size readout is the Host's preference, and its buttons step by 5% within 25%–300%", () => {
     const sections = subtitleSections(playback(), 1.25);
 
     expect(row(sections, "subtitle-scale")).toMatchObject({
@@ -338,12 +338,34 @@ describe("the subtitles panel", () => {
     expect(row(sections, "subtitle-scale-down")).toMatchObject({
       label: "Smaller subtitles",
       text: "−",
-      action: { type: "set_subtitle_scale", scale: 1 },
+      action: { type: "set_subtitle_scale", scale: 1.2 },
+      disabled: false,
     });
     expect(row(sections, "subtitle-scale-up")).toMatchObject({
       label: "Larger subtitles",
       text: "+",
-      action: { type: "set_subtitle_scale", scale: 1.5 },
+      action: { type: "set_subtitle_scale", scale: 1.3 },
+      disabled: false,
+    });
+
+    const atMin = subtitleSections(playback(), 0.25);
+    expect(row(atMin, "subtitle-scale-down")).toMatchObject({
+      action: { type: "set_subtitle_scale", scale: 0.25 },
+      disabled: true,
+    });
+    expect(row(atMin, "subtitle-scale-up")).toMatchObject({
+      action: { type: "set_subtitle_scale", scale: 0.3 },
+      disabled: false,
+    });
+
+    const atMax = subtitleSections(playback(), 3);
+    expect(row(atMax, "subtitle-scale-down")).toMatchObject({
+      action: { type: "set_subtitle_scale", scale: 2.95 },
+      disabled: false,
+    });
+    expect(row(atMax, "subtitle-scale-up")).toMatchObject({
+      action: { type: "set_subtitle_scale", scale: 3 },
+      disabled: true,
     });
   });
 });

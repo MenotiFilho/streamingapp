@@ -4,8 +4,7 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { version as packageVersion } from "../../package.json";
 import {
   AUTOPLAY_CHOICES,
-  SUBTITLE_SCALES,
-  formatScale,
+  stepScale,
   torrentCacheRequest,
 } from "../core/controls";
 import { explain, type ActionError } from "../core/errors";
@@ -340,12 +339,7 @@ describe("the Preferences leaf", () => {
     await openCategory(PREFERENCES);
 
     fireEvent.click(screen.getByRole("button", { name: "Yellow" }));
-    const large = SUBTITLE_SCALES[2]!;
-    fireEvent.click(
-      screen.getByRole("button", {
-        name: `${large.label} · ${formatScale(large.scale)}`,
-      }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Larger subtitles" }));
     fireEvent.click(screen.getByRole("button", { name: "10 min" }));
     const catalog = CINEMETA.catalogs[0]!;
     fireEvent.click(
@@ -363,7 +357,7 @@ describe("the Preferences leaf", () => {
     );
     await waitFor(() =>
       expect(host.asked("set_subtitle_scale")).toEqual([
-        scaleRequest(large.scale),
+        scaleRequest(stepScale(WITH_SETTINGS.preferences.subtitleScale, 1)),
       ]),
     );
     await waitFor(() =>

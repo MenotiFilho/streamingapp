@@ -793,6 +793,99 @@ fn a_paired_client_sets_the_subtitle_appearance_and_sees_the_hosts_values() {
         pushed["snapshot"]["preferences"]["subtitleColor"], "#00FFFF",
         "the colour is still the one the Remote chose: {pushed}"
     );
+
+    for bound in [0.25, 3.0] {
+        let reply = client.command(5, json!({ "type": "set_subtitle_scale", "scale": bound }));
+        assert!(
+            reply.get("response").is_some(),
+            "the Remote can set the widened bound {bound}: {reply}"
+        );
+        client.snapshot_where(|snapshot| snapshot["preferences"]["subtitleScale"] == bound);
+    }
+}
+
+#[test]
+fn a_paired_client_can_switch_streams_over_the_wire() {
+    let (fixture, server) = server();
+    let mut client = Client::connect(&server);
+    client.hello(None);
+    pair(&mut client, &fixture, "Test phone");
+
+    // Switching with nothing playing refuses cleanly over the wire.
+    let refused = client.command(
+        3,
+        json!({
+            "type": "switch_stream",
+            "addon": "community.example",
+            "stream": {
+                "name": "4K",
+                "description": null,
+                "playback": { "kind": "direct", "url": "https://stream.example.org/4k.mkv" },
+                "warnings": [],
+                "filename": null,
+                "bingeGroup": null,
+            },
+        }),
+    );
+    assert_eq!(refused["error"]["kind"], "nothing_playing");
+    assert_eq!(refused["error"]["control"], "switch_stream");
+
+    // Start playing a Stream, then switch to another Stream over the wire.
+    let played = client.command(
+        4,
+        json!({
+            "type": "play_stream",
+            "video": { "type": "movie", "id": "tt0133093" },
+            "addon": "community.example",
+            "title": {
+                "addon": "community.example",
+                "id": "tt0133093",
+                "type": "movie",
+                "name": "The Matrix",
+                "poster": null,
+            },
+            "stream": {
+                "name": "1080p",
+                "description": null,
+                "playback": { "kind": "direct", "url": "https://stream.example.org/1080p.mkv" },
+                "warnings": [],
+                "filename": null,
+                "bingeGroup": null,
+            },
+        }),
+    );
+    assert!(played.get("response").is_some(), "play_stream: {played}");
+    client.snapshot_where(|snapshot| snapshot["playback"]["nowPlaying"]["name"] == "1080p");
+
+    let switched = client.command(
+        5,
+        json!({
+            "type": "switch_stream",
+            "addon": "community.alt",
+            "stream": {
+                "name": "4K HDR",
+                "description": null,
+                "playback": { "kind": "direct", "url": "https://stream.example.org/4k.mkv" },
+                "warnings": [],
+                "filename": null,
+                "bingeGroup": null,
+            },
+        }),
+    );
+    assert!(
+        switched.get("response").is_some(),
+        "switch_stream: {switched}"
+    );
+    let pushed =
+        client.snapshot_where(|snapshot| snapshot["playback"]["nowPlaying"]["name"] == "4K HDR");
+    assert_eq!(
+        pushed["snapshot"]["playback"]["nowPlaying"]["addon"],
+        "community.alt"
+    );
+    assert_eq!(
+        pushed["snapshot"]["playback"]["nowPlaying"]["video"]["id"],
+        "tt0133093"
+    );
 }
 
 #[test]

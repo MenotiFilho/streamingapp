@@ -90,7 +90,8 @@ export type Control =
   | "crop"
   | "aspect"
   | "next_episode"
-  | "previous_episode";
+  | "previous_episode"
+  | "switch_stream";
 
 /**
  * Why an Action was not taken, in the Host's own vocabulary, plus the client's
@@ -196,7 +197,7 @@ export function explain(error: ActionError): string {
     case "invalid_subtitle_color":
       return `${JSON.stringify(error.color)} is not a subtitle colour — a colour is "#RRGGBB", like "#FFFF00".`;
     case "invalid_subtitle_scale":
-      return `${JSON.stringify(error.scale)} is not a subtitle size — a size is between 0.5 and 2.0.`;
+      return `${JSON.stringify(error.scale)} is not a subtitle size — a size is between 0.25 and 3.0.`;
     case "invalid_stream_buffer":
       return `The Host will not keep that Stream buffer${error.detail ? `: ${error.detail}` : ""}.`;
     case "invalid_torrent_cache":
@@ -362,6 +363,8 @@ function controlWords(control: Control | undefined): string {
       return "play the next episode";
     case "previous_episode":
       return "play the previous episode";
+    case "switch_stream":
+      return "switch streams";
     default:
       return "do that";
   }

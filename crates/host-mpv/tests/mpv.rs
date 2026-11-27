@@ -895,17 +895,52 @@ fn subtitles_can_be_recoloured_and_scaled_without_overriding_their_own_styling()
     // What is asserted here is that the Player they reach accepts them; that a
     // colour applies to unstyled text and not to an ASS track's authored style,
     // and that the size applies to both, is the manual walkthrough's evidence —
-    // it needs a picture to look at (ADR-0024).
+    // it needs a picture to look at (ADR-0024, amended by ADR-0044 §5).
     player
         .tell(Telling::SubtitleColor(
             SubtitleColor::parse("#FFCC00").expect("a subtitle colour"),
         ))
         .expect("mpv takes a subtitle colour");
+    for scale in [SubtitleScale::MIN, 1.25, SubtitleScale::MAX] {
+        player
+            .tell(Telling::SubtitleScale(
+                SubtitleScale::parse(scale).expect("a subtitle size in 0.25..=3.0"),
+            ))
+            .unwrap_or_else(|error| panic!("mpv should accept sub-scale={scale}: {error}"));
+    }
+}
+
+#[test]
+fn opening_a_replacement_stream_resets_subtitle_delay_to_zero() {
+    // mpv retains `sub-delay` across `loadfile replace`, so `telling::opening()`
+    // resets it to `0` before loading the next file (ADR-0044 §4).
+    let streams = serve(6.0);
+    let player = controlling(&streams);
+
     player
-        .tell(Telling::SubtitleScale(
-            SubtitleScale::parse(1.25).expect("a subtitle size"),
-        ))
-        .expect("mpv takes a subtitle size");
+        .tell(Telling::SubtitleDelay { seconds: 0.5 })
+        .expect("mpv takes the delay");
+    until(&player, "shifted the subtitles", |observation| {
+        observation
+            .subtitle_delay
+            .is_some_and(|seconds| (seconds - 0.5).abs() < 1e-6)
+    });
+
+    player
+        .open(&stream(&streams.movie), None)
+        .expect("mpv takes the replacement Stream");
+    let reopened = until(
+        &player,
+        "reset subtitle delay on the replacement Stream",
+        |observation| {
+            observation.state == PlaybackState::Playing
+                && observation
+                    .subtitle_delay
+                    .is_some_and(|seconds| seconds.abs() < 1e-6)
+        },
+    );
+
+    assert_eq!(reopened.subtitle_delay, Some(0.0));
 }
 
 #[test]
