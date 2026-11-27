@@ -263,5 +263,8 @@ export function titleStubOf(title: Title, preview?: TitlePreview | null): TitleS
     // Only carried when there is one: the field is part of the ready card (#73),
     // and a Host that never sent a backdrop has no key to learn.
     ...(background ? { background } : {}),
+    // Carried when the Title has a wordmark so Continue watching Wide cards and
+    // the Opening surface can draw it offline (ADR-0044 §7).
+    ...(title.logo ? { logo: title.logo } : {}),
   };
 }

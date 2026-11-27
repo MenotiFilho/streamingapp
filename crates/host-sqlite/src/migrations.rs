@@ -169,6 +169,14 @@ pub const MIGRATIONS: &[Migration] = &[
                   FROM preferences WHERE key = 'subtitle_language';
               DELETE FROM preferences WHERE key = 'subtitle_language';",
     },
+    Migration {
+        // The Title's wordmark logo for Continue watching Wide cards and the
+        // Opening surface (ADR-0044 §7). Sits beside `title_poster` and
+        // `title_background`, and is null for every entry written before this
+        // column existed.
+        version: 11,
+        sql: "ALTER TABLE watch_progress ADD COLUMN title_logo TEXT;",
+    },
 ];
 
 /// The version a database is at once every migration in `migrations` has run.

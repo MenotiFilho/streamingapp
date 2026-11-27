@@ -3023,6 +3023,10 @@ mod tests {
                 episode: Some(2),
                 thumbnail: Some("https://episodes.metahub.space/tt0903747/1/2/w780.jpg".to_owned()),
                 air_date: Some("2008-01-28".to_owned()),
+                description: Some(
+                    "Walt and Jesse attempt to tie up loose ends. The desperate situation gets more complicated with the flip of a coin. Walt's wife, Skyler, becomes suspicious of Walt's strange behavior."
+                        .to_owned()
+                ),
             }
         );
 
@@ -3041,6 +3045,10 @@ mod tests {
                 episode: Some(1),
                 thumbnail: Some("https://episodes.metahub.space/tt0903747/1/1/w780.jpg".to_owned()),
                 air_date: Some("2008-01-21".to_owned()),
+                description: Some(
+                    "When an unassuming high school chemistry teacher discovers he has a rare form of lung cancer, he decides to team up with a former student and create a top of the line crystal meth in a used RV, to provide for his family once he is gone."
+                        .to_owned()
+                ),
             }
         );
 
@@ -3094,6 +3102,7 @@ mod tests {
                 episode: Some(2),
                 thumbnail: Some(format!("{}/still-1396-1-2.jpg", tmdb::STILL_ROOT)),
                 air_date: Some("2008-01-27".to_owned()),
+                description: Some("The aftermath of the first cook.".to_owned()),
             }
         );
 
@@ -3112,6 +3121,7 @@ mod tests {
                 episode: Some(1),
                 thumbnail: Some(format!("{}/still-1396-1-1.jpg", tmdb::STILL_ROOT)),
                 air_date: Some("2008-01-20".to_owned()),
+                description: Some("A chemistry teacher gets a diagnosis.".to_owned()),
             }
         );
 
@@ -3221,6 +3231,7 @@ mod tests {
             name: "Breaking Bad".to_owned(),
             poster: None,
             background: None,
+            logo: None,
         })
         .unwrap();
 

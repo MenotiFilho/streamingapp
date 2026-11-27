@@ -944,6 +944,7 @@ fn read_episodes(
                     .get("air_date")
                     .and_then(Value::as_str)
                     .and_then(crate::meta::calendar_day),
+                description: trimmed_string(episode, "overview"),
             })
         })
         .collect();
@@ -1281,6 +1282,16 @@ fn date(record: &Map<String, Value>, name: &str) -> Option<Date> {
 /// field.
 fn string(object: &Map<String, Value>, name: &str) -> Option<String> {
     let text = object.get(name)?.as_str()?;
+    if text.is_empty() || text.len() > MAX_STRING_LEN {
+        return None;
+    }
+    Some(text.to_owned())
+}
+
+/// One named field of a record, trimmed of outer whitespace and dropped when
+/// empty or longer than the Host will hold (ADR-0044 §6).
+fn trimmed_string(object: &Map<String, Value>, name: &str) -> Option<String> {
+    let text = object.get(name)?.as_str()?.trim();
     if text.is_empty() || text.len() > MAX_STRING_LEN {
         return None;
     }
@@ -1737,6 +1748,52 @@ mod tests {
     }
 
     #[test]
+    fn a_batch_carries_each_episodes_description_and_trims_empty_to_none() {
+        let body = appended(1, SEASON_1);
+        let batch = read_season_batch(&body, TmdbId(1396), &[1]).expect("a batch answer");
+
+        assert_eq!(
+            batch.videos[0].description.as_deref(),
+            Some("A chemistry teacher gets a diagnosis."),
+            "TMDB's episode overview populates Video.description (ADR-0044 §6)"
+        );
+        assert_eq!(
+            batch.videos[1].description.as_deref(),
+            Some("The aftermath of the first cook.")
+        );
+
+        let too_long = "a".repeat(MAX_STRING_LEN + 1);
+        let body = appended(
+            1,
+            &serde_json::json!({
+                "episodes": [
+                    { "episode_number": 1, "overview": "  Trimmed synopsis. \n" },
+                    { "episode_number": 2, "overview": "" },
+                    { "episode_number": 3, "overview": "   \t\n " },
+                    { "episode_number": 4, "overview": null },
+                    { "episode_number": 5 },
+                    { "episode_number": 6, "overview": 42 },
+                    { "episode_number": 7, "overview": too_long }
+                ]
+            })
+            .to_string(),
+        );
+        let batch = read_season_batch(&body, TmdbId(1396), &[1]).expect("a batch answer");
+
+        assert_eq!(
+            batch.videos[0].description.as_deref(),
+            Some("Trimmed synopsis.")
+        );
+        for (index, video) in batch.videos[1..].iter().enumerate() {
+            assert_eq!(
+                video.description, None,
+                "empty, whitespace-only, null, absent, wrong-type, and overlong overviews normalize to None (episode {})",
+                index + 2
+            );
+        }
+    }
+
+    #[test]
     fn specials_are_a_season_like_any_other_with_nothing_to_draw() {
         let body = appended(0, SEASON_0);
         let batch = read_season_batch(&body, TmdbId(1396), &[0]).expect("a batch answer");
@@ -1922,6 +1979,7 @@ mod tests {
                 episode: None,
                 thumbnail: None,
                 air_date: None,
+                description: None,
             }]))
             .onto(&mut title);
         assert_eq!(

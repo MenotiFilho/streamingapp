@@ -183,6 +183,7 @@ fn episode(id: u32, season: u32, number: u32) -> Video {
         episode: Some(number),
         thumbnail: None,
         air_date: None,
+        description: None,
     }
 }
 
@@ -225,6 +226,7 @@ fn addon_episode(id: &str, season: u32, number: u32) -> Video {
         episode: Some(number),
         thumbnail: None,
         air_date: None,
+        description: None,
     }
 }
 
@@ -277,6 +279,7 @@ fn finished_episode(title_id: &str, video_id: &str, at: i64) -> WatchProgress {
             name: "Series".to_owned(),
             poster: None,
             background: None,
+            logo: None,
         })
         .expect("a Title"),
         position: Some(100.0),

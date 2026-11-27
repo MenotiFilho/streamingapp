@@ -400,11 +400,12 @@ describe("the programme note", () => {
     });
 
     expect(view.title).toBe("AIOStreams");
+    expect(view.logo).toBeNull();
     expect(view.episodeLabel).toBe("Feature");
     expect(view.openingPreview).toBeNull();
   });
 
-  test("a film's Watch-progress entry is a Feature, with its art and no episode label", () => {
+  test("a film's Watch-progress entry is a Feature, with its art, logo, and no episode label", () => {
     const film = entry({
       video: { id: "tt0133093", name: "The Matrix", season: null, episode: null, thumbnail: null, airDate: null },
       title: {
@@ -414,6 +415,7 @@ describe("the programme note", () => {
         name: "The Matrix",
         poster: "https://images.test/matrix-poster.jpg",
         background: "https://images.test/matrix-backdrop.jpg",
+        logo: "https://images.test/matrix-logo.png",
       },
     });
     const view = playbackView(playback(), {
@@ -423,15 +425,18 @@ describe("the programme note", () => {
     });
 
     expect(view.title).toBe("The Matrix");
+    expect(view.logo).toBe("https://images.test/matrix-logo.png");
     expect(view.episodeLabel).toBe("Feature");
     expect(view.openingPreview).toEqual({
       art: "https://images.test/matrix-backdrop.jpg",
+      logo: "https://images.test/matrix-logo.png",
       title: "The Matrix",
       subtitle: "The Matrix",
     });
+    expect(view.nowPlaying).not.toHaveProperty("logo");
   });
 
-  test("an episode's opening preview prefers its still, and labels it with the episode", () => {
+  test("an episode's opening preview prefers its still, carries its logo when present, and labels it with the episode", () => {
     const view = playbackView(
       playback({
         episode: { season: 1, episode: 1 },
@@ -451,8 +456,45 @@ describe("the programme note", () => {
       },
     );
 
+    expect(view.logo).toBeNull();
     expect(view.openingPreview).toEqual({
       art: "https://images.test/episode-one.jpg",
+      logo: null,
+      title: "A Series That Plays",
+      subtitle: "S1E1 · Episode One",
+    });
+
+    const withLogo = playbackView(
+      playback({
+        state: "opening",
+        episode: { season: 1, episode: 1 },
+        nowPlaying: {
+          video: { type: "series", id: "tt7777777:1:1" },
+          addon: "community.aiostreams",
+          name: "AIOStreams\n1080p",
+          description: null,
+          filename: null,
+          bingeGroup: null,
+        },
+      }),
+      {
+        played: 0,
+        pending: NO_PENDING,
+        watchProgress: [
+          entry({
+            title: {
+              ...entry().title,
+              logo: "https://images.test/series-logo.png",
+            },
+          }),
+        ],
+      },
+    );
+
+    expect(withLogo.logo).toBe("https://images.test/series-logo.png");
+    expect(withLogo.openingPreview).toEqual({
+      art: "https://images.test/episode-one.jpg",
+      logo: "https://images.test/series-logo.png",
       title: "A Series That Plays",
       subtitle: "S1E1 · Episode One",
     });

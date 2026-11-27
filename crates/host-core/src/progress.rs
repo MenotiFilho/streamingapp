@@ -76,6 +76,11 @@ pub struct TitleCard {
     /// The Title's backdrop, where the Addon gave one. Continue watching draws
     /// 16:9 cards, and the poster beside it is portrait.
     pub background: Option<String>,
+    /// The Title's wordmark, where the Addon or TMDB gave one. Continue
+    /// watching Wide cards and the Opening surface draw it offline
+    /// (ADR-0044 §7).
+    #[serde(default)]
+    pub logo: Option<String>,
 }
 
 /// The least of a Title a Continue watching card is drawn from — judged.
@@ -83,8 +88,8 @@ pub struct TitleCard {
 /// Valid by construction: [`TitleStub::parse`] is the only way to make one, and
 /// it refuses a Title whose type and id are not ones a request could name. The
 /// words are bounded the way every word that travels to a client is: a name too
-/// long to hold falls back to the id, and a poster or a backdrop that is not one
-/// is dropped.
+/// long to hold falls back to the id, and a poster, backdrop or logo that is
+/// not one is dropped.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct TitleStub {
@@ -95,6 +100,8 @@ pub struct TitleStub {
     name: String,
     poster: Option<String>,
     background: Option<String>,
+    #[serde(default)]
+    logo: Option<String>,
 }
 
 impl TitleStub {
@@ -110,6 +117,7 @@ impl TitleStub {
             name: held(&card.name).unwrap_or_else(|| card.id.clone()),
             poster: held(card.poster.as_deref().unwrap_or_default()),
             background: held(card.background.as_deref().unwrap_or_default()),
+            logo: held(card.logo.as_deref().unwrap_or_default()),
         })
     }
 
@@ -143,6 +151,13 @@ impl TitleStub {
     /// Continue watching draws, where the poster beside it is portrait.
     pub fn background(&self) -> Option<&str> {
         self.background.as_deref()
+    }
+
+    /// The Title's wordmark, where it had one the Host will hold: drawn on
+    /// Continue watching Wide cards and on the Opening surface offline
+    /// (ADR-0044 §7).
+    pub fn logo(&self) -> Option<&str> {
+        self.logo.as_deref()
     }
 }
 
@@ -556,6 +571,7 @@ mod tests {
             name: name.to_owned(),
             poster: Some("https://images.example.org/bb.jpg".to_owned()),
             background: Some("https://images.example.org/bb-backdrop.jpg".to_owned()),
+            logo: Some("https://images.example.org/bb-logo.png".to_owned()),
         }
     }
 
@@ -599,6 +615,7 @@ mod tests {
                 name: "The Matrix".to_owned(),
                 poster: None,
                 background: None,
+                logo: None,
             })
             .expect("a film the Host will keep"),
             position: Some(8_000.0),
@@ -631,6 +648,11 @@ mod tests {
             Some("https://images.example.org/bb-backdrop.jpg"),
             "16:9 Continue watching art rides the card the client handed back"
         );
+        assert_eq!(
+            stub.logo(),
+            Some("https://images.example.org/bb-logo.png"),
+            "the Title's wordmark rides the card for Wide cards and Opening (ADR-0044 §7)"
+        );
     }
 
     #[test]
@@ -644,6 +666,7 @@ mod tests {
             name: "Breaking Bad".to_owned(),
             poster: None,
             background: None,
+            logo: None,
         })
         .expect("a Discovered Title is one the Host will key by its own id");
 
@@ -709,6 +732,7 @@ mod tests {
             name: String::new(),
             poster: Some("\u{0}".to_owned()),
             background: Some("\u{0}".to_owned()),
+            logo: Some("\u{0}".to_owned()),
             ..card("One")
         })
         .expect("the Title is still one the Host will key by");
@@ -720,6 +744,41 @@ mod tests {
             None,
             "a backdrop that is not one is not art Continue watching draws"
         );
+        assert_eq!(
+            stub.logo(),
+            None,
+            "a logo with control characters is dropped like poster and background"
+        );
+
+        let too_long = "https://images.example.org/".to_owned() + &"a".repeat(MAX_STRING_LEN);
+        for dropped in [String::new(), too_long] {
+            let stub = TitleStub::parse(&TitleCard {
+                logo: Some(dropped.clone()),
+                ..card("One")
+            })
+            .expect("the Title is still one the Host will key by");
+            assert_eq!(
+                stub.logo(),
+                None,
+                "an empty or overlong logo is dropped: len={}",
+                dropped.len()
+            );
+        }
+    }
+
+    #[test]
+    fn a_card_and_stub_without_logo_deserialize_cleanly_for_backward_compatibility() {
+        let card: TitleCard = serde_json::from_str(
+            r#"{"addon":"com.linvo.cinemeta","id":"tt0903747","type":"series","name":"Breaking Bad","poster":null,"background":null}"#,
+        )
+        .expect("a TitleCard without logo deserializes cleanly");
+        assert_eq!(card.logo, None);
+
+        let stub: TitleStub = serde_json::from_str(
+            r#"{"addon":"com.linvo.cinemeta","id":"tt0903747","type":"series","name":"Breaking Bad","poster":null,"background":null}"#,
+        )
+        .expect("a TitleStub without logo deserializes cleanly");
+        assert_eq!(stub.logo(), None);
     }
 
     #[test]
@@ -733,6 +792,7 @@ mod tests {
                 episode: Some(2),
                 thumbnail: None,
                 air_date: None,
+                description: None,
             }
         );
         assert_eq!(
@@ -744,6 +804,7 @@ mod tests {
                 episode: Some(1),
                 thumbnail: None,
                 air_date: None,
+                description: None,
             },
             "a title id is not always one part, so the numbers read from the right"
         );
@@ -756,6 +817,7 @@ mod tests {
                 episode: None,
                 thumbnail: None,
                 air_date: None,
+                description: None,
             },
             "a film is one Video and carries no episode numbers"
         );
@@ -768,6 +830,7 @@ mod tests {
                 episode: None,
                 thumbnail: None,
                 air_date: None,
+                description: None,
             },
             "two numbers are what an episode is; one is not one"
         );
@@ -902,6 +965,10 @@ mod tests {
             "the backdrop is published beside the poster it falls back from"
         );
         assert_eq!(
+            published["title"]["logo"], "https://images.example.org/bb-logo.png",
+            "the wordmark is published beside poster and background (ADR-0044 §7)"
+        );
+        assert_eq!(
             published["updatedAt"],
             serde_json::Value::Null,
             "when it was written is the Host's own bookkeeping and never travels"
@@ -1003,6 +1070,7 @@ mod tests {
                 name: "A film that shares an id".to_owned(),
                 poster: None,
                 background: None,
+                logo: None,
             })
             .expect("a film the Host will keep"),
             ..episode("tt0903747:1:1", 100.0, 1_000, false)
@@ -1071,6 +1139,7 @@ mod tests {
                 name: "Breaking Bad".to_owned(),
                 poster: None,
                 background: None,
+                logo: None,
             })
             .expect("a Discovered Title is one the Host will key"),
             ..episode(video, 2_820.0, 1_000, true)
@@ -1105,6 +1174,7 @@ mod tests {
                 name: "Breaking Bad".to_owned(),
                 poster: None,
                 background: None,
+                logo: Some("https://images.example.org/bb-logo.png".to_owned()),
             })
             .expect("a Discovered Title is one the Host will key"),
             ..episode("tmdb:1396:1:1", 2_820.0, 1_000, true)
@@ -1115,6 +1185,11 @@ mod tests {
         assert_eq!(cards.len(), 1);
         assert_eq!(cards[0].video.id, "tmdb:1396:1:2");
         assert!(cards[0].up_next);
+        assert_eq!(
+            cards[0].title.logo(),
+            Some("https://images.example.org/bb-logo.png"),
+            "an Up next ContinueEntry preserves the Title's wordmark logo"
+        );
     }
 
     #[test]
