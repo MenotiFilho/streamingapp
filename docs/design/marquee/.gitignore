@@ -1,0 +1,6 @@
+# generated or third-party: rebuilt by scripts/fetch-assets.sh and scripts/build.sh
+assets/
+tools/
+preview/
+shots/
+*.fig

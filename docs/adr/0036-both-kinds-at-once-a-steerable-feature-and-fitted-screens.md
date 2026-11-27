@@ -7,6 +7,9 @@ what it supersedes rather than letting the code drift from the docs.
 
 ## 1. Search and Discover show Movies and Series together
 
+> **Amended by ADR-0043 for Discover.** Discover picks one kind at a time with a
+> Type dropdown; Search still shows both kinds together.
+
 The map's #146 decision narrowed the repertory Search and Discover to **one kind
 at a time**, chosen with two single-select kind chips, Movie where a person
 lands. That is withdrawn, in both clients (window and Remote).
@@ -33,6 +36,9 @@ The mapping is a pure decision in `src/core/discover.ts` and is tested there.
 It is still TMDB's own vocabulary, not a curated second list.
 
 ## 2. The Feature is steered, and shows its time
+
+> **Amended by ADR-0043.** The hero carries Watch now and Details, and in the
+> window it follows focus once focus moves down into the rows.
 
 The Feature (the Home hero, drawn from the Featured catalog) rotated on a timer
 only, with Left/Right on the window. Both clients now:
@@ -102,6 +108,9 @@ fitted two-column page with the episode list as its panel. The two answers are
 the page seam's (`pageFit` and `pageSurface`), not a CSS accident.
 
 ## 4. The Remote's playing bar steps aside on the player screen
+
+> **Amended by ADR-0043.** The remote the strip opens fills the phone's screen,
+> without the tab bar.
 
 The floating *now playing* bar the Remote shows over every screen is hidden while
 the player screen itself is open; it points at the screen a person is already on.
