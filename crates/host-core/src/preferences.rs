@@ -425,10 +425,10 @@ pub struct InvalidSubtitleColor {
 
 /// How large the Player draws subtitles, relative to its own size.
 ///
-/// A finite multiplier from a half to twice, held as the number mpv's
-/// `sub-scale` takes. One value applies to both subtitles a file styles itself
-/// and subtitles it does not; unlike colour, a track's own styling does not
-/// override it (ADR-0024).
+/// A finite multiplier from a quarter to three times (`0.25..=3.0`), held as
+/// the number mpv's `sub-scale` takes. One value applies to both subtitles a
+/// file styles itself and subtitles it does not; unlike colour, a track's own
+/// styling does not override it (ADR-0024, amended by ADR-0044 §5).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct SubtitleScale(f64);
@@ -438,11 +438,11 @@ impl SubtitleScale {
     /// preference's default.
     pub const DEFAULT: f64 = 1.0;
 
-    /// The smallest scale the Host will set.
-    pub const MIN: f64 = 0.5;
+    /// The smallest scale the Host will set (25%).
+    pub const MIN: f64 = 0.25;
 
-    /// The largest scale the Host will set.
-    pub const MAX: f64 = 2.0;
+    /// The largest scale the Host will set (300%).
+    pub const MAX: f64 = 3.0;
 
     /// Parse a scale, or say why this number is not one.
     pub fn parse(raw: f64) -> Result<Self, InvalidSubtitleScale> {
@@ -475,7 +475,7 @@ impl std::fmt::Display for SubtitleScale {
 
 /// A number that is not a subtitle size, offered as one.
 #[derive(Debug, Clone, PartialEq, Serialize, thiserror::Error)]
-#[error("{scale} is not a subtitle size — a size is a number from 0.5 to 2")]
+#[error("{scale} is not a subtitle size — a size is a number from 0.25 to 3")]
 pub struct InvalidSubtitleScale {
     /// The value offered, as a refusal can carry it: `NaN` has no JSON form.
     pub scale: String,
@@ -828,8 +828,15 @@ mod tests {
     }
 
     #[test]
-    fn a_scale_is_finite_and_between_a_half_and_twice() {
-        for (raw, value) in [(0.5, 0.5), (1.0, 1.0), (1.25, 1.25), (2.0, 2.0)] {
+    fn a_scale_is_finite_and_between_a_quarter_and_three_times() {
+        for (raw, value) in [
+            (0.25, 0.25),
+            (0.5, 0.5),
+            (1.0, 1.0),
+            (1.25, 1.25),
+            (2.0, 2.0),
+            (3.0, 3.0),
+        ] {
             assert_eq!(
                 SubtitleScale::parse(raw).map(|scale| scale.value()),
                 Ok(value),
@@ -842,8 +849,8 @@ mod tests {
     fn scales_outside_the_range_and_non_numbers_are_refused() {
         for not_a_scale in [
             0.0,
-            0.49,
-            2.01,
+            0.24,
+            3.01,
             -1.0,
             f64::NAN,
             f64::INFINITY,

@@ -31,6 +31,8 @@ import {
 } from "../../core/wire";
 import type { ActionError } from "../../core/errors";
 import {
+  SUBTITLE_SCALE_MAX,
+  SUBTITLE_SCALE_MIN,
   TORRENT_CACHE_MAX_MEGABYTES,
   TORRENT_CACHE_MIN_MEGABYTES,
 } from "../../core/controls";
@@ -865,7 +867,11 @@ async function dispatch(action: Action): Promise<Response> {
       }));
     }
     case "set_subtitle_scale": {
-      if (!Number.isFinite(action.scale) || action.scale < 0.5 || action.scale > 2) {
+      if (
+        !Number.isFinite(action.scale) ||
+        action.scale < SUBTITLE_SCALE_MIN ||
+        action.scale > SUBTITLE_SCALE_MAX
+      ) {
         return refuse({ kind: "invalid_subtitle_scale", scale: String(action.scale) });
       }
       return change((state) => ({

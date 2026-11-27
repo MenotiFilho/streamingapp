@@ -461,6 +461,7 @@ impl HostView {
             | ValidatedAction::PairDevice { .. }
             | ValidatedAction::RevokeDevice(_)
             | ValidatedAction::PlayStream { .. }
+            | ValidatedAction::SwitchStream { .. }
             | ValidatedAction::Resume { .. }
             | ValidatedAction::PlayUpNext { .. }
             | ValidatedAction::SetPaused { .. }

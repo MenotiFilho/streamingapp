@@ -15,7 +15,6 @@ import {
   STREAM_BUFFER_MEGABYTES,
   STREAM_BUFFER_SECONDS,
   SUBTITLE_COLORS,
-  SUBTITLE_SCALES,
   TORRENT_CACHE_DEFAULT_MEGABYTES,
   TORRENT_CACHE_HEAD,
   TORRENT_CACHE_MEGABYTES,
@@ -27,8 +26,8 @@ import {
   formatBufferSeconds,
   formatScale,
   formatTorrentCache,
-  scalePreset,
-  scaleSelected,
+  scaleAtBound,
+  stepScale,
   torrentCachePreset,
   torrentCacheRequest,
   upNextRows,
@@ -465,29 +464,41 @@ function PreferencesScreen() {
             data-kind="row"
             data-label="Subtitle size"
           >
-            {SUBTITLE_SCALES.map((choice) => (
-              <ChoiceChip
-                key={choice.scale}
-                pressed={scaleSelected(heldScale, choice.scale)}
-                data-testid={`subtitle-scale-${choice.label.toLowerCase()}`}
-                onClick={() =>
-                  void pickAppearance({ type: "set_subtitle_scale", scale: choice.scale })
-                }
-              >
-                {`${choice.label} · ${formatScale(choice.scale)}`}
-              </ChoiceChip>
-            ))}
-            {!scalePreset(heldScale) ? (
-              <ChoiceChip
-                pressed
-                data-testid="subtitle-scale-other"
-                onClick={() =>
-                  void pickAppearance({ type: "set_subtitle_scale", scale: heldScale })
-                }
-              >
-                {`Other (${formatScale(heldScale)})`}
-              </ChoiceChip>
-            ) : null}
+            <Button
+              variant="ghost"
+              aria-label="Smaller subtitles"
+              data-testid="subtitle-scale-down"
+              disabled={scaleAtBound(heldScale, -1)}
+              onClick={() =>
+                void pickAppearance({
+                  type: "set_subtitle_scale",
+                  scale: stepScale(heldScale, -1),
+                })
+              }
+            >
+              −
+            </Button>
+            <span
+              className="rep-log-note"
+              data-testid="subtitle-scale-value"
+              aria-label={`Subtitle size ${formatScale(heldScale)}`}
+            >
+              {formatScale(heldScale)}
+            </span>
+            <Button
+              variant="ghost"
+              aria-label="Larger subtitles"
+              data-testid="subtitle-scale-up"
+              disabled={scaleAtBound(heldScale, 1)}
+              onClick={() =>
+                void pickAppearance({
+                  type: "set_subtitle_scale",
+                  scale: stepScale(heldScale, 1),
+                })
+              }
+            >
+              +
+            </Button>
           </div>
         </div>
         <Refusal error={appearanceError} testId="subtitle-appearance-error" />

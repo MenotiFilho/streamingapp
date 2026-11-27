@@ -5,12 +5,7 @@
     { "label": "Cyan", "color": "#00FFFF" },
     { "label": "Green", "color": "#00FF00" }
   ],
-  "scales": [
-    { "label": "Small", "scale": 0.8 },
-    { "label": "Default", "scale": 1 },
-    { "label": "Large", "scale": 1.25 },
-    { "label": "Larger", "scale": 1.5 }
-  ],
-  "minScale": 0.5,
-  "maxScale": 2
+  "minScale": 0.25,
+  "maxScale": 3,
+  "step": 0.05
 }
