@@ -31,6 +31,7 @@ export const HOST_ERROR_KINDS = [
   "manifest",
   "fetch",
   "unknown_addon",
+  "addon_disabled",
   "unknown_catalog",
   "unknown_title",
   "not_discovered_title",
@@ -235,6 +236,8 @@ export function explain(error: ActionError): string {
       return `The Host could not fetch that Addon${error.detail ? `: ${error.detail}` : ""}.`;
     case "unknown_addon":
       return `No Addon with the id ${JSON.stringify(error.id)} is configured.`;
+    case "addon_disabled":
+      return `The Addon ${JSON.stringify(error.id)} is disabled.`;
     case "unknown_catalog":
       return `The Addon ${JSON.stringify(error.addon)} offers no catalog ${error.catalog?.type ?? "?"}/${error.catalog?.id ?? "?"}.`;
     case "unknown_title":

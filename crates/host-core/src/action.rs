@@ -120,6 +120,10 @@ pub enum Action {
     ReorderAddon { id: String, position: i64 },
     /// Take the Addon with this manifest id out of the Host's configuration.
     RemoveAddon { id: String },
+    /// Switch a configured Addon on or off without removing it, keeping its
+    /// manifest URL, configured order, and Featured catalog preference intact
+    /// for later re-enabling (ADR-0044 §2).
+    SetAddonEnabled { addon: String, enabled: bool },
     /// Store the key TMDB answers metadata with, in the secret store.
     ///
     /// A change, though one that touches no store this Snapshot could carry the
@@ -432,6 +436,7 @@ action_spellings! {
     Action::AddAddon { .. } => "add_addon",
     Action::ReorderAddon { .. } => "reorder_addon",
     Action::RemoveAddon { .. } => "remove_addon",
+    Action::SetAddonEnabled { .. } => "set_addon_enabled",
     Action::SetTmdbKey { .. } => "set_tmdb_key",
     Action::ClearTmdbKey => "clear_tmdb_key",
     Action::SignInStremio { .. } => "sign_in_stremio",
@@ -557,6 +562,10 @@ impl Action {
             Action::RemoveAddon { id } => {
                 let id = AddonId::parse(&id)?;
                 Ok(ValidatedAction::RemoveAddon(id))
+            }
+            Action::SetAddonEnabled { addon, enabled } => {
+                let addon = AddonId::parse(&addon)?;
+                Ok(ValidatedAction::SetAddonEnabled { addon, enabled })
             }
             Action::SetTmdbKey { key } => {
                 let key = TmdbKey::parse(&key)?;
@@ -811,6 +820,11 @@ pub enum ValidatedAction {
         position: i64,
     },
     RemoveAddon(AddonId),
+    /// A configured Addon to switch on or off (ADR-0044 §2).
+    SetAddonEnabled {
+        addon: AddonId,
+        enabled: bool,
+    },
     SetTmdbKey(TmdbKey),
     ClearTmdbKey,
     SignInStremio(StremioLogin),
@@ -990,6 +1004,7 @@ impl ValidatedAction {
             | Self::AddAddon(_)
             | Self::ReorderAddon { .. }
             | Self::RemoveAddon(_)
+            | Self::SetAddonEnabled { .. }
             | Self::SetTmdbKey(_)
             | Self::ClearTmdbKey
             | Self::SignInStremio(_)
@@ -1086,6 +1101,11 @@ pub enum ActionError {
     Fetch { detail: String },
     #[error("no Addon with the id {id:?} is configured")]
     UnknownAddon { id: String },
+    /// The Addon named by the Action is configured, but switched off by the
+    /// owner (ADR-0044 §2). Re-enabling it restores the Action without
+    /// re-adding the Addon.
+    #[error("the Addon {id:?} is disabled")]
+    AddonDisabled { id: String },
     #[error("the Addon {addon} offers no catalog {catalog}")]
     UnknownCatalog { addon: AddonId, catalog: CatalogRef },
     #[error("the Addon {addon} offers no meta for {title}")]
@@ -1283,6 +1303,7 @@ impl ActionError {
             Self::Manifest { .. } => "manifest",
             Self::Fetch { .. } => "fetch",
             Self::UnknownAddon { .. } => "unknown_addon",
+            Self::AddonDisabled { .. } => "addon_disabled",
             Self::UnknownCatalog { .. } => "unknown_catalog",
             Self::UnknownTitle { .. } => "unknown_title",
             Self::NotDiscoveredTitle { .. } => "not_discovered_title",
@@ -2380,6 +2401,7 @@ mod tests {
         r#"{"type":"add_addon","url":"https://example.com/manifest.json"}"#,
         r#"{"type":"reorder_addon","id":"community.example","position":1}"#,
         r#"{"type":"remove_addon","id":"community.example"}"#,
+        r#"{"type":"set_addon_enabled","addon":"community.example","enabled":false}"#,
         r#"{"type":"set_tmdb_key","key":"0123456789abcdef"}"#,
         r#"{"type":"clear_tmdb_key"}"#,
         r#"{"type":"sign_in_stremio","email":"a@example.com","password":"a password"}"#,

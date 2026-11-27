@@ -433,9 +433,10 @@ export type Protection = {
 };
 
 /**
- * An Addon as the Host publishes it: what it says it offers, and never where its
- * manifest lives — a manifest URL can carry the Addon's credentials.
- * Mirrors `Manifest` in `host-core`.
+ * An Addon as the Host publishes it: what it says it offers and whether it is
+ * enabled, and never where its manifest lives — a manifest URL can carry the
+ * Addon's credentials. Mirrors `AddonSnapshot` in `host-core` (ADR-0009,
+ * ADR-0044 §1–§2).
  */
 export type AddonManifest = {
   id: string;
@@ -446,6 +447,7 @@ export type AddonManifest = {
   catalogs: AddonCatalog[];
   idPrefixes: string[];
   behaviorHints: { configurable: boolean; configurationRequired: boolean };
+  enabled: boolean;
 };
 
 /** One resource an Addon provides. Mirrors `Resource` in `host-core`. */
@@ -609,12 +611,12 @@ export type TitleStub = {
 };
 
 /** Why a library entry is not one the Host will play. Mirrors `UnplayableReason`. */
-export type UnplayableReason = "addon_removed";
+export type UnplayableReason = "addon_removed" | "addon_disabled";
 
 /** Why a library entry cannot be played now. Mirrors `UnplayableEntry` in `host-core`. */
 export type UnplayableEntry = {
   reason: UnplayableReason;
-  /** The Addon that is no longer configured. */
+  /** The Addon that is no longer configured or is switched off. */
   addon: string;
 };
 
@@ -778,6 +780,8 @@ export type Action =
   // the move is a position in that list, 0-based, judged by the Host (#74).
   | { type: "reorder_addon"; id: string; position: number }
   | { type: "remove_addon"; id: string }
+  // Switch a configured Addon on or off without removing it (ADR-0044 §2).
+  | { type: "set_addon_enabled"; addon: string; enabled: boolean }
   | { type: "set_tmdb_key"; key: string }
   | { type: "clear_tmdb_key" }
   // The Stremio account link (#30): optional, and off until an account is signed

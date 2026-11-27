@@ -135,7 +135,7 @@ pub use secret::{
     CredentialKind, InMemorySecretStore, InvalidTmdbKey, SecretBackend, SecretError, SecretStore,
     TmdbKey,
 };
-pub use snapshot::{PreferencesSnapshot, ProtectionSnapshot, Snapshot};
+pub use snapshot::{AddonSnapshot, PreferencesSnapshot, ProtectionSnapshot, Snapshot};
 pub use store::{InMemoryStore, Store, StoreError};
 pub use stream::{AddonStreams, Playback, Stream, StreamError, Warning, MAX_STREAM_BYTES};
 pub use stremio::{FixtureStremio, LibraryMeta, StremioApi, SyncError};

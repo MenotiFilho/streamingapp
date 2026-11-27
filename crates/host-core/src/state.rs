@@ -9,7 +9,7 @@ use crate::preferences::{
     FeaturedCatalog, LanguageList, Preferences, StreamBuffer, SubtitleColor, SubtitleScale,
     TorrentCache, UpNextPlayback,
 };
-use crate::progress::{TitleStub, WatchProgress};
+use crate::progress::{TitleStub, UnplayableReason, WatchProgress};
 use crate::request::VideoRef;
 use crate::secret::SecretBackend;
 use crate::torrent::TorrentStatus;
@@ -215,9 +215,24 @@ impl State {
         self.addons.iter().any(|addon| addon.id() == id)
     }
 
-    /// The configured Addon with this id.
+    /// The configured Addon with this id, whether enabled or disabled.
     pub(crate) fn addon(&self, id: &AddonId) -> Option<&Addon> {
         self.addons.iter().find(|addon| addon.id() == id)
+    }
+
+    /// Whether a configured Addon with this id exists and is enabled.
+    pub(crate) fn is_addon_enabled(&self, id: &AddonId) -> bool {
+        self.addon(id).is_some_and(Addon::is_enabled)
+    }
+
+    /// Why an Addon cannot be played from, or `None` when it is configured and
+    /// enabled (ADR-0015, ADR-0044 §2).
+    pub(crate) fn addon_unplayable(&self, id: &AddonId) -> Option<UnplayableReason> {
+        match self.addon(id) {
+            Some(addon) if addon.is_enabled() => None,
+            Some(_) => Some(UnplayableReason::AddonDisabled),
+            None => Some(UnplayableReason::AddonRemoved),
+        }
     }
 
     /// Take one change, and say which part of the store it left behind.
@@ -275,11 +290,15 @@ impl State {
                 Persist::Preferences
             }
             Change::AddAddon(addon) => {
-                let addon = *addon;
+                let mut addon = *addon;
                 match self.addons.iter_mut().find(|held| held.id() == addon.id()) {
                     // An Addon this Host is already configured with, added again
-                    // — a reconfiguration: it takes the place of the one before.
-                    Some(held) => *held = addon,
+                    // — a reconfiguration: it takes the place of the one before,
+                    // keeping whether the owner had it enabled (ADR-0044 §2).
+                    Some(held) => {
+                        addon.set_enabled(held.is_enabled());
+                        *held = addon;
+                    }
                     None => self.addons.push(addon),
                 }
                 // A reconfiguration can stop a Catalog existing — an Addon's
@@ -313,6 +332,15 @@ impl State {
                 // from nothing, so Home falls back to no hero in the same
                 // change (#74).
                 self.addons_persist()
+            }
+            Change::SetAddonEnabled { addon, enabled } => {
+                if let Some(held) = self.addons.iter_mut().find(|held| held.id() == &addon) {
+                    held.set_enabled(enabled);
+                }
+                // Disabling an Addon keeps the Featured catalog preference
+                // stored (only suppressing it in Snapshot::build until the
+                // Addon is re-enabled — ADR-0044 §2), so preferences stay put.
+                Persist::Addons
             }
             Change::SetTmdbKey { backend } => {
                 self.protection = Protection {
@@ -601,6 +629,11 @@ pub(crate) enum Change {
         position: usize,
     },
     RemoveAddon(AddonId),
+    /// Switch a configured Addon on or off (ADR-0044 §2).
+    SetAddonEnabled {
+        addon: AddonId,
+        enabled: bool,
+    },
     /// The credential itself is not in the change — it was sent to the secret
     /// store on the way here, and the store answered. What reaches state is
     /// only where the store *is*.

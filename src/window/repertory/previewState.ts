@@ -151,6 +151,7 @@ export function manifestFrom(url: string, raw: unknown): AddonManifest {
       configurable: hints?.configurable === true,
       configurationRequired: hints?.configurationRequired === true,
     },
+    enabled: true,
   };
 }
 

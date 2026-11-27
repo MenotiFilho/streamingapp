@@ -319,17 +319,21 @@ impl Store for SqliteStore {
     fn read_addons(&self) -> Result<Vec<Addon>, StoreError> {
         let connection = self.locked()?;
         let mut statement = connection
-            .prepare("SELECT url, manifest FROM addons ORDER BY position")
+            .prepare("SELECT url, manifest, enabled FROM addons ORDER BY position")
             .map_err(StoreError::read)?;
         let rows = statement
             .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, i64>(2)?,
+                ))
             })
             .map_err(StoreError::read)?;
 
         let mut addons = Vec::new();
         for row in rows {
-            let (url, manifest) = row.map_err(StoreError::read)?;
+            let (url, manifest, enabled) = row.map_err(StoreError::read)?;
             // Nothing stored here is named in the message: an Addon's manifest URL
             // can carry its credentials, and a read failure ends up in a log or in
             // an error a client sees.
@@ -343,7 +347,7 @@ impl Store for SqliteStore {
                 serde_json::from_str(&manifest).map_err(|error| StoreError::Read {
                     detail: format!("a stored Addon's manifest is unusable: {error}"),
                 })?;
-            addons.push(Addon::new(url, manifest));
+            addons.push(Addon::new(url, manifest).with_enabled(enabled != 0));
         }
 
         Ok(addons)
@@ -360,12 +364,14 @@ impl Store for SqliteStore {
             let manifest = serde_json::to_string(addon.manifest()).map_err(StoreError::write)?;
             transaction
                 .execute(
-                    "INSERT INTO addons (id, position, url, manifest) VALUES (?1, ?2, ?3, ?4)",
+                    "INSERT INTO addons (id, position, url, manifest, enabled)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
                     params![
                         addon.id().as_str(),
                         i64::try_from(position).map_err(StoreError::write)?,
                         addon.manifest_url().as_str(),
                         manifest,
+                        i64::from(addon.is_enabled()),
                     ],
                 )
                 .map_err(StoreError::write)?;

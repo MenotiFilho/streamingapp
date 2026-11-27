@@ -105,6 +105,7 @@ const TORRENTIO_MANIFEST: AddonManifest = {
   catalogs: [],
   idPrefixes: ["tt"],
   behaviorHints: { configurable: false, configurationRequired: false },
+  enabled: true,
 };
 
 type CinemetaPage = {
@@ -452,6 +453,7 @@ async function buildSnapshot(): Promise<Snapshot> {
         catalogs: CATALOGS.map((catalog) => ({ ...catalog, extra: [...catalog.extra] })),
         idPrefixes: ["tt"],
         behaviorHints: { configurable: false, configurationRequired: false },
+        enabled: true,
       },
       TORRENTIO_MANIFEST,
     ],
@@ -730,7 +732,9 @@ async function addAddon(
     ...state,
     revision: state.revision + 1,
     addons: known
-      ? state.addons.map((addon) => (addon.id === manifest.id ? manifest : addon))
+      ? state.addons.map((addon) =>
+          addon.id === manifest.id ? { ...manifest, enabled: addon.enabled } : addon,
+        )
       : [...state.addons, manifest],
   });
 }
@@ -797,6 +801,16 @@ async function dispatch(action: Action): Promise<Response> {
       return reorderAddon(action);
     case "remove_addon":
       return removeAddon(action);
+    case "set_addon_enabled": {
+      if (!current?.addons.some((addon) => addon.id === action.addon)) {
+        return refuse({ kind: "unknown_addon", id: action.addon });
+      }
+      return change((state) => ({
+        addons: state.addons.map((addon) =>
+          addon.id === action.addon ? { ...addon, enabled: action.enabled } : addon,
+        ),
+      }));
+    }
     case "set_tmdb_key": {
       if (!action.key.trim()) {
         return refuse({ kind: "invalid_tmdb_key", detail: "the key is empty" });

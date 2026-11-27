@@ -52,9 +52,13 @@ export function cardName(entry: ContinueEntry): string {
  */
 export function cardNote(entry: ContinueEntry): string {
   if (entry.unplayable) {
-    return entry.unplayable.reason === "addon_removed"
-      ? `Unplayable — the Addon ${entry.unplayable.addon} that supplied this Title is gone.`
-      : "Unplayable.";
+    if (entry.unplayable.reason === "addon_removed") {
+      return `Unplayable — the Addon ${entry.unplayable.addon} that supplied this Title is gone.`;
+    }
+    if (entry.unplayable.reason === "addon_disabled") {
+      return `Unplayable — the Addon ${entry.unplayable.addon} that supplied this Title is disabled.`;
+    }
+    return "Unplayable.";
   }
   if (entry.upNext && entry.position === null) {
     const label = labelOf(entry.video);

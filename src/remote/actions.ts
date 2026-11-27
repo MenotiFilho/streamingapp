@@ -30,6 +30,7 @@ export const REMOTE_ACTIONS = [
   "add_addon",
   "reorder_addon",
   "remove_addon",
+  "set_addon_enabled",
   "set_tmdb_key",
   "clear_tmdb_key",
   "sign_in_stremio",

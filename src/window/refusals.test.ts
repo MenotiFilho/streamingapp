@@ -16,6 +16,17 @@ describe("the refusals the Host can send", () => {
     expect(HOST_ERROR_KINDS).toContain("subtitles");
     expect(HOST_ERROR_KINDS).toContain("invalid_position");
     expect(HOST_ERROR_KINDS).toContain("library");
+    expect(HOST_ERROR_KINDS).toContain("addon_disabled");
+  });
+
+  test("a disabled Addon refusal names the Addon", () => {
+    const error = asActionError({
+      kind: "addon_disabled",
+      id: "com.linvo.cinemeta",
+    });
+
+    expect(error.kind).toBe("addon_disabled");
+    expect(explain(error)).toBe('The Addon "com.linvo.cinemeta" is disabled.');
   });
 
   test("a subtitles failure is read as an Addon failure", () => {

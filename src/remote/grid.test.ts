@@ -53,6 +53,7 @@ const ADDON: AddonManifest = {
   catalogs: [],
   idPrefixes: ["tt"],
   behaviorHints: { configurable: false, configurationRequired: false },
+  enabled: true,
 };
 
 const SNAPSHOT = {

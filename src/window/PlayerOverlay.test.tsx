@@ -3039,6 +3039,7 @@ describe("Autoplay in the player", () => {
             catalogs: [{ type: "movie", id: "top", name: "Top", extra: [] }],
             idPrefixes: ["tt"],
             behaviorHints: { configurable: false, configurationRequired: false },
+            enabled: true,
           },
         ],
         featuredCatalog: { addon: "cinemeta", catalog: { type: "movie", id: "top" } },

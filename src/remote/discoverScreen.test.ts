@@ -50,6 +50,7 @@ function addon(overrides: Partial<AddonManifest> = {}): AddonManifest {
     catalogs: [FILMS, SERIES_ROW],
     idPrefixes: ["tt"],
     behaviorHints: { configurable: false, configurationRequired: false },
+    enabled: true,
     ...overrides,
   };
 }
