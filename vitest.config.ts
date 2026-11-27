@@ -23,6 +23,7 @@ export default defineConfig({
       include: [
         /src\/kit\/tokens\.css/,
         /src\/kit\/kit\.css/,
+        /src\/kit\/marquee\/.*\.css/,
         /src\/window\/repertory\/osd\.css/,
         /src\/window\/repertory\/repertory\.css/,
       ],
