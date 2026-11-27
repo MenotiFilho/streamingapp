@@ -49,16 +49,16 @@ manifest URL and configured order intact for later re-enabling.
   Catalog listings, `SearchCatalogs`, `FindStreams`, the external `subtitles`
   fallback, and `Resume` / `first_playable` Stream resolution.
 - **Featured catalog kept while suppressed:** the `featured_catalog` preference
-  stays stored when its Addon is disabled (unlike `remove_addon`, which clears
-  it). While that Addon is disabled, the Featured catalog is suppressed so no
-  client draws a Home hero from it; re-enabling the Addon restores the Home hero
-  automatically.
+  stays stored in SQLite/state when its Addon is disabled (unlike `remove_addon`,
+  which clears it). While that Addon is disabled, `Snapshot.featured_catalog` is
+  published as `None` so no client draws a Home hero from it; re-enabling the
+  Addon restores the Home hero automatically.
 - **Continue watching stays listed with a distinct reason:** Continue watching
-  entries whose supplying Addon is disabled remain listed (a mark, not a hiding
-  — ADR-0015), marked unplayable with `UnplayableReason::AddonDisabled`
-  (`addon_disabled`), distinct from `UnplayableReason::AddonRemoved`
-  (`addon_removed`), so a client can distinguish a switched-off Addon from a
-  removed one.
+  and Watch progress entries (`ContinueEntry` and `ResumeEntry`) whose supplying
+  Addon is disabled remain listed (a mark, not a hiding — ADR-0015), marked
+  unplayable with `UnplayableReason::AddonDisabled` (`addon_disabled`), distinct
+  from `UnplayableReason::AddonRemoved` (`addon_removed`), so a client can
+  distinguish a switched-off Addon from a removed one.
 - **Direct targeting refused:** `open_title`, `browse_catalog`, `resume`, and
   continuity Actions (`next_episode`, `previous_episode`, `play_up_next`) refuse
   cleanly when targeting a disabled Addon.
@@ -87,7 +87,7 @@ another Stream for the current Video without leaving playback.
   if Playback was paused when the replacement was chosen.
 - **Synchronous refusal leaves playback untouched:** if nothing is playing, the
   Action fails validation, or the Torrent engine refuses `serve` synchronously,
-  the Host refuses the Action and keeps the current Stream playing untouched.
+  the Host refuses the Action and leaves Now playing untouched.
 - **Asynchronous open failure preserves place:** once `loadfile replace` has
   been told to the Player, an asynchronous open failure transitions to standard
   `Idle` with `failure` set, while preserving `now_playing` and `WatchProgress`
@@ -100,9 +100,10 @@ repeats `Video` and `TitleCard` the Host already holds, and would treat a
 same-Title switch as a new play that drops `HandPick` — against ADR-0002 and
 ADR-0015); **keeping Playback paused after a Stream switch** (freezes the newly
 picked Stream after an explicit play intent); **attempting to reopen the prior
-Stream on an async failure** (a Stream URL is never kept after open — ADR-0013 —
-and the previous connection or torrent may already be gone; landing in `Idle` +
-`failure` with saved `WatchProgress` matches every other open failure).
+Stream on an async failure** (replacing the active playback session drops the
+prior Stream's URL — ADR-0013 and ADR-0015 forbid persisting or publishing it
+— and the previous connection or torrent may already be gone; landing in `Idle`
++ `failure` with saved `WatchProgress` matches every other open failure).
 
 ## 4. Subtitle sync (±0.1 s + Reset) is strictly per-Stream
 
@@ -196,9 +197,10 @@ Continue watching Wide cards draw the logo over the 16:9 backdrop.
   `#[serde(default)] logo: Option<String>` (bounded like `poster` and
   `background`, and mirrored in `src/core/wire.ts`), persisted in SQLite via a
   forward-only migration adding `watch_progress.title_logo TEXT` and exposed
-  through `ContinueEntry`, `ResumeEntry`, and `now_playing`. Continue watching
-  Wide cards and the Opening surface therefore have the Title's wordmark offline
-  and when playback was started by another client.
+  through `ContinueEntry` and `ResumeEntry` (which clients join with
+  `now_playing` per ADR-0021 §3 so `NowPlaying` stays free of Title fields).
+  Continue watching Wide cards and the Opening surface therefore have the
+  Title's wordmark offline and when playback was started by another client.
 
 Rejected, with reasons: **adding a numeric `opening_progress` percentage to
 `PlaybackSnapshot`** (neither mpv nor the Torrent engine supplies a true linear
