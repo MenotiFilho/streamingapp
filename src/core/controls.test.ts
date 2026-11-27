@@ -43,6 +43,7 @@ import {
   speedSelected,
   statisticsLines,
   stepDelay,
+  scaleAtBound,
   stepScale,
   subtitlesOn,
   torrentCachePreset,
@@ -365,6 +366,21 @@ describe("the subtitle appearance a person picks", () => {
     expect(stepScale(4, 1)).toBe(3);
     expect(stepScale(4, -1)).toBe(3);
     expect(stepScale(Number.NaN, 1)).toBe(SUBTITLE_SCALE_DEFAULT);
+  });
+
+  test("a press is spent only at the end it moves towards", () => {
+    expect(scaleAtBound(0.25, -1)).toBe(true);
+    expect(scaleAtBound(0.25, 1)).toBe(false);
+    expect(scaleAtBound(3, 1)).toBe(true);
+    expect(scaleAtBound(3, -1)).toBe(false);
+    expect(scaleAtBound(1, -1)).toBe(false);
+    expect(scaleAtBound(1, 1)).toBe(false);
+    // Float noise from another client still counts as the end; so does a value
+    // past it.
+    expect(scaleAtBound(0.25000000001, -1)).toBe(true);
+    expect(scaleAtBound(2.99999999999, 1)).toBe(true);
+    expect(scaleAtBound(0.1, -1)).toBe(true);
+    expect(scaleAtBound(4, 1)).toBe(true);
   });
 
   test("an off-grid scale moves to the neighbouring 5% step", () => {

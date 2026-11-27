@@ -15,8 +15,6 @@ import {
   STREAM_BUFFER_MEGABYTES,
   STREAM_BUFFER_SECONDS,
   SUBTITLE_COLORS,
-  SUBTITLE_SCALE_MAX,
-  SUBTITLE_SCALE_MIN,
   TORRENT_CACHE_DEFAULT_MEGABYTES,
   TORRENT_CACHE_HEAD,
   TORRENT_CACHE_MEGABYTES,
@@ -28,6 +26,7 @@ import {
   formatBufferSeconds,
   formatScale,
   formatTorrentCache,
+  scaleAtBound,
   stepScale,
   torrentCachePreset,
   torrentCacheRequest,
@@ -469,7 +468,7 @@ function PreferencesScreen() {
               variant="ghost"
               aria-label="Smaller subtitles"
               data-testid="subtitle-scale-down"
-              disabled={heldScale <= SUBTITLE_SCALE_MIN + 1e-6}
+              disabled={scaleAtBound(heldScale, -1)}
               onClick={() =>
                 void pickAppearance({
                   type: "set_subtitle_scale",
@@ -490,7 +489,7 @@ function PreferencesScreen() {
               variant="ghost"
               aria-label="Larger subtitles"
               data-testid="subtitle-scale-up"
-              disabled={heldScale >= SUBTITLE_SCALE_MAX - 1e-6}
+              disabled={scaleAtBound(heldScale, 1)}
               onClick={() =>
                 void pickAppearance({
                   type: "set_subtitle_scale",

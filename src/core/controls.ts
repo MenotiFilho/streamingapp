@@ -187,6 +187,16 @@ export function stepScale(scale: number, direction: -1 | 1): number {
   return Math.min(maxPct, Math.max(minPct, nextPct)) / 100;
 }
 
+/**
+ * Whether a stepper press from `scale` in `direction` has nowhere to go: the
+ * scale is at (or past) that end, float noise included. What disables a button.
+ */
+export function scaleAtBound(scale: number, direction: -1 | 1): boolean {
+  return direction > 0
+    ? scale >= SUBTITLE_SCALE_MAX - 1e-6
+    : scale <= SUBTITLE_SCALE_MIN + 1e-6;
+}
+
 /** A subtitle size as a person reads it: `25%`, `100%`, `105%`, `300%`. */
 export function formatScale(scale: number): string {
   return `${Math.round(scale * 100)}%`;

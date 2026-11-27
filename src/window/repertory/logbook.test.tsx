@@ -650,7 +650,26 @@ describe("the repertory Settings register", () => {
     );
   });
 
-  test("the subtitle size stepper steps by 5% and disables at 25% and 300%", async () => {
+  test.each([
+    { scale: 0.25, spent: "subtitle-scale-down", open: "subtitle-scale-up" },
+    { scale: 3, spent: "subtitle-scale-up", open: "subtitle-scale-down" },
+  ])("the subtitle size stepper disables $spent at $scale", ({ scale, spent, open }) => {
+    const { value, pushed } = harness(
+      {},
+      {
+        ...SNAPSHOT,
+        preferences: { ...SNAPSHOT.preferences, subtitleScale: scale },
+      },
+    );
+    show(value, <RepertorySettingsScreen />);
+    fireEvent.click(screen.getByTestId("settings-category-preferences"));
+    showLevel(categoryLevel(pushed, "preferences"), value);
+
+    expect(screen.getByTestId(spent)).toBeDisabled();
+    expect(screen.getByTestId(open)).toBeEnabled();
+  });
+
+  test("the subtitle size stepper steps by 5%", async () => {
     const { value, pushed, ask } = harness();
     show(value, <RepertorySettingsScreen />);
     fireEvent.click(screen.getByTestId("settings-category-preferences"));

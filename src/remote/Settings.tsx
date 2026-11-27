@@ -8,8 +8,6 @@ import {
   STREAM_BUFFER_MEGABYTES,
   STREAM_BUFFER_SECONDS,
   SUBTITLE_COLORS,
-  SUBTITLE_SCALE_MAX,
-  SUBTITLE_SCALE_MIN,
   TORRENT_CACHE_DEFAULT_MEGABYTES,
   TORRENT_CACHE_HEAD,
   TORRENT_CACHE_MEGABYTES,
@@ -21,6 +19,7 @@ import {
   formatBufferSeconds,
   formatScale,
   formatTorrentCache,
+  scaleAtBound,
   stepScale,
   torrentCachePreset,
   torrentCacheRequest,
@@ -489,7 +488,7 @@ function PreferencesLeaf({ category, session, state, push }: LeafProps) {
           <Button
             variant="ghost"
             aria-label="Smaller subtitles"
-            disabled={heldScale <= SUBTITLE_SCALE_MIN + 1e-6}
+            disabled={scaleAtBound(heldScale, -1)}
             onClick={() =>
               void take(scaleRequest(stepScale(heldScale, -1)), setScaleError)
             }
@@ -506,7 +505,7 @@ function PreferencesLeaf({ category, session, state, push }: LeafProps) {
           <Button
             variant="ghost"
             aria-label="Larger subtitles"
-            disabled={heldScale >= SUBTITLE_SCALE_MAX - 1e-6}
+            disabled={scaleAtBound(heldScale, 1)}
             onClick={() =>
               void take(scaleRequest(stepScale(heldScale, 1)), setScaleError)
             }
