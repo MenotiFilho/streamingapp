@@ -5,10 +5,11 @@
 use std::sync::Arc;
 
 use host_core::{
-    Action, ActionError, ClientFrame, FixtureClock, FixtureFetcher, FixturePlayer, FixtureProvider,
-    Host, InMemorySecretStore, InMemoryStore, Observation, Playback, PlaybackState, SecretBackend,
-    Snapshot, Store, Stream, StreamUrl, Subtitle, Telling, Track, TrackId, TrackKind,
-    UnplayableReason, ACTION_VERSION, WIRE_VERSION,
+    Action, ActionError, Addon, AddonId, AutoplayPhase, ClientFrame, FixtureClock, FixtureFetcher,
+    FixturePlayer, FixtureProvider, Host, InMemorySecretStore, InMemoryStore, Manifest,
+    ManifestUrl, Observation, Playback, PlaybackState, SecretBackend, Snapshot, Store, Stream,
+    StreamUrl, Subtitle, Telling, TitleCard, TitleStub, Track, TrackId, TrackKind,
+    UnplayableReason, VideoRef, WatchProgress, ACTION_VERSION, AUTOPLAY_COUNTDOWN_MS, WIRE_VERSION,
 };
 
 const ADDON_A_URL: &str = "https://addon-a.example.org/token/eyJzZWNyZXQiOiJLRVkifQ/manifest.json";
@@ -781,6 +782,297 @@ fn play_up_next_refuses_when_title_or_stream_addon_is_disabled() {
         ),
         "play_up_next should refuse disabled Title Addon B: {up_next_title_disabled:?}"
     );
+}
+
+fn asked_of_addon_a(fetcher: &FixtureFetcher, since: usize) -> Vec<String> {
+    fetcher.asked()[since..]
+        .iter()
+        .filter(|url| url.contains("addon-a.example.org"))
+        .cloned()
+        .collect()
+}
+
+#[test]
+fn resume_resolves_a_stream_from_enabled_addons_only() {
+    let mut fixture = two_addon_fixture();
+
+    // Addon B supplies the Title; Addon A, configured first, streamed it.
+    play_episode(
+        &mut fixture,
+        Some(ADDON_B_ID),
+        ADDON_A_ID,
+        "tt0903747:1:2",
+        STREAM_A_EP2,
+        Some("rel-a"),
+    );
+    sample_position(&mut fixture, 400.0, 2800.0, 2_000);
+    set_enabled(&mut fixture.host, ADDON_A_ID, false).expect("disable A");
+
+    let asked_before = fixture.provider.asked().len();
+    fixture
+        .host
+        .dispatch(action(&serde_json::json!({
+            "type": "resume",
+            "video": { "type": "series", "id": "tt0903747:1:2" },
+        })))
+        .expect("resume falls through to an enabled Addon");
+
+    assert_eq!(
+        fixture.provider.asked()[asked_before..],
+        vec![ADDON_B_ID.to_owned()]
+    );
+}
+
+#[test]
+fn episode_steps_read_the_series_list_only_from_enabled_addons() {
+    let mut fixture = two_addon_fixture();
+    set_enabled(&mut fixture.host, ADDON_A_ID, false).expect("disable A");
+    play_episode(
+        &mut fixture,
+        Some(ADDON_B_ID),
+        ADDON_B_ID,
+        "tt0903747:1:1",
+        STREAM_B_EP1,
+        Some("rel-b"),
+    );
+    sample_position(&mut fixture, 120.0, 2800.0, 2_000);
+
+    let fetched_before = fixture.fetcher.asked().len();
+    fixture
+        .host
+        .dispatch(action(&serde_json::json!({ "type": "next_episode" })))
+        .expect("Addon B lists the next episode and streams it");
+
+    assert_eq!(
+        asked_of_addon_a(&fixture.fetcher, fetched_before),
+        Vec::<String>::new(),
+        "Addon A is configured first and answers meta, but it is switched off"
+    );
+    assert!(fixture.fetcher.asked()[fetched_before..].contains(&ADDON_B_SERIES_META_URL.to_owned()));
+}
+
+#[test]
+fn episode_steps_refuse_a_disabled_title_addon_even_when_the_stream_addon_is_on() {
+    let mut fixture = two_addon_fixture();
+    play_episode(
+        &mut fixture,
+        Some(ADDON_B_ID),
+        ADDON_A_ID,
+        "tt0903747:1:2",
+        STREAM_A_EP2,
+        Some("rel-a"),
+    );
+    sample_position(&mut fixture, 120.0, 2800.0, 2_000);
+    set_enabled(&mut fixture.host, ADDON_B_ID, false).expect("disable Title Addon B");
+    let asked_before = fixture.provider.asked().len();
+
+    for step in ["next_episode", "previous_episode"] {
+        let refused = fixture
+            .host
+            .dispatch(action(&serde_json::json!({ "type": step })));
+        assert!(
+            matches!(refused, Err(ActionError::AddonDisabled { ref id }) if id == ADDON_B_ID),
+            "{step} should refuse the disabled Title Addon: {refused:?}"
+        );
+    }
+    assert_eq!(fixture.provider.asked().len(), asked_before);
+}
+
+#[test]
+fn autoplay_over_a_disabled_stream_addon_opens_nothing_and_says_why() {
+    let mut fixture = two_addon_fixture();
+    play_episode(
+        &mut fixture,
+        Some(ADDON_B_ID),
+        ADDON_A_ID,
+        "tt0903747:1:1",
+        STREAM_A_EP1,
+        Some("rel-a"),
+    );
+    set_enabled(&mut fixture.host, ADDON_A_ID, false).expect("disable stream Addon A");
+    let asked_before = fixture.provider.asked().len();
+    let opened_before = fixture.player.opened().len();
+
+    fixture.clock.tick(5_000);
+    fixture.player.now_reporting(Observation {
+        state: PlaybackState::Ended,
+        position: Some(2820.0),
+        duration: Some(2820.0),
+        ..Observation::idle()
+    });
+    fixture.host.sample().expect("the episode ends");
+    fixture.clock.tick(AUTOPLAY_COUNTDOWN_MS);
+    let expired = fixture.host.sample().expect("the countdown runs out");
+
+    let autoplay = expired
+        .playback
+        .autoplay
+        .expect("the Host says what happened");
+    assert!(
+        matches!(autoplay.phase, AutoplayPhase::NoStream { ref detail } if detail.contains("disabled")),
+        "continuity from a disabled Addon finds nothing: {autoplay:?}"
+    );
+    assert_eq!(fixture.provider.asked().len(), asked_before);
+    assert_eq!(fixture.player.opened().len(), opened_before);
+}
+
+/// A Host over a store whose one Addon is already switched off.
+fn host_with_a_disabled_addon(
+    store: InMemoryStore,
+    fetcher: Arc<FixtureFetcher>,
+    clock: Arc<FixtureClock>,
+) -> Host {
+    let addon = Addon::new(
+        ManifestUrl::parse(ADDON_A_URL).expect("a manifest URL"),
+        Manifest::parse(&manifest(
+            ADDON_A_ID,
+            "1.0.0",
+            "top",
+            r#""catalog","meta","stream""#,
+        ))
+        .expect("a manifest"),
+    )
+    .with_enabled(false);
+
+    Host::new(
+        Arc::new(store.holding_addons(vec![addon])) as Arc<dyn Store>,
+        fetcher,
+        Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
+        Arc::new(FixtureProvider::new()),
+        Arc::new(FixturePlayer::new()),
+        clock,
+    )
+    .expect("a Host over a store starts")
+}
+
+#[test]
+fn a_disabled_addon_is_not_read_in_the_background() {
+    let watched = WatchProgress {
+        video: VideoRef::parse("movie", "tt0133093").expect("a Video"),
+        title: TitleStub::parse(&TitleCard {
+            addon: Some(AddonId::parse(ADDON_A_ID).expect("an Addon id")),
+            id: "tt0133093".to_owned(),
+            r#type: "movie".to_owned(),
+            name: "The Matrix".to_owned(),
+            poster: None,
+            background: None,
+            logo: None,
+        })
+        .expect("a card the Host keeps"),
+        position: Some(100.0),
+        duration: Some(7200.0),
+        watched: false,
+        stream_addon: None,
+        binge_group: None,
+        updated_at: 1_000,
+    };
+    let fetcher = Arc::new(FixtureFetcher::new().serving(ADDON_A_MOVIE_META_URL, MOVIE_META));
+    let mut host = host_with_a_disabled_addon(
+        InMemoryStore::new().holding_watch(vec![watched]),
+        fetcher.clone(),
+        Arc::new(FixtureClock::new()),
+    );
+
+    // The read-ahead a started Host owes its Continue watching row, and the one
+    // a card's look hint asks for, are both asks of the Addon.
+    host.drain();
+    host.dispatch(action(&serde_json::json!({
+        "type": "look_hint",
+        "addon": ADDON_A_ID,
+        "title": { "type": "movie", "id": "tt0133093" },
+    })))
+    .expect("a hint is fire-and-forget");
+    host.drain();
+    assert_eq!(fetcher.asked(), Vec::<String>::new());
+
+    set_enabled(&mut host, ADDON_A_ID, true).expect("re-enable A");
+    host.dispatch(action(&serde_json::json!({
+        "type": "look_hint",
+        "addon": ADDON_A_ID,
+        "title": { "type": "movie", "id": "tt0133093" },
+    })))
+    .expect("a hint is fire-and-forget");
+    host.drain();
+    assert_eq!(fetcher.asked(), vec![ADDON_A_MOVIE_META_URL.to_owned()]);
+}
+
+#[test]
+fn a_refresh_queued_before_the_disable_does_not_reach_the_addon() {
+    let mut fixture = two_addon_fixture();
+    let open = serde_json::json!({
+        "type": "open_title",
+        "addon": ADDON_A_ID,
+        "title": { "type": "movie", "id": "tt0133093" },
+    });
+    fixture
+        .host
+        .dispatch(action(&open))
+        .expect("opening caches");
+    fixture.clock.tick(31 * 24 * 60 * 60 * 1000);
+    fixture
+        .host
+        .dispatch(action(&open))
+        .expect("a stale open answers the cached copy and queues a refresh");
+
+    set_enabled(&mut fixture.host, ADDON_A_ID, false).expect("disable A");
+    let fetched_before = fixture.fetcher.asked().len();
+    fixture.host.drain();
+
+    assert_eq!(
+        asked_of_addon_a(&fixture.fetcher, fetched_before),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
+fn a_tmdb_keyed_video_is_not_resolved_for_a_disabled_addon() {
+    const TMDB_ONLY_URL: &str = "https://tmdb-only.example.org/manifest.json";
+    const TMDB_ONLY_ID: &str = "org.example.tmdbOnly";
+    let spelled = |id: &str, prefix: &str| {
+        format!(
+            r#"{{"id":"{id}","name":"{id}","version":"1.0.0","resources":["stream"],
+                 "types":["movie"],"catalogs":[],"idPrefixes":["{prefix}"]}}"#
+        )
+    };
+    // The `/external_ids` URL is not recorded: asking TMDB for the spelling only
+    // a disabled Addon wants would fail the test.
+    let fetcher = Arc::new(
+        FixtureFetcher::new()
+            .serving(ADDON_A_URL, spelled(ADDON_A_ID, "tt"))
+            .serving(TMDB_ONLY_URL, spelled(TMDB_ONLY_ID, "tmdb:")),
+    );
+    let provider = Arc::new(FixtureProvider::new().offering(TMDB_ONLY_ID, Vec::new()));
+    let mut host = Host::new(
+        Arc::new(InMemoryStore::new()) as Arc<dyn Store>,
+        fetcher.clone(),
+        Arc::new(InMemorySecretStore::backed_by(SecretBackend::Keyring)),
+        provider.clone(),
+        Arc::new(FixturePlayer::new()),
+        Arc::new(FixtureClock::new()),
+    )
+    .expect("a Host starts");
+    for url in [ADDON_A_URL, TMDB_ONLY_URL] {
+        host.dispatch(action(
+            &serde_json::json!({ "type": "add_addon", "url": url }),
+        ))
+        .expect("adding the Addon works");
+    }
+    host.dispatch(action(&serde_json::json!({
+        "type": "set_tmdb_key",
+        "key": "0123456789abcdef0123456789abcdef",
+    })))
+    .expect("a key is entered");
+    set_enabled(&mut host, ADDON_A_ID, false).expect("disable A");
+    let fetched_before = fetcher.asked().len();
+
+    host.dispatch(action(&serde_json::json!({
+        "type": "find_streams",
+        "video": { "type": "movie", "id": "tmdb:603" },
+    })))
+    .expect("find_streams succeeds");
+
+    assert_eq!(fetcher.asked().len(), fetched_before);
+    assert_eq!(provider.asked(), vec![TMDB_ONLY_ID.to_owned()]);
 }
 
 #[test]
