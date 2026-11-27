@@ -163,20 +163,35 @@ pub struct NowPlaying {
     pub binge_group: Option<String>,
 }
 
-impl ChosenStream {
-    /// The candidate as the Host holds it: where its bytes are and the words to
-    /// publish, or why this Host will not play it.
-    ///
-    /// The words are the client's, and they are only words: a client that sends
-    /// a name it never got from an Addon is lying about a badge line, and the
-    /// Host has no record to check it against — the list a client chooses from
-    /// is that client's own (ADR-0005). What is judged is the part that
-    /// matters: *where the bytes are*. A direct URL must be one this Host opens;
-    /// a torrent's infoHash was judged when it was read, and its sources are
-    /// held to the bounds an Addon's are, so a client cannot hand the engine
-    /// more than an Addon could. A word too long to hold is dropped the way a
-    /// Stream read from an Addon drops one.
-    pub fn parse(video: VideoRef, addon: AddonId, stream: &Stream) -> Result<Self, Unplayable> {
+/// A replacement candidate judged ahead of knowing which Video is playing:
+/// where the replacement's bytes are and the Addon's own words about it.
+///
+/// Built by [`Action::validate`](crate::Action::validate) for
+/// [`Action::SwitchStream`](crate::Action::SwitchStream), where the client
+/// supplies only `addon` and `stream` and the Host binds the active Video from
+/// its playback session (ADR-0044 §3). Deliberately not `Serialize`, for the
+/// same reason as [`ChosenStream`]: no Stream URL can ever reach a Snapshot.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SwitchedStream {
+    /// Where the bytes are, and the one thing about a Stream no Snapshot
+    /// carries.
+    pub source: Source,
+    /// The Addon whose answer the candidate came from.
+    pub addon: AddonId,
+    /// The Addon's own badge line, bounded to what a Snapshot will hold.
+    pub name: Option<String>,
+    /// The Addon's longer line under it, bounded.
+    pub description: Option<String>,
+    /// The file's own name, bounded.
+    pub filename: Option<String>,
+    /// The release the Addon binge-groups a series' episodes by, bounded.
+    pub binge_group: Option<String>,
+}
+
+impl SwitchedStream {
+    /// Judge a replacement candidate the same way [`ChosenStream::parse`]
+    /// judges a chosen Stream, before binding it to the active Video.
+    pub fn parse(addon: AddonId, stream: &Stream) -> Result<Self, Unplayable> {
         let source = match &stream.playback {
             Playback::Direct { url } => {
                 Source::Url(StreamUrl::parse(url).map_err(Unplayable::from)?)
@@ -194,15 +209,45 @@ impl ChosenStream {
 
         Ok(Self {
             source,
+            addon,
+            name: held(stream.name.as_deref()),
+            description: held(stream.description.as_deref()),
+            filename: held(stream.filename.as_deref()),
+            binge_group: held(stream.binge_group.as_deref()),
+        })
+    }
+
+    /// Bind this replacement candidate to the active Video playing in the Host.
+    pub fn into_chosen(self, video: VideoRef) -> ChosenStream {
+        ChosenStream {
+            source: self.source,
             now_playing: NowPlaying {
                 video,
-                addon,
-                name: held(stream.name.as_deref()),
-                description: held(stream.description.as_deref()),
-                filename: held(stream.filename.as_deref()),
-                binge_group: held(stream.binge_group.as_deref()),
+                addon: self.addon,
+                name: self.name,
+                description: self.description,
+                filename: self.filename,
+                binge_group: self.binge_group,
             },
-        })
+        }
+    }
+}
+
+impl ChosenStream {
+    /// The candidate as the Host holds it: where its bytes are and the words to
+    /// publish, or why this Host will not play it.
+    ///
+    /// The words are the client's, and they are only words: a client that sends
+    /// a name it never got from an Addon is lying about a badge line, and the
+    /// Host has no record to check it against — the list a client chooses from
+    /// is that client's own (ADR-0005). What is judged is the part that
+    /// matters: *where the bytes are*. A direct URL must be one this Host opens;
+    /// a torrent's infoHash was judged when it was read, and its sources are
+    /// held to the bounds an Addon's are, so a client cannot hand the engine
+    /// more than an Addon could. A word too long to hold is dropped the way a
+    /// Stream read from an Addon drops one.
+    pub fn parse(video: VideoRef, addon: AddonId, stream: &Stream) -> Result<Self, Unplayable> {
+        SwitchedStream::parse(addon, stream).map(|candidate| candidate.into_chosen(video))
     }
 
     /// The URL the Player is given as it stands, for a direct Stream. A torrent
@@ -812,6 +857,8 @@ pub enum Control {
     /// S4: skipping back to the Video before this one in its Title, the mirror
     /// of `NextEpisode` (ADR-0021).
     PreviousEpisode,
+    /// Switching to another Stream for the Video currently playing (ADR-0044 §3).
+    SwitchStream,
 }
 
 impl std::fmt::Display for Control {
@@ -832,6 +879,7 @@ impl std::fmt::Display for Control {
             Control::Aspect => "aspect",
             Control::NextEpisode => "next episode",
             Control::PreviousEpisode => "previous episode",
+            Control::SwitchStream => "switch streams",
         })
     }
 }

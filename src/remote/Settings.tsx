@@ -8,7 +8,8 @@ import {
   STREAM_BUFFER_MEGABYTES,
   STREAM_BUFFER_SECONDS,
   SUBTITLE_COLORS,
-  SUBTITLE_SCALES,
+  SUBTITLE_SCALE_MAX,
+  SUBTITLE_SCALE_MIN,
   TORRENT_CACHE_DEFAULT_MEGABYTES,
   TORRENT_CACHE_HEAD,
   TORRENT_CACHE_MEGABYTES,
@@ -20,8 +21,7 @@ import {
   formatBufferSeconds,
   formatScale,
   formatTorrentCache,
-  scalePreset,
-  scaleSelected,
+  stepScale,
   torrentCachePreset,
   torrentCacheRequest,
   upNextRows,
@@ -486,23 +486,33 @@ function PreferencesLeaf({ category, session, state, push }: LeafProps) {
       <section className="remote-settings-group">
         <h2 className="remote-settings-label">{SUBTITLE_SIZE_HEAD}</h2>
         <div className="remote-settings-chips">
-          {SUBTITLE_SCALES.map((choice) => (
-            <ChoiceChip
-              key={choice.scale}
-              pressed={scaleSelected(heldScale, choice.scale)}
-              onClick={() => void take(scaleRequest(choice.scale), setScaleError)}
-            >
-              {`${choice.label} · ${formatScale(choice.scale)}`}
-            </ChoiceChip>
-          ))}
-          {!scalePreset(heldScale) ? (
-            <ChoiceChip
-              pressed
-              onClick={() => void take(scaleRequest(heldScale), setScaleError)}
-            >
-              {`Other (${formatScale(heldScale)})`}
-            </ChoiceChip>
-          ) : null}
+          <Button
+            variant="ghost"
+            aria-label="Smaller subtitles"
+            disabled={heldScale <= SUBTITLE_SCALE_MIN + 1e-6}
+            onClick={() =>
+              void take(scaleRequest(stepScale(heldScale, -1)), setScaleError)
+            }
+          >
+            −
+          </Button>
+          <span
+            className="remote-quiet"
+            data-testid="settings-subtitle-scale"
+            aria-label={`Subtitle size ${formatScale(heldScale)}`}
+          >
+            {formatScale(heldScale)}
+          </span>
+          <Button
+            variant="ghost"
+            aria-label="Larger subtitles"
+            disabled={heldScale >= SUBTITLE_SCALE_MAX - 1e-6}
+            onClick={() =>
+              void take(scaleRequest(stepScale(heldScale, 1)), setScaleError)
+            }
+          >
+            +
+          </Button>
         </div>
         <Refusal error={scaleError} />
       </section>

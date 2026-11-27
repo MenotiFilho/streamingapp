@@ -15,7 +15,7 @@ use crate::meta::{self, Title, TitleKey, Video};
 use crate::pairing::PairingCode;
 use crate::playback::{
     ChapterStep, ChosenStream, Control, Observation, Picture, PlaybackState, Player, Source,
-    StreamUrl, Telling, Track, TrackId, TrackKind, Unplayable,
+    StreamUrl, SwitchedStream, Telling, Track, TrackId, TrackKind, Unplayable,
 };
 use crate::preferences::{FeaturedCatalog, Language, StreamBuffer, TorrentCache};
 use crate::preview::{
@@ -1833,6 +1833,9 @@ impl Host {
                 // it (#29), and a fresh play starts at the Stream's beginning.
                 Resolved::Change(self.open_stream(chosen, Some(title), None)?)
             }
+            ValidatedAction::SwitchStream { replacement } => {
+                Resolved::Change(self.switch_stream(*replacement)?)
+            }
             ValidatedAction::Resume { video } => {
                 let (chosen, title, start) = self.resume(&video)?;
                 Resolved::Change(self.open_stream(Box::new(chosen), Some(title), start)?)
@@ -2386,9 +2389,10 @@ impl Host {
     /// Open `chosen` in the Player at `start`, arm the Seek preview for its
     /// URL, and return the [`Change::Play`] every client is told.
     ///
-    /// Every play Action (`play_stream`, `resume`, `play_up_next`,
-    /// `next_episode`, `previous_episode`) opens its Stream here so opening,
-    /// preview arming, and play-replacement side effects live in one place.
+    /// Every play Action (`play_stream`, `switch_stream`, `resume`,
+    /// `play_up_next`, `next_episode`, `previous_episode`) opens its Stream
+    /// here so opening, preview arming, and play-replacement side effects live
+    /// in one place.
     fn open_stream(
         &mut self,
         chosen: Box<ChosenStream>,
@@ -2471,6 +2475,27 @@ impl Host {
             title: title.map(Box::new),
             start,
         })
+    }
+
+    /// Replace the Stream playing now with `replacement` for the same Video at
+    /// the current Playback position, preserving the Title's Hand pick and
+    /// starting playback even if Playback was paused (ADR-0044 §3).
+    fn switch_stream(&mut self, replacement: SwitchedStream) -> Result<Change, ActionError> {
+        self.playing(Control::SwitchStream)?;
+        let Some(current) = self.state.playback().chosen() else {
+            return Err(ActionError::NothingPlaying {
+                control: Control::SwitchStream,
+            });
+        };
+        let video = current.now_playing.video.clone();
+        let title = self.playing_title();
+        let start = self.state.playback().position().or_else(|| {
+            self.state
+                .watch_for(&video)
+                .and_then(|entry| entry.position)
+        });
+        let chosen = replacement.into_chosen(video);
+        self.open_stream(Box::new(chosen), title, start)
     }
 
     /// Take one episode step: the neighbouring Stream chosen and opened, and

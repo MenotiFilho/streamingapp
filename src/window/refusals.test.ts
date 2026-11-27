@@ -51,10 +51,13 @@ describe("the refusals the Host can send", () => {
       '"#FFFFF" is not a subtitle colour — a colour is "#RRGGBB", like "#FFFF00".',
     );
 
-    const scale = asActionError({ kind: "invalid_subtitle_scale", scale: "2.5" });
+    const scale = asActionError({ kind: "invalid_subtitle_scale", scale: "3.5" });
     expect(explain(scale)).toBe(
-      '"2.5" is not a subtitle size — a size is between 0.5 and 2.0.',
+      '"3.5" is not a subtitle size — a size is between 0.25 and 3.0.',
     );
+
+    const switched = asActionError({ kind: "nothing_playing", control: "switch_stream" });
+    expect(explain(switched)).toBe("Nothing is playing, so the Host cannot switch streams.");
   });
 
   test("a refused language list is read by what is wrong with it", () => {

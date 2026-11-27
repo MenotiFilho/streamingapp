@@ -10,9 +10,10 @@ import {
   DELAY_STEP,
   SPEEDS,
   SUBTITLE_COLORS,
+  SUBTITLE_SCALE_DEFAULT,
   SUBTITLE_SCALE_MAX,
   SUBTITLE_SCALE_MIN,
-  SUBTITLE_SCALES,
+  SUBTITLE_SCALE_STEP,
   TORRENT_CACHE_DEFAULT_MEGABYTES,
   TORRENT_CACHE_MAX_MEGABYTES,
   TORRENT_CACHE_MEGABYTES,
@@ -38,7 +39,6 @@ import {
   orderedTracks,
   upNextRows,
   previousEpisodeDisabled,
-  scalePreset,
   scaleSelected,
   speedSelected,
   statisticsLines,
@@ -311,9 +311,12 @@ describe("the step to a neighbouring episode", () => {
 describe("the subtitle appearance a person picks", () => {
   test("the window imports the one JSON file the Remote splices in", () => {
     expect(SUBTITLE_COLORS).toEqual(appearance.colors);
-    expect(SUBTITLE_SCALES).toEqual(appearance.scales);
     expect(SUBTITLE_SCALE_MIN).toBe(appearance.minScale);
     expect(SUBTITLE_SCALE_MAX).toBe(appearance.maxScale);
+    expect(SUBTITLE_SCALE_STEP).toBe(appearance.step);
+    expect([SUBTITLE_SCALE_MIN, SUBTITLE_SCALE_MAX, SUBTITLE_SCALE_STEP, SUBTITLE_SCALE_DEFAULT]).toEqual([
+      0.25, 3, 0.05, 1,
+    ]);
   });
 
   test("Settings offers white, yellow, cyan and green, and the white is the default", () => {
@@ -332,62 +335,52 @@ describe("the subtitle appearance a person picks", () => {
     expect(SUBTITLE_COLORS[0]?.color).toBe("#FFFFFF");
   });
 
-  test("Settings offers four sizes, from 80% to 150%", () => {
-    expect(SUBTITLE_SCALES).toEqual([
-      { label: "Small", scale: 0.8 },
-      { label: "Default", scale: 1 },
-      { label: "Large", scale: 1.25 },
-      { label: "Larger", scale: 1.5 },
-    ]);
-    expect(SUBTITLE_SCALES.map((choice) => formatScale(choice.scale))).toEqual([
-      "80%",
-      "100%",
-      "125%",
-      "150%",
-    ]);
-  });
+  test("one stepper press moves by 5% across 25%–300% without floating-point drift", () => {
+    expect(stepScale(1, 1)).toBe(1.05);
+    expect(stepScale(1, -1)).toBe(0.95);
+    expect(stepScale(1.15, 1)).toBe(1.2);
+    expect(stepScale(1.15, -1)).toBe(1.1);
+    expect(stepScale(0.25, 1)).toBe(0.3);
+    expect(stepScale(3, -1)).toBe(2.95);
 
-  test("one OSD press moves to the neighbouring preset, never between them", () => {
-    expect(stepScale(0.8, 1)).toBe(1);
-    expect(stepScale(1, 1)).toBe(1.25);
-    expect(stepScale(1.25, 1)).toBe(1.5);
-    expect(stepScale(1.5, -1)).toBe(1.25);
-    expect(stepScale(1.25, -1)).toBe(1);
-    expect(stepScale(1, -1)).toBe(0.8);
-  });
-
-  test("the OSD size clamps at the ends of the four presets", () => {
-    expect(stepScale(1.5, 1)).toBe(1.5);
-    expect(stepScale(0.8, -1)).toBe(0.8);
-  });
-
-  test("a size the Remote set is brought onto the four presets", () => {
-    // The Host accepts any scale in 0.5–2.0 on the wire; the OSD's four presses
-    // still land on a chip, and 105/120/160% are named by Settings' Other chip.
-    expect(stepScale(1.05, 1)).toBe(1.25);
-    expect(stepScale(1.05, -1)).toBe(1);
-    expect(stepScale(1.2, 1)).toBe(1.25);
-    expect(stepScale(1.2, -1)).toBe(1);
-    expect(stepScale(1.6, 1)).toBe(1.5);
-    expect(stepScale(1.6, -1)).toBe(1.5);
-    expect(stepScale(0.5, 1)).toBe(0.8);
-    expect(stepScale(0.5, -1)).toBe(0.8);
-  });
-
-  test("only the four presets press a Settings chip", () => {
-    for (const choice of SUBTITLE_SCALES) {
-      expect(scalePreset(choice.scale)).toBe(true);
+    // Walk the entire 25%–300% ladder up and back down in 55 exact 5% steps.
+    let current = SUBTITLE_SCALE_MIN;
+    for (let pct = 30; pct <= 300; pct += 5) {
+      current = stepScale(current, 1);
+      expect(current).toBe(pct / 100);
     }
-    for (const held of [0.5, 1.05, 1.2, 1.6, 2]) {
-      expect(scalePreset(held)).toBe(false);
+    expect(current).toBe(SUBTITLE_SCALE_MAX);
+    for (let pct = 295; pct >= 25; pct -= 5) {
+      current = stepScale(current, -1);
+      expect(current).toBe(pct / 100);
     }
+    expect(current).toBe(SUBTITLE_SCALE_MIN);
+  });
+
+  test("the size stepper clamps at 25% and 300%", () => {
+    expect(stepScale(0.25, -1)).toBe(0.25);
+    expect(stepScale(3, 1)).toBe(3);
+    expect(stepScale(0.1, -1)).toBe(0.25);
+    expect(stepScale(0.1, 1)).toBe(0.25);
+    expect(stepScale(4, 1)).toBe(3);
+    expect(stepScale(4, -1)).toBe(3);
+    expect(stepScale(Number.NaN, 1)).toBe(SUBTITLE_SCALE_DEFAULT);
+  });
+
+  test("an off-grid scale moves to the neighbouring 5% step", () => {
+    expect(stepScale(1.03, 1)).toBe(1.05);
+    expect(stepScale(1.03, -1)).toBe(1);
+    expect(stepScale(0.27, -1)).toBe(0.25);
+    expect(stepScale(0.27, 1)).toBe(0.3);
+    expect(stepScale(2.98, 1)).toBe(3);
+    expect(stepScale(2.98, -1)).toBe(2.95);
   });
 
   test("a size reads as a percentage, and the pressed choice is the Host's value", () => {
-    expect(formatScale(0.8)).toBe("80%");
+    expect(formatScale(0.25)).toBe("25%");
     expect(formatScale(1)).toBe("100%");
     expect(formatScale(1.05)).toBe("105%");
-    expect(formatScale(1.25)).toBe("125%");
+    expect(formatScale(3)).toBe("300%");
     expect(scaleSelected(1.25, 1.25)).toBe(true);
     expect(scaleSelected(1.3, 1.25)).toBe(false);
   });

@@ -650,6 +650,29 @@ describe("the repertory Settings register", () => {
     );
   });
 
+  test("the subtitle size stepper steps by 5% and disables at 25% and 300%", async () => {
+    const { value, pushed, ask } = harness();
+    show(value, <RepertorySettingsScreen />);
+    fireEvent.click(screen.getByTestId("settings-category-preferences"));
+    showLevel(categoryLevel(pushed, "preferences"), value);
+
+    expect(screen.getByTestId("subtitle-scale-value")).toHaveTextContent("100%");
+    fireEvent.click(screen.getByTestId("subtitle-scale-up"));
+    await waitFor(() =>
+      expect(actions(ask)).toContainEqual({
+        type: "set_subtitle_scale",
+        scale: 1.05,
+      }),
+    );
+    fireEvent.click(screen.getByTestId("subtitle-scale-down"));
+    await waitFor(() =>
+      expect(actions(ask)).toContainEqual({
+        type: "set_subtitle_scale",
+        scale: 0.95,
+      }),
+    );
+  });
+
   test("the Featured catalog says when no Addon offers one", () => {
     const { value, pushed } = harness({}, { ...SNAPSHOT, addons: [TORRENTIO] });
     show(value, <RepertorySettingsScreen />);

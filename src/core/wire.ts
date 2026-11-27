@@ -51,7 +51,7 @@ export type Snapshot = {
     audioLanguages: string[];
     /** `#RRGGBB`, uppercase, as the Host normalized it. */
     subtitleColor: string;
-    /** A finite multiplier from 0.5 to 2.0. */
+    /** A finite multiplier from 0.25 to 3.0. */
     subtitleScale: number;
     /**
      * How much of a Stream the Player keeps read ahead: the look-ahead it aims
@@ -834,6 +834,15 @@ export type Action =
       // The Title the Video belongs to, as the client was reading it: enough for
       // the Host to record Watch progress against a card (#29).
       title: TitleStub;
+    }
+  // Switch to another Stream for the Video currently playing (ADR-0044 §3):
+  // the Host reads the active Video, TitleStub, and Playback position from its
+  // session, preserves the Title's Hand pick, and starts playing even if
+  // Playback was paused.
+  | {
+      type: "switch_stream";
+      addon: string;
+      stream: Stream;
     }
   | { type: "resume"; video: { type: string; id: string } }
   // Play a Title's Up next (#276): the Host reads which Video that is from its

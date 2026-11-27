@@ -220,14 +220,18 @@ fn choosing_a_subtitle_colour_publishes_a_snapshot_that_carries_it_normalized() 
 fn choosing_a_subtitle_size_publishes_a_snapshot_that_carries_it() {
     let mut host = host();
 
-    let published = host
-        .dispatch(action(r#"{"type":"set_subtitle_scale","scale":1.5}"#))
-        .expect("a size should be taken")
-        .snapshots;
+    for scale in [0.25, 1.5, 3.0] {
+        let published = host
+            .dispatch(action(&format!(
+                r#"{{"type":"set_subtitle_scale","scale":{scale}}}"#
+            )))
+            .expect("a size in 0.25..=3.0 should be taken")
+            .snapshots;
 
-    assert_eq!(published.len(), 1, "one change publishes one Snapshot");
-    assert_eq!(published[0].preferences.subtitle_scale.value(), 1.5);
-    assert_eq!(host.snapshot().preferences.subtitle_scale.value(), 1.5);
+        assert_eq!(published.len(), 1, "one change publishes one Snapshot");
+        assert_eq!(published[0].preferences.subtitle_scale.value(), scale);
+        assert_eq!(host.snapshot().preferences.subtitle_scale.value(), scale);
+    }
 }
 
 #[test]
@@ -238,8 +242,8 @@ fn an_appearance_the_host_refuses_leaves_the_state_and_the_store_alone() {
 
     for body in [
         r##"{"type":"set_subtitle_color","color":"#GGGGGG"}"##,
-        r#"{"type":"set_subtitle_scale","scale":2.5}"#,
-        r#"{"type":"set_subtitle_scale","scale":0.25}"#,
+        r#"{"type":"set_subtitle_scale","scale":3.05}"#,
+        r#"{"type":"set_subtitle_scale","scale":0.2}"#,
     ] {
         let refused = host.dispatch(action(body));
         assert!(

@@ -486,6 +486,7 @@ mod tests {
             r#"{"type":"set_paused","paused":true}"#,
             r#"{"type":"set_volume","level":40.0}"#,
             r#"{"type":"next_episode"}"#,
+            r#"{"type":"switch_stream","addon":"community.example","stream":{"name":null,"description":null,"playback":{"kind":"direct","url":"https://stream.example.org/x.mkv"},"warnings":[],"filename":null,"bingeGroup":null}}"#,
             r#"{"type":"cancel_autoplay"}"#,
             r#"{"type":"set_autoplay","autoplay":true}"#,
             r#"{"type":"stop_playback"}"#,
