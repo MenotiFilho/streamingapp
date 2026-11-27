@@ -159,6 +159,18 @@ describe("the Action a chosen Stream is", () => {
     });
 
     expect(action.title).not.toHaveProperty("background");
+    expect(action.title).not.toHaveProperty("logo");
+  });
+
+  test("carries the Title's wordmark logo on play_stream when present", () => {
+    const action = playStreamAction(
+      film({ logo: "https://images.test/matrix-logo.png" }),
+      video,
+      "torrentio",
+      stream,
+    );
+
+    expect(action.title.logo).toBe("https://images.test/matrix-logo.png");
   });
 });
 

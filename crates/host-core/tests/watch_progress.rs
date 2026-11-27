@@ -142,6 +142,7 @@ fn play(fixture: &mut Fixture, r#type: &str, video: &str) {
                 "name": "Breaking Bad",
                 "poster": "https://images.example.org/bb.jpg",
                 "background": "https://images.example.org/bb-backdrop.jpg",
+                "logo": "https://images.example.org/bb-logo.png",
             },
             "stream": {
                 "name": "1080p",
@@ -216,12 +217,30 @@ fn the_card_a_client_hands_back_carries_its_backdrop_into_watch_progress() {
         Some("https://images.example.org/bb.jpg"),
         "the poster the backdrop falls back from rides beside it"
     );
+    assert_eq!(
+        entry.title.logo(),
+        Some("https://images.example.org/bb-logo.png"),
+        "the Title's wordmark rides beside poster and backdrop (ADR-0044 §7)"
+    );
 
     let published = serde_json::to_value(fixture.host.snapshot()).expect("a Snapshot serializes");
     assert_eq!(
         published["watchProgress"][0]["title"]["background"],
         "https://images.example.org/bb-backdrop.jpg",
         "the art is published on the Snapshot, camelCased for a JavaScript client"
+    );
+    assert_eq!(
+        published["watchProgress"][0]["title"]["logo"], "https://images.example.org/bb-logo.png",
+        "the wordmark is published on watchProgress for Opening artwork"
+    );
+    assert_eq!(
+        published["continueWatching"][0]["title"]["logo"], "https://images.example.org/bb-logo.png",
+        "the wordmark is published on continueWatching for Wide cards"
+    );
+    assert_eq!(
+        published["playback"]["nowPlaying"].get("logo"),
+        None,
+        "NowPlaying carries no Title fields (ADR-0021 §3)"
     );
 
     // And the Host that comes back over the same store finds it again.
@@ -230,6 +249,11 @@ fn the_card_a_client_hands_back_carries_its_backdrop_into_watch_progress() {
         watch_progress(&restarted.host)[0].title.background(),
         Some("https://images.example.org/bb-backdrop.jpg"),
         "the backdrop survives a Host that was killed without a stop"
+    );
+    assert_eq!(
+        watch_progress(&restarted.host)[0].title.logo(),
+        Some("https://images.example.org/bb-logo.png"),
+        "the logo survives a Host that was killed without a stop"
     );
 }
 

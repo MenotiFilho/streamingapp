@@ -170,10 +170,18 @@ pub const MIGRATIONS: &[Migration] = &[
               DELETE FROM preferences WHERE key = 'subtitle_language';",
     },
     Migration {
+        // The Title's wordmark logo for Continue watching Wide cards and the
+        // Opening surface (ADR-0044 §7). Sits beside `title_poster` and
+        // `title_background`, and is null for every entry written before this
+        // column existed.
+        version: 11,
+        sql: "ALTER TABLE watch_progress ADD COLUMN title_logo TEXT;",
+    },
+    Migration {
         // Whether an Addon is enabled or switched off by the owner without
         // removing it (ADR-0044 §2, #355): every Addon configured before this
         // step upgrades as enabled (`1`).
-        version: 11,
+        version: 12,
         sql: "ALTER TABLE addons ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1;",
     },
 ];

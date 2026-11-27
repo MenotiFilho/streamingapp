@@ -33,12 +33,13 @@
 //! key is held, ADR-0020 gives TMDB's record the last word on this art as well
 //! (#76). A meta response carries far more — Cinemeta's `cast`, `director`,
 //! `trailers`, `links`, `slug`, `popularities`, `imdb_id`, and a Video's
-//! `overview`, `rating` and `tvdb_id` — and all of it is ignored rather than
+//! `rating` and `tvdb_id` — and all of it is ignored rather than
 //! refused, because reading a field nothing acts on is a promise this Host would
 //! not be keeping (ADR-0009). It arrives when a ticket that acts on it does. A
 //! Video's air date is one of those: the protocol's `released` and Cinemeta's
 //! `firstAired` are read because a Title screen marks an announced episode with
-//! it (#269).
+//! it (#269). Its synopsis (`overview`, falling back to `description`) is
+//! another, drawn beside the still on Marquee's Title surface (ADR-0044 §6).
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -141,6 +142,11 @@ pub struct Video {
     /// an announced episode's date is in the future, and a client marks it
     /// "Airs <date>" while leaving it playable (#269).
     pub air_date: Option<String>,
+    /// The episode's synopsis, where the Addon or TMDB gave one (ADR-0044 §6).
+    /// `#[serde(default)]` keeps existing cached `titles` rows valid without a
+    /// cache wipe or migration.
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 impl Video {
@@ -162,6 +168,7 @@ impl Video {
             episode,
             thumbnail: None,
             air_date: None,
+            description: None,
         }
     }
 }
@@ -409,6 +416,11 @@ fn video(value: &Value) -> Option<Video> {
         // repeats it as `firstAired`; both are an ISO 8601 instant, and the
         // Video carries the calendar day.
         air_date: air_date(object, "released").or_else(|| air_date(object, "firstAired")),
+        // Stremio Addons spell an episode's synopsis as `overview` or
+        // `description` (ADR-0044 §6); prefer `overview` and fall back to
+        // `description`, trimming empty or whitespace-only values to `None`.
+        description: trimmed_field(object, "overview")
+            .or_else(|| trimmed_field(object, "description")),
     })
 }
 
@@ -462,6 +474,16 @@ fn genres(value: &Value) -> Vec<String> {
 /// One named field of a meta object, read as a string.
 fn field(object: &Map<String, Value>, name: &str) -> Option<String> {
     string(object.get(name)?)
+}
+
+/// One named field of a meta object, trimmed of outer whitespace and dropped
+/// when empty or longer than the Host will hold.
+fn trimmed_field(object: &Map<String, Value>, name: &str) -> Option<String> {
+    let text = object.get(name)?.as_str()?.trim();
+    if text.is_empty() || text.len() > MAX_STRING_LEN {
+        return None;
+    }
+    Some(text.to_owned())
 }
 
 /// One named field of a meta object, read as a number.
@@ -772,6 +794,78 @@ mod tests {
     }
 
     #[test]
+    fn a_video_carries_its_description_from_overview_falling_back_to_description() {
+        // Stremio Addons spell episode synopses as `overview` or `description`
+        // (ADR-0044 §6). `overview` wins when non-empty; empty or
+        // whitespace-only values fall back or normalize to `None`.
+        let too_long = "a".repeat(MAX_STRING_LEN + 1);
+        let title = parsed(
+            &serde_json::json!({
+                "meta": {
+                    "id": "tt1",
+                    "type": "series",
+                    "name": "One",
+                    "videos": [
+                        { "id": "tt1:1:1", "overview": "  From overview.  ", "description": "From description." },
+                        { "id": "tt1:1:2", "description": "  From description only. \n" },
+                        { "id": "tt1:1:3", "overview": "   \t\n ", "description": "Fallback after blank overview." },
+                        { "id": "tt1:1:4", "overview": "", "description": "   " },
+                        { "id": "tt1:1:5", "overview": null, "description": null },
+                        { "id": "tt1:1:6", "overview": 42, "description": "Fallback after wrong type." },
+                        { "id": "tt1:1:7", "overview": too_long, "description": "Fallback after overlong." },
+                        { "id": "tt1:1:8" }
+                    ]
+                }
+            })
+            .to_string(),
+            &asked("series", "tt1"),
+        );
+
+        assert_eq!(
+            title.videos[0].description.as_deref(),
+            Some("From overview."),
+            "overview takes precedence and outer whitespace is trimmed"
+        );
+        assert_eq!(
+            title.videos[1].description.as_deref(),
+            Some("From description only."),
+            "description is used when overview is absent"
+        );
+        assert_eq!(
+            title.videos[2].description.as_deref(),
+            Some("Fallback after blank overview."),
+            "whitespace-only overview falls back to description"
+        );
+        assert_eq!(
+            title.videos[3].description, None,
+            "empty and whitespace-only values normalize to None"
+        );
+        assert_eq!(title.videos[4].description, None);
+        assert_eq!(
+            title.videos[5].description.as_deref(),
+            Some("Fallback after wrong type.")
+        );
+        assert_eq!(
+            title.videos[6].description.as_deref(),
+            Some("Fallback after overlong.")
+        );
+        assert_eq!(title.videos[7].description, None);
+    }
+
+    #[test]
+    fn a_cached_video_without_description_deserializes_with_none() {
+        // Existing cached `titles` rows in SQLite predating ADR-0044 §6 omit
+        // `description` and must stay readable without a cache wipe.
+        let cached: Video = serde_json::from_str(
+            r#"{"id":"tt0903747:1:1","name":"Pilot","season":1,"episode":1,"thumbnail":null,"airDate":"2008-01-21"}"#,
+        )
+        .expect("a cached Video without description deserializes cleanly");
+
+        assert_eq!(cached.id, "tt0903747:1:1");
+        assert_eq!(cached.description, None);
+    }
+
+    #[test]
     fn a_video_id_is_read_as_an_episode_of_the_title_before_its_numbers() {
         assert_eq!(episode_of("tt0903747:1:2"), Some(("tt0903747", 1, 2)));
         assert_eq!(
@@ -798,12 +892,19 @@ mod tests {
     fn fields_this_host_has_no_use_for_are_ignored_rather_than_refused() {
         // Cinemeta's meta carries `cast`, `director`, `trailers`, `links`,
         // `slug`, `popularities`, `imdb_id`, `moviedb_id` and a Video's
-        // `overview`, `rating` and `tvdb_id` beside the fields the Host reads,
+        // `rating` and `tvdb_id` beside the fields the Host reads,
         // and a Title that knows more than the Host does still opens.
         let title = parsed(SERIES, &asked("series", "tt0903747"));
 
         assert_eq!(title.imdb_rating.as_deref(), Some("9.5"));
         assert_eq!(title.genres, vec!["Crime", "Drama", "Thriller"]);
+        assert!(
+            title.videos[1]
+                .description
+                .as_deref()
+                .is_some_and(|description| description.contains("chemistry teacher")),
+            "the recorded series' episode descriptions are now read"
+        );
     }
 
     #[test]
@@ -1010,6 +1111,7 @@ mod tests {
             episode,
             thumbnail: None,
             air_date: None,
+            description: None,
         }
     }
 

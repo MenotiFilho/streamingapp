@@ -556,6 +556,8 @@ export type Video = {
    * it "Airs 12 Nov" without making it unplayable (#269).
    */
   airDate: string | null;
+  /** The episode's synopsis, where the Addon or TMDB gave one (ADR-0044 §6). */
+  description?: string | null;
 };
 
 /**
@@ -608,6 +610,11 @@ export type TitleStub = {
    * from the Host's record rather than from a portrait poster (#73).
    */
   background?: string | null;
+  /**
+   * The Title's wordmark, carried so Continue watching Wide cards and the
+   * Opening surface can draw it offline (ADR-0044 §7).
+   */
+  logo?: string | null;
 };
 
 /** Why a library entry is not one the Host will play. Mirrors `UnplayableReason`. */

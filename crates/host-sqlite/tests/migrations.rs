@@ -350,19 +350,80 @@ fn a_database_with_no_subtitle_language_gains_no_language_rows() {
 }
 
 #[test]
-fn a_database_at_the_tenth_schema_upgrades_existing_addons_as_enabled() {
-    // Migration 11 (ADR-0044 §2): every Addon configured before `enabled`
-    // existed upgrades as enabled (`1`).
+fn a_database_at_the_tenth_schema_gains_title_logo_with_its_rows_intact() {
+    // ADR-0044 §7 adds `title_logo` to `watch_progress` so Continue watching
+    // Wide cards and the Opening surface have the Title's wordmark offline.
     let mut connection = connection();
     migrate(&mut connection, &MIGRATIONS[..10]).expect("the tenth schema applies");
+    connection
+        .execute(
+            "INSERT INTO watch_progress
+                 (video_id, video_type, title_addon, title_id, title_type, title_name,
+                  title_poster, title_background, position, duration, watched, updated_at,
+                  stream_addon, binge_group)
+             VALUES ('tt0903747:1:2', 'series', 'com.linvo.cinemeta', 'tt0903747', 'series',
+                     'Breaking Bad', NULL, 'https://images.example.org/bb-backdrop.jpg',
+                     402.0, 2820.0, 0, 1000, NULL, NULL)",
+            [],
+        )
+        .expect("the tenth schema takes a progress entry");
+    assert_eq!(schema_version(&connection), Ok(10));
+
+    let version = migrate(&mut connection, MIGRATIONS).expect("the database upgrades");
+
+    assert_eq!(version, latest_version(MIGRATIONS));
+    let kept: (String, Option<String>) = connection
+        .query_row(
+            "SELECT video_id, title_logo FROM watch_progress",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .expect("the entry written before the upgrade is still there");
+    assert_eq!(
+        kept,
+        ("tt0903747:1:2".to_owned(), None),
+        "title_logo is null for rows written before migration 11"
+    );
+
+    connection
+        .execute(
+            "INSERT INTO watch_progress
+                 (video_id, video_type, title_addon, title_id, title_type, title_name,
+                  title_poster, title_background, title_logo, position, duration, watched,
+                  updated_at, stream_addon, binge_group)
+             VALUES ('tt0133093', 'movie', 'com.linvo.cinemeta', 'tt0133093', 'movie',
+                     'The Matrix', NULL, NULL, 'https://images.example.org/matrix-logo.png',
+                     600.0, 8160.0, 0, 2000, NULL, NULL)",
+            [],
+        )
+        .expect("migration 11 accepts a non-null title_logo");
+    let logo: Option<String> = connection
+        .query_row(
+            "SELECT title_logo FROM watch_progress WHERE video_id = 'tt0133093'",
+            [],
+            |row| row.get(0),
+        )
+        .expect("the new row reads back");
+    assert_eq!(
+        logo.as_deref(),
+        Some("https://images.example.org/matrix-logo.png")
+    );
+}
+
+#[test]
+fn a_database_at_the_eleventh_schema_upgrades_existing_addons_as_enabled() {
+    // Migration 12 (ADR-0044 §2): every Addon configured before `enabled`
+    // existed upgrades as enabled (`1`).
+    let mut connection = connection();
+    migrate(&mut connection, &MIGRATIONS[..11]).expect("the eleventh schema applies");
     connection
         .execute(
             "INSERT INTO addons (id, position, url, manifest)
              VALUES ('com.linvo.cinemeta', 0, 'https://v3-cinemeta.strem.io/manifest.json', '{}')",
             [],
         )
-        .expect("the tenth schema takes an Addon");
-    assert_eq!(schema_version(&connection), Ok(10));
+        .expect("the eleventh schema takes an Addon");
+    assert_eq!(schema_version(&connection), Ok(11));
 
     let version = migrate(&mut connection, MIGRATIONS).expect("the database upgrades");
 
