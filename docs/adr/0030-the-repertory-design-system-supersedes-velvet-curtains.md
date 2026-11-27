@@ -1,5 +1,8 @@
 # The repertory design system supersedes Velvet Curtains
 
+> **Superseded by ADR-0043.** The client's language is now **Marquee**; the
+> record below is kept for its reasons, not as the system in force.
+
 Ticket #150 (wayfinder map #143). Five prototypes (#145–#149) established the
 direction. This records the replacement, not the values: the living record is
 `docs/design-system.md`, and the values are `src/shell/repertory/tokens.css`.

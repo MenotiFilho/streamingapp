@@ -1,622 +1,413 @@
-# The repertory design system
+# The Marquee design system
 
-**Ticket:** #150 (wayfinder map #143). **Supersedes:** the Velvet Curtains
-design record — spec #71 and its token ticket #77. **Decision:** ADR-0030;
-**Motion:** ADR-0031.
+**Decision:** ADR-0043. **Supersedes:** the Repertory design record (ADR-0030).
+**Motion:** ADR-0031. **Drawing:** `docs/design/marquee/` (the mockup's generator,
+see its README).
 
-This is the client's living visual record: the palette, the type, the scales,
-the focus mark, the motion, the icons, the component anatomy, the artwork rules
-and the copy voice. It is what a build ticket reads before drawing a screen. It
-holds no behaviour: every Action, Snapshot, focus rule, level-stack rule and
-Remote flow belongs to the Host and to `CONTEXT.md`, and this record does not
-move them.
+This is the client's living visual record: the palette, the type, the scales, the
+focus rule, the motion, the icons, the component anatomy, the artwork rules and the
+copy voice. A build ticket reads it before drawing a screen, and reads the mockup
+for the screen itself. It holds no behaviour: every Action, Snapshot, focus rule,
+level-stack rule and Remote flow belongs to the Host and to `CONTEXT.md`, and this
+record does not move them. ADR-0043 §4 lists what the drawing asks beyond today's
+behaviour; each item lands as its own ticket.
 
-The values live in `src/kit/tokens.css`; the motion presets live in
-`src/core/react/motion.ts`. The window and the served Remote both import the
-sheet, and `crates/host-wire` serves the same `woff2` faces.
+The values will live in one sheet of `--mq-*` tokens, imported by the window and by
+the served Remote. Measurements below are given at the window's **1920×1080
+reference frame** and, for the Remote, at a **390×844 phone**. How the sheet
+scales them to other sizes is decided by the token ticket and written back here.
 
 ## 1. The direction
 
-A personal ten-foot cinema: an ink-black room, warm ivory ink, one house colour.
-The interface is a **printed programme**, not a glass dashboard — hairlines
-instead of cards, a display serif for names, a quiet grotesk for the interface,
-mono for every piece of bookkeeping, and posters shown unframed as if pasted on
-the wall.
+The window looks like a commercial streaming app on a television. The artwork
+carries every screen: a full backdrop behind the hero and the Title, a poster or
+a 16:9 card for every item, and the Title's own logo wherever there is one. The
+room around the artwork is near-black and quiet. The controls are pill-shaped and
+the panels are glass, so the picture shows through them.
 
-What the direction refuses, everywhere: glass, blur, rounded cards and pills,
-drop shadows as depth, focus lifts and scaling, fill inversion on focus, light
-mode, and decoration that competes with the artwork. The picture and the poster
-are the only loud things; the room around them is quiet.
+Two colours have jobs, and nothing else is coloured:
+
+- **White is focus.** Whatever has focus turns white with ink content, or (for
+  artwork) scales up and takes a white outline.
+- **Lavender is the primary action at rest, progress and selection**: the button
+  you are expected to press, the bar of how far you are, the chip and the check
+  of what is chosen, the active destination.
+
+What the direction refuses: a second accent colour, light mode, focus shown by
+colour alone without the white, decoration drawn over the artwork other than
+scrims and marks, and any control that hides its state behind hover.
 
 ## 2. Palette
 
 | Token | Value | Role |
 |---|---|---|
-| `--rep-ink` | `#0b0a09` | the canvas and the room |
-| `--rep-ink-raised` | `#141210` | a raised plate: popover, drawer, dialog, the OSD's ink |
-| `--rep-ink-elevated` | `#1b1815` | the one step above raised: an open row, a pressed cell |
-| `--rep-ivory` | `#f2e9d8` | primary ink: names, body, the focus keyline |
-| `--rep-dim` | `#c8bda9` | secondary ink: captions, descriptions, labels |
-| `--rep-muted` | `#8c8375` | tertiary ink: bookkeeping that must still pass 4.5:1 |
-| `--rep-hairline` | `#6e6659` | rules, table edges, the unfocused control edge |
-| `--rep-house` | `#c9a45c` | the house: brass marks, stamps, the active destination |
-| `--rep-house-deep` | `#b08a45` | pressed and hover hairlines, the dimmer brass |
-| `--rep-status-red` | `#ff4d4d` | status only: refusal, the unplayable mark, the confirming side |
+| `--mq-canvas` | `#0A0B0F` | the page; also ink, the content colour on white and lavender |
+| `--mq-surface` | `#14161D` | panels and sheets (under glass) |
+| `--mq-surface-2` | `#1E212A` | a card or still while its art loads |
+| `--mq-surface-3` | `#2A2E39` | tiles inside a row (an Addon's logo, a tier box) |
+| `--mq-white` | `#FFFFFF` | text, and focus |
+| `--mq-accent` | `#C4A7E7` | primary action, progress, selection |
+| `--mq-imdb` | `#F5C518` | the IMDb badge, nothing else |
+| `--mq-ok` | `#3DD68C` | watched |
+| `--mq-warn` | `#FFB224` | reserved; no screen uses it yet |
+| `--mq-danger` | `#FF5C66` | failure, and destructive actions |
 
-Measured on ink (`#0b0a09`), WCAG 2.2: ivory 16.41, dim 10.65, muted 5.29,
-hairline 3.49 (a non-text rule, 3:1), brass 8.43, brass-deep 6.19, red 6.05. On
-`ink-raised` every text pair still clears 4.5:1 and the hairline still clears
-3:1. `tokens.test.ts` measures pairs out of the sheet; it guards ivory, dim,
-muted, hairline, brass, brass-deep and the status red, so a colour change fails
-until its pair is proven again.
+White text comes in four strengths, set as opacity over the surface it sits on:
+**full** (names, values), **muted 72%** (descriptions, secondary lines),
+**faint 50%** (captions, bookkeeping), and **line 12%** for rules. **Glass** is
+white at 14% behind a 50–60px background blur: secondary buttons, chips at rest,
+and panels.
 
-Every brass wash or glow derives from `--rep-house` (`color-mix` or a channel
-expression), never a repeated `rgba()` literal: the one allowed brass
-correction has to move the washes with it. The sheet derives the existing wash
-from the token, and `tokens.test.ts` fails on a brass literal anywhere but
-`--rep-house` and `--rep-house-deep`.
+Measured pairs (WCAG contrast, at the values above):
 
-Rules:
+| Pair | Ratio |
+|---|---:|
+| white on canvas | 19.7 |
+| white on surface | 18.1 |
+| muted white on canvas | 10.2 |
+| faint white on canvas / on surface | 5.3 / 5.3 |
+| lavender on canvas / on surface | 9.4 / 8.6 |
+| ink on lavender | 9.4 |
+| ink on white | 19.7 |
+| white on glass over canvas | 13.7 |
+| danger on canvas | 6.5 |
+| ok on canvas | 10.5 |
+| ink on the IMDb yellow | 12.1 |
 
-- **Brass is a mark and text on ink, never a field behind ivory.** Ivory on brass
-  is 1.95:1 and fails every threshold; ink on brass is 8.43:1 and is the only
-  text a brass fill may carry. Red on `ink` text is 6.05:1; ivory on red is
-  2.71:1, so a red fill carries ink or nothing.
-- **Red is status**, never decoration: a refusal line, the unplayable mark, the
-  confirming side of a destructive dialog. A red mark never means "selected".
-- Brass marks the house's voice: the active destination, a stamp, a chapter
-  tick, the progress fill, a section's top rule. It is never body copy and never
-  a large fill.
-- **Dark only.** There is no light mode, no theme switch and no per-surface
-  palette. `color-scheme: dark` is part of the system.
-- Artwork is the only uncontrolled colour on the page. Scrims bring a picture
-  down to the room instead of raising the room to the picture.
+Over a picture, text always sits on a scrim (see §9). Its contrast is judged over
+a bright film on the panel (§12).
 
 ## 3. Type
 
-| Role | Family | Used for |
+One family, **Figtree**, in five weights: Regular 400, Medium 500, SemiBold 600,
+Bold 700 and ExtraBold 800. Line height is 1.35× the size unless a role says
+otherwise.
+
+### The scale (window)
+
+| Role | Size / weight | Used for |
 |---|---|---|
-| Display | Bodoni Moda (variable) | the feature's name, a Title page's name, a section's name, an Addon/category/device name, a popover heading, the Remote's wordmark |
-| Interface | Inter (variable) | poster and Continue captions, labels, body, controls, forms, empty-state copy |
-| Bookkeeping | IBM Plex Mono | timecode, year, rating, quality stamp, version, ids, pairing code, stats, chapter callout, dates |
+| Display | 56 / 800 | Foundations only |
+| Screen title | 44 / 800 | a destination's head (Discover, Library, Addons, Settings) |
+| Heading | 36 / 800 | a panel's name (Streams) |
+| Level title | 28–30 / 800 | a Settings part, a pushed level |
+| Row head | 28 / 700 | over every row |
+| Body | 22 / 500, line 34 | synopsis, descriptions |
+| Control | 20 / 700 | buttons, nav labels, row names |
+| Label | 17–18 / 600–700 | chips, choice-group labels, stat values |
+| Caption | 15–16 / 500 | notes, dates, details |
+| Overline | 14 / 800, tracking 1.2–1.6 | group labels (TORRENTIO), EPISODE 3 |
+| Badge | 14 / 700, tracking 0.4 | stream marks, IMDb, UP NEXT |
 
-Display is set at weight 500 with `-0.012em` tracking and `1.08` leading; it is
-never used below the section size, and never for a poster caption. Interface is
-400 for body and 500 for labels, names and controls, with `0.008em` tracking and
-`1.4` body leading. Mono is 400/500 with tabular figures everywhere a number can
-tick. Caps labels take `0.08em` tracking.
-
-The two-family comparison from research #144 is closed: **Bodoni Moda / Inter /
-IBM Plex Mono**. The prototype's Playfair alternate (Playfair Display + IBM Plex
-Sans) is **cut**, not deferred: it is not a setting and not a second pairing,
-and the prototype's `data-pairing` token block, its `?type=playfair` rehearsal
-option and the Playfair imports left in #153.
-
-### The scale
-
-One stage unit drives every ten-foot size:
-
-```css
---rep-stage: min(1vw, 1.7778vh);
-```
-
-At 1920×1080 the stage is 19.2px — exactly `1vw` — so the 1920 column is the
-prototype's measured value. On a 16:9 window the two terms agree; on a short or
-ultrawide window the **shorter side** governs, so a wide, shallow window does
-not inflate the type. Each role is `max(<floor>, calc(var(--rep-stage) * <n>))`:
-a rem floor keeps a desk window legible, and there is no rem ceiling (a rem
-ceiling is the 4K-at-100% trap the research measured).
-
-| Token | Floor | Stage × | At 1920 | Role |
-|---|---:|---:|---:|---|
-| `--rep-text-hero` | 72px | 4.6 | 88px | the feature's name |
-| `--rep-text-title` | 48px | 3.0 | 58px | a Title page's name |
-| `--rep-text-section` | 36px | 2.1 | 40px | a section or destination head |
-| `--rep-text-body` | 28px | 1.667 | 32px | body and descriptions |
-| `--rep-text-control` | 26px | 1.35 | 26px | buttons, labels, poster captions |
-| `--rep-text-caption` | 24px | 1.25 | 24px | secondary captions |
-| `--rep-text-mono` | 24px | 1.25 | 24px | bookkeeping |
-| `--rep-text-badge` | 18px | 1.1 | 21px | stamps and badges |
-
-The 1920 body of 32px and caption of 24px sit on the research's ten-foot floors
-(28–29px body, 24px caption, 48px title). A long feature name steps down through
-the prototype's two densities rather than wrapping to five lines; a long
-description clamps on its card and is read on the Title page.
+The phone's scale is in §11.
 
 ### Faces on disk
 
-The window bundles lean Latin `woff2` faces (Bodoni Moda, Inter, IBM Plex Mono)
-and their OFL notices; the served Remote receives the same files from the Host
-and the same `@font-face` rules, so a phone without them is a fallback, not the
-design. No page fetches a font from a third party.
+The window bundles Figtree as local `woff2` faces with its OFL notice. The served
+Remote receives the same files from the Host, so a phone without them sees the
+fallback, not the design. No page fetches a font from a third party.
 
-## 4. Space, rules and radius
+## 4. Space, radius and depth
 
-Spacing steps: 4, 8, 12, 16, 24, 36, 48, 64px (`--rep-space-1`…`8`). Spacing is
-fixed in rem; **layout dimensions scale with the stage** and carry the 1080p
-floor:
+Spacing is on an **8px grid** (4 is allowed inside a control). With the rail, the
+window's content margin is **168px**. Without it (the player, a full-screen
+level) it is **64–72px**. A row's items sit 24–40px apart; that gap leaves room for
+a focused card to grow without touching its neighbours.
 
-| Token | At 1920 | Rule |
-|---|---:|---|
-| page gutter | 56px | `max(32px, 2.9 × stage)` |
-| stage top | 48px | `max(32px, 2.5 × stage)` |
-| stage bottom | 96px | `max(64px, 5 × stage)` |
-| row gap | 24px | `max(16px, 1.25 × stage)` |
-| compact spine | 92px | `max(92px, 4.8 × stage)` |
-| open spine | 280px | `max(280px, 14.6 × stage)` |
+| Radius | Where |
+|---|---|
+| 6 | badges |
+| 8–10 | a still inside a row, a time label |
+| 12–14 | tiles, tier boxes, list rows on the phone, poster cards on the phone |
+| 16 | cards (poster, wide, episode) |
+| 18 | list rows, stream rows, Addon rows, fields |
+| 20–24 | floating panels, the dropdown menu, the up-next and confirm cards |
+| 28 | the side panel and the phone's bottom sheet |
+| full | buttons, chips, the search field, switches, the nav items |
 
-**Radius is zero.** There is no card radius, no pill and no rounded control; the
-one circle in the system is the pending spinner. Depth is a hairline and one ink
-step, never a shadow. Rules are 1px; the step between two focusable rows is 2px
-so the focus model can tell them apart; a brass rule is 2px (the featured or
-active item, a drawer's top rule, a popover's top rule); a progress line is 2px.
-
-**Measure is typographic**, not a pixel column: prose is 58–62ch, a utility
-panel and a form 46ch, a poster caption 2 lines, the feature's description 3
-lines and a Title page's description 6. The spine, the gutter and the stage
-carry the scale; the reading column does not grow with the window. Utility
-panels and forms read at 46ch; prose at 58–62ch.
+**Depth** comes from three things, and only these: a **shadow** under what is
+focused or floating (offset y 12–30, blur 2.2× the offset, black at 40–55%), the
+**glass blur** of panels, and **scrims** over art. Nothing else is raised.
 
 ## 5. Focus
 
-One mark, on every focusable thing **when navigation is the input** — poster
-card, rail item, button, OSD icon, form field, row:
+Focus belongs to navigation (ADR-0037): a pointer press does not paint it. When it
+is shown, it follows three rules, by kind:
 
-- a **2px ivory keyline with a 3px offset**, outside a control; where the art
-  fills the row (a poster or continue card), the same 3px offset is drawn
-  **inside the artwork's edge** so a scrollport never crops it;
-- a brass **spotlight wash** on the feature and on a focused poster's artwork —
-  a radial soft edge, not a border. The system **narrows** the prototype here:
-  the prototype washed every card and every rail item, and the locked mark is
-  the keyline everywhere, the wash in those two places only;
-- hover is one hairline and, at most, one ink step; it is never the only cue;
-- pressed is `--rep-ink-elevated` and nothing else;
-- selected (`aria-pressed="true"`, `aria-current="page"`, a chosen chip) is a
-  2px brass inset rule on the leading edge plus ivory ink — no fill, no size
-  change.
+- **Controls** (buttons, icon buttons, chips, nav items, the search field, the
+  dropdown, a category item): the fill turns **white** and the content turns ink.
+  The control gets a soft shadow. This is the same whatever the control's kind at
+  rest, primary lavender included.
+- **Artwork** (poster, wide card, episode card): the card **scales up** (8% for a
+  poster, 7% for a wide card, 6% for an episode) around its own centre. It takes a
+  **4px white outline** outside its edge and a shadow. Its caption moves down by
+  the growth. An episode card also shows a play mark.
+- **Rows in a list or panel** (stream rows, track and option rows, Settings list
+  rows, Addon rows, ranked languages): the surface lightens from 5.5% to 14% white
+  and takes a **3px white outline** inside its edge. A long list stays readable
+  because the row is not filled white.
 
-A pointer press is direct manipulation: it paints none of the mark — no
-keyline, ivory ink, spotlight wash or focus background — while a selected
-control keeps its selected state. The reveal follows the same rule: it scrolls
-only for navigation, and then only the axis the movement used, so a two-line
-title does not jiggle the page on a Left/Right step. A control cut off by its
-scrollport is the one pointer scroll: the first press focuses and minimally
-reveals it, and the next press activates. The room opens in pointer modality;
-the first key or pad intent turns the mark on. The served Remote follows the
-same rule.
+**Selection is not focus.** Something chosen carries lavender: a filled chip with
+a check, a lavender check on a row, the lavender pill of the active destination.
+A chosen thing that also has focus is white, and keeps its check.
 
-The keyline has to fit: a scrollport gets 3px of extra padding so a focused edge
-is never clipped, and a rail's first and last card are inset by the same 3px.
-The spine grows on hover or a navigation walk (compact → open) and floats over
-the page; the page keeps its compact margin. A Settings leaf stays at the
-compact edge, with the focus root covering both, and the open spine draws over
-it. The spine's opaque ink is the cover — no scrim and no shadow.
+On the **phone** nothing is focused by a finger. A press darkens the control
+(ink at 35% over a card, white at 12% behind a tab). Keyboard focus on the Remote
+keeps the rules above.
 
 ## 6. Motion
 
-**Two engines, one vocabulary.** Movement runs on **Motion** — `motion/react` in
-the window — for springs and gestures, and on CSS for the effects that are
-self-contained: a wash, a fill, a colour change, as a `transition` on the token
-duration. The served Remote draws from the same tree and the same presets, so a
-rail and a drawer settle with the same feel.
-
-The durations are declared in `tokens.css` as
-`--rep-motion-panel` and `--rep-motion-quick`, with `--rep-motion-fade` for the
-one fade. `motion.ts` reads those two custom properties from the document
-and pairs them with `bounce: 0`. One number, one module — and no third
-CSS-as-text test, since ADR-0032 allows exactly two presentation locks.
-
-| Preset | Value | Used for |
-|---|---|---|
-| panel | spring, `visualDuration: 0.24`, `bounce: 0` | a pushed level, a drawer, a popover, the spine, a rail's scroll |
-| quick | spring, `visualDuration: 0.14`, `bounce: 0` | a focus reveal inside a rail, small state changes |
-| fade | tween, `0.14s`, `cubic-bezier(0.22, 1, 0.36, 1)` | opacity and colour, in CSS and in Motion |
-
-No bounce anywhere: the springs are critically damped, so one that is
-interrupted keeps its velocity and settles without overshoot. No entrance
-stagger on a screen's content — a level arrives as one thing.
+The engine and the presets stand as ADR-0031 recorded them: Motion for springs and
+gestures, CSS for fades and fills, and the panel (0.24s), quick (0.14s) and fade
+(0.14s) presets with no bounce.
 
 **What moves:**
 
-- A destination switch **cross-fades the base** (240ms); it does not slide.
-- A **pushed level** — a Title, Streams, a Settings leaf, a confirmation —
-  enters 24px from the trailing edge with a fade, and leaves the same way; Back
-  reverses it. The level stack, the focus restoration and the Actions are
-  unchanged; focus is restored on the new level at the start of the transition,
-  and the animation never gates input.
-- A **popover or drawer** rises 12–16px with a fade (on the Remote, from the
-  bottom edge); the scrim fades with it.
-- A **rail** scrolls with `animate()` on its scroll offset, so a second press
-  redirects it mid-flight; the focus reveal uses the same path. No snapping and
-  no inertia.
-- The **feature** cross-fades between slides on its 15s beat, replacing the
-  earlier no-cross-fade rule; a person's focus still holds it.
-- The **spine's** width and its label reveal use the panel spring.
-- An **Addon row's inline expansion** uses `layout`, so the register moves
-  under the focus and the focused row stays where it was.
-- The OSD appears and hides on its own clock (behaviour); its panels use the
-  panel spring; the timeline and volume fills stay CSS.
+- A **focused card** scales on the quick spring. Its outline and shadow fade in
+  with it. A row scrolls to keep the focused card in view on the panel spring.
+- The **rail** widens and shows its labels on the panel spring when focus enters
+  it, and the dim behind it fades.
+- The **hero** cross-fades between titles on its beat. When it switches to
+  following focus, its backdrop slides to the right and the rows slide up on the
+  panel spring. Each focus change after that cross-fades the title, the facts and
+  the logo.
+- A **panel** (a player menu, the side panel, a dropdown menu, a confirmation)
+  rises 12–16px or slides in from its edge with a fade, and its scrim fades with
+  it. On the phone, sheets rise from the bottom edge.
+- **Opening a Stream**: the Title's logo fills in from its leading edge as the
+  Host reports progress. Its dim copy shows what is left. Without a logo, a bar
+  fills under the name. While a Stream is Stalled the spinner turns.
+- An **Addon row that moves** rides along the list on the panel spring while it is
+  in its moving state.
+- Progress fills, the volume and the seek bar stay CSS.
 
-**What does not move:** posters do not zoom, rows do not slide or stagger, cards
-do not lift, the focus keyline does not animate its geometry (the wash may
-fade), and no control scales under the pointer.
+**What does not move:** text does not animate in or stagger, the page does not
+parallax, and nothing bounces.
 
-**Reduced motion.** The window puts one `<MotionConfig reducedMotion="user">` at
-the root: transform and layout animations off, opacity and colour fades kept.
-That config only reaches `motion` components, so the window's direct `animate()`
-calls — the rail scroll and the focus reveal — check `useReducedMotion()` and
-jump instead of animating. The served Remote reads the same hook from
-`src/core/react`. Under the same media query
-the CSS transform transitions are disabled and the width fills snap; only opacity
-and colour still fade. The feature is the exception: its beat keeps turning and
-its tick's fill is the one movement left, while the slide change is a fade
-(ADR-0036 §2). This **replaces** the earlier
-0ms rule: with reduced motion the room keeps its fades and loses its movement.
-The OSD's auto-hide clock, the focus rules and every Action are untouched.
-
-**Tests** assert the final state, never a frame: transform and layout assertions
-mount with `reducedMotion="always"`, opacity and colour assertions with a zero
-transition. No test asserts a spring's intermediate values.
+**Reduced motion** keeps ADR-0031's rule: transforms and layout animations are
+off, and fades stay. A focused card then shows its outline and shadow without
+scaling. The hero switches its mode as a fade.
 
 ## 7. Icons
 
-**One drawn set, shared by the window and the served Remote.** A 24×24 viewBox,
-`currentColor`, `fill="none"` for chrome and a filled mark for transport,
-round caps and joins; 1.7 stroke for the chrome and destination marks, 2–2.2
-where a mark stands alone over the picture in the OSD. Marks are bare: no
-circle, no square, no container, except a cell of the hairline table.
+**Phosphor** (MIT), one set for the window and the served Remote, on a 24 grid
+drawn at any size. **Regular** weight for chrome, **fill** for transport (play,
+pause, skip) and for an active destination, and **bold** for checks. Icons take
+the content colour of their control: white at rest, ink on white or lavender, 60%
+white for decoration. No Unicode glyph stands in for an icon.
 
-The set: the six destination marks, More, back, close, previous episode, next
-episode, −10s, +10s, play, pause, stop, fullscreen, volume, volume muted,
-picture, subtitles, audio, speed, chapters, episodes, and the chevron the
-popovers use. The **episodes** mark is a front episode plate with a second one
-behind it and a play mark on the front: not the chapter list beside it, and not
-the transport's step arrows.
-`src/kit/icons.tsx` is the source for the whole set (#153). The served Remote
-imports the same component, like every other kit primitive; there is no sprite
-spliced at serve time. **No Unicode glyph stands in for a mark on the Remote** —
-the phone's emoji font is not the design system.
+The set, by job: house, compass, magnifying-glass, books, puzzle-piece and
+gear-six for the six destinations; play, pause, skip-back, skip-forward,
+counter-clockwise and clockwise arrows (−10s and +10s), stop, speaker-high,
+corners-out; monitor (picture), closed-captioning, waveform, queue (streams), stack
+(episodes), gauge (speed), list-numbers (chapters), pulse (details); arrow-left,
+caret-down, caret-right, x, check, plus, minus, info, arrow-up, arrow-down, trash,
+dots-six-vertical (drag handle), minus-circle; warning, users, hard-drive,
+globe-simple, download-simple, key, device-mobile, film-slate, sliders-horizontal,
+arrow-clockwise; cell-signal, wifi and battery for the phone's status bar only.
 
 ## 8. Component anatomy
 
-### The frame
+The mockup's Components page holds every component with its variants. The
+measurements below are its own.
 
-- **Spine**: the programme index, each destination's drawn mark and its name,
-  the active destination in brass with a 2px rule, the time at the foot (the
-  date joins it when open). Compact at rest, open on **hover or an arrow-key
-  walk**; the list stays centred in both states. A **More** card ends the
-  index and opens the All destinations grid; the grid always holds the whole
-  programme.
-- **Programme line**: every screen's head is one line — the destination's name
-  in brass mono on the left, then a hairline to the right edge. No second
-  heading, no explanatory paragraph above content.
-- **Section head** (Home, Discover, Streams): a numbered line in mono, the rule,
-  then the row. Utility screens use a plain mono label and its rule instead; the
-  numbered head is the programme's, not the register's.
-- **Page**: one screen, fitted where the content allows; the content column is
-  the measure, not the window. Discover, Search, Title and the Remote's player
-  screen never scroll vertically: they fit the window, and anything longer
-  scrolls inside its own panel (ADR-0036). Elsewhere a short window scrolls the
-  page rather than clipping the copy. On a fitted Discover or Search the cards
-  are sized from the height the panel has left after the screen's head, genre
-  row and TMDB credit — the height, less each rail's head, its real one-line
-  caption and the track's padding, split across its two rows, with a readable
-  floor of 180px of art height (about 120px wide at 2:3). A short page (below
-  900px of fitted height) draws compact chrome — a smaller programme line, a
-  tighter one-line genre row and a slimmer TMDB credit, whose words and mark
-  stay — so the posters keep that floor. Where both rails still
-  cannot fit, the rows panel scrolls under the fixed head; the page itself still
-  never scrolls. The 2:3 poster follows its height for width, and the row's
-  width share still caps it, so a phone viewport keeps the width-sized cards. A
-  fitted feed's caption is one line, because a second would push the lower rail
-  out of the panel. The Title is fitted at every width the window takes
-  (ADR-0036 §3, amended 2026-11-06, PR #263).
-- **Utility register** (Addons, Settings, Library): the same one line at the
-  top, then hairline rows with a 2px step, names in display serif, bookkeeping
-  in mono, and no index numbers. Addons is two columns — the form on the left,
-  the Host's register on the right — and an open Addon row carries the
-  manifest's own facts as a compact 2×2 (**Id**, Catalogs, Resources, Types)
-  plus **Move up**, **Move down** and **Remove**; the row opens in place with
-  `layout`, and focus stays on the row while the register moves under it. A
-  narrow window stacks the columns and lets the register scroll under the form. The signed-in Library is
-  the one exception: its account collection is a shelf of poster cards (§9),
-  not a hairline register; the gate and the one-line head keep the register's
-  grammar.
+### Frame
+
+- **Nav rail**: 120px of icons at rest over a left scrim, with the brand mark at
+  the top and the clock at the foot. Items are 56px circles 80px apart. Active is
+  a lavender glyph on a lavender pill at 16%, and focus is a white circle. When
+  focus enters it, it widens to 280px items with labels over a near-opaque panel,
+  and dims the screen to 55%.
+- **Screen title**: the destination's name (44/800), with an optional subtitle
+  that says where its Titles come from (*From TMDB*, *From your Stremio account*).
+- **Row header**: the row's name (28/700) and, optionally, the Addon it comes from
+  in faint text.
+
+### Hero
+
+Two modes of one component. **Rotating**: a 1920×880 backdrop under a left and a
+bottom scrim. Over it sit the logo (at most 560×180, anchored bottom-left at the
+content margin), the meta line, a three-line synopsis, **Watch now** (primary,
+focused) and **Details** (secondary), and the ticks at the bottom right.
+**Following focus**: the backdrop moves right (1440×810), the logo shrinks to
+520×150, the actions and the ticks go, and the rows start 156px higher. The
+**meta line** is the IMDb badge, the rating, then year, runtime and up to three
+genres separated by dots.
 
 ### Cards
 
-- **Poster card**: unframed 2:3 artwork; the only running text is the Title in
-  sans at control size (2 lines, dim; ivory when focused); the year is a small
-  mono stamp after the name; the IMDb stamp sits over the art at the bottom
-  right, only when the Host has a rating; an Unplayable Title keeps its stamp
-  and still opens.
-- **Continue watching card**: 16:9 still, a 2px brass progress line under the
-  art and a mono note (remaining time or episode), then the Title in sans. An
-  entry whose Addon was removed is marked unplayable and does not open.
-- **Rail**: one view shows five cards and half of the next; the `<`/`>` arrows
-  page exactly five cards when clicked or tapped, and are not in the Tab or
-  D-pad order. The D-pad walks the cards one by one. The last card is a **More**
-  card that opens the whole row as a grid. Entering a rail from outside a rail
-  starts at its first card; moving between rails keeps the nearest card; a
-  reveal into a rail keeps that rail's head, tag and quiet action in view with
-  the card. A feed row is its own source: its quiet head action asks the Host's
-  next page, and its More card opens the whole row as a grid. The grid reads on
-  by itself near its end — scrolling or moving focus toward the last cards asks
-  that row's next page into the same accumulated row the rail draws, so Back
-  keeps those cards and a page the rail asked is in the grid. The grid's head
-  prints the row's bookkeeping live: the count is what the row has read, not
-  what it held when the grid opened. A page that fails leaves the cards it had
-  and offers Try again; the rail keeps its quiet **Read on** (ADR-0036,
-  amended 2026-11-06, #264).
-- **Feature**: the backdrop between two hairlines, a two-gradient ink scrim, the
-  Title in display serif over it, one line of facts, the description clamped to
-  two lines, and one action — **Open the Title** — *below* the description, in
-  the copy's flow, with the copy's own spacing; it never overlays the copy. The
-  Title is one line and steps down through the two densities for a long name;
-  it ellipsises rather than growing the copy. The frame is one fixed size for
-  every item: the art covers it (crop, never letterbox or stretch), and long
-  copy is clamped rather than growing the frame. One tick per item sits under
-  the frame, the current tick filling over the item's 15s; a tick jumps to its
-  item. Left/Right step it; a horizontal drag carries the slides with the hand
-  and commits to the neighbour past a share of the frame or on a fast flick,
-  and a short or slow release snaps back. A person's focus or a held finger
-  pauses it; the focus the screen seats on launch does not hold the beat, and
-  the fill starts on launch. Any step, drag, tick or arrow restarts the item's
-  time. A pointer that lets go releases the fill even where the press focused
-  the frame; keyboard and D-pad focus still hold it. Reduced motion keeps the
-  rotation, drops the tracking, and turns a committed swipe into a fade
-  (ADR-0036 §2). The kicker and the `01 / 04` position are gone: the ticks are
-  where the programme is (ADR-0036 §2, owner's by-hand review on PR #261).
-
-  The Remote's hero is the same anatomy at hand scale: the same clamps and the
-  action below the description, **previous/next arrows** at the sides that step
-  and wrap like a swipe, and the ticks under the frame. The arrows and the ticks
-  are pointer furniture: they never open the Title. The window's feature has no
-  arrows — its D-pad walk, Left/Right and the ticks already step it, and a
-  10-foot hero does not need a second pair of pointer marks.
-- **Episode row**: 16:9 still (or a typographic plate), `S#E#` and the name, a
-  **Streams** mark. The season rail is single-select chips on the same headless
-  `RowTrack` as Discover's genre row — the same arrows, paging, drag and focus
-  reveal — and the episode list scrolls under it.
+- **Poster** 208×312, radius 16. Optional marks: a watched check (top right, on
+  an ink disc) and a progress bar along the bottom.
+- **Wide card** 400×225 (Continue watching): the backdrop with the Title's logo
+  bottom-left over a bottom scrim, or an episode still without a logo. A progress
+  bar runs along the bottom, and an optional **UP NEXT** badge sits top-left. A
+  caption under it gives the name and the time left.
+- **Episode card** 408×230: the still, a watched check and progress. Its caption
+  gives the overline (EPISODE 3), the name, the date and the episode's own
+  description in two lines.
 
 ### Controls
 
-- **Chip**: a hairline box, mono/sans label, single-select; chosen is the brass
-  inset rule and ivory ink, never a fill. A value outside the presets is named
-  by an **Other** chip rather than leaving every chip unpressed. Discover's
-  genre row is **All genres** first, then the union of TMDB's film and series
-  genres — one list filtering both the Movies and the Series row, never a
-  curated second one, on one line that scrolls sideways rather than wrapping
-  (ADR-0036). That line is a rail without a head: the same `<`/`>` arrows,
-  paging, drag and focus reveal as a poster row (owner's by-hand review,
-  2026-11-06). Search and Discover have no kind chips.
-- **Button**: a line of type with a rule under it; the one primary action is a
-  **brass fill carrying ink** (never ivory, 8.43:1), a quiet action is brass ink
-  with a rule, and destructive is red ink and always asks first.
-- **Form**: a mono caps label over a transparent field whose only edge is a
-  bottom hairline; the focused field takes the ivory keyline. A refusal is a red
-  line under the field and the pasted value stays.
-- **List row**: a hairline row with a 2px step, the name in display serif, the
-  bookkeeping in mono at the trailing end, and one trailing control where the
-  row changes the Host. A row that opens is itself the control. No index
-  numbers on utility screens.
-- **Popover / drawer**: an `ink-raised` plate with a 2px brass top rule, a
-  display-serif heading, mono group labels and hairline rows; the pressed row
-  carries the brass inset rule. The OSD's popovers are `min(20.8 × stage,
-  100vw - 2rem)` wide (400px at 1920) with `min(62vh, 26.7 × stage)` of height,
-  anchored above the control strip, and clear the window's top by one spacing
-  step at a short height. A scrim closes it; Back closes it before it closes the
-  level beneath.
-- **Dialog**: one question, the consequence in the Host's words, Cancel focused
-  first; the confirming side is the only red fill.
-- **Switch** (#317): a labelled on/off the Host owns, drawn square and hairline —
-  the label, a mono caps `On` / `Off`, and a track whose thumb is muted when off
-  and **brass** when on. It never flips by itself: the state is the Host's, so a
-  press sends the Action and the Snapshot moves the thumb. It is one press from
-  the ended prompt (beside **Next episode**) and the head of the Episodes plate
-  (above the seasons).
-- **Autoplay card** (#317, ADR-0040): the Host's countdown, drawn on the Picture
-  and not on the OSD, so the OSD's idle clock never takes it. Bottom right, above
-  the timeline: an `ink-raised` plate with a 2px brass top rule, the next
-  episode's still with the digit over it in display serif, the brass kicker
-  `Up next ———— S1E4`, the episode's name in display serif, **Play now** (the
-  primary) and **Cancel** (ghost), and a 2px brass line draining along the foot.
-  Focus lands on **Cancel**, so one press stops it and doing nothing lets it
-  play. While it is up the centred `The Stream reached its end.` note and the
-  plain ended prompt are not drawn, and the OSD and the cursor stay up. Reduced
-  motion drops the line's smoothing, not the countdown.
-- **OSD**: a programme note printed over the film, in translucent ink plates and
-  hairlines. Top left: the brass `Now playing` kicker, the episode or `Feature`,
-  the Title in display serif, a brass quality stamp, and the Addon/codec/bitrate
-  facts in one mono line. Top right: fullscreen and Stop, each a square hairline
-  control (Stop is the X). Right edge: the bare volume rail — a **drawn rail with
-  a brass fill**, not the browser's native range. Bottom: the centred transport
-  with the six icon menus around it (Picture, Subtitles, Audio left; Episodes,
-  Speed, Chapters right), then the timeline — a hairline track, a buffered read,
-  the brass progress, an ivory playhead, brass chapter ticks, mono clocks at
-  each end. The current chapter is named **only in the hover/drag callout**,
-  which names the chapter of the position pointed at. Ticks keep a minimum
-  spacing (~24px); a container with many chapters collapses to a tick rail
-  without names.
-- **Episodes menu**: the OSD's sixth icon, drawn only where the playing Video is
-  a series; a film has no menu rather than one that opens empty. Opening it asks
-  the Host once by the series the Stream belongs to — the Watch-progress Title's
-  Addon, else the TMDB key, else the Stream's Addon — and says it is looking; a
-  refusal, or a series with no episodes, is said inline. The Title's seasons are
-  one scrolling line of single-select chips, the chosen season's Videos are
-  hairline rows, and the episode playing now is marked where it appears. A press
-  opens that Video's Streams list — the picker chooses the candidate, never the
-  menu — and the list puts itself away once the Host has taken the Stream,
-  leaving the OSD on the new episode.
-- **Docked transport**: the OSD's no-picture sibling (#194). When a Stream is
-  watched and the Picture is not in this window — mpv's own window, or nowhere —
-  the page draws a band at its foot instead of an OSD over a hole: now playing,
-  the Title, the picture fact, the seek timeline, play/pause, volume and Stop.
-  It keeps the page's own focus root and has no OSD ladder, idle clock or
-  popovers, because there is no picture to print them over. During an Autoplay
-  countdown its episode label reads `Up next in 4 · S1E4` and a **Cancel** sits
-  beside the volume.
-- **Pairing call board**: **Address** in mono, **Pairing code** in large brass
-  mono with the label `Pairing code · single use`, then the paired-device ledger
-  (name in display serif, paired stamp in mono, **Revoke** in red). Revoke asks
-  first and leaves every other device working. The code's tracking is the caps
-  tracking; there is **no copy control** — the panel is a call board read from
-  the screen, and a copy affordance would be a client-only convenience the map
-  does not open.
+- **Button**: primary (lavender), secondary (glass), ghost and danger (red), in L
+  (60px) and M (48px), each with an optional leading icon.
+- **Icon button**: circles of 80, 56 and 48px, with the same kinds.
+- **Chip** (46px): off, or on (lavender with a check).
+- **Dropdown** (46px pill): a faint label, the value and a caret. Open, it is
+  lavender at 18% with a lavender outline, and its menu (radius 20, rows of 52px)
+  drops under it.
+- **Badge**: neutral (glass), accent, IMDb and danger.
+- **Switch** 60×34: lavender with an ink knob when on.
+- **Search field** and **text field** (72px, radius 18 or full). A field's label
+  sits above it.
+- **Size stepper**: minus, a track with a lavender level and a knob, plus, and the
+  value. It runs from 25% to 300% in 5% steps.
+- **Sync control**: −0.1 s, the value, +0.1 s and Reset.
+
+### Rows and panels
+
+- **Stream row** 848×128: a tier box (lavender for 4K, 1080p on surface-3), the
+  name as the Addon gave it, the details (peers, size, source) with icons, the
+  marks the name declares, and a play disc. The Stream playing now takes a
+  lavender outline and a **PLAYING** badge.
+- **Track / option row** 372×64: a title, a detail line, and a lavender check when
+  chosen.
+- **List row** 880×76: an icon, a label, and either a value with a chevron or a
+  switch.
+- **Addon row** 880×112: logo tile, name, what it serves, version and origin (or
+  an OFFLINE badge), and the switch. Focused, it adds details, move up, move down
+  and remove. In its moving state it is lavender with a drag handle and the hint
+  *Up and down to move · OK to place*.
+- **Ranked row**: the position in a lavender disc, the language, and up, down and
+  remove.
+- **Panels**: the side panel (936×1032, radius 28) for Streams; the floating panel
+  (840×540, radius 24) for the player's menus, in two columns split by a rule;
+  the confirm card (640×300), whose focus starts on Cancel.
+- **Addon notice**: a red-tinted row with the warning icon, *X did not answer*,
+  the Host's reason verbatim, and Try again.
+- **Empty state**: a glyph disc, a title, one line and one action, centred.
+
+### Player
+
+- **Top bar**: back, the Title and the episode, the Stream's marks (resolution,
+  HDR, audio), and close.
+- **Seek bar**: the elapsed time, a track with buffered and played fills, chapter
+  ticks in ink, a white playhead, and the time remaining. Focused, the bar
+  thickens and the frame under the playhead shows above it.
+- **Controls**: volume, the transport (−10s, play/pause, +10s), next episode, and
+  the menus: picture, subtitles & audio, streams, episodes, speed, chapters,
+  details and full screen. The open menu's button is white.
+- **Opening**: the Title's logo filling in, or its name over a bar. **Stalled**:
+  the spinner, a lavender third of a ring.
+- **Up next** and **Still watching?** cards sit at the bottom right.
 
 ## 9. Artwork and marks
 
-The fallback chain, in order, and never a grey box:
-
 | Surface | Chain |
 |---|---|
-| Feature | backdrop → landscape poster → typographic plate (name in display serif over ink) |
-| Poster card, feed, Library | poster → typographic plate |
-| Title page | backdrop → landscape poster → poster, with a two-gradient scrim; the wordmark/logo over it, else the name in display serif |
-| Continue watching | 16:9 backdrop → landscape poster → 16:9 plate |
-| Episode row | 16:9 still → plate with `S#E#` and the name |
-| Remote plate | the Continue watching entry's backdrop → landscape poster → 2:3 poster beside the title → plate |
+| Hero, Title page | backdrop, under a left and a bottom scrim → landscape poster → the name in Screen title type over canvas |
+| Logo | the Title's logo, fitted in its box and anchored bottom-left → the name in type |
+| Poster card | poster → the name centred on surface-2 |
+| Wide card | backdrop with logo → episode still → surface-2 with the name |
+| Episode card and row | still → surface-2 with S#E# and the name |
+| Remote | the Title's poster beside its name; the ambient background is the backdrop at 14% |
 
-Art is never framed, never rounded, never cropped from 2:3 to 16:9 (a poster
-fills a 2:3 slot or becomes the plate), and never replaced by a flat panel when a
-backdrop is missing — the plate is typographic and intentional.
+A **near-black logo** is drawn white so it reads on the dark canvas. A logo is
+never stretched, and art is cropped to cover its box from the centre. A scrim is
+canvas fading to clear: from the left at 94% for text over art, and from the bottom
+at 100% where rows start.
 
-Marks, all stamped rather than spoken:
+Marks:
 
-- **Year**: a small mono stamp beside the name.
-- **IMDb**: over the poster's art, bottom right, only when the Host carries a
-  rating; never a second row of facts.
-- **Unmapped**: the brass stamp on the Title page — *Unmapped — no TMDB record
-  met this Title, so it is keyed by its Addon* — a mark, not an error.
-- **Unplayable**: a status-red outlined stamp on a card or candidate; it still
-  opens and the Streams list still shows what exists. The exception is a
-  Library entry whose Addon is gone: no Addon can be asked for its Title, so it
-  keeps its picture and stamp and is not a control.
-- **Continue**: a Library item the Stremio account left part-way carries a mono
-  `Continue` stamp on the art. It is the account's own position, not Continue
-  watching and not a progress bar.
-- **Quality / source**: the Addon's own badge lines verbatim, first line as the
-  source, the rest as marks; never re-worded, re-ranked or hidden.
-- **Waiting**: a quiet mono line (`Waiting for the Host…` after 150ms), never a
-  spinner on a control that can still be read.
+- **IMDb**: the yellow badge and the rating in the meta line, only when the Host
+  carries a rating.
+- **Watched**: a green check on an ink disc. **Progress**: a lavender bar on a 28%
+  white track.
+- **UP NEXT**: the accent badge on a wide card.
+- **Quality and source**: the Addon's own words, verbatim, as the stream row's
+  name and marks; never re-worded or re-ranked.
+- **Failure**: the danger tint, the warning icon and the Host's reason verbatim
+  (`addon_unreachable`).
+- **Waiting**: the spinner only where something is Stalled; a Stream that is
+  opening shows its logo filling in.
 
 ## 10. Copy voice
 
 Two vocabularies, and they do not mix:
 
-- **Host words stay on functional controls**: Streams, Addons, Library, Catalog,
-  Continue watching, Settings, Pairing code, Watch progress. A control never
-  renames a Host concept into cinema language.
-- **The cinema voice lives in the programme**: Home's section heads and kicker,
-  the destination heads, empty states, waits and descriptive lines.
+- **Host words stay on controls and heads**: Streams, Addons, Library, Catalog,
+  Continue watching, Settings, Pairing code, Up next, Autoplay. A control never
+  renames a Host concept.
+- **Everything else is plain, present tense and short**: *Nothing in your Library
+  yet*, *Discover needs a TMDB key*, *Up and down to move · OK to place*. No
+  exclamation marks, and no second sentence that repeats the first. A head is a
+  name, not a sentence.
 
-The voice is plain, present tense, and short: *Tonight's feature*; *Nothing is
-screening tonight.*; *Add an Addon to open the programme.*; *The room is empty
-until an Addon is configured.* No exclamation marks, no faux-projectionist
-whimsy, no adjective stacking, and no second sentence that repeats the first.
-A section head is a name, not a sentence.
-
-Errors are the exception to the voice: they quote the Host's own vocabulary and
-the Action's refusal verbatim (`no_previous_episode`, `invalid_position`,
-`unknown_addon`) and add at most one line saying what the person can do. A
-client-side transport failure is named in the client's own words (`unreachable`)
-and is never dressed as a Host refusal. An error is never dressed in cinema
-language and never softened into an empty state. Destructive dialogs state the
-consequence in the Host's own words.
+Errors quote the Host's own words and the Action's refusal verbatim, and add at
+most one line saying what the person can do. A confirmation names the thing and
+states the consequence in the Host's words (*The device's token stops working
+immediately. Every other paired device keeps working.*).
 
 ## 11. The Remote
 
-The Remote is the same cinema, held in a hand: the same palette, families,
-icons and marks, with its own **hand scale**.
+The same palette, family, icons, marks and focus rules, at hand scale, on a
+390×844 phone with a 16px gutter.
 
-| Token | Value | Role |
-|---|---:|---|
-| `--rep-remote-text-hero` | 2.25rem | the plate's Title |
-| `--rep-remote-text-title` | 1.75rem | a pushed level's name |
-| `--rep-remote-text-section` | 1.25rem | a section head |
-| `--rep-remote-text-body` | 0.95rem | body and descriptions |
-| `--rep-remote-text-caption` | 0.8125rem | captions |
-| `--rep-remote-text-control` | 0.9375rem | controls and labels |
-| `--rep-remote-text-mono` | 0.75rem | bookkeeping |
-| `--rep-remote-text-badge` | 0.6875rem | stamps |
-| `--rep-remote-touch` | 2.75rem | the minimum target (44px) |
-| `--rep-remote-nav` | 4.25rem | the bottom index |
-| `--rep-remote-strip` | 4.5rem | the docked strip |
-| `--rep-remote-gutter` | 1.125rem | the page gutter |
+| Role | Value |
+|---|---|
+| Minimum target | 44px |
+| Tab bar | 64px of items over a 34px home-indicator inset; six items of 65px, glyph 24, label 11/600–800 |
+| Now-playing strip | 64px, 8px from the edges, radius 16, glass; the Title's poster (36×54), name, time left, −10s and play/pause, and a lavender progress line on its bottom edge |
+| Large header | 28/800 name, 13 subtitle |
+| Level header | back, the name 17/800, a subtitle 12 |
+| Row head | 20/800 |
+| Body | 14–15, line 20 |
+| Caption | 12–13 |
+| Poster | 116×174, radius 12, in three columns 5px apart |
+| Wide card | 264×149, radius 14 |
+| Bottom sheet | radius 28, a grabber, the title 22/800 and close |
 
-**Feature / Remote hero.** The Remote's Feature is the window's, at hand scale:
-the same 16:9 frame (one size for every slide, the art cropped to cover it), the
-two-gradient scrim, the display-serif Title, one line of facts, the clamped
-description, the **Open the Title** action, and the programme's ticks under the
-frame. Its steering is the one core seam the window reads — Left/Right, a
-horizontal swipe, a tick jump, a hold, and a restart on any of them — and the
-kicker and `01 / 04` position are gone, because the ticks say where the
-programme is (ADR-0036 §2; owner's by-hand review on PR #261).
-
-**Title / Remote Title.** The Remote's Title is one page under the fixed Back:
-a phone cannot hold the copy and the episode list side by side, so the whole
-body — the wordmark or name, the facts, the description, the attribution, the
-seasons, the episodes and **Find Streams** — is the one scrollport. The seasons
-stay a single row that slides sideways and never gives up its height; the
-episode list is normal flow, never a second scrollport, so every episode and
-Find Streams are reached by scrolling the body. The window's Title keeps its
-fitted two-column page, with the episode rail as its panel (ADR-0036 §3,
-amended 2026-11-07; owner's report on the served Remote).
-
-Ink, ivory, brass, hairlines and the same display/interface/mono roles. Touch
-first: 44px targets (40px chips), safe-area insets, never hover as the only cue;
-keyboard focus keeps the ivory keyline for a Remote driven by a keyboard, and a
-finger gets the pressed ink step. The bottom index is the six destinations with
-a 2px brass keyline on the active one. The docked strip is a full-width band
-above the index (still, Title/episode, progress hairline, −10s, play/pause) and
-reserves its height; on the player screen itself it steps aside, and the card
-and the index are the whole dock (ADR-0036 §4). The expanded card is the
-programme card: the backdrop between hairlines, the Title, the timeline, the
-six-cell transport, the always-visible volume box, and the five-menu row (Audio,
-Episodes, Speed, Chapters, Picture) opening one shared drawer. **Remote devices
-is a Settings leaf**, not a seventh destination.
-
-The hand scale is locked as measured; one tuning pass on a real handset is
-allowed in the Remote's build ticket (#159), and it changes values, not roles.
+- **The Home hero** fills the top 520px: the backdrop, the logo centred, the facts,
+  Watch now and Details, and the ticks. It rotates and swipes. With no focus to
+  follow, it has no following mode.
+- **The remote** fills the screen when the strip is pressed. It has collapse and
+  stop, and *Playing on the Host*. The Title's poster (148×222) sits beside its
+  name, the episode in lavender and its description. Under them come the Stream's
+  marks, the seek bar, the transport (previous episode, −10s, play/pause in
+  lavender at 80px, +10s, next episode), the volume box, seven menus (Subtitles,
+  Picture, Streams, Episodes, Speed, Chapters, Details) that open one bottom sheet,
+  and the Autoplay switch.
+- **Lists** use the phone's rows: stream rows 358×112, episode rows with the
+  still, the description under it, and Settings and Addon rows of 60–76px. Addons
+  has an **Edit** mode with remove (red minus) and drag handles.
+- **Pairing** is a screen of its own: the mark, *Pair with your Host*, six code
+  cells, the Host's address and Pair.
+- **Remote devices** is a Settings leaf, not a seventh destination.
 
 ## 12. What is provisional, and where it is judged
 
-The system is locked. Five things are allowed to move, each once, each with the
-measurement written back here:
+Each of these may move once, with the measurement written back here:
 
-- **The brass** — `#c9a45c` is locked, but if the Windows panel reads it as
-  orange rather than gold, one correction is allowed and `tokens.test.ts` is
-  re-measured. Judged in the owner's Windows walkthrough.
-- **The hand scale** — the values above, tuned once on a real handset in #159.
-- **The spring durations** — `visualDuration` 0.24/0.14 may be tuned once
-  against the real panel; the vocabulary, the bounce and the shapes do not
-  change. #153 landed the recorded values; the panel judgment remains.
-- **The opacities over a picture** — the OSD scrims, the badge fill, the popover
-  plate and the preview plate are judged over a bright film on the panel, and
-  only their alpha values may move.
-- **Crops on unusual aspect ratios** — the feature's backdrop crop at 21:9 and
-  4:3, and the popover's clearance at a short window height. Judged in the
-  window, then written here.
-
-The rehearsal bar, the sample tracks and statistics, the ticking clock, the
-sample pairing devices and the practice Library account live only behind the
-dev-only `VITE_UI=rehearsal` mount (`RehearsalEntry`) and are never compiled
-into the shipping window (`RepertoryEntry`) or the served Remote.
+- **The lavender on the panel.** `#C4A7E7` may read greyer or pinker on the
+  Windows panel than on the mockup. One correction is allowed, judged in the
+  owner's Windows walkthrough.
+- **The glass.** The blur's cost in WebView2 over a playing picture, and the
+  panels' opacity (88–97%). If the blur is too expensive, a panel becomes
+  opaque surface; its shape stays.
+- **The focus scale.** 8%, 7% and 6%, judged at ten feet on the panel.
+- **The opacities over a picture.** The OSD scrims, the dims (30–60%) and the
+  ambient background on the phone, judged over a bright film.
+- **The reference frame.** How the 1920×1080 values scale to the window's real
+  size, decided by the token ticket.
 
 ## 13. What this record does not decide
 
 - **Behaviour**: Actions, Snapshots, the focus model, the level stack, the Back
-  order, auto-hide and the Remote flow. Frozen by the map and owned by
-  `CONTEXT.md` and the ADRs.
-- **The entry points**: the window mounts `RepertoryEntry` by default and
-  reserves `VITE_UI=rehearsal` for the dev-only rehearsal mount; the served
-  Remote serves the React Remote built from `remote.html` at `/` (ADR-0035).
-- **The tests**: the presentation locks (`tokens.test.ts` and `frame.test.tsx`)
-  and the behaviour suites are governed by ADR-0032 (#151).
-- **The motion layer's code**: the `motion` dependency and its presets landed in
-  #153; the hand-written page's vendored bundle (#159) is deleted at the cutover
-  (ADR-0035 §4).
-- **The Windows walkthrough**: `verify.ps1` is not redesigned; the owner verifies
-  the window by hand.
-- **Anything the Host says**: this record draws the Host's vocabulary; it never
+  order, auto-hide and the Remote flow. ADR-0043 §4 lists what the drawing asks
+  for beyond today; each item is its own ticket, reasoned against `CONTEXT.md`.
+- **The tests**: the presentation locks and the behaviour suites stay governed by
+  ADR-0032.
+- **The cutover**: Marquee is built on `integration/marquee` and reaches `main`
+  whole, after the owner's walkthrough of the Windows build; until then `main`
+  draws Repertory.
+- **Anything the Host says**: this record draws the Host's vocabulary and never
   invents a word for a Host concept.
