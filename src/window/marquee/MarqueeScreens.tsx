@@ -3,6 +3,13 @@ import type { Destination } from "../navigation";
 import { MarqueeAddons } from "./MarqueeAddons";
 import { MarqueeHome } from "./MarqueeHome";
 import { MarqueeSettings } from "./MarqueeSettings";
+export { MarqueeStreamsLoader, MarqueeStreamsScreen } from "./MarqueeStreams";
+export {
+  MarqueeTitleLoading,
+  MarqueeTitleScreen,
+  marqueeTitleLevelOf,
+  useMarqueeTitleOpener,
+} from "./MarqueeTitle";
 
 function MarqueePlaceholder({ destination }: { destination: Exclude<Destination, "home"> }) {
   const title = destinationLabel(destination);

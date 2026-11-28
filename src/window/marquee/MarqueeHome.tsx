@@ -62,7 +62,7 @@ import { useShell } from "../context";
 import { FOCUSABLE } from "../layout";
 import { useLookHints } from "../repertory/lookHint";
 import { focusAndReveal } from "../reveal";
-import { useTitleOpener } from "../TitleScreen";
+import { useMarqueeTitleOpener as useTitleOpener } from "./MarqueeScreens";
 import {
   clampRowsScrollTop,
   followingRowsViewportHeight,
