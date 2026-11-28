@@ -6,17 +6,22 @@ import {
 } from "react";
 
 import { keyOf } from "../../core/browse";
-import { blankFeed, feedMore, feedState } from "../../core/discover";
+import { blankFeed, feedState } from "../../core/discover";
 import { explain } from "../../core/errors";
+import type { FeedSnapshot } from "../../core/feedStore";
 import { addonLabel } from "../../core/home";
+import { marqueeTmdbUnplayable } from "../../core/marqueeDiscover";
 import {
   marqueeSearchPlan,
+  searchCanReadOn,
   searchCatalogRowNote,
+  searchCatalogRowTitles,
   searchNoCatalogsNote,
   searchPromptCopy,
   searchTmdbRowNote,
 } from "../../core/marqueeSearch";
 import { queryOf, searchFeedKey, type SearchKind } from "../../core/search";
+import type { MetaPreview } from "../../core/wire";
 import { AddonNotice } from "../../kit/marquee/AddonNotice";
 import { Button } from "../../kit/marquee/Button";
 import { EmptyState } from "../../kit/marquee/EmptyState";
@@ -38,7 +43,7 @@ import "./browse.css";
  */
 export function MarqueeSearch() {
   const preview = usePreviewData();
-  const { snapshot, session } = useShell();
+  const { snapshot, session, unplayable } = useShell();
   const { openTitle, openDiscoveredTitle } = useTitleOpener();
   const look = useLookHints();
 
@@ -93,6 +98,7 @@ export function MarqueeSearch() {
 
   const answer = committed === null ? null : catalogAnswers.answers.get(committed);
   const catalogRows = answer?.rows ?? null;
+  const catalogTitles = searchCatalogRowTitles(catalogRows ?? []);
   const catalogFailure = answer?.failure ?? null;
   const catalogLoading =
     committed !== null && catalogAnswers.reading.has(committed);
@@ -171,10 +177,11 @@ export function MarqueeSearch() {
                     </div>
                   ) : null}
 
-                  {catalogRows?.map((row) => {
+                  {catalogRows?.map((row, index) => {
                     const rowKey = keyOf(row);
                     const source = addonLabel(snapshot, row.addon);
                     const note = searchCatalogRowNote(row, committed);
+                    const title = catalogTitles[index] ?? row.name;
                     return (
                       <section
                         key={rowKey}
@@ -182,10 +189,10 @@ export function MarqueeSearch() {
                         data-testid={`search-row-${rowKey}`}
                         data-region={`search-row:${rowKey}`}
                         data-kind="row"
-                        data-label={`${row.name} (${source})`}
+                        data-label={`${title} (${source})`}
                       >
                         <div className="mq-search-row-head">
-                          <RowHeader title={row.name} source={source} />
+                          <RowHeader title={title} source={source} />
                         </div>
 
                         {row.metas.length > 0 ? (
@@ -205,6 +212,7 @@ export function MarqueeSearch() {
                                   watched={watchedFilmKeys.has(
                                     `${meta.type}:${meta.id}`,
                                   )}
+                                  unplayable={unplayable.has(meta.id)}
                                   onClick={() => openTitle(row.addon, meta)}
                                 />
                               </li>
@@ -254,6 +262,9 @@ export function MarqueeSearch() {
                         feedKey={searchFeedKey(committed, kind)}
                         feeds={feeds}
                         watchedFilmKeys={watchedFilmKeys}
+                        isUnplayable={(id) =>
+                          marqueeTmdbUnplayable(snapshot.addons, kind, unplayable, id)
+                        }
                         onMore={() => session.feeds.more(searchFeedKey(committed, kind))}
                         onOpen={(meta) => void openDiscoveredTitle(meta)}
                         look={look}
@@ -276,6 +287,7 @@ function TmdbSearchRow({
   feedKey,
   feeds,
   watchedFilmKeys,
+  isUnplayable,
   onMore,
   onOpen,
   look,
@@ -283,12 +295,11 @@ function TmdbSearchRow({
   kind: SearchKind;
   query: string;
   feedKey: string;
-  feeds: ReturnType<typeof useShell>["session"]["feeds"]["getSnapshot"] extends () => infer S
-    ? S
-    : never;
+  feeds: FeedSnapshot;
   watchedFilmKeys: ReadonlySet<string>;
+  isUnplayable: (id: string) => boolean;
   onMore: () => void;
-  onOpen: (meta: Parameters<ReturnType<typeof useTitleOpener>["openDiscoveredTitle"]>[0]) => void;
+  onOpen: (meta: MetaPreview) => void;
   look: ReturnType<typeof useLookHints>;
 }) {
   const feed = feeds.rows.get(feedKey) ?? blankFeed();
@@ -296,7 +307,7 @@ function TmdbSearchRow({
   const state = feedState(feed, loading);
   const note = searchTmdbRowNote(feed, state, kind, query);
   const title = kind === "movie" ? "Movies" : "Series";
-  const canMore = feedMore(feed) && !loading && !feed.failure && feed.items.length > 0;
+  const readOn = searchCanReadOn(feed);
 
   return (
     <section
@@ -308,14 +319,9 @@ function TmdbSearchRow({
     >
       <div className="mq-search-row-head">
         <RowHeader title={title} source="TMDB" />
-        {canMore ? (
-          <Button kind="ghost" size="md" onClick={onMore}>
-            Read on
-          </Button>
-        ) : null}
       </div>
 
-      {feed.items.length > 0 ? (
+      {feed.items.length > 0 || readOn ? (
         <ul className="mq-browse-track mq-browse-track--poster">
           {feed.items.map((meta) => (
             <li key={meta.id} className="mq-browse-track-item">
@@ -330,10 +336,25 @@ function TmdbSearchRow({
                 name={meta.name}
                 poster={meta.poster}
                 watched={watchedFilmKeys.has(`${meta.type}:${meta.id}`)}
+                unplayable={isUnplayable(meta.id)}
                 onClick={() => onOpen(meta)}
               />
             </li>
           ))}
+          {readOn ? (
+            // Last in the track, so the D-pad meets the posters first; it stays
+            // while reading, so the focus on it has somewhere to be.
+            <li key="read-on" className="mq-browse-track-item mq-search-read-on">
+              <Button
+                kind="ghost"
+                size="md"
+                aria-disabled={loading || undefined}
+                onClick={onMore}
+              >
+                Read on
+              </Button>
+            </li>
+          ) : null}
         </ul>
       ) : null}
 

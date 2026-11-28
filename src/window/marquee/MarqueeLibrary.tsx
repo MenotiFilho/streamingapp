@@ -288,11 +288,11 @@ function LibraryRoom() {
                     })}
                     className="mq-browse-card"
                     data-testid={`library-card-${entry.id}`}
-                    data-unplayable={!playable ? "true" : undefined}
                     name={entry.name}
                     poster={entry.poster}
                     watched={watched}
                     progress={progress}
+                    unplayable={!playable}
                     disabled={!playable}
                     onClick={playable ? () => openTitle(addon.id, preview) : undefined}
                   />

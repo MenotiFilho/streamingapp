@@ -1,14 +1,15 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MotionGlobalConfig } from "motion/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { HomeStore } from "../../core/homeStore";
 import type { Intent } from "../../core/input";
 import { Session } from "../../core/session";
-import type { Action, MetaPreview, Snapshot } from "../../core/wire";
+import type { Action, AddonManifest, MetaPreview, Snapshot } from "../../core/wire";
 import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContextValue } from "../context";
 import { PreviewDataProvider } from "../repertory/context";
 import { MarqueeDiscover } from "./MarqueeDiscover";
+import { MarqueeEntry } from "./MarqueeEntry";
 import { MarqueeDestinationScreen } from "./MarqueeScreens";
 
 let previousSkipAnimations: boolean | undefined;
@@ -25,7 +26,31 @@ afterAll(() => {
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  Reflect.deleteProperty(navigator, "getGamepads");
 });
+
+/** A standard-mapping pad jsdom's `useGamepad` can poll, with every button up. */
+function fakePad() {
+  const buttons = Array.from({ length: 16 }, () => ({ pressed: false }));
+  const pad = { connected: true, mapping: "standard", buttons, axes: [] as number[] };
+  Object.defineProperty(navigator, "getGamepads", {
+    configurable: true,
+    value: () => [pad],
+  });
+  return buttons;
+}
+
+const STREAMER: AddonManifest = {
+  id: "streamer",
+  name: "Streamer",
+  version: "1.0.0",
+  resources: [{ name: "stream", types: ["movie", "series"], idPrefixes: ["tt"] }],
+  types: ["movie", "series"],
+  catalogs: [],
+  idPrefixes: ["tt"],
+  behaviorHints: { configurable: false, configurationRequired: false },
+  enabled: true,
+};
 
 const BASE_SNAPSHOT: Snapshot = {
   revision: 1,
@@ -103,11 +128,16 @@ function renderDiscover({
   ask,
   preview = false,
   node = <MarqueeDiscover />,
+  unplayable = new Set<string>(),
+  session: held,
 }: {
   snapshot?: Snapshot | null;
   ask?: (action: Action) => Promise<ActionOutcome>;
   preview?: boolean;
   node?: React.ReactNode;
+  unplayable?: ReadonlySet<string>;
+  /** A Session from an earlier render, as the shell keeps across destinations. */
+  session?: Session;
 } = {}) {
   const pushed: NewShellLevel[] = [];
   const choose = vi.fn();
@@ -168,15 +198,16 @@ function renderDiscover({
       askMock,
     ),
   }) as Session;
+  const shared = held ?? wrappedSession;
 
   const value: ShellContextValue = {
-    session: wrappedSession,
+    session: shared,
     snapshot,
     error: null,
     destination: "discover",
     chosenDestination: true,
     popover: null,
-    unplayable: new Set(),
+    unplayable,
     pending: new Set(),
     markUnplayable: vi.fn(),
     choose,
@@ -203,13 +234,17 @@ function renderDiscover({
     }),
   };
 
-  render(
+  const tree = (next: Snapshot | null) => (
     <PreviewDataProvider value={preview}>
-      <ShellContext.Provider value={value}>{node}</ShellContext.Provider>
-    </PreviewDataProvider>,
+      <ShellContext.Provider value={{ ...value, snapshot: next }}>{node}</ShellContext.Provider>
+    </PreviewDataProvider>
   );
+  const view = render(tree(snapshot));
 
   return {
+    session: shared,
+    unmount: view.unmount,
+    rerender: (next: Snapshot | null) => view.rerender(tree(next)),
     askMock,
     choose,
     pushed,
@@ -288,7 +323,7 @@ describe("Marquee Discover boundary contracts", () => {
     expect(screen.getByRole("button", { name: "Genre: All genres" })).toBeInTheDocument();
   });
 
-  it("closes an open dropdown menu on Escape and returns focus to its pill", async () => {
+  it("closes an open dropdown menu on Back and returns focus to its pill", async () => {
     const { sendIntent } = renderDiscover();
     await screen.findByTestId("discover-card-tmdb:603");
 
@@ -303,11 +338,128 @@ describe("Marquee Discover boundary contracts", () => {
     expect(document.activeElement).toBe(screen.getByRole("option", { name: "Action" }));
 
     act(() => {
-      fireEvent.keyDown(document, { key: "Escape" });
+      expect(sendIntent("back")).toBe(true);
     });
 
     await waitFor(() => expect(screen.queryByRole("listbox")).not.toBeInTheDocument());
     expect(document.activeElement).toBe(genreTrigger);
+    // With no menu down, Back is the shell's.
+    expect(sendIntent("back")).toBe(false);
+  });
+
+  it("stays on Discover when the pad's Back closes an open menu", async () => {
+    const buttons = fakePad();
+    const snapshot = BASE_SNAPSHOT;
+    render(
+      <MarqueeEntry
+        client={{
+          state: () => ({ kind: "ready", device: null }),
+          onState: () => () => undefined,
+          onSnapshot: () => () => undefined,
+          onRevision: () => () => undefined,
+          snapshot: async () => snapshot,
+          dispatch: async (action) =>
+            action.type === "discover"
+              ? discoverOutcome(action.kind, [meta("tmdb:603", "The Matrix")]).response!
+              : { snapshots: [], answer: null },
+          close: () => undefined,
+        }}
+      />,
+    );
+
+    const nav = screen.getByRole("navigation", { name: "Destinations" });
+    fireEvent.click(within(nav).getByRole("button", { name: "Discover" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Genre: All genres" }));
+    expect(screen.getByRole("listbox", { name: "Genre" })).toBeInTheDocument();
+
+    buttons[1]!.pressed = true;
+
+    await waitFor(() => expect(screen.queryByRole("listbox")).not.toBeInTheDocument());
+    expect(screen.getByTestId("discover-screen")).toBeInTheDocument();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Genre: All genres" }),
+    );
+  });
+
+  it("marks a card no Addon could play, or this client learned is unplayable, and still opens it", async () => {
+    const { take } = renderDiscover();
+    const unservable = await screen.findByRole("button", { name: "The Matrix, Unplayable" });
+    fireEvent.click(unservable);
+    await waitFor(() =>
+      expect(take).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "open_discovered_title" }),
+      ),
+    );
+    cleanup();
+
+    const servable = { ...BASE_SNAPSHOT, addons: [STREAMER] };
+    renderDiscover({ snapshot: servable });
+    expect(await screen.findByRole("button", { name: "The Matrix" })).toBeInTheDocument();
+    cleanup();
+
+    renderDiscover({ snapshot: servable, unplayable: new Set(["tmdb:603"]) });
+    expect(
+      await screen.findByRole("button", { name: "The Matrix, Unplayable" }),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps Type, Genre and Sort in the Session across destination changes", async () => {
+    const first = renderDiscover();
+    await screen.findByTestId("discover-card-tmdb:603");
+    fireEvent.click(screen.getByRole("button", { name: "Type: Movies" }));
+    fireEvent.click(screen.getByRole("option", { name: "Series" }));
+    fireEvent.click(screen.getByRole("button", { name: "Genre: All genres" }));
+    fireEvent.click(screen.getByRole("option", { name: "Kids" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sort: Most popular" }));
+    fireEvent.click(screen.getByRole("option", { name: "Newest" }));
+    await screen.findByTestId("discover-card-tmdb:1396");
+    first.unmount();
+
+    renderDiscover({ session: first.session });
+
+    expect(screen.getByRole("button", { name: "Type: Series" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Genre: Kids" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sort: Newest" })).toBeInTheDocument();
+    expect(screen.getByTestId("discover-card-tmdb:1396")).toBeInTheDocument();
+  });
+
+  it("offers Read on when a page brought no readable card", async () => {
+    const { actions } = renderDiscover({
+      ask: async (action) => {
+        if (action.type === "discover" && action.page === 1) {
+          return {
+            response: {
+              snapshots: [],
+              answer: { discover: [{ type: "movie", sent: 20, metas: [], failure: null }] },
+            },
+            error: null,
+          };
+        }
+        return discoverOutcome("movie", [meta("tmdb:603", "The Matrix")]);
+      },
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Read on" }));
+
+    expect(await screen.findByTestId("discover-card-tmdb:603")).toBeInTheDocument();
+    expect(actions()).toContainEqual(expect.objectContaining({ type: "discover", page: 2 }));
+  });
+
+  it("pages on from focus when the grid arrives after the screen mounted", async () => {
+    // Every card sits far below the fold, so only the focus listener can ask.
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      bottom: 100_000,
+    } as DOMRect);
+    const { actions, rerender } = renderDiscover({ snapshot: null });
+    rerender(BASE_SNAPSHOT);
+    const card = await screen.findByTestId("discover-card-tmdb:603");
+    expect(actions()).toHaveLength(1);
+
+    act(() => card.focus());
+
+    await waitFor(() =>
+      expect(actions()).toContainEqual(expect.objectContaining({ type: "discover", page: 2 })),
+    );
   });
 
   it("shows the no-TMDB-key state and opens Settings without asking Discover", () => {

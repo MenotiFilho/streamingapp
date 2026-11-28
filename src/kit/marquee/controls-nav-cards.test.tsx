@@ -255,6 +255,16 @@ describe("cards", () => {
     expect(onClick).toHaveBeenCalledOnce();
   });
 
+  it("marks an unplayable poster in words and in its name, and still lets it be pressed", () => {
+    const onClick = vi.fn();
+    render(<Poster name="Dune" unplayable onClick={onClick} />);
+
+    const card = screen.getByRole("button", { name: "Dune, Unplayable" });
+    expect(screen.getByText("UNPLAYABLE")).toBeInTheDocument();
+    fireEvent.click(card);
+    expect(onClick).toHaveBeenCalledTimes(1);
+  });
+
   it("draws no progress without a reading", () => {
     render(<Poster name="Dune" />);
 

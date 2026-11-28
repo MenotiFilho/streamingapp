@@ -10,6 +10,7 @@
 
 import {
   MOVIE,
+  discoverPlayable,
   genresOf,
   type DiscoverFeed,
   type DiscoverKind,
@@ -17,7 +18,7 @@ import {
   type FeedState,
 } from "./discover";
 import { SERIES } from "./title";
-import type { Action } from "./wire";
+import type { Action, AddonManifest } from "./wire";
 
 export type DiscoverTypeOption = {
   id: DiscoverKind;
@@ -261,7 +262,46 @@ export function discoverEmptyCopy(genre: DiscoverGenreOption): {
   };
 }
 
-/** Whether a Discover feed has an initial load in progress before any items exist. */
-export function discoverInitialLoading(feed: DiscoverFeed, state: FeedState): boolean {
-  return feed.items.length === 0 && state === "reading";
+/** What the grid under the filters draws; a failure's notice is drawn beside it. */
+export type DiscoverGridBody = "cards" | "loading" | "empty" | "read-on" | "none";
+
+/**
+ * Nothing is "empty" until the feed says so: before the first read there is
+ * nothing to draw. A page that answered with no readable card leaves a feed that
+ * can still page on, with no card for the grid's own paging to approach.
+ */
+export function discoverGridBody(feed: DiscoverFeed, state: FeedState): DiscoverGridBody {
+  if (feed.items.length > 0) {
+    return "cards";
+  }
+  if (state === "reading") {
+    return "loading";
+  }
+  if (state === "empty") {
+    return "empty";
+  }
+  return !feed.failure && feed.page > 0 && !feed.done ? "read-on" : "none";
+}
+
+/** Copy for a page that answered with nothing the Host could read. */
+export function discoverReadOnCopy(): { title: string; body: string; actionLabel: string } {
+  return {
+    title: "Nothing to show yet",
+    body: "This page held no titles the Host could read.",
+    actionLabel: "Read on",
+  };
+}
+
+/**
+ * The unplayable mark of a TMDB card (ADR-0020): no configured Addon could ever
+ * answer for its kind, or this client learned that none did. `addons` is `null`
+ * before the Host's first Snapshot, which says nothing about the Addons.
+ */
+export function marqueeTmdbUnplayable(
+  addons: readonly AddonManifest[] | null,
+  kind: DiscoverKind,
+  learned: ReadonlySet<string>,
+  id: string,
+): boolean {
+  return (addons !== null && !discoverPlayable(addons, kind)) || learned.has(id);
 }

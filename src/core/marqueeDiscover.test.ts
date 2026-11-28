@@ -7,13 +7,15 @@ import {
   INITIAL_DISCOVER_FILTERS,
   discoverEmptyCopy,
   discoverGenreOptions,
-  discoverInitialLoading,
+  discoverGridBody,
   discoverNoKeyCopy,
   discoverSortOptions,
   marqueeDiscoverFeedKey,
   marqueeDiscoverRead,
+  marqueeTmdbUnplayable,
   reconcileDiscoverFilters,
 } from "./marqueeDiscover";
+import type { AddonManifest } from "./wire";
 
 describe("Marquee Discover types, genres, and sorts", () => {
   test("offers single-kind Type choices: Movies then Series", () => {
@@ -221,7 +223,56 @@ describe("Marquee Discover Actions and feed keys", () => {
     expect(
       discoverEmptyCopy({ id: "27", label: "Horror", tmdbId: 27, previewName: null }).title,
     ).toBe("Nothing in Horror");
-    expect(discoverInitialLoading(blankFeed(), "reading")).toBe(true);
-    expect(discoverInitialLoading(blankFeed(), "empty")).toBe(false);
+  });
+});
+
+const STREAMER: AddonManifest = {
+  id: "streamer",
+  name: "Streamer",
+  version: "1.0.0",
+  resources: [{ name: "stream", types: ["movie"], idPrefixes: ["tt"] }],
+  types: ["movie"],
+  catalogs: [],
+  idPrefixes: ["tt"],
+  behaviorHints: { configurable: false, configurationRequired: false },
+  enabled: true,
+};
+
+describe("Marquee unplayable marks (ADR-0020)", () => {
+  test("marks a TMDB card when no Addon could play its kind", () => {
+    expect(marqueeTmdbUnplayable([], "movie", new Set(), "tmdb:603")).toBe(true);
+    expect(marqueeTmdbUnplayable([STREAMER], "movie", new Set(), "tmdb:603")).toBe(false);
+    expect(marqueeTmdbUnplayable([STREAMER], "series", new Set(), "tmdb:1396")).toBe(true);
+  });
+
+  test("marks a TMDB card this client learned is unplayable, and waits for the Addons", () => {
+    expect(
+      marqueeTmdbUnplayable([STREAMER], "movie", new Set(["tmdb:603"]), "tmdb:603"),
+    ).toBe(true);
+    expect(marqueeTmdbUnplayable(null, "movie", new Set(), "tmdb:603")).toBe(false);
+  });
+});
+
+describe("Marquee Discover grid body", () => {
+  const read = { ...blankFeed(), page: 1 };
+
+  test("draws nothing before the first read, and a spinner while it runs", () => {
+    expect(discoverGridBody(blankFeed(), "ready")).toBe("none");
+    expect(discoverGridBody(blankFeed(), "reading")).toBe("loading");
+  });
+
+  test("says the feed is empty only when it ended without a card", () => {
+    expect(discoverGridBody({ ...read, done: true }, "empty")).toBe("empty");
+  });
+
+  test("offers Read on when an unfinished page brought no readable card, reading or not", () => {
+    expect(discoverGridBody(read, "ready")).toBe("read-on");
+    expect(discoverGridBody(read, "reading-more")).toBe("read-on");
+  });
+
+  test("leaves a failure to its notice", () => {
+    expect(
+      discoverGridBody({ ...blankFeed(), failure: { kind: "tmdb", detail: "503" } }, "failed"),
+    ).toBe("none");
   });
 });

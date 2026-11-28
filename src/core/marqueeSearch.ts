@@ -7,7 +7,7 @@
  * Framework-free (`src/core` per ADR-0035 §1, ADR-0032).
  */
 
-import type { DiscoverFeed, FeedState } from "./discover";
+import { feedMore, type DiscoverFeed, type FeedState } from "./discover";
 import { SEARCH_KINDS, searchReads, type SearchFeedRead, type SearchKind } from "./search";
 import type { CatalogRow } from "./wire";
 
@@ -38,6 +38,37 @@ function catalogKindWord(type: string): string {
     return "movies";
   }
   return "titles";
+}
+
+function kindTitle(type: string): string {
+  const known = SEARCH_KINDS.find((entry) => entry.kind === type)?.label;
+  return known ?? `${type.charAt(0).toUpperCase()}${type.slice(1)}`;
+}
+
+/**
+ * The titles of the Addons' Catalog rows, in row order (`16.jpg`): the kind, as
+ * Cinemeta names its film and series Catalogs alike. The Catalog's name is added
+ * only where one Addon answers with two rows of one kind.
+ */
+export function searchCatalogRowTitles(rows: readonly CatalogRow[]): string[] {
+  const group = (row: CatalogRow) => JSON.stringify([row.addon, row.type]);
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    counts.set(group(row), (counts.get(group(row)) ?? 0) + 1);
+  }
+  return rows.map((row) =>
+    (counts.get(group(row)) ?? 0) > 1
+      ? `${kindTitle(row.type)} \u00b7 ${row.name}`
+      : kindTitle(row.type),
+  );
+}
+
+/**
+ * Whether a TMDB row offers **Read on**: it has a next page and no failure,
+ * which has its own retry. A page that brought nothing readable still pages on.
+ */
+export function searchCanReadOn(feed: DiscoverFeed): boolean {
+  return feedMore(feed) && !feed.failure;
 }
 
 /**

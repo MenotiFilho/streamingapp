@@ -671,7 +671,8 @@ html[data-input="navigation"] .mq-card:focus .mq-card-frame,
   text-align: left;
 }
 
-.mq-wide-card .mq-wide-card-badge {
+.mq-wide-card .mq-wide-card-badge,
+.mq-poster .mq-poster-badge {
   position: absolute;
   top: calc(var(--mq-u) * 14);
   left: calc(var(--mq-u) * 14);
@@ -680,7 +681,9 @@ html[data-input="navigation"] .mq-card:focus .mq-card-frame,
 .mq-wide-card[data-unplayable] .mq-card-art,
 .mq-wide-card[data-unplayable] .mq-wide-card-logo,
 .mq-wide-card[data-unplayable] .mq-wide-card-name,
-.mq-wide-card[data-unplayable] .mq-card-plate {
+.mq-wide-card[data-unplayable] .mq-card-plate,
+.mq-poster[data-unplayable] .mq-card-art,
+.mq-poster[data-unplayable] .mq-card-plate {
   opacity: 0.4;
 }
 

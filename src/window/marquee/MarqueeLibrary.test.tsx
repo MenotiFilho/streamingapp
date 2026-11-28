@@ -234,6 +234,7 @@ describe("Marquee Library boundary contracts", () => {
     // Unopenable card is disabled and sends nothing.
     const unopenable = screen.getByTestId("library-card-kitsu:123");
     expect(unopenable).toBeDisabled();
+    expect(unopenable).toHaveAccessibleName("Unopenable Anime, Unplayable");
     fireEvent.click(unopenable);
     expect(take).not.toHaveBeenCalled();
 

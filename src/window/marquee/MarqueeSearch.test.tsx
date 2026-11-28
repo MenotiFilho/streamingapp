@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MotionGlobalConfig } from "motion/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -8,6 +8,7 @@ import { HomeStore } from "../../core/homeStore";
 import { Session } from "../../core/session";
 import type { Action, AddonManifest, CatalogRow, MetaPreview, Snapshot } from "../../core/wire";
 import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContextValue } from "../context";
+import { readLevel } from "../layout";
 import { PreviewDataProvider } from "../repertory/context";
 import { MarqueeDestinationScreen } from "./MarqueeScreens";
 import { MarqueeSearch } from "./MarqueeSearch";
@@ -141,11 +142,13 @@ function renderSearch({
   ask,
   preview = false,
   node = <MarqueeSearch />,
+  unplayable = new Set<string>(),
 }: {
   snapshot?: Snapshot | null;
   ask?: (action: Action) => Promise<ActionOutcome>;
   preview?: boolean;
   node?: React.ReactNode;
+  unplayable?: ReadonlySet<string>;
 } = {}) {
   const pushed: NewShellLevel[] = [];
   const take = vi.fn(async (_action: Action) => null);
@@ -206,7 +209,7 @@ function renderSearch({
     destination: "search",
     chosenDestination: true,
     popover: null,
-    unplayable: new Set(),
+    unplayable,
     pending: new Set(),
     markUnplayable: vi.fn(),
     choose: vi.fn(),
@@ -226,13 +229,14 @@ function renderSearch({
     setBaseIntentHandler: vi.fn(() => () => {}),
   };
 
-  render(
+  const view = render(
     <PreviewDataProvider value={preview}>
       <ShellContext.Provider value={value}>{node}</ShellContext.Provider>
     </PreviewDataProvider>,
   );
 
   return {
+    container: view.container,
     askMock,
     take,
     actions: () => askMock.mock.calls.map(([action]) => action),
@@ -357,4 +361,110 @@ describe("Marquee Search boundary contracts", () => {
     fireEvent.click(within(catalogsFailure).getByRole("button", { name: "Search again" }));
     expect(await screen.findByTestId("search-card-cinemeta-tt1392170")).toBeInTheDocument();
   });
+
+  it("marks TMDB cards no Addon could play, and Addon cards only once learned unplayable", async () => {
+    renderSearch({ unplayable: new Set<string>() });
+    search("hunger games");
+
+    // CINEMETA declares no `stream` resource: nothing could play a TMDB Title.
+    expect(await screen.findByTestId("search-card-movie-tmdb:70160")).toHaveAccessibleName(
+      "The Hunger Games, Unplayable",
+    );
+    expect(await screen.findByTestId("search-card-cinemeta-tt1392170")).toHaveAccessibleName(
+      "The Hunger Games",
+    );
+    cleanup();
+
+    renderSearch({ unplayable: new Set(["tt1392170"]) });
+    search("hunger games");
+    expect(await screen.findByTestId("search-card-cinemeta-tt1392170")).toHaveAccessibleName(
+      "The Hunger Games, Unplayable",
+    );
+  });
+
+  it("titles two Catalogs of one name by their kinds", async () => {
+    renderSearch({
+      snapshot: snapshotWith(false),
+      ask: async () => ({
+        response: {
+          snapshots: [],
+          answer: {
+            catalogs: [
+              { ...MOVIE_CATALOG_ROW, name: "Popular" },
+              { ...EMPTY_SERIES_CATALOG_ROW, name: "Popular" },
+            ],
+          },
+        },
+        error: null,
+      }),
+    });
+    search("hunger games");
+
+    await screen.findByTestId("search-card-cinemeta-tt1392170");
+    expect(
+      screen.getAllByRole("heading", { level: 2 }).map((heading) => heading.textContent),
+    ).toEqual(["Movies", "Series"]);
+  });
+
+  it("keeps Read on after the posters, mounted while it reads, even past an unreadable page", async () => {
+    let release: (outcome: ActionOutcome) => void = () => undefined;
+    const page = (kind: string, metas: MetaPreview[]): ActionOutcome => ({
+      response: {
+        snapshots: [],
+        answer: { search: { type: kind, sent: 20, metas, failure: null } },
+      },
+      error: null,
+    });
+    const { container, actions } = renderSearch({
+      ask: async (action) => {
+        if (action.type !== "search") {
+          return { response: { snapshots: [], answer: { catalogs: [] } }, error: null };
+        }
+        if (action.page > 1) {
+          return new Promise<ActionOutcome>((resolve) => {
+            release = resolve;
+          });
+        }
+        return page(
+          action.kind,
+          action.kind === "movie" ? [meta("tmdb:70160", "The Hunger Games")] : [],
+        );
+      },
+    });
+    search("hunger games");
+    await screen.findByTestId("search-card-movie-tmdb:70160");
+
+    const order = (row: string) =>
+      readLevel(container, {}).elements[`search-row:${row}`]?.map(
+        (element) => element.getAttribute("data-testid") ?? element.textContent,
+      );
+    expect(order("movie")).toEqual(["search-card-movie-tmdb:70160", "Read on"]);
+    // A page with nothing readable still pages on.
+    expect(order("series")).toEqual(["Read on"]);
+
+    const readOn = within(screen.getByTestId("search-row-movie")).getByRole("button", {
+      name: "Read on",
+    });
+    act(() => readOn.focus());
+    fireEvent.click(readOn);
+    expect(readOn).toBeInTheDocument();
+    expect(document.activeElement).toBe(readOn);
+    fireEvent.click(readOn);
+    expect(
+      actions().filter((action) => action.type === "search" && action.page === 2),
+    ).toHaveLength(1);
+
+    await act(async () => release(page("movie", [meta("tmdb:101299", "Catching Fire")])));
+
+    expect(order("movie")).toEqual([
+      "search-card-movie-tmdb:70160",
+      "search-card-movie-tmdb:101299",
+      "Read on",
+    ]);
+  });
 });
+
+function search(query: string) {
+  fireEvent.change(screen.getByLabelText("Search for a Title"), { target: { value: query } });
+  fireEvent.submit(screen.getByRole("search", { name: "Search" }));
+}

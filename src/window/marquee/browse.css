@@ -16,13 +16,6 @@
   color: var(--mq-white);
 }
 
-/* During coexistence `TitleScreen` pulls Repertory's `kit.css`, whose global
- * `[data-focusable]:focus` rule paints a rectangular outline on inputs. */
-.mq-browse-screen .mq-c7-search-input[data-focusable]:focus,
-.mq-browse-screen .mq-c7-field-input[data-focusable]:focus {
-  outline: none;
-}
-
 .mq-browse-head {
   flex: none;
   padding: calc(var(--mq-u) * 56) var(--mq-margin-full) 0 var(--mq-margin-rail);
@@ -67,11 +60,6 @@
 
 .mq-poster-grid-item {
   flex: none;
-}
-
-.mq-browse-card[data-unplayable="true"] .mq-card-art,
-.mq-browse-card[data-unplayable="true"] .mq-card-plate {
-  opacity: 0.4;
 }
 
 .mq-browse-inline-status {
@@ -197,6 +185,11 @@
 
 .mq-browse-track-item {
   flex: none;
+}
+
+/* **Read on** ends the track, level with the middle of the posters. */
+.mq-search-read-on {
+  align-self: center;
 }
 
 .mq-search-row-status,

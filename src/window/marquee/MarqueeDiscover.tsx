@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ReactNode,
 } from "react";
 
 import {
@@ -19,15 +20,16 @@ import {
   INITIAL_DISCOVER_FILTERS,
   discoverEmptyCopy,
   discoverGenreOptions,
-  discoverInitialLoading,
+  discoverGridBody,
   discoverNoKeyCopy,
+  discoverReadOnCopy,
   discoverSortOptions,
   marqueeDiscoverRead,
+  marqueeTmdbUnplayable,
   reconcileDiscoverFilters,
-  type DiscoverFilterState,
   type DiscoverSortKey,
 } from "../../core/marqueeDiscover";
-import { useGridEnd } from "../../core/react/useGridEnd";
+import { useGridEnd, type GridEndOptions } from "../../core/react/useGridEnd";
 import type { MetaPreview } from "../../core/wire";
 import { AddonNotice } from "../../kit/marquee/AddonNotice";
 import { Dropdown } from "../../kit/marquee/Dropdown";
@@ -52,12 +54,13 @@ type OpenMenu = "type" | "genre" | "sort" | null;
  * Marquee Discover (`14.jpg`, `14b.jpg`, `15.jpg`):
  * - Single-kind Type dropdown (Movies / Series, ADR-0043 §4 amendment to ADR-0036 §1),
  *   per-kind Genre dropdown, and Sort dropdown passed to the `discover` Action.
- * - 7-column infinite-paging Poster grid backed by the Session `FeedStore`.
+ * - 7-column infinite-paging Poster grid backed by the Session `FeedStore`;
+ *   the filters are the Session's too, so a destination change keeps them.
  * - Empty state when the Host holds no TMDB Credential (`15.jpg`), navigating to Settings.
  */
 export function MarqueeDiscover() {
   const preview = usePreviewData();
-  const { snapshot, session, choose, setBaseIntentHandler } = useShell();
+  const { snapshot, session, choose, setBaseIntentHandler, unplayable } = useShell();
   const { openTitle, openDiscoveredTitle } = useTitleOpener();
   const look = useLookHints();
   const feeds = useSyncExternalStore(
@@ -69,7 +72,10 @@ export function MarqueeDiscover() {
   const source: DiscoverSource = preview ? "preview" : "host";
   const active = preview || keyed;
 
-  const [filters, setFilters] = useState<DiscoverFilterState>(INITIAL_DISCOVER_FILTERS);
+  const filters = useSyncExternalStore(
+    session.discoverFilters.subscribe,
+    session.discoverFilters.get,
+  );
   const [openMenu, setOpenMenu] = useState<OpenMenu>(null);
   const filtersRef = useRef<HTMLDivElement | null>(null);
 
@@ -96,11 +102,11 @@ export function MarqueeDiscover() {
   const previous = useRef({ active, source });
   useEffect(() => {
     if (previous.current.active !== active || previous.current.source !== source) {
-      setFilters(INITIAL_DISCOVER_FILTERS);
+      session.discoverFilters.set(INITIAL_DISCOVER_FILTERS);
       setOpenMenu(null);
     }
     previous.current = { active, source };
-  }, [active, source]);
+  }, [active, source, session]);
 
   const read = useMemo(
     () =>
@@ -115,42 +121,40 @@ export function MarqueeDiscover() {
   );
 
   useEffect(() => {
-    if (!active) {
+    // The effect above may have just reset the filters; this render's read is
+    // still the old arm's and must not be asked.
+    if (!active || session.discoverFilters.get() !== filters) {
       return;
     }
     session.feeds.read(read.key, read.first, read.next);
-  }, [active, read, session]);
+  }, [active, filters, read, session]);
 
-  // Keep Back (Escape / Backspace) and D-pad navigation inside an open Dropdown menu.
+  // A press outside the filters closes the open menu.
   useEffect(() => {
     if (openMenu === null) {
       return;
     }
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" || event.key === "Backspace" || event.key === "GoBack") {
-        event.preventDefault();
-        event.stopPropagation();
-        setOpenMenu(null);
-      }
-    };
     const onPointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (target instanceof Node && !filtersRef.current?.contains(target)) {
         setOpenMenu(null);
       }
     };
-    document.addEventListener("keydown", onKeyDown, true);
     document.addEventListener("pointerdown", onPointerDown, true);
     return () => {
-      document.removeEventListener("keydown", onKeyDown, true);
       document.removeEventListener("pointerdown", onPointerDown, true);
     };
   }, [openMenu]);
 
+  // Back and the D-pad stay inside an open menu, from the keys and the pad alike.
   useEffect(() => {
     const clear = setBaseIntentHandler((intent) => {
       if (openMenu === null) {
         return false;
+      }
+      if (intent === "back") {
+        setOpenMenu(null);
+        return true;
       }
       if (intent === "left" || intent === "right") {
         return true;
@@ -191,13 +195,6 @@ export function MarqueeDiscover() {
     count: feed.items.length,
   });
 
-  const gridPort = useGridEnd({
-    count: feed.items.length,
-    page: paging.page,
-    reading: paging.reading,
-    onReach: () => session.feeds.more(read.key),
-  });
-
   const watchedFilmKeys = useMemo(() => {
     const set = new Set<string>();
     for (const entry of snapshot?.watchProgress ?? []) {
@@ -220,11 +217,11 @@ export function MarqueeDiscover() {
     const nextKind: DiscoverKind = nextId === "series" ? "series" : "movie";
     const nextPreviewGenres =
       nextKind === "series" ? CINEMETA_SERIES_GENRES : CINEMETA_MOVIE_GENRES;
-    setFilters((current) =>
+    session.discoverFilters.set(
       reconcileDiscoverFilters({
         nextKind,
-        genreId: current.genreId,
-        sortId: current.sortId,
+        genreId: filters.genreId,
+        sortId: filters.sortId,
         source,
         previewGenres: nextPreviewGenres,
       }),
@@ -233,6 +230,8 @@ export function MarqueeDiscover() {
 
   const noKey = discoverNoKeyCopy();
   const empty = discoverEmptyCopy(selectedGenre);
+  const readOn = discoverReadOnCopy();
+  const body = discoverGridBody(feed, state);
   const subtitle = keyed ? "From TMDB" : preview ? "Preview · Cinemeta" : undefined;
 
   return (
@@ -291,7 +290,9 @@ export function MarqueeDiscover() {
               selected={selectedGenre.id}
               open={openMenu === "genre"}
               onOpenChange={(open) => setOpenMenu(open ? "genre" : null)}
-              onSelect={(genreId) => setFilters((current) => ({ ...current, genreId }))}
+              onSelect={(genreId) =>
+                session.discoverFilters.set({ ...filters, genreId })
+              }
             />
             <Dropdown
               label="Sort"
@@ -300,10 +301,10 @@ export function MarqueeDiscover() {
               open={openMenu === "sort"}
               onOpenChange={(open) => setOpenMenu(open ? "sort" : null)}
               onSelect={(sortId) =>
-                setFilters((current) => ({
-                  ...current,
+                session.discoverFilters.set({
+                  ...filters,
                   sortId: sortId as DiscoverSortKey,
-                }))
+                })
               }
             />
           </div>
@@ -317,19 +318,20 @@ export function MarqueeDiscover() {
             />
           ) : null}
 
-          <section
-            ref={gridPort}
-            className="mq-browse-grid-port"
-            data-testid="discover-grid-port"
-            inert={openMenu !== null ? true : undefined}
+          <DiscoverGridPort
+            count={feed.items.length}
+            page={paging.page}
+            reading={paging.reading}
+            onReach={() => session.feeds.more(read.key)}
+            inert={openMenu !== null}
           >
-            {discoverInitialLoading(feed, state) ? (
+            {body === "loading" ? (
               <div className="mq-browse-loading">
                 <Spinner label="Reading Discover…" />
               </div>
             ) : null}
 
-            {feed.items.length > 0 ? (
+            {body === "cards" ? (
               <ul
                 className="mq-poster-grid"
                 data-testid="discover-grid"
@@ -351,6 +353,12 @@ export function MarqueeDiscover() {
                       name={meta.name}
                       poster={meta.poster}
                       watched={watchedFilmKeys.has(`${meta.type}:${meta.id}`)}
+                      unplayable={marqueeTmdbUnplayable(
+                        snapshot?.addons ?? null,
+                        filters.kind,
+                        unplayable,
+                        meta.id,
+                      )}
                       onClick={() => openCard(meta)}
                     />
                   </li>
@@ -358,11 +366,23 @@ export function MarqueeDiscover() {
               </ul>
             ) : null}
 
-            {!discoverInitialLoading(feed, state) &&
-            feed.items.length === 0 &&
-            !feed.failure ? (
+            {body === "empty" ? (
               <div className="mq-browse-empty-stage" data-testid="discover-empty">
                 <EmptyState icon="compass" title={empty.title} body={empty.body} />
+              </div>
+            ) : null}
+
+            {body === "read-on" ? (
+              <div className="mq-browse-empty-stage">
+                <EmptyState
+                  icon="compass"
+                  title={readOn.title}
+                  body={readOn.body}
+                  action={{
+                    label: readOn.actionLabel,
+                    onPress: () => session.feeds.more(read.key),
+                  }}
+                />
               </div>
             ) : null}
 
@@ -385,9 +405,33 @@ export function MarqueeDiscover() {
                 Reading more…
               </p>
             ) : null}
-          </section>
+          </DiscoverGridPort>
         </>
       ) : null}
+    </section>
+  );
+}
+
+/**
+ * The grid's scrollport, which asks the next page near its end. A component of
+ * its own because `useGridEnd` listens from its mount, and the port arrives only
+ * once Discover has a feed to read.
+ */
+function DiscoverGridPort({
+  inert,
+  children,
+  ...paging
+}: GridEndOptions & { inert: boolean; children: ReactNode }) {
+  const port = useGridEnd(paging);
+
+  return (
+    <section
+      ref={port}
+      className="mq-browse-grid-port"
+      data-testid="discover-grid-port"
+      inert={inert ? true : undefined}
+    >
+      {children}
     </section>
   );
 }

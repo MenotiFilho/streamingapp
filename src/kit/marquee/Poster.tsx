@@ -1,5 +1,6 @@
 import type { ComponentPropsWithRef } from "react";
 
+import { Badge } from "./Badge";
 import { CardFrame } from "./CardFrame";
 import { CardProgress, WatchedMark } from "./CardMarks";
 import { cardLabel, useArtChain } from "./cards";
@@ -14,6 +15,11 @@ export type PosterProps = Omit<
   name: string;
   poster?: string | null;
   watched?: boolean;
+  /**
+   * A Title the Host cannot play: marked in words and dimmed. It stays
+   * pressable unless the caller disables it (ADR-0020).
+   */
+  unplayable?: boolean;
   /** How far through the Title the owner is, from 0 to 1; absent draws no bar. */
   progress?: number | null;
   /** Draw the focus treatment whatever the input modality says. */
@@ -25,6 +31,7 @@ export function Poster({
   name,
   poster,
   watched = false,
+  unplayable = false,
   progress,
   focused,
   className,
@@ -48,8 +55,9 @@ export function Poster({
       type={type}
       disabled={disabled}
       className={cx("mq-card", "mq-poster", className)}
-      aria-label={cardLabel(name, watched && "Watched")}
+      aria-label={cardLabel(name, watched && "Watched", unplayable && "Unplayable")}
       data-focusable
+      data-unplayable={unplayable || undefined}
     >
       <CardFrame kind="poster" shown={focus.shown && !disabled}>
         {art ? (
@@ -65,6 +73,11 @@ export function Poster({
           <span className="mq-card-plate">{name}</span>
         )}
         {watched ? <WatchedMark /> : null}
+        {unplayable ? (
+          <Badge tone="danger" className="mq-poster-badge">
+            UNPLAYABLE
+          </Badge>
+        ) : null}
         <CardProgress name={name} progress={progress} />
       </CardFrame>
     </button>

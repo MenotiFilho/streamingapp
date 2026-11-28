@@ -3,7 +3,9 @@ import { describe, expect, test } from "vitest";
 import { blankFeed } from "./discover";
 import {
   marqueeSearchPlan,
+  searchCanReadOn,
   searchCatalogRowNote,
+  searchCatalogRowTitles,
   searchNoCatalogsNote,
   searchPromptCopy,
   searchTmdbRowNote,
@@ -83,5 +85,42 @@ describe("Marquee Search copy and row notes", () => {
     expect(searchNoCatalogsNote(false)).toBe(
       "No Addon offers a Catalog that can be searched.",
     );
+  });
+});
+
+describe("Marquee Search row titles (render 16)", () => {
+  test("titles each Catalog row by its kind", () => {
+    expect(
+      searchCatalogRowTitles([
+        catalogRow({ type: "movie", name: "Popular" }),
+        catalogRow({ type: "series", name: "Popular" }),
+        catalogRow({ addon: "kitsu", type: "anime", name: "Trending" }),
+      ]),
+    ).toEqual(["Movies", "Series", "Anime"]);
+  });
+
+  test("adds the Catalog name only to tell apart rows of one Addon and kind", () => {
+    expect(
+      searchCatalogRowTitles([
+        catalogRow({ type: "movie", id: "top", name: "Popular" }),
+        catalogRow({ type: "movie", id: "year", name: "New" }),
+        catalogRow({ type: "series", id: "top", name: "Popular" }),
+        catalogRow({ addon: "other", type: "movie", name: "Popular" }),
+      ]),
+    ).toEqual(["Movies \u00b7 Popular", "Movies \u00b7 New", "Series", "Movies"]);
+  });
+});
+
+describe("Marquee Search Read on", () => {
+  const read = { ...blankFeed(), page: 1 };
+
+  test("pages on from a page that brought no readable item", () => {
+    expect(searchCanReadOn(read)).toBe(true);
+  });
+
+  test("is not offered before the first page, after the last, or beside a failure", () => {
+    expect(searchCanReadOn(blankFeed())).toBe(false);
+    expect(searchCanReadOn({ ...read, done: true })).toBe(false);
+    expect(searchCanReadOn({ ...read, failure: { kind: "tmdb", detail: "503" } })).toBe(false);
   });
 });
