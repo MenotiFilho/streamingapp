@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MotionGlobalConfig } from "motion/react";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
@@ -28,7 +28,7 @@ import {
   type RemotePayload,
 } from "./levels";
 import { playerSheetLevel } from "./playerSheets";
-import { CARD_NAME, playerLevel } from "./playerScreen";
+import { CARD_NAME, COLLAPSE_LABEL, playerLevel } from "./playerScreen";
 import { clearTmdbLevel, preferenceSubLevel, settingsLevel } from "./settingsScreen";
 
 let previousSkipAnimations: boolean | undefined;
@@ -359,7 +359,7 @@ describe("the Remote's player level", () => {
 
       expect(screen.getByRole("region", { name: CARD_NAME })).toBeInTheDocument();
 
-      fireEvent.click(screen.getByRole("button", { name: "Back" }));
+      fireEvent.click(screen.getByRole("button", { name: COLLAPSE_LABEL }));
       expect(pop).toHaveBeenCalledOnce();
       expect(host.actions).toEqual([]);
     } finally {
@@ -409,7 +409,9 @@ describe("the Episodes sheet's press", () => {
       );
 
       const episode = HELD_VIDEO;
-      fireEvent.click(screen.getByTestId(`episode-${episode.id}`));
+      fireEvent.click(
+        within(screen.getByTestId(`episode-${episode.id}`)).getByRole("button"),
+      );
 
       expect(pop).toHaveBeenCalledOnce();
       expect(push).toHaveBeenCalledOnce();

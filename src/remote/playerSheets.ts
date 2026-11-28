@@ -1,38 +1,29 @@
 /**
- * The Remote player's sheets: the plates a card opens, and the copy this
- * client alone prints (#214, ADR-0035 §2).
+ * The fullscreen Remote's seven bottom sheets: which menu opens which, how a
+ * sheet is named on the stack, and the decisions this client alone draws
+ * (#364, ADR-0035 §2, `docs/design-system.md` §11).
  *
- * The rows a plate draws are the core's (`playerPanels`, `episodes`); what
- * lives here is which plate a control opens, how a plate is named on the stack,
- * and the one sentence the Episodes plate says where the Title lists no seasons.
- * Rows are never re-worded: their label, text, marks, value and lines come from
- * the modules above.
+ * The rows a sheet draws are the core's (`playerPanels`, `marqueeStreams`,
+ * `episodes`), the same ones the window's menus draw. What lives here is what
+ * only the phone decides: the menus a Stream has, the sheet level, and how an
+ * episode row reads on a 390px sheet (`P4c`).
  */
 
-import {
-  audioSection,
-  chaptersSection,
-  pictureSections,
-  speedSection,
-  subtitleSections,
-  type PanelGroup,
-} from "../core/playerPanels";
-import { labelOf } from "../core/title";
+import { episodeAirNote } from "../core/marqueeTitle";
 import type { NewLevel } from "../core/navigation";
-import type { PlaybackSnapshot, Title, Video } from "../core/wire";
-import type { IconName } from "../kit/icons";
+import { marqueeEpisodeRow } from "../core/playerPanels";
+import { labelOf } from "../core/title";
+import type { PlaybackSnapshot, ResumeEntry, Title, Video } from "../core/wire";
+import { REMOTE_MENUS, type RemoteMenu } from "../kit/marquee/phone/RemoteMenus";
+
+/** A sheet is named by the menu that opens it. */
+export type PlayerSheetName = RemoteMenu;
 
 /**
- * The five plates the expanded card's icon row opens. Audio and Subtitles share
- * one plate; the Episodes plate is the phone's own, from `core/episodes`.
- */
-export type PlayerSheetName = "audio" | "picture" | "speed" | "chapters" | "episodes";
-
-/**
- * One sheet level's payload: which plate, and the Title the player belongs to.
+ * One sheet level's payload: which sheet, and the Title the player belongs to.
  *
- * The Title travels with the player level and is handed on when a plate opens,
- * so the Episodes plate lists the seasons this client already holds instead of
+ * The Title travels with the player level and is handed on when a sheet opens,
+ * so the Episodes sheet lists the seasons this client already holds instead of
  * asking the Host for a Title it has already answered (#214, ADR-0005).
  */
 export type RemoteSheet = {
@@ -44,67 +35,40 @@ export type RemoteSheet = {
 /** The level's name, as a test, an announcement and Back call it. */
 export const PLAYER_SHEET_NAME = "Player sheet";
 
-/** The id a second plate press replaces, so one Back always leaves the card. */
+/** The id a second menu press replaces, so one Back always leaves the Remote. */
 export const PLAYER_SHEET_ID = "player-sheet";
 
-/** Each plate's heading, which is also its dialog's accessible name. */
+/** Each sheet's heading, which is also its dialog's accessible name. */
 export const SHEET_TITLES: Record<PlayerSheetName, string> = {
-  audio: "Audio & Subtitles",
+  subtitles: "Audio & subtitles",
   picture: "Picture",
+  streams: "Streams",
+  episodes: "Episodes",
   speed: "Speed",
   chapters: "Chapters",
-  episodes: "Episodes",
+  details: "Details",
 };
 
 /**
- * One card control: the plate it opens and its drawn mark. Its accessible name
- * is the plate's heading, so a control and the sheet it opens cannot disagree.
+ * The menus the fullscreen Remote offers. A film has no Episodes. After a
+ * failed open the Player holds no Stream to adjust, so only the two ways to
+ * another Stream remain (ADR-0044 §3).
  */
-export type PlayerSheetControl = {
-  plate: PlayerSheetName;
-  icon: IconName;
-};
-
-/** The card's icon row, in the order the phone keeps its menus. */
-export const PLAYER_SHEET_CONTROLS: readonly PlayerSheetControl[] = [
-  { plate: "audio", icon: "subtitles" },
-  { plate: "picture", icon: "picture" },
-  { plate: "speed", icon: "speed" },
-  { plate: "chapters", icon: "chapters" },
-  { plate: "episodes", icon: "more" },
-];
-
-/**
- * The core's groups a plate draws, in the order the plate draws them.
- *
- * Audio and Subtitles are one plate composed audio-first, exactly as the core
- * returns the sections; the Episodes plate has no panel groups of its own and
- * is drawn from `episodes`. Nothing here re-words a row or adds a section.
- */
-export function sheetGroups(
-  plate: PlayerSheetName,
-  playback: PlaybackSnapshot,
-  subtitleScale: number,
-  showStatistics: boolean,
-): PanelGroup[] {
-  switch (plate) {
-    case "audio":
-      return [audioSection(playback), ...subtitleSections(playback, subtitleScale)];
-    case "picture":
-      return pictureSections(playback, showStatistics);
-    case "speed":
-      return [speedSection(playback)];
-    case "chapters":
-      return [chaptersSection(playback)];
-    case "episodes":
-      return [];
-  }
+export function remoteMenus(
+  playback: Pick<PlaybackSnapshot, "episode">,
+  failed: boolean,
+): RemoteMenu[] {
+  return REMOTE_MENUS.map((menu) => menu.id).filter(
+    (id) =>
+      (id !== "episodes" || playback.episode !== null) &&
+      (!failed || id === "streams" || id === "episodes"),
+  );
 }
 
 /**
- * The plate as a level: the player's own furniture above the card, so the
- * core's Back puts it away and the card underneath does not move. One id means
- * a plate replaces a plate rather than stacking a second surface.
+ * The sheet as a level: the player's own furniture above the Remote, so the
+ * core's Back puts it away and the Remote underneath does not move. One id means
+ * a sheet replaces a sheet rather than stacking a second surface.
  */
 export function playerSheetLevel(
   plate: PlayerSheetName,
@@ -118,20 +82,57 @@ export function playerSheetLevel(
   };
 }
 
-/** What the Episodes plate says where the Title carries no seasons at all. */
+/** What the Episodes sheet says where the Title carries no seasons at all. */
 export const NO_EPISODES = "No episodes are available for the playing series.";
 
-/**
- * What an Episodes press says where no candidate can play: the core's own
- * words about the candidates that did answer, and its empty-group copy where
- * every group was empty.
- */
+/** What one episode row of the sheet reads. */
+export type SheetEpisode = {
+  /** `E3 · PLAYING`, `E4`, or the Video's own label where it has no number. */
+  number: string;
+  title: string;
+  date: string | null;
+  description: string | null;
+  still: string | null;
+  /** What the empty still says: `S2E3`. */
+  code: string | null;
+  playing: boolean;
+  progress: number | null;
+};
 
-/** How an episode is named on the plate: its number, then the Addon's title. */
-export function episodeLabel(video: Video): string {
-  return (
-    [labelOf(video), video.name ?? video.id]
-      .filter((part): part is string => Boolean(part))
-      .join(" · ") || video.id
+/**
+ * One episode as the sheet draws it (`P4c`). Which row is playing and how far
+ * each one got are the core's (`marqueeEpisodeRow`, which the window's menu
+ * draws too); this splits the facts into the phone row's lines.
+ */
+export function sheetEpisode(
+  video: Video,
+  playback: Pick<PlaybackSnapshot, "nowPlaying" | "duration">,
+  watchProgress: readonly ResumeEntry[],
+  position: number | null,
+  today: Date,
+): SheetEpisode {
+  const entry = watchProgress.find((held) => held.video.id === video.id) ?? null;
+  const row = marqueeEpisodeRow(
+    video,
+    playback.nowPlaying?.video.id ?? null,
+    entry,
+    position,
+    playback.duration,
+    today,
   );
+  const code = labelOf(video);
+  const number = video.episode !== null ? `E${video.episode}` : (code ?? "Episode");
+
+  return {
+    number: row.playing ? `${number} · PLAYING` : number,
+    title:
+      video.name ??
+      (video.episode !== null ? `Episode ${video.episode}` : video.id),
+    date: episodeAirNote(video, today),
+    description: video.description ?? null,
+    still: video.thumbnail,
+    code,
+    playing: row.playing,
+    progress: row.progress,
+  };
 }

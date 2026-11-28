@@ -1,7 +1,13 @@
 import { actionKey } from "../core/actionKey";
-import { opensPicker, plainEnd, type AutoplayView } from "../core/autoplay";
+import {
+  autoplayStrip,
+  opensPicker,
+  plainEnd,
+  type AutoplayView,
+} from "../core/autoplay";
 import { AUTOPLAY_SWITCH_LABEL, VOLUME_MAX } from "../core/controls";
 import type { Level, NewLevel } from "../core/navigation";
+import { marqueeEpisodeCode, streamTitle } from "../core/osd";
 import { playingName, watching } from "../core/playback";
 import type { PlaybackView } from "../core/playbackView";
 import { STALLED_NOTE, STALLED_STRIP_NOTE } from "../core/stall";
@@ -9,20 +15,27 @@ import {
   transportControls,
   type TransportControl,
 } from "../core/transportControls";
-import type { Action, PlaybackState, Title } from "../core/wire";
+import { theFilm } from "../core/stream";
+import type {
+  Action,
+  PlaybackSnapshot,
+  PlaybackState,
+  ResumeEntry,
+  Title,
+} from "../core/wire";
 import type { RemotePayload } from "./levels";
 
 /**
  * The Remote player's own decisions and its own copy (#213, ADR-0035 §2).
  *
  * The playback facts are the core's: `playbackView`, `transportControls`,
- * `watching`, `pictureNote`, `formatTime`, `playingName` and
- * `spacedChapterMarks` already say what is playing and what each press does.
- * What lives here is only what this client's drawing decides — which two
- * controls the docked strip carries, where the timeline's and the volume box's
- * ranges begin and end, how the played and read-ahead spans divide the track,
- * and the words the phone alone prints. No rule here holds state; the Snapshot
- * is the truth and the Session's pending keys are the wait.
+ * `watching`, `pictureNote`, `formatTime` and `playingName` already say what
+ * is playing and what each press does. What lives here is only what this
+ * client's drawing decides — which two controls the docked strip carries, what
+ * its one line reads, which art and words name what is playing, when a failed
+ * open keeps the Remote up, and the words the phone alone prints. No rule here
+ * holds state; the Snapshot is the truth and the Session's pending keys are the
+ * wait.
  */
 
 /**
@@ -40,22 +53,21 @@ export type RemotePlayer = { kind: "player"; title: Title | null };
 /**
  * The card's name — the level's name, as a test, an announcement and Back call
  * it. `Player` is the Host's word for its seam; this level is the phone's one
- * expanded card drawn over the destination it was opened from.
+ * fullscreen Remote drawn over the destination it was opened from.
  */
 export const CARD_NAME = "Player";
 
 /** The strip's name, as it is announced beside the room. */
 export const STRIP_LABEL = "Now playing";
 
-/** The one control that opens the card from the strip. */
-export const STRIP_EXPAND = "Open the player";
+/** The one control that opens the card from the strip, as the kit names it. */
+export const STRIP_EXPAND = "Open the remote";
 
-/** What the card's plate says over the film's own art. */
-export const NOW_PLAYING = "Now playing";
+/** The fullscreen Remote's head (`P3`). */
+export const REMOTE_HEADING = "Playing on the Host";
 
-/** The two clocks' and the scrubber's names. */
-export const TIMELINE_LABEL = "Position";
-export const VOLUME_LABEL = "Volume";
+/** The control that puts the fullscreen Remote away without stopping. */
+export const COLLAPSE_LABEL = "Close the remote";
 
 /** The card's note while the Host is opening the Stream. */
 export function openingNote(name: string): string {
@@ -180,11 +192,11 @@ export type StillWatchingBanner = StillWatching & {
   keepWatching: { action: Action; pending: boolean };
 };
 
-/** What the banner under the plate draws: the countdown, or the hold. */
+/** What the Remote's banner draws: the countdown, or the hold. */
 export type AutoplayBanner = CountdownBanner | StillWatchingBanner;
 
 /**
- * The banner under the plate while the Host counts down or holds, or `null`.
+ * The Remote's banner while the Host counts down or holds, or `null`.
  *
  * It is the one `autoplayView` the window's card draws too; this adds only the
  * Actions the buttons take. Play now and Keep watching are the same
@@ -217,8 +229,8 @@ export function chapterName(chapter: { index: number; title: string | null }): s
  * so the core's Back pops it, and the destination underneath does not move;
  * Back closes the card and sends nothing, because Stop is its own control.
  *
- * It carries the one id a client can push twice: changing an episode from the
- * card's Episodes plate opens a Streams list above the card, and the Stream a
+ * It carries the one id a client can push twice: changing an episode from its
+ * Episodes sheet opens a Streams list above the Remote, and the Stream a
  * person picks there pushes the player again. The id replaces the card rather
  * than stacking a second one that one Back cannot close.
  */
@@ -235,14 +247,35 @@ export function playerLevel(title: Title | null = null): NewLevel<RemotePlayer> 
  * Whether a pushed level is the expanded card of a Stream the Host has already
  * stopped. A player level is a drawing of something playing; when the Snapshot
  * says nothing is, the card leaves with the Stream, whatever closed it — Stop,
- * the Stream's end, or another client's Stop.
+ * the Stream's end, or another client's Stop. A failed open is the exception
+ * (`failedOpen`).
  */
 export function playerLevelStale(
   payload: RemotePayload,
   playback: PlaybackState,
+  failed = false,
 ): boolean {
-  return payload.kind === "player" && !watching(playback);
+  return payload.kind === "player" && !watching(playback) && !failed;
 }
+
+/**
+ * Why the Stream the Host is on did not open (or why the Host ended it), or
+ * null. The Host is `idle` with the failure beside the Stream it was on, and
+ * still takes `switch_stream` and `stop_playback` for it (ADR-0044 §3), so the
+ * fullscreen Remote that was already up stays to offer both. Stop clears it.
+ */
+export function failedOpen(
+  playback: Pick<PlaybackSnapshot, "state" | "failure" | "nowPlaying"> | null,
+): string | null {
+  if (!playback || playback.state !== "idle" || playback.nowPlaying === null) {
+    return null;
+  }
+  return playback.failure;
+}
+
+/** The head over a failed open, and the one line saying what to do. */
+export const FAILED_TITLE = "The Stream stopped with an error";
+export const FAILED_HINT = "Pick another Stream to keep your place.";
 
 /**
  * Whether the docked strip is drawn over the stack as it stands (#258,
@@ -251,7 +284,7 @@ export function playerLevelStale(
  * The strip says what is playing from the screen under it; on the player's own
  * screen it would point at the screen a person is already on, so it steps
  * aside. A sheet is furniture above that screen — the person is still on the
- * card — while a Streams list opened from the Episodes plate is a screen again
+ * Remote — while a Streams list opened from the Episodes sheet is a screen again
  * and the strip returns.
  */
 export function stripDrawn(
@@ -279,32 +312,12 @@ export function stripControls(
   return [rewind!, playPause!];
 }
 
-/** A range's ends and its projected value. */
-export type RangeFacts = { min: number; max: number; step: number; value: number };
-
 function clamp(value: number, low: number, high: number): number {
   return Math.min(high, Math.max(low, value));
 }
 
 function finite(value: number, fallback: number): number {
   return Number.isFinite(value) ? value : fallback;
-}
-
-/**
- * The timeline's range: the Stream's whole length, one second at a time, with
- * the projection as its value. A Stream the Host has not measured yet has no
- * scale to seek on, so the range is a placeholder (`0..1`) that the drawing
- * disables rather than an input claiming a length nobody said.
- */
-export function timelineRange(
-  view: Pick<PlaybackView, "duration" | "position">,
-): RangeFacts {
-  const max =
-    view.duration !== null && Number.isFinite(view.duration) && view.duration > 0
-      ? view.duration
-      : 1;
-  const at = view.position === null ? 0 : finite(view.position, 0);
-  return { min: 0, max, step: 1, value: clamp(at, 0, max) };
 }
 
 /** The one Action a committed timeline change takes: a seek to the moment. */
@@ -322,16 +335,6 @@ export function seekTo(
   };
 }
 
-/** The volume box's range: the Host's own 0–130 scale, at the Host's level. */
-export function volumeRange(view: Pick<PlaybackView, "volume">): RangeFacts {
-  return {
-    min: 0,
-    max: VOLUME_MAX,
-    step: 1,
-    value: clamp(Math.round(finite(view.volume.level, 100)), 0, VOLUME_MAX),
-  };
-}
-
 /** The one Action a committed volume change takes: the level a person chose. */
 export function setVolume(level: number): Extract<Action, { type: "set_volume" }> {
   return {
@@ -345,41 +348,105 @@ export function setMuted(muted: boolean): Extract<Action, { type: "set_muted" }>
   return { type: "set_muted", muted };
 }
 
-/** One span of the timeline the Player's own numbers fill, as fractions. */
-export type TrackFill = {
-  from: number;
-  to: number;
-  role: "played" | "buffered";
+/** The time left in whole minutes (`31 min left`), or null where unknown. */
+export function timeLeft(position: number | null, duration: number | null): string | null {
+  if (
+    position === null ||
+    duration === null ||
+    !Number.isFinite(duration) ||
+    duration <= position
+  ) {
+    return null;
+  }
+  return `${Math.max(1, Math.round((duration - position) / 60))} min left`;
+}
+
+/**
+ * The strip's one line under the name (`P1`: `S2 E3 · 31 min left`): Autoplay's
+ * own words while the Host counts down or holds, else the episode; the time left,
+ * which gives way to "Waiting…" or the note about where the picture is; and the
+ * core's episode label where nothing else is known.
+ */
+export function stripLine(
+  view: Pick<
+    PlaybackView,
+    | "episode"
+    | "episodeLabel"
+    | "autoplay"
+    | "position"
+    | "duration"
+    | "stalled"
+    | "pictureNote"
+  >,
+  stallUp: boolean,
+): string {
+  const note = stripNote(view, stallUp);
+  const autoplay = autoplayStrip(view.autoplay);
+  const episode = view.episode ? marqueeEpisodeCode(view.episode) : null;
+  const left =
+    note === null && autoplay === null ? timeLeft(view.position, view.duration) : null;
+  const parts = [autoplay ?? episode, left, note].filter(
+    (part): part is string => Boolean(part),
+  );
+  return parts.length > 0 ? parts.join(" · ") : view.episodeLabel;
+}
+
+/** What the Remote draws about the Title whose Stream the Host is on. */
+export type PlayingTitle = {
+  /** The Title's id, where Watch progress or the held Title names it. */
+  id: string | null;
+  name: string;
+  /** `S2 E3 · Who Is Alive?`, or null for a film. */
+  episode: string | null;
+  /** The episode's synopsis, or the film's. */
+  description: string | null;
+  /** The Title's poster, never a frame of what is playing. */
+  poster: string | null;
+  /** The ambient background's art (`docs/design-system.md` §9). */
+  backdrop: string | null;
 };
 
 /**
- * How the played and read-ahead spans divide the track, left to right.
- *
- * Both ends are clamped into the Stream they belong to, and a read-ahead that
- * begins behind the playhead draws only what is still ahead of it: the track
- * shows one reading, never a span painted under the part already watched. A
- * span the clamp empties draws nothing, and a gap between the playhead and a
- * later read-ahead stays the track's own hairline.
+ * The Title facts the strip and the fullscreen Remote draw. The Snapshot names
+ * the Stream, not the Title: Watch progress carries the Title's name and art,
+ * and the Title this client already holds fills what it lacks — only where it
+ * is the one playing, so a page read behind the strip never lends its art to
+ * another Title. Nothing is asked of the Host.
  */
-export function trackFills(
-  fraction: number,
-  buffered: { left: number; width: number } | null,
-): TrackFill[] {
-  const played = clamp(finite(fraction, 0), 0, 1);
-  const fills: TrackFill[] = [];
+export function playingTitle(
+  playback: Pick<PlaybackSnapshot, "nowPlaying" | "episode">,
+  watchProgress: readonly ResumeEntry[],
+  held: Title | null,
+): PlayingTitle {
+  const videoId = playback.nowPlaying?.video.id ?? null;
+  const progress = watchProgress.find((entry) => entry.video.id === videoId) ?? null;
+  const listed = held?.videos.find((video) => video.id === videoId) ?? null;
+  const title =
+    held && (listed || theFilm(held).id === videoId || held.id === progress?.title.id)
+      ? held
+      : null;
 
-  if (played > 0) {
-    fills.push({ from: 0, to: played, role: "played" });
-  }
+  const season = progress?.video.season ?? listed?.season ?? null;
+  const number = progress?.video.episode ?? listed?.episode ?? null;
+  const code = playback.episode
+    ? marqueeEpisodeCode(playback.episode)
+    : season !== null && number !== null
+      ? marqueeEpisodeCode({ season, episode: number })
+      : null;
+  const episodeName = code ? (progress?.video.name ?? listed?.name ?? null) : null;
+  const episode =
+    [code, episodeName].filter((part): part is string => Boolean(part)).join(" · ") || null;
 
-  if (buffered !== null) {
-    const start = clamp(finite(buffered.left, 0), 0, 1);
-    const end = clamp(start + finite(buffered.width, 0), 0, 1);
-    const from = Math.max(start, played);
-    if (end > from) {
-      fills.push({ from, to: end, role: "buffered" });
-    }
-  }
+  const poster = progress?.title.poster ?? title?.poster ?? null;
 
-  return fills;
+  return {
+    id: progress?.title.id ?? title?.id ?? null,
+    name: progress?.title.name ?? title?.name ?? streamTitle(playback.nowPlaying),
+    episode,
+    description: code
+      ? (progress?.video.description ?? listed?.description ?? null)
+      : (title?.description ?? null),
+    poster,
+    backdrop: progress?.title.background ?? title?.background ?? poster,
+  };
 }

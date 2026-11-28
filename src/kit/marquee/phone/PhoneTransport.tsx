@@ -1,4 +1,4 @@
-import { PhoneIconButton } from "./controls";
+import { controlState, PhoneIconButton, type PhoneControlState } from "./controls";
 
 export type PhoneTransportProps = {
   /** Whether the Host is playing, so the centre says Pause. */
@@ -10,7 +10,11 @@ export type PhoneTransportProps = {
   onPrevious?: () => void;
   onNext?: () => void;
   disabled?: boolean;
+  /** Each control's own refusal or wait, over and above `disabled`. */
+  states?: Partial<Record<PhoneTransportButton, PhoneControlState>>;
 };
+
+export type PhoneTransportButton = "previous" | "back" | "toggle" | "forward" | "next";
 
 /**
  * Previous and next episode, ten seconds either way, and play/pause in lavender
@@ -24,6 +28,7 @@ export function PhoneTransport({
   onPrevious,
   onNext,
   disabled = false,
+  states = {},
 }: PhoneTransportProps) {
   return (
     <div className="mq-ph-transport">
@@ -32,14 +37,14 @@ export function PhoneTransport({
         label="Previous episode"
         icon="skip-back"
         filled
-        disabled={disabled || !onPrevious}
+        {...controlState(states.previous, disabled || !onPrevious)}
         onClick={onPrevious}
       />
       <PhoneIconButton
         size="l"
         label="Back 10 seconds"
         icon="rotate-ccw"
-        disabled={disabled}
+        {...controlState(states.back, disabled)}
         onClick={onBack}
       />
       <PhoneIconButton
@@ -48,14 +53,14 @@ export function PhoneTransport({
         label={playing ? "Pause" : "Play"}
         icon={playing ? "pause" : "play"}
         filled
-        disabled={disabled}
+        {...controlState(states.toggle, disabled)}
         onClick={onToggle}
       />
       <PhoneIconButton
         size="l"
         label="Forward 10 seconds"
         icon="rotate-cw"
-        disabled={disabled}
+        {...controlState(states.forward, disabled)}
         onClick={onForward}
       />
       <PhoneIconButton
@@ -63,7 +68,7 @@ export function PhoneTransport({
         label="Next episode"
         icon="skip-forward"
         filled
-        disabled={disabled || !onNext}
+        {...controlState(states.next, disabled || !onNext)}
         onClick={onNext}
       />
     </div>

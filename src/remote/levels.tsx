@@ -6,7 +6,6 @@ import type { PreferenceSubLevelId } from "../core/marqueeSettings";
 import type { Session, SessionState } from "../core/session";
 import type { SettingsCategoryId } from "../core/settingsRegister";
 import type { Action, Title, Video } from "../core/wire";
-import { Button } from "../kit/Button";
 import { Confirm } from "../kit/marquee/Confirm";
 import { AddonDetails } from "./Addons";
 import { PlayerCard } from "./Player";
@@ -172,21 +171,12 @@ export function RemoteLevel({
       );
     case "player":
       return (
-        <div className="remote-level">
-          <div className="remote-level-page">
-            <div className="remote-level-head">
-              <Button variant="ghost" onClick={pop}>
-                Back
-              </Button>
-              <span className="remote-level-rule" aria-hidden="true" />
-            </div>
-            <PlayerCard
-              title={payload.title}
-              session={session}
-              push={push}
-            />
-          </div>
-        </div>
+        <PlayerCard
+          title={payload.title}
+          session={session}
+          push={push}
+          pop={pop}
+        />
       );
     case "sheet":
       return (

@@ -1,4 +1,10 @@
-import { PhoneArt, PhoneIconButton, PhoneProgress } from "./controls";
+import {
+  controlState,
+  PhoneArt,
+  PhoneIconButton,
+  PhoneProgress,
+  type PhoneControlState,
+} from "./controls";
 
 export type NowPlayingStripProps = {
   /** The Title's name. */
@@ -17,6 +23,9 @@ export type NowPlayingStripProps = {
   onToggle: () => void;
   /** Whether the transport cannot be pressed, as while a Stream is opening. */
   disabled?: boolean;
+  /** Each control's own refusal or wait, over and above `disabled`. */
+  backState?: PhoneControlState;
+  toggleState?: PhoneControlState;
 };
 
 /**
@@ -34,6 +43,8 @@ export function NowPlayingStrip({
   onBack,
   onToggle,
   disabled = false,
+  backState,
+  toggleState,
 }: NowPlayingStripProps) {
   return (
     <div className="mq-ph-strip">
@@ -54,7 +65,7 @@ export function NowPlayingStrip({
         className="mq-ph-strip-back"
         label="Back 10 seconds"
         icon="rotate-ccw"
-        disabled={disabled}
+        {...controlState(backState, disabled)}
         onClick={onBack}
       />
       <PhoneIconButton
@@ -62,7 +73,7 @@ export function NowPlayingStrip({
         label={playing ? "Pause" : "Play"}
         icon={playing ? "pause" : "play"}
         filled
-        disabled={disabled}
+        {...controlState(toggleState, disabled)}
         onClick={onToggle}
       />
       <PhoneProgress ratio={progress} className="mq-ph-strip-progress" />
