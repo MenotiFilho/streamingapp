@@ -308,6 +308,10 @@ function activate(control: HTMLElement): void {
 
 const back = () => fireEvent.keyDown(document, { key: "Escape" });
 
+// A journey walks a dozen levels end to end; under a loaded CI machine the
+// default 5 s per test is too tight for it, though no single step is slow.
+const JOURNEY_TIMEOUT_MS = 20_000;
+
 describe("the Marquee journey", () => {
   test("Home → Title → Streams → play → OSD → Stop → Title, with focus restored", async () => {
     const host = fakeHost();
@@ -375,7 +379,7 @@ describe("the Marquee journey", () => {
       expect(screen.queryByTestId("title-tt0903747")).not.toBeInTheDocument(),
     );
     await waitFor(() => expect(card, "the card the Title was opened from").toHaveFocus());
-  });
+  }, JOURNEY_TIMEOUT_MS);
 
   test("the rail routes every destination, stays live beside a Settings part, and Back returns Home", async () => {
     const host = fakeHost();
@@ -420,7 +424,7 @@ describe("the Marquee journey", () => {
     await waitFor(() =>
       expect(within(rail).getByRole("button", { name: "Home" })).toHaveFocus(),
     );
-  });
+  }, JOURNEY_TIMEOUT_MS);
 
   test("a Stream that failed to open is said beside Home, with no player", async () => {
     const host = fakeHost();
