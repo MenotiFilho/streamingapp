@@ -233,6 +233,7 @@ function Chips({
           key={option.key}
           selected={option.selected}
           disabled={pending(option.action)}
+          aria-busy={pending(option.action) || undefined}
           onClick={() => take(option.action)}
         >
           {option.title}

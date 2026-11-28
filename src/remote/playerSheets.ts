@@ -15,6 +15,7 @@ import { marqueeEpisodeRow } from "../core/playerPanels";
 import { labelOf } from "../core/title";
 import type { PlaybackSnapshot, ResumeEntry, Title, Video } from "../core/wire";
 import { REMOTE_MENUS, type RemoteMenu } from "../kit/marquee/phone/RemoteMenus";
+import type { RemotePayload } from "./levels";
 
 /** A sheet is named by the menu that opens it. */
 export type PlayerSheetName = RemoteMenu;
@@ -62,6 +63,24 @@ export function remoteMenus(
     (id) =>
       (id !== "episodes" || playback.episode !== null) &&
       (!failed || id === "streams" || id === "episodes"),
+  );
+}
+
+/**
+ * Whether a pushed level is a sheet the Remote no longer offers: a Stream that
+ * fails under an open sheet takes it off the stack, unless it leads to another
+ * Stream (`remoteMenus`).
+ */
+export function sheetLevelStale(
+  payload: RemotePayload,
+  playback: Pick<PlaybackSnapshot, "episode"> | null,
+  failed: boolean,
+): boolean {
+  return (
+    payload.kind === "sheet" &&
+    failed &&
+    playback !== null &&
+    !remoteMenus(playback, true).includes(payload.plate)
   );
 }
 

@@ -34,7 +34,7 @@ export function VolumeBox({
     keyTarget: (key, from) => volumeKeyTarget(key, from, max),
     onCommit,
   });
-  const shown = Math.round(slider.shown);
+  const shown = Math.min(max, Math.max(0, Math.round(slider.shown)));
   const filled = max > 0 ? clampRatio(shown / max) * 100 : 0;
 
   return (

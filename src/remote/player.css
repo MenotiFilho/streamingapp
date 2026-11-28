@@ -209,7 +209,7 @@
   padding: 6px;
   border-radius: var(--mq-remote-radius-12);
   background: var(--mq-surface-2);
-  box-shadow: 0 12px 26.4px rgb(0 0 0 / 0.5);
+  box-shadow: 0 12px 26.4px color-mix(in srgb, var(--mq-ink) 50%, transparent);
   color: var(--mq-text-muted);
   font-size: 12px;
   line-height: 16px;
@@ -292,7 +292,7 @@
   font-size: 28px;
   font-weight: var(--mq-weight-extrabold);
   font-variant-numeric: tabular-nums;
-  text-shadow: 0 2px 8px rgb(0 0 0 / 0.8);
+  text-shadow: 0 2px 8px color-mix(in srgb, var(--mq-ink) 80%, transparent);
 }
 
 .mq-remote-upnext-copy p {

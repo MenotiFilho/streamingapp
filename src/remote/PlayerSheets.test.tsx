@@ -728,6 +728,30 @@ describe("a sheet over the Remote", () => {
     expect(screen.queryByRole("region", { name: CARD_NAME })).not.toBeInTheDocument();
   });
 
+  test("a failed open removes a sheet it no longer offers, and keeps the Remote", async () => {
+    const { host } = mountRoom();
+    press(await openCard(), "Picture");
+    await screen.findByRole("dialog", { name: "Picture" });
+
+    act(() =>
+      host.publish({
+        ...NOTHING,
+        revision: 3,
+        playback: { ...PLAYBACK, state: "idle", failure: "403 Forbidden" },
+      }),
+    );
+
+    await waitFor(() => expect(dialog("Picture")).not.toBeInTheDocument());
+    expect(screen.getByRole("region", { name: CARD_NAME })).toBeInTheDocument();
+
+    // The Level left the stack: a Stream that opens again does not bring it back.
+    act(() => host.publish({ ...NOTHING, revision: 4, playback: PLAYBACK }));
+    expect(
+      await screen.findByRole("button", { name: "Picture" }),
+    ).toBeInTheDocument();
+    expect(dialog("Picture")).not.toBeInTheDocument();
+  });
+
   test("the Remote's seven menus open their own sheets", async () => {
     mountRoom(streamsAnswer(STREAMS));
     await openCard();

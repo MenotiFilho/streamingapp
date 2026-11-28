@@ -9,6 +9,7 @@ import {
   remoteMenus,
   SHEET_TITLES,
   sheetEpisode,
+  sheetLevelStale,
 } from "./playerSheets";
 
 /**
@@ -58,10 +59,10 @@ describe("a player sheet level", () => {
   });
 });
 
-describe("the Remote's menus", () => {
-  const EPISODE = { episode: { season: 1, episode: 2 } };
-  const FILM = { episode: null } satisfies Pick<PlaybackSnapshot, "episode">;
+const EPISODE = { episode: { season: 1, episode: 2 } };
+const FILM = { episode: null } satisfies Pick<PlaybackSnapshot, "episode">;
 
+describe("the Remote's menus", () => {
   test("are the seven, in the sheet's order, for an episode", () => {
     expect(remoteMenus(EPISODE, false)).toEqual([
       "subtitles",
@@ -82,6 +83,29 @@ describe("the Remote's menus", () => {
   test("are only the ways to another Stream after a failed open", () => {
     expect(remoteMenus(EPISODE, true)).toEqual(["streams", "episodes"]);
     expect(remoteMenus(FILM, true)).toEqual(["streams"]);
+  });
+});
+
+describe("a sheet over a failed open", () => {
+  const sheet = (plate: keyof typeof SHEET_TITLES) => playerSheetLevel(plate, TITLE).payload;
+
+  test("goes where its menu is no longer offered", () => {
+    for (const plate of ["subtitles", "picture", "speed", "chapters", "details"] as const) {
+      expect(sheetLevelStale(sheet(plate), EPISODE, true)).toBe(true);
+    }
+    expect(sheetLevelStale(sheet("episodes"), FILM, true)).toBe(true);
+  });
+
+  test("stays where it still leads to another Stream", () => {
+    expect(sheetLevelStale(sheet("streams"), EPISODE, true)).toBe(false);
+    expect(sheetLevelStale(sheet("streams"), FILM, true)).toBe(false);
+    expect(sheetLevelStale(sheet("episodes"), EPISODE, true)).toBe(false);
+  });
+
+  test("is left alone while nothing failed, as is a level that is no sheet", () => {
+    expect(sheetLevelStale(sheet("picture"), EPISODE, false)).toBe(false);
+    expect(sheetLevelStale(sheet("picture"), null, false)).toBe(false);
+    expect(sheetLevelStale({ kind: "player", title: null }, EPISODE, true)).toBe(false);
   });
 });
 

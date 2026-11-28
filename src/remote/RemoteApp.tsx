@@ -27,6 +27,7 @@ import { armSentinel, decideHistory } from "./history";
 import { heldTitle, isSheetPayload, RemoteLevel, type RemotePayload } from "./levels";
 import { pageSurface } from "./pageSurface";
 import { failedOpen, playerLevelStale, stripDrawn } from "./playerScreen";
+import { sheetLevelStale } from "./playerSheets";
 import { cardTitleOf, useMissingStreamPicker } from "./useMissingStreamPicker";
 
 export type RemoteAppProps = {
@@ -208,10 +209,13 @@ function RemoteRoom({
   }, [nav]);
 
   const refusal = sessionState.error;
-  const playback = sessionState.snapshot?.playback?.state ?? "idle";
-  const failed = failedOpen(sessionState.snapshot?.playback ?? null) !== null;
+  const hostPlayback = sessionState.snapshot?.playback ?? null;
+  const playback = hostPlayback?.state ?? "idle";
+  const failed = failedOpen(hostPlayback) !== null;
   const drawn = nav.levels.filter(
-    (held) => !playerLevelStale(held.payload, playback, failed),
+    (held) =>
+      !playerLevelStale(held.payload, playback, failed) &&
+      !sheetLevelStale(held.payload, hostPlayback, failed),
   );
   const level = drawn[drawn.length - 1] ?? null;
 
@@ -249,7 +253,13 @@ function RemoteRoom({
     if (stale) {
       nav.removeFrom(stale.id);
     }
-  }, [nav, playback, failed]);
+    const dropped = nav.levels.find((held) =>
+      sheetLevelStale(held.payload, hostPlayback, failed),
+    );
+    if (dropped) {
+      nav.remove(dropped.id);
+    }
+  }, [nav, hostPlayback, playback, failed]);
 
   return (
     <div className="mq-remote-room" {...pageAttrs(surface)}>

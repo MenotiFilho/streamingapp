@@ -521,6 +521,14 @@ body,
   transform: scale(0.96);
 }
 
+.mq-remote-root button.mq-pp-track:not(:disabled):active {
+  background: var(--mq-press-tab);
+}
+
+.mq-remote-root button.mq-pp-btn:not(:disabled):active {
+  box-shadow: inset 0 0 0 100px var(--mq-press-tab);
+}
+
 .mq-remote-root .mq-pp-stepper {
   width: 100%;
   gap: 10px;
