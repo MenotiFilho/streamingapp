@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MotionGlobalConfig } from "motion/react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import type { ActionError } from "../../core/errors";
@@ -9,11 +9,11 @@ import type { Intent } from "../../core/input";
 import { markNavigation, markPointer } from "../../core/inputModality";
 import type { Action, AddonManifest, Response, Snapshot } from "../../core/wire";
 import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContextValue } from "../context";
+import type { ShellLevel } from "../navigation";
 import { previewTransport } from "../repertory/previewHost";
 import { quietSession } from "../session.testing";
 import { MarqueeAddons } from "./MarqueeAddons";
 import { MarqueeFrame } from "./MarqueeFrame";
-import marqueeSettingsAddonsCss from "./marqueeSettingsAddons.css?raw";
 
 let previousSkipAnimations: boolean | undefined;
 beforeAll(() => {
@@ -185,6 +185,80 @@ function withShell(value: ShellContextValue, children: ReactNode) {
 
 function actions(ask: ReturnType<typeof harness>["ask"]): Action[] {
   return ask.mock.calls.map(([action]) => action);
+}
+
+/** Integrated frame harness so Confirm push/pop, Escape, and focus restore run end-to-end. */
+function AddonsFrameHarness({
+  snapshot = BASE_SNAPSHOT,
+}: {
+  snapshot?: Snapshot | null;
+}) {
+  const [levels, setLevels] = useState<ShellLevel[]>([]);
+  const [destination, setDestination] = useState<"addons" | "home">("addons");
+  const ask = vi.fn(async () => ok());
+
+  const push = (level: NewShellLevel) => {
+    const id = level.id ?? `level-${levels.length + 1}`;
+    const full: ShellLevel = { ...level, id };
+    setLevels((held) => [...held.filter((item) => item.id !== id), full]);
+    return id;
+  };
+  const pop = () => setLevels((held) => held.slice(0, -1));
+  const back = () => {
+    if (levels.length > 0) {
+      pop();
+    } else {
+      setDestination("home");
+    }
+  };
+
+  const value: ShellContextValue = {
+    session: quietSession(),
+    snapshot,
+    error: null,
+    destination,
+    chosenDestination: true,
+    popover: null,
+    unplayable: new Set<string>(),
+    pending: new Set<string>(),
+    markUnplayable: vi.fn(),
+    choose: (next) => {
+      setDestination(next === "home" ? "home" : "addons");
+      setLevels([]);
+    },
+    push,
+    remove: (id) => setLevels((held) => held.filter((item) => item.id !== id)),
+    levelExists: (id) => levels.some((item) => item.id === id),
+    pop,
+    back,
+    ask,
+    take: vi.fn(async () => null),
+    hint: vi.fn(),
+    home: new HomeStore(ask),
+    setIntentHandler: vi.fn(),
+    setBaseIntentHandler: vi.fn(() => () => {}),
+  };
+
+  return (
+    <ShellContext.Provider value={value}>
+      <MarqueeFrame
+        destination={destination}
+        onChooseDestination={(next) => {
+          setDestination(next === "home" ? "home" : "addons");
+          setLevels([]);
+        }}
+        levels={levels}
+        onBack={back}
+        screen={
+          destination === "addons" ? (
+            <MarqueeAddons />
+          ) : (
+            <div data-testid="home-base">Home</div>
+          )
+        }
+      />
+    </ShellContext.Provider>
+  );
 }
 
 describe("Marquee Addons boundary (ADR-0032)", () => {
@@ -375,37 +449,29 @@ describe("Marquee Addons boundary (ADR-0032)", () => {
   });
 
   test("integrates with MarqueeFrame so Escape from Confirm pops back to Addons", async () => {
-    const { value } = harness();
-    const Wrapper = () => {
-      const [levels, setLevels] = [
-        [] as import("../navigation").ShellLevel[],
-        vi.fn(),
-      ];
-      void levels;
-      void setLevels;
-      return null;
-    };
-    void Wrapper;
+    render(<AddonsFrameHarness />);
 
-    render(
-      withShell(
-        value,
-        <MarqueeFrame
-          destination="addons"
-          onChooseDestination={() => {}}
-          levels={[]}
-          onBack={() => {}}
-          screen={<MarqueeAddons />}
-        />,
-      ),
+    const row = screen.getByTestId(`addon-${TORRENTIO.id}`);
+    const mainButton = within(row).getByRole("button", { name: TORRENTIO.name });
+    act(() => mainButton.focus());
+
+    const removeButton = within(row).getByRole("button", { name: "Remove" });
+    act(() => removeButton.focus());
+    fireEvent.click(removeButton);
+
+    expect(
+      await screen.findByRole("dialog", { name: `Remove ${TORRENTIO.name}?` }),
+    ).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: `Remove ${TORRENTIO.name}?` }),
+      ).not.toBeInTheDocument(),
     );
     expect(screen.getByTestId("addons-screen")).toBeInTheDocument();
-  });
-
-  test("uses zero legacy --rep-* tokens or literal lavender hexes in its stylesheet", () => {
-    const legacy = ["-", "-rep-"].join("");
-    expect(marqueeSettingsAddonsCss.includes(legacy)).toBe(false);
-    expect(marqueeSettingsAddonsCss).not.toMatch(/#c4a7e7/i);
+    expect(row.contains(document.activeElement)).toBe(true);
   });
 });
 

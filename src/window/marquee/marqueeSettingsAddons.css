@@ -5,14 +5,10 @@
  * lavender hexes outside `--mq-accent`.
  */
 
-/* Keep the nav rail above pushed `settings-*` levels (`MarqueeFrame` keeps it live)
- * and give sub-levels an opaque ground so Preferences never ghosts through. */
+/* Keep the nav rail above pushed `settings-*` levels (`MarqueeFrame` keeps it live);
+ * `.mq-level-shell` already provides the opaque `--mq-canvas` ground. */
 .mq-frame:has(> .mq-level-shell[data-level-id^="settings-"]:not([inert])) > .mq-nav-slot {
   z-index: 35;
-}
-
-.mq-level-shell[data-level-id^="settings-"] {
-  background: var(--mq-bg);
 }
 
 /* Confirmation overlays (`18c`, `20b`) let `Confirm`'s dim scrim reveal the screen below. */
@@ -381,8 +377,13 @@
   gap: calc(var(--mq-u) * 12);
 }
 
-.mq-btn-danger-text[data-focusable]:not(:focus):not([data-focused="true"]) {
+.mq-btn-danger-text[data-focusable] {
   color: var(--mq-danger);
+}
+
+html[data-input="navigation"] .mq-btn-danger-text:focus,
+.mq-btn-danger-text[data-focused="true"] {
+  color: var(--mq-ink);
 }
 
 .mq-account-card {

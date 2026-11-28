@@ -13,7 +13,7 @@ import { readLevel } from "../layout";
 import type { ShellLevel } from "../navigation";
 import { quietSession } from "../session.testing";
 import { MarqueeFrame } from "./MarqueeFrame";
-import { MarqueeSettings } from "./MarqueeSettings";
+import { MarqueeSettings, marqueeCredentialsLevel } from "./MarqueeSettings";
 
 let previousSkipAnimations: boolean | undefined;
 beforeAll(() => {
@@ -295,6 +295,25 @@ describe("Marquee Settings categories, sub-level stack, and Back behaviour (ADR-
       expect(screen.queryByTestId("settings-sublevel-stream-buffer")).not.toBeInTheDocument(),
     );
     expect(screen.getByTestId("settings-pane-preferences")).toBeInTheDocument();
+  });
+
+  test("standalone Credentials level ignores non-Credentials category choices", () => {
+    const { value, pop } = harness();
+    render(withShell(value, marqueeCredentialsLevel().payload.render()));
+
+    expect(screen.getByTestId("settings-pane-credentials")).toBeInTheDocument();
+
+    const nav = screen.getByTestId("settings-categories");
+    fireEvent.click(within(nav).getByRole("button", { name: "Preferences" }));
+    fireEvent.click(within(nav).getByRole("button", { name: "Remote devices" }));
+    fireEvent.click(within(nav).getByRole("button", { name: "About/Credits" }));
+
+    expect(value.choose).not.toHaveBeenCalled();
+    expect(pop).not.toHaveBeenCalled();
+    expect(screen.getByTestId("settings-pane-credentials")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("settings-credentials-back"));
+    expect(pop).toHaveBeenCalledOnce();
   });
 });
 

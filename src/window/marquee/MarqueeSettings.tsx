@@ -164,17 +164,11 @@ export function marqueeCredentialsLevel(): NewShellLevel {
 }
 
 function StandAloneCredentialsLevel() {
-  const { pop, choose } = useShell();
+  const { pop } = useShell();
   return (
     <SettingsFrame
       activeCategory="credentials"
-      onSelectCategory={(next) => {
-        if (next === "credentials") {
-          return;
-        }
-        pop();
-        choose("settings");
-      }}
+      onSelectCategory={() => {}}
       testId="settings-credentials"
     >
       <div className="mq-settings-pane-inner">

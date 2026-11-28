@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 
 import {
+  AUTOPLAY_SWITCH_LABEL,
   STREAM_BUFFER_DEFAULT_MEGABYTES,
   STREAM_BUFFER_DEFAULT_SECONDS,
   STREAM_BUFFER_MEGABYTES,
@@ -502,7 +503,7 @@ function UpNextAndFeaturedSubLevel() {
       <div className="mq-settings-section">
         <ListRow
           icon="skip-forward"
-          label="Autoplay the next episode"
+          label={AUTOPLAY_SWITCH_LABEL}
           checked={autoplay}
           onToggle={(next) => void sendUpNext({ type: "set_autoplay", autoplay: next })}
         />

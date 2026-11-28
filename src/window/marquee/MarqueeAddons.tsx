@@ -71,7 +71,7 @@ export function MarqueeAddons() {
     }
     const root = screenRef.current;
     const target = rehome.previous
-      ? Array.from(root?.querySelectorAll<HTMLElement>("[data-addon-id] button.mq-c7-row-main") ?? []).find(
+      ? Array.from(root?.querySelectorAll<HTMLElement>("[data-addon-id] button[data-focusable]") ?? []).find(
           (element) => element.closest<HTMLElement>("[data-addon-id]")?.dataset.addonId === rehome.previous,
         )
       : root?.querySelector<HTMLElement>('[data-testid="add-addon-submit"]');
