@@ -6,10 +6,12 @@ import {
   MARQUEE_HERO_SLIDES,
   formatNavClock,
   heroDisplayFor,
+  heroMode,
   heroModeForFocus,
   heroRotatesInMode,
   heroTransitionOnFocus,
   heroWatchIntent,
+  homeUsesPageLayout,
   marqueeHeroSlides,
   marqueeHomeEmptyState,
   railOpensOn,
@@ -149,8 +151,17 @@ describe("Marquee hero mode, rotation and following focus", () => {
     expect(slides.map((slide) => slide.id)).toEqual(["tt0", "tt1", "tt2", "tt3", "tt4"]);
   });
 
-  it("switches to following focus when a row card is focused and back on hero actions", () => {
+  it("keeps Home rotating in pointer modality and follows focus only in navigation modality", () => {
     const target = { kind: "continue", entry: continueEntry() } as const;
+
+    expect(homeUsesPageLayout("pointer")).toBe(true);
+    expect(homeUsesPageLayout("navigation")).toBe(false);
+
+    expect(heroMode("pointer", true, null)).toBe("rotating");
+    expect(heroMode("pointer", true, target)).toBe("rotating");
+    expect(heroMode("navigation", true, null)).toBe("rotating");
+    expect(heroMode("navigation", true, target)).toBe("following");
+    expect(heroMode("navigation", false, target)).toBe("rotating");
 
     expect(heroModeForFocus(true, null)).toBe("rotating");
     expect(heroModeForFocus(true, target)).toBe("following");

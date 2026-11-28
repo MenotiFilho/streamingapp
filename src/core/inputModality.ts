@@ -1,18 +1,21 @@
 /**
  * The input modality: which device last asked the client to do something.
  *
- * Focus is both a navigation instrument and a pointer side effect (#245). A
- * click or a tap is direct manipulation: it should show no focus decoration and
- * move nothing. A key or a pad intent is navigation: the control is decorated
- * and the movement's axis is brought into view. The modality is the last
- * input, not the control: a pointer press on a focused control then a key
- * switches the whole room back to navigation.
+ * Focus is both a navigation instrument and a pointer side effect (#245, #392).
+ * A click, tap, wheel scroll, or mouse move is direct manipulation: it shows
+ * no focus decoration and keeps Home as a whole-window scrollable page. An
+ * arrow key or a pad intent is navigation: the control is decorated, the
+ * movement's axis is brought into view, and Home's hero follows focus. `Tab`,
+ * `Shift+Tab`, and `Enter` work in pointer modality without forcing navigation
+ * or following mode.
  *
  * The state is here, framework-free, because both clients read it (ADR-0035
  * §1). The installer takes the page root rather than reaching for a global
  * document, so the rule itself stays out of the platform; the entries pass
  * `document.documentElement` and the tests pass a fake root.
  */
+
+import { isNavigationKey, isTypingTarget } from "./input";
 
 /** Which device last asked for something. */
 export type InputModality = "pointer" | "navigation";
@@ -25,14 +28,14 @@ export type InputModality = "pointer" | "navigation";
 export type ModalityRoot = {
   dataset: DOMStringMap;
   addEventListener(
-    type: "keydown" | "pointerdown",
+    type: "keydown" | "pointerdown" | "pointermove" | "wheel",
     listener: (event: Event) => void,
-    capture?: boolean,
+    options?: boolean | AddEventListenerOptions,
   ): void;
   removeEventListener(
-    type: "keydown" | "pointerdown",
+    type: "keydown" | "pointerdown" | "pointermove" | "wheel",
     listener: (event: Event) => void,
-    capture?: boolean,
+    options?: boolean | EventListenerOptions,
   ): void;
 };
 
@@ -98,10 +101,12 @@ export function subscribeInputModality(
 }
 
 /**
- * Make the last input the page's modality. Any `keydown` — Tab, an arrow key,
- * Enter — means navigation; any `pointerdown` — mouse, pen or touch — means
- * pointer. Capture, so the attribute is right before the browser moves focus
- * (a pointer press focuses natively, a key press is handled by the engine).
+ * Make the last input the page's modality. Arrow keys (outside a text input)
+ * mean navigation; `Tab`, `Shift+Tab`, `Enter`, and typing keys do not force
+ * navigation. Any `pointerdown`, `wheel`, or real mouse `pointermove` (with
+ * changed pointer coordinates, ignoring stationary synthetic layout-scroll
+ * events) means pointer. Capture, so the attribute is right before the browser
+ * moves focus.
  *
  * Idempotent per root and cleanable: a second install returns the first
  * teardown rather than listening twice. The pad has no key event; the focus
@@ -113,17 +118,62 @@ export function installInputModality(root: ModalityRoot): () => void {
     return existing;
   }
 
-  const onKeyDown = () => markNavigation();
-  const onPointerDown = () => markPointer();
+  let lastPointerPos: { x: number; y: number } | null = null;
+
+  const onKeyDown = (event: Event) => {
+    const keyEvent = event as KeyboardEvent;
+    if (typeof keyEvent.key !== "string") {
+      return;
+    }
+    if (isNavigationKey(keyEvent.key, isTypingTarget(event.target))) {
+      markNavigation();
+    }
+  };
+
+  const onPointerDown = (event: Event) => {
+    const pointer = event as PointerEvent;
+    if (typeof pointer.clientX === "number" && typeof pointer.clientY === "number") {
+      lastPointerPos = { x: pointer.clientX, y: pointer.clientY };
+    }
+    markPointer();
+  };
+
+  const onPointerMove = (event: Event) => {
+    const pointer = event as PointerEvent;
+    if (pointer.pointerType === "touch") {
+      return;
+    }
+    if (typeof pointer.clientX === "number" && typeof pointer.clientY === "number") {
+      const x = pointer.clientX;
+      const y = pointer.clientY;
+      if (lastPointerPos !== null) {
+        if (x === lastPointerPos.x && y === lastPointerPos.y) {
+          return;
+        }
+      } else if (x === 0 && y === 0 && (pointer.movementX ?? 0) === 0 && (pointer.movementY ?? 0) === 0) {
+        return;
+      }
+      lastPointerPos = { x, y };
+    }
+    markPointer();
+  };
+
+  const onWheel = () => {
+    markPointer();
+  };
 
   root.addEventListener("keydown", onKeyDown, true);
   root.addEventListener("pointerdown", onPointerDown, true);
+  root.addEventListener("pointermove", onPointerMove, { capture: true, passive: true });
+  root.addEventListener("wheel", onWheel, { capture: true, passive: true });
   roots.add(root);
   writeAttribute(root);
 
   const teardown = () => {
     root.removeEventListener("keydown", onKeyDown, true);
     root.removeEventListener("pointerdown", onPointerDown, true);
+    root.removeEventListener("pointermove", onPointerMove, true);
+    root.removeEventListener("wheel", onWheel, true);
     roots.delete(root);
     installed.delete(root);
   };

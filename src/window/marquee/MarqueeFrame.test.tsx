@@ -10,9 +10,11 @@ import { CHROME_CLEARANCE } from "../reveal";
 import {
   DESTINATION_FADE_SECONDS,
   FOLLOWING_ROWS_TOP_U,
+  HERO_ROWS_SHIFT_U,
   LEVEL_PUSH_PX,
   MARQUEE_RULES,
   POPOVER_RISE_PX,
+  ROTATING_ROWS_TOP_U,
   clampRowsScrollTop,
   destinationTransition,
   followingRowsViewportHeight,
@@ -20,6 +22,7 @@ import {
   levelPushed,
   levelRises,
   marqueeUnitPx,
+  pageScrollTopFromNavigation,
   rowsShiftTransition,
 } from "./frame";
 import { MarqueeFrame } from "./MarqueeFrame";
@@ -161,6 +164,34 @@ describe("Marquee frame decisions (ADR-0032)", () => {
         viewportHeight: 600,
       }),
     ).toBe(0);
+
+    // Returning to pointer page layout from navigation preserves row position.
+    expect(ROTATING_ROWS_TOP_U).toBe(636);
+    expect(HERO_ROWS_SHIFT_U).toBe(156);
+    expect(
+      pageScrollTopFromNavigation({
+        hasHeroStage: true,
+        rowsScrollTop: 500,
+        rowsShift: 0,
+        unitPx: 1,
+      }),
+    ).toBe(656);
+    expect(
+      pageScrollTopFromNavigation({
+        hasHeroStage: true,
+        rowsScrollTop: 0,
+        rowsShift: 1,
+        unitPx: 1,
+      }),
+    ).toBe(0);
+    expect(
+      pageScrollTopFromNavigation({
+        hasHeroStage: false,
+        rowsScrollTop: 320,
+        rowsShift: 0,
+        unitPx: 1,
+      }),
+    ).toBe(320);
   });
 });
 

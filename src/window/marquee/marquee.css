@@ -208,6 +208,16 @@ body.picture-behind .mq-nav-slot {
   position: relative;
   width: 100%;
   height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+}
+
+.mq-home::-webkit-scrollbar {
+  display: none;
+}
+
+.mq-home[data-home-layout="navigation"] {
   overflow: hidden;
 }
 
@@ -225,21 +235,35 @@ body.picture-behind .mq-nav-slot {
 .mq-home-rows {
   position: relative;
   z-index: 1;
-  height: 100%;
+  height: auto;
   padding-top: var(--mq-space-8);
   padding-bottom: var(--mq-space-8);
+  overflow: visible;
+}
+
+/* Page layout (pointer modality): rotating hero sits at the top and scrolls
+   away with the rows; rows still begin at y=636 over its bottom scrim. */
+.mq-home[data-home-layout="page"][data-has-hero="true"] .mq-home-rows {
+  margin-top: calc(var(--mq-u) * -244);
+  padding-top: 0;
+  padding-bottom: var(--mq-space-6);
+}
+
+/* Navigation modality: rows scroll in their own viewport and slide up 156px
+   from y=636 to y=480 in following mode (`docs/design-system.md` §8). */
+.mq-home[data-home-layout="navigation"] .mq-home-rows {
+  height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
   scrollbar-width: none;
 }
 
-.mq-home-rows::-webkit-scrollbar {
+.mq-home[data-home-layout="navigation"] .mq-home-rows::-webkit-scrollbar {
   display: none;
 }
 
-/* With a Featured hero, rows start at y=636 in rotating mode and slide up
-   156px to y=480 in following mode (`docs/design-system.md` §8). */
-.mq-home[data-has-hero="true"] .mq-home-rows {
+.mq-home[data-home-layout="navigation"][data-has-hero="true"] .mq-home-rows {
+  --mq-rows-shift: 1;
   position: absolute;
   top: calc(var(--mq-u) * (480 + 156 * var(--mq-rows-shift, 1)));
   right: 0;

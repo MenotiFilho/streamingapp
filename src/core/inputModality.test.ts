@@ -29,9 +29,13 @@ function fakeRoot() {
   return {
     root,
     added,
-    fire(type: string) {
+    fire(type: string, init: Record<string, unknown> = {}) {
+      const event = new Event(type);
+      for (const [key, value] of Object.entries(init)) {
+        Object.defineProperty(event, key, { value, configurable: true });
+      }
       for (const listener of listeners.get(type) ?? []) {
-        listener(new Event(type));
+        listener(event);
       }
     },
   };
@@ -46,13 +50,13 @@ describe("the input modality", () => {
     expect(inputModality()).toBe("pointer");
   });
 
-  test("a keydown is navigation and writes the stylesheet's attribute", () => {
+  test("arrow keys enter navigation and write the stylesheet's attribute", () => {
     const page = fakeRoot();
     const stop = installInputModality(page.root);
     try {
       expect(page.root.dataset.input).toBe("pointer");
 
-      page.fire("keydown");
+      page.fire("keydown", { key: "ArrowDown" });
 
       expect(inputModality()).toBe("navigation");
       expect(page.root.dataset.input).toBe("navigation");
@@ -61,17 +65,58 @@ describe("the input modality", () => {
     }
   });
 
-  test("a pointerdown is pointer again, and writes the attribute", () => {
+  test("Tab, Shift+Tab, Enter, Escape, and typing keys keep pointer modality", () => {
     const page = fakeRoot();
     const stop = installInputModality(page.root);
     try {
-      page.fire("keydown");
-      expect(page.root.dataset.input).toBe("navigation");
+      for (const init of [
+        { key: "Tab" },
+        { key: "Tab", shiftKey: true },
+        { key: "Enter" },
+        { key: "Escape" },
+        { key: "a" },
+        { key: "ArrowLeft", target: { tagName: "INPUT", type: "text" } },
+      ]) {
+        page.fire("keydown", init);
+        expect(inputModality()).toBe("pointer");
+        expect(page.root.dataset.input).toBe("pointer");
+      }
 
-      page.fire("pointerdown");
+      // Vertical arrows leave a text input, and horizontal arrows outside one navigate.
+      page.fire("keydown", { key: "ArrowUp", target: { tagName: "INPUT", type: "text" } });
+      expect(inputModality()).toBe("navigation");
+    } finally {
+      stop();
+    }
+  });
 
+  test("pointerdown, wheel, and real mouse movement return to pointer modality", () => {
+    const page = fakeRoot();
+    const stop = installInputModality(page.root);
+    try {
+      page.fire("keydown", { key: "ArrowRight" });
+      expect(inputModality()).toBe("navigation");
+
+      page.fire("pointerdown", { clientX: 100, clientY: 100 });
       expect(inputModality()).toBe("pointer");
       expect(page.root.dataset.input).toBe("pointer");
+
+      page.fire("keydown", { key: "ArrowDown" });
+      expect(inputModality()).toBe("navigation");
+
+      // A stationary synthetic pointermove at the previous coordinates does not flip modality.
+      page.fire("pointermove", { pointerType: "mouse", clientX: 100, clientY: 100 });
+      expect(inputModality()).toBe("navigation");
+
+      // Moving the mouse to new coordinates returns to pointer modality.
+      page.fire("pointermove", { pointerType: "mouse", clientX: 240, clientY: 320 });
+      expect(inputModality()).toBe("pointer");
+
+      page.fire("keydown", { key: "ArrowLeft" });
+      expect(inputModality()).toBe("navigation");
+
+      page.fire("wheel");
+      expect(inputModality()).toBe("pointer");
     } finally {
       stop();
     }
@@ -86,11 +131,13 @@ describe("the input modality", () => {
     expect(page.added, "one capture listener per event, not two").toEqual([
       "keydown",
       "pointerdown",
+      "pointermove",
+      "wheel",
     ]);
 
     first();
 
-    page.fire("keydown");
+    page.fire("keydown", { key: "ArrowDown" });
     expect(inputModality(), "a cleaned installer no longer listens").toBe("pointer");
   });
 

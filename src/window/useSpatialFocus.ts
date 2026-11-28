@@ -315,10 +315,13 @@ export function useSpatialFocus({
     }
   };
 
-  const run = (intent: Intent) => {
-    // Every intent is navigation, from a key or the pad; the gamepad has no key
-    // event to have switched the modality already (ADR-0037).
-    markNavigation();
+  const run = (intent: Intent, source: "key" | "pad" = "pad") => {
+    // Directional intents and any gamepad/D-pad input enter navigation modality
+    // (#392, ADR-0037); keyboard Back keeps the current modality so Escape in
+    // pointer mode does not force following mode.
+    if (source === "pad" || intent !== "back") {
+      markNavigation();
+    }
     if (intent === "back") {
       backRef.current();
       return;
@@ -392,7 +395,7 @@ export function useSpatialFocus({
         keyRepeat.current.set(event.key, { first: now, last: now });
       }
       event.preventDefault();
-      runRef.current(intent);
+      runRef.current(intent, "key");
     };
 
     const onKeyUp = (event: KeyboardEvent) => {

@@ -1,11 +1,11 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MotionConfig } from "motion/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { HomeStore } from "../../core/homeStore";
 import type { Intent } from "../../core/input";
 import { FEATURE_ROTATION_MS } from "../../core/homeProgramme";
-import { markNavigation } from "../../core/inputModality";
+import { markNavigation, markPointer } from "../../core/inputModality";
 import { LOOK_HINT_DWELL_MS } from "../../core/lookHint";
 import type {
   Action,
@@ -254,6 +254,8 @@ function heroMode(): string | null {
 }
 
 afterEach(() => {
+  cleanup();
+  markPointer();
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
@@ -458,8 +460,31 @@ describe("Marquee Home hero rotation and actions", () => {
   });
 });
 
-describe("Marquee Home following focus and Up return", () => {
-  it("switches to following focus on Continue watching / Catalog cards and returns to rotating on Up from the top row", async () => {
+describe("Marquee Home pointer vs navigation hero mode and Up return", () => {
+  it("keeps Home in rotating page layout under pointer modality even on card hover or focus", async () => {
+    markPointer();
+    renderHome({
+      snapshot: { ...BASE_SNAPSHOT, continueWatching: [resumeEntry()] },
+      chosenDestination: false,
+    });
+    await flush();
+
+    const homeScreen = screen.getByTestId("home-screen");
+    expect(homeScreen).toHaveAttribute("data-home-layout", "page");
+    expect(heroMode()).toBe("rotating");
+
+    const continueCard = screen.getByTestId("resume-tt10:2:4");
+    fireEvent.pointerEnter(continueCard);
+    expect(heroMode()).toBe("rotating");
+
+    act(() => continueCard.focus());
+    expect(heroMode()).toBe("rotating");
+    expect(homeScreen).toHaveAttribute("data-home-layout", "page");
+    expect(screen.getByRole("button", { name: "Watch now" })).toBeInTheDocument();
+  });
+
+  it("switches to following focus on Continue watching / Catalog cards in navigation mode and returns to rotating on Up from the top row", async () => {
+    markNavigation();
     const { sendIntent } = renderHome({
       snapshot: { ...BASE_SNAPSHOT, continueWatching: [resumeEntry()] },
       chosenDestination: false,
@@ -495,6 +520,7 @@ describe("Marquee Home following focus and Up return", () => {
   });
 
   it("clears pendingHeroFocus when Featured disappears so re-enabling Featured does not steal focus", async () => {
+    markNavigation();
     const { rerenderWithSnapshot, sendIntent } = renderHome({
       snapshot: { ...BASE_SNAPSHOT, continueWatching: [resumeEntry()] },
       chosenDestination: false,
@@ -627,6 +653,21 @@ describe("Marquee Home following focus and Up return", () => {
 
       expect(rowsPort.scrollTop).toBe(240);
       expect(document.documentElement.scrollTop).toBe(0);
+
+      // Switching back to pointer modality restores page layout and preserves the visual row position
+      // (rowsScrollTop 240 + 156u hero shift = 396 at 1920x1080) without a jump.
+      act(() => markPointer());
+      expect(homeScreen).toHaveAttribute("data-home-layout", "page");
+      expect(heroMode()).toBe("rotating");
+      expect(homeScreen.scrollTop).toBe(396);
+      expect(rowsPort.scrollTop).toBe(0);
+
+      // Pressing an arrow key (entering navigation modality) while on a row card returns cleanly
+      // to following mode and seeds rowsPort.scrollTop from the page scroll.
+      act(() => markNavigation());
+      expect(homeScreen).toHaveAttribute("data-home-layout", "navigation");
+      expect(heroMode()).toBe("following");
+      expect(homeScreen.scrollTop).toBe(0);
     } finally {
       Object.defineProperty(window, "innerWidth", { value: originalInnerWidth, configurable: true });
       Object.defineProperty(window, "innerHeight", { value: originalInnerHeight, configurable: true });

@@ -144,6 +144,22 @@ export function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 /**
+ * Whether `key` is a directional spatial-navigation key that enters navigation
+ * modality (#392). `Tab`, `Shift+Tab`, `Enter`, `Escape`, and typing keys
+ * stay in the caller's current modality; `ArrowLeft`/`ArrowRight` inside a
+ * text field belong to the caret.
+ */
+export function isNavigationKey(key: string, typing: boolean): boolean {
+  if (key === "ArrowUp" || key === "ArrowDown") {
+    return true;
+  }
+  if ((key === "ArrowLeft" || key === "ArrowRight") && !typing) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * The intent one keypress names, or null when the key is not this table's.
  * `typing` is whether the focus is in a text field; there Left, Right and
  * Backspace belong to the field.

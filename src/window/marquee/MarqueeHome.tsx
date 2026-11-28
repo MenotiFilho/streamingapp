@@ -18,14 +18,16 @@ import {
   HOME_RAIL_ITEMS,
   MARQUEE_HERO_SLIDES,
   heroDisplayFor,
-  heroModeForFocus,
+  heroMode,
   heroRotatesInMode,
   heroTransitionOnFocus,
   heroWatchIntent,
+  homeUsesPageLayout,
   marqueeHomeEmptyState,
   shouldReturnToRotatingHero,
   wideCardNote,
   type HeroFocusTarget,
+  type MarqueeHeroMode,
 } from "../../core/homeHero";
 import {
   FEATURE_CLOCK_MS,
@@ -45,9 +47,10 @@ import {
   type FeatureDrag,
   type FeatureProgramme,
 } from "../../core/homeProgramme";
-import { markNavigation } from "../../core/inputModality";
+import { inputModality, markNavigation } from "../../core/inputModality";
 import { progressOf, resumable } from "../../core/library";
 import type { LookHintTarget } from "../../core/lookHint";
+import { useInputModality } from "../../core/react/useInputModality";
 import type { ContinueEntry } from "../../core/wire";
 import { Button } from "../../kit/Button";
 import { CardCaption } from "../../kit/CardCaption";
@@ -67,6 +70,7 @@ import {
   clampRowsScrollTop,
   followingRowsViewportHeight,
   marqueeUnitPx,
+  pageScrollTopFromNavigation,
   rowsShiftTransition,
 } from "./frame";
 
@@ -94,7 +98,16 @@ export function MarqueeHome() {
   const pendingHeroFocus = useRef(false);
   const drag = useRef<FeatureDrag>(FEATURE_DRAG_IDLE);
   const heroWidth = useRef(0);
+  const homeScrollTopRef = useRef(0);
+  const rowsScrollTopRef = useRef(0);
+  const lastFocusedCardRef = useRef<{
+    element: HTMLElement;
+    rowId: string;
+    heroTarget: HeroFocusTarget;
+  } | null>(null);
 
+  const modality = useInputModality();
+  const isPageLayout = homeUsesPageLayout(modality);
   const [programme, setProgramme] = useState<FeatureProgramme>(FEATURE_START);
   const [focusTarget, setFocusTarget] = useState<HeroFocusTarget | null>(null);
   const [focusedRowId, setFocusedRowId] = useState<string | null>(null);
@@ -140,9 +153,14 @@ export function MarqueeHome() {
 
   const activeIndex = clampItem(programme.index, featuredMetas.length);
   const rotatingItem = featuredMetas[activeIndex] ?? null;
-  const heroMode = heroModeForFocus(hasFeatured, focusTarget);
-  const rotating = heroRotatesInMode(featuredMetas.length, heroMode, programme.held);
+  const currentHeroMode = heroMode(modality, hasFeatured, focusTarget);
+  const rotating = heroRotatesInMode(featuredMetas.length, currentHeroMode, programme.held);
   const progress = featureProgress(programme);
+
+  const prevLayoutRef = useRef<{ page: boolean; heroMode: MarqueeHeroMode }>({
+    page: isPageLayout,
+    heroMode: currentHeroMode,
+  });
 
   const continueWatching = snapshot?.continueWatching ?? [];
   const hasContinue = continueWatching.length > 0;
@@ -197,7 +215,7 @@ export function MarqueeHome() {
 
   useEffect(() => {
     const clear = setBaseIntentHandler((intent) => {
-      if (intent !== "up" || heroMode !== "following") {
+      if (intent !== "up" || currentHeroMode !== "following") {
         return false;
       }
       const active = document.activeElement;
@@ -206,7 +224,7 @@ export function MarqueeHome() {
       const activeRowId = activeRegion?.getAttribute("data-region") ?? null;
       if (
         !shouldReturnToRotatingHero({
-          mode: heroMode,
+          mode: currentHeroMode,
           activeRowId,
           firstFocusableRowId,
         })
@@ -215,12 +233,13 @@ export function MarqueeHome() {
       }
       markNavigation();
       pendingHeroFocus.current = true;
+      lastFocusedCardRef.current = null;
       setFocusedRowId(null);
       setFocusTarget((current) => heroTransitionOnFocus(current, { kind: "hero-action" }));
       return true;
     });
     return clear;
-  }, [firstFocusableRowId, heroMode, setBaseIntentHandler]);
+  }, [currentHeroMode, firstFocusableRowId, setBaseIntentHandler]);
 
   const attachRow = useCallback((id: string) => (node: HTMLElement | null) => {
     if (node) {
@@ -230,11 +249,82 @@ export function MarqueeHome() {
     }
   }, []);
 
+  // Keep scroll position seamless when switching between pointer page layout and
+  // navigation following mode (#392).
+  useLayoutEffect(() => {
+    const prev = prevLayoutRef.current;
+    prevLayoutRef.current = { page: isPageLayout, heroMode: currentHeroMode };
+    if (prev.page === isPageLayout) {
+      return;
+    }
+
+    const homeEl = root.current;
+    const port = rowsScroll.current;
+
+    if (isPageLayout) {
+      scrollAnim.current?.stop();
+      scrollAnim.current = null;
+      const unitPx = marqueeUnitPx(window.innerWidth, window.innerHeight);
+      const rawShift = calm ? "" : port?.style.getPropertyValue("--mq-rows-shift");
+      const parsedShift = rawShift ? Number.parseFloat(rawShift) : Number.NaN;
+      const rowsShiftNow = Number.isFinite(parsedShift)
+        ? parsedShift
+        : prev.heroMode === "following"
+          ? 0
+          : 1;
+      const targetHomeTop = pageScrollTopFromNavigation({
+        hasHeroStage,
+        rowsScrollTop: rowsScrollTopRef.current,
+        rowsShift: rowsShiftNow,
+        unitPx,
+      });
+      if (port) {
+        port.style.removeProperty("--mq-rows-shift");
+        port.scrollTop = 0;
+      }
+      rowsScrollTopRef.current = 0;
+      if (homeEl) {
+        homeEl.scrollTop = targetHomeTop;
+        homeScrollTopRef.current = homeEl.scrollTop;
+      } else {
+        homeScrollTopRef.current = targetHomeTop;
+      }
+      setFocusedRowId(null);
+      setFocusTarget(null);
+      return;
+    }
+
+    const seeded = homeScrollTopRef.current;
+    if (homeEl) {
+      homeEl.scrollTop = 0;
+    }
+    homeScrollTopRef.current = 0;
+    if (port) {
+      port.scrollTop = seeded;
+      rowsScrollTopRef.current = port.scrollTop;
+    } else {
+      rowsScrollTopRef.current = seeded;
+    }
+
+    const active = document.activeElement;
+    const card = lastFocusedCardRef.current;
+    if (
+      card &&
+      active instanceof HTMLElement &&
+      (active === card.element || card.element.contains(active))
+    ) {
+      setFocusedRowId(card.rowId);
+      setFocusTarget(card.heroTarget);
+    }
+  }, [calm, currentHeroMode, hasHeroStage, isPageLayout]);
+
   // Align the focused row's RowHeader to the top of the rows viewport (`y=480`)
-  // so no previous row's captions peek in above it (`02.jpg`, `03.jpg`).
+  // in navigation modality so no previous row's captions peek in above it (`02.jpg`, `03.jpg`).
   useEffect(() => {
     const port = rowsScroll.current;
-    if (!port) {
+    if (!port || isPageLayout) {
+      scrollAnim.current?.stop();
+      scrollAnim.current = null;
       return;
     }
     const unitPx = marqueeUnitPx(window.innerWidth, window.innerHeight);
@@ -253,28 +343,31 @@ export function MarqueeHome() {
     scrollAnim.current?.stop();
     if (calm) {
       port.scrollTop = targetTop;
+      rowsScrollTopRef.current = port.scrollTop;
       return;
     }
     scrollAnim.current = animate(port.scrollTop, targetTop, {
       ...panel(),
       onUpdate: (value) => {
         port.scrollTop = value;
+        rowsScrollTopRef.current = port.scrollTop;
       },
       onComplete: () => {
         scrollAnim.current = null;
+        rowsScrollTopRef.current = port.scrollTop;
       },
     });
     return () => {
       scrollAnim.current?.stop();
       scrollAnim.current = null;
     };
-  }, [calm, focusedRowId, hasHeroStage]);
+  }, [calm, focusedRowId, hasHeroStage, isPageLayout]);
 
   useLayoutEffect(() => {
     if (!pendingHeroFocus.current) {
       return;
     }
-    if (heroMode !== "rotating" || !hasFeatured) {
+    if (currentHeroMode !== "rotating" || !hasFeatured) {
       pendingHeroFocus.current = false;
       return;
     }
@@ -283,7 +376,7 @@ export function MarqueeHome() {
     }
     pendingHeroFocus.current = false;
     focusAndReveal(watchNowButton.current);
-  }, [heroMode, hasFeatured]);
+  }, [currentHeroMode, hasFeatured]);
 
   const hasContent =
     empty !== null ||
@@ -306,7 +399,7 @@ export function MarqueeHome() {
   });
 
   const display = heroDisplayFor({
-    mode: heroMode,
+    mode: currentHeroMode,
     rotatingItem,
     target: focusTarget,
     continueWatching,
@@ -321,7 +414,7 @@ export function MarqueeHome() {
   );
 
   const onHeroPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (heroMode !== "rotating" || (event.pointerType === "mouse" && event.button !== 0)) {
+    if (currentHeroMode !== "rotating" || (event.pointerType === "mouse" && event.button !== 0)) {
       return;
     }
     heroWidth.current = event.currentTarget.getBoundingClientRect().width;
@@ -384,13 +477,22 @@ export function MarqueeHome() {
     target: LookHintTarget,
     heroTarget: HeroFocusTarget | null,
   ) => ({
-    onFocus: () => {
+    onFocus: (event: React.FocusEvent<HTMLElement>) => {
       look.rest("focus", target);
       if (heroTarget) {
-        setFocusedRowId(rowId);
-        setFocusTarget((current) =>
-          heroTransitionOnFocus(current, { kind: "row-card", target: heroTarget }),
-        );
+        lastFocusedCardRef.current = {
+          element: event.currentTarget,
+          rowId,
+          heroTarget,
+        };
+        if (inputModality() === "navigation") {
+          setFocusedRowId(rowId);
+          setFocusTarget((current) =>
+            heroTransitionOnFocus(current, { kind: "row-card", target: heroTarget }),
+          );
+        }
+      } else {
+        lastFocusedCardRef.current = null;
       }
     },
     onBlur: () => look.left("focus"),
@@ -398,16 +500,22 @@ export function MarqueeHome() {
     onPointerLeave: () => look.left("pointer"),
   });
 
-  const rowsShift = heroMode === "rotating" ? 1 : 0;
+  const rowsShift = currentHeroMode === "rotating" ? 1 : 0;
 
   return (
     <section
       ref={root}
       className="mq-home"
       data-testid="home-screen"
-      data-reveal-axis="x"
+      data-home-layout={isPageLayout ? "page" : "navigation"}
+      data-reveal-axis={isPageLayout ? undefined : "x"}
       data-has-hero={hasHeroStage ? "true" : "false"}
-      data-hero-mode={hasHeroStage ? heroMode : undefined}
+      data-hero-mode={hasHeroStage ? currentHeroMode : undefined}
+      onScroll={(event) => {
+        if (isPageLayout) {
+          homeScrollTopRef.current = event.currentTarget.scrollTop;
+        }
+      }}
     >
       <h1 className="mq-visually-hidden">Home</h1>
 
@@ -443,6 +551,7 @@ export function MarqueeHome() {
                     size="lg"
                     icon="play"
                     onFocus={() => {
+                      lastFocusedCardRef.current = null;
                       setFocusedRowId(null);
                       setFocusTarget((current) =>
                         heroTransitionOnFocus(current, { kind: "hero-action" }),
@@ -468,6 +577,7 @@ export function MarqueeHome() {
                     size="lg"
                     icon="info"
                     onFocus={() => {
+                      lastFocusedCardRef.current = null;
                       setFocusedRowId(null);
                       setFocusTarget((current) =>
                         heroTransitionOnFocus(current, { kind: "hero-action" }),
@@ -506,8 +616,13 @@ export function MarqueeHome() {
         ref={rowsScroll}
         className="mq-home-rows"
         initial={false}
-        animate={hasHeroStage ? { "--mq-rows-shift": rowsShift } : undefined}
+        animate={hasHeroStage && !isPageLayout ? { "--mq-rows-shift": rowsShift } : undefined}
         transition={rowsShiftTransition(calm)}
+        onScroll={(event) => {
+          if (!isPageLayout) {
+            rowsScrollTopRef.current = event.currentTarget.scrollTop;
+          }
+        }}
       >
         {hasContinue ? (
           <section

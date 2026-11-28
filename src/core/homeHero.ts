@@ -100,15 +100,42 @@ export function marqueeHeroSlides(metas: readonly MetaPreview[]): HeroSlide[] {
 }
 
 /**
- * Which mode the Home hero is in. Without a Featured catalog (or while its
- * Addon is disabled — ADR-0044 §2), no hero is drawn, so `heroModeForFocus`
- * stays `"rotating"` as the resting value and the caller omits the hero.
+ * Which mode the Home hero is in (#392):
+ * - In `pointer` modality, the hero does not follow focus or hover: Home stays
+ *   an ordinary page with the rotating hero at the top.
+ * - In `navigation` modality, focusing a row card switches to `following` mode
+ *   when a Featured catalog is present; otherwise `rotating`.
+ */
+export function heroMode(
+  modality: InputModality,
+  hasFeatured: boolean,
+  target: HeroFocusTarget | null,
+): MarqueeHeroMode {
+  if (modality !== "navigation") {
+    return "rotating";
+  }
+  return hasFeatured && target !== null ? "following" : "rotating";
+}
+
+/**
+ * Whether Home uses the whole-window scrollable page layout (`true` in pointer
+ * modality) instead of the pinned hero + sliding rows viewport (`navigation`).
+ */
+export function homeUsesPageLayout(modality: InputModality): boolean {
+  return modality === "pointer";
+}
+
+/**
+ * Which mode the Home hero is in under navigation modality. Without a Featured
+ * catalog (or while its Addon is disabled — ADR-0044 §2), no hero is drawn,
+ * so `heroModeForFocus` stays `"rotating"` as the resting value and the caller
+ * omits the hero.
  */
 export function heroModeForFocus(
   hasFeatured: boolean,
   target: HeroFocusTarget | null,
 ): MarqueeHeroMode {
-  return hasFeatured && target !== null ? "following" : "rotating";
+  return heroMode("navigation", hasFeatured, target);
 }
 
 /**

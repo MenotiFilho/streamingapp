@@ -2,7 +2,7 @@ import { fireEvent, render, waitFor } from "@testing-library/react";
 import { useEffect, useRef } from "react";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-import { markNavigation, markPointer } from "../core/inputModality";
+import { inputModality, markNavigation, markPointer } from "../core/inputModality";
 import { installPointerPress } from "../core/react/pointerPress";
 import { DEFAULT_RULES } from "./focus";
 import { focusAndReveal } from "./reveal";
@@ -456,5 +456,22 @@ describe("the spatial focus reveal", () => {
     } finally {
       stop();
     }
+  });
+
+  test("Escape in pointer modality keeps pointer modality while arrow keys enter navigation", async () => {
+    layOutRow();
+    markPointer();
+    render(<Harness />);
+
+    const one = document.querySelector<HTMLElement>('[data-testid="one"]');
+    const two = document.querySelector<HTMLElement>('[data-testid="two"]');
+    await waitFor(() => expect(document.activeElement).toBe(one));
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(inputModality()).toBe("pointer");
+
+    fireEvent.keyDown(document, { key: "ArrowRight" });
+    await waitFor(() => expect(document.activeElement).toBe(two));
+    expect(inputModality()).toBe("navigation");
   });
 });

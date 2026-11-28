@@ -44,6 +44,30 @@ export function isSettingsLeaf(level: Pick<ShellLevel, "id"> | null | undefined)
 /** Top offset of the Home rows viewport in following mode, in reference units (`marquee.css`). */
 export const FOLLOWING_ROWS_TOP_U = 480;
 
+/** Top offset of the Home rows in rotating/page mode, in reference units (`marquee.css`). */
+export const ROTATING_ROWS_TOP_U = 636;
+
+/** Distance in reference units between rotating (636u) and following (480u) row tops. */
+export const HERO_ROWS_SHIFT_U = ROTATING_ROWS_TOP_U - FOLLOWING_ROWS_TOP_U;
+
+/**
+ * Compute `.mq-home.scrollTop` when returning from navigation mode to the
+ * pointer page layout so visible rows keep their viewport Y without jumping.
+ */
+export function pageScrollTopFromNavigation(params: {
+  hasHeroStage: boolean;
+  rowsScrollTop: number;
+  rowsShift: number;
+  unitPx: number;
+}): number {
+  const rowsScrollTop = Math.max(0, params.rowsScrollTop);
+  if (!params.hasHeroStage) {
+    return rowsScrollTop;
+  }
+  const shift = Math.max(0, Math.min(1, params.rowsShift));
+  return Math.max(0, rowsScrollTop + HERO_ROWS_SHIFT_U * params.unitPx * (1 - shift));
+}
+
 /** Reference-frame unit `--mq-u` in CSS pixels (`tokens.css`). */
 export function marqueeUnitPx(viewportWidth: number, viewportHeight: number): number {
   if (viewportWidth <= 0 || viewportHeight <= 0) {

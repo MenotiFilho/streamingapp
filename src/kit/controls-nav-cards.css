@@ -388,6 +388,7 @@ html[data-input="navigation"] .mq-nav-item:focus,
   left: 100%;
   width: calc(var(--mq-u) * 260);
   background: linear-gradient(to right, var(--mq-canvas), transparent);
+  pointer-events: none;
 }
 
 .mq-nav-rail .mq-nav-rail-mark {

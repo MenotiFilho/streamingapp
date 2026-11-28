@@ -157,8 +157,13 @@ focused or floating (offset y 12–30, blur 2.2× the offset, black at 40–55%)
 
 ## 5. Focus
 
-Focus belongs to navigation (ADR-0037): a pointer press does not paint it. When it
-is shown, it follows three rules, by kind:
+Focus belongs to navigation (ADR-0037, amended #392): arrow keys and gamepad
+intents enter navigation modality, while `Tab`, `Shift+Tab`, and `Enter` work in
+pointer modality without forcing navigation decoration or following mode, and a
+click, wheel scroll, or mouse move returns to pointer modality. Hovering never
+moves focus, scrolls, swaps the hero, or expands the rail over content. A
+pointer press does not paint focus. When focus is shown, it follows three rules,
+by kind:
 
 - **Controls** (buttons, icon buttons, chips, nav items, the search field, the
   dropdown, a category item): the fill turns **white** and the content turns ink.
@@ -251,14 +256,19 @@ measurements below are its own.
 
 ### Hero
 
-Two modes of one component. **Rotating**: a 1920×880 backdrop under a left and a
-bottom scrim. Over it sit the logo (at most 560×180, anchored bottom-left at the
-content margin), the meta line, a three-line synopsis, **Watch now** (primary,
-focused) and **Details** (secondary), and the ticks at the bottom right.
-**Following focus**: the backdrop moves right (1440×810), the logo shrinks to
-520×150, the actions and the ticks go, and the rows start 156px higher. The
-**meta line** is the IMDb badge, the rating, then year, runtime and up to three
-genres separated by dots.
+Two modes of one component, gated by input modality (#392). In **pointer
+modality**, Home is an ordinary whole-window scrollable page: the **rotating**
+hero sits at the top and scrolls away with the rows, without following focus or
+hover. In **navigation modality**, focusing a row card switches to **following
+focus**. **Rotating**: a 1920×880 backdrop under a left and a bottom scrim. Over
+it sit the logo (at most 560×180, anchored bottom-left at the content margin),
+the meta line, a three-line synopsis, **Watch now** (primary, focused) and
+**Details** (secondary), and the ticks at the bottom right. **Following focus**:
+the backdrop moves right (1440×810), the logo shrinks to 520×150, the actions
+and the ticks go, and the rows start 156px higher. Moving the mouse or scrolling
+returns Home to the page layout while keeping the visible rows aligned without a
+jump. The **meta line** is the IMDb badge, the rating, then year, runtime and up
+to three genres separated by dots.
 
 ### Cards
 

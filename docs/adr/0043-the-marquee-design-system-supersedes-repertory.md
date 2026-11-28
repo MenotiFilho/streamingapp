@@ -61,11 +61,19 @@ a font or an icon from a third party.
 - **The window's navigation is a side rail.** It shows icons only while focus is
   in the content, and widens with labels when focus enters it, dimming the screen
   behind it. Active is lavender, focus is white.
-- **The Home hero rotates, then follows focus.** It turns through the featured
-  titles with focus on **Watch now**, beside **Details**. When focus moves down
-  into the rows it switches to *following focus*: it shows the focused card's
-  title, moves its backdrop to the right, and the rows slide up under it; going
-  back up returns to rotating. This amends ADR-0036 §2, where the whole frame
+- **The Home hero rotates, then follows focus — in navigation modality (#392).**
+  In **pointer modality** (mouse, trackpad, wheel, or `Tab`/`Enter` without
+  arrow keys), the Home hero does **not** follow focus or hover: Home is an
+  ordinary whole-window scrollable page with the rotating hero at the top, and
+  both hero and rows scroll away together under the wheel or trackpad with no
+  following-mode shrink and no `--mq-rows-shift`. In **navigation modality**
+  (arrow keys, D-pad, gamepad), the hero turns through the featured titles with
+  focus on **Watch now**, beside **Details**; when focus moves down into the
+  rows it switches to *following focus*: it shows the focused card's title,
+  moves its backdrop to the right, and the rows slide up under it; going back up
+  returns to rotating. Moving the mouse or scrolling the wheel from following
+  mode returns Home to the page layout while preserving the visible row
+  position without jumping. This amends ADR-0036 §2, where the whole frame
   opened the Title and nothing followed focus. Ticks, swipe and hold still steer
   it. On the phone it only rotates and swipes, because there is no focus to
   follow.

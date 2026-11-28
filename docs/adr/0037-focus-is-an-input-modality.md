@@ -165,3 +165,28 @@ would still activate the wrong one); **a second pointer plan in the template**
   presentation locks are unchanged (ADR-0032).
 - `docs/design-system.md` §5 is the drawing's home: the keyline, the ink and
   the wash are navigation's, and a pointer focus draws none of them.
+
+## Amendment (#392): arrow keys own navigation; mouse movement and wheel return to pointer
+
+In the Marquee walkthrough (#392), treating every `keydown` as navigation and
+ignoring mouse movement made pointer and keyboard use feel sticky: pressing
+`Tab` or `Enter` forced navigation modality (and Home's following-focus layout),
+while moving the mouse or scrolling the wheel after an arrow key left the room
+stuck in navigation modality until a click.
+
+1. **Navigation keys vs pointer keys.** Only directional arrow keys (`ArrowUp`,
+   `ArrowDown`, `ArrowLeft`, `ArrowRight`, with `ArrowLeft`/`ArrowRight` inside
+   a text input kept for the caret) and gamepad/D-pad intents enter
+   `"navigation"` modality. `Tab`, `Shift+Tab`, `Enter`, `Escape` (from a
+   keyboard), and typing keys leave the room in `"pointer"` modality so
+   keyboard focus traversal and activation work without forcing navigation
+   decoration or Home's following mode.
+2. **Returning to pointer.** In addition to `pointerdown`, a `wheel` scroll or
+   real mouse movement (`pointermove` with changed pointer coordinates,
+   ignoring stationary synthetic events emitted during scroll/layout shifts)
+   returns the room to `"pointer"` modality.
+3. **Hovering.** Hovering content never moves focus, never scrolls or reveals,
+   never swaps the Home hero, and never expands the nav rail (the expanded
+   rail's fade gradient carries `pointer-events: none` so hovering over content
+   next to the rail never holds the rail open). Hovering the rail itself still
+   expands it.
