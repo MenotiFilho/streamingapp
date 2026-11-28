@@ -26,6 +26,7 @@ export default defineConfig({
         /src\/kit\/marquee\/.*\.css/,
         /src\/window\/repertory\/osd\.css/,
         /src\/window\/repertory\/repertory\.css/,
+        /src\/window\/marquee\/marquee\.css/,
       ],
     },
   },
