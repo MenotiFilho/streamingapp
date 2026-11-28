@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MotionGlobalConfig } from "motion/react";
 import { StrictMode } from "react";
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { SNAPSHOT_EVENT } from "../core/wire";
 import type {
@@ -27,6 +28,17 @@ import { dockedTransport } from "./PlayerDock";
 import { EPISODES_EMPTY } from "./episodesMenu";
 import { OSD_IDLE_MS } from "./useOsdVisibility";
 import { STALL_GRACE_MS } from "../core/stall";
+
+// Skip wall-clock Motion spring exits in jsdom so popover and level dismissals
+// complete immediately instead of waiting on real requestAnimationFrame ticks.
+let previousSkipAnimations: boolean | undefined;
+beforeAll(() => {
+  previousSkipAnimations = MotionGlobalConfig.skipAnimations;
+  MotionGlobalConfig.skipAnimations = true;
+});
+afterAll(() => {
+  MotionGlobalConfig.skipAnimations = previousSkipAnimations;
+});
 
 /**
  * The Tauri window the player tests hold lives in `tauriWindow.testing`, so the

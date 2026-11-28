@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MotionGlobalConfig } from "motion/react";
 import { useCallback, useState, type ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { MOVIE, discoverFeedKey, discoverNoCounterpart } from "../../core/discover";
 import type {
@@ -26,6 +27,17 @@ import { RepertoryDiscoverScreen } from "./RepertoryDiscover";
 import { RepertoryStreamsScreen } from "./RepertoryStreams";
 import { RepertoryTitleScreen } from "./RepertoryTitle";
 import { RepertorySearchScreen } from "./RepertorySearch";
+
+// Skip wall-clock Motion spring exits in jsdom so pushed grids and levels
+// unmount immediately on Back instead of waiting on requestAnimationFrame ticks.
+let previousSkipAnimations: boolean | undefined;
+beforeAll(() => {
+  previousSkipAnimations = MotionGlobalConfig.skipAnimations;
+  MotionGlobalConfig.skipAnimations = true;
+});
+afterAll(() => {
+  MotionGlobalConfig.skipAnimations = previousSkipAnimations;
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
