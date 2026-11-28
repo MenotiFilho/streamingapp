@@ -1,0 +1,1413 @@
+/*
+ * Marquee Kit B (#367): sheets `C5 Streams & panels` and `C6 Player` of the
+ * mockup (`docs/design/marquee/scripts/build.js`). Every measurement is the
+ * sheet's own, in reference-frame units (`--mq-u`), and every colour comes from
+ * a `--mq-*` token.
+ *
+ * Classes are prefixed `mq-pp-`. `.mq-pp-btn`, `.mq-pp-iconbtn` and
+ * `.mq-pp-badge` are this kit's private parts, kept apart from Kit A's (#366).
+ *
+ * Focus is drawn under `html[data-input="navigation"] …:focus` (ADR-0037) and
+ * by `[data-focused="true"]`. Selected and playing states are never gated.
+ */
+
+@import "./base.css";
+
+.mq-pp {
+  /* Scrim and shade strengths the sheets use over a picture. */
+  --mq-pp-card-bg: color-mix(in srgb, var(--mq-surface) 92%, transparent);
+  --mq-pp-scrim-top: rgb(0 0 0 / 0.82);
+  --mq-pp-chip-bg: color-mix(in srgb, var(--mq-ink) 80%, transparent);
+  --mq-pp-chapter: color-mix(in srgb, var(--mq-ink) 85%, transparent);
+  --mq-pp-spinner-track: color-mix(in srgb, var(--mq-white) 18%, transparent);
+  --mq-pp-shadow-preview: 0 calc(var(--mq-u) * 16) calc(var(--mq-u) * 35.2) rgb(0 0 0 / 0.55);
+
+  color: var(--mq-text);
+  font-family: var(--mq-font);
+  font-weight: var(--mq-weight-medium);
+  line-height: var(--mq-leading);
+}
+
+/*
+ * Words keep the face's own figures, as the sheets set them. The button
+ * selector outranks the scoped reset's `font: inherit`.
+ */
+.mq-pp,
+button.mq-pp {
+  font-variant-numeric: proportional-nums;
+}
+
+/* Readouts that change hold their width: clocks, delay, size, statistics. */
+.mq-pp-seek,
+.mq-pp-sync-value,
+.mq-pp-stepper-value,
+.mq-pp-stat dd,
+.mq-pp .mq-pp-upnext-countdown {
+  font-variant-numeric: tabular-nums;
+}
+
+.mq-pp,
+.mq-pp *,
+.mq-pp *::before,
+.mq-pp *::after {
+  box-sizing: border-box;
+}
+
+.mq-pp :where(h1, h2, h3, p, ul, dl, dt, dd) {
+  margin: 0;
+  padding: 0;
+}
+
+/* --------------------------------------------------------------------------
+ * Private parts: button, icon button, badge (sheet C1 as C5/C6 use it)
+ * -------------------------------------------------------------------------- */
+
+button.mq-pp-btn,
+button.mq-pp-iconbtn {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  border: 0;
+  border-radius: var(--mq-radius-full);
+  padding: 0;
+  background: transparent;
+  color: var(--mq-text);
+  font-family: var(--mq-font);
+  font-weight: var(--mq-weight-bold);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--mq-motion-fade) var(--mq-ease),
+    color var(--mq-motion-fade) var(--mq-ease),
+    box-shadow var(--mq-motion-fade) var(--mq-ease);
+}
+
+button.mq-pp-btn[data-size="L"] {
+  gap: calc(var(--mq-u) * 12);
+  height: calc(var(--mq-u) * 60);
+  padding: 0 calc(var(--mq-u) * 30);
+  font-size: var(--mq-text-control);
+  line-height: calc(var(--mq-u) * 27);
+}
+
+button.mq-pp-btn[data-size="M"] {
+  gap: calc(var(--mq-u) * 12);
+  height: calc(var(--mq-u) * 48);
+  padding: 0 calc(var(--mq-u) * 22);
+  font-size: var(--mq-text-label-sm);
+  line-height: calc(var(--mq-u) * 23);
+}
+
+button.mq-pp-iconbtn[data-size="XL"] {
+  width: calc(var(--mq-u) * 80);
+  height: calc(var(--mq-u) * 80);
+}
+
+button.mq-pp-iconbtn[data-size="L"] {
+  width: calc(var(--mq-u) * 56);
+  height: calc(var(--mq-u) * 56);
+}
+
+button.mq-pp-iconbtn[data-size="M"] {
+  width: calc(var(--mq-u) * 48);
+  height: calc(var(--mq-u) * 48);
+}
+
+.mq-pp-btn[data-kind="primary"],
+.mq-pp-iconbtn[data-kind="primary"] {
+  background: var(--mq-accent);
+  color: var(--mq-ink);
+}
+
+.mq-pp-btn[data-kind="secondary"],
+.mq-pp-iconbtn[data-kind="secondary"] {
+  background: var(--mq-glass);
+  color: var(--mq-text);
+}
+
+.mq-pp-btn[data-kind="ghost"],
+.mq-pp-iconbtn[data-kind="ghost"] {
+  background: transparent;
+  color: var(--mq-text);
+}
+
+/* Controls: white is focus, and the open menu's button stays white. */
+html[data-input="navigation"] button.mq-pp-btn:focus,
+html[data-input="navigation"] button.mq-pp-iconbtn:focus,
+button.mq-pp-btn[data-focused="true"],
+button.mq-pp-iconbtn[data-focused="true"],
+button.mq-pp-iconbtn[data-open="true"] {
+  background: var(--mq-white);
+  color: var(--mq-ink);
+  box-shadow: var(--mq-shadow-focus);
+  outline: none;
+}
+
+html[data-input="pointer"] button.mq-pp-btn:focus,
+html[data-input="pointer"] button.mq-pp-iconbtn:focus {
+  outline: none;
+}
+
+button.mq-pp-btn:disabled,
+button.mq-pp-iconbtn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.mq-pp-badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: calc(var(--mq-u) * 28);
+  border-radius: var(--mq-radius-6);
+  padding: 0 calc(var(--mq-u) * 10);
+  background: var(--mq-glass);
+  color: var(--mq-text);
+  font-size: var(--mq-text-badge);
+  font-weight: var(--mq-weight-bold);
+  letter-spacing: var(--mq-tracking-badge);
+  line-height: calc(var(--mq-u) * 19);
+  white-space: nowrap;
+}
+
+.mq-pp-badge[data-tone="accent"] {
+  background: var(--mq-accent);
+  color: var(--mq-ink);
+}
+
+/* ==========================================================================
+ * C5 · Streams & panels
+ * ========================================================================== */
+
+/* --------------------------------------------------------------------------
+ * Panel: side 936×1032 r28 blur 60, floating 840×540 r24 blur 50
+ * -------------------------------------------------------------------------- */
+
+/* Zero specificity, so a client's own class may position the panel. */
+:where(.mq-pp-panel, .mq-pp-card) {
+  position: relative;
+}
+
+.mq-pp-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--mq-panel-bg);
+}
+
+/* The sheet's inside stroke, drawn above whatever the surface holds. */
+.mq-pp-panel::after,
+.mq-pp-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px var(--mq-panel-border);
+  pointer-events: none;
+}
+
+.mq-pp-panel[data-placement="side"] {
+  width: calc(var(--mq-u) * 936);
+  height: calc(var(--mq-u) * 1032);
+  border-radius: var(--mq-radius-28);
+  backdrop-filter: blur(var(--mq-blur-side));
+  -webkit-backdrop-filter: blur(var(--mq-blur-side));
+  box-shadow: var(--mq-shadow-sheet);
+}
+
+.mq-pp-panel[data-placement="floating"] {
+  width: calc(var(--mq-u) * 840);
+  height: calc(var(--mq-u) * 540);
+  border-radius: var(--mq-radius-24);
+  backdrop-filter: blur(var(--mq-blur-panel));
+  -webkit-backdrop-filter: blur(var(--mq-blur-panel));
+  box-shadow: var(--mq-shadow-panel);
+}
+
+.mq-pp-panel[data-placement="floating"][data-size="compact"] {
+  width: calc(var(--mq-u) * 420);
+}
+
+.mq-pp-panel-head {
+  flex: none;
+  padding: calc(var(--mq-u) * 36) calc(var(--mq-u) * 44) calc(var(--mq-u) * 17);
+}
+
+.mq-pp-panel-title {
+  overflow: hidden;
+  padding-right: calc(var(--mq-u) * 72);
+  font-size: var(--mq-text-heading);
+  font-weight: var(--mq-weight-extrabold);
+  line-height: calc(var(--mq-u) * 49);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* `.mq-pp` on both: above the reset's margin. */
+.mq-pp .mq-pp-panel-subtitle {
+  margin-top: calc(var(--mq-u) * 1);
+  color: var(--mq-text-faint);
+  font-size: var(--mq-text-label-sm);
+  line-height: calc(var(--mq-u) * 23);
+}
+
+button.mq-pp-iconbtn.mq-pp-panel-close {
+  position: absolute;
+  top: calc(var(--mq-u) * 40);
+  right: calc(var(--mq-u) * 44);
+}
+
+.mq-pp-panel-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 12);
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 calc(var(--mq-u) * 44) calc(var(--mq-u) * 44);
+  scrollbar-width: none;
+}
+
+.mq-pp-panel-body > * {
+  flex: none;
+}
+
+/* The split floating panel: two equal columns and the rule between them. */
+.mq-pp-panel[data-split="true"] {
+  flex-direction: row;
+}
+
+.mq-pp-panel[data-split="true"]::before {
+  content: "";
+  position: absolute;
+  top: calc(var(--mq-u) * 28);
+  bottom: calc(var(--mq-u) * 28);
+  left: 50%;
+  width: max(1px, calc(var(--mq-u) * 1));
+  background: var(--mq-line);
+}
+
+.mq-pp-column {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  padding: calc(var(--mq-u) * 30) calc(var(--mq-u) * 32) 0;
+}
+
+.mq-pp-column-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: calc(var(--mq-u) * 16);
+  height: calc(var(--mq-u) * 32);
+  margin-bottom: calc(var(--mq-u) * 18);
+}
+
+.mq-pp .mq-pp-column-title {
+  overflow: hidden;
+  padding-left: calc(var(--mq-u) * 12);
+  font-size: calc(var(--mq-u) * 24);
+  font-weight: var(--mq-weight-extrabold);
+  line-height: calc(var(--mq-u) * 32);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mq-pp-column-actions {
+  position: relative;
+  top: calc(var(--mq-u) * 2);
+  display: flex;
+  gap: calc(var(--mq-u) * 10);
+  margin-left: auto;
+}
+
+.mq-pp-column-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 8);
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: calc(var(--mq-u) * 24);
+  scrollbar-width: none;
+}
+
+.mq-pp-column-body > * {
+  flex: none;
+}
+
+.mq-pp-panel[data-split="true"] > .mq-pp-column:first-child {
+  padding-right: calc(var(--mq-u) * 16);
+}
+
+.mq-pp-panel[data-split="true"] > .mq-pp-column:last-child {
+  padding-right: calc(var(--mq-u) * 24);
+  padding-left: calc(var(--mq-u) * 24);
+}
+
+.mq-pp-panel[data-size="compact"] > .mq-pp-column {
+  padding-right: calc(var(--mq-u) * 24);
+  padding-left: calc(var(--mq-u) * 24);
+}
+
+.mq-pp[data-size="compact"] .mq-pp-column-title {
+  padding-left: calc(var(--mq-u) * 20);
+}
+
+.mq-pp[data-size="compact"] .mq-pp-column-body {
+  gap: calc(var(--mq-u) * 4);
+}
+
+/* A column of text: head and body share one edge (the Details menu). */
+.mq-pp-column[data-align="text"] > .mq-pp-column-head {
+  margin-bottom: calc(var(--mq-u) * 20);
+}
+
+.mq-pp .mq-pp-column[data-align="text"] .mq-pp-column-title {
+  padding-left: 0;
+}
+
+.mq-pp-panel > .mq-pp-column[data-align="text"]:first-child {
+  padding-left: calc(var(--mq-u) * 44);
+}
+
+.mq-pp-panel[data-split="true"] > .mq-pp-column[data-align="text"]:first-child {
+  padding-right: calc(var(--mq-u) * 24);
+}
+
+/* --------------------------------------------------------------------------
+ * Group label
+ * -------------------------------------------------------------------------- */
+
+.mq-pp-group-label {
+  height: calc(var(--mq-u) * 19);
+  margin: 0;
+  overflow: hidden;
+  color: var(--mq-text-faint);
+  font-size: var(--mq-text-overline);
+  font-weight: var(--mq-weight-extrabold);
+  letter-spacing: var(--mq-tracking-overline-wide);
+  line-height: calc(var(--mq-u) * 19);
+  text-transform: uppercase;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* In a panel's list: rows 11u under their label, groups and notices 26u apart. */
+.mq-pp-panel-body > .mq-pp-group-label {
+  margin-bottom: calc(var(--mq-u) * -1);
+}
+
+.mq-pp-panel-body > * + .mq-pp-group-label,
+.mq-pp-panel-body > * + .mq-pp-notice {
+  margin-top: calc(var(--mq-u) * 14);
+}
+
+/* --------------------------------------------------------------------------
+ * Stream row 848×128
+ * -------------------------------------------------------------------------- */
+
+button.mq-pp-stream {
+  position: relative;
+  display: block;
+  width: calc(var(--mq-u) * 848);
+  max-width: 100%;
+  height: calc(var(--mq-u) * 128);
+  margin: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: var(--mq-radius-18);
+  padding: 0;
+  background: var(--mq-row-rest);
+  color: var(--mq-text);
+  font-family: var(--mq-font);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--mq-motion-fade) var(--mq-ease),
+    box-shadow var(--mq-motion-fade) var(--mq-ease);
+}
+
+.mq-pp-stream[data-playing="true"] {
+  box-shadow: inset 0 0 0 var(--mq-focus-outline-row) var(--mq-accent);
+}
+
+html[data-input="navigation"] button.mq-pp-stream:focus,
+button.mq-pp-stream[data-focused="true"] {
+  background: var(--mq-row-focus);
+  box-shadow: inset 0 0 0 var(--mq-focus-outline-row) var(--mq-white);
+  outline: none;
+}
+
+html[data-input="pointer"] button.mq-pp-stream:focus {
+  outline: none;
+}
+
+button.mq-pp-stream:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.mq-pp-stream-tier {
+  position: absolute;
+  top: calc(var(--mq-u) * 18);
+  left: calc(var(--mq-u) * 18);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--mq-u) * 92);
+  height: calc(var(--mq-u) * 92);
+  overflow: hidden;
+  border-radius: var(--mq-radius-14);
+  background: var(--mq-surface-3);
+  color: var(--mq-text);
+  font-size: calc(var(--mq-u) * 21);
+  font-weight: var(--mq-weight-extrabold);
+  line-height: calc(var(--mq-u) * 28);
+}
+
+.mq-pp-stream-tier[data-tone="uhd"] {
+  background: var(--mq-accent);
+  color: var(--mq-ink);
+  font-size: calc(var(--mq-u) * 24);
+  line-height: calc(var(--mq-u) * 32);
+}
+
+.mq-pp-stream-name {
+  position: absolute;
+  top: calc(var(--mq-u) * 16);
+  right: calc(var(--mq-u) * 96);
+  left: calc(var(--mq-u) * 132);
+  overflow: hidden;
+  font-size: var(--mq-text-control);
+  font-weight: var(--mq-weight-bold);
+  line-height: calc(var(--mq-u) * 27);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mq-pp-stream-details {
+  position: absolute;
+  top: calc(var(--mq-u) * 48);
+  right: calc(var(--mq-u) * 96);
+  left: calc(var(--mq-u) * 132);
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mq-u) * 7);
+  height: calc(var(--mq-u) * 24);
+  overflow: hidden;
+  color: var(--mq-text-muted);
+  font-size: var(--mq-text-caption);
+  font-weight: var(--mq-weight-medium);
+  line-height: calc(var(--mq-u) * 22);
+  white-space: nowrap;
+}
+
+.mq-pp-stream-detail {
+  display: contents;
+}
+
+.mq-pp-stream-details .mq-icon {
+  color: var(--mq-white);
+  opacity: 0.6;
+}
+
+.mq-pp-stream-marks {
+  position: absolute;
+  top: calc(var(--mq-u) * 82);
+  right: calc(var(--mq-u) * 96);
+  left: calc(var(--mq-u) * 132);
+  display: flex;
+  gap: calc(var(--mq-u) * 8);
+  height: calc(var(--mq-u) * 28);
+  overflow: hidden;
+}
+
+/* Marks stop short of the PLAYING badge. */
+.mq-pp-stream[data-playing="true"] .mq-pp-stream-marks {
+  right: calc(var(--mq-u) * 144);
+}
+
+.mq-pp-stream-playing {
+  position: absolute;
+  top: calc(var(--mq-u) * 86);
+  left: calc(var(--mq-u) * 712);
+  z-index: 1;
+}
+
+.mq-pp-stream-disc {
+  position: absolute;
+  top: calc(var(--mq-u) * 36);
+  right: calc(var(--mq-u) * 20);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--mq-u) * 56);
+  height: calc(var(--mq-u) * 56);
+  border-radius: var(--mq-radius-full);
+  background: var(--mq-glass-subtle);
+  color: var(--mq-white);
+}
+
+/* The triangle sits one unit right of centre. */
+.mq-pp-stream-disc .mq-icon {
+  margin-left: calc(var(--mq-u) * 2);
+}
+
+html[data-input="navigation"] .mq-pp-stream:focus .mq-pp-stream-disc,
+.mq-pp-stream[data-focused="true"] .mq-pp-stream-disc {
+  background: var(--mq-white);
+  color: var(--mq-ink);
+}
+
+/* --------------------------------------------------------------------------
+ * Addon notice 848×76
+ * -------------------------------------------------------------------------- */
+
+.mq-pp-notice {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mq-u) * 16);
+  width: calc(var(--mq-u) * 848);
+  max-width: 100%;
+  min-height: calc(var(--mq-u) * 76);
+  border-radius: var(--mq-radius-18);
+  padding: 0 calc(var(--mq-u) * 22) 0 calc(var(--mq-u) * 24);
+  background: var(--mq-danger-tint);
+}
+
+.mq-pp-notice-icon {
+  color: var(--mq-danger);
+}
+
+.mq-pp-notice-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 4);
+  min-width: 0;
+  padding: calc(var(--mq-u) * 14) 0;
+}
+
+.mq-pp-notice-title {
+  overflow: hidden;
+  font-size: var(--mq-text-label);
+  font-weight: var(--mq-weight-bold);
+  line-height: calc(var(--mq-u) * 24);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The Host's reason is verbatim: it wraps rather than being cut. */
+.mq-pp-notice-reason {
+  overflow-wrap: anywhere;
+  color: var(--mq-text-faint);
+  font-size: var(--mq-text-caption-sm);
+  line-height: calc(var(--mq-u) * 20);
+}
+
+/* --------------------------------------------------------------------------
+ * Track option 372×64
+ * -------------------------------------------------------------------------- */
+
+button.mq-pp-track {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mq-u) * 12);
+  width: calc(var(--mq-u) * 372);
+  max-width: 100%;
+  height: calc(var(--mq-u) * 64);
+  margin: 0;
+  border: 0;
+  border-radius: var(--mq-radius-14);
+  padding: 0 calc(var(--mq-u) * 18);
+  background: transparent;
+  color: var(--mq-text);
+  font-family: var(--mq-font);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--mq-motion-fade) var(--mq-ease),
+    box-shadow var(--mq-motion-fade) var(--mq-ease);
+}
+
+.mq-pp-track[data-selected="true"] {
+  padding-right: calc(var(--mq-u) * 22);
+}
+
+html[data-input="navigation"] button.mq-pp-track:focus,
+button.mq-pp-track[data-focused="true"] {
+  background: var(--mq-row-focus);
+  box-shadow: inset 0 0 0 var(--mq-focus-outline-row) var(--mq-white);
+  outline: none;
+}
+
+html[data-input="pointer"] button.mq-pp-track:focus {
+  outline: none;
+}
+
+button.mq-pp-track:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.mq-pp-track-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: calc(var(--mq-u) * 1);
+  min-width: 0;
+  height: 100%;
+  padding-bottom: calc(var(--mq-u) * 2);
+}
+
+.mq-pp-track-title {
+  overflow: hidden;
+  font-size: calc(var(--mq-u) * 19);
+  font-weight: var(--mq-weight-medium);
+  line-height: calc(var(--mq-u) * 26);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mq-pp-track[data-selected="true"] .mq-pp-track-title {
+  font-weight: var(--mq-weight-extrabold);
+}
+
+.mq-pp-track-detail {
+  overflow: hidden;
+  color: var(--mq-text-faint);
+  font-size: var(--mq-text-overline);
+  font-weight: var(--mq-weight-medium);
+  line-height: calc(var(--mq-u) * 19);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mq-pp-track-check {
+  color: var(--mq-accent);
+}
+
+/* ==========================================================================
+ * C6 · Player
+ * ========================================================================== */
+
+/* --------------------------------------------------------------------------
+ * Top bar 1920×200
+ * -------------------------------------------------------------------------- */
+
+.mq-pp-topbar {
+  display: flex;
+  align-items: flex-start;
+  width: 100%;
+  height: calc(var(--mq-u) * 200);
+  padding: calc(var(--mq-u) * 52) var(--mq-margin-player) 0;
+  background: linear-gradient(to bottom, var(--mq-pp-scrim-top), rgb(0 0 0 / 0));
+}
+
+.mq-pp-topbar-copy {
+  flex: 1;
+  min-width: 0;
+  margin: calc(var(--mq-u) * -4) calc(var(--mq-u) * 24) 0;
+}
+
+.mq-pp-topbar-title {
+  overflow: hidden;
+  font-size: var(--mq-text-row-head);
+  font-weight: var(--mq-weight-extrabold);
+  line-height: calc(var(--mq-u) * 38);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mq-pp-topbar-subtitle {
+  overflow: hidden;
+  color: var(--mq-text-muted);
+  font-size: var(--mq-text-label);
+  line-height: calc(var(--mq-u) * 24);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mq-pp .mq-pp-topbar-facts {
+  display: flex;
+  gap: calc(var(--mq-u) * 8);
+  margin: calc(var(--mq-u) * 14) calc(var(--mq-u) * 48) 0 0;
+  list-style: none;
+}
+
+.mq-pp-topbar-facts li {
+  display: flex;
+}
+
+/* --------------------------------------------------------------------------
+ * Seek bar 1792
+ * -------------------------------------------------------------------------- */
+
+.mq-pp-seek {
+  display: flex;
+  align-items: center;
+  width: calc(var(--mq-u) * 1792);
+  max-width: 100%;
+  height: calc(var(--mq-u) * 32);
+  font-size: var(--mq-text-control);
+  font-weight: var(--mq-weight-bold);
+  line-height: calc(var(--mq-u) * 27);
+  white-space: nowrap;
+  user-select: none;
+}
+
+/* The bar draws its own focus: it thickens. */
+.mq-pp-seek:focus {
+  outline: none;
+}
+
+.mq-pp-seek-elapsed {
+  flex: none;
+  min-width: calc(var(--mq-u) * 96);
+  padding-right: calc(var(--mq-u) * 12);
+}
+
+.mq-pp-seek-remaining {
+  flex: none;
+  min-width: calc(var(--mq-u) * 72);
+  margin-left: calc(var(--mq-u) * 24);
+  color: var(--mq-text-muted);
+}
+
+.mq-pp-seek-hit {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: calc(var(--mq-u) * 32);
+  cursor: pointer;
+  touch-action: none;
+}
+
+.mq-pp-seek[aria-disabled="true"] .mq-pp-seek-hit {
+  cursor: default;
+}
+
+.mq-pp-seek-track {
+  position: absolute;
+  top: calc(50% - var(--mq-u) * 4);
+  right: 0;
+  left: 0;
+  height: calc(var(--mq-u) * 8);
+  border-radius: var(--mq-radius-full);
+  background: var(--mq-seek-track);
+  transition:
+    top var(--mq-motion-quick) var(--mq-ease),
+    height var(--mq-motion-quick) var(--mq-ease);
+}
+
+.mq-pp-seek-buffered,
+.mq-pp-seek-played {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: var(--mq-radius-full);
+}
+
+.mq-pp-seek-buffered {
+  background: var(--mq-seek-buffered);
+}
+
+.mq-pp-seek-played {
+  background: var(--mq-accent);
+}
+
+.mq-pp-seek-chapter {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: calc(var(--mq-u) * 4);
+  margin-left: calc(var(--mq-u) * -2);
+  background: var(--mq-pp-chapter);
+}
+
+.mq-pp-seek-playhead {
+  position: absolute;
+  top: 50%;
+  width: calc(var(--mq-u) * 24);
+  height: calc(var(--mq-u) * 24);
+  border-radius: var(--mq-radius-full);
+  background: var(--mq-white);
+  transform: translate(-50%, -50%);
+  transition:
+    width var(--mq-motion-quick) var(--mq-ease),
+    height var(--mq-motion-quick) var(--mq-ease),
+    box-shadow var(--mq-motion-fade) var(--mq-ease);
+}
+
+html[data-input="navigation"] .mq-pp-seek:focus .mq-pp-seek-track,
+.mq-pp-seek[data-focused="true"] .mq-pp-seek-track {
+  top: calc(50% - var(--mq-u) * 6);
+  height: calc(var(--mq-u) * 12);
+}
+
+html[data-input="navigation"] .mq-pp-seek:focus .mq-pp-seek-playhead,
+.mq-pp-seek[data-focused="true"] .mq-pp-seek-playhead {
+  width: calc(var(--mq-u) * 32);
+  height: calc(var(--mq-u) * 32);
+  box-shadow: inset 0 0 0 calc(var(--mq-u) * 4) var(--mq-accent);
+}
+
+/*
+ * The frame 50u above the track's middle, centred on its moment and held inside
+ * the bar, which runs 96u past the track on each side.
+ */
+.mq-pp-seek-preview {
+  position: absolute;
+  bottom: calc(var(--mq-u) * 66);
+  left: clamp(
+    var(--mq-u) * -96,
+    var(--mq-pp-seek-at) * 100% - var(--mq-u) * 144,
+    100% - var(--mq-u) * 192
+  );
+  z-index: 1;
+  width: calc(var(--mq-u) * 288);
+  height: calc(var(--mq-u) * 162);
+  pointer-events: none;
+}
+
+.mq-pp-seek-preview[data-still="true"] {
+  overflow: hidden;
+  border-radius: var(--mq-radius-14);
+  background: var(--mq-surface-2);
+  box-shadow:
+    0 0 0 var(--mq-focus-outline-row) var(--mq-white),
+    var(--mq-pp-shadow-preview);
+}
+
+.mq-pp-seek-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mq-pp-seek-chip {
+  position: absolute;
+  top: calc(var(--mq-u) * 124);
+  left: calc(var(--mq-u) * 104);
+  display: inline-flex;
+  align-items: center;
+  height: calc(var(--mq-u) * 28);
+  border-radius: var(--mq-radius-8);
+  padding: 0 calc(var(--mq-u) * 10);
+  background: var(--mq-pp-chip-bg);
+  font-size: var(--mq-text-caption-sm);
+  line-height: calc(var(--mq-u) * 20);
+}
+
+/* No still: the time and the Chapter alone, centred on the moment. */
+.mq-pp-seek-preview:not([data-still]) {
+  left: calc(var(--mq-pp-seek-at) * 100%);
+  width: max-content;
+  height: auto;
+  transform: translateX(-50%);
+}
+
+.mq-pp-seek-preview:not([data-still]) .mq-pp-seek-chip {
+  position: static;
+}
+
+/* --------------------------------------------------------------------------
+ * Controls 1792×80
+ * -------------------------------------------------------------------------- */
+
+.mq-pp-controls {
+  position: relative;
+  width: calc(var(--mq-u) * 1792);
+  max-width: 100%;
+  height: calc(var(--mq-u) * 80);
+}
+
+.mq-pp-controls-volume {
+  position: absolute;
+  top: calc(var(--mq-u) * 12);
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mq-u) * 16);
+  height: calc(var(--mq-u) * 56);
+}
+
+/* The transport sits where the sheet puts it: 160u left of the row's middle. */
+.mq-pp-controls-transport {
+  position: absolute;
+  top: 0;
+  left: calc(50% - var(--mq-u) * 160);
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mq-u) * 28);
+  height: calc(var(--mq-u) * 80);
+}
+
+.mq-pp-controls-end {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mq-u) * 10);
+  height: calc(var(--mq-u) * 80);
+}
+
+.mq-pp-controls-menus {
+  display: flex;
+  gap: calc(var(--mq-u) * 10);
+}
+
+.mq-pp-volume {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: calc(var(--mq-u) * 160);
+  height: calc(var(--mq-u) * 24);
+  cursor: pointer;
+  touch-action: none;
+}
+
+/* The knob is the level's focus mark. */
+.mq-pp-volume:focus {
+  outline: none;
+}
+
+.mq-pp-volume-track {
+  position: relative;
+  width: 100%;
+  height: calc(var(--mq-u) * 6);
+  overflow: hidden;
+  border-radius: var(--mq-radius-full);
+  background: var(--mq-seek-track);
+}
+
+.mq-pp-volume-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: var(--mq-radius-full);
+  background: var(--mq-white);
+}
+
+.mq-pp-volume-knob {
+  position: absolute;
+  top: 50%;
+  width: calc(var(--mq-u) * 18);
+  height: calc(var(--mq-u) * 18);
+  border-radius: var(--mq-radius-full);
+  background: var(--mq-white);
+  box-shadow: var(--mq-shadow-focus);
+  opacity: 0;
+  transform: translate(-50%, -50%);
+  transition: opacity var(--mq-motion-fade) var(--mq-ease);
+}
+
+html[data-input="navigation"] .mq-pp-volume:focus .mq-pp-volume-knob,
+.mq-pp-volume[data-focused="true"] .mq-pp-volume-knob {
+  opacity: 1;
+}
+
+/* --------------------------------------------------------------------------
+ * Cards over the picture: Up next 560×372, Still watching 560×288
+ * -------------------------------------------------------------------------- */
+
+.mq-pp-card {
+  overflow: hidden;
+  border-radius: var(--mq-radius-24);
+  background: var(--mq-pp-card-bg);
+  backdrop-filter: blur(var(--mq-blur-panel));
+  -webkit-backdrop-filter: blur(var(--mq-blur-panel));
+  box-shadow: var(--mq-shadow-sheet);
+}
+
+.mq-pp-upnext {
+  width: calc(var(--mq-u) * 560);
+  height: calc(var(--mq-u) * 372);
+}
+
+.mq-pp-upnext-still {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: 100%;
+  height: calc(var(--mq-u) * 220);
+  object-fit: cover;
+}
+
+.mq-pp-upnext-scrim {
+  position: absolute;
+  top: calc(var(--mq-u) * 100);
+  right: 0;
+  left: 0;
+  height: calc(var(--mq-u) * 120);
+  background: linear-gradient(
+    to top,
+    var(--mq-surface),
+    color-mix(in srgb, var(--mq-surface) 0%, transparent)
+  );
+}
+
+.mq-pp .mq-pp-upnext-countdown {
+  position: absolute;
+  top: calc(var(--mq-u) * 182);
+  left: calc(var(--mq-u) * 28);
+  color: var(--mq-accent);
+  font-size: var(--mq-text-caption-sm);
+  font-weight: var(--mq-weight-extrabold);
+  letter-spacing: var(--mq-tracking-overline);
+  line-height: calc(var(--mq-u) * 20);
+  text-transform: uppercase;
+}
+
+.mq-pp .mq-pp-upnext-title {
+  position: absolute;
+  top: calc(var(--mq-u) * 212);
+  right: calc(var(--mq-u) * 28);
+  left: calc(var(--mq-u) * 28);
+  overflow: hidden;
+  font-size: calc(var(--mq-u) * 26);
+  font-weight: var(--mq-weight-extrabold);
+  line-height: calc(var(--mq-u) * 35);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mq-pp-upnext-actions {
+  position: absolute;
+  top: calc(var(--mq-u) * 278);
+  left: calc(var(--mq-u) * 28);
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mq-u) * 14);
+  height: calc(var(--mq-u) * 60);
+}
+
+.mq-pp-upnext-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: calc(var(--mq-u) * 6);
+  background: var(--mq-accent);
+  transition: width var(--mq-motion-panel) linear;
+}
+
+.mq-pp-still {
+  width: calc(var(--mq-u) * 560);
+  min-height: calc(var(--mq-u) * 288);
+  padding: calc(var(--mq-u) * 30) calc(var(--mq-u) * 28) calc(var(--mq-u) * 42);
+}
+
+.mq-pp-still-overline {
+  color: var(--mq-accent);
+  font-size: var(--mq-text-caption-sm);
+  font-weight: var(--mq-weight-extrabold);
+  letter-spacing: var(--mq-tracking-overline);
+  line-height: calc(var(--mq-u) * 20);
+  text-transform: uppercase;
+}
+
+.mq-pp .mq-pp-still-title {
+  margin-top: calc(var(--mq-u) * 10);
+  font-size: calc(var(--mq-u) * 34);
+  font-weight: var(--mq-weight-extrabold);
+  line-height: calc(var(--mq-u) * 46);
+}
+
+.mq-pp .mq-pp-still-next {
+  margin-top: calc(var(--mq-u) * 4);
+  overflow: hidden;
+  color: var(--mq-text-muted);
+  font-size: var(--mq-text-label);
+  line-height: calc(var(--mq-u) * 24);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mq-pp-still-actions {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mq-u) * 14);
+  height: calc(var(--mq-u) * 60);
+  margin-top: calc(var(--mq-u) * 52);
+}
+
+/* --------------------------------------------------------------------------
+ * Spinner 72
+ * -------------------------------------------------------------------------- */
+
+.mq-pp-spinner {
+  display: inline-block;
+  width: calc(var(--mq-u) * 72);
+  height: calc(var(--mq-u) * 72);
+}
+
+.mq-pp-spinner svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  animation: mq-pp-turn 1s linear infinite;
+}
+
+.mq-pp-spinner circle {
+  fill: none;
+}
+
+.mq-pp-spinner-track {
+  stroke: var(--mq-pp-spinner-track);
+}
+
+.mq-pp-spinner-arc {
+  stroke: var(--mq-accent);
+}
+
+@keyframes mq-pp-turn {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes mq-pp-breathe {
+  to {
+    opacity: 0.4;
+  }
+}
+
+/* Reduced motion: no turning; the wait still reads as a fade (ADR-0031 §5). */
+@media (prefers-reduced-motion: reduce) {
+  .mq-pp-spinner svg {
+    animation: mq-pp-breathe 1.2s ease-in-out infinite alternate;
+  }
+}
+
+/* --------------------------------------------------------------------------
+ * Stat row 352×40
+ * -------------------------------------------------------------------------- */
+
+.mq-pp-stats {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 8);
+  margin: 0;
+}
+
+.mq-pp-stat {
+  display: flex;
+  justify-content: space-between;
+  gap: calc(var(--mq-u) * 16);
+  width: calc(var(--mq-u) * 352);
+  max-width: 100%;
+  height: calc(var(--mq-u) * 40);
+  border-bottom: max(1px, calc(var(--mq-u) * 1)) solid var(--mq-panel-border);
+  padding-top: calc(var(--mq-u) * 8);
+  font-size: var(--mq-text-label-sm);
+  line-height: calc(var(--mq-u) * 23);
+  white-space: nowrap;
+}
+
+.mq-pp-stat dt {
+  flex: none;
+  color: var(--mq-text-muted);
+  font-weight: var(--mq-weight-medium);
+}
+
+.mq-pp-stat dd {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: var(--mq-weight-bold);
+  text-align: right;
+  text-overflow: ellipsis;
+}
+
+/* --------------------------------------------------------------------------
+ * Size stepper 352×48
+ * -------------------------------------------------------------------------- */
+
+.mq-pp-stepper {
+  display: flex;
+  align-items: center;
+  width: calc(var(--mq-u) * 352);
+  max-width: 100%;
+  height: calc(var(--mq-u) * 48);
+}
+
+.mq-pp-stepper-track {
+  position: relative;
+  flex: none;
+  width: calc(var(--mq-u) * 172);
+  height: calc(var(--mq-u) * 6);
+  margin: 0 calc(var(--mq-u) * 12);
+  border-radius: var(--mq-radius-full);
+  background: var(--mq-seek-track);
+}
+
+.mq-pp-stepper-level {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: var(--mq-radius-full);
+  background: var(--mq-accent);
+}
+
+.mq-pp-stepper-knob {
+  position: absolute;
+  top: 50%;
+  width: calc(var(--mq-u) * 18);
+  height: calc(var(--mq-u) * 18);
+  border-radius: var(--mq-radius-full);
+  background: var(--mq-white);
+  transform: translate(-50%, -50%);
+}
+
+.mq-pp-stepper-value {
+  margin-left: auto;
+  font-size: var(--mq-text-label-sm);
+  font-weight: var(--mq-weight-extrabold);
+  line-height: calc(var(--mq-u) * 23);
+  text-align: right;
+}
+
+/* --------------------------------------------------------------------------
+ * Sync control 352×48
+ * -------------------------------------------------------------------------- */
+
+.mq-pp-sync {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mq-u) * 8);
+  width: calc(var(--mq-u) * 352);
+  max-width: 100%;
+  height: calc(var(--mq-u) * 48);
+}
+
+button.mq-pp-btn.mq-pp-sync-step {
+  padding: 0 calc(var(--mq-u) * 14);
+}
+
+button.mq-pp-btn.mq-pp-sync-reset {
+  padding: 0 calc(var(--mq-u) * 12);
+}
+
+/* Wide enough for `+0.0 s`, so the next button holds still while it changes. */
+.mq-pp-sync-value {
+  min-width: calc(var(--mq-u) * 49);
+  font-size: var(--mq-text-label-sm);
+  font-weight: var(--mq-weight-extrabold);
+  line-height: calc(var(--mq-u) * 23);
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------------
+ * Opening 640×240
+ * -------------------------------------------------------------------------- */
+
+.mq-pp-opening {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: calc(var(--mq-u) * 640);
+  max-width: 100%;
+  height: calc(var(--mq-u) * 240);
+}
+
+.mq-pp-opening[data-variant="logo"] {
+  justify-content: center;
+}
+
+/* The logo fitted inside 600×200, its box the shape of the art. */
+.mq-pp-opening-logo {
+  --mq-pp-logo-ratio: 3;
+  position: relative;
+  display: block;
+  width: min(
+    var(--mq-u) * 600,
+    var(--mq-u) * 200 * var(--mq-pp-logo-ratio)
+  );
+  aspect-ratio: var(--mq-pp-logo-ratio);
+  opacity: 0;
+  transition: opacity var(--mq-motion-fade) var(--mq-ease);
+}
+
+.mq-pp-opening-logo[data-measured="true"] {
+  opacity: 1;
+}
+
+.mq-pp-opening-logo img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+img.mq-pp-opening-dim {
+  opacity: 0.22;
+}
+
+/* The full-brightness copy, uncovered from the leading edge. */
+img.mq-pp-opening-fill {
+  clip-path: inset(0 calc((1 - var(--mq-pp-fill)) * 100%) 0 0);
+  transition: clip-path var(--mq-motion-panel) var(--mq-ease);
+}
+
+.mq-pp .mq-pp-opening-name {
+  width: 100%;
+  margin-top: calc(var(--mq-u) * 64);
+  overflow: hidden;
+  font-size: calc(var(--mq-u) * 64);
+  font-weight: var(--mq-weight-extrabold);
+  line-height: calc(var(--mq-u) * 86);
+  text-align: center;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mq-pp-opening-track {
+  position: relative;
+  flex: none;
+  width: calc(var(--mq-u) * 360);
+  height: calc(var(--mq-u) * 6);
+  margin-top: calc(var(--mq-u) * 18);
+  overflow: hidden;
+  border-radius: var(--mq-radius-full);
+  background: var(--mq-seek-track);
+}
+
+.mq-pp-opening-progress {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: calc(var(--mq-pp-fill) * 100%);
+  border-radius: var(--mq-radius-full);
+  background: var(--mq-accent);
+  transition: width var(--mq-motion-panel) var(--mq-ease);
+}
+
+.mq-pp .mq-pp-opening-detail {
+  position: absolute;
+  top: calc(var(--mq-u) * 192);
+  right: 0;
+  left: 0;
+  color: var(--mq-text-muted);
+  font-size: var(--mq-text-label);
+  line-height: calc(var(--mq-u) * 24);
+  text-align: center;
+}
+
+.mq-pp[data-variant="logo"] .mq-pp-opening-detail {
+  top: 100%;
+}
