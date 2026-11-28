@@ -29,6 +29,7 @@ const ADDON: AddonManifest = {
   ],
   idPrefixes: ["tt"],
   behaviorHints: { configurable: false, configurationRequired: false },
+  enabled: true,
 };
 
 describe("the Addons screen's readings", () => {

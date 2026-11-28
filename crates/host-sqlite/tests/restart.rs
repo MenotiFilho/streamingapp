@@ -401,3 +401,95 @@ fn removing_the_featured_addon_leaves_no_marking_across_a_restart() {
         "the marking went with the Addon, and stays gone"
     );
 }
+
+#[test]
+fn the_host_remembers_a_disabled_addon_across_a_restart_and_reconfiguration() {
+    let directory = tempfile::tempdir().expect("a temporary directory is available");
+    let database = directory.path().join("host.sqlite3");
+
+    let mut host = start(&database);
+    take(
+        &mut host,
+        &format!(r#"{{"type":"add_addon","url":"{MANIFEST_URL}"}}"#),
+    );
+    take(
+        &mut host,
+        &format!(r#"{{"type":"add_addon","url":"{SECOND_URL}"}}"#),
+    );
+    take(
+        &mut host,
+        r#"{"type":"set_addon_enabled","addon":"community.stremboxd","enabled":false}"#,
+    );
+    // Reconfiguring a disabled Addon must keep it disabled (ADR-0044 §2).
+    take(
+        &mut host,
+        &format!(r#"{{"type":"add_addon","url":"{MANIFEST_URL}"}}"#),
+    );
+    drop(host);
+
+    let mut restarted = start(&database);
+    let snapshot = restarted.snapshot();
+    assert_eq!(
+        addons(&snapshot),
+        vec!["community.stremboxd", "com.linvo.cinemeta"]
+    );
+    assert!(
+        !snapshot.addons[0].enabled,
+        "disabled state survives restart and add_addon"
+    );
+    assert!(snapshot.addons[1].enabled, "other Addons remain enabled");
+
+    take(
+        &mut restarted,
+        r#"{"type":"set_addon_enabled","addon":"community.stremboxd","enabled":true}"#,
+    );
+    drop(restarted);
+
+    assert!(
+        start(&database).snapshot().addons[0].enabled,
+        "re-enabling survives a restart too"
+    );
+}
+
+#[test]
+fn disabling_the_featured_addon_hides_and_restores_the_marking_across_a_restart() {
+    let directory = tempfile::tempdir().expect("a temporary directory is available");
+    let database = directory.path().join("host.sqlite3");
+
+    let mut host = start(&database);
+    take(
+        &mut host,
+        &format!(r#"{{"type":"add_addon","url":"{MANIFEST_URL}"}}"#),
+    );
+    take(
+        &mut host,
+        r#"{"type":"set_featured_catalog","addon":"community.stremboxd",
+            "catalog":{"type":"movie","id":"letterboxd-popular"}}"#,
+    );
+    take(
+        &mut host,
+        r#"{"type":"set_addon_enabled","addon":"community.stremboxd","enabled":false}"#,
+    );
+    assert_eq!(host.snapshot().featured_catalog, None);
+    drop(host);
+
+    let mut restarted = start(&database);
+    assert_eq!(
+        restarted.snapshot().featured_catalog,
+        None,
+        "while the Addon is disabled, Home draws no hero across a restart"
+    );
+
+    take(
+        &mut restarted,
+        r#"{"type":"set_addon_enabled","addon":"community.stremboxd","enabled":true}"#,
+    );
+    assert_eq!(
+        restarted.snapshot().featured_catalog,
+        Some(FeaturedCatalog {
+            addon: AddonId::parse("community.stremboxd").expect("an Addon id"),
+            catalog: CatalogRef::parse("movie", "letterboxd-popular").expect("a Catalog reference"),
+        }),
+        "re-enabling the Addon restores the stored Featured catalog automatically"
+    );
+}

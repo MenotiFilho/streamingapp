@@ -261,28 +261,30 @@ impl WatchProgress {
         }
     }
 
-    /// The entry as every client is told it, given whether the Addon that
-    /// supplied its Title — where one did — is still configured.
+    /// The entry as every client is told it, given why the Addon that supplied
+    /// its Title — where one did — cannot be asked (`None` when it is configured
+    /// and enabled).
     ///
-    /// The stub is a mark and not a hiding: an entry whose Addon is gone is
-    /// published exactly as it was, with [`UnplayableEntry`] saying why it cannot
-    /// be played now. An entry with **no** Addon behind it — a Discovered Title —
-    /// has no removal to judge and is never marked (ADR-0020).
-    pub fn resume_entry(&self, addon_held: bool) -> ResumeEntry {
+    /// The stub is a mark and not a hiding: an entry whose Addon is gone or
+    /// disabled is published exactly as it was, with [`UnplayableEntry`] saying
+    /// why it cannot be played now (ADR-0015, ADR-0044 §2). An entry with **no**
+    /// Addon behind it — a Discovered Title — has no Addon to judge and is never
+    /// marked (ADR-0020).
+    pub fn resume_entry(&self, reason: Option<UnplayableReason>) -> ResumeEntry {
         ResumeEntry {
             video: Video::keyed(&self.video.id),
             title: self.title.clone(),
             position: self.position,
             duration: self.duration,
             watched: self.watched,
-            unplayable: self.unplayable(addon_held),
+            unplayable: self.unplayable(reason),
         }
     }
 
     /// The Title's Continue watching card, where this entry is the Video the
-    /// Title played last. The same judgement of a removed Addon as
+    /// Title played last. The same judgement of a removed or disabled Addon as
     /// [`WatchProgress::resume_entry`].
-    pub fn continue_entry(&self, addon_held: bool) -> ContinueEntry {
+    pub fn continue_entry(&self, reason: Option<UnplayableReason>) -> ContinueEntry {
         ContinueEntry {
             video: Video::keyed(&self.video.id),
             title: self.title.clone(),
@@ -290,19 +292,17 @@ impl WatchProgress {
             duration: self.duration,
             watched: self.watched,
             up_next: false,
-            unplayable: self.unplayable(addon_held),
+            unplayable: self.unplayable(reason),
         }
     }
 
     /// Why this entry cannot be played now, or `None` when it can.
-    fn unplayable(&self, addon_held: bool) -> Option<UnplayableEntry> {
-        self.title
-            .addon()
-            .filter(|_| !addon_held)
-            .map(|addon| UnplayableEntry {
-                reason: UnplayableReason::AddonRemoved,
-                addon: addon.clone(),
-            })
+    fn unplayable(&self, reason: Option<UnplayableReason>) -> Option<UnplayableEntry> {
+        let addon = self.title.addon()?;
+        reason.map(|reason| UnplayableEntry {
+            reason,
+            addon: addon.clone(),
+        })
     }
 }
 
@@ -404,8 +404,9 @@ pub struct ContinueEntry {
 /// (#274, ADR-0038). A finished Video whose Title is not cached stays on the row
 /// marked watched; once the Title is cached the next Snapshot moves it on.
 ///
-/// `addon_held` judges a card's Addon the way the Snapshot does: a card whose
-/// Addon is gone stays listed, marked unplayable.
+/// `addon_unplayable` judges a card's Addon the way the Snapshot does: a card
+/// whose Addon is gone or disabled stays listed, marked unplayable with
+/// [`UnplayableReason::AddonRemoved`] or [`UnplayableReason::AddonDisabled`].
 ///
 /// A card leaves the row when there is nothing left to continue: a finished
 /// film; a series whose finished Video is the last of its numbered episodes or
@@ -414,7 +415,7 @@ pub struct ContinueEntry {
 pub fn continue_watching(
     progress: &[WatchProgress],
     cached: &[CachedTitle],
-    addon_held: impl Fn(&AddonId) -> bool,
+    addon_unplayable: impl Fn(&AddonId) -> Option<UnplayableReason>,
 ) -> Vec<ContinueEntry> {
     let mut cards: Vec<&WatchProgress> = Vec::new();
     for entry in progress {
@@ -434,11 +435,11 @@ pub fn continue_watching(
         if is_finished_film(card) {
             continue;
         }
-        let addon_held = card.title.addon().is_none_or(&addon_held);
+        let reason = card.title.addon().and_then(&addon_unplayable);
 
         // A Video still being watched is the card, whatever comes after it.
         if !card.watched {
-            entries.push(card.continue_entry(addon_held));
+            entries.push(card.continue_entry(reason));
             continue;
         }
 
@@ -447,13 +448,13 @@ pub fn continue_watching(
         // finished Video stays; a cached list with nothing after it is a series
         // with nothing left to continue, and the card leaves the row.
         let Some(videos) = cached_videos(cached, card) else {
-            entries.push(card.continue_entry(addon_held));
+            entries.push(card.continue_entry(reason));
             continue;
         };
         let Some(next) = next_video(videos, &card.video.id) else {
             continue;
         };
-        entries.push(up_next_entry(card, next, progress, addon_held));
+        entries.push(up_next_entry(card, next, progress, reason));
     }
     entries
 }
@@ -486,7 +487,7 @@ fn up_next_entry(
     card: &WatchProgress,
     video: &Video,
     progress: &[WatchProgress],
-    addon_held: bool,
+    reason: Option<UnplayableReason>,
 ) -> ContinueEntry {
     let watched = progress
         .iter()
@@ -499,7 +500,7 @@ fn up_next_entry(
         duration: watched.and_then(|entry| entry.duration),
         watched: watched.is_some_and(|entry| entry.watched),
         up_next: true,
-        unplayable: card.unplayable(addon_held),
+        unplayable: card.unplayable(reason),
     }
 }
 
@@ -527,7 +528,7 @@ fn is_finished_film(entry: &WatchProgress) -> bool {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct UnplayableEntry {
     pub reason: UnplayableReason,
-    /// The Addon that is no longer configured.
+    /// The Addon that is no longer configured or is switched off.
     pub addon: AddonId,
 }
 
@@ -538,6 +539,10 @@ pub enum UnplayableReason {
     /// The Addon that supplied the Title is no longer configured, so the Host
     /// cannot ask it again — and the entry stays listed rather than vanishing.
     AddonRemoved,
+    /// The Addon that supplied the Title is still configured, but switched off
+    /// by the owner (ADR-0044 §2). Re-enabling it restores the entry without
+    /// re-adding the Addon.
+    AddonDisabled,
 }
 
 /// A word a client sent, kept only where it is one the Host will hold and
@@ -628,7 +633,7 @@ mod tests {
     }
 
     fn cards(entries: &[WatchProgress]) -> Vec<ContinueEntry> {
-        continue_watching(entries, &[], |_| true)
+        continue_watching(entries, &[], |_| None)
     }
 
     #[test]
@@ -683,9 +688,18 @@ mod tests {
             updated_at: 1_000,
         };
         assert_eq!(
-            entry.resume_entry(false).unplayable,
+            entry
+                .resume_entry(Some(UnplayableReason::AddonRemoved))
+                .unplayable,
             None,
             "there is no removed Addon where there was no Addon"
+        );
+        assert_eq!(
+            entry
+                .resume_entry(Some(UnplayableReason::AddonDisabled))
+                .unplayable,
+            None,
+            "there is no disabled Addon where there was no Addon"
         );
 
         let was_the_addons = WatchProgress {
@@ -694,7 +708,9 @@ mod tests {
         };
         assert!(
             matches!(
-                was_the_addons.resume_entry(false).unplayable,
+                was_the_addons
+                    .resume_entry(Some(UnplayableReason::AddonRemoved))
+                    .unplayable,
                 Some(UnplayableEntry {
                     reason: UnplayableReason::AddonRemoved,
                     ..
@@ -702,7 +718,19 @@ mod tests {
             ),
             "a Title that did have an Addon keeps the mark when it is gone"
         );
-        assert_eq!(was_the_addons.resume_entry(true).unplayable, None);
+        assert!(
+            matches!(
+                was_the_addons
+                    .resume_entry(Some(UnplayableReason::AddonDisabled))
+                    .unplayable,
+                Some(UnplayableEntry {
+                    reason: UnplayableReason::AddonDisabled,
+                    ..
+                })
+            ),
+            "a Title that did have an Addon wears the disabled mark when it is switched off"
+        );
+        assert_eq!(was_the_addons.resume_entry(None).unplayable, None);
     }
 
     #[test]
@@ -939,12 +967,12 @@ mod tests {
     fn an_entry_whose_addon_is_gone_is_published_as_a_stub_rather_than_hidden() {
         let entry = progress();
 
-        let playable = entry.resume_entry(true);
+        let playable = entry.resume_entry(None);
         assert_eq!(playable.unplayable, None);
         assert_eq!(playable.video.season, Some(1));
         assert_eq!(playable.video.episode, Some(2));
 
-        let stub = entry.resume_entry(false);
+        let stub = entry.resume_entry(Some(UnplayableReason::AddonRemoved));
         assert_eq!(
             stub.unplayable,
             Some(UnplayableEntry {
@@ -972,6 +1000,20 @@ mod tests {
             published["updatedAt"],
             serde_json::Value::Null,
             "when it was written is the Host's own bookkeeping and never travels"
+        );
+
+        let disabled = entry.resume_entry(Some(UnplayableReason::AddonDisabled));
+        assert_eq!(
+            disabled.unplayable,
+            Some(UnplayableEntry {
+                reason: UnplayableReason::AddonDisabled,
+                addon: addon(),
+            })
+        );
+        let published_disabled = serde_json::to_value(&disabled).expect("an entry serializes");
+        assert_eq!(
+            published_disabled["unplayable"],
+            serde_json::json!({ "reason": "addon_disabled", "addon": "com.linvo.cinemeta" })
         );
     }
 
@@ -1093,13 +1135,27 @@ mod tests {
         let cards = continue_watching(
             &[episode("tt0903747:1:2", 100.0, 1_000, false)],
             &[],
-            |_| false,
+            |_| Some(UnplayableReason::AddonRemoved),
         );
 
         assert_eq!(
             cards[0].unplayable,
             Some(UnplayableEntry {
                 reason: UnplayableReason::AddonRemoved,
+                addon: addon(),
+            })
+        );
+
+        let disabled = continue_watching(
+            &[episode("tt0903747:1:2", 100.0, 1_000, false)],
+            &[],
+            |_| Some(UnplayableReason::AddonDisabled),
+        );
+
+        assert_eq!(
+            disabled[0].unplayable,
+            Some(UnplayableEntry {
+                reason: UnplayableReason::AddonDisabled,
                 addon: addon(),
             })
         );
@@ -1180,7 +1236,7 @@ mod tests {
             ..episode("tmdb:1396:1:1", 2_820.0, 1_000, true)
         };
 
-        let cards = continue_watching(&[card], &[cached], |_| true);
+        let cards = continue_watching(&[card], &[cached], |_| None);
 
         assert_eq!(cards.len(), 1);
         assert_eq!(cards[0].video.id, "tmdb:1396:1:2");
@@ -1200,7 +1256,7 @@ mod tests {
         let cards = continue_watching(
             &[episode("tt0903747:1:9", 2_820.0, 1_000, true)],
             &[cached],
-            |_| true,
+            |_| None,
         );
 
         assert_eq!(cards.len(), 1);
