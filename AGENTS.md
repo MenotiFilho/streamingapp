@@ -120,9 +120,8 @@ Single-context: one `CONTEXT.md` and `docs/adr/` at the repo root. See `docs/age
 
 ### Testing
 
-What a window test may assert, what happens to a suite while the repertory redo
-lands, and the gate a screen must clear before its old surface is deleted. See
-`docs/agents/testing.md`.
+What a window test may assert, where each suite lives, and the gate a screen
+must clear before its old surface is deleted. See `docs/agents/testing.md`.
 
 ## Project snapshot
 

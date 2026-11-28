@@ -40,13 +40,13 @@ import {
 import { useLanguageList } from "../../core/react/useLanguageList";
 import { NO_CATALOG, unknownColorLabel } from "../../core/settingsRegister";
 import type { Action } from "../../core/wire";
-import { Badge } from "../../kit/marquee/Badge";
-import { Chip } from "../../kit/marquee/Chip";
-import { GroupLabel } from "../../kit/marquee/GroupLabel";
-import { IconButton } from "../../kit/marquee/IconButton";
-import { ListRow } from "../../kit/marquee/ListRow";
-import { RankedRow } from "../../kit/marquee/RankedRow";
-import { SizeStepper } from "../../kit/marquee/SizeStepper";
+import { Badge } from "../../kit/Badge";
+import { Chip } from "../../kit/Chip";
+import { GroupLabel } from "../../kit/GroupLabel";
+import { IconButton } from "../../kit/IconButton";
+import { ListRow } from "../../kit/ListRow";
+import { RankedRow } from "../../kit/RankedRow";
+import { SizeStepper } from "../../kit/SizeStepper";
 import { useShell } from "../context";
 
 function SubLevelHeader({

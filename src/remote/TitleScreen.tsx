@@ -25,13 +25,13 @@ import {
   unmappedOf,
 } from "../core/titlePage";
 import type { Title } from "../core/wire";
-import { useArtChain } from "../kit/marquee/cards";
-import { Chip } from "../kit/marquee/Chip";
-import { EmptyState } from "../kit/marquee/EmptyState";
-import { GroupLabel } from "../kit/marquee/GroupLabel";
-import { PhoneEpisodeRow } from "../kit/marquee/phone/PhoneEpisodeRow";
-import { PhoneHeader } from "../kit/marquee/phone/PhoneHeader";
-import { PhoneButton, PhoneIconButton } from "../kit/marquee/phone/controls";
+import { useArtChain } from "../kit/cards";
+import { Chip } from "../kit/Chip";
+import { EmptyState } from "../kit/EmptyState";
+import { GroupLabel } from "../kit/GroupLabel";
+import { PhoneEpisodeRow } from "../kit/phone/PhoneEpisodeRow";
+import { PhoneHeader } from "../kit/phone/PhoneHeader";
+import { PhoneButton, PhoneIconButton } from "../kit/phone/controls";
 import type { RemotePayload, RemoteTitle } from "./levels";
 import { playerLevel } from "./playerScreen";
 import {

@@ -1,64 +1,61 @@
 import type { ComponentPropsWithRef, ReactNode } from "react";
 
+import { defaultIconWeight } from "./controlIcons";
+import { forcedFocus } from "./controlsFocus";
 import { cx } from "./cx";
-import { PendingSpinner } from "./PendingSpinner";
+import { Icon, type IconName, type IconWeight } from "./icons";
 
-/**
- * How a button reads: the brass primary, the brass-ink secondary, the quiet
- * ghost. `danger` is an ink colour, not a variant: the confirming side of a
- * destructive question is a primary in red.
- */
-export type ButtonVariant = "primary" | "secondary" | "ghost";
+export type ButtonKind = "primary" | "secondary" | "ghost" | "danger";
+
+/** `lg` is the mockup's L (60), `md` its M (48). */
+export type ButtonSize = "lg" | "md";
 
 export type ButtonProps = Omit<ComponentPropsWithRef<"button">, "children"> & {
-  variant?: ButtonVariant;
-  /** Set on a toggle-like control; `false` is still a pressed state to announce. */
-  pressed?: boolean;
-  /** The destructive treatment a confirmation's confirming control takes. */
-  danger?: boolean;
-  /**
-   * Whether the Action this control asked for is still in flight. A pending
-   * control is disabled, announces `aria-busy`, and draws a spinner beside its
-   * label — the wait a person sees instead of a press that seemed to do nothing
-   * (#137).
-   */
-  pending?: boolean;
+  kind?: ButtonKind;
+  size?: ButtonSize;
+  /** An optional leading glyph. */
+  icon?: IconName;
+  /** Defaults to fill for transport, bold for a check, regular otherwise. */
+  iconWeight?: IconWeight;
+  /** Draw the focus treatment whatever the input modality says. */
+  focused?: boolean;
   children: ReactNode;
 };
 
 /**
- * The repertory button: a line of type with a rule under it.
- *
- * `primary` is the one brass fill and always carries ink, never ivory (ivory on
- * brass is 1.95:1). `secondary` is brass ink with a rule; `ghost` is the quiet
- * action. A danger primary is the only red fill, and it carries ink too. Focus
- * is the shared ivory keyline — no fill inversion, no lift.
+ * The Marquee pill button (sheet C1). Lavender is the primary action at rest,
+ * glass the secondary, red the destructive one. Navigation focus turns every
+ * kind white with ink content (`docs/design-system.md` §5).
  */
 export function Button({
-  variant = "secondary",
-  pressed,
-  danger = false,
-  pending = false,
+  kind = "secondary",
+  size = "lg",
+  icon,
+  iconWeight,
+  focused,
   className,
   children,
   type = "button",
-  disabled,
   ...button
 }: ButtonProps) {
   return (
     <button
       {...button}
       type={type}
-      className={cx("rep-kit-button", className)}
+      className={cx("mq-button", className)}
       data-focusable
-      data-variant={variant}
-      data-tone={danger ? "danger" : undefined}
-      aria-pressed={pressed}
-      aria-busy={pending || undefined}
-      disabled={disabled || pending}
+      data-focused={forcedFocus({ focused, disabled: button.disabled })}
+      data-kind={kind}
+      data-size={size}
     >
-      {pending ? <PendingSpinner /> : null}
-      {children}
+      {icon ? (
+        <Icon
+          name={icon}
+          weight={iconWeight ?? defaultIconWeight(icon)}
+          className="mq-button-icon"
+        />
+      ) : null}
+      <span className="mq-button-label">{children}</span>
     </button>
   );
 }

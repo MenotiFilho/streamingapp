@@ -1,5 +1,5 @@
 import { ReadyLink } from "./readyLink";
-import { previewTransport, stopTicker } from "./repertory/previewHost";
+import { previewTransport, stopTicker } from "./rehearsal/previewHost";
 import type { Transport } from "./transport";
 
 /**
@@ -7,7 +7,7 @@ import type { Transport } from "./transport";
  *
  * The plain-Vite window has no Tauri Host behind it, so the same six members
  * are answered by the preview transport over the sample Host in
- * `repertory/previewHost.ts`. The shape is `TauriLink`'s — ready from the first
+ * `rehearsal/previewHost.ts`. The shape is `TauriLink`'s — ready from the first
  * render, closing to silence everything — with the preview's own clock stopped
  * when the link closes. Nothing here imports a Tauri module.
  */

@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 
 import { actionKey } from "../../core/actionKey";
 import { HomeStore } from "../../core/homeStore";
+import { NO_CANDIDATES } from "../../core/streamsList";
 import type { Action, AddonManifest, AddonStreams, Snapshot, Stream, Title } from "../../core/wire";
 import { ShellContext, type ActionOutcome, type ShellContextValue } from "../context";
 import { quietSession } from "../session.testing";
@@ -261,6 +262,136 @@ describe("MarqueeStreamsScreen", () => {
       await gate;
     });
     await waitFor(() => expect(secondButton).toBeEnabled());
+  });
+
+  it("groups by Addon and keeps its words, the filename, the warnings and the unplayable mark", () => {
+    const { value } = harness();
+    render(
+      withShell(
+        value,
+        <MarqueeStreamsScreen
+          title={SERIES}
+          video={SERIES.videos[0]!}
+          groups={[
+            { addon: "torrentio", streams: [UNPLAYABLE], failure: null },
+            { addon: "comet", streams: [DIRECT_HD], failure: null },
+          ]}
+        />,
+      ),
+    );
+
+    const torrentio = screen.getByTestId("streams-torrentio");
+    expect(torrentio).toHaveTextContent("Torrentio");
+    expect(
+      within(torrentio).getByText("Severance.S02E03.Unplayable.mkv"),
+    ).toBeInTheDocument();
+    expect(within(torrentio).getByText("4k HDR")).toBeInTheDocument();
+    expect(within(torrentio).getByTestId("stream-unplayable")).toHaveTextContent(
+      "Unplayable",
+    );
+
+    const comet = screen.getByTestId("streams-comet");
+    expect(within(comet).getByLabelText(/Wants request headers/)).toBeInTheDocument();
+    expect(within(comet).queryByTestId("stream-unplayable")).not.toBeInTheDocument();
+  });
+
+  it("keeps a failed Addon and an empty one on their own groups without blanking the rest", () => {
+    const { value } = harness();
+    render(
+      withShell(
+        value,
+        <MarqueeStreamsScreen
+          title={SERIES}
+          video={SERIES.videos[0]!}
+          groups={[
+            {
+              addon: "torrentio",
+              streams: [],
+              failure: { kind: "fetch", detail: "the Addon answered with status 503" },
+            },
+            { addon: "mediafusion", streams: [], failure: null },
+            { addon: "comet", streams: [DIRECT_HD], failure: null },
+          ]}
+        />,
+      ),
+    );
+
+    expect(
+      within(screen.getByTestId("streams-failure-torrentio")).getByText(/status 503/),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("streams-mediafusion")).toHaveTextContent(NO_CANDIDATES);
+    expect(screen.getByTestId("candidate-comet-0")).toBeInTheDocument();
+  });
+
+  it("lists a torrent playable with its p2p warning, and sends the whole Stream with its Addon and Title", async () => {
+    const { value, take } = harness();
+    render(
+      withShell(
+        value,
+        <MarqueeStreamsScreen
+          title={SERIES}
+          video={SERIES.videos[0]!}
+          groups={[{ addon: "torrentio", streams: [TORRENT_4K], failure: null }]}
+        />,
+      ),
+    );
+
+    const row = screen.getByTestId("candidate-torrentio-0");
+    expect(within(row).queryByTestId("stream-unplayable")).not.toBeInTheDocument();
+    expect(within(row).getByLabelText(/Peer-to-peer/)).toBeInTheDocument();
+    fireEvent.click(within(row).getByRole("button"));
+
+    await waitFor(() => expect(take).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTestId("chosen-stream")).not.toBeInTheDocument();
+    expect(take.mock.calls[0]?.[0]).toMatchObject({
+      type: "play_stream",
+      video: { type: "series", id: "tt11280740:2:3" },
+      addon: "torrentio",
+      stream: TORRENT_4K,
+      title: { id: "tt11280740", name: "Severance" },
+    });
+  });
+
+  it("drops a second Stream pressed in the same tick, before the rows lock", async () => {
+    let release!: () => void;
+    const gate = new Promise<null>((resolve) => {
+      release = () => resolve(null);
+    });
+    const take = vi.fn((_action: Action) => gate);
+    const { value } = harness({ take });
+    render(
+      withShell(
+        value,
+        <MarqueeStreamsScreen
+          title={SERIES}
+          video={SERIES.videos[0]!}
+          groups={[
+            { addon: "torrentio", streams: [TORRENT_4K], failure: null },
+            { addon: "comet", streams: [DIRECT_HD], failure: null },
+          ]}
+        />,
+      ),
+    );
+    const press = (testId: string) =>
+      fireEvent.click(within(screen.getByTestId(testId)).getByRole("button"));
+
+    // Both clicks in one act: the rows have not painted disabled yet, so the
+    // control's own ref is what drops the second Stream.
+    act(() => {
+      press("candidate-torrentio-0");
+      press("candidate-comet-0");
+    });
+
+    expect(take).toHaveBeenCalledTimes(1);
+    expect(take.mock.calls[0]?.[0]).toMatchObject({ stream: TORRENT_4K });
+
+    await act(async () => {
+      release();
+      await gate;
+    });
+    press("candidate-comet-0");
+    await waitFor(() => expect(take).toHaveBeenCalledTimes(2));
+    expect(take.mock.calls[1]?.[0]).toMatchObject({ stream: DIRECT_HD });
   });
 
   it("refuses unplayable candidates locally without sending play_stream", () => {

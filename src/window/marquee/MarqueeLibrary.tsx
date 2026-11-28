@@ -18,17 +18,17 @@ import {
   type LibraryFilter,
 } from "../../core/marqueeLibrary";
 import type { Library } from "../../core/wire";
-import { AddonNotice } from "../../kit/marquee/AddonNotice";
-import { Button } from "../../kit/marquee/Button";
-import { Chip } from "../../kit/marquee/Chip";
-import { EmptyState } from "../../kit/marquee/EmptyState";
-import { Poster } from "../../kit/marquee/Poster";
-import { ScreenTitle } from "../../kit/marquee/ScreenTitle";
-import { Spinner } from "../../kit/marquee/Spinner";
-import { TextField } from "../../kit/marquee/TextField";
+import { AddonNotice } from "../../kit/AddonNotice";
+import { Button } from "../../kit/Button";
+import { Chip } from "../../kit/Chip";
+import { EmptyState } from "../../kit/EmptyState";
+import { Poster } from "../../kit/Poster";
+import { ScreenTitle } from "../../kit/ScreenTitle";
+import { Spinner } from "../../kit/Spinner";
+import { TextField } from "../../kit/TextField";
 import { useShell } from "../context";
-import { lookHintHandlers, useLookHints } from "../repertory/lookHint";
-import { useTitleOpener } from "../TitleScreen";
+import { lookHintHandlers, useLookHints } from "../useLookHints";
+import { useMarqueeTitleOpener as useTitleOpener } from "./MarqueeTitle";
 import "./browse.css";
 
 /**

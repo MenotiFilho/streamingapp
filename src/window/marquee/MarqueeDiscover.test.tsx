@@ -7,7 +7,7 @@ import type { Intent } from "../../core/input";
 import { Session } from "../../core/session";
 import type { Action, AddonManifest, MetaPreview, Snapshot } from "../../core/wire";
 import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContextValue } from "../context";
-import { PreviewDataProvider } from "../repertory/context";
+import { PreviewDataProvider } from "../rehearsal/previewData";
 import { MarqueeDiscover } from "./MarqueeDiscover";
 import { MarqueeEntry } from "./MarqueeEntry";
 import { MarqueeDestinationScreen } from "./MarqueeScreens";
@@ -460,6 +460,66 @@ describe("Marquee Discover boundary contracts", () => {
     await waitFor(() =>
       expect(actions()).toContainEqual(expect.objectContaining({ type: "discover", page: 2 })),
     );
+  });
+
+  it("asks the next page from the grid's end and keeps the cards already read", async () => {
+    // Every card sits far below the fold, so focus is what reads on.
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      bottom: 100_000,
+    } as DOMRect);
+    const { actions } = renderDiscover({
+      ask: async (action) => {
+        if (action.type !== "discover") {
+          return { response: null, error: null };
+        }
+        if (action.page === 1) {
+          return discoverOutcome(action.kind, [meta("tmdb:603", "The Matrix")]);
+        }
+        return discoverOutcome(
+          action.kind,
+          action.page === 2 ? [meta("tmdb:604", "The Matrix Reloaded")] : [],
+        );
+      },
+    });
+    const card = await screen.findByTestId("discover-card-tmdb:603");
+
+    act(() => card.focus());
+
+    expect(await screen.findByTestId("discover-card-tmdb:604")).toBeInTheDocument();
+    expect(screen.getByTestId("discover-card-tmdb:603")).toBeInTheDocument();
+    expect(actions()).toContainEqual(expect.objectContaining({ type: "discover", page: 2 }));
+  });
+
+  it("on the rehearsal, asks the preview Addon's Catalog by genre name and opens its card", async () => {
+    const { actions, take } = renderDiscover({ preview: true });
+    const card = await screen.findByTestId("discover-card-tt0133093");
+    expect(actions()).toContainEqual({
+      type: "browse_catalog",
+      addon: "cinemeta",
+      catalog: { type: "movie", id: "top" },
+      extra: [],
+    });
+
+    fireEvent.click(card);
+    await waitFor(() =>
+      expect(take).toHaveBeenCalledWith({
+        type: "open_title",
+        addon: "cinemeta",
+        title: { type: "movie", id: "tt0133093" },
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Genre: All genres" }));
+    fireEvent.click(screen.getByRole("option", { name: "Action" }));
+    await waitFor(() =>
+      expect(actions()).toContainEqual({
+        type: "browse_catalog",
+        addon: "cinemeta",
+        catalog: { type: "movie", id: "top" },
+        extra: [{ name: "genre", value: "Action" }],
+      }),
+    );
+    expect(actions().some((action) => action.type === "discover")).toBe(false);
   });
 
   it("shows the no-TMDB-key state and opens Settings without asking Discover", () => {

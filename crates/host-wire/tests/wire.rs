@@ -473,10 +473,8 @@ fn the_host_serves_the_fonts_the_page_asks_for() {
     let (_fixture, server) = server();
 
     for name in [
-        "bodoni-moda-latin-wght-normal.woff2",
-        "inter-latin-wght-normal.woff2",
-        "ibm-plex-mono-latin-400-normal.woff2",
-        "ibm-plex-mono-latin-500-normal.woff2",
+        "figtree-latin-wght-normal.woff2",
+        "figtree-latin-ext-wght-normal.woff2",
     ] {
         let (head, body) = get(&server, &format!("/fonts/{name}"));
         assert!(

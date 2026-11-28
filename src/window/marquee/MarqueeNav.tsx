@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { formatNavClock, railShouldExpand } from "../../core/homeHero";
 import { useInputModality } from "../../core/react/useInputModality";
-import { NavRail } from "../../kit/marquee/NavRail";
+import { NavRail } from "../../kit/NavRail";
 import type { Destination } from "../navigation";
 
 /** Refresh the rail's foot clock without acting as a high-frequency timer. */

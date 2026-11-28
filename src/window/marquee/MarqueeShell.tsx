@@ -16,8 +16,8 @@ import { useSession } from "../../core/react/useSession";
 import type { Action, PlaybackState, Response, Title } from "../../core/wire";
 import { ShellContext } from "../context";
 import type { Destination, ShellLevel, WindowPayload } from "../navigation";
-import { PlayerDock, dockedTransport } from "../PlayerDock";
 import { TauriLink } from "../tauriLink";
+import { MarqueeDock, dockedTransport } from "./MarqueeDock";
 import { MarqueeFrame } from "./MarqueeFrame";
 import { MarqueePlayer } from "./MarqueePlayer";
 import { MarqueeDestinationScreen, marqueeTitleLevelOf } from "./MarqueeScreens";
@@ -300,7 +300,7 @@ export function MarqueeShell({ client }: { client?: HostLink }) {
         onBack={back}
         onBaseIntent={(intent) => baseIntent.current?.(intent) ?? false}
         screen={<MarqueeDestinationScreen destination={nav.destination} />}
-        dock={docked ? <PlayerDock /> : null}
+        dock={docked ? <MarqueeDock /> : null}
       />
 
       <div className="mq-alert-stack">

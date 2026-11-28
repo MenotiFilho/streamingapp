@@ -112,7 +112,7 @@ describe("the reveal's geometry", () => {
   });
 });
 
-describe("the repertory centre", () => {
+describe("the centred reveal", () => {
   test("centres a focused card on both axes", () => {
     // The usable box is x 24..976 (centre 500) and y 24..576 (centre 300).
     // A card centred at (500, 620) needs 320px of downward page scroll.
@@ -439,45 +439,6 @@ describe("the scrollport chain", () => {
     expect(ports[0]?.moves, "the menu inside the panel still scrolls").toBe(true);
     expect(ports[1]?.moves, "the level cannot move a fixed panel").toBe(false);
     expect(ports[2]?.moves, "the page cannot either").toBe(false);
-  });
-});
-
-/**
- * H2 (#257): a reveal into a rail keeps that rail's heading in view. The card
- * can be visible while the row's head, tag and quiet action sit above the
- * panel's top; the reveal's target is therefore the card and its row's head.
- */
-describe("a reveal into a rail", () => {
-  test("keeps the row's head above the card, not just the card", () => {
-    // The card's top is 10, but the row head starts at -30. The usable top is
-    // 24, so the whole row needs 54px up; the card alone would need 14.
-    expect(
-      revealOffsets(viewport, { x: 100, y: 10, w: 160, h: 100 }, REVEAL_MARGIN, 0, {
-        x: 100,
-        y: -30,
-        w: 800,
-        h: 40,
-      }),
-    ).toEqual({ left: 0, top: -54 });
-  });
-
-  test("a head already in view changes nothing", () => {
-    expect(
-      revealOffsets(viewport, card, REVEAL_MARGIN, 0, { x: 100, y: 70, w: 800, h: 30 }),
-    ).toEqual({ left: 0, top: 0 });
-  });
-
-  test("centring a card centres the card and its row's head, not the card alone", () => {
-    // The union's middle is y 200 (head 100..140, card 200..300); the usable
-    // middle is 300, so the row moves 100 up. The card alone would move 50.
-    expect(
-      centeredOffsets(viewport, { x: 420, y: 200, w: 160, h: 100 }, REVEAL_MARGIN, 0, "y", {
-        x: 100,
-        y: 100,
-        w: 800,
-        h: 40,
-      }),
-    ).toEqual({ left: 0, top: -100 });
   });
 });
 

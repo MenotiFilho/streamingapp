@@ -1,8 +1,8 @@
 /*
  * Marquee Player OSD & 7 floating panels (`07.jpg` – `13.jpg`, `08b.jpg` – `08f.jpg`).
  *
- * Uses `--mq-*` tokens and `src/kit/marquee/` primitives exclusively.
- * Zero `--rep-*` tokens; lavender is never literalised outside `--mq-accent`.
+ * Uses `--mq-*` tokens and `src/kit/` primitives exclusively.
+ * Lavender is never literalised outside `--mq-accent`.
  */
 
 /* Popover levels float transparently over the Player level. */

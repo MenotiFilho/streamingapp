@@ -4,7 +4,7 @@ import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 
 import { markNavigation, markPointer } from "../../core/inputModality";
-import { FADE_FALLBACK, panel } from "../../kit/marquee/motion";
+import { FADE_FALLBACK, panel } from "../../kit/motion";
 import type { Destination, ShellLevel } from "../navigation";
 import { CHROME_CLEARANCE } from "../reveal";
 import {
@@ -24,8 +24,6 @@ import {
 } from "./frame";
 import { MarqueeFrame } from "./MarqueeFrame";
 import marqueeCss from "./marquee.css?raw";
-
-const LEGACY_PREFIX = ["-", "-rep-"].join("");
 
 function declarationsOf(selector: string, css = marqueeCss): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -364,11 +362,5 @@ describe("Marquee WindowChrome band lock (ADR-0032)", () => {
 
     expect(strip).toMatch(/pointer-events:\s*none/);
     expect(button).toMatch(/pointer-events:\s*auto/);
-  });
-
-  test("contains zero legacy tokens or literal lavender hexes", () => {
-    expect(marqueeCss.trim().length).toBeGreaterThan(0);
-    expect(marqueeCss.includes(LEGACY_PREFIX)).toBe(false);
-    expect(marqueeCss).not.toMatch(/#c4a7e7/i);
   });
 });

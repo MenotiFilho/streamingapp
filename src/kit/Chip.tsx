@@ -1,61 +1,43 @@
-import type { ComponentPropsWithoutRef, ReactNode } from "react";
+import type { ComponentPropsWithRef, ReactNode } from "react";
 
+import { forcedFocus } from "./controlsFocus";
 import { cx } from "./cx";
+import { Icon } from "./icons";
 
-/** The status tones a chip can carry; `neutral` is the unstyled default. */
-export type ChipTone = "neutral" | "accent" | "warn" | "danger" | "ok";
-
-/** The attribute a tone writes; neutral has no attribute at all. */
-function toneAttribute(tone: ChipTone): ChipTone | undefined {
-  return tone === "neutral" ? undefined : tone;
-}
-
-export type ChipProps = {
-  tone?: ChipTone;
-  className?: string;
+export type ChipProps = Omit<
+  ComponentPropsWithRef<"button">,
+  "children" | "aria-pressed"
+> & {
+  /** Announced as `aria-pressed`; a chosen chip is lavender and keeps a check. */
+  selected: boolean;
+  /** Draw the focus treatment whatever the input modality says. */
+  focused?: boolean;
   children: ReactNode;
 };
 
 /**
- * A static stamp: a resolution, a warning, or the brass Unmapped mark. It is a
- * hairline box in mono at badge size; warn and accent are brass, danger is the
- * status red, and `ok` is ivory.
+ * A filter or season chip (sheet C1). Selection is not focus: a chosen chip
+ * that also has focus turns white and keeps its check.
  */
-export function Chip({ tone = "neutral", className, children }: ChipProps) {
-  return (
-    <span className={cx("rep-kit-chip", className)} data-tone={toneAttribute(tone)}>
-      {children}
-    </span>
-  );
-}
-
-export type ChoiceChipProps = Omit<ComponentPropsWithoutRef<"button">, "children"> & {
-  /** The selected state, announced as `aria-pressed` and drawn without a size shift. */
-  pressed: boolean;
-  children: ReactNode;
-};
-
-/**
- * A chip that is a control: a season, a filter, a track choice. The chosen chip
- * takes a 2px brass inset rule on its leading edge and ivory ink; it never
- * takes a fill and never changes size.
- */
-export function ChoiceChip({
-  pressed,
+export function Chip({
+  selected,
+  focused,
   className,
   children,
   type = "button",
   ...button
-}: ChoiceChipProps) {
+}: ChipProps) {
   return (
     <button
       {...button}
       type={type}
-      className={cx("rep-kit-choice", className)}
+      className={cx("mq-chip", className)}
+      aria-pressed={selected}
       data-focusable
-      aria-pressed={pressed}
+      data-focused={forcedFocus({ focused, disabled: button.disabled })}
     >
-      {children}
+      {selected ? <Icon name="check" weight="bold" className="mq-chip-check" /> : null}
+      <span className="mq-chip-label">{children}</span>
     </button>
   );
 }

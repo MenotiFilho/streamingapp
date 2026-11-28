@@ -10,7 +10,7 @@
  * direction press moves focus and the scroll in the same frame.
  *
  * The margin accounts for the decorated focus treatment: the engine measures
- * the layout box, while the ring, the 4px lift and the 1.04 scale sit outside
+ * the layout box, while a card's growth, its outline and its shadow sit outside
  * it. The shell's own scrollports also clear the fixed chrome's band; a row
  * track, a seasons strip, a popover menu and the player's OSD have no chrome.
  */
@@ -24,8 +24,8 @@ export const REVEAL_MARGIN = 24;
 
 /**
  * The fixed chrome's band over the shell's scrollports: 64px, the same number
- * as `--window-chrome-clearance` in `shell.css` (4rem at the 16px root) and
- * pinned to it by `ShellFrame.test.tsx`. A port that draws no strip — the
+ * as `--window-chrome-clearance` in `marquee.css` (4rem at the 16px root) and
+ * pinned to it by `MarqueeFrame.test.tsx`. A port that draws no strip — the
  * player, an OSD popover, a plain browser — gets no inset.
  */
 export const CHROME_CLEARANCE = 64;
@@ -44,30 +44,14 @@ export type RevealMode = "nearest" | "center";
 export type RevealAxis = "x" | "y" | "both";
 
 /**
- * `target` widened vertically to include `anchor`, when a row's head must stay
- * in view with the card focused (#257). The horizontal box is the card's: a
- * row's head spans the panel and has no place in a rail's sideways scroll.
- */
-function withAnchor(target: Rect, anchor: Rect | undefined): Rect {
-  if (!anchor) {
-    return target;
-  }
-  const top = Math.min(target.y, anchor.y);
-  const bottom = Math.max(target.y + target.h, anchor.y + anchor.h);
-  return { ...target, y: top, h: bottom - top };
-}
-
-/**
  * The scroll that centres `target` in the usable part of `viewport`, on the
  * chosen axes. A target larger than the usable box is aligned to its start, for
  * the same reason the nearest policy does: the head is what a person needs.
  *
- * This is the repertory spine's navigation rule — the picture being read stays
- * in the middle of the room — while the Velvet screens keep the minimal reveal.
- * With `axis: "x"` the vertical scroll is the minimal one, and `"y"` the
- * reverse: a horizontal move must not recentre a two-line title vertically.
- * An `anchor` (a rail's head) joins the vertical box, so a card's reveal never
- * scrolls its own row's heading away.
+ * This is the window's navigation rule under `data-reveal="center"`: the card
+ * being read stays in the middle of the room. With `axis: "x"` the vertical
+ * scroll is the minimal one, and `"y"` the reverse: a horizontal move must not
+ * recentre a two-line title vertically.
  */
 export function centeredOffsets(
   viewport: Rect,
@@ -75,13 +59,11 @@ export function centeredOffsets(
   margin: number = REVEAL_MARGIN,
   insetTop: number = 0,
   axis: RevealAxis = "both",
-  anchor?: Rect,
 ): RevealOffsets {
   const fromX = viewport.x + margin;
   const toX = viewport.x + viewport.w - margin;
   const fromY = viewport.y + margin + insetTop;
   const toY = viewport.y + viewport.h - margin;
-  const vertical = withAnchor(target, anchor);
 
   const centred = {
     left:
@@ -89,15 +71,15 @@ export function centeredOffsets(
         ? target.x - fromX
         : target.x + target.w / 2 - (fromX + (toX - fromX) / 2),
     top:
-      vertical.h > toY - fromY
-        ? vertical.y - fromY
-        : vertical.y + vertical.h / 2 - (fromY + (toY - fromY) / 2),
+      target.h > toY - fromY
+        ? target.y - fromY
+        : target.y + target.h / 2 - (fromY + (toY - fromY) / 2),
   };
 
   if (axis === "x") {
     return {
       left: centred.left,
-      top: revealOffsets(viewport, target, margin, insetTop, anchor).top,
+      top: revealOffsets(viewport, target, margin, insetTop).top,
     };
   }
   if (axis === "y") {
@@ -139,22 +121,19 @@ function minimalScroll(
 /**
  * The scroll `viewport` needs so `target` sits `margin` inside its padding
  * box, with the fixed chrome narrowing the top first. Negative means scroll
- * up/left. An `anchor` (a rail's head) widens the vertical box so the heading
- * stays in view with its card.
+ * up/left.
  */
 export function revealOffsets(
   viewport: Rect,
   target: Rect,
   margin: number = REVEAL_MARGIN,
   insetTop: number = 0,
-  anchor?: Rect,
 ): RevealOffsets {
-  const vertical = withAnchor(target, anchor);
   return {
     left: minimalScroll(target.x, target.w, viewport.x, viewport.w, margin, margin),
     top: minimalScroll(
-      vertical.y,
-      vertical.h,
+      target.y,
+      target.h,
       viewport.y,
       viewport.h,
       margin + insetTop,
@@ -178,8 +157,6 @@ export type RevealScrollport = {
   horizontal?: boolean;
   /** Whether this port may move vertically; screens that own their own scroll spring set this false. */
   vertical?: boolean;
-  /** Whether this port holds an anchor element, such as a row's head. */
-  contains?: (element: Element) => boolean;
   /** Apply the deltas; the browser clamps them at the port's own ends. */
   scrollBy: (left: number, top: number) => void;
 };
@@ -188,16 +165,12 @@ export type RevealScrollport = {
  * Reveal `target` in each port, innermost first, recomputing its rectangle
  * after every scroll: a row's horizontal move changes the card's client rect
  * before the page decides whether it also has to move vertically.
- *
- * `anchor` is a control's row head: a port that holds it keeps it in view with
- * the control, so a reveal into a rail never scrolls that rail's heading off.
  */
 export function revealIn(
   target: Measurable,
   ports: readonly RevealScrollport[],
   mode: RevealMode = "nearest",
   axis: RevealAxis = "both",
-  anchor?: Element,
 ): void {
   for (const port of ports) {
     if (!port.moves) {
@@ -207,18 +180,10 @@ export function revealIn(
     if (viewport.w <= 0 || viewport.h <= 0) {
       continue;
     }
-    const held = anchor && port.contains?.(anchor) ? measureRect(anchor) : undefined;
     const offsets =
       mode === "center"
-        ? centeredOffsets(
-            viewport,
-            measureRect(target),
-            REVEAL_MARGIN,
-            port.insetTop,
-            axis,
-            held,
-          )
-        : revealOffsets(viewport, measureRect(target), REVEAL_MARGIN, port.insetTop, held);
+        ? centeredOffsets(viewport, measureRect(target), REVEAL_MARGIN, port.insetTop, axis)
+        : revealOffsets(viewport, measureRect(target), REVEAL_MARGIN, port.insetTop);
     if (port.horizontal === false) {
       offsets.left = 0;
     }
@@ -302,7 +267,6 @@ function portOf(element: Element, control: Element): RevealScrollport {
     moves: !fixedBetween(control, element),
     horizontal: scrollsHorizontally(element),
     vertical: verticalScrollAllowed(control),
-    contains: (held) => element.contains(held),
     scrollBy: (left, top) => {
       if (left !== 0) {
         element.scrollLeft += left;
@@ -365,36 +329,11 @@ export function reveal(control: Element, options: RevealOptions = {}): void {
     return;
   }
 
-
   const marker = control.closest("[data-reveal]");
-  const markerMode = marker?.getAttribute("data-reveal");
-
-  // The hero is the top of the programme: focusing it puts the page back at
-  // its first frame so the whole top of the screen is in view, not a centred
-  // crop of it. Only the repertory surface marks this.
-  if (markerMode === "top") {
-    const page = document.scrollingElement ?? document.documentElement;
-    if (page) {
-      page.scrollTop = 0;
-    }
-    return;
-  }
-
   const mode =
     options.mode ??
-    (markerMode === "center" ? "center" : "nearest");
-  // A card in a rail reveals its row's head with it (#257): the heading, tag
-  // and quiet action are the row's identity, and scrolling them off the panel's
-  // top leaves a person looking at pictures with no name over them.
-  const row = control.closest(".rep-kit-row");
-  const head = row?.querySelector(":scope > .rep-kit-row-head") ?? null;
-  revealIn(
-    control,
-    scrollportsOf(control),
-    mode,
-    options.axis ?? "both",
-    head ?? undefined,
-  );
+    (marker?.getAttribute("data-reveal") === "center" ? "center" : "nearest");
+  revealIn(control, scrollportsOf(control), mode, options.axis ?? "both");
 }
 
 /**

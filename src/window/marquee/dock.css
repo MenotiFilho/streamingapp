@@ -1,0 +1,227 @@
+/*
+ * The docked transport (#194), in Marquee.
+ *
+ * Where the picture is not in this window there is nothing to print an OSD
+ * over: mpv has a window of its own, or the Host has no video output. The
+ * transport is a glass band at the foot of the page, so the browsing screen
+ * above stays painted, scrollable and reachable by the D-pad. The mockup draws
+ * no docked transport; it composes the kit's controls and the OSD's own bar
+ * colours. `--mq-*` tokens only.
+ */
+
+.mq-frame {
+  --mq-dock-height: calc(var(--mq-u) * 144);
+}
+
+/* The page makes room for the band: it is a part of the frame, not a cover. */
+.mq-frame:has(> .mq-dock) > .mq-base {
+  height: calc(100% - var(--mq-dock-height));
+}
+
+.mq-frame:has(> .mq-dock) > .mq-level-shell {
+  bottom: var(--mq-dock-height);
+}
+
+.mq-dock {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 50;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.5fr) auto;
+  align-items: center;
+  gap: calc(var(--mq-u) * 40);
+  height: var(--mq-dock-height);
+  padding: 0 var(--mq-margin-player);
+  border-top: 1px solid var(--mq-panel-border);
+  background: var(--mq-surface);
+  color: var(--mq-text);
+}
+
+.mq-dock p {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mq-dock-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.mq-dock .mq-dock-kicker {
+  display: flex;
+  gap: calc(var(--mq-u) * 16);
+  font-size: var(--mq-text-overline);
+  font-weight: var(--mq-weight-extrabold);
+  letter-spacing: var(--mq-tracking-overline);
+  text-transform: uppercase;
+}
+
+.mq-dock-now {
+  color: var(--mq-accent);
+}
+
+.mq-dock-episode {
+  color: var(--mq-text-faint);
+}
+
+.mq-dock-title {
+  font-size: var(--mq-text-row-head);
+  font-weight: var(--mq-weight-bold);
+}
+
+.mq-dock-note {
+  color: var(--mq-text-muted);
+  font-size: var(--mq-text-caption-sm);
+}
+
+.mq-dock-transport {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mq-u) * 24);
+  min-width: 0;
+}
+
+.mq-dock-timeline {
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-columns: auto minmax(calc(var(--mq-u) * 160), 1fr) auto;
+  align-items: center;
+  gap: calc(var(--mq-u) * 16);
+  min-width: 0;
+}
+
+.mq-dock-clock {
+  font-size: var(--mq-text-caption);
+  font-weight: var(--mq-weight-bold);
+  white-space: nowrap;
+}
+
+.mq-dock-track {
+  position: relative;
+  display: block;
+  min-width: 0;
+  height: calc(var(--mq-u) * 32);
+}
+
+.mq-dock-rail {
+  position: absolute;
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: calc(var(--mq-u) * 8);
+  overflow: hidden;
+  border-radius: var(--mq-radius-full);
+  background: var(--mq-seek-track);
+  transform: translateY(-50%);
+}
+
+.mq-dock-buffered,
+.mq-dock-played,
+.mq-dock-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+}
+
+.mq-dock-buffered {
+  background: var(--mq-seek-buffered);
+}
+
+.mq-dock-played {
+  left: 0;
+  background: var(--mq-accent);
+}
+
+.mq-dock-fill {
+  left: 0;
+  background: var(--mq-white);
+}
+
+.mq-dock-playhead {
+  position: absolute;
+  top: 50%;
+  width: calc(var(--mq-u) * 16);
+  height: calc(var(--mq-u) * 16);
+  border-radius: var(--mq-radius-full);
+  background: var(--mq-white);
+  transform: translate(-50%, -50%);
+}
+
+/* The native control is the accessible one; the rail under it is the drawing. */
+.mq-dock-range {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.mq-dock-range:disabled {
+  cursor: default;
+}
+
+/* The input is invisible, so the bar it covers draws the focus: it thickens and
+   its playhead grows, as the OSD's does. */
+.mq-dock-range:focus {
+  outline: none;
+}
+
+:where(html[data-input="navigation"]) .mq-dock-track:focus-within .mq-dock-rail {
+  height: calc(var(--mq-u) * 12);
+  box-shadow: var(--mq-shadow-focus);
+}
+
+:where(html[data-input="navigation"]) .mq-dock-track:focus-within .mq-dock-playhead {
+  width: calc(var(--mq-u) * 28);
+  height: calc(var(--mq-u) * 28);
+}
+
+.mq-dock-settings {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mq-u) * 24);
+}
+
+.mq-dock-volume {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mq-u) * 16);
+}
+
+.mq-dock-level {
+  min-width: 3.2em;
+  text-align: right;
+}
+
+.mq-dock-fader {
+  width: calc(var(--mq-u) * 140);
+  flex: none;
+}
+
+.mq-dock button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.mq-dock button[aria-busy="true"] .mq-icon-button-icon {
+  animation: mq-dock-wait 1s linear infinite;
+}
+
+@keyframes mq-dock-wait {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mq-dock button[aria-busy="true"] .mq-icon-button-icon {
+    animation: none;
+  }
+}

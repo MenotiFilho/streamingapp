@@ -6,12 +6,12 @@
  * `player.css` places the playback surfaces (#364).
  */
 
-@import "../kit/marquee/tokens.css";
-@import "../kit/marquee/base.css";
-@import "../kit/marquee/controls-nav-cards.css";
-@import "../kit/marquee/panels-player.css";
-@import "../kit/marquee/forms-lists.css";
-@import "../kit/marquee/phone/phone.css";
+@import "../kit/tokens.css";
+@import "../kit/base.css";
+@import "../kit/controls-nav-cards.css";
+@import "../kit/panels-player.css";
+@import "../kit/forms-lists.css";
+@import "../kit/phone/phone.css";
 @import "./player.css";
 
 html {

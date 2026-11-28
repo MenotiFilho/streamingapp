@@ -4,12 +4,11 @@ import { useFullscreen } from "./useFullscreen";
 /**
  * The window's own fullscreen control, fixed at the top right.
  *
- * The OSD's copy belongs to the player and goes away with it. Stop takes the
- * player level off and leaves the window fullscreen, so the surface underneath
- * needs a way out of the window it is in; the same is true of Settings, a
- * Title, and a dialog (#125). The frame draws this inside whichever screen is
- * on top, and a player level has none because its OSD already carries the
- * button.
+ * The player's own control goes away with its OSD. Stop takes the player Level
+ * off and leaves the window fullscreen, so the surface underneath needs a way
+ * out of the window it is in; the same is true of Settings, a Title, and a
+ * confirmation (#125). The frame draws this inside whichever screen is on top,
+ * and a player Level has none because its OSD already carries the button.
  *
  * The region is a transparent strip across the top rather than the button
  * alone: it is what Up from a screen's top row lands on, and it must not take a

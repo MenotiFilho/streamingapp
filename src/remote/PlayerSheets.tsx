@@ -34,17 +34,17 @@ import type {
   Title,
   Video,
 } from "../core/wire";
-import { Chip } from "../kit/marquee/Chip";
-import { GroupLabel } from "../kit/marquee/GroupLabel";
-import { BottomSheet } from "../kit/marquee/phone/BottomSheet";
-import { controlState, PhoneBadge, PhoneButton } from "../kit/marquee/phone/controls";
-import { PhoneAddonNotice } from "../kit/marquee/phone/PhoneAddonNotice";
-import { PhoneEpisodeRow } from "../kit/marquee/phone/PhoneEpisodeRow";
-import { PhoneStreamRow } from "../kit/marquee/phone/PhoneStreamRow";
-import { SizeStepper } from "../kit/marquee/SizeStepper";
-import { StatList, StatRow } from "../kit/marquee/StatRow";
-import { SyncControl } from "../kit/marquee/SyncControl";
-import { TrackOption } from "../kit/marquee/TrackOption";
+import { Chip } from "../kit/Chip";
+import { GroupLabel } from "../kit/GroupLabel";
+import { BottomSheet } from "../kit/phone/BottomSheet";
+import { controlState, PhoneBadge, PhoneButton } from "../kit/phone/controls";
+import { PhoneAddonNotice } from "../kit/phone/PhoneAddonNotice";
+import { PhoneEpisodeRow } from "../kit/phone/PhoneEpisodeRow";
+import { PhoneStreamRow } from "../kit/phone/PhoneStreamRow";
+import { SizeStepper } from "../kit/SizeStepper";
+import { StatList, StatRow } from "../kit/StatRow";
+import { SyncControl } from "../kit/SyncControl";
+import { TrackOption } from "../kit/TrackOption";
 import { playingTitle } from "./playerScreen";
 import {
   NO_EPISODES,

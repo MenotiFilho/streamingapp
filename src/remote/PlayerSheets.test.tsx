@@ -32,7 +32,7 @@ import type {
   Track,
   Video,
 } from "../core/wire";
-import { REMOTE_MENUS } from "../kit/marquee/phone/RemoteMenus";
+import { REMOTE_MENUS } from "../kit/phone/RemoteMenus";
 import { RemoteApp } from "./RemoteApp";
 import { FakeHost, type Respond } from "./fakeHost.testing";
 import { NOTHING } from "./fakeSocket.testing";

@@ -9,7 +9,7 @@ import {
 
 import type { Intent } from "../../core/input";
 import { useReducedMotion } from "../../core/react/useReducedMotion";
-import { fade, panel } from "../../kit/marquee/motion";
+import { fade, panel } from "../../kit/motion";
 import { firstFocusable } from "../layout";
 import type { Destination, ShellLevel } from "../navigation";
 import { focusAndReveal } from "../reveal";

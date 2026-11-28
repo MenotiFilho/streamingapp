@@ -1,7 +1,7 @@
 import { MotionConfig } from "motion/react";
 
 import type { HostLink } from "../../core/link";
-import "../../kit/marquee/kit.css";
+import "../../kit/kit.css";
 import "./marquee.css";
 import { MarqueeShell } from "./MarqueeShell";
 
@@ -10,7 +10,7 @@ export type MarqueeEntryProps = {
 };
 
 /**
- * The Marquee window entry point (#358).
+ * The window's entry point (#358, #365): the one client the window draws.
  *
  * Imports `kit.css` and `marquee.css`, wraps the shell in `<MotionConfig
  * reducedMotion="user">` (ADR-0031 §5) and `.mq-root`, and connects to the Host

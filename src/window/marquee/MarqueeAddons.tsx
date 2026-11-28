@@ -15,11 +15,11 @@ import {
   addonsCountSubtitle,
 } from "../../core/marqueeAddons";
 import type { AddonManifest } from "../../core/wire";
-import { AddonRow } from "../../kit/marquee/AddonRow";
-import { Button } from "../../kit/marquee/Button";
-import { EmptyState } from "../../kit/marquee/EmptyState";
-import { ScreenTitle } from "../../kit/marquee/ScreenTitle";
-import { TextField } from "../../kit/marquee/TextField";
+import { AddonRow } from "../../kit/AddonRow";
+import { Button } from "../../kit/Button";
+import { EmptyState } from "../../kit/EmptyState";
+import { ScreenTitle } from "../../kit/ScreenTitle";
+import { TextField } from "../../kit/TextField";
 import { useShell } from "../context";
 import { focusAndReveal } from "../reveal";
 import { marqueeConfirmLevel } from "./MarqueeConfirm";

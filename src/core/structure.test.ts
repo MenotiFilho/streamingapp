@@ -17,7 +17,7 @@ import { describe, expect, test } from "vitest";
 /** The core, and its one React-and-DOM pocket. */
 const CORE = "src/core";
 const CORE_REACT = "src/core/react";
-/** The kit A3 lands; the rules already read it, so that move does not revisit them. */
+/** The kit the window and the served Remote compose (ADR-0043 §1). */
 const KIT = "src/kit";
 
 /**
@@ -363,9 +363,8 @@ describe("the kit", () => {
   });
 
   test("the rule itself reads a client, a socket and a Tauri import", () => {
-    // A3 lands the kit; this keeps the rule live until then, so the move that
-    // creates it cannot discover a rule nobody exercised. The client path is
-    // assembled for the same reason as the core probe's.
+    // The tree is clean today; this keeps the rule falsifiable while it is.
+    // The client path is assembled for the same reason as the core probe's.
     const client = ["..", "window/Shell"].join("/");
     const offenders = kitOffenders({
       file: "src/kit/Probe.tsx",
@@ -387,7 +386,7 @@ describe("the kit", () => {
 
 describe("the window's rehearsal", () => {
   test("the preview link is built without a Tauri module", () => {
-    // The rehearsal mounts the same room as the window, so `Shell` keeps its
+    // The rehearsal mounts the same room as the window, so the shell keeps its
     // `TauriLink` default; what must not happen is the preview's own link — and
     // everything it is built from — reaching a Tauri module (ADR-0035 §1).
     const sources = new Map(
@@ -431,7 +430,7 @@ describe("the window's rehearsal", () => {
       "the preview link points at the preview Host, never at Tauri",
     ).toEqual([]);
     expect(seen, "the walk reached the preview Host").toContain(
-      "src/window/repertory/previewHost.ts",
+      "src/window/rehearsal/previewHost.ts",
     );
   });
 });

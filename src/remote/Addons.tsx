@@ -11,13 +11,13 @@ import {
 import type { NewLevel } from "../core/navigation";
 import type { Session, SessionState } from "../core/session";
 import type { AddonManifest } from "../core/wire";
-import { EmptyState } from "../kit/marquee/EmptyState";
-import { GroupLabel } from "../kit/marquee/GroupLabel";
-import { TextField } from "../kit/marquee/TextField";
-import { PhoneAddonRow } from "../kit/marquee/phone/PhoneAddonRow";
-import { PhoneHeader } from "../kit/marquee/phone/PhoneHeader";
-import { PhoneSwitchRow } from "../kit/marquee/phone/PhoneSwitchRow";
-import { PhoneButton, PhoneIconButton } from "../kit/marquee/phone/controls";
+import { EmptyState } from "../kit/EmptyState";
+import { GroupLabel } from "../kit/GroupLabel";
+import { TextField } from "../kit/TextField";
+import { PhoneAddonRow } from "../kit/phone/PhoneAddonRow";
+import { PhoneHeader } from "../kit/phone/PhoneHeader";
+import { PhoneSwitchRow } from "../kit/phone/PhoneSwitchRow";
+import { PhoneButton, PhoneIconButton } from "../kit/phone/controls";
 import {
   ADDONS_EMPTY,
   ADDON_FIELD_LABEL,

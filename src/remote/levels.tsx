@@ -6,7 +6,7 @@ import type { PreferenceSubLevelId } from "../core/marqueeSettings";
 import type { Session, SessionState } from "../core/session";
 import type { SettingsCategoryId } from "../core/settingsRegister";
 import type { Action, Title, Video } from "../core/wire";
-import { Confirm } from "../kit/marquee/Confirm";
+import { Confirm } from "../kit/Confirm";
 import { AddonDetails } from "./Addons";
 import { PlayerCard } from "./Player";
 import { PlayerSheets } from "./PlayerSheets";

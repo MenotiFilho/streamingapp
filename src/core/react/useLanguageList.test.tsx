@@ -2,7 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { describe, expect, test, vi } from "vitest";
 
 import type { ActionError } from "../errors";
-import { NOTHING } from "../../remote/fakeSocket.testing";
+import { NOTHING } from "../testing/snapshot";
 import type { Snapshot } from "../wire";
 import { useLanguageList, type Ask } from "./useLanguageList";
 

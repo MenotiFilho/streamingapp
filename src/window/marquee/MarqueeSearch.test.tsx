@@ -9,7 +9,7 @@ import { Session } from "../../core/session";
 import type { Action, AddonManifest, CatalogRow, MetaPreview, Snapshot } from "../../core/wire";
 import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContextValue } from "../context";
 import { readLevel } from "../layout";
-import { PreviewDataProvider } from "../repertory/context";
+import { PreviewDataProvider } from "../rehearsal/previewData";
 import { MarqueeDestinationScreen } from "./MarqueeScreens";
 import { MarqueeSearch } from "./MarqueeSearch";
 
@@ -360,6 +360,101 @@ describe("Marquee Search boundary contracts", () => {
 
     fireEvent.click(within(catalogsFailure).getByRole("button", { name: "Search again" }));
     expect(await screen.findByTestId("search-card-cinemeta-tt1392170")).toBeInTheDocument();
+  });
+
+  it("draws TMDB's Movies row before Series, and a failed row leaves the other standing", async () => {
+    renderSearch({
+      ask: async (action) => {
+        if (action.type !== "search") {
+          return { response: { snapshots: [], answer: { catalogs: [] } }, error: null };
+        }
+        const failed = action.kind === "series";
+        return {
+          response: {
+            snapshots: [],
+            answer: {
+              search: {
+                type: action.kind,
+                sent: failed ? 0 : 1,
+                metas: failed ? [] : [meta("tmdb:70160", "The Hunger Games")],
+                failure: failed ? { kind: "tmdb", detail: "status 429" } : null,
+              },
+            },
+          },
+          error: null,
+        };
+      },
+    });
+    search("hunger games");
+
+    expect(
+      await screen.findByTestId("search-card-movie-tmdb:70160"),
+    ).toBeInTheDocument();
+    const series = await screen.findByTestId("search-row-series");
+    expect(series).toHaveTextContent("status 429");
+    expect(within(series).getByRole("button", { name: "Try again" })).toBeEnabled();
+    expect(
+      screen.getAllByTestId(/^search-row-(movie|series)$/).map((row) => row.dataset.testid),
+    ).toEqual(["search-row-movie", "search-row-series"]);
+  });
+
+  it("keeps a failing Catalog on its own row and searches again from it", async () => {
+    const { actions } = renderSearch({
+      snapshot: snapshotWith(false),
+      ask: async () => ({
+        response: {
+          snapshots: [],
+          answer: {
+            catalogs: [
+              MOVIE_CATALOG_ROW,
+              {
+                ...EMPTY_SERIES_CATALOG_ROW,
+                failure: { kind: "fetch", detail: "the Addon answered with status 503" },
+              },
+            ],
+          },
+        },
+        error: null,
+      }),
+    });
+    search("hunger games");
+
+    expect(
+      await screen.findByTestId("search-card-cinemeta-tt1392170"),
+    ).toBeInTheDocument();
+    const failed = screen.getByTestId("search-row-cinemeta/series/top");
+    expect(failed).toHaveTextContent("status 503");
+
+    fireEvent.click(within(failed).getByRole("button", { name: "Search again" }));
+    await waitFor(() =>
+      expect(actions().filter((action) => action.type === "search_catalogs")).toHaveLength(2),
+    );
+  });
+
+  it("keeps a refused search's words in the field to correct", async () => {
+    renderSearch({
+      snapshot: snapshotWith(false),
+      ask: async () => ({
+        response: null,
+        error: { kind: "fetch", detail: "the Addon answered with status 503" },
+      }),
+    });
+    search("hunger games");
+
+    expect(await screen.findByTestId("search-catalogs-failure")).toHaveTextContent(
+      "The Host could not fetch that Addon: the Addon answered with status 503.",
+    );
+    expect(screen.getByLabelText("Search for a Title")).toHaveValue("hunger games");
+  });
+
+  it("searches only the Catalogs on the rehearsal, even with a TMDB key held", async () => {
+    const { actions } = renderSearch({ preview: true, snapshot: snapshotWith(true) });
+    search("hunger games");
+
+    expect(
+      await screen.findByTestId("search-card-cinemeta-tt1392170"),
+    ).toBeInTheDocument();
+    expect(actions()).toEqual([{ type: "search_catalogs", query: "hunger games" }]);
   });
 
   it("marks TMDB cards no Addon could play, and Addon cards only once learned unplayable", async () => {

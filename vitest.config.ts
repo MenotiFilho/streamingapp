@@ -15,19 +15,12 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/setup-tests.ts"],
     include: ["src/**/*.test.{ts,tsx}"],
-    // The token sheet is part of #77's contract, and the window's sheet
-    // states its pointer and band rules in CSS — the level's player reset
-    // lives in that sheet and its popover reset in the OSD sheet — so all of
-    // them are read as text. Vitest replaces other CSS with an empty string.
+    // The two presentation locks (`docs/agents/testing.md`) read CSS as text:
+    // the token lock reads every sheet of the kit and the two clients, and the
+    // frameless chrome's band reads the window's. Vitest replaces other CSS
+    // with an empty string.
     css: {
-      include: [
-        /src\/kit\/tokens\.css/,
-        /src\/kit\/kit\.css/,
-        /src\/kit\/marquee\/.*\.css/,
-        /src\/window\/repertory\/osd\.css/,
-        /src\/window\/repertory\/repertory\.css/,
-        /src\/window\/marquee\/marquee\.css/,
-      ],
+      include: [/src\/(kit|window|remote)\/.*\.css/],
     },
   },
 });

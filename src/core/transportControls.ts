@@ -3,8 +3,7 @@
  *
  * The Host takes them as Actions; this module only says what each one is called,
  * which Action it sends, and what the Snapshot and the Session make of it. Each
- * client arranges and draws them: the window keeps Stop in the top row, the
- * Remote draws it as the sixth cell.
+ * client takes the ones it draws and arranges them itself.
  */
 
 import { actionKey } from "./actionKey";
@@ -13,9 +12,8 @@ import type { PlaybackView } from "./playbackView";
 import type { Action } from "./wire";
 
 /**
- * The icon names the transport uses. The core cannot import the kit, so the
- * union lives here; the drawing passes it to the kit's `Icon`, which then
- * proves the names still exist.
+ * What each transport control's glyph stands for. The core cannot import the
+ * kit, so a client maps a name to the kit icon that draws it.
  */
 export type TransportIcon =
   | "previous-episode"

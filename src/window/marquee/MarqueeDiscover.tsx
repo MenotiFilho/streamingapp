@@ -31,21 +31,21 @@ import {
 } from "../../core/marqueeDiscover";
 import { useGridEnd, type GridEndOptions } from "../../core/react/useGridEnd";
 import type { MetaPreview } from "../../core/wire";
-import { AddonNotice } from "../../kit/marquee/AddonNotice";
-import { Dropdown } from "../../kit/marquee/Dropdown";
-import { EmptyState } from "../../kit/marquee/EmptyState";
-import { Poster } from "../../kit/marquee/Poster";
-import { ScreenTitle } from "../../kit/marquee/ScreenTitle";
-import { Spinner } from "../../kit/marquee/Spinner";
+import { AddonNotice } from "../../kit/AddonNotice";
+import { Dropdown } from "../../kit/Dropdown";
+import { EmptyState } from "../../kit/EmptyState";
+import { Poster } from "../../kit/Poster";
+import { ScreenTitle } from "../../kit/ScreenTitle";
+import { Spinner } from "../../kit/Spinner";
 import { useShell } from "../context";
-import { usePreviewData } from "../repertory/context";
-import { lookHintHandlers, useLookHints } from "../repertory/lookHint";
+import { usePreviewData } from "../rehearsal/previewData";
+import { lookHintHandlers, useLookHints } from "../useLookHints";
 import {
   CINEMETA_MOVIE_GENRES,
   CINEMETA_SERIES_GENRES,
   PREVIEW_ADDON,
-} from "../repertory/preview";
-import { useTitleOpener } from "../TitleScreen";
+} from "../rehearsal/preview";
+import { useMarqueeTitleOpener as useTitleOpener } from "./MarqueeTitle";
 import "./browse.css";
 
 type OpenMenu = "type" | "genre" | "sort" | null;

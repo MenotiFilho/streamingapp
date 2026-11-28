@@ -92,11 +92,14 @@ src-tauri/              the thin app shell: wiring, window, IPC, timers; no rule
 src/                    the React/TypeScript client (one tree, two entries)
   core/                 client decisions shared by window and remote (pure, tested)
   core/react/           React bindings of the core (hooks, motion presets)
-  kit/                  screen-agnostic primitives, tokens.css, icons
+  kit/                  the Marquee kit: screen-agnostic primitives, tokens.css, icons
+    phone/              its parts at the Remote's hand scale
   window/               the ten-foot client (the Host's own window)
-    repertory/          its screens, in the Repertory design language
+    marquee/            its screens, in the Marquee design language
+    rehearsal/          the preview Host the window runs on in a plain browser
   remote/               the phone client (the "Cast Remote")
 index.html, remote.html the two Vite entries
+rehearsal.html          the window in a plain browser (dev server only, never built)
 docs/                   ADRs, research notes, design system, agent docs, this file
 scripts/                ci.sh / cd.sh (local CI/CD), windows/ (build + by-hand verify)
 docker/, compose*.yaml  the dev container: the only place toolchains live
@@ -371,16 +374,19 @@ One React 19 + TypeScript tree with **two Vite entries** (ADR-0035):
   (`store.ts`, `homeStore.ts`, `feedStore.ts`), paging, navigation, episodes,
   stream lists, playback controls, the **Pending** state (`inFlight.ts`), and
   input modality. It is pure TypeScript, tested heavily, and contains no markup.
-- **`src/kit/`** holds primitives (Button, Chip, Menu, Sheet, Popover,
-  PosterCard, ContinueWatchingCard…) and `tokens.css`, the single source of the
-  palette and type. The Host also serves `tokens.css` to the remote.
+- **`src/kit/`** is the one kit both clients compose (Button, Poster, WideCard,
+  Panel, StreamRow, SeekBar, PlayerControls…, with the Remote's parts in
+  `phone/`) and `tokens.css`, the single source of the palette, the type and the
+  window's reference-frame unit. The Remote builds the sheet in, and the Host
+  serves the faces it names.
 - **`src/window/`** is the ten-foot client. It has spatial focus for D-pad,
-  keyboard and gamepad (`focus.ts`, `useSpatialFocus.ts`, `useGamepad.ts`), the
-  player OSD (`PlayerOverlay.tsx`), fullscreen, and the **Level** stack
-  (Title → Streams → …, popped with Back). The screens live in `repertory/`.
+  keyboard and gamepad (`focus.ts`, `useSpatialFocus.ts`, `useGamepad.ts`),
+  fullscreen, and the **Level** stack (Title → Streams → …, popped with Back).
+  The screens live in `marquee/`: the player OSD is `MarqueePlayer.tsx`, and
+  `MarqueeDock.tsx` is the transport where the picture is not in the window.
 - **`src/remote/`** is the phone client in the **Cast Remote** shape. It has
-  the same six destinations, a docked player strip, an expanded full-screen
-  remote, and an Audio & Subtitles sheet.
+  the same six destinations, a now-playing strip, an expanded full-screen
+  remote, and the bottom sheets its menus open.
 
 Client rules:
 - **Navigation is not shared.** Each client keeps its own screens and Levels.
@@ -392,13 +398,15 @@ Client rules:
 - **Tests assert decisions, not markup.** A window test checks what a screen
   decides, such as which row, what label or which Action, never DOM structure.
   (ADR-0032, `docs/agents/testing.md`)
-- **Design**: the *Repertory* language: an ink-black room, ivory text, one brass
-  accent, hairlines instead of cards, a serif for names and mono for
-  bookkeeping, with focus shown as a keyline and not a lift. Motion goes through
-  `motion` presets. (ADR-0030, ADR-0031, `docs/design-system.md`)
-- **Rehearsal**: `VITE_UI=rehearsal pnpm exec vite` runs the window in a plain
-  browser with no Tauri, using `previewHost.ts`, which answers from public
-  Cinemeta and Torrentio. It's useful for layout work in Playwright.
+- **Design**: the *Marquee* language: a near-black canvas, Figtree, artwork-led
+  screens, pill controls and glass panels. White is focus; lavender is the
+  primary action at rest, progress and selection. Motion goes through the kit's
+  presets (`src/kit/motion.ts`). (ADR-0043, ADR-0031, `docs/design-system.md`)
+- **Rehearsal**: `pnpm dev`, then `/rehearsal.html`, runs the window in a plain
+  browser with no Tauri. `src/window/rehearsal/previewHost.ts` answers it from
+  public Cinemeta and Torrentio, and plays nothing. It's useful for layout work
+  in Playwright. The production build has one entry, `index.html`, so it never
+  ships.
 
 The built remote (`crates/host-wire/remote/`) is **committed**. Rebuild it with
 `pnpm build:remote` whenever `src/remote`, `src/core` or `src/kit` changes, or
@@ -514,7 +522,7 @@ Check these before adding anything:
 | change how Addons are read | `crates/host-core/src/{addon,catalog,meta,stream}.rs`; check with `live_check` |
 | change the schema | `crates/host-sqlite/src/migrations.rs` (add a migration; never edit an old one) |
 | change pairing or the socket | `host-core/src/{pairing,wire}.rs`, `crates/host-wire/` |
-| change a window screen | `src/window/repertory/`, with its decisions in `src/core/` |
+| change a window screen | `src/window/marquee/`, with its decisions in `src/core/` |
 | change the phone UI | `src/remote/`, then `pnpm build:remote` |
 | change colours or type | `src/kit/tokens.css` and `docs/design-system.md` |
-| understand a past decision | `docs/adr/` (0001–0040), then `docs/research/` |
+| understand a past decision | `docs/adr/` (0001–0044), then `docs/research/` |

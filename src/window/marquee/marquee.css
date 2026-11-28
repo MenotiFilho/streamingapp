@@ -1,7 +1,7 @@
 /*
  * Marquee window shell & Home styles (#358).
  *
- * Uses `--mq-*` tokens and `src/kit/marquee/` primitives exclusively.
+ * Uses `--mq-*` tokens and `src/kit/` primitives exclusively.
  * Zero legacy tokens; lavender is never literalised outside `--mq-accent`.
  */
 
@@ -10,6 +10,14 @@ body,
 #root {
   height: 100%;
   margin: 0;
+}
+
+/* The page itself is the canvas, so nothing behind the room is ever light, and
+   nothing outside it falls back to the browser's own face. */
+body {
+  background: var(--mq-canvas);
+  font-family: var(--mq-font);
+  -webkit-font-smoothing: antialiased;
 }
 
 .mq-visually-hidden {
@@ -29,12 +37,13 @@ body,
   height: 100%;
 }
 
-/* When mpv paints the picture behind the webview, the frame turns transparent. */
+/* When mpv paints the picture behind the webview, the page turns transparent. */
 html.picture-behind,
 body.picture-behind {
   overflow: hidden;
 }
 
+body.picture-behind,
 body.picture-behind .mq-frame,
 body.picture-behind .mq-base,
 body.picture-behind .mq-nav-slot {

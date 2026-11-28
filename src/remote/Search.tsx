@@ -18,12 +18,12 @@ import type { NewLevel } from "../core/navigation";
 import { queryOf, searchFeedKey, type SearchKind } from "../core/search";
 import { EMPTY_SEARCH_VIEW, type Session, type SessionState } from "../core/session";
 import type { AddonManifest, MetaPreview } from "../core/wire";
-import { EmptyState } from "../kit/marquee/EmptyState";
-import { SearchField } from "../kit/marquee/SearchField";
-import { PhoneAddonNotice } from "../kit/marquee/phone/PhoneAddonNotice";
-import { PhonePoster } from "../kit/marquee/phone/PhonePoster";
-import { PhoneRowHeader } from "../kit/marquee/phone/PhoneRowHeader";
-import { PhoneButton } from "../kit/marquee/phone/controls";
+import { EmptyState } from "../kit/EmptyState";
+import { SearchField } from "../kit/SearchField";
+import { PhoneAddonNotice } from "../kit/phone/PhoneAddonNotice";
+import { PhonePoster } from "../kit/phone/PhonePoster";
+import { PhoneRowHeader } from "../kit/phone/PhoneRowHeader";
+import { PhoneButton } from "../kit/phone/controls";
 import { titleLevelOf, type RemotePayload } from "./levels";
 
 export type SearchProps = {

@@ -14,7 +14,7 @@ import type { NewLevel } from "../core/navigation";
 import { marqueeEpisodeRow } from "../core/playerPanels";
 import { labelOf } from "../core/title";
 import type { PlaybackSnapshot, ResumeEntry, Title, Video } from "../core/wire";
-import { REMOTE_MENUS, type RemoteMenu } from "../kit/marquee/phone/RemoteMenus";
+import { REMOTE_MENUS, type RemoteMenu } from "../kit/phone/RemoteMenus";
 import type { RemotePayload } from "./levels";
 
 /** A sheet is named by the menu that opens it. */

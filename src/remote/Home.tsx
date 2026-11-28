@@ -25,14 +25,14 @@ import { cardName, progressOf, resumable } from "../core/library";
 import type { NewLevel } from "../core/navigation";
 import type { Session, SessionState } from "../core/session";
 import type { ContinueEntry, MetaPreview } from "../core/wire";
-import { BrandMark } from "../kit/marquee/BrandMark";
-import { EmptyState } from "../kit/marquee/EmptyState";
-import { PhoneAddonNotice } from "../kit/marquee/phone/PhoneAddonNotice";
-import { PhoneCardCaption } from "../kit/marquee/phone/PhoneCardCaption";
-import { PhoneHero } from "../kit/marquee/phone/PhoneHero";
-import { PhonePoster } from "../kit/marquee/phone/PhonePoster";
-import { PhoneRowHeader } from "../kit/marquee/phone/PhoneRowHeader";
-import { PhoneWideCard } from "../kit/marquee/phone/PhoneWideCard";
+import { BrandMark } from "../kit/BrandMark";
+import { EmptyState } from "../kit/EmptyState";
+import { PhoneAddonNotice } from "../kit/phone/PhoneAddonNotice";
+import { PhoneCardCaption } from "../kit/phone/PhoneCardCaption";
+import { PhoneHero } from "../kit/phone/PhoneHero";
+import { PhonePoster } from "../kit/phone/PhonePoster";
+import { PhoneRowHeader } from "../kit/phone/PhoneRowHeader";
+import { PhoneWideCard } from "../kit/phone/PhoneWideCard";
 import { titleLevel, titleLevelOf, type RemotePayload } from "./levels";
 
 export type HomeProps = {

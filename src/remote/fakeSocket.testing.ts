@@ -1,4 +1,5 @@
 import type { ActionError } from "../core/errors";
+import { NOTHING } from "../core/testing/snapshot";
 import { ACTION_VERSION } from "../core/wire";
 import type { Action, DeviceSummary, Response, Snapshot, Title } from "../core/wire";
 import type { TokenStore } from "./tokenStore";
@@ -31,57 +32,13 @@ export const PHONE: DeviceSummary = {
 export const ISSUED_TOKEN = "a".repeat(43);
 
 /** The code the fake Host is showing. */
-export const PAIRING_CODE = "4K7Q2M";
+export const PAIRING_CODE = NOTHING.pairingCode;
 
 /** The clock every case measures a retry by. */
 export const NOW = 1_000;
 
-/** A Host with nothing playing: the state a paired client is owed. */
-export const NOTHING: Snapshot = {
-  revision: 1,
-  playback: {
-    state: "idle",
-    autoplay: null,
-    picture: "in_window",
-    failure: null,
-    nowPlaying: null,
-    episode: null,
-    position: null,
-    duration: null,
-    buffered: null,
-    tracks: [],
-    chapters: [],
-    chapter: null,
-    speed: null,
-    volume: null,
-    muted: null,
-    subtitleDelay: null,
-    stalled: false,
-    torrent: null,
-    crop: null,
-    aspect: null,
-    resolution: null,
-    statistics: null,
-  },
-  preferences: {
-    subtitleLanguages: [],
-    audioLanguages: [],
-    subtitleColor: "#FFFFFF",
-    subtitleScale: 1,
-    streamBuffer: { seconds: 300, megabytes: 512 },
-    torrentCache: { megabytes: 2000 },
-    upNextPlayback: "direct",
-    autoplay: true,
-  },
-  addons: [],
-  featuredCatalog: null,
-  protection: { backend: "file", tmdbHeld: false, stremioHeld: false },
-  continueWatching: [],
-  watchProgress: [],
-  devices: [],
-  pairingCode: PAIRING_CODE,
-  address: null,
-};
+/** The idle Snapshot, under the pairing code this fake Host shows. */
+export { NOTHING };
 
 export type FakeHostOptions = {
   /** The state the Host holds. */

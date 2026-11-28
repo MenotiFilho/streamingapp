@@ -3,8 +3,8 @@
  *
  * Framework-free (`src/core` per ADR-0035 §1, ADR-0032): no React, no DOM, no
  * Motion imports. Reuses `titlePage.ts`, `title.ts`, `stream.ts`, and
- * `library.ts` so Marquee keeps Repertory's Host Actions and contracts while
- * adding Marquee's Choose stream button, episode notes, and progress marks.
+ * `library.ts` for the Host's Actions and contracts, and adds Marquee's Choose
+ * stream button, episode notes, and progress marks.
  */
 
 import { progressOf } from "./library";
