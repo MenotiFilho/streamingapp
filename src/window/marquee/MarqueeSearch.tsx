@@ -22,16 +22,16 @@ import {
 } from "../../core/marqueeSearch";
 import { queryOf, searchFeedKey, type SearchKind } from "../../core/search";
 import type { MetaPreview } from "../../core/wire";
-import { AddonNotice } from "../../kit/marquee/AddonNotice";
-import { Button } from "../../kit/marquee/Button";
-import { EmptyState } from "../../kit/marquee/EmptyState";
-import { Poster } from "../../kit/marquee/Poster";
-import { RowHeader } from "../../kit/marquee/RowHeader";
-import { SearchField } from "../../kit/marquee/SearchField";
+import { AddonNotice } from "../../kit/AddonNotice";
+import { Button } from "../../kit/Button";
+import { EmptyState } from "../../kit/EmptyState";
+import { Poster } from "../../kit/Poster";
+import { RowHeader } from "../../kit/RowHeader";
+import { SearchField } from "../../kit/SearchField";
 import { useShell } from "../context";
-import { usePreviewData } from "../repertory/context";
-import { lookHintHandlers, useLookHints } from "../repertory/lookHint";
-import { useTitleOpener } from "../TitleScreen";
+import { usePreviewData } from "../rehearsal/previewData";
+import { lookHintHandlers, useLookHints } from "../useLookHints";
+import { useMarqueeTitleOpener as useTitleOpener } from "./MarqueeTitle";
 import "./browse.css";
 
 /**

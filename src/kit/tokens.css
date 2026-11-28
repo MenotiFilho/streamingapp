@@ -1,180 +1,233 @@
 /*
- * The repertory token sheet: one declaration of the palette, the families,
- * the ten-foot scale, the hand scale, spacing, layout, motion and focus.
+ * The Marquee token sheet (#354): one declaration of the palette, alphas,
+ * reference-frame scaling unit, typography scales (window 1920x1080 and phone
+ * 390x844), spacing, radii, shadows, glass blurs, focus scales and motion.
  *
- * The window reaches it through `kit.css`, which imports it; the Host's served
- * Remote imports the same `kit.css` in its own sheet and the Host serves the
- * same woff2 files, so the phone cannot drift from the window's palette,
- * families or faces.
- *
- * The record is `docs/design-system.md` (ADR-0030); the motion vocabulary is
- * ADR-0031. This sheet is rebuilt to that record by #153.
+ * The window and the served Remote share this sheet and the local Figtree
+ * woff2 faces under `/fonts/` (ADR-0043 §1-§2, `docs/design-system.md` §1-§7
+ * and §11). Motion durations follow ADR-0031.
  */
 
 /*
- * The faces on disk: one Lean Latin woff2 per role, committed under
- * `public/fonts/` with its OFL notice. The window loads them from its own
- * origin; the served Remote receives the same bytes from the Host at
- * `/fonts/<name>`, so the same `@font-face` rules dress both clients.
+ * Local Figtree variable faces (OFL-1.1, `public/fonts/OFL-figtree.txt`).
+ * Covers all five Marquee weights (400, 500, 600, 700, 800) within its 300-900
+ * variable axis. Served at `/fonts/` by Vite for the window and by `host-wire`
+ * for the Remote, with zero third-party requests.
  */
 @font-face {
-  font-family: "Bodoni Moda";
+  font-family: "Figtree";
   font-style: normal;
   font-display: swap;
-  font-weight: 400 900;
-  src: url("/fonts/bodoni-moda-latin-wght-normal.woff2") format("woff2");
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
-    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
-    U+FEFF, U+FFFD;
+  font-weight: 300 900;
+  src: url("/fonts/figtree-latin-ext-wght-normal.woff2") format("woff2");
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
 }
 
 @font-face {
-  font-family: "Inter";
+  font-family: "Figtree";
   font-style: normal;
   font-display: swap;
-  font-weight: 100 900;
-  src: url("/fonts/inter-latin-wght-normal.woff2") format("woff2");
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
-    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
-    U+FEFF, U+FFFD;
-}
-
-@font-face {
-  font-family: "IBM Plex Mono";
-  font-style: normal;
-  font-display: swap;
-  font-weight: 400;
-  src: url("/fonts/ibm-plex-mono-latin-400-normal.woff2") format("woff2");
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
-    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
-    U+FEFF, U+FFFD;
-}
-
-@font-face {
-  font-family: "IBM Plex Mono";
-  font-style: normal;
-  font-display: swap;
-  font-weight: 500;
-  src: url("/fonts/ibm-plex-mono-latin-500-normal.woff2") format("woff2");
-  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC,
-    U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215,
-    U+FEFF, U+FFFD;
+  font-weight: 300 900;
+  src: url("/fonts/figtree-latin-wght-normal.woff2") format("woff2");
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
 :root {
   color-scheme: dark;
 
   /*
-   * Canvas & ink. These are the measured pairs from `tokens.test.ts`; a change
-   * here fails that test until the new pair is measured.
+   * Reference-frame scaling unit (`docs/design-system.md` §4).
+   *
+   * At the 1920x1080 window reference frame, `min(1vw, 1.7777778vh) / 19.2` is
+   * exactly `1px`. It scales linearly on both axes (governed by the shorter
+   * 16:9 side so an ultra-wide window does not blow up vertical sizing), floors
+   * at 0.5px for tiny desktop windows, and has NO ceiling so 4K scales cleanly.
+   * Every 1920x1080 measurement `N` from the mockup maps 1:1 via `calc(var(--mq-u) * N)`.
    */
-  --rep-ink: #0b0a09;
-  --rep-ink-raised: #141210;
-  --rep-ink-elevated: #1b1815;
-  --rep-ivory: #f2e9d8;
-  --rep-dim: #c8bda9;
-  --rep-muted: #8c8375;
-  --rep-hairline: #6e6659;
-  --rep-house: #c9a45c;
-  --rep-house-deep: #b08a45;
-  --rep-status-red: #ff4d4d;
-
-  /* One pairing: Bodoni Moda / Inter / IBM Plex Mono. */
-  --rep-display: "Bodoni Moda", Didot, "Bodoni MT", Georgia, serif;
-  --rep-sans: "Inter", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-  --rep-mono: "IBM Plex Mono", "Cascadia Mono", Consolas, ui-monospace, monospace;
+  --mq-u: max(0.5px, calc(min(1vw, 1.7777778vh) / 19.2));
 
   /*
-   * The ten-foot scale. One stage unit drives every size, proportional to the
-   * shorter side of the window so a wide, shallow window does not inflate the
-   * type; each role is a rem floor plus a stage step, and there is no rem
-   * ceiling (a rem cap is the 4K-at-100% trap measured in research #144).
+   * Palette (`docs/design-system.md` §2).
+   *
+   * Measured contrast pairs are locked by `tokens.test.ts`. Lavender is
+   * declared once here; every lavender tint derives from `--mq-accent` via
+   * `color-mix()` so the one allowed Windows panel correction moves everything
+   * together (§12).
    */
-  --rep-stage: min(1vw, 1.7778vh);
-  --rep-text-hero: max(72px, calc(var(--rep-stage) * 4.6));
-  --rep-text-title: max(48px, calc(var(--rep-stage) * 3));
-  --rep-text-section: max(36px, calc(var(--rep-stage) * 2.1));
-  --rep-text-body: max(28px, calc(var(--rep-stage) * 1.667));
-  --rep-text-control: max(26px, calc(var(--rep-stage) * 1.35));
-  --rep-text-caption: max(24px, calc(var(--rep-stage) * 1.25));
-  --rep-text-mono: max(24px, calc(var(--rep-stage) * 1.25));
-  --rep-text-badge: max(18px, calc(var(--rep-stage) * 1.1));
-
-  --rep-leading-display: 1.08;
-  --rep-leading-body: 1.4;
-  --rep-leading-caption: 1.3;
-  --rep-tracking-display: -0.012em;
-  --rep-tracking-body: 0.008em;
-  --rep-tracking-caps: 0.08em;
+  --mq-canvas: #0A0B0F;
+  --mq-ink: var(--mq-canvas);
+  --mq-surface: #14161D;
+  --mq-surface-2: #1E212A;
+  --mq-surface-3: #2A2E39;
+  --mq-white: #FFFFFF;
+  --mq-accent: #C4A7E7;
+  --mq-imdb: #F5C518;
+  --mq-ok: #3DD68C;
+  --mq-warn: #FFB224;
+  --mq-danger: #FF5C66;
 
   /*
-   * The Remote's phone scale: the same family roles and tracking, sized for a
-   * hand at arm's length rather than a sofa. Both scales live here so the served
-   * page does not grow a silent second scale.
+   * Text, rule and glass alphas (`docs/design-system.md` §2).
+   * Stored as numbers so both CSS colors and the contrast lock read one source.
    */
-  --rep-remote-text-hero: 2.25rem;
-  --rep-remote-text-title: 1.75rem;
-  --rep-remote-text-section: 1.25rem;
-  --rep-remote-text-body: 0.95rem;
-  --rep-remote-text-caption: 0.8125rem;
-  --rep-remote-text-control: 0.9375rem;
-  --rep-remote-text-mono: 0.75rem;
-  --rep-remote-text-badge: 0.6875rem;
-  --rep-remote-touch: 2.75rem;
-  --rep-remote-nav: 4.25rem;
-  --rep-remote-strip: 4.5rem;
-  --rep-remote-gutter: 1.125rem;
+  --mq-alpha-muted: 0.72;
+  --mq-alpha-faint: 0.50;
+  --mq-alpha-line: 0.12;
+  --mq-alpha-glass: 0.14;
 
-  /* Spacing is fixed in rem; layout below scales with the stage. */
-  --rep-space-1: 0.25rem;
-  --rep-space-2: 0.5rem;
-  --rep-space-3: 0.75rem;
-  --rep-space-4: 1rem;
-  --rep-space-5: 1.5rem;
-  --rep-space-6: 2.25rem;
-  --rep-space-7: 3rem;
-  --rep-space-8: 4rem;
-
-  --rep-gutter: max(32px, calc(var(--rep-stage) * 2.9));
-  --rep-stage-top: max(32px, calc(var(--rep-stage) * 2.5));
-  --rep-stage-bottom: max(64px, calc(var(--rep-stage) * 5));
-  --rep-row-gap: max(16px, calc(var(--rep-stage) * 1.25));
-  --rep-spine-compact: max(92px, calc(var(--rep-stage) * 4.8));
-  --rep-spine-width: max(280px, calc(var(--rep-stage) * 14.6));
-
-  /* Radius is zero. The one circle in the system is the pending spinner. */
-  --rep-radius: 0;
+  /* Derived surface, text, border, tint and state colours. */
+  --mq-text: var(--mq-white);
+  --mq-text-muted: rgb(255 255 255 / var(--mq-alpha-muted));
+  --mq-text-faint: rgb(255 255 255 / var(--mq-alpha-faint));
+  --mq-line: rgb(255 255 255 / var(--mq-alpha-line));
+  --mq-glass: rgb(255 255 255 / var(--mq-alpha-glass));
+  --mq-glass-subtle: rgb(255 255 255 / 0.10);
+  --mq-row-rest: rgb(255 255 255 / 0.055);
+  --mq-row-focus: rgb(255 255 255 / var(--mq-alpha-glass));
+  --mq-panel-bg: color-mix(in srgb, var(--mq-surface) 90%, transparent);
+  --mq-panel-bg-dense: color-mix(in srgb, var(--mq-surface) 97%, transparent);
+  --mq-panel-border: rgb(255 255 255 / 0.08);
+  --mq-accent-soft: color-mix(in srgb, var(--mq-accent) 16%, transparent);
+  --mq-accent-tint: color-mix(in srgb, var(--mq-accent) 18%, transparent);
+  --mq-accent-moving: color-mix(in srgb, var(--mq-accent) 14%, transparent);
+  --mq-danger-tint: color-mix(in srgb, var(--mq-danger) 12%, transparent);
+  --mq-danger-badge-bg: color-mix(in srgb, var(--mq-danger) 20%, transparent);
+  --mq-track-bg: rgb(255 255 255 / 0.28);
+  --mq-seek-track: rgb(255 255 255 / 0.22);
+  --mq-seek-buffered: rgb(255 255 255 / 0.30);
+  --mq-press-card: color-mix(in srgb, var(--mq-ink) 35%, transparent);
+  --mq-press-tab: rgb(255 255 255 / 0.12);
+  --mq-scrim-dim: color-mix(in srgb, var(--mq-canvas) 55%, transparent);
 
   /*
-   * Motion: two spring durations and one fade. `motion.ts` reads the two
-   * durations from the document at call time and pairs them with `bounce: 0`;
-   * the served Remote's script reads the same properties (ADR-0031).
+   * Typography (`docs/design-system.md` §3).
+   * One family, Figtree, in five weights (400, 500, 600, 700, 800).
    */
-  --rep-motion-panel: 240ms;
-  --rep-motion-quick: 140ms;
-  --rep-motion-fade: 140ms;
-  --rep-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --mq-font: "Figtree", "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --mq-weight-regular: 400;
+  --mq-weight-medium: 500;
+  --mq-weight-semibold: 600;
+  --mq-weight-bold: 700;
+  --mq-weight-extrabold: 800;
+  --mq-leading: 1.35;
+  --mq-leading-body: calc(var(--mq-u) * 34);
+  --mq-tracking-overline: calc(var(--mq-u) * 1.4);
+  --mq-tracking-overline-wide: calc(var(--mq-u) * 1.6);
+  --mq-tracking-badge: calc(var(--mq-u) * 0.4);
 
-  /* One focus mark: a 2px ivory keyline, 3px off, and a brass wash. */
-  --rep-focus-ring: 2px solid var(--rep-ivory);
-  --rep-focus-offset: 3px;
-  --rep-focus-wash: radial-gradient(
-    80% 90% at 50% 32%,
-    color-mix(in srgb, var(--rep-house) 16%, transparent),
-    color-mix(in srgb, var(--rep-house) 5%, transparent) 48%,
-    transparent 72%
-  );
+  /* Window scale (1920x1080 reference frame, §3). */
+  --mq-text-display: calc(var(--mq-u) * 56);
+  --mq-text-screen-title: calc(var(--mq-u) * 44);
+  --mq-text-heading: calc(var(--mq-u) * 36);
+  --mq-text-level-title: calc(var(--mq-u) * 30);
+  --mq-text-row-head: calc(var(--mq-u) * 28);
+  --mq-text-body: calc(var(--mq-u) * 22);
+  --mq-text-control: calc(var(--mq-u) * 20);
+  --mq-text-label: calc(var(--mq-u) * 18);
+  --mq-text-label-sm: calc(var(--mq-u) * 17);
+  --mq-text-caption: calc(var(--mq-u) * 16);
+  --mq-text-caption-sm: calc(var(--mq-u) * 15);
+  --mq-text-overline: calc(var(--mq-u) * 14);
+  --mq-text-badge: calc(var(--mq-u) * 14);
+
+  /*
+   * Remote / phone hand scale (390x844 reference frame, §11).
+   * Declared alongside the window scale so the served Remote shares one sheet.
+   */
+  --mq-remote-gutter: 16px;
+  --mq-remote-touch: 44px;
+  --mq-remote-tab-bar: 64px;
+  --mq-remote-home-indicator: 34px;
+  --mq-remote-strip: 64px;
+  --mq-remote-text-large: 28px;
+  --mq-remote-text-sheet: 22px;
+  --mq-remote-text-row-head: 20px;
+  --mq-remote-text-level: 17px;
+  --mq-remote-text-body: 15px;
+  --mq-remote-leading-body: 20px;
+  --mq-remote-text-caption: 13px;
+  --mq-remote-text-caption-sm: 12px;
+  --mq-remote-text-tab: 11px;
+  --mq-remote-radius-6: 6px;
+  --mq-remote-radius-10: 10px;
+  --mq-remote-radius-12: 12px;
+  --mq-remote-radius-14: 14px;
+  --mq-remote-radius-16: 16px;
+  --mq-remote-radius-28: 28px;
+
+  /* Spacing & frame geometry on the 8px grid (4px allowed inside a control, §4). */
+  --mq-space-half: calc(var(--mq-u) * 4);
+  --mq-space-1: calc(var(--mq-u) * 8);
+  --mq-space-2: calc(var(--mq-u) * 16);
+  --mq-space-3: calc(var(--mq-u) * 24);
+  --mq-space-4: calc(var(--mq-u) * 32);
+  --mq-space-5: calc(var(--mq-u) * 40);
+  --mq-space-6: calc(var(--mq-u) * 48);
+  --mq-space-8: calc(var(--mq-u) * 64);
+  --mq-space-9: calc(var(--mq-u) * 72);
+  --mq-margin-rail: calc(var(--mq-u) * 168);
+  --mq-margin-full: calc(var(--mq-u) * 72);
+  --mq-margin-player: calc(var(--mq-u) * 64);
+  --mq-rail-collapsed: calc(var(--mq-u) * 120);
+  --mq-rail-expanded: calc(var(--mq-u) * 360);
+  --mq-row-gap: calc(var(--mq-u) * 28);
+
+  /* Radii (§4). */
+  --mq-radius-6: calc(var(--mq-u) * 6);
+  --mq-radius-8: calc(var(--mq-u) * 8);
+  --mq-radius-10: calc(var(--mq-u) * 10);
+  --mq-radius-12: calc(var(--mq-u) * 12);
+  --mq-radius-14: calc(var(--mq-u) * 14);
+  --mq-radius-16: calc(var(--mq-u) * 16);
+  --mq-radius-18: calc(var(--mq-u) * 18);
+  --mq-radius-20: calc(var(--mq-u) * 20);
+  --mq-radius-24: calc(var(--mq-u) * 24);
+  --mq-radius-28: calc(var(--mq-u) * 28);
+  --mq-radius-full: 9999px;
+
+  /* Depth: shadows (y 12-30, blur 2.2x y, black 40-55%) and glass blurs (§2, §4). */
+  --mq-blur-bar: 30px;
+  --mq-blur-menu: 40px;
+  --mq-blur-panel: 50px;
+  --mq-blur-side: 60px;
+  --mq-shadow-sm: 0 calc(var(--mq-u) * 12) calc(var(--mq-u) * 26.4) rgb(0 0 0 / 0.40);
+  --mq-shadow-focus: 0 calc(var(--mq-u) * 16) calc(var(--mq-u) * 35.2) rgb(0 0 0 / 0.45);
+  --mq-shadow-lift: 0 calc(var(--mq-u) * 20) calc(var(--mq-u) * 44) rgb(0 0 0 / 0.55);
+  --mq-shadow-card: 0 calc(var(--mq-u) * 24) calc(var(--mq-u) * 52.8) rgb(0 0 0 / 0.55);
+  --mq-shadow-panel: 0 calc(var(--mq-u) * 24) calc(var(--mq-u) * 52.8) rgb(0 0 0 / 0.55);
+  --mq-shadow-sheet: 0 calc(var(--mq-u) * 30) calc(var(--mq-u) * 66) rgb(0 0 0 / 0.55);
+
+  /* Focus scale factors and outline widths (§5, §12). */
+  --mq-scale-poster: 1.08;
+  --mq-scale-wide: 1.07;
+  --mq-scale-episode: 1.06;
+  --mq-focus-outline-card: calc(var(--mq-u) * 4);
+  --mq-focus-outline-row: calc(var(--mq-u) * 3);
+
+  /*
+   * Motion (ADR-0031, `docs/design-system.md` §6).
+   * `motion.ts` reads these custom properties at call time and pairs the two
+   * spring durations with `bounce: 0`.
+   */
+  --mq-motion-panel: 240ms;
+  --mq-motion-quick: 140ms;
+  --mq-motion-fade: 140ms;
+  --mq-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /*
- * Reduced motion keeps the fades and loses the movement (ADR-0031 §5): a
- * transform or a width fill snaps, while opacity and colour still fade on
- * `--rep-motion-fade`. The CSS transitions that carry a transform or a width
- * read the two zeroed tokens, so they settle at once.
+ * Reduced motion keeps the fades and disables movement (ADR-0031 §5):
+ * panel and quick durations zero out so transforms and layout animations snap,
+ * while opacity and colour still fade on `--mq-motion-fade`.
  */
 @media (prefers-reduced-motion: reduce) {
   :root {
-    --rep-motion-panel: 0ms;
-    --rep-motion-quick: 0ms;
+    --mq-motion-panel: 0ms;
+    --mq-motion-quick: 0ms;
   }
 }

@@ -20,13 +20,13 @@ import {
   playabilityNote,
 } from "../core/stream";
 import type { AddonStreams, Stream, Title, Video } from "../core/wire";
-import { Chip } from "../kit/marquee/Chip";
-import { EmptyState } from "../kit/marquee/EmptyState";
-import { GroupLabel } from "../kit/marquee/GroupLabel";
-import { PhoneBadge } from "../kit/marquee/phone/controls";
-import { PhoneAddonNotice } from "../kit/marquee/phone/PhoneAddonNotice";
-import { PhoneHeader } from "../kit/marquee/phone/PhoneHeader";
-import { PhoneStreamRow } from "../kit/marquee/phone/PhoneStreamRow";
+import { Chip } from "../kit/Chip";
+import { EmptyState } from "../kit/EmptyState";
+import { GroupLabel } from "../kit/GroupLabel";
+import { PhoneBadge } from "../kit/phone/controls";
+import { PhoneAddonNotice } from "../kit/phone/PhoneAddonNotice";
+import { PhoneHeader } from "../kit/phone/PhoneHeader";
+import { PhoneStreamRow } from "../kit/phone/PhoneStreamRow";
 import { streamsAsk, unplayableAfter } from "./streamsScreen";
 
 export type StreamsScreenProps = {

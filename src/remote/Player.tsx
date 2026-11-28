@@ -16,21 +16,21 @@ import { useStallShown } from "../core/react/useStallShown";
 import type { Session } from "../core/session";
 import { transportControls, type TransportControlId } from "../core/transportControls";
 import type { Action, Title } from "../core/wire";
-import { Icon } from "../kit/marquee/icons";
+import { Icon } from "../kit/icons";
 import {
   controlState,
   PhoneArt,
   PhoneBadge,
   PhoneButton,
   PhoneIconButton,
-} from "../kit/marquee/phone/controls";
-import { NowPlayingStrip } from "../kit/marquee/phone/NowPlayingStrip";
-import { PhoneSeekBar } from "../kit/marquee/phone/PhoneSeekBar";
-import { PhoneSwitchRow } from "../kit/marquee/phone/PhoneSwitchRow";
-import { PhoneTransport } from "../kit/marquee/phone/PhoneTransport";
-import { RemoteMenus } from "../kit/marquee/phone/RemoteMenus";
-import { VolumeBox } from "../kit/marquee/phone/VolumeBox";
-import { Spinner } from "../kit/marquee/Spinner";
+} from "../kit/phone/controls";
+import { NowPlayingStrip } from "../kit/phone/NowPlayingStrip";
+import { PhoneSeekBar } from "../kit/phone/PhoneSeekBar";
+import { PhoneSwitchRow } from "../kit/phone/PhoneSwitchRow";
+import { PhoneTransport } from "../kit/phone/PhoneTransport";
+import { RemoteMenus } from "../kit/phone/RemoteMenus";
+import { VolumeBox } from "../kit/phone/VolumeBox";
+import { Spinner } from "../kit/Spinner";
 import type { RemotePayload } from "./levels";
 import {
   autoplayBanner,

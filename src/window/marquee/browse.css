@@ -1,7 +1,7 @@
 /*
  * Marquee Discover, Search, and Library styles (#359).
  *
- * Uses `--mq-*` tokens and `src/kit/marquee/` primitives exclusively.
+ * Uses `--mq-*` tokens and `src/kit/` primitives exclusively.
  * Zero legacy tokens; lavender is never literalised outside `--mq-accent`.
  */
 

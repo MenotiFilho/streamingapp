@@ -19,7 +19,7 @@ import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContext
 import { quietSession } from "../session.testing";
 import { MarqueeFrame } from "./MarqueeFrame";
 import { MarqueeHome } from "./MarqueeHome";
-import { MarqueeRehearsalEntry } from "./MarqueeRehearsalEntry";
+import { RehearsalEntry } from "../rehearsal/RehearsalEntry";
 
 const CATALOG = {
   type: "movie",
@@ -346,6 +346,41 @@ describe("Marquee Home hero rotation and actions", () => {
       "aria-current",
       "step",
     );
+  });
+
+  it("keeps the beat under reduced motion (ADR-0036 §2)", async () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn(() => ({
+        matches: true,
+        media: "(prefers-reduced-motion: reduce)",
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      })),
+    );
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    renderHome();
+    await flush();
+
+    expect(activeSlide()).toBe("tt1");
+    act(() => vi.advanceTimersByTime(FEATURE_ROTATION_MS));
+    expect(activeSlide()).toBe("tt2");
+  });
+
+  it("holds the beat under a pressed pointer and lets go on release", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    renderHome();
+    await flush();
+    const hero = screen.getByTestId("marquee-hero");
+    const press = { pointerId: 1, pointerType: "mouse", button: 0, clientX: 300, clientY: 200 };
+
+    fireEvent.pointerDown(hero, press);
+    act(() => vi.advanceTimersByTime(FEATURE_ROTATION_MS * 2));
+    expect(activeSlide(), "a hand on the hero holds it").toBe("tt1");
+
+    fireEvent.pointerUp(hero, press);
+    act(() => vi.advanceTimersByTime(FEATURE_ROTATION_MS));
+    expect(activeSlide()).toBe("tt2");
   });
 
   it("steps on horizontal swipe across the hero", async () => {
@@ -712,6 +747,65 @@ describe("Marquee Home Continue watching, rows, look hints and empty/error state
     });
   });
 
+  it("draws one card per Continue watching entry, and none from Watch progress alone", async () => {
+    const card = resumeEntry();
+    const other = resumeEntry({
+      video: { ...card.video, id: "tt10:2:5", episode: 5 },
+      position: 120,
+    });
+    const { rerenderWithSnapshot } = renderHome({
+      snapshot: {
+        ...BASE_SNAPSHOT,
+        continueWatching: [card],
+        watchProgress: [card, other],
+      },
+    });
+    await flush();
+
+    expect(screen.getByTestId("resume-tt10:2:4")).toBeInTheDocument();
+    expect(screen.queryByTestId("resume-tt10:2:5")).not.toBeInTheDocument();
+
+    rerenderWithSnapshot({ ...BASE_SNAPSHOT, continueWatching: [], watchProgress: [card] });
+    expect(screen.queryByTestId("home-continue")).not.toBeInTheDocument();
+  });
+
+  it("names a Discovered card's look hint with no Addon", async () => {
+    const { hint } = renderHome({
+      snapshot: {
+        ...BASE_SNAPSHOT,
+        continueWatching: [
+          resumeEntry({ title: { ...resumeEntry().title, addon: null, id: "tmdb:603" } }),
+        ],
+      },
+    });
+    await flush();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+
+    act(() => screen.getByTestId("resume-tt10:2:4").focus());
+    act(() => vi.advanceTimersByTime(LOOK_HINT_DWELL_MS));
+
+    expect(hint).toHaveBeenCalledWith({
+      type: "look_hint",
+      addon: null,
+      title: { type: "series", id: "tmdb:603" },
+    });
+  });
+
+  it("says when an Addon answered a row with nothing, and draws no empty state beside it", async () => {
+    renderHome({
+      ask: async () => ({
+        response: { snapshots: [], answer: { catalogs: [catalogRow([], 0)] } },
+        error: null,
+      }),
+    });
+    await flush();
+
+    expect(
+      await screen.findByText("The Addon answered with no Titles in this Catalog."),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("home-empty")).not.toBeInTheDocument();
+  });
+
   it("reports row failures inline and offers Addons when Home has no catalogs", async () => {
     const failingAsk = vi.fn(async () => ({
       response: null,
@@ -732,7 +826,7 @@ describe("Marquee Home Continue watching, rows, look hints and empty/error state
   });
 });
 
-describe("Marquee rehearsal entry", () => {
+describe("the rehearsal entry", () => {
   it("mounts Home from the preview Host Snapshot", async () => {
     vi.stubGlobal(
       "fetch",
@@ -741,7 +835,7 @@ describe("Marquee rehearsal entry", () => {
       }),
     );
 
-    const view = render(<MarqueeRehearsalEntry />);
+    const view = render(<RehearsalEntry />);
     expect(await screen.findByTestId("home-screen")).toBeInTheDocument();
     view.unmount();
   });

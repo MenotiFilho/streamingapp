@@ -1,59 +1,46 @@
 import { cx } from "./cx";
-import { PendingSpinner } from "./PendingSpinner";
 
 export type SwitchProps = {
   /** Whether it is on, as the Host last said. */
-  on: boolean;
-  /** What it switches: the accessible name and the visible words. */
-  label: string;
+  checked: boolean;
   /** Pressed: what the switch would become, for the Action it takes. */
-  onToggle: (next: boolean) => void;
+  onChange: (next: boolean) => void;
+  /** The accessible name: what it switches. */
+  label: string;
   disabled?: boolean;
-  /** Whether the Action this switch asked for is still in flight (#137). */
-  pending?: boolean;
-  testId?: string;
+  /** Draw it focused, for a caller that holds the focus itself. */
+  focused?: boolean;
   className?: string;
 };
 
+/** The 60x34 drawing alone, for a row that is itself the switch. */
+export function SwitchTrack({ checked }: { checked: boolean }) {
+  return (
+    <span className="mq-c7-switch-track" data-on={checked} aria-hidden="true">
+      <span className="mq-c7-switch-knob" />
+    </span>
+  );
+}
+
 /**
- * One labelled switch: a real button with `role="switch"`, drawn square and
- * hairline, with the brass thumb on the "on" side and a mono `On` / `Off` beside
- * it. The state is the Host's, not this control's: it never flips by itself, a
- * Snapshot does (ADR-0002).
+ * The Marquee switch: lavender with an ink knob when on. A native button, so
+ * Space and Enter press it without a key handler of its own. The state is the
+ * Host's: it never flips by itself, a Snapshot does (ADR-0002).
  */
-export function Switch({
-  on,
-  label,
-  onToggle,
-  disabled,
-  pending = false,
-  testId,
-  className,
-}: SwitchProps) {
+export function Switch({ checked, onChange, label, disabled, focused, className }: SwitchProps) {
   return (
     <button
       type="button"
       role="switch"
-      aria-checked={on}
+      aria-checked={checked}
       aria-label={label}
-      aria-busy={pending || undefined}
-      className={cx("rep-kit-switch", className)}
+      className={cx("mq-c7-switch", className)}
       data-focusable
-      data-testid={testId}
-      disabled={disabled || pending}
-      onClick={() => onToggle(!on)}
+      data-focused={(focused && !disabled) || undefined}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
     >
-      <span className="rep-kit-switch-label">{label}</span>
-      <span className="rep-kit-switch-state" aria-hidden="true">
-        {on ? "On" : "Off"}
-      </span>
-      {pending ? (
-        <PendingSpinner />
-      ) : (
-        <span className="rep-kit-switch-track" aria-hidden="true">
-          <span className="rep-kit-switch-thumb" />
-        </span>
-      )}
+      <SwitchTrack checked={checked} />
     </button>
   );
 }

@@ -116,7 +116,7 @@ function Harness({
 }
 
 /**
- * The repertory frame's shape: a spine at the left, a feature above a row. The
+ * The frame's shape: a rail at the left, a feature above a row. The
  * feature is the first content control, so it is what a rail with no history
  * would enter; the row card is what a return has to remember.
  */

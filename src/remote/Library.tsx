@@ -20,12 +20,12 @@ import {
 import type { NewLevel } from "../core/navigation";
 import type { Session, SessionState } from "../core/session";
 import type { Library as AccountLibrary } from "../core/wire";
-import { Chip } from "../kit/marquee/Chip";
-import { EmptyState } from "../kit/marquee/EmptyState";
-import { TextField } from "../kit/marquee/TextField";
-import { PhoneAddonNotice } from "../kit/marquee/phone/PhoneAddonNotice";
-import { PhonePoster } from "../kit/marquee/phone/PhonePoster";
-import { PhoneButton } from "../kit/marquee/phone/controls";
+import { Chip } from "../kit/Chip";
+import { EmptyState } from "../kit/EmptyState";
+import { TextField } from "../kit/TextField";
+import { PhoneAddonNotice } from "../kit/phone/PhoneAddonNotice";
+import { PhonePoster } from "../kit/phone/PhonePoster";
+import { PhoneButton } from "../kit/phone/controls";
 import { titleLevel, type RemotePayload } from "./levels";
 import {
   STREMIO_EMAIL_LABEL,

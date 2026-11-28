@@ -5,7 +5,7 @@
  * Home is remounted every time a person leaves the destination and comes back,
  * but what this client has read must not be thrown away with it — the rows are
  * this client's own browse, never the Host's state (ADR-0005). So the store
- * lives in `Shell`, outlives `HomeScreen`'s unmount, and keeps at most four
+ * lives in the shell, outlives Home's unmount, and keeps at most four
  * `browse_catalog` asks in flight at once (#112): the Featured Catalog first,
  * then the content rows in the Addons' configured order, four at a time, with
  * `More` sharing the same budget.

@@ -5,8 +5,10 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 
 import { actionKey } from "../../core/actionKey";
 import { HomeStore } from "../../core/homeStore";
+import { installPointerPress } from "../../core/react/pointerPress";
 import type { Action, AddonManifest, ContinueEntry, Snapshot, Title } from "../../core/wire";
 import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContextValue } from "../context";
+import { focusAndReveal } from "../reveal";
 import { quietSession } from "../session.testing";
 import { MarqueeTitleScreen, useMarqueeTitleOpener } from "./MarqueeTitle";
 
@@ -327,6 +329,75 @@ describe("MarqueeTitleScreen", () => {
     render(withShell(emptyValue, <MarqueeTitleScreen title={{ ...SERIES, videos: [] }} />));
     expect(screen.getByTestId("title-no-videos")).toBeInTheDocument();
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Back" }));
+  });
+
+  it("pushes the Streams level for the episode that was pressed, announced or not", () => {
+    const announced: Title = {
+      ...SERIES,
+      videos: SERIES.videos.map((video) => ({ ...video, airDate: "2999-01-02" })),
+    };
+    const { value, pushed } = harness();
+    render(withShell(value, <MarqueeTitleScreen title={announced} />));
+
+    // An air date in the future marks the episode and takes nothing away (#269).
+    fireEvent.click(screen.getByTestId("episode-tt11280740:1:1"));
+
+    expect(pushed).toHaveLength(1);
+    expect(pushed[0]?.name).toBe("Streams");
+  });
+
+  it("keeps a series with no entry at its first season, with no Resume or Play", () => {
+    const { value } = harness();
+    render(withShell(value, <MarqueeTitleScreen title={SERIES} />));
+
+    expect(screen.queryByTestId("title-main")).not.toBeInTheDocument();
+    expect(screen.getByTestId("season-1")).toHaveAttribute("aria-pressed", "true");
+    expect(document.activeElement).toBe(screen.getByTestId("title-choose-stream"));
+  });
+
+  it("opens the Streams on the first pointer press of an episode in view (#245)", () => {
+    const { value, pushed } = harness();
+    render(withShell(value, <MarqueeTitleScreen title={SERIES} />));
+    const box = (left: number, top: number, right: number, bottom: number) =>
+      ({
+        x: left,
+        y: top,
+        left,
+        top,
+        right,
+        bottom,
+        width: right - left,
+        height: bottom - top,
+        toJSON: () => ({}),
+      }) as DOMRect;
+    // A scrolling row that holds the card by a hair under a whole pixel, as a
+    // browser's snapped client box does.
+    const list = screen.getByTestId("title-episodes");
+    list.style.overflowX = "auto";
+    list.getBoundingClientRect = () => box(64, 700, 1856, 1000);
+    Object.defineProperty(list, "clientWidth", { configurable: true, value: 1791 });
+    Object.defineProperty(list, "clientHeight", { configurable: true, value: 300 });
+    const episode = screen.getByTestId("episode-tt11280740:1:1");
+    episode.getBoundingClientRect = () => box(1448, 700, 1855.5, 930);
+    const page = document.documentElement;
+    Object.defineProperty(page, "clientWidth", { configurable: true, value: 1920 });
+    Object.defineProperty(page, "clientHeight", { configurable: true, value: 1080 });
+    const stop = installPointerPress(page, {
+      focusAndReveal: (control) =>
+        focusAndReveal(control, { mode: "nearest", force: true }),
+    });
+
+    try {
+      fireEvent.pointerDown(episode);
+      fireEvent.click(episode);
+
+      expect(pushed, "the first press is the one that was aimed at").toHaveLength(1);
+      expect(pushed[0]?.name).toBe("Streams");
+    } finally {
+      stop();
+      Object.defineProperty(page, "clientWidth", { configurable: true, value: 0 });
+      Object.defineProperty(page, "clientHeight", { configurable: true, value: 0 });
+    }
   });
 
   it("pushes Loading level via useMarqueeTitleOpener and replaces it once Title arrives", async () => {

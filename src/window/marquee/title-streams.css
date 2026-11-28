@@ -1,8 +1,8 @@
 /*
  * Marquee Title & Streams styles (#360, `05.jpg`, `06.jpg`, `docs/design-system.md`).
  *
- * Uses `--mq-*` tokens and `src/kit/marquee/` primitives exclusively.
- * Zero `--rep-*` tokens; zero literal lavender values outside `--mq-accent`.
+ * Uses `--mq-*` tokens and `src/kit/` primitives exclusively.
+ * Zero literal lavender values outside `--mq-accent`.
  */
 
 /* --------------------------------------------------------------------------

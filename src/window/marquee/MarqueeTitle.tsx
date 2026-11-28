@@ -21,13 +21,13 @@ import {
 } from "../../core/title";
 import { titleMainPress, titlePlayOutcome, unmappedOf } from "../../core/titlePage";
 import type { Action, Title, Video } from "../../core/wire";
-import { Button } from "../../kit/marquee/Button";
-import { useArtChain } from "../../kit/marquee/cards";
-import { Chip } from "../../kit/marquee/Chip";
-import { EpisodeCard } from "../../kit/marquee/EpisodeCard";
-import { EpisodeCaption } from "../../kit/marquee/EpisodeCaption";
-import { IconButton } from "../../kit/marquee/IconButton";
-import { MetaLine } from "../../kit/marquee/MetaLine";
+import { Button } from "../../kit/Button";
+import { useArtChain } from "../../kit/cards";
+import { Chip } from "../../kit/Chip";
+import { EpisodeCard } from "../../kit/EpisodeCard";
+import { EpisodeCaption } from "../../kit/EpisodeCaption";
+import { IconButton } from "../../kit/IconButton";
+import { MetaLine } from "../../kit/MetaLine";
 import { useShell, type NewShellLevel } from "../context";
 import { MarqueeStreamsLoader } from "./MarqueeStreams";
 import "./title-streams.css";
@@ -392,7 +392,12 @@ export function marqueeTitleLevelOf(
 
 /**
  * Open a Title in Marquee from a card or Hero Details (`open_title` or
- * `open_discovered_title`), keeping the exact Repertory opener contract.
+ * `open_discovered_title`).
+ *
+ * The Action is taken before the Level is pushed, so a refusal leaves the card
+ * where it was and the shell's one alert explains it. The answer is the
+ * client's own (ADR-0005): the Level is the screen that draws it, and nothing
+ * about it travels back to the Host until a Video's Streams are asked for.
  */
 export function useMarqueeTitleOpener() {
   const { take, push, remove, levelExists } = useShell();

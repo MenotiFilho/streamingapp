@@ -12,10 +12,10 @@ import { useNavigation, type NavigationReads } from "../core/react/useNavigation
 import { useSession } from "../core/react/useSession";
 import type { Session, SessionState } from "../core/session";
 import type { DeviceSummary } from "../core/wire";
-import { BrandMark } from "../kit/marquee/BrandMark";
-import { CodeInput } from "../kit/marquee/phone/CodeInput";
-import { TabBar } from "../kit/marquee/phone/TabBar";
-import { PhoneButton } from "../kit/marquee/phone/controls";
+import { BrandMark } from "../kit/BrandMark";
+import { CodeInput } from "../kit/phone/CodeInput";
+import { TabBar } from "../kit/phone/TabBar";
+import { PhoneButton } from "../kit/phone/controls";
 import { Addons } from "./Addons";
 import { Discover } from "./Discover";
 import { Home } from "./Home";

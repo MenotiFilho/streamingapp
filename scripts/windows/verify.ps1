@@ -731,7 +731,7 @@ function Button-Named($app, $name, $seconds = 8) {
 
 # The Continue watching cards: the buttons whose note says how much of the
 # Video is left (`42:10 left`), and that are not a row's scroll arrow (`Scroll
-# <row> left`). A repertory card is named by its note and then its Title, so the
+# <row> left`). A card's name carries its note and its Title, so the
 # note is matched wherever it sits in the name rather than at its end.
 function Continue-Cards($app) {
     @(Buttons $app | Where-Object {
@@ -1316,9 +1316,9 @@ function Ensure-AddonHost($ctx) {
     Open-Destination $app 'Addons'
     Start-Sleep -Seconds 1
     $text = Page-Text $app
-    if ($text -match 'No Addons are configured') {
-        Type-Into $app 'Addon manifest URL' $Addon
-        Press $app 'Add'
+    if ($text -match 'No Addons installed') {
+        Type-Into $app 'Install an Addon' $Addon
+        Press $app 'Install'
         Wait-Text $app ([regex]::Escape($AddonName)) 30 | Out-Null
     }
     Ensure-Featured $app
@@ -1399,8 +1399,8 @@ function Play-The-First-Stream($app) {
     $text = Wait-Text $app 'Supplied by|Season \d+' 25
     if ($text -match 'Season \d+') {
         if (-not (Open-Streams $app 'S1E1')) { return $false }
-    } elseif ($text -match 'Find Streams') {
-        if (-not (Open-Streams $app 'Find Streams')) { return $false }
+    } elseif ($text -match 'Choose stream') {
+        if (-not (Open-Streams $app 'Choose stream')) { return $false }
     } else {
         return $false
     }
@@ -1526,7 +1526,7 @@ function Play-A-Candidate($app) {
     Check 'hardware decode is engaged (a line says so, not "no")' (
         $engaged -ne $null) "logged: $($decode.Line)"
 
-    Press-Button $app 'Stop'
+    Press-Button $app 'Close'
     $text = Wait-Text $app 'Streams ' 20
     Shot $app '12c-stopped.png'
     Check 'stopping returns the client to the Stream list it chose from' (
@@ -1739,8 +1739,8 @@ function Walk-Controls($app) {
 
     '--- 13d. Speed: the rates, and the pressed choice moving'
     Wake-Osd $app
-    Press-Button $app 'Playback speed'
-    $text = Wait-Text $app 'Playback speed' 10
+    Press-Button $app 'Speed'
+    $text = Wait-Text $app 'Speed' 10
     Shot $app '13-speed.png'
     Check 'the speed menu lists its rates' (
         (Button-Named $app ('1.5' + $times)) -ne $null) "showed: $text"
@@ -2008,12 +2008,12 @@ function Step-7($ctx) {
     Clear-LeftoverKey $app
     Open-Destination $app 'Addons'
     Shot $app '07-addons-empty.png'
-    $text = Wait-Text $app 'No Addons are configured yet' 20
+    $text = Wait-Text $app 'No Addons installed' 20
     Check 'a fresh Host has no Addons, and the screen says where one goes' (
-        $text -match 'No Addons are configured yet') "showed: $text"
+        $text -match 'No Addons installed') "showed: $text"
 
-    Type-Into $app 'Addon manifest URL' $Addon
-    Press $app 'Add'
+    Type-Into $app 'Install an Addon' $Addon
+    Press $app 'Install'
     $text = Wait-Text $app ([regex]::Escape($AddonName)) 30
     Shot $app '07-addon-added.png'
     Check 'the Addon is listed by its name' (
@@ -2045,8 +2045,8 @@ function Step-8($ctx) {
     '--- 8. a URL that is not an Addon is refused without losing the Addon that works'
     $app = $ctx.App
     Open-Destination $app 'Addons'
-    Type-Into $app 'Addon manifest URL' 'https://example.com/'
-    Press $app 'Add'
+    Type-Into $app 'Install an Addon' 'https://example.com/'
+    Press $app 'Install'
     $text = Wait-Text $app "could not read that Addon's manifest" 25
     Shot $app '08-addon-refused.png'
     Check 'the refusal is explained beside the form' (
@@ -2123,7 +2123,7 @@ function Step-11($ctx) {
         (Snapshot-Baseline) -eq $published) "the log went from $published to $(Published-Snapshots)"
     # A film's Title offers the one action that asks for its Streams; a series
     # lists its seasons instead, so the action is what tells the two apart.
-    $film = $text -match 'Find Streams'
+    $film = ($text -match 'Choose stream') -and ($text -notmatch 'Season \d+')
     $series = $text -match 'Season \d+'
     $noEpisodes = $text -match 'listed no episodes'
     Check 'the opened Title is a film, or a series with its seasons' (
@@ -2163,7 +2163,7 @@ function Step-12($ctx) {
         # A film is one Video - the film itself - so its Title offers the one
         # action that asks for its Streams.
         Check 'pressing play on a film asks for its Streams, and the list is what came back' (
-            Open-Streams $app 'Find Streams') "showed: $(Page-Text $app)"
+            Open-Streams $app 'Choose stream') "showed: $(Page-Text $app)"
         Shot $app '12-film-streams.png'
     }
 
@@ -2190,7 +2190,7 @@ function Step-12($ctx) {
     if ($torrentFilm) {
         Press-Element $app $torrentFilm
         Wait-Text $app 'Supplied by' 20 | Out-Null
-        Open-Streams $app 'Find Streams' | Out-Null
+        Open-Streams $app 'Choose stream' | Out-Null
         Shot $app '12-torrent-streams.png'
         $candidates = @(Candidates $app)
         $text = Page-Text $app
@@ -2242,7 +2242,7 @@ function Step-13($ctx) {
     }
     Walk-Controls $app
 
-    Press-Button $app 'Stop'
+    Press-Button $app 'Close'
     $text = Wait-Text $app 'Streams ' 20
     Check 'stopping leaves the menu and the Stream list is back' (
         $text -match 'Streams ') "showed: $text"
@@ -2510,10 +2510,10 @@ function Step-20($ctx) {
         $text -match ('Remove ' + [regex]::Escape($AddonName) + '\?')) "showed: $text"
     # The dialog repeats the row's control; its own confirm button is the last.
     Press-Last $app 'Remove'
-    $text = Wait-Text $app 'No Addons are configured yet' 20
+    $text = Wait-Text $app 'No Addons installed' 20
     Shot $app '20-addon-removed.png'
     Check 'the Addon is gone' (
-        $text -match 'No Addons are configured yet') "showed: $text"
+        $text -match 'No Addons installed') "showed: $text"
     # The rows are the Addon's own catalog headings, and they go with it. The
     # match is case-*sensitive* on purpose: a library entry whose Addon is gone
     # would name the id in a lowercase mark, which is not a row heading.
@@ -2644,7 +2644,7 @@ function Step-23($ctx) {
         Check 'and it resumes where it was left rather than at the beginning' (
             ($resumed -ge 0) -and ($resumed -ge ($watched - 15))) (
             "it was left at $watched s and resumed at $resumed s")
-        Press-Button $app 'Stop'
+        Press-Button $app 'Close'
         # Stop returns to the Title it was resumed from; Home is one Back away.
         Press-Keys $app '{ESC}'
         Start-Sleep -Milliseconds 500
@@ -3128,10 +3128,10 @@ function Step-29($ctx) {
     '--- 29. Library: the sign-in gate, and no collection it does not have'
     $app = $ctx.App
     Open-Destination $app 'Library'
-    $text = Wait-Text $app 'Your Library holds|The Library is empty|Continue' 20
+    $text = Wait-Text $app 'Your Library holds|Nothing in your Library yet|Continue' 20
     Shot $app '29-library.png'
     $gate = $text -match 'Your Library holds the Titles saved in your Stremio account'
-    $empty = $text -match 'The Library is empty'
+    $empty = $text -match 'Nothing in your Library yet'
     # An account held draws its own collection instead of the gate: the cards,
     # each marked Continue where the account left one part-way. The Host's own
     # Continue watching is not that collection, which the next check reads.
@@ -3167,10 +3167,10 @@ function Step-30($ctx) {
     Clear-TmdbKey $app
 
     Open-Destination $app 'Discover'
-    $text = Wait-Text $app 'Discover is powered by TMDB' 20
+    $text = Wait-Text $app 'Discover needs a TMDB key' 20
     Shot $app '30-discover-no-key.png'
     Check 'with no key, Discover stays in the rail and says what powers it' (
-        $text -match 'Discover is powered by TMDB') "showed: $text"
+        $text -match 'Discover needs a TMDB key') "showed: $text"
     Check 'and points at where a key is saved' (
         ($text -match 'Settings') -and ($text -match 'Credentials')) "showed: $text"
     Check 'and the no-key state still carries the TMDB attribution' (
@@ -3215,9 +3215,9 @@ function Step-30($ctx) {
     Check 'clearing the test key leaves no key held' (
         $text -match 'Not held') "showed: $text"
     Open-Destination $app 'Discover'
-    $text = Wait-Text $app 'Discover is powered by TMDB' 20
+    $text = Wait-Text $app 'Discover needs a TMDB key' 20
     Check 'and Discover is back to its no-key state' (
-        $text -match 'Discover is powered by TMDB') "showed: $text"
+        $text -match 'Discover needs a TMDB key') "showed: $text"
 
     Press-Keys $app '{ESC}'
     Wait-Text $app 'Feature presentation' 20 | Out-Null
@@ -3261,7 +3261,7 @@ function Step-31($ctx) {
     $back = Wait-Episode-Change $app $after
     Shot $app '31-previous-episode.png'
     Check 'pressing it steps back to S1E1' ($back -eq 1) "the episode is S1E$back"
-    Press-Button $app 'Stop'
+    Press-Button $app 'Close'
     Wait-Text $app 'Streams ' 20 | Out-Null
 }
 
@@ -3500,7 +3500,7 @@ function Step-33($ctx) {
     # Stop takes the player away but not the window's fullscreen fact; the
     # Streams level underneath must still offer the way out (#125).
     Wake-Osd $app
-    Press-Button $app 'Stop'
+    Press-Button $app 'Close'
     $text = Wait-Text $app 'Streams ' 20
     Shot $app '33-stopped-fullscreen.png'
     Check 'Stop leaves the window fullscreen' (
@@ -3600,7 +3600,7 @@ function Step-35($ctx) {
         Skip 'the subtitle appearance on a real picture' (
             'the Stream carries no SRT and ASS tracks to compare: the fixture video carries both (scripts/windows/fixture-video.sh)')
         Press-Keys $app '{ESC}'
-        Press-Button $app 'Stop'
+        Press-Button $app 'Close'
         return
     }
 
@@ -3666,7 +3666,7 @@ function Step-35($ctx) {
     Press-Keys $app '{ESC}'
 
     Wake-Osd $app
-    Press-Button $app 'Stop'
+    Press-Button $app 'Close'
     Wait-Text $app 'Streams ' 20 | Out-Null
 
     # The OSD's size is the Host's preference: Settings presses it.
@@ -3691,7 +3691,7 @@ function Step-35($ctx) {
     Shot $app '35-next-stream.png'
     Press-Keys $app '{ESC}'
     Wake-Osd $app
-    Press-Button $app 'Stop'
+    Press-Button $app 'Close'
     Wait-Text $app 'Streams ' 20 | Out-Null
 }
 
@@ -3749,7 +3749,7 @@ function Step-36($ctx) {
     # ended still has a Stop; if the window went back on its own, one Back is
     # already enough.
     Wake-Osd $app
-    if (Button-Named $app 'Stop' 3) { Press-Button $app 'Stop' }
+    if (Button-Named $app 'Close' 3) { Press-Button $app 'Close' }
     Start-Sleep -Seconds 2
     if (-not (Shows $app 'Continue watching' 2)) { Press-Keys $app '{ESC}' }
     $text = Wait-Text $app 'Continue watching' 30
@@ -3789,7 +3789,7 @@ function Step-36($ctx) {
         Wake-Osd $app
         Check 'and the episode playing is S1E2, the Release of S1E1 continuing' (
             (Episode-Number $app) -eq 2) "the OSD reads S1E$(Episode-Number $app)"
-        Press-Button $app 'Stop'
+        Press-Button $app 'Close'
     }
 }
 
@@ -3953,7 +3953,7 @@ function Step-38($ctx) {
     if ($playing) {
         Check 'and the episode playing is S1E2' (
             (Episode-Number $app) -eq 2) "the OSD reads S1E$(Episode-Number $app)"
-        Press-Button $app 'Stop'
+        Press-Button $app 'Close'
     }
 }
 
@@ -3986,7 +3986,7 @@ function Step-39($ctx) {
     # 1. Open "A Film From A Torrent" from the Streams picker.
     Press-Element $app $torrentFilm
     Wait-Text $app 'Supplied by' 20 | Out-Null
-    $openedStreams = Open-Streams $app 'Find Streams'
+    $openedStreams = Open-Streams $app 'Choose stream'
     $candidates = @(Candidates $app)
     Shot $app '39-streams.png'
     Check 'the torrent film opens its Streams picker with a playable candidate' (
@@ -4139,7 +4139,7 @@ function Step-39($ctx) {
     "before Stop: torrents\$torrentHash exists = $existedBeforeStop"
 
     Wake-Osd $app
-    Press-Button $app 'Stop'
+    Press-Button $app 'Close'
     $afterStop = Wait-Text $app 'Streams ' 20
     Check 'Stop leaves torrent playback and returns to the Streams picker' (
         $afterStop -match 'Streams ') "showed: $afterStop"

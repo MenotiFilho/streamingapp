@@ -5,8 +5,8 @@
  * The geometry and the "is a page due" decision are `core/gridPaging`'s; this
  * hook only feeds them the last card's rectangle, the focused card's place and
  * whether a page is already in flight. It listens in the capture phase because
- * a scroll event does not bubble: the window sees the `.shell-level` scroll and
- * the Remote's page scroll alike.
+ * a scroll event does not bubble: the window sees a Level's or a screen's own
+ * scroll and the Remote's page scroll alike.
  */
 
 import { useCallback, useEffect, useRef } from "react";

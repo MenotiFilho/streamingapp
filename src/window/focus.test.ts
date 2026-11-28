@@ -793,7 +793,7 @@ describe("the walls", () => {
     ).toMatchObject({ kind: "blocked" });
   });
 
-  test("the repertory rail's Right enters the first content control, not the nearest", () => {
+  test("the rail's Right enters the first content control, not the nearest", () => {
     const rail = region("rail", { kind: "rail", items: [rect(0, 200, 45, 40)] });
     const first = region("row:first", { items: [rect(100, 0, 100, 100)] });
     const nearest = region("row:nearest", { items: [rect(100, 200, 100, 100)] });
@@ -973,7 +973,7 @@ describe("the walls", () => {
     expect(decision).toMatchObject({ kind: "crossed", regionId: "window", index: 0 });
   });
 
-  test("the repertory chrome's Left and Right both enter the first content control", () => {
+  test("the chrome's Left and Right both enter the first content control", () => {
     const held = withChrome(shell([{ id: "row:one", y: 120, items: cards(120, 3) }]));
     const screen = held.regions["screen"];
     if (!screen) {

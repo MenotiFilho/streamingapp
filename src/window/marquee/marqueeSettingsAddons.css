@@ -1,8 +1,8 @@
 /*
  * Marquee Addons & Settings screens (#361): frames 18–27.
  *
- * Uses `--mq-*` tokens exclusively; zero `--rep-*` tokens and zero literal
- * lavender hexes outside `--mq-accent`.
+ * Uses `--mq-*` tokens exclusively; zero literal lavender hexes outside
+ * `--mq-accent`.
  */
 
 /* Keep the nav rail above pushed `settings-*` levels (`MarqueeFrame` keeps it live);

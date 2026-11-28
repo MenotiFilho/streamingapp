@@ -6,7 +6,7 @@ import { describeLinkContract } from "../core/testing/linkContract";
 import { ACTION_VERSION, REVISION_EVENT, SNAPSHOT_EVENT } from "../core/wire";
 import type { Action, Response, Snapshot, Title } from "../core/wire";
 import { PreviewLink } from "./previewLink";
-import { previewTransport } from "./repertory/previewHost";
+import { previewTransport } from "./rehearsal/previewHost";
 import { TauriLink } from "./tauriLink";
 import type { Transport } from "./tauriLink";
 

@@ -10,7 +10,7 @@ import { markNavigation, markPointer } from "../../core/inputModality";
 import type { Action, AddonManifest, Response, Snapshot } from "../../core/wire";
 import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContextValue } from "../context";
 import type { ShellLevel } from "../navigation";
-import { previewTransport } from "../repertory/previewHost";
+import { previewTransport } from "../rehearsal/previewHost";
 import { quietSession } from "../session.testing";
 import { MarqueeAddons } from "./MarqueeAddons";
 import { MarqueeFrame } from "./MarqueeFrame";
@@ -440,12 +440,56 @@ describe("Marquee Addons boundary (ADR-0032)", () => {
     );
   });
 
-  test("renders EmptyState when no Addons are configured", () => {
+  test("renders EmptyState when no Addons are configured, beside the install field", () => {
     const { value } = harness({ ...BASE_SNAPSHOT, addons: [] });
     render(withShell(value, <MarqueeAddons />));
 
     expect(screen.getByTestId("addons-empty")).toBeInTheDocument();
     expect(screen.queryByTestId("addons")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Install an Addon")).toBeInTheDocument();
+  });
+
+  test("a refused reorder is said in the row that asked for it, and focus stays", async () => {
+    const { value, ask } = harness();
+    ask.mockImplementationOnce(async () =>
+      refusal({ kind: "invalid_position", position: 3, count: 2 }),
+    );
+    render(withShell(value, <MarqueeAddons />));
+    act(() => screen.getByRole("button", { name: CINEMETA.name }).focus());
+
+    const moveDown = screen.getByRole("button", { name: "Move down" });
+    act(() => moveDown.focus());
+    fireEvent.click(moveDown);
+
+    const row = screen.getByTestId(`addon-${CINEMETA.id}`);
+    expect(await within(row).findByRole("alert")).toBeInTheDocument();
+    expect(row.contains(document.activeElement)).toBe(true);
+  });
+
+  test("after removing the last Addon, focus returns to the install form", async () => {
+    const only = { ...BASE_SNAPSHOT, addons: [CINEMETA] };
+    const { value, pushed, ask } = harness(only);
+    const view = render(withShell(value, <MarqueeAddons />));
+    act(() => screen.getByRole("button", { name: CINEMETA.name }).focus());
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+
+    const confirmView = render(withShell(value, pushed.at(-1)!.payload.render()));
+    fireEvent.click(within(confirmView.container).getByRole("button", { name: "Remove" }));
+    await waitFor(() =>
+      expect(actions(ask)).toContainEqual({ type: "remove_addon", id: CINEMETA.id }),
+    );
+    confirmView.unmount();
+
+    view.rerender(
+      withShell(
+        { ...value, snapshot: { ...BASE_SNAPSHOT, addons: [] } },
+        <MarqueeAddons />,
+      ),
+    );
+
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByTestId("add-addon-submit")),
+    );
   });
 
   test("integrates with MarqueeFrame so Escape from Confirm pops back to Addons", async () => {

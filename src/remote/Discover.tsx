@@ -33,10 +33,10 @@ import type { NewLevel } from "../core/navigation";
 import { useGridEnd } from "../core/react/useGridEnd";
 import type { Session, SessionState } from "../core/session";
 import type { MetaPreview } from "../core/wire";
-import { Dropdown } from "../kit/marquee/Dropdown";
-import { EmptyState } from "../kit/marquee/EmptyState";
-import { PhoneAddonNotice } from "../kit/marquee/phone/PhoneAddonNotice";
-import { PhonePoster } from "../kit/marquee/phone/PhonePoster";
+import { Dropdown } from "../kit/Dropdown";
+import { EmptyState } from "../kit/EmptyState";
+import { PhoneAddonNotice } from "../kit/phone/PhoneAddonNotice";
+import { PhonePoster } from "../kit/phone/PhonePoster";
 import { titleLevelOf, type RemotePayload } from "./levels";
 
 type OpenMenu = "type" | "genre" | "sort" | null;

@@ -76,8 +76,8 @@ answered, a window class is or is not among the Host's children — and the
 screenshot is the evidence a person reads. The one thing these steps *cannot*
 walk is a Stream that fails to open: that needs an Addon whose URLs are dead, so
 it is checked by the tests instead (`crates/host-mpv/tests/mpv.rs` drives a real
-headless mpv at a URL that 404s, and `src/shell/Shell.test.tsx` renders the
-failure alert beside Home with no player). By hand, point `-Addon` at a dead
+headless mpv at a URL that 404s, and `src/window/marquee/journey.test.tsx`
+renders the failure alert beside Home with no player). By hand, point `-Addon` at a dead
 Stream to see it.
 
 The window is placed on `-Monitor` (1-based, numbered left to right) and filled to
@@ -94,6 +94,26 @@ else interrupts them:
 This is a **by-hand walkthrough, not a test suite**. The spec's testing decision
 stands: windowed behaviour is covered by manual checklists rather than GUI
 automation in the build, so these scripts are run deliberately, never in CI.
+
+## The checklist against Marquee
+
+The window is drawn in Marquee (ADR-0043, #365), and `verify.ps1` was written
+against the surface before it. Its labels that were only renamed are updated
+(**Install an Addon**, **Install**, **No Addons installed**, **Choose stream**,
+**Close** for the player's stop, **Speed**, **Nothing in your Library yet**,
+**Discover needs a TMDB key**). **The walkthrough has not been run against
+Marquee**, and these steps read controls that Marquee draws differently, so they
+need rework before a full run can pass:
+
+| Steps | What changed |
+|---|---|
+| 2, 4, 5, 6, 34, 36, 38 | Preferences is a list whose parts open their own levels; languages are ranked rows with up, down and remove, with no drawer and no chips; Autoplay is a switch. |
+| 7 | An Addon row opens its facts from its **Details** control, and names them **Serves** and **Id**. |
+| 10, 11, 14, 15, 17, 18, 28, 29, 30, 33 | Home has no `Feature presentation` region and no `Open the Title:` button: the hero carries **Watch now** and **Details**, and follows focus once it is in the rows. |
+| 13, 35 | Subtitles and audio are one **Audio & Subtitles** panel; Statistics and the Torrent status are in **Details**; the subtitle size is a stepper that shows the percentage alone. |
+| 16, 27 | A Home row has no **More** card, no whole-row grid and no scroll arrows. |
+| 31 | The window draws no previous-episode control (ADR-0043 §4): the step has nothing to walk. |
+| 32 | Discover draws no TMDB attribution; About/Credits does (ADR-0020 asks for both). |
 
 ## What the steps stand on
 
@@ -231,8 +251,8 @@ evidence, not a
 screenshot. Up from the top row still reaching the fullscreen strip belongs to
 step 33, which takes its own `33-up-from-top-row.png`. Down from a branch's Back
 entering an off-side child is not scripted; `focus.test.ts` covers it, and the
-row-end wall and the rejected crossing are its too. The shell's own suite is
-`repertory/frame.test.tsx`. Step 27 holds the row's last control; a destination
+row-end wall and the rejected crossing are its too. The frame's own suite is
+`src/window/marquee/MarqueeFrame.test.tsx`. Step 27 holds the row's last control; a destination
 outside the row (a hero or the chrome) is outside its scope and skips.
 The Remote uses the same ranking, but its arrows are the operator's own evidence
 on the second device; `verify.ps1` screenshots the Host's window only.

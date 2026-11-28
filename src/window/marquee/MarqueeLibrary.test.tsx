@@ -249,6 +249,27 @@ describe("Marquee Library boundary contracts", () => {
     );
   });
 
+  it("keeps the account's order, and an account row opens nothing it cannot", async () => {
+    const entries = [
+      libraryEntry({ id: "tt0903747", name: "Breaking Bad", type: "series" }),
+      libraryEntry({ id: "tt0133093", name: "The Matrix", type: "movie" }),
+    ];
+    renderLibrary({
+      ask: async () => ({
+        response: { snapshots: [], answer: { library: { entries, failure: null } } },
+        error: null,
+      }),
+    });
+
+    const grid = await screen.findByTestId("library-grid");
+    expect(
+      within(grid)
+        .getAllByRole("button")
+        .map((card) => card.dataset.testid),
+    ).toEqual(["library-card-tt0903747", "library-card-tt0133093"]);
+    expect(screen.queryByTestId("library-gate")).not.toBeInTheDocument();
+  });
+
   it("shows empty state when the Library has zero entries, and sign-in form when session expired", async () => {
     renderLibrary({
       ask: async () => ({
@@ -284,5 +305,6 @@ describe("Marquee Library boundary contracts", () => {
     const failure = await screen.findByTestId("library-failure");
     expect(failure).toHaveTextContent("Session does not exist");
     expect(screen.getByLabelText("Stremio email")).toBeInTheDocument();
+    expect(screen.queryByTestId("library-empty")).not.toBeInTheDocument();
   });
 });

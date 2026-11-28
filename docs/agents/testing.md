@@ -24,26 +24,21 @@ Rust is tested the usual way (`cargo test`, seams with in-memory fakes — see
    way.
 6. CSS is read as text in exactly two places (below). Nowhere else.
 
-## What happens to a suite
+## Where the suites live
 
-| The suite | What to do |
+| The suite | What it asks |
 | --- | --- |
-| Pure decisions (`focus`, `input`, `controls`, `navigation`, `layout`, `reveal`, `osd`, `homeStore`, `program`, `settings`, `previewState`, the parsers) | Leave it. These are the tests the rule is named after. |
-| Hooks that drive the window (`useFullscreen`, `useSpatialFocus`, `usePending`) | Leave it. The hook's contract is behaviour. |
-| The repertory prototype's suites (`repertory/screens`, `logbook`, `player`) | Inherit as the baseline and extend to the gate. |
-| The repertory kit (`src/kit/*`) | Built by #153: each primitive's props contract — focusable, disabled, paging, selection, pending — asserted without the drawing. The Velvet kit (`kit/*`) stays frozen with its suites until #160. |
-| A Velvet screen (`Home`, `Title`, `Settings`, `Addons`, `Search`, `Discover`, `Shell`, `ShellFrame`, `Library`) | **Mine then freeze.** Read it for the rules it encodes, extract each into a module and test the module. Do not edit the file; it stays green until #160 deletes it. |
-| `PlayerOverlay` | **Adapt deep** at #159: the OSD keeps its focus ladder, pad, idle window, pending states, refusals and popover dismissal, re-pointed at the repertory OSD. |
-| `kit/tokens` (Velvet palette) | Dies with Velvet at #160; `repertory/tokens` carries the contrast lock. |
-
-Frozen means frozen: the Velvet suites are edited only when a shared seam
-(`navigation`, `reveal`, `homeStore`) changes underneath them. `VITE_UI=repertory`
-ships the old shell as the rollback until the cutover, and a fallback nobody
-tests is not a rollback.
+| Pure decisions (`src/core/*.test.ts`; the window's `focus`, `layout`, `reveal`, `episodesMenu`, `refusals` and `rehearsal/` suites) | The rule is named after these. A new rule lands here. |
+| Hooks that drive the window (`useFullscreen`, `useSpatialFocus`) and the core's React bindings | The hook's contract is behaviour. |
+| The window's screens (`src/window/marquee/*.test.tsx`) | A screen drawn from a Snapshot: the Action at the boundary, where focus lands and returns, the Level on the stack, one failure or empty path. |
+| The journey (`src/window/marquee/journey.test.tsx`) | Home → Title → Streams → play → OSD → Stop → Title over a fake Host, and each destination's way to a Title. |
+| The player (`src/window/marquee/MarqueePlayer.test.tsx`) | The deep suite: the OSD's focus ladder, pad, idle window, pending states, refusals, panels, Autoplay and the docked transport. |
+| The kit (`src/kit/**/*.test.{ts,tsx}`) | Each primitive's props contract — focusable, disabled, selection, pending — asserted without the drawing. |
 
 ## The gate
 
-A screen's Velvet counterpart may only be deleted once all of this is true:
+A surface may only be deleted once all of this is true of its replacement. The
+cutover to Marquee (#365) cleared it, and a later redesign clears it again:
 
 - **Six destinations** — Home, Discover, Search, Library, Addons, Settings: each
   mounts from a Snapshot, first focus lands, Back restores, and one failure or
@@ -59,15 +54,19 @@ A screen's Velvet counterpart may only be deleted once all of this is true:
 
 ## The two presentation locks
 
-- `src/shell/repertory/tokens.test.ts` — the palette's measured **contrast
-  pairs**, not its hexes: ivory, dim and muted at 4.5:1 on ink and raised; the
-  hairline at 3:1 as a non-text rule; brass legible on ink; and ivory off brass,
-  where it fails at 1.95:1. The brass may be tuned once after the owner's
-  Windows panel (ADR-0030), and a hex change that keeps the pairs passes.
-- The frameless chrome's band and `pointer-events`, asserted against the
-  repertory sheet: the strip's band is the band the D-pad geometry measures, and
-  the strip leaves the pointer to its button. A drift here is a window that will
-  not move or a button that will not click.
+- `src/kit/tokens.test.ts` — the palette's measured **contrast pairs**
+  (`docs/design-system.md` §2): every pair listed there at 4.5:1 or better, and
+  white kept off lavender and the IMDb yellow. It reads the sheets of the kit and
+  of both clients, so lavender is declared once, in `--mq-accent`, and it holds
+  the reference-frame unit, the radii, the focus scales and the motion
+  vocabulary. The accent may be tuned once after the owner's Windows panel (§12
+  of the record); a change that keeps the pairs and is written back to the record
+  passes.
+- The frameless chrome's band and `pointer-events`, asserted against
+  `src/window/marquee/marquee.css` in `MarqueeFrame.test.tsx`: the strip's band
+  is the band the D-pad geometry measures, and the strip leaves the pointer to
+  its button. A drift here is a window that will not move or a button that will
+  not click.
 
 Both read CSS as text. If you find yourself adding a third, the assertion
 probably belongs on a decision instead.
@@ -100,10 +99,12 @@ expect(decideMove(layout, focus, "left")).toMatchObject({
 });
 
 // Good: the DOM is the harness; the assertion is the contract.
-// (`actions()` in Shell.test.tsx reads the Actions a fake Host was sent.)
-render(<Shell client={client} />);
-await press("Escape");
-expect(actions(host.invocations)).toContainEqual({ type: "stop_playback" });
+// (`actions()` in MarqueePlayer.test.tsx reads the Actions a fake Host was sent.)
+render(<MarqueeEntry client={host.client} />);
+fireEvent.keyDown(document, { key: "Escape" });
+await waitFor(() =>
+  expect(actions(host.invocations)).toContainEqual({ type: "stop_playback" }),
+);
 
 // Not: an assertion about the drawing.
 expect(screen.getByRole("listitem")).toHaveClass("poster-card--focused");

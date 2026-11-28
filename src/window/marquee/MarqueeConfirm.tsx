@@ -2,8 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { explain, type ActionError } from "../../core/errors";
 import type { Action } from "../../core/wire";
-import { Confirm } from "../../kit/marquee/Confirm";
-import type { IconName } from "../../kit/marquee/icons";
+import { Confirm } from "../../kit/Confirm";
+import type { IconName } from "../../kit/icons";
 import { useShell, type NewShellLevel } from "../context";
 
 export type MarqueeConfirmOptions = {
@@ -24,7 +24,7 @@ export type MarqueeConfirmOptions = {
 };
 
 /**
- * Marquee confirmation level: pushes `Confirm` (`src/kit/marquee/Confirm.tsx`)
+ * Marquee confirmation level: pushes `Confirm` (`src/kit/Confirm.tsx`)
  * with initial focus on Cancel (`docs/design-system.md` §8), keeping any Host
  * refusal inline so the person can Cancel or retry.
  */

@@ -861,7 +861,7 @@ export function decideMove(
     };
   }
 
-  // 1b. The repertory chrome's Left and Right both enter the programme's first
+  // 1b. The window chrome's Left and Right both enter the programme's first
   //     control: the fullscreen button belongs to the window, not to the row it
   //     happens to sit over. Falling through keeps the geometric answer when no
   //     content exists at all.

@@ -21,15 +21,15 @@ import {
   type SettingsCategoryId,
 } from "../../core/settingsRegister";
 import type { DeviceSummary } from "../../core/wire";
-import { versionLabel } from "../../kit/marquee/AddonRow";
-import { Button } from "../../kit/marquee/Button";
-import { CategoryItem } from "../../kit/marquee/CategoryItem";
-import { DeviceRow } from "../../kit/marquee/DeviceRow";
-import { IconButton } from "../../kit/marquee/IconButton";
-import { ListRow } from "../../kit/marquee/ListRow";
-import { PairingCode } from "../../kit/marquee/PairingCode";
-import { ScreenTitle } from "../../kit/marquee/ScreenTitle";
-import { TextField } from "../../kit/marquee/TextField";
+import { versionLabel } from "../../kit/AddonRow";
+import { Button } from "../../kit/Button";
+import { CategoryItem } from "../../kit/CategoryItem";
+import { DeviceRow } from "../../kit/DeviceRow";
+import { IconButton } from "../../kit/IconButton";
+import { ListRow } from "../../kit/ListRow";
+import { PairingCode } from "../../kit/PairingCode";
+import { ScreenTitle } from "../../kit/ScreenTitle";
+import { TextField } from "../../kit/TextField";
 import { useShell, type NewShellLevel } from "../context";
 import { focusAndReveal } from "../reveal";
 import { marqueeConfirmLevel } from "./MarqueeConfirm";
@@ -148,8 +148,8 @@ export function MarqueeSettings() {
 }
 
 /**
- * Standalone Credentials level (for Discover's no-key state, mirroring
- * `repertoryCredentialsLevel`). Back returns to the caller's screen.
+ * Standalone Credentials level, for Discover's no-key state. Back returns to
+ * the caller's screen.
  */
 export function marqueeCredentialsLevel(): NewShellLevel {
   const id = settingsLevelId(CREDENTIALS_CATEGORY);

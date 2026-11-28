@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import type { Row } from "./browse";
-import type { AddonManifest, Snapshot } from "./wire";
+import type { AddonManifest, MetaPreview, Snapshot } from "./wire";
 import {
   FEATURE_ROTATION_MS,
   FEATURE_START,
+  captionParts,
   clampItem,
   continueTag,
+  countLabel,
   featureDragBegin,
   featureDragClick,
   featureDragEnd,
@@ -20,9 +22,13 @@ import {
   featureRotates,
   featureStep,
   featureStepThrough,
+  featureTitleDensity,
   homeEmptyState,
   homeSectionIndex,
+  programIndex,
+  ratingOf,
   rowTag,
+  yearOf,
   type FeatureDrag,
   type FeatureProgramme,
 } from "./homeProgramme";
@@ -333,5 +339,63 @@ describe("The feature's gesture", () => {
 
     const later = featureDragClick(keyboard.drag, 0);
     expect(later.ours).toBe(false);
+  });
+});
+
+function meta(overrides: Partial<MetaPreview> = {}): MetaPreview {
+  return {
+    id: "tt0000001",
+    type: "movie",
+    name: "A Film",
+    poster: null,
+    posterShape: "poster",
+    releaseInfo: "2026",
+    imdbRating: "7.5",
+    genres: ["Drama", "Romance"],
+    description: null,
+    ...overrides,
+  };
+}
+
+describe("a caption's parts", () => {
+  it("are the year, the rating and at most two genres", () => {
+    expect(captionParts(meta())).toEqual({
+      year: "2026",
+      rating: "IMDb 7.5",
+      genres: "Drama / Romance",
+    });
+  });
+
+  it("leave out what the Addon did not say rather than inventing it", () => {
+    expect(captionParts(meta({ releaseInfo: null, imdbRating: "", genres: [] }))).toEqual({
+      year: null,
+      rating: null,
+      genres: null,
+    });
+    expect(ratingOf(meta({ imdbRating: "  " }))).toBeNull();
+    expect(yearOf(meta({ releaseInfo: "2023–" }))).toBe("2023");
+  });
+
+  it("carry no runtime, which a Meta preview does not have", () => {
+    expect(Object.keys(captionParts(meta())).sort()).toEqual(["genres", "rating", "year"]);
+  });
+});
+
+describe("a row's bookkeeping words", () => {
+  it("gives a short feature the full size and a long one the smaller bands", () => {
+    expect(featureTitleDensity("The Invite")).toBe("regular");
+    expect(featureTitleDensity("A Very Long Title That Still Fits")).toBe("long");
+    expect(featureTitleDensity("A Title So Long It Needs The Smallest Band Of All")).toBe(
+      "very-long",
+    );
+  });
+
+  it("numbers from two digits and counts rows in the right noun", () => {
+    expect(programIndex(1)).toBe("01");
+    expect(programIndex(12)).toBe("12");
+    expect(countLabel("movie", 1)).toBe("1 film");
+    expect(countLabel("movie", 49)).toBe("49 films");
+    expect(countLabel("series", 2)).toBe("2 series");
+    expect(countLabel("channel", 2)).toBe("2 titles");
   });
 });

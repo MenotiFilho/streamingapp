@@ -1,5 +1,5 @@
 /**
- * Choosing a Stream, shared by the two surfaces that draw the list.
+ * Choosing a Stream, apart from the drawing of the list.
  *
  * The decision is the Host's and the behaviour is frozen (#27, #137): a
  * candidate this Host can open is taken back to the Host with its Title card,
@@ -7,8 +7,8 @@
  * and every row is locked while one candidate is opening. Two guards enforce
  * that (ADR-0027 §2): this control's ref drops a second press before React
  * paints, and the Session's door joins an identical Action. Only the drawing of
- * that decision belongs to a surface, which is why this hook lives beside
- * `StreamsScreen` rather than inside it.
+ * that decision belongs to a surface, which is why this hook lives outside the
+ * screen that draws the rows.
  */
 
 import { useCallback, useRef, useState } from "react";

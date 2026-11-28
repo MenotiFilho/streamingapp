@@ -399,9 +399,8 @@ export function captionParts(meta: MetaPreview): CaptionParts {
 }
 
 /**
- * How much display type a feature title can carry. The research puts the
- * repertory hero at 72–96 px for a short name and 48–64 px for a long one;
- * these three bands are the prototype's reading of that rule.
+ * How much display type a feature title can carry: a short name, a long one
+ * and a very long one, in three bands.
  */
 export function featureTitleDensity(name: string): "regular" | "long" | "very-long" {
   const length = name.trim().length;

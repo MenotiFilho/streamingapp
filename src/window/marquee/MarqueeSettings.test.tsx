@@ -6,6 +6,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi 
 import type { ActionError } from "../../core/errors";
 import { HomeStore } from "../../core/homeStore";
 import { markNavigation, markPointer } from "../../core/inputModality";
+import { THREE_CHOSEN_NOTE } from "../../core/languageList";
 import { SETTINGS_CATEGORIES } from "../../core/settingsRegister";
 import type { Action, AddonManifest, DeviceSummary, Response, Snapshot } from "../../core/wire";
 import { ShellContext, type ActionOutcome, type NewShellLevel, type ShellContextValue } from "../context";
@@ -485,7 +486,186 @@ describe("Marquee Preferences sub-levels (23 – 26)", () => {
   });
 });
 
+describe("Marquee Preferences refusals and held values", () => {
+  /** Draw one Preferences sub-level over the register that pushed it. */
+  function openSubLevel(name: RegExp, snapshot: Snapshot = BASE_SNAPSHOT) {
+    const run = harness(snapshot);
+    const register = render(withShell(run.value, <MarqueeSettings />));
+    fireEvent.click(within(register.container).getByRole("button", { name }));
+    const level = render(withShell(run.value, run.pushed.at(-1)!.payload.render()));
+    return { ...run, level, page: within(level.container) };
+  }
+
+  const withPreferences = (preferences: Partial<Snapshot["preferences"]>): Snapshot => ({
+    ...BASE_SNAPSHOT,
+    preferences: { ...BASE_SNAPSHOT.preferences, ...preferences },
+  });
+
+  test("a colour outside the presets is one Other chip, still selected", () => {
+    const { page } = openSubLevel(
+      /Subtitle appearance/,
+      withPreferences({ subtitleColor: "#123456" }),
+    );
+
+    expect(page.getByTestId("subtitle-color-other")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("a refused subtitle colour is explained beside the appearance choices", async () => {
+    const { page, ask } = openSubLevel(/Subtitle appearance/);
+    ask.mockImplementationOnce(async () =>
+      refusal({ kind: "invalid_subtitle_color", color: "#00FFFF" }),
+    );
+
+    fireEvent.click(page.getByTestId("subtitle-color-cyan"));
+
+    expect(await page.findByTestId("subtitle-appearance-error")).toHaveTextContent(
+      '"#00FFFF" is not a subtitle colour',
+    );
+  });
+
+  test("the Featured catalog says when no Addon offers one", () => {
+    const { page } = openSubLevel(/Featured catalog/, {
+      ...BASE_SNAPSHOT,
+      addons: [],
+      featuredCatalog: null,
+    });
+
+    expect(page.getByTestId("featured-empty")).toBeInTheDocument();
+    expect(page.getByTestId("featured-none")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  test("an empty list follows the file, saying what that means for each list", () => {
+    const empty = withPreferences({ subtitleLanguages: [], audioLanguages: [] });
+    const subtitles = openSubLevel(/Subtitle languages/, empty);
+    expect(subtitles.page.getByTestId("language-follow-subtitle")).toHaveTextContent(
+      "The subtitle the file marks as default, if it has one.",
+    );
+    cleanup();
+
+    const audio = openSubLevel(/Audio languages/, empty);
+    expect(audio.page.getByTestId("language-follow-audio")).toHaveTextContent(
+      "The soundtrack the file marks as default.",
+    );
+    cleanup();
+
+    const held = openSubLevel(/Subtitle languages/);
+    expect(held.page.queryByTestId("language-follow-subtitle")).not.toBeInTheDocument();
+  });
+
+  test("removing sends the whole list without it, composed before the Host answers", async () => {
+    const { page, ask } = openSubLevel(
+      /Subtitle languages/,
+      withPreferences({ subtitleLanguages: ["pt-BR", "en", "fr"] }),
+    );
+    const removeFrom = (name: string) =>
+      fireEvent.click(
+        within(page.getByRole("group", { name })).getByRole("button", { name: "Remove" }),
+      );
+
+    removeFrom("Português (Brasil)");
+    removeFrom("Français");
+
+    await waitFor(() =>
+      expect(actions(ask)).toEqual([
+        { type: "set_subtitle_languages", languages: ["en", "fr"] },
+        { type: "set_subtitle_languages", languages: ["en"] },
+      ]),
+    );
+  });
+
+  test("removing the last language sends an empty list", async () => {
+    const { page, ask } = openSubLevel(/Subtitle languages/);
+
+    fireEvent.click(page.getByRole("button", { name: "Remove" }));
+
+    await waitFor(() =>
+      expect(actions(ask)).toEqual([{ type: "set_subtitle_languages", languages: [] }]),
+    );
+  });
+
+  test("a refused list is explained beside it, and the rows stay as the Host holds them", async () => {
+    const { page, ask } = openSubLevel(
+      /Subtitle languages/,
+      withPreferences({ subtitleLanguages: ["pt-BR", "en"] }),
+    );
+    ask.mockImplementationOnce(async () =>
+      refusal({ kind: "duplicate_language", language: "en" }),
+    );
+
+    fireEvent.click(
+      within(page.getByRole("group", { name: "Português (Brasil)" })).getByRole("button", {
+        name: "Remove",
+      }),
+    );
+
+    expect(await page.findByTestId("subtitle-languages-error")).toHaveTextContent(
+      '"en" is already on the list.',
+    );
+    expect(page.getByRole("group", { name: "Português (Brasil)" })).toBeInTheDocument();
+  });
+
+  test("at three the other languages are refused with a note, and the ends cannot move further", () => {
+    const { page } = openSubLevel(
+      /Subtitle languages/,
+      withPreferences({ subtitleLanguages: ["pt-BR", "en", "fr"] }),
+    );
+    const row = (name: string) => within(page.getByRole("group", { name }));
+
+    expect(page.getByTestId("language-note")).toHaveTextContent(THREE_CHOSEN_NOTE);
+    expect(page.getByRole("button", { name: "Deutsch" })).toBeDisabled();
+    expect(row("Português (Brasil)").getByRole("button", { name: "Move up" })).toBeDisabled();
+    expect(row("Français").getByRole("button", { name: "Move down" })).toBeDisabled();
+    expect(row("Français").getByRole("button", { name: "Move up" })).toBeEnabled();
+  });
+
+  test("an unknown stored tag heads the chosen list, can be removed, and is not offered again", async () => {
+    const { page, ask } = openSubLevel(
+      /Subtitle languages/,
+      withPreferences({ subtitleLanguages: ["fr-CA"] }),
+    );
+    const chosen = page.getByRole("button", { name: /^1\. / });
+
+    expect(page.getAllByRole("button", { name: "Remove" })).toHaveLength(1);
+    expect(page.queryByRole("button", { name: "fr-CA" })).not.toBeInTheDocument();
+    expect(chosen).toBeInTheDocument();
+
+    fireEvent.click(page.getByRole("button", { name: "Remove" }));
+    await waitFor(() =>
+      expect(actions(ask)).toEqual([{ type: "set_subtitle_languages", languages: [] }]),
+    );
+  });
+});
+
 describe("Marquee Credentials, Remote devices, and About/Credits (20 – 22, 27)", () => {
+  test("a refused TMDB key stays in the field, explained beside the form", async () => {
+    const { value, ask } = harness();
+    ask.mockImplementationOnce(async () =>
+      refusal({ kind: "invalid_tmdb_key", detail: "the key is too short" }),
+    );
+    render(withShell(value, <MarqueeSettings />));
+    fireEvent.click(screen.getByRole("button", { name: "Credentials" }));
+    const input = screen.getByLabelText("TMDB API key or read-access token");
+
+    fireEvent.change(input, { target: { value: "short" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save key" }));
+
+    expect(await screen.findByText(/The Host will not keep that TMDB key/)).toBeInTheDocument();
+    expect(input).toHaveValue("short");
+  });
+
+  test("Remote devices names an empty paired list, and waits for the Host before saying so", () => {
+    const empty = harness({ ...BASE_SNAPSHOT, devices: [] });
+    render(withShell(empty.value, <MarqueeSettings />));
+    fireEvent.click(screen.getByRole("button", { name: "Remote devices" }));
+    expect(screen.getByTestId("no-devices")).toBeInTheDocument();
+    cleanup();
+
+    const waiting = harness(null);
+    render(withShell(waiting.value, <MarqueeSettings />));
+    fireEvent.click(screen.getByRole("button", { name: "Remote devices" }));
+    expect(screen.queryByTestId("no-devices")).not.toBeInTheDocument();
+  });
+
   test("Credentials saves and clears TMDB key (behind Confirm) and handles Stremio sign-in and sign-out", async () => {
     const { value, pushed, ask, pop } = harness();
     render(withShell(value, <MarqueeSettings />));

@@ -1,6 +1,6 @@
 import type { Transition } from "motion/react";
 
-import { fade, panel } from "../../kit/marquee/motion";
+import { fade, panel } from "../../kit/motion";
 import { SETTINGS_LEVEL_PREFIX } from "../../core/settingsRegister";
 import { DEFAULT_RULES, type Rules } from "../focus";
 import type { ShellLevel } from "../navigation";
@@ -8,7 +8,7 @@ import type { ShellLevel } from "../navigation";
 /**
  * Marquee frame decisions, kept out of the drawing (ADR-0032).
  *
- * Uses Marquee's own motion presets (`src/kit/marquee/motion.ts`) reading
+ * Uses Marquee's own motion presets (`src/kit/motion.ts`) reading
  * `--mq-motion-*` tokens. Under reduced motion, movement snaps (`{ duration: 0 }`)
  * while opacity keeps the one fade (`ADR-0031 §5`).
  */

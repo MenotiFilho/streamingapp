@@ -1,6 +1,6 @@
 # The Marquee design system
 
-**Decision:** ADR-0043. **Supersedes:** the Repertory design record (ADR-0030).
+**Decision:** ADR-0043. **Supersedes:** the design record of ADR-0030.
 **Motion:** ADR-0031. **Drawing:** `docs/design/marquee/` (the mockup's generator,
 see its README).
 
@@ -12,10 +12,10 @@ level-stack rule and Remote flow belongs to the Host and to `CONTEXT.md`, and th
 record does not move them. ADR-0043 §4 lists what the drawing asks beyond today's
 behaviour; each item lands as its own ticket.
 
-The values will live in one sheet of `--mq-*` tokens, imported by the window and by
-the served Remote. Measurements below are given at the window's **1920×1080
-reference frame** and, for the Remote, at a **390×844 phone**. How the sheet
-scales them to other sizes is decided by the token ticket and written back here.
+The values live in one sheet of `--mq-*` tokens, `src/kit/tokens.css`, imported
+by the window and by the served Remote. Measurements below are given at the
+window's **1920×1080 reference frame** and, for the Remote, at a **390×844
+phone**. §4 says how the window scales them to other sizes.
 
 ## 1. The direction
 
@@ -48,7 +48,7 @@ scrims and marks, and any control that hides its state behind hover.
 | `--mq-white` | `#FFFFFF` | text, and focus |
 | `--mq-accent` | `#C4A7E7` | primary action, progress, selection |
 | `--mq-imdb` | `#F5C518` | the IMDb badge, nothing else |
-| `--mq-ok` | `#3DD68C` | watched |
+| `--mq-ok` | `#3DD68C` | the watched check on an episode card |
 | `--mq-warn` | `#FFB224` | reserved; no screen uses it yet |
 | `--mq-danger` | `#FF5C66` | failure, and destructive actions |
 
@@ -124,6 +124,32 @@ a focused card to grow without touching its neighbours.
 | 20–24 | floating panels, the dropdown menu, the up-next and confirm cards |
 | 28 | the side panel and the phone's bottom sheet |
 | full | buttons, chips, the search field, switches, the nav items |
+
+### The reference frame
+
+The window is drawn once, at 1920×1080, and scales through one unit:
+
+```css
+--mq-u: max(0.5px, calc(min(1vw, 1.7777778vh) / 19.2));
+```
+
+- At 1920×1080 `--mq-u` is exactly `1px`. A measurement of `N` on this page or in
+  the mockup is written `calc(var(--mq-u) * N)`.
+- It scales **linearly with the shorter side of a 16:9 frame**: the window's
+  width, or its height × 16/9, whichever is less, over 1920. An ultra-wide window
+  does not blow up vertical sizes, and a tall one does not blow up horizontal
+  ones.
+- It has a **floor of 0.5px**, a 960×540 frame, so a tiny desktop window stays
+  readable, and **no ceiling**, so 4K draws at twice the size.
+- Type sizes, body line height, spacing, margins, the rail's widths, radii,
+  shadows, tracking and the focus outlines follow the unit. The **glass blurs**,
+  the focus **scale factors** and the durations are fixed values. So is the
+  window chrome's **56px band** and its 4rem clearance, which the D-pad geometry
+  measures in CSS pixels.
+- The **Remote does not use the unit**: its hand scale (§11) is in CSS pixels.
+
+A decision that needs the unit as a number reads it from `marqueeUnitPx`
+(`src/window/marquee/frame.ts`), the same formula.
 
 **Depth** comes from three things, and only these: a **shadow** under what is
 focused or floating (offset y 12–30, blur 2.2× the offset, black at 40–55%), the
@@ -299,6 +325,12 @@ genres separated by dots.
 - **Opening**: the Title's logo filling in, or its name over a bar. **Stalled**:
   the spinner, a lavender third of a ring.
 - **Up next** and **Still watching?** cards sit at the bottom right.
+- **Docked transport**: where the picture is not in the window (mpv has its own,
+  or there is none) there is no OSD. A band at the foot of the page, 144 tall on
+  surface under a rule, carries *Now playing*, the Title and where the picture
+  went; play and pause; the seek track between its two clocks; Cancel or Keep
+  watching while Autoplay waits; the volume with mute; and Stop. The page above
+  gives up its height. The mockup does not draw it.
 
 ## 9. Artwork and marks
 
@@ -320,8 +352,9 @@ Marks:
 
 - **IMDb**: the yellow badge and the rating in the meta line, only when the Host
   carries a rating.
-- **Watched**: a green check on an ink disc. **Progress**: a lavender bar on a 28%
-  white track.
+- **Watched**: a check on an ink disc, **lavender** on a poster and green
+  (`--mq-ok`) on an episode card. **Progress**: a lavender bar on a 28% white
+  track.
 - **UP NEXT**: the accent badge on a wide card.
 - **Quality and source**: the Addon's own words, verbatim, as the stream row's
   name and marks; never re-worded or re-ranked.
@@ -396,8 +429,8 @@ Each of these may move once, with the measurement written back here:
 - **The focus scale.** 8%, 7% and 6%, judged at ten feet on the panel.
 - **The opacities over a picture.** The OSD scrims, the dims (30–60%) and the
   ambient background on the phone, judged over a bright film.
-- **The reference frame.** How the 1920×1080 values scale to the window's real
-  size, decided by the token ticket.
+- **The reference frame.** The scaling of §4, its 0.5px floor and its lack of a
+  ceiling, judged on the panel.
 
 ## 13. What this record does not decide
 
@@ -406,8 +439,8 @@ Each of these may move once, with the measurement written back here:
   for beyond today; each item is its own ticket, reasoned against `CONTEXT.md`.
 - **The tests**: the presentation locks and the behaviour suites stay governed by
   ADR-0032.
-- **The cutover**: Marquee is built on `integration/marquee` and reaches `main`
-  whole, after the owner's walkthrough of the Windows build; until then `main`
-  draws Repertory.
+- **The release**: Marquee is the only design of the window and of the Remote.
+  It was built on `integration/marquee` and reaches `main` whole, after the
+  owner's walkthrough of the Windows build.
 - **Anything the Host says**: this record draws the Host's vocabulary and never
   invents a word for a Host concept.

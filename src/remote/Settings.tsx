@@ -55,18 +55,18 @@ import {
   type SettingsCategoryId,
 } from "../core/settingsRegister";
 import type { Action } from "../core/wire";
-import { Chip } from "../kit/marquee/Chip";
-import { EmptyState } from "../kit/marquee/EmptyState";
-import { GroupLabel } from "../kit/marquee/GroupLabel";
-import { PairingCode } from "../kit/marquee/PairingCode";
-import { RankedRow } from "../kit/marquee/RankedRow";
-import { SizeStepper } from "../kit/marquee/SizeStepper";
-import { TextField } from "../kit/marquee/TextField";
-import { Icon, type IconName } from "../kit/marquee/icons";
-import { PhoneHeader } from "../kit/marquee/phone/PhoneHeader";
-import { PhoneListRow } from "../kit/marquee/phone/PhoneListRow";
-import { PhoneSwitchRow } from "../kit/marquee/phone/PhoneSwitchRow";
-import { PhoneButton, PhoneIconButton } from "../kit/marquee/phone/controls";
+import { Chip } from "../kit/Chip";
+import { EmptyState } from "../kit/EmptyState";
+import { GroupLabel } from "../kit/GroupLabel";
+import { PairingCode } from "../kit/PairingCode";
+import { RankedRow } from "../kit/RankedRow";
+import { SizeStepper } from "../kit/SizeStepper";
+import { TextField } from "../kit/TextField";
+import { Icon, type IconName } from "../kit/icons";
+import { PhoneHeader } from "../kit/phone/PhoneHeader";
+import { PhoneListRow } from "../kit/phone/PhoneListRow";
+import { PhoneSwitchRow } from "../kit/phone/PhoneSwitchRow";
+import { PhoneButton, PhoneIconButton } from "../kit/phone/controls";
 import type { RemotePayload } from "./levels";
 import {
   SETTINGS_WAITING,
