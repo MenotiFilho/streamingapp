@@ -1,0 +1,555 @@
+/*
+ * Marquee Player OSD & 7 floating panels (`07.jpg` – `13.jpg`, `08b.jpg` – `08f.jpg`).
+ *
+ * Uses `--mq-*` tokens and `src/kit/marquee/` primitives exclusively.
+ * Zero `--rep-*` tokens; lavender is never literalised outside `--mq-accent`.
+ */
+
+/* Popover levels float transparently over the Player level. */
+.mq-level-shell[data-level-kind="popover"] {
+  z-index: 70;
+  overflow: visible;
+  background: transparent;
+  pointer-events: none;
+}
+
+/* --------------------------------------------------------------------------
+ * Player surface & picture hole
+ * -------------------------------------------------------------------------- */
+
+.mq-player {
+  position: fixed;
+  inset: 0;
+  color: var(--mq-white);
+  font-family: var(--mq-font);
+  pointer-events: none;
+}
+
+.mq-player[data-cursor="hidden"],
+.mq-player[data-cursor="hidden"] * {
+  cursor: none !important;
+}
+
+.mq-player-picture {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: auto;
+}
+
+.mq-picture-toggle {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+:where(html[data-input="navigation"]) .mq-player .mq-picture-toggle:focus,
+:where(html[data-input="navigation"]) .mq-player .mq-pp-seek:focus,
+:where(html[data-input="navigation"]) .mq-player .mq-pp-volume:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Plain-Vite rehearsal stand-in for mpv's picture (never rendered in Tauri). */
+.mq-player-still {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  background: var(--mq-canvas);
+  pointer-events: none;
+}
+
+.mq-player-still-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mq-player-still-scrim {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--mq-canvas) 35%, transparent) 0%,
+    transparent 30%,
+    transparent 65%,
+    color-mix(in srgb, var(--mq-canvas) 65%, transparent) 100%
+  );
+}
+
+/* --------------------------------------------------------------------------
+ * Opening (`11.jpg`, `11b.jpg`)
+ * -------------------------------------------------------------------------- */
+
+.mq-player-opening {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  overflow: hidden;
+  background: var(--mq-canvas);
+  pointer-events: none;
+}
+
+.mq-player-opening-art {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mq-player-opening-dim {
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--mq-canvas) 82%, transparent);
+}
+
+.mq-player-opening-center {
+  position: absolute;
+  top: calc(var(--mq-u) * 380);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  justify-content: center;
+  width: calc(var(--mq-u) * 640);
+  max-width: calc(100% - var(--mq-margin-player) * 2);
+}
+
+/* --------------------------------------------------------------------------
+ * Stalled spinner (`12.jpg`)
+ * -------------------------------------------------------------------------- */
+
+.mq-player-stalled {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  padding-bottom: calc(var(--mq-u) * 72);
+  background: rgb(0 0 0 / 0.3);
+  pointer-events: none;
+}
+
+/* --------------------------------------------------------------------------
+ * Ended note & plain prompt
+ * -------------------------------------------------------------------------- */
+
+.mq-player-ended-note {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  margin: 0;
+  padding: var(--mq-space-3) var(--mq-space-4);
+  border-radius: var(--mq-radius-20);
+  background: var(--mq-panel-bg);
+  border: 1px solid var(--mq-panel-border);
+  color: var(--mq-white);
+  font-size: var(--mq-text-row-head);
+  font-weight: var(--mq-weight-bold);
+  text-align: center;
+  transform: translate(-50%, -50%);
+  backdrop-filter: blur(var(--mq-blur-panel));
+  -webkit-backdrop-filter: blur(var(--mq-blur-panel));
+  pointer-events: none;
+}
+
+.mq-player-ended-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--mq-space-4);
+  pointer-events: auto;
+}
+
+.mq-player-autoplay-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--mq-space-2);
+  padding: calc(var(--mq-u) * 10) calc(var(--mq-u) * 20);
+  border-radius: var(--mq-radius-full);
+  background: var(--mq-panel-bg);
+  border: 1px solid var(--mq-panel-border);
+  backdrop-filter: blur(var(--mq-blur-bar));
+  -webkit-backdrop-filter: blur(var(--mq-blur-bar));
+}
+
+.mq-player-autoplay-label {
+  color: var(--mq-text-muted);
+  font-size: var(--mq-text-label-sm);
+  font-weight: var(--mq-weight-semibold);
+}
+
+/* --------------------------------------------------------------------------
+ * Up next (`10.jpg`) & Still watching? (`13.jpg`)
+ * -------------------------------------------------------------------------- */
+
+.mq-player-autoplay-scrim {
+  position: absolute;
+  top: calc(var(--mq-u) * 500);
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 2;
+  background: linear-gradient(to top, rgb(0 0 0 / 0.85), rgb(0 0 0 / 0));
+  pointer-events: none;
+}
+
+.mq-player-still-dim {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  background: rgb(0 0 0 / 0.45);
+  pointer-events: none;
+}
+
+.mq-player-autoplay {
+  position: absolute;
+  right: var(--mq-margin-player);
+  bottom: var(--mq-margin-player);
+  z-index: 4;
+  pointer-events: auto;
+}
+
+/* --------------------------------------------------------------------------
+ * OSD chrome (`07.jpg`, `09.jpg`)
+ * -------------------------------------------------------------------------- */
+
+.mq-player-osd {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+}
+
+.mq-player-bottom-scrim {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: calc(var(--mq-u) * 480);
+  background: linear-gradient(
+    to top,
+    rgb(0 0 0 / 0.92) 0%,
+    rgb(0 0 0 / 0.6) 50%,
+    rgb(0 0 0 / 0) 100%
+  );
+  pointer-events: none;
+}
+
+.mq-player-top {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  pointer-events: auto;
+}
+
+.mq-player-bottom {
+  position: absolute;
+  right: var(--mq-margin-player);
+  bottom: calc(var(--mq-u) * 46);
+  left: var(--mq-margin-player);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 42);
+  pointer-events: none;
+}
+
+.mq-player-seek,
+.mq-player-strip {
+  pointer-events: auto;
+}
+
+.mq-player-waiting,
+.mq-player-refusal {
+  align-self: flex-start;
+  margin: 0;
+  padding: calc(var(--mq-u) * 12) calc(var(--mq-u) * 20);
+  border-radius: var(--mq-radius-16);
+  background: var(--mq-panel-bg-dense);
+  border: 1px solid var(--mq-panel-border);
+  color: var(--mq-white);
+  font-size: var(--mq-text-label-sm);
+  font-weight: var(--mq-weight-semibold);
+  backdrop-filter: blur(var(--mq-blur-menu));
+  -webkit-backdrop-filter: blur(var(--mq-blur-menu));
+  box-shadow: var(--mq-shadow-panel);
+  pointer-events: auto;
+}
+
+.mq-player-refusal {
+  border-color: var(--mq-danger);
+}
+
+.mq-player-refusal .shell-inline-refusal {
+  margin: 0;
+  color: var(--mq-danger);
+}
+
+/* --------------------------------------------------------------------------
+ * Floating & side panels (`08.jpg` – `08f.jpg`, `12.jpg`)
+ * -------------------------------------------------------------------------- */
+
+.mq-player-panel-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+.mq-player-panel-scrim {
+  position: absolute;
+  inset: 0;
+  background: transparent;
+  pointer-events: auto;
+}
+
+.mq-player-panel-scrim[data-dim="true"] {
+  background: color-mix(in srgb, var(--mq-ink) 45%, transparent);
+}
+
+.mq-player-floating-wrap {
+  position: absolute;
+  right: var(--mq-margin-player);
+  bottom: calc(var(--mq-u) * 224);
+  pointer-events: auto;
+}
+
+.mq-player-side-wrap {
+  position: absolute;
+  top: calc(var(--mq-u) * 24);
+  right: calc(var(--mq-u) * 24);
+  bottom: calc(var(--mq-u) * 24);
+  pointer-events: auto;
+}
+
+.mq-panel-col-region {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 8);
+}
+
+.mq-panel-list-region {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 8);
+}
+
+.mq-panel-subhead {
+  margin: calc(var(--mq-u) * 16) 0 calc(var(--mq-u) * 6);
+  padding-left: calc(var(--mq-u) * 12);
+  color: var(--mq-text-muted);
+  font-size: var(--mq-text-label-sm);
+  font-weight: var(--mq-weight-bold);
+  line-height: calc(var(--mq-u) * 23);
+}
+
+.mq-panel-control-row {
+  padding-left: calc(var(--mq-u) * 12);
+}
+
+.mq-panel-autocrop {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(var(--mq-u) * 14);
+  margin-top: calc(var(--mq-u) * 16);
+  padding-left: calc(var(--mq-u) * 12);
+}
+
+.mq-panel-caption {
+  margin: 0;
+  color: var(--mq-text-faint);
+  font-size: var(--mq-text-caption-sm);
+  line-height: calc(var(--mq-u) * 21);
+}
+
+.mq-panel-note {
+  margin: 0;
+  padding: calc(var(--mq-u) * 8) calc(var(--mq-u) * 12);
+  color: var(--mq-text-muted);
+  font-size: var(--mq-text-label-sm);
+  line-height: calc(var(--mq-u) * 24);
+}
+
+.mq-panel-refusal {
+  margin: 0;
+  padding: calc(var(--mq-u) * 12) calc(var(--mq-u) * 16);
+  border-radius: var(--mq-radius-14);
+  background: var(--mq-danger-tint);
+  color: var(--mq-danger);
+  font-size: var(--mq-text-label-sm);
+  font-weight: var(--mq-weight-semibold);
+}
+
+/* Chapters 2-column grid (`08d.jpg`) */
+.mq-panel-chapters-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: calc(var(--mq-u) * 32);
+  row-gap: calc(var(--mq-u) * 8);
+}
+
+/* Episodes (`08e.jpg`) */
+.mq-panel-seasons {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mq-u) * 10);
+  flex-wrap: wrap;
+}
+
+.mq-panel-col-region--episodes {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.mq-pp-column-body:has(> .mq-panel-col-region--episodes) {
+  overflow: hidden;
+}
+
+.mq-panel-episodes-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 12);
+}
+
+button.mq-panel-episode {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--mq-u) * 20);
+  width: 100%;
+  height: calc(var(--mq-u) * 96);
+  margin: 0;
+  padding: calc(var(--mq-u) * 12);
+  border: 0;
+  border-radius: var(--mq-radius-16);
+  background: transparent;
+  color: var(--mq-white);
+  font-family: var(--mq-font);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background-color var(--mq-motion-fade) var(--mq-ease),
+    box-shadow var(--mq-motion-fade) var(--mq-ease);
+}
+
+html[data-input="navigation"] button.mq-panel-episode:focus,
+button.mq-panel-episode[data-focused="true"] {
+  background: var(--mq-row-focus);
+  box-shadow: inset 0 0 0 var(--mq-focus-outline-row) var(--mq-white);
+  outline: none;
+}
+
+html[data-input="pointer"] button.mq-panel-episode:focus {
+  outline: none;
+}
+
+.mq-panel-episode-still {
+  position: relative;
+  flex: none;
+  width: calc(var(--mq-u) * 128);
+  height: calc(var(--mq-u) * 72);
+  overflow: hidden;
+  border-radius: var(--mq-radius-10);
+  background: var(--mq-surface-2);
+}
+
+.mq-panel-episode-still img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mq-panel-episode-progress {
+  position: absolute;
+  right: calc(var(--mq-u) * 8);
+  bottom: calc(var(--mq-u) * 5);
+  left: calc(var(--mq-u) * 8);
+  height: calc(var(--mq-u) * 3);
+  border-radius: var(--mq-radius-full);
+  background: var(--mq-track-bg);
+  overflow: hidden;
+}
+
+.mq-panel-episode-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: var(--mq-radius-full);
+  background: var(--mq-accent);
+}
+
+.mq-panel-episode-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  gap: calc(var(--mq-u) * 4);
+  min-width: 0;
+}
+
+.mq-panel-episode-title {
+  overflow: hidden;
+  font-size: calc(var(--mq-u) * 19);
+  font-weight: var(--mq-weight-bold);
+  line-height: calc(var(--mq-u) * 26);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mq-panel-episode-detail {
+  overflow: hidden;
+  color: var(--mq-text-faint);
+  font-size: var(--mq-text-caption-sm);
+  line-height: calc(var(--mq-u) * 20);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mq-panel-episode[data-playing="true"] .mq-panel-episode-detail {
+  color: var(--mq-accent);
+}
+
+.mq-panel-episodes-autoplay {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--mq-space-2);
+  margin-top: calc(var(--mq-u) * 8);
+  padding: calc(var(--mq-u) * 12) calc(var(--mq-u) * 12) 0;
+  border-top: 1px solid var(--mq-line);
+}
+
+.mq-panel-episodes-autoplay-label {
+  color: var(--mq-text-muted);
+  font-size: var(--mq-text-label-sm);
+  font-weight: var(--mq-weight-semibold);
+}
+
+/* Streams (`08f.jpg`) */
+.mq-panel-streams-groups {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 24);
+}
+
+.mq-panel-streams-group {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 12);
+}
+
+.mq-panel-streams-list {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--mq-u) * 12);
+}

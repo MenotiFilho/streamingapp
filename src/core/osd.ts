@@ -12,8 +12,10 @@ import { formatBitrate } from "./controls";
 import type {
   Buffered,
   Chapter,
+  Episode,
   NowPlaying,
   PlaybackSnapshot,
+  ResumeEntry,
   Track,
   TrackKind,
 } from "./wire";
@@ -330,4 +332,85 @@ export function streamKey(nowPlaying: NowPlaying | null): string | null {
     nowPlaying.filename ?? "",
     nowPlaying.bingeGroup ?? "",
   ].join("\u0000");
+}
+
+/** Episode code formatted with a space for Marquee's top bar and cards (`S2 E3`). */
+export function marqueeEpisodeCode(episode: Episode): string {
+  return `S${episode.season} E${episode.episode}`;
+}
+
+/**
+ * The Marquee top bar's subtitle: `S2 E3 · Who Is Alive?` for an episode
+ * (combining `playback.episode` with the Watch-progress video name when held),
+ * or `null` for a film.
+ */
+export function marqueeTopBarSubtitle(
+  playback: Pick<PlaybackSnapshot, "episode" | "nowPlaying">,
+  watchProgress: readonly ResumeEntry[],
+): string | null {
+  const videoId = playback.nowPlaying?.video.id ?? null;
+  const progress = videoId
+    ? (watchProgress.find((entry) => entry.video.id === videoId) ?? null)
+    : null;
+  const code = playback.episode
+    ? marqueeEpisodeCode(playback.episode)
+    : progress?.video.season != null && progress?.video.episode != null
+      ? `S${progress.video.season} E${progress.video.episode}`
+      : null;
+  const name = progress?.video.name ?? null;
+  const line = [code, name].filter((part): part is string => Boolean(part)).join(" · ");
+  return line || null;
+}
+
+/**
+ * The Stream's marks for the Marquee top bar, verbatim from `nowPlaying.name`.
+ * Drops a line that merely repeats the Addon's id/name when other marks exist.
+ */
+export function marqueeTopBarFacts(nowPlaying: NowPlaying | null): string[] {
+  if (!nowPlaying) {
+    return [];
+  }
+  const lines = badgeLines(nowPlaying);
+  if (lines.length <= 1) {
+    return lines;
+  }
+  const addonLower = nowPlaying.addon.toLowerCase();
+  const filtered = lines.filter((line) => line.toLowerCase() !== addonLower);
+  return filtered.length > 0 ? filtered : lines;
+}
+
+/** The four vertical stops in Marquee's player OSD ladder, top to bottom. */
+export type MarqueePlayerStop = "top" | "seek" | "strip" | "picture";
+
+/**
+ * Next vertical stop in Marquee's player ladder, skipping `seek` when the
+ * timeline cannot be scrubbed and refusing `picture` when transport is inactive.
+ */
+export function nextPlayerStop(
+  current: MarqueePlayerStop,
+  direction: "up" | "down",
+  options: { canSeek: boolean; canTransport: boolean },
+): MarqueePlayerStop | null {
+  if (direction === "up") {
+    switch (current) {
+      case "picture":
+        return "strip";
+      case "strip":
+        return options.canSeek ? "seek" : "top";
+      case "seek":
+        return "top";
+      case "top":
+        return null;
+    }
+  }
+  switch (current) {
+    case "top":
+      return options.canSeek ? "seek" : "strip";
+    case "seek":
+      return "strip";
+    case "strip":
+      return options.canTransport ? "picture" : null;
+    case "picture":
+      return null;
+  }
 }

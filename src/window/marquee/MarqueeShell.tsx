@@ -17,11 +17,10 @@ import type { Action, PlaybackState, Response, Title } from "../../core/wire";
 import { ShellContext } from "../context";
 import type { Destination, ShellLevel, WindowPayload } from "../navigation";
 import { PlayerDock, dockedTransport } from "../PlayerDock";
-import { PlayerOverlay } from "../PlayerOverlay";
 import { TauriLink } from "../tauriLink";
-import { titleLevelOf } from "../TitleScreen";
 import { MarqueeFrame } from "./MarqueeFrame";
-import { MarqueeDestinationScreen } from "./MarqueeScreens";
+import { MarqueePlayer } from "./MarqueePlayer";
+import { MarqueeDestinationScreen, marqueeTitleLevelOf } from "./MarqueeScreens";
 
 const PLAYER_LEVEL = "player";
 
@@ -134,7 +133,7 @@ export function MarqueeShell({ client }: { client?: HostLink }) {
       name: "Playing",
       kind: "player",
       payload: {
-        render: () => <PlayerOverlay />,
+        render: () => <MarqueePlayer />,
         onIntent: (intent) => playerIntent.current?.(intent) ?? false,
       },
     };
@@ -193,7 +192,7 @@ export function MarqueeShell({ client }: { client?: HostLink }) {
         return;
       }
       if (loaded) {
-        pushBefore(PLAYER_LEVEL, titleLevelOf(loaded));
+        pushBefore(PLAYER_LEVEL, marqueeTitleLevelOf(loaded));
         void takeWithStop({ type: "stop_playback" });
         return;
       }
@@ -203,7 +202,7 @@ export function MarqueeShell({ client }: { client?: HostLink }) {
         }
         const title = titleError ? null : answeredTitle(response);
         if (title !== null && !trimToExistingTitle(ref)) {
-          pushBefore(PLAYER_LEVEL, titleLevelOf(title));
+          pushBefore(PLAYER_LEVEL, marqueeTitleLevelOf(title));
         }
         void takeWithStop({ type: "stop_playback" });
       });
