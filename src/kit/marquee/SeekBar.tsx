@@ -97,13 +97,15 @@ export function SeekBar({
     (mark) => mark.fraction > 0 && mark.fraction < 1,
   );
 
+  const onPointRef = useRef(onPoint);
+  onPointRef.current = onPoint;
   const told = useRef<number | null>(null);
   useEffect(() => {
     if (told.current !== point) {
       told.current = point;
-      onPoint?.(point);
+      onPointRef.current?.(point);
     }
-  }, [point, onPoint]);
+  }, [point]);
 
   const move = (seconds: number) => {
     pending.current = seconds;

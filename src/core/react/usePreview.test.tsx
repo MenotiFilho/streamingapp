@@ -87,12 +87,13 @@ describe("the seek preview hook", () => {
       asks[0]!.answer("first");
       await Promise.resolve();
     });
-    expect(result.current.still).toEqual({ bucket: 2, image: "first" });
+    const firstStill = result.current.still;
+    expect(firstStill).toEqual({ bucket: 2, image: "first" });
 
     act(() => result.current.point(null));
     act(() => result.current.point(10));
 
     expect(asks).toHaveLength(1);
-    expect(result.current.still).toEqual({ bucket: 2, image: "first" });
+    expect(result.current.still).toBe(firstStill);
   });
 });

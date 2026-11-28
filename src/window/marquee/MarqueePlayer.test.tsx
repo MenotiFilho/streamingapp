@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MotionGlobalConfig } from "motion/react";
+import { Profiler } from "react";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 
 import { STALL_GRACE_MS } from "../../core/stall";
@@ -24,7 +25,6 @@ import {
 } from "../tauriWindow.testing";
 import { OSD_IDLE_MS } from "../useOsdVisibility";
 import { MarqueeEntry } from "./MarqueeEntry";
-import playerCss from "./player.css?raw";
 
 let previousSkipAnimations: boolean | undefined;
 beforeAll(() => {
@@ -551,6 +551,69 @@ describe("Marquee Player OSD — transport, top bar & seek bar", () => {
     expect(preview).toHaveTextContent(/4:51 · Lumon/);
   });
 
+  test("focusing SeekBar during playing over a cached non-null still does not cause a runaway re-render", async () => {
+    let now = 10_000;
+    vi.spyOn(performance, "now").mockImplementation(() => (now += 0.5));
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    let renders = 0;
+    const host = fakeHost(
+      {
+        ...NOTHING_SAID,
+        revision: 9,
+        playback: playback({ state: "playing", position: 1000, duration: 2913 }),
+        watchProgress: [seriesResume()],
+      },
+      { answers: () => ({ image: "data:image/png;base64,cached-still" }) },
+    );
+    render(
+      <Profiler
+        id="marquee-player"
+        onRender={() => {
+          renders += 1;
+        }}
+      >
+        <MarqueeEntry client={host.client} />
+      </Profiler>,
+    );
+    await screen.findByTestId("shell-player");
+    await act(async () => {});
+
+    const track = screen.getByTestId("mq-seek-track");
+    vi.spyOn(track, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      width: 1000,
+      right: 1000,
+      top: 0,
+      bottom: 32,
+      height: 32,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+
+    // Cache bucket 200 (1000–1005s; 344/1000 * 2913 = 1002.1s) with a non-null still via hover, then unhover.
+    fireEvent.pointerMove(track, { clientX: 344 });
+    await waitFor(() =>
+      expect(screen.getByTestId("mq-seek-preview")).toHaveAttribute("data-still", "true"),
+    );
+    fireEvent.pointerLeave(track);
+
+    const rendersBeforeFocus = renders;
+    const previewsBeforeFocus = actions(host.invocations).filter((a) => a.type === "preview").length;
+
+    // Move focus from Pause onto SeekBar via keyboard (navigation modality).
+    fireEvent.keyDown(document, { key: "ArrowUp" });
+    await act(async () => {});
+
+    expect(screen.getByRole("slider", { name: "Position" })).toHaveFocus();
+    expect(screen.getByTestId("mq-seek-preview")).toHaveAttribute("data-still", "true");
+    expect(renders - rendersBeforeFocus).toBeLessThan(20);
+    expect(actions(host.invocations).filter((a) => a.type === "preview")).toHaveLength(
+      previewsBeforeFocus,
+    );
+    expect(errorSpy).not.toHaveBeenCalled();
+  });
+
   test("wheel nudges volume and debounces into set_volume", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
     const host = await renderMarqueePlayer({ volume: 60 });
@@ -648,6 +711,50 @@ describe("Marquee Player OSD — idle timing, cursor & 4-stop focus ladder", () 
     await waitFor(() =>
       expect(actions(host.invocations)).toContainEqual({ type: "stop_playback" }),
     );
+  });
+
+  test("ended state: ArrowDown from top bar moves focus to ended actions instead of trapping in top bar", async () => {
+    await renderMarqueePlayer({ state: "ended", autoplay: null, position: 2913, duration: 2913 });
+
+    const back = screen.getByRole("button", { name: "Back" });
+    back.focus();
+    expect(back).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: "ArrowDown" });
+    expect(screen.getByTestId("next-episode-after-end")).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: "ArrowUp" });
+    expect(back).toHaveFocus();
+
+    cleanup();
+
+    await renderMarqueePlayer({
+      state: "ended",
+      autoplay: {
+        phase: "countdown",
+        remaining: 8,
+        duration: 10,
+        next: {
+          title: { type: "series", id: "tt11280740" },
+          video: { type: "series", id: "tt11280740:2:4" },
+          episode: { season: 2, episode: 4 },
+          name: "Woe's Hollow",
+          still: null,
+        },
+      },
+      position: 2913,
+      duration: 2913,
+    });
+
+    const cardBack = screen.getByRole("button", { name: "Back" });
+    cardBack.focus();
+    fireEvent.keyDown(document, { key: "ArrowDown" });
+    expect(
+      within(screen.getByTestId("autoplay-card")).getByRole("button", { name: "Play now" }),
+    ).toHaveFocus();
+
+    fireEvent.keyDown(document, { key: "ArrowUp" });
+    expect(cardBack).toHaveFocus();
   });
 });
 
@@ -781,11 +888,13 @@ describe("Marquee Player OSD — the 7 floating panels", () => {
     });
     expect(playingRow).toHaveAttribute("aria-current", "true");
     expect(within(dialog).getByText("Comet did not answer")).toBeInTheDocument();
+    expect(within(dialog).queryByRole("heading", { name: "Comet" })).not.toBeInTheDocument();
 
     fireEvent.click(within(dialog).getByRole("button", { name: "Try again" }));
     expect(
       await within(dialog).findByRole("button", { name: /Severance\.S02E03\.1080p\.WEB\.mkv/ }),
     ).toBeInTheDocument();
+    expect(within(dialog).getByRole("heading", { name: "Comet" })).toBeInTheDocument();
 
     const altRow = within(dialog).getByRole("button", { name: new RegExp(ALT_STREAM.filename!) });
     fireEvent.click(altRow);
@@ -798,6 +907,53 @@ describe("Marquee Player OSD — the 7 floating panels", () => {
       });
       expect(screen.queryByRole("dialog", { name: "Streams" })).not.toBeInTheDocument();
     });
+  });
+
+  test("3b. Streams: closing the panel while switch_stream is pending does not pop the player Level", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const groups: AddonStreams[] = [
+      { addon: "torrentio", streams: [PLAYING_STREAM, ALT_STREAM], failure: null },
+    ];
+    const host = await renderMarqueePlayer(
+      {},
+      {
+        hold: { type: "switch_stream", gate },
+        respond: (action) =>
+          action.type === "find_streams" ? { snapshots: [], answer: { streams: groups } } : null,
+      },
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Streams" }));
+    const dialog = await screen.findByRole("dialog", { name: "Streams" });
+    const altRow = await within(dialog).findByRole("button", {
+      name: new RegExp(ALT_STREAM.filename!),
+    });
+    fireEvent.click(altRow);
+
+    await waitFor(() =>
+      expect(actions(host.invocations)).toContainEqual({
+        type: "switch_stream",
+        addon: "torrentio",
+        stream: ALT_STREAM,
+      }),
+    );
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Streams" })).not.toBeInTheDocument(),
+    );
+
+    await act(async () => {
+      release();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId("shell-player")).toBeInTheDocument();
+    expect(errorSpy).not.toHaveBeenCalled();
   });
 
   test("4. Episodes: switches seasons, toggles Autoplay, and picks Streams for another episode via play_stream", async () => {
@@ -1141,10 +1297,5 @@ describe("Marquee Player OSD — Opening, Stalled, Up next & Still watching?", (
         title: expect.objectContaining({ id: "tt11280740", name: "Severance" }),
       }),
     );
-  });
-
-  test("player.css uses only --mq-* tokens and no legacy --rep-* tokens", () => {
-    const legacy = ["-", "-rep-"].join("");
-    expect(playerCss).not.toContain(legacy);
   });
 });

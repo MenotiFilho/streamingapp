@@ -20,6 +20,7 @@ import {
   marqueeTopBarSubtitle,
   nextPlayerStop,
   osdPinned,
+  previewBucket,
   type MarqueePlayerStop,
 } from "../../core/osd";
 import { useMissingStream } from "../../core/react/useMissingStream";
@@ -113,6 +114,7 @@ export function MarqueePlayer() {
   const cardWrap = useRef<HTMLElement | null>(null);
   const pictureButton = useRef<HTMLButtonElement | null>(null);
   const strip = useRef<HTMLDivElement | null>(null);
+  const endedActions = useRef<HTMLDivElement | null>(null);
   const seekWrap = useRef<HTMLDivElement | null>(null);
   const top = useRef<HTMLDivElement | null>(null);
 
@@ -235,7 +237,11 @@ export function MarqueePlayer() {
     }
 
     const cluster =
-      stop === "strip" ? strip.current : stop === "seek" ? seekWrap.current : top.current;
+      stop === "strip"
+        ? (strip.current ?? endedActions.current ?? cardWrap.current)
+        : stop === "seek"
+          ? seekWrap.current
+          : top.current;
     const remembered =
       stop === "strip"
         ? rememberedStrip.current
@@ -256,10 +262,7 @@ export function MarqueePlayer() {
       }
     }
 
-    const first =
-      cluster?.querySelector<HTMLElement>(FOCUSABLE) ??
-      chrome.current?.querySelector<HTMLElement>(FOCUSABLE) ??
-      null;
+    const first = cluster?.querySelector<HTMLElement>(FOCUSABLE) ?? null;
     if (!first) {
       return false;
     }
@@ -304,7 +307,11 @@ export function MarqueePlayer() {
       if (!(target instanceof HTMLElement)) {
         return;
       }
-      if (strip.current?.contains(target)) {
+      if (
+        strip.current?.contains(target) ||
+        endedActions.current?.contains(target) ||
+        cardWrap.current?.contains(target)
+      ) {
         rememberedStrip.current = target;
       } else if (seekWrap.current?.contains(target)) {
         rememberedSeek.current = target;
@@ -436,11 +443,19 @@ export function MarqueePlayer() {
   );
 
   const { point: pointPreview } = preview;
+  const pointedBucket = useRef<number | null>(null);
+  useEffect(() => {
+    pointedBucket.current = null;
+  }, [pointPreview]);
   const handlePoint = useCallback(
     (seconds: number | null) => {
       const whole = seconds === null ? null : Math.floor(seconds);
       setPointSeconds((current) => (current === whole ? current : whole));
-      pointPreview(seconds);
+      const bucket = seconds === null ? null : previewBucket(seconds);
+      if (pointedBucket.current !== bucket) {
+        pointedBucket.current = bucket;
+        pointPreview(seconds);
+      }
     },
     [pointPreview],
   );
@@ -598,6 +613,7 @@ export function MarqueePlayer() {
             data-region="autoplay-card"
             data-kind="row"
             data-label="Up next"
+            data-player-stop="strip"
           >
             <UpNextCard
               episode={marqueeEpisodeCode(view.autoplay.next.episode)}
@@ -621,6 +637,7 @@ export function MarqueePlayer() {
             data-region="autoplay-card"
             data-kind="row"
             data-label="Still watching?"
+            data-player-stop="strip"
           >
             <StillWatchingCard
               next={
@@ -732,10 +749,12 @@ export function MarqueePlayer() {
 
             {state === "ended" && plainEnd(view.autoplay) && !nextEpisode.disabled ? (
               <div
+                ref={endedActions}
                 className="mq-player-ended-actions"
                 data-region="osd-ended"
                 data-kind="row"
                 data-label="Next episode"
+                data-player-stop="strip"
               >
                 <Button
                   kind="primary"

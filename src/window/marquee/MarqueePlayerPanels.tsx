@@ -156,7 +156,7 @@ function MarqueePlayerPanel({
         ) : name === "episodes" ? (
           <EpisodesPanel playback={playback} />
         ) : name === "streams" ? (
-          <StreamsPanel playback={playback} episodeTarget={options.episodeTarget} />
+          <StreamsPanel levelId={id} playback={playback} episodeTarget={options.episodeTarget} />
         ) : (
           <DetailsPanel playback={playback} />
         )}
@@ -597,13 +597,15 @@ type StreamsLookup =
   | { kind: "answered"; groups: AddonStreams[] };
 
 function StreamsPanel({
+  levelId,
   playback,
   episodeTarget,
 }: {
+  levelId: string;
   playback: PlaybackSnapshot;
   episodeTarget?: { title: Title; video: Video };
 }) {
-  const { snapshot, ask, pop } = useShell();
+  const { snapshot, ask, pop, remove } = useShell();
   const [lookup, setLookup] = useState<StreamsLookup>({ kind: "waiting" });
   const [retryingAddons, setRetryingAddons] = useState<ReadonlySet<string>>(() => new Set());
   const [switching, setSwitching] = useState(false);
@@ -727,14 +729,19 @@ function StreamsPanel({
         ? playStreamAction(episodeTarget.title, episodeTarget.video, addon, stream)
         : { type: "switch_stream", addon, stream };
       const { error } = await ask(action);
+      if (!mountedRef.current) {
+        return;
+      }
       if (error) {
         setRefusal(error);
       } else {
-        pop();
+        remove(levelId);
       }
     } finally {
       switchingRef.current = false;
-      setSwitching(false);
+      if (mountedRef.current) {
+        setSwitching(false);
+      }
     }
   };
 
@@ -784,6 +791,7 @@ function StreamsPanel({
           lookup.groups.map((group) => {
             const label = addonLabel(snapshot, group.addon);
             const answerNote = groupAnswerNote(group);
+            const showLabel = group.streams.length > 0 || answerNote !== null;
             return (
               <div
                 key={group.addon}
@@ -792,7 +800,7 @@ function StreamsPanel({
                 data-kind="branch"
                 data-label={label}
               >
-                <GroupLabel>{label}</GroupLabel>
+                {showLabel ? <GroupLabel>{label}</GroupLabel> : null}
                 {group.failure ? (
                   <AddonNotice
                     addon={label}
