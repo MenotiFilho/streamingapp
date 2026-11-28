@@ -66,6 +66,7 @@ export const HOST_ERROR_KINDS = [
   "unknown_device",
   "unpaired",
   "already_paired",
+  "too_many_questions",
   "invalid_discover",
   "invalid_search",
   "no_tmdb_credential",
@@ -135,6 +136,8 @@ export type ActionError = {
   count?: number;
   /** The most languages a list may hold, on a refused list. */
   max?: number;
+  /** How many questions may wait on one connection, on a refused question. */
+  limit?: number;
   /** The control a refusal is about, where the refusal is about one. */
   control?: Control;
   /** The pairing code a refusal names, where the refusal is about one. */
@@ -321,6 +324,8 @@ export function explain(error: ActionError): string {
       return "This connection has not paired, so the Host will only take a pairing.";
     case "already_paired":
       return "This connection has already paired; a device pairs by being unpaired.";
+    case "too_many_questions":
+      return `The Host already has ${error.limit} questions waiting from this device — wait for some answers, then try again.`;
     case "unreachable":
       return `The window could not reach the Host${error.detail ? `: ${error.detail}` : ""}.`;
     case "answer":

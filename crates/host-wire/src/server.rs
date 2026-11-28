@@ -8,8 +8,9 @@
 //! [`host_core::permitted`].
 //!
 //! Threads, not an async runtime: the Host has no executor, the transports beside
-//! this one are blocking, and one thread per connection with a read timeout is a
-//! fraction of the machinery for a handful of devices on a home network.
+//! this one are blocking, and a connection thread with a read timeout keeps
+//! greetings, pairing, changes, pushed Snapshots and pings moving while a
+//! small per-connection worker pool resolves questions off-thread.
 //!
 //! What a connection does:
 //!
@@ -24,8 +25,8 @@
 
 use std::io;
 use std::net::{SocketAddr, TcpListener, TcpStream};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender, SyncSender};
 use std::sync::{Arc, Mutex, Weak};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -79,6 +80,20 @@ const MAX_PAIRING_ATTEMPTS: u32 = 5;
 /// a random one, so `host:8090` is worth writing down; a Host that cannot have it
 /// binds whatever the operating system offers and says so.
 pub const DEFAULT_PORT: u16 = 8090;
+
+/// Maximum concurrent question workers per connection.
+///
+/// Questions run off the connection thread so slow fetches never hold up
+/// playback controls, greetings, pings or pushed Snapshots; a client that
+/// floods questions queues behind this bound instead of spawning unbounded
+/// threads.
+pub const QUESTION_WORKERS: usize = 4;
+
+/// How many questions one connection may have waiting for a worker.
+///
+/// Home asks four at a time (#112), so a client that reaches this is asking far
+/// faster than it can be answered, and is refused rather than queued without end.
+pub const QUESTION_QUEUE: usize = 64;
 
 /// The Host, as the wire server reaches it.
 ///
@@ -177,7 +192,7 @@ fn accept_loop(
                 let _ = thread::Builder::new()
                     .name("host-wire-connection".to_owned())
                     .spawn(move || {
-                        if let Err(error) = serve(&surface, &broadcast, stream) {
+                        if let Err(error) = serve(&surface, &broadcast, stream, PING_EVERY) {
                             // A request that ends before it is answered — a page
                             // load abandoned, a handshake cut short — is the
                             // ordinary end of a connection, not a failure of the
@@ -202,6 +217,7 @@ fn serve(
     surface: &Arc<dyn Surface>,
     broadcast: &Broadcast,
     mut stream: TcpStream,
+    ping_every: Duration,
 ) -> io::Result<()> {
     // The listener is non-blocking so it can notice `stop`, and on Windows a
     // socket accepted from it is non-blocking too (Linux does not pass the flag
@@ -244,7 +260,7 @@ fn serve(
 
     let peer = stream.peer_addr().ok();
     let mut socket = WebSocket::from_raw_socket(stream, Role::Server, None);
-    connection(surface, broadcast, &mut socket, peer)
+    connection(surface, broadcast, &mut socket, peer, ping_every)
 }
 
 /// The conversation: a greeting, then commands, with pushed Snapshots between.
@@ -257,10 +273,11 @@ fn connection(
     broadcast: &Broadcast,
     socket: &mut WebSocket<TcpStream>,
     peer: Option<SocketAddr>,
+    ping_every: Duration,
 ) -> io::Result<()> {
     let opened = Instant::now();
     let mut device = None;
-    let ended = converse(surface, broadcast, socket, peer, &mut device);
+    let ended = converse(surface, broadcast, socket, peer, &mut device, ping_every);
     let why = match &ended {
         Ok(why) => why.clone(),
         Err(error) => format!("it failed: {error}"),
@@ -294,16 +311,14 @@ fn converse(
     socket: &mut WebSocket<TcpStream>,
     peer: Option<SocketAddr>,
     device: &mut Option<String>,
+    ping_every: Duration,
 ) -> io::Result<String> {
     let subscription = broadcast.subscribe();
-    // The Answers this connection is owed after their Response: a revised
-    // Title goes only to the client whose open queued the refresh, so the
-    // channel is per connection and not a broadcast (ADR-0038 §2).
-    let (revision_sender, revisions) = mpsc::channel();
-    let revision_sink: Arc<dyn RevisionSink> = Arc::new(ConnectionRevisions {
-        sender: revision_sender,
-    });
-    let mut paired: Option<Paired> = None;
+    let mut questions = QuestionPool::new(surface.clone());
+    // Declared after the pool, so it is dropped first: what is still queued is
+    // abandoned before the workers can see that the queue has closed.
+    let mut owed = Owed::new();
+    let mut paired: Option<Arc<Paired>> = None;
     let mut wrong_codes = 0u32;
     let mut last_seen = Instant::now();
     let mut last_ping = Instant::now();
@@ -314,7 +329,8 @@ fn converse(
                 last_seen = Instant::now();
                 let mut conversation = Conversation {
                     surface,
-                    revisions: &revision_sink,
+                    questions: &mut questions,
+                    owed: &mut owed,
                     paired: &mut paired,
                     wrong_codes: &mut wrong_codes,
                 };
@@ -370,7 +386,7 @@ fn converse(
         // Judged before the push, after a read: a thread that was held in a
         // write to a frozen phone reads the pongs that queued meanwhile before
         // it decides the phone said nothing.
-        match keepalive(Instant::now(), last_seen, last_ping, quiet) {
+        match keepalive(Instant::now(), last_seen, last_ping, quiet, ping_every) {
             Keepalive::Close => {
                 let _ = socket.close(None);
                 let _ = socket.flush();
@@ -388,11 +404,13 @@ fn converse(
             Keepalive::None => {}
         }
 
-        // The Host's own news, on the way to every client allowed to hear it.
-        if !push(surface, &subscription, &paired, socket)? {
+        // The Host's own news, on the way to every client allowed to hear it,
+        // and then what this one asked for.
+        if !push(surface, &subscription, &paired, socket)?
+            || !send_owed(surface, &owed, &paired, socket)?
+        {
             return Ok("the device was revoked".to_owned());
         }
-        send_revisions(&revisions, socket)?;
     }
 }
 
@@ -413,12 +431,18 @@ enum Keepalive {
 /// Both are decided only after a read that found nothing (`quiet`): a
 /// connection that has just said something is plainly there, and one whose
 /// thread was busy has not been read since, so its silence is not yet known.
-fn keepalive(now: Instant, last_seen: Instant, last_ping: Instant, quiet: bool) -> Keepalive {
+fn keepalive(
+    now: Instant,
+    last_seen: Instant,
+    last_ping: Instant,
+    quiet: bool,
+    ping_every: Duration,
+) -> Keepalive {
     if !quiet {
         Keepalive::None
     } else if now.saturating_duration_since(last_seen) >= IDLE_TIMEOUT {
         Keepalive::Close
-    } else if now.saturating_duration_since(last_ping) >= PING_EVERY {
+    } else if now.saturating_duration_since(last_ping) >= ping_every {
         Keepalive::Ping
     } else {
         Keepalive::None
@@ -455,7 +479,7 @@ impl Paired {
 fn push(
     surface: &Arc<dyn Surface>,
     subscription: &Subscription,
-    paired: &Option<Paired>,
+    paired: &Option<Arc<Paired>>,
     socket: &mut WebSocket<TcpStream>,
 ) -> io::Result<bool> {
     let _ = socket.flush();
@@ -479,25 +503,32 @@ fn push(
         if paired.still_known(&**surface) {
             send(socket, &ServerFrame::Snapshot(Box::new(snapshot)))?;
         } else {
-            let _ = send(
-                socket,
-                &ServerFrame::Refusal {
-                    id: None,
-                    error: ActionError::Unpaired,
-                },
-            );
-            let _ = socket.close(None);
+            cut_off(socket);
             return Ok(false);
         }
     }
+}
+
+/// Tell a connection its device is not paired any more, and close it
+/// (ADR-0017 §6).
+fn cut_off(socket: &mut WebSocket<TcpStream>) {
+    let _ = send(
+        socket,
+        &ServerFrame::Refusal {
+            id: None,
+            error: ActionError::Unpaired,
+        },
+    );
+    let _ = socket.close(None);
 }
 
 /// The conversation's own state: what this connection is, and how many pairing
 /// attempts it has spent.
 struct Conversation<'a> {
     surface: &'a Arc<dyn Surface>,
-    revisions: &'a Arc<dyn RevisionSink>,
-    paired: &'a mut Option<Paired>,
+    questions: &'a mut QuestionPool,
+    owed: &'a mut Owed,
+    paired: &'a mut Option<Arc<Paired>>,
     wrong_codes: &'a mut u32,
 }
 
@@ -517,24 +548,27 @@ impl Conversation<'_> {
         match frame {
             ClientFrame::Hello { token } => {
                 let device = token.as_ref().and_then(|token| self.surface.device(token));
-                match (token, device) {
-                    (Some(token), Some(device)) => {
-                        *self.paired = Some(Paired {
-                            id: device.id.clone(),
-                            token,
-                            name: device.name.as_str().to_owned(),
-                        });
-                        self.welcome(Some(device), socket)?;
-                    }
-                    // A token the Host never issued, or one it has revoked: this
-                    // is a connection that has not paired, and is told so by a
-                    // welcome with no device rather than by an error. Whether
-                    // that is a reason to leave is the client's judgement.
-                    _ => {
-                        *self.paired = None;
-                        self.welcome(None, socket)?;
-                    }
+                // A token the Host never issued, or one it has revoked, makes
+                // this a connection that has not paired, and it is told so by a
+                // welcome with no device rather than by an error. Whether that
+                // is a reason to leave is the client's judgement.
+                let greeted = token.zip(device.as_ref()).map(|(token, device)| {
+                    Arc::new(Paired {
+                        id: device.id.clone(),
+                        token,
+                        name: device.name.as_str().to_owned(),
+                    })
+                });
+                // A client greets again to see that the Host is there, so only
+                // a greeting that changes who this connection is gives up what
+                // it has asked.
+                if self.paired.as_ref().map(|paired| &paired.id)
+                    != greeted.as_ref().map(|paired| &paired.id)
+                {
+                    self.abandon_questions();
                 }
+                *self.paired = greeted;
+                self.welcome(device, socket)?;
                 Ok(Outcome::Keep)
             }
             ClientFrame::Command { id, action } => {
@@ -570,7 +604,30 @@ impl Conversation<'_> {
                     return Ok(Outcome::Keep);
                 }
 
-                match self.surface.dispatch(action, self.revisions.clone()) {
+                // Questions resolve outside the change lock (ADR-0022), so they
+                // run on this connection's bounded worker pool and never hold up
+                // greetings, changes, pairing, pushed Snapshots or pings.
+                if let (true, Some(asker)) = (action.is_question(), self.paired.as_ref()) {
+                    let job = QuestionJob {
+                        id,
+                        action,
+                        asker: asker.clone(),
+                        asking: self.owed.asking.clone(),
+                    };
+                    if let Err(error) = self.questions.submit(job) {
+                        send(
+                            socket,
+                            &ServerFrame::Refusal {
+                                id: Some(id),
+                                error,
+                            },
+                        )?;
+                    }
+                    return Ok(Outcome::Keep);
+                }
+
+                let revisions = self.owed.asking.revisions.clone();
+                match self.surface.dispatch(action, revisions) {
                     Ok(mut response) => {
                         // A pairing answers with the token this connection now
                         // holds; adopting it here is what makes the rest of the
@@ -580,11 +637,11 @@ impl Conversation<'_> {
                             token: issued,
                         }) = &response.answer
                         {
-                            *self.paired = Some(Paired {
+                            *self.paired = Some(Arc::new(Paired {
                                 id: device.id.clone(),
                                 token: issued.clone(),
                                 name: device.name.as_str().to_owned(),
-                            });
+                            }));
                         }
                         // The Snapshots were already published by the
                         // `WireSurface` that took the Action; the connection
@@ -616,6 +673,13 @@ impl Conversation<'_> {
                 }
             }
         }
+    }
+
+    /// Give up what this connection has asked and not yet been told: it is
+    /// owed to the device that asked, which this connection has stopped being.
+    fn abandon_questions(&mut self) {
+        *self.owed = Owed::new();
+        self.questions.discard_queued();
     }
 
     /// The greeting's answer, and — for a connection that paired — the state as
@@ -653,15 +717,211 @@ impl RevisionSink for ConnectionRevisions {
     }
 }
 
-/// Write every revised Answer that has arrived for this connection.
-fn send_revisions(
-    revisions: &Receiver<Answer>,
-    socket: &mut WebSocket<TcpStream>,
-) -> io::Result<()> {
-    while let Ok(answer) = revisions.try_recv() {
-        send(socket, &ServerFrame::Revision(Box::new(answer)))?;
+/// What a connection is owed for what it has asked as the device it is now: its
+/// questions' Replies, and the Answers revised after them.
+///
+/// A revised Title goes only to the client whose open queued the refresh, so the
+/// channels are per connection and not a broadcast (ADR-0038 §2). This is
+/// replaced when the connection stops being that device and dropped when the
+/// connection ends, and either abandons whatever was queued or undelivered.
+struct Owed {
+    replies: Receiver<ServerFrame>,
+    revisions: Receiver<Answer>,
+    asking: Asking,
+}
+
+/// The asking side of [`Owed`], carried by every question asked under it.
+#[derive(Clone)]
+struct Asking {
+    abandoned: Arc<AtomicBool>,
+    replies: Sender<ServerFrame>,
+    revisions: Arc<dyn RevisionSink>,
+}
+
+impl Owed {
+    fn new() -> Self {
+        let (reply_sender, replies) = mpsc::channel();
+        let (revision_sender, revisions) = mpsc::channel();
+        Self {
+            replies,
+            revisions,
+            asking: Asking {
+                abandoned: Arc::new(AtomicBool::new(false)),
+                replies: reply_sender,
+                revisions: Arc::new(ConnectionRevisions {
+                    sender: revision_sender,
+                }),
+            },
+        }
     }
-    Ok(())
+}
+
+impl Drop for Owed {
+    fn drop(&mut self) {
+        self.asking.abandoned.store(true, Ordering::SeqCst);
+    }
+}
+
+/// Write every revised Answer, and every question's Reply or Refusal, that has
+/// arrived for this connection — to a device the Host knows now and to no other.
+///
+/// Answers whether the connection is still wanted, as [`push`] does: a question
+/// asked before a revoke may well be answered after it.
+fn send_owed(
+    surface: &Arc<dyn Surface>,
+    owed: &Owed,
+    paired: &Option<Arc<Paired>>,
+    socket: &mut WebSocket<TcpStream>,
+) -> io::Result<bool> {
+    let revised = owed
+        .revisions
+        .try_iter()
+        .map(|answer| ServerFrame::Revision(Box::new(answer)));
+    for frame in revised.chain(owed.replies.try_iter()) {
+        let known = paired
+            .as_ref()
+            .is_some_and(|paired| paired.still_known(&**surface));
+        if !known {
+            cut_off(socket);
+            return Ok(false);
+        }
+        send(socket, &frame)?;
+    }
+    Ok(true)
+}
+
+/// A question waiting for a worker, and who asked it.
+struct QuestionJob {
+    id: u64,
+    action: Action,
+    asker: Arc<Paired>,
+    asking: Asking,
+}
+
+/// Decrements `outstanding` even if a test double panics inside `dispatch`.
+struct OutstandingGuard(Arc<AtomicUsize>);
+
+impl Drop for OutstandingGuard {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// One connection's bounded worker pool for questions.
+///
+/// Workers are spawned lazily up to [`QUESTION_WORKERS`] so idle or unpaired
+/// connections own no extra threads, and a flood of questions queues behind them
+/// rather than spawning unbounded threads, up to [`QUESTION_QUEUE`] of them.
+///
+/// Dropping the pool closes the queue, which lets every idle worker exit; one
+/// still inside `dispatch` finishes its ask and then exits, without stalling the
+/// connection's teardown.
+struct QuestionPool {
+    surface: Arc<dyn Surface>,
+    sender: SyncSender<QuestionJob>,
+    receiver: Arc<Mutex<Receiver<QuestionJob>>>,
+    outstanding: Arc<AtomicUsize>,
+    spawned: usize,
+}
+
+impl QuestionPool {
+    fn new(surface: Arc<dyn Surface>) -> Self {
+        let (sender, receiver) = mpsc::sync_channel(QUESTION_QUEUE);
+        Self {
+            surface,
+            sender,
+            receiver: Arc::new(Mutex::new(receiver)),
+            outstanding: Arc::new(AtomicUsize::new(0)),
+            spawned: 0,
+        }
+    }
+
+    /// Queue a question for a worker, or refuse it when the queue is full.
+    fn submit(&mut self, job: QuestionJob) -> Result<(), ActionError> {
+        let need = self.outstanding.fetch_add(1, Ordering::SeqCst) + 1;
+        if need > self.spawned && self.spawned < QUESTION_WORKERS && self.spawn_worker() {
+            self.spawned += 1;
+        }
+        if self.spawned == 0 {
+            // No thread could be had: answer it here rather than not at all.
+            let _guard = OutstandingGuard(self.outstanding.clone());
+            answer_question(&self.surface, job);
+            return Ok(());
+        }
+        // The pool holds the receiver, so a full queue is the only refusal.
+        self.sender.try_send(job).map_err(|_| {
+            self.outstanding.fetch_sub(1, Ordering::SeqCst);
+            ActionError::TooManyQuestions {
+                limit: QUESTION_QUEUE,
+            }
+        })
+    }
+
+    /// Empty the queue, so abandoned questions take none of its room.
+    ///
+    /// A worker holding the receiver is waiting on an empty queue, and one that
+    /// takes a question first finds it abandoned.
+    fn discard_queued(&self) {
+        if let Ok(receiver) = self.receiver.try_lock() {
+            for _abandoned in receiver.try_iter() {
+                self.outstanding.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+    }
+
+    fn spawn_worker(&self) -> bool {
+        let surface = self.surface.clone();
+        let receiver = self.receiver.clone();
+        let outstanding = self.outstanding.clone();
+
+        thread::Builder::new()
+            .name("host-wire-question".to_owned())
+            .spawn(move || loop {
+                let job = {
+                    let guard = receiver
+                        .lock()
+                        .expect("nothing panics while taking a question");
+                    guard.recv()
+                };
+                let Ok(job) = job else {
+                    break;
+                };
+                let _guard = OutstandingGuard(outstanding.clone());
+                answer_question(&surface, job);
+            })
+            .is_ok()
+    }
+}
+
+/// Ask a question and send back its answer — unless, since it was queued, the
+/// connection has given it up or the Host has stopped knowing the device that
+/// asked (ADR-0045 §3).
+fn answer_question(surface: &Arc<dyn Surface>, job: QuestionJob) {
+    if job.asking.abandoned.load(Ordering::SeqCst) || !job.asker.still_known(&**surface) {
+        return;
+    }
+    let frame = dispatch_question(surface, &job.asking.revisions, job.id, job.action);
+    let _ = job.asking.replies.send(frame);
+}
+
+fn dispatch_question(
+    surface: &Arc<dyn Surface>,
+    revisions: &Arc<dyn RevisionSink>,
+    id: u64,
+    action: Action,
+) -> ServerFrame {
+    match surface.dispatch(action, revisions.clone()) {
+        Ok(mut response) => {
+            // The Snapshots were already published by the `Surface` that took
+            // the Action; the connection receives them through `push`.
+            response.snapshots.clear();
+            ServerFrame::Reply { id, response }
+        }
+        Err(error) => ServerFrame::Refusal {
+            id: Some(id),
+            error,
+        },
+    }
 }
 
 fn send(socket: &mut WebSocket<TcpStream>, frame: &ServerFrame) -> io::Result<()> {
@@ -821,6 +1081,15 @@ mod tests {
     /// accepted from the listener's non-blocking socket, and non-blocking itself
     /// (Linux does not pass the flag on, so a suite running there sets it).
     fn serve_as_windows_accepts(state: Snapshot) -> (TcpStream, JoinHandle<()>) {
+        let surface: Arc<dyn Surface> = Arc::new(Roomy {
+            device: phone(),
+            state,
+        });
+        serve_one(surface, PING_EVERY)
+    }
+
+    /// One accepted connection over `surface`, pinged as often as a case asks.
+    fn serve_one(surface: Arc<dyn Surface>, ping_every: Duration) -> (TcpStream, JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
         let client =
             TcpStream::connect(listener.local_addr().expect("an address")).expect("connects");
@@ -832,12 +1101,8 @@ mod tests {
             .set_read_timeout(Some(Duration::from_secs(10)))
             .expect("the client can be given a read timeout");
 
-        let surface: Arc<dyn Surface> = Arc::new(Roomy {
-            device: phone(),
-            state,
-        });
         let serving = thread::spawn(move || {
-            let _ = serve(&surface, &Broadcast::new(), accepted);
+            let _ = serve(&surface, &Broadcast::new(), accepted, ping_every);
         });
         (client, serving)
     }
@@ -966,13 +1231,19 @@ mod tests {
     #[test]
     fn a_quiet_connection_is_pinged_before_it_is_closed() {
         let now = Instant::now();
-        assert_eq!(keepalive(now, now, now, true), Keepalive::None);
+        assert_eq!(keepalive(now, now, now, true, PING_EVERY), Keepalive::None);
         assert_eq!(
-            keepalive(now, now - PING_EVERY, now - PING_EVERY, true),
+            keepalive(now, now - PING_EVERY, now - PING_EVERY, true, PING_EVERY),
             Keepalive::Ping
         );
         assert_eq!(
-            keepalive(now, now - IDLE_TIMEOUT, now - Duration::from_secs(1), true),
+            keepalive(
+                now,
+                now - IDLE_TIMEOUT,
+                now - Duration::from_secs(1),
+                true,
+                PING_EVERY
+            ),
             Keepalive::Close
         );
     }
@@ -985,10 +1256,13 @@ mod tests {
         let now = Instant::now();
         let asleep = now - Duration::from_secs(5 * 60);
         assert_eq!(
-            keepalive(now, asleep, now - PING_EVERY, true),
+            keepalive(now, asleep, now - PING_EVERY, true, PING_EVERY),
             Keepalive::Ping
         );
-        assert_eq!(keepalive(now, asleep, now, true), Keepalive::None);
+        assert_eq!(
+            keepalive(now, asleep, now, true, PING_EVERY),
+            Keepalive::None
+        );
     }
 
     #[test]
@@ -997,7 +1271,150 @@ mod tests {
         // queued meanwhile: silence is only silence once a read found nothing.
         let now = Instant::now();
         let long_ago = now - IDLE_TIMEOUT * 2;
-        assert_eq!(keepalive(now, long_ago, now, false), Keepalive::None);
-        assert_eq!(keepalive(now, long_ago, now, true), Keepalive::Close);
+        assert_eq!(
+            keepalive(now, long_ago, now, false, PING_EVERY),
+            Keepalive::None
+        );
+        assert_eq!(
+            keepalive(now, long_ago, now, true, PING_EVERY),
+            Keepalive::Close
+        );
+    }
+
+    /// A Host that knows the phone and holds every question until it is let
+    /// through, saying when each one has reached it.
+    struct Gated {
+        entered_tx: Sender<()>,
+        gate_rx: Mutex<Receiver<()>>,
+    }
+
+    impl Surface for Gated {
+        fn dispatch(
+            &self,
+            _action: Action,
+            _revisions: Arc<dyn RevisionSink>,
+        ) -> Result<Response, ActionError> {
+            let _ = self.entered_tx.send(());
+            let _ = self.gate_rx.lock().expect("gate mutex").recv();
+            Ok(Response {
+                snapshots: Vec::new(),
+                answer: None,
+            })
+        }
+
+        fn device(&self, _token: &DeviceToken) -> Option<DeviceSummary> {
+            Some(phone())
+        }
+
+        fn snapshot(&self) -> Snapshot {
+            snapshot()
+        }
+    }
+
+    /// A [`Gated`] Host, what has reached it, and the way to let one through.
+    fn gated() -> (Arc<dyn Surface>, Receiver<()>, Sender<()>) {
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let (gate_tx, gate_rx) = mpsc::channel();
+        let surface = Arc::new(Gated {
+            entered_tx,
+            gate_rx: Mutex::new(gate_rx),
+        });
+        (surface, entered_rx, gate_tx)
+    }
+
+    #[test]
+    fn pings_keep_flowing_while_a_question_is_in_flight() {
+        let (surface, entered, release) = gated();
+        let (mut client, serving) = serve_one(surface, Duration::from_millis(50));
+        client.write_all(UPGRADE).expect("the request is sent");
+        let head = response_head(&mut client);
+        assert!(head.starts_with("HTTP/1.1 101"), "{head:?}");
+
+        let mut socket = WebSocket::from_raw_socket(client, Role::Client, None);
+        for frame in [
+            json!({ "version": WIRE_VERSION, "hello": { "token": "a".repeat(43) } }),
+            json!({ "version": WIRE_VERSION, "id": 10, "command": { "type": "library" } }),
+        ] {
+            socket
+                .send(Message::Text(frame.to_string().into()))
+                .expect("the Host is listening");
+        }
+        entered
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the question reaches the Host");
+
+        // More than one ping, so one sent before the question cannot pass this.
+        let mut pings = 0;
+        while pings < 3 {
+            match socket.read().expect("the Host is still answering") {
+                Message::Ping(_) => pings += 1,
+                Message::Text(text) => {
+                    let frame: Value = serde_json::from_str(&text).expect("the Host writes JSON");
+                    assert!(frame.get("id").is_none(), "still in flight: {frame}");
+                }
+                other => panic!("unexpected: {other:?}"),
+            }
+        }
+
+        release.send(()).expect("release the question");
+        loop {
+            if let Message::Text(text) = socket.read().expect("the Host is still answering") {
+                let frame: Value = serde_json::from_str(&text).expect("the Host writes JSON");
+                if frame["id"] == 10 {
+                    break;
+                }
+            }
+        }
+
+        drop(socket);
+        serving.join().expect("the connection's thread ends");
+    }
+
+    #[test]
+    fn a_question_pool_caps_workers_when_flooded() {
+        let (surface, entered_rx, gate_tx) = gated();
+        let owed = Owed::new();
+        let asker = Arc::new(Paired {
+            id: phone().id,
+            token: DeviceToken::parse(&"a".repeat(43)).expect("a device token"),
+            name: "Phone".to_owned(),
+        });
+        let mut pool = QuestionPool::new(surface);
+
+        let total = QUESTION_WORKERS * 3;
+        for id in 0..total {
+            pool.submit(QuestionJob {
+                id: id as u64,
+                action: Action::Library,
+                asker: asker.clone(),
+                asking: owed.asking.clone(),
+            })
+            .expect("the queue has room");
+        }
+
+        assert_eq!(
+            pool.spawned, QUESTION_WORKERS,
+            "a flood beyond QUESTION_WORKERS never spawns extra threads"
+        );
+        for _ in 0..QUESTION_WORKERS {
+            entered_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("the bounded workers all enter");
+        }
+        assert!(
+            entered_rx.try_recv().is_err(),
+            "excess questions queue behind the worker bound"
+        );
+
+        for _ in 0..total {
+            gate_tx.send(()).expect("release one worker");
+        }
+        for _ in 0..total {
+            let frame = owed
+                .replies
+                .recv_timeout(Duration::from_secs(2))
+                .expect("every queued question answers");
+            assert!(matches!(frame, ServerFrame::Reply { .. }));
+        }
     }
 }

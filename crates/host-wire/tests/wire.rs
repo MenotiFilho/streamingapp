@@ -4,17 +4,19 @@
 //! Nothing below the Action surface is named: this is the second client's door,
 //! and what it proves is that it is the same door (ADR-0002).
 
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::TcpStream;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{mpsc, Arc, Mutex};
 use std::time::Duration;
 
 use host_core::{
-    Action, ActionError, AddonProvider, DeviceSummary, DeviceToken, FixtureClock, FixtureFetcher,
-    FixturePlayer, Host, HostDoor, InMemorySecretStore, InMemoryStore, Response, RevisionSink,
-    Snapshot, WIRE_VERSION,
+    Action, ActionError, AddonProvider, DeviceSummary, DeviceToken, FetchError, Fetcher,
+    FixtureClock, FixtureFetcher, FixturePlayer, Host, HostDoor, InMemorySecretStore,
+    InMemoryStore, Response, RevisionSink, Snapshot, WIRE_VERSION,
 };
-use host_wire::{Broadcast, Server, Surface};
+use host_wire::{Broadcast, Server, Surface, QUESTION_QUEUE, QUESTION_WORKERS};
 use serde_json::{json, Value};
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{connect, Message, WebSocket};
@@ -29,8 +31,8 @@ struct Fixture {
 }
 
 impl Fixture {
-    /// A Host over the fixtures a test recorded, with a clock it can move.
-    fn over(fetcher: Arc<FixtureFetcher>) -> Arc<Self> {
+    /// A Host over any [`Fetcher`], such as one that gates specific URLs.
+    fn over(fetcher: Arc<dyn Fetcher>) -> Arc<Self> {
         let store = Arc::new(InMemoryStore::new());
         let clock = Arc::new(FixtureClock::new());
         let provider = Arc::new(AddonProvider::new(fetcher.clone()));
@@ -98,6 +100,10 @@ fn server() -> (Arc<Fixture>, Server) {
 }
 
 fn server_over(fetcher: Arc<FixtureFetcher>) -> (Arc<Fixture>, Server) {
+    server_over_fetcher(fetcher)
+}
+
+fn server_over_fetcher(fetcher: Arc<dyn Fetcher>) -> (Arc<Fixture>, Server) {
     let fixture = Fixture::over(fetcher);
     let server = Server::start(
         fixture.clone(),
@@ -1262,4 +1268,665 @@ fn set_addon_enabled_broadcasts_the_change_and_refuses_open_title_while_disabled
 
     let opened = client.command(6, open_movie());
     assert_eq!(opened["response"]["answer"]["title"]["name"], "The Matrix");
+}
+
+struct ActiveGuard<'a>(&'a AtomicUsize);
+
+impl Drop for ActiveGuard<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+/// A [`Fetcher`] whose recorded URLs can be held behind per-URL gates so
+/// tests control concurrency and completion order without wall-clock sleeps.
+struct BlockingFetcher {
+    inner: FixtureFetcher,
+    gates: Mutex<HashMap<String, mpsc::Receiver<()>>>,
+    entered_tx: mpsc::Sender<String>,
+    active: AtomicUsize,
+    peak: AtomicUsize,
+}
+
+impl BlockingFetcher {
+    fn new(inner: FixtureFetcher) -> (Arc<Self>, mpsc::Receiver<String>) {
+        let (entered_tx, entered_rx) = mpsc::channel();
+        let fetcher = Arc::new(Self {
+            inner,
+            gates: Mutex::new(HashMap::new()),
+            entered_tx,
+            active: AtomicUsize::new(0),
+            peak: AtomicUsize::new(0),
+        });
+        (fetcher, entered_rx)
+    }
+
+    fn gate(&self, url: &str) -> mpsc::Sender<()> {
+        let (tx, rx) = mpsc::channel();
+        self.gates
+            .lock()
+            .expect("gates lock")
+            .insert(url.to_owned(), rx);
+        tx
+    }
+}
+
+impl Fetcher for BlockingFetcher {
+    fn fetch_with_headers(
+        &self,
+        url: &str,
+        headers: &[(&str, &str)],
+    ) -> Result<String, FetchError> {
+        let gate = self.gates.lock().expect("gates lock").remove(url);
+        if let Some(rx) = gate {
+            let now = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+            self.peak.fetch_max(now, Ordering::SeqCst);
+            let _guard = ActiveGuard(&self.active);
+            let _ = self.entered_tx.send(url.to_owned());
+            let _ = rx.recv();
+        }
+        self.inner.fetch_with_headers(url, headers)
+    }
+}
+
+#[test]
+fn a_blocking_question_does_not_delay_a_change_on_the_same_connection() {
+    let (fetcher, entered_rx) = BlockingFetcher::new(
+        FixtureFetcher::new()
+            .serving(MANIFEST_URL, MANIFEST)
+            .serving(MOVIE_URL, MOVIE),
+    );
+    let (fixture, server) = server_over_fetcher(fetcher.clone());
+    let mut client = Client::connect(&server);
+    client.hello(None);
+    pair(&mut client, &fixture, "Phone");
+    client.command(3, json!({ "type": "add_addon", "url": MANIFEST_URL }));
+
+    let release_question = fetcher.gate(MOVIE_URL);
+    client.send(json!({
+        "version": WIRE_VERSION,
+        "id": 10,
+        "command": open_movie(),
+    }));
+    assert_eq!(
+        entered_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the question enters its worker fetch"),
+        MOVIE_URL
+    );
+
+    client.send(json!({
+        "version": WIRE_VERSION,
+        "id": 11,
+        "command": { "type": "set_subtitle_languages", "languages": ["pt-BR"] },
+    }));
+
+    let first_reply = loop {
+        let frame = client.next();
+        if frame.get("id").is_some() {
+            break frame;
+        }
+    };
+    assert_eq!(
+        first_reply["id"], 11,
+        "the change's Reply arrives before the blocked question: {first_reply}"
+    );
+    assert!(first_reply.get("response").is_some());
+
+    release_question
+        .send(())
+        .expect("release the blocked question");
+    let question_reply = loop {
+        let frame = client.next();
+        if frame.get("id").and_then(Value::as_u64) == Some(10) {
+            break frame;
+        }
+    };
+    assert_eq!(
+        question_reply["response"]["answer"]["title"]["name"],
+        "The Matrix"
+    );
+}
+
+#[test]
+fn a_greeting_while_a_question_is_in_flight_is_answered_promptly_with_welcome() {
+    let (fetcher, entered_rx) = BlockingFetcher::new(
+        FixtureFetcher::new()
+            .serving(MANIFEST_URL, MANIFEST)
+            .serving(MOVIE_URL, MOVIE),
+    );
+    let (fixture, server) = server_over_fetcher(fetcher.clone());
+    let mut client = Client::connect(&server);
+    client.hello(None);
+    let (_device, token) = pair(&mut client, &fixture, "Phone");
+    client.command(3, json!({ "type": "add_addon", "url": MANIFEST_URL }));
+
+    let release_question = fetcher.gate(MOVIE_URL);
+    client.send(json!({
+        "version": WIRE_VERSION,
+        "id": 10,
+        "command": open_movie(),
+    }));
+    assert_eq!(
+        entered_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the question enters its worker fetch"),
+        MOVIE_URL
+    );
+
+    client.send(json!({ "version": WIRE_VERSION, "hello": { "token": token } }));
+
+    let mut saw_welcome = false;
+    let mut saw_snapshot = false;
+    while !saw_welcome || !saw_snapshot {
+        let frame = client.next();
+        assert_ne!(
+            frame.get("id").and_then(Value::as_u64),
+            Some(10),
+            "Welcome and its Snapshot arrive before the blocked question's Reply: {frame}"
+        );
+        if let Some(welcome) = frame.get("welcome") {
+            assert_eq!(welcome["device"]["name"], "Phone");
+            saw_welcome = true;
+        }
+        if frame.get("snapshot").is_some() {
+            saw_snapshot = true;
+        }
+    }
+
+    release_question
+        .send(())
+        .expect("release the blocked question");
+    let question_reply = loop {
+        let frame = client.next();
+        if frame.get("id").and_then(Value::as_u64) == Some(10) {
+            break frame;
+        }
+    };
+    assert_eq!(
+        question_reply["response"]["answer"]["title"]["name"],
+        "The Matrix"
+    );
+}
+
+#[test]
+fn pushed_snapshots_keep_flowing_while_a_question_is_in_flight() {
+    let (fetcher, entered_rx) = BlockingFetcher::new(
+        FixtureFetcher::new()
+            .serving(MANIFEST_URL, MANIFEST)
+            .serving(MOVIE_URL, MOVIE),
+    );
+    let (fixture, server) = server_over_fetcher(fetcher.clone());
+    let mut client = Client::connect(&server);
+    client.hello(None);
+    pair(&mut client, &fixture, "Phone");
+    client.command(3, json!({ "type": "add_addon", "url": MANIFEST_URL }));
+    client.snapshot_where(|snapshot| {
+        snapshot["addons"]
+            .as_array()
+            .is_some_and(|addons| !addons.is_empty())
+    });
+
+    let release_question = fetcher.gate(MOVIE_URL);
+    client.send(json!({
+        "version": WIRE_VERSION,
+        "id": 10,
+        "command": open_movie(),
+    }));
+    assert_eq!(
+        entered_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("the question enters its worker fetch"),
+        MOVIE_URL
+    );
+
+    fixture.publish_change(action(
+        r#"{"type":"set_subtitle_languages","languages":["fr"]}"#,
+    ));
+
+    loop {
+        let frame = client.next();
+        assert_ne!(
+            frame.get("id").and_then(Value::as_u64),
+            Some(10),
+            "the Snapshot arrives while the question is still blocked: {frame}"
+        );
+        if frame["snapshot"]["preferences"]["subtitleLanguages"] == json!(["fr"]) {
+            break;
+        }
+    }
+
+    release_question
+        .send(())
+        .expect("release the blocked question");
+    let question_reply = loop {
+        let frame = client.next();
+        if frame.get("id").and_then(Value::as_u64) == Some(10) {
+            break frame;
+        }
+    };
+    assert_eq!(
+        question_reply["response"]["answer"]["title"]["name"],
+        "The Matrix"
+    );
+}
+
+#[test]
+fn two_changes_sent_back_to_back_are_applied_in_order() {
+    let fetcher = Arc::new(FixtureFetcher::new().serving(MANIFEST_URL, MANIFEST));
+    let (fixture, server) = server_over(fetcher);
+    let mut client = Client::connect(&server);
+    client.hello(None);
+    pair(&mut client, &fixture, "Phone");
+
+    // `set_addon_enabled` depends on `add_addon` having already landed; two
+    // subtitle-language writes pin final state order.
+    client.send(json!({
+        "version": WIRE_VERSION,
+        "id": 10,
+        "command": { "type": "add_addon", "url": MANIFEST_URL },
+    }));
+    client.send(json!({
+        "version": WIRE_VERSION,
+        "id": 11,
+        "command": {
+            "type": "set_addon_enabled",
+            "addon": "com.linvo.cinemeta",
+            "enabled": false,
+        },
+    }));
+    client.send(json!({
+        "version": WIRE_VERSION,
+        "id": 12,
+        "command": { "type": "set_subtitle_languages", "languages": ["pt-BR"] },
+    }));
+    client.send(json!({
+        "version": WIRE_VERSION,
+        "id": 13,
+        "command": { "type": "set_subtitle_languages", "languages": ["en"] },
+    }));
+
+    let mut ids = Vec::new();
+    while ids.len() < 4 {
+        let frame = client.next();
+        if let Some(id) = frame.get("id").and_then(Value::as_u64) {
+            assert!(
+                frame.get("response").is_some(),
+                "change {id} succeeded in arrival order: {frame}"
+            );
+            ids.push(id);
+        }
+    }
+    assert_eq!(ids, vec![10, 11, 12, 13]);
+
+    let final_state = fixture.snapshot();
+    assert!(!final_state.addons[0].enabled);
+    assert_eq!(
+        final_state
+            .preferences
+            .subtitle_languages
+            .iter()
+            .map(|l| l.as_str())
+            .collect::<Vec<_>>(),
+        vec!["en"]
+    );
+}
+
+/// `total` films one Addon answers, each behind its own URL: the ids a client
+/// asks for and the URLs the asks reach.
+fn numbered_movies(total: usize) -> (FixtureFetcher, Vec<(String, String)>) {
+    let mut inner = FixtureFetcher::new().serving(MANIFEST_URL, MANIFEST);
+    let mut urls = Vec::with_capacity(total);
+    for idx in 0..total {
+        let tt_id = format!("tt013309{idx}");
+        let url = format!("https://v3-cinemeta.strem.io/meta/movie/{tt_id}.json");
+        let body = format!(r#"{{"meta":{{"id":"{tt_id}","type":"movie","name":"Movie {idx}"}}}}"#);
+        inner = inner.serving(&url, body);
+        urls.push((tt_id, url));
+    }
+    (inner, urls)
+}
+
+/// The command that opens one of the [`numbered_movies`].
+fn open_numbered(tt_id: &str) -> Value {
+    json!({
+        "type": "open_title",
+        "addon": "com.linvo.cinemeta",
+        "title": { "type": "movie", "id": tt_id },
+    })
+}
+
+#[test]
+fn flooding_questions_beyond_the_worker_limit_queues_without_spawning_more_threads() {
+    let total = QUESTION_WORKERS + 2;
+    let (inner, urls) = numbered_movies(total);
+
+    let (fetcher, entered_rx) = BlockingFetcher::new(inner);
+    let mut gates: HashMap<String, mpsc::Sender<()>> = urls
+        .iter()
+        .map(|(_id, url)| (url.clone(), fetcher.gate(url)))
+        .collect();
+
+    let (fixture, server) = server_over_fetcher(fetcher.clone());
+    let mut client = Client::connect(&server);
+    client.hello(None);
+    pair(&mut client, &fixture, "Phone");
+    client.command(3, json!({ "type": "add_addon", "url": MANIFEST_URL }));
+
+    for (idx, (tt_id, _url)) in urls.iter().enumerate() {
+        client.send(json!({
+            "version": WIRE_VERSION,
+            "id": 10 + idx as u64,
+            "command": open_numbered(tt_id),
+        }));
+    }
+    // Sent after the flood: proves the connection loop read and queued every
+    // question without blocking on the full worker pool.
+    client.send(json!({
+        "version": WIRE_VERSION,
+        "id": 99,
+        "command": { "type": "set_subtitle_languages", "languages": ["es"] },
+    }));
+
+    let change_reply = loop {
+        let frame = client.next();
+        if frame.get("id").is_some() {
+            break frame;
+        }
+    };
+    assert_eq!(
+        change_reply["id"], 99,
+        "the change after the question flood answers while the worker pool is saturated"
+    );
+
+    let mut in_flight = Vec::with_capacity(QUESTION_WORKERS);
+    for _ in 0..QUESTION_WORKERS {
+        in_flight.push(
+            entered_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("up to QUESTION_WORKERS enter concurrently"),
+        );
+    }
+    assert_eq!(fetcher.active.load(Ordering::SeqCst), QUESTION_WORKERS);
+    assert_eq!(fetcher.peak.load(Ordering::SeqCst), QUESTION_WORKERS);
+    assert!(
+        entered_rx.try_recv().is_err(),
+        "questions past QUESTION_WORKERS wait in the queue"
+    );
+
+    // Unblock two workers and observe the two queued questions enter without
+    // raising peak concurrency past QUESTION_WORKERS.
+    for url in in_flight.drain(..2) {
+        gates
+            .remove(&url)
+            .expect("gate exists")
+            .send(())
+            .expect("unblock");
+    }
+    for _ in 0..2 {
+        in_flight.push(
+            entered_rx
+                .recv_timeout(Duration::from_secs(2))
+                .expect("queued questions enter as workers free up"),
+        );
+    }
+    assert_eq!(fetcher.peak.load(Ordering::SeqCst), QUESTION_WORKERS);
+
+    for url in in_flight {
+        gates
+            .remove(&url)
+            .expect("gate exists")
+            .send(())
+            .expect("unblock");
+    }
+
+    let mut answered = Vec::new();
+    while answered.len() < total {
+        let frame = client.next();
+        if let Some(id) = frame.get("id").and_then(Value::as_u64) {
+            assert!(
+                frame.get("response").is_some(),
+                "queued question {id} succeeds: {frame}"
+            );
+            answered.push(id);
+        }
+    }
+    answered.sort_unstable();
+    let expected: Vec<u64> = (10..10 + total as u64).collect();
+    assert_eq!(answered, expected);
+}
+
+/// A paired connection whose every question worker is held inside an Addon's
+/// fetch, with one more question waiting in the queue behind them.
+struct Saturated {
+    fixture: Arc<Fixture>,
+    server: Server,
+    client: Client,
+    device: DeviceSummary,
+    token: DeviceToken,
+    entered: mpsc::Receiver<String>,
+    /// The gates of the questions the workers are inside.
+    held: Vec<mpsc::Sender<()>>,
+    /// The queued question's URL, and the gate that would hold its fetch.
+    queued: (String, mpsc::Sender<()>),
+}
+
+/// The ids [`Saturated`] asks under, the queued question's being the last.
+const ASKED: std::ops::RangeInclusive<u64> = 10..=10 + QUESTION_WORKERS as u64;
+
+impl Saturated {
+    fn new() -> Self {
+        let (inner, urls) = numbered_movies(QUESTION_WORKERS + 1);
+        let (fetcher, entered) = BlockingFetcher::new(inner);
+        let mut held: Vec<mpsc::Sender<()>> =
+            urls.iter().map(|(_id, url)| fetcher.gate(url)).collect();
+        let queued_url = urls.last().expect("a queued question").1.clone();
+        let queued = (queued_url, held.pop().expect("the queued question's gate"));
+
+        let (fixture, server) = server_over_fetcher(fetcher);
+        let mut client = Client::connect(&server);
+        client.hello(None);
+        let (device, token) = pair(&mut client, &fixture, "Phone");
+        client.command(3, json!({ "type": "add_addon", "url": MANIFEST_URL }));
+        for (id, (tt_id, _url)) in ASKED.zip(&urls) {
+            client.send(json!({
+                "version": WIRE_VERSION,
+                "id": id,
+                "command": open_numbered(tt_id),
+            }));
+        }
+        // A change answered after them proves the connection has read, and
+        // queued, every question.
+        client.command(
+            99,
+            json!({ "type": "set_subtitle_languages", "languages": ["es"] }),
+        );
+        for _ in 0..QUESTION_WORKERS {
+            entered
+                .recv_timeout(Duration::from_secs(2))
+                .expect("every worker enters its fetch");
+        }
+
+        Self {
+            fixture,
+            server,
+            client,
+            device,
+            token,
+            entered,
+            held,
+            queued,
+        }
+    }
+
+    fn revocation(&self) -> Action {
+        action(&format!(
+            r#"{{"type":"revoke_device","id":"{}"}}"#,
+            self.device.id.as_str()
+        ))
+    }
+
+    fn release_workers(&self) {
+        for gate in &self.held {
+            gate.send(()).expect("release a held question");
+        }
+    }
+
+    fn assert_the_queued_question_never_ran(&self) {
+        assert_eq!(
+            self.entered.recv_timeout(Duration::from_millis(500)),
+            Err(mpsc::RecvTimeoutError::Timeout),
+            "the queued question {} never reaches the Fetcher",
+            self.queued.0
+        );
+    }
+
+    /// Greet again, and read past whatever was already on its way to the
+    /// Welcome.
+    fn greet(&mut self, token: Option<&DeviceToken>) -> Value {
+        self.client
+            .send(json!({ "version": WIRE_VERSION, "hello": { "token": token } }));
+        loop {
+            let frame = self.client.next();
+            assert!(
+                frame.get("id").is_none(),
+                "nothing has answered yet: {frame}"
+            );
+            if frame.get("welcome").is_some() {
+                return frame;
+            }
+        }
+    }
+
+    /// Everything the Host still says before it hangs up, which must be that
+    /// the device is not paired and nothing that answers a question.
+    fn assert_cut_off_unanswered(&mut self) {
+        let mut last = None;
+        while let Some(frame) = self.client.read() {
+            assert!(
+                frame.get("id").is_none(),
+                "a revoked device is answered nothing: {frame}"
+            );
+            last = Some(frame);
+        }
+        let last = last.expect("the Host says why before it hangs up");
+        assert_eq!(last["error"]["kind"], "unpaired", "{last}");
+    }
+}
+
+#[test]
+fn a_question_queued_behind_the_workers_never_runs_once_its_device_is_revoked() {
+    let mut saturated = Saturated::new();
+    saturated.fixture.publish_change(saturated.revocation());
+    saturated.assert_cut_off_unanswered();
+
+    saturated.release_workers();
+    saturated.assert_the_queued_question_never_ran();
+}
+
+#[test]
+fn a_revoke_the_connection_has_not_heard_of_still_stops_its_questions() {
+    // Nothing is published, so no push tells the connection: the worker and the
+    // reply each have to ask the Host for themselves.
+    let mut saturated = Saturated::new();
+    saturated
+        .fixture
+        .door
+        .dispatch_asking(saturated.revocation(), None)
+        .expect("the Host revokes the device");
+
+    saturated.release_workers();
+    saturated.assert_the_queued_question_never_ran();
+    saturated.assert_cut_off_unanswered();
+}
+
+#[test]
+fn a_greeting_that_unpairs_drops_the_queued_questions_and_the_replies_owed() {
+    let mut saturated = Saturated::new();
+    let welcome = saturated.greet(None);
+    assert!(welcome["welcome"]["device"].is_null(), "{welcome}");
+
+    saturated.release_workers();
+    saturated.assert_the_queued_question_never_ran();
+    assert!(
+        saturated.client.quiet(Duration::from_millis(500)),
+        "an unpaired connection is sent no Reply"
+    );
+
+    // The device is still paired, and what it asked before it unpaired is not
+    // owed to it when it comes back.
+    let token = saturated.token.clone();
+    saturated.greet(Some(&token));
+    assert!(saturated.client.next().get("snapshot").is_some());
+    assert!(saturated.client.quiet(Duration::from_millis(500)));
+}
+
+#[test]
+fn a_greeting_as_another_device_is_not_owed_the_first_devices_answers() {
+    let mut saturated = Saturated::new();
+    let mut other = Client::connect(&saturated.server);
+    other.hello(None);
+    let (_other_device, other_token) = pair(&mut other, &saturated.fixture, "Tablet");
+    // The tablet's pairing is published to the phone too; read it first so the
+    // greeting's Welcome is what comes next.
+    saturated.client.snapshot_where(|snapshot| {
+        snapshot["devices"]
+            .as_array()
+            .is_some_and(|devices| devices.len() == 2)
+    });
+
+    let welcome = saturated.greet(Some(&other_token));
+    assert_eq!(welcome["welcome"]["device"]["name"], "Tablet");
+    assert!(saturated.client.next().get("snapshot").is_some());
+
+    saturated.release_workers();
+    saturated.assert_the_queued_question_never_ran();
+    assert!(saturated.client.quiet(Duration::from_millis(500)));
+}
+
+#[test]
+fn a_question_past_a_full_queue_is_refused_and_the_queued_ones_still_answer() {
+    let mut saturated = Saturated::new();
+    // One question is queued already: these fill the queue, and go one past it.
+    let first = ASKED.end() + 1;
+    let overflow = first + QUESTION_QUEUE as u64 - 1;
+    for id in first..=overflow {
+        saturated.client.send(json!({
+            "version": WIRE_VERSION,
+            "id": id,
+            "command": { "type": "search_catalogs", "query": "matrix" },
+        }));
+    }
+
+    let refused = loop {
+        let frame = saturated.client.next();
+        if frame.get("id").is_some() {
+            break frame;
+        }
+    };
+    assert_eq!(refused["id"], overflow, "{refused}");
+    assert_eq!(refused["error"]["kind"], "too_many_questions", "{refused}");
+    assert_eq!(refused["error"]["limit"], QUESTION_QUEUE, "{refused}");
+
+    let change = saturated.client.command(
+        500,
+        json!({ "type": "set_subtitle_languages", "languages": ["fr"] }),
+    );
+    assert!(change.get("response").is_some(), "{change}");
+
+    saturated.release_workers();
+    saturated
+        .queued
+        .1
+        .send(())
+        .expect("release the queued question");
+    let mut answered = Vec::new();
+    while answered.len() < QUESTION_WORKERS + QUESTION_QUEUE {
+        if let Some(id) = saturated.client.next().get("id").and_then(Value::as_u64) {
+            answered.push(id);
+        }
+    }
+    answered.sort_unstable();
+    let expected: Vec<u64> = (*ASKED.start()..overflow).collect();
+    assert_eq!(answered, expected);
 }
