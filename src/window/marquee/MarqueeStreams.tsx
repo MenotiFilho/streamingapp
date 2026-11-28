@@ -65,6 +65,11 @@ export function MarqueeStreamsLoader({
   >(null);
   const [retryingAddons, setRetryingAddons] = useState<ReadonlySet<string>>(() => new Set());
   const mounted = useRef(true);
+  // Which Video the list on screen belongs to: a retry that answers after the
+  // Video changed must not merge into the new Video's groups.
+  const videoKey = `${title.type}:${title.id}:${video.id}`;
+  const shownVideo = useRef(videoKey);
+  shownVideo.current = videoKey;
   const [reloadCount, setReloadCount] = useState(0);
 
   useEffect(() => {
@@ -103,12 +108,13 @@ export function MarqueeStreamsLoader({
         return;
       }
       setRetryingAddons((current) => new Set(current).add(addonId));
+      const askedFor = `${title.type}:${title.id}:${video.id}`;
       try {
         const { response, error } = await ask({
           type: "find_streams",
           video: { type: title.type, id: video.id },
         });
-        if (!mounted.current) {
+        if (!mounted.current || shownVideo.current !== askedFor) {
           return;
         }
         setState((current) => {
@@ -167,7 +173,6 @@ export function MarqueeStreamsLoader({
               icon: "arrow-clockwise",
               onPress: () => setReloadCount((count) => count + 1),
             }}
-            focused
           />
         </div>
       </MarqueeStreamsShell>
