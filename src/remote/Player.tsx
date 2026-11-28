@@ -1,40 +1,37 @@
 import {
-  useEffect,
-  useRef,
   useState,
   useSyncExternalStore,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 
 import { actionKey } from "../core/actionKey";
-import { autoplayOn, formatVolume } from "../core/controls";
+import { AUTOPLAY_SWITCH_LABEL, autoplayOn } from "../core/controls";
 import type { NewLevel } from "../core/navigation";
-import {
-  remainingTime,
-  spacedChapterMarks,
-  timelineFraction,
-} from "../core/osd";
+import { marqueeTopBarFacts } from "../core/osd";
 import { formatTime, watching } from "../core/playback";
-import { episodeLine, type PlaybackView } from "../core/playbackView";
+import type { PlaybackView } from "../core/playbackView";
 import { usePlaybackView } from "../core/react/usePlaybackView";
-import { useStallShown } from "../core/react/useStallShown";
 import { usePreview } from "../core/react/usePreview";
+import { useStallShown } from "../core/react/useStallShown";
 import type { Session } from "../core/session";
-import {
-  transportControls,
-  type TransportControl,
-} from "../core/transportControls";
+import { transportControls, type TransportControlId } from "../core/transportControls";
 import type { Action, Title } from "../core/wire";
-import { Button } from "../kit/Button";
-import { Icon } from "../kit/icons";
-import { PendingSpinner } from "../kit/PendingSpinner";
-import { Switch } from "../kit/Switch";
-import type { RemotePayload } from "./levels";
+import { Icon } from "../kit/marquee/icons";
 import {
-  PLAYER_SHEET_CONTROLS,
-  playerSheetLevel,
-  SHEET_TITLES,
-} from "./playerSheets";
+  controlState,
+  PhoneArt,
+  PhoneBadge,
+  PhoneButton,
+  PhoneIconButton,
+} from "../kit/marquee/phone/controls";
+import { NowPlayingStrip } from "../kit/marquee/phone/NowPlayingStrip";
+import { PhoneSeekBar } from "../kit/marquee/phone/PhoneSeekBar";
+import { PhoneSwitchRow } from "../kit/marquee/phone/PhoneSwitchRow";
+import { PhoneTransport } from "../kit/marquee/phone/PhoneTransport";
+import { RemoteMenus } from "../kit/marquee/phone/RemoteMenus";
+import { VolumeBox } from "../kit/marquee/phone/VolumeBox";
+import { Spinner } from "../kit/marquee/Spinner";
+import type { RemotePayload } from "./levels";
 import {
   autoplayBanner,
   autoplaySwitch,
@@ -42,229 +39,375 @@ import {
   cardTorrentLine,
   CARD_NAME,
   chapterName,
-  NOW_PLAYING,
+  COLLAPSE_LABEL,
+  FAILED_HINT,
+  FAILED_TITLE,
+  failedOpen,
   playerLevel,
+  playingTitle,
+  REMOTE_HEADING,
   seekTo,
   setMuted,
   setVolume,
-  STRIP_EXPAND,
   STRIP_LABEL,
   stripControls,
-  stripNote,
-  TIMELINE_LABEL,
-  timelineRange,
-  trackFills,
-  volumeRange,
-  VOLUME_LABEL,
+  stripLine,
   type AutoplayBanner,
-  type TrackFill,
+  type PlayingTitle,
 } from "./playerScreen";
+import { playerSheetLevel, remoteMenus } from "./playerSheets";
 
 /**
- * The Remote's player, drawn at hand scale (#213, ADR-0035 §2).
+ * The served Remote's player (#364, `P1`–`P3`, `docs/design-system.md` §11).
  *
- * Two drawings of the core's playback facts: a docked strip that is on every
- * screen but the player's own while something is playing, and the one expanded
- * card a strip press pushes. Neither invents Host state: the position is the
- * Snapshot's projection, a control's wait is the Session's pending key, and the
- * picture's absence is the core's `pictureNote`. The player level is the core's,
- * so Back pops the card and leaves the destination underneath; Stop is the sixth
- * cell and its own control.
+ * Two drawings of the core's playback facts: the now-playing strip that is on
+ * every screen but the player's own while something is playing, and the
+ * fullscreen Remote a strip press pushes. Neither invents Host state: the
+ * position is the Snapshot's projection, a control's wait is the Session's
+ * pending key, and the picture's absence is the core's `pictureNote`. The player
+ * level is the core's, so Back puts the Remote away and leaves the destination
+ * underneath; Stop is its own control.
  */
 
-export type PlayerStripProps = {
-  /** The Session the strip's questions go through. */
-  session: Session;
-  /** The Title the playing Stream belongs to, where the stack still holds it. */
-  title: Title | null;
-  /** Push a level, which is how a strip press opens the card. */
-  push: (level: NewLevel<RemotePayload>) => string;
-};
+type Push = (level: NewLevel<RemotePayload>) => string;
 
-/**
- * The docked strip: the still, the Title and episode, the progress hairline,
- * the two transport steps the phone keeps at hand, and the way into the card.
- *
- * It is drawn whenever the Host says something is playing — `watching`, not
- * "the picture is in this client" — because that is the phone's rule: the
- * controls are the Host's, so they work wherever the picture is. The room
- * withholds it on the player's own screen, where the card already says what is
- * playing (ADR-0036 §4). Where the picture is not here (`own_window`,
- * `nowhere`), the strip says so in the core's own words.
- */
-export function PlayerStrip({ session, title, push }: PlayerStripProps) {
+/** What both drawings read from the Session. */
+function usePlayer(session: Session, title: Title | null) {
   const view = usePlaybackView(session, true);
   const stallUp = useStallShown(view?.stalled ?? false);
-
-  if (!view || !watching(view.state)) {
-    return null;
-  }
-
-  const [rewind, playPause] = stripControls(view);
-  const note = stripNote(view, stallUp);
-  const art = view.openingPreview?.art ?? null;
-
-  return (
-    <section
-      className="remote-player-strip"
-      aria-label={STRIP_LABEL}
-      data-testid="remote-player-strip"
-    >
-      <span className="remote-player-strip-art" aria-hidden="true">
-        {art ? <img src={art} alt="" /> : null}
-      </span>
-
-      <button
-        type="button"
-        className="remote-player-strip-open"
-        data-focusable
-        onClick={() => push(playerLevel(title))}
-      >
-        <span className="remote-player-strip-title">{view.title}</span>
-        <span className="remote-player-strip-episode">{episodeLine(view)}</span>
-        {note ? <span className="remote-player-strip-note">{note}</span> : null}
-        <span className="remote-visually-hidden">{STRIP_EXPAND}</span>
-      </button>
-
-      <PlayerIcon control={rewind} onTake={(action) => void session.take(action)} />
-      <PlayerIcon
-        control={playPause}
-        primary
-        onTake={(action) => void session.take(action)}
-      />
-
-      <span className="remote-player-strip-progress" aria-hidden="true">
-        <span style={{ width: `${view.fraction * 100}%` }} />
-      </span>
-    </section>
-  );
+  const state = useSyncExternalStore(session.subscribe, session.getState, session.getState);
+  const snapshot = state.snapshot;
+  const playback = snapshot?.playback ?? null;
+  const playing = playback
+    ? playingTitle(playback, snapshot?.watchProgress ?? [], title)
+    : null;
+  const take = (action: Action) => void session.take(action);
+  return { view, stallUp, snapshot, playback, playing, take };
 }
 
 /**
- * The expanded card: the programme plate, the timeline, the six-cell transport
- * and the always-visible volume box. It is the level a strip press pushes, so
- * the room's Back closes it without asking the Host anything.
+ * The now-playing strip: the Title's poster, its name, the episode and the time
+ * left, the two transport steps the phone keeps at hand, and the way into the
+ * fullscreen Remote.
+ *
+ * It is drawn whenever the Host says something is playing — `watching`, not "the
+ * picture is in this client" — because the controls are the Host's, so they work
+ * wherever the picture is. The room withholds it on the player's own screen
+ * (ADR-0036 §4).
  */
-export function PlayerCard({
+export function PlayerStrip({
   session,
   title,
   push,
 }: {
   session: Session;
-  /** The Title the player belongs to, handed on to the Episodes plate. */
+  /** The Title the playing Stream belongs to, where the stack still holds it. */
   title: Title | null;
-  /** Push a level, which is how a plate opens above the card. */
-  push: (level: NewLevel<RemotePayload>) => string;
+  /** Push a level, which is how a strip press opens the Remote. */
+  push: Push;
 }) {
-  const view = usePlaybackView(session, true);
-  const stallUp = useStallShown(view?.stalled ?? false);
+  const { view, stallUp, playing, take } = usePlayer(session, title);
 
-  if (!view || !watching(view.state)) {
+  if (!view || !playing || !watching(view.state)) {
     return null;
   }
 
-  const controls = transportControls(view);
-  const take = (action: Action) => void session.take(action);
-  const stateNote = cardStateNote(view, stallUp);
-  const torrent = cardTorrentLine(view, stallUp);
-  const waiting = view.stalled && stallUp;
-  const banner = autoplayBanner(view);
+  const [rewind, playPause] = stripControls(view);
 
   return (
     <section
-      className="remote-player-card"
-      role="region"
-      aria-label={CARD_NAME}
-      data-testid="remote-player-card"
+      className="mq-remote-strip"
+      aria-label={STRIP_LABEL}
+      data-testid="remote-player-strip"
     >
-      <PlayerPlate view={view} />
-
-      {view.pictureNote ? (
-        <p className="remote-player-note" role="status">
-          {view.pictureNote}
-        </p>
-      ) : null}
-
-      {banner ? <PlayerAutoplayBanner banner={banner} take={take} /> : null}
-
-      {stateNote ? (
-        <p
-          className="remote-player-state"
-          role="status"
-          data-testid="remote-player-state"
-          data-stalled={waiting ? "true" : undefined}
-        >
-          {waiting ? <PendingSpinner /> : null}
-          <span className="remote-player-state-lines">
-            <span>{stateNote}</span>
-            {torrent ? (
-              <span className="remote-player-torrent" data-testid="remote-player-torrent">
-                {torrent}
-              </span>
-            ) : null}
-          </span>
-        </p>
-      ) : null}
-
-      <PlayerTimeline view={view} session={session} />
-
-      <div className="remote-player-transport" role="group" aria-label="Transport">
-        {controls.map((control) => (
-          <PlayerIcon key={control.id} control={control} onTake={take} />
-        ))}
-      </div>
-
-      <PlayerAutoplaySwitch session={session} episode={view.episode} />
-
-      <PlayerMenus title={title} push={push} />
-
-      <VolumeBox view={view} session={session} />
+      <NowPlayingStrip
+        title={playing.name}
+        note={stripLine(view, stallUp)}
+        poster={playing.poster}
+        playing={view.state !== "paused"}
+        progress={view.fraction}
+        onOpen={() => push(playerLevel(title))}
+        onBack={() => take(rewind.action)}
+        onToggle={() => take(playPause.action)}
+        backState={rewind}
+        toggleState={playPause}
+      />
     </section>
   );
 }
 
 /**
- * The Autoplay switch row, always on the card for an episode: the Host's one
- * preference as it last published it, and `set_autoplay` on a press. It holds no
- * state of its own; flipping it mid-episode changes what this one's end does
- * (#318, #302).
+ * The fullscreen Remote: collapse and Stop, the Title and its marks, the seek
+ * bar, the transport, the volume box, the menus that open one bottom sheet each,
+ * and the Autoplay switch. It is the level a strip press pushes, so the room's
+ * Back closes it without asking the Host anything.
+ *
+ * After a failed open it stays, with the Host's reason and the ways to another
+ * Stream: `switch_stream` keeps the place (ADR-0044 §3).
  */
-function PlayerAutoplaySwitch({
+export function PlayerCard({
   session,
-  episode,
+  title,
+  push,
+  pop,
 }: {
   session: Session;
-  episode: PlaybackView["episode"];
+  /** The Title the player belongs to, handed on to the Episodes sheet. */
+  title: Title | null;
+  /** Push a level, which is how a sheet opens above the Remote. */
+  push: Push;
+  /** Put the Remote away, without stopping. */
+  pop: () => void;
 }) {
-  const state = useSyncExternalStore(session.subscribe, session.getState, session.getState);
-  const row = autoplaySwitch({ episode }, autoplayOn(state.snapshot));
+  const { view, stallUp, snapshot, playback, playing, take } = usePlayer(session, title);
+  const failure = failedOpen(playback);
+  const failed = failure !== null;
 
-  if (row === null) {
+  if (!view || !playback || !playing || (!watching(view.state) && !failed)) {
     return null;
   }
 
+  const controls = Object.fromEntries(
+    transportControls(view).map((control) => [control.id, control]),
+  ) as Record<TransportControlId, ReturnType<typeof transportControls>[number]>;
+  const stateNote = cardStateNote(view, stallUp);
+  const torrent = cardTorrentLine(view, stallUp);
+  const waiting = view.stalled && stallUp;
+  const banner = autoplayBanner(view);
+  const facts = marqueeTopBarFacts(view.nowPlaying);
+  const autoplay = autoplaySwitch(view, autoplayOn(snapshot));
+  const mute = setMuted(!view.volume.muted);
+
   return (
-    <div className="remote-player-autoplay">
-      <Switch
-        on={row.on}
-        label={row.label}
-        testId="remote-autoplay-switch"
-        onToggle={(next) => void session.take(row.toggle(next))}
+    <section
+      className="mq-remote-player"
+      role="region"
+      aria-label={CARD_NAME}
+      data-testid="remote-player-card"
+    >
+      {playing.backdrop ? (
+        <span className="mq-remote-player-ambient" aria-hidden="true">
+          <img src={playing.backdrop} alt="" />
+        </span>
+      ) : null}
+
+      <header className="mq-remote-player-top">
+        <PhoneIconButton label={COLLAPSE_LABEL} icon="caret-down" onClick={pop} />
+        <p className="mq-remote-player-heading">{failed ? null : REMOTE_HEADING}</p>
+        <PhoneIconButton
+          label={controls.stop.label}
+          icon="stop"
+          filled
+          {...controlState(controls.stop)}
+          onClick={() => take(controls.stop.action)}
+        />
+      </header>
+
+      <Subject playing={playing} />
+
+      {facts.length > 0 ? (
+        <div className="mq-remote-player-facts">
+          {facts.map((fact, index) => (
+            <PhoneBadge key={index}>{fact}</PhoneBadge>
+          ))}
+        </div>
+      ) : null}
+
+      {view.pictureNote && !failed ? (
+        <p className="mq-remote-inline-status" role="status">
+          {view.pictureNote}
+        </p>
+      ) : null}
+
+      {banner ? <Autoplay banner={banner} take={take} /> : null}
+
+      {stateNote ? (
+        <div className="mq-remote-player-state" role="status" data-testid="remote-player-state">
+          {waiting ? (
+            <span
+              className="mq-remote-player-spinner"
+              data-testid="remote-player-spinner"
+              aria-hidden="true"
+            >
+              <Spinner />
+            </span>
+          ) : null}
+          <span className="mq-remote-player-state-lines">
+            <span>{stateNote}</span>
+            {torrent ? (
+              <span className="mq-remote-player-torrent" data-testid="remote-player-torrent">
+                {torrent}
+              </span>
+            ) : null}
+          </span>
+        </div>
+      ) : null}
+
+      {failed ? (
+        <>
+          <div
+            className="mq-remote-player-failure"
+            role="alert"
+            data-testid="remote-player-failure"
+          >
+            <Icon name="triangle-alert" size={22} />
+            <span>
+              <strong>{FAILED_TITLE}</strong>
+              <span>{failure}</span>
+              <span>{FAILED_HINT}</span>
+            </span>
+          </div>
+          <PhoneButton
+            icon="list-video"
+            onClick={() => push(playerSheetLevel("streams", title))}
+          >
+            Choose stream
+          </PhoneButton>
+        </>
+      ) : (
+        <>
+          <Timeline view={view} session={session} />
+
+          <PhoneTransport
+            playing={view.state !== "paused"}
+            onToggle={() => take(controls.playPause.action)}
+            onBack={() => take(controls.rewind.action)}
+            onForward={() => take(controls.forward.action)}
+            onPrevious={() => take(controls.previous.action)}
+            onNext={() => take(controls.next.action)}
+            states={{
+              previous: controls.previous,
+              back: controls.rewind,
+              toggle: controls.playPause,
+              forward: controls.forward,
+              next: controls.next,
+            }}
+          />
+
+          <VolumeBox
+            level={view.volume.level}
+            muted={view.volume.muted}
+            disabled={!view.controllable}
+            mutePending={view.pending.has(actionKey(mute))}
+            onCommit={(level) => take(setVolume(level))}
+            onMute={(muted) => take(setMuted(muted))}
+          />
+        </>
+      )}
+
+      <RemoteMenus
+        menus={remoteMenus(playback, failed)}
+        onOpen={(menu) => push(playerSheetLevel(menu, title))}
+      />
+
+      {autoplay && !failed ? (
+        <PhoneSwitchRow
+          label={AUTOPLAY_SWITCH_LABEL}
+          checked={autoplay.on}
+          onChange={(next) => take(autoplay.toggle(next))}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+/** The Title's poster beside its name, the episode and the description. */
+function Subject({ playing }: { playing: PlayingTitle }) {
+  return (
+    <div className="mq-remote-player-subject">
+      <span className="mq-remote-player-poster">
+        <PhoneArt
+          src={playing.poster}
+          className="mq-ph-cover"
+          fallback={<span className="mq-ph-plate" aria-hidden="true">{playing.name}</span>}
+        />
+      </span>
+      <div className="mq-remote-player-copy">
+        <h1>{playing.name}</h1>
+        {playing.episode ? (
+          <p className="mq-remote-player-episode">{playing.episode}</p>
+        ) : null}
+        {playing.description ? (
+          <p className="mq-remote-player-description">{playing.description}</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The seek bar, one seek when the finger lifts. Pointing at it asks the Host for
+ * the still of that moment through the core's one-in-flight rule (ADR-0028): the
+ * answer is drawn above the bar with the time and the chapter, and an answer for
+ * another Stream is dropped by the hook itself.
+ */
+function Timeline({ view, session }: { view: PlaybackView; session: Session }) {
+  const [point, setPoint] = useState<{ at: number; fraction: number } | null>(null);
+  const preview = usePreview(view.streamKey, session.ask);
+  const chapter = point ? view.chapterAt(point.at) : null;
+
+  const pointed = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (view.duration === null || !(view.duration > 0)) {
+      return;
+    }
+    const bar = event.currentTarget.getBoundingClientRect();
+    if (bar.width <= 0) {
+      return;
+    }
+    const fraction = Math.min(1, Math.max(0, (event.clientX - bar.left) / bar.width));
+    const at = fraction * view.duration;
+    setPoint({ at, fraction });
+    preview.point(at);
+  };
+
+  const unpoint = () => {
+    setPoint(null);
+    preview.point(null);
+  };
+
+  return (
+    <div
+      className="mq-remote-player-timeline"
+      data-testid="remote-player-timeline"
+      onPointerMove={pointed}
+      onPointerLeave={unpoint}
+      onPointerCancel={unpoint}
+    >
+      {point ? (
+        <div
+          className="mq-remote-player-preview"
+          data-testid="remote-player-preview"
+          data-pending={preview.waiting ? "true" : "false"}
+          style={{ left: `${Math.min(82, Math.max(18, point.fraction * 100))}%` }}
+        >
+          {preview.still ? (
+            <img data-testid="remote-player-preview-still" src={preview.still.image} alt="" />
+          ) : null}
+          <span className="mq-remote-player-preview-time">{formatTime(point.at)}</span>
+          {chapter ? <span>{chapterName(chapter)}</span> : null}
+        </div>
+      ) : null}
+
+      <PhoneSeekBar
+        position={view.position}
+        duration={view.duration}
+        buffered={view.buffered}
+        disabled={!view.transportable}
+        onSeek={(seconds) => void session.take(seekTo(seconds, view.duration))}
       />
     </div>
   );
 }
 
 /**
- * The banner under the plate, where the ended note sits: the next episode's
- * still, its name, and what the Host is doing about it. While it counts down the
- * digit is over the still, the kicker says "Up next · S1E4", **Play now** and
- * **Cancel** are full-width and the brass line drains along its foot. At the
- * hold it is titled "Still watching?", has no digit and no line, and carries one
- * **Keep watching**. The view is the core's; this draws it and sends the
- * Actions the decision names.
+ * Autoplay's banner: the next episode's still, its name, and what the Host is
+ * doing about it. While it counts down the digit is over the still, with **Play
+ * now**, **Cancel** and the lavender line that runs out; at the hold it asks
+ * "Still watching?", with no digit and no line, and carries one **Keep
+ * watching**. The view is the core's; this draws it and sends the Actions the
+ * decision names.
  */
-function PlayerAutoplayBanner({
+function Autoplay({
   banner,
   take,
 }: {
@@ -278,393 +421,58 @@ function PlayerAutoplayBanner({
 
   return (
     <aside
-      className="remote-autoplay-banner"
+      className="mq-remote-upnext"
       role="group"
       aria-label={label}
       data-testid="remote-autoplay-banner"
     >
-      <div className="remote-autoplay-still">
+      <span className="mq-remote-upnext-still">
         {next.still ? <img src={next.still} alt="" /> : null}
         {counting ? (
-          <span className="tabular" data-testid="remote-autoplay-digit" aria-hidden="true">
+          <span data-testid="remote-autoplay-digit" aria-hidden="true">
             {banner.digit}
           </span>
         ) : null}
+      </span>
+      <div className="mq-remote-upnext-copy">
+        <p>{`${lead} · ${next.label}`}</p>
+        {next.name ? <p className="mq-remote-upnext-name">{next.name}</p> : null}
       </div>
-      <div className="remote-autoplay-copy">
-        <p className="remote-autoplay-kicker">
-          <span>{lead}</span>
-          <span className="remote-autoplay-rule" aria-hidden="true" />
-          <span>{next.label}</span>
-        </p>
-        {next.name ? <p className="remote-autoplay-name">{next.name}</p> : null}
-      </div>
-      <div className="remote-autoplay-actions">
+      <div className="mq-remote-upnext-actions">
         {banner.kind === "countdown" ? (
           <>
-            <Button
-              variant="primary"
+            <PhoneButton
+              icon="play"
+              filled
               data-testid="remote-autoplay-play-now"
-              disabled={banner.playNow.pending}
-              pending={banner.playNow.pending}
+              {...controlState(banner.playNow)}
               onClick={() => take(banner.playNow.action)}
             >
               Play now
-            </Button>
-            <Button
-              variant="ghost"
+            </PhoneButton>
+            <PhoneButton
+              kind="secondary"
               data-testid="remote-autoplay-cancel"
               onClick={() => take(banner.cancel.action)}
             >
               Cancel
-            </Button>
+            </PhoneButton>
           </>
         ) : (
-          <Button
-            variant="primary"
+          <PhoneButton
             data-testid="remote-autoplay-keep-watching"
-            disabled={banner.keepWatching.pending}
-            pending={banner.keepWatching.pending}
+            {...controlState(banner.keepWatching)}
             onClick={() => take(banner.keepWatching.action)}
           >
             Keep watching
-          </Button>
+          </PhoneButton>
         )}
       </div>
       {banner.kind === "countdown" ? (
-        <span className="remote-autoplay-drain" aria-hidden="true">
+        <span className="mq-remote-upnext-drain" aria-hidden="true">
           <span style={{ width: `${banner.fraction * 100}%` }} />
         </span>
       ) : null}
     </aside>
   );
-}
-
-/**
- * The card's menu row: the five plates the core's sections fill (#214). Each
- * control is a level of its own, so Back puts the plate away and leaves the
- * card exactly as it was.
- */
-function PlayerMenus({
-  title,
-  push,
-}: {
-  title: Title | null;
-  push: (level: NewLevel<RemotePayload>) => string;
-}) {
-  return (
-    <div className="remote-player-menus" role="group" aria-label="Player menus">
-      {PLAYER_SHEET_CONTROLS.map((control) => (
-        <button
-          key={control.plate}
-          type="button"
-          className="remote-player-icon"
-          data-focusable
-          data-testid={`player-menu-${control.plate}`}
-          aria-label={SHEET_TITLES[control.plate]}
-          onClick={() => push(playerSheetLevel(control.plate, title))}
-        >
-          <Icon name={control.icon} strokeWidth={2} />
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/** The card's plate: the film's own backdrop, the Title and the episode. */
-function PlayerPlate({ view }: { view: PlaybackView }) {
-  const art = view.openingPreview?.art ?? null;
-
-  return (
-    <div className="remote-player-plate" data-empty={art === null}>
-      {art ? <img className="remote-player-plate-art" src={art} alt="" /> : null}
-      <span className="remote-player-plate-scrim" aria-hidden="true" />
-      <div className="remote-player-plate-copy">
-        <span className="remote-player-kicker">{NOW_PLAYING}</span>
-        <h1 className="remote-player-title">{view.title}</h1>
-        <span className="remote-player-episode">{view.episodeLabel}</span>
-      </div>
-    </div>
-  );
-}
-
-/**
- * The timeline: one range input over a drawn track — the played part in brass,
- * the Player's read-ahead in the hairline's own colour, the container's chapter
- * ticks, and the ivory playhead. A change is committed once, on the pointer's
- * release or the key's, so a drag is one Action rather than one per pixel.
- *
- * Pointing at the bar asks the Host for the still of that moment through the
- * core's one-in-flight rule (ADR-0028): the answer is drawn above the bar, and
- * an answer for another Stream is dropped by the hook itself.
- */
-function PlayerTimeline({
-  view,
-  session,
-}: {
-  view: PlaybackView;
-  session: Session;
-}) {
-  const range = timelineRange(view);
-  const [scrub, setScrub] = useState<number | null>(null);
-  const [point, setPoint] = useState<{ at: number; fraction: number } | null>(null);
-  const [width, setWidth] = useState(0);
-  const track = useRef<HTMLDivElement | null>(null);
-  const preview = usePreview(view.streamKey, session.ask);
-  const interactive = view.transportable && view.duration !== null && view.duration > 0;
-  const shown = scrub ?? range.value;
-  const fraction = timelineFraction(shown, view.duration);
-  const fills = trackFills(fraction, view.buffered);
-  const marks = spacedChapterMarks(view.marks, width);
-  const chapter = point ? view.chapterAt(point.at) : null;
-
-  useEffect(() => {
-    const node = track.current;
-    if (!node) {
-      return;
-    }
-    const measure = () => setWidth(node.getBoundingClientRect().width);
-    measure();
-    if (typeof ResizeObserver === "function") {
-      const observer = new ResizeObserver(measure);
-      observer.observe(node);
-      return () => observer.disconnect();
-    }
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-  }, []);
-
-  const commit = () => {
-    if (scrub === null || !interactive) {
-      return;
-    }
-    const seconds = scrub;
-    setScrub(null);
-    void session.take(seekTo(seconds, view.duration));
-  };
-
-  /** Where on the bar the pointer is, in seconds from the Stream's start. */
-  const pointed = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (view.duration === null || !(view.duration > 0)) {
-      return;
-    }
-    const bar = event.currentTarget.getBoundingClientRect();
-    if (bar.width <= 0) {
-      return;
-    }
-    const at = Math.min(1, Math.max(0, (event.clientX - bar.left) / bar.width));
-    const seconds = at * view.duration;
-    setPoint({ at: seconds, fraction: at });
-    preview.point(seconds);
-  };
-
-  const unpoint = () => {
-    setPoint(null);
-    preview.point(null);
-  };
-
-  return (
-    <div
-      className="remote-player-timeline"
-      data-testid="remote-player-timeline"
-      onPointerMove={pointed}
-      onPointerLeave={unpoint}
-    >
-      <div
-        className="remote-player-track"
-        aria-hidden="true"
-        ref={track}
-        style={{ background: trackGradient(fills) }}
-      >
-        <span
-          className="remote-player-playhead"
-          style={{ left: `${fraction * 100}%` }}
-        />
-        {marks.map(({ chapter: mark, fraction: at }) => (
-          <span
-            key={mark.index}
-            className="remote-player-chapter"
-            style={{ left: `${at * 100}%` }}
-          />
-        ))}
-      </div>
-
-      {point ? (
-        <div
-          className="remote-player-preview"
-          data-testid="remote-player-preview"
-          data-pending={preview.waiting ? "true" : "false"}
-          style={{ left: `${Math.min(92, Math.max(8, point.fraction * 100))}%` }}
-        >
-          {preview.still ? (
-            <img
-              className="remote-player-preview-still"
-              data-testid="remote-player-preview-still"
-              src={preview.still.image}
-              alt=""
-            />
-          ) : null}
-          <span className="remote-player-preview-time tabular">
-            {formatTime(point.at)}
-          </span>
-          {chapter ? (
-            <span className="remote-player-preview-chapter">
-              {chapterName(chapter)}
-            </span>
-          ) : null}
-        </div>
-      ) : null}
-
-      <input
-        type="range"
-        className="remote-player-scrubber"
-        data-focusable
-        aria-label={TIMELINE_LABEL}
-        min={range.min}
-        max={range.max}
-        step={range.step}
-        value={shown}
-        aria-valuetext={formatTime(shown)}
-        disabled={!interactive}
-        onChange={(event) => setScrub(Number(event.target.value))}
-        onPointerUp={commit}
-        onKeyUp={commit}
-        onBlur={commit}
-      />
-
-      <div className="remote-player-clocks" aria-hidden="true">
-        <span className="tabular">{formatTime(shown)}</span>
-        <span className="tabular">{remainingTime(shown, view.duration)}</span>
-      </div>
-    </div>
-  );
-}
-
-/**
- * The always-visible volume box: the Host's level, its 0–130 slider and the
- * mute toggle. Moving the thumb draws the level being chosen; one change is one
- * `set_volume`, sent when the person lets go, never once per pointer move.
- */
-function VolumeBox({ view, session }: { view: PlaybackView; session: Session }) {
-  const range = volumeRange(view);
-  const [draft, setDraft] = useState<number | null>(null);
-  const shown = draft ?? range.value;
-  const interactive = view.controllable;
-  const mute = setMuted(!view.volume.muted);
-  const mutePending = view.pending.has(actionKey(mute));
-
-  const commit = () => {
-    if (draft === null || !interactive) {
-      return;
-    }
-    const level = draft;
-    setDraft(null);
-    void session.take(setVolume(level));
-  };
-
-  return (
-    <div className="remote-player-volume" role="group" aria-label="Volume box">
-      <span className="remote-player-volume-level tabular" aria-hidden="true">
-        {formatVolume(shown)}
-      </span>
-      <input
-        type="range"
-        className="remote-player-volume-slider"
-        data-focusable
-        aria-label={VOLUME_LABEL}
-        min={range.min}
-        max={range.max}
-        step={range.step}
-        value={shown}
-        aria-valuetext={formatVolume(shown)}
-        disabled={!interactive}
-        onChange={(event) => setDraft(Number(event.target.value))}
-        onPointerUp={commit}
-        onKeyUp={commit}
-        onBlur={commit}
-      />
-      <button
-        type="button"
-        className="remote-player-icon"
-        data-focusable
-        aria-label={view.volume.muted ? "Unmute" : "Mute"}
-        aria-pressed={view.volume.muted}
-        aria-busy={mutePending || undefined}
-        data-pending={mutePending ? "true" : undefined}
-        disabled={!interactive || mutePending}
-        onClick={() => void session.take(mute)}
-      >
-        {mutePending ? (
-          <PendingSpinner />
-        ) : (
-          <Icon
-            name={view.volume.muted ? "volume-muted" : "volume"}
-            strokeWidth={2}
-          />
-        )}
-      </button>
-    </div>
-  );
-}
-
-/** One bare mark in a hairline cell, with the wait the Session's key names. */
-function PlayerIcon({
-  control,
-  primary = false,
-  onTake,
-}: {
-  control: TransportControl;
-  primary?: boolean;
-  onTake: (action: Action) => void;
-}) {
-  return (
-    <button
-      type="button"
-      className="remote-player-icon"
-      data-focusable
-      data-role={primary ? "primary" : undefined}
-      data-testid={`remote-player-${control.id}`}
-      aria-label={control.label}
-      aria-busy={control.pending || undefined}
-      data-pending={control.pending ? "true" : undefined}
-      disabled={control.disabled || control.pending}
-      onClick={() => onTake(control.action)}
-    >
-      {control.pending ? (
-        <PendingSpinner />
-      ) : (
-        <Icon name={control.icon} strokeWidth={2.2} />
-      )}
-    </button>
-  );
-}
-
-/**
- * The track's painted reading, as one gradient: the played part in brass, the
- * read-ahead in the muted ink, and the rest of the track bare. The spans are the
- * core-numbered `trackFills`; this only turns them into stops.
- */
-function trackGradient(fills: TrackFill[]): string {
-  const percent = (fraction: number) => `${Math.round(fraction * 1000) / 10}%`;
-  const stops: string[] = [];
-  let at = 0;
-
-  for (const fill of fills) {
-    if (fill.from > at) {
-      stops.push(`var(--rep-hairline) ${percent(at)}`);
-      stops.push(`var(--rep-hairline) ${percent(fill.from)}`);
-    }
-    const colour =
-      fill.role === "played" ? "var(--rep-house)" : "var(--rep-muted)";
-    stops.push(`${colour} ${percent(fill.from)}`);
-    stops.push(`${colour} ${percent(fill.to)}`);
-    at = fill.to;
-  }
-
-  if (at < 1) {
-    stops.push(`var(--rep-hairline) ${percent(at)}`);
-    stops.push("var(--rep-hairline) 100%");
-  }
-
-  return `linear-gradient(to right, ${stops.join(", ")})`;
 }

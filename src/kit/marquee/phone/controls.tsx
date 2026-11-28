@@ -28,6 +28,21 @@ export type PhoneIconButtonProps = Omit<
 
 const ICON_SIZES = { m: 22, l: 26, xl: 34 } as const;
 
+/** One control's own wait, where a screen holds them apart. */
+export type PhoneControlState = {
+  disabled?: boolean;
+  /** The Action this control asked for is still in flight: held and busy. */
+  pending?: boolean;
+};
+
+/** The attributes a control's own state spreads onto its button. */
+export function controlState(state: PhoneControlState | undefined, disabled = false) {
+  return {
+    disabled: disabled || Boolean(state?.disabled) || Boolean(state?.pending),
+    "aria-busy": state?.pending || undefined,
+  };
+}
+
 /** A round control with one glyph in it. */
 export function PhoneIconButton({
   label,

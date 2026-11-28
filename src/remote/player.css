@@ -1,0 +1,414 @@
+/*
+ * The served Remote's playback surfaces (#364): the now-playing strip's place,
+ * the fullscreen Remote (`P3`) and what its bottom sheets arrange (`P4`–`P4d`).
+ * The controls are the kit's; this sheet only places them at the 390×844 hand
+ * scale.
+ */
+
+/* The strip floats 8px from the edges, over whatever scrolls under it. */
+.mq-remote-strip {
+  padding: 0 8px 8px;
+}
+
+/* --------------------------------------------------------------------------
+ * The fullscreen Remote
+ * -------------------------------------------------------------------------- */
+
+.mq-remote-room[data-panel="card"] .mq-remote-screen {
+  padding-bottom: 0;
+}
+
+/* The bar under the player is gone, so a refusal floats above it and a sheet. */
+.mq-remote-room[data-panel="card"] .mq-remote-refusal {
+  position: fixed;
+  z-index: 50;
+  right: 0;
+  bottom: max(16px, env(safe-area-inset-bottom, 0px));
+  left: 0;
+  background: color-mix(in srgb, var(--mq-danger) 22%, var(--mq-surface));
+}
+
+.mq-remote-player {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 100dvh;
+  padding: max(8px, env(safe-area-inset-top, 0px)) 16px
+    max(24px, env(safe-area-inset-bottom, 0px));
+}
+
+.mq-remote-player > :not(.mq-remote-player-ambient) {
+  position: relative;
+}
+
+/* The Title's backdrop at 14% (`docs/design-system.md` §11). */
+.mq-remote-player-ambient {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  opacity: 0.14;
+  pointer-events: none;
+}
+
+.mq-remote-player-ambient img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mq-remote-player-top {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) 48px;
+  align-items: center;
+  margin: 0 -12px 8px;
+}
+
+.mq-remote-player-heading {
+  margin: 0;
+  color: var(--mq-text-muted);
+  font-size: 14px;
+  font-weight: var(--mq-weight-bold);
+  text-align: center;
+}
+
+.mq-remote-player-subject {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.mq-remote-player-poster {
+  position: relative;
+  flex: none;
+  overflow: hidden;
+  width: 148px;
+  height: 222px;
+  border-radius: var(--mq-remote-radius-12);
+  background: var(--mq-surface-2);
+}
+
+.mq-remote-player-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mq-remote-player-copy h1 {
+  display: -webkit-box;
+  margin: 2px 0 0;
+  overflow: hidden;
+  font-size: 24px;
+  font-weight: var(--mq-weight-extrabold);
+  line-height: 30px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.mq-remote-player-episode {
+  margin: 0;
+  color: var(--mq-accent);
+  font-size: 14px;
+  font-weight: var(--mq-weight-bold);
+  line-height: 20px;
+}
+
+.mq-remote-player-description {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: var(--mq-text-muted);
+  font-size: 13px;
+  line-height: 19px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 5;
+}
+
+.mq-remote-player-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.mq-remote-player > .mq-remote-inline-status,
+.mq-remote-player-state,
+.mq-remote-player-failure,
+.mq-remote-upnext {
+  margin: 0 0 16px;
+}
+
+.mq-remote-player-state,
+.mq-remote-player-failure {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--mq-remote-radius-12);
+  background: var(--mq-row-rest);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.mq-remote-player-spinner {
+  --mq-u: 0.45px;
+  display: flex;
+  flex: none;
+}
+
+.mq-remote-player-state-lines,
+.mq-remote-player-failure > span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mq-remote-player-torrent {
+  color: var(--mq-text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mq-remote-player-failure {
+  align-items: flex-start;
+  background: var(--mq-danger-tint);
+  border: 1px solid color-mix(in srgb, var(--mq-danger) 42%, transparent);
+}
+
+.mq-remote-player-failure svg {
+  flex: none;
+  color: var(--mq-danger);
+}
+
+.mq-remote-player-failure + .mq-ph-button {
+  align-self: stretch;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.mq-remote-player-timeline {
+  margin-bottom: 10px;
+}
+
+.mq-remote-player > .mq-remote-player-timeline {
+  z-index: 2;
+}
+
+.mq-remote-player-preview {
+  position: absolute;
+  z-index: 3;
+  bottom: calc(100% + 12px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 160px;
+  padding: 6px;
+  border-radius: var(--mq-remote-radius-12);
+  background: var(--mq-surface-2);
+  box-shadow: 0 12px 26.4px color-mix(in srgb, var(--mq-ink) 50%, transparent);
+  color: var(--mq-text-muted);
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+.mq-remote-player-preview img {
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  border-radius: var(--mq-remote-radius-6);
+  object-fit: cover;
+}
+
+.mq-remote-player-preview-time {
+  color: var(--mq-white);
+  font-size: 13px;
+  font-weight: var(--mq-weight-bold);
+  font-variant-numeric: tabular-nums;
+}
+
+.mq-remote-player > .mq-ph-transport {
+  flex: none;
+  margin-bottom: 16px;
+}
+
+.mq-remote-player > .mq-ph-volume {
+  flex: none;
+  margin-bottom: 20px;
+}
+
+.mq-remote-player > .mq-ph-menus {
+  flex: none;
+  margin-bottom: 20px;
+}
+
+/* The two ways to another Stream sit together, not at the two edges. */
+.mq-remote-player-failure ~ .mq-ph-menus {
+  justify-content: center;
+  gap: 32px;
+}
+
+.mq-remote-player > .mq-ph-switch-row {
+  flex: none;
+}
+
+/* Autoplay's banner: the next episode, and what the Host is doing about it. */
+.mq-remote-upnext {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 10px 12px;
+  align-items: center;
+  overflow: hidden;
+  padding: 12px;
+  border-radius: var(--mq-remote-radius-16);
+  background: var(--mq-surface-2);
+}
+
+.mq-remote-upnext-still {
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  height: 63px;
+  border-radius: var(--mq-remote-radius-6);
+  background: var(--mq-surface-3);
+}
+
+.mq-remote-upnext-still img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mq-remote-upnext-still span {
+  position: relative;
+  font-size: 28px;
+  font-weight: var(--mq-weight-extrabold);
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 2px 8px color-mix(in srgb, var(--mq-ink) 80%, transparent);
+}
+
+.mq-remote-upnext-copy p {
+  margin: 0;
+  color: var(--mq-accent);
+  font-size: 13px;
+  font-weight: var(--mq-weight-bold);
+  line-height: 18px;
+}
+
+.mq-remote-upnext-copy .mq-remote-upnext-name {
+  color: var(--mq-white);
+  font-size: 15px;
+  line-height: 20px;
+}
+
+.mq-remote-upnext-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  gap: 8px;
+}
+
+.mq-remote-upnext-actions > button {
+  flex: 1;
+  justify-content: center;
+}
+
+.mq-remote-upnext-drain {
+  grid-column: 1 / -1;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--mq-seek-track);
+}
+
+.mq-remote-upnext-drain span {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--mq-accent);
+}
+
+/* --------------------------------------------------------------------------
+ * What a bottom sheet arranges
+ * -------------------------------------------------------------------------- */
+
+.mq-remote-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mq-remote-sheet > * {
+  flex: none;
+}
+
+.mq-remote-sheet > .mq-pp-group-label:not(:first-child) {
+  margin-top: 10px;
+}
+
+.mq-remote-sheet-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Track rows sit flush, 4px out into the gutter (`P4`). */
+.mq-remote-sheet-list:has(> .mq-pp-track) {
+  gap: 0;
+  margin: 0 -4px;
+}
+
+.mq-remote-sheet button.mq-pp-track {
+  flex: none;
+  width: 100%;
+}
+
+.mq-remote-sheet-note {
+  margin: 0;
+  color: var(--mq-text-faint);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.mq-remote-sheet-list:has(> .mq-pp-track) > .mq-remote-sheet-note {
+  margin: 4px;
+}
+
+.mq-remote-sheet-chips,
+.mq-remote-sheet-seasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mq-remote-sheet-seasons {
+  margin-bottom: 8px;
+}
+
+.mq-remote-sheet-button {
+  align-self: flex-start;
+  margin-top: 6px;
+}
+
+.mq-remote-sheet-steps {
+  display: flex;
+  gap: 8px;
+}
+
+.mq-remote-sheet-steps > button {
+  flex: 1;
+  justify-content: center;
+}
+
+.mq-remote-sheet .mq-pp-stats {
+  width: 100%;
+}

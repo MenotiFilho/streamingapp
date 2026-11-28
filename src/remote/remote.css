@@ -1,19 +1,22 @@
 /*
  * The served Remote's sheet (ADR-0035 §2, Marquee design-system §11).
  *
- * `playerLegacy.css` keeps the temporary Repertory styles for the untouched
- * #364 Player & PlayerSheets surfaces until Wave 3b lands. After it, Marquee
- * tokens, base roles, shared controls/forms, and the phone kit (`C8`) style
- * everything under `.mq-root.mq-remote-root` at the 390×844 hand scale.
+ * Marquee tokens, base roles, shared controls/forms, and the phone kit (`C8`)
+ * style everything under `.mq-root.mq-remote-root` at the 390×844 hand scale.
+ * `player.css` places the playback surfaces (#364).
  */
 
-@import "./playerLegacy.css";
 @import "../kit/marquee/tokens.css";
 @import "../kit/marquee/base.css";
 @import "../kit/marquee/controls-nav-cards.css";
 @import "../kit/marquee/panels-player.css";
 @import "../kit/marquee/forms-lists.css";
 @import "../kit/marquee/phone/phone.css";
+@import "./player.css";
+
+html {
+  color-scheme: dark;
+}
 
 html,
 body {
@@ -120,9 +123,6 @@ body,
   position: sticky;
   bottom: 0;
   z-index: 30;
-  background: color-mix(in srgb, var(--mq-canvas) 92%, transparent);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
 }
 
 .mq-remote-refusal {
@@ -519,6 +519,14 @@ body,
 .mq-remote-root .mq-pp-stepper .mq-pp-iconbtn:active {
   background: var(--mq-press-tab);
   transform: scale(0.96);
+}
+
+.mq-remote-root button.mq-pp-track:not(:disabled):active {
+  background: var(--mq-press-tab);
+}
+
+.mq-remote-root button.mq-pp-btn:not(:disabled):active {
+  box-shadow: inset 0 0 0 100px var(--mq-press-tab);
 }
 
 .mq-remote-root .mq-pp-stepper {

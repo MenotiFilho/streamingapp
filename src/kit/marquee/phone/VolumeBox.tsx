@@ -1,5 +1,5 @@
 import { VOLUME_MAX } from "../../../core/controls";
-import { PhoneIconButton } from "./controls";
+import { controlState, PhoneIconButton } from "./controls";
 import { clampRatio, levelAt, volumeKeyTarget } from "./seekMath";
 import { useDragSlider } from "./useDragSlider";
 
@@ -13,6 +13,8 @@ export type VolumeBoxProps = {
   onCommit: (level: number) => void;
   onMute: (muted: boolean) => void;
   disabled?: boolean;
+  /** The mute asked for is still in flight. */
+  mutePending?: boolean;
 };
 
 /** The Host's own volume and mute, always on the remote (sheet `C8`). */
@@ -23,6 +25,7 @@ export function VolumeBox({
   onCommit,
   onMute,
   disabled = false,
+  mutePending = false,
 }: VolumeBoxProps) {
   const slider = useDragSlider({
     value: level,
@@ -31,7 +34,7 @@ export function VolumeBox({
     keyTarget: (key, from) => volumeKeyTarget(key, from, max),
     onCommit,
   });
-  const shown = Math.round(slider.shown);
+  const shown = Math.min(max, Math.max(0, Math.round(slider.shown)));
   const filled = max > 0 ? clampRatio(shown / max) * 100 : 0;
 
   return (
@@ -40,7 +43,7 @@ export function VolumeBox({
         label={muted ? "Unmute" : "Mute"}
         icon={muted ? "mute" : "volume-2"}
         aria-pressed={muted}
-        disabled={disabled}
+        {...controlState({ pending: mutePending }, disabled)}
         onClick={() => onMute(!muted)}
       />
       <div

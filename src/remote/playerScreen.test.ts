@@ -25,9 +25,10 @@ import {
   stripControls,
   stripDrawn,
   stripNote,
-  timelineRange,
-  trackFills,
-  volumeRange,
+  failedOpen,
+  playingTitle,
+  stripLine,
+  timeLeft,
 } from "./playerScreen";
 import { playerSheetLevel } from "./playerSheets";
 
@@ -35,9 +36,9 @@ import { playerSheetLevel } from "./playerSheets";
  * The Remote player's own decisions (#213, ADR-0035 §2).
  *
  * The playback facts are the core's and are tested there; this suite asks the
- * rules the phone's drawing adds — which two controls the strip carries, where
- * the timeline's ends are, how the read-ahead divides the track, and the one
- * Action each commit takes.
+ * rules the phone's drawing adds — which two controls the strip carries, what
+ * its line reads, which Title art names what is playing, when a failed open
+ * keeps the Remote up, and the one Action each commit takes.
  */
 
 function playback(overrides: Partial<PlaybackSnapshot> = {}): PlaybackSnapshot {
@@ -161,7 +162,7 @@ describe("the docked strip's place", () => {
   };
   const card: Level<RemotePayload> = { ...playerLevel(), id: "player" };
   const sheet: Level<RemotePayload> = {
-    ...playerSheetLevel("audio", null),
+    ...playerSheetLevel("subtitles", null),
     id: "player-sheet",
   };
   const streams: Level<RemotePayload> = {
@@ -227,27 +228,6 @@ describe("the docked strip's controls", () => {
   });
 });
 
-describe("the timeline's range", () => {
-  test("runs the Stream's whole length, one second at a time, at the projection", () => {
-    expect(timelineRange(view())).toEqual({ min: 0, max: 600, step: 1, value: 300 });
-  });
-
-  test("has a placeholder length while the Host has not said one", () => {
-    expect(timelineRange(view({ duration: null }))).toMatchObject({
-      max: 1,
-      value: 1,
-    });
-    expect(timelineRange(view({ position: null }))).toMatchObject({ value: 0 });
-  });
-
-  test("keeps its value inside its own ends", () => {
-    expect(timelineRange(view({ position: 900, duration: 600 }))).toMatchObject({
-      value: 600,
-    });
-    expect(timelineRange(view({ position: -5 }))).toMatchObject({ value: 0 });
-  });
-});
-
 describe("a committed seek", () => {
   test("is the core's to-Action, clamped into the Stream", () => {
     expect(seekTo(420, 600)).toEqual({
@@ -270,12 +250,7 @@ describe("a committed seek", () => {
 });
 
 describe("the volume box", () => {
-  test("starts where the Host's level is, on the Host's own 0–130 scale", () => {
-    expect(volumeRange(view())).toEqual({ min: 0, max: 130, step: 1, value: 60 });
-    expect(volumeRange(view({ volume: 140 }))).toMatchObject({ value: 130 });
-  });
-
-  test("sends one level, rounded and clamped", () => {
+  test("sends one level, rounded and clamped to the Host's 0–130 scale", () => {
     expect(setVolume(90)).toEqual({ type: "set_volume", level: 90 });
     expect(setVolume(90.4)).toEqual({ type: "set_volume", level: 90 });
     expect(setVolume(-2)).toEqual({ type: "set_volume", level: 0 });
@@ -288,43 +263,169 @@ describe("the volume box", () => {
   });
 });
 
-describe("the track's fills", () => {
-  test("draw the read-ahead ahead of the playhead, and the played part before it", () => {
-    expect(trackFills(0.5, { left: 0.5, width: 0.25 })).toEqual([
-      { from: 0, to: 0.5, role: "played" },
-      { from: 0.5, to: 0.75, role: "buffered" },
-    ]);
+describe("a failed open", () => {
+  const FAILED = playback({ state: "idle", failure: "403 Forbidden" });
+
+  test("is the Host's reason while it is idle on a Stream", () => {
+    expect(failedOpen(FAILED)).toBe("403 Forbidden");
   });
 
-  test("draw nothing of a read-ahead the playhead has already passed", () => {
-    expect(trackFills(0.5, { left: 0.1, width: 0.2 })).toEqual([
-      { from: 0, to: 0.5, role: "played" },
-    ]);
-    expect(trackFills(0.9, { left: 0.2, width: 0.5 })).toEqual([
-      { from: 0, to: 0.9, role: "played" },
-    ]);
+  test("is nothing once Stop cleared it, while playing, or with no playback", () => {
+    expect(failedOpen(playback({ state: "idle", failure: null }))).toBeNull();
+    expect(failedOpen(playback({ state: "idle", failure: "x", nowPlaying: null }))).toBeNull();
+    expect(failedOpen(playback({ state: "playing", failure: "x" }))).toBeNull();
+    expect(failedOpen(null)).toBeNull();
   });
 
-  test("keep the gap between the playhead and a read-ahead that starts later", () => {
-    expect(trackFills(0.4, { left: 0.6, width: 0.2 })).toEqual([
-      { from: 0, to: 0.4, role: "played" },
-      { from: 0.6, to: 0.8, role: "buffered" },
-    ]);
+  test("keeps the player level, which any other idle drops", () => {
+    const player = { kind: "player", title: null } as const;
+
+    expect(playerLevelStale(player, "idle", true)).toBe(false);
+    expect(playerLevelStale(player, "idle", false)).toBe(true);
+  });
+});
+
+describe("the strip's line", () => {
+  test("is the episode and the time left", () => {
+    expect(stripLine(view(), false)).toBe("S1 E2 · 5 min left");
+    expect(stripLine(view({ episode: null }), false)).toBe("5 min left");
   });
 
-  test("are only the played part where the Player has no read-ahead", () => {
-    expect(trackFills(0.25, null)).toEqual([{ from: 0, to: 0.25, role: "played" }]);
-    expect(trackFills(0, null)).toEqual([]);
+  test("gives the time left up to the wait and to the picture note", () => {
+    expect(stripLine(view({ stalled: true }), true)).toBe(`S1 E2 · ${STALLED_STRIP_NOTE}`);
+    expect(stripLine(view({ stalled: true }), false)).toBe("S1 E2 · 5 min left");
+    const elsewhere = view({ picture: "nowhere" });
+    expect(stripLine(elsewhere, false)).toBe(`S1 E2 · ${elsewhere.pictureNote}`);
   });
 
-  test("are clamped into the track the Player's own span names", () => {
-    expect(trackFills(1.2, { left: -0.2, width: 0.4 })).toEqual([
-      { from: 0, to: 1, role: "played" },
-    ]);
-    expect(trackFills(0.2, { left: 0.1, width: 5 })).toEqual([
-      { from: 0, to: 0.2, role: "played" },
-      { from: 0.2, to: 1, role: "buffered" },
-    ]);
+  test("is Autoplay's own words while the Host counts down", () => {
+    const counting = view({
+      state: "ended",
+      autoplay: {
+        next: {
+          title: { type: "series", id: "tt1" },
+          video: { type: "series", id: "tt1:1:3" },
+          episode: { season: 1, episode: 3 },
+          name: null,
+          still: null,
+        },
+        phase: "countdown",
+        remaining: 4,
+        duration: 5,
+      },
+    });
+
+    expect(stripLine(counting, false)).toBe("Up next in 4 · S1E3");
+  });
+
+  test("falls back to the core's episode label where nothing else is known", () => {
+    expect(stripLine(view({ episode: null, duration: null }), false)).toBe("Feature");
+  });
+
+  test("counts whole minutes, at least one, and none past the end", () => {
+    expect(timeLeft(0, 600)).toBe("10 min left");
+    expect(timeLeft(590, 600)).toBe("1 min left");
+    expect(timeLeft(600, 600)).toBeNull();
+    expect(timeLeft(null, 600)).toBeNull();
+    expect(timeLeft(10, null)).toBeNull();
+  });
+});
+
+describe("the Title naming what is playing", () => {
+  const PROGRESS = {
+    video: {
+      id: "tt1:1:2",
+      name: "The Choice",
+      season: 1,
+      episode: 2,
+      thumbnail: "https://images.test/frame.jpg",
+      airDate: null,
+      description: "An episode.",
+    },
+    title: {
+      addon: "cinemeta",
+      id: "tt1",
+      type: "series",
+      name: "One",
+      poster: "https://images.test/poster.jpg",
+      background: "https://images.test/back.jpg",
+    },
+    position: 300,
+    duration: 600,
+    watched: false,
+    unplayable: null,
+  };
+  const held: Title = {
+    addon: "cinemeta",
+    id: "tt1",
+    key: { kind: "addon", addon: "cinemeta", id: "tt1" },
+    type: "series",
+    name: "Held One",
+    poster: "https://images.test/held.jpg",
+    background: null,
+    logo: null,
+    description: "A series.",
+    releaseInfo: null,
+    runtime: null,
+    imdbRating: null,
+    genres: [],
+    videos: [
+      {
+        id: "tt1:1:2",
+        name: "Held name",
+        season: 1,
+        episode: 2,
+        thumbnail: null,
+        airDate: null,
+        description: "Held episode.",
+      },
+    ],
+  };
+
+  test("is Watch progress's Title, with its poster and never a frame", () => {
+    expect(playingTitle(playback(), [PROGRESS], held)).toEqual({
+      id: "tt1",
+      name: "One",
+      episode: "S1 E2 · The Choice",
+      description: "An episode.",
+      poster: "https://images.test/poster.jpg",
+      backdrop: "https://images.test/back.jpg",
+    });
+  });
+
+  test("is filled by the held Title that is playing, and by its poster as backdrop", () => {
+    expect(playingTitle(playback(), [], held)).toEqual({
+      id: "tt1",
+      name: "Held One",
+      episode: "S1 E2 · Held name",
+      description: "Held episode.",
+      poster: "https://images.test/held.jpg",
+      backdrop: "https://images.test/held.jpg",
+    });
+  });
+
+  test("takes nothing from a held Title that is not the one playing", () => {
+    const other = { ...held, id: "tt2", videos: [] };
+
+    expect(playingTitle(playback(), [], other)).toMatchObject({
+      id: null,
+      poster: null,
+      backdrop: null,
+      description: null,
+    });
+  });
+
+  test("is a film's own description, with no episode line", () => {
+    const film = { ...held, id: "tt9", type: "movie", videos: [] };
+    const watching = playback({
+      episode: null,
+      nowPlaying: { ...playback().nowPlaying!, video: { type: "movie", id: "tt9" } },
+    });
+
+    expect(playingTitle(watching, [], film)).toMatchObject({
+      episode: null,
+      description: "A series.",
+    });
   });
 });
 

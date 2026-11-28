@@ -11,21 +11,29 @@ import type {
   PlaybackSnapshot,
   ResumeEntry,
   Snapshot,
+  Stream,
   Title,
 } from "../core/wire";
 import { RemoteApp } from "./RemoteApp";
 import { FakeHost, type Respond } from "./fakeHost.testing";
 import { NOTHING } from "./fakeSocket.testing";
-import { CARD_NAME, openingNote, STRIP_EXPAND, STRIP_LABEL } from "./playerScreen";
+import {
+  CARD_NAME,
+  COLLAPSE_LABEL,
+  openingNote,
+  STRIP_EXPAND,
+  STRIP_LABEL,
+} from "./playerScreen";
 
 /**
  * The Remote's player over a fake HostLink (#213, ADR-0032).
  *
  * The assertions are the surface's decisions: the strip and its two controls,
- * the card as the level Back closes without stopping, the six core controls,
- * the timeline's one seek per committed change, the volume box's one level per
- * commit, and the strip's rule for all three picture values. The drawing is the
- * harness; the Action at the boundary is what a case reads.
+ * the fullscreen Remote as the level Back closes without stopping, the six core
+ * controls, the seek bar's one seek per committed change, the volume box's one
+ * level per commit, the failed open that keeps the Remote up, and the strip's
+ * rule for all three picture values. The drawing is the harness; the Action at
+ * the boundary is what a case reads.
  */
 
 const EPISODE: ResumeEntry = {
@@ -98,6 +106,15 @@ function snapshot(overrides: Partial<PlaybackSnapshot> = {}, revision = 2): Snap
   };
 }
 
+const OTHER: Stream = {
+  name: "Torrentio\n1080p",
+  description: null,
+  filename: "other.mkv",
+  bingeGroup: null,
+  warnings: [],
+  playback: { kind: "direct", url: "https://media.test/other.mkv" },
+};
+
 /** The room over a fake Host: the strip is one of its own bands. */
 function mount(respond?: Respond) {
   const host = new FakeHost(snapshot(), respond);
@@ -144,10 +161,10 @@ describe("the Remote's docked strip", () => {
       const note = pictureNote(picture);
       if (note === null) {
         for (const absent of elsewhere) {
-          expect(within(band).queryByText(absent!)).toBeNull();
+          expect(within(band).queryByText(absent!, { exact: false })).toBeNull();
         }
       } else {
-        expect(within(band).getByText(note)).toBeInTheDocument();
+        expect(within(band).getByText(note, { exact: false })).toBeInTheDocument();
       }
     }
   });
@@ -213,7 +230,7 @@ describe("the Remote's docked strip", () => {
     const { host } = mount();
     await screen.findByLabelText(STRIP_LABEL);
 
-    fireEvent.click(within(strip()).getByRole("button", { name: "Back ten seconds" }));
+    fireEvent.click(within(strip()).getByRole("button", { name: "Back 10 seconds" }));
     await waitFor(() =>
       expect(host.asked("seek")).toEqual([
         { type: "seek", target: { kind: "by", seconds: -10 } },
@@ -227,8 +244,9 @@ describe("the Remote's docked strip", () => {
 
     await openCard();
     expect(screen.queryByLabelText(STRIP_LABEL)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Library" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    fireEvent.click(screen.getByRole("button", { name: COLLAPSE_LABEL }));
     await waitFor(() =>
       expect(screen.getByLabelText(STRIP_LABEL)).toBeInTheDocument(),
     );
@@ -240,11 +258,14 @@ describe("the Remote's docked strip", () => {
 });
 
 describe("the Remote's expanded card", () => {
-  test("Back closes the card without stopping, and leaves the destination underneath", async () => {
+  test.each([
+    ["the collapse control", () => fireEvent.click(screen.getByRole("button", { name: COLLAPSE_LABEL }))],
+    ["Escape", () => fireEvent.keyDown(window, { key: "Escape" })],
+  ])("%s closes the card without stopping, and leaves the destination underneath", async (_name, close) => {
     const { host } = mount();
     await openCard();
 
-    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    close();
     await waitFor(() =>
       expect(
         screen.queryByRole("region", { name: CARD_NAME }),
@@ -263,9 +284,9 @@ describe("the Remote's expanded card", () => {
 
     const sequence: Array<[string, Action]> = [
       ["Previous episode", { type: "previous_episode" }],
-      ["Back ten seconds", { type: "seek", target: { kind: "by", seconds: -10 } }],
+      ["Back 10 seconds", { type: "seek", target: { kind: "by", seconds: -10 } }],
       ["Pause", { type: "set_paused", paused: true }],
-      ["Forward ten seconds", { type: "seek", target: { kind: "by", seconds: 10 } }],
+      ["Forward 10 seconds", { type: "seek", target: { kind: "by", seconds: 10 } }],
       ["Next episode", { type: "next_episode" }],
       ["Stop", { type: "stop_playback" }],
     ];
@@ -275,6 +296,23 @@ describe("the Remote's expanded card", () => {
     }
 
     await waitFor(() => expect(host.actions).toEqual(sequence.map(([, action]) => action)));
+  });
+
+  test("a transport step and the mute wait on their own keys, and send once", async () => {
+    const { host } = mount(() => new Promise(() => {}));
+    const card = await openCard();
+    const pause = within(card).getByRole("button", { name: "Pause" });
+    const mute = within(card).getByRole("button", { name: "Mute" });
+
+    fireEvent.click(pause);
+    fireEvent.click(mute);
+    await waitFor(() => expect(pause).toBeDisabled());
+    await waitFor(() => expect(mute).toBeDisabled());
+    fireEvent.click(pause);
+    fireEvent.click(mute);
+
+    expect(host.actions).toHaveLength(2);
+    expect(within(card).getByRole("button", { name: "Forward 10 seconds" })).toBeEnabled();
   });
 
   describe("a Stalled Stream", () => {
@@ -306,16 +344,16 @@ describe("the Remote's expanded card", () => {
 
     test("the strip says Waiting… from one continuous second, and clears when it ends", async () => {
       const { host } = await mountStalled();
-      expect(within(strip()).queryByText(STALLED_STRIP_NOTE)).not.toBeInTheDocument();
+      expect(within(strip()).queryByText(STALLED_STRIP_NOTE, { exact: false })).not.toBeInTheDocument();
 
       act(() => vi.advanceTimersByTime(STALL_GRACE_MS - 1));
-      expect(within(strip()).queryByText(STALLED_STRIP_NOTE)).not.toBeInTheDocument();
+      expect(within(strip()).queryByText(STALLED_STRIP_NOTE, { exact: false })).not.toBeInTheDocument();
 
       act(() => vi.advanceTimersByTime(1));
-      expect(within(strip()).getByText(STALLED_STRIP_NOTE)).toBeInTheDocument();
+      expect(within(strip()).getByText(STALLED_STRIP_NOTE, { exact: false })).toBeInTheDocument();
 
       act(() => host.publish(snapshot({ stalled: false }, 4)));
-      expect(within(strip()).queryByText(STALLED_STRIP_NOTE)).not.toBeInTheDocument();
+      expect(within(strip()).queryByText(STALLED_STRIP_NOTE, { exact: false })).not.toBeInTheDocument();
     });
 
     test("the card's state note is the ring and the sentence, after the same second", async () => {
@@ -326,7 +364,7 @@ describe("the Remote's expanded card", () => {
       act(() => vi.advanceTimersByTime(STALL_GRACE_MS));
       const note = within(card).getByTestId("remote-player-state");
       expect(note).toHaveTextContent(STALLED_NOTE);
-      expect(within(note).getByTestId("pending-spinner")).toBeInTheDocument();
+      expect(within(note).getByTestId("remote-player-spinner")).toBeInTheDocument();
 
       act(() => host.publish(snapshot({ stalled: false }, 4)));
       expect(within(card).queryByTestId("remote-player-state")).not.toBeInTheDocument();
@@ -340,7 +378,7 @@ describe("the Remote's expanded card", () => {
       act(() => vi.advanceTimersByTime(STALL_GRACE_MS));
       const note = within(card).getByTestId("remote-player-state");
       expect(note).toHaveTextContent(STALLED_NOTE);
-      expect(within(note).getByTestId("pending-spinner")).toBeInTheDocument();
+      expect(within(note).getByTestId("remote-player-spinner")).toBeInTheDocument();
       expect(within(note).getByTestId("remote-player-torrent")).toHaveTextContent(
         torrentLine(FETCHING),
       );
@@ -355,9 +393,9 @@ describe("the Remote's expanded card", () => {
       act(() => host.publish(snapshot({ stalled: true, torrent: FETCHING }, 4)));
       act(() => vi.advanceTimersByTime(STALL_GRACE_MS));
 
-      expect(within(strip()).getByText(STALLED_STRIP_NOTE)).toBeInTheDocument();
+      expect(within(strip()).getByText(STALLED_STRIP_NOTE, { exact: false })).toBeInTheDocument();
       expect(within(strip()).queryByTestId("remote-player-torrent")).not.toBeInTheDocument();
-      expect(within(strip()).queryByText(torrentLine(FETCHING))).not.toBeInTheDocument();
+      expect(within(strip()).queryByText(torrentLine(FETCHING), { exact: false })).not.toBeInTheDocument();
     });
 
     test("a seek's brief wait draws nothing on either", async () => {
@@ -368,7 +406,7 @@ describe("the Remote's expanded card", () => {
       act(() => vi.advanceTimersByTime(2000));
 
       // The strip is withheld on the card's own screen, so it is read first.
-      expect(within(strip()).queryByText(STALLED_STRIP_NOTE)).not.toBeInTheDocument();
+      expect(within(strip()).queryByText(STALLED_STRIP_NOTE, { exact: false })).not.toBeInTheDocument();
       const card = openCardNow();
       expect(within(card).queryByTestId("remote-player-state")).not.toBeInTheDocument();
     });
@@ -399,12 +437,12 @@ describe("the Remote's expanded card", () => {
     act(() => host.publish(snapshot({ state: "opening" }, 3)));
 
     const band = await screen.findByLabelText(STRIP_LABEL);
-    const rewind = within(band).getByRole("button", { name: "Back ten seconds" });
+    const rewind = within(band).getByRole("button", { name: "Back 10 seconds" });
     expect(rewind).toBeDisabled();
     fireEvent.click(rewind);
 
     const card = await openCard();
-    const forward = within(card).getByRole("button", { name: "Forward ten seconds" });
+    const forward = within(card).getByRole("button", { name: "Forward 10 seconds" });
     expect(forward).toBeDisabled();
     fireEvent.click(forward);
 
@@ -432,17 +470,36 @@ describe("the Remote's expanded card", () => {
   });
 });
 
-describe("the Remote's timeline", () => {
-  test("sends one seek per committed change, never one per move", async () => {
+/** jsdom lays nothing out: give a track the width a pointer's place is read from. */
+function setTrack(element: Element, width = 1000) {
+  Object.defineProperty(element, "getBoundingClientRect", {
+    configurable: true,
+    value: () => ({
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: width,
+      bottom: 44,
+      width,
+      height: 44,
+      toJSON: () => ({}),
+    }),
+  });
+}
+
+describe("the Remote's seek bar", () => {
+  test("sends one seek when the finger lifts, never one per move", async () => {
     const { host } = mount();
     const card = await openCard();
-    const bar = within(card).getByLabelText("Position");
+    const bar = within(card).getByRole("slider", { name: "Seek" });
+    setTrack(bar);
 
-    fireEvent.change(bar, { target: { value: "420" } });
-    fireEvent.change(bar, { target: { value: "480" } });
+    fireEvent.pointerDown(bar, { pointerId: 1, button: 0, clientX: 700 });
+    fireEvent.pointerMove(bar, { pointerId: 1, clientX: 750 });
     expect(host.asked("seek")).toEqual([]);
 
-    fireEvent.pointerUp(bar);
+    fireEvent.pointerUp(bar, { pointerId: 1, clientX: 800 });
     await waitFor(() =>
       expect(host.asked("seek")).toEqual([
         { type: "seek", target: { kind: "to", seconds: 480 } },
@@ -450,21 +507,26 @@ describe("the Remote's timeline", () => {
     );
   });
 
+  test("stands at the Host's position, and holds while the Stream cannot be sought", async () => {
+    const { host } = mount();
+    const card = await openCard();
+    const bar = within(card).getByRole("slider", { name: "Seek" });
+    expect(bar).toHaveAttribute("aria-valuemax", "600");
+    expect(bar).toHaveAttribute("aria-valuenow", "300");
+
+    act(() => host.publish(snapshot({ state: "opening" }, 3)));
+    await waitFor(() => expect(bar).toHaveAttribute("aria-disabled", "true"));
+    setTrack(bar);
+    fireEvent.pointerDown(bar, { pointerId: 1, button: 0, clientX: 700 });
+    fireEvent.pointerUp(bar, { pointerId: 1, clientX: 700 });
+    expect(host.asked("seek")).toEqual([]);
+  });
+
   test("asks the Host for the still of the bucket a pointer is on", async () => {
     const { host } = mount();
     const card = await openCard();
     const timeline = within(card).getByTestId("remote-player-timeline");
-    vi.spyOn(timeline, "getBoundingClientRect").mockReturnValue({
-      x: 0,
-      y: 0,
-      left: 0,
-      top: 0,
-      right: 1000,
-      bottom: 20,
-      width: 1000,
-      height: 20,
-      toJSON: () => ({}),
-    });
+    setTrack(timeline);
 
     fireEvent.pointerMove(timeline, { clientX: 500 });
     await waitFor(() =>
@@ -472,10 +534,9 @@ describe("the Remote's timeline", () => {
     );
 
     fireEvent.pointerLeave(timeline);
-    vi.restoreAllMocks();
   });
 
-  test("draws the still the Host answers with above the card's timeline", async () => {
+  test("draws the still the Host answers with above the seek bar", async () => {
     const image = "https://images.test/still.jpg";
     const { host } = mount((action) =>
       action.type === "preview"
@@ -484,17 +545,7 @@ describe("the Remote's timeline", () => {
     );
     const card = await openCard();
     const timeline = within(card).getByTestId("remote-player-timeline");
-    vi.spyOn(timeline, "getBoundingClientRect").mockReturnValue({
-      x: 0,
-      y: 0,
-      left: 0,
-      top: 0,
-      right: 1000,
-      bottom: 20,
-      width: 1000,
-      height: 20,
-      toJSON: () => ({}),
-    });
+    setTrack(timeline);
 
     fireEvent.pointerMove(timeline, { clientX: 500 });
     const still = await screen.findByTestId("remote-player-preview-still");
@@ -502,7 +553,7 @@ describe("the Remote's timeline", () => {
     expect(host.asked("preview")).toHaveLength(1);
 
     fireEvent.pointerLeave(timeline);
-    vi.restoreAllMocks();
+    expect(screen.queryByTestId("remote-player-preview")).toBeNull();
   });
 
   test("draws the time alone when the Host has no still to give, as it has for a torrent", async () => {
@@ -513,17 +564,7 @@ describe("the Remote's timeline", () => {
     );
     const card = await openCard();
     const timeline = within(card).getByTestId("remote-player-timeline");
-    vi.spyOn(timeline, "getBoundingClientRect").mockReturnValue({
-      x: 0,
-      y: 0,
-      left: 0,
-      top: 0,
-      right: 1000,
-      bottom: 20,
-      width: 1000,
-      height: 20,
-      toJSON: () => ({}),
-    });
+    setTrack(timeline);
 
     fireEvent.pointerMove(timeline, { clientX: 500 });
     await waitFor(() => expect(host.asked("preview")).toHaveLength(1));
@@ -535,21 +576,23 @@ describe("the Remote's timeline", () => {
     expect(screen.getByTestId("remote-player-preview")).toHaveTextContent("5:00");
 
     fireEvent.pointerLeave(timeline);
-    vi.restoreAllMocks();
   });
 });
 
 describe("the Remote's volume box", () => {
-  test("sends one level per committed change, never one per move", async () => {
+  test("sends one level per drag, on the Host's 0–130 scale", async () => {
     const { host } = mount();
     const card = await openCard();
-    const volume = within(card).getByLabelText("Volume");
+    const volume = within(card).getByRole("slider", { name: "Volume" });
+    expect(volume).toHaveAttribute("aria-valuemax", "130");
+    expect(volume).toHaveAttribute("aria-valuenow", "60");
+    setTrack(volume, 130);
 
-    fireEvent.change(volume, { target: { value: "80" } });
-    fireEvent.change(volume, { target: { value: "90" } });
+    fireEvent.pointerDown(volume, { pointerId: 1, button: 0, clientX: 80 });
+    fireEvent.pointerMove(volume, { pointerId: 1, clientX: 85 });
     expect(host.asked("set_volume")).toEqual([]);
 
-    fireEvent.pointerUp(volume);
+    fireEvent.pointerUp(volume, { pointerId: 1, clientX: 90 });
     await waitFor(() =>
       expect(host.asked("set_volume")).toEqual([{ type: "set_volume", level: 90 }]),
     );
@@ -612,7 +655,7 @@ describe("the Remote's Autoplay switch", () => {
     const { host } = mount();
     const card = await openCard();
 
-    const row = within(card).getByTestId("remote-autoplay-switch");
+    const row = within(card).getByRole("switch");
     expect(row).toHaveAttribute("aria-checked", "true");
 
     fireEvent.click(row);
@@ -629,7 +672,7 @@ describe("the Remote's Autoplay switch", () => {
     act(() => host.publish(snapshot({ episode: null }, 3)));
 
     await waitFor(() =>
-      expect(within(card).queryByTestId("remote-autoplay-switch")).not.toBeInTheDocument(),
+      expect(within(card).queryByRole("switch")).not.toBeInTheDocument(),
     );
   });
 });
@@ -767,5 +810,67 @@ describe("the Remote's missing Stream", () => {
       await Promise.resolve();
     });
     expect(host.asked("find_streams")).toEqual([]);
+  });
+});
+
+describe("the Remote after a failed open", () => {
+  const FAILED: Partial<PlaybackSnapshot> = {
+    state: "idle",
+    failure: "403 Forbidden",
+  };
+
+  const answersStreams: Respond = (action: Action) =>
+    action.type === "find_streams"
+      ? {
+          snapshots: [],
+          answer: {
+            streams: [{ addon: "torrentio", failure: null, streams: [OTHER] }],
+          },
+        }
+      : { snapshots: [], answer: null };
+
+  test("stays up with the Host's reason, and another Stream is a switch_stream", async () => {
+    const { host } = mount(answersStreams);
+    const card = await openCard();
+
+    act(() => host.publish(snapshot(FAILED, 3)));
+    expect(await within(card).findByTestId("remote-player-failure")).toHaveTextContent(
+      "403 Forbidden",
+    );
+    // No Stream is on the Player, so nothing offers to adjust one.
+    expect(within(card).queryByRole("slider")).not.toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: "Picture" })).not.toBeInTheDocument();
+
+    fireEvent.click(within(card).getByRole("button", { name: "Choose stream" }));
+    const sheet = await screen.findByRole("dialog", { name: "Streams" });
+    fireEvent.click(await within(sheet).findByRole("button", { name: /other\.mkv/ }));
+
+    await waitFor(() =>
+      expect(host.asked("switch_stream")).toEqual([
+        { type: "switch_stream", addon: "torrentio", stream: OTHER },
+      ]),
+    );
+    expect(host.asked("play_stream")).toEqual([]);
+  });
+
+  test("Stop clears it, and the Host's cleared Snapshot closes the Remote", async () => {
+    const { host } = mount();
+    const card = await openCard();
+    act(() => host.publish(snapshot(FAILED, 3)));
+    await within(card).findByTestId("remote-player-failure");
+
+    fireEvent.click(within(card).getByRole("button", { name: "Stop" }));
+    await waitFor(() =>
+      expect(host.asked("stop_playback")).toEqual([{ type: "stop_playback" }]),
+    );
+
+    act(() =>
+      host.publish(
+        snapshot({ state: "idle", failure: null, nowPlaying: null, episode: null }, 4),
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole("region", { name: CARD_NAME })).not.toBeInTheDocument(),
+    );
   });
 });

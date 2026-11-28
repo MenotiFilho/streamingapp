@@ -335,6 +335,19 @@ describe("PhoneSeekBar, PhoneTransport, VolumeBox, RemoteMenus, and PhoneSwitchR
     expect(onCommit).toHaveBeenCalledWith(80);
   });
 
+  it("holds a level from outside the volume scale at its nearer end", () => {
+    const box = (level: number) => (
+      <VolumeBox level={level} max={130} muted={false} onCommit={vi.fn()} onMute={vi.fn()} />
+    );
+    const { rerender } = render(box(140));
+
+    const slider = screen.getByRole("slider", { name: "Volume" });
+    expect(slider).toHaveAttribute("aria-valuenow", "130");
+
+    rerender(box(-5));
+    expect(slider).toHaveAttribute("aria-valuenow", "0");
+  });
+
   it("lists all seven remote menus, tracks expanded state, and filters when supplied", () => {
     const onOpen = vi.fn();
     const { rerender } = render(<RemoteMenus open="streams" onOpen={onOpen} />);

@@ -281,12 +281,12 @@ describe("the Remote's app", () => {
       expect(screen.getByRole("navigation", { name: "Destinations" })).toBeInTheDocument();
 
       // Player Level hides the TabBar.
-      fireEvent.click(screen.getByRole("button", { name: /Open the player/ }));
+      fireEvent.click(screen.getByRole("button", { name: /Open the remote/ }));
       await screen.findByTestId("remote-player-card");
       expect(screen.queryByRole("navigation", { name: "Destinations" })).not.toBeInTheDocument();
 
       // Player sheet over player Level also hides the TabBar.
-      fireEvent.click(screen.getByTestId("player-menu-speed"));
+      fireEvent.click(screen.getByRole("button", { name: "Speed" }));
       await screen.findByTestId("player-sheet-speed");
       expect(screen.queryByRole("navigation", { name: "Destinations" })).not.toBeInTheDocument();
     } finally {
