@@ -530,18 +530,60 @@ impl Action {
     /// questions off the connection thread without classifying on its own
     /// (ADR-0022).
     pub fn is_question(&self) -> bool {
-        matches!(
-            self,
+        match self {
             Self::BrowseCatalog { .. }
-                | Self::SearchCatalogs { .. }
-                | Self::Discover { .. }
-                | Self::Search { .. }
-                | Self::OpenTitle { .. }
-                | Self::OpenDiscoveredTitle { .. }
-                | Self::FindStreams { .. }
-                | Self::Preview { .. }
-                | Self::Library
-        )
+            | Self::SearchCatalogs { .. }
+            | Self::Discover { .. }
+            | Self::Search { .. }
+            | Self::OpenTitle { .. }
+            | Self::OpenDiscoveredTitle { .. }
+            | Self::FindStreams { .. }
+            | Self::Preview { .. }
+            | Self::Library => true,
+            Self::SetSubtitleLanguages { .. }
+            | Self::SetAudioLanguages { .. }
+            | Self::SetSubtitleColor { .. }
+            | Self::SetSubtitleScale { .. }
+            | Self::SetStreamBuffer { .. }
+            | Self::SetTorrentCache { .. }
+            | Self::SetUpNextPlayback { .. }
+            | Self::SetAutoplay { .. }
+            | Self::CancelAutoplay
+            | Self::SetFeaturedCatalog { .. }
+            | Self::ClearFeaturedCatalog
+            | Self::AddAddon { .. }
+            | Self::ReorderAddon { .. }
+            | Self::RemoveAddon { .. }
+            | Self::SetAddonEnabled { .. }
+            | Self::SetTmdbKey { .. }
+            | Self::ClearTmdbKey
+            | Self::SignInStremio { .. }
+            | Self::SignOutStremio
+            | Self::PairDevice { .. }
+            | Self::RevokeDevice { .. }
+            | Self::PlayStream { .. }
+            | Self::SwitchStream { .. }
+            | Self::Resume { .. }
+            | Self::PlayUpNext { .. }
+            | Self::SetPaused { .. }
+            | Self::Seek { .. }
+            | Self::SetAudioTrack { .. }
+            | Self::SetSubtitleTrack { .. }
+            | Self::SetSubtitleDelay { .. }
+            | Self::SetSpeed { .. }
+            | Self::SetVolume { .. }
+            | Self::SetMuted { .. }
+            | Self::NextChapter
+            | Self::PreviousChapter
+            | Self::SetChapter { .. }
+            | Self::SetCrop { .. }
+            | Self::Autocrop
+            | Self::SetAspect { .. }
+            | Self::NextEpisode
+            | Self::PreviousEpisode
+            | Self::StopPlayback
+            | Self::LookHint { .. } => false,
+        }
     }
 
     /// The pure step ahead of mutation.
@@ -1002,18 +1044,60 @@ impl ValidatedAction {
     /// Host's vocabulary, so that the door, the window and the wire cannot each
     /// have their own list: a capability added to the surface is classified once.
     pub fn is_question(&self) -> bool {
-        matches!(
-            self,
+        match self {
             Self::BrowseCatalog { .. }
-                | Self::SearchCatalogs { .. }
-                | Self::Discover { .. }
-                | Self::Search { .. }
-                | Self::OpenTitle { .. }
-                | Self::OpenDiscoveredTitle { .. }
-                | Self::FindStreams { .. }
-                | Self::Preview { .. }
-                | Self::Library
-        )
+            | Self::SearchCatalogs { .. }
+            | Self::Discover { .. }
+            | Self::Search { .. }
+            | Self::OpenTitle { .. }
+            | Self::OpenDiscoveredTitle { .. }
+            | Self::FindStreams { .. }
+            | Self::Preview { .. }
+            | Self::Library => true,
+            Self::SetSubtitleLanguages(_)
+            | Self::SetAudioLanguages(_)
+            | Self::SetSubtitleColor(_)
+            | Self::SetSubtitleScale(_)
+            | Self::SetStreamBuffer(_)
+            | Self::SetTorrentCache(_)
+            | Self::SetUpNextPlayback(_)
+            | Self::SetAutoplay(_)
+            | Self::CancelAutoplay
+            | Self::SetFeaturedCatalog { .. }
+            | Self::ClearFeaturedCatalog
+            | Self::AddAddon(_)
+            | Self::ReorderAddon { .. }
+            | Self::RemoveAddon(_)
+            | Self::SetAddonEnabled { .. }
+            | Self::SetTmdbKey(_)
+            | Self::ClearTmdbKey
+            | Self::SignInStremio(_)
+            | Self::SignOutStremio
+            | Self::PairDevice { .. }
+            | Self::RevokeDevice(_)
+            | Self::PlayStream { .. }
+            | Self::SwitchStream { .. }
+            | Self::Resume { .. }
+            | Self::PlayUpNext { .. }
+            | Self::SetPaused { .. }
+            | Self::Seek { .. }
+            | Self::SetAudioTrack { .. }
+            | Self::SetSubtitleTrack { .. }
+            | Self::SetSubtitleDelay { .. }
+            | Self::SetSpeed { .. }
+            | Self::SetVolume { .. }
+            | Self::SetMuted { .. }
+            | Self::NextChapter
+            | Self::PreviousChapter
+            | Self::SetChapter { .. }
+            | Self::SetCrop { .. }
+            | Self::Autocrop
+            | Self::SetAspect { .. }
+            | Self::NextEpisode
+            | Self::PreviousEpisode
+            | Self::StopPlayback
+            | Self::LookHint { .. } => false,
+        }
     }
 
     /// The Addon this question names, where it names one.
@@ -1304,6 +1388,12 @@ pub enum ActionError {
     /// yet, and a device that is in already has everything pairing would buy it.
     #[error("this connection has already paired; a device pairs by being unpaired")]
     AlreadyPaired,
+    /// A connection asked a question while as many as may wait on it were
+    /// waiting already: refused rather than queued without end (ADR-0045).
+    #[error(
+        "this connection already has {limit} questions waiting, so the Host will not queue another"
+    )]
+    TooManyQuestions { limit: usize },
 }
 
 impl From<InvalidLanguageList> for ActionError {
@@ -1387,6 +1477,7 @@ impl ActionError {
             Self::UnknownDevice { .. } => "unknown_device",
             Self::Unpaired => "unpaired",
             Self::AlreadyPaired => "already_paired",
+            Self::TooManyQuestions { .. } => "too_many_questions",
         }
     }
 }
@@ -2812,6 +2903,7 @@ mod tests {
             },
             ActionError::Unpaired,
             ActionError::AlreadyPaired,
+            ActionError::TooManyQuestions { limit: 64 },
         ];
 
         let mut kinds: Vec<&str> = cases.iter().map(ActionError::kind).collect();

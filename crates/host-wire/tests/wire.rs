@@ -16,7 +16,7 @@ use host_core::{
     FixtureClock, FixtureFetcher, FixturePlayer, Host, HostDoor, InMemorySecretStore,
     InMemoryStore, Response, RevisionSink, Snapshot, WIRE_VERSION,
 };
-use host_wire::{Broadcast, Server, Surface, QUESTION_WORKERS};
+use host_wire::{Broadcast, Server, Surface, QUESTION_QUEUE, QUESTION_WORKERS};
 use serde_json::{json, Value};
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{connect, Message, WebSocket};
@@ -114,18 +114,6 @@ fn server_over_fetcher(fetcher: Arc<dyn Fetcher>) -> (Arc<Fixture>, Server) {
     (fixture, server)
 }
 
-fn server_with_ping(fetcher: Arc<dyn Fetcher>, ping_every: Duration) -> (Arc<Fixture>, Server) {
-    let fixture = Fixture::over(fetcher);
-    let server = Server::start_with_ping(
-        fixture.clone(),
-        fixture.broadcast.clone(),
-        "127.0.0.1:0".parse().expect("a loopback address"),
-        ping_every,
-    )
-    .expect("the Host can bind a loopback port");
-    (fixture, server)
-}
-
 fn action(body: &str) -> Action {
     let envelope = format!(r#"{{"version":{WIRE_VERSION},"action":{body}}}"#);
     Action::parse(&envelope).unwrap_or_else(|error| panic!("{envelope} should parse: {error}"))
@@ -214,11 +202,6 @@ impl Client {
     /// The next frame, which the Host must send.
     fn next(&mut self) -> Value {
         self.read().expect("the Host is still answering")
-    }
-
-    /// The next raw WebSocket message, including control frames such as `Ping`.
-    fn next_raw(&mut self) -> Message {
-        self.socket.read().expect("the Host is still answering")
     }
 
     /// Greet the Host, and hand back what it said this connection is.
@@ -1467,13 +1450,13 @@ fn a_greeting_while_a_question_is_in_flight_is_answered_promptly_with_welcome() 
 }
 
 #[test]
-fn pushed_snapshots_and_pings_keep_flowing_while_a_question_is_in_flight() {
+fn pushed_snapshots_keep_flowing_while_a_question_is_in_flight() {
     let (fetcher, entered_rx) = BlockingFetcher::new(
         FixtureFetcher::new()
             .serving(MANIFEST_URL, MANIFEST)
             .serving(MOVIE_URL, MOVIE),
     );
-    let (fixture, server) = server_with_ping(fetcher.clone(), Duration::from_millis(50));
+    let (fixture, server) = server_over_fetcher(fetcher.clone());
     let mut client = Client::connect(&server);
     client.hello(None);
     pair(&mut client, &fixture, "Phone");
@@ -1501,29 +1484,15 @@ fn pushed_snapshots_and_pings_keep_flowing_while_a_question_is_in_flight() {
         r#"{"type":"set_subtitle_languages","languages":["fr"]}"#,
     ));
 
-    let mut saw_snapshot = false;
-    let mut saw_ping = false;
-    while !saw_snapshot || !saw_ping {
-        match client.next_raw() {
-            Message::Ping(_) => {
-                saw_ping = true;
-            }
-            Message::Text(text) => {
-                let frame: Value = serde_json::from_str(&text).expect("valid JSON frame");
-                assert_ne!(
-                    frame.get("id").and_then(Value::as_u64),
-                    Some(10),
-                    "Snapshots and pings arrive while the question is still blocked: {frame}"
-                );
-                if frame
-                    .get("snapshot")
-                    .is_some_and(|s| s["preferences"]["subtitleLanguages"] == json!(["fr"]))
-                {
-                    saw_snapshot = true;
-                }
-            }
-            Message::Close(frame) => panic!("connection closed unexpectedly: {frame:?}"),
-            _ => {}
+    loop {
+        let frame = client.next();
+        assert_ne!(
+            frame.get("id").and_then(Value::as_u64),
+            Some(10),
+            "the Snapshot arrives while the question is still blocked: {frame}"
+        );
+        if frame["snapshot"]["preferences"]["subtitleLanguages"] == json!(["fr"]) {
+            break;
         }
     }
 
@@ -1603,9 +1572,9 @@ fn two_changes_sent_back_to_back_are_applied_in_order() {
     );
 }
 
-#[test]
-fn flooding_questions_beyond_the_worker_limit_queues_without_spawning_more_threads() {
-    let total = QUESTION_WORKERS + 2;
+/// `total` films one Addon answers, each behind its own URL: the ids a client
+/// asks for and the URLs the asks reach.
+fn numbered_movies(total: usize) -> (FixtureFetcher, Vec<(String, String)>) {
     let mut inner = FixtureFetcher::new().serving(MANIFEST_URL, MANIFEST);
     let mut urls = Vec::with_capacity(total);
     for idx in 0..total {
@@ -1615,6 +1584,22 @@ fn flooding_questions_beyond_the_worker_limit_queues_without_spawning_more_threa
         inner = inner.serving(&url, body);
         urls.push((tt_id, url));
     }
+    (inner, urls)
+}
+
+/// The command that opens one of the [`numbered_movies`].
+fn open_numbered(tt_id: &str) -> Value {
+    json!({
+        "type": "open_title",
+        "addon": "com.linvo.cinemeta",
+        "title": { "type": "movie", "id": tt_id },
+    })
+}
+
+#[test]
+fn flooding_questions_beyond_the_worker_limit_queues_without_spawning_more_threads() {
+    let total = QUESTION_WORKERS + 2;
+    let (inner, urls) = numbered_movies(total);
 
     let (fetcher, entered_rx) = BlockingFetcher::new(inner);
     let mut gates: HashMap<String, mpsc::Sender<()>> = urls
@@ -1632,11 +1617,7 @@ fn flooding_questions_beyond_the_worker_limit_queues_without_spawning_more_threa
         client.send(json!({
             "version": WIRE_VERSION,
             "id": 10 + idx as u64,
-            "command": {
-                "type": "open_title",
-                "addon": "com.linvo.cinemeta",
-                "title": { "type": "movie", "id": tt_id },
-            },
+            "command": open_numbered(tt_id),
         }));
     }
     // Sent after the flood: proves the connection loop read and queued every
@@ -1712,5 +1693,240 @@ fn flooding_questions_beyond_the_worker_limit_queues_without_spawning_more_threa
     }
     answered.sort_unstable();
     let expected: Vec<u64> = (10..10 + total as u64).collect();
+    assert_eq!(answered, expected);
+}
+
+/// A paired connection whose every question worker is held inside an Addon's
+/// fetch, with one more question waiting in the queue behind them.
+struct Saturated {
+    fixture: Arc<Fixture>,
+    server: Server,
+    client: Client,
+    device: DeviceSummary,
+    token: DeviceToken,
+    entered: mpsc::Receiver<String>,
+    /// The gates of the questions the workers are inside.
+    held: Vec<mpsc::Sender<()>>,
+    /// The queued question's URL, and the gate that would hold its fetch.
+    queued: (String, mpsc::Sender<()>),
+}
+
+/// The ids [`Saturated`] asks under, the queued question's being the last.
+const ASKED: std::ops::RangeInclusive<u64> = 10..=10 + QUESTION_WORKERS as u64;
+
+impl Saturated {
+    fn new() -> Self {
+        let (inner, urls) = numbered_movies(QUESTION_WORKERS + 1);
+        let (fetcher, entered) = BlockingFetcher::new(inner);
+        let mut held: Vec<mpsc::Sender<()>> =
+            urls.iter().map(|(_id, url)| fetcher.gate(url)).collect();
+        let queued_url = urls.last().expect("a queued question").1.clone();
+        let queued = (queued_url, held.pop().expect("the queued question's gate"));
+
+        let (fixture, server) = server_over_fetcher(fetcher);
+        let mut client = Client::connect(&server);
+        client.hello(None);
+        let (device, token) = pair(&mut client, &fixture, "Phone");
+        client.command(3, json!({ "type": "add_addon", "url": MANIFEST_URL }));
+        for (id, (tt_id, _url)) in ASKED.zip(&urls) {
+            client.send(json!({
+                "version": WIRE_VERSION,
+                "id": id,
+                "command": open_numbered(tt_id),
+            }));
+        }
+        // A change answered after them proves the connection has read, and
+        // queued, every question.
+        client.command(
+            99,
+            json!({ "type": "set_subtitle_languages", "languages": ["es"] }),
+        );
+        for _ in 0..QUESTION_WORKERS {
+            entered
+                .recv_timeout(Duration::from_secs(2))
+                .expect("every worker enters its fetch");
+        }
+
+        Self {
+            fixture,
+            server,
+            client,
+            device,
+            token,
+            entered,
+            held,
+            queued,
+        }
+    }
+
+    fn revocation(&self) -> Action {
+        action(&format!(
+            r#"{{"type":"revoke_device","id":"{}"}}"#,
+            self.device.id.as_str()
+        ))
+    }
+
+    fn release_workers(&self) {
+        for gate in &self.held {
+            gate.send(()).expect("release a held question");
+        }
+    }
+
+    fn assert_the_queued_question_never_ran(&self) {
+        assert_eq!(
+            self.entered.recv_timeout(Duration::from_millis(500)),
+            Err(mpsc::RecvTimeoutError::Timeout),
+            "the queued question {} never reaches the Fetcher",
+            self.queued.0
+        );
+    }
+
+    /// Greet again, and read past whatever was already on its way to the
+    /// Welcome.
+    fn greet(&mut self, token: Option<&DeviceToken>) -> Value {
+        self.client
+            .send(json!({ "version": WIRE_VERSION, "hello": { "token": token } }));
+        loop {
+            let frame = self.client.next();
+            assert!(
+                frame.get("id").is_none(),
+                "nothing has answered yet: {frame}"
+            );
+            if frame.get("welcome").is_some() {
+                return frame;
+            }
+        }
+    }
+
+    /// Everything the Host still says before it hangs up, which must be that
+    /// the device is not paired and nothing that answers a question.
+    fn assert_cut_off_unanswered(&mut self) {
+        let mut last = None;
+        while let Some(frame) = self.client.read() {
+            assert!(
+                frame.get("id").is_none(),
+                "a revoked device is answered nothing: {frame}"
+            );
+            last = Some(frame);
+        }
+        let last = last.expect("the Host says why before it hangs up");
+        assert_eq!(last["error"]["kind"], "unpaired", "{last}");
+    }
+}
+
+#[test]
+fn a_question_queued_behind_the_workers_never_runs_once_its_device_is_revoked() {
+    let mut saturated = Saturated::new();
+    saturated.fixture.publish_change(saturated.revocation());
+    saturated.assert_cut_off_unanswered();
+
+    saturated.release_workers();
+    saturated.assert_the_queued_question_never_ran();
+}
+
+#[test]
+fn a_revoke_the_connection_has_not_heard_of_still_stops_its_questions() {
+    // Nothing is published, so no push tells the connection: the worker and the
+    // reply each have to ask the Host for themselves.
+    let mut saturated = Saturated::new();
+    saturated
+        .fixture
+        .door
+        .dispatch_asking(saturated.revocation(), None)
+        .expect("the Host revokes the device");
+
+    saturated.release_workers();
+    saturated.assert_the_queued_question_never_ran();
+    saturated.assert_cut_off_unanswered();
+}
+
+#[test]
+fn a_greeting_that_unpairs_drops_the_queued_questions_and_the_replies_owed() {
+    let mut saturated = Saturated::new();
+    let welcome = saturated.greet(None);
+    assert!(welcome["welcome"]["device"].is_null(), "{welcome}");
+
+    saturated.release_workers();
+    saturated.assert_the_queued_question_never_ran();
+    assert!(
+        saturated.client.quiet(Duration::from_millis(500)),
+        "an unpaired connection is sent no Reply"
+    );
+
+    // The device is still paired, and what it asked before it unpaired is not
+    // owed to it when it comes back.
+    let token = saturated.token.clone();
+    saturated.greet(Some(&token));
+    assert!(saturated.client.next().get("snapshot").is_some());
+    assert!(saturated.client.quiet(Duration::from_millis(500)));
+}
+
+#[test]
+fn a_greeting_as_another_device_is_not_owed_the_first_devices_answers() {
+    let mut saturated = Saturated::new();
+    let mut other = Client::connect(&saturated.server);
+    other.hello(None);
+    let (_other_device, other_token) = pair(&mut other, &saturated.fixture, "Tablet");
+    // The tablet's pairing is published to the phone too; read it first so the
+    // greeting's Welcome is what comes next.
+    saturated.client.snapshot_where(|snapshot| {
+        snapshot["devices"]
+            .as_array()
+            .is_some_and(|devices| devices.len() == 2)
+    });
+
+    let welcome = saturated.greet(Some(&other_token));
+    assert_eq!(welcome["welcome"]["device"]["name"], "Tablet");
+    assert!(saturated.client.next().get("snapshot").is_some());
+
+    saturated.release_workers();
+    saturated.assert_the_queued_question_never_ran();
+    assert!(saturated.client.quiet(Duration::from_millis(500)));
+}
+
+#[test]
+fn a_question_past_a_full_queue_is_refused_and_the_queued_ones_still_answer() {
+    let mut saturated = Saturated::new();
+    // One question is queued already: these fill the queue, and go one past it.
+    let first = ASKED.end() + 1;
+    let overflow = first + QUESTION_QUEUE as u64 - 1;
+    for id in first..=overflow {
+        saturated.client.send(json!({
+            "version": WIRE_VERSION,
+            "id": id,
+            "command": { "type": "search_catalogs", "query": "matrix" },
+        }));
+    }
+
+    let refused = loop {
+        let frame = saturated.client.next();
+        if frame.get("id").is_some() {
+            break frame;
+        }
+    };
+    assert_eq!(refused["id"], overflow, "{refused}");
+    assert_eq!(refused["error"]["kind"], "too_many_questions", "{refused}");
+    assert_eq!(refused["error"]["limit"], QUESTION_QUEUE, "{refused}");
+
+    let change = saturated.client.command(
+        500,
+        json!({ "type": "set_subtitle_languages", "languages": ["fr"] }),
+    );
+    assert!(change.get("response").is_some(), "{change}");
+
+    saturated.release_workers();
+    saturated
+        .queued
+        .1
+        .send(())
+        .expect("release the queued question");
+    let mut answered = Vec::new();
+    while answered.len() < QUESTION_WORKERS + QUESTION_QUEUE {
+        if let Some(id) = saturated.client.next().get("id").and_then(Value::as_u64) {
+            answered.push(id);
+        }
+    }
+    answered.sort_unstable();
+    let expected: Vec<u64> = (*ASKED.start()..overflow).collect();
     assert_eq!(answered, expected);
 }

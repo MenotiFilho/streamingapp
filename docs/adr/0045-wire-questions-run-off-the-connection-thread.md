@@ -24,7 +24,7 @@ single-sourced ([ADR-0022](0022-questions-fetch-outside-the-change-lock.md)):
 
 - **Questions** are submitted to the connection's `QuestionPool` (`QUESTION_WORKERS = 4`),
   which spawns OS threads lazily up to the bound and queues excess questions on
-  a per-connection channel. Workers dispatch through `Surface::dispatch`, clear
+  a bounded per-connection channel (§4). Workers dispatch through `Surface::dispatch`, clear
   `response.snapshots` (already published via `Broadcast`), and return
   `ServerFrame::Reply` or `ServerFrame::Refusal` on a per-connection reply
   channel drained by the connection loop beside `send_revisions` and `push`.
@@ -43,7 +43,37 @@ Because questions resolve concurrently with the connection loop, a `Reply` or
 subsequent `Welcome`, `Snapshot`, or `Revision`. Clients already correlate every
 command answer by `id` (`ClientFrame::Command.id`).
 
-## 3. Remote liveness bound
+## 3. A revoke or an unpairing drops what was asked
+
+[ADR-0017](0017-pairing-and-the-wire-protocol.md) §6 cuts a revoked device off
+at the next thing it does. A question now has a life after the frame that asked
+it, so the rule is asked again at both ends of that life:
+
+- **Before it is dispatched**, the worker that takes a question checks that
+  `Surface::device` still names the device that asked it. If it does not, the
+  question is dropped: it reaches no Addon and gets no Reply.
+- **Before its answer is written** — a Reply, a Refusal or a later `Revision` —
+  the connection thread asks the same. A device revoked while its question was in
+  flight is sent the one `unpaired` Refusal a push would send, and is closed.
+- **A greeting that changes who the connection is** — no token, a token the Host
+  does not know, or another device's — empties the queue and discards every
+  undelivered Reply and `Revision`. A greeting as the same device keeps them,
+  because that is how a client checks that the Host is still there (§5).
+- **A connection that ends** abandons its queue the same way.
+
+A fetch already in flight is not interrupted: the transports are blocking, so it
+finishes and its answer is discarded. A revoke that lands between a worker's
+check and its dispatch lets that one fetch run, and its answer is still withheld.
+
+## 4. The queue is bounded
+
+At most `QUESTION_QUEUE` (64) questions wait on one connection, beside the four
+its workers hold. A question past that is refused at once, by its `id`, with
+`ActionError::TooManyQuestions`; the connection stays open and takes changes and
+greetings as before. Home asks at most four `browse_catalog` questions at a time
+(#112), far below the bound.
+
+## 5. Remote liveness bound
 
 Because a greeting is now answered promptly even while slow questions are in
 flight, the Remote's `onTick` greets at `greetAfter` (12 s) while commands are
@@ -57,6 +87,10 @@ socket.
 - **Moving `host-wire` to an async runtime (`tokio`)**: rejected for the same
   reasons as ADR-0017 and ADR-0022 — the Host's transports and Player are
   blocking, and a handful of LAN devices need only OS threads.
+- **An unbounded queue**: a paired device asking faster than the Addons answer
+  would grow the Host's memory without limit.
+- **Blocking the connection thread while the queue is full**: it would hold up
+  playback controls and greetings behind questions again.
 - **Spawning an unbounded thread per question**: a client flooding questions
   would spawn unbounded OS threads; queuing behind `QUESTION_WORKERS = 4`
   bounds per-connection resources.
@@ -73,3 +107,5 @@ socket.
   worker threads; idle or unpaired connections spawn none.
 - Question replies may arrive after later command replies; clients correlate by
   `id`.
+- A question may get no Reply at all, but only from a connection that has stopped
+  being the device that asked it.
