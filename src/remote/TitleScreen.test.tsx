@@ -344,6 +344,40 @@ describe("Title loading and errors", () => {
     );
     expect(await screen.findByText(TITLE_UNOPENABLE)).toBeInTheDocument();
   });
+
+  test("leaving or unmounting while open_title is in flight does not push answeredTitleLevel when the Host answers", async () => {
+    let release!: (answer: Response) => void;
+    const held = new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+    const host = new FakeHost(SNAPSHOT, (action) =>
+      action.type === "open_title" ? held : { snapshots: [], answer: null },
+    );
+    const session = new Session(doorOf(host));
+    const push = vi.fn(() => "title-1");
+    let view!: ReturnType<typeof render>;
+    view = render(
+      <TitleScreen
+        levelId="title-1"
+        card={{ addon: "cinemeta", id: "tt1", type: "movie", name: "One" }}
+        answer={null}
+        session={session}
+        state={session.getState()}
+        push={push}
+        pop={() => view.unmount()}
+      />,
+    );
+
+    await waitFor(() => expect(host.asked("open_title")).toHaveLength(1));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+
+    await act(async () => {
+      release({ snapshots: [], answer: { title: FILM } });
+      await held;
+    });
+
+    expect(push).not.toHaveBeenCalled();
+  });
 });
 
 describe("Answered Title view at hand scale", () => {

@@ -364,6 +364,45 @@ describe("Preferences leaf and sub-levels (P12, P15-P18)", () => {
     limitHost.view.unmount();
   });
 
+  test("a refused language change in LanguagesSubLevel shows the Host's explanation in role=alert and rolls the list back", async () => {
+    const refusal: ActionError = { kind: "store", detail: "the store is read-only" };
+    let release!: (answer: ActionError) => void;
+    const held = new Promise<ActionError>((resolve) => {
+      release = resolve;
+    });
+    const { host } = mount({
+      snapshot: {
+        ...WITH_SETTINGS,
+        preferences: { ...WITH_SETTINGS.preferences, subtitleLanguages: ["pt-BR", "en"] },
+      },
+      respond: (action) =>
+        action.type === "set_subtitle_languages" ? held : { snapshots: [], answer: null },
+    });
+    await openSettings();
+    await openCategory(PREFERENCES);
+
+    fireEvent.click(within(screen.getByTestId("pref-row-subtitle-languages")).getByRole("button"));
+    const chosen = await screen.findByTestId("language-chosen-subtitle");
+    const chosenLabels = () =>
+      within(chosen)
+        .getAllByRole("group")
+        .map((group) => group.getAttribute("aria-label"));
+    expect(chosenLabels()).toEqual(["Português (Brasil)", "English"]);
+
+    const enRow = within(chosen).getByRole("group", { name: "English" });
+    fireEvent.click(within(enRow).getByRole("button", { name: "Remove" }));
+    await waitFor(() =>
+      expect(host.asked("set_subtitle_languages")).toEqual([
+        { type: "set_subtitle_languages", languages: ["pt-BR"] },
+      ]),
+    );
+    expect(chosenLabels()).toEqual(["Português (Brasil)"]);
+
+    release(refusal);
+    expect(await screen.findByRole("alert")).toHaveTextContent(explain(refusal));
+    await waitFor(() => expect(chosenLabels()).toEqual(["Português (Brasil)", "English"]));
+  });
+
   test("Subtitle appearance steps 5% size and picks colour", async () => {
     const { host } = mount({ snapshot: WITH_SETTINGS });
     await openSettings();
