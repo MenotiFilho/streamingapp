@@ -225,7 +225,9 @@ function RemoteRoom({
   const sheetOpen = level ? isSheetPayload(level.payload) : false;
   const under = sheetOpen ? (drawn[drawn.length - 2] ?? null) : null;
   const showDestination = level === null || (sheetOpen && under === null);
-  const showTabBar = showDestination;
+  const isPlayerTop =
+    level?.payload.kind === "player" || level?.payload.kind === "sheet";
+  const showTabBar = !isPlayerTop;
   const shownLevels = drawn.filter((held) => held === level || held === under);
 
   const surface = pageSurface(nav.destination, level?.payload.kind ?? null);

@@ -1,11 +1,13 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MotionGlobalConfig } from "motion/react";
+import { useState, useSyncExternalStore } from "react";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { explain, type ActionError } from "../core/errors";
 import type { HostLink } from "../core/link";
 import { discoverNoKeyCopy } from "../core/marqueeDiscover";
 import type { NewLevel } from "../core/navigation";
+import { Session } from "../core/session";
 import { useSession } from "../core/react/useSession";
 import type {
   Action,
@@ -147,18 +149,17 @@ describe("Discover without TMDB Credential", () => {
 });
 
 describe("Discover over TMDB", () => {
-  test("first mount asks Movies by default and opens Discovered Title without Addon on tap", async () => {
+  test("first mount shows From TMDB subtitle, asks Movies by default and opens Discovered Title without Addon on tap", async () => {
     const { host, pushes } = mount();
 
     const card = await screen.findByTestId("discover-card-tmdb:m1");
-    expect(host.asked("discover")).toEqual([
-      {
-        type: "discover",
-        kind: "movie",
-        page: 1,
-        sort: "popularity.desc",
-      },
-    ]);
+    expect(within(screen.getByTestId("remote-discover")).getByText("From TMDB")).toBeInTheDocument();
+    expect(host.asked("discover")[0]).toEqual({
+      type: "discover",
+      kind: "movie",
+      page: 1,
+      sort: "popularity.desc",
+    });
 
     fireEvent.click(card);
     expect(pushes).toEqual([
@@ -166,7 +167,7 @@ describe("Discover over TMDB", () => {
     ]);
   });
 
-  test("switching Type dropdown to Series and selecting a Genre updates the discover request", async () => {
+  test("switching Type dropdown to Series and selecting Genre and Sort updates the discover request", async () => {
     const { host } = mount({
       respond: (action: Action) => {
         if (action.type !== "discover") {
@@ -181,6 +182,17 @@ describe("Discover over TMDB", () => {
     await screen.findByTestId("discover-card-tmdb:m1");
 
     const filters = screen.getByTestId("discover-filters");
+    fireEvent.click(within(filters).getByRole("button", { name: /Sort/ }));
+    fireEvent.click(await screen.findByRole("option", { name: "Highest rated" }));
+    await waitFor(() =>
+      expect(host.asked("discover")).toContainEqual({
+        type: "discover",
+        kind: "movie",
+        page: 1,
+        sort: "vote_average.desc",
+      }),
+    );
+
     fireEvent.click(within(filters).getByRole("button", { name: /Type/ }));
     fireEvent.click(await screen.findByRole("option", { name: "Series" }));
 
@@ -192,10 +204,120 @@ describe("Discover over TMDB", () => {
     await waitFor(() =>
       expect(
         host.asked("discover").some(
-          (a) => a.type === "discover" && a.kind === "series" && a.genre === 18,
+          (a) =>
+            a.type === "discover" &&
+            a.kind === "series" &&
+            a.genre === 18 &&
+            a.sort === "vote_average.desc",
         ),
       ).toBe(true),
     );
+  });
+
+  test("pages automatically via useGridEnd, shows Reading on… while in flight, and stops when done", async () => {
+    let releasePage2!: (value: Response) => void;
+    const page2 = new Promise<Response>((resolve) => {
+      releasePage2 = resolve;
+    });
+    const { host } = mount({
+      respond: (action: Action) => {
+        if (action.type !== "discover") {
+          return { snapshots: [], answer: null };
+        }
+        if (action.page === 1) {
+          return discoverResponse([tmdbMeta("tmdb:m1", "Dune")]);
+        }
+        if (action.page === 2) {
+          return page2;
+        }
+        return discoverResponse([], 0);
+      },
+    });
+
+    await screen.findByTestId("discover-card-tmdb:m1");
+
+    await waitFor(() =>
+      expect(host.asked("discover").filter((a) => a.page === 2)).toHaveLength(1),
+    );
+    expect(screen.getByRole("status")).toHaveTextContent("Reading on…");
+
+    fireEvent.scroll(window);
+    expect(host.asked("discover").filter((a) => a.page === 2)).toHaveLength(1);
+
+    await act(async () => {
+      releasePage2(discoverResponse([tmdbMeta("tmdb:m2", "Arrival")]));
+      await page2;
+    });
+
+    expect(await screen.findByTestId("discover-card-tmdb:m2")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByText("Reading on…")).not.toBeInTheDocument(),
+    );
+  });
+
+  test("state (Type, Genre, Sort, and loaded pages) is kept across Back from a Title", async () => {
+    const host = new FakeHost(WITH_KEY, (action: Action) => {
+      if (action.type !== "discover") {
+        return { snapshots: [], answer: null };
+      }
+      if (action.page === 1) {
+        return discoverResponse([tmdbMeta("tmdb:m1", "Dune")]);
+      }
+      if (action.page === 2) {
+        return discoverResponse([tmdbMeta("tmdb:m2", "Arrival")]);
+      }
+      return discoverResponse([], 0);
+    });
+    const session = new Session(doorOf(host));
+    session.start();
+
+    function Room() {
+      const state = useSyncExternalStore(session.subscribe, session.getState);
+      const [away, setAway] = useState(false);
+      if (away) {
+        return (
+          <button type="button" onClick={() => setAway(false)}>
+            Back from Title
+          </button>
+        );
+      }
+      return (
+        <Discover
+          session={session}
+          state={state}
+          push={() => {
+            setAway(true);
+            return "title-1";
+          }}
+        />
+      );
+    }
+
+    render(<Room />);
+    await screen.findByTestId("discover-card-tmdb:m1");
+
+    const filters = screen.getByTestId("discover-filters");
+    fireEvent.click(within(filters).getByRole("button", { name: /Genre/ }));
+    fireEvent.click(await screen.findByRole("option", { name: "Drama" }));
+    fireEvent.click(within(filters).getByRole("button", { name: /Sort/ }));
+    fireEvent.click(await screen.findByRole("option", { name: "Highest rated" }));
+
+    await screen.findByTestId("discover-card-tmdb:m2");
+    const asksBeforeAway = host
+      .asked("discover")
+      .filter((a) => a.genre === 18 && a.sort === "vote_average.desc" && a.page === 1).length;
+
+    fireEvent.click(screen.getByTestId("discover-card-tmdb:m2"));
+    fireEvent.click(await screen.findByRole("button", { name: "Back from Title" }));
+
+    expect(await screen.findByTestId("discover-card-tmdb:m2")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Genre: Drama" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sort: Highest rated" })).toBeInTheDocument();
+    expect(
+      host
+        .asked("discover")
+        .filter((a) => a.genre === 18 && a.sort === "vote_average.desc" && a.page === 1),
+    ).toHaveLength(asksBeforeAway);
   });
 
   test("marks cards unplayable when no configured Addon can answer their kind (ADR-0020)", async () => {
@@ -229,6 +351,6 @@ describe("Discover over TMDB", () => {
 
     fireEvent.click(within(notice).getByRole("button", { name: "Try again" }));
     expect(await screen.findByTestId("discover-card-tmdb:m2")).toBeInTheDocument();
-    expect(host.asked("discover")).toHaveLength(2);
+    expect(host.asked("discover").filter((a) => a.page === 1)).toHaveLength(2);
   });
 });

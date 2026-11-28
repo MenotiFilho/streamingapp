@@ -17,9 +17,6 @@ import {
   LANGUAGE_FOLLOW_LINES,
   LANGUAGE_GROUP_HEADS,
   preferenceSubLevel,
-  LONG_PRESS_MS,
-  LONG_PRESS_SLOP,
-  pressVerdict,
   revokeLevel,
   scaleRequest,
   settingsCategoryOf,
@@ -178,25 +175,6 @@ describe("revoking a device", () => {
         action: { type: "revoke_device", id: PHONE.id },
       },
     });
-  });
-});
-
-describe("the long-press that starts a chip's drag", () => {
-  test("a press held about half a second without travelling starts a drag", () => {
-    expect(LONG_PRESS_MS).toBeGreaterThanOrEqual(400);
-    expect(LONG_PRESS_MS).toBeLessThanOrEqual(600);
-    expect(pressVerdict({ heldMs: LONG_PRESS_MS, travelled: 0 })).toBe("drag");
-    expect(pressVerdict({ heldMs: LONG_PRESS_MS + 200, travelled: LONG_PRESS_SLOP })).toBe("drag");
-  });
-
-  test("a press shorter than the threshold is still waiting, and a tap never drags", () => {
-    expect(pressVerdict({ heldMs: 0, travelled: 0 })).toBe("wait");
-    expect(pressVerdict({ heldMs: LONG_PRESS_MS - 1, travelled: LONG_PRESS_SLOP })).toBe("wait");
-  });
-
-  test("a move before the threshold is a swipe: the page scrolls and no drag starts", () => {
-    expect(pressVerdict({ heldMs: 100, travelled: LONG_PRESS_SLOP + 1 })).toBe("scroll");
-    expect(pressVerdict({ heldMs: LONG_PRESS_MS - 1, travelled: 40 })).toBe("scroll");
   });
 });
 

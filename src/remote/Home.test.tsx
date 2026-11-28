@@ -1,12 +1,15 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MotionGlobalConfig } from "motion/react";
-import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
+import { useEffect, useSyncExternalStore } from "react";
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from "vitest";
 
 import type { Destination } from "../core/destinations";
 import { explain } from "../core/errors";
 import { marqueeHomeEmptyState, wideCardNote } from "../core/homeHero";
+import { FEATURE_ROTATION_MS } from "../core/homeProgramme";
 import type { HostLink } from "../core/link";
 import type { NewLevel } from "../core/navigation";
+import { Session } from "../core/session";
 import { useSession } from "../core/react/useSession";
 import type {
   Action,
@@ -30,6 +33,9 @@ beforeAll(() => {
 });
 afterAll(() => {
   MotionGlobalConfig.skipAnimations = previousSkipAnimations;
+});
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 const TOP: AddonCatalog = { type: "movie", id: "top", name: "Popular", extra: [] };
@@ -276,5 +282,133 @@ describe("Home at hand scale", () => {
     expect(empty).toHaveTextContent(expected.title);
     fireEvent.click(within(empty).getByRole("button", { name: "Open Addons" }));
     expect(choose).toHaveBeenCalledWith("addons");
+  });
+
+  test("Featured Hero rotates on FEATURE_CLOCK_MS across FEATURE_ROTATION_MS and wraps at the end", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    mount({
+      respond: () => ok([rowOf([meta("tt1", "One"), meta("tt2", "Two")])]),
+    });
+
+    const hero = await screen.findByTestId("remote-home-hero");
+    const region = within(hero).getByRole("region", { name: "Featured" });
+    expect(within(region).getByText("One")).toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(FEATURE_ROTATION_MS));
+    expect(within(region).getByText("Two")).toBeInTheDocument();
+
+    act(() => vi.advanceTimersByTime(FEATURE_ROTATION_MS));
+    expect(within(region).getByText("One")).toBeInTheDocument();
+  });
+
+  test("leaving Home and returning keeps cached rows without re-asking, and Catalog changes sync incrementally", async () => {
+    const OTHER: AddonCatalog = { type: "movie", id: "other", name: "Other", extra: [] };
+    const host = new FakeHost(SNAPSHOT, (action) => {
+      if (action.type !== "browse_catalog") {
+        return { snapshots: [], answer: null };
+      }
+      return action.catalog.id === "top"
+        ? ok([rowOf([meta("tt1", "One")])])
+        : ok([
+            {
+              addon: "cinemeta",
+              type: "movie",
+              id: "other",
+              name: "Other",
+              sent: 1,
+              metas: [meta("tt9", "Nine")],
+              failure: null,
+            },
+          ]);
+    });
+    const session = new Session(doorOf(host));
+
+    function Attached() {
+      useEffect(() => session.start(), []);
+      const state = useSyncExternalStore(session.subscribe, session.getState);
+      return <Home session={session} state={state} push={() => "l1"} choose={() => {}} />;
+    }
+
+    const first = render(<Attached />);
+    await screen.findByTestId("card-cinemeta-tt1");
+    const initialAsks = host.asked("browse_catalog").length;
+    first.unmount();
+
+    // Returning to Home keeps cached rows and asks nothing again.
+    render(<Attached />);
+    expect(await screen.findByTestId("card-cinemeta-tt1")).toBeInTheDocument();
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(host.asked("browse_catalog")).toHaveLength(initialAsks);
+
+    // Incremental catalog sync keeps surviving rows and asks only for the new Catalog.
+    act(() => {
+      host.publish({
+        ...SNAPSHOT,
+        revision: 2,
+        addons: [{ ...CINEMETA, catalogs: [TOP, OTHER] }],
+      });
+    });
+
+    expect(await screen.findByTestId("card-cinemeta-tt9")).toBeInTheDocument();
+    expect(screen.getByTestId("card-cinemeta-tt1")).toBeInTheDocument();
+    expect(host.asked("browse_catalog").slice(initialAsks)).toEqual([
+      {
+        type: "browse_catalog",
+        addon: "cinemeta",
+        catalog: { type: "movie", id: "other" },
+        extra: [],
+      },
+    ]);
+  });
+
+  test("Continue watching draws one card per Host entry, and watchProgress alone draws no rail", async () => {
+    const entry: ContinueEntry = {
+      video: { id: "tt1:1:1", name: "Pilot", season: 1, episode: 1, thumbnail: null, airDate: null },
+      title: {
+        addon: "cinemeta",
+        id: "tt1",
+        type: "series",
+        name: "One",
+        poster: null,
+        background: null,
+      },
+      position: 300,
+      duration: 600,
+      watched: false,
+      upNext: false,
+      unplayable: null,
+    };
+    mount({
+      snapshot: {
+        ...SNAPSHOT,
+        continueWatching: [entry],
+        watchProgress: [
+          entry,
+          { ...entry, video: { ...entry.video, id: "tt1:1:2", name: "Second", episode: 2 } },
+        ],
+      },
+    });
+
+    await screen.findByTestId("resume-tt1:1:1");
+    expect(screen.queryByTestId("resume-tt1:1:2")).toBeNull();
+
+    cleanup();
+
+    mount({
+      snapshot: { ...SNAPSHOT, continueWatching: [], watchProgress: [entry] },
+    });
+    await screen.findByTestId("remote-home");
+    expect(screen.queryByTestId("remote-continue")).toBeNull();
+  });
+
+  test("empty Catalog row draws its header and empty copy", async () => {
+    mount({
+      respond: () => ok([rowOf([], 0)]),
+    });
+
+    const row = await screen.findByTestId("remote-row-cinemeta/movie/top");
+    expect(within(row).getByText("No Titles answered from this Catalog.")).toBeInTheDocument();
   });
 });

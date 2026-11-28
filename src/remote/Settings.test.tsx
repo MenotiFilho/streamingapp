@@ -9,6 +9,7 @@ import {
   torrentCacheRequest,
 } from "../core/controls";
 import { explain, type ActionError } from "../core/errors";
+import { THREE_CHOSEN_NOTE } from "../core/languageList";
 import { FOLLOW_THE_FILE } from "../core/languages";
 import type { HostLink } from "../core/link";
 import {
@@ -170,24 +171,60 @@ describe("Credentials leaf (P14)", () => {
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(host.asked("clear_tmdb_key")).toHaveLength(1);
 
-    fireEvent.change(within(leaf).getByLabelText(STREMIO_EMAIL_LABEL), {
-      target: { value: "user@example.com" },
-    });
-    fireEvent.change(within(leaf).getByLabelText(STREMIO_PASSWORD_LABEL), {
-      target: { value: "hunter2" },
-    });
+    const email = within(leaf).getByLabelText(STREMIO_EMAIL_LABEL);
+    const password = within(leaf).getByLabelText(STREMIO_PASSWORD_LABEL);
+    fireEvent.change(email, { target: { value: "user@example.com" } });
+    fireEvent.change(password, { target: { value: "hunter2" } });
     fireEvent.click(within(leaf).getByRole("button", { name: STREMIO_SIGN_IN }));
     await waitFor(() =>
       expect(host.asked("sign_in_stremio")).toEqual([
         { type: "sign_in_stremio", email: "user@example.com", password: "hunter2" },
       ]),
     );
+    await waitFor(() => expect(password).toHaveValue(""));
+    expect(email).toHaveValue("");
+    expect(document.body.innerHTML).not.toContain("hunter2");
   });
 
-  test("signed-in account confirms Sign out and dispatches sign_out_stremio", async () => {
+  test("a refused TMDB key shows the Host's words and keeps the draft", async () => {
+    const refusal: ActionError = { kind: "store", detail: "the keyring is locked" };
+    const { host } = mount({ snapshot: WITH_SETTINGS, respond: () => refusal });
+    await openSettings();
+    const leaf = await openCategory(CREDENTIALS);
+
+    const field = within(leaf).getByLabelText(TMDB_FIELD_LABEL);
+    fireEvent.change(field, { target: { value: "  the-key  " } });
+    fireEvent.click(within(leaf).getByRole("button", { name: TMDB_SAVE }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(explain(refusal));
+    expect(field).toHaveValue("  the-key  ");
+    expect(host.asked("set_tmdb_key")).toEqual([
+      { type: "set_tmdb_key", key: "the-key" },
+    ]);
+  });
+
+  test("Cancel on Clear key and Sign out dialogs pops without sending an Action", async () => {
+    const { host } = mount({ snapshot: WITH_SETTINGS });
+    await openSettings();
+    const leaf = await openCategory(CREDENTIALS);
+
+    fireEvent.click(within(leaf).getByRole("button", { name: TMDB_CLEAR }));
+    const clearDialog = await screen.findByRole("dialog");
+    fireEvent.click(within(clearDialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(host.asked("clear_tmdb_key")).toEqual([]);
+  });
+
+  test("signed-in account confirms Sign out, cancels cleanly, and dispatches sign_out_stremio", async () => {
     const { host } = mount({ snapshot: WITH_ACCOUNT });
     await openSettings();
     const leaf = await openCategory(CREDENTIALS);
+
+    fireEvent.click(within(leaf).getByRole("button", { name: STREMIO_SIGN_OUT }));
+    const cancelDialog = await screen.findByRole("dialog");
+    fireEvent.click(within(cancelDialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(host.asked("sign_out_stremio")).toEqual([]);
 
     fireEvent.click(within(leaf).getByRole("button", { name: STREMIO_SIGN_OUT }));
     const dialog = await screen.findByRole("dialog");
@@ -211,7 +248,7 @@ describe("Preferences leaf and sub-levels (P12, P15-P18)", () => {
     );
   });
 
-  test("Subtitle languages sub-level shows Following the file, opens language picker, and updates order", async () => {
+  test("Subtitle languages sub-level shows Following the file, renders Add a language inline, and Escape pops the sub-level", async () => {
     const { host } = mount({
       snapshot: {
         ...WITH_SETTINGS,
@@ -222,17 +259,109 @@ describe("Preferences leaf and sub-levels (P12, P15-P18)", () => {
     await openCategory(PREFERENCES);
 
     fireEvent.click(within(screen.getByTestId("pref-row-subtitle-languages")).getByRole("button"));
-    expect(await screen.findByTestId("language-follow-subtitle")).toHaveTextContent(FOLLOW_THE_FILE);
+    await screen.findByTestId("settings-sublevel-subtitle-languages");
+    expect(screen.getByTestId("language-follow-subtitle")).toHaveTextContent(FOLLOW_THE_FILE);
+    expect(screen.queryByRole("button", { name: "Add language" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Add language" }));
-    const picker = await screen.findByTestId("language-picker-subtitle");
-    fireEvent.click(within(picker).getByRole("button", { name: "Português (Brasil)" }));
+    const addGroup = screen.getByTestId("language-add-subtitle");
+    fireEvent.click(within(addGroup).getByRole("button", { name: "Português (Brasil)" }));
 
     await waitFor(() =>
       expect(host.asked("set_subtitle_languages")).toEqual([
         { type: "set_subtitle_languages", languages: ["pt-BR"] },
       ]),
     );
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() =>
+      expect(screen.queryByTestId("settings-sublevel-subtitle-languages")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByTestId("settings-preferences")).toBeInTheDocument();
+  });
+
+  test("Audio languages sub-level shows Following the file and dispatches set_audio_languages inline", async () => {
+    const { host } = mount({
+      snapshot: {
+        ...WITH_SETTINGS,
+        preferences: { ...WITH_SETTINGS.preferences, audioLanguages: [] },
+      },
+    });
+    await openSettings();
+    await openCategory(PREFERENCES);
+
+    fireEvent.click(within(screen.getByTestId("pref-row-audio-languages")).getByRole("button"));
+    await screen.findByTestId("settings-sublevel-audio-languages");
+    expect(screen.getByTestId("language-follow-audio")).toHaveTextContent(FOLLOW_THE_FILE);
+
+    const addGroup = screen.getByTestId("language-add-audio");
+    fireEvent.click(within(addGroup).getByRole("button", { name: "English" }));
+
+    await waitFor(() =>
+      expect(host.asked("set_audio_languages")).toEqual([
+        { type: "set_audio_languages", languages: ["en"] },
+      ]),
+    );
+  });
+
+  test("Languages sub-level supports RankedRow reorder/remove and enforces the 3-language limit", async () => {
+    const first = mount({
+      snapshot: {
+        ...WITH_SETTINGS,
+        preferences: { ...WITH_SETTINGS.preferences, subtitleLanguages: ["pt-BR", "en"] },
+      },
+    });
+    const { host } = first;
+    await openSettings();
+    await openCategory(PREFERENCES);
+
+    fireEvent.click(within(screen.getByTestId("pref-row-subtitle-languages")).getByRole("button"));
+    await screen.findByTestId("language-chosen-subtitle");
+
+    const ptRow = screen.getByRole("group", { name: "Português (Brasil)" });
+    fireEvent.click(within(ptRow).getByRole("button", { name: "Move down" }));
+    await waitFor(() =>
+      expect(host.asked("set_subtitle_languages")).toContainEqual({
+        type: "set_subtitle_languages",
+        languages: ["en", "pt-BR"],
+      }),
+    );
+
+    const enRow = screen.getByRole("group", { name: "English" });
+    fireEvent.click(within(enRow).getByRole("button", { name: "Remove" }));
+    await waitFor(() =>
+      expect(host.asked("set_subtitle_languages")).toContainEqual({
+        type: "set_subtitle_languages",
+        languages: ["pt-BR"],
+      }),
+    );
+
+    // At 3 languages, note explains limit and all Add a language rows are disabled.
+    first.view.unmount();
+    const limitHost = mount({
+      snapshot: {
+        ...WITH_SETTINGS,
+        preferences: {
+          ...WITH_SETTINGS.preferences,
+          subtitleLanguages: ["pt-BR", "en", "es-419"],
+        },
+      },
+    });
+    await openSettings();
+    const prefsButtons = screen.getAllByTestId("settings-category-preferences");
+    const lastPrefsBtn = prefsButtons[prefsButtons.length - 1]!;
+    fireEvent.click(within(lastPrefsBtn).getByRole("button"));
+    const subRows = screen.getAllByTestId("pref-row-subtitle-languages");
+    fireEvent.click(within(subRows[subRows.length - 1]!).getByRole("button"));
+
+    const notes = await screen.findAllByTestId("language-note");
+    expect(notes[notes.length - 1]).toHaveTextContent(THREE_CHOSEN_NOTE);
+    const addGroups = screen.getAllByTestId("language-add-subtitle");
+    const addButtons = within(addGroups[addGroups.length - 1]!).getAllByRole("button");
+    expect(addButtons.length).toBeGreaterThan(0);
+    for (const button of addButtons) {
+      expect(button).toBeDisabled();
+    }
+    limitHost.view.unmount();
   });
 
   test("Subtitle appearance steps 5% size and picks colour", async () => {
@@ -242,6 +371,15 @@ describe("Preferences leaf and sub-levels (P12, P15-P18)", () => {
 
     fireEvent.click(within(screen.getByTestId("pref-row-subtitle-appearance")).getByRole("button"));
     await screen.findByTestId("settings-sublevel-subtitle-appearance");
+
+    fireEvent.click(
+      within(screen.getByTestId("subtitle-color-chips")).getByRole("button", { name: "Yellow" }),
+    );
+    await waitFor(() =>
+      expect(host.asked("set_subtitle_color")).toEqual([
+        { type: "set_subtitle_color", color: "#FFFF00" },
+      ]),
+    );
 
     fireEvent.click(screen.getByRole("button", { name: "Larger" }));
     await waitFor(() =>
@@ -259,6 +397,28 @@ describe("Preferences leaf and sub-levels (P12, P15-P18)", () => {
     fireEvent.click(within(screen.getByTestId("pref-row-stream-buffer")).getByRole("button"));
     await screen.findByTestId("settings-sublevel-stream-buffer");
 
+    fireEvent.click(
+      within(screen.getByTestId("buffer-seconds-chips")).getByRole("button", { name: "10 min" }),
+    );
+    await waitFor(() =>
+      expect(host.asked("set_stream_buffer")).toContainEqual({
+        type: "set_stream_buffer",
+        seconds: 600,
+        megabytes: 512,
+      }),
+    );
+
+    fireEvent.click(
+      within(screen.getByTestId("buffer-megabytes-chips")).getByRole("button", { name: "1 GB" }),
+    );
+    await waitFor(() =>
+      expect(host.asked("set_stream_buffer")).toContainEqual({
+        type: "set_stream_buffer",
+        seconds: 600,
+        megabytes: 1024,
+      }),
+    );
+
     fireEvent.click(within(screen.getByTestId("torrent-cache-chips")).getByRole("button", { name: "8 GB" }));
     await waitFor(() =>
       expect(host.asked("set_torrent_cache")).toEqual([torrentCacheRequest(8000)]),
@@ -273,7 +433,29 @@ describe("Preferences leaf and sub-levels (P12, P15-P18)", () => {
     fireEvent.click(within(screen.getByTestId("pref-row-up-next-playback")).getByRole("button"));
     const sub = await screen.findByTestId("settings-sublevel-up-next");
 
-    expect(within(sub).getByRole("switch", { name: AUTOPLAY_SWITCH_LABEL })).toBeInTheDocument();
+    fireEvent.click(within(sub).getByRole("switch", { name: AUTOPLAY_SWITCH_LABEL }));
+    await waitFor(() =>
+      expect(host.asked("set_autoplay")).toEqual([{ type: "set_autoplay", autoplay: false }]),
+    );
+
+    fireEvent.click(
+      within(screen.getByTestId("up-next-playback-chips")).getByRole("button", {
+        name: "Open the Streams picker",
+      }),
+    );
+    await waitFor(() =>
+      expect(host.asked("set_up_next_playback")).toEqual([
+        { type: "set_up_next_playback", playback: "picker" },
+      ]),
+    );
+
+    fireEvent.click(
+      within(screen.getByTestId("featured-catalog-chips")).getByRole("button", { name: "None" }),
+    );
+    await waitFor(() =>
+      expect(host.asked("clear_featured_catalog")).toEqual([{ type: "clear_featured_catalog" }]),
+    );
+
     fireEvent.click(within(screen.getByTestId("featured-catalog-chips")).getByRole("button", { name: /Top/ }));
     await waitFor(() =>
       expect(host.asked("set_featured_catalog")).toEqual([
@@ -298,17 +480,25 @@ describe("Preferences leaf and sub-levels (P12, P15-P18)", () => {
 });
 
 describe("Remote devices leaf (P19, P19b)", () => {
-  test("draws pairing code, marks current device, and confirms Revoke with Cancel focus", async () => {
+  test("draws pairing code, device tile, marks current device, cancels Revoke, and confirms Revoke with Cancel focus", async () => {
     const { host } = mount({ snapshot: WITH_DEVICES, device: PHONE });
     await openSettings();
     const leaf = await openCategory(DEVICES);
 
     expect(within(leaf).getByText(ADDRESS)).toBeInTheDocument();
     expect(screen.getByTestId(`device-${PHONE.id}`)).toHaveTextContent(/This device/);
+    expect(screen.getByTestId(`device-tile-${PHONE.id}`)).toBeInTheDocument();
+    expect(screen.getByTestId(`device-tile-${TABLET.id}`)).toBeInTheDocument();
+
+    fireEvent.click(within(leaf).getByRole("button", { name: `Revoke ${TABLET.name}` }));
+    const cancelConfirm = await screen.findByRole("dialog");
+    expect(within(cancelConfirm).getByRole("button", { name: "Cancel" })).toHaveFocus();
+    fireEvent.click(within(cancelConfirm).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(host.asked("revoke_device")).toEqual([]);
 
     fireEvent.click(within(leaf).getByRole("button", { name: `Revoke ${TABLET.name}` }));
     const confirm = await screen.findByRole("dialog");
-    expect(within(confirm).getByRole("button", { name: "Cancel" })).toHaveFocus();
     fireEvent.click(within(confirm).getByRole("button", { name: "Revoke" }));
 
     await waitFor(() =>
@@ -320,14 +510,17 @@ describe("Remote devices leaf (P19, P19b)", () => {
 });
 
 describe("About leaf (P20)", () => {
-  test("carries TMDB notice, mark, package version, and GPL licence", async () => {
+  test("carries TMDB notice, mark, streamingapp / v{version} row, Licences heading, and GPL licence", async () => {
     mount({ snapshot: WITH_SETTINGS });
     await openSettings();
     const leaf = await openCategory(ABOUT);
 
     expect(within(leaf).getByRole("img", { name: "The Movie Database (TMDB)" })).toBeInTheDocument();
     expect(within(leaf).getByText(TMDB_NOTICE)).toBeInTheDocument();
-    expect(within(leaf).getByTestId("about-version")).toHaveTextContent(packageVersion);
+    const versionRow = within(leaf).getByTestId("about-version");
+    expect(versionRow).toHaveTextContent("streamingapp");
+    expect(versionRow).toHaveTextContent(`v${packageVersion}`);
+    expect(within(leaf).getByRole("heading", { name: "Licences" })).toBeInTheDocument();
     expect(within(leaf).getByText(LICENCE)).toBeInTheDocument();
   });
 });

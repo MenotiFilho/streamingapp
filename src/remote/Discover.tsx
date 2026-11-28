@@ -214,6 +214,7 @@ export function Discover({ session, state, push, openSettings }: DiscoverProps) 
       <header className="mq-remote-large-head">
         <div className="mq-remote-large-head-titles">
           <h1 className="mq-remote-large-title">Discover</h1>
+          {keyed ? <p className="mq-remote-large-subtitle">From TMDB</p> : null}
         </div>
       </header>
 
@@ -368,6 +369,7 @@ function DiscoverGridBodyView({
               <div
                 key={meta.id}
                 className="mq-remote-poster-slot"
+                data-grid-card="true"
                 data-watched={watched || undefined}
                 data-unplayable={isUnplayable || undefined}
               >

@@ -1,25 +1,16 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MotionGlobalConfig } from "motion/react";
-import { useEffect } from "react";
 import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
-import { declaredCatalogs } from "../core/browse";
 import { explain, type ActionError } from "../core/errors";
 import type { Level } from "../core/navigation";
-import { useSession } from "../core/react/useSession";
 import { Session } from "../core/session";
 import {
   SETTINGS_CATEGORIES,
   settingsLevelId,
 } from "../core/settingsRegister";
 import type {
-  Action,
-  AddonCatalog,
-  AddonManifest,
-  CatalogRow,
   ContinueEntry,
-  MetaPreview,
-  Response,
   Snapshot,
   Title,
   Video,
@@ -36,7 +27,6 @@ import {
   titleLevelOf,
   type RemotePayload,
 } from "./levels";
-import { gridLevel } from "./grid";
 import { playerSheetLevel } from "./playerSheets";
 import { CARD_NAME, playerLevel } from "./playerScreen";
 import { clearTmdbLevel, preferenceSubLevel, settingsLevel } from "./settingsScreen";
@@ -220,139 +210,6 @@ describe("the Title a level stack holds", () => {
     expect(levelTitle(playerSheetLevel("episodes", HELD_TITLE).payload)).toBe(
       HELD_TITLE,
     );
-  });
-});
-
-/**
- * The whole-row grid (#253, ADR-0036 §1).
- *
- * More on a rail pushes the grid as a level; paging belongs to the rail's quiet
- * head action, and the grid draws the cards the rail has read. Back unwinds it
- * to the rail it came from — the cards the page appended are still there.
- */
-
-const SKIP = { name: "skip", isRequired: false, options: [], optionsLimit: 0 };
-
-const POPULAR: AddonCatalog = {
-  type: "movie",
-  id: "top",
-  name: "Popular",
-  extra: [SKIP],
-};
-
-const CINEMETA: AddonManifest = {
-  id: "cinemeta",
-  name: "Cinemeta",
-  version: "3.0.14",
-  resources: [{ name: "catalog", types: ["movie"], idPrefixes: ["tt"] }],
-  types: ["movie"],
-  catalogs: [POPULAR],
-  idPrefixes: ["tt"],
-  behaviorHints: { configurable: false, configurationRequired: false },
-  enabled: true,
-};
-
-const GRID_SNAPSHOT: Snapshot = { ...NOTHING, addons: [CINEMETA] };
-
-function gridMeta(id: string, name: string): MetaPreview {
-  return {
-    id,
-    type: "movie",
-    name,
-    poster: null,
-    posterShape: "poster",
-    background: null,
-    releaseInfo: "2026",
-    imdbRating: null,
-    genres: [],
-    description: null,
-  };
-}
-
-function gridRow(metas: MetaPreview[], sent = metas.length): CatalogRow {
-  return {
-    addon: "cinemeta",
-    type: "movie",
-    id: "top",
-    name: "Popular",
-    sent,
-    metas,
-    failure: null,
-  };
-}
-
-/** The Host's first page of four, and one more item at skip=4. */
-function gridPages(action: Action): Response {
-  if (action.type !== "browse_catalog") {
-    return { snapshots: [], answer: null };
-  }
-  const skip = action.extra.find((extra) => extra.name === "skip")?.value;
-  return skip === undefined
-    ? { snapshots: [], answer: { catalogs: [gridRow([gridMeta("tt1", "One"), gridMeta("tt2", "Two"), gridMeta("tt3", "Three"), gridMeta("tt4", "Four")], 4)] } }
-    : { snapshots: [], answer: { catalogs: [gridRow([gridMeta("tt5", "Five")], 1)] } };
-}
-
-describe("the Remote's grid level", () => {
-  test("draws its cards, reads the next page by itself, and Back pops it", async () => {
-    const host = new FakeHost(GRID_SNAPSHOT, gridPages);
-    const readyState = host.state();
-    const door = {
-      snapshot: () => host.snapshot(),
-      dispatch: (action: Action) => host.dispatch(action),
-      onSnapshot: (handler: (snapshot: Snapshot) => void) => host.onSnapshot(handler),
-      onRevision: (handler: (title: Title) => void) => host.onRevision(handler),
-      state: () => readyState,
-      onState: (handler: (state: ReturnType<typeof host.state>) => void) => host.onState(handler),
-      close: () => host.close(),
-    };
-    const pop = vi.fn();
-    function GridHarness() {
-      const { session, state } = useSession(door);
-      useEffect(() => {
-        if (state.snapshot) {
-          session.home.enter();
-          session.home.sync(declaredCatalogs(state.snapshot), null);
-        }
-      }, [session, state.snapshot]);
-      return (
-        <RemoteLevel
-          level={{
-            ...gridLevel({
-              index: "01",
-              title: "Popular",
-              tag: null,
-              addon: "cinemeta",
-              source: { kind: "home", rowKey: "cinemeta/movie/top" },
-            }),
-            id: "level-grid",
-          }}
-          session={session}
-          state={state}
-          push={() => "level-2"}
-          pop={pop}
-        />
-      );
-    }
-    render(<GridHarness />);
-
-    const grid = await screen.findByTestId("remote-grid");
-    expect(grid).toHaveAccessibleName("All of Popular");
-    expect(screen.getByTestId("grid-card-cinemeta-tt1")).toBeInTheDocument();
-    expect(
-      within(grid).queryByRole("button", { name: "Read on" }),
-    ).not.toBeInTheDocument();
-    expect(
-      await screen.findByTestId("grid-card-cinemeta-tt5"),
-    ).toBeInTheDocument();
-    expect(host.asked("browse_catalog")).toContainEqual({
-      type: "browse_catalog",
-      addon: "cinemeta",
-      catalog: { type: "movie", id: "top" },
-      extra: [{ name: "skip", value: "4" }],
-    });
-
-    fireEvent.click(within(grid).getByRole("button", { name: "Back" }));
-    expect(pop).toHaveBeenCalledOnce();
   });
 });
 

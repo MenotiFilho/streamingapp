@@ -61,7 +61,11 @@ export function Search({ session, state, push }: SearchProps) {
   }, [credential, session]);
 
   useEffect(() => {
-    if (committed === null || credential === null) {
+    if (
+      committed === null ||
+      credential === null ||
+      session.searchView.get().query !== committed
+    ) {
       return;
     }
     const plan = marqueeSearchPlan(credential, committed);

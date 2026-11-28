@@ -160,36 +160,6 @@ export function preferenceSubLevel(
   };
 }
 
-/** How long a chip is held before it is picked up: about half a second. */
-export const LONG_PRESS_MS = 500;
-
-/** How far a finger may drift while held and still be holding (CSS pixels). */
-export const LONG_PRESS_SLOP = 8;
-
-/** What a press on a chip has become. */
-export type PressVerdict = "wait" | "drag" | "scroll";
-
-/**
- * Whether a press on a chip is a drag yet (#330, story 18).
- *
- * A phone's finger lands on a chip all the time on the way to scrolling the
- * page, so a drag starts only on a long press: held about half a second without
- * travelling. A move before that is a swipe — the page scrolls and the chip is
- * never picked up — and a release before it is a tap, which is no drag either.
- */
-export function pressVerdict({
-  heldMs,
-  travelled,
-}: {
-  heldMs: number;
-  travelled: number;
-}): PressVerdict {
-  if (heldMs >= LONG_PRESS_MS) {
-    return "drag";
-  }
-  return travelled > LONG_PRESS_SLOP ? "scroll" : "wait";
-}
-
 export function colorRequest(color: string): Action {
   return { type: "set_subtitle_color", color };
 }

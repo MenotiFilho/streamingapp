@@ -11,11 +11,9 @@ import { Confirm } from "../kit/marquee/Confirm";
 import { AddonDetails } from "./Addons";
 import { PlayerCard } from "./Player";
 import { PlayerSheets } from "./PlayerSheets";
-import { RemoteGrid } from "./RemoteGrid";
 import { PreferenceSubLevel, SettingsLeaf } from "./Settings";
 import { StreamsScreen } from "./StreamsScreen";
 import { TitleScreen } from "./TitleScreen";
-import type { GridPayload } from "./grid";
 import { playerLevel, type RemotePlayer } from "./playerScreen";
 import type { RemoteSheet } from "./playerSheets";
 import { streamsLevelFor } from "./titleScreen";
@@ -42,7 +40,6 @@ export type RemotePayload =
   | { kind: "settings"; category: SettingsCategoryId }
   | { kind: "settings-pref"; subLevel: PreferenceSubLevelId }
   | { kind: "confirm"; confirm: RemoteConfirm }
-  | GridPayload
   | RemotePlayer
   | RemoteSheet;
 
@@ -162,16 +159,6 @@ export function RemoteLevel({
           subLevel={payload.subLevel}
           session={session}
           state={state}
-          pop={pop}
-        />
-      );
-    case "grid":
-      return (
-        <RemoteGrid
-          grid={payload.grid}
-          session={session}
-          state={state}
-          push={push}
           pop={pop}
         />
       );

@@ -441,6 +441,13 @@ function AnsweredTitleView({
               })}
             </div>
           </div>
+        ) : initialModel.side.kind === "series-empty" ? (
+          <div className="mq-remote-title-empty-series">
+            <p className="mq-remote-title-empty-kicker">{initialModel.side.kicker}</p>
+            <p className="mq-remote-title-meta-note" data-testid="title-no-videos">
+              {initialModel.side.note}
+            </p>
+          </div>
         ) : null}
       </div>
     </section>

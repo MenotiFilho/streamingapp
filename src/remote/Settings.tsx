@@ -62,7 +62,7 @@ import { PairingCode } from "../kit/marquee/PairingCode";
 import { RankedRow } from "../kit/marquee/RankedRow";
 import { SizeStepper } from "../kit/marquee/SizeStepper";
 import { TextField } from "../kit/marquee/TextField";
-import type { IconName } from "../kit/marquee/icons";
+import { Icon, type IconName } from "../kit/marquee/icons";
 import { PhoneHeader } from "../kit/marquee/phone/PhoneHeader";
 import { PhoneListRow } from "../kit/marquee/phone/PhoneListRow";
 import { PhoneSwitchRow } from "../kit/marquee/phone/PhoneSwitchRow";
@@ -455,6 +455,13 @@ function DevicesLeaf({
                 className="mq-remote-device-row"
                 data-testid={`device-${summary.id}`}
               >
+                <span
+                  className="mq-remote-device-tile"
+                  data-testid={`device-tile-${summary.id}`}
+                  aria-hidden="true"
+                >
+                  <Icon name="device" size={24} />
+                </span>
                 <div className="mq-remote-device-info">
                   <span className="mq-remote-device-name">{summary.name}</span>
                   <span
@@ -493,12 +500,12 @@ function AboutLeaf() {
 
       <div className="mq-remote-facts-card">
         <div className="mq-remote-fact-row" data-testid="about-version">
-          <span className="mq-remote-fact-label">Version</span>
-          <span className="mq-remote-fact-value">{packageVersion}</span>
+          <span className="mq-remote-fact-label">streamingapp</span>
+          <span className="mq-remote-fact-value">{`v${packageVersion}`}</span>
         </div>
       </div>
 
-      <GroupLabel>Licence</GroupLabel>
+      <h2 className="mq-remote-section-title">Licences</h2>
       <p className="mq-remote-about-copy">{LICENCE}</p>
     </div>
   );
@@ -554,7 +561,6 @@ function LanguagesSubLevel({
   state: SessionState;
   pop: () => void;
 }) {
-  const [choosing, setChoosing] = useState(false);
   const meta =
     PREFERENCE_SUB_LEVELS[
       kind === "subtitle" ? "subtitle-languages" : "audio-languages"
@@ -567,39 +573,6 @@ function LanguagesSubLevel({
   const view = rows(list);
   const followDetail =
     kind === "subtitle" ? FOLLOW_THE_FILE_SUBTITLE_LINE : FOLLOW_THE_FILE_AUDIO_LINE;
-
-  if (choosing) {
-    return (
-      <section
-        className="mq-remote-screen"
-        aria-label="Choose language"
-        data-testid={`language-picker-${kind}`}
-      >
-        <PhoneHeader
-          title="Choose language"
-          subtitle={meta.title}
-          onBack={() => setChoosing(false)}
-        />
-        <div className="mq-remote-body">
-          <div className="mq-remote-list-card">
-            {view.rest.map((row) => (
-              <PhoneListRow
-                key={row.tag}
-                kind="action"
-                icon="plus"
-                label={row.name}
-                disabled={row.disabled}
-                onPress={() => {
-                  void change(tick(current(), row.tag));
-                  setChoosing(false);
-                }}
-              />
-            ))}
-          </div>
-        </div>
-      </section>
-    );
-  }
 
   return (
     <section
@@ -619,7 +592,7 @@ function LanguagesSubLevel({
           </div>
         ) : (
           <div className="mq-remote-settings-group" data-testid={`language-chosen-${kind}`}>
-            <GroupLabel>Priority order</GroupLabel>
+            <GroupLabel>Chosen · in order</GroupLabel>
             <div className="mq-remote-list-card">
               {view.chosen.map((row) => (
                 <RankedRow
@@ -642,13 +615,21 @@ function LanguagesSubLevel({
           </p>
         ) : null}
 
-        <PhoneListRow
-          kind="action"
-          icon="plus"
-          label="Add language"
-          disabled={view.chosen.length >= 3 || view.rest.every((item) => item.disabled)}
-          onPress={() => setChoosing(true)}
-        />
+        <div className="mq-remote-settings-group" data-testid={`language-add-${kind}`}>
+          <GroupLabel>Add a language</GroupLabel>
+          <div className="mq-remote-list-card">
+            {view.rest.map((row) => (
+              <PhoneListRow
+                key={row.tag}
+                kind="action"
+                icon="plus"
+                label={row.name}
+                disabled={row.disabled}
+                onPress={() => void change(tick(current(), row.tag))}
+              />
+            ))}
+          </div>
+        </div>
 
         {error ? (
           <p role="alert" className="mq-remote-inline-error">
@@ -916,12 +897,15 @@ function UpNextSubLevel({
         </div>
 
         <GroupLabel>Featured catalog</GroupLabel>
+        {snapshot !== null && featuredChoices.length === 0 ? (
+          <p className="mq-remote-large-subtitle">{NO_CATALOG}</p>
+        ) : null}
         <div className="mq-remote-sub-chips" data-testid="featured-catalog-chips">
           <Chip
             selected={currentFeatured === null}
             onClick={() => void send(featuredCatalogAction(null))}
           >
-            {NO_CATALOG}
+            None
           </Chip>
           {featuredChoices.map((choice) => (
             <Chip

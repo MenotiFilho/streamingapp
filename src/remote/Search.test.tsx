@@ -5,7 +5,7 @@ import { explain, type ActionError } from "../core/errors";
 import type { HostLink } from "../core/link";
 import type { NewLevel } from "../core/navigation";
 import { useSession } from "../core/react/useSession";
-import { searchPromptCopy } from "../core/marqueeSearch";
+import { searchNoCatalogsNote, searchPromptCopy } from "../core/marqueeSearch";
 import type {
   Action,
   AddonCatalog,
@@ -15,7 +15,7 @@ import type {
   Response,
   Snapshot,
 } from "../core/wire";
-import { FakeHost, type Respond } from "./fakeHost.testing";
+import { FakeHost, type HostAnswer, type Respond } from "./fakeHost.testing";
 import { NOTHING } from "./fakeSocket.testing";
 import { titleLevel, type RemotePayload } from "./levels";
 import { Search } from "./Search";
@@ -53,7 +53,7 @@ const WITHOUT_KEY: Snapshot = {
   protection: { ...WITH_KEY.protection, tmdbHeld: false },
 };
 
-function hit(id: string, name: string, type: "movie" | "series" = "movie"): MetaPreview {
+function hit(id: string, name: string, type: string = "movie"): MetaPreview {
   return {
     id,
     type,
@@ -230,18 +230,146 @@ describe("Search on Remote", () => {
     expect(host.asked("search")).toHaveLength(3);
   });
 
-  test("draws PhoneAddonNotice on catalog failure", async () => {
+  test("draws PhoneAddonNotice on catalog failure and retries cleanly on Try again", async () => {
     const failure: ActionError = { kind: "catalog", detail: "search unavailable" };
-    mount({
+    let attempt = 0;
+    const { host } = mount({
       snapshot: WITHOUT_KEY,
-      respond: () => failure,
+      respond: (action: Action): HostAnswer => {
+        if (action.type !== "search_catalogs") {
+          return { snapshots: [], answer: null };
+        }
+        attempt += 1;
+        return attempt === 1
+          ? failure
+          : { snapshots: [], answer: { catalogs: [catalogRow([hit("tt1", "Matrix")])] } };
+      },
     });
 
     await submitQuery("Matrix");
     const notice = await screen.findByTestId("search-catalogs-failure");
     expect(notice).toHaveTextContent(explain(failure));
-    await waitFor(() =>
-      expect(within(notice).getByRole("button", { name: "Try again" })).toBeInTheDocument(),
+
+    fireEvent.click(within(notice).getByRole("button", { name: "Try again" }));
+    expect(await screen.findByTestId("search-card-cinemeta-tt1")).toBeInTheDocument();
+    expect(host.asked("search_catalogs")).toHaveLength(2);
+  });
+
+  test("cancels a stale query answer when a newer query was submitted", async () => {
+    const held: Array<() => void> = [];
+    const { host } = mount({
+      snapshot: WITH_KEY,
+      respond: (action: Action) =>
+        new Promise<HostAnswer>((resolve) => {
+          held.push(() => {
+            if (action.type === "search_catalogs") {
+              resolve({ snapshots: [], answer: { catalogs: [] } });
+              return;
+            }
+            if (action.type === "search") {
+              resolve({
+                snapshots: [],
+                answer: {
+                  search: {
+                    type: action.kind,
+                    sent: 1,
+                    metas: [hit(`${action.query}-${action.kind}`, action.query, action.kind)],
+                    failure: null,
+                  },
+                },
+              });
+              return;
+            }
+            resolve({ snapshots: [], answer: null });
+          });
+        }),
+    });
+
+    await submitQuery("dune");
+    await waitFor(() => expect(held).toHaveLength(3));
+
+    await submitQuery("matrix");
+    await waitFor(() => expect(held).toHaveLength(6));
+
+    // Resolve newer query ("matrix") first, then stale query ("dune").
+    act(() => {
+      held[3]?.();
+      held[4]?.();
+      held[5]?.();
+    });
+    expect(await screen.findByTestId("search-card-movie-matrix-movie")).toBeInTheDocument();
+
+    act(() => {
+      held[0]?.();
+      held[1]?.();
+      held[2]?.();
+    });
+    await flush();
+
+    expect(host.asked("search").map((a) => a.query)).toEqual([
+      "dune",
+      "dune",
+      "matrix",
+      "matrix",
+    ]);
+    expect(screen.getByTestId("search-card-movie-matrix-movie")).toBeInTheDocument();
+    expect(screen.queryByTestId("search-card-movie-dune-movie")).not.toBeInTheDocument();
+  });
+
+  test("toggling TMDB credential clears the search without querying the new arm, and submitting runs it again", async () => {
+    const { host } = mount({
+      snapshot: WITH_KEY,
+      respond: (action: Action): Response => {
+        if (action.type === "search") {
+          return {
+            snapshots: [],
+            answer: {
+              search: {
+                type: action.kind,
+                sent: 1,
+                metas: [hit(`tmdb:${action.kind}`, "Matrix", action.kind)],
+                failure: null,
+              },
+            },
+          };
+        }
+        if (action.type === "search_catalogs") {
+          return {
+            snapshots: [],
+            answer: { catalogs: [catalogRow([hit("tt1", "Matrix")])] },
+          };
+        }
+        return { snapshots: [], answer: null };
+      },
+    });
+
+    await submitQuery("Matrix");
+    expect(await screen.findByTestId("search-card-movie-tmdb:movie")).toBeInTheDocument();
+    const catalogAsksBefore = host.asked("search_catalogs").length;
+
+    act(() => {
+      host.publish(WITHOUT_KEY);
+    });
+
+    expect(await screen.findByTestId("search-prompt")).toBeInTheDocument();
+    expect(screen.queryByTestId("search-card-movie-tmdb:movie")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Search for a Title")).toHaveValue("");
+    expect(host.asked("search_catalogs")).toHaveLength(catalogAsksBefore);
+
+    await submitQuery("Arrival");
+    expect(await screen.findByTestId("search-card-cinemeta-tt1")).toBeInTheDocument();
+    expect(host.asked("search_catalogs")).toHaveLength(catalogAsksBefore + 1);
+  });
+
+  test("draws the no-searchable-catalogs note when no catalog can be searched", async () => {
+    mount({
+      snapshot: WITHOUT_KEY,
+      respond: () => ({ snapshots: [], answer: { catalogs: [] } }),
+    });
+
+    await submitQuery("Matrix");
+    expect(await screen.findByTestId("search-no-answer")).toHaveTextContent(
+      searchNoCatalogsNote(false)!,
     );
   });
 });
