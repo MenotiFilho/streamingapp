@@ -720,6 +720,102 @@ describe("SizeStepper", () => {
     expect(onChange.mock.calls).toEqual([[1.1], [1.2]]);
   });
 
+  it("exposes a slider with ARIA bounds and steps 5% on Left/Right", () => {
+    const onChange = vi.fn();
+    const { rerender } = render(<SizeStepper scale={1.15} onChange={onChange} />);
+    const slider = screen.getByRole("slider", { name: "Subtitle size" });
+
+    expect(slider).toHaveAttribute("data-focusable");
+    expect(slider).toHaveAttribute("aria-valuemin", "25");
+    expect(slider).toHaveAttribute("aria-valuemax", "300");
+    expect(slider).toHaveAttribute("aria-valuenow", "115");
+    expect(slider).toHaveAttribute("aria-valuetext", "115%");
+
+    // ArrowLeft/Right claim the key (`false`) and commit one step each.
+    expect(fireEvent.keyDown(slider, { key: "ArrowLeft" })).toBe(false);
+    expect(fireEvent.keyDown(slider, { key: "ArrowRight" })).toBe(false);
+    expect(onChange.mock.calls).toEqual([[1.1], [1.2]]);
+
+    // Up/Down remain free for spatial navigation.
+    expect(fireEvent.keyDown(slider, { key: "ArrowUp" })).toBe(true);
+    expect(fireEvent.keyDown(slider, { key: "ArrowDown" })).toBe(true);
+    expect(onChange).toHaveBeenCalledTimes(2);
+
+    // At the ends, keys do not fire past 25% or 300%.
+    onChange.mockClear();
+    rerender(<SizeStepper scale={0.25} onChange={onChange} />);
+    expect(fireEvent.keyDown(slider, { key: "ArrowLeft" })).toBe(false);
+    expect(onChange).not.toHaveBeenCalled();
+
+    rerender(<SizeStepper scale={3} onChange={onChange} />);
+    expect(fireEvent.keyDown(slider, { key: "ArrowRight" })).toBe(false);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("previews locally while dragging and commits one snapped scale on release", () => {
+    const onChange = vi.fn();
+    render(<SizeStepper scale={1} onChange={onChange} />);
+    const slider = screen.getByRole("slider", { name: "Subtitle size" });
+    laidOut(slider, 100, 200);
+    const capture = vi.fn();
+    slider.setPointerCapture = capture;
+
+    // 50% along the track -> 162.5% -> snaps to 165% (1.65).
+    fireEvent.pointerDown(slider, { clientX: 200, button: 0, pointerId: 3 });
+    expect(capture).toHaveBeenCalledWith(3);
+    expect(onChange).not.toHaveBeenCalled();
+    expect(slider).toHaveAttribute("aria-valuenow", "165");
+    expect(slider).toHaveAttribute("aria-valuetext", "165%");
+    expect(screen.getByRole("status")).toHaveTextContent("165%");
+
+    // Dragging further updates locally with no Action yet.
+    fireEvent.pointerMove(slider, { clientX: 250, pointerId: 3 });
+    expect(onChange).not.toHaveBeenCalled();
+    expect(slider).toHaveAttribute("aria-valuenow", "230");
+    expect(screen.getByRole("status")).toHaveTextContent("230%");
+
+    // Releasing commits once with the snapped scale, then reverts to props until Host answers.
+    fireEvent.pointerUp(slider, { clientX: 260, pointerId: 3 });
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(2.45);
+    expect(slider).toHaveAttribute("aria-valuenow", "100");
+    expect(screen.getByRole("status")).toHaveTextContent("100%");
+  });
+
+  it("commits once on a plain track press and ignores cancelled or disabled drags", () => {
+    const onChange = vi.fn();
+    const { rerender } = render(<SizeStepper scale={1} onChange={onChange} />);
+    const slider = screen.getByRole("slider", { name: "Subtitle size" });
+    laidOut(slider, 100, 200);
+
+    fireEvent.pointerDown(slider, { clientX: 100, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(slider, { clientX: 100, pointerId: 1 });
+    expect(onChange).toHaveBeenCalledExactlyOnceWith(0.25);
+
+    onChange.mockClear();
+    fireEvent.pointerDown(slider, { clientX: 200, button: 2, pointerId: 1 });
+    fireEvent.pointerUp(slider, { clientX: 200, pointerId: 1 });
+    fireEvent.pointerDown(slider, { clientX: 200, button: 0, pointerId: 1 });
+    fireEvent.pointerCancel(slider, { pointerId: 1 });
+    fireEvent.pointerUp(slider, { clientX: 200, pointerId: 1 });
+    expect(onChange).not.toHaveBeenCalled();
+
+    rerender(<SizeStepper scale={1} disabled onChange={onChange} />);
+    expect(slider).toHaveAttribute("aria-disabled", "true");
+    expect(slider).not.toHaveAttribute("data-focusable");
+    fireEvent.pointerDown(slider, { clientX: 300, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(slider, { clientX: 300, pointerId: 1 });
+    fireEvent.keyDown(slider, { key: "ArrowRight" });
+    expect(onChange).not.toHaveBeenCalled();
+
+    rerender(<SizeStepper scale={1} pending onChange={onChange} />);
+    expect(slider).toHaveAttribute("aria-disabled", "true");
+    expect(slider).toHaveAttribute("aria-busy", "true");
+    fireEvent.pointerDown(slider, { clientX: 300, button: 0, pointerId: 1 });
+    fireEvent.pointerUp(slider, { clientX: 300, pointerId: 1 });
+    fireEvent.keyDown(slider, { key: "ArrowRight" });
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it.each([
     [0.25, "Smaller", "Larger", "25%"],
     [3, "Larger", "Smaller", "300%"],

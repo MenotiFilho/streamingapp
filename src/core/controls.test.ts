@@ -39,11 +39,12 @@ import {
   orderedTracks,
   upNextRows,
   previousEpisodeDisabled,
+  scaleAtBound,
+  scaleFromRatio,
   scaleSelected,
   speedSelected,
   statisticsLines,
   stepDelay,
-  scaleAtBound,
   stepScale,
   subtitlesOn,
   torrentCachePreset,
@@ -390,6 +391,24 @@ describe("the subtitle appearance a person picks", () => {
     expect(stepScale(0.27, 1)).toBe(0.3);
     expect(stepScale(2.98, 1)).toBe(3);
     expect(stepScale(2.98, -1)).toBe(2.95);
+  });
+
+  test("a track ratio snaps to the 5% ladder within 25%–300% without float drift", () => {
+    expect(scaleFromRatio(0)).toBe(0.25);
+    expect(scaleFromRatio(1)).toBe(3);
+    expect(scaleFromRatio(-0.4)).toBe(0.25);
+    expect(scaleFromRatio(1.4)).toBe(3);
+    expect(scaleFromRatio(Number.NEGATIVE_INFINITY)).toBe(0.25);
+    expect(scaleFromRatio(Number.POSITIVE_INFINITY)).toBe(3);
+    expect(scaleFromRatio(Number.NaN)).toBe(SUBTITLE_SCALE_DEFAULT);
+
+    // 55 five-percent intervals from 25% to 300%.
+    expect(scaleFromRatio(15 / 55)).toBe(1);
+    expect(scaleFromRatio(18 / 55)).toBe(1.15);
+    expect(scaleFromRatio(0.5)).toBe(1.65);
+    expect(scaleFromRatio(0.001)).toBe(0.25);
+    expect(scaleFromRatio(0.01)).toBe(0.3);
+    expect(scaleFromRatio(0.99)).toBe(2.95);
   });
 
   test("a size reads as a percentage, and the pressed choice is the Host's value", () => {

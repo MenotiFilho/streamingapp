@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MotionGlobalConfig } from "motion/react";
-import { afterAll, beforeAll, describe, expect, test } from "vitest";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 
 import { version as packageVersion } from "../../package.json";
 import {
@@ -424,6 +424,34 @@ describe("Preferences leaf and sub-levels (P12, P15-P18)", () => {
     await waitFor(() =>
       expect(host.asked("set_subtitle_scale")).toEqual([
         { type: "set_subtitle_scale", scale: stepScale(1, 1) },
+      ]),
+    );
+
+    const slider = screen.getByRole("slider", { name: "Subtitle size" });
+    fireEvent.keyDown(slider, { key: "ArrowLeft" });
+    await waitFor(() =>
+      expect(host.asked("set_subtitle_scale")).toHaveLength(2),
+    );
+    vi.spyOn(slider, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      width: 200,
+      right: 200,
+      top: 0,
+      bottom: 32,
+      height: 32,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    fireEvent.pointerDown(slider, { clientX: 0, button: 0, pointerId: 1 });
+    fireEvent.pointerMove(slider, { clientX: 100, pointerId: 1 });
+    expect(host.asked("set_subtitle_scale")).toHaveLength(2);
+    fireEvent.pointerUp(slider, { clientX: 100, pointerId: 1 });
+    await waitFor(() =>
+      expect(host.asked("set_subtitle_scale")).toEqual([
+        { type: "set_subtitle_scale", scale: stepScale(1, 1) },
+        { type: "set_subtitle_scale", scale: stepScale(1, -1) },
+        { type: "set_subtitle_scale", scale: 1.65 },
       ]),
     );
   });

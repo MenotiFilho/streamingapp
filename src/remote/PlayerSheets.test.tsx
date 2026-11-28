@@ -366,6 +366,33 @@ describe("the Audio & subtitles sheet", () => {
     expect(within(sheet).getByRole("button", { name: open })).toBeEnabled();
   });
 
+  test("dragging the size slider sends one set_subtitle_scale on release", async () => {
+    const { host, sheet } = await mountSheet("subtitles");
+    const slider = within(sheet).getByRole("slider", { name: "Subtitle size" });
+    vi.spyOn(slider, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      width: 200,
+      right: 200,
+      top: 0,
+      bottom: 32,
+      height: 32,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+
+    fireEvent.pointerDown(slider, { clientX: 50, button: 0, pointerId: 1 });
+    fireEvent.pointerMove(slider, { clientX: 100, pointerId: 1 });
+    expect(host.asked("set_subtitle_scale")).toEqual([]);
+
+    fireEvent.pointerUp(slider, { clientX: 100, pointerId: 1 });
+    await waitFor(() =>
+      expect(host.asked("set_subtitle_scale")).toEqual([
+        { type: "set_subtitle_scale", scale: 1.65 },
+      ]),
+    );
+  });
+
   test("an empty track list draws the core's note verbatim", async () => {
     const empty = { ...PLAYBACK, tracks: [] };
     const { sheet } = await mountSheet("subtitles", { playback: empty });

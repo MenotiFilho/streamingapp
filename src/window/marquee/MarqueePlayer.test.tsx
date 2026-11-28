@@ -802,6 +802,51 @@ describe("Marquee Player OSD — the 7 floating panels", () => {
       expect(sent).toContainEqual({ type: "set_subtitle_scale", scale: 1.2 });
     });
 
+    // Slider steps 5% on Left/Right when focused, and drags to commit once on release.
+    act(() => {
+      host.publish({
+        ...NOTHING_SAID,
+        revision: 9,
+        playback: playback(),
+        preferences: { ...NOTHING_SAID.preferences, subtitleScale: 1.2 },
+      });
+    });
+    const sizeSlider = within(sizeGroup).getByRole("slider", { name: "Subtitle size" });
+    fireEvent.keyDown(sizeSlider, { key: "ArrowRight" });
+    await waitFor(() =>
+      expect(actions(host.invocations)).toContainEqual({ type: "set_subtitle_scale", scale: 1.25 }),
+    );
+
+    vi.spyOn(sizeSlider, "getBoundingClientRect").mockReturnValue({
+      left: 100,
+      width: 200,
+      right: 300,
+      top: 0,
+      bottom: 32,
+      height: 32,
+      x: 100,
+      y: 0,
+      toJSON: () => ({}),
+    });
+    const scaleCallsBeforeDrag = actions(host.invocations).filter(
+      (a) => a.type === "set_subtitle_scale",
+    ).length;
+    fireEvent.pointerDown(sizeSlider, { clientX: 150, button: 0, pointerId: 1 });
+    fireEvent.pointerMove(sizeSlider, { clientX: 200, pointerId: 1 });
+    expect(within(sizeGroup).getByRole("status")).toHaveTextContent("165%");
+    expect(actions(host.invocations).filter((a) => a.type === "set_subtitle_scale")).toHaveLength(
+      scaleCallsBeforeDrag,
+    );
+    fireEvent.pointerUp(sizeSlider, { clientX: 200, pointerId: 1 });
+
+    await waitFor(() => {
+      const scaleCalls = actions(host.invocations).filter(
+        (a) => a.type === "set_subtitle_scale",
+      );
+      expect(scaleCalls).toHaveLength(scaleCallsBeforeDrag + 1);
+      expect(scaleCalls.at(-1)).toEqual({ type: "set_subtitle_scale", scale: 1.65 });
+    });
+
     // Verify bounds at 25% and 300%
     act(() => {
       host.publish({
