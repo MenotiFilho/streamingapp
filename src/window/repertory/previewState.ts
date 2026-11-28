@@ -16,6 +16,8 @@ import type {
   AddonManifest,
   AddonResource,
   DeviceSummary,
+  FeaturedCatalog,
+  UnplayableEntry,
 } from "../../core/wire";
 import type { ActionError } from "../../core/errors";
 
@@ -185,4 +187,47 @@ export function removedAddon(
   return addons.some((addon) => addon.id === id)
     ? addons.filter((addon) => addon.id !== id)
     : null;
+}
+
+/** Whether a configured Addon exists and is currently disabled (ADR-0044 §2). */
+export function addonDisabled(addons: readonly AddonManifest[], id: string): boolean {
+  return addons.some((addon) => addon.id === id && !addon.enabled);
+}
+
+/**
+ * The Featured catalog published on a Snapshot: kept in Host preferences while
+ * its Addon is disabled, but suppressed to `null` until re-enabled (ADR-0044 §2).
+ */
+export function publishedFeaturedCatalog(
+  stored: FeaturedCatalog | null,
+  addons: readonly AddonManifest[],
+): FeaturedCatalog | null {
+  if (!stored) {
+    return null;
+  }
+  const owner = addons.find((addon) => addon.id === stored.addon);
+  return owner?.enabled ? stored : null;
+}
+
+/**
+ * Recompute each watch/continue entry's `unplayable` mark from the current
+ * Addon list so disabling or removing an Addon marks its entries honestly and
+ * re-enabling or re-adding clears the mark (ADR-0044 §2).
+ */
+export function reconcileUnplayable<
+  T extends { title: { addon: string | null }; unplayable: UnplayableEntry | null },
+>(entries: readonly T[], addons: readonly AddonManifest[]): T[] {
+  return entries.map((entry) => {
+    const addonId = entry.title.addon;
+    if (addonId === null) {
+      return entry;
+    }
+    const configured = addons.find((addon) => addon.id === addonId);
+    const unplayable: UnplayableEntry | null = !configured
+      ? { reason: "addon_removed", addon: addonId }
+      : !configured.enabled
+        ? { reason: "addon_disabled", addon: addonId }
+        : null;
+    return { ...entry, unplayable };
+  });
 }

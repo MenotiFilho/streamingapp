@@ -23,6 +23,7 @@ import {
   type Action,
   type AddonManifest,
   type CatalogRow,
+  type FeaturedCatalog,
   type PlaybackSnapshot,
   type Response,
   type Snapshot,
@@ -54,6 +55,9 @@ import {
   PREVIEW_ADDRESS,
   PREVIEW_DEVICES,
   PREVIEW_PAIRING_CODE,
+  addonDisabled,
+  publishedFeaturedCatalog,
+  reconcileUnplayable,
   removedAddon,
   reorderedAddons,
 } from "./previewState";
@@ -165,6 +169,12 @@ function failure(detail: string): ActionError {
 function answerCatalog(
   action: Extract<Action, { type: "browse_catalog" }>,
 ): Promise<Response> {
+  if (addonDisabled(current?.addons ?? [], action.addon)) {
+    return Promise.reject({
+      kind: "addon_disabled",
+      id: action.addon,
+    } satisfies ActionError);
+  }
   const skip = Number(action.extra.find((extra) => extra.name === "skip")?.value ?? 0);
   const genre = action.extra.find((extra) => extra.name === "genre")?.value.trim() || null;
   const { type, id } = action.catalog;
@@ -217,6 +227,9 @@ function answerCatalog(
 async function answerSearchCatalogs(
   action: Extract<Action, { type: "search_catalogs" }>,
 ): Promise<Response> {
+  if (addonDisabled(current?.addons ?? [], ADDON)) {
+    return { snapshots: [], answer: { catalogs: [] } };
+  }
   const query = action.query.trim();
   const searchable = CATALOGS.filter((catalog) =>
     catalog.extra.some((extra) => extra.name === "search"),
@@ -261,6 +274,9 @@ async function answerSearchCatalogs(
 async function answerStreams(
   action: Extract<Action, { type: "find_streams" }>,
 ): Promise<Response> {
+  if (addonDisabled(current?.addons ?? [], TORRENTIO_ID)) {
+    return { snapshots: [], answer: { streams: [] } };
+  }
   const { type, id } = action.video;
   try {
     const body = await readJson<{ streams?: PreviewStream[] }>(
@@ -362,6 +378,9 @@ function airDateOf(text: string | undefined): string | null {
 async function answerOpenTitle(
   action: Extract<Action, { type: "open_title" }>,
 ): Promise<Response> {
+  if (addonDisabled(current?.addons ?? [], action.addon)) {
+    return refuse({ kind: "addon_disabled", id: action.addon });
+  }
   const { type, id } = action.title;
   const body = await readJson<{ meta?: Record<string, unknown> }>(
     `${CINEMETA}/meta/${type}/${id}.json`,
@@ -478,6 +497,10 @@ async function buildSnapshot(): Promise<Snapshot> {
  * their answers from Snapshots exactly as they do in Tauri.
  */
 let current: Snapshot | null = null;
+let storedFeaturedCatalog: FeaturedCatalog | null = {
+  addon: ADDON,
+  catalog: { type: "movie", id: "top" },
+};
 let booting: Promise<Snapshot> | null = null;
 let subscriber: ((event: { payload: Snapshot }) => void) | null = null;
 
@@ -486,6 +509,7 @@ async function ensureSnapshot(): Promise<Snapshot> {
     return current;
   }
   booting ??= buildSnapshot().then((state) => {
+    storedFeaturedCatalog = state.featuredCatalog;
     current = state;
     return state;
   });
@@ -730,14 +754,18 @@ async function addAddon(
   const manifest = manifestFrom(url, raw);
   const state = await ensureSnapshot();
   const known = state.addons.some((addon) => addon.id === manifest.id);
+  const addons = known
+    ? state.addons.map((addon) =>
+        addon.id === manifest.id ? { ...manifest, enabled: addon.enabled } : addon,
+      )
+    : [...state.addons, manifest];
   return publish({
     ...state,
     revision: state.revision + 1,
-    addons: known
-      ? state.addons.map((addon) =>
-          addon.id === manifest.id ? { ...manifest, enabled: addon.enabled } : addon,
-        )
-      : [...state.addons, manifest],
+    addons,
+    featuredCatalog: publishedFeaturedCatalog(storedFeaturedCatalog, addons),
+    continueWatching: reconcileUnplayable(state.continueWatching, addons),
+    watchProgress: reconcileUnplayable(state.watchProgress, addons),
   });
 }
 
@@ -763,10 +791,14 @@ function removeAddon(
   if (!addons) {
     return refuse({ kind: "unknown_addon", id: action.id });
   }
+  if (storedFeaturedCatalog?.addon === action.id) {
+    storedFeaturedCatalog = null;
+  }
   return change((state) => ({
     addons,
-    featuredCatalog:
-      state.featuredCatalog?.addon === action.id ? null : state.featuredCatalog,
+    featuredCatalog: publishedFeaturedCatalog(storedFeaturedCatalog, addons),
+    continueWatching: reconcileUnplayable(state.continueWatching, addons),
+    watchProgress: reconcileUnplayable(state.watchProgress, addons),
   }));
 }
 
@@ -774,6 +806,9 @@ function setFeatured(
   action: Extract<Action, { type: "set_featured_catalog" }>,
 ): Response {
   const addon = current?.addons.find((held) => held.id === action.addon);
+  if (addon && !addon.enabled) {
+    return refuse({ kind: "addon_disabled", id: addon.id });
+  }
   const catalog = addon?.catalogs.find(
     (held) => held.type === action.catalog.type && held.id === action.catalog.id,
   );
@@ -784,8 +819,9 @@ function setFeatured(
       catalog: { ...action.catalog },
     });
   }
+  storedFeaturedCatalog = { addon: action.addon, catalog: { ...action.catalog } };
   return change(() => ({
-    featuredCatalog: { addon: action.addon, catalog: { ...action.catalog } },
+    featuredCatalog: storedFeaturedCatalog,
   }));
 }
 
@@ -807,11 +843,17 @@ async function dispatch(action: Action): Promise<Response> {
       if (!current?.addons.some((addon) => addon.id === action.addon)) {
         return refuse({ kind: "unknown_addon", id: action.addon });
       }
-      return change((state) => ({
-        addons: state.addons.map((addon) =>
+      return change((state) => {
+        const addons = state.addons.map((addon) =>
           addon.id === action.addon ? { ...addon, enabled: action.enabled } : addon,
-        ),
-      }));
+        );
+        return {
+          addons,
+          featuredCatalog: publishedFeaturedCatalog(storedFeaturedCatalog, addons),
+          continueWatching: reconcileUnplayable(state.continueWatching, addons),
+          watchProgress: reconcileUnplayable(state.watchProgress, addons),
+        };
+      });
     }
     case "set_tmdb_key": {
       if (!action.key.trim()) {
@@ -941,6 +983,7 @@ async function dispatch(action: Action): Promise<Response> {
     case "set_featured_catalog":
       return setFeatured(action);
     case "clear_featured_catalog":
+      storedFeaturedCatalog = null;
       return change(() => ({ featuredCatalog: null }));
     case "revoke_device": {
       if (!current?.devices.some((device) => device.id === action.id)) {

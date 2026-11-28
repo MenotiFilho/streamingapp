@@ -1,6 +1,8 @@
 import { destinationLabel } from "../../core/navigation";
 import type { Destination } from "../navigation";
+import { MarqueeAddons } from "./MarqueeAddons";
 import { MarqueeHome } from "./MarqueeHome";
+import { MarqueeSettings } from "./MarqueeSettings";
 
 function MarqueePlaceholder({ destination }: { destination: Exclude<Destination, "home"> }) {
   const title = destinationLabel(destination);
@@ -28,11 +30,13 @@ export function MarqueeDestinationScreen({ destination }: { destination: Destina
   switch (destination) {
     case "home":
       return <MarqueeHome />;
+    case "addons":
+      return <MarqueeAddons />;
+    case "settings":
+      return <MarqueeSettings />;
     case "discover":
     case "search":
     case "library":
-    case "addons":
-    case "settings":
       return <MarqueePlaceholder destination={destination} />;
   }
 }
