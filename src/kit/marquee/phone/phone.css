@@ -1,0 +1,1483 @@
+/*
+ * Marquee's phone kit (#369): sheet `C8 Remote (phone)` of
+ * `docs/design/marquee/scripts/build.js`, at its 390×844 hand scale, where one
+ * mockup unit is one CSS px (`docs/design-system.md` §11).
+ *
+ * A finger gets a pressed state and never focus: cards darken under it, controls
+ * and rows lighten. The keyboard keeps the window's focus rules from
+ * `base.css`; only their widths and shadows are restated here at hand scale.
+ *
+ * Specificity: `base.css` resets a button's font and colour at (0,1,1) and draws
+ * navigation focus at (0,3,0), so a button's own rest and pressed rules sit at
+ * (0,2,0) between the two.
+ */
+
+@import "../base.css";
+
+/* --------------------------------------------------------------------------
+ * Shared: the control reset, hand-scale focus and depth, art and plates
+ * -------------------------------------------------------------------------- */
+
+.mq-ph {
+  --mq-focus-outline-card: 4px;
+  --mq-focus-outline-row: 3px;
+  --mq-shadow-focus: 0 16px 35.2px rgb(0 0 0 / 0.45);
+  --mq-shadow-card: 0 24px 52.8px rgb(0 0 0 / 0.55);
+}
+
+:where(button.mq-ph) {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  user-select: none;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+:where(button.mq-ph:disabled) {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.mq-ph-cover {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.mq-ph-plate {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  padding: 8px;
+  color: var(--mq-text-muted);
+  font-size: var(--mq-remote-text-caption);
+  font-weight: var(--mq-weight-bold);
+  line-height: 18px;
+  text-align: center;
+}
+
+.mq-ph-progress {
+  position: absolute;
+  display: block;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.mq-ph-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--mq-accent);
+}
+
+/* --------------------------------------------------------------------------
+ * C1 controls at hand scale: icon button, button, badge, switch, ticks
+ * -------------------------------------------------------------------------- */
+
+.mq-ph.mq-ph-icon-button {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--mq-radius-full);
+  color: var(--mq-white);
+}
+
+.mq-ph-icon-button[data-size="l"] {
+  width: 56px;
+  height: 56px;
+}
+
+.mq-ph-icon-button[data-size="xl"] {
+  width: 80px;
+  height: 80px;
+}
+
+.mq-ph-icon-button[data-kind="primary"] {
+  background: var(--mq-accent);
+  color: var(--mq-ink);
+}
+
+.mq-ph-icon-button[data-kind="secondary"] {
+  background: var(--mq-glass);
+}
+
+.mq-ph.mq-ph-button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  height: 48px;
+  padding: 0 22px;
+  border-radius: 24px;
+  color: var(--mq-white);
+  font-size: var(--mq-remote-text-level);
+  font-weight: var(--mq-weight-bold);
+  line-height: 23px;
+  white-space: nowrap;
+}
+
+.mq-ph-button[data-kind="primary"] {
+  background: var(--mq-accent);
+  color: var(--mq-ink);
+}
+
+.mq-ph-button[data-kind="secondary"] {
+  background: var(--mq-glass);
+}
+
+.mq-ph-button[data-kind="danger"] {
+  background: var(--mq-danger);
+}
+
+/* Pressed: a light wash over glass and ghost, ink over a filled control. */
+.mq-ph-icon-button:where(:not(:disabled)):active,
+.mq-ph-button:where(:not(:disabled)):active {
+  box-shadow: inset 0 0 0 100px var(--mq-press-tab);
+}
+
+.mq-ph-icon-button:where([data-kind="primary"]:not(:disabled)):active,
+.mq-ph-button:where([data-kind="primary"]:not(:disabled), [data-kind="danger"]:not(:disabled)):active {
+  box-shadow: inset 0 0 0 100px var(--mq-press-card);
+}
+
+.mq-ph-badge {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--mq-remote-radius-6);
+  background: var(--mq-glass);
+  color: var(--mq-white);
+  font-size: 14px;
+  font-weight: var(--mq-weight-bold);
+  letter-spacing: 0.4px;
+  line-height: 19px;
+  white-space: nowrap;
+}
+
+.mq-ph-badge[data-tone="accent"] {
+  background: var(--mq-accent);
+  color: var(--mq-ink);
+}
+
+.mq-ph-switch {
+  position: relative;
+  display: block;
+  flex: none;
+  width: 60px;
+  height: 34px;
+  border-radius: 17px;
+  background: rgb(255 255 255 / 0.22);
+  transition: background-color var(--mq-motion-fade) var(--mq-ease);
+}
+
+.mq-ph-switch-knob {
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 26px;
+  height: 26px;
+  border-radius: 13px;
+  background: var(--mq-white);
+  transition:
+    transform var(--mq-motion-quick) var(--mq-ease),
+    background-color var(--mq-motion-fade) var(--mq-ease);
+}
+
+.mq-ph-switch[data-on="true"] {
+  background: var(--mq-accent);
+}
+
+.mq-ph-switch[data-on="true"] .mq-ph-switch-knob {
+  background: var(--mq-ink);
+  transform: translateX(26px);
+}
+
+.mq-ph-ticks {
+  display: flex;
+  gap: 8px;
+  height: 8px;
+}
+
+.mq-ph-tick {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  width: 8px;
+  height: 8px;
+  border-radius: 4px;
+  background: var(--mq-track-bg);
+  transition: width var(--mq-motion-panel) var(--mq-ease);
+}
+
+.mq-ph-tick[data-active="true"] {
+  width: 44px;
+}
+
+.mq-ph-tick-elapsed {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  border-radius: 4px;
+  background: var(--mq-white);
+}
+
+/* --------------------------------------------------------------------------
+ * Tab item and tab bar
+ * -------------------------------------------------------------------------- */
+
+.mq-ph.mq-ph-tab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 65px;
+  height: var(--mq-remote-tab-bar);
+  padding-top: 6px;
+  border-radius: var(--mq-remote-radius-12);
+  color: rgb(255 255 255 / 0.62);
+}
+
+.mq-ph-tab[data-active="true"] {
+  color: var(--mq-accent);
+}
+
+.mq-ph-tab-glyph {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 30px;
+  border-radius: 15px;
+  transition:
+    background-color var(--mq-motion-fade) var(--mq-ease),
+    box-shadow var(--mq-motion-fade) var(--mq-ease);
+}
+
+.mq-ph-tab[data-active="true"] .mq-ph-tab-glyph {
+  background: var(--mq-accent-tint);
+}
+
+.mq-ph-tab:active .mq-ph-tab-glyph,
+.mq-ph-tab[data-pressed="true"] .mq-ph-tab-glyph {
+  box-shadow: inset 0 0 0 52px var(--mq-press-tab);
+}
+
+.mq-ph-tab-label {
+  margin-top: 5px;
+  font-size: var(--mq-remote-text-tab);
+  font-weight: var(--mq-weight-semibold);
+  line-height: 15px;
+  white-space: nowrap;
+}
+
+.mq-ph-tab[data-active="true"] .mq-ph-tab-label {
+  font-weight: var(--mq-weight-extrabold);
+}
+
+.mq-ph-tab-bar {
+  position: relative;
+  display: flex;
+  width: 100%;
+  padding-top: 2px;
+  /* 98px at the reference frame: 2 + 64 + the home indicator's room. */
+  padding-bottom: var(--mq-ph-home-inset, max(32px, env(safe-area-inset-bottom, 0px)));
+  background: color-mix(in srgb, var(--mq-surface) 94%, transparent);
+  box-shadow: inset 0 1px 0 var(--mq-panel-border);
+  backdrop-filter: blur(var(--mq-blur-bar));
+  -webkit-backdrop-filter: blur(var(--mq-blur-bar));
+}
+
+.mq-ph-tab-bar .mq-ph-tab {
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
+}
+
+.mq-ph-home-indicator {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  width: 134px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--mq-white);
+  transform: translateX(-50%);
+}
+
+/* --------------------------------------------------------------------------
+ * Now playing strip
+ * -------------------------------------------------------------------------- */
+
+.mq-ph-strip {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: var(--mq-remote-strip);
+  border-radius: var(--mq-remote-radius-16);
+  background: color-mix(in srgb, var(--mq-surface-3) 94%, transparent);
+  box-shadow: 0 12px 26.4px rgb(0 0 0 / 0.4);
+  backdrop-filter: blur(var(--mq-blur-bar));
+  -webkit-backdrop-filter: blur(var(--mq-blur-bar));
+}
+
+.mq-ph.mq-ph-strip-open {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  border-radius: var(--mq-remote-radius-16);
+  color: var(--mq-white);
+}
+
+.mq-ph-strip-open:active {
+  background: var(--mq-press-tab);
+}
+
+.mq-ph-strip-poster {
+  position: absolute;
+  top: 5px;
+  left: 10px;
+  overflow: hidden;
+  width: 36px;
+  height: 54px;
+  border-radius: var(--mq-remote-radius-6);
+  background: var(--mq-surface-2);
+}
+
+.mq-ph-strip-title,
+.mq-ph-strip-note {
+  position: absolute;
+  right: 112px;
+  left: 60px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mq-ph-strip-title {
+  top: 12px;
+  font-size: var(--mq-remote-text-body);
+  font-weight: var(--mq-weight-bold);
+  line-height: var(--mq-remote-leading-body);
+}
+
+.mq-ph-strip-note {
+  top: 33px;
+  color: var(--mq-text-faint);
+  font-size: var(--mq-remote-text-caption);
+  line-height: 18px;
+}
+
+.mq-ph.mq-ph-strip-back,
+.mq-ph.mq-ph-strip-toggle {
+  position: absolute;
+  top: 8px;
+}
+
+.mq-ph.mq-ph-strip-back {
+  right: 64px;
+}
+
+.mq-ph.mq-ph-strip-toggle {
+  right: 12px;
+}
+
+.mq-ph-strip-progress {
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 2px;
+  background: rgb(255 255 255 / 0.16);
+}
+
+.mq-ph-strip-progress .mq-ph-progress-fill {
+  border-radius: 0;
+}
+
+/* --------------------------------------------------------------------------
+ * Hero
+ * -------------------------------------------------------------------------- */
+
+.mq-ph-hero {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: 520px;
+  background: var(--mq-canvas);
+  touch-action: pan-y;
+  user-select: none;
+}
+
+.mq-ph-hero-backdrop,
+.mq-ph-hero-copy {
+  position: absolute;
+  inset: 0;
+}
+
+.mq-ph-hero-copy {
+  pointer-events: none;
+}
+
+.mq-ph-hero-scrim-top,
+.mq-ph-hero-scrim-bottom {
+  position: absolute;
+  right: 0;
+  left: 0;
+  pointer-events: none;
+}
+
+.mq-ph-hero-scrim-top {
+  top: 0;
+  height: 150px;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--mq-canvas) 75%, transparent),
+    transparent
+  );
+}
+
+.mq-ph-hero-scrim-bottom {
+  top: 190px;
+  height: 332px;
+  background: linear-gradient(
+    to top,
+    var(--mq-canvas) 0%,
+    color-mix(in srgb, var(--mq-canvas) 86%, transparent) 40%,
+    transparent 100%
+  );
+}
+
+.mq-ph-hero-heading {
+  position: absolute;
+  top: 248px;
+  left: 50%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 250px;
+  height: 92px;
+  margin: 0;
+  transform: translateX(-50%);
+}
+
+.mq-ph-hero-logo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center bottom;
+}
+
+.mq-ph-hero-name {
+  font-size: var(--mq-remote-text-large);
+  font-weight: var(--mq-weight-extrabold);
+  line-height: 38px;
+  text-align: center;
+}
+
+.mq-ph-hero-facts {
+  position: absolute;
+  top: 354px;
+  right: var(--mq-remote-gutter);
+  left: var(--mq-remote-gutter);
+  overflow: hidden;
+  margin: 0;
+  color: var(--mq-text-muted);
+  font-size: 14px;
+  font-weight: var(--mq-weight-semibold);
+  line-height: 19px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+
+.mq-ph-hero-actions {
+  position: absolute;
+  top: 394px;
+  right: var(--mq-remote-gutter);
+  left: var(--mq-remote-gutter);
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  height: 48px;
+}
+
+.mq-ph-hero > .mq-ph-ticks {
+  position: absolute;
+  top: 466px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+/* --------------------------------------------------------------------------
+ * Poster and wide card, their caption and the row header
+ * -------------------------------------------------------------------------- */
+
+.mq-ph.mq-ph-poster,
+.mq-ph.mq-ph-wide {
+  display: block;
+  flex: none;
+}
+
+.mq-ph.mq-ph-poster {
+  width: 116px;
+  height: 174px;
+  border-radius: var(--mq-remote-radius-12);
+}
+
+.mq-ph.mq-ph-wide {
+  --mq-focus-scale: var(--mq-scale-wide);
+  width: 264px;
+  height: 149px;
+  border-radius: var(--mq-remote-radius-14);
+}
+
+.mq-ph-card-frame {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--mq-surface-2);
+  transition:
+    transform var(--mq-motion-quick) var(--mq-ease),
+    outline-color var(--mq-motion-fade) var(--mq-ease),
+    box-shadow var(--mq-motion-fade) var(--mq-ease);
+}
+
+.mq-ph-card-frame::after,
+.mq-ph-episode-still::after {
+  position: absolute;
+  inset: 0;
+  background: var(--mq-press-card);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--mq-motion-fade) var(--mq-ease);
+}
+
+.mq-ph-poster:active .mq-ph-card-frame::after,
+.mq-ph-poster[data-pressed="true"] .mq-ph-card-frame::after,
+.mq-ph-wide:active .mq-ph-card-frame::after,
+.mq-ph-wide[data-pressed="true"] .mq-ph-card-frame::after,
+.mq-ph-episode:active .mq-ph-episode-still::after {
+  opacity: 1;
+}
+
+.mq-ph-poster-progress {
+  right: 10px;
+  bottom: 7px;
+  left: 10px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--mq-seek-buffered);
+}
+
+.mq-ph-wide-scrim {
+  position: absolute;
+  top: 50px;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  background: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--mq-canvas) 95%, transparent),
+    transparent
+  );
+}
+
+.mq-ph-wide-logo {
+  position: absolute;
+  top: 84px;
+  left: 14px;
+  width: 120px;
+  height: 44px;
+  object-fit: contain;
+  object-position: left bottom;
+}
+
+.mq-ph-wide-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+}
+
+.mq-ph-wide-progress {
+  right: 14px;
+  bottom: 7px;
+  left: 14px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--mq-track-bg);
+}
+
+.mq-ph-caption {
+  width: 264px;
+  min-height: 42px;
+}
+
+.mq-ph-caption-title,
+.mq-ph-caption-note {
+  overflow: hidden;
+  margin: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mq-ph-caption-title {
+  font-size: var(--mq-remote-text-body);
+  font-weight: var(--mq-weight-bold);
+  line-height: var(--mq-remote-leading-body);
+}
+
+.mq-ph-caption-note {
+  margin-top: 2px;
+  color: var(--mq-text-faint);
+  font-size: var(--mq-remote-text-caption);
+  line-height: 18px;
+}
+
+.mq-ph-row-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 28px;
+}
+
+.mq-ph-row-title {
+  overflow: hidden;
+  margin: 0;
+  font-size: var(--mq-remote-text-row-head);
+  font-weight: var(--mq-weight-extrabold);
+  line-height: 27px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mq-ph-row-source {
+  flex: none;
+  color: var(--mq-text-faint);
+  font-size: var(--mq-remote-text-caption);
+  font-weight: var(--mq-weight-semibold);
+  line-height: 18px;
+}
+
+/* --------------------------------------------------------------------------
+ * Seek bar, transport, volume box, remote menus, switch row
+ * -------------------------------------------------------------------------- */
+
+.mq-ph-slider {
+  position: relative;
+  cursor: pointer;
+  border-radius: calc(var(--mq-remote-touch) / 2);
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mq-ph-slider[aria-disabled="true"] {
+  cursor: default;
+}
+
+:where(html[data-input="navigation"]) .mq-root .mq-ph-slider:focus {
+  outline: var(--mq-focus-outline-row) solid var(--mq-white);
+}
+
+.mq-ph-seek {
+  position: relative;
+  width: 100%;
+  height: 40px;
+}
+
+/* The 44px finger target around a 6px track that sits 6px down the bar. */
+.mq-ph-seek-hit {
+  position: absolute;
+  top: -13px;
+  right: 0;
+  left: 0;
+  height: var(--mq-remote-touch);
+}
+
+.mq-ph-seek-track,
+.mq-ph-volume-track {
+  position: absolute;
+  top: 19px;
+  right: 0;
+  left: 0;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--mq-seek-track);
+}
+
+.mq-ph-seek-buffered,
+.mq-ph-seek-played,
+.mq-ph-volume-level {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  border-radius: 3px;
+}
+
+.mq-ph-seek-buffered {
+  background: var(--mq-seek-buffered);
+}
+
+.mq-ph-seek-played {
+  left: 0;
+  background: var(--mq-accent);
+}
+
+.mq-ph-seek-playhead,
+.mq-ph-volume-knob {
+  position: absolute;
+  background: var(--mq-white);
+  transform: translateX(-50%);
+}
+
+.mq-ph-seek-playhead {
+  top: -5px;
+  width: 16px;
+  height: 16px;
+  border-radius: 8px;
+}
+
+.mq-ph-seek-elapsed,
+.mq-ph-seek-remaining {
+  position: absolute;
+  top: 22px;
+  color: var(--mq-text-muted);
+  font-size: var(--mq-remote-text-caption);
+  font-weight: var(--mq-weight-bold);
+  line-height: 18px;
+  pointer-events: none;
+}
+
+.mq-ph-seek-elapsed {
+  left: 0;
+}
+
+.mq-ph-seek-remaining {
+  right: 0;
+}
+
+.mq-ph-transport {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 80px;
+}
+
+.mq-ph-volume {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 56px;
+  padding-left: 4px;
+  border-radius: var(--mq-remote-radius-16);
+  background: rgb(255 255 255 / 0.06);
+}
+
+.mq-ph-volume-hit {
+  flex: 1;
+  min-width: 0;
+  height: var(--mq-remote-touch);
+  margin-left: 8px;
+}
+
+.mq-ph-volume-level {
+  left: 0;
+  background: var(--mq-white);
+}
+
+.mq-ph-volume-knob {
+  top: -6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 9px;
+}
+
+.mq-ph-volume-value {
+  flex: none;
+  width: 46px;
+  margin-left: 16px;
+  color: var(--mq-text-muted);
+  font-size: 16px;
+  font-weight: var(--mq-weight-bold);
+  line-height: 22px;
+}
+
+.mq-ph-menus {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  height: 76px;
+}
+
+.mq-ph.mq-ph-menu {
+  display: flex;
+  flex: 0 1 51px;
+  flex-direction: column;
+  align-items: center;
+  min-width: 0;
+  height: 76px;
+  color: var(--mq-white);
+}
+
+.mq-ph-menu-disc {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: var(--mq-remote-touch);
+  height: var(--mq-remote-touch);
+  border-radius: 22px;
+  background: var(--mq-glass);
+  transition:
+    background-color var(--mq-motion-fade) var(--mq-ease),
+    color var(--mq-motion-fade) var(--mq-ease),
+    box-shadow var(--mq-motion-fade) var(--mq-ease);
+}
+
+.mq-ph-menu-label {
+  margin-top: 10px;
+  color: var(--mq-text-muted);
+  font-size: 10.5px;
+  font-weight: var(--mq-weight-semibold);
+  line-height: 14px;
+  white-space: nowrap;
+}
+
+.mq-ph-menu:where(:not(:disabled)):active .mq-ph-menu-disc {
+  box-shadow: inset 0 0 0 var(--mq-remote-touch) var(--mq-press-tab);
+}
+
+:where(html[data-input="navigation"]) .mq-root .mq-ph-menu:focus {
+  outline: none;
+}
+
+:where(html[data-input="navigation"]) .mq-root .mq-ph-menu:focus .mq-ph-menu-disc {
+  background: var(--mq-white);
+  color: var(--mq-ink);
+  box-shadow: var(--mq-shadow-focus);
+}
+
+.mq-ph.mq-ph-switch-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  width: 100%;
+  height: 52px;
+  border-radius: var(--mq-remote-radius-14);
+  color: var(--mq-white);
+}
+
+.mq-ph-switch-row-label {
+  flex: 1;
+  overflow: hidden;
+  min-width: 0;
+  margin-top: 14px;
+  font-size: 16px;
+  font-weight: var(--mq-weight-semibold);
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mq-ph-switch-row > .mq-ph-switch {
+  margin-top: 9px;
+}
+
+/* --------------------------------------------------------------------------
+ * Bottom sheet and level header
+ * -------------------------------------------------------------------------- */
+
+.mq-ph-sheet-layer {
+  position: fixed;
+  z-index: 40;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+}
+
+.mq-ph-sheet-scrim {
+  position: absolute;
+  inset: 0;
+  background: var(--mq-scrim-dim);
+}
+
+.mq-ph-sheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  width: 100%;
+  /* The tallest sheet leaves 92px of the remote showing over it. */
+  max-height: calc(100% - 92px);
+  border-radius: var(--mq-remote-radius-28) var(--mq-remote-radius-28) 0 0;
+  background: var(--mq-panel-bg-dense);
+  box-shadow:
+    0 30px 66px rgb(0 0 0 / 0.55),
+    inset 0 0 0 1px var(--mq-panel-border);
+  backdrop-filter: blur(var(--mq-blur-menu));
+  -webkit-backdrop-filter: blur(var(--mq-blur-menu));
+}
+
+.mq-ph-sheet-head {
+  position: relative;
+  flex: none;
+  height: 86px;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.mq-ph-sheet-grabber {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  width: 40px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--mq-seek-buffered);
+  transform: translateX(-50%);
+}
+
+.mq-ph-sheet-title {
+  position: absolute;
+  top: 34px;
+  right: 76px;
+  left: var(--mq-remote-gutter);
+  overflow: hidden;
+  margin: 0;
+  font-size: var(--mq-remote-text-sheet);
+  font-weight: var(--mq-weight-extrabold);
+  line-height: 30px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mq-ph.mq-ph-sheet-close {
+  position: absolute;
+  top: 24px;
+  right: var(--mq-remote-gutter);
+}
+
+.mq-ph-sheet-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+  padding: 0 var(--mq-remote-gutter)
+    max(var(--mq-remote-gutter), env(safe-area-inset-bottom, 0px));
+  overscroll-behavior: contain;
+}
+
+.mq-ph-header {
+  --mq-ph-header-inset: var(--mq-ph-top-inset, max(48px, env(safe-area-inset-top, 0px)));
+  position: relative;
+  width: 100%;
+  height: calc(var(--mq-ph-header-inset) + 52px);
+  background: color-mix(in srgb, var(--mq-canvas) 92%, transparent);
+  box-shadow: inset 0 -1px 0 var(--mq-panel-border);
+  backdrop-filter: blur(var(--mq-blur-bar));
+  -webkit-backdrop-filter: blur(var(--mq-blur-bar));
+}
+
+.mq-ph.mq-ph-header-back {
+  position: absolute;
+  top: var(--mq-ph-header-inset);
+  left: 4px;
+}
+
+.mq-ph-header-title,
+.mq-ph-header-subtitle {
+  position: absolute;
+  right: 56px;
+  left: 56px;
+  overflow: hidden;
+  margin: 0;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mq-ph-header-title {
+  top: calc(var(--mq-ph-header-inset) + 4px);
+  font-size: var(--mq-remote-text-level);
+  font-weight: var(--mq-weight-extrabold);
+  line-height: 23px;
+}
+
+.mq-ph-header-subtitle {
+  top: calc(var(--mq-ph-header-inset) + 26px);
+  color: var(--mq-text-faint);
+  font-size: var(--mq-remote-text-caption-sm);
+  line-height: 16px;
+}
+
+/* --------------------------------------------------------------------------
+ * Stream row, Addon notice, episode row
+ * -------------------------------------------------------------------------- */
+
+.mq-ph.mq-ph-stream {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 112px;
+  border-radius: var(--mq-remote-radius-16);
+  background: var(--mq-row-rest);
+  color: var(--mq-white);
+}
+
+.mq-ph-stream[data-playing="true"] {
+  box-shadow: inset 0 0 0 2px var(--mq-accent);
+}
+
+.mq-ph-stream:where(:not(:disabled)):active,
+.mq-ph-list:where(:not(:disabled)):active,
+.mq-ph-switch-row:where(:not(:disabled)):active {
+  background: var(--mq-press-tab);
+}
+
+.mq-ph-stream-tier {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  border-radius: var(--mq-remote-radius-12);
+  background: var(--mq-surface-3);
+  font-size: 14px;
+  font-weight: var(--mq-weight-extrabold);
+  line-height: 19px;
+}
+
+.mq-ph-stream-tier[data-tier="4k"] {
+  background: var(--mq-accent);
+  color: var(--mq-ink);
+  font-size: 18px;
+  line-height: 24px;
+}
+
+.mq-ph-stream-name,
+.mq-ph-stream-details,
+.mq-ph-stream-marks {
+  position: absolute;
+  right: 12px;
+  left: 80px;
+  overflow: hidden;
+}
+
+.mq-ph-stream-name {
+  top: 12px;
+  display: -webkit-box;
+  max-height: 38px;
+  font-size: 14px;
+  font-weight: var(--mq-weight-bold);
+  line-height: 19px;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.mq-ph-stream-details {
+  top: 52px;
+  color: var(--mq-text-muted);
+  font-size: var(--mq-remote-text-caption-sm);
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mq-ph-stream-marks {
+  top: 76px;
+  display: flex;
+  gap: 6px;
+  height: 28px;
+}
+
+.mq-ph-notice {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 76px;
+  padding-right: 12px;
+  border-radius: var(--mq-remote-radius-16);
+  background: var(--mq-danger-tint);
+}
+
+.mq-ph-notice-icon {
+  margin-left: 14px;
+  color: var(--mq-danger);
+}
+
+.mq-ph-notice-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  margin-left: 12px;
+  padding: 16px 0 18px;
+}
+
+.mq-ph-notice-title {
+  font-size: var(--mq-remote-text-body);
+  font-weight: var(--mq-weight-bold);
+  line-height: var(--mq-remote-leading-body);
+}
+
+.mq-ph-notice-reason {
+  color: var(--mq-text-faint);
+  font-size: var(--mq-remote-text-caption);
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+.mq-ph.mq-ph-notice-retry {
+  margin-left: 8px;
+}
+
+.mq-ph.mq-ph-episode {
+  display: block;
+  width: 100%;
+  border-radius: var(--mq-remote-radius-10);
+  color: var(--mq-white);
+}
+
+.mq-ph-episode[data-described="true"] {
+  min-height: 122px;
+  padding-bottom: 4px;
+}
+
+.mq-ph-episode-head {
+  position: relative;
+  display: block;
+  height: 74px;
+}
+
+.mq-ph-episode-still {
+  position: absolute;
+  top: 0;
+  left: 0;
+  overflow: hidden;
+  width: 132px;
+  height: 74px;
+  border-radius: var(--mq-remote-radius-10);
+  background: var(--mq-surface-2);
+}
+
+.mq-ph-episode-progress {
+  right: 8px;
+  bottom: 7px;
+  left: 8px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--mq-seek-buffered);
+}
+
+.mq-ph-episode-number,
+.mq-ph-episode-title,
+.mq-ph-episode-date {
+  position: absolute;
+  right: 0;
+  left: 146px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mq-ph-episode-number {
+  top: 4px;
+  color: var(--mq-accent);
+  font-size: var(--mq-remote-text-caption-sm);
+  font-weight: var(--mq-weight-extrabold);
+  letter-spacing: 0.6px;
+  line-height: 16px;
+}
+
+.mq-ph-episode-title {
+  top: 22px;
+  font-size: var(--mq-remote-text-body);
+  font-weight: var(--mq-weight-bold);
+  line-height: var(--mq-remote-leading-body);
+}
+
+.mq-ph-episode-date {
+  top: 48px;
+  color: var(--mq-text-faint);
+  font-size: var(--mq-remote-text-caption-sm);
+  line-height: 16px;
+}
+
+.mq-ph-episode-description {
+  display: -webkit-box;
+  overflow: hidden;
+  margin-top: 8px;
+  color: var(--mq-text-muted);
+  font-size: var(--mq-remote-text-caption);
+  line-height: 18px;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+/* --------------------------------------------------------------------------
+ * List row, Addon row (and Edit mode), code input
+ * -------------------------------------------------------------------------- */
+
+.mq-ph.mq-ph-list {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 60px;
+  padding: 0 12px 0 14px;
+  border-radius: var(--mq-remote-radius-14);
+  background: var(--mq-row-rest);
+  color: var(--mq-white);
+}
+
+.mq-ph-list[data-kind="switch"] {
+  padding-right: 14px;
+}
+
+.mq-ph-list-icon {
+  color: rgb(255 255 255 / 0.8);
+}
+
+.mq-ph-list-label {
+  flex: 1 1 auto;
+  overflow: hidden;
+  min-width: 0;
+  margin: 0 12px;
+  font-size: 16px;
+  font-weight: var(--mq-weight-semibold);
+  line-height: 22px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mq-ph-list-trailing {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 150px;
+  height: 28px;
+}
+
+.mq-ph-list-value {
+  overflow: hidden;
+  min-width: 0;
+  color: var(--mq-text-muted);
+  font-size: 14px;
+  line-height: 19px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mq-ph-list-caret {
+  color: rgb(255 255 255 / 0.6);
+}
+
+.mq-ph-addon-slot {
+  position: relative;
+  width: 100%;
+}
+
+/* Motion's layout transform makes the slot a stacking context: lift the slot
+   of the moving row, not only the row, so a neighbour never covers it. */
+.mq-ph-addon-slot:has([data-moving="true"]) {
+  z-index: 2;
+}
+
+.mq-ph-addon {
+  position: relative;
+  width: 100%;
+  height: 76px;
+  border-radius: var(--mq-remote-radius-16);
+  background: var(--mq-row-rest);
+}
+
+/* The moving row is lavender and rides over its neighbours (§8, Addon row). */
+.mq-ph-addon[data-moving="true"] {
+  z-index: 2;
+  background: color-mix(in srgb, var(--mq-accent) 14%, var(--mq-surface));
+  box-shadow: 0 12px 26.4px rgb(0 0 0 / 0.4);
+}
+
+.mq-ph.mq-ph-addon-open {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border-radius: var(--mq-remote-radius-16);
+}
+
+.mq-ph-addon-open:where(:not(:disabled)):active {
+  background: var(--mq-press-tab);
+}
+
+.mq-ph-addon-logo,
+.mq-ph-addon-name,
+.mq-ph-addon-summary {
+  position: absolute;
+  pointer-events: none;
+}
+
+.mq-ph-addon-logo {
+  top: 14px;
+  left: 12px;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--mq-remote-radius-12);
+  background: var(--mq-surface-3);
+  color: rgb(255 255 255 / 0.8);
+}
+
+.mq-ph-addon-name,
+.mq-ph-addon-summary {
+  right: 80px;
+  left: 72px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mq-ph-addon-name {
+  top: 15px;
+  font-size: 16px;
+  font-weight: var(--mq-weight-bold);
+  line-height: 22px;
+}
+
+.mq-ph-addon-summary {
+  top: 39px;
+  color: var(--mq-text-muted);
+  font-size: var(--mq-remote-text-caption);
+  line-height: 18px;
+}
+
+.mq-ph-addon[data-editing="true"] .mq-ph-addon-logo {
+  left: 48px;
+}
+
+.mq-ph-addon[data-editing="true"] .mq-ph-addon-name,
+.mq-ph-addon[data-editing="true"] .mq-ph-addon-summary {
+  right: 60px;
+  left: 108px;
+}
+
+/* 44px tall around the 34px switch, which lands 21px down the row. */
+.mq-ph.mq-ph-addon-switch {
+  position: absolute;
+  top: 16px;
+  right: 12px;
+  display: grid;
+  place-items: center;
+  width: 60px;
+  height: var(--mq-remote-touch);
+  border-radius: 22px;
+}
+
+.mq-ph.mq-ph-addon-remove,
+.mq-ph.mq-ph-addon-handle {
+  position: absolute;
+  top: 16px;
+  display: grid;
+  place-items: center;
+  width: var(--mq-remote-touch);
+  height: var(--mq-remote-touch);
+  border-radius: 22px;
+}
+
+.mq-ph.mq-ph-addon-remove {
+  left: 3px;
+  color: var(--mq-danger);
+}
+
+.mq-ph.mq-ph-addon-handle {
+  right: 5px;
+  cursor: grab;
+  color: rgb(255 255 255 / 0.6);
+  touch-action: none;
+}
+
+.mq-ph-addon-remove:where(:not(:disabled)):active,
+.mq-ph-addon-handle:where(:not(:disabled)):active,
+.mq-ph-addon-switch:where(:not(:disabled)):active {
+  box-shadow: inset 0 0 0 var(--mq-remote-touch) var(--mq-press-tab);
+}
+
+.mq-ph-code {
+  position: relative;
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  height: 64px;
+  border-radius: var(--mq-remote-radius-12);
+}
+
+.mq-ph-code[data-disabled="true"] {
+  opacity: 0.4;
+}
+
+/* The real field lies over the cells; 16px keeps a phone from zooming into it. */
+.mq-ph.mq-ph-code-field {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  font-size: 16px;
+  opacity: 0;
+}
+
+.mq-ph-code-cell {
+  position: relative;
+  flex: 0 1 52px;
+  height: 64px;
+  padding-top: 14px;
+  border-radius: var(--mq-remote-radius-12);
+  background: rgb(255 255 255 / 0.08);
+  font-size: var(--mq-remote-text-large);
+  font-weight: var(--mq-weight-extrabold);
+  line-height: 38px;
+  text-align: center;
+}
+
+.mq-ph-code-cell[data-active="true"] {
+  background: var(--mq-white);
+}
+
+.mq-ph-code-caret {
+  position: absolute;
+  top: 18px;
+  left: calc(50% - 1px);
+  width: 2px;
+  height: 28px;
+  background: var(--mq-ink);
+}
+
+:where(html[data-input="navigation"]) .mq-root .mq-ph-code:focus-within {
+  outline: 3px solid var(--mq-white);
+  outline-offset: 4px;
+}
