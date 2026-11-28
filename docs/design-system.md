@@ -149,7 +149,31 @@ The window is drawn once, at 1920×1080, and scales through one unit:
 - The **Remote does not use the unit**: its hand scale (§11) is in CSS pixels.
 
 A decision that needs the unit as a number reads it from `marqueeUnitPx`
-(`src/window/marquee/frame.ts`), the same formula.
+(`src/core/marqueeLayout.ts`, re-exported by `src/window/marquee/frame.ts`), the same formula.
+
+### Window width
+
+`--mq-u` scales component sizes, type, radii, spacing and margins from the
+shorter side of the 16:9 frame; **horizontal container extents follow the window
+width instead**, never a fixed `1920u` or `1792u` reference frame:
+
+- **Full-bleed bands and scrims** (backdrops, player top bar, OSD and docked
+  transport bands, bottom scrims) stretch from edge to edge across the window.
+- **Seek bar and transport rows** span between the player margins
+  (`--mq-margin-player`), with the transport cluster centred in the full row
+  and volume / menus anchored to its two ends.
+- **Rows and poster grids** fill the width between `--mq-margin-rail` and
+  `--mq-margin-full`: horizontal rows reveal more cards as the window widens, and
+  poster grids add columns (`posterGridColumns` in `src/core/marqueeLayout.ts`)
+  while cards keep their `u` dimensions.
+- **Form and list containers** (Search bar, Library sign-in, Addons form and
+  list, Settings panes, Pairing card, device rows, account card, facts) keep a
+  readable measure (`880u` for single-column rows, forms and cards; `1060u` for
+  the Addons install form) while their C7 primitives fill `100%` of the owner,
+  so labels stay close to their switches and trailing controls on ultrawide
+  displays; **right-anchored panels** (Streams side panel, player floating
+  menus, Up next / Still watching) anchor to the trailing margin while keeping
+  their own component widths in `u`.
 
 **Depth** comes from three things, and only these: a **shadow** under what is
 focused or floating (offset y 12–30, blur 2.2× the offset, black at 40–55%), the

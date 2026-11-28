@@ -32,7 +32,7 @@ export type GridEndOptions = {
   /** How far past the viewport's bottom still counts as reached. */
   margin?: number;
   /** How many cards from the end a focused card counts as near. */
-  ahead?: number;
+  ahead?: number | (() => number);
 };
 
 /** A ref for the grid's root; every card carries `data-grid-card`. */
@@ -54,11 +54,13 @@ export function useGridEnd({
       reading: inFlight,
       onReach: reach,
       margin: gap,
-      ahead: focusAhead,
+      ahead: focusAheadOption,
     } = latest.current;
     if (!next) {
       return;
     }
+    const focusAhead =
+      typeof focusAheadOption === "function" ? focusAheadOption() : focusAheadOption;
     const node = root.current;
     // A level under the top one is painted but inert; its grid must not read
     // on while a person is reading the Title above it.

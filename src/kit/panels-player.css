@@ -219,7 +219,9 @@ button.mq-pp-iconbtn:disabled {
 
 .mq-pp-panel[data-placement="side"] {
   width: calc(var(--mq-u) * 936);
+  max-width: 100%;
   height: calc(var(--mq-u) * 1032);
+  max-height: 100%;
   border-radius: var(--mq-radius-28);
   backdrop-filter: blur(var(--mq-blur-side));
   -webkit-backdrop-filter: blur(var(--mq-blur-side));
@@ -228,7 +230,9 @@ button.mq-pp-iconbtn:disabled {
 
 .mq-pp-panel[data-placement="floating"] {
   width: calc(var(--mq-u) * 840);
+  max-width: 100%;
   height: calc(var(--mq-u) * 540);
+  max-height: 100%;
   border-radius: var(--mq-radius-24);
   backdrop-filter: blur(var(--mq-blur-panel));
   -webkit-backdrop-filter: blur(var(--mq-blur-panel));
@@ -755,14 +759,13 @@ button.mq-pp-track:disabled {
 }
 
 /* --------------------------------------------------------------------------
- * Seek bar 1792
+ * Seek bar (full width between player margins)
  * -------------------------------------------------------------------------- */
 
 .mq-pp-seek {
   display: flex;
   align-items: center;
-  width: calc(var(--mq-u) * 1792);
-  max-width: 100%;
+  width: 100%;
   height: calc(var(--mq-u) * 32);
   font-size: var(--mq-text-control);
   font-weight: var(--mq-weight-bold);
@@ -931,43 +934,38 @@ html[data-input="navigation"] .mq-pp-seek:focus .mq-pp-seek-playhead,
 }
 
 /* --------------------------------------------------------------------------
- * Controls 1792×80
+ * Controls (full width between player margins; transport centred)
  * -------------------------------------------------------------------------- */
 
 .mq-pp-controls {
-  position: relative;
-  width: calc(var(--mq-u) * 1792);
-  max-width: 100%;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: calc(var(--mq-u) * 16);
+  width: 100%;
   height: calc(var(--mq-u) * 80);
 }
 
 .mq-pp-controls-volume {
-  position: absolute;
-  top: calc(var(--mq-u) * 12);
-  left: 0;
   display: flex;
   align-items: center;
+  justify-self: start;
   gap: calc(var(--mq-u) * 16);
   height: calc(var(--mq-u) * 56);
 }
 
-/* The transport sits where the sheet puts it: 160u left of the row's middle. */
 .mq-pp-controls-transport {
-  position: absolute;
-  top: 0;
-  left: calc(50% - var(--mq-u) * 160);
   display: flex;
   align-items: center;
+  justify-self: center;
   gap: calc(var(--mq-u) * 28);
   height: calc(var(--mq-u) * 80);
 }
 
 .mq-pp-controls-end {
-  position: absolute;
-  top: 0;
-  right: 0;
   display: flex;
   align-items: center;
+  justify-self: end;
   gap: calc(var(--mq-u) * 10);
   height: calc(var(--mq-u) * 80);
 }

@@ -117,8 +117,7 @@ html[data-input="navigation"] .mq-c7-icon-btn:focus:not(:disabled),
   display: flex;
   align-items: center;
   gap: calc(var(--mq-u) * 16);
-  width: calc(var(--mq-u) * 880);
-  max-width: 100%;
+  width: 100%;
   height: calc(var(--mq-u) * 72);
   padding: 0 calc(var(--mq-u) * 26);
   border-radius: var(--mq-radius-full);
@@ -270,8 +269,7 @@ html[data-input="navigation"] .mq-c7-switch:focus:not(:disabled),
 .mq-c7-ranked {
   display: flex;
   align-items: center;
-  width: calc(var(--mq-u) * 880);
-  max-width: 100%;
+  width: 100%;
   border: 0;
   border-radius: var(--mq-radius-18);
   outline: none;
@@ -771,8 +769,7 @@ html[data-input="navigation"] .mq-c7-menu-option:focus .mq-c7-menu-check,
 .mq-c7-screen-title {
   display: flex;
   flex-direction: column;
-  width: calc(var(--mq-u) * 880);
-  max-width: 100%;
+  width: 100%;
   color: var(--mq-white);
   font-family: var(--mq-font);
 }
@@ -799,8 +796,7 @@ html[data-input="navigation"] .mq-c7-menu-option:focus .mq-c7-menu-check,
 .mq-c7-field {
   display: flex;
   flex-direction: column;
-  width: calc(var(--mq-u) * 880);
-  max-width: 100%;
+  width: 100%;
   min-height: calc(var(--mq-u) * 104);
   color: var(--mq-white);
   font-family: var(--mq-font);
@@ -911,8 +907,7 @@ html[data-input="navigation"] .mq-c7-category:focus,
 .mq-c7-device {
   display: flex;
   align-items: center;
-  width: calc(var(--mq-u) * 880);
-  max-width: 100%;
+  width: 100%;
   height: calc(var(--mq-u) * 88);
   padding: 0 calc(var(--mq-u) * 16);
   border-radius: var(--mq-radius-18);
@@ -967,8 +962,7 @@ html[data-input="navigation"] .mq-c7-category:focus,
 .mq-c7-pairing {
   display: flex;
   align-items: flex-start;
-  width: calc(var(--mq-u) * 880);
-  max-width: 100%;
+  width: 100%;
   height: calc(var(--mq-u) * 196);
   border-radius: var(--mq-radius-24);
   background: var(--mq-row-rest);
@@ -1016,6 +1010,7 @@ html[data-input="navigation"] .mq-c7-category:focus,
   flex-direction: column;
   min-width: 0;
   padding-top: calc(var(--mq-u) * 60);
+  padding-right: calc(var(--mq-u) * 32);
 }
 
 .mq-c7-pairing-hint {
@@ -1036,8 +1031,7 @@ html[data-input="navigation"] .mq-c7-category:focus,
 }
 
 .mq-c7-pairing-note {
-  width: calc(var(--mq-u) * 310);
-  max-width: 100%;
+  max-width: calc(var(--mq-u) * 480);
   margin-top: calc(var(--mq-u) * 6);
   color: var(--mq-text-faint);
   font-size: calc(var(--mq-u) * 15);

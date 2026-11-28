@@ -595,6 +595,7 @@ body,
 .mq-remote-root .mq-c7-pairing-where {
   width: 100%;
   padding-top: 0;
+  padding-right: 0;
   justify-items: start;
   text-align: left;
 }
@@ -607,6 +608,7 @@ body,
 
 .mq-remote-root .mq-c7-pairing-note {
   width: auto;
+  max-width: none;
   margin-top: 4px;
   font-size: 13px;
   line-height: 18px;

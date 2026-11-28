@@ -50,7 +50,6 @@
 .mq-poster-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, calc(var(--mq-u) * 208));
-  max-width: calc(var(--mq-u) * 1624);
   column-gap: var(--mq-row-gap);
   row-gap: calc(var(--mq-u) * 40);
   list-style: none;
@@ -80,8 +79,8 @@
 }
 
 .mq-browse-alert {
-  width: calc(var(--mq-u) * 880);
-  max-width: 100%;
+  width: 100%;
+  max-width: calc(var(--mq-u) * 880);
   margin: 0;
   padding: var(--mq-space-2) var(--mq-space-3);
   border-radius: var(--mq-radius-16);
@@ -122,7 +121,9 @@
 
 .mq-search-bar {
   flex: none;
-  padding: calc(var(--mq-u) * 56) var(--mq-margin-full) 0 var(--mq-margin-rail);
+  width: calc(100% - var(--mq-margin-rail) - var(--mq-margin-full));
+  max-width: calc(var(--mq-u) * 880);
+  margin: calc(var(--mq-u) * 56) var(--mq-margin-full) 0 var(--mq-margin-rail);
 }
 
 .mq-search-results-port {
@@ -223,8 +224,8 @@
 }
 
 .mq-library-gate-body {
-  width: calc(var(--mq-u) * 880);
-  max-width: 100%;
+  width: 100%;
+  max-width: calc(var(--mq-u) * 880);
   margin: 0;
   color: var(--mq-text-muted);
   font-size: calc(var(--mq-u) * 20);
@@ -237,6 +238,8 @@
   flex-direction: column;
   align-items: flex-start;
   gap: calc(var(--mq-u) * 12);
+  width: 100%;
+  max-width: calc(var(--mq-u) * 880);
   margin-top: calc(var(--mq-u) * 28);
 }
 
@@ -255,6 +258,8 @@
 }
 
 .mq-library-expired-note {
+  width: 100%;
+  max-width: calc(var(--mq-u) * 880);
   margin: 0;
   color: var(--mq-text-muted);
   font-size: var(--mq-text-body);

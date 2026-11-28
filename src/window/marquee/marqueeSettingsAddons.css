@@ -38,7 +38,14 @@
   display: flex;
   align-items: flex-start;
   gap: calc(var(--mq-u) * 20);
+  width: 100%;
+  max-width: calc(var(--mq-u) * 1060);
   margin-top: calc(var(--mq-u) * 32);
+}
+
+.mq-addons-form > .mq-c7-field {
+  flex: 1;
+  min-width: 0;
 }
 
 .mq-addons-install-btn {
@@ -49,8 +56,8 @@
   display: flex;
   flex-direction: column;
   gap: calc(var(--mq-u) * 20);
-  width: calc(var(--mq-u) * 880);
-  max-width: 100%;
+  width: 100%;
+  max-width: calc(var(--mq-u) * 880);
   margin: calc(var(--mq-u) * 36) 0 0;
   padding: 0;
   list-style: none;
@@ -63,6 +70,7 @@
 }
 
 .mq-addons-waiting {
+  max-width: calc(var(--mq-u) * 880);
   margin: calc(var(--mq-u) * 36) 0 0;
   color: var(--mq-text-faint);
   font-size: var(--mq-text-caption);
@@ -71,8 +79,8 @@
 .mq-addons-empty {
   display: flex;
   justify-content: center;
-  width: calc(var(--mq-u) * 880);
-  max-width: 100%;
+  width: 100%;
+  max-width: calc(var(--mq-u) * 880);
   margin-top: calc(var(--mq-u) * 64);
 }
 
@@ -83,8 +91,8 @@
 .mq-facts {
   display: flex;
   flex-direction: column;
-  width: calc(var(--mq-u) * 880);
-  max-width: 100%;
+  width: 100%;
+  max-width: calc(var(--mq-u) * 880);
   margin: 0;
   padding: calc(var(--mq-u) * 4) 0;
   border-radius: var(--mq-radius-18);
@@ -296,8 +304,8 @@
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  width: calc(var(--mq-u) * 880);
-  max-width: 100%;
+  width: 100%;
+  max-width: calc(var(--mq-u) * 880);
   height: calc(var(--mq-u) * 400);
   overflow: hidden;
   border-radius: var(--mq-radius-20);
@@ -391,6 +399,8 @@ html[data-input="navigation"] .mq-btn-danger-text:focus,
   align-items: center;
   justify-content: space-between;
   gap: calc(var(--mq-u) * 20);
+  width: 100%;
+  max-width: calc(var(--mq-u) * 880);
   min-height: calc(var(--mq-u) * 96);
   padding: calc(var(--mq-u) * 20) calc(var(--mq-u) * 24);
   border-radius: var(--mq-radius-18);
@@ -418,10 +428,17 @@ html[data-input="navigation"] .mq-btn-danger-text:focus,
   line-height: calc(var(--mq-u) * 20);
 }
 
+.mq-settings-pairing {
+  width: 100%;
+  max-width: calc(var(--mq-u) * 880);
+}
+
 .mq-settings-devices {
   display: flex;
   flex-direction: column;
   gap: calc(var(--mq-u) * 12);
+  width: 100%;
+  max-width: calc(var(--mq-u) * 880);
   margin: 0;
   padding: 0;
   list-style: none;
