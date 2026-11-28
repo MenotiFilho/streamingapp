@@ -1,6 +1,9 @@
 import { destinationLabel } from "../../core/navigation";
 import type { Destination } from "../navigation";
+import { MarqueeDiscover } from "./MarqueeDiscover";
 import { MarqueeHome } from "./MarqueeHome";
+import { MarqueeLibrary } from "./MarqueeLibrary";
+import { MarqueeSearch } from "./MarqueeSearch";
 
 function MarqueePlaceholder({ destination }: { destination: Exclude<Destination, "home"> }) {
   const title = destinationLabel(destination);
@@ -21,16 +24,19 @@ function MarqueePlaceholder({ destination }: { destination: Exclude<Destination,
 }
 
 /**
- * The base screen under the Marquee frame. Home is wired here (#358);
- * Discover, Search, Library, Addons and Settings arrive in Wave 2b (#359, #361).
+ * The base screen under the Marquee frame. Home (#358), Discover, Search and
+ * Library (#359) are wired here; Addons and Settings arrive in #361.
  */
 export function MarqueeDestinationScreen({ destination }: { destination: Destination }) {
   switch (destination) {
     case "home":
       return <MarqueeHome />;
     case "discover":
+      return <MarqueeDiscover />;
     case "search":
+      return <MarqueeSearch />;
     case "library":
+      return <MarqueeLibrary />;
     case "addons":
     case "settings":
       return <MarqueePlaceholder destination={destination} />;
