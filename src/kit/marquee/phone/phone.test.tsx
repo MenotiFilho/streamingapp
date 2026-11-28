@@ -458,7 +458,7 @@ describe("PhoneStreamRow, PhoneAddonNotice, PhoneEpisodeRow, PhoneListRow, and P
     );
     expect(row).toHaveAttribute("aria-current", "true");
     expect(screen.getByText("PLAYING")).toBeInTheDocument();
-    expect(screen.queryByText("ATMOS")).toBeNull();
+    expect(screen.getByText("ATMOS")).toBeInTheDocument();
     expect(screen.getByText("HEVC")).toBeInTheDocument();
 
     rerender(

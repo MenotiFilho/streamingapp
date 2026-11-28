@@ -1295,7 +1295,14 @@
 }
 
 .mq-ph-addon-slot {
+  position: relative;
   width: 100%;
+}
+
+/* Motion's layout transform makes the slot a stacking context: lift the slot
+   of the moving row, not only the row, so a neighbour never covers it. */
+.mq-ph-addon-slot:has([data-moving="true"]) {
+  z-index: 2;
 }
 
 .mq-ph-addon {
@@ -1412,7 +1419,8 @@
 }
 
 .mq-ph-addon-remove:where(:not(:disabled)):active,
-.mq-ph-addon-handle:where(:not(:disabled)):active {
+.mq-ph-addon-handle:where(:not(:disabled)):active,
+.mq-ph-addon-switch:where(:not(:disabled)):active {
   box-shadow: inset 0 0 0 var(--mq-remote-touch) var(--mq-press-tab);
 }
 

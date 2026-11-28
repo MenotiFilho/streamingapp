@@ -30,9 +30,9 @@ export function PhoneStreamRow({
   disabled = false,
   onPlay,
 }: PhoneStreamRowProps) {
-  // PLAYING takes the second mark's place, so the row keeps its one line.
-  const words = playing ? marks.filter((_, index) => index !== 1) : marks;
-  const badges = words.map((mark, index) => <PhoneBadge key={index}>{mark}</PhoneBadge>);
+  // Every Addon mark stays, verbatim (§9); PLAYING sits after the first one and
+  // the one-line row clips at its end if space runs out.
+  const badges = marks.map((mark, index) => <PhoneBadge key={index}>{mark}</PhoneBadge>);
 
   return (
     <button
