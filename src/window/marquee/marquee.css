@@ -1,0 +1,398 @@
+/*
+ * Marquee window shell & Home styles (#358).
+ *
+ * Uses `--mq-*` tokens and `src/kit/marquee/` primitives exclusively.
+ * Zero legacy tokens; lavender is never literalised outside `--mq-accent`.
+ */
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+.mq-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.mq-ui {
+  height: 100%;
+}
+
+/* When mpv paints the picture behind the webview, the frame turns transparent. */
+html.picture-behind,
+body.picture-behind {
+  overflow: hidden;
+}
+
+body.picture-behind .mq-frame,
+body.picture-behind .mq-base,
+body.picture-behind .mq-nav-slot {
+  background: transparent;
+}
+
+body.picture-behind .mq-nav-slot {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* --------------------------------------------------------------------------
+ * Frame & WindowChrome presentation lock (`docs/agents/testing.md`)
+ * -------------------------------------------------------------------------- */
+
+.mq-frame {
+  --window-chrome-height: 56px;
+  --window-chrome-clearance: 4rem;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: var(--mq-canvas);
+  color: var(--mq-text);
+  font-family: var(--mq-font);
+}
+
+.mq-frame .shell-window-chrome {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 45;
+  height: var(--window-chrome-height);
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  padding: 0.5rem var(--mq-margin-full);
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.mq-frame .shell-window-chrome-button {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--mq-panel-border);
+  border-radius: var(--mq-radius-full);
+  background: var(--mq-panel-bg);
+  color: var(--mq-white);
+  backdrop-filter: blur(var(--mq-blur-bar));
+  -webkit-backdrop-filter: blur(var(--mq-blur-bar));
+  cursor: pointer;
+  pointer-events: auto;
+  outline: none;
+  transition:
+    background-color var(--mq-motion-fade) var(--mq-ease),
+    color var(--mq-motion-fade) var(--mq-ease),
+    box-shadow var(--mq-motion-fade) var(--mq-ease);
+}
+
+.mq-frame .shell-window-chrome-button svg {
+  width: 20px;
+  height: 20px;
+}
+
+.mq-frame .shell-window-chrome-button:hover {
+  background: var(--mq-row-focus);
+}
+
+:where(html[data-input="navigation"]) .mq-frame .shell-window-chrome-button:focus,
+:where(html[data-input="navigation"]) .mq-frame .shell-window-chrome-button[data-focusable]:focus {
+  background: var(--mq-white);
+  color: var(--mq-ink);
+  box-shadow: var(--mq-shadow-focus);
+}
+
+/* --------------------------------------------------------------------------
+ * Nav rail slot & region
+ * -------------------------------------------------------------------------- */
+
+.mq-nav-slot {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.mq-nav-region {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--mq-rail-collapsed);
+  pointer-events: none;
+}
+
+/* Keep the expanded panel interactive so hover holds between items. */
+.mq-frame .mq-nav-rail[data-expanded="true"] .mq-nav-rail-panel {
+  pointer-events: auto;
+}
+
+/* --------------------------------------------------------------------------
+ * Base stage, screen cross-fade & pushed levels
+ * -------------------------------------------------------------------------- */
+
+.mq-base {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: var(--mq-canvas);
+  transition: opacity var(--mq-motion-fade) var(--mq-ease);
+}
+
+.mq-base[data-takeover="true"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.mq-stage,
+.mq-screen-stack {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.mq-screen-stack {
+  display: grid;
+}
+
+.mq-screen-layer {
+  grid-area: 1 / 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.mq-level-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  background: var(--mq-canvas);
+  overflow-y: auto;
+}
+
+.mq-level-shell[data-level-kind="player"] {
+  background: transparent;
+  overflow: hidden;
+}
+
+.mq-level-shell[data-under-player="true"] {
+  pointer-events: none;
+}
+
+/* --------------------------------------------------------------------------
+ * Home: hero stage & sliding rows (`01.jpg` – `03.jpg`)
+ * -------------------------------------------------------------------------- */
+
+.mq-home {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
+.mq-home-hero {
+  position: relative;
+  z-index: 0;
+}
+
+.mq-home-hero-placeholder {
+  width: 100%;
+  height: calc(var(--mq-u) * 880);
+  background: var(--mq-canvas);
+}
+
+.mq-home-rows {
+  position: relative;
+  z-index: 1;
+  height: 100%;
+  padding-top: var(--mq-space-8);
+  padding-bottom: var(--mq-space-8);
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-width: none;
+}
+
+.mq-home-rows::-webkit-scrollbar {
+  display: none;
+}
+
+/* With a Featured hero, rows start at y=636 in rotating mode and slide up
+   156px to y=480 in following mode (`docs/design-system.md` §8). */
+.mq-home[data-has-hero="true"] .mq-home-rows {
+  position: absolute;
+  top: calc(var(--mq-u) * (480 + 156 * var(--mq-rows-shift, 1)));
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: auto;
+  padding-top: 0;
+  padding-bottom: var(--mq-space-6);
+}
+
+.mq-home-row {
+  margin-bottom: calc(var(--mq-u) * 32);
+}
+
+.mq-home-row--continue {
+  margin-bottom: 0;
+}
+
+.mq-home-row-head {
+  padding-left: var(--mq-margin-rail);
+  padding-right: var(--mq-margin-full);
+}
+
+.mq-row-track {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  list-style: none;
+  margin: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  padding-left: var(--mq-margin-rail);
+  padding-right: var(--mq-margin-full);
+  scroll-padding-left: var(--mq-margin-rail);
+  scroll-padding-right: var(--mq-margin-full);
+}
+
+.mq-row-track::-webkit-scrollbar {
+  display: none;
+}
+
+/* Extra vertical padding preserves the resting 16u/20u gap under RowHeader
+   while leaving room for the 1.07x–1.08x focus scale, 4u white outline and shadow. */
+.mq-row-track--wide {
+  gap: calc(var(--mq-u) * 40);
+  margin-top: calc(var(--mq-u) * -8);
+  padding-top: calc(var(--mq-u) * 24);
+  padding-bottom: calc(var(--mq-u) * 16);
+}
+
+.mq-row-track--poster {
+  gap: var(--mq-row-gap);
+  margin-top: calc(var(--mq-u) * -4);
+  padding-top: calc(var(--mq-u) * 24);
+  padding-bottom: calc(var(--mq-u) * 36);
+}
+
+.mq-home-wide-item,
+.mq-home-poster-item {
+  flex: none;
+}
+
+/* --------------------------------------------------------------------------
+ * Empty state, row notices, placeholders & alerts
+ * -------------------------------------------------------------------------- */
+
+.mq-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--mq-space-2);
+  min-height: calc(var(--mq-u) * 520);
+  padding: var(--mq-space-6) var(--mq-margin-rail);
+  text-align: center;
+}
+
+.mq-empty-state-disc {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: calc(var(--mq-u) * 72);
+  height: calc(var(--mq-u) * 72);
+  border-radius: var(--mq-radius-full);
+  background: var(--mq-glass);
+  color: var(--mq-white);
+}
+
+.mq-empty-state-icon {
+  width: calc(var(--mq-u) * 32);
+  height: calc(var(--mq-u) * 32);
+}
+
+.mq-empty-state-title,
+.mq-empty-state-body {
+  margin: 0;
+  max-width: calc(var(--mq-u) * 620);
+}
+
+.mq-row-notice {
+  display: flex;
+  align-items: center;
+  gap: var(--mq-space-2);
+  max-width: calc(var(--mq-u) * 880);
+  margin: var(--mq-space-2) var(--mq-margin-full) 0 var(--mq-margin-rail);
+  padding: var(--mq-space-2) var(--mq-space-3);
+  border-radius: var(--mq-radius-16);
+}
+
+.mq-row-notice--danger {
+  background: var(--mq-danger-tint);
+}
+
+.mq-row-notice-icon {
+  width: calc(var(--mq-u) * 24);
+  height: calc(var(--mq-u) * 24);
+  color: var(--mq-danger);
+}
+
+.mq-row-notice-copy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mq-space-half);
+}
+
+.mq-row-status,
+.mq-home-waiting {
+  margin: var(--mq-space-2) var(--mq-margin-full) 0 var(--mq-margin-rail);
+}
+
+.mq-placeholder {
+  display: flex;
+  flex-direction: column;
+  gap: var(--mq-space-2);
+  padding: var(--mq-space-8) var(--mq-margin-full) var(--mq-space-8) var(--mq-margin-rail);
+}
+
+.mq-placeholder-title,
+.mq-placeholder-note {
+  margin: 0;
+}
+
+.mq-alert-stack {
+  position: fixed;
+  right: var(--mq-margin-full);
+  bottom: var(--mq-space-5);
+  z-index: 100;
+  display: grid;
+  gap: var(--mq-space-1);
+  max-width: calc(var(--mq-u) * 640);
+}
+
+.mq-alert {
+  margin: 0;
+  padding: var(--mq-space-2) var(--mq-space-3);
+  border-radius: var(--mq-radius-16);
+  background: var(--mq-panel-bg-dense);
+  border: 1px solid var(--mq-danger);
+  color: var(--mq-white);
+  font-size: var(--mq-text-caption);
+  backdrop-filter: blur(var(--mq-blur-menu));
+  -webkit-backdrop-filter: blur(var(--mq-blur-menu));
+  box-shadow: var(--mq-shadow-panel);
+}

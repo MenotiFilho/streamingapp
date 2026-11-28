@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 
 import { installInputModality } from "../core/inputModality";
 import { installPointerPress } from "../core/react/pointerPress";
+import { MarqueeEntry } from "./marquee/MarqueeEntry";
+import { MarqueeRehearsalEntry } from "./marquee/MarqueeRehearsalEntry";
 import { RehearsalEntry } from "./repertory/RehearsalEntry";
 import { RepertoryEntry } from "./repertory/RepertoryEntry";
 import { focusAndReveal } from "./reveal";
@@ -22,16 +24,33 @@ installPointerPress(document.documentElement, {
 });
 
 /**
- * The window is the ten-foot repertory shell (#87, #160).
+ * The window is the ten-foot shell (#87, #160).
  *
- * There is one client: `src/window/` takes Actions from the Host and renders the
- * Snapshots it is sent. `src/kit/tokens.css` is its only palette.
- * `VITE_UI=rehearsal` selects the browser rehearsal entry that answers from the
- * public Cinemeta addon when no Tauri Host is present; every other build renders
- * the production entry directly.
+ * Repertory remains the default until the Wave 4 cutover (#365).
+ * TEMPORARY coexistence switch (#358):
+ * - `VITE_UI=marquee` selects the Marquee shell over `TauriLink`.
+ * - `VITE_UI=marquee-rehearsal` (or `?ui=marquee-rehearsal`) selects Marquee
+ *   over `PreviewLink` for browser verification.
+ * - `VITE_UI=rehearsal` selects the Repertory rehearsal entry.
  */
-const rehearsal = import.meta.env.VITE_UI === "rehearsal";
+const envUi = import.meta.env.VITE_UI;
+const queryUi =
+  typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search).get("ui")
+    : null;
+const mode = envUi ?? queryUi;
 
-createRoot(root).render(
-  <StrictMode>{rehearsal ? <RehearsalEntry /> : <RepertoryEntry />}</StrictMode>,
-);
+function entryFor(selected: string | null | undefined) {
+  switch (selected) {
+    case "marquee":
+      return <MarqueeEntry />;
+    case "marquee-rehearsal":
+      return <MarqueeRehearsalEntry />;
+    case "rehearsal":
+      return <RehearsalEntry />;
+    default:
+      return <RepertoryEntry />;
+  }
+}
+
+createRoot(root).render(<StrictMode>{entryFor(mode)}</StrictMode>);

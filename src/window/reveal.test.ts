@@ -687,4 +687,80 @@ describe("the reveal after a focus attempt", () => {
 
     expect(document.documentElement.scrollTop).toBe(0);
   });
+
+  test("revealIn skips vertical scrolling on ports with vertical: false while keeping horizontal reveal", () => {
+    const rowScrolled: Array<{ left: number; top: number }> = [];
+    const rowsScrolled: Array<{ left: number; top: number }> = [];
+    const target: Rect = { x: 900, y: 500, w: 160, h: 240 };
+
+    revealIn(
+      { getBoundingClientRect: () => ({ ...target, left: target.x, top: target.y, right: target.x + target.w, bottom: target.y + target.h, width: target.w, height: target.h, toJSON: () => ({}) } as DOMRect) },
+      [
+        {
+          visible: () => viewport,
+          insetTop: 0,
+          moves: true,
+          horizontal: true,
+          vertical: false,
+          scrollBy: (left, top) => rowScrolled.push({ left, top }),
+        },
+        {
+          visible: () => viewport,
+          insetTop: 0,
+          moves: true,
+          horizontal: false,
+          vertical: false,
+          scrollBy: (left, top) => rowsScrolled.push({ left, top }),
+        },
+      ],
+      "center",
+      "y",
+    );
+
+    expect(rowScrolled).toEqual([{ left: 84, top: 0 }]);
+    expect(rowsScrolled).toEqual([]);
+  });
+
+  test("data-reveal-axis=\"x\" suppresses vertical scroll across ports without blocking horizontal reveal", () => {
+    markNavigation();
+    const frame = document.createElement("div");
+    frame.setAttribute("data-reveal", "center");
+
+    const home = document.createElement("section");
+    home.setAttribute("data-reveal-axis", "x");
+
+    const rows = document.createElement("div");
+    rows.style.overflowY = "auto";
+    rows.style.overflowX = "hidden";
+    rows.scrollTop = 0;
+    Object.defineProperty(rows, "clientWidth", { value: 1920, configurable: true });
+    Object.defineProperty(rows, "clientHeight", { value: 444, configurable: true });
+    rows.getBoundingClientRect = () =>
+      ({ left: 0, top: 636, right: 1920, bottom: 1080, width: 1920, height: 444, x: 0, y: 636, toJSON: () => ({}) } as DOMRect);
+
+    const track = document.createElement("ul");
+    track.style.overflowX = "auto";
+    track.style.overflowY = "hidden";
+    track.scrollLeft = 0;
+    Object.defineProperty(track, "clientWidth", { value: 1920, configurable: true });
+    Object.defineProperty(track, "clientHeight", { value: 300, configurable: true });
+    track.getBoundingClientRect = () =>
+      ({ left: 0, top: 1000, right: 1920, bottom: 1300, width: 1920, height: 300, x: 0, y: 1000, toJSON: () => ({}) } as DOMRect);
+
+    const card = document.createElement("button");
+    card.getBoundingClientRect = () =>
+      ({ left: 2000, top: 1060, right: 2208, bottom: 1372, width: 208, height: 312, x: 2000, y: 1060, toJSON: () => ({}) } as DOMRect);
+
+    track.append(card);
+    rows.append(track);
+    home.append(rows);
+    frame.append(home);
+    document.body.append(frame);
+
+    reveal(card, { axis: "y" });
+
+    expect(rows.scrollTop).toBe(0);
+    expect(document.documentElement.scrollTop).toBe(0);
+    expect(track.scrollLeft).toBe(312);
+  });
 });
