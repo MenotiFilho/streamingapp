@@ -207,6 +207,17 @@ describe("the feed store", () => {
     expect(host.calls, "a live feed that repeats itself is not asked forever").toHaveLength(2);
   });
 
+  test("a page the Host could read nothing from is followed by the next one", async () => {
+    const host = fakeAsk();
+    const store = new FeedStore(host.ask);
+    store.read("discover/movie", FIRST, nextDiscover);
+    await settle(gateAt(host, 0), discoverAnswer([discoverRow([], 20)]));
+
+    expect(store.feed("discover/movie").done).toBe(false);
+    store.more("discover/movie");
+    expect(host.calls.at(-1)).toEqual({ type: "discover", kind: "movie", page: 2 });
+  });
+
   test("an answer of the wrong shape is a failure the row shows, with the page to try again", async () => {
     const host = fakeAsk();
     const store = new FeedStore(host.ask);

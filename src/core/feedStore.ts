@@ -136,8 +136,9 @@ export class FeedStore extends SnapshotStore<FeedSnapshot> {
  *
  * A page that carries nothing new — every item a repeat — ends the row even
  * where the source counted items: a live feed that repeats itself must not be
- * asked forever. A failure is not the end: it keeps its cards and its way to
- * ask that page again (ADR-0020).
+ * asked forever. A page with nothing this Host could read repeats nothing, so
+ * the next one still follows it (`feedWith`). A failure is not the end: it
+ * keeps its cards and its way to ask that page again (ADR-0020).
  */
 function settled(row: FeedRow, action: Action, outcome: ActionOutcome): FeedRow {
   if (outcome.error) {
@@ -157,7 +158,7 @@ function settled(row: FeedRow, action: Action, outcome: ActionOutcome): FeedRow 
     offset: row.offset + (answer.failure ? 0 : answer.sent),
     done:
       next.done ||
-      (!answer.failure && answer.sent > 0 && next.items.length === row.items.length),
+      (!answer.failure && answer.metas.length > 0 && next.items.length === row.items.length),
   };
 }
 

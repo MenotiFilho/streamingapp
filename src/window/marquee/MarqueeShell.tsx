@@ -115,6 +115,11 @@ export function MarqueeShell({ client }: { client?: HostLink }) {
     if (top?.payload.onBack?.()) {
       return;
     }
+    // Back never reaches `onIntent`: with no Level open, the base screen is
+    // offered it first, so an open menu closes before the destination goes.
+    if (!top && baseIntent.current?.("back")) {
+      return;
+    }
     if (top?.kind === "player") {
       void takeWithStop({ type: "stop_playback" });
       return;
