@@ -4,6 +4,13 @@ import { MarqueeDiscover } from "./MarqueeDiscover";
 import { MarqueeHome } from "./MarqueeHome";
 import { MarqueeLibrary } from "./MarqueeLibrary";
 import { MarqueeSearch } from "./MarqueeSearch";
+export { MarqueeStreamsLoader, MarqueeStreamsScreen } from "./MarqueeStreams";
+export {
+  MarqueeTitleLoading,
+  MarqueeTitleScreen,
+  marqueeTitleLevelOf,
+  useMarqueeTitleOpener,
+} from "./MarqueeTitle";
 
 function MarqueePlaceholder({ destination }: { destination: Exclude<Destination, "home"> }) {
   const title = destinationLabel(destination);
